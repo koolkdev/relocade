@@ -31,6 +31,7 @@ pub(super) fn wasm_type(ty: Type) -> ValType {
 enum Walk {
     Value(usize),
     Finish(usize),
+    FinishLoad(usize),
     FinishZero(usize, Option<Type>),
 }
 
@@ -60,8 +61,12 @@ pub(super) fn encode(
     for operation in &body.operations {
         match *operation {
             Operation::Load(id) if scheduler.placement.captures[id] => {
-                // An overlapping write forces this read back to its authored
-                // position. Its fixed address has no expression dependencies.
+                // A captured read still evaluates its address first. Only its
+                // completed result is saved, without an intermediate local.tee.
+                let ValueKind::Load { location, .. } = body.values[id].kind else {
+                    unreachable!("a load operation names its value");
+                };
+                scheduler.value(location.base);
                 scheduler.load(id);
                 let slot = scheduler.placement.slots[id].expect("a captured read has storage");
                 scheduler.local(slot, LocalOp::Set);
@@ -69,7 +74,7 @@ pub(super) fn encode(
             }
             Operation::Load(_) => {}
             Operation::Store { location, value } => {
-                Instruction::I32Const(0).encode(&mut scheduler.bytes);
+                scheduler.value(location.base);
                 scheduler.value(value);
                 let argument = scheduler.memory_argument(location);
                 match location.bytes {
@@ -120,6 +125,11 @@ impl Scheduler<'_> {
                 Walk::Value(id) => place::representation(self.body, id),
                 Walk::Finish(id) => {
                     self.operation(id);
+                    self.completed(id);
+                    continue;
+                }
+                Walk::FinishLoad(id) => {
+                    self.load(id);
                     self.completed(id);
                     continue;
                 }
@@ -180,9 +190,9 @@ impl Scheduler<'_> {
                     pending.push(Walk::FinishZero(id, extension));
                     pending.push(Walk::Value(input));
                 }
-                ValueKind::Load { .. } => {
-                    self.load(id);
-                    self.completed(id);
+                ValueKind::Load { location, .. } => {
+                    pending.push(Walk::FinishLoad(id));
+                    pending.push(Walk::Value(location.base));
                 }
             }
         }
@@ -274,7 +284,6 @@ impl Scheduler<'_> {
             unreachable!("load evaluation names a load value")
         };
         let argument = self.memory_argument(location);
-        Instruction::I32Const(0).encode(&mut self.bytes);
         match location.bytes {
             1 => Instruction::I32Load8U(argument),
             2 => Instruction::I32Load16U(argument),

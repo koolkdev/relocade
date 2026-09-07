@@ -40,7 +40,8 @@ fn demand(body: &Body, demands: &mut [Option<Demand>], value: usize, site: usize
 pub(super) fn plan(body: &Body) -> Placement {
     let mut demands = vec![None; body.values.len()];
     for (site, operation) in body.operations.iter().enumerate() {
-        if let Operation::Store { value, .. } = *operation {
+        if let Operation::Store { location, value } = *operation {
+            demand(body, &mut demands, location.base, site);
             demand(body, &mut demands, value, site);
         }
     }
@@ -68,8 +69,12 @@ pub(super) fn plan(body: &Body) -> Placement {
                     .iter()
                     .any(|operation| {
                         matches!(operation, Operation::Store { location: other, .. }
-                        if location.overlaps(*other))
+                        if location.may_overlap(*other, body))
                     });
+                // Evaluate the address where this read will run. Its own loads
+                // may then need capture to preserve an earlier pointer value.
+                let anchor = if captures[id] { site } else { use_.first };
+                demand(body, &mut demands, location.base, anchor);
             }
             ValueKind::Constant(_) | ValueKind::Parameter(_) => {}
         }

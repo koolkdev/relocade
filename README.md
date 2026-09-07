@@ -56,6 +56,13 @@ Stores keep their authored order, used loads preserve their value across writes,
 and unused loads are omitted. Distinct memory declarations require distinct
 backing memories.
 
+For computed addresses, use `body.load_at::<I8>(memory, &address, offset)` and
+`body.store_at(memory, &address, offset, &value)`, where `address` is a `Val<I32>`.
+The unsigned address plus the constant displacement does not wrap. To wrap an
+address calculation at 32 bits, build it explicitly with `address.add(amount)`.
+Reads preserve their snapshots even when their addresses depend on other reads;
+unused reads and their unused address computations are omitted.
+
 Run the Rust checks with:
 
 ```sh
