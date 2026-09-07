@@ -88,7 +88,7 @@ fn repeated_parameters_and_constants_stay_inline() {
         let actual = shape(&[ty, ty], |body| {
             let first = body.parameter::<T>(0).unwrap();
             let second = body.parameter::<T>(1).unwrap();
-            let one = body.constant::<T>(1);
+            let one = body.value::<T>(1).unwrap();
             let a = first.add(&one);
             let b = second.add(&one);
             a.add(&b).add(&first)
@@ -112,7 +112,7 @@ fn repeated_parameters_and_constants_stay_inline() {
 fn constant_sums_emit_no_add_instructions() {
     fn check<T: IntType>() {
         let ty = T::TYPE;
-        let actual = shape(&[], |body| body.constant::<T>(17).add(25));
+        let actual = shape(&[], |body| body.value::<T>(17).unwrap().add(25));
         assert_eq!(actual, CodeShape::default(), "{ty:?}");
     }
     check::<I1>();

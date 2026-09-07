@@ -21,6 +21,7 @@
 
 mod arena;
 mod call;
+mod control;
 mod emit;
 mod integer;
 mod locals;
@@ -34,11 +35,12 @@ use std::fmt;
 
 use arena::ExpressionArena;
 pub use call::FunctionImport;
+use control::{Destination, Region, Site};
 use integer::{BinaryOp, CompareOp, ShiftOp};
 use memory::Location;
 pub use memory::{Mem, MemoryImport, MemoryInt};
 pub use types::{AtLeast, IntType, Type, I1, I16, I32, I64, I8};
-pub use value::{Argument, IntLiteral, IntoOp, Unsigned, Val};
+pub use value::{Argument, IntoOp, Unsigned, Val};
 
 /// A function's parameter types and single return type.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -64,6 +66,8 @@ pub enum BuildError {
     UnknownParameter,
     ForeignBody,
     BodyClosed,
+    OutOfScope,
+    IncompleteBranch,
     TypeMismatch { expected: Type, actual: Type },
     DuplicateExport,
 }
@@ -86,6 +90,8 @@ impl fmt::Display for BuildError {
             Self::MissingBody => formatter.write_str("function has no finished body"),
             Self::UnknownParameter => formatter.write_str("unknown function parameter"),
             Self::ForeignBody => formatter.write_str("value belongs to another body"),
+            Self::OutOfScope => formatter.write_str("value depends on a read outside this branch"),
+            Self::IncompleteBranch => formatter.write_str("branch termination did not complete"),
             Self::BodyClosed => formatter.write_str("function body is no longer open"),
             Self::TypeMismatch { expected, actual } => {
                 write!(formatter, "expected {expected:?}, received {actual:?}")
@@ -117,8 +123,7 @@ enum FunctionKind {
 
 struct Body {
     values: Vec<Value>,
-    operations: Vec<Operation>,
-    terminal: Terminal,
+    region: Region,
 }
 
 enum Terminal {
@@ -135,10 +140,10 @@ impl Terminal {
     }
 }
 
-#[derive(Clone, Copy)]
 enum Operation {
     Load(usize),
     Store { location: Location, value: usize },
+    If { condition: usize, branch: Region },
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -157,12 +162,14 @@ enum ValueKind {
     ZeroTest { input: usize, nonzero: bool },
     Convert(usize),
     Normalize(usize),
-    Load { location: Location, site: usize },
+    Load { location: Location, site: Site },
 }
 
-/// Builds one function body. Returning a value or making a tail call completes it.
+/// Builds a function body or a conditional branch. A return or tail call consumes
+/// the active builder; completing the outer builder saves the function body.
 ///
-/// Dropping this builder without completing it leaves the function undefined.
+/// Dropping the outer builder without completing it leaves the function undefined.
+/// Dropping a child normally completes a branch that falls through.
 /// A builder cannot be used after its program is consumed:
 /// ```compile_fail
 /// use wasm86_compiler::{Program, Signature, Type, I32};
@@ -170,14 +177,16 @@ enum ValueKind {
 /// let function = program.declare(Signature { parameters: vec![], result: Type::I32 });
 /// let body = program.define(function).unwrap();
 /// let module = program.compile();
-/// let result = body.constant::<I32>(0);
-/// body.return_(&result).unwrap();
+/// body.return_(0).unwrap();
 /// ```
 pub struct FunctionBuilder<'p> {
     program: &'p mut Program,
     function: Func,
     arena: ExpressionArena,
-    operations: Vec<Operation>,
+    region: Region,
+    destination: Destination<'p>,
+    // A consuming terminal disables implicit fallthrough before validation can fail.
+    fallthrough: bool,
 }
 
 impl Program {
@@ -211,7 +220,9 @@ impl Program {
             program: self,
             function,
             arena: ExpressionArena::new(),
-            operations: Vec::new(),
+            region: Region::new(0),
+            destination: Destination::Function,
+            fallthrough: false,
         })
     }
 
@@ -267,42 +278,76 @@ impl FunctionBuilder<'_> {
         Ok(Val::new(self.arena.clone(), Ok(value)))
     }
 
-    /// Creates an integer constant in this body.
-    pub fn constant<T: IntType>(&self, value: impl IntLiteral<T>) -> Val<T> {
-        Val::constant(&self.arena, value)
+    /// Obtains a typed value to retain or use in an expression. Existing values
+    /// must belong to this body and be visible in the active branch; they keep
+    /// their original expression and sharing. Literals follow [`Argument`]'s rules.
+    /// Stores, conditions and returns also accept literals directly.
+    ///
+    /// ```compile_fail
+    /// use wasm86_compiler::{FunctionBuilder, I32};
+    /// fn retain_wide_literal(body: &FunctionBuilder<'_>) {
+    ///     let value = body.value::<I32>(1_u64);
+    /// }
+    /// ```
+    pub fn value<T: IntType>(&self, operand: impl IntoOp<T>) -> Result<Val<T>, BuildError> {
+        let value = self.operand(operand)?;
+        Ok(Val::new(self.arena.clone(), Ok(value)))
     }
 
-    /// Ends the generated function with this return value and saves its body,
-    /// consuming the builder.
-    /// On error, the unfinished body is discarded and the function remains undefined.
-    pub fn return_<T: IntType>(self, result: &Val<T>) -> Result<(), BuildError> {
-        let result = result.admit(&self.arena)?;
-        let expected = self.signature().result;
-        if T::TYPE != expected {
-            return Err(BuildError::TypeMismatch {
-                expected,
-                actual: T::TYPE,
-            });
-        }
+    /// Returns this value from the generated function, consuming the active builder.
+    /// A literal uses the signature's result type; a typed value must match it.
+    /// In a branch, only that branch is completed. Completing the outer builder
+    /// saves the function body; an error there leaves the function undefined.
+    pub fn return_(mut self, result: impl Into<Argument>) -> Result<(), BuildError> {
+        self.fallthrough = false;
+        let result = self.argument(result, self.signature().result)?;
         let result = self.arena.normalize(result)?;
         self.complete(Terminal::Return(result))
     }
 
+    fn operand<T: IntType>(&self, value: impl IntoOp<T>) -> Result<usize, BuildError> {
+        self.argument(value, T::TYPE)
+    }
+
+    fn argument(&self, value: impl Into<Argument>, expected: Type) -> Result<usize, BuildError> {
+        let value = value.into().admit(&self.arena, expected)?;
+        self.arena.require_visible(value, self.region.id)?;
+        Ok(value)
+    }
+
+    fn site(&self) -> Site {
+        Site {
+            region: self.region.id,
+            index: self.region.operations.len(),
+        }
+    }
+
     fn complete(mut self, terminal: Terminal) -> Result<(), BuildError> {
-        let values = self.arena.take().ok_or(BuildError::BodyClosed)?;
-        self.program.functions[self.function.0].kind = FunctionKind::Defined(Some(Body {
-            values,
-            operations: std::mem::take(&mut self.operations),
-            terminal,
-        }));
+        self.fallthrough = false;
+        self.region.terminal = Some(terminal);
+        let region = std::mem::replace(&mut self.region, Region::new(0));
+        match &mut self.destination {
+            Destination::Function => {
+                let values = self.arena.take().ok_or(BuildError::BodyClosed)?;
+                self.program.functions[self.function.0].kind =
+                    FunctionKind::Defined(Some(Body { values, region }));
+            }
+            Destination::Branch(destination) => **destination = Some(region),
+        }
         Ok(())
     }
 }
 
 impl Drop for FunctionBuilder<'_> {
     fn drop(&mut self) {
-        // Completing successfully has already transferred the values. Every other exit
-        // discards them and prevents retained handles from building more expressions.
-        self.arena.take();
+        match &mut self.destination {
+            Destination::Function => {
+                self.arena.take();
+            }
+            Destination::Branch(destination) if self.fallthrough => {
+                **destination = Some(std::mem::replace(&mut self.region, Region::new(0)));
+            }
+            Destination::Branch(_) => {}
+        }
     }
 }

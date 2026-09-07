@@ -27,20 +27,22 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
     }
     let mut used_memories = vec![false; program.memories.len()];
     for (_, body) in &defined {
-        if let Terminal::TailCall { target, .. } = body.terminal {
-            used_functions[target.0] = true;
-        }
-        // Imports follow authored operations, including unused loads. Looking at
-        // emitted instructions instead would change the module's binding contract.
-        for operation in &body.operations {
-            let location = match *operation {
-                Operation::Store { location, .. } => location,
-                Operation::Load(value) => match body.values[value].kind {
-                    ValueKind::Load { location, .. } => location,
-                    _ => unreachable!("a load operation names its load value"),
-                },
-            };
-            used_memories[location.memory.0] = true;
+        for region in body.region.walk() {
+            if let Some(Terminal::TailCall { target, .. }) = &region.terminal {
+                used_functions[target.0] = true;
+            }
+            // Imports follow authored operations, including unused loads.
+            for operation in &region.operations {
+                let location = match operation {
+                    Operation::If { .. } => continue,
+                    Operation::Store { location, .. } => *location,
+                    Operation::Load(value) => match body.values[*value].kind {
+                        ValueKind::Load { location, .. } => location,
+                        _ => unreachable!("a load operation names its load value"),
+                    },
+                };
+                used_memories[location.memory.0] = true;
+            }
         }
     }
     let imported: Vec<_> = program

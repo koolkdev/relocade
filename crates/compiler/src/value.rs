@@ -11,7 +11,8 @@ use crate::{
 /// Operations build expressions immediately. Cloning a value shares the body's
 /// storage; it does not clone the expression or its operands. A construction error
 /// is reported when the resulting value is stored, returned or passed to a call.
-/// Completing or dropping the body prevents its values from building more expressions.
+/// Completing or dropping the outer function builder closes expression construction.
+/// Values depending on a child read can only be consumed in that child or its descendants.
 #[derive(Clone)]
 pub struct Val<T: IntType> {
     arena: ExpressionArena,
@@ -19,13 +20,24 @@ pub struct Val<T: IntType> {
     ty: PhantomData<T>,
 }
 
-/// A call argument retaining its logical type and function-body ownership.
-/// Create one with [`Val::argument`] to pass differently typed values together.
+/// An integer value or literal supplied where a function signature determines its type.
+/// Values keep their logical type and body; literals use the expected type.
+/// Signed i32 literals sign-extend to I64; u32 literals zero-extend. Both reduce
+/// to the low bits for narrower types. A u64 literal requires I64, and bool requires I1.
 #[derive(Clone)]
-pub struct Argument {
-    arena: ExpressionArena,
-    expression: Result<usize, BuildError>,
-    ty: Type,
+pub struct Argument(Operand);
+
+#[derive(Clone)]
+enum Operand {
+    Value {
+        arena: ExpressionArena,
+        expression: Result<usize, BuildError>,
+        ty: Type,
+    },
+    Signed(i32),
+    Unsigned(u32),
+    Wide(u64),
+    Bit(bool),
 }
 
 impl Argument {
@@ -34,14 +46,80 @@ impl Argument {
         arena: &ExpressionArena,
         expected: Type,
     ) -> Result<usize, BuildError> {
-        let value = admit(&self.arena, arena, &self.expression)?;
-        if self.ty != expected {
-            return Err(BuildError::TypeMismatch {
-                expected,
-                actual: self.ty,
-            });
-        }
-        Ok(value)
+        let bits = match &self.0 {
+            Operand::Value {
+                arena: owner,
+                expression,
+                ty,
+            } => {
+                let value = admit(owner, arena, expression)?;
+                if *ty != expected {
+                    return Err(BuildError::TypeMismatch {
+                        expected,
+                        actual: *ty,
+                    });
+                }
+                return Ok(value);
+            }
+            Operand::Signed(value) => *value as i64 as u64,
+            Operand::Unsigned(value) => u64::from(*value),
+            Operand::Wide(value) if expected == Type::I64 => *value,
+            Operand::Bit(value) if expected == Type::I1 => u64::from(*value),
+            Operand::Wide(_) => {
+                return Err(BuildError::TypeMismatch {
+                    expected,
+                    actual: Type::I64,
+                })
+            }
+            Operand::Bit(_) => {
+                return Err(BuildError::TypeMismatch {
+                    expected,
+                    actual: Type::I1,
+                })
+            }
+        };
+        arena.constant(expected, bits)
+    }
+}
+
+impl<T: IntType> From<&Val<T>> for Argument {
+    fn from(value: &Val<T>) -> Self {
+        Self(Operand::Value {
+            arena: value.arena.clone(),
+            expression: value.expression.clone(),
+            ty: T::TYPE,
+        })
+    }
+}
+
+impl<T: IntType> From<Val<T>> for Argument {
+    fn from(value: Val<T>) -> Self {
+        Self(Operand::Value {
+            arena: value.arena,
+            expression: value.expression,
+            ty: T::TYPE,
+        })
+    }
+}
+
+impl From<i32> for Argument {
+    fn from(value: i32) -> Self {
+        Self(Operand::Signed(value))
+    }
+}
+impl From<u32> for Argument {
+    fn from(value: u32) -> Self {
+        Self(Operand::Unsigned(value))
+    }
+}
+impl From<u64> for Argument {
+    fn from(value: u64) -> Self {
+        Self(Operand::Wide(value))
+    }
+}
+impl From<bool> for Argument {
+    fn from(value: bool) -> Self {
+        Self(Operand::Bit(value))
     }
 }
 
@@ -66,27 +144,13 @@ impl<T: IntType> Val<T> {
         }
     }
 
-    pub(super) fn constant(arena: &ExpressionArena, value: impl IntLiteral<T>) -> Self {
-        let bits = value.bits();
-        Self::new(arena.clone(), arena.constant(T::TYPE, bits))
-    }
-
     pub(super) fn admit(&self, arena: &ExpressionArena) -> Result<usize, BuildError> {
         admit(&self.arena, arena, &self.expression)
     }
 
     /// Passes this value in a call argument list while retaining its logical type and body.
     pub fn argument(&self) -> Argument {
-        Argument {
-            arena: self.arena.clone(),
-            expression: self.expression.clone(),
-            ty: T::TYPE,
-        }
-    }
-
-    /// Creates an independent constant in this value's body, with the requested type.
-    pub fn c<To: IntType>(&self, value: impl IntLiteral<To>) -> Val<To> {
-        Val::constant(&self.arena, value)
+        self.into()
     }
 
     /// Adds an integer value or literal of the same type, wrapping on overflow.
@@ -159,10 +223,9 @@ impl<T: IntType> Val<T> {
     }
 
     fn operands(&self, other: impl IntoOp<T>) -> Result<(usize, usize), BuildError> {
-        // Literal conversion may construct expressions. Finish it before borrowing
-        // storage, and check both operands before a fold can discard either.
-        let other = other.into_op(self);
-        Ok((self.admit(&self.arena)?, other.admit(&self.arena)?))
+        // Check both operands before a fold can discard either.
+        let other = other.into();
+        Ok((self.admit(&self.arena)?, other.admit(&self.arena, T::TYPE)?))
     }
 
     fn binary(&self, operator: BinaryOp, other: impl IntoOp<T>) -> Self {
@@ -228,80 +291,16 @@ impl<T: IntType> Unsigned<'_, T> {
     }
 }
 
-/// An integer literal accepted for a particular integer type.
-///
-/// `i32` and `u32` are reduced to the destination's low bits. For [`I64`],
-/// `i32` is sign-extended and `u32` is zero-extended. A `u64` literal is accepted
-/// only for [`I64`], and `bool` only for [`I1`].
-/// ```compile_fail
-/// use wasm86_compiler::{FunctionBuilder, I32};
-/// fn constant(body: &FunctionBuilder<'_>) {
-///     let value = body.constant::<I32>(1_u64);
-/// }
-/// ```
-pub trait IntLiteral<T: IntType>: Copy {
-    fn bits(self) -> u64;
-}
+/// A typed integer value or an integer literal accepted for that type.
+/// Literal operands are constructed in the body consuming the operand.
+pub trait IntoOp<T: IntType>: Into<Argument> {}
 
-impl<T: IntType> IntLiteral<T> for i32 {
-    fn bits(self) -> u64 {
-        self as i64 as u64
-    }
-}
-
-impl<T: IntType> IntLiteral<T> for u32 {
-    fn bits(self) -> u64 {
-        u64::from(self)
-    }
-}
-
-impl IntLiteral<I64> for u64 {
-    fn bits(self) -> u64 {
-        self
-    }
-}
-
-impl IntLiteral<I1> for bool {
-    fn bits(self) -> u64 {
-        u64::from(self)
-    }
-}
-
-/// A value of the receiver's integer type, or an accepted integer literal.
-pub trait IntoOp<T: IntType> {
-    /// Converts a literal in the receiver's body; values keep their own body.
-    fn into_op(self, receiver: &Val<T>) -> Val<T>;
-}
-
-impl<T: IntType> IntoOp<T> for &Val<T> {
-    fn into_op(self, _receiver: &Val<T>) -> Val<T> {
-        self.clone()
-    }
-}
-
-impl<T: IntType> IntoOp<T> for i32 {
-    fn into_op(self, receiver: &Val<T>) -> Val<T> {
-        receiver.c(self)
-    }
-}
-
-impl<T: IntType> IntoOp<T> for u32 {
-    fn into_op(self, receiver: &Val<T>) -> Val<T> {
-        receiver.c(self)
-    }
-}
-
-impl IntoOp<I64> for u64 {
-    fn into_op(self, receiver: &Val<I64>) -> Val<I64> {
-        receiver.c(self)
-    }
-}
-
-impl IntoOp<I1> for bool {
-    fn into_op(self, receiver: &Val<I1>) -> Val<I1> {
-        receiver.c(self)
-    }
-}
+impl<T: IntType> IntoOp<T> for &Val<T> {}
+impl<T: IntType> IntoOp<T> for Val<T> {}
+impl<T: IntType> IntoOp<T> for i32 {}
+impl<T: IntType> IntoOp<T> for u32 {}
+impl IntoOp<I64> for u64 {}
+impl IntoOp<I1> for bool {}
 
 #[cfg(test)]
 mod tests;

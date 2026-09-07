@@ -55,6 +55,7 @@ fn shared_arguments(store: bool, second_root: bool) -> Vec<u8> {
     let run = program.declare(signature(&[Type::I8], Type::I64));
     let mut body = program.define(run).unwrap();
     let raw = body.parameter::<I8>(0).unwrap().add(1);
+    let raw = body.value(&raw).unwrap();
     let other = raw.add(1);
     if store {
         body.store(state, 0, &raw).unwrap();
@@ -115,10 +116,9 @@ fn canonical_arguments() -> Vec<u8> {
     let mut body = program.define(run).unwrap();
     let loaded = body.load::<I8>(state, 0).unwrap();
     let parameter = body.parameter::<I16>(0).unwrap();
-    let constant = body.constant::<I1>(true);
     body.tail_call(
         target,
-        &[loaded.argument(), parameter.argument(), constant.argument()],
+        &[loaded.argument(), parameter.argument(), true.into()],
     )
     .unwrap();
     program.export("run", run).unwrap();
@@ -132,7 +132,7 @@ fn trapping_argument() -> Vec<u8> {
     let run = program.declare(signature(&[], Type::I64));
     let mut body = program.define(run).unwrap();
     let loaded = body.load::<I32>(state, 65536).unwrap();
-    body.store(state, 0, &loaded.c::<I32>(9)).unwrap();
+    body.store::<I32>(state, 0, 9).unwrap();
     body.tail_call(target, &[loaded.argument()]).unwrap();
     program.export("run", run).unwrap();
     program.compile().unwrap()
@@ -149,15 +149,13 @@ fn imported_and_defined_targets() -> Vec<u8> {
     let direct = callback(&mut program, "direct", &[Type::I64], Type::I64);
     let other = program.declare(signature(&[], Type::I64));
     let mut body = program.define(run).unwrap();
-    let value = body.constant::<I32>(11);
-    body.store(state, 0, &value).unwrap();
-    body.tail_call(helper, &[value.argument()]).unwrap();
+    body.store::<I32>(state, 0, 11).unwrap();
+    body.tail_call(helper, &[11.into()]).unwrap();
     let body = program.define(helper).unwrap();
     let parameter = body.parameter::<I32>(0).unwrap();
     body.tail_call(left, &[parameter.argument()]).unwrap();
     let body = program.define(other).unwrap();
-    let value = body.constant::<I32>(22);
-    body.tail_call(right, &[value.argument()]).unwrap();
+    body.tail_call(right, &[22.into()]).unwrap();
     for (name, function) in [
         ("run", run),
         ("helper", helper),
@@ -329,14 +327,13 @@ fn tail_signatures_require_logical_argument_and_result_types() {
         let target = callback(&mut program, "receive", &[target_parameter], target_result);
         let run = program.declare(signature(&[], Type::I1));
         let body = program.define(run).unwrap();
-        let bit = body.constant::<I1>(true);
+        let bit = body.value::<I1>(true).unwrap();
         assert!(matches!(
             body.tail_call(target, &[bit.argument()]),
             Err(BuildError::TypeMismatch { .. })
         ));
         let body = program.define(run).unwrap();
-        let result = body.constant::<I1>(false);
-        body.return_(&result).unwrap();
+        body.return_(false).unwrap();
         let bytes = program.compile().unwrap();
         assert!(Parser::new(0)
             .parse_all(&bytes)

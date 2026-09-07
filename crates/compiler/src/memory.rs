@@ -1,6 +1,6 @@
 use crate::{
-    place, Body, BuildError, FunctionBuilder, IntType, Operation, Program, Type, Val, ValueKind,
-    I16, I32, I64, I8,
+    place, Body, BuildError, FunctionBuilder, IntType, IntoOp, Operation, Program, Type, Val,
+    ValueKind, I16, I32, I64, I8,
 };
 
 /// An imported memory. Use only with the program that declared it.
@@ -95,8 +95,7 @@ impl FunctionBuilder<'_> {
     /// snapshot across overlapping stores. A used read may run later, past stores
     /// to other bytes; an unused read and its possible trap are omitted.
     pub fn load<T: MemoryInt>(&mut self, memory: Mem, offset: u32) -> Result<Val<T>, BuildError> {
-        let address = self.constant::<I32>(0);
-        self.load_at(memory, &address, offset)
+        self.load_at(memory, 0, offset)
     }
 
     /// Reads at an unsigned 32-bit address plus a constant byte displacement.
@@ -124,14 +123,14 @@ impl FunctionBuilder<'_> {
     pub fn load_at<T: MemoryInt>(
         &mut self,
         memory: Mem,
-        address: &Val<I32>,
+        address: impl IntoOp<I32>,
         offset: u32,
     ) -> Result<Val<T>, BuildError> {
-        let base = address.admit(&self.arena)?;
+        let base = self.operand(address)?;
         self.require_memory(memory)?;
         let location = Location::new(memory, base, offset, T::TYPE);
-        let value = self.arena.load(T::TYPE, location, self.operations.len())?;
-        self.operations.push(Operation::Load(value));
+        let value = self.arena.load(T::TYPE, location, self.site())?;
+        self.region.operations.push(Operation::Load(value));
         Ok(Val::new(self.arena.clone(), Ok(value)))
     }
 
@@ -141,10 +140,9 @@ impl FunctionBuilder<'_> {
         &mut self,
         memory: Mem,
         offset: u32,
-        value: &Val<T>,
+        value: impl IntoOp<T>,
     ) -> Result<(), BuildError> {
-        let address = self.constant::<I32>(0);
-        self.store_at(memory, &address, offset, value)
+        self.store_at(memory, 0, offset, value)
     }
 
     /// Writes at an unsigned 32-bit address plus a constant byte displacement,
@@ -154,14 +152,14 @@ impl FunctionBuilder<'_> {
     pub fn store_at<T: MemoryInt>(
         &mut self,
         memory: Mem,
-        address: &Val<I32>,
+        address: impl IntoOp<I32>,
         offset: u32,
-        value: &Val<T>,
+        value: impl IntoOp<T>,
     ) -> Result<(), BuildError> {
-        let base = address.admit(&self.arena)?;
-        let value = value.admit(&self.arena)?;
+        let base = self.operand(address)?;
+        let value = self.operand(value)?;
         self.require_memory(memory)?;
-        self.operations.push(Operation::Store {
+        self.region.operations.push(Operation::Store {
             location: Location::new(memory, base, offset, T::TYPE),
             value,
         });
@@ -197,7 +195,7 @@ mod tests {
             result: Type::I32,
         });
         let discarded = program.define(function).unwrap();
-        let foreign = discarded.constant::<I32>(9);
+        let foreign = discarded.value::<I32>(9).unwrap();
         drop(discarded);
 
         let mut body = program.define(function).unwrap();
@@ -205,12 +203,11 @@ mod tests {
             body.store(memory, 0, &foreign),
             Err(BuildError::ForeignBody)
         );
-        let result = body.constant::<I32>(7);
         assert_eq!(
-            body.store_at(memory, &foreign, 0, &result),
+            body.store_at::<I32>(memory, &foreign, 0, 7),
             Err(BuildError::ForeignBody)
         );
-        body.return_(&result).unwrap();
+        body.return_(7).unwrap();
         let bytes = program.compile().unwrap();
         assert!(Parser::new(0)
             .parse_all(&bytes)

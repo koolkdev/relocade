@@ -101,41 +101,41 @@ fn operations() -> Vec<u8> {
     function(&mut p, "eq32", &[Type::I32; 2], |b| {
         b.parameter::<I32>(0)
             .unwrap()
-            .eq(&b.parameter::<I32>(1).unwrap())
+            .eq(b.parameter::<I32>(1).unwrap())
     });
     function(&mut p, "ne32", &[Type::I32; 2], |b| {
         b.parameter::<I32>(0)
             .unwrap()
-            .ne(&b.parameter::<I32>(1).unwrap())
+            .ne(b.parameter::<I32>(1).unwrap())
     });
     function(&mut p, "lt32", &[Type::I32; 2], |b| {
         b.parameter::<I32>(0)
             .unwrap()
             .unsigned()
-            .lt(&b.parameter::<I32>(1).unwrap())
+            .lt(b.parameter::<I32>(1).unwrap())
     });
     function(&mut p, "ge32", &[Type::I32; 2], |b| {
         b.parameter::<I32>(0)
             .unwrap()
             .unsigned()
-            .ge(&b.parameter::<I32>(1).unwrap())
+            .ge(b.parameter::<I32>(1).unwrap())
     });
     function(&mut p, "eq64", &[Type::I64; 2], |b| {
         b.parameter::<I64>(0)
             .unwrap()
-            .eq(&b.parameter::<I64>(1).unwrap())
+            .eq(b.parameter::<I64>(1).unwrap())
     });
     function(&mut p, "lt64", &[Type::I64; 2], |b| {
         b.parameter::<I64>(0)
             .unwrap()
             .unsigned()
-            .lt(&b.parameter::<I64>(1).unwrap())
+            .lt(b.parameter::<I64>(1).unwrap())
     });
     function(&mut p, "ge64", &[Type::I64; 2], |b| {
         b.parameter::<I64>(0)
             .unwrap()
             .unsigned()
-            .ge(&b.parameter::<I64>(1).unwrap())
+            .ge(b.parameter::<I64>(1).unwrap())
     });
     function(&mut p, "truncate64", &[Type::I64], |b| {
         b.parameter::<I64>(0).unwrap().truncate::<I32>()
@@ -211,7 +211,7 @@ fn narrow_comparison(ne: bool, zero: bool) -> Vec<u8> {
         let a = b.parameter::<I8>(0).unwrap().add(1);
         let other = if zero {
             let _unused = a.unsigned().extend::<I32>();
-            a.c::<I8>(0)
+            b.value::<I8>(0).unwrap()
         } else {
             b.parameter::<I8>(1).unwrap().add(3)
         };
@@ -259,8 +259,8 @@ fn load_conversion() -> Vec<u8> {
     let loaded = b.load::<I8>(memory, 0).unwrap();
     let wide = loaded.unsigned().extend::<I32>();
     let masked = wide.and(7);
-    b.store(memory, 0, &loaded.c::<I8>(0)).unwrap();
-    b.return_(&wide.add(&masked)).unwrap();
+    b.store::<I8>(memory, 0, 0).unwrap();
+    b.return_(wide.add(&masked)).unwrap();
     p.export("run", run).unwrap();
     p.compile().unwrap()
 }
@@ -368,7 +368,7 @@ fn extraction_and_predicates_share_their_computed_values() {
         let predicate = b
             .parameter::<I32>(0)
             .unwrap()
-            .eq(&b.parameter::<I32>(1).unwrap());
+            .eq(b.parameter::<I32>(1).unwrap());
         let widened = predicate.unsigned().extend::<I32>();
         widened.add(&widened)
     });
@@ -444,7 +444,8 @@ fn narrow_observers_share_normalization_after_a_raw_store() {
 #[test]
 fn constant_integer_operations_fold_before_emission() {
     let bytes = module(&[], |b| {
-        b.constant::<I64>(0xffff_ffff_1234_5678u64)
+        b.value::<I64>(0xffff_ffff_1234_5678u64)
+            .unwrap()
             .and(0xffff_ffffu64)
             .or(3)
             .shl(65)

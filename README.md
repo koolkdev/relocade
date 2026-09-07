@@ -24,6 +24,9 @@ logical integer types; function signatures use the corresponding `Type` variants
 Supported integer sizes are 1, 8, 16, 32 and 64 bits. Values support fluent
 expressions such as `value.add(1)`. Calling `body.return_(&value)` completes the
 function body; shared expressions use reusable WebAssembly locals.
+At a return, the signature supplies the logical type, so `body.return_(7)` is
+valid too. Use `body.value::<I32>(operand)?` when a value must be retained or used to
+start a symbolic expression; it accepts a literal or an existing typed value.
 
 Expressions support wrapping addition, bitwise `and`/`or`, constant-count `shl`,
 and `eq`/`ne` predicates that return `Val<I1>`. The borrowed `unsigned()` view
@@ -35,9 +38,26 @@ I8 by 8 produces zero and shifting it by 32 preserves its value. Comparisons,
 unsigned right shifts and widening read the logical low bits, including after
 arithmetic that overflows a narrow type.
 
+Build conditional code with the same builder methods:
+
+```rust
+body.if_(value.eq(0), |mut branch| {
+    branch.store::<I32>(memory, 12, 9)?;
+    branch.return_(7)
+})?;
+body.return_(value.add(1))?;
+```
+
+A branch can load, store, contain nested `if_` calls, return, or tail-call. Ending
+its closure with `Ok(())` without a terminal lets it fall through. A false
+condition skips the branch. Child reads and expressions depending on them cannot
+be consumed outside that child; pure expressions from parent values remain
+usable. Reads preserve snapshots across conditional stores, which can require
+capturing a read before the condition.
+
 Functions can also finish with `body.tail_call(target, &[value.argument()])`.
-The target may be imported or defined. Use `Val::argument()` to combine different
-logical types in one argument list; the call checks them against its signature.
+The target may be imported or defined. Use `Val::argument()` or `.into()` to combine values and literals
+in one argument list; the call checks them against its signature.
 `Program::import_function` takes a `FunctionImport` containing the module name,
 field name and logical `Signature`. Unused function imports are omitted; a direct
 export also retains an imported function.
@@ -52,12 +72,14 @@ upper bits clear too, including when the import is exported directly.
 Fixed-offset memory access supports `I8`, `I16`, `I32` and `I64`, using 1, 2, 4
 and 8 bytes respectively. `body.load::<I32>(memory, offset)` reads a snapshot;
 `body.store(memory, offset, &value)` writes the value at that point in the body.
+Literal operands work directly: `body.store::<I32>(memory, 12, 9)`.
 Stores keep their authored order, used loads preserve their value across writes,
 and unused loads are omitted. Distinct memory declarations require distinct
 backing memories.
 
 For computed addresses, use `body.load_at::<I8>(memory, &address, offset)` and
-`body.store_at(memory, &address, offset, &value)`, where `address` is a `Val<I32>`.
+`body.store_at(memory, &address, offset, &value)`, where `address` is a `Val<I32>`
+or an integer literal.
 The unsigned address plus the constant displacement does not wrap. To wrap an
 address calculation at 32 bits, build it explicitly with `address.add(amount)`.
 Reads preserve their snapshots even when their addresses depend on other reads;

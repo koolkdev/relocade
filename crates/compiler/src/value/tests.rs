@@ -1,9 +1,8 @@
 use super::Val;
-use crate::{BuildError, Func, FunctionImport, MemoryImport, Program, Signature, Type, I32, I64};
+use crate::{BuildError, Func, FunctionImport, MemoryImport, Program, Signature, Type, I32};
 
 fn assert_closed(value: &Val<I32>) {
     assert_eq!(value.add(0).expression, Err(BuildError::BodyClosed));
-    assert_eq!(value.c::<I64>(0).expression, Err(BuildError::BodyClosed));
 }
 
 #[test]
@@ -34,7 +33,7 @@ fn dropping_a_body_closes_retained_values() {
         result: Type::I32,
     });
     let body = program.define(function).unwrap();
-    let value = body.constant::<I32>(7);
+    let value = body.value::<I32>(7).unwrap();
     drop(body);
     assert_closed(&value);
 }
@@ -47,7 +46,7 @@ fn a_failed_return_closes_retained_values() {
         result: Type::I64,
     });
     let body = program.define(function).unwrap();
-    let value = body.constant::<I32>(7);
+    let value = body.value::<I32>(7).unwrap();
     assert_eq!(
         body.return_(&value),
         Err(BuildError::TypeMismatch {
@@ -79,7 +78,7 @@ fn tail_program() -> (Program, Func, Func) {
 fn a_tail_call_closes_retained_values_and_arguments() {
     let (mut program, function, target) = tail_program();
     let body = program.define(function).unwrap();
-    let value = body.constant::<I32>(7);
+    let value = body.value::<I32>(7).unwrap();
     let argument = value.argument();
     body.tail_call(target, std::slice::from_ref(&argument))
         .unwrap();
@@ -97,10 +96,10 @@ fn a_failed_tail_closes_its_values_without_retaining_the_import() {
 
     let (mut program, function, target) = tail_program();
     let discarded = program.define(function).unwrap();
-    let foreign = discarded.constant::<I32>(0);
+    let foreign = discarded.value::<I32>(0).unwrap();
     drop(discarded);
     let body = program.define(function).unwrap();
-    let value = body.constant::<I32>(7);
+    let value = body.value::<I32>(7).unwrap();
     let argument = value.add(&foreign).argument();
     assert_eq!(
         body.tail_call(target, std::slice::from_ref(&argument)),
@@ -113,10 +112,31 @@ fn a_failed_tail_closes_its_values_without_retaining_the_import() {
     );
 
     let body = program.define(function).unwrap();
-    let result = body.constant::<I32>(7);
-    body.return_(&result).unwrap();
+    body.return_(7).unwrap();
     let bytes = program.compile().unwrap();
     assert!(Parser::new(0)
         .parse_all(&bytes)
         .all(|payload| !matches!(payload.unwrap(), Payload::ImportSection(_))));
+}
+
+#[test]
+fn retaining_a_failed_expression_leaves_the_body_usable() {
+    let mut program = Program::new();
+    let function = program.declare(Signature {
+        parameters: vec![Type::I32],
+        result: Type::I32,
+    });
+    let discarded = program.define(function).unwrap();
+    let foreign_zero = discarded.value::<I32>(0).unwrap();
+    drop(discarded);
+
+    let body = program.define(function).unwrap();
+    let value = body.parameter::<I32>(0).unwrap();
+    assert_eq!(
+        body.value(value.add(&foreign_zero)).err(),
+        Some(BuildError::ForeignBody)
+    );
+    let retained = body.value(&value).unwrap();
+    body.return_(retained.add(1)).unwrap();
+    assert!(program.compile().is_ok());
 }

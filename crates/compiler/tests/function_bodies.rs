@@ -8,7 +8,6 @@ fn dropping_a_body_leaves_its_function_unfinished() {
         result: Type::I32,
     });
     let body = program.define(function).unwrap();
-    body.constant::<I32>(7);
     drop(body);
     assert!(matches!(program.compile(), Err(BuildError::MissingBody)));
 }
@@ -23,14 +22,13 @@ fn values_from_a_completed_body_are_rejected_by_another_builder() {
     let first = program.declare(signature.clone());
     let second = program.declare(signature);
     let body = program.define(first).unwrap();
-    let retained = body.constant::<I32>(7);
+    let retained = body.value::<I32>(7).unwrap();
     body.return_(&retained).unwrap();
 
     let body = program.define(second).unwrap();
     assert!(body.return_(&retained).is_err());
     let body = program.define(second).unwrap();
-    let result = body.constant::<I32>(9);
-    body.return_(&result).unwrap();
+    body.return_(9).unwrap();
     program.compile().unwrap();
 }
 
@@ -42,11 +40,11 @@ fn restarting_a_body_rejects_its_old_values() {
         result: Type::I64,
     });
     let body = program.define(function).unwrap();
-    let retained = body.constant::<I64>(7);
+    let retained = body.value::<I64>(7).unwrap();
     drop(body);
 
     let body = program.define(function).unwrap();
-    let result = body.constant::<I64>(9).add(&retained);
+    let result = body.value::<I64>(9).unwrap().add(&retained);
     assert!(body.return_(&result).is_err());
     assert!(matches!(program.compile(), Err(BuildError::MissingBody)));
 }
@@ -59,7 +57,7 @@ fn foreign_zero_is_rejected_without_poisoning_other_expressions() {
         result: Type::I32,
     });
     let foreign_body = foreign_program.define(foreign_function).unwrap();
-    let foreign_zero = foreign_body.constant::<I32>(0);
+    let foreign_zero = foreign_body.value::<I32>(0).unwrap();
 
     let mut program = Program::new();
     let function = program.declare(Signature {
@@ -76,8 +74,8 @@ fn foreign_zero_is_rejected_without_poisoning_other_expressions() {
 
     let body = program.define(function).unwrap();
     let own = body.parameter::<I32>(0).unwrap();
-    let invalid = own.add(&foreign_zero);
-    let valid = invalid.c::<I32>(11).add(&own);
+    let _invalid = own.add(&foreign_zero);
+    let valid = own.add(11);
     body.return_(&valid).unwrap();
     program.compile().unwrap();
 }
@@ -94,7 +92,7 @@ fn parameter_and_return_types_must_match_the_signature() {
         body.parameter::<I8>(0),
         Err(BuildError::TypeMismatch { .. })
     ));
-    let other_type = body.constant::<I8>(9);
+    let other_type = body.value::<I8>(9).unwrap();
     assert!(matches!(
         body.return_(&other_type),
         Err(BuildError::TypeMismatch { .. })

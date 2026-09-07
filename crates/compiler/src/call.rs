@@ -31,13 +31,14 @@ impl FunctionBuilder<'_> {
     /// Ends the generated function by returning the target function's result,
     /// saving the completed body and consuming the builder. The call does not
     /// retain this function's Wasm frame. Ordered stores run before the call.
-    /// An error discards the body and leaves it undefined.
+    /// In a branch, only that branch is completed. An error when completing the
+    /// outer builder discards the function body and leaves it undefined.
     ///
     /// Argument and result types must match logically, even when their Wasm
     /// representations coincide. The target may be imported or defined.
     ///
     /// ```
-    /// use wasm86_compiler::{FunctionImport, Program, Signature, Type, I32};
+    /// use wasm86_compiler::{FunctionImport, Program, Signature, Type};
     ///
     /// let mut program = Program::new();
     /// let dispatch = program.import_function(FunctionImport {
@@ -53,13 +54,13 @@ impl FunctionBuilder<'_> {
     ///     result: Type::I64,
     /// });
     /// let body = program.define(block)?;
-    /// let next = body.constant::<I32>(0x1004);
-    /// body.tail_call(dispatch, &[next.argument()])?;
+    /// body.tail_call(dispatch, &[0x1004.into()])?;
     /// program.export("block", block)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), wasm86_compiler::BuildError>(())
     /// ```
-    pub fn tail_call(self, target: Func, arguments: &[Argument]) -> Result<(), BuildError> {
+    pub fn tail_call(mut self, target: Func, arguments: &[Argument]) -> Result<(), BuildError> {
+        self.fallthrough = false;
         let signature = &self
             .program
             .functions
@@ -81,7 +82,9 @@ impl FunctionBuilder<'_> {
         }
         let mut values = Vec::with_capacity(arguments.len());
         for (argument, expected) in arguments.iter().zip(&signature.parameters) {
-            values.push(argument.admit(&self.arena, *expected)?);
+            let value = argument.admit(&self.arena, *expected)?;
+            self.arena.require_visible(value, self.region.id)?;
+            values.push(value);
         }
         // Validate every argument before creating shared results with upper bits cleared.
         for value in &mut values {

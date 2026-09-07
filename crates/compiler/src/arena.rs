@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::{
+    control::Site,
     integer::{self, BinaryOp, CompareOp, ShiftOp},
     memory::Location,
     BuildError, Type, Value, ValueKind,
@@ -16,11 +17,16 @@ struct ValueArena {
     values: Vec<Value>,
     interned: HashMap<Value, usize>,
     unsigned_bits: Vec<u8>,
+    scopes: Vec<usize>,
+    availability: Vec<Option<usize>>,
 }
 
 impl ExpressionArena {
     pub(super) fn new() -> Self {
-        Self(Rc::new(RefCell::new(Some(ValueArena::default()))))
+        Self(Rc::new(RefCell::new(Some(ValueArena {
+            scopes: vec![0],
+            ..ValueArena::default()
+        }))))
     }
 
     pub(super) fn same_body(&self, other: &Self) -> bool {
@@ -49,7 +55,7 @@ impl ExpressionArena {
         &self,
         ty: Type,
         location: Location,
-        site: usize,
+        site: Site,
     ) -> Result<usize, BuildError> {
         self.with_open(|arena| {
             // Two reads of the same address may observe different stores. Each load
@@ -59,6 +65,24 @@ impl ExpressionArena {
                 kind: ValueKind::Load { location, site },
             })
         })
+    }
+
+    pub(super) fn child_scope(&self, parent: usize) -> Result<usize, BuildError> {
+        self.with_open(|arena| {
+            let scope = arena.scopes.len();
+            arena.scopes.push(parent);
+            scope
+        })
+    }
+
+    pub(super) fn require_visible(&self, value: usize, scope: usize) -> Result<(), BuildError> {
+        let arena = self.0.borrow();
+        let arena = arena.as_ref().ok_or(BuildError::BodyClosed)?;
+        if arena.availability[value].is_some_and(|owner| arena.contains(owner, scope)) {
+            Ok(())
+        } else {
+            Err(BuildError::OutOfScope)
+        }
     }
 
     pub(super) fn binary(
@@ -251,8 +275,40 @@ impl ValueArena {
         })
     }
 
+    fn contains(&self, owner: usize, mut scope: usize) -> bool {
+        while scope != owner && scope != 0 {
+            scope = self.scopes[scope];
+        }
+        scope == owner
+    }
+
+    // Pure expressions may be built anywhere, but consuming them requires every
+    // load dependency to be visible. Incompatible sibling reads have no such scope.
+    fn availability(&self, value: Value) -> Option<usize> {
+        match value.kind {
+            ValueKind::Constant(_) | ValueKind::Parameter(_) => Some(0),
+            ValueKind::Load { site, .. } => Some(site.region),
+            ValueKind::Binary(_, a, b) | ValueKind::Compare(_, a, b) => {
+                let a = self.availability[a]?;
+                let b = self.availability[b]?;
+                if self.contains(a, b) {
+                    Some(b)
+                } else if self.contains(b, a) {
+                    Some(a)
+                } else {
+                    None
+                }
+            }
+            ValueKind::Shift(_, input, _)
+            | ValueKind::Convert(input)
+            | ValueKind::Normalize(input)
+            | ValueKind::ZeroTest { input, .. } => self.availability[input],
+        }
+    }
+
     fn push(&mut self, value: Value) -> usize {
         let index = self.values.len();
+        self.availability.push(self.availability(value));
         self.unsigned_bits
             .push(integer::unsigned_bits(value, &self.unsigned_bits));
         self.values.push(value);

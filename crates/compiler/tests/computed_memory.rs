@@ -60,7 +60,7 @@ fn wide_snapshot(separate_base: bool, store_offset: u32) -> Vec<u8> {
         let base = body.parameter::<I32>(0).unwrap();
         let other = body.parameter::<I32>(u32::from(separate_base)).unwrap();
         let loaded = body.load_at::<I64>(memory, &base, 0).unwrap();
-        body.store_at(memory, &other, store_offset, &base.c::<I32>(9))
+        body.store_at::<I32>(memory, &other, store_offset, 9)
             .unwrap();
         loaded
     })
@@ -68,10 +68,8 @@ fn wide_snapshot(separate_base: bool, store_offset: u32) -> Vec<u8> {
 
 fn constant_bases() -> Vec<u8> {
     module(0, |body, memory| {
-        let base = body.constant::<I32>(4);
-        let loaded = body.load_at::<I64>(memory, &base, 0).unwrap();
-        body.store_at(memory, &base.c::<I32>(12), 0, &base.c::<I32>(9))
-            .unwrap();
+        let loaded = body.load_at::<I64>(memory, 4, 0).unwrap();
+        body.store_at::<I32>(memory, 12, 0, 9).unwrap();
         loaded
     })
 }
@@ -80,8 +78,8 @@ fn nested_loads(reuse_pointer: bool) -> Vec<u8> {
     module(0, |body, memory| {
         let pointer = body.load::<I32>(memory, 0).unwrap();
         let loaded = body.load_at::<I32>(memory, &pointer, 0).unwrap();
-        body.store(memory, 0, &pointer.c::<I32>(12)).unwrap();
-        body.store(memory, 8, &pointer.c::<I32>(9)).unwrap();
+        body.store::<I32>(memory, 0, 12).unwrap();
+        body.store::<I32>(memory, 8, 9).unwrap();
         if reuse_pointer {
             loaded.add(&pointer)
         } else {
@@ -94,7 +92,7 @@ fn deferred_load_with_captured_pointer() -> Vec<u8> {
     with_memories(&["state", "other"], 0, |body, memories| {
         let pointer = body.load::<I32>(memories[0], 0).unwrap();
         let loaded = body.load_at::<I32>(memories[1], &pointer, 0).unwrap();
-        body.store(memories[0], 0, &pointer.c::<I32>(12)).unwrap();
+        body.store::<I32>(memories[0], 0, 12).unwrap();
         loaded
     })
 }
@@ -102,10 +100,9 @@ fn deferred_load_with_captured_pointer() -> Vec<u8> {
 fn store_through_snapshot() -> Vec<u8> {
     module(0, |body, memory| {
         let pointer = body.load::<I32>(memory, 0).unwrap();
-        body.store(memory, 0, &pointer.c::<I32>(12)).unwrap();
-        body.store_at(memory, &pointer, 0, &pointer.c::<I32>(9))
-            .unwrap();
-        pointer.c::<I32>(7)
+        body.store::<I32>(memory, 0, 12).unwrap();
+        body.store_at::<I32>(memory, &pointer, 0, 9).unwrap();
+        body.value::<I32>(7).unwrap()
     })
 }
 
@@ -113,10 +110,8 @@ fn shared_address() -> Vec<u8> {
     module(1, |body, memory| {
         let address = body.parameter::<I32>(0).unwrap().add(4);
         let loaded = body.load_at::<I32>(memory, &address, 0).unwrap();
-        body.store_at(memory, &address, 4, &address.c::<I32>(9))
-            .unwrap();
-        body.store_at(memory, &address, 8, &address.c::<I32>(10))
-            .unwrap();
+        body.store_at::<I32>(memory, &address, 4, 9).unwrap();
+        body.store_at::<I32>(memory, &address, 8, 10).unwrap();
         loaded
     })
 }
@@ -125,7 +120,7 @@ fn disjoint_load_trap() -> Vec<u8> {
     module(1, |body, memory| {
         let base = body.parameter::<I32>(0).unwrap();
         let loaded = body.load_at::<I32>(memory, &base, 65536).unwrap();
-        body.store_at(memory, &base, 0, &base.c::<I32>(9)).unwrap();
+        body.store_at::<I32>(memory, &base, 0, 9).unwrap();
         loaded
     })
 }
@@ -134,8 +129,7 @@ fn separate_memories() -> Vec<u8> {
     with_memories(&["state", "other"], 1, |body, memories| {
         let base = body.parameter::<I32>(0).unwrap();
         let loaded = body.load_at::<I32>(memories[0], &base, 0).unwrap();
-        body.store_at(memories[1], &base, 0, &base.c::<I32>(9))
-            .unwrap();
+        body.store_at::<I32>(memories[1], &base, 0, 9).unwrap();
         loaded
     })
 }
@@ -145,8 +139,8 @@ fn unused_address_chain() -> Vec<u8> {
         let base = body.parameter::<I32>(0).unwrap();
         let pointer = body.load_at::<I32>(memories[1], &base, 0).unwrap();
         let _unused = body.load_at::<I8>(memories[2], &pointer, 0).unwrap();
-        body.store(memories[2], 0, &base.c::<I32>(9)).unwrap();
-        base.c::<I32>(7)
+        body.store::<I32>(memories[2], 0, 9).unwrap();
+        body.value::<I32>(7).unwrap()
     })
 }
 

@@ -1,7 +1,8 @@
 //! Instruction ordering and storage of shared expression results.
-use wasm_encoder::{Encode, Function, Instruction, MemArg, ValType};
+use wasm_encoder::{BlockType, Encode, Function, Instruction, MemArg, ValType};
 
 use crate::{
+    control::{Region, Site},
     integer::{BinaryOp, CompareOp, ShiftOp},
     locals,
     memory::Location,
@@ -38,6 +39,7 @@ enum Walk {
 struct Scheduler<'a> {
     body: &'a Body,
     memories: &'a [Option<u32>],
+    functions: &'a [Option<u32>],
     placement: place::Placement,
     emitted: Vec<bool>,
     bytes: Vec<u8>,
@@ -53,56 +55,75 @@ pub(super) fn encode(
     let mut scheduler = Scheduler {
         body,
         memories,
+        functions,
         placement: place::plan(body),
         emitted: vec![false; body.values.len()],
         bytes: Vec::new(),
         events: Vec::new(),
     };
-    for operation in &body.operations {
-        match *operation {
-            Operation::Load(id) if scheduler.placement.captures[id] => {
-                // A captured read still evaluates its address first. Only its
-                // completed result is saved, without an intermediate local.tee.
-                let ValueKind::Load { location, .. } = body.values[id].kind else {
-                    unreachable!("a load operation names its value");
-                };
-                scheduler.value(location.base);
-                scheduler.load(id);
-                let slot = scheduler.placement.slots[id].expect("a captured read has storage");
-                scheduler.local(slot, LocalOp::Set);
-                scheduler.emitted[id] = true;
-            }
-            Operation::Load(_) => {}
-            Operation::Store { location, value } => {
-                scheduler.value(location.base);
-                scheduler.value(value);
-                let argument = scheduler.memory_argument(location);
-                match location.bytes {
-                    1 => Instruction::I32Store8(argument),
-                    2 => Instruction::I32Store16(argument),
-                    4 => Instruction::I32Store(argument),
-                    8 => Instruction::I64Store(argument),
-                    _ => unreachable!("memory locations have a supported byte size"),
-                }
-                .encode(&mut scheduler.bytes);
-            }
-        }
-    }
-    for &value in body.terminal.inputs() {
-        scheduler.value(value);
-    }
-    match body.terminal {
-        Terminal::Return(_) => Instruction::Return,
-        Terminal::TailCall { target, .. } => Instruction::ReturnCall(
-            functions[target.0].expect("a tail-call target has a function index"),
-        ),
-    }
-    .encode(&mut scheduler.bytes);
+    scheduler.region(&body.region);
     Instruction::End.encode(&mut scheduler.bytes);
     scheduler.finish(parameter_count)
 }
 
 impl Scheduler<'_> {
+    fn region(&mut self, region: &Region) {
+        for (index, operation) in region.operations.iter().enumerate() {
+            // Keep the condition on the stack while common values are captured.
+            if let Operation::If { condition, .. } = operation {
+                self.value(*condition);
+            }
+            let site = Site {
+                region: region.id,
+                index,
+            };
+            if let Some(captures) = self.placement.captures.get(&site) {
+                for index in 0..captures.len() {
+                    let id = self.placement.captures[&site][index];
+                    if !self.emitted[id] {
+                        self.evaluate(id, true);
+                    }
+                }
+            }
+            match operation {
+                Operation::Load(_) => {}
+                Operation::Store { location, value } => {
+                    self.value(location.base);
+                    self.value(*value);
+                    let argument = self.memory_argument(*location);
+                    match location.bytes {
+                        1 => Instruction::I32Store8(argument),
+                        2 => Instruction::I32Store16(argument),
+                        4 => Instruction::I32Store(argument),
+                        8 => Instruction::I64Store(argument),
+                        _ => unreachable!("memory locations have a supported byte size"),
+                    }
+                    .encode(&mut self.bytes);
+                }
+                Operation::If { branch, .. } => {
+                    Instruction::If(BlockType::Empty).encode(&mut self.bytes);
+                    let before_arm = self.emitted.clone();
+                    self.region(branch);
+                    Instruction::End.encode(&mut self.bytes);
+                    // The false path did not execute any local writes in this arm.
+                    self.emitted = before_arm;
+                }
+            }
+        }
+        if let Some(terminal) = &region.terminal {
+            for &value in terminal.inputs() {
+                self.value(value);
+            }
+            match terminal {
+                Terminal::Return(_) => Instruction::Return,
+                Terminal::TailCall { target, .. } => Instruction::ReturnCall(
+                    self.functions[target.0].expect("a tail-call target has a function index"),
+                ),
+            }
+            .encode(&mut self.bytes);
+        }
+    }
+
     fn local(&mut self, slot: usize, operation: LocalOp) {
         self.events.push(LocalEvent {
             offset: self.bytes.len(),
@@ -111,26 +132,30 @@ impl Scheduler<'_> {
         });
     }
 
-    fn completed(&mut self, id: usize) {
+    fn completed(&mut self, id: usize, capture: bool) {
         if let Some(slot) = self.placement.slots[id] {
-            self.local(slot, LocalOp::Tee);
+            self.local(slot, if capture { LocalOp::Set } else { LocalOp::Tee });
         }
         self.emitted[id] = true;
     }
 
     fn value(&mut self, root: usize) {
+        self.evaluate(root, false);
+    }
+
+    fn evaluate(&mut self, root: usize, capture: bool) {
         let mut pending = vec![Walk::Value(root)];
         while let Some(next) = pending.pop() {
             let id = match next {
                 Walk::Value(id) => place::representation(self.body, id),
                 Walk::Finish(id) => {
                     self.operation(id);
-                    self.completed(id);
+                    self.completed(id, capture && id == root);
                     continue;
                 }
                 Walk::FinishLoad(id) => {
                     self.load(id);
-                    self.completed(id);
+                    self.completed(id, capture && id == root);
                     continue;
                 }
                 Walk::FinishZero(id, extension) => {
@@ -145,7 +170,7 @@ impl Scheduler<'_> {
                         .encode(&mut self.bytes);
                     }
                     self.operation(id);
-                    self.completed(id);
+                    self.completed(id, capture && id == root);
                     continue;
                 }
             };

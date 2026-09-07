@@ -102,10 +102,10 @@ fn define_arithmetic_functions<T: IntType>(program: &mut Program, suffix: &str) 
 fn define_narrow_functions<T: IntType>(program: &mut Program, suffix: &str, bits: u32) {
     let ty = T::TYPE;
     define_export(program, &format!("literal{suffix}"), &[], |body| {
-        body.constant::<T>(bits)
+        body.value::<T>(bits).unwrap()
     });
     define_export(program, &format!("negative{suffix}"), &[], |body| {
-        body.constant::<T>(-1)
+        body.value::<T>(-1).unwrap()
     });
     define_export(program, &format!("identity{suffix}"), &[ty], |body| {
         body.parameter::<T>(0).unwrap()
@@ -130,7 +130,9 @@ fn check_execution(flags: &[&str]) {
         ("max32", 0x7fff_ffff),
         ("all32", u32::MAX),
     ] {
-        define_export(&mut program, name, &[], |body| body.constant::<I32>(bits));
+        define_export(&mut program, name, &[], |body| {
+            body.value::<I32>(bits).unwrap()
+        });
     }
     for (name, bits) in [
         ("zero64", 0_u64),
@@ -138,16 +140,18 @@ fn check_execution(flags: &[&str]) {
         ("max64", 0x7fff_ffff_ffff_ffff),
         ("all64", u64::MAX),
     ] {
-        define_export(&mut program, name, &[], |body| body.constant::<I64>(bits));
+        define_export(&mut program, name, &[], |body| {
+            body.value::<I64>(bits).unwrap()
+        });
     }
     define_export(&mut program, "signed_literal32", &[], |body| {
-        body.constant::<I32>(-2147483647)
+        body.value::<I32>(-2147483647).unwrap()
     });
     define_export(&mut program, "signed_literal64", &[], |body| {
-        body.constant::<I64>(0).add(-1)
+        body.value::<I64>(0).unwrap().add(-1)
     });
     define_export(&mut program, "unsigned_literal64", &[], |body| {
-        body.constant::<I64>(0).add(u32::MAX)
+        body.value::<I64>(0).unwrap().add(u32::MAX)
     });
     define_arithmetic_functions::<I32>(&mut program, "32");
     define_arithmetic_functions::<I64>(&mut program, "64");
@@ -170,10 +174,10 @@ fn check_execution(flags: &[&str]) {
         );
     }
     define_export(&mut program, "constant_add32", &[], |body| {
-        body.constant::<I32>(0x7fff_ffff).add(1)
+        body.value::<I32>(0x7fff_ffff).unwrap().add(1)
     });
     define_export(&mut program, "constant_add64", &[], |body| {
-        body.constant::<I64>(u64::MAX).add(1)
+        body.value::<I64>(u64::MAX).unwrap().add(1)
     });
 
     let signature = Signature {
@@ -184,8 +188,7 @@ fn check_execution(flags: &[&str]) {
     let second = program.declare(signature);
     for (function, value) in [(second, 11), (first, 7)] {
         let body = program.define(function).unwrap();
-        let value = body.constant::<I32>(value);
-        body.return_(&value).unwrap();
+        body.return_(value).unwrap();
     }
     program.export("first", first).unwrap();
     program.export("second", second).unwrap();
@@ -195,7 +198,7 @@ fn check_execution(flags: &[&str]) {
     define_narrow_functions::<I8>(&mut program, "8", 0x180);
     define_narrow_functions::<I16>(&mut program, "16", 0x18000);
     define_export(&mut program, "boolean_add", &[], |body| {
-        body.constant::<I1>(true).add(true)
+        body.value::<I1>(true).unwrap().add(true)
     });
 
     let module = ModuleFile::new(program);

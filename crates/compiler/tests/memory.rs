@@ -47,7 +47,7 @@ fn module<T: IntType>(build: impl FnOnce(&mut FunctionBuilder<'_>, Mem) -> Val<T
 fn snapshot_and_fresh_read() -> Vec<u8> {
     module(|body, memory| {
         let before = body.load::<I32>(memory, 0).unwrap();
-        body.store(memory, 0, &before.c::<I32>(9)).unwrap();
+        body.store::<I32>(memory, 0, 9).unwrap();
         let after = body.load::<I32>(memory, 0).unwrap();
         before.add(&after)
     })
@@ -57,10 +57,10 @@ fn shared_snapshot(return_load: bool) -> Vec<u8> {
     module(|body, memory| {
         let loaded = body.load::<I32>(memory, 0).unwrap();
         let shared = loaded.add(1);
-        body.store(memory, 8, &loaded.c::<I32>(1)).unwrap();
+        body.store::<I32>(memory, 8, 1).unwrap();
         body.store(memory, 4, &shared).unwrap();
         body.store(memory, 12, &shared).unwrap();
-        body.store(memory, 0, &loaded.c::<I32>(9)).unwrap();
+        body.store::<I32>(memory, 0, 9).unwrap();
         if return_load {
             loaded.add(&shared)
         } else {
@@ -72,16 +72,15 @@ fn shared_snapshot(return_load: bool) -> Vec<u8> {
 fn read_modify_write() -> Vec<u8> {
     module(|body, memory| {
         let loaded = body.load::<I32>(memory, 0).unwrap();
-        body.store(memory, 0, &loaded.add(1)).unwrap();
-        body.constant::<I32>(7)
+        body.store(memory, 0, loaded.add(1)).unwrap();
+        body.value::<I32>(7).unwrap()
     })
 }
 
 fn wide_snapshot(store_offset: u32) -> Vec<u8> {
     module(|body, memory| {
         let loaded = body.load::<I64>(memory, 0).unwrap();
-        body.store(memory, store_offset, &loaded.c::<I32>(9))
-            .unwrap();
+        body.store::<I32>(memory, store_offset, 9).unwrap();
         loaded
     })
 }
@@ -89,7 +88,7 @@ fn wide_snapshot(store_offset: u32) -> Vec<u8> {
 fn wide_write_and_fresh_read() -> Vec<u8> {
     module(|body, memory| {
         let before = body.load::<I64>(memory, 0).unwrap();
-        body.store(memory, 0, &before.c::<I64>(u64::MAX)).unwrap();
+        body.store::<I64>(memory, 0, u64::MAX).unwrap();
         let after = body.load::<I64>(memory, 0).unwrap();
         before.add(&after)
     })
@@ -98,10 +97,10 @@ fn wide_write_and_fresh_read() -> Vec<u8> {
 fn high_offset_load(has_overlapping_store: bool) -> Vec<u8> {
     module(|body, memory| {
         let loaded = body.load::<I64>(memory, u32::MAX).unwrap();
-        body.store(memory, 0, &loaded.c::<I32>(9)).unwrap();
+        body.store::<I32>(memory, 0, 9).unwrap();
         if has_overlapping_store {
             // The range ends exceed u32::MAX, but these accesses still overlap.
-            body.store(memory, u32::MAX, &loaded.c::<I8>(1)).unwrap();
+            body.store::<I8>(memory, u32::MAX, 1).unwrap();
         }
         loaded
     })
@@ -110,7 +109,7 @@ fn high_offset_load(has_overlapping_store: bool) -> Vec<u8> {
 fn increment_narrow<T: MemoryInt>(offset: u32) -> Vec<u8> {
     module(|body, memory| {
         let loaded = body.load::<T>(memory, offset).unwrap();
-        body.store(memory, offset, &loaded.add(1)).unwrap();
+        body.store(memory, offset, loaded.add(1)).unwrap();
         loaded
     })
 }
@@ -118,16 +117,16 @@ fn increment_narrow<T: MemoryInt>(offset: u32) -> Vec<u8> {
 fn unused_load() -> Vec<u8> {
     with_memories(&["unused", "state"], |body, memories| {
         let _unused = body.load::<I32>(memories[1], 65536).unwrap();
-        body.constant::<I32>(7)
+        body.value::<I32>(7).unwrap()
     })
 }
 
 fn trapping_load(has_overlapping_store: bool) -> Vec<u8> {
     module(|body, memory| {
         let loaded = body.load::<I32>(memory, 65536).unwrap();
-        body.store(memory, 0, &loaded.c::<I32>(9)).unwrap();
+        body.store::<I32>(memory, 0, 9).unwrap();
         if has_overlapping_store {
-            body.store(memory, 65536, &loaded.c::<I32>(1)).unwrap();
+            body.store::<I32>(memory, 65536, 1).unwrap();
         }
         loaded
     })
@@ -135,18 +134,17 @@ fn trapping_load(has_overlapping_store: bool) -> Vec<u8> {
 
 fn trapping_store() -> Vec<u8> {
     module(|body, memory| {
-        let one = body.constant::<I32>(1);
-        body.store(memory, 0, &one).unwrap();
-        body.store(memory, 65536, &one.c::<I32>(2)).unwrap();
-        body.store(memory, 0, &one.c::<I32>(3)).unwrap();
-        one.c::<I32>(7)
+        body.store::<I32>(memory, 0, 1).unwrap();
+        body.store::<I32>(memory, 65536, 2).unwrap();
+        body.store::<I32>(memory, 0, 3).unwrap();
+        body.value::<I32>(7).unwrap()
     })
 }
 
 fn different_memories() -> Vec<u8> {
     with_memories(&["unused", "other", "state"], |body, memories| {
         let loaded = body.load::<I32>(memories[2], 0).unwrap();
-        body.store(memories[1], 0, &loaded.c::<I32>(9)).unwrap();
+        body.store::<I32>(memories[1], 0, 9).unwrap();
         loaded
     })
 }
@@ -331,8 +329,7 @@ fn abandoned_bodies_do_not_retain_memory_imports() {
     body.load::<I32>(memory, 0).unwrap();
     drop(body);
     let body = program.define(function).unwrap();
-    let result = body.constant::<I32>(7);
-    body.return_(&result).unwrap();
+    body.return_(7).unwrap();
     program.export("run", function).unwrap();
     assert!(inspect(&program.compile().unwrap()).memories.is_empty());
 }

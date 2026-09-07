@@ -23,7 +23,7 @@ mod state;
 
 use std::fmt;
 
-use wasm86_compiler::{FunctionImport, Program, Signature, Type, I32};
+use wasm86_compiler::{FunctionImport, MemoryImport, Program, Signature, Type};
 
 /// A WebAssembly module and the exported function that enters its block.
 pub struct CompiledBlock {
@@ -107,7 +107,12 @@ pub fn compile_block_from_bytes(
     }
 
     let mut program = Program::new();
-    let mut state = state::State::new(&mut program);
+    let memory = program.import_memory(MemoryImport {
+        module: "wasm86".into(),
+        name: "cpuState".into(),
+        minimum: 1,
+        maximum: None,
+    });
     let dispatch = program.import_function(FunctionImport {
         module: "wasm86".into(),
         name: "dispatch".into(),
@@ -121,20 +126,19 @@ pub fn compile_block_from_bytes(
         result: Type::I64,
     });
     let mut body = program.define(function)?;
+    let mut state = state::State::new(&mut body, memory);
     let mut remaining = bytes;
     let mut next_eip = start_eip;
 
     for _ in 0..instruction_limit {
         let (destination, immediate) = decode::mov32(remaining, next_eip)?;
-        let source = body.constant::<I32>(immediate);
-        semantics::mov32(&mut state, destination, &source);
+        semantics::mov32(&mut state, destination, immediate)?;
         remaining = &remaining[5..];
         next_eip = next_eip.wrapping_add(5);
     }
 
-    let next = body.constant::<I32>(next_eip);
-    state.publish(&mut body, &next, instruction_limit)?;
-    body.tail_call(dispatch, &[next.argument()])?;
+    state.publish(next_eip, instruction_limit)?;
+    body.tail_call(dispatch, &[next_eip.into()])?;
     let entry = format!("block_{start_eip:x}");
     program.export(&entry, function)?;
     Ok(CompiledBlock {
