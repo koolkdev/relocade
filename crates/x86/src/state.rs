@@ -1,16 +1,8 @@
-use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Mem, Val, I32};
+pub(super) mod exit;
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub(super) enum Gpr32 {
-    Eax,
-    Ecx,
-    Edx,
-    Ebx,
-    Esp,
-    Ebp,
-    Esi,
-    Edi,
-}
+use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Mem, MemoryImport, Program, Val, I32};
+
+use crate::register::{Gpr32, Register32};
 
 fn register_offset(register: Gpr32) -> u32 {
     match register {
@@ -28,16 +20,30 @@ fn register_offset(register: Gpr32) -> u32 {
 const EIP_OFFSET: u32 = 56;
 const INSTRUCTION_COUNT_OFFSET: u32 = 144;
 
-pub(super) struct State<'b, 'p> {
-    body: &'b mut FunctionBuilder<'p>,
-    memory: Mem,
-    registers: Vec<(Gpr32, Val<I32>)>,
+pub(super) fn declare(program: &mut Program) -> Mem {
+    program.import_memory(MemoryImport {
+        module: "wasm86".into(),
+        name: "cpuState".into(),
+        minimum: 1,
+        maximum: None,
+    })
 }
 
-impl<'b, 'p> State<'b, 'p> {
-    pub(super) fn new(body: &'b mut FunctionBuilder<'p>, memory: Mem) -> Self {
+pub(super) fn read_eip(
+    body: &mut FunctionBuilder<'_>,
+    memory: Mem,
+) -> Result<Val<I32>, BuildError> {
+    body.load::<I32>(memory, EIP_OFFSET)
+}
+
+pub(super) struct State {
+    memory: Mem,
+    registers: Vec<(Register32, Val<I32>)>,
+}
+
+impl State {
+    pub(super) fn new(memory: Mem) -> Self {
         Self {
-            body,
             memory,
             registers: Vec::new(),
         }
@@ -45,33 +51,54 @@ impl<'b, 'p> State<'b, 'p> {
 
     pub(super) fn write_register(
         &mut self,
-        register: Gpr32,
+        body: &FunctionBuilder<'_>,
+        register: impl Into<Register32>,
         value: impl IntoOp<I32>,
     ) -> Result<(), BuildError> {
-        let value = self.body.value(value)?;
-        // Replacing in place keeps the first-write order while discarding earlier values.
-        if let Some((_, current)) = self.registers.iter_mut().find(|(key, _)| *key == register) {
-            *current = value;
-        } else {
-            self.registers.push((register, value));
+        let value = body.value(value)?;
+        let register = register.into();
+        if let Register32::Named(name) = &register {
+            // An indexed write may name any register, so a later named write
+            // cannot replace a value that will be published before it.
+            for (existing, current) in self.registers.iter_mut().rev() {
+                match existing {
+                    Register32::Indexed(_) => break,
+                    Register32::Named(key) if key == name => {
+                        *current = value;
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
         }
+        self.registers.push((register, value));
         Ok(())
     }
 
+    /// Writes the pending snapshot for this exit without clearing it.
+    /// Publications must be on mutually exclusive paths; this does not flush state
+    /// for continued execution on the same path.
     pub(super) fn publish(
-        self,
+        &self,
+        body: &mut FunctionBuilder<'_>,
         next_eip: impl IntoOp<I32>,
         completed: u32,
     ) -> Result<(), BuildError> {
-        for (register, value) in self.registers {
-            self.body
-                .store(self.memory, register_offset(register), value)?;
+        for (register, value) in &self.registers {
+            match register {
+                Register32::Named(register) => {
+                    body.store(self.memory, register_offset(*register), value)?;
+                }
+                Register32::Indexed(index) => {
+                    body.store_at(self.memory, index.shl(2), 24, value)?;
+                }
+            }
         }
-        self.body.store::<I32>(self.memory, EIP_OFFSET, next_eip)?;
-        let count = self
-            .body
-            .load::<I32>(self.memory, INSTRUCTION_COUNT_OFFSET)?;
-        self.body
-            .store(self.memory, INSTRUCTION_COUNT_OFFSET, count.add(completed))
+        body.store::<I32>(self.memory, EIP_OFFSET, next_eip)?;
+        let count = body.load::<I32>(self.memory, INSTRUCTION_COUNT_OFFSET)?;
+        body.store(self.memory, INSTRUCTION_COUNT_OFFSET, count.add(completed))
     }
 }
+
+#[cfg(test)]
+mod tests;

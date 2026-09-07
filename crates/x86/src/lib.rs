@@ -1,4 +1,4 @@
-//! Compiles bounded x86 instruction snapshots to WebAssembly.
+//! Builds WebAssembly execution entries for a small x86 instruction subset.
 //!
 //! Currently supported instructions are 32-bit immediate-to-register MOVs
 //! (`B8` through `BF`, followed by four little-endian immediate bytes).
@@ -17,16 +17,25 @@
 //! ```
 #![forbid(unsafe_code)]
 
+mod block;
 mod decode;
+mod fetch;
+mod instruction;
+mod interpreter;
+mod memory;
+mod register;
 mod semantics;
 mod state;
 
 use std::fmt;
 
-use wasm86_compiler::{FunctionImport, MemoryImport, Program, Signature, Type};
+use wasm86_compiler::{Func, FunctionImport, Program, Signature, Type};
 
-/// A WebAssembly module and the exported function that enters its block.
-pub struct CompiledBlock {
+pub use block::compile_block_from_bytes;
+pub use interpreter::compile_interpreter_step;
+
+/// A WebAssembly module and the exported function that enters it.
+pub struct CompiledModule {
     pub bytes: Vec<u8>,
     pub entry: String,
 }
@@ -85,64 +94,13 @@ impl From<wasm86_compiler::BuildError> for BlockError {
     }
 }
 
-/// Compiles exactly `instruction_limit` instructions starting at `start_eip`.
-/// Bytes after that selection are ignored. Missing or unsupported selected bytes
-/// are construction errors. This byte-only input carries no guest-fault information.
-/// EIP and the completed-instruction count advance with 32-bit wrapping arithmetic.
-///
-/// The exported `block_<hex start_eip>` function has signature `() -> i64` and
-/// imports `wasm86.cpuState`, a memory of at least one 64-KiB page. Its little-endian
-/// 32-bit fields are EAX, ECX, EDX, EBX, ESP, EBP, ESI and EDI at offsets 24 through
-/// 52 in steps of four, EIP at 56 and the completed-instruction count at 144.
-/// Other bytes are preserved. Final register values are written in first-write
-/// order, followed by EIP and count. The block then tail-calls the imported
-/// `wasm86.dispatch(i32) -> i64` with the next EIP and returns its result.
-pub fn compile_block_from_bytes(
-    start_eip: u32,
-    bytes: &[u8],
-    instruction_limit: u32,
-) -> Result<CompiledBlock, BlockError> {
-    if instruction_limit == 0 {
-        return Err(BlockError::ZeroInstructionLimit);
-    }
-
-    let mut program = Program::new();
-    let memory = program.import_memory(MemoryImport {
-        module: "wasm86".into(),
-        name: "cpuState".into(),
-        minimum: 1,
-        maximum: None,
-    });
-    let dispatch = program.import_function(FunctionImport {
+fn declare_dispatch(program: &mut Program) -> Func {
+    program.import_function(FunctionImport {
         module: "wasm86".into(),
         name: "dispatch".into(),
         signature: Signature {
             parameters: vec![Type::I32],
             result: Type::I64,
         },
-    });
-    let function = program.declare(Signature {
-        parameters: vec![],
-        result: Type::I64,
-    });
-    let mut body = program.define(function)?;
-    let mut state = state::State::new(&mut body, memory);
-    let mut remaining = bytes;
-    let mut next_eip = start_eip;
-
-    for _ in 0..instruction_limit {
-        let (destination, immediate) = decode::mov32(remaining, next_eip)?;
-        semantics::mov32(&mut state, destination, immediate)?;
-        remaining = &remaining[5..];
-        next_eip = next_eip.wrapping_add(5);
-    }
-
-    state.publish(next_eip, instruction_limit)?;
-    body.tail_call(dispatch, &[next_eip.into()])?;
-    let entry = format!("block_{start_eip:x}");
-    program.export(&entry, function)?;
-    Ok(CompiledBlock {
-        bytes: program.compile()?,
-        entry,
     })
 }

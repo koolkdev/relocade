@@ -1,11 +1,16 @@
-use wasm86_compiler::{BuildError, IntoOp, I32};
+use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, I32};
 
-use crate::state::{Gpr32, State};
+use crate::{
+    instruction::{Instruction, Semantic},
+    state::State,
+};
 
-pub(super) fn mov32(
-    state: &mut State<'_, '_>,
-    destination: Gpr32,
-    source: impl IntoOp<I32>,
+pub(super) fn lower<V: IntoOp<I32>>(
+    body: &mut FunctionBuilder<'_>,
+    state: &mut State,
+    instruction: Instruction<V>,
 ) -> Result<(), BuildError> {
-    state.write_register(destination, source)
+    match instruction.semantic {
+        Semantic::Mov32 => state.write_register(body, instruction.destination, instruction.source),
+    }
 }

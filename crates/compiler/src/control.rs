@@ -274,7 +274,10 @@ mod tests {
         let result = value.add(1);
         let arena = body.arena.clone();
         body.return_(&result).unwrap();
-        assert_eq!(result.admit(&arena), Err(BuildError::BodyClosed));
+        assert_eq!(
+            result.checked_expression(&arena),
+            Err(BuildError::BodyClosed)
+        );
         assert!(program.compile().is_ok());
     }
 
@@ -356,7 +359,10 @@ mod tests {
         let result = selected.add(1);
         let arena = body.arena.clone();
         body.return_(&result).unwrap();
-        assert_eq!(result.admit(&arena), Err(BuildError::BodyClosed));
+        assert_eq!(
+            result.checked_expression(&arena),
+            Err(BuildError::BodyClosed)
+        );
         assert!(program.compile().is_ok());
     }
 }

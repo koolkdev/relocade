@@ -43,7 +43,7 @@ enum Operand {
 }
 
 impl Argument {
-    pub(super) fn admit(
+    pub(super) fn resolve(
         &self,
         arena: &ExpressionArena,
         expected: Type,
@@ -54,7 +54,7 @@ impl Argument {
                 expression,
                 ty,
             } => {
-                let value = admit(owner, arena, expression)?;
+                let value = checked_expression(owner, arena, expression)?;
                 if *ty != expected {
                     return Err(BuildError::TypeMismatch {
                         expected,
@@ -125,7 +125,7 @@ impl From<bool> for Argument {
     }
 }
 
-fn admit(
+fn checked_expression(
     owner: &ExpressionArena,
     body: &ExpressionArena,
     expression: &Result<usize, BuildError>,
@@ -146,8 +146,8 @@ impl<T: IntType> Val<T> {
         }
     }
 
-    pub(super) fn admit(&self, arena: &ExpressionArena) -> Result<usize, BuildError> {
-        admit(&self.arena, arena, &self.expression)
+    pub(super) fn checked_expression(&self, arena: &ExpressionArena) -> Result<usize, BuildError> {
+        checked_expression(&self.arena, arena, &self.expression)
     }
 
     /// Passes this value in a call argument list while retaining its logical type and body.
@@ -227,7 +227,10 @@ impl<T: IntType> Val<T> {
     fn operands(&self, other: impl IntoOp<T>) -> Result<(usize, usize), BuildError> {
         // Check both operands before a fold can discard either.
         let other = other.into();
-        Ok((self.admit(&self.arena)?, other.admit(&self.arena, T::TYPE)?))
+        Ok((
+            self.checked_expression(&self.arena)?,
+            other.resolve(&self.arena, T::TYPE)?,
+        ))
     }
 
     fn binary(&self, operator: BinaryOp, other: impl IntoOp<T>) -> Self {
@@ -246,14 +249,14 @@ impl<T: IntType> Val<T> {
 
     fn shift(&self, operator: ShiftOp, count: u32) -> Self {
         let expression = self
-            .admit(&self.arena)
+            .checked_expression(&self.arena)
             .and_then(|input| self.arena.shift(operator, input, count));
         Self::new(self.arena.clone(), expression)
     }
 
     fn convert<To: IntType>(&self) -> Val<To> {
         let expression = self
-            .admit(&self.arena)
+            .checked_expression(&self.arena)
             .and_then(|input| self.arena.convert(input, To::TYPE));
         Val::new(self.arena.clone(), expression)
     }

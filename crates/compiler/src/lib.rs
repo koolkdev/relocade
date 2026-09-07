@@ -337,7 +337,7 @@ impl FunctionBuilder<'_> {
     }
 
     fn argument(&self, value: impl Into<Argument>, expected: Type) -> Result<usize, BuildError> {
-        let value = value.into().admit(&self.arena, expected)?;
+        let value = value.into().resolve(&self.arena, expected)?;
         self.arena.require_visible(value, self.region.id)?;
         Ok(value)
     }

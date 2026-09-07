@@ -84,7 +84,7 @@ fn a_tail_call_closes_retained_values_and_arguments() {
         .unwrap();
     assert_closed(&value);
     assert_eq!(
-        argument.admit(&value.arena, Type::I32),
+        argument.resolve(&value.arena, Type::I32),
         Err(BuildError::BodyClosed)
     );
     assert!(program.compile().is_ok());
@@ -107,7 +107,7 @@ fn a_failed_tail_closes_its_values_without_retaining_the_import() {
     );
     assert_closed(&value);
     assert_eq!(
-        argument.admit(&value.arena, Type::I32),
+        argument.resolve(&value.arena, Type::I32),
         Err(BuildError::BodyClosed)
     );
 

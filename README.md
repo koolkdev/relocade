@@ -18,6 +18,40 @@ order, then EIP and count are updated with 32-bit wrapping arithmetic. The block
 tail-calls dispatch with the next EIP and returns its result. This snapshot path
 currently supports only opcodes B8–BF with imm32 operands.
 
+`compile_interpreter_step()` builds a generated `step() -> i64` entry for the
+same unprefixed MOV32 subset. Both compiler functions return a `CompiledModule`
+containing WebAssembly bytes and its exported entry name.
+
+```rust
+let module = wasm86_x86::compile_interpreter_step()?;
+```
+
+The step reads EIP from CPU state and fetches the instruction from paged guest
+memory. A successful five-byte contiguous-range check allows one opcode load and
+one immediate load. Otherwise the exact path checks the opcode first and uses
+checked byte reads where the immediate cannot be read directly. Success uses the
+same MOV semantics, state publication and dispatch as snapshot blocks.
+
+Both decoders use one instruction form for the opcode pattern, operand fields and
+length, then pass decoded operands to shared instruction lowering. Execution
+drivers choose how to fetch and when to publish CPU state. Pending register
+writes can be published into a terminating fault branch without consuming the
+parent state used by the successful path.
+
+In addition to `cpuState` and `dispatch`, the module imports `wasm86.guest`
+(minimum one Wasm page) and `wasm86.machine` (minimum 64 pages, or 4 MiB).
+All three memory imports require distinct backing objects. Machine memory starts
+with 2^20 little-endian 32-bit page-table entries: bit 0 marks presence and bits
+12–31 identify a 4-KiB frame in guest memory. Present frames must fit the backing
+RAM; invalid backing is a Wasm trap, not a guest page fault.
+
+A missing instruction page returns the 64-bit word
+`(4 << 48) | (0x10 << 32) | first_unavailable_address`. An opcode outside B8–BF
+returns `(8 << 48) | (opcode << 32) | instruction_eip`; this reports the current
+implementation's unsupported subset, not an architectural invalid-opcode fault.
+Both exits preserve CPU state and skip dispatch. The entry executes one
+instruction and has no prefix, instruction-budget or run-loop behavior.
+
 `wasm86-compiler` builds scalar WebAssembly functions from integer constants,
 parameters and typed integer expressions. Values such as `Val<I1>` and `Val<I32>` carry
 logical integer types; function signatures use the corresponding `Type` variants.

@@ -5,7 +5,7 @@ use std::{
     process::Command,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use wasm86_x86::{compile_block_from_bytes, BlockError, CompiledBlock};
+use wasm86_x86::{compile_block_from_bytes, BlockError, CompiledModule};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Validator};
 
 // Intel SDM, MOV: B8+rd id copies imm32 into r32 and leaves flags unchanged.
@@ -205,7 +205,7 @@ impl Drop for ModuleFile {
 
 fn check(
     flags: &[&str],
-    block: &CompiledBlock,
+    block: &CompiledModule,
     initial: &[u8],
     updates: &[(usize, u32)],
     dispatched: i32,

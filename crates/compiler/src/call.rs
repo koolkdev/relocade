@@ -151,7 +151,7 @@ impl FunctionBuilder<'_> {
         }
         let mut values = Vec::with_capacity(arguments.len());
         for (argument, expected) in arguments.iter().zip(&signature.parameters) {
-            let value = argument.admit(&self.arena, *expected)?;
+            let value = argument.resolve(&self.arena, *expected)?;
             self.arena.require_visible(value, self.region.id)?;
             values.push(value);
         }
