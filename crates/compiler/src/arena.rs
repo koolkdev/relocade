@@ -82,6 +82,30 @@ impl ExpressionArena {
         })
     }
 
+    pub(super) fn normalize(&self, input: usize) -> Result<usize, BuildError> {
+        let mut arena = self.0.borrow_mut();
+        let arena = arena.as_mut().ok_or(BuildError::BodyClosed)?;
+        let value = arena.values[input];
+        match value.kind {
+            ValueKind::Constant(_)
+            | ValueKind::Parameter(_)
+            | ValueKind::Load { .. }
+            | ValueKind::Normalize(_) => Ok(input),
+            ValueKind::Add(..) => {
+                if matches!(value.ty, Type::I1 | Type::I8 | Type::I16) {
+                    // Calls and returns need unused upper bits cleared. Share that
+                    // masked result while stores and arithmetic keep the original.
+                    Ok(arena.intern(Value {
+                        ty: value.ty,
+                        kind: ValueKind::Normalize(input),
+                    }))
+                } else {
+                    Ok(input)
+                }
+            }
+        }
+    }
+
     pub(super) fn take(&self) -> Option<Vec<Value>> {
         let arena = self.0.borrow_mut().take();
         arena.map(|arena| arena.values)

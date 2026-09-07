@@ -5,7 +5,8 @@
 ///
 /// At function boundaries, I1, I8 and I16 use zero-extended Wasm i32 values.
 /// Callers must supply arguments in 0..=1, 0..=255 and 0..=65535 respectively.
-/// Narrow return values are zero-extended to those same ranges.
+/// Narrow return values are zero-extended to those same ranges. Imported functions
+/// must follow this contract too, including when they are exported directly.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Type {
     I1,

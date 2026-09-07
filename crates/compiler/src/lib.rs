@@ -20,6 +20,7 @@
 #![forbid(unsafe_code)]
 
 mod arena;
+mod call;
 mod emit;
 mod locals;
 mod memory;
@@ -31,10 +32,11 @@ mod value;
 use std::fmt;
 
 use arena::ExpressionArena;
+pub use call::FunctionImport;
 use memory::Location;
 pub use memory::{Mem, MemoryImport, MemoryInt};
 pub use types::{IntType, Type, I1, I16, I32, I64, I8};
-pub use value::{IntLiteral, IntoOp, Val};
+pub use value::{Argument, IntLiteral, IntoOp, Val};
 
 /// A function's parameter types and single return type.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -53,6 +55,8 @@ pub struct Func(usize);
 pub enum BuildError {
     UnknownFunction,
     UnknownMemory,
+    ImportedFunction,
+    ArgumentCount { expected: usize, actual: usize },
     AlreadyDefined,
     MissingBody,
     UnknownParameter,
@@ -65,6 +69,15 @@ pub enum BuildError {
 impl fmt::Display for BuildError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::ImportedFunction => {
+                formatter.write_str("an imported function cannot have a body")
+            }
+            Self::ArgumentCount { expected, actual } => {
+                write!(
+                    formatter,
+                    "expected {expected} arguments, received {actual}"
+                )
+            }
             Self::UnknownMemory => formatter.write_str("unknown memory declaration"),
             Self::UnknownFunction => formatter.write_str("unknown function declaration"),
             Self::AlreadyDefined => formatter.write_str("function already has a finished body"),
@@ -92,13 +105,32 @@ pub struct Program {
 
 struct Declaration {
     signature: Signature,
-    body: Option<Body>,
+    kind: FunctionKind,
+}
+
+enum FunctionKind {
+    Defined(Option<Body>),
+    Imported { module: String, name: String },
 }
 
 struct Body {
     values: Vec<Value>,
     operations: Vec<Operation>,
-    result: usize,
+    terminal: Terminal,
+}
+
+enum Terminal {
+    Return(usize),
+    TailCall { target: Func, arguments: Vec<usize> },
+}
+
+impl Terminal {
+    fn inputs(&self) -> &[usize] {
+        match self {
+            Self::Return(value) => std::slice::from_ref(value),
+            Self::TailCall { arguments, .. } => arguments,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -118,12 +150,13 @@ enum ValueKind {
     Constant(u64),
     Parameter(u32),
     Add(usize, usize),
+    Normalize(usize),
     Load { location: Location, site: usize },
 }
 
-/// Builds one function body. Returning a value completes its definition.
+/// Builds one function body. Returning a value or making a tail call completes it.
 ///
-/// Dropping this builder without returning leaves the function undefined.
+/// Dropping this builder without completing it leaves the function undefined.
 /// A builder cannot be used after its program is consumed:
 /// ```compile_fail
 /// use wasm86_compiler::{Program, Signature, Type, I32};
@@ -147,12 +180,12 @@ impl Program {
     }
 
     /// Declares a function that must be defined before compilation.
-    /// Functions are emitted in declaration order, including unexported functions.
+    /// Definitions are emitted in declaration order, including unexported functions.
     pub fn declare(&mut self, signature: Signature) -> Func {
         let function = Func(self.functions.len());
         self.functions.push(Declaration {
             signature,
-            body: None,
+            kind: FunctionKind::Defined(None),
         });
         function
     }
@@ -163,8 +196,10 @@ impl Program {
             .functions
             .get(function.0)
             .ok_or(BuildError::UnknownFunction)?;
-        if declaration.body.is_some() {
-            return Err(BuildError::AlreadyDefined);
+        match declaration.kind {
+            FunctionKind::Imported { .. } => return Err(BuildError::ImportedFunction),
+            FunctionKind::Defined(Some(_)) => return Err(BuildError::AlreadyDefined),
+            FunctionKind::Defined(None) => {}
         }
         Ok(FunctionBuilder {
             program: self,
@@ -186,12 +221,12 @@ impl Program {
     }
 
     /// Encodes the module as WebAssembly bytes, consuming the program.
-    /// Every declared function must have a completed body.
+    /// Every defined function must have a completed body.
     pub fn compile(self) -> Result<Vec<u8>, BuildError> {
         if self
             .functions
             .iter()
-            .any(|function| function.body.is_none())
+            .any(|function| matches!(function.kind, FunctionKind::Defined(None)))
         {
             return Err(BuildError::MissingBody);
         }
@@ -234,7 +269,7 @@ impl FunctionBuilder<'_> {
     /// Ends the generated function with this return value and saves its body,
     /// consuming the builder.
     /// On error, the unfinished body is discarded and the function remains undefined.
-    pub fn return_<T: IntType>(mut self, result: &Val<T>) -> Result<(), BuildError> {
+    pub fn return_<T: IntType>(self, result: &Val<T>) -> Result<(), BuildError> {
         let result = result.admit(&self.arena)?;
         let expected = self.signature().result;
         if T::TYPE != expected {
@@ -243,19 +278,24 @@ impl FunctionBuilder<'_> {
                 actual: T::TYPE,
             });
         }
+        let result = self.arena.normalize(result)?;
+        self.complete(Terminal::Return(result))
+    }
+
+    fn complete(mut self, terminal: Terminal) -> Result<(), BuildError> {
         let values = self.arena.take().ok_or(BuildError::BodyClosed)?;
-        self.program.functions[self.function.0].body = Some(Body {
+        self.program.functions[self.function.0].kind = FunctionKind::Defined(Some(Body {
             values,
             operations: std::mem::take(&mut self.operations),
-            result,
-        });
+            terminal,
+        }));
         Ok(())
     }
 }
 
 impl Drop for FunctionBuilder<'_> {
     fn drop(&mut self) {
-        // Returning successfully has already transferred the values. Every other exit
+        // Completing successfully has already transferred the values. Every other exit
         // discards them and prevents retained handles from building more expressions.
         self.arena.take();
     }

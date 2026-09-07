@@ -1,7 +1,7 @@
 //! Instruction ordering and storage of shared expression results.
 use wasm_encoder::{Encode, Function, Instruction, MemArg, ValType};
 
-use crate::{locals, memory::Location, place, Body, Operation, Type, ValueKind};
+use crate::{locals, memory::Location, place, Body, Operation, Terminal, Type, ValueKind};
 
 struct LocalEvent {
     // Position in the byte buffer, excluding local instructions inserted later.
@@ -26,6 +26,7 @@ pub(super) fn wasm_type(ty: Type) -> ValType {
 enum Walk {
     Value(usize),
     FinishAdd(usize),
+    FinishNormalize(usize),
 }
 
 struct Scheduler<'a> {
@@ -37,7 +38,12 @@ struct Scheduler<'a> {
     events: Vec<LocalEvent>,
 }
 
-pub(super) fn encode(body: &Body, parameter_count: u32, memories: &[Option<u32>]) -> Function {
+pub(super) fn encode(
+    body: &Body,
+    parameter_count: u32,
+    memories: &[Option<u32>],
+    functions: &[Option<u32>],
+) -> Function {
     let mut scheduler = Scheduler {
         body,
         memories,
@@ -72,21 +78,16 @@ pub(super) fn encode(body: &Body, parameter_count: u32, memories: &[Option<u32>]
             }
         }
     }
-    scheduler.value(body.result);
-    // Constants, incoming parameters and whole-byte loads are canonical.
-    // Addition preserves the low bits without masking each step; only its
-    // returned result needs the unused upper bits cleared.
-    let result = &body.values[body.result];
-    match result.kind {
-        ValueKind::Constant(_) | ValueKind::Parameter(_) | ValueKind::Load { .. } => {}
-        ValueKind::Add(..) => {
-            if matches!(result.ty, Type::I1 | Type::I8 | Type::I16) {
-                Instruction::I32Const(result.ty.mask() as i32).encode(&mut scheduler.bytes);
-                Instruction::I32And.encode(&mut scheduler.bytes);
-            }
-        }
+    for &value in body.terminal.inputs() {
+        scheduler.value(value);
     }
-    Instruction::Return.encode(&mut scheduler.bytes);
+    match body.terminal {
+        Terminal::Return(_) => Instruction::Return,
+        Terminal::TailCall { target, .. } => Instruction::ReturnCall(
+            functions[target.0].expect("a tail-call target has a function index"),
+        ),
+    }
+    .encode(&mut scheduler.bytes);
     Instruction::End.encode(&mut scheduler.bytes);
     scheduler.finish(parameter_count)
 }
@@ -112,6 +113,13 @@ impl Scheduler<'_> {
         while let Some(next) = pending.pop() {
             let id = match next {
                 Walk::Value(id) => id,
+                Walk::FinishNormalize(id) => {
+                    Instruction::I32Const(self.body.values[id].ty.mask() as i32)
+                        .encode(&mut self.bytes);
+                    Instruction::I32And.encode(&mut self.bytes);
+                    self.completed(id);
+                    continue;
+                }
                 Walk::FinishAdd(id) => {
                     match self.body.values[id].ty {
                         Type::I1 | Type::I8 | Type::I16 | Type::I32 => Instruction::I32Add,
@@ -139,6 +147,10 @@ impl Scheduler<'_> {
                     pending.push(Walk::FinishAdd(id));
                     pending.push(Walk::Value(b));
                     pending.push(Walk::Value(a));
+                }
+                ValueKind::Normalize(input) => {
+                    pending.push(Walk::FinishNormalize(id));
+                    pending.push(Walk::Value(input));
                 }
                 ValueKind::Load { .. } => {
                     self.load(id);

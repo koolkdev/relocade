@@ -1,19 +1,57 @@
 use std::marker::PhantomData;
 
 use crate::arena::ExpressionArena;
-use crate::{BuildError, IntType, I1, I64};
+use crate::{BuildError, IntType, Type, I1, I64};
 
 /// An integer value in one function body, with its type checked by Rust.
 ///
 /// Operations build expressions immediately. Cloning a value shares the body's
 /// storage; it does not clone the expression or its operands. A construction error
-/// is reported when the resulting value is stored or returned. Returning
-/// from or dropping the body prevents its values from building more expressions.
+/// is reported when the resulting value is stored, returned or passed to a call.
+/// Completing or dropping the body prevents its values from building more expressions.
 #[derive(Clone)]
 pub struct Val<T: IntType> {
     arena: ExpressionArena,
     expression: Result<usize, BuildError>,
     ty: PhantomData<T>,
+}
+
+/// A call argument retaining its logical type and function-body ownership.
+/// Create one with [`Val::argument`] to pass differently typed values together.
+#[derive(Clone)]
+pub struct Argument {
+    arena: ExpressionArena,
+    expression: Result<usize, BuildError>,
+    ty: Type,
+}
+
+impl Argument {
+    pub(super) fn admit(
+        &self,
+        arena: &ExpressionArena,
+        expected: Type,
+    ) -> Result<usize, BuildError> {
+        let value = admit(&self.arena, arena, &self.expression)?;
+        if self.ty != expected {
+            return Err(BuildError::TypeMismatch {
+                expected,
+                actual: self.ty,
+            });
+        }
+        Ok(value)
+    }
+}
+
+fn admit(
+    owner: &ExpressionArena,
+    body: &ExpressionArena,
+    expression: &Result<usize, BuildError>,
+) -> Result<usize, BuildError> {
+    if !owner.same_body(body) {
+        return Err(BuildError::ForeignBody);
+    }
+    body.check_open()?;
+    expression.clone()
 }
 
 impl<T: IntType> Val<T> {
@@ -31,11 +69,16 @@ impl<T: IntType> Val<T> {
     }
 
     pub(super) fn admit(&self, arena: &ExpressionArena) -> Result<usize, BuildError> {
-        if !self.arena.same_body(arena) {
-            return Err(BuildError::ForeignBody);
+        admit(&self.arena, arena, &self.expression)
+    }
+
+    /// Passes this value in a call argument list while retaining its logical type and body.
+    pub fn argument(&self) -> Argument {
+        Argument {
+            arena: self.arena.clone(),
+            expression: self.expression.clone(),
+            ty: T::TYPE,
         }
-        arena.check_open()?;
-        self.expression.clone()
     }
 
     /// Creates an independent constant in this value's body, with the requested type.

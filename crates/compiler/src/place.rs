@@ -31,7 +31,9 @@ pub(super) fn plan(body: &Body) -> Placement {
             demand(&mut demands, value, site);
         }
     }
-    demand(&mut demands, body.result, body.operations.len());
+    for &value in body.terminal.inputs() {
+        demand(&mut demands, value, body.operations.len());
+    }
     let mut captures = vec![false; body.values.len()];
     // Operands precede consumers. A shared addition executes at its first use,
     // so each input is needed once there, even if the addition has later uses.
@@ -42,6 +44,7 @@ pub(super) fn plan(body: &Body) -> Placement {
                 demand(&mut demands, a, use_.first);
                 demand(&mut demands, b, use_.first);
             }
+            ValueKind::Normalize(input) => demand(&mut demands, input, use_.first),
             ValueKind::Load { location, site } => {
                 // The store consuming a load runs after its operands. Only a
                 // write strictly before that first use can destroy the snapshot.
@@ -62,7 +65,10 @@ pub(super) fn plan(body: &Body) -> Placement {
         .enumerate()
         .map(|(id, value)| {
             if demands[id].is_some_and(|use_| use_.count > 1 || captures[id])
-                && matches!(value.kind, ValueKind::Add(..) | ValueKind::Load { .. })
+                && matches!(
+                    value.kind,
+                    ValueKind::Add(..) | ValueKind::Normalize(_) | ValueKind::Load { .. }
+                )
             {
                 let slot = slot_types.len();
                 slot_types.push(wasm_type(value.ty));
