@@ -337,7 +337,7 @@ fn mov_blocks_execute_in_v8_optimizing() {
 }
 
 #[test]
-fn register_mov_requires_modrm_and_rejects_memory_addressing_before_displacement() {
+fn register_mov_requires_its_modrm_byte() {
     for opcode in [0x89, 0x8b] {
         assert!(matches!(
             compile_block_from_bytes(0x1000, &[opcode], 1),
@@ -346,13 +346,6 @@ fn register_mov_requires_modrm_and_rejects_memory_addressing_before_displacement
                 available: 1
             })
         ));
-        for modrm in [0x05, 0x40] {
-            assert!(matches!(
-                compile_block_from_bytes(0x1000, &[opcode, modrm], 1),
-                Err(BlockError::UnsupportedModRm { address: 0x1000, opcode: actual_opcode, modrm: actual_modrm })
-                    if actual_opcode == opcode && actual_modrm == modrm
-            ));
-        }
     }
     assert!(matches!(
         compile_block_from_bytes(0xffff_fffe, &[0x89, 0xc1, 0x8b], 2),

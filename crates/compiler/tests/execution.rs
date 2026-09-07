@@ -1,56 +1,14 @@
-use std::{
-    fs,
-    path::PathBuf,
-    process::Command,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+#[path = "support/wasm.rs"]
+mod wasm;
+use wasm::ModuleFile;
+
 use wasm86_compiler::{
     FunctionBuilder, IntType, Program, Signature, Type, Val, I1, I16, I32, I64, I8,
 };
 
-struct ModuleFile(PathBuf);
-
-impl ModuleFile {
-    fn new(program: Program) -> Self {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "wasm86-scalar-{}-{}.wasm",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::write(&path, program.compile().unwrap()).unwrap();
-        Self(path)
-    }
-
-    fn check(&self, flags: &[&str], name: &str, args: &[&str], expected: &str) {
-        let output = Command::new("node")
-            .args(flags)
-            .arg(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/support/execute.mjs"
-            ))
-            .arg(&self.0)
-            .arg(name)
-            .args(args)
-            .output()
-            .expect("the explicit V8 lane requires Node.js on PATH");
-        assert!(
-            output.status.success(),
-            "{name}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert_eq!(
-            String::from_utf8(output.stdout).unwrap().trim(),
-            expected,
-            "{name}({args:?}), V8 flags {flags:?}"
-        );
-    }
-}
-
-impl Drop for ModuleFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
+fn check(module: &ModuleFile, flags: &[&str], name: &str, args: &[&str], expected: &str) {
+    let arguments = [&[name], args].concat();
+    module.check(flags, "execute.mjs", &arguments, &format!("{expected}\n"));
 }
 
 fn define_export<T: IntType>(
@@ -201,7 +159,7 @@ fn check_execution(flags: &[&str]) {
         body.value::<I1>(true).unwrap().add(true)
     });
 
-    let module = ModuleFile::new(program);
+    let module = ModuleFile::new(&program.compile().unwrap());
     for (name, expected) in [
         ("zero32", "0"),
         ("min32", "-2147483648"),
@@ -220,7 +178,7 @@ fn check_execution(flags: &[&str]) {
         ("second", "11"),
         ("second_alias", "11"),
     ] {
-        module.check(flags, name, &[], expected);
+        check(&module, flags, name, &[], expected);
     }
     for (name, expected) in [
         ("literal1", "0"),
@@ -231,7 +189,7 @@ fn check_execution(flags: &[&str]) {
         ("negative16", "65535"),
         ("boolean_add", "0"),
     ] {
-        module.check(flags, name, &[], expected);
+        check(&module, flags, name, &[], expected);
     }
     for (name, arg, expected) in [
         ("identity1", "i32:0", "0"),
@@ -244,7 +202,7 @@ fn check_execution(flags: &[&str]) {
         ("shared16", "i32:65534", "0"),
         ("shared16", "i32:65535", "2"),
     ] {
-        module.check(flags, name, &[arg], expected);
+        check(&module, flags, name, &[arg], expected);
     }
     for (name, args, expected) in [
         ("add1", ["i32:0", "i32:1"], "1"),
@@ -256,7 +214,7 @@ fn check_execution(flags: &[&str]) {
         ("add16", ["i32:32767", "i32:1"], "32768"),
         ("add16", ["i32:65535", "i32:65535"], "65534"),
     ] {
-        module.check(flags, name, &args, expected);
+        check(&module, flags, name, &args, expected);
     }
     for (name, args, expected) in [
         ("add32", ["i32:2147483647", "i32:1"], "-2147483648"),
@@ -276,7 +234,7 @@ fn check_execution(flags: &[&str]) {
         ("add64", ["i64:-1", "i64:1"], "0"),
         ("add64", ["i64:19", "i64:-7"], "12"),
     ] {
-        module.check(flags, name, &args, expected);
+        check(&module, flags, name, &args, expected);
     }
     for (name, args) in [
         ("overlap32", ["i32:4", "i32:10"]),
@@ -284,7 +242,7 @@ fn check_execution(flags: &[&str]) {
         ("overlap64", ["i64:4", "i64:10"]),
         ("disjoint64", ["i64:4", "i64:10"]),
     ] {
-        module.check(flags, name, &args, "34");
+        check(&module, flags, name, &args, "34");
     }
     let args = [
         "i32:17",
@@ -298,7 +256,7 @@ fn check_execution(flags: &[&str]) {
         ("param2", "-91"),
         ("param3", "9223372036854775807"),
     ] {
-        module.check(flags, name, &args, expected);
+        check(&module, flags, name, &args, expected);
     }
     for (name, arg, expected) in [
         ("shared32", "i32:4", "14"),
@@ -306,7 +264,7 @@ fn check_execution(flags: &[&str]) {
         ("shared64", "i64:4", "14"),
         ("shared64", "i64:9223372036854775807", "4"),
     ] {
-        module.check(flags, name, &[arg], expected);
+        check(&module, flags, name, &[arg], expected);
     }
 }
 

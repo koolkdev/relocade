@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 const [path, entry, returned, invocations = '1'] = process.argv.slice(2);
-const [cpu, guestPatches, machinePatches, arguments_ = []] = JSON.parse(readFileSync(0, 'utf8'));
+const [cpu, guestPatches, machinePatches, arguments_ = [], observeGuest = false] = JSON.parse(readFileSync(0, 'utf8'));
 const args = arguments_.map(([type, value]) => type === 'i64' ? BigInt(value) : Number(value));
 const cpuState = new WebAssembly.Memory({ initial: 1 });
 const guest = new WebAssembly.Memory({ initial: 1 });
@@ -14,6 +14,7 @@ const instance = new WebAssembly.Instance(module, {
     cpuState, guest, machine,
     dispatch: (...args) => {
       lines.push(`dispatch(${args.join(',')}) ${snapshot()}`);
+      if (observeGuest) lines.push(`guest at dispatch ${guestChanges()}`);
       return BigInt(returned);
     },
   },
@@ -23,6 +24,14 @@ for (const [memory, patches] of [[guest, guestPatches], [machine, machinePatches
   for (const [offset, bytes] of patches) new Uint8Array(memory.buffer).set(bytes, offset);
 }
 const guestBefore = Buffer.from(new Uint8Array(guest.buffer));
+const guestChanges = () => {
+  const bytes = new Uint8Array(guest.buffer);
+  const changes = [];
+  for (let offset = 0; offset < bytes.length; offset++) {
+    if (bytes[offset] !== guestBefore[offset]) changes.push([offset, bytes[offset]]);
+  }
+  return JSON.stringify(changes);
+};
 const machineBefore = Buffer.from(new Uint8Array(machine.buffer));
 for (let call = 0; call < Number(invocations); call++) {
   let result;
@@ -33,6 +42,7 @@ for (let call = 0; call < Number(invocations); call++) {
     result = 'trap';
   }
   lines.push(`return ${result}`, `state ${snapshot()}`);
+  if (observeGuest) lines.push(`guest at return ${guestChanges()}`);
 }
 lines.push(`guest ${guestBefore.equals(Buffer.from(guest.buffer)) ? 'unchanged' : 'changed'}`);
 lines.push(`machine ${machineBefore.equals(Buffer.from(machine.buffer)) ? 'unchanged' : 'changed'}`);

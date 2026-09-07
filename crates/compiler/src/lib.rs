@@ -1,18 +1,18 @@
 //! Guest-independent construction of scalar WebAssembly functions.
 //!
-//! Declare each function, build its body, then choose its exports and compile:
+//! Build functions, choose their exports, then compile the module:
 //!
 //! ```
 //! use wasm86_compiler::{Program, Signature, Type, I32};
 //!
 //! let mut program = Program::new();
-//! let increment = program.declare(Signature {
+//! let increment = program.function(Signature {
 //!     parameters: vec![Type::I32],
 //!     result: Type::I32,
-//! });
-//! let body = program.define(increment)?;
-//! let value = body.parameter::<I32>(0)?;
-//! body.return_(&value.add(1))?;
+//! }, |body| {
+//!     let value = body.parameter::<I32>(0)?;
+//!     body.return_(value.add(1))
+//! })?;
 //! program.export("increment", increment)?;
 //! let bytes = program.compile()?;
 //! # Ok::<(), wasm86_compiler::BuildError>(())
@@ -42,7 +42,7 @@ use integer::{BinaryOp, CompareOp, ShiftOp};
 use memory::Location;
 pub use memory::{Mem, MemoryImport, MemoryInt};
 pub use types::{AtLeast, IntType, Type, I1, I16, I32, I64, I8};
-pub use value::{Argument, IntoOp, Unsigned, Val};
+pub use value::{Argument, IntoOp, Signed, Unsigned, Val};
 
 /// A function's parameter types and single return type.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -180,14 +180,34 @@ enum ValueKind {
     Constant(u64),
     Parameter(u32),
     Binary(BinaryOp, usize, usize),
-    Shift(ShiftOp, usize, u32),
+    Shift {
+        operator: ShiftOp,
+        value: usize,
+        count: usize,
+    },
+    Select {
+        condition: usize,
+        when_true: usize,
+        when_false: usize,
+    },
+    SignExtend(usize),
     Compare(CompareOp, usize, usize),
-    ZeroTest { input: usize, nonzero: bool },
+    ZeroTest {
+        input: usize,
+        nonzero: bool,
+    },
     Convert(usize),
     Normalize(usize),
-    Load { location: Location, site: Site },
-    CallResult { site: Site },
-    JoinResult { site: Site },
+    Load {
+        location: Location,
+        site: Site,
+    },
+    CallResult {
+        site: Site,
+    },
+    JoinResult {
+        site: Site,
+    },
 }
 
 /// Builds a function body or a conditional branch. A yield, return or tail call
@@ -195,7 +215,7 @@ enum ValueKind {
 /// body.
 ///
 /// Dropping the outer builder without completing it leaves the function undefined.
-/// Dropping a child of `if_` normally completes a branch that falls through.
+/// Dropping a child of `if_` or `if_else` completes a branch that falls through.
 /// A value-producing arm must instead yield a value, return, or tail-call.
 /// A builder cannot be used after its program is consumed:
 /// ```compile_fail
@@ -219,6 +239,35 @@ pub struct FunctionBuilder<'p> {
 impl Program {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Declares and builds a function, returning its handle after completion.
+    /// The callback must complete the outer body with a return or tail call.
+    /// An error or an incomplete body removes the new declaration, leaving this
+    /// program usable. Use [`Self::declare`] and [`Self::define`] for forward
+    /// references or recursive functions.
+    pub fn function(
+        &mut self,
+        signature: Signature,
+        build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
+    ) -> Result<Func, BuildError> {
+        let function = self.declare(signature);
+        let result = self.define(function).and_then(build).and_then(|()| {
+            if matches!(
+                self.functions[function.0].kind,
+                FunctionKind::Defined(Some(_))
+            ) {
+                Ok(function)
+            } else {
+                Err(BuildError::MissingBody)
+            }
+        });
+        if result.is_err() {
+            // The body holds the program borrow, so the callback cannot append
+            // declarations after this one.
+            self.functions.pop();
+        }
+        result
     }
 
     /// Declares a function that must be defined before compilation.
@@ -382,5 +431,129 @@ impl Drop for FunctionBuilder<'_> {
             }
             Destination::Branch { .. } => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BuildError, MemoryImport, Program, Signature, Type, I1, I32};
+    use wasmparser::{Operator, Parser, Payload, Validator};
+
+    #[test]
+    fn completed_functions_can_be_called_and_exported_with_logical_signatures() {
+        let mut program = Program::new();
+        let is_zero = program
+            .function(
+                Signature {
+                    parameters: vec![Type::I32],
+                    result: Type::I1,
+                },
+                |body| {
+                    let value = body.parameter::<I32>(0)?;
+                    body.return_(value.eq(0))
+                },
+            )
+            .unwrap();
+        let run = program
+            .function(
+                Signature {
+                    parameters: vec![Type::I32],
+                    result: Type::I1,
+                },
+                |mut body| {
+                    let input = body.parameter::<I32>(0)?;
+                    let result = body.call::<I1>(is_zero, &[input.into()])?;
+                    body.return_(result)
+                },
+            )
+            .unwrap();
+        program.export("is_zero", is_zero).unwrap();
+        program.export("run", run).unwrap();
+        let bytes = program.compile().unwrap();
+        Validator::new().validate_all(&bytes).unwrap();
+        let calls = Parser::new(0)
+            .parse_all(&bytes)
+            .filter_map(|payload| match payload.unwrap() {
+                Payload::CodeSectionEntry(body) => Some(
+                    body.get_operators_reader()
+                        .unwrap()
+                        .into_iter()
+                        .filter(|operator| matches!(operator, Ok(Operator::Call { .. })))
+                        .count(),
+                ),
+                _ => None,
+            })
+            .sum::<usize>();
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn a_callback_error_discards_even_a_completed_body_and_its_import_use() {
+        let mut program = Program::new();
+        let memory = program.import_memory(MemoryImport {
+            module: "host".into(),
+            name: "memory".into(),
+            minimum: 1,
+            maximum: None,
+        });
+        let error = program
+            .function(
+                Signature {
+                    parameters: vec![],
+                    result: Type::I32,
+                },
+                |mut body| {
+                    let value = body.load::<I32>(memory, 0)?;
+                    body.return_(value)?;
+                    Err(BuildError::BodyClosed)
+                },
+            )
+            .unwrap_err();
+        assert_eq!(error, BuildError::BodyClosed);
+        let function = program
+            .function(
+                Signature {
+                    parameters: vec![],
+                    result: Type::I32,
+                },
+                |body| body.return_(7),
+            )
+            .unwrap();
+        assert_eq!(function.0, 0);
+        program.export("run", function).unwrap();
+        let bytes = program.compile().unwrap();
+        Validator::new().validate_all(&bytes).unwrap();
+        assert!(Parser::new(0)
+            .parse_all(&bytes)
+            .all(|payload| !matches!(payload.unwrap(), Payload::ImportSection(_))));
+    }
+
+    #[test]
+    fn a_successful_callback_must_complete_its_body() {
+        let mut program = Program::new();
+        let error = program
+            .function(
+                Signature {
+                    parameters: vec![],
+                    result: Type::I1,
+                },
+                |_body| Ok(()),
+            )
+            .unwrap_err();
+        assert_eq!(error, BuildError::MissingBody);
+        let function = program
+            .function(
+                Signature {
+                    parameters: vec![],
+                    result: Type::I1,
+                },
+                |body| body.return_(true),
+            )
+            .unwrap();
+        assert_eq!(function.0, 0);
+        program.export("run", function).unwrap();
+        Validator::new()
+            .validate_all(&program.compile().unwrap())
+            .unwrap();
     }
 }

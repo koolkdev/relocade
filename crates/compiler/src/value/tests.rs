@@ -187,3 +187,69 @@ fn expression_identity_is_false_for_foreign_or_failed_values() {
     assert_eq!(body.value(&foreign).err(), Some(BuildError::ForeignBody));
     body.return_(current).unwrap();
 }
+
+#[test]
+fn a_zero_shift_still_checks_the_computed_count_owner() {
+    let mut program = Program::new();
+    let function = program.declare(Signature {
+        parameters: vec![Type::I32],
+        result: Type::I32,
+    });
+    let discarded = program.define(function).unwrap();
+    let foreign = discarded.parameter::<I32>(0).unwrap();
+    drop(discarded);
+    let body = program.define(function).unwrap();
+    let zero = body.value::<I32>(0).unwrap();
+    assert_eq!(
+        body.value(zero.shl(foreign)).err(),
+        Some(BuildError::ForeignBody)
+    );
+    body.return_(zero).unwrap();
+    assert!(program.compile().is_ok());
+}
+
+#[test]
+fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
+    use crate::I1;
+
+    let mut program = Program::new();
+    let memory = program.import_memory(MemoryImport {
+        module: "test".into(),
+        name: "memory".into(),
+        minimum: 1,
+        maximum: None,
+    });
+    let function = program.declare(Signature {
+        parameters: vec![],
+        result: Type::I32,
+    });
+    let discarded = program.define(function).unwrap();
+    let foreign = discarded.value::<I32>(9).unwrap();
+    drop(discarded);
+    let mut body = program.define(function).unwrap();
+    let condition = body.value::<I1>(true).unwrap();
+    assert_eq!(
+        body.value(condition.select(7, foreign)).err(),
+        Some(BuildError::ForeignBody)
+    );
+
+    let mut sibling = None;
+    body.if_(false, |mut branch| {
+        sibling = Some(branch.load::<I32>(memory, 0)?);
+        Ok(())
+    })
+    .unwrap();
+    body.if_(false, |mut branch| {
+        let local = branch.load::<I32>(memory, 4)?;
+        assert_eq!(
+            branch
+                .value(condition.select(local, sibling.unwrap()))
+                .err(),
+            Some(BuildError::OutOfScope)
+        );
+        Ok(())
+    })
+    .unwrap();
+    body.return_(7).unwrap();
+    assert!(program.compile().is_ok());
+}

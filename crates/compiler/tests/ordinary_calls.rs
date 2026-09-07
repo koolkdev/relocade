@@ -1,9 +1,7 @@
-use std::{
-    fs,
-    path::PathBuf,
-    process::Command,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+#[path = "support/wasm.rs"]
+mod wasm;
+use wasm::ModuleFile;
+
 use wasm86_compiler::{
     Func, FunctionImport, Mem, MemoryImport, Program, Signature, Type, I1, I32, I64, I8,
 };
@@ -444,55 +442,12 @@ fn a_logical_one_bit_call_result_can_control_a_branch() {
     assert_eq!(code.masks, 0);
 }
 
-struct ModuleFile(PathBuf);
-
-impl ModuleFile {
-    fn new(bytes: &[u8]) -> Self {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "wasm86-calls-{}-{}.wasm",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::write(&path, bytes).unwrap();
-        Self(path)
-    }
-
-    fn check(&self, flags: &[&str], inputs: &[&str], expected: &str) {
-        let output = Command::new("node")
-            .args(flags)
-            .arg(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/support/execute-tail.mjs"
-            ))
-            .arg(&self.0)
-            .arg("run")
-            .args(inputs)
-            .output()
-            .expect("the explicit V8 lane requires Node.js on PATH");
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert_eq!(
-            String::from_utf8(output.stdout).unwrap(),
-            expected,
-            "inputs {inputs:?}, flags {flags:?}"
-        );
-    }
-}
-
-impl Drop for ModuleFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
 fn check_execution(flags: &[&str]) {
     ModuleFile::new(&ordered_imports()).check(
         flags,
+        "execute-tail.mjs",
         &[
+            "run",
             "-",
             "receive:i64:9223372036854775807",
             "i32:2147483647",
@@ -506,85 +461,110 @@ fn check_execution(flags: &[&str]) {
     );
     ModuleFile::new(&narrow_arguments_and_result()).check(
         flags,
-        &["a55a", "receive:i32:255", "i32:255"],
+        "execute-tail.mjs",
+        &["run", "a55a", "receive:i32:255", "i32:255"],
         "receive(0,0) 005a\nreturn 0\nstate 005a\n",
     );
     ModuleFile::new(&transitive_mutation()).check(
         flags,
-        &["070000000b000000a55a", ""],
+        "execute-tail.mjs",
+        &["run", "070000000b000000a55a", ""],
         "return 16\nstate 0900000005000000a55a\n",
     );
     ModuleFile::new(&readonly_call(0, 0, ReadUse::ReturnSnapshot)).check(
         flags,
-        &["070000000b000000a55a", ""],
+        "execute-tail.mjs",
+        &["run", "070000000b000000a55a", ""],
         "return 7\nstate 090000000b000000a55a\n",
     );
     ModuleFile::new(&readonly_call(8, 4, ReadUse::ReturnSnapshot)).check(
         flags,
-        &["070000000b00000005000000a55a", ""],
+        "execute-tail.mjs",
+        &["run", "070000000b00000005000000a55a", ""],
         "return 5\nstate 010000000900000005000000a55a\n",
     );
     ModuleFile::new(&readonly_call(0, 0, ReadUse::AddFreshRead)).check(
         flags,
-        &["070000000b000000a55a", ""],
+        "execute-tail.mjs",
+        &["run", "070000000b000000a55a", ""],
         "return 16\nstate 090000000b000000a55a\n",
     );
     ModuleFile::new(&readonly_call(65536, 0, ReadUse::Discard)).check(
         flags,
-        &["07000000a55a", ""],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", ""],
         "return 7\nstate 09000000a55a\n",
     );
     ModuleFile::new(&readonly_call(65536, 0, ReadUse::ReturnSnapshot)).check(
         flags,
-        &["07000000a55a", ""],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", ""],
         "return trap\nstate 09000000a55a\n",
     );
     ModuleFile::new(&readonly_call(65536, 65536, ReadUse::ReturnSnapshot)).check(
         flags,
-        &["07000000a55a", ""],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", ""],
         "return trap\nstate 07000000a55a\n",
     );
     let computed = ModuleFile::new(&computed_helper_read());
     computed.check(
         flags,
-        &["070000000b00000005000000a55a", "", "i32:8"],
+        "execute-tail.mjs",
+        &["run", "070000000b00000005000000a55a", "", "i32:8"],
         "return 5\nstate 090000000b00000005000000a55a\n",
     );
     // A computed helper read conservatively aliases every byte in its memory.
     computed.check(
         flags,
-        &["07000000a55a", "", "i32:65536"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:65536"],
         "return trap\nstate 07000000a55a\n",
     );
     let predicate = ModuleFile::new(&predicate_result());
-    predicate.check(flags, &["-", "", "i32:7"], "return 11\n");
-    predicate.check(flags, &["-", "", "i32:5"], "return 22\n");
+    predicate.check(
+        flags,
+        "execute-tail.mjs",
+        &["run", "-", "", "i32:7"],
+        "return 11\n",
+    );
+    predicate.check(
+        flags,
+        "execute-tail.mjs",
+        &["run", "-", "", "i32:5"],
+        "return 22\n",
+    );
     let branch = ModuleFile::new(&branch_call());
     branch.check(
         flags,
-        &["07000000050000000b000000a55a", "", "i32:0"],
+        "execute-tail.mjs",
+        &["run", "07000000050000000b000000a55a", "", "i32:0"],
         "return 17\nstate 01000000020000000b000000a55a\n",
     );
     branch.check(
         flags,
-        &["07000000050000000b000000a55a", "", "i32:1"],
+        "execute-tail.mjs",
+        &["run", "07000000050000000b000000a55a", "", "i32:1"],
         "return trap\nstate 010000000500000003000000a55a\n",
     );
     // A possible aliasing write in the returning arm preserves the authored snapshot.
     let tail_arm = ModuleFile::new(&snapshot_across_a_tail_arm());
     tail_arm.check(
         flags,
-        &["07000000a55a", "", "i32:0"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:0"],
         "return trap\nstate 07000000a55a\n",
     );
     tail_arm.check(
         flags,
-        &["07000000a55a", "", "i32:1"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:1"],
         "return trap\nstate 07000000a55a\n",
     );
     ModuleFile::new(&trapping_argument()).check(
         flags,
-        &["0700000005000000a55a", "receive:i32:17"],
+        "execute-tail.mjs",
+        &["run", "0700000005000000a55a", "receive:i32:17"],
         "return trap\nstate 0100000005000000a55a\n",
     );
 }

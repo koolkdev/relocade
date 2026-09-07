@@ -257,14 +257,28 @@ impl Scheduler<'_> {
                 ValueKind::JoinResult { .. } => {
                     unreachable!("a used join was saved after its conditional")
                 }
-                ValueKind::Binary(_, a, b) | ValueKind::Compare(_, a, b) => {
+                ValueKind::Binary(_, a, b)
+                | ValueKind::Compare(_, a, b)
+                | ValueKind::Shift {
+                    value: a, count: b, ..
+                } => {
                     pending.push(Walk::Finish(id));
                     pending.push(Walk::Value(b));
                     pending.push(Walk::Value(a));
                 }
+                ValueKind::Select {
+                    condition,
+                    when_true,
+                    when_false,
+                } => {
+                    pending.push(Walk::Finish(id));
+                    pending.push(Walk::Value(condition));
+                    pending.push(Walk::Value(when_false));
+                    pending.push(Walk::Value(when_true));
+                }
                 ValueKind::Normalize(input)
                 | ValueKind::Convert(input)
-                | ValueKind::Shift(_, input, _) => {
+                | ValueKind::SignExtend(input) => {
                     pending.push(Walk::Finish(id));
                     pending.push(Walk::Value(input));
                 }
@@ -313,18 +327,30 @@ impl Scheduler<'_> {
                 (BinaryOp::Xor, false) => Instruction::I32Xor,
                 (BinaryOp::Xor, true) => Instruction::I64Xor,
             },
-            ValueKind::Shift(operator, _, count) => {
-                if wide {
-                    Instruction::I64Const(i64::from(count))
-                } else {
-                    Instruction::I32Const(count as i32)
+            ValueKind::Shift { operator, .. } => match (operator, wide) {
+                (ShiftOp::Left, false) => Instruction::I32Shl,
+                (ShiftOp::Left, true) => Instruction::I64Shl,
+                (ShiftOp::Right, false) => Instruction::I32ShrU,
+                (ShiftOp::Right, true) => Instruction::I64ShrU,
+            },
+            ValueKind::Select { .. } => Instruction::Select,
+            ValueKind::SignExtend(input) => {
+                match self.body.values[input].ty {
+                    Type::I1 => {
+                        Instruction::I32Const(31).encode(&mut self.bytes);
+                        Instruction::I32Shl.encode(&mut self.bytes);
+                        Instruction::I32Const(31).encode(&mut self.bytes);
+                        Instruction::I32ShrS.encode(&mut self.bytes);
+                    }
+                    Type::I8 => Instruction::I32Extend8S.encode(&mut self.bytes),
+                    Type::I16 => Instruction::I32Extend16S.encode(&mut self.bytes),
+                    Type::I32 => {}
+                    Type::I64 => unreachable!("a signed extension widens its input"),
                 }
-                .encode(&mut self.bytes);
-                match (operator, wide) {
-                    (ShiftOp::Left, false) => Instruction::I32Shl,
-                    (ShiftOp::Left, true) => Instruction::I64Shl,
-                    (ShiftOp::Right, false) => Instruction::I32ShrU,
-                    (ShiftOp::Right, true) => Instruction::I64ShrU,
+                if wide {
+                    Instruction::I64ExtendI32S
+                } else {
+                    return;
                 }
             }
             ValueKind::Compare(operator, a, _) => {

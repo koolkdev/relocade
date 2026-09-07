@@ -1,9 +1,7 @@
-use std::{
-    fs,
-    path::PathBuf,
-    process::Command,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+#[path = "support/wasm.rs"]
+mod wasm;
+use wasm::ModuleFile;
+
 use wasm86_compiler::{
     AtLeast, FunctionBuilder, FunctionImport, IntType, Mem, MemoryImport, Program, Signature, Type,
     Val, I1, I16, I32, I64, I8,
@@ -62,6 +60,195 @@ where
             .unsigned()
             .extend::<I32>()
     });
+}
+
+fn addressing_operations() -> Vec<u8> {
+    let mut p = Program::new();
+    function(&mut p, "shift32", &[Type::I32, Type::I32], |b| {
+        b.parameter::<I32>(0)
+            .unwrap()
+            .shl(b.parameter::<I32>(1).unwrap())
+    });
+    function(&mut p, "shift64", &[Type::I64, Type::I32], |b| {
+        b.parameter::<I64>(0)
+            .unwrap()
+            .shl(b.parameter::<I32>(1).unwrap())
+    });
+    function(&mut p, "shift8", &[Type::I8, Type::I32], |b| {
+        b.parameter::<I8>(0)
+            .unwrap()
+            .shl(b.parameter::<I32>(1).unwrap())
+    });
+    function(&mut p, "signed8", &[Type::I8], |b| {
+        b.parameter::<I8>(0).unwrap().signed().extend::<I32>()
+    });
+    function(&mut p, "signed8_to16", &[Type::I8], |b| {
+        b.parameter::<I8>(0).unwrap().signed().extend::<I16>()
+    });
+    function(&mut p, "signed_dirty8", &[Type::I8], |b| {
+        b.parameter::<I8>(0)
+            .unwrap()
+            .add(1)
+            .signed()
+            .extend::<I32>()
+    });
+    function(&mut p, "signed1", &[Type::I1], |b| {
+        b.parameter::<I1>(0).unwrap().signed().extend::<I64>()
+    });
+    function(&mut p, "signed16", &[Type::I16], |b| {
+        b.parameter::<I16>(0).unwrap().signed().extend::<I64>()
+    });
+    function(&mut p, "signed32", &[Type::I32], |b| {
+        b.parameter::<I32>(0).unwrap().signed().extend::<I64>()
+    });
+    p.compile().unwrap()
+}
+
+struct MaskCase {
+    name: &'static str,
+    parameter: Type,
+    build: fn(&FunctionBuilder<'_>) -> Val<I1>,
+    zero_tests: usize,
+    binary_comparisons: usize,
+    inputs: &'static [(&'static str, &'static str)],
+}
+
+fn mask_cases() -> [MaskCase; 6] {
+    [
+        MaskCase {
+            name: "high bit equals",
+            parameter: Type::I32,
+            build: |b| {
+                b.parameter::<I32>(0)
+                    .unwrap()
+                    .and(0x8000_0000u32)
+                    .eq(0x8000_0000u32)
+            },
+            zero_tests: 2,
+            binary_comparisons: 0,
+            inputs: &[
+                ("i32:0", "0\n"),
+                ("i32:-2147483648", "1\n"),
+                ("i32:-1", "1\n"),
+            ],
+        },
+        MaskCase {
+            name: "reversed mask and inequality",
+            parameter: Type::I32,
+            build: |b| {
+                let mask = b.value::<I32>(0x8000_0000u32).unwrap();
+                mask.ne(mask.and(b.parameter::<I32>(0).unwrap()))
+            },
+            zero_tests: 1,
+            binary_comparisons: 0,
+            inputs: &[
+                ("i32:0", "1\n"),
+                ("i32:-2147483648", "0\n"),
+                ("i32:2147483647", "1\n"),
+            ],
+        },
+        MaskCase {
+            name: "wide reversed equality",
+            parameter: Type::I64,
+            build: |b| {
+                let mask = b.value::<I64>(0x8000_0000_0000_0000u64).unwrap();
+                mask.eq(b.parameter::<I64>(0).unwrap().and(&mask))
+            },
+            zero_tests: 2,
+            binary_comparisons: 0,
+            inputs: &[("i64:0", "0\n"), ("i64:-9223372036854775808", "1\n")],
+        },
+        MaskCase {
+            name: "wide reversed mask",
+            parameter: Type::I64,
+            build: |b| {
+                let mask = b.value::<I64>(0x8000_0000_0000_0000u64).unwrap();
+                mask.and(b.parameter::<I64>(0).unwrap()).ne(&mask)
+            },
+            zero_tests: 1,
+            binary_comparisons: 0,
+            inputs: &[
+                ("i64:-9223372036854775808", "0\n"),
+                ("i64:9223372036854775807", "1\n"),
+            ],
+        },
+        MaskCase {
+            name: "overflowing narrow input",
+            parameter: Type::I8,
+            build: |b| b.parameter::<I8>(0).unwrap().add(1).and(128).eq(128),
+            zero_tests: 2,
+            binary_comparisons: 0,
+            inputs: &[("i32:127", "1\n"), ("i32:255", "0\n")],
+        },
+        MaskCase {
+            name: "multiple bits require full equality",
+            parameter: Type::I32,
+            build: |b| b.parameter::<I32>(0).unwrap().and(3).eq(3),
+            zero_tests: 0,
+            binary_comparisons: 1,
+            inputs: &[("i32:1", "0\n"), ("i32:2", "0\n"), ("i32:3", "1\n")],
+        },
+    ]
+}
+
+#[test]
+fn single_bit_mask_comparisons_use_zero_tests_and_keep_multibit_equality() {
+    for case in mask_cases() {
+        let code = inspect(&module(&[case.parameter], case.build));
+        assert_eq!(
+            (
+                code.masks,
+                code.zero_tests,
+                code.comparisons - code.zero_tests
+            ),
+            (1, case.zero_tests, case.binary_comparisons),
+            "{}",
+            case.name,
+        );
+    }
+}
+
+fn zero_shift_with_unused_count() -> Vec<u8> {
+    let mut p = Program::new();
+    let memory = state(&mut p);
+    let run = p.declare(Signature {
+        parameters: vec![],
+        result: Type::I32,
+    });
+    let mut b = p.define(run).unwrap();
+    let count = b.load::<I32>(memory, 65536).unwrap();
+    let value = b.value::<I32>(0).unwrap().shl(count);
+    b.return_(value).unwrap();
+    p.export("run", run).unwrap();
+    p.compile().unwrap()
+}
+
+#[test]
+fn dynamic_shifts_evaluate_only_needed_values() {
+    let bytes = module(&[Type::I32, Type::I32], |b| {
+        let count = b.parameter::<I32>(1).unwrap().add(1);
+        let shifted = b.parameter::<I32>(0).unwrap().shl(count);
+        shifted.add(&shifted)
+    });
+    let code = inspect(&bytes);
+    assert_eq!(
+        (code.shifts, code.adds, code.locals, code.writes),
+        (1, 2, 1, 1)
+    );
+    let zero = inspect(&zero_shift_with_unused_count());
+    assert!(zero.accesses.is_empty());
+    assert_eq!(zero.shifts, 0);
+    assert_eq!(zero.constants, [0]);
+}
+
+#[test]
+fn signed_literal_extension_folds_the_logical_sign_bit() {
+    let bytes = module(&[], |b| {
+        b.value::<I8>(255).unwrap().signed().extend::<I32>()
+    });
+    let code = inspect(&bytes);
+    assert_eq!(code.constants, [-1]);
+    assert_eq!((code.shifts, code.conversions, code.locals), (0, 0, 0));
 }
 
 fn operations() -> Vec<u8> {
@@ -306,6 +493,7 @@ struct Code {
     masks: usize,
     shifts: usize,
     comparisons: usize,
+    zero_tests: usize,
     conversions: usize,
     locals: u32,
     writes: usize,
@@ -333,12 +521,13 @@ fn inspect(bytes: &[u8]) -> Code {
                     Operator::I32Shl | Operator::I32ShrU | Operator::I64Shl | Operator::I64ShrU => {
                         code.shifts += 1
                     }
-                    Operator::I32Eq
-                    | Operator::I32Ne
-                    | Operator::I32Eqz
-                    | Operator::I64Eq
-                    | Operator::I64Ne
-                    | Operator::I64Eqz => code.comparisons += 1,
+                    Operator::I32Eq | Operator::I32Ne | Operator::I64Eq | Operator::I64Ne => {
+                        code.comparisons += 1
+                    }
+                    Operator::I32Eqz | Operator::I64Eqz => {
+                        code.comparisons += 1;
+                        code.zero_tests += 1;
+                    }
                     Operator::I32WrapI64 | Operator::I64ExtendI32U => code.conversions += 1,
                     Operator::LocalSet { .. } | Operator::LocalTee { .. } => code.writes += 1,
                     Operator::I32Load8U { .. } => code.accesses.push("load"),
@@ -470,49 +659,46 @@ fn constant_integer_operations_fold_before_emission() {
     );
 }
 
-struct ModuleFile(PathBuf);
-impl ModuleFile {
-    fn new(bytes: &[u8]) -> Self {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "wasm86-integer-{}-{}.wasm",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::write(&path, bytes).unwrap();
-        Self(path)
-    }
-    fn check(&self, flags: &[&str], adapter: &str, args: &[&str], expected: &str) {
-        let output = Command::new("node")
-            .args(flags)
-            .arg(
-                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("tests/support")
-                    .join(adapter),
-            )
-            .arg(&self.0)
-            .args(args)
-            .output()
-            .expect("the explicit V8 lane requires Node.js on PATH");
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert_eq!(
-            String::from_utf8(output.stdout).unwrap(),
-            expected,
-            "args {args:?}, V8 flags {flags:?}"
-        );
-    }
-}
-impl Drop for ModuleFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
 fn check_execution(flags: &[&str]) {
+    for case in mask_cases() {
+        let module = ModuleFile::new(&module(&[case.parameter], case.build));
+        for &(input, expected) in case.inputs {
+            module.check(flags, "execute.mjs", &["run", input], expected);
+        }
+    }
+    ModuleFile::new(&zero_shift_with_unused_count()).check(
+        flags,
+        "execute-memory.mjs",
+        &["state:07000000"],
+        "0\nstate:07000000\n",
+    );
+    let addressing = ModuleFile::new(&addressing_operations());
+    for (args, expected) in [
+        (&["shift32", "i32:1", "i32:31"][..], "-2147483648\n"),
+        (&["shift32", "i32:1", "i32:32"][..], "1\n"),
+        (&["shift32", "i32:1", "i32:33"][..], "2\n"),
+        (&["shift32", "i32:1", "i32:-1"][..], "-2147483648\n"),
+        (
+            &["shift64", "i64:1", "i32:63"][..],
+            "-9223372036854775808\n",
+        ),
+        (&["shift64", "i64:1", "i32:64"][..], "1\n"),
+        (&["shift64", "i64:1", "i32:65"][..], "2\n"),
+        (&["shift8", "i32:128", "i32:1"][..], "0\n"),
+        (&["shift8", "i32:128", "i32:32"][..], "128\n"),
+        (&["signed8", "i32:127"][..], "127\n"),
+        (&["signed8", "i32:128"][..], "-128\n"),
+        (&["signed8", "i32:255"][..], "-1\n"),
+        (&["signed8_to16", "i32:128"][..], "65408\n"),
+        (&["signed_dirty8", "i32:127"][..], "-128\n"),
+        (&["signed_dirty8", "i32:255"][..], "0\n"),
+        (&["signed1", "i32:1"][..], "-1\n"),
+        (&["signed1", "i32:0"][..], "0\n"),
+        (&["signed16", "i32:32768"][..], "-32768\n"),
+        (&["signed32", "i32:-2147483648"][..], "-2147483648\n"),
+    ] {
+        addressing.check(flags, "execute.mjs", args, expected);
+    }
     let module = ModuleFile::new(&operations());
     for (args, expected) in [
         (&["shl8_1", "i32:128"][..], "0\n"),

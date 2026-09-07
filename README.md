@@ -16,8 +16,11 @@ fields: EAX through EDI in encoding order at offsets 24–52, EIP at 56, and the
 completed-instruction count at 144. Final register writes retain first-write
 order, then EIP and count are updated with 32-bit wrapping arithmetic. The block
 tail-calls dispatch with the next EIP and returns its result. This snapshot path
-supports B8–BF with imm32 operands and 89/8B with register operands
-(ModRM.mod = 3). A selected memory-operand ModRM is a construction error.
+supports B8–BF with imm32 operands and 89/8B with register or memory operands.
+Memory addresses use 32-bit ModRM/SIB base, index, scale and displacement fields.
+Effective-address sums wrap at 32 bits; both frontends use flat addresses and
+ignore segment bases. Blocks containing only register operands retain just the
+CPU and dispatch imports.
 
 `compile_interpreter_step()` builds a generated `step() -> i64` entry for the
 same unprefixed MOV32 subset. Both compiler functions return a `CompiledModule`
@@ -29,38 +32,48 @@ let module = wasm86_x86::compile_interpreter_step()?;
 
 The step reads EIP from CPU state and fetches the instruction from paged guest
 memory. A successful five-byte contiguous-range check permits direct reads of
-the selected instruction. Otherwise the exact path checks the opcode first and
-reads only the fields it requires. It uses checked byte reads when an immediate
-cannot be read directly. Success uses the same MOV semantics, state publication
-and dispatch as snapshot blocks.
+opcode, immediate and register fields. A memory-operand handler checks any SIB
+and displacement suffix separately. Otherwise the exact path checks the opcode
+first and reads only required fields, checking bytes in order when a dword cannot
+be read directly. Success uses the same MOV semantics, state publication and
+dispatch as snapshot blocks.
 
 Snapshot decoding reads supplied bytes while compiling; runtime decoding reads
 guest bytes during execution. Both use shared instruction forms for opcode
 patterns, physical fields and operand binding, then pass decoded operands to
-shared instruction lowering.
-Execution drivers choose how to fetch and when to publish CPU state. Pending register
-writes can be published into a terminating fault branch without consuming the
+shared instruction lowering. The runtime decoder owns its byte cursor, proven
+window and completion policy. An execution builder resolves operand locations,
+checks memory access, and tracks instruction progress. Shared MOV semantics reads
+the source and writes the destination through that builder. A fault publishes
+completed register writes into its terminating branch without consuming the
 parent state used by the successful path. A location-based value environment
 forwards known register definitions and caches reads. Computed register accesses
 synchronize overlapping definitions to backing, then invalidate potentially
 written locations. These are completed effects; publication does not undo a
 partially executed instruction.
 
-In addition to `cpuState` and `dispatch`, the module imports `wasm86.guest`
+The step and snapshot blocks with memory operands also import `wasm86.guest`
 (minimum one Wasm page) and `wasm86.machine` (minimum 64 pages, or 4 MiB).
 All three memory imports require distinct backing objects. Machine memory starts
-with 2^20 little-endian 32-bit page-table entries: bit 0 marks presence and bits
-12–31 identify a 4-KiB frame in guest memory. Present frames must fit the backing
-RAM; invalid backing is a Wasm trap, not a guest page fault.
+with 2^20 little-endian 32-bit page-table entries: bit 0 marks presence, bit 1
+permits writes, and bits 12–31 identify a 4-KiB frame in guest memory. Data reads
+require presence. Present frames must fit the backing RAM; invalid backing is a
+Wasm trap, not a guest page fault.
 
 A missing instruction page returns the 64-bit word
-`(4 << 48) | (0x10 << 32) | first_unavailable_address`. An unsupported opcode
-or memory-operand ModRM returns `(8 << 48) | (opcode << 32) | instruction_eip`.
-This reports the current implementation's unsupported subset, not an
-architectural invalid-opcode fault.
-The diagnostic includes the opcode, not the ModRM byte.
-Both exits preserve CPU state and skip dispatch. The entry executes one
-instruction and has no prefix, instruction-budget or run-loop behavior.
+`(4 << 48) | (0x10 << 32) | first_unavailable_address`. A data fault returns
+`(4 << 48) | (error << 32) | first_denied_address`, where error bit 1 identifies a
+write and bit 0 identifies a present but denied page. A four-byte data range that
+crosses `0xffffffff` is rejected at its start with read error 0 or write error 2;
+this is the current address-space policy. Instruction fetch instead wraps.
+All pages are checked before a data store writes any byte, including scattered
+physical backing. A fault publishes earlier completed instructions and leaves EIP
+at the faulting instruction; the failed instruction does not retire or dispatch.
+
+An unsupported opcode returns `(8 << 48) | (opcode << 32) | instruction_eip`.
+This reports the implementation's unsupported subset, not an architectural
+invalid-opcode fault. The step executes one instruction and has no prefix,
+instruction-budget, segment or run-loop behavior.
 
 `wasm86-compiler` builds scalar WebAssembly functions from integer constants,
 parameters and typed integer expressions. Values such as `Val<I1>` and `Val<I32>` carry
@@ -72,11 +85,19 @@ At a return, the signature supplies the logical type, so `body.return_(7)` is
 valid too. Use `body.value::<I32>(operand)?` when a value must be retained or used to
 start a symbolic expression; it accepts a literal or an existing typed value.
 
-Expressions support wrapping addition, bitwise `and`/`or`, constant-count `shl`,
+Use `program.function(signature, |body| { ... })?` to declare and complete a
+function together. The handle is returned only after the callback completes its
+body; an error or missing completion removes the new declaration. Separate
+`declare` and `define` remain available for forward references and recursion.
+
+Expressions support wrapping addition, bitwise `and`/`or`, `shl`,
 and `eq`/`ne` predicates that return `Val<I1>`. The borrowed `unsigned()` view
 provides `shr`, `lt`, `ge` and zero extension, for example
 `byte.unsigned().extend::<I32>().shl(8)`. `truncate::<I8>()` retains the low eight
-bits. Rust checks conversion direction; conversions to the same type are allowed.
+bits. The borrowed `signed()` view provides sign extension, such as
+`displacement.signed().extend::<I32>()`. Rust checks conversion direction;
+conversions to the same type are allowed. Left shifts accept an I32 value or a
+literal count; unsigned right shifts currently take literal counts.
 Shift counts are modulo 32 for I1/I8/I16/I32 and modulo 64 for I64, so shifting an
 I8 by 8 produces zero and shifting it by 32 preserves its value. Comparisons,
 unsigned right shifts and widening read the logical low bits, including after
@@ -94,12 +115,19 @@ body.return_(value.add(1))?;
 
 A branch can load, store, contain nested `if_` calls, return, or tail-call. Ending
 its closure with `Ok(())` without a terminal lets it fall through. A false
-condition skips the branch. Child reads, call results, joined values and
-expressions depending on them cannot be consumed outside that child; pure
+condition skips the branch. `body.if_else(condition, then_arm, else_arm)` builds
+two ordinary branches; each can fall through or terminate the function.
+Child reads, call results, joined values and expressions depending on them cannot
+be consumed outside that child; pure
 expressions from parent values remain usable. Reads preserve snapshots across
 conditional stores, which can require capturing a read before the condition.
 
-Use `if_value` to obtain a value from the selected branch:
+Use `condition.select(when_true, when_false)` for a pure value choice. Both
+alternatives are eager inputs, so select does not guard a load or call. Shared
+inputs and the selection itself follow normal value placement. Two literals can
+specify their type with `condition.select::<I32>(7, 9)`.
+
+Use `if_value` to execute only the selected branch and obtain its value:
 
 ```rust
 let selected = body.if_value::<I32>(value.eq(0),

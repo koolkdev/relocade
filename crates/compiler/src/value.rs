@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::arena::ExpressionArena;
 use crate::{
     integer::{BinaryOp, CompareOp, ShiftOp},
-    AtLeast, BuildError, IntType, Type, I1, I64,
+    AtLeast, BuildError, IntType, Type, I1, I32, I64,
 };
 
 /// An integer value in one function body, with its type checked by Rust.
@@ -198,8 +198,9 @@ impl<T: IntType> Val<T> {
     /// Shifts left, retaining the logical type's low bits.
     /// Counts are modulo 32 for I1/I8/I16/I32, and modulo 64 for I64.
     /// In particular, an I8 shift by 8 produces zero; a shift by 32 is identity.
+    /// A computed count has type I32, including when shifting an I64 value.
     #[allow(clippy::should_implement_trait)]
-    pub fn shl(&self, count: u32) -> Self {
+    pub fn shl(&self, count: impl IntoOp<I32>) -> Self {
         self.shift(ShiftOp::Left, count)
     }
 
@@ -217,6 +218,12 @@ impl<T: IntType> Val<T> {
     /// Creating the view does not construct an expression.
     pub fn unsigned(&self) -> Unsigned<'_, T> {
         Unsigned(self)
+    }
+
+    /// Reads the logical sign bit as a two's-complement sign.
+    /// Creating the view does not construct an expression.
+    pub fn signed(&self) -> Signed<'_, T> {
+        Signed(self)
     }
 
     /// Retains the destination type's low bits. The destination cannot be wider.
@@ -256,10 +263,12 @@ impl<T: IntType> Val<T> {
         Val::new(self.arena.clone(), expression)
     }
 
-    fn shift(&self, operator: ShiftOp, count: u32) -> Self {
-        let expression = self
-            .checked_expression(&self.arena)
-            .and_then(|input| self.arena.shift(operator, input, count));
+    fn shift(&self, operator: ShiftOp, count: impl IntoOp<I32>) -> Self {
+        let count = count.into();
+        let expression = self.checked_expression(&self.arena).and_then(|input| {
+            let count = count.resolve(&self.arena, Type::I32)?;
+            self.arena.shift(operator, input, count)
+        });
         Self::new(self.arena.clone(), expression)
     }
 
@@ -267,6 +276,41 @@ impl<T: IntType> Val<T> {
         let expression = self
             .checked_expression(&self.arena)
             .and_then(|input| self.arena.convert(input, To::TYPE));
+        Val::new(self.arena.clone(), expression)
+    }
+}
+
+impl Val<I1> {
+    /// Chooses one of two values. Both alternatives are eager inputs; this
+    /// operation does not guard either alternative. Use `if_value` for branch-local
+    /// work. Constant choices may discard unused expressions after validation.
+    /// The alternatives have the same logical type. Two literal alternatives need
+    /// an explicit type, for example `condition.select::<I32>(7, 9)`.
+    ///
+    /// ```
+    /// use wasm86_compiler::{Program, Signature, Type, I32};
+    /// let mut program = Program::new();
+    /// let function = program.declare(Signature {
+    ///     parameters: vec![Type::I32], result: Type::I32,
+    /// });
+    /// let body = program.define(function)?;
+    /// let value = body.parameter::<I32>(0)?;
+    /// body.return_(value.eq(0).select(7, value.add(1)))?;
+    /// let bytes = program.compile()?;
+    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// ```
+    pub fn select<T: IntType>(
+        &self,
+        when_true: impl IntoOp<T>,
+        when_false: impl IntoOp<T>,
+    ) -> Val<T> {
+        let when_true = when_true.into();
+        let when_false = when_false.into();
+        let expression = self.checked_expression(&self.arena).and_then(|condition| {
+            let when_true = when_true.resolve(&self.arena, T::TYPE)?;
+            let when_false = when_false.resolve(&self.arena, T::TYPE)?;
+            self.arena.select(condition, when_true, when_false)
+        });
         Val::new(self.arena.clone(), expression)
     }
 }
@@ -302,6 +346,21 @@ impl<T: IntType> Unsigned<'_, T> {
     /// ```
     pub fn extend<To: AtLeast<T>>(&self) -> Val<To> {
         self.0.convert()
+    }
+}
+
+/// A signed interpretation of a borrowed integer value.
+pub struct Signed<'a, T: IntType>(&'a Val<T>);
+
+impl<T: IntType> Signed<'_, T> {
+    /// Widens by repeating the source's logical sign bit. The destination cannot
+    /// be narrower. For I1, the bit pattern 1 extends to all ones.
+    pub fn extend<To: AtLeast<T>>(&self) -> Val<To> {
+        let expression = self
+            .0
+            .checked_expression(&self.0.arena)
+            .and_then(|input| self.0.arena.sign_extend(input, To::TYPE));
+        Val::new(self.0.arena.clone(), expression)
     }
 }
 

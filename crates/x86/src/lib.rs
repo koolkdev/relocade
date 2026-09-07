@@ -1,7 +1,7 @@
 //! Builds WebAssembly execution entries for a small x86 instruction subset.
 //!
 //! Supports 32-bit MOV from an immediate (`B8` through `BF`, followed by imm32)
-//! or another register (`89` and `8B`, with ModRM.mod = 3).
+//! or a register/memory operand (`89` and `8B`, with 32-bit ModRM/SIB addressing).
 //!
 //! ```
 //! use wasm86_x86::compile_block_from_bytes;
@@ -17,8 +17,10 @@
 //! ```
 #![forbid(unsafe_code)]
 
+mod address;
 mod block;
 mod decode;
+mod execution;
 mod fetch;
 mod instruction;
 mod interpreter;
@@ -27,6 +29,10 @@ mod register;
 mod semantics;
 mod ssa;
 mod state;
+
+#[cfg(test)]
+#[path = "../tests/support/step.rs"]
+mod test_step;
 
 use std::fmt;
 
@@ -56,12 +62,6 @@ pub enum BlockError {
         address: u32,
         opcode: u8,
     },
-    /// The opcode is supported, but its ModRM byte selects a memory operand.
-    UnsupportedModRm {
-        address: u32,
-        opcode: u8,
-        modrm: u8,
-    },
     Compiler(wasm86_compiler::BuildError),
 }
 
@@ -81,14 +81,6 @@ impl fmt::Display for BlockError {
                     "unsupported opcode {opcode:#04x} at {address:#x}"
                 )
             }
-            Self::UnsupportedModRm {
-                address,
-                opcode,
-                modrm,
-            } => write!(
-                formatter,
-                "unsupported ModRM {modrm:#04x} for opcode {opcode:#04x} at {address:#x}"
-            ),
             Self::Compiler(error) => error.fmt(formatter),
         }
     }

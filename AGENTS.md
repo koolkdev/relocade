@@ -1,16 +1,83 @@
 # Contributing
 
-This is a public repository.
+This is a public repository. Commit messages use `component: title`.
 
-- Commit messages use `component: title`.
-- Commit implementation, permanent behavior tests and project documentation only.
-  Keep temporary tools and development notes outside the repository.
-- Prioritize generated guest execution speed in V8/TurboFan.
-- Tests protect behavior, component invariants or external representations, with
-  literal or independently derived expectations. Do not preserve obsolete internal APIs for tests.
-- Keep components focused on current consumers; avoid speculative frameworks.
-- Write comments in plain language to explain contracts and non-obvious reasoning.
-- Review code, comments, tests and the staged diff before committing. Get an
-  independent review for substantive changes.
-- Present each prepared part for the user's ACK before committing it and starting
-  the next substantial part.
+## Clean product code
+
+- Commit implementation, permanent behavior tests and useful project documentation only.
+  Never commit migration notes, migration scripts, temporary generators, comparison
+  ledgers or development-process artifacts. Keep those outside the repository.
+- Rebuild deliberately. Reference code is evidence about behavior and performance,
+  not a design template to copy without review.
+- Review comments, names, test names and test-file placement with the same care as
+  implementation. Comments explain contracts and non-obvious reasons in plain
+  language; rewrite unclear or obsolete comments instead of carrying them forward.
+
+## Shared mechanisms and ownership
+
+- Bound a part by a coherent capability, not by refusing to improve shared modules.
+  Every new consumer should prompt a review of the abstraction it extends.
+- Generalize mechanisms when their common responsibility becomes clear. Expose
+  varying inputs explicitly, update existing consumers to the common mechanism,
+  and remove superseded special cases in the same part. Do not accumulate one-off
+  variants, wrappers or duplicated algorithms for each new instruction or access.
+- Keep semantic operations distinct from implementation shortcuts. A constant and
+  a computed operand can use the same expression model; constant specialization
+  belongs in folding or lowering rather than a duplicate operation family.
+- Put behavior in its owner: instruction definitions describe forms, decoding reads
+  bytes, shared semantics define effects, memory owns access policy and faults,
+  state owns architectural layout and publication, and the compiler owns value
+  construction, placement and lowering.
+- Treat growing argument lists and repeated context forwarding as an ownership
+  problem. Give the responsible builder or reader the operations and lifecycle it
+  manages; do not merely move loose parameters into an inert context structure.
+- Pure value selection and effectful branch execution have different contracts.
+  Use value expressions for calculations that placement should schedule. Investigate
+  missing compiler operations or placement defects before making consumers manage
+  evaluation placement by hand.
+- Readability is a design requirement. Deeply nested builder closures, opaque tuples
+  and repeated dispatch plumbing should trigger a structural review. Prefer named
+  fields and focused mechanisms whose control flow follows the policy being expressed.
+- Use terminology that explains the domain. Distinguish instruction encoding from
+  snapshot or runtime decoding, and storage locations from immediate values.
+- Name values for their contents or role, and functions for the behavior they perform.
+  Avoid vague labels such as `selected` without a clear noun. A name should not
+  require tracing its uses to discover what it represents. Review local variables,
+  predicates, helper handles and tests as carefully as public API names.
+
+## Consumer APIs
+
+- Keep logical types, storage widths and Wasm carriers distinct. Function signatures
+  should express logical types, including one-bit results, without leaking backend
+  representation choices unnecessarily.
+- Keep value operations fluent, such as `value.add(1)`. The compiler interprets native
+  literals at its input boundary; consumers should not need explicit constant-value
+  construction for ordinary operands. Retain a symbolic value when it is actually needed.
+- Keep body construction and completion clear. Avoid overlapping completion methods
+  or boilerplate that consumers must repeat because an owning module is too narrow.
+  Common construction paths should not expose setup steps needed only for forward
+  references or other advanced cases.
+
+## Review and validation
+
+- Before calling a part ready, review the expanded modules, not only the added lines.
+  Check for missed generalization, duplicated mechanisms, awkward APIs, misleading
+  names, stale comments and tests that preserve obsolete implementation details.
+- Tests protect behavior, component invariants or external representations, using
+  literal or independently derived expectations. Keep test names and files aligned
+  with the behavior and owner they protect.
+- Prioritize generated guest execution in V8/TurboFan. Compare Wasm bytes first;
+  do not benchmark identical output. Measure changed output with meaningful workloads
+  and matching execution boundaries, and report uncertainty honestly.
+- Focus performance work on frequent hot paths. Keep rare paths correct and watch
+  for material regressions, but do not chase possible 1–5% gains there.
+- Byte preservation is evidence, not a reason to retain a poor abstraction or duplicate
+  a mechanism. Review design changes together with their generated-code consequences.
+- Complete implementation, comments, tests and relevant validation for the current
+  part before presenting it. Get an independent review for substantive changes and
+  inspect the exact staged diff, including every file proposed for the commit.
+- Report decisions, verification and material limitations. Include one table row per
+  changed file with its filename, added lines, removed lines and reason for the change.
+- Wait for the user's fresh ACK before committing the prepared part and starting the
+  next substantial part. Resolve routine implementation choices while completing the
+  current part; do not leave it half-finished merely to request those choices.

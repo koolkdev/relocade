@@ -131,28 +131,94 @@ impl ExpressionArena {
         &self,
         operator: ShiftOp,
         input: usize,
-        count: u32,
+        count: usize,
     ) -> Result<usize, BuildError> {
         self.with_open(|arena| {
             let value = arena.values[input];
-            let effective = integer::shift_count(value.ty, count);
-            if effective == 0 {
-                return input;
+            if let ValueKind::Constant(bits) = arena.values[count].kind {
+                let effective = integer::shift_count(value.ty, bits as u32);
+                if effective == 0 {
+                    return input;
+                }
+                if let ValueKind::Constant(bits) = value.kind {
+                    let bits = match operator {
+                        ShiftOp::Left => bits.wrapping_shl(effective),
+                        ShiftOp::Right => bits >> effective,
+                    };
+                    return arena.constant(value.ty, bits);
+                }
             }
-            if let ValueKind::Constant(bits) = value.kind {
-                let bits = match operator {
-                    ShiftOp::Left => bits.wrapping_shl(effective),
-                    ShiftOp::Right => bits >> effective,
-                };
-                return arena.constant(value.ty, bits);
+            if matches!(value.kind, ValueKind::Constant(0)) {
+                return input;
             }
             let input = match operator {
                 ShiftOp::Left => input,
                 ShiftOp::Right => arena.normalize(input),
             };
+            let count = if value.ty == Type::I64 {
+                arena.convert(count, Type::I64)
+            } else {
+                count
+            };
             arena.intern(Value {
                 ty: value.ty,
-                kind: ValueKind::Shift(operator, input, count),
+                kind: ValueKind::Shift {
+                    operator,
+                    value: input,
+                    count,
+                },
+            })
+        })
+    }
+
+    pub(super) fn select(
+        &self,
+        condition: usize,
+        when_true: usize,
+        when_false: usize,
+    ) -> Result<usize, BuildError> {
+        self.with_open(|arena| {
+            let condition = arena.normalize(condition);
+            let value = Value {
+                ty: arena.values[when_true].ty,
+                kind: ValueKind::Select {
+                    condition,
+                    when_true,
+                    when_false,
+                },
+            };
+            let folded = match arena.values[condition].kind {
+                ValueKind::Constant(0) => Some(when_false),
+                ValueKind::Constant(_) => Some(when_true),
+                _ if when_true == when_false => Some(when_true),
+                _ => None,
+            };
+            if let Some(input) = folded {
+                // A fold must not make a child or sibling operand usable in a
+                // scope where the original selection was unavailable.
+                let scope = arena.availability(value);
+                if scope.is_some() && scope == arena.availability[input] {
+                    return input;
+                }
+            }
+            arena.intern(value)
+        })
+    }
+
+    pub(super) fn sign_extend(&self, input: usize, target: Type) -> Result<usize, BuildError> {
+        self.with_open(|arena| {
+            let source = arena.values[input];
+            if source.ty == target {
+                return input;
+            }
+            if let ValueKind::Constant(bits) = source.kind {
+                let shift = 64 - source.ty.bits();
+                let signed = ((bits << shift) as i64 >> shift) as u64;
+                return arena.constant(target, signed);
+            }
+            arena.intern(Value {
+                ty: target,
+                kind: ValueKind::SignExtend(input),
             })
         })
     }
@@ -167,24 +233,7 @@ impl ExpressionArena {
     }
 
     pub(super) fn convert(&self, input: usize, target: Type) -> Result<usize, BuildError> {
-        self.with_open(|arena| {
-            let source = arena.values[input];
-            if source.ty == target {
-                return input;
-            }
-            if let ValueKind::Constant(bits) = source.kind {
-                return arena.constant(target, bits);
-            }
-            let input = if source.ty.bits() < target.bits() {
-                arena.normalize(input)
-            } else {
-                input
-            };
-            arena.intern(Value {
-                ty: target,
-                kind: ValueKind::Convert(input),
-            })
-        })
+        self.with_open(|arena| arena.convert(input, target))
     }
 
     pub(super) fn normalize(&self, input: usize) -> Result<usize, BuildError> {
@@ -207,6 +256,25 @@ impl ValueArena {
         self.intern(Value {
             ty,
             kind: ValueKind::Constant(ty.normalize(bits)),
+        })
+    }
+
+    fn convert(&mut self, input: usize, target: Type) -> usize {
+        let source = self.values[input];
+        if source.ty == target {
+            return input;
+        }
+        if let ValueKind::Constant(bits) = source.kind {
+            return self.constant(target, bits);
+        }
+        let input = if source.ty.bits() < target.bits() {
+            self.normalize(input)
+        } else {
+            input
+        };
+        self.intern(Value {
+            ty: target,
+            kind: ValueKind::Convert(input),
         })
     }
 
@@ -273,6 +341,22 @@ impl ValueArena {
                 }
                 return self.zero_test(input, operator == CompareOp::Ne);
             }
+            let masked = match (a.kind, b.kind) {
+                (_, ValueKind::Constant(mask)) => Some((left, mask)),
+                (ValueKind::Constant(mask), _) => Some((right, mask)),
+                _ => None,
+            };
+            if let Some((input, mask)) = masked {
+                if let ValueKind::Binary(BinaryOp::And, x, y) = self.values[input].kind {
+                    // A one-bit mask yields either zero or that mask.
+                    if mask.is_power_of_two()
+                        && (self.values[x].kind == ValueKind::Constant(mask)
+                            || self.values[y].kind == ValueKind::Constant(mask))
+                    {
+                        return self.zero_test(input, operator == CompareOp::Eq);
+                    }
+                }
+            }
             if self.unsigned_bits[left] > a.ty.bits() && self.unsigned_bits[right] > a.ty.bits() {
                 // Compare the low-bit difference once instead of masking both operands.
                 let difference = self.binary(BinaryOp::Xor, left, right);
@@ -323,7 +407,11 @@ impl ValueArena {
             ValueKind::Load { site, .. }
             | ValueKind::CallResult { site }
             | ValueKind::JoinResult { site } => Some(site.region),
-            ValueKind::Binary(_, a, b) | ValueKind::Compare(_, a, b) => {
+            ValueKind::Binary(_, a, b)
+            | ValueKind::Compare(_, a, b)
+            | ValueKind::Shift {
+                value: a, count: b, ..
+            } => {
                 let a = self.availability[a]?;
                 let b = self.availability[b]?;
                 if self.contains(a, b) {
@@ -334,15 +422,31 @@ impl ValueArena {
                     None
                 }
             }
-            ValueKind::Shift(_, input, _)
-            | ValueKind::Convert(input)
+            ValueKind::Select {
+                condition,
+                when_true,
+                when_false,
+            } => {
+                let mut scope = self.availability[condition]?;
+                for input in [when_true, when_false] {
+                    let other = self.availability[input]?;
+                    if self.contains(scope, other) {
+                        scope = other;
+                    } else if !self.contains(other, scope) {
+                        return None;
+                    }
+                }
+                Some(scope)
+            }
+            ValueKind::Convert(input)
+            | ValueKind::SignExtend(input)
             | ValueKind::Normalize(input)
             | ValueKind::ZeroTest { input, .. } => self.availability[input],
         }
     }
 
     fn push(&mut self, value: Value) -> usize {
-        let bits = integer::unsigned_bits(value, &self.unsigned_bits);
+        let bits = integer::unsigned_bits(value, &self.values, &self.unsigned_bits);
         self.push_with_bits(value, bits)
     }
 

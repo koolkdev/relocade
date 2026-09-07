@@ -1,9 +1,7 @@
-use std::{
-    fs,
-    path::PathBuf,
-    process::Command,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+#[path = "support/wasm.rs"]
+mod wasm;
+use wasm::ModuleFile;
+
 use wasm86_compiler::{
     BuildError, Func, FunctionImport, Mem, MemoryImport, Program, Signature, Type, I1, I16, I32,
     I64, I8,
@@ -341,47 +339,8 @@ fn tail_signatures_require_logical_argument_and_result_types() {
     }
 }
 
-struct ModuleFile(PathBuf);
-impl ModuleFile {
-    fn new(bytes: &[u8]) -> Self {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "wasm86-tail-{}-{}.wasm",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::write(&path, bytes).unwrap();
-        Self(path)
-    }
-}
-impl Drop for ModuleFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
 fn check(flags: &[&str], bytes: &[u8], arguments: &[&str], expected: &str) {
-    let module = ModuleFile::new(bytes);
-    let output = Command::new("node")
-        .args(flags)
-        .arg(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/support/execute-tail.mjs"
-        ))
-        .arg(&module.0)
-        .args(arguments)
-        .output()
-        .expect("the explicit V8 lane requires Node.js on PATH");
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        expected,
-        "args {arguments:?}, V8 flags {flags:?}"
-    );
+    ModuleFile::new(bytes).check(flags, "execute-tail.mjs", arguments, expected);
 }
 
 fn check_execution(flags: &[&str]) {

@@ -1,9 +1,7 @@
-use std::{
-    fs,
-    path::PathBuf,
-    process::Command,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+#[path = "support/wasm.rs"]
+mod wasm;
+use wasm::ModuleFile;
+
 use wasm86_compiler::{
     BuildError, FunctionBuilder, FunctionImport, IntType, Mem, MemoryImport, Program, Signature,
     Type, Val, I1, I32, I8,
@@ -62,6 +60,42 @@ fn stores_and_tail() -> Vec<u8> {
     body.tail_call(callback, &[3.into()]).unwrap();
     program.export("run", function).unwrap();
     program.compile().unwrap()
+}
+
+fn alternative_stores() -> Vec<u8> {
+    module(&[Type::I1, Type::I32], |body, state| {
+        let condition = body.parameter::<I1>(0).unwrap();
+        let address = body.parameter::<I32>(1).unwrap();
+        let previous = body.load::<I32>(state, 0).unwrap();
+        body.if_else(
+            condition,
+            |mut arm| {
+                let value = arm.load_at::<I32>(state, &address, 0)?;
+                arm.store(state, 0, value.add(2))
+            },
+            |mut arm| arm.store::<I32>(state, 4, 11),
+        )
+        .unwrap();
+        previous.add(body.load::<I32>(state, 0).unwrap())
+    })
+}
+
+#[test]
+fn alternative_stores_preserve_the_prior_snapshot_and_selected_effects() {
+    assert_eq!(
+        inspect(&alternative_stores()).events,
+        [
+            Event::Load(0),
+            Event::If,
+            Event::Load(0),
+            Event::Store(0),
+            Event::Else,
+            Event::Store(4),
+            Event::End,
+            Event::Load(0),
+            Event::Return,
+        ]
+    );
 }
 
 fn continuation_load(crosses_store: bool) -> Vec<u8> {
@@ -210,6 +244,7 @@ fn nested_tail() -> Vec<u8> {
 
 #[derive(Debug, PartialEq)]
 enum Event {
+    Else,
     If,
     End,
     Load(u64),
@@ -245,6 +280,7 @@ fn inspect(bytes: &[u8]) -> Code {
                         depth -= 1;
                         Event::End
                     }
+                    Operator::Else => Event::Else,
                     Operator::I32Load { memarg } => Event::Load(memarg.offset),
                     Operator::I32Store { memarg } => Event::Store(memarg.offset),
                     Operator::Return => Event::Return,
@@ -458,52 +494,20 @@ fn child_load_dependencies_are_not_visible_to_parent_or_sibling_consumers() {
     Validator::new().validate_all(&bytes).unwrap();
 }
 
-struct ModuleFile(PathBuf);
-
-impl ModuleFile {
-    fn new(bytes: &[u8]) -> Self {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "wasm86-control-{}-{}.wasm",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::write(&path, bytes).unwrap();
-        Self(path)
-    }
-
-    fn check(&self, flags: &[&str], adapter: &str, args: &[&str], expected: &str) {
-        let output = Command::new("node")
-            .args(flags)
-            .arg(
-                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("tests/support")
-                    .join(adapter),
-            )
-            .arg(&self.0)
-            .args(args)
-            .output()
-            .expect("the explicit V8 lane requires Node.js on PATH");
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert_eq!(
-            String::from_utf8(output.stdout).unwrap(),
-            expected,
-            "arguments {args:?}, V8 flags {flags:?}"
-        );
-    }
-}
-
-impl Drop for ModuleFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
 fn check_execution(flags: &[&str]) {
+    let alternatives = ModuleFile::new(&alternative_stores());
+    for (condition, address, expected) in [
+        ("i32:1", "i32:0", "16\nstate:0900000005000000a55a\n"),
+        ("i32:0", "i32:65536", "14\nstate:070000000b000000a55a\n"),
+        ("i32:1", "i32:65536", "trap\nstate:0700000005000000a55a\n"),
+    ] {
+        alternatives.check(
+            flags,
+            "execute-memory.mjs",
+            &["state:0700000005000000a55a", "--", condition, address],
+            expected,
+        );
+    }
     let tail = ModuleFile::new(&stores_and_tail());
     tail.check(
         flags,

@@ -1,10 +1,8 @@
-use std::{
-    fmt::Write,
-    fs,
-    path::PathBuf,
-    process::Command,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+#[path = "support/wasm.rs"]
+mod wasm;
+use wasm::ModuleFile;
+
+use std::fmt::Write;
 use wasm86_compiler::{
     FunctionBuilder, IntType, Mem, MemoryImport, MemoryInt, Program, Signature, Type, Val, I16,
     I32, I64, I8,
@@ -342,27 +340,6 @@ fn different_memories_keep_import_order_and_do_not_alias() {
     assert_eq!(code.local_writes, 0);
 }
 
-struct ModuleFile(PathBuf);
-
-impl ModuleFile {
-    fn new(bytes: &[u8]) -> Self {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "wasm86-memory-{}-{}.wasm",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::write(&path, bytes).unwrap();
-        Self(path)
-    }
-}
-
-impl Drop for ModuleFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
 fn hex(bytes: &[u8]) -> String {
     let mut encoded = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -373,7 +350,7 @@ fn hex(bytes: &[u8]) -> String {
 
 fn check(
     flags: &[&str],
-    name: &str,
+    case: &str,
     bytes: Vec<u8>,
     result: &str,
     memories: &[(&str, &[u8], &[u8])],
@@ -382,30 +359,12 @@ fn check(
     let mut expected = format!("{result}\n");
     let mut arguments = Vec::new();
     for (name, initial, final_bytes) in memories {
-        assert_eq!(initial.len(), final_bytes.len());
+        assert_eq!(initial.len(), final_bytes.len(), "{case}: {name}");
         arguments.push(format!("{name}:{}", hex(initial)));
         expected.push_str(&format!("{name}:{}\n", hex(final_bytes)));
     }
-    let output = Command::new("node")
-        .args(flags)
-        .arg(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/support/execute-memory.mjs"
-        ))
-        .arg(&module.0)
-        .args(arguments)
-        .output()
-        .expect("the explicit V8 lane requires Node.js on PATH");
-    assert!(
-        output.status.success(),
-        "{name}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        expected,
-        "{name}, V8 flags {flags:?}"
-    );
+    let arguments = arguments.iter().map(String::as_str).collect::<Vec<_>>();
+    module.check(flags, "execute-memory.mjs", &arguments, &expected);
 }
 
 fn check_state(

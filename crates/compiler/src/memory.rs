@@ -1,6 +1,6 @@
 use crate::{
-    place, Body, BuildError, FunctionBuilder, IntType, IntoOp, Operation, Program, Type, Val,
-    ValueKind, I16, I32, I64, I8,
+    place, AtLeast, Body, BuildError, FunctionBuilder, IntoOp, Operation, Program, Val, ValueKind,
+    I16, I32, I64, I8,
 };
 
 /// An imported memory. Use only with the program that declared it.
@@ -27,12 +27,23 @@ pub struct MemoryImport {
 ///     let bit = body.load::<I1>(memory, 0);
 /// }
 /// ```
-pub trait MemoryInt: IntType {}
+pub trait MemoryInt: AtLeast<I8> {
+    /// The number of bytes read or written by an access of this type.
+    const BYTES: u32;
+}
 
-impl MemoryInt for I8 {}
-impl MemoryInt for I16 {}
-impl MemoryInt for I32 {}
-impl MemoryInt for I64 {}
+impl MemoryInt for I8 {
+    const BYTES: u32 = 1;
+}
+impl MemoryInt for I16 {
+    const BYTES: u32 = 2;
+}
+impl MemoryInt for I32 {
+    const BYTES: u32 = 4;
+}
+impl MemoryInt for I64 {
+    const BYTES: u32 = 8;
+}
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) struct Location {
@@ -43,19 +54,12 @@ pub(super) struct Location {
 }
 
 impl Location {
-    fn new(memory: Mem, base: usize, offset: u32, ty: Type) -> Self {
-        let bytes = match ty {
-            Type::I8 => 1,
-            Type::I16 => 2,
-            Type::I32 => 4,
-            Type::I64 => 8,
-            Type::I1 => unreachable!("memory operations require a whole-byte integer type"),
-        };
+    fn new<T: MemoryInt>(memory: Mem, base: usize, offset: u32) -> Self {
         Self {
             memory,
             base,
             offset,
-            bytes,
+            bytes: T::BYTES as u8,
         }
     }
 
@@ -128,7 +132,7 @@ impl FunctionBuilder<'_> {
     ) -> Result<Val<T>, BuildError> {
         let base = self.operand(address)?;
         self.require_memory(memory)?;
-        let location = Location::new(memory, base, offset, T::TYPE);
+        let location = Location::new::<T>(memory, base, offset);
         let value = self.arena.load(T::TYPE, location, self.site())?;
         self.region.operations.push(Operation::Load(value));
         Ok(Val::new(self.arena.clone(), Ok(value)))
@@ -160,7 +164,7 @@ impl FunctionBuilder<'_> {
         let value = self.operand(value)?;
         self.require_memory(memory)?;
         self.region.operations.push(Operation::Store {
-            location: Location::new(memory, base, offset, T::TYPE),
+            location: Location::new::<T>(memory, base, offset),
             value,
         });
         Ok(())

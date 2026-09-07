@@ -1,10 +1,13 @@
 use wasm86_compiler::{Program, Signature, Type};
 
-use crate::{declare_dispatch, decode, semantics, state, BlockError, CompiledModule};
+use crate::{
+    declare_dispatch, decode, execution::ExecutionBuilder, memory::Memory, state, BlockError,
+    CompiledModule,
+};
 
 /// Compiles exactly `instruction_limit` instructions starting at `start_eip`.
-/// Supports unprefixed MOV imm32 to a register and register-to-register MOV
-/// (`89`/`8B` with ModRM.mod = 3). Bytes after the selection are ignored.
+/// Supports unprefixed MOV imm32 to a register and register/memory MOV (`89`/`8B`)
+/// with 32-bit ModRM/SIB addressing. Bytes after the selection are ignored.
 /// Missing or unsupported selected bytes are construction errors. This byte-only
 /// input carries no guest-fault information.
 /// EIP and the completed-instruction count advance with 32-bit wrapping arithmetic.
@@ -16,6 +19,12 @@ use crate::{declare_dispatch, decode, semantics, state, BlockError, CompiledModu
 /// Other bytes are preserved. Final register values are written in first-write
 /// order, followed by EIP and count. The block then tail-calls the imported
 /// `wasm86.dispatch(i32) -> i64` with the next EIP and returns its result.
+///
+/// Blocks with data-memory operands also import guest RAM and the page table,
+/// using the layout and fault words documented by [`crate::compile_interpreter_step`].
+/// Addresses are flat: segment bases are ignored. A data fault publishes earlier
+/// completed instructions, keeps EIP at the faulting instruction, and skips dispatch.
+/// All bytes of a store are permission-checked before any of them are written.
 pub fn compile_block_from_bytes(
     start_eip: u32,
     bytes: &[u8],
@@ -25,27 +34,37 @@ pub fn compile_block_from_bytes(
         return Err(BlockError::ZeroInstructionLimit);
     }
 
-    let mut program = Program::new();
-    let memory = state::declare(&mut program);
-    let dispatch = declare_dispatch(&mut program);
-    let function = program.declare(Signature {
-        parameters: vec![],
-        result: Type::I64,
-    });
-    let mut body = program.define(function)?;
-    let mut state = state::State::new(memory);
-    let mut remaining = bytes;
+    let mut decoded_instructions = Vec::new();
+    let mut remaining_bytes = bytes;
     let mut next_eip = start_eip;
-
     for _ in 0..instruction_limit {
-        let (decoded, rest) = decode::snapshot(remaining, next_eip)?;
-        semantics::lower(&mut body, &mut state, decoded.instruction)?;
-        remaining = rest;
-        next_eip = decoded.next_eip;
+        let (decoded_instruction, rest) = decode::snapshot(remaining_bytes, next_eip)?;
+        next_eip = decoded_instruction.next_eip;
+        remaining_bytes = rest;
+        decoded_instructions.push(decoded_instruction);
     }
 
-    state.publish(&mut body, next_eip, instruction_limit)?;
-    body.tail_call(dispatch, &[next_eip.into()])?;
+    let mut program = Program::new();
+    let cpu = state::declare(&mut program);
+    let memory = decoded_instructions
+        .iter()
+        .any(|decoded_instruction| decoded_instruction.instruction.uses_memory())
+        .then(|| Memory::declare(&mut program))
+        .transpose()?;
+    let dispatch = declare_dispatch(&mut program);
+    let function = program.function(
+        Signature {
+            parameters: vec![],
+            result: Type::I64,
+        },
+        |body| {
+            let mut execution = ExecutionBuilder::new(body, cpu, memory, dispatch, start_eip)?;
+            for decoded_instruction in decoded_instructions {
+                execution.execute(decoded_instruction)?;
+            }
+            execution.complete()
+        },
+    )?;
     let entry = format!("block_{start_eip:x}");
     program.export(&entry, function)?;
     Ok(CompiledModule {

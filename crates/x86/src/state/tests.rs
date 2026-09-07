@@ -101,8 +101,7 @@ fn publishing_an_exit_keeps_pending_writes_for_the_continuation() {
     assert_eq!(eax_values, [(1, 42), (0, 43)]);
 }
 
-#[path = "../../tests/support/step.rs"]
-mod step;
+use crate::test_step::ModuleFile;
 
 use std::fmt::Write as _;
 use wasm86_compiler::I64;
@@ -172,7 +171,7 @@ fn check_register_synchronization(flags: &[&str]) {
     ] {
         initial[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
-    let check = |module: &step::ModuleFile,
+    let check = |module: &ModuleFile,
                  cpu: &[u8; 152],
                  index: u32,
                  stop: u32,
@@ -194,7 +193,7 @@ fn check_register_synchronization(flags: &[&str]) {
             "index {index}, stop {stop}, flags {flags:?}"
         );
     };
-    let module = step::ModuleFile::new(&synchronized_registers(IndexSource::Parameter));
+    let module = ModuleFile::new(&synchronized_registers(IndexSource::Parameter));
     for (index, offset, result) in [
         (0, 24, 0x0000_002a_0000_0063_u64),
         (1, 28, 0x2222_2222_0000_002a),
@@ -223,7 +222,7 @@ fn check_register_synchronization(flags: &[&str]) {
         7,
     );
     initial[24..28].copy_from_slice(&5_u32.to_le_bytes());
-    let module = step::ModuleFile::new(&synchronized_registers(IndexSource::OldEax));
+    let module = ModuleFile::new(&synchronized_registers(IndexSource::OldEax));
     check(
         &module,
         &initial,

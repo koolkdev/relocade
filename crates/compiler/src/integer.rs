@@ -28,7 +28,7 @@ pub(super) fn shift_count(ty: Type, count: u32) -> u32 {
 
 /// A conservative bound on the nonzero bits in the emitted integer, including
 /// upper bits that the logical type does not observe.
-pub(super) fn unsigned_bits(value: Value, inputs: &[u8]) -> u8 {
+pub(super) fn unsigned_bits(value: Value, values: &[Value], inputs: &[u8]) -> u8 {
     let carrier_bits = if value.ty == Type::I64 { 64 } else { 32 };
     match value.kind {
         ValueKind::JoinResult { .. } => unreachable!("join bounds come from its yielding arms"),
@@ -41,12 +41,29 @@ pub(super) fn unsigned_bits(value: Value, inputs: &[u8]) -> u8 {
             BinaryOp::And => inputs[a].min(inputs[b]),
             BinaryOp::Or | BinaryOp::Xor => inputs[a].max(inputs[b]),
         },
-        ValueKind::Shift(operator, input, count) => match operator {
-            ShiftOp::Left => inputs[input]
-                .saturating_add(shift_count(value.ty, count) as u8)
-                .min(carrier_bits),
-            ShiftOp::Right => inputs[input].saturating_sub(shift_count(value.ty, count) as u8),
+        ValueKind::Shift {
+            operator,
+            value: input,
+            count,
+        } => match values[count].kind {
+            ValueKind::Constant(bits) => {
+                let count = shift_count(value.ty, bits as u32) as u8;
+                match operator {
+                    ShiftOp::Left => inputs[input].saturating_add(count).min(carrier_bits),
+                    ShiftOp::Right => inputs[input].saturating_sub(count),
+                }
+            }
+            _ => match operator {
+                ShiftOp::Left => carrier_bits,
+                ShiftOp::Right => inputs[input],
+            },
         },
+        ValueKind::SignExtend(_) => carrier_bits,
+        ValueKind::Select {
+            when_true,
+            when_false,
+            ..
+        } => inputs[when_true].max(inputs[when_false]),
         ValueKind::Normalize(input) => inputs[input].min(value.ty.bits()),
         ValueKind::Convert(input) => inputs[input].min(carrier_bits),
         ValueKind::Compare(..) | ValueKind::ZeroTest { .. } => 1,

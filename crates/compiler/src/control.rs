@@ -100,6 +100,45 @@ impl FunctionBuilder<'_> {
         Ok(())
     }
 
+    /// Executes exactly one of two branches. Each branch may fall through,
+    /// return from the function or tail-call. A construction error discards both
+    /// branches and leaves the parent usable. Child values follow `if_`'s scope rules.
+    ///
+    /// ```
+    /// use wasm86_compiler::{Program, Signature, Type, I32};
+    /// let mut program = Program::new();
+    /// let function = program.declare(Signature {
+    ///     parameters: vec![Type::I32], result: Type::I32,
+    /// });
+    /// let mut body = program.define(function)?;
+    /// let value = body.parameter::<I32>(0)?;
+    /// body.if_else(value.eq(0),
+    ///     |branch| branch.return_(7),
+    ///     |_branch| Ok(()),
+    /// )?;
+    /// body.return_(value.add(1))?;
+    /// let bytes = program.compile()?;
+    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// ```
+    pub fn if_else(
+        &mut self,
+        condition: impl IntoOp<I1>,
+        then_build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
+        else_build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
+    ) -> Result<(), BuildError> {
+        let condition = self.operand(condition)?;
+        let branch = self.build_branch(None, then_build)?;
+        let else_branch = self.build_branch(None, else_build)?;
+        let condition = self.arena.normalize(condition)?;
+        self.region.operations.push(Operation::If {
+            condition,
+            branch,
+            else_branch: Some(else_branch),
+            output: None,
+        });
+        Ok(())
+    }
+
     /// Selects a value by executing one of two branches. Each arm must consume
     /// its builder with `yield_`, `return_`, or `tail_call`; at least one must yield.
     /// A yield supplies this conditional's value, while a return exits the function.
@@ -200,7 +239,7 @@ mod tests {
     use wasmparser::{Parser, Payload};
 
     #[test]
-    fn a_failed_branch_discards_nested_effects_and_imports_without_closing_the_parent() {
+    fn a_failed_else_branch_discards_both_arms_without_closing_the_parent() {
         let mut program = Program::new();
         let memory = program.import_memory(MemoryImport {
             module: "test".into(),
@@ -220,13 +259,19 @@ mod tests {
         let function = program.declare(signature);
         let mut body = program.define(function).unwrap();
         assert_eq!(
-            body.if_(true, |mut branch| {
-                branch.store::<I32>(memory, 0, 9)?;
-                branch.call::<I32>(target, &[])?;
-                branch.if_(true, |inner| inner.tail_call(target, &[]))?;
-                branch.parameter::<I32>(0)?;
-                Ok(())
-            }),
+            body.if_else(
+                true,
+                |mut branch| {
+                    branch.store::<I32>(memory, 0, 9)?;
+                    branch.call::<I32>(target, &[])?;
+                    branch.if_(true, |inner| inner.tail_call(target, &[]))?;
+                    Ok(())
+                },
+                |branch| {
+                    branch.parameter::<I32>(0)?;
+                    Ok(())
+                },
+            ),
             Err(BuildError::UnknownParameter)
         );
         body.return_(7).unwrap();

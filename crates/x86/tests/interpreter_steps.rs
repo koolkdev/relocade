@@ -182,7 +182,7 @@ fn interpreter_step_exposes_the_cpu_ram_page_map_and_dispatch_abi() {
 }
 
 #[test]
-fn runtime_decoding_keeps_the_wide_immediate_and_publishes_each_completed_path() {
+fn runtime_decoding_keeps_the_wide_immediate_fast_path() {
     #[derive(Default)]
     struct Code {
         cpu_loads: Vec<u64>,
@@ -267,32 +267,30 @@ fn runtime_decoding_keeps_the_wide_immediate_and_publishes_each_completed_path()
             .count(),
         1
     );
-    for body in bodies {
-        let exits = body
-            .tails
-            .iter()
-            .filter(|&&target| target == dispatch)
-            .count();
-        assert!(exits > 0);
+    let exits = fast
+        .tails
+        .iter()
+        .filter(|&&target| target == dispatch)
+        .count();
+    assert!(exits > 0);
 
+    assert_eq!(
+        fast.cpu_loads
+            .iter()
+            .filter(|&&offset| offset == 144)
+            .count(),
+        exits
+    );
+    for offset in [24, 56, 144] {
         assert_eq!(
-            body.cpu_loads
+            fast.stores
                 .iter()
-                .filter(|&&offset| offset == 144)
+                .filter(|&&access| access == (0, offset))
                 .count(),
             exits
         );
-        for offset in [24, 56, 144] {
-            assert_eq!(
-                body.stores
-                    .iter()
-                    .filter(|&&access| access == (0, offset))
-                    .count(),
-                exits
-            );
-        }
-        assert_eq!(body.stores.len(), exits * 3);
     }
+    assert_eq!(fast.stores.len(), exits * 3);
 }
 
 fn check_register_moves(flags: &[&str], step: &ModuleFile) {
@@ -505,7 +503,7 @@ fn check_register_moves(flags: &[&str], step: &ModuleFile) {
         ],
     );
     let memory_form = Image {
-        label: "unsupported memory ModRM does not fetch its displacement",
+        label: "missing displacement preserves the preceding instruction progress",
         cpu: state(0x1ff9),
         guest: &[(0x3ff9, &[0xb8, 42, 0, 0, 0, 0x89, 0x05])],
         machine: image.machine,
@@ -515,7 +513,7 @@ fn check_register_moves(flags: &[&str], step: &ModuleFile) {
         &memory_form,
         &[
             (&[(24, 42), (56, 0x1ffe), (144, 0)], Outcome::Dispatch(8190)),
-            (&[], Outcome::Exit(0x0008_0089_0000_1ffe)),
+            (&[], Outcome::Exit(0x0004_0010_0000_2000)),
         ],
     );
 }

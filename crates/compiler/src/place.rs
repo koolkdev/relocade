@@ -333,13 +333,26 @@ pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
             capture_points[id] = Some(anchor);
         }
         match body.values[id].kind {
-            ValueKind::Binary(_, a, b) | ValueKind::Compare(_, a, b) => {
+            ValueKind::Binary(_, a, b)
+            | ValueKind::Compare(_, a, b)
+            | ValueKind::Shift {
+                value: a, count: b, ..
+            } => {
                 demand(body, &tree, &mut demands, a, anchor);
                 demand(body, &tree, &mut demands, b, anchor);
             }
+            ValueKind::Select {
+                condition,
+                when_true,
+                when_false,
+            } => {
+                demand(body, &tree, &mut demands, when_true, anchor);
+                demand(body, &tree, &mut demands, when_false, anchor);
+                demand(body, &tree, &mut demands, condition, anchor);
+            }
             ValueKind::Normalize(input)
             | ValueKind::Convert(input)
-            | ValueKind::Shift(_, input, _)
+            | ValueKind::SignExtend(input)
             | ValueKind::ZeroTest { input, .. } => demand(body, &tree, &mut demands, input, anchor),
             // Address reads preserve their snapshots where this read actually runs.
             ValueKind::Load { location, .. } => {

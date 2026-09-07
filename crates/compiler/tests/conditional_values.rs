@@ -1,9 +1,7 @@
-use std::{
-    fs,
-    path::PathBuf,
-    process::Command,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+#[path = "support/wasm.rs"]
+mod wasm;
+use wasm::ModuleFile;
+
 use wasm86_compiler::{
     Func, FunctionImport, IntType, Mem, MemoryImport, Program, Signature, Type, I1, I32, I64, I8,
 };
@@ -539,67 +537,26 @@ fn function_exits_inside_value_arms_keep_the_function_result_type() {
     );
 }
 
-struct ModuleFile(PathBuf);
-
-impl ModuleFile {
-    fn new(bytes: &[u8]) -> Self {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "wasm86-conditional-values-{}-{}.wasm",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::write(&path, bytes).unwrap();
-        Self(path)
-    }
-
-    fn check(&self, flags: &[&str], inputs: &[&str], expected: &str) {
-        let output = Command::new("node")
-            .args(flags)
-            .arg(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/support/execute-tail.mjs"
-            ))
-            .arg(&self.0)
-            .arg("run")
-            .args(inputs)
-            .output()
-            .expect("the explicit V8 lane requires Node.js on PATH");
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert_eq!(
-            String::from_utf8(output.stdout).unwrap(),
-            expected,
-            "inputs {inputs:?}, flags {flags:?}"
-        );
-    }
-}
-
-impl Drop for ModuleFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
 fn check_execution(flags: &[&str]) {
     let direct = ModuleFile::new(&direct_result::<I32>());
     direct.check(
         flags,
-        &["-", "", "i32:1", "i32:-2147483648", "i32:17"],
+        "execute-tail.mjs",
+        &["run", "-", "", "i32:1", "i32:-2147483648", "i32:17"],
         "return -2147483648\n",
     );
     direct.check(
         flags,
-        &["-", "", "i32:0", "i32:-2147483648", "i32:17"],
+        "execute-tail.mjs",
+        &["run", "-", "", "i32:0", "i32:-2147483648", "i32:17"],
         "return 17\n",
     );
     let wide = ModuleFile::new(&direct_result::<I64>());
     wide.check(
         flags,
+        "execute-tail.mjs",
         &[
+            "run",
             "-",
             "",
             "i32:1",
@@ -610,7 +567,9 @@ fn check_execution(flags: &[&str]) {
     );
     wide.check(
         flags,
+        "execute-tail.mjs",
         &[
+            "run",
             "-",
             "",
             "i32:0",
@@ -622,77 +581,104 @@ fn check_execution(flags: &[&str]) {
     let shared = ModuleFile::new(&shared_result());
     shared.check(
         flags,
-        &["0700000005000000a55a", "", "i32:1", "i32:2147483647"],
+        "execute-tail.mjs",
+        &["run", "0700000005000000a55a", "", "i32:1", "i32:2147483647"],
         "return 0\nstate 0100000000000080a55a\n",
     );
     shared.check(
         flags,
-        &["0700000005000000a55a", "", "i32:0", "i32:4"],
+        "execute-tail.mjs",
+        &["run", "0700000005000000a55a", "", "i32:0", "i32:4"],
         "return 12\nstate 0200000006000000a55a\n",
     );
     let selected = ModuleFile::new(&selected_memory());
     selected.check(
         flags,
-        &["07000000050000000b000000a55a", "", "i32:1", "i32:8"],
+        "execute-tail.mjs",
+        &["run", "07000000050000000b000000a55a", "", "i32:1", "i32:8"],
         "return 11\nstate 010000000200000004000000a55a\n",
     );
     selected.check(
         flags,
-        &["07000000050000000b000000a55a", "", "i32:1", "i32:65536"],
+        "execute-tail.mjs",
+        &[
+            "run",
+            "07000000050000000b000000a55a",
+            "",
+            "i32:1",
+            "i32:65536",
+        ],
         "return trap\nstate 01000000020000000b000000a55a\n",
     );
     selected.check(
         flags,
-        &["07000000050000000b000000a55a", "", "i32:0", "i32:65536"],
+        "execute-tail.mjs",
+        &[
+            "run",
+            "07000000050000000b000000a55a",
+            "",
+            "i32:0",
+            "i32:65536",
+        ],
         "return 11\nstate 010000000300000004000000a55a\n",
     );
     let unused = ModuleFile::new(&unused_result());
     unused.check(
         flags,
-        &["0700000005000000a55a", "receive:i32:23", "i32:1"],
+        "execute-tail.mjs",
+        &["run", "0700000005000000a55a", "receive:i32:23", "i32:1"],
         "receive(9) 0100000005000000a55a\nreturn 17\nstate 0100000003000000a55a\n",
     );
     unused.check(
         flags,
-        &["0700000005000000a55a", "receive:i32:23", "i32:0"],
+        "execute-tail.mjs",
+        &["run", "0700000005000000a55a", "receive:i32:23", "i32:0"],
         "return 17\nstate 0200000003000000a55a\n",
     );
     let snapshots = ModuleFile::new(&snapshots());
     snapshots.check(
         flags,
-        &["0700000005000000a55a", "", "i32:1"],
+        "execute-tail.mjs",
+        &["run", "0700000005000000a55a", "", "i32:1"],
         "return 19\nstate 0c00000005000000a55a\n",
     );
     snapshots.check(
         flags,
-        &["0700000005000000a55a", "", "i32:0"],
+        "execute-tail.mjs",
+        &["run", "0700000005000000a55a", "", "i32:0"],
         "return 21\nstate 0c00000003000000a55a\n",
     );
     let fault = ModuleFile::new(&nested_fault());
     fault.check(
         flags,
-        &["07000000a55a", "", "i32:1", "i32:1", "i32:65536"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:1", "i32:1", "i32:65536"],
         "return -9223372036854775808\nstate 07000000a55a\n",
     );
     fault.check(
         flags,
-        &["07000000a55a", "", "i32:1", "i32:0", "i32:0"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:1", "i32:0", "i32:0"],
         "return 7\nstate 07000000a55a\n",
     );
     fault.check(
         flags,
-        &["07000000a55a", "", "i32:0", "i32:1", "i32:65536"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:0", "i32:1", "i32:65536"],
         "return 11\nstate 07000000a55a\n",
     );
     fault.check(
         flags,
-        &["07000000a55a", "", "i32:1", "i32:0", "i32:65536"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:1", "i32:0", "i32:65536"],
         "return trap\nstate 07000000a55a\n",
     );
     let narrow = ModuleFile::new(&narrow_result());
     narrow.check(
         flags,
+        "execute-tail.mjs",
         &[
+            "run",
             "a55a",
             "receive:i64:-9223372036854775808",
             "i32:1",
@@ -702,7 +688,9 @@ fn check_execution(flags: &[&str]) {
     );
     narrow.check(
         flags,
+        "execute-tail.mjs",
         &[
+            "run",
             "a55a",
             "receive:i64:-9223372036854775808",
             "i32:0",
@@ -713,50 +701,60 @@ fn check_execution(flags: &[&str]) {
     let predicate = ModuleFile::new(&predicate_result());
     predicate.check(
         flags,
-        &["07000000a55a", "", "i32:1", "i32:1"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:1", "i32:1"],
         "return 0\nstate 07000000a55a\n",
     );
     predicate.check(
         flags,
-        &["07000000a55a", "", "i32:1", "i32:0"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:1", "i32:0"],
         "return 1\nstate 09000000a55a\n",
     );
     predicate.check(
         flags,
-        &["07000000a55a", "", "i32:0", "i32:0"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:0", "i32:0"],
         "return 0\nstate 07000000a55a\n",
     );
     let nested = ModuleFile::new(&nested_result());
     nested.check(
         flags,
-        &["07000000a55a", "", "i32:1", "i32:1", "i32:4"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:1", "i32:1", "i32:4"],
         "return 11\nstate 05000000a55a\n",
     );
     nested.check(
         flags,
-        &["07000000a55a", "", "i32:1", "i32:0", "i32:4"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:1", "i32:0", "i32:4"],
         "return 12\nstate 05000000a55a\n",
     );
     nested.check(
         flags,
-        &["07000000a55a", "", "i32:0", "i32:1", "i32:4"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:0", "i32:1", "i32:4"],
         "return 13\nstate 05000000a55a\n",
     );
     let returning = ModuleFile::new(&returning_arm());
     returning.check(
         flags,
-        &["07000000a55a", "", "i32:1"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:1"],
         "return -9223372036854775808\nstate 07000000a55a\n",
     );
     returning.check(
         flags,
-        &["07000000a55a", "", "i32:0"],
+        "execute-tail.mjs",
+        &["run", "07000000a55a", "", "i32:0"],
         "return 7\nstate 09000000a55a\n",
     );
     let tailing = ModuleFile::new(&tailing_arm());
     tailing.check(
         flags,
+        "execute-tail.mjs",
         &[
+            "run",
             "0700000005000000a55a",
             "receive:i64:-9223372036854775808",
             "i32:0",
@@ -769,7 +767,9 @@ fn check_execution(flags: &[&str]) {
     );
     tailing.check(
         flags,
+        "execute-tail.mjs",
         &[
+            "run",
             "0700000005000000a55a",
             "receive:i64:-9223372036854775808",
             "i32:1",

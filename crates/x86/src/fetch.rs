@@ -3,26 +3,29 @@
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
 
-use crate::{memory::Memory, state::exit};
+use crate::{
+    memory::{Intent, Memory},
+    state::exit,
+};
 
 pub(super) fn byte(
     body: &mut FunctionBuilder<'_>,
     memory: Memory,
     address: &Val<I32>,
 ) -> Result<Val<I8>, BuildError> {
-    let translation = memory.translate(body, address)?;
-    body.if_(&translation.missing, |arm| {
-        arm.return_(exit::page_fault(address))
+    let access = memory.resolve_access::<I8>(body, address, Intent::Fetch)?;
+    body.if_(&access.fault.condition, |arm| {
+        arm.return_(exit::page_fault(&access.fault.address, &access.fault.error))
     })?;
-    memory.load::<I8>(body, &translation.physical, 0)
+    memory.read(body, &access)
 }
 
-pub(super) fn immediate32(
+pub(super) fn dword(
     body: &mut FunctionBuilder<'_>,
     memory: Memory,
     start: &Val<I32>,
 ) -> Result<Val<I32>, BuildError> {
-    let direct = memory.direct(body, start, 4)?;
+    let direct = memory.check_direct_access(body, start, 4, Intent::Fetch)?;
     body.if_value::<I32>(
         &direct.unavailable,
         |mut arm| {
