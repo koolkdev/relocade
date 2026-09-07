@@ -1,11 +1,8 @@
-use std::{
-    fmt::Write as _,
-    fs,
-    io::Write as _,
-    path::PathBuf,
-    process::{Command, Stdio},
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::fmt::Write as _;
+
+#[path = "support/step.rs"]
+mod step;
+use step::ModuleFile;
 use wasm86_x86::{compile_block_from_bytes, compile_interpreter_step, CompiledModule};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Validator};
 
@@ -20,28 +17,30 @@ const MOVES: [(&[u8], usize, u32); 8] = [
     (&[0xbf, 0x21, 0x43, 0x65, 0x87], 52, 0x8765_4321),
 ];
 
+const REGISTERS: [(usize, u32); 8] = [
+    (24, 0x1111_1111),
+    (28, 0x2222_2222),
+    (32, 0x3333_3333),
+    (36, 0x4444_4444),
+    (40, 0x5555_5555),
+    (44, 0x6666_6666),
+    (48, 0x7777_7777),
+    (52, 0x8888_8888),
+];
+
 fn state(eip: u32) -> [u8; 152] {
     let mut bytes = [0xa5; 152];
-    for (offset, value) in [
-        (24, 0x1111_1111u32),
-        (28, 0x2222_2222),
-        (32, 0x3333_3333),
-        (36, 0x4444_4444),
-        (40, 0x5555_5555),
-        (44, 0x6666_6666),
-        (48, 0x7777_7777),
-        (52, 0x8888_8888),
-        (56, eip),
-        (144, 0xffff_ffff),
-        (148, 0),
-    ] {
+    for (offset, value) in REGISTERS {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    for (offset, value) in [(56, eip), (144, 0xffff_ffff), (148, 0)] {
         bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
     bytes
 }
 
 struct Image<'a> {
-    label: &'static str,
+    label: &'a str,
     cpu: [u8; 152],
     guest: &'a [(u32, &'a [u8])],
     machine: &'a [(u32, &'a [u8])],
@@ -79,85 +78,42 @@ enum Outcome {
     Trap,
 }
 
-struct ModuleFile {
-    path: PathBuf,
-    entry: String,
-}
-
 impl ModuleFile {
-    fn new(module: &CompiledModule) -> Self {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "wasm86-step-{}-{}.wasm",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::write(&path, &module.bytes).unwrap();
-        Self {
-            path,
-            entry: module.entry.clone(),
-        }
+    fn check(&self, flags: &[&str], image: &Image<'_>, updates: &[(usize, u32)], outcome: Outcome) {
+        self.check_steps(flags, image, &[(updates, outcome)]);
     }
 
-    fn check(&self, flags: &[&str], image: &Image<'_>, updates: &[(usize, u32)], outcome: Outcome) {
-        let mut expected = image.cpu;
-        for (offset, value) in updates {
-            expected[*offset..*offset + 4].copy_from_slice(&value.to_le_bytes());
-        }
-        let expected_state = hex(&expected);
-        let terminal = match outcome {
-            Outcome::Dispatch(eip) => {
-                format!("dispatch({eip}) {expected_state}\nreturn -9223372036854775808\n")
+    fn check_steps(&self, flags: &[&str], image: &Image<'_>, steps: &[(&[(usize, u32)], Outcome)]) {
+        let mut cpu = image.cpu;
+        let mut expected = String::new();
+        for (updates, outcome) in steps {
+            for &(offset, value) in *updates {
+                cpu[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
             }
-            Outcome::Exit(word) => format!("return {word}\n"),
-            Outcome::Trap => "return trap\n".into(),
-        };
-        let expected =
-            format!("{terminal}state {expected_state}\nguest unchanged\nmachine unchanged\n");
-        let mut child = Command::new("node")
-            .args(flags)
-            .arg(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/support/execute-step.mjs"
-            ))
-            .arg(&self.path)
-            .arg(&self.entry)
-            .arg(i64::MIN.to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("the explicit V8 lane requires Node.js on PATH");
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(image.input().as_bytes())
-            .unwrap();
-        let output = child.wait_with_output().unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+            let state = hex(&cpu);
+            match outcome {
+                Outcome::Dispatch(eip) => {
+                    writeln!(&mut expected, "dispatch({eip}) {state}").unwrap();
+                    expected.push_str("return -9223372036854775808\n");
+                }
+                Outcome::Exit(word) => writeln!(&mut expected, "return {word}").unwrap(),
+                Outcome::Trap => expected.push_str("return trap\n"),
+            }
+            writeln!(&mut expected, "state {state}").unwrap();
+        }
+        expected.push_str("guest unchanged\nmachine unchanged\n");
         assert_eq!(
-            String::from_utf8(output.stdout).unwrap(),
+            self.observe(flags, &image.input(), steps.len()),
             expected,
-            "{}, entry {}, updates {updates:?}, flags {flags:?}",
+            "{}, entry {}, flags {flags:?}",
             image.label,
             self.entry
         );
     }
 }
 
-impl Drop for ModuleFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
-}
-
 #[test]
-fn live_step_exposes_the_cpu_ram_page_map_and_dispatch_abi() {
+fn interpreter_step_exposes_the_cpu_ram_page_map_and_dispatch_abi() {
     let module = compile_interpreter_step().unwrap();
     assert_eq!(module.entry, "step");
     Validator::new().validate_all(&module.bytes).unwrap();
@@ -226,7 +182,7 @@ fn live_step_exposes_the_cpu_ram_page_map_and_dispatch_abi() {
 }
 
 #[test]
-fn the_fast_path_loads_one_immediate_and_publishes_one_indexed_register() {
+fn runtime_decoding_keeps_the_wide_immediate_and_publishes_each_completed_path() {
     #[derive(Default)]
     struct Code {
         cpu_loads: Vec<u64>,
@@ -287,31 +243,286 @@ fn the_fast_path_loads_one_immediate_and_publishes_one_indexed_register() {
         }
     }
     let fast = &bodies[step.unwrap() as usize];
-    assert_eq!(fast.guest_loads, [(0, 8), (1, 32)]);
-    let dispatch = dispatch.unwrap();
     assert_eq!(
-        fast.tails
+        fast.guest_loads
             .iter()
-            .filter(|&&target| target == dispatch)
-            .count(),
-        1
+            .filter(|&&(_, bits)| bits == 32)
+            .copied()
+            .collect::<Vec<_>>(),
+        [(1, 32)]
     );
+    assert!(fast.guest_loads.contains(&(0, 8)));
+    assert!(!fast.cpu_loads.contains(&24));
+    assert!(bodies.iter().any(|body| body.cpu_loads.contains(&24)));
+    assert!(bodies.iter().any(|body| body.guest_loads.contains(&(1, 8))));
+    let dispatch = dispatch.unwrap();
+    assert!(fast
+        .tails
+        .iter()
+        .any(|&target| target >= imported_functions));
     assert_eq!(
-        fast.tails
+        fast.cpu_loads
             .iter()
-            .filter(|&&target| target >= imported_functions)
+            .filter(|&&offset| offset == 56)
             .count(),
         1
     );
     for body in bodies {
-        assert_eq!(body.cpu_loads, [56, 144]);
-        assert_eq!(body.stores, [(0, 24), (0, 56), (0, 144)]);
-        assert!(body.tails.contains(&dispatch));
+        let exits = body
+            .tails
+            .iter()
+            .filter(|&&target| target == dispatch)
+            .count();
+        assert!(exits > 0);
+
+        assert_eq!(
+            body.cpu_loads
+                .iter()
+                .filter(|&&offset| offset == 144)
+                .count(),
+            exits
+        );
+        for offset in [24, 56, 144] {
+            assert_eq!(
+                body.stores
+                    .iter()
+                    .filter(|&&access| access == (0, offset))
+                    .count(),
+                exits
+            );
+        }
+        assert_eq!(body.stores.len(), exits * 3);
     }
+}
+
+fn check_register_moves(flags: &[&str], step: &ModuleFile) {
+    for (source, &(_, value)) in REGISTERS.iter().enumerate() {
+        for (destination, &(offset, _)) in REGISTERS.iter().enumerate() {
+            for bytes in [
+                [0x89, 0xc0 | ((source as u8) << 3) | destination as u8],
+                [0x8b, 0xc0 | ((destination as u8) << 3) | source as u8],
+            ] {
+                let label = format!(
+                    "opcode {:02x}, source {source}, destination {destination}",
+                    bytes[0]
+                );
+                let image = Image {
+                    label: &label,
+                    cpu: state(0x1234),
+                    guest: &[(0x3234, &bytes)],
+                    machine: &[(4, &[1, 0x30, 0, 0])],
+                };
+                let updates = [(offset, value), (56, 0x1236), (144, 0)];
+                step.check(flags, &image, &updates, Outcome::Dispatch(4662));
+                let snapshot =
+                    ModuleFile::new(&compile_block_from_bytes(0x1234, &bytes, 1).unwrap());
+                snapshot.check(flags, &image, &updates, Outcome::Dispatch(4662));
+            }
+        }
+    }
+
+    let rotation = &[
+        0x89, 0xc2, 0x8b, 0xc1, 0x89, 0xd1, 0x8b, 0xf8, 0x89, 0xce, 0x8b, 0xda,
+    ];
+    let image = Image {
+        label: "register rotation retains source values",
+        cpu: state(0x1000),
+        guest: &[(0x3000, rotation)],
+        machine: &[(4, &[1, 0x30, 0, 0])],
+    };
+    step.check_steps(
+        flags,
+        &image,
+        &[
+            (
+                &[(32, 0x1111_1111), (56, 0x1002), (144, 0)],
+                Outcome::Dispatch(4098),
+            ),
+            (
+                &[(24, 0x2222_2222), (56, 0x1004), (144, 1)],
+                Outcome::Dispatch(4100),
+            ),
+            (
+                &[(28, 0x1111_1111), (56, 0x1006), (144, 2)],
+                Outcome::Dispatch(4102),
+            ),
+            (
+                &[(52, 0x2222_2222), (56, 0x1008), (144, 3)],
+                Outcome::Dispatch(4104),
+            ),
+            (
+                &[(48, 0x1111_1111), (56, 0x100a), (144, 4)],
+                Outcome::Dispatch(4106),
+            ),
+            (
+                &[(36, 0x1111_1111), (56, 0x100c), (144, 5)],
+                Outcome::Dispatch(4108),
+            ),
+        ],
+    );
+    let snapshot = ModuleFile::new(&compile_block_from_bytes(0x1000, rotation, 6).unwrap());
+    snapshot.check(
+        flags,
+        &image,
+        &[
+            (24, 0x2222_2222),
+            (28, 0x1111_1111),
+            (32, 0x1111_1111),
+            (36, 0x1111_1111),
+            (48, 0x1111_1111),
+            (52, 0x2222_2222),
+            (56, 0x100c),
+            (144, 5),
+        ],
+        Outcome::Dispatch(4108),
+    );
+
+    let forward = &[0xb8, 42, 0, 0, 0, 0x89, 0xc1, 0x8b, 0xd1, 0x89, 0xd3];
+    let image = Image {
+        label: "immediate definition forwards through register copies",
+        cpu: state(0x1000),
+        guest: &[(0x3000, forward)],
+        machine: image.machine,
+    };
+    step.check_steps(
+        flags,
+        &image,
+        &[
+            (&[(24, 42), (56, 0x1005), (144, 0)], Outcome::Dispatch(4101)),
+            (&[(28, 42), (56, 0x1007), (144, 1)], Outcome::Dispatch(4103)),
+            (&[(32, 42), (56, 0x1009), (144, 2)], Outcome::Dispatch(4105)),
+            (&[(36, 42), (56, 0x100b), (144, 3)], Outcome::Dispatch(4107)),
+        ],
+    );
+    let snapshot = ModuleFile::new(&compile_block_from_bytes(0x1000, forward, 4).unwrap());
+    snapshot.check(
+        flags,
+        &image,
+        &[
+            (24, 42),
+            (28, 42),
+            (32, 42),
+            (36, 42),
+            (56, 0x100b),
+            (144, 3),
+        ],
+        Outcome::Dispatch(4107),
+    );
+
+    let old_value = &[0x89, 0xc1, 0xb8, 9, 0, 0, 0, 0x8b, 0xd1];
+    let image = Image {
+        label: "earlier copy survives replacing its source register",
+        cpu: state(0x1000),
+        guest: &[(0x3000, old_value)],
+        machine: image.machine,
+    };
+    step.check_steps(
+        flags,
+        &image,
+        &[
+            (
+                &[(28, 0x1111_1111), (56, 0x1002), (144, 0)],
+                Outcome::Dispatch(4098),
+            ),
+            (&[(24, 9), (56, 0x1007), (144, 1)], Outcome::Dispatch(4103)),
+            (
+                &[(32, 0x1111_1111), (56, 0x1009), (144, 2)],
+                Outcome::Dispatch(4105),
+            ),
+        ],
+    );
+    let snapshot = ModuleFile::new(&compile_block_from_bytes(0x1000, old_value, 3).unwrap());
+    snapshot.check(
+        flags,
+        &image,
+        &[
+            (24, 9),
+            (28, 0x1111_1111),
+            (32, 0x1111_1111),
+            (56, 0x1009),
+            (144, 2),
+        ],
+        Outcome::Dispatch(4105),
+    );
+
+    let complete = Image {
+        label: "complete register MOV does not fetch a following page",
+        cpu: state(0x1ffe),
+        guest: &[(0x3ffe, &[0x89, 0xc1])],
+        machine: image.machine,
+    };
+    step.check(
+        flags,
+        &complete,
+        &[(28, 0x1111_1111), (56, 0x2000), (144, 0)],
+        Outcome::Dispatch(8192),
+    );
+    let scattered = Image {
+        label: "ModRM is in a nonadjacent physical frame",
+        cpu: state(0x1fff),
+        guest: &[(0x3fff, &[0x8b]), (0x1000, &[0xf8])],
+        machine: &[(4, &[1, 0x30, 0, 0, 1, 0x10, 0, 0])],
+    };
+    step.check(
+        flags,
+        &scattered,
+        &[(52, 0x1111_1111), (56, 0x2001), (144, 0)],
+        Outcome::Dispatch(8193),
+    );
+    let wrapped = Image {
+        label: "register MOV crosses wrapped EIP",
+        cpu: state(0xffff_ffff),
+        guest: &[(0x3fff, &[0x89]), (0x1000, &[0xc1])],
+        machine: &[(0x003f_fffc, &[1, 0x30, 0, 0]), (0, &[1, 0x10, 0, 0])],
+    };
+    step.check(
+        flags,
+        &wrapped,
+        &[(28, 0x1111_1111), (56, 1), (144, 0)],
+        Outcome::Dispatch(1),
+    );
+    let snapshot =
+        ModuleFile::new(&compile_block_from_bytes(0xffff_ffff, &[0x89, 0xc1], 1).unwrap());
+    snapshot.check(
+        flags,
+        &wrapped,
+        &[(28, 0x1111_1111), (56, 1), (144, 0)],
+        Outcome::Dispatch(1),
+    );
+
+    let missing_modrm = Image {
+        label: "missing ModRM preserves the preceding instruction's progress",
+        cpu: state(0x1ffa),
+        guest: &[(0x3ffa, &[0xb8, 42, 0, 0, 0, 0x89])],
+        machine: image.machine,
+    };
+    step.check_steps(
+        flags,
+        &missing_modrm,
+        &[
+            (&[(24, 42), (56, 0x1fff), (144, 0)], Outcome::Dispatch(8191)),
+            (&[], Outcome::Exit(0x0004_0010_0000_2000)),
+        ],
+    );
+    let memory_form = Image {
+        label: "unsupported memory ModRM does not fetch its displacement",
+        cpu: state(0x1ff9),
+        guest: &[(0x3ff9, &[0xb8, 42, 0, 0, 0, 0x89, 0x05])],
+        machine: image.machine,
+    };
+    step.check_steps(
+        flags,
+        &memory_form,
+        &[
+            (&[(24, 42), (56, 0x1ffe), (144, 0)], Outcome::Dispatch(8190)),
+            (&[], Outcome::Exit(0x0008_0089_0000_1ffe)),
+        ],
+    );
 }
 
 fn check_execution(flags: &[&str]) {
     let step = ModuleFile::new(&compile_interpreter_step().unwrap());
+    check_register_moves(flags, &step);
     // Virtual page 1 maps to frame 3. PRESENT alone permits instruction fetch.
     for &(bytes, offset, value) in &MOVES {
         let image = Image {

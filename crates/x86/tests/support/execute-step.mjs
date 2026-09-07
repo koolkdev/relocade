@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 
-const [path, entry, returned] = process.argv.slice(2);
-const [cpu, guestPatches, machinePatches] = JSON.parse(readFileSync(0, 'utf8'));
+const [path, entry, returned, invocations = '1'] = process.argv.slice(2);
+const [cpu, guestPatches, machinePatches, arguments_ = []] = JSON.parse(readFileSync(0, 'utf8'));
+const args = arguments_.map(([type, value]) => type === 'i64' ? BigInt(value) : Number(value));
 const cpuState = new WebAssembly.Memory({ initial: 1 });
 const guest = new WebAssembly.Memory({ initial: 1 });
 const machine = new WebAssembly.Memory({ initial: 64 });
@@ -23,14 +24,16 @@ for (const [memory, patches] of [[guest, guestPatches], [machine, machinePatches
 }
 const guestBefore = Buffer.from(new Uint8Array(guest.buffer));
 const machineBefore = Buffer.from(new Uint8Array(machine.buffer));
-let result;
-try {
-  result = instance.exports[entry]();
-} catch (error) {
-  if (!(error instanceof WebAssembly.RuntimeError)) throw error;
-  result = 'trap';
+for (let call = 0; call < Number(invocations); call++) {
+  let result;
+  try {
+    result = instance.exports[entry](...args);
+  } catch (error) {
+    if (!(error instanceof WebAssembly.RuntimeError)) throw error;
+    result = 'trap';
+  }
+  lines.push(`return ${result}`, `state ${snapshot()}`);
 }
-lines.push(`return ${result}`, `state ${snapshot()}`);
 lines.push(`guest ${guestBefore.equals(Buffer.from(guest.buffer)) ? 'unchanged' : 'changed'}`);
 lines.push(`machine ${machineBefore.equals(Buffer.from(machine.buffer)) ? 'unchanged' : 'changed'}`);
 process.stdout.write(`${lines.join('\n')}\n`);

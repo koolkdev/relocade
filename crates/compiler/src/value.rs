@@ -150,6 +150,15 @@ impl<T: IntType> Val<T> {
         checked_expression(&self.arena, arena, &self.expression)
     }
 
+    /// Returns whether both values identify the same successfully constructed
+    /// expression in the same body. This does not compare their runtime values.
+    /// Completing the body does not change this identity; consuming either value
+    /// still checks body ownership and branch visibility.
+    pub fn same_expression(&self, other: &Self) -> bool {
+        self.arena.same_body(&other.arena)
+            && matches!((&self.expression, &other.expression), (Ok(left), Ok(right)) if left == right)
+    }
+
     /// Passes this value in a call argument list while retaining its logical type and body.
     pub fn argument(&self) -> Argument {
         self.into()

@@ -2,7 +2,10 @@ pub(super) mod exit;
 
 use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Mem, MemoryImport, Program, Val, I32};
 
-use crate::register::{Gpr32, Register32};
+use crate::{
+    register::{Gpr32, Register32},
+    ssa::{Environment, Location, Span},
+};
 
 fn register_offset(register: Gpr32) -> u32 {
     match register {
@@ -38,62 +41,62 @@ pub(super) fn read_eip(
 
 pub(super) struct State {
     memory: Mem,
-    registers: Vec<(Register32, Val<I32>)>,
+    values: Environment,
 }
 
 impl State {
     pub(super) fn new(memory: Mem) -> Self {
         Self {
             memory,
-            registers: Vec::new(),
+            values: Environment::new(memory),
+        }
+    }
+
+    pub(super) fn read_register(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        register: impl Into<Register32>,
+    ) -> Result<Val<I32>, BuildError> {
+        match register.into() {
+            Register32::Named(register) => {
+                self.values.read(body, Location(register_offset(register)))
+            }
+            Register32::Indexed(index) => {
+                self.values
+                    .read_at(body, Span::new(24, 32), index.shl(2), 24)
+            }
         }
     }
 
     pub(super) fn write_register(
         &mut self,
-        body: &FunctionBuilder<'_>,
+        body: &mut FunctionBuilder<'_>,
         register: impl Into<Register32>,
         value: impl IntoOp<I32>,
     ) -> Result<(), BuildError> {
-        let value = body.value(value)?;
-        let register = register.into();
-        if let Register32::Named(name) = &register {
-            // An indexed write may name any register, so a later named write
-            // cannot replace a value that will be published before it.
-            for (existing, current) in self.registers.iter_mut().rev() {
-                match existing {
-                    Register32::Indexed(_) => break,
-                    Register32::Named(key) if key == name => {
-                        *current = value;
-                        return Ok(());
-                    }
-                    _ => {}
-                }
+        match register.into() {
+            Register32::Named(register) => {
+                self.values
+                    .define(body, Location(register_offset(register)), value)
+            }
+            Register32::Indexed(index) => {
+                self.values
+                    .write_at(body, Span::new(24, 32), index.shl(2), 24, value)
             }
         }
-        self.registers.push((register, value));
-        Ok(())
     }
 
-    /// Writes the pending snapshot for this exit without clearing it.
-    /// Publications must be on mutually exclusive paths; this does not flush state
-    /// for continued execution on the same path.
+    /// Publishes current completed instructions on a terminating path. Indexed
+    /// accesses may already have synchronized register definitions to backing.
+    /// Later definitions do not change an earlier authored exit; this does not
+    /// restore an older state after partially executing a new instruction.
     pub(super) fn publish(
         &self,
         body: &mut FunctionBuilder<'_>,
         next_eip: impl IntoOp<I32>,
         completed: u32,
     ) -> Result<(), BuildError> {
-        for (register, value) in &self.registers {
-            match register {
-                Register32::Named(register) => {
-                    body.store(self.memory, register_offset(*register), value)?;
-                }
-                Register32::Indexed(index) => {
-                    body.store_at(self.memory, index.shl(2), 24, value)?;
-                }
-            }
-        }
+        self.values.publish(body)?;
         body.store::<I32>(self.memory, EIP_OFFSET, next_eip)?;
         let count = body.load::<I32>(self.memory, INSTRUCTION_COUNT_OFFSET)?;
         body.store(self.memory, INSTRUCTION_COUNT_OFFSET, count.add(completed))

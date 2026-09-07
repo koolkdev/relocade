@@ -140,3 +140,50 @@ fn retaining_a_failed_expression_leaves_the_body_usable() {
     body.return_(retained.add(1)).unwrap();
     assert!(program.compile().is_ok());
 }
+
+#[test]
+fn expression_identity_reuses_nodes_but_keeps_read_events_distinct() {
+    let mut program = Program::new();
+    let memory = program.import_memory(MemoryImport {
+        module: "test".into(),
+        name: "state".into(),
+        minimum: 1,
+        maximum: None,
+    });
+    let function = program.declare(Signature {
+        parameters: vec![Type::I32],
+        result: Type::I32,
+    });
+    let mut body = program.define(function).unwrap();
+    let input = body.parameter::<I32>(0).unwrap();
+    let sum = input.add(1);
+    assert!(sum.same_expression(&sum.clone()));
+    assert!(sum.same_expression(&input.add(1)));
+    let first = body.load::<I32>(memory, 0).unwrap();
+    let second = body.load::<I32>(memory, 0).unwrap();
+    assert!(!first.same_expression(&second));
+    body.return_(&sum).unwrap();
+    assert!(sum.same_expression(&sum.clone()));
+}
+
+#[test]
+fn expression_identity_is_false_for_foreign_or_failed_values() {
+    let mut program = Program::new();
+    let signature = Signature {
+        parameters: vec![],
+        result: Type::I32,
+    };
+    let first = program.declare(signature.clone());
+    let second = program.declare(signature);
+    let body = program.define(first).unwrap();
+    let foreign = body.value::<I32>(7).unwrap();
+    body.return_(&foreign).unwrap();
+    let body = program.define(second).unwrap();
+    let current = body.value::<I32>(7).unwrap();
+    assert!(!current.same_expression(&foreign));
+    let failed = current.add(&foreign);
+    assert!(!failed.same_expression(&failed));
+    assert!(!failed.same_expression(&current));
+    assert_eq!(body.value(&foreign).err(), Some(BuildError::ForeignBody));
+    body.return_(current).unwrap();
+}

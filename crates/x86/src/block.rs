@@ -3,8 +3,10 @@ use wasm86_compiler::{Program, Signature, Type};
 use crate::{declare_dispatch, decode, semantics, state, BlockError, CompiledModule};
 
 /// Compiles exactly `instruction_limit` instructions starting at `start_eip`.
-/// Bytes after that selection are ignored. Missing or unsupported selected bytes
-/// are construction errors. This byte-only input carries no guest-fault information.
+/// Supports unprefixed MOV imm32 to a register and register-to-register MOV
+/// (`89`/`8B` with ModRM.mod = 3). Bytes after the selection are ignored.
+/// Missing or unsupported selected bytes are construction errors. This byte-only
+/// input carries no guest-fault information.
 /// EIP and the completed-instruction count advance with 32-bit wrapping arithmetic.
 ///
 /// The exported `block_<hex start_eip>` function has signature `() -> i64` and

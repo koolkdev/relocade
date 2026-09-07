@@ -335,3 +335,66 @@ fn mov_blocks_execute_in_v8_optimizing() {
         "--no-wasm-tier-up",
     ]);
 }
+
+#[test]
+fn register_mov_requires_modrm_and_rejects_memory_addressing_before_displacement() {
+    for opcode in [0x89, 0x8b] {
+        assert!(matches!(
+            compile_block_from_bytes(0x1000, &[opcode], 1),
+            Err(BlockError::TruncatedInstruction {
+                address: 0x1000,
+                available: 1
+            })
+        ));
+        for modrm in [0x05, 0x40] {
+            assert!(matches!(
+                compile_block_from_bytes(0x1000, &[opcode, modrm], 1),
+                Err(BlockError::UnsupportedModRm { address: 0x1000, opcode: actual_opcode, modrm: actual_modrm })
+                    if actual_opcode == opcode && actual_modrm == modrm
+            ));
+        }
+    }
+    assert!(matches!(
+        compile_block_from_bytes(0xffff_fffe, &[0x89, 0xc1, 0x8b], 2),
+        Err(BlockError::TruncatedInstruction {
+            address: 0,
+            available: 1
+        })
+    ));
+}
+
+#[test]
+fn register_copies_forward_values_and_omit_redundant_backing_accesses() {
+    fn accesses(bytes: &[u8], instructions: u32) -> (Vec<u64>, Vec<u64>) {
+        let module = compile_block_from_bytes(0x1000, bytes, instructions).unwrap();
+        Validator::new().validate_all(&module.bytes).unwrap();
+        let mut loads = Vec::new();
+        let mut stores = Vec::new();
+        for payload in Parser::new(0).parse_all(&module.bytes) {
+            if let Payload::CodeSectionEntry(body) = payload.unwrap() {
+                for operation in body.get_operators_reader().unwrap() {
+                    match operation.unwrap() {
+                        Operator::I32Load { memarg } => loads.push(memarg.offset),
+                        Operator::I32Store { memarg } => stores.push(memarg.offset),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        (loads, stores)
+    }
+    // Both destinations copy the same initial EAX value.
+    assert_eq!(
+        accesses(&[0x89, 0xc1, 0x8b, 0xd0], 2),
+        (vec![24, 144], vec![28, 32, 56, 144])
+    );
+    assert_eq!(
+        accesses(&[0xb8, 42, 0, 0, 0, 0x89, 0xc1, 0x8b, 0xd1, 0x89, 0xd3], 4),
+        (vec![144], vec![24, 28, 32, 36, 56, 144])
+    );
+    // EAX<-EAX and ECX<-ECX retire without changing any register.
+    assert_eq!(
+        accesses(&[0x89, 0xc0, 0x8b, 0xc9], 2),
+        (vec![144], vec![56, 144])
+    );
+}

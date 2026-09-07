@@ -1,7 +1,8 @@
 use wasm86_compiler::{BuildError, Func, FunctionBuilder, Mem, Program, Signature, Type, Val, I32};
 
 use crate::{
-    declare_dispatch, decode,
+    declare_dispatch,
+    decode::RuntimeDecoder,
     instruction::DecodedInstruction,
     memory::Memory,
     semantics,
@@ -10,7 +11,8 @@ use crate::{
 };
 
 /// Builds `step() -> i64`, which fetches and executes one unprefixed MOV32 at the
-/// current EIP. Success updates the destination register, EIP and instruction count,
+/// current EIP: B8–BF with imm32, or 89/8B with ModRM.mod = 3.
+/// Success updates the destination register, EIP and instruction count,
 /// then tail-calls `wasm86.dispatch(i32) -> i64` with the next EIP.
 ///
 /// The module imports distinct `wasm86.cpuState`, `wasm86.guest` and
@@ -21,9 +23,10 @@ use crate::{
 /// frames must have valid backing. Invalid backing remains a Wasm trap.
 ///
 /// A missing instruction page returns `(4 << 48) | (0x10 << 32) | address`, using
-/// the first unavailable byte's 32-bit linear address. An opcode outside B8–BF
-/// returns `(8 << 48) | (opcode << 32) | EIP`, an unsupported-subset exit rather
-/// than an architectural invalid-opcode exception. Both preserve CPU state and
+/// the first unavailable byte's 32-bit linear address. An unsupported opcode or
+/// a memory-operand ModRM returns `(8 << 48) | (opcode << 32) | EIP`, an unsupported-subset exit rather
+/// than an architectural invalid-opcode exception. This diagnostic carries the
+/// opcode but not the ModRM byte. Both preserve CPU state and
 /// instruction count and do not dispatch. EIP and count wrap at 32 bits.
 /// This entry has no instruction-budget or prefix handling.
 ///
@@ -43,18 +46,23 @@ pub fn compile_interpreter_step() -> Result<CompiledModule, BuildError> {
     };
     let step = program.declare(signature.clone());
     let exact = program.declare(signature);
+    let decoder = RuntimeDecoder::new(&mut program, memory, |body, decoded| {
+        complete(body, cpu, dispatch, decoded)
+    })?;
 
     let mut body = program.define(step)?;
     let start = state::read_eip(&mut body, cpu)?;
-    let direct = decode::direct_window(&mut body, memory, &start)?;
+    let direct = decoder.direct_window(&mut body, &start)?;
     body.if_(&direct.unavailable, |arm| arm.tail_call(exact, &[]))?;
-    let decoded = decode::live(&mut body, memory, &start, Some(&direct.physical))?;
-    complete(body, cpu, dispatch, decoded)?;
+    decoder.decode(body, &start, Some(&direct.physical), |body, decoded| {
+        complete(body, cpu, dispatch, decoded)
+    })?;
 
     let mut body = program.define(exact)?;
     let start = state::read_eip(&mut body, cpu)?;
-    let decoded = decode::live(&mut body, memory, &start, None)?;
-    complete(body, cpu, dispatch, decoded)?;
+    decoder.decode(body, &start, None, |body, decoded| {
+        complete(body, cpu, dispatch, decoded)
+    })?;
 
     program.export("step", step)?;
     Ok(CompiledModule {
