@@ -22,6 +22,7 @@
 mod arena;
 mod call;
 mod control;
+mod effects;
 mod emit;
 mod integer;
 mod locals;
@@ -35,6 +36,7 @@ use std::fmt;
 
 use arena::ExpressionArena;
 pub use call::FunctionImport;
+use call::Invocation;
 use control::{Destination, Region, Site};
 use integer::{BinaryOp, CompareOp, ShiftOp};
 use memory::Location;
@@ -90,7 +92,9 @@ impl fmt::Display for BuildError {
             Self::MissingBody => formatter.write_str("function has no finished body"),
             Self::UnknownParameter => formatter.write_str("unknown function parameter"),
             Self::ForeignBody => formatter.write_str("value belongs to another body"),
-            Self::OutOfScope => formatter.write_str("value depends on a read outside this branch"),
+            Self::OutOfScope => {
+                formatter.write_str("value depends on a read or call outside this branch")
+            }
             Self::IncompleteBranch => formatter.write_str("branch termination did not complete"),
             Self::BodyClosed => formatter.write_str("function body is no longer open"),
             Self::TypeMismatch { expected, actual } => {
@@ -128,22 +132,32 @@ struct Body {
 
 enum Terminal {
     Return(usize),
-    TailCall { target: Func, arguments: Vec<usize> },
+    TailCall(Invocation),
 }
 
 impl Terminal {
     fn inputs(&self) -> &[usize] {
         match self {
             Self::Return(value) => std::slice::from_ref(value),
-            Self::TailCall { arguments, .. } => arguments,
+            Self::TailCall(invocation) => &invocation.arguments,
         }
     }
 }
 
 enum Operation {
     Load(usize),
-    Store { location: Location, value: usize },
-    If { condition: usize, branch: Region },
+    Store {
+        location: Location,
+        value: usize,
+    },
+    If {
+        condition: usize,
+        branch: Region,
+    },
+    Call {
+        invocation: Invocation,
+        output: usize,
+    },
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -163,6 +177,7 @@ enum ValueKind {
     Convert(usize),
     Normalize(usize),
     Load { location: Location, site: Site },
+    CallResult { site: Site },
 }
 
 /// Builds a function body or a conditional branch. A return or tail call consumes

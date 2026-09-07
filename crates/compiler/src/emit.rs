@@ -3,6 +3,7 @@ use wasm_encoder::{BlockType, Encode, Function, Instruction, MemArg, ValType};
 
 use crate::{
     control::{Region, Site},
+    effects::Effects,
     integer::{BinaryOp, CompareOp, ShiftOp},
     locals,
     memory::Location,
@@ -33,6 +34,7 @@ enum Walk {
     Value(usize),
     Finish(usize),
     FinishLoad(usize),
+    FinishCall(usize),
     FinishZero(usize, Option<Type>),
 }
 
@@ -40,6 +42,7 @@ struct Scheduler<'a> {
     body: &'a Body,
     memories: &'a [Option<u32>],
     functions: &'a [Option<u32>],
+    effects: &'a [Effects],
     placement: place::Placement,
     emitted: Vec<bool>,
     bytes: Vec<u8>,
@@ -51,12 +54,14 @@ pub(super) fn encode(
     parameter_count: u32,
     memories: &[Option<u32>],
     functions: &[Option<u32>],
+    effects: &[Effects],
 ) -> Function {
     let mut scheduler = Scheduler {
         body,
         memories,
         functions,
-        placement: place::plan(body),
+        effects,
+        placement: place::plan(body, effects),
         emitted: vec![false; body.values.len()],
         bytes: Vec::new(),
         events: Vec::new(),
@@ -87,6 +92,14 @@ impl Scheduler<'_> {
             }
             match operation {
                 Operation::Load(_) => {}
+                Operation::Call { invocation, output } => {
+                    if self.effects[invocation.target.0].must_execute() {
+                        self.evaluate(*output, true);
+                        if self.placement.slots[*output].is_none() {
+                            Instruction::Drop.encode(&mut self.bytes);
+                        }
+                    }
+                }
                 Operation::Store { location, value } => {
                     self.value(location.base);
                     self.value(*value);
@@ -116,8 +129,9 @@ impl Scheduler<'_> {
             }
             match terminal {
                 Terminal::Return(_) => Instruction::Return,
-                Terminal::TailCall { target, .. } => Instruction::ReturnCall(
-                    self.functions[target.0].expect("a tail-call target has a function index"),
+                Terminal::TailCall(invocation) => Instruction::ReturnCall(
+                    self.functions[invocation.target.0]
+                        .expect("a tail-call target has a function index"),
                 ),
             }
             .encode(&mut self.bytes);
@@ -155,6 +169,18 @@ impl Scheduler<'_> {
                 }
                 Walk::FinishLoad(id) => {
                     self.load(id);
+                    self.completed(id, capture && id == root);
+                    continue;
+                }
+                Walk::FinishCall(id) => {
+                    let ValueKind::CallResult { site } = self.body.values[id].kind else {
+                        unreachable!("call completion names a call result")
+                    };
+                    let target = self.body.invocation(site).target;
+                    Instruction::Call(
+                        self.functions[target.0].expect("a call target has a function index"),
+                    )
+                    .encode(&mut self.bytes);
                     self.completed(id, capture && id == root);
                     continue;
                 }
@@ -214,6 +240,12 @@ impl Scheduler<'_> {
                     }
                     pending.push(Walk::FinishZero(id, extension));
                     pending.push(Walk::Value(input));
+                }
+                ValueKind::CallResult { site } => {
+                    pending.push(Walk::FinishCall(id));
+                    for &argument in self.body.invocation(site).arguments.iter().rev() {
+                        pending.push(Walk::Value(argument));
+                    }
                 }
                 ValueKind::Load { location, .. } => {
                     pending.push(Walk::FinishLoad(id));
@@ -289,8 +321,11 @@ impl Scheduler<'_> {
                     Instruction::I32WrapI64
                 }
             }
-            ValueKind::Constant(_) | ValueKind::Parameter(_) | ValueKind::Load { .. } => {
-                unreachable!("leaves emit without pending operations")
+            ValueKind::Constant(_)
+            | ValueKind::Parameter(_)
+            | ValueKind::Load { .. }
+            | ValueKind::CallResult { .. } => {
+                unreachable!("constants, parameters and effect results emit separately")
             }
         };
         instruction.encode(&mut self.bytes);

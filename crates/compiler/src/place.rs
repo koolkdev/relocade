@@ -5,9 +5,10 @@ use wasm_encoder::ValType;
 
 use crate::{
     control::{Region, Site},
+    effects::Effects,
     emit::wasm_type,
     memory::Location,
-    Body, Operation, ValueKind,
+    Body, Func, Operation, Terminal, ValueKind,
 };
 
 pub(super) struct Placement {
@@ -103,7 +104,13 @@ impl<'a> Tree<'a> {
         }
     }
 
-    fn clobbers(&self, body: &Body, location: Location, origin: Site, use_: Site) -> bool {
+    fn clobbers(
+        &self,
+        origin: Site,
+        use_: Site,
+        store: impl Fn(Location) -> bool,
+        call: impl Fn(Func) -> bool,
+    ) -> bool {
         let mut path = Vec::new();
         let mut scope = use_.region;
         while scope != origin.region {
@@ -117,34 +124,41 @@ impl<'a> Tree<'a> {
         let mut start = origin.index + 1;
         for child in path.into_iter().rev() {
             let parent = self.0[&child].parent.unwrap();
-            if self.writes(body, location, region, start, parent.index) {
+            if self.writes(region, start, parent.index, &store, &call) {
                 return true;
             }
             region = child;
             start = 0;
         }
-        self.writes(body, location, region, start, use_.index)
+        self.writes(region, start, use_.index, &store, &call)
     }
 
     fn writes(
         &self,
-        body: &Body,
-        location: Location,
         region: usize,
         start: usize,
         end: usize,
+        store: &impl Fn(Location) -> bool,
+        call: &impl Fn(Func) -> bool,
     ) -> bool {
+        let direct = |operation: &Operation| match operation {
+            Operation::Store { location, .. } => store(*location),
+            Operation::Call { invocation, .. } => call(invocation.target),
+            _ => false,
+        };
         let operations = &self.0[&region].region.operations[start..end];
         operations.iter().any(|operation| match operation {
-            Operation::Store { location: other, .. } => location.may_overlap(*other, body),
-            // A conditional write may clobber a later observation. Retain the
-            // authored snapshot even when only some paths execute that write.
+            // Conditional effects remain conservative, including returning arms
+            // whose terminal call may write before leaving the function.
             Operation::If { branch, .. } => branch.walk().any(|region| {
-                region.operations.iter().any(|operation| {
-                    matches!(operation, Operation::Store { location: other, .. } if location.may_overlap(*other, body))
-                })
+                let operations_write = region.operations.iter().any(direct);
+                let terminal_writes = match &region.terminal {
+                    Some(Terminal::TailCall(invocation)) => call(invocation.target),
+                    _ => false,
+                };
+                operations_write || terminal_writes
             }),
-            Operation::Load(_) => false,
+            _ => direct(operation),
         })
     }
 }
@@ -187,7 +201,7 @@ fn demand(
     entry.count += 1;
 }
 
-pub(super) fn plan(body: &Body) -> Placement {
+pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
     let tree = Tree::new(&body.region);
     let mut demands = vec![None; body.values.len()];
     for region in body.region.walk() {
@@ -203,6 +217,11 @@ pub(super) fn plan(body: &Body) -> Placement {
                 }
                 Operation::If { condition, .. } => {
                     demand(body, &tree, &mut demands, *condition, point)
+                }
+                Operation::Call { invocation, output } => {
+                    if effects[invocation.target.0].must_execute() {
+                        demand(body, &tree, &mut demands, *output, point);
+                    }
                 }
                 Operation::Load(_) => {}
             }
@@ -228,10 +247,37 @@ pub(super) fn plan(body: &Body) -> Placement {
     for id in (0..body.values.len()).rev() {
         let Some(use_) = demands[id] else { continue };
         let mut anchor = use_.first;
-        if let ValueKind::Load { location, site } = body.values[id].kind {
-            if tree.clobbers(body, location, site, anchor.site) {
-                anchor = Point::main(site);
+        match body.values[id].kind {
+            ValueKind::Load { location, site } => {
+                if tree.clobbers(
+                    site,
+                    anchor.site,
+                    |other| location.may_overlap(other, body),
+                    |target| effects[target.0].writes_location(location, body),
+                ) {
+                    anchor = Point::main(site);
+                }
             }
+            ValueKind::CallResult { site } => {
+                let summary = &effects[body.invocation(site).target.0];
+                if summary.must_execute() {
+                    anchor = Point::main(site);
+                } else if let Effects::Known { reads, .. } = summary {
+                    if tree.clobbers(
+                        site,
+                        anchor.site,
+                        |location| {
+                            reads
+                                .iter()
+                                .any(|read| read.overlaps_location(location, body))
+                        },
+                        |target| effects[target.0].writes_reads(reads),
+                    ) {
+                        anchor = Point::main(site);
+                    }
+                }
+            }
+            _ => {}
         }
         if (!use_.at_first || anchor != use_.first)
             && !matches!(
@@ -253,6 +299,11 @@ pub(super) fn plan(body: &Body) -> Placement {
             // Address reads preserve their snapshots where this read actually runs.
             ValueKind::Load { location, .. } => {
                 demand(body, &tree, &mut demands, location.base, anchor)
+            }
+            ValueKind::CallResult { site } => {
+                for &argument in &body.invocation(site).arguments {
+                    demand(body, &tree, &mut demands, argument, anchor);
+                }
             }
             ValueKind::Constant(_) | ValueKind::Parameter(_) => {}
         }

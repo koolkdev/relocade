@@ -67,6 +67,15 @@ impl ExpressionArena {
         })
     }
 
+    pub(super) fn call_result(&self, ty: Type, site: Site) -> Result<usize, BuildError> {
+        self.with_open(|arena| {
+            arena.push(Value {
+                ty,
+                kind: ValueKind::CallResult { site },
+            })
+        })
+    }
+
     pub(super) fn child_scope(&self, parent: usize) -> Result<usize, BuildError> {
         self.with_open(|arena| {
             let scope = arena.scopes.len();
@@ -283,11 +292,11 @@ impl ValueArena {
     }
 
     // Pure expressions may be built anywhere, but consuming them requires every
-    // load dependency to be visible. Incompatible sibling reads have no such scope.
+    // load or call dependency to be visible. Sibling-only results have no such scope.
     fn availability(&self, value: Value) -> Option<usize> {
         match value.kind {
             ValueKind::Constant(_) | ValueKind::Parameter(_) => Some(0),
-            ValueKind::Load { site, .. } => Some(site.region),
+            ValueKind::Load { site, .. } | ValueKind::CallResult { site } => Some(site.region),
             ValueKind::Binary(_, a, b) | ValueKind::Compare(_, a, b) => {
                 let a = self.availability[a]?;
                 let b = self.availability[b]?;

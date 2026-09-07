@@ -52,7 +52,7 @@ impl FunctionBuilder<'_> {
     /// Returning `Ok(())` without a terminal lets execution continue after the branch.
     /// A closure error discards the branch and leaves the parent usable.
     ///
-    /// Values depending on child reads can be consumed only in that child or its
+    /// Values depending on child reads or calls can be consumed only in that child or its
     /// descendants. Pure expressions from parent values can be used on either path.
     ///
     /// ```
@@ -122,6 +122,7 @@ mod tests {
         assert_eq!(
             body.if_(true, |mut branch| {
                 branch.store::<I32>(memory, 0, 9)?;
+                branch.call::<I32>(target, &[])?;
                 branch.if_(true, |inner| inner.tail_call(target, &[]))?;
                 branch.parameter::<I32>(0)?;
                 Ok(())

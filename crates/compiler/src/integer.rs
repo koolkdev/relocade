@@ -32,7 +32,9 @@ pub(super) fn unsigned_bits(value: Value, inputs: &[u8]) -> u8 {
     let carrier_bits = if value.ty == Type::I64 { 64 } else { 32 };
     match value.kind {
         ValueKind::Constant(bits) => (64 - bits.leading_zeros()) as u8,
-        ValueKind::Parameter(_) | ValueKind::Load { .. } => value.ty.bits(),
+        ValueKind::Parameter(_) | ValueKind::Load { .. } | ValueKind::CallResult { .. } => {
+            value.ty.bits()
+        }
         ValueKind::Binary(operator, a, b) => match operator {
             BinaryOp::Add => inputs[a].max(inputs[b]).saturating_add(1).min(carrier_bits),
             BinaryOp::And => inputs[a].min(inputs[b]),

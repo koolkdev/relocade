@@ -6,7 +6,7 @@ use wasm_encoder::{
     Module, TypeSection,
 };
 
-use crate::{emit, FunctionKind, Operation, Program, Terminal, ValueKind};
+use crate::{effects, emit, FunctionKind, Operation, Program, Terminal, ValueKind};
 
 pub(super) fn encode(program: &Program) -> Vec<u8> {
     let defined: Vec<_> = program
@@ -28,13 +28,17 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
     let mut used_memories = vec![false; program.memories.len()];
     for (_, body) in &defined {
         for region in body.region.walk() {
-            if let Some(Terminal::TailCall { target, .. }) = &region.terminal {
-                used_functions[target.0] = true;
+            if let Some(Terminal::TailCall(invocation)) = &region.terminal {
+                used_functions[invocation.target.0] = true;
             }
             // Imports follow authored operations, including unused loads.
             for operation in &region.operations {
                 let location = match operation {
                     Operation::If { .. } => continue,
+                    Operation::Call { invocation, .. } => {
+                        used_functions[invocation.target.0] = true;
+                        continue;
+                    }
                     Operation::Store { location, .. } => *location,
                     Operation::Load(value) => match body.values[*value].kind {
                         ValueKind::Load { location, .. } => location,
@@ -143,6 +147,7 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
         );
     }
     module.section(&exports);
+    let effects = effects::infer(program);
     let mut code = CodeSection::new();
     for (id, body) in defined {
         let parameters = u32::try_from(program.functions[id].signature.parameters.len())
@@ -152,6 +157,7 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
             parameters,
             &memories,
             &function_indices,
+            &effects,
         ));
     }
     module.section(&code);

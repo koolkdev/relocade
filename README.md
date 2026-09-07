@@ -50,10 +50,10 @@ body.return_(value.add(1))?;
 
 A branch can load, store, contain nested `if_` calls, return, or tail-call. Ending
 its closure with `Ok(())` without a terminal lets it fall through. A false
-condition skips the branch. Child reads and expressions depending on them cannot
-be consumed outside that child; pure expressions from parent values remain
-usable. Reads preserve snapshots across conditional stores, which can require
-capturing a read before the condition.
+condition skips the branch. Child reads, call results and expressions depending
+on them cannot be consumed outside that child; pure expressions from parent
+values remain usable. Reads preserve snapshots across conditional stores, which
+can require capturing a read before the condition.
 
 Functions can also finish with `body.tail_call(target, &[value.argument()])`.
 The target may be imported or defined. Use `Val::argument()` or `.into()` to combine values and literals
@@ -61,6 +61,15 @@ in one argument list; the call checks them against its signature.
 `Program::import_function` takes a `FunctionImport` containing the module name,
 field name and logical `Signature`. Unused function imports are omitted; a direct
 export also retains an imported function.
+
+For a call that returns to the current function, use
+`body.call::<I32>(helper, &[value.argument(), 7.into()])?`. Its typed result can
+be shared by later expressions. A result created inside a branch stays within
+that branch and its descendants. The compiler conservatively infers which
+memory bytes defined helpers may read or write: calls without writes may be
+deferred or omitted when unused, including their possible traps. Calls that may
+write, imported calls and unresolved recursive calls execute in authored order
+even when unused.
 
 WebAssembly carries 1-, 8- and 16-bit integers in `i32`. Narrow arguments must have
 their unused upper bits clear, and returned narrow values satisfy the same rule.
