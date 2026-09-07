@@ -54,6 +54,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm86-x86"
+version = "0.0.0"
+dependencies = [
+ "wasm86-compiler",
+ "wasmparser",
+]
+
+[[package]]
 name = "wasmparser"
 version = "0.224.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

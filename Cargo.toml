@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/compiler"]
+members = ["crates/compiler", "crates/x86"]
 
 [workspace.package]
 version = "0.0.0"

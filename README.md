@@ -2,6 +2,22 @@
 
 Rust components for x86 execution in WebAssembly.
 
+`wasm86-x86` compiles 32-bit immediate-to-register MOV blocks from byte snapshots:
+
+```rust
+let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
+```
+
+The requested instruction count is exact. Missing or unsupported selected bytes
+are construction errors; bytes after the selection are ignored. The returned
+module exports `block_1000` and imports `wasm86.cpuState` memory (minimum one
+64-KiB page) and `wasm86.dispatch(i32) -> i64`. CPU state uses little-endian 32-bit
+fields: EAX through EDI in encoding order at offsets 24–52, EIP at 56, and the
+completed-instruction count at 144. Final register writes retain first-write
+order, then EIP and count are updated with 32-bit wrapping arithmetic. The block
+tail-calls dispatch with the next EIP and returns its result. This snapshot path
+currently supports only opcodes B8–BF with imm32 operands.
+
 `wasm86-compiler` builds scalar WebAssembly functions from integer constants,
 parameters and wrapping addition. Values such as `Val<I1>` and `Val<I32>` carry
 logical integer types; function signatures use the corresponding `Type` variants.
