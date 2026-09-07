@@ -50,10 +50,28 @@ body.return_(value.add(1))?;
 
 A branch can load, store, contain nested `if_` calls, return, or tail-call. Ending
 its closure with `Ok(())` without a terminal lets it fall through. A false
-condition skips the branch. Child reads, call results and expressions depending
-on them cannot be consumed outside that child; pure expressions from parent
-values remain usable. Reads preserve snapshots across conditional stores, which
-can require capturing a read before the condition.
+condition skips the branch. Child reads, call results, joined values and
+expressions depending on them cannot be consumed outside that child; pure
+expressions from parent values remain usable. Reads preserve snapshots across
+conditional stores, which can require capturing a read before the condition.
+
+Use `if_value` to obtain a value from the selected branch:
+
+```rust
+let selected = body.if_value::<I32>(value.eq(0),
+    |arm| arm.yield_(7),
+    |arm| arm.yield_(value.add(1)),
+)?;
+body.return_(selected.add(2))?;
+```
+
+`yield_` consumes the direct value-arm builder and supplies the conditional's
+result; `return_` still returns from the whole function. Every arm must yield,
+return or tail-call, and at least one arm must yield. Arm effects remain ordered,
+while an unused yielded expression and its possible traps can disappear. A join
+preserves raw intermediate bits; narrow values are normalized when an operation
+or function boundary needs their logical low bits. Construction errors discard
+both arms and leave the parent usable.
 
 Functions can also finish with `body.tail_call(target, &[value.argument()])`.
 The target may be imported or defined. Use `Val::argument()` or `.into()` to combine values and literals

@@ -10,9 +10,11 @@ use crate::{
 ///
 /// Operations build expressions immediately. Cloning a value shares the body's
 /// storage; it does not clone the expression or its operands. A construction error
-/// is reported when the resulting value is stored, returned or passed to a call.
+/// is reported when the resulting value is stored, yielded, returned or passed
+/// to a call.
 /// Completing or dropping the outer function builder closes expression construction.
-/// Values depending on a child read or call can only be consumed in that child or its descendants.
+/// Values depending on a child read, call or join can only be consumed in that
+/// child or its descendants.
 #[derive(Clone)]
 pub struct Val<T: IntType> {
     arena: ExpressionArena,

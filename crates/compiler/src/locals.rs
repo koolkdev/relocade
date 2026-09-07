@@ -6,7 +6,7 @@ use wasm_encoder::ValType;
 
 pub(super) struct AllocatedLocals {
     pub(super) types: Vec<ValType>,
-    pub(super) indices: Vec<u32>,
+    pub(super) indices: Vec<Option<u32>>,
 }
 
 pub(super) fn allocate(
@@ -21,15 +21,13 @@ pub(super) fn allocate(
     let mut intervals: Vec<_> = lifetimes
         .into_iter()
         .enumerate()
-        .map(|(slot, lifetime)| {
-            let (first, last) = lifetime.expect("a shared value has actual local accesses");
-            (first, last, slot)
-        })
+        // Stack forwarding can leave a planned slot without any local access.
+        .filter_map(|(slot, lifetime)| lifetime.map(|(first, last)| (first, last, slot)))
         .collect();
     intervals.sort_unstable_by_key(|&(first, _, slot)| (first, slot));
 
     let mut types = Vec::new();
-    let mut indices = vec![0; slot_types.len()];
+    let mut indices = vec![None; slot_types.len()];
     let mut active = BinaryHeap::<Reverse<(usize, u32)>>::new();
     let mut free = [BinaryHeap::<Reverse<u32>>::new(), BinaryHeap::new()];
     // A local must retain its value through its last access. After that, another
@@ -50,7 +48,7 @@ pub(super) fn allocate(
             types.push(ty);
             local
         };
-        indices[slot] = local;
+        indices[slot] = Some(local);
         active.push(Reverse((last, local)));
     }
     AllocatedLocals { types, indices }
@@ -76,7 +74,7 @@ mod tests {
             assert_eq!(allocated.indices[0], allocated.indices[1]);
             assert_eq!(allocated.types.len(), 1);
             for local in allocated.indices {
-                assert_eq!(allocated.types[local as usize], ty);
+                assert_eq!(allocated.types[local.unwrap() as usize], ty);
             }
         }
     }
@@ -102,7 +100,10 @@ mod tests {
         assert_ne!(allocated.indices[1], allocated.indices[2]);
         assert_eq!(allocated.types.len(), types.len());
         for (slot, ty) in types.into_iter().enumerate() {
-            assert_eq!(allocated.types[allocated.indices[slot] as usize], ty);
+            assert_eq!(
+                allocated.types[allocated.indices[slot].unwrap() as usize],
+                ty
+            );
         }
     }
 }

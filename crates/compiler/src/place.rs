@@ -52,15 +52,22 @@ impl<'a> Tree<'a> {
         let mut pending = vec![(root, None, 0)];
         while let Some((region, parent, depth)) = pending.pop() {
             for (index, operation) in region.operations.iter().enumerate() {
-                if let Operation::If { branch, .. } = operation {
-                    pending.push((
-                        branch,
-                        Some(Site {
-                            region: region.id,
-                            index,
-                        }),
-                        depth + 1,
-                    ));
+                if let Operation::If {
+                    branch,
+                    else_branch,
+                    ..
+                } = operation
+                {
+                    for child in std::iter::once(branch).chain(else_branch.iter()) {
+                        pending.push((
+                            child,
+                            Some(Site {
+                                region: region.id,
+                                index,
+                            }),
+                            depth + 1,
+                        ));
+                    }
                 }
             }
             regions.insert(
@@ -150,14 +157,22 @@ impl<'a> Tree<'a> {
         operations.iter().any(|operation| match operation {
             // Conditional effects remain conservative, including returning arms
             // whose terminal call may write before leaving the function.
-            Operation::If { branch, .. } => branch.walk().any(|region| {
-                let operations_write = region.operations.iter().any(direct);
-                let terminal_writes = match &region.terminal {
-                    Some(Terminal::TailCall(invocation)) => call(invocation.target),
-                    _ => false,
-                };
-                operations_write || terminal_writes
-            }),
+            Operation::If {
+                branch,
+                else_branch,
+                ..
+            } => std::iter::once(branch)
+                .chain(else_branch.iter())
+                .any(|arm| {
+                    arm.walk().any(|region| {
+                        let operations_write = region.operations.iter().any(direct);
+                        let terminal_writes = match &region.terminal {
+                            Some(Terminal::TailCall(invocation)) => call(invocation.target),
+                            _ => false,
+                        };
+                        operations_write || terminal_writes
+                    })
+                }),
             _ => direct(operation),
         })
     }
@@ -227,6 +242,9 @@ pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
             }
         }
         if let Some(terminal) = &region.terminal {
+            if matches!(terminal, Terminal::Yield(_)) {
+                continue;
+            }
             for &value in terminal.inputs() {
                 demand(
                     body,
@@ -246,6 +264,33 @@ pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
     // point, so each input is needed once there, even if the result has later uses.
     for id in (0..body.values.len()).rev() {
         let Some(use_) = demands[id] else { continue };
+        if let ValueKind::JoinResult { site } = body.values[id].kind {
+            let Operation::If {
+                branch,
+                else_branch,
+                ..
+            } = &tree.0[&site.region].region.operations[site.index]
+            else {
+                unreachable!("a join result names its conditional")
+            };
+            // The conditional stays at its authored site. A live output needs
+            // each yielding value only at the end of its own arm.
+            for arm in std::iter::once(branch).chain(else_branch.iter()) {
+                if let Some(Terminal::Yield(value)) = arm.terminal {
+                    demand(
+                        body,
+                        &tree,
+                        &mut demands,
+                        value,
+                        Point::main(Site {
+                            region: arm.id,
+                            index: arm.operations.len(),
+                        }),
+                    );
+                }
+            }
+            continue;
+        }
         let mut anchor = use_.first;
         match body.values[id].kind {
             ValueKind::Load { location, site } => {
@@ -306,6 +351,7 @@ pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
                 }
             }
             ValueKind::Constant(_) | ValueKind::Parameter(_) => {}
+            ValueKind::JoinResult { .. } => unreachable!("join demands stay inside their arms"),
         }
     }
     let mut slot_types = Vec::new();
@@ -314,8 +360,11 @@ pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
         .iter()
         .enumerate()
         .map(|(id, value)| {
-            if demands[id].is_some_and(|use_| use_.count > 1 || capture_points[id].is_some())
-                && !matches!(value.kind, ValueKind::Constant(_) | ValueKind::Parameter(_))
+            if demands[id].is_some_and(|use_| {
+                use_.count > 1
+                    || capture_points[id].is_some()
+                    || matches!(value.kind, ValueKind::JoinResult { .. })
+            }) && !matches!(value.kind, ValueKind::Constant(_) | ValueKind::Parameter(_))
             {
                 let slot = slot_types.len();
                 slot_types.push(wasm_type(value.ty));

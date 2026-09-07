@@ -31,6 +31,7 @@ pub(super) fn shift_count(ty: Type, count: u32) -> u32 {
 pub(super) fn unsigned_bits(value: Value, inputs: &[u8]) -> u8 {
     let carrier_bits = if value.ty == Type::I64 { 64 } else { 32 };
     match value.kind {
+        ValueKind::JoinResult { .. } => unreachable!("join bounds come from its yielding arms"),
         ValueKind::Constant(bits) => (64 - bits.leading_zeros()) as u8,
         ValueKind::Parameter(_) | ValueKind::Load { .. } | ValueKind::CallResult { .. } => {
             value.ty.bits()

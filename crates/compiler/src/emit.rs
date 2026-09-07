@@ -66,13 +66,27 @@ pub(super) fn encode(
         bytes: Vec::new(),
         events: Vec::new(),
     };
-    scheduler.region(&body.region);
+    scheduler.region(&body.region, false);
     Instruction::End.encode(&mut scheduler.bytes);
     scheduler.finish(parameter_count)
 }
 
 impl Scheduler<'_> {
-    fn region(&mut self, region: &Region) {
+    fn region(&mut self, region: &Region, yield_result: bool) {
+        let forwarding = if yield_result {
+            match (&region.terminal, region.operations.last()) {
+                (
+                    Some(Terminal::Yield(value)),
+                    Some(Operation::If {
+                        output: Some(output),
+                        ..
+                    }),
+                ) => place::representation(self.body, *value) == *output,
+                _ => false,
+            }
+        } else {
+            false
+        };
         for (index, operation) in region.operations.iter().enumerate() {
             // Keep the condition on the stack while common values are captured.
             if let Operation::If { condition, .. } = operation {
@@ -113,21 +127,48 @@ impl Scheduler<'_> {
                     }
                     .encode(&mut self.bytes);
                 }
-                Operation::If { branch, .. } => {
-                    Instruction::If(BlockType::Empty).encode(&mut self.bytes);
+                Operation::If {
+                    branch,
+                    else_branch,
+                    output,
+                    ..
+                } => {
+                    let live_output = output.filter(|&id| self.placement.slots[id].is_some());
+                    let block_type = live_output.map_or(BlockType::Empty, |id| {
+                        BlockType::Result(wasm_type(self.body.values[id].ty))
+                    });
+                    Instruction::If(block_type).encode(&mut self.bytes);
                     let before_arm = self.emitted.clone();
-                    self.region(branch);
+                    self.region(branch, live_output.is_some());
+                    self.emitted.clone_from(&before_arm);
+                    if let Some(other) = else_branch {
+                        Instruction::Else.encode(&mut self.bytes);
+                        self.region(other, live_output.is_some());
+                    }
                     Instruction::End.encode(&mut self.bytes);
-                    // The false path did not execute any local writes in this arm.
+                    // Neither arm can initialize values for the other. Only the
+                    // selected result becomes available to the parent after End.
                     self.emitted = before_arm;
+                    if let Some(output) = live_output {
+                        if !(forwarding && index + 1 == region.operations.len()) {
+                            self.completed(output, true);
+                        }
+                    }
                 }
             }
         }
         if let Some(terminal) = &region.terminal {
+            if let Terminal::Yield(value) = terminal {
+                if yield_result && !forwarding {
+                    self.value(*value);
+                }
+                return;
+            }
             for &value in terminal.inputs() {
                 self.value(value);
             }
             match terminal {
+                Terminal::Yield(_) => unreachable!("yield leaves its value on the arm's stack"),
                 Terminal::Return(_) => Instruction::Return,
                 Terminal::TailCall(invocation) => Instruction::ReturnCall(
                     self.functions[invocation.target.0]
@@ -213,6 +254,9 @@ impl Scheduler<'_> {
                 }
                 .encode(&mut self.bytes),
                 ValueKind::Parameter(index) => Instruction::LocalGet(index).encode(&mut self.bytes),
+                ValueKind::JoinResult { .. } => {
+                    unreachable!("a used join was saved after its conditional")
+                }
                 ValueKind::Binary(_, a, b) | ValueKind::Compare(_, a, b) => {
                     pending.push(Walk::Finish(id));
                     pending.push(Walk::Value(b));
@@ -324,8 +368,9 @@ impl Scheduler<'_> {
             ValueKind::Constant(_)
             | ValueKind::Parameter(_)
             | ValueKind::Load { .. }
-            | ValueKind::CallResult { .. } => {
-                unreachable!("constants, parameters and effect results emit separately")
+            | ValueKind::CallResult { .. }
+            | ValueKind::JoinResult { .. } => {
+                unreachable!("constants, parameters and authored results emit separately")
             }
         };
         instruction.encode(&mut self.bytes);
@@ -368,7 +413,9 @@ impl Scheduler<'_> {
             function.raw(self.bytes[previous..event.offset].iter().copied());
             previous = event.offset;
             let local = parameter_count
-                .checked_add(allocated.indices[event.slot])
+                .checked_add(
+                    allocated.indices[event.slot].expect("an emitted local access has an index"),
+                )
                 .expect("function locals fit the Wasm index space");
             function.instruction(&match event.operation {
                 LocalOp::Get => Instruction::LocalGet(local),

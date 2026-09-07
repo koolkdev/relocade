@@ -76,6 +76,30 @@ impl ExpressionArena {
         })
     }
 
+    pub(super) fn join_result(
+        &self,
+        ty: Type,
+        site: Site,
+        inputs: &[usize],
+    ) -> Result<usize, BuildError> {
+        self.with_open(|arena| {
+            // Joining does not clear upper bits. Later observers use the largest
+            // bound from the arms that actually yield a value.
+            let bits = inputs
+                .iter()
+                .map(|&id| arena.unsigned_bits[id])
+                .max()
+                .unwrap();
+            arena.push_with_bits(
+                Value {
+                    ty,
+                    kind: ValueKind::JoinResult { site },
+                },
+                bits,
+            )
+        })
+    }
+
     pub(super) fn child_scope(&self, parent: usize) -> Result<usize, BuildError> {
         self.with_open(|arena| {
             let scope = arena.scopes.len();
@@ -292,11 +316,13 @@ impl ValueArena {
     }
 
     // Pure expressions may be built anywhere, but consuming them requires every
-    // load or call dependency to be visible. Sibling-only results have no such scope.
+    // read, call or join dependency to be visible. Sibling results have no such scope.
     fn availability(&self, value: Value) -> Option<usize> {
         match value.kind {
             ValueKind::Constant(_) | ValueKind::Parameter(_) => Some(0),
-            ValueKind::Load { site, .. } | ValueKind::CallResult { site } => Some(site.region),
+            ValueKind::Load { site, .. }
+            | ValueKind::CallResult { site }
+            | ValueKind::JoinResult { site } => Some(site.region),
             ValueKind::Binary(_, a, b) | ValueKind::Compare(_, a, b) => {
                 let a = self.availability[a]?;
                 let b = self.availability[b]?;
@@ -316,10 +342,14 @@ impl ValueArena {
     }
 
     fn push(&mut self, value: Value) -> usize {
+        let bits = integer::unsigned_bits(value, &self.unsigned_bits);
+        self.push_with_bits(value, bits)
+    }
+
+    fn push_with_bits(&mut self, value: Value, bits: u8) -> usize {
         let index = self.values.len();
         self.availability.push(self.availability(value));
-        self.unsigned_bits
-            .push(integer::unsigned_bits(value, &self.unsigned_bits));
+        self.unsigned_bits.push(bits);
         self.values.push(value);
         index
     }

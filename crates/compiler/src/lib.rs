@@ -70,6 +70,8 @@ pub enum BuildError {
     BodyClosed,
     OutOfScope,
     IncompleteBranch,
+    InvalidYield,
+    MissingBranchValue,
     TypeMismatch { expected: Type, actual: Type },
     DuplicateExport,
 }
@@ -92,10 +94,14 @@ impl fmt::Display for BuildError {
             Self::MissingBody => formatter.write_str("function has no finished body"),
             Self::UnknownParameter => formatter.write_str("unknown function parameter"),
             Self::ForeignBody => formatter.write_str("value belongs to another body"),
-            Self::OutOfScope => {
-                formatter.write_str("value depends on a read or call outside this branch")
-            }
+            Self::OutOfScope => formatter.write_str("value is not available in this branch"),
             Self::IncompleteBranch => formatter.write_str("branch termination did not complete"),
+            Self::InvalidYield => {
+                formatter.write_str("yield requires a direct value-producing arm")
+            }
+            Self::MissingBranchValue => {
+                formatter.write_str("neither conditional arm yields a value")
+            }
             Self::BodyClosed => formatter.write_str("function body is no longer open"),
             Self::TypeMismatch { expected, actual } => {
                 write!(formatter, "expected {expected:?}, received {actual:?}")
@@ -131,6 +137,7 @@ struct Body {
 }
 
 enum Terminal {
+    Yield(usize),
     Return(usize),
     TailCall(Invocation),
 }
@@ -138,7 +145,7 @@ enum Terminal {
 impl Terminal {
     fn inputs(&self) -> &[usize] {
         match self {
-            Self::Return(value) => std::slice::from_ref(value),
+            Self::Yield(value) | Self::Return(value) => std::slice::from_ref(value),
             Self::TailCall(invocation) => &invocation.arguments,
         }
     }
@@ -153,6 +160,8 @@ enum Operation {
     If {
         condition: usize,
         branch: Region,
+        else_branch: Option<Region>,
+        output: Option<usize>,
     },
     Call {
         invocation: Invocation,
@@ -178,13 +187,16 @@ enum ValueKind {
     Normalize(usize),
     Load { location: Location, site: Site },
     CallResult { site: Site },
+    JoinResult { site: Site },
 }
 
-/// Builds a function body or a conditional branch. A return or tail call consumes
-/// the active builder; completing the outer builder saves the function body.
+/// Builds a function body or a conditional branch. A yield, return or tail call
+/// consumes the active builder; completing the outer builder saves the function
+/// body.
 ///
 /// Dropping the outer builder without completing it leaves the function undefined.
-/// Dropping a child normally completes a branch that falls through.
+/// Dropping a child of `if_` normally completes a branch that falls through.
+/// A value-producing arm must instead yield a value, return, or tail-call.
 /// A builder cannot be used after its program is consumed:
 /// ```compile_fail
 /// use wasm86_compiler::{Program, Signature, Type, I32};
@@ -347,7 +359,10 @@ impl FunctionBuilder<'_> {
                 self.program.functions[self.function.0].kind =
                     FunctionKind::Defined(Some(Body { values, region }));
             }
-            Destination::Branch(destination) => **destination = Some(region),
+            Destination::Branch {
+                region: destination,
+                ..
+            } => **destination = Some(region),
         }
         Ok(())
     }
@@ -359,10 +374,13 @@ impl Drop for FunctionBuilder<'_> {
             Destination::Function => {
                 self.arena.take();
             }
-            Destination::Branch(destination) if self.fallthrough => {
+            Destination::Branch {
+                region: destination,
+                result: None,
+            } if self.fallthrough => {
                 **destination = Some(std::mem::replace(&mut self.region, Region::new(0)));
             }
-            Destination::Branch(_) => {}
+            Destination::Branch { .. } => {}
         }
     }
 }
