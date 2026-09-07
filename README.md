@@ -19,11 +19,21 @@ tail-calls dispatch with the next EIP and returns its result. This snapshot path
 currently supports only opcodes B8–BF with imm32 operands.
 
 `wasm86-compiler` builds scalar WebAssembly functions from integer constants,
-parameters and wrapping addition. Values such as `Val<I1>` and `Val<I32>` carry
+parameters and typed integer expressions. Values such as `Val<I1>` and `Val<I32>` carry
 logical integer types; function signatures use the corresponding `Type` variants.
 Supported integer sizes are 1, 8, 16, 32 and 64 bits. Values support fluent
 expressions such as `value.add(1)`. Calling `body.return_(&value)` completes the
 function body; shared expressions use reusable WebAssembly locals.
+
+Expressions support wrapping addition, bitwise `and`/`or`, constant-count `shl`,
+and `eq`/`ne` predicates that return `Val<I1>`. The borrowed `unsigned()` view
+provides `shr`, `lt`, `ge` and zero extension, for example
+`byte.unsigned().extend::<I32>().shl(8)`. `truncate::<I8>()` retains the low eight
+bits. Rust checks conversion direction; conversions to the same type are allowed.
+Shift counts are modulo 32 for I1/I8/I16/I32 and modulo 64 for I64, so shifting an
+I8 by 8 produces zero and shifting it by 32 preserves its value. Comparisons,
+unsigned right shifts and widening read the logical low bits, including after
+arithmetic that overflows a narrow type.
 
 Functions can also finish with `body.tail_call(target, &[value.argument()])`.
 The target may be imported or defined. Use `Val::argument()` to combine different

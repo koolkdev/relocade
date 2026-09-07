@@ -1,7 +1,10 @@
 use std::marker::PhantomData;
 
 use crate::arena::ExpressionArena;
-use crate::{BuildError, IntType, Type, I1, I64};
+use crate::{
+    integer::{BinaryOp, CompareOp, ShiftOp},
+    AtLeast, BuildError, IntType, Type, I1, I64,
+};
 
 /// An integer value in one function body, with its type checked by Rust.
 ///
@@ -104,15 +107,124 @@ impl<T: IntType> Val<T> {
     /// ```
     #[allow(clippy::should_implement_trait)]
     pub fn add(&self, other: impl IntoOp<T>) -> Self {
-        // Conversion may construct a literal, so it must finish before borrowing
-        // expression storage. Check both operands before a fold can discard either.
+        self.binary(BinaryOp::Add, other)
+    }
+
+    /// Keeps bits set in both operands.
+    pub fn and(&self, other: impl IntoOp<T>) -> Self {
+        self.binary(BinaryOp::And, other)
+    }
+
+    /// Sets bits present in either operand.
+    pub fn or(&self, other: impl IntoOp<T>) -> Self {
+        self.binary(BinaryOp::Or, other)
+    }
+
+    /// Shifts left, retaining the logical type's low bits.
+    /// Counts are modulo 32 for I1/I8/I16/I32, and modulo 64 for I64.
+    /// In particular, an I8 shift by 8 produces zero; a shift by 32 is identity.
+    #[allow(clippy::should_implement_trait)]
+    pub fn shl(&self, count: u32) -> Self {
+        self.shift(ShiftOp::Left, count)
+    }
+
+    /// Tests whether the operands' logical low bits are equal.
+    pub fn eq(&self, other: impl IntoOp<T>) -> Val<I1> {
+        self.compare(CompareOp::Eq, other)
+    }
+
+    /// Tests whether the operands' logical low bits differ.
+    pub fn ne(&self, other: impl IntoOp<T>) -> Val<I1> {
+        self.compare(CompareOp::Ne, other)
+    }
+
+    /// Reads this integer's logical bits as an unsigned value.
+    /// Creating the view does not construct an expression.
+    pub fn unsigned(&self) -> Unsigned<'_, T> {
+        Unsigned(self)
+    }
+
+    /// Retains the destination type's low bits. The destination cannot be wider.
+    /// ```compile_fail
+    /// use wasm86_compiler::{Val, I8, I32};
+    /// fn narrow(value: &Val<I8>) {
+    ///     let result = value.truncate::<I32>();
+    /// }
+    /// ```
+    pub fn truncate<To: IntType>(&self) -> Val<To>
+    where
+        T: AtLeast<To>,
+    {
+        self.convert()
+    }
+
+    fn operands(&self, other: impl IntoOp<T>) -> Result<(usize, usize), BuildError> {
+        // Literal conversion may construct expressions. Finish it before borrowing
+        // storage, and check both operands before a fold can discard either.
         let other = other.into_op(self);
-        let expression = (|| {
-            let left = self.admit(&self.arena)?;
-            let right = other.admit(&self.arena)?;
-            self.arena.add(left, right)
-        })();
+        Ok((self.admit(&self.arena)?, other.admit(&self.arena)?))
+    }
+
+    fn binary(&self, operator: BinaryOp, other: impl IntoOp<T>) -> Self {
+        let expression = self
+            .operands(other)
+            .and_then(|(left, right)| self.arena.binary(operator, left, right));
         Self::new(self.arena.clone(), expression)
+    }
+
+    fn compare(&self, operator: CompareOp, other: impl IntoOp<T>) -> Val<I1> {
+        let expression = self
+            .operands(other)
+            .and_then(|(left, right)| self.arena.compare(operator, left, right));
+        Val::new(self.arena.clone(), expression)
+    }
+
+    fn shift(&self, operator: ShiftOp, count: u32) -> Self {
+        let expression = self
+            .admit(&self.arena)
+            .and_then(|input| self.arena.shift(operator, input, count));
+        Self::new(self.arena.clone(), expression)
+    }
+
+    fn convert<To: IntType>(&self) -> Val<To> {
+        let expression = self
+            .admit(&self.arena)
+            .and_then(|input| self.arena.convert(input, To::TYPE));
+        Val::new(self.arena.clone(), expression)
+    }
+}
+
+/// An unsigned interpretation of a borrowed integer value.
+pub struct Unsigned<'a, T: IntType>(&'a Val<T>);
+
+impl<T: IntType> Unsigned<'_, T> {
+    /// Shifts the logical bits right, filling with zeros.
+    /// Counts are modulo 32 for I1/I8/I16/I32, and modulo 64 for I64.
+    /// An I8 shift by 8 produces zero, including for values with bit 7 set.
+    #[allow(clippy::should_implement_trait)]
+    pub fn shr(&self, count: u32) -> Val<T> {
+        self.0.shift(ShiftOp::Right, count)
+    }
+
+    /// Tests unsigned less-than and returns a logical one-bit value.
+    pub fn lt(&self, other: impl IntoOp<T>) -> Val<I1> {
+        self.0.compare(CompareOp::Lt, other)
+    }
+
+    /// Tests unsigned greater-than-or-equal and returns a logical one-bit value.
+    pub fn ge(&self, other: impl IntoOp<T>) -> Val<I1> {
+        self.0.compare(CompareOp::Ge, other)
+    }
+
+    /// Widens the logical value with zero bits. The destination cannot be narrower.
+    /// ```compile_fail
+    /// use wasm86_compiler::{Val, I8, I32};
+    /// fn widen(value: &Val<I32>) {
+    ///     let result = value.unsigned().extend::<I8>();
+    /// }
+    /// ```
+    pub fn extend<To: AtLeast<T>>(&self) -> Val<To> {
+        self.0.convert()
     }
 }
 

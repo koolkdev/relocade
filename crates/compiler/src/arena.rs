@@ -2,7 +2,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::{memory::Location, BuildError, Type, Value, ValueKind};
+use crate::{
+    integer::{self, BinaryOp, CompareOp, ShiftOp},
+    memory::Location,
+    BuildError, Type, Value, ValueKind,
+};
 
 #[derive(Clone)]
 pub(super) struct ExpressionArena(Rc<RefCell<Option<ValueArena>>>);
@@ -11,6 +15,7 @@ pub(super) struct ExpressionArena(Rc<RefCell<Option<ValueArena>>>);
 struct ValueArena {
     values: Vec<Value>,
     interned: HashMap<Value, usize>,
+    unsigned_bits: Vec<u8>,
 }
 
 impl ExpressionArena {
@@ -33,15 +38,11 @@ impl ExpressionArena {
     }
 
     pub(super) fn intern(&self, value: Value) -> Result<usize, BuildError> {
-        let mut arena = self.0.borrow_mut();
-        Ok(arena.as_mut().ok_or(BuildError::BodyClosed)?.intern(value))
+        self.with_open(|arena| arena.intern(value))
     }
 
     pub(super) fn constant(&self, ty: Type, bits: u64) -> Result<usize, BuildError> {
-        self.intern(Value {
-            ty,
-            kind: ValueKind::Constant(ty.normalize(bits)),
-        })
+        self.with_open(|arena| arena.constant(ty, bits))
     }
 
     pub(super) fn load(
@@ -50,60 +51,92 @@ impl ExpressionArena {
         location: Location,
         site: usize,
     ) -> Result<usize, BuildError> {
-        let mut arena = self.0.borrow_mut();
-        let arena = arena.as_mut().ok_or(BuildError::BodyClosed)?;
-        // Two reads of the same address may observe different stores. Each load
-        // therefore gets its own value instead of entering the expression cache.
-        let index = arena.values.len();
-        arena.values.push(Value {
-            ty,
-            kind: ValueKind::Load { location, site },
-        });
-        Ok(index)
+        self.with_open(|arena| {
+            // Two reads of the same address may observe different stores. Each load
+            // therefore gets its own value instead of entering the expression cache.
+            arena.push(Value {
+                ty,
+                kind: ValueKind::Load { location, site },
+            })
+        })
     }
 
-    pub(super) fn add(&self, left: usize, right: usize) -> Result<usize, BuildError> {
-        let mut arena = self.0.borrow_mut();
-        let arena = arena.as_mut().ok_or(BuildError::BodyClosed)?;
-        let a = arena.values[left];
-        let b = arena.values[right];
-        debug_assert_eq!(a.ty, b.ty);
-        Ok(match (a.kind, b.kind) {
-            (ValueKind::Constant(left), ValueKind::Constant(right)) => arena.intern(Value {
-                ty: a.ty,
-                kind: ValueKind::Constant(a.ty.normalize(left.wrapping_add(right))),
-            }),
-            (_, ValueKind::Constant(0)) => left,
-            (ValueKind::Constant(0), _) => right,
-            _ => arena.intern(Value {
-                ty: a.ty,
-                kind: ValueKind::Add(left, right),
-            }),
+    pub(super) fn binary(
+        &self,
+        operator: BinaryOp,
+        left: usize,
+        right: usize,
+    ) -> Result<usize, BuildError> {
+        self.with_open(|arena| arena.binary(operator, left, right))
+    }
+
+    pub(super) fn shift(
+        &self,
+        operator: ShiftOp,
+        input: usize,
+        count: u32,
+    ) -> Result<usize, BuildError> {
+        self.with_open(|arena| {
+            let value = arena.values[input];
+            let effective = integer::shift_count(value.ty, count);
+            if effective == 0 {
+                return input;
+            }
+            if let ValueKind::Constant(bits) = value.kind {
+                let bits = match operator {
+                    ShiftOp::Left => bits.wrapping_shl(effective),
+                    ShiftOp::Right => bits >> effective,
+                };
+                return arena.constant(value.ty, bits);
+            }
+            let input = match operator {
+                ShiftOp::Left => input,
+                ShiftOp::Right => arena.normalize(input),
+            };
+            arena.intern(Value {
+                ty: value.ty,
+                kind: ValueKind::Shift(operator, input, count),
+            })
+        })
+    }
+
+    pub(super) fn compare(
+        &self,
+        operator: CompareOp,
+        left: usize,
+        right: usize,
+    ) -> Result<usize, BuildError> {
+        self.with_open(|arena| arena.compare(operator, left, right))
+    }
+
+    pub(super) fn convert(&self, input: usize, target: Type) -> Result<usize, BuildError> {
+        self.with_open(|arena| {
+            let source = arena.values[input];
+            if source.ty == target {
+                return input;
+            }
+            if let ValueKind::Constant(bits) = source.kind {
+                return arena.constant(target, bits);
+            }
+            let input = if source.ty.bits() < target.bits() {
+                arena.normalize(input)
+            } else {
+                input
+            };
+            arena.intern(Value {
+                ty: target,
+                kind: ValueKind::Convert(input),
+            })
         })
     }
 
     pub(super) fn normalize(&self, input: usize) -> Result<usize, BuildError> {
+        self.with_open(|arena| arena.normalize(input))
+    }
+
+    fn with_open(&self, build: impl FnOnce(&mut ValueArena) -> usize) -> Result<usize, BuildError> {
         let mut arena = self.0.borrow_mut();
-        let arena = arena.as_mut().ok_or(BuildError::BodyClosed)?;
-        let value = arena.values[input];
-        match value.kind {
-            ValueKind::Constant(_)
-            | ValueKind::Parameter(_)
-            | ValueKind::Load { .. }
-            | ValueKind::Normalize(_) => Ok(input),
-            ValueKind::Add(..) => {
-                if matches!(value.ty, Type::I1 | Type::I8 | Type::I16) {
-                    // Calls and returns need unused upper bits cleared. Share that
-                    // masked result while stores and arithmetic keep the original.
-                    Ok(arena.intern(Value {
-                        ty: value.ty,
-                        kind: ValueKind::Normalize(input),
-                    }))
-                } else {
-                    Ok(input)
-                }
-            }
-        }
+        Ok(build(arena.as_mut().ok_or(BuildError::BodyClosed)?))
     }
 
     pub(super) fn take(&self) -> Option<Vec<Value>> {
@@ -113,11 +146,125 @@ impl ExpressionArena {
 }
 
 impl ValueArena {
-    fn intern(&mut self, value: Value) -> usize {
-        *self.interned.entry(value).or_insert_with(|| {
-            let index = self.values.len();
-            self.values.push(value);
-            index
+    fn constant(&mut self, ty: Type, bits: u64) -> usize {
+        self.intern(Value {
+            ty,
+            kind: ValueKind::Constant(ty.normalize(bits)),
         })
+    }
+
+    fn binary(&mut self, operator: BinaryOp, left: usize, right: usize) -> usize {
+        let a = self.values[left];
+        let b = self.values[right];
+        debug_assert_eq!(a.ty, b.ty);
+        if let (ValueKind::Constant(a), ValueKind::Constant(b)) = (a.kind, b.kind) {
+            return self.constant(
+                self.values[left].ty,
+                match operator {
+                    BinaryOp::Add => a.wrapping_add(b),
+                    BinaryOp::And => a & b,
+                    BinaryOp::Or => a | b,
+                    BinaryOp::Xor => a ^ b,
+                },
+            );
+        }
+        match (operator, a.kind, b.kind) {
+            (BinaryOp::Add | BinaryOp::Or | BinaryOp::Xor, _, ValueKind::Constant(0)) => left,
+            (BinaryOp::Add | BinaryOp::Or | BinaryOp::Xor, ValueKind::Constant(0), _) => right,
+            (BinaryOp::And | BinaryOp::Or, _, _) if left == right => left,
+            (BinaryOp::And, _, ValueKind::Constant(bits)) if bits == a.ty.mask() => left,
+            (BinaryOp::And, ValueKind::Constant(bits), _) if bits == a.ty.mask() => right,
+            (BinaryOp::And, _, ValueKind::Constant(0))
+            | (BinaryOp::And, ValueKind::Constant(0), _) => self.constant(a.ty, 0),
+            (BinaryOp::Or, _, ValueKind::Constant(bits)) if bits == a.ty.mask() => right,
+            (BinaryOp::Or, ValueKind::Constant(bits), _) if bits == a.ty.mask() => left,
+            _ => self.intern(Value {
+                ty: a.ty,
+                kind: ValueKind::Binary(operator, left, right),
+            }),
+        }
+    }
+
+    fn compare(&mut self, operator: CompareOp, left: usize, right: usize) -> usize {
+        let a = self.values[left];
+        let b = self.values[right];
+        debug_assert_eq!(a.ty, b.ty);
+        if let (ValueKind::Constant(a), ValueKind::Constant(b)) = (a.kind, b.kind) {
+            let result = match operator {
+                CompareOp::Eq => a == b,
+                CompareOp::Ne => a != b,
+                CompareOp::Lt => a < b,
+                CompareOp::Ge => a >= b,
+            };
+            return self.constant(Type::I1, u64::from(result));
+        }
+        if left == right {
+            return self.constant(
+                Type::I1,
+                u64::from(matches!(operator, CompareOp::Eq | CompareOp::Ge)),
+            );
+        }
+        if matches!(operator, CompareOp::Eq | CompareOp::Ne) {
+            let input = match (a.kind, b.kind) {
+                (_, ValueKind::Constant(0)) => Some(left),
+                (ValueKind::Constant(0), _) => Some(right),
+                _ => None,
+            };
+            if let Some(input) = input {
+                if operator == CompareOp::Ne && a.ty == Type::I1 {
+                    return input;
+                }
+                return self.zero_test(input, operator == CompareOp::Ne);
+            }
+            if self.unsigned_bits[left] > a.ty.bits() && self.unsigned_bits[right] > a.ty.bits() {
+                // Compare the low-bit difference once instead of masking both operands.
+                let difference = self.binary(BinaryOp::Xor, left, right);
+                return self.zero_test(difference, operator == CompareOp::Ne);
+            }
+        }
+        let left = self.normalize(left);
+        let right = self.normalize(right);
+        self.intern(Value {
+            ty: Type::I1,
+            kind: ValueKind::Compare(operator, left, right),
+        })
+    }
+
+    fn zero_test(&mut self, input: usize, nonzero: bool) -> usize {
+        let input = self.normalize(input);
+        self.intern(Value {
+            ty: Type::I1,
+            kind: ValueKind::ZeroTest { input, nonzero },
+        })
+    }
+
+    fn normalize(&mut self, input: usize) -> usize {
+        let value = self.values[input];
+        if self.unsigned_bits[input] <= value.ty.bits() {
+            return input;
+        }
+        // Calls, returns and unsigned observations share the masked result.
+        // Arithmetic and stores keep the original value.
+        self.intern(Value {
+            ty: value.ty,
+            kind: ValueKind::Normalize(input),
+        })
+    }
+
+    fn push(&mut self, value: Value) -> usize {
+        let index = self.values.len();
+        self.unsigned_bits
+            .push(integer::unsigned_bits(value, &self.unsigned_bits));
+        self.values.push(value);
+        index
+    }
+
+    fn intern(&mut self, value: Value) -> usize {
+        if let Some(&index) = self.interned.get(&value) {
+            return index;
+        }
+        let index = self.push(value);
+        self.interned.insert(value, index);
+        index
     }
 }

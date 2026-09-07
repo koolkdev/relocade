@@ -1,7 +1,12 @@
 //! Instruction ordering and storage of shared expression results.
 use wasm_encoder::{Encode, Function, Instruction, MemArg, ValType};
 
-use crate::{locals, memory::Location, place, Body, Operation, Terminal, Type, ValueKind};
+use crate::{
+    integer::{BinaryOp, CompareOp, ShiftOp},
+    locals,
+    memory::Location,
+    place, Body, Operation, Terminal, Type, ValueKind,
+};
 
 struct LocalEvent {
     // Position in the byte buffer, excluding local instructions inserted later.
@@ -25,8 +30,8 @@ pub(super) fn wasm_type(ty: Type) -> ValType {
 
 enum Walk {
     Value(usize),
-    FinishAdd(usize),
-    FinishNormalize(usize),
+    Finish(usize),
+    FinishZero(usize, Option<Type>),
 }
 
 struct Scheduler<'a> {
@@ -112,20 +117,24 @@ impl Scheduler<'_> {
         let mut pending = vec![Walk::Value(root)];
         while let Some(next) = pending.pop() {
             let id = match next {
-                Walk::Value(id) => id,
-                Walk::FinishNormalize(id) => {
-                    Instruction::I32Const(self.body.values[id].ty.mask() as i32)
-                        .encode(&mut self.bytes);
-                    Instruction::I32And.encode(&mut self.bytes);
+                Walk::Value(id) => place::representation(self.body, id),
+                Walk::Finish(id) => {
+                    self.operation(id);
                     self.completed(id);
                     continue;
                 }
-                Walk::FinishAdd(id) => {
-                    match self.body.values[id].ty {
-                        Type::I1 | Type::I8 | Type::I16 | Type::I32 => Instruction::I32Add,
-                        Type::I64 => Instruction::I64Add,
+                Walk::FinishZero(id, extension) => {
+                    if let Some(ty) = extension {
+                        match ty {
+                            Type::I8 => Instruction::I32Extend8S,
+                            Type::I16 => Instruction::I32Extend16S,
+                            _ => {
+                                unreachable!("only byte and word masks have a sign-extension cover")
+                            }
+                        }
+                        .encode(&mut self.bytes);
                     }
-                    .encode(&mut self.bytes);
+                    self.operation(id);
                     self.completed(id);
                     continue;
                 }
@@ -143,13 +152,32 @@ impl Scheduler<'_> {
                 }
                 .encode(&mut self.bytes),
                 ValueKind::Parameter(index) => Instruction::LocalGet(index).encode(&mut self.bytes),
-                ValueKind::Add(a, b) => {
-                    pending.push(Walk::FinishAdd(id));
+                ValueKind::Binary(_, a, b) | ValueKind::Compare(_, a, b) => {
+                    pending.push(Walk::Finish(id));
                     pending.push(Walk::Value(b));
                     pending.push(Walk::Value(a));
                 }
-                ValueKind::Normalize(input) => {
-                    pending.push(Walk::FinishNormalize(id));
+                ValueKind::Normalize(input)
+                | ValueKind::Convert(input)
+                | ValueKind::Shift(_, input, _) => {
+                    pending.push(Walk::Finish(id));
+                    pending.push(Walk::Value(input));
+                }
+                ValueKind::ZeroTest { input, .. } => {
+                    let mut input = place::representation(self.body, input);
+                    let mut extension = None;
+                    if let ValueKind::Normalize(raw) = self.body.values[input].kind {
+                        let ty = self.body.values[input].ty;
+                        if matches!(ty, Type::I8 | Type::I16)
+                            && self.placement.slots[input].is_none()
+                        {
+                            // For a zero test alone, sign extension tests the same low
+                            // bits with one instruction. Shared masks remain unsigned.
+                            extension = Some(ty);
+                            input = raw;
+                        }
+                    }
+                    pending.push(Walk::FinishZero(id, extension));
                     pending.push(Walk::Value(input));
                 }
                 ValueKind::Load { .. } => {
@@ -158,6 +186,79 @@ impl Scheduler<'_> {
                 }
             }
         }
+    }
+
+    fn operation(&mut self, id: usize) {
+        let value = self.body.values[id];
+        let wide = value.ty == Type::I64;
+        let instruction = match value.kind {
+            ValueKind::Binary(operator, _, _) => match (operator, wide) {
+                (BinaryOp::Add, false) => Instruction::I32Add,
+                (BinaryOp::Add, true) => Instruction::I64Add,
+                (BinaryOp::And, false) => Instruction::I32And,
+                (BinaryOp::And, true) => Instruction::I64And,
+                (BinaryOp::Or, false) => Instruction::I32Or,
+                (BinaryOp::Or, true) => Instruction::I64Or,
+                (BinaryOp::Xor, false) => Instruction::I32Xor,
+                (BinaryOp::Xor, true) => Instruction::I64Xor,
+            },
+            ValueKind::Shift(operator, _, count) => {
+                if wide {
+                    Instruction::I64Const(i64::from(count))
+                } else {
+                    Instruction::I32Const(count as i32)
+                }
+                .encode(&mut self.bytes);
+                match (operator, wide) {
+                    (ShiftOp::Left, false) => Instruction::I32Shl,
+                    (ShiftOp::Left, true) => Instruction::I64Shl,
+                    (ShiftOp::Right, false) => Instruction::I32ShrU,
+                    (ShiftOp::Right, true) => Instruction::I64ShrU,
+                }
+            }
+            ValueKind::Compare(operator, a, _) => {
+                // Comparisons produce I1; their opcode follows the operands' carrier.
+                let wide = self.body.values[a].ty == Type::I64;
+                match (operator, wide) {
+                    (CompareOp::Eq, false) => Instruction::I32Eq,
+                    (CompareOp::Eq, true) => Instruction::I64Eq,
+                    (CompareOp::Ne, false) => Instruction::I32Ne,
+                    (CompareOp::Ne, true) => Instruction::I64Ne,
+                    (CompareOp::Lt, false) => Instruction::I32LtU,
+                    (CompareOp::Lt, true) => Instruction::I64LtU,
+                    (CompareOp::Ge, false) => Instruction::I32GeU,
+                    (CompareOp::Ge, true) => Instruction::I64GeU,
+                }
+            }
+            ValueKind::ZeroTest { input, nonzero } => {
+                let test = if self.body.values[input].ty == Type::I64 {
+                    Instruction::I64Eqz
+                } else {
+                    Instruction::I32Eqz
+                };
+                if nonzero {
+                    test.encode(&mut self.bytes);
+                    Instruction::I32Eqz
+                } else {
+                    test
+                }
+            }
+            ValueKind::Normalize(_) => {
+                Instruction::I32Const(value.ty.mask() as i32).encode(&mut self.bytes);
+                Instruction::I32And
+            }
+            ValueKind::Convert(_) => {
+                if wide {
+                    Instruction::I64ExtendI32U
+                } else {
+                    Instruction::I32WrapI64
+                }
+            }
+            ValueKind::Constant(_) | ValueKind::Parameter(_) | ValueKind::Load { .. } => {
+                unreachable!("leaves emit without pending operations")
+            }
+        };
+        instruction.encode(&mut self.bytes);
     }
 
     fn memory_argument(&self, location: Location) -> MemArg {

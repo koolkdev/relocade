@@ -17,6 +17,16 @@ pub enum Type {
 }
 
 impl Type {
+    pub(super) fn bits(self) -> u8 {
+        match self {
+            Self::I1 => 1,
+            Self::I8 => 8,
+            Self::I16 => 16,
+            Self::I32 => 32,
+            Self::I64 => 64,
+        }
+    }
+
     pub(super) fn normalize(self, bits: u64) -> u64 {
         bits & self.mask()
     }
@@ -86,3 +96,18 @@ impl IntType for I32 {
 impl IntType for I64 {
     const TYPE: Type = Type::I64;
 }
+
+/// Integer types whose bit count is at least that of `Other`.
+/// Extension and truncation use this relation to check their direction in Rust.
+/// A type is at least as wide as itself, so identity conversions are allowed.
+pub trait AtLeast<Other: IntType>: IntType {}
+
+macro_rules! at_least {
+    ($wide:ty: $($narrow:ty),+ $(,)?) => {$(impl AtLeast<$narrow> for $wide {})+};
+}
+
+at_least!(I1: I1);
+at_least!(I8: I1, I8);
+at_least!(I16: I1, I8, I16);
+at_least!(I32: I1, I8, I16, I32);
+at_least!(I64: I1, I8, I16, I32, I64);

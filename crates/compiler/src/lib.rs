@@ -22,6 +22,7 @@
 mod arena;
 mod call;
 mod emit;
+mod integer;
 mod locals;
 mod memory;
 mod module;
@@ -33,10 +34,11 @@ use std::fmt;
 
 use arena::ExpressionArena;
 pub use call::FunctionImport;
+use integer::{BinaryOp, CompareOp, ShiftOp};
 use memory::Location;
 pub use memory::{Mem, MemoryImport, MemoryInt};
-pub use types::{IntType, Type, I1, I16, I32, I64, I8};
-pub use value::{Argument, IntLiteral, IntoOp, Val};
+pub use types::{AtLeast, IntType, Type, I1, I16, I32, I64, I8};
+pub use value::{Argument, IntLiteral, IntoOp, Unsigned, Val};
 
 /// A function's parameter types and single return type.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -149,7 +151,11 @@ struct Value {
 enum ValueKind {
     Constant(u64),
     Parameter(u32),
-    Add(usize, usize),
+    Binary(BinaryOp, usize, usize),
+    Shift(ShiftOp, usize, u32),
+    Compare(CompareOp, usize, usize),
+    ZeroTest { input: usize, nonzero: bool },
+    Convert(usize),
     Normalize(usize),
     Load { location: Location, site: usize },
 }
