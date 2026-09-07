@@ -1,5 +1,5 @@
 use super::Val;
-use crate::{BuildError, Program, Signature, Type, I32, I64};
+use crate::{BuildError, MemoryImport, Program, Signature, Type, I32, I64};
 
 fn assert_closed(value: &Val<I32>) {
     assert_eq!(value.add(0).expression, Err(BuildError::BodyClosed));
@@ -7,14 +7,20 @@ fn assert_closed(value: &Val<I32>) {
 }
 
 #[test]
-fn returning_from_a_body_closes_retained_values() {
+fn returning_from_a_body_closes_retained_loads() {
     let mut program = Program::new();
+    let memory = program.import_memory(MemoryImport {
+        module: "state".into(),
+        name: "memory".into(),
+        minimum: 1,
+        maximum: None,
+    });
     let function = program.declare(Signature {
         parameters: vec![],
         result: Type::I32,
     });
-    let body = program.define(function).unwrap();
-    let value = body.constant::<I32>(7);
+    let mut body = program.define(function).unwrap();
+    let value = body.load::<I32>(memory, 0).unwrap();
     body.return_(&value).unwrap();
     assert_closed(&value);
     assert!(program.compile().is_ok());

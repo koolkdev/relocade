@@ -7,11 +7,18 @@ parameters and wrapping addition. Values such as `Val<I1>` and `Val<I32>` carry
 logical integer types; function signatures use the corresponding `Type` variants.
 Supported integer sizes are 1, 8, 16, 32 and 64 bits. Values support fluent
 expressions such as `value.add(1)`. Calling `body.return_(&value)` completes the
-function body; shared additions use reusable WebAssembly locals.
+function body; shared expressions use reusable WebAssembly locals.
 
 WebAssembly carries 1-, 8- and 16-bit integers in `i32`. Narrow arguments must have
 their unused upper bits clear, and returned narrow values satisfy the same rule.
 A one-bit argument or result is therefore `0` or `1`.
+
+Fixed-offset memory access supports `I8`, `I16`, `I32` and `I64`, using 1, 2, 4
+and 8 bytes respectively. `body.load::<I32>(memory, offset)` reads a snapshot;
+`body.store(memory, offset, &value)` writes the value at that point in the body.
+Stores keep their authored order, used loads preserve their value across writes,
+and unused loads are omitted. Distinct memory declarations require distinct
+backing memories.
 
 Run the Rust checks with:
 
@@ -25,5 +32,5 @@ The V8 execution tests require Node.js 24 on `PATH`. Run both the default and
 optimizing V8 modes with:
 
 ```sh
-cargo test --workspace --locked --test execution -- --ignored
+cargo test --workspace --locked -- --ignored
 ```

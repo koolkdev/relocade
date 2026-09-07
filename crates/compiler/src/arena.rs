@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::{BuildError, Type, Value, ValueKind};
+use crate::{memory::Location, BuildError, Type, Value, ValueKind};
 
 #[derive(Clone)]
 pub(super) struct ExpressionArena(Rc<RefCell<Option<ValueArena>>>);
@@ -42,6 +42,24 @@ impl ExpressionArena {
             ty,
             kind: ValueKind::Constant(ty.normalize(bits)),
         })
+    }
+
+    pub(super) fn load(
+        &self,
+        ty: Type,
+        location: Location,
+        site: usize,
+    ) -> Result<usize, BuildError> {
+        let mut arena = self.0.borrow_mut();
+        let arena = arena.as_mut().ok_or(BuildError::BodyClosed)?;
+        // Two reads of the same address may observe different stores. Each load
+        // therefore gets its own value instead of entering the expression cache.
+        let index = arena.values.len();
+        arena.values.push(Value {
+            ty,
+            kind: ValueKind::Load { location, site },
+        });
+        Ok(index)
     }
 
     pub(super) fn add(&self, left: usize, right: usize) -> Result<usize, BuildError> {

@@ -7,7 +7,7 @@ use crate::{BuildError, IntType, I1, I64};
 ///
 /// Operations build expressions immediately. Cloning a value shares the body's
 /// storage; it does not clone the expression or its operands. A construction error
-/// is reported when the resulting value is used as a function's return. Returning
+/// is reported when the resulting value is stored or returned. Returning
 /// from or dropping the body prevents its values from building more expressions.
 #[derive(Clone)]
 pub struct Val<T: IntType> {

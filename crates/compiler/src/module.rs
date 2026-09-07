@@ -1,9 +1,12 @@
 //! WebAssembly sections assembled from the program declarations.
 use std::collections::HashMap;
 
-use wasm_encoder::{CodeSection, ExportKind, ExportSection, FunctionSection, Module, TypeSection};
+use wasm_encoder::{
+    CodeSection, ExportKind, ExportSection, FunctionSection, ImportSection, MemoryType, Module,
+    TypeSection,
+};
 
-use crate::{emit, Program};
+use crate::{emit, Operation, Program, ValueKind};
 
 pub(super) fn encode(program: &Program) -> Vec<u8> {
     let mut module = Module::new();
@@ -33,6 +36,47 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
         functions.function(index);
     }
     module.section(&types);
+
+    let mut used_memories = vec![false; program.memories.len()];
+    for declaration in &program.functions {
+        let body = declaration
+            .body
+            .as_ref()
+            .expect("compilation requires finished bodies");
+        // Imports follow authored operations, including unused loads. Looking at
+        // emitted instructions instead would change the module's binding contract.
+        for operation in &body.operations {
+            let location = match *operation {
+                Operation::Store { location, .. } => location,
+                Operation::Load(value) => match body.values[value].kind {
+                    ValueKind::Load { location, .. } => location,
+                    _ => unreachable!("a load operation names its load value"),
+                },
+            };
+            used_memories[location.memory.0] = true;
+        }
+    }
+    let mut memories = vec![None; program.memories.len()];
+    let mut imports = ImportSection::new();
+    for (index, memory) in program.memories.iter().enumerate() {
+        if used_memories[index] {
+            memories[index] = Some(imports.len());
+            imports.import(
+                &memory.module,
+                &memory.name,
+                MemoryType {
+                    minimum: u64::from(memory.minimum),
+                    maximum: memory.maximum.map(u64::from),
+                    memory64: false,
+                    shared: false,
+                    page_size_log2: None,
+                },
+            );
+        }
+    }
+    if !imports.is_empty() {
+        module.section(&imports);
+    }
     module.section(&functions);
 
     let mut exports = ExportSection::new();
@@ -53,7 +97,7 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
             .expect("compilation requires finished bodies");
         let parameters = u32::try_from(declaration.signature.parameters.len())
             .expect("function parameter count fits the Wasm index space");
-        code.function(&emit::encode(body, parameters));
+        code.function(&emit::encode(body, parameters, &memories));
     }
     module.section(&code);
     module.finish()

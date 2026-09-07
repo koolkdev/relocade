@@ -22,13 +22,17 @@
 mod arena;
 mod emit;
 mod locals;
+mod memory;
 mod module;
+mod place;
 mod types;
 mod value;
 
 use std::fmt;
 
 use arena::ExpressionArena;
+use memory::Location;
+pub use memory::{Mem, MemoryImport, MemoryInt};
 pub use types::{IntType, Type, I1, I16, I32, I64, I8};
 pub use value::{IntLiteral, IntoOp, Val};
 
@@ -48,6 +52,7 @@ pub struct Func(usize);
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BuildError {
     UnknownFunction,
+    UnknownMemory,
     AlreadyDefined,
     MissingBody,
     UnknownParameter,
@@ -60,6 +65,7 @@ pub enum BuildError {
 impl fmt::Display for BuildError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnknownMemory => formatter.write_str("unknown memory declaration"),
             Self::UnknownFunction => formatter.write_str("unknown function declaration"),
             Self::AlreadyDefined => formatter.write_str("function already has a finished body"),
             Self::MissingBody => formatter.write_str("function has no finished body"),
@@ -81,6 +87,7 @@ impl std::error::Error for BuildError {}
 pub struct Program {
     functions: Vec<Declaration>,
     exports: Vec<(String, Func)>,
+    memories: Vec<MemoryImport>,
 }
 
 struct Declaration {
@@ -90,7 +97,14 @@ struct Declaration {
 
 struct Body {
     values: Vec<Value>,
+    operations: Vec<Operation>,
     result: usize,
+}
+
+#[derive(Clone, Copy)]
+enum Operation {
+    Load(usize),
+    Store { location: Location, value: usize },
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -104,6 +118,7 @@ enum ValueKind {
     Constant(u64),
     Parameter(u32),
     Add(usize, usize),
+    Load { location: Location, site: usize },
 }
 
 /// Builds one function body. Returning a value completes its definition.
@@ -123,6 +138,7 @@ pub struct FunctionBuilder<'p> {
     program: &'p mut Program,
     function: Func,
     arena: ExpressionArena,
+    operations: Vec<Operation>,
 }
 
 impl Program {
@@ -154,6 +170,7 @@ impl Program {
             program: self,
             function,
             arena: ExpressionArena::new(),
+            operations: Vec::new(),
         })
     }
 
@@ -217,7 +234,7 @@ impl FunctionBuilder<'_> {
     /// Ends the generated function with this return value and saves its body,
     /// consuming the builder.
     /// On error, the unfinished body is discarded and the function remains undefined.
-    pub fn return_<T: IntType>(self, result: &Val<T>) -> Result<(), BuildError> {
+    pub fn return_<T: IntType>(mut self, result: &Val<T>) -> Result<(), BuildError> {
         let result = result.admit(&self.arena)?;
         let expected = self.signature().result;
         if T::TYPE != expected {
@@ -227,7 +244,11 @@ impl FunctionBuilder<'_> {
             });
         }
         let values = self.arena.take().ok_or(BuildError::BodyClosed)?;
-        self.program.functions[self.function.0].body = Some(Body { values, result });
+        self.program.functions[self.function.0].body = Some(Body {
+            values,
+            operations: std::mem::take(&mut self.operations),
+            result,
+        });
         Ok(())
     }
 }
