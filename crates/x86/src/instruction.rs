@@ -10,15 +10,22 @@ pub(super) enum Semantic {
 #[derive(Clone, Copy)]
 pub(super) enum Encoding {
     OpcodeRegisterImmediate,
-    ModRm,
+    RegisterRm {
+        register: RegisterRole,
+    },
+    /// ModRM.reg selects the opcode extension, while r/m names the destination.
+    RmImmediate {
+        extension: u8,
+    },
+    /// The offset field remains 32-bit for both byte and dword data operands.
+    AccumulatorOffset {
+        accumulator: RegisterRole,
+    },
 }
 
 impl Encoding {
-    pub(super) const fn operand_offset(self) -> u32 {
-        match self {
-            Self::OpcodeRegisterImmediate | Self::ModRm => 1,
-        }
-    }
+    /// Every supported format has one unprefixed opcode byte.
+    pub(super) const OPCODE_BYTES: u32 = 1;
 }
 
 /// Width of the instruction's data operands; effective addresses remain 32-bit.
@@ -37,11 +44,40 @@ impl OperandWidth {
     }
 }
 
-/// The register field is encoded in the opcode or ModRM.reg.
+/// Role of the ModRM.reg field or implicit accumulator in the instruction.
 #[derive(Clone, Copy)]
-enum Direction {
-    RegisterDestination,
-    RegisterSource,
+pub(super) enum RegisterRole {
+    Destination,
+    Source,
+}
+
+impl RegisterRole {
+    fn bind<V>(self, register: RegisterCode, other: Location<V>) -> (Location<V>, Operand<V>) {
+        let register = Location::Register(register);
+        match self {
+            Self::Destination => (register, Operand::Location(other)),
+            Self::Source => (other, Operand::Location(register)),
+        }
+    }
+}
+
+/// Decoded fields follow the physical layout, before assignment to semantic roles.
+pub(super) enum DecodedFields<V> {
+    OpcodeRegisterImmediate {
+        register: RegisterCode,
+        immediate: V,
+    },
+    RegisterRm {
+        register: RegisterCode,
+        rm: Location<V>,
+    },
+    RmImmediate {
+        rm: Location<V>,
+        immediate: V,
+    },
+    AccumulatorOffset {
+        offset: V,
+    },
 }
 
 pub(super) struct Form {
@@ -50,15 +86,16 @@ pub(super) struct Form {
     pub(super) encoding: Encoding,
     pub(super) width: OperandWidth,
     semantic: Semantic,
-    direction: Direction,
 }
 
 impl Form {
     pub(super) const fn minimum_length(&self) -> u32 {
-        self.encoding.operand_offset()
+        Encoding::OPCODE_BYTES
             + match self.encoding {
                 Encoding::OpcodeRegisterImmediate => self.width.bytes(),
-                Encoding::ModRm => 1,
+                Encoding::RegisterRm { .. } => 1,
+                Encoding::RmImmediate { .. } => 1 + self.width.bytes(),
+                Encoding::AccumulatorOffset { .. } => 4,
             }
     }
 
@@ -70,21 +107,58 @@ impl Form {
         opcode.and(u32::from(self.mask)).eq(u32::from(self.opcode))
     }
 
+    /// Tests an opcode extension after the opcode has selected this form.
+    pub(super) fn matches_modrm(&self, modrm: u8) -> bool {
+        match self.encoding {
+            Encoding::RmImmediate { extension } => ((modrm >> 3) & 7) == extension,
+            _ => true,
+        }
+    }
+
+    /// Returns a rejection predicate only for an encoding with an opcode extension.
+    pub(super) fn extension_mismatch(&self, modrm: &Val<I8>) -> Option<Val<I1>> {
+        match self.encoding {
+            Encoding::RmImmediate { extension } => {
+                Some(modrm.and(0x38).ne(u32::from(extension) << 3))
+            }
+            _ => None,
+        }
+    }
+
+    /// Binds fields decoded according to this form's encoding.
     pub(super) fn bind<V, P>(
         &self,
-        register: RegisterCode,
-        operand: Operand<V>,
+        fields: DecodedFields<V>,
         eip: P,
         next_eip: P,
     ) -> DecodedInstruction<V, P> {
-        let (destination, source) = match self.direction {
-            Direction::RegisterDestination => (Location::Register(register), operand),
-            Direction::RegisterSource => {
-                let Operand::Location(destination) = operand else {
-                    unreachable!("a register-source form binds a ModRM location");
-                };
-                (destination, Operand::Location(Location::Register(register)))
+        let (destination, source) = match (self.encoding, fields) {
+            (
+                Encoding::OpcodeRegisterImmediate,
+                DecodedFields::OpcodeRegisterImmediate {
+                    register,
+                    immediate,
+                },
+            ) => (Location::Register(register), Operand::Immediate(immediate)),
+            (
+                Encoding::RegisterRm { register: role },
+                DecodedFields::RegisterRm { register, rm },
+            ) => role.bind(register, rm),
+            (Encoding::RmImmediate { .. }, DecodedFields::RmImmediate { rm, immediate }) => {
+                (rm, Operand::Immediate(immediate))
             }
+            (
+                Encoding::AccumulatorOffset { accumulator: role },
+                DecodedFields::AccumulatorOffset { offset },
+            ) => role.bind(
+                RegisterCode::from_code(0),
+                Location::Memory(Address32 {
+                    base: None,
+                    index: None,
+                    displacement: offset,
+                }),
+            ),
+            _ => unreachable!("decoded fields match the selected encoding"),
         };
         DecodedInstruction {
             instruction: Instruction {
@@ -105,7 +179,6 @@ pub(super) const MOV_DWORD_IMMEDIATE: Form = Form {
     encoding: Encoding::OpcodeRegisterImmediate,
     width: OperandWidth::Dword,
     semantic: Semantic::Mov,
-    direction: Direction::RegisterDestination,
 };
 
 pub(super) const MOV_BYTE_IMMEDIATE: Form = Form {
@@ -114,43 +187,100 @@ pub(super) const MOV_BYTE_IMMEDIATE: Form = Form {
     encoding: Encoding::OpcodeRegisterImmediate,
     width: OperandWidth::Byte,
     semantic: Semantic::Mov,
-    direction: Direction::RegisterDestination,
 };
 
-pub(super) const IMMEDIATE_FORMS: [Form; 2] = [MOV_DWORD_IMMEDIATE, MOV_BYTE_IMMEDIATE];
+pub(super) const OPCODE_REGISTER_IMMEDIATE_FORMS: [Form; 2] =
+    [MOV_DWORD_IMMEDIATE, MOV_BYTE_IMMEDIATE];
 
-pub(super) const MODRM_FORMS: [Form; 4] = [
+pub(super) const MODRM_FORMS: [Form; 6] = [
     Form {
         opcode: 0x89,
         mask: 0xff,
-        encoding: Encoding::ModRm,
+        encoding: Encoding::RegisterRm {
+            register: RegisterRole::Source,
+        },
         width: OperandWidth::Dword,
         semantic: Semantic::Mov,
-        direction: Direction::RegisterSource,
     },
     Form {
         opcode: 0x8b,
         mask: 0xff,
-        encoding: Encoding::ModRm,
+        encoding: Encoding::RegisterRm {
+            register: RegisterRole::Destination,
+        },
         width: OperandWidth::Dword,
         semantic: Semantic::Mov,
-        direction: Direction::RegisterDestination,
     },
     Form {
         opcode: 0x88,
         mask: 0xff,
-        encoding: Encoding::ModRm,
+        encoding: Encoding::RegisterRm {
+            register: RegisterRole::Source,
+        },
         width: OperandWidth::Byte,
         semantic: Semantic::Mov,
-        direction: Direction::RegisterSource,
     },
     Form {
         opcode: 0x8a,
         mask: 0xff,
-        encoding: Encoding::ModRm,
+        encoding: Encoding::RegisterRm {
+            register: RegisterRole::Destination,
+        },
         width: OperandWidth::Byte,
         semantic: Semantic::Mov,
-        direction: Direction::RegisterDestination,
+    },
+    Form {
+        opcode: 0xc6,
+        mask: 0xff,
+        encoding: Encoding::RmImmediate { extension: 0 },
+        width: OperandWidth::Byte,
+        semantic: Semantic::Mov,
+    },
+    Form {
+        opcode: 0xc7,
+        mask: 0xff,
+        encoding: Encoding::RmImmediate { extension: 0 },
+        width: OperandWidth::Dword,
+        semantic: Semantic::Mov,
+    },
+];
+
+pub(super) const ACCUMULATOR_OFFSET_FORMS: [Form; 4] = [
+    Form {
+        opcode: 0xa0,
+        mask: 0xff,
+        encoding: Encoding::AccumulatorOffset {
+            accumulator: RegisterRole::Destination,
+        },
+        width: OperandWidth::Byte,
+        semantic: Semantic::Mov,
+    },
+    Form {
+        opcode: 0xa1,
+        mask: 0xff,
+        encoding: Encoding::AccumulatorOffset {
+            accumulator: RegisterRole::Destination,
+        },
+        width: OperandWidth::Dword,
+        semantic: Semantic::Mov,
+    },
+    Form {
+        opcode: 0xa2,
+        mask: 0xff,
+        encoding: Encoding::AccumulatorOffset {
+            accumulator: RegisterRole::Source,
+        },
+        width: OperandWidth::Byte,
+        semantic: Semantic::Mov,
+    },
+    Form {
+        opcode: 0xa3,
+        mask: 0xff,
+        encoding: Encoding::AccumulatorOffset {
+            accumulator: RegisterRole::Source,
+        },
+        width: OperandWidth::Dword,
+        semantic: Semantic::Mov,
     },
 ];
 

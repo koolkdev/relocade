@@ -218,7 +218,7 @@ fn selected_memory_forms_require_only_their_address_bytes() {
     Validator::new().validate_all(&module.bytes).unwrap();
     assert_eq!(
         compile_block_from_bytes(0x1000, &code, 2).err(),
-        Some(BlockError::UnsupportedOpcode {
+        Some(BlockError::UnsupportedInstruction {
             address: 0x1007,
             opcode: 0x90
         })

@@ -16,10 +16,19 @@ fields: EAX through EDI in encoding order at offsets 24–52, EIP at 56, and the
 completed-instruction count at 144. Final dirty views retain first-write order,
 then EIP and count are updated with 32-bit wrapping arithmetic. The block
 tail-calls dispatch with the next EIP and returns its result. This snapshot path
-supports B0–B7 with imm8, B8–BF with imm32, byte register/memory forms 88/8A,
-and dword register/memory forms 89/8B. Byte codes select AL/CL/DL/BL/AH/CH/DH/BH;
-writes preserve every other byte of the parent register.
-Memory addresses use 32-bit ModRM/SIB base, index, scale and displacement fields.
+supports these unprefixed MOV forms:
+
+| Operands | Byte | Dword |
+| --- | --- | --- |
+| Opcode-selected register and immediate | B0–B7 | B8–BF |
+| Register and register/memory | 88/8A | 89/8B |
+| Register/memory destination and immediate | C6 /0 | C7 /0 |
+| Accumulator and absolute memory offset | A0/A2 | A1/A3 |
+
+Byte register codes select AL/CL/DL/BL/AH/CH/DH/BH; writes preserve every other
+byte of the parent register. Memory addresses use 32-bit ModRM/SIB base, index,
+scale and displacement fields, or a 32-bit absolute offset. A0/A2 use AL and
+A1/A3 use EAX; their encoded address is four bytes in either case.
 Effective-address sums wrap at 32 bits; both frontends use flat addresses and
 ignore segment bases. Blocks containing only register operands retain just the
 CPU and dispatch imports.
@@ -34,10 +43,12 @@ let module = wasm86_x86::compile_interpreter_step()?;
 
 The step reads EIP from CPU state and fetches the instruction from paged guest
 memory. A successful five-byte contiguous-range check permits direct reads of
-opcode, immediate and register fields. A memory-operand handler checks any SIB
-and displacement suffix separately. Otherwise the exact path checks the opcode
-first and reads only required fields, checking bytes in order when a dword cannot
-be read directly. Success uses the same MOV semantics, state publication and
+fields within that window; later fields use checked fetch. Otherwise the exact
+path checks the opcode first and reads only required fields, checking bytes in
+order when a dword cannot be read directly. C6/C7 read ModRM and reject an
+unsupported extension before fetching any SIB, displacement or immediate. For
+/0, all instruction fields are fetched before any data access is checked.
+Success uses the same MOV semantics, state publication and
 dispatch as snapshot blocks.
 
 Snapshot decoding reads supplied bytes while compiling; runtime decoding reads
@@ -74,9 +85,10 @@ All pages are checked before a data store writes any byte, including scattered
 physical backing. A fault publishes earlier completed instructions and leaves EIP
 at the faulting instruction; the failed instruction does not retire or dispatch.
 
-An unsupported opcode returns `(8 << 48) | (opcode << 32) | instruction_eip`.
-This reports the implementation's unsupported subset, not an architectural
-invalid-opcode fault. The step executes one instruction and has no prefix,
+An unsupported instruction form returns `(8 << 48) | (opcode << 32) | instruction_eip`.
+The opcode field contains the instruction's first byte. This reports the
+implementation's unsupported subset, not an architectural invalid-opcode fault.
+The step executes one instruction and has no prefix,
 instruction-budget, segment or run-loop behavior.
 
 `wasm86-compiler` builds scalar WebAssembly functions from integer constants,

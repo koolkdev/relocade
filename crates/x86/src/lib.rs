@@ -1,7 +1,8 @@
 //! Builds WebAssembly execution entries for a small x86 instruction subset.
 //!
-//! Supports byte MOV (`B0`–`B7`, `88`, `8A`) and dword MOV (`B8`–`BF`, `89`, `8B`)
-//! with immediate, register and memory operands. ModRM/SIB addresses are 32-bit.
+//! Supports unprefixed byte and dword MOV between registers, immediates and memory:
+//! `B0`–`BF`, `88`–`8B`, `C6`/`C7` /0 and `A0`–`A3`. ModRM/SIB effective addresses
+//! and absolute offsets are 32-bit, independent of the data width.
 //!
 //! ```
 //! use wasm86_x86::compile_block_from_bytes;
@@ -57,8 +58,9 @@ pub enum BlockError {
         address: u32,
         available: usize,
     },
-    /// The selected opcode is outside the supported instruction subset.
-    UnsupportedOpcode {
+    /// The selected encoding is outside the supported instruction subset.
+    /// `opcode` is its first byte; other fields may select an unsupported form.
+    UnsupportedInstruction {
         address: u32,
         opcode: u8,
     },
@@ -75,10 +77,10 @@ impl fmt::Display for BlockError {
                 formatter,
                 "incomplete instruction at {address:#x}: {available} snapshot bytes remain"
             ),
-            Self::UnsupportedOpcode { address, opcode } => {
+            Self::UnsupportedInstruction { address, opcode } => {
                 write!(
                     formatter,
-                    "unsupported opcode {opcode:#04x} at {address:#x}"
+                    "unsupported instruction at {address:#x} (opcode {opcode:#04x})"
                 )
             }
             Self::Compiler(error) => error.fmt(formatter),

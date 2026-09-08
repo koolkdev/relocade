@@ -49,14 +49,14 @@ fn unsupported_selected_opcodes_report_their_instruction_address() {
     for bytes in [&[0x90][..], &[0x66, 0xb8, 0, 0, 0, 0][..]] {
         assert!(matches!(
             compile_block_from_bytes(0x1000, bytes, 1),
-            Err(BlockError::UnsupportedOpcode { address: 0x1000, opcode }) if opcode == bytes[0]
+            Err(BlockError::UnsupportedInstruction { address: 0x1000, opcode }) if opcode == bytes[0]
         ));
     }
     let mut bytes = SINGLE_MOVES[0].0.to_vec();
     bytes.push(0x66);
     assert!(matches!(
         compile_block_from_bytes(0x1000, &bytes, 2),
-        Err(BlockError::UnsupportedOpcode {
+        Err(BlockError::UnsupportedInstruction {
             address: 0x1005,
             opcode: 0x66
         })

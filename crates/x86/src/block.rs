@@ -6,9 +6,9 @@ use crate::{
 };
 
 /// Compiles exactly `instruction_limit` instructions starting at `start_eip`.
-/// Supports unprefixed byte MOV (`B0`–`B7`, `88`, `8A`) and dword MOV
-/// (`B8`–`BF`, `89`, `8B`), with 32-bit ModRM/SIB addressing. Bytes after the
-/// requested instructions are ignored.
+/// Supports the unprefixed byte and dword MOV forms described in the
+/// [crate documentation](crate). ModRM/SIB addressing and absolute offsets are
+/// 32-bit. Bytes after the requested instructions are ignored.
 /// Missing or unsupported selected bytes are construction errors. This byte-only
 /// input carries no guest-fault information.
 /// EIP and the completed-instruction count advance with 32-bit wrapping arithmetic.

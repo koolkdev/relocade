@@ -6,8 +6,8 @@ use crate::{
 };
 
 /// Builds `step() -> i64`, which fetches and executes one unprefixed byte or
-/// dword MOV at the current EIP. Immediate forms are B0–B7/B8–BF; register/memory
-/// forms are 88/8A and 89/8B, with 32-bit ModRM/SIB addressing.
+/// dword MOV at the current EIP, using the forms described in the
+/// [crate documentation](crate). Addresses are 32-bit for both data widths.
 /// Success updates the destination, EIP and instruction count,
 /// then tail-calls `wasm86.dispatch(i32) -> i64` with the next EIP.
 ///
@@ -29,9 +29,12 @@ use crate::{
 /// access at 0xffffffff does not cross that boundary. Instruction fetch wraps.
 /// All data permissions are checked before any guest store.
 ///
-/// An unsupported opcode returns `(8 << 48) | (opcode << 32) | EIP`, an
+/// An unsupported instruction form returns `(8 << 48) | (opcode << 32) | EIP`, an
 /// unsupported-subset exit rather than an architectural invalid-opcode exception.
-/// Faults and unsupported opcodes preserve this instruction's CPU state and
+/// `opcode` is the first instruction byte. C6/C7 reject an unsupported ModRM.reg
+/// extension before reading its remaining fields. Supported forms fetch every
+/// field before checking data access.
+/// Faults and unsupported forms preserve this instruction's CPU state and
 /// count and do not dispatch. EIP and count wrap at 32 bits. This entry has no
 /// instruction-budget, prefix or segment handling.
 ///

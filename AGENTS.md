@@ -38,6 +38,15 @@ This is a public repository. Commit messages use `component: title`.
 - Readability is a design requirement. Deeply nested builder closures, opaque tuples
   and repeated dispatch plumbing should trigger a structural review. Prefer named
   fields and focused mechanisms whose control flow follows the policy being expressed.
+- Review file and module boundaries before extending a substantial owner, after
+  adding responsibilities, and before calling a part ready. Identify independently
+  growing responsibilities and split them into cohesive modules during that part;
+  do not defer an evident boundary until another feature or a user points it out.
+- Use file size as a review signal, not a splitting threshold. Keep tightly coupled
+  code together and give each extracted module a clear responsibility and a small
+  interface. Keep visibility limited to the owners that need it; do not introduce
+  traits, forwarding wrappers or shared context structures solely to move code.
+  Apply the same review to tests, keeping related fixtures and assertions together.
 - Use terminology that explains the domain. Distinguish instruction encoding from
   snapshot or runtime decoding, and storage locations from immediate values.
 - Name values for their contents or role, and functions for the behavior they perform.
@@ -76,8 +85,9 @@ This is a public repository. Commit messages use `component: title`.
 - Complete implementation, comments, tests and relevant validation for the current
   part before presenting it. Get an independent review for substantive changes and
   inspect the exact staged diff, including every file proposed for the commit.
-- Report decisions, verification and material limitations. Include one table row per
-  changed file with its filename, added lines, removed lines and reason for the change.
+- Report decisions, verification and material limitations, including module-boundary
+  decisions for substantially expanded files. Include one table row per changed file
+  with its filename, added lines, removed lines and reason for the change.
 - Wait for the user's fresh ACK before committing the prepared part and starting the
   next substantial part. Resolve routine implementation choices while completing the
   current part; do not leave it half-finished merely to request those choices.
