@@ -28,6 +28,9 @@ This is a public repository. Commit messages use `component: title`.
   bytes, shared semantics define effects, memory owns access policy and faults,
   state owns architectural layout and publication, and the compiler owns value
   construction, placement and lowering.
+- Review execution policies across interpreter and JIT. Distinguish compilation
+  bounds, runtime stopping guarantees and host responsiveness; behavior in one
+  reference frontend does not settle the shared contract.
 - Treat growing argument lists and repeated context forwarding as an ownership
   problem. Give the responsible builder or reader the operations and lifecycle it
   manages; do not merely move loose parameters into an inert context structure.
@@ -78,6 +81,10 @@ This is a public repository. Commit messages use `component: title`.
 - Prioritize generated guest execution in V8/TurboFan. Compare Wasm bytes first;
   do not benchmark identical output. Measure changed output with meaningful workloads
   and matching execution boundaries, and report uncertainty honestly.
+- Preserve the measured memory-backed handling of mixed-width register aliases.
+  Earlier V8 measurements favored backing reads and writes over extract/merge
+  expressions; textbook SSA shape alone is not a reason to replace that design.
+  Require relevant runtime evidence before changing the mechanism.
 - Focus performance work on frequent hot paths. Keep rare paths correct and watch
   for material regressions, but do not chase possible 1–5% gains there.
 - Byte preservation is evidence, not a reason to retain a poor abstraction or duplicate
