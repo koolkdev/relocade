@@ -185,6 +185,13 @@ impl<T: IntType> Val<T> {
         self.binary(BinaryOp::Add, other)
     }
 
+    /// Subtracts an integer value or literal of the same type, wrapping on underflow.
+    /// Narrow results retain their logical low bits, just like addition.
+    #[allow(clippy::should_implement_trait)]
+    pub fn sub(&self, other: impl IntoOp<T>) -> Self {
+        self.binary(BinaryOp::Sub, other)
+    }
+
     /// Keeps bits set in both operands.
     pub fn and(&self, other: impl IntoOp<T>) -> Self {
         self.binary(BinaryOp::And, other)
@@ -193,6 +200,20 @@ impl<T: IntType> Val<T> {
     /// Sets bits present in either operand.
     pub fn or(&self, other: impl IntoOp<T>) -> Self {
         self.binary(BinaryOp::Or, other)
+    }
+
+    /// Keeps bits set in exactly one operand.
+    pub fn xor(&self, other: impl IntoOp<T>) -> Self {
+        self.binary(BinaryOp::Xor, other)
+    }
+
+    /// Counts set bits in the logical value, ignoring upper carrier bits.
+    /// The count retains the receiver's type and always fits in it.
+    pub fn popcnt(&self) -> Self {
+        let expression = self
+            .checked_expression(&self.arena)
+            .and_then(|input| self.arena.popcnt(input));
+        Self::new(self.arena.clone(), expression)
     }
 
     /// Shifts left, retaining the logical type's low bits.
@@ -329,12 +350,12 @@ impl<T: IntType> Unsigned<'_, T> {
 
     /// Tests unsigned less-than and returns a logical one-bit value.
     pub fn lt(&self, other: impl IntoOp<T>) -> Val<I1> {
-        self.0.compare(CompareOp::Lt, other)
+        self.0.compare(CompareOp::LtUnsigned, other)
     }
 
     /// Tests unsigned greater-than-or-equal and returns a logical one-bit value.
     pub fn ge(&self, other: impl IntoOp<T>) -> Val<I1> {
-        self.0.compare(CompareOp::Ge, other)
+        self.0.compare(CompareOp::GeUnsigned, other)
     }
 
     /// Widens the logical value with zero bits. The destination cannot be narrower.
@@ -353,6 +374,18 @@ impl<T: IntType> Unsigned<'_, T> {
 pub struct Signed<'a, T: IntType>(&'a Val<T>);
 
 impl<T: IntType> Signed<'_, T> {
+    /// Tests signed less-than using each operand's logical sign bit.
+    /// For I1, true is -1 and false is zero.
+    pub fn lt(&self, other: impl IntoOp<T>) -> Val<I1> {
+        self.0.compare(CompareOp::LtSigned, other)
+    }
+
+    /// Tests signed greater-than-or-equal using each operand's logical sign bit.
+    /// Arithmetic wraps before its result is interpreted as signed.
+    pub fn ge(&self, other: impl IntoOp<T>) -> Val<I1> {
+        self.0.compare(CompareOp::GeSigned, other)
+    }
+
     /// Widens by repeating the source's logical sign bit. The destination cannot
     /// be narrower. For I1, the bit pattern 1 extends to all ones.
     pub fn extend<To: AtLeast<T>>(&self) -> Val<To> {

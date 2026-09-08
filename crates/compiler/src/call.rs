@@ -37,6 +37,7 @@ impl Program {
         let function = Func(self.functions.len());
         self.functions.push(Declaration {
             signature: import.signature,
+            building: false,
             kind: FunctionKind::Imported {
                 module: import.module,
                 name: import.name,

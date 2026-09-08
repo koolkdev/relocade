@@ -90,7 +90,9 @@ impl fmt::Display for BuildError {
             }
             Self::UnknownMemory => formatter.write_str("unknown memory declaration"),
             Self::UnknownFunction => formatter.write_str("unknown function declaration"),
-            Self::AlreadyDefined => formatter.write_str("function already has a finished body"),
+            Self::AlreadyDefined => {
+                formatter.write_str("function already has an open or finished body")
+            }
             Self::MissingBody => formatter.write_str("function has no finished body"),
             Self::UnknownParameter => formatter.write_str("unknown function parameter"),
             Self::ForeignBody => formatter.write_str("value belongs to another body"),
@@ -124,6 +126,7 @@ pub struct Program {
 struct Declaration {
     signature: Signature,
     kind: FunctionKind,
+    building: bool,
 }
 
 enum FunctionKind {
@@ -137,6 +140,7 @@ struct Body {
 }
 
 enum Terminal {
+    Trap,
     Yield(usize),
     Return(usize),
     TailCall(Invocation),
@@ -145,6 +149,7 @@ enum Terminal {
 impl Terminal {
     fn inputs(&self) -> &[usize] {
         match self {
+            Self::Trap => &[],
             Self::Yield(value) | Self::Return(value) => std::slice::from_ref(value),
             Self::TailCall(invocation) => &invocation.arguments,
         }
@@ -191,6 +196,7 @@ enum ValueKind {
         when_false: usize,
     },
     SignExtend(usize),
+    Popcnt(usize),
     Compare(CompareOp, usize, usize),
     ZeroTest {
         input: usize,
@@ -210,13 +216,13 @@ enum ValueKind {
     },
 }
 
-/// Builds a function body or a conditional branch. A yield, return or tail call
+/// Builds a function body or a conditional branch. A yield, return, tail call or trap
 /// consumes the active builder; completing the outer builder saves the function
 /// body.
 ///
 /// Dropping the outer builder without completing it leaves the function undefined.
 /// Dropping a child of `if_` or `if_else` completes a branch that falls through.
-/// A value-producing arm must instead yield a value, return, or tail-call.
+/// A value-producing arm must instead yield a value, return, tail-call or trap.
 /// A builder cannot be used after its program is consumed:
 /// ```compile_fail
 /// use wasm86_compiler::{Program, Signature, Type, I32};
@@ -242,15 +248,29 @@ impl Program {
     }
 
     /// Declares and builds a function, returning its handle after completion.
-    /// The callback must complete the outer body with a return or tail call.
-    /// An error or an incomplete body removes the new declaration, leaving this
-    /// program usable. Use [`Self::declare`] and [`Self::define`] for forward
-    /// references or recursive functions.
+    /// The callback must complete the outer body with a return, tail call or trap.
+    /// An error or an incomplete body discards this function and any declarations,
+    /// imports or exports added by its callback. Earlier forward declarations
+    /// completed by the callback return to their undefined state. Handles created
+    /// in a failed callback must be discarded too. Earlier declarations remain usable. Use
+    /// [`Self::declare`] and [`Self::define`] for forward references or recursion.
     pub fn function(
         &mut self,
         signature: Signature,
         build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<Func, BuildError> {
+        // Completed bodies are immutable. Only earlier forward declarations can
+        // acquire a body during this callback, so rollback needs no IR copies.
+        let undefined_functions: Vec<_> = self
+            .functions
+            .iter()
+            .enumerate()
+            .filter_map(|(index, declaration)| {
+                matches!(declaration.kind, FunctionKind::Defined(None)).then_some(index)
+            })
+            .collect();
+        let memory_count = self.memories.len();
+        let export_count = self.exports.len();
         let function = self.declare(signature);
         let result = self.define(function).and_then(build).and_then(|()| {
             if matches!(
@@ -263,9 +283,12 @@ impl Program {
             }
         });
         if result.is_err() {
-            // The body holds the program borrow, so the callback cannot append
-            // declarations after this one.
-            self.functions.pop();
+            for index in undefined_functions {
+                self.functions[index].kind = FunctionKind::Defined(None);
+            }
+            self.functions.truncate(function.0);
+            self.memories.truncate(memory_count);
+            self.exports.truncate(export_count);
         }
         result
     }
@@ -277,21 +300,26 @@ impl Program {
         self.functions.push(Declaration {
             signature,
             kind: FunctionKind::Defined(None),
+            building: false,
         });
         function
     }
 
-    /// Starts a body for a function that has no completed definition.
+    /// Starts a body for a function that has neither an open nor completed definition.
     pub fn define(&mut self, function: Func) -> Result<FunctionBuilder<'_>, BuildError> {
         let declaration = self
             .functions
-            .get(function.0)
+            .get_mut(function.0)
             .ok_or(BuildError::UnknownFunction)?;
+        if declaration.building {
+            return Err(BuildError::AlreadyDefined);
+        }
         match declaration.kind {
             FunctionKind::Imported { .. } => return Err(BuildError::ImportedFunction),
             FunctionKind::Defined(Some(_)) => return Err(BuildError::AlreadyDefined),
             FunctionKind::Defined(None) => {}
         }
+        declaration.building = true;
         Ok(FunctionBuilder {
             program: self,
             function,
@@ -328,6 +356,15 @@ impl Program {
 }
 
 impl FunctionBuilder<'_> {
+    /// Accesses this body's module to declare or build a helper when it is needed.
+    /// Helper bodies have separate value arenas; this body remains open while
+    /// the helper is built. The active function cannot be defined again.
+    /// Declarations added inside a failing [`Program::function`] callback are
+    /// rolled back with that callback, so discard their handles on failure.
+    pub fn program(&mut self) -> &mut Program {
+        self.program
+    }
+
     fn signature(&self) -> &Signature {
         &self.program.functions[self.function.0].signature
     }
@@ -381,6 +418,13 @@ impl FunctionBuilder<'_> {
         self.complete(Terminal::Return(result))
     }
 
+    /// Ends this execution path with a WebAssembly trap. This consumes the active
+    /// builder and is valid for any function result type.
+    pub fn trap(mut self) -> Result<(), BuildError> {
+        self.fallthrough = false;
+        self.complete(Terminal::Trap)
+    }
+
     fn operand<T: IntType>(&self, value: impl IntoOp<T>) -> Result<usize, BuildError> {
         self.argument(value, T::TYPE)
     }
@@ -422,6 +466,7 @@ impl Drop for FunctionBuilder<'_> {
         match &mut self.destination {
             Destination::Function => {
                 self.arena.take();
+                self.program.functions[self.function.0].building = false;
             }
             Destination::Branch {
                 region: destination,
@@ -435,125 +480,4 @@ impl Drop for FunctionBuilder<'_> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{BuildError, MemoryImport, Program, Signature, Type, I1, I32};
-    use wasmparser::{Operator, Parser, Payload, Validator};
-
-    #[test]
-    fn completed_functions_can_be_called_and_exported_with_logical_signatures() {
-        let mut program = Program::new();
-        let is_zero = program
-            .function(
-                Signature {
-                    parameters: vec![Type::I32],
-                    result: Type::I1,
-                },
-                |body| {
-                    let value = body.parameter::<I32>(0)?;
-                    body.return_(value.eq(0))
-                },
-            )
-            .unwrap();
-        let run = program
-            .function(
-                Signature {
-                    parameters: vec![Type::I32],
-                    result: Type::I1,
-                },
-                |mut body| {
-                    let input = body.parameter::<I32>(0)?;
-                    let result = body.call::<I1>(is_zero, &[input.into()])?;
-                    body.return_(result)
-                },
-            )
-            .unwrap();
-        program.export("is_zero", is_zero).unwrap();
-        program.export("run", run).unwrap();
-        let bytes = program.compile().unwrap();
-        Validator::new().validate_all(&bytes).unwrap();
-        let calls = Parser::new(0)
-            .parse_all(&bytes)
-            .filter_map(|payload| match payload.unwrap() {
-                Payload::CodeSectionEntry(body) => Some(
-                    body.get_operators_reader()
-                        .unwrap()
-                        .into_iter()
-                        .filter(|operator| matches!(operator, Ok(Operator::Call { .. })))
-                        .count(),
-                ),
-                _ => None,
-            })
-            .sum::<usize>();
-        assert_eq!(calls, 1);
-    }
-
-    #[test]
-    fn a_callback_error_discards_even_a_completed_body_and_its_import_use() {
-        let mut program = Program::new();
-        let memory = program.import_memory(MemoryImport {
-            module: "host".into(),
-            name: "memory".into(),
-            minimum: 1,
-            maximum: None,
-        });
-        let error = program
-            .function(
-                Signature {
-                    parameters: vec![],
-                    result: Type::I32,
-                },
-                |mut body| {
-                    let value = body.load::<I32>(memory, 0)?;
-                    body.return_(value)?;
-                    Err(BuildError::BodyClosed)
-                },
-            )
-            .unwrap_err();
-        assert_eq!(error, BuildError::BodyClosed);
-        let function = program
-            .function(
-                Signature {
-                    parameters: vec![],
-                    result: Type::I32,
-                },
-                |body| body.return_(7),
-            )
-            .unwrap();
-        assert_eq!(function.0, 0);
-        program.export("run", function).unwrap();
-        let bytes = program.compile().unwrap();
-        Validator::new().validate_all(&bytes).unwrap();
-        assert!(Parser::new(0)
-            .parse_all(&bytes)
-            .all(|payload| !matches!(payload.unwrap(), Payload::ImportSection(_))));
-    }
-
-    #[test]
-    fn a_successful_callback_must_complete_its_body() {
-        let mut program = Program::new();
-        let error = program
-            .function(
-                Signature {
-                    parameters: vec![],
-                    result: Type::I1,
-                },
-                |_body| Ok(()),
-            )
-            .unwrap_err();
-        assert_eq!(error, BuildError::MissingBody);
-        let function = program
-            .function(
-                Signature {
-                    parameters: vec![],
-                    result: Type::I1,
-                },
-                |body| body.return_(true),
-            )
-            .unwrap();
-        assert_eq!(function.0, 0);
-        program.export("run", function).unwrap();
-        Validator::new()
-            .validate_all(&program.compile().unwrap())
-            .unwrap();
-    }
-}
+mod tests;

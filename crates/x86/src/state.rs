@@ -1,6 +1,10 @@
+mod cpu;
 pub(super) mod exit;
+mod flags;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Mem, MemoryImport, Program, Val, I32};
+pub(super) use cpu::Cpu;
+
+use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Val, I32};
 
 use crate::{
     register::{Gpr32, Register, RegisterSelection, RegisterType},
@@ -31,32 +35,18 @@ fn indexed_offset(slot: Val<I32>, byte: Option<Val<I32>>) -> Val<I32> {
 const EIP_OFFSET: u32 = 56;
 const INSTRUCTION_COUNT_OFFSET: u32 = 144;
 
-pub(super) fn declare(program: &mut Program) -> Mem {
-    program.import_memory(MemoryImport {
-        module: "wasm86".into(),
-        name: "cpuState".into(),
-        minimum: 1,
-        maximum: None,
-    })
-}
-
-pub(super) fn read_eip(
-    body: &mut FunctionBuilder<'_>,
-    memory: Mem,
-) -> Result<Val<I32>, BuildError> {
-    body.load::<I32>(memory, EIP_OFFSET)
-}
-
-pub(super) struct State {
-    memory: Mem,
+pub(super) struct State<'cpu> {
+    cpu: &'cpu Cpu,
     values: Environment,
+    flags: flags::FlagState,
 }
 
-impl State {
-    pub(super) fn new(memory: Mem) -> Self {
+impl<'cpu> State<'cpu> {
+    pub(super) fn new(cpu: &'cpu Cpu) -> Self {
         Self {
-            memory,
-            values: Environment::new(memory),
+            cpu,
+            values: Environment::new(cpu.memory()),
+            flags: flags::FlagState::default(),
         }
     }
 
@@ -112,9 +102,13 @@ impl State {
         completed: u32,
     ) -> Result<(), BuildError> {
         self.values.publish(body)?;
-        body.store::<I32>(self.memory, EIP_OFFSET, next_eip)?;
-        let count = body.load::<I32>(self.memory, INSTRUCTION_COUNT_OFFSET)?;
-        body.store(self.memory, INSTRUCTION_COUNT_OFFSET, count.add(completed))
+        body.store::<I32>(self.cpu.memory(), EIP_OFFSET, next_eip)?;
+        let count = body.load::<I32>(self.cpu.memory(), INSTRUCTION_COUNT_OFFSET)?;
+        body.store(
+            self.cpu.memory(),
+            INSTRUCTION_COUNT_OFFSET,
+            count.add(completed),
+        )
     }
 }
 

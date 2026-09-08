@@ -1,12 +1,25 @@
 //! Builds WebAssembly execution entries for a small x86 instruction subset.
 //!
-//! Supports byte, word and dword MOV between registers, immediates and memory:
-//! `B0`–`BF`, `88`–`8B`, `C6`/`C7` /0 and `A0`–`A3`. ModRM/SIB effective addresses
+//! Supports byte, word and dword MOV (`B0`–`BF`, `88`–`8B`, `C6`/`C7` /0,
+//! `A0`–`A3`), ADD (`00`–`05` and `80`/`81`/`83` /0), CMP (`38`–`3D` and
+//! `80`/`81`/`83` /7), and byte SETcc (`0F 90`–`0F 9F`). Group `83` sign-extends
+//! its encoded byte immediate to the operand width. ModRM/SIB effective addresses
 //! and absolute offsets are 32-bit, independent of the data width.
 //! In this default-32 mode, `66` selects word operands; repetition has the same
 //! effect and byte forms remain byte-sized. Other prefixes, including address-size
 //! `67`, are outside the subset. Instructions contain at most fifteen bytes,
 //! including prefixes and all required operand fields.
+//!
+//! ADD and CMP replace all six status flags; MOV and SETcc preserve them. The CPU
+//! stores flags lazily: byte 0 selects the record kind, and little-endian dwords
+//! at 4 and 8 hold the original, zero-extended operands. SUB kinds are 1, 5 and 9;
+//! ADD kinds are 2, 6 and 10, for byte, word and dword operations respectively.
+//! Existing logic records use kinds 3, 7 and 11 with the result at offset 4.
+//! They clear CF/OF and use zero for undefined AF. A nonzero kind owns all six
+//! status flags, so their concrete bytes may be stale. Kind 0 instead reads the
+//! concrete CF/PF/AF/ZF/SF/OF bytes at offsets 12 through 17, each containing 0 or 1.
+//! Other kind values trap when a condition reads them. Flag reads preserve the
+//! record, and these instructions leave non-status flag bytes untouched.
 //!
 //! ```
 //! use wasm86_x86::compile_block_from_bytes;
@@ -26,6 +39,7 @@ mod address;
 mod block;
 mod decode;
 mod execution;
+mod flags;
 mod instruction;
 mod interpreter;
 mod memory;
@@ -68,7 +82,7 @@ pub enum BlockError {
     },
     /// The selected encoding is outside the supported instruction subset.
     /// `opcode` is the first byte after any `66` prefixes; other fields may
-    /// select an unsupported form.
+    /// select an unsupported form. Extended opcodes report `0F` here.
     UnsupportedInstruction {
         address: u32,
         opcode: u8,

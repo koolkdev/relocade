@@ -3,11 +3,10 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
 use crate::{
     address::{Address32, IndexTerm, RegisterTerm},
     instruction::{
-        DecodedFields, DecodedInstruction, Form, Location, OperandSize, ResolvedForm,
-        ACCUMULATOR_OFFSET_FORMS, MODRM_FORMS,
+        modrm_forms, DecodedFields, DecodedInstruction, Encoding, Form, Location, OpcodeMap,
+        OperandSize, ResolvedForm, ACCUMULATOR_OFFSET_FORMS,
     },
     register::{Register, RegisterCode},
-    state::exit,
 };
 
 use super::{cursor::RuntimeCursor, RuntimeDecoder};
@@ -23,16 +22,19 @@ where
         opcode: &Val<I8>,
         form: &ResolvedForm,
     ) -> Result<(), BuildError> {
-        let bits = cursor.immediate(&mut body, form.width)?;
-        let register = RegisterCode::indexed(opcode.unsigned().extend::<I32>());
-        let decoded_instruction = form.bind(
-            DecodedFields::OpcodeRegisterImmediate {
-                register,
+        let bits = cursor.immediate(&mut body, form)?;
+        let fields = match form.encoding {
+            Encoding::OpcodeRegisterImmediate => DecodedFields::OpcodeRegisterImmediate {
+                register: RegisterCode::indexed(opcode.unsigned().extend::<I32>()),
                 immediate: bits,
             },
-            cursor.instruction_eip().clone(),
-            cursor.next_eip(),
-        );
+            Encoding::AccumulatorImmediate => {
+                DecodedFields::AccumulatorImmediate { immediate: bits }
+            }
+            _ => unreachable!("the selected form has an immediate and no ModRM"),
+        };
+        let decoded_instruction =
+            form.bind(fields, cursor.instruction_eip().clone(), cursor.next_eip());
         (self.complete_instruction)(body, decoded_instruction)
     }
 
@@ -55,7 +57,7 @@ where
                 (self.complete_instruction)(form_body, instruction)
             })?;
         }
-        body.return_(exit::unsupported(cursor.instruction_eip(), opcode))
+        cursor.return_unsupported(body, opcode)
     }
 
     pub(super) fn decode_modrm(
@@ -68,41 +70,59 @@ where
         // The entry has selected a ModRM form. Read its shared encoding before
         // binding the register and r/m fields to their semantic roles.
         let modrm = cursor.byte(&mut body)?;
-        for form in forms.clone() {
-            if let Some(mismatch) = form.encoding.extension_mismatch(&modrm) {
-                body.if_(
-                    form.matches_value(opcode).and(mismatch),
-                    |unsupported_body| {
-                        unsupported_body
-                            .return_(exit::unsupported(cursor.instruction_eip(), opcode))
-                    },
-                )?;
+        let mut checked_groups: Vec<&Form> = Vec::new();
+        for form in forms
+            .clone()
+            .filter(|form| matches!(form.encoding, Encoding::RmImmediate { .. }))
+        {
+            if checked_groups.iter().any(|group| group.same_opcode(form)) {
+                continue;
             }
+            checked_groups.push(form);
+            let admitted_extension = forms
+                .clone()
+                .filter(|candidate| candidate.same_opcode(form))
+                .filter_map(|candidate| candidate.encoding.extension_match(&modrm))
+                .reduce(|left, right| left.or(right))
+                .expect("an opcode group has extensions");
+            body.if_(
+                form.matches_value(opcode).and(admitted_extension.eq(0)),
+                |unsupported_body| cursor.return_unsupported(unsupported_body, opcode),
+            )?;
         }
-        body.if_(
-            modrm.unsigned().shr(6).ne(3),
-            |memory_operand_body| match cursor.operand_size() {
-                OperandSize::Dword => memory_operand_body.tail_call(
-                    self.modrm_memory_handler,
-                    &[
-                        cursor.instruction_eip().into(),
-                        opcode.into(),
-                        (&modrm).into(),
-                    ],
-                ),
-                OperandSize::Word => memory_operand_body.tail_call(
-                    self.prefixed_modrm_memory_handler,
-                    &[
-                        cursor.instruction_eip().into(),
-                        opcode.into(),
-                        (&modrm).into(),
-                        cursor.consumed().into(),
-                    ],
-                ),
-            },
-        )?;
+        body.if_(modrm.unsigned().shr(6).ne(3), |memory_operand_body| match (
+            cursor.opcode_map(),
+            cursor.operand_size(),
+        ) {
+            (OpcodeMap::Extended, _) => memory_operand_body.tail_call(
+                self.extended_modrm_memory_handler,
+                &[
+                    cursor.instruction_eip().into(),
+                    opcode.into(),
+                    (&modrm).into(),
+                    cursor.consumed().into(),
+                ],
+            ),
+            (OpcodeMap::Primary, OperandSize::Dword) => memory_operand_body.tail_call(
+                self.modrm_memory_handler,
+                &[
+                    cursor.instruction_eip().into(),
+                    opcode.into(),
+                    (&modrm).into(),
+                ],
+            ),
+            (OpcodeMap::Primary, OperandSize::Word) => memory_operand_body.tail_call(
+                self.prefixed_modrm_memory_handler,
+                &[
+                    cursor.instruction_eip().into(),
+                    opcode.into(),
+                    (&modrm).into(),
+                    cursor.consumed().into(),
+                ],
+            ),
+        })?;
         for form in forms {
-            body.if_(form.matches_value(opcode), |mut form_body| {
+            body.if_(form.matches_modrm_value(opcode, &modrm), |mut form_body| {
                 let form = form.resolve(cursor.operand_size());
                 let mut form_cursor = cursor.clone();
                 let rm =
@@ -116,7 +136,7 @@ where
                 (self.complete_instruction)(form_body, instruction)
             })?;
         }
-        body.return_(exit::unsupported(cursor.instruction_eip(), opcode))
+        cursor.return_unsupported(body, opcode)
     }
 
     pub(super) fn decode_modrm_memory(
@@ -133,8 +153,8 @@ where
         let base = has_sib.select(sib.and(7).unsigned().extend::<I32>(), &rm);
         let no_base = mode.eq(0).and(base.eq(5));
         let displacement = cursor.displacement(&mut body, &mode, &no_base)?;
-        for form in &MODRM_FORMS {
-            body.if_(form.matches_value(opcode), |mut form_body| {
+        for form in modrm_forms(cursor.opcode_map()) {
+            body.if_(form.matches_modrm_value(opcode, modrm), |mut form_body| {
                 let address = Address32 {
                     base: Some(RegisterTerm {
                         register: Register::<I32>::indexed(base.clone()),
@@ -167,6 +187,6 @@ where
                 (self.complete_instruction)(form_body, instruction)
             })?;
         }
-        body.return_(exit::unsupported(cursor.instruction_eip(), opcode))
+        cursor.return_unsupported(body, opcode)
     }
 }

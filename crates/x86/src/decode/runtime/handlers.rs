@@ -1,7 +1,7 @@
 use wasm86_compiler::{BuildError, Func, FunctionBuilder, Program, Signature, Type, Val, I32, I8};
 
 use crate::{
-    instruction::{Encoding, OperandSize},
+    instruction::{OpcodeMap, OperandSize},
     memory::Memory,
 };
 
@@ -54,7 +54,12 @@ impl OperandHandlers {
             let instruction_eip = body.parameter::<I32>(0)?;
             let opcode = body.parameter::<I8>(1)?;
             let cursor = if matches!(entry, Entry::Prefixed) {
-                RuntimeCursor::after_prefix(memory, &instruction_eip, &body.parameter::<I32>(2)?)
+                RuntimeCursor::resume(
+                    memory,
+                    &instruction_eip,
+                    &body.parameter::<I32>(2)?,
+                    OperandSize::Word,
+                )
             } else {
                 let physical_start = if matches!(entry, Entry::Direct) {
                     Some(body.parameter::<I32>(2)?)
@@ -66,7 +71,7 @@ impl OperandHandlers {
                     memory,
                     &instruction_eip,
                     physical_start.as_ref(),
-                    Encoding::OPCODE_BYTES,
+                    OpcodeMap::Primary.bytes(),
                 )?
             };
             decode(body, cursor, &opcode)?;

@@ -101,7 +101,7 @@ impl FunctionBuilder<'_> {
     }
 
     /// Executes exactly one of two branches. Each branch may fall through,
-    /// return from the function or tail-call. A construction error discards both
+    /// return from the function, tail-call or trap. A construction error discards both
     /// branches and leaves the parent usable. Child values follow `if_`'s scope rules.
     ///
     /// ```
@@ -140,7 +140,7 @@ impl FunctionBuilder<'_> {
     }
 
     /// Selects a value by executing one of two branches. Each arm must consume
-    /// its builder with `yield_`, `return_`, or `tail_call`; at least one must yield.
+    /// its builder with `yield_`, `return_`, `tail_call` or `trap`; at least one must yield.
     /// A yield supplies this conditional's value, while a return exits the function.
     /// A construction error discards both arms and leaves the parent usable.
     ///

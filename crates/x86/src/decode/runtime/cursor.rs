@@ -4,11 +4,12 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32, I8};
 
 use crate::{
     instruction::{
-        DecodedFields, Encoding, Location, OperandSize, OperandWidth, ResolvedForm,
-        MAX_INSTRUCTION_BYTES, MOV_OPERAND_IMMEDIATE,
+        DecodedFields, Encoding, Location, OpcodeMap, OperandSize, OperandWidth, ResolvedForm,
+        EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES, MOV_OPERAND_IMMEDIATE,
     },
     memory::Memory,
     register::RegisterCode,
+    state::exit,
 };
 
 /// A proven window uses fixed displacements; a checked cursor advances in the
@@ -22,6 +23,7 @@ pub(super) struct RuntimeCursor {
     offset: Val<I32>,
     maximum_offset: u32,
     operand_size: OperandSize,
+    opcode_map: OpcodeMap,
     window: Option<Window>,
 }
 
@@ -52,6 +54,7 @@ impl RuntimeCursor {
             offset: body.value(consumed)?,
             maximum_offset: consumed,
             operand_size: OperandSize::Dword,
+            opcode_map: OpcodeMap::Primary,
             window: physical_start.map(|physical_start| Window {
                 physical_start: physical_start.clone(),
                 consumed,
@@ -62,21 +65,45 @@ impl RuntimeCursor {
         })
     }
 
-    /// Resumes after an operand-size prefix, retaining the instruction's total
-    /// byte count rather than starting a new cursor at the opcode.
-    pub(super) fn after_prefix(
+    /// Resumes checked reads at the instruction's total consumed byte count.
+    /// Prefixes and opcode escapes never start a new instruction-length budget.
+    pub(super) fn resume(
         memory: Memory,
         instruction_eip: &Val<I32>,
         consumed: &Val<I32>,
+        operand_size: OperandSize,
     ) -> Self {
         Self {
             memory,
             instruction_eip: instruction_eip.clone(),
             offset: consumed.clone(),
             maximum_offset: MAX_INSTRUCTION_BYTES,
-            operand_size: OperandSize::Word,
+            operand_size,
+            opcode_map: OpcodeMap::Primary,
             window: None,
         }
+    }
+
+    pub(super) fn select_word_operands(&mut self) {
+        self.operand_size = OperandSize::Word;
+    }
+    pub(super) fn enter_extended_map(&mut self) {
+        self.opcode_map = OpcodeMap::Extended;
+    }
+    pub(super) fn opcode_map(&self) -> OpcodeMap {
+        self.opcode_map
+    }
+
+    pub(super) fn return_unsupported(
+        &self,
+        body: FunctionBuilder<'_>,
+        selector: &Val<I8>,
+    ) -> Result<(), BuildError> {
+        let opcode = match self.opcode_map {
+            OpcodeMap::Primary => selector.clone(),
+            OpcodeMap::Extended => body.value::<I8>(u32::from(EXTENDED_OPCODE_ESCAPE))?,
+        };
+        body.return_(exit::unsupported(&self.instruction_eip, &opcode))
     }
 
     pub(super) fn operand_size(&self) -> OperandSize {
@@ -110,9 +137,12 @@ impl RuntimeCursor {
     pub(super) fn immediate(
         &mut self,
         body: &mut FunctionBuilder<'_>,
-        width: OperandWidth,
+        form: &ResolvedForm,
     ) -> Result<Val<I32>, BuildError> {
-        match width {
+        if form.sign_extends_immediate() {
+            return Ok(self.byte(body)?.signed().extend::<I32>());
+        }
+        match form.immediate_width() {
             OperandWidth::Byte => Ok(self.byte(body)?.unsigned().extend::<I32>()),
             OperandWidth::Word => Ok(self.read::<I16>(body)?.unsigned().extend::<I32>()),
             OperandWidth::Dword => self.dword(body),
@@ -133,8 +163,9 @@ impl RuntimeCursor {
             },
             Encoding::RmImmediate { .. } => DecodedFields::RmImmediate {
                 rm,
-                immediate: self.immediate(body, form.width)?,
+                immediate: self.immediate(body, form)?,
             },
+            Encoding::Rm => DecodedFields::Rm { rm },
             _ => unreachable!("the selected form has a ModRM field"),
         })
     }

@@ -1,16 +1,16 @@
 mod cursor;
 mod handlers;
 mod operands;
+mod selectors;
 
 use wasm86_compiler::{BuildError, Func, FunctionBuilder, Program, Signature, Type, Val, I32, I8};
 
 use crate::{
     instruction::{
-        DecodedInstruction, Encoding, OperandSize, ACCUMULATOR_OFFSET_FORMS, MODRM_FORMS,
-        MOV_BYTE_IMMEDIATE, MOV_OPERAND_IMMEDIATE, OPERAND_SIZE_PREFIX,
+        DecodedInstruction, Encoding, OpcodeMap, OperandSize, ACCUMULATOR_OFFSET_FORMS,
+        ARITHMETIC_MODRM_FORMS, MOV_BYTE_IMMEDIATE, MOV_MODRM_FORMS, MOV_OPERAND_IMMEDIATE,
     },
     memory::{DirectRange, Intent, Memory},
-    state::exit,
 };
 
 use self::{cursor::RuntimeCursor, handlers::OperandHandlers};
@@ -25,9 +25,11 @@ pub(crate) struct RuntimeDecoder<C> {
     register_rm_handlers: OperandHandlers,
     rm_immediate_handlers: OperandHandlers,
     absolute_offset_handlers: OperandHandlers,
+    arithmetic_handlers: OperandHandlers,
+    opcode_dispatch: OperandHandlers,
     modrm_memory_handler: Func,
     prefixed_modrm_memory_handler: Func,
-    operand_prefix_handler: Func,
+    extended_modrm_memory_handler: Func,
     complete_instruction: C,
 }
 
@@ -50,37 +52,56 @@ where
             register_rm_handlers,
             rm_immediate_handlers: OperandHandlers::declare(program),
             absolute_offset_handlers: OperandHandlers::declare(program),
+            arithmetic_handlers: OperandHandlers::declare(program),
+            opcode_dispatch: OperandHandlers::declare(program),
             modrm_memory_handler,
             prefixed_modrm_memory_handler: program.declare(Signature {
                 parameters: vec![Type::I32, Type::I8, Type::I8, Type::I32],
                 result: Type::I64,
             }),
-            operand_prefix_handler: program.declare(Signature {
-                parameters: vec![Type::I32, Type::I8, Type::I32],
+            extended_modrm_memory_handler: program.declare(Signature {
+                parameters: vec![Type::I32, Type::I8, Type::I8, Type::I32],
                 result: Type::I64,
             }),
             complete_instruction,
         };
 
-        for (handler, prefixed) in [
-            (decoder.modrm_memory_handler, false),
-            (decoder.prefixed_modrm_memory_handler, true),
+        for (handler, prefixed, map) in [
+            (decoder.modrm_memory_handler, false, OpcodeMap::Primary),
+            (
+                decoder.prefixed_modrm_memory_handler,
+                true,
+                OpcodeMap::Primary,
+            ),
+            (
+                decoder.extended_modrm_memory_handler,
+                true,
+                OpcodeMap::Extended,
+            ),
         ] {
             let body = program.define(handler)?;
             let instruction_eip = body.parameter::<I32>(0)?;
             let opcode = body.parameter::<I8>(1)?;
             let modrm = body.parameter::<I8>(2)?;
-            let cursor = if prefixed {
-                RuntimeCursor::after_prefix(memory, &instruction_eip, &body.parameter::<I32>(3)?)
+            let mut cursor = if prefixed {
+                RuntimeCursor::resume(
+                    memory,
+                    &instruction_eip,
+                    &body.parameter::<I32>(3)?,
+                    OperandSize::Word,
+                )
             } else {
                 RuntimeCursor::new(
                     &body,
                     memory,
                     &instruction_eip,
                     None,
-                    Encoding::OPCODE_BYTES + 1,
+                    OpcodeMap::Primary.bytes() + 1,
                 )?
             };
+            if map == OpcodeMap::Extended {
+                cursor.enter_extended_map();
+            }
             decoder.decode_modrm_memory(body, cursor, &opcode, &modrm)?;
         }
 
@@ -91,7 +112,7 @@ where
                     body,
                     cursor,
                     opcode,
-                    MODRM_FORMS
+                    MOV_MODRM_FORMS
                         .iter()
                         .filter(|form| matches!(form.encoding, Encoding::RegisterRm { .. })),
                 )
@@ -103,7 +124,7 @@ where
                     body,
                     cursor,
                     opcode,
-                    MODRM_FORMS
+                    MOV_MODRM_FORMS
                         .iter()
                         .filter(|form| matches!(form.encoding, Encoding::RmImmediate { .. })),
                 )
@@ -113,19 +134,16 @@ where
             .define(program, memory, |body, cursor, opcode| {
                 decoder.decode_absolute_offset(body, cursor, opcode)
             })?;
-        let mut body = program.define(decoder.operand_prefix_handler)?;
-        let instruction_eip = body.parameter::<I32>(0)?;
-        let opcode = body.parameter::<I8>(1)?;
-        let consumed = body.parameter::<I32>(2)?;
-        body.if_(
-            opcode.ne(u32::from(OPERAND_SIZE_PREFIX)),
-            |unsupported_body| {
-                unsupported_body.return_(exit::unsupported(&instruction_eip, &opcode))
-            },
-        )?;
-        let mut cursor = RuntimeCursor::after_prefix(memory, &instruction_eip, &consumed);
-        let opcode = cursor.byte(&mut body)?;
-        decoder.decode_opcode(body, cursor, &opcode)?;
+        decoder
+            .arithmetic_handlers
+            .define(program, memory, |body, cursor, opcode| {
+                decoder.decode_modrm(body, cursor, opcode, ARITHMETIC_MODRM_FORMS.iter())
+            })?;
+        decoder
+            .opcode_dispatch
+            .define(program, memory, |body, cursor, opcode| {
+                decoder.decode_arithmetic_or_escape(body, cursor, opcode)
+            })?;
         Ok(decoder)
     }
 
@@ -171,7 +189,7 @@ where
                 &MOV_OPERAND_IMMEDIATE.resolve(cursor.operand_size()),
             )
         })?;
-        for form in &MODRM_FORMS {
+        for form in &MOV_MODRM_FORMS {
             let handlers = match form.encoding {
                 Encoding::RegisterRm { .. } => &self.register_rm_handlers,
                 Encoding::RmImmediate { .. } => &self.rm_immediate_handlers,
@@ -195,16 +213,8 @@ where
                     .tail_call(form_body, &cursor, opcode)
             })?;
         }
-        // The remaining selector is a prefix or an unsupported instruction.
-        // Keeping that policy in the prefix reader leaves V8's inline budget
-        // available for ordinary register moves in the common entry.
-        body.tail_call(
-            self.operand_prefix_handler,
-            &[
-                cursor.instruction_eip().into(),
-                opcode.into(),
-                cursor.consumed().into(),
-            ],
-        )
+        // Keep the common MOV entry small: additional selectors and prefix
+        // reads share a continuation without consuming its V8 inline budget.
+        self.opcode_dispatch.tail_call(body, &cursor, opcode)
     }
 }

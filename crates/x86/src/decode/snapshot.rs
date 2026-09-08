@@ -1,9 +1,9 @@
 use crate::{
     address::{Address32, IndexTerm, RegisterTerm},
     instruction::{
-        DecodedFields, DecodedInstruction, Encoding, Location, OperandSize, OperandWidth,
-        ResolvedForm, ACCUMULATOR_OFFSET_FORMS, MAX_INSTRUCTION_BYTES, MODRM_FORMS,
-        OPCODE_REGISTER_IMMEDIATE_FORMS, OPERAND_SIZE_PREFIX,
+        primary_forms, DecodedFields, DecodedInstruction, Encoding, Location, OpcodeMap,
+        OperandSize, OperandWidth, ResolvedForm, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
+        OPERAND_SIZE_PREFIX, SET_CONDITION_FORMS,
     },
     register::{Gpr32, RegisterCode},
     BlockError,
@@ -27,30 +27,44 @@ pub(crate) fn snapshot(
         // Repeating the override preserves the selected size; it does not toggle it.
         operand_size = OperandSize::Word;
     };
-    let form = OPCODE_REGISTER_IMMEDIATE_FORMS
-        .iter()
-        .chain(MODRM_FORMS.iter())
-        .chain(ACCUMULATOR_OFFSET_FORMS.iter())
-        .find(|form| form.matches(opcode))
+    let reported_opcode = opcode;
+    let (opcode, map) = if opcode == EXTENDED_OPCODE_ESCAPE {
+        (cursor.byte()?, OpcodeMap::Extended)
+    } else {
+        (opcode, OpcodeMap::Primary)
+    };
+    let mut candidates = primary_forms()
+        .chain(SET_CONDITION_FORMS.iter())
+        .filter(|form| form.map == map && form.matches(opcode));
+    let first = candidates
+        .next()
         .ok_or(BlockError::UnsupportedInstruction {
             address: instruction_eip,
-            opcode,
-        })?
-        .resolve(operand_size);
+            opcode: reported_opcode,
+        })?;
+    let (form, modrm) = if first.encoding.has_modrm() {
+        let modrm = cursor.byte()?;
+        let form = std::iter::once(first)
+            .chain(candidates)
+            .find(|form| form.encoding.matches_modrm(modrm))
+            .ok_or(BlockError::UnsupportedInstruction {
+                address: instruction_eip,
+                opcode: reported_opcode,
+            })?;
+        (form.resolve(operand_size), Some(modrm))
+    } else {
+        (first.resolve(operand_size), None)
+    };
     let fields = match form.encoding {
         Encoding::OpcodeRegisterImmediate => DecodedFields::OpcodeRegisterImmediate {
             register: RegisterCode::from_code(opcode),
-            immediate: cursor.integer(form.width)?,
+            immediate: cursor.immediate(&form)?,
         },
-        Encoding::RegisterRm { .. } | Encoding::RmImmediate { .. } => {
-            let modrm = cursor.byte()?;
-            if !form.encoding.matches_modrm(modrm) {
-                return Err(BlockError::UnsupportedInstruction {
-                    address: instruction_eip,
-                    opcode,
-                });
-            }
-            cursor.modrm_fields(&form, modrm)?
+        Encoding::AccumulatorImmediate => DecodedFields::AccumulatorImmediate {
+            immediate: cursor.immediate(&form)?,
+        },
+        Encoding::RegisterRm { .. } | Encoding::RmImmediate { .. } | Encoding::Rm => {
+            cursor.modrm_fields(&form, modrm.expect("the selected encoding has ModRM"))?
         }
         Encoding::AccumulatorOffset { .. } => DecodedFields::AccumulatorOffset {
             offset: cursor.integer(OperandWidth::Dword)?,
@@ -97,6 +111,15 @@ impl SnapshotCursor<'_> {
         Ok(bits)
     }
 
+    fn immediate(&mut self, form: &ResolvedForm) -> Result<u32, BlockError> {
+        let bits = self.integer(form.immediate_width())?;
+        Ok(if form.sign_extends_immediate() {
+            bits as u8 as i8 as i32 as u32
+        } else {
+            bits
+        })
+    }
+
     fn modrm_fields(
         &mut self,
         form: &ResolvedForm,
@@ -114,8 +137,9 @@ impl SnapshotCursor<'_> {
             },
             Encoding::RmImmediate { .. } => DecodedFields::RmImmediate {
                 rm,
-                immediate: self.integer(form.width)?,
+                immediate: self.immediate(form)?,
             },
+            Encoding::Rm => DecodedFields::Rm { rm },
             _ => unreachable!("the selected form has a ModRM field"),
         })
     }

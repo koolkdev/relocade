@@ -3,6 +3,7 @@ use crate::{Type, Value, ValueKind};
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum BinaryOp {
     Add,
+    Sub,
     And,
     Or,
     Xor,
@@ -18,8 +19,15 @@ pub(super) enum ShiftOp {
 pub(super) enum CompareOp {
     Eq,
     Ne,
-    Lt,
-    Ge,
+    LtUnsigned,
+    GeUnsigned,
+    LtSigned,
+    GeSigned,
+}
+
+pub(super) fn signed_value(ty: Type, bits: u64) -> i64 {
+    let shift = 64 - ty.bits();
+    (bits << shift) as i64 >> shift
 }
 
 pub(super) fn shift_count(ty: Type, count: u32) -> u32 {
@@ -38,6 +46,8 @@ pub(super) fn unsigned_bits(value: Value, values: &[Value], inputs: &[u8]) -> u8
         }
         ValueKind::Binary(operator, a, b) => match operator {
             BinaryOp::Add => inputs[a].max(inputs[b]).saturating_add(1).min(carrier_bits),
+            // Underflow can set every carrier bit, including above a narrow type.
+            BinaryOp::Sub => carrier_bits,
             BinaryOp::And => inputs[a].min(inputs[b]),
             BinaryOp::Or | BinaryOp::Xor => inputs[a].max(inputs[b]),
         },
@@ -59,6 +69,7 @@ pub(super) fn unsigned_bits(value: Value, values: &[Value], inputs: &[u8]) -> u8
             },
         },
         ValueKind::SignExtend(_) => carrier_bits,
+        ValueKind::Popcnt(input) => (u8::BITS - inputs[input].leading_zeros()) as u8,
         ValueKind::Select {
             when_true,
             when_false,

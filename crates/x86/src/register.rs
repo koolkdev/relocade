@@ -55,6 +55,7 @@ impl RegisterCode {
     }
 }
 
+#[derive(Clone)]
 pub(super) enum RegisterSelection {
     Named {
         parent: Gpr32,
@@ -120,6 +121,7 @@ impl RegisterType for I32 {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct Register<T: RegisterType> {
     pub(super) selection: RegisterSelection,
     marker: PhantomData<T>,

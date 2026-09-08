@@ -253,3 +253,28 @@ fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
     body.return_(7).unwrap();
     assert!(program.compile().is_ok());
 }
+
+#[test]
+fn arithmetic_identity_folds_preserve_operand_errors() {
+    let mut program = Program::new();
+    let function = program.declare(Signature {
+        parameters: vec![],
+        result: Type::I32,
+    });
+    let discarded = program.define(function).unwrap();
+    let foreign_zero = discarded.value::<I32>(0).unwrap();
+    drop(discarded);
+    let body = program.define(function).unwrap();
+    let value = body.value::<I32>(7).unwrap();
+    let failed = value.sub(foreign_zero);
+    assert_eq!(
+        body.value(failed.sub(&failed)).err(),
+        Some(BuildError::ForeignBody)
+    );
+    assert_eq!(
+        body.value(failed.signed().ge(&failed)).err(),
+        Some(BuildError::ForeignBody)
+    );
+    body.return_(value.sub(0)).unwrap();
+    assert!(program.compile().is_ok());
+}

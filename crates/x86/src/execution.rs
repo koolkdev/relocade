@@ -1,30 +1,32 @@
-use wasm86_compiler::{AtLeast, BuildError, Func, FunctionBuilder, IntoOp, Mem, Val, I32};
+mod operands;
+
+use wasm86_compiler::{
+    AtLeast, BuildError, Func, FunctionBuilder, IntoOp, MemoryInt, Val, I1, I32,
+};
 
 use crate::{
-    address,
-    instruction::{DecodedInstruction, Location, Operand},
-    memory::{Access, Intent, Memory},
-    register::RegisterType,
+    flags::{ArithmeticFlagSource, ArithmeticSource, Condition},
+    instruction::DecodedInstruction,
+    memory::Memory,
     semantics,
-    state::{exit, State},
+    state::{Cpu, State},
 };
 
 /// Builds one execution path. State definitions and progress describe completed
-/// instructions; a fault publishes that boundary before the current destination
-/// is written.
-pub(super) struct ExecutionBuilder<'a> {
-    body: FunctionBuilder<'a>,
-    state: State,
+/// instructions; a fault publishes that boundary before the current effects.
+pub(super) struct ExecutionBuilder<'body, 'cpu> {
+    body: FunctionBuilder<'body>,
+    state: State<'cpu>,
     memory: Option<Memory>,
     dispatch: Func,
     eip: Val<I32>,
     completed: u32,
 }
 
-impl<'a> ExecutionBuilder<'a> {
+impl<'body, 'cpu> ExecutionBuilder<'body, 'cpu> {
     pub(super) fn new(
-        body: FunctionBuilder<'a>,
-        cpu: Mem,
+        body: FunctionBuilder<'body>,
+        cpu: &'cpu Cpu,
         memory: Option<Memory>,
         dispatch: Func,
         start: impl IntoOp<I32>,
@@ -51,59 +53,19 @@ impl<'a> ExecutionBuilder<'a> {
         Ok(())
     }
 
-    pub(super) fn read<T: RegisterType>(
+    pub(super) fn set_arithmetic_flags<T: MemoryInt>(
         &mut self,
-        operand: Operand<impl IntoOp<I32>>,
-    ) -> Result<Val<T>, BuildError>
+        source: &ArithmeticSource<T>,
+    ) -> Result<(), BuildError>
     where
         I32: AtLeast<T>,
+        ArithmeticSource<T>: Into<ArithmeticFlagSource>,
     {
-        match operand {
-            Operand::Immediate(bits) => Ok(self.body.value::<I32>(bits)?.truncate::<T>()),
-            Operand::Location(Location::Register(code)) => {
-                self.state.read_register(&mut self.body, code.view::<T>())
-            }
-            Operand::Location(Location::Memory(address)) => {
-                let address = address::resolve(&mut self.body, &mut self.state, address)?;
-                let memory = self.memory.expect("a memory operand declares guest memory");
-                let access = self.checked::<T>(memory, &address, Intent::Read)?;
-                memory.read(&mut self.body, &access)
-            }
-        }
+        self.state.set_arithmetic_flags(&mut self.body, source)
     }
 
-    pub(super) fn write<T: RegisterType>(
-        &mut self,
-        location: Location<impl IntoOp<I32>>,
-        value: impl IntoOp<T>,
-    ) -> Result<(), BuildError> {
-        match location {
-            Location::Register(code) => {
-                self.state
-                    .write_register(&mut self.body, code.view::<T>(), value)
-            }
-            Location::Memory(address) => {
-                let address = address::resolve(&mut self.body, &mut self.state, address)?;
-                let memory = self.memory.expect("a memory operand declares guest memory");
-                let access = self.checked::<T>(memory, &address, Intent::Write)?;
-                let value = self.body.value(value)?;
-                memory.write(&mut self.body, &access, &value)
-            }
-        }
-    }
-
-    fn checked<T: RegisterType>(
-        &mut self,
-        memory: Memory,
-        address: &Val<I32>,
-        intent: Intent,
-    ) -> Result<Access<T>, BuildError> {
-        let access = memory.resolve_access::<T>(&mut self.body, address, intent)?;
-        self.body.if_(&access.fault.condition, |mut arm| {
-            self.state.publish(&mut arm, &self.eip, self.completed)?;
-            arm.return_(exit::page_fault(&access.fault.address, &access.fault.error))
-        })?;
-        Ok(access)
+    pub(super) fn condition(&mut self, condition: Condition) -> Result<Val<I1>, BuildError> {
+        self.state.condition(&mut self.body, condition)
     }
 
     pub(super) fn complete(mut self) -> Result<(), BuildError> {

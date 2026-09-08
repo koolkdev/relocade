@@ -205,22 +205,22 @@ impl ExpressionArena {
         })
     }
 
-    pub(super) fn sign_extend(&self, input: usize, target: Type) -> Result<usize, BuildError> {
+    pub(super) fn popcnt(&self, input: usize) -> Result<usize, BuildError> {
         self.with_open(|arena| {
-            let source = arena.values[input];
-            if source.ty == target {
-                return input;
+            let value = arena.values[input];
+            if let ValueKind::Constant(bits) = value.kind {
+                return arena.constant(value.ty, u64::from(bits.count_ones()));
             }
-            if let ValueKind::Constant(bits) = source.kind {
-                let shift = 64 - source.ty.bits();
-                let signed = ((bits << shift) as i64 >> shift) as u64;
-                return arena.constant(target, signed);
-            }
+            let input = arena.normalize(input);
             arena.intern(Value {
-                ty: target,
-                kind: ValueKind::SignExtend(input),
+                ty: value.ty,
+                kind: ValueKind::Popcnt(input),
             })
         })
+    }
+
+    pub(super) fn sign_extend(&self, input: usize, target: Type) -> Result<usize, BuildError> {
+        self.with_open(|arena| arena.sign_extend(input, target))
     }
 
     pub(super) fn compare(
@@ -278,6 +278,20 @@ impl ValueArena {
         })
     }
 
+    fn sign_extend(&mut self, input: usize, target: Type) -> usize {
+        let source = self.values[input];
+        if source.ty == target {
+            return input;
+        }
+        if let ValueKind::Constant(bits) = source.kind {
+            return self.constant(target, integer::signed_value(source.ty, bits) as u64);
+        }
+        self.intern(Value {
+            ty: target,
+            kind: ValueKind::SignExtend(input),
+        })
+    }
+
     fn binary(&mut self, operator: BinaryOp, left: usize, right: usize) -> usize {
         let a = self.values[left];
         let b = self.values[right];
@@ -287,6 +301,7 @@ impl ValueArena {
                 self.values[left].ty,
                 match operator {
                     BinaryOp::Add => a.wrapping_add(b),
+                    BinaryOp::Sub => a.wrapping_sub(b),
                     BinaryOp::And => a & b,
                     BinaryOp::Or => a | b,
                     BinaryOp::Xor => a ^ b,
@@ -294,7 +309,12 @@ impl ValueArena {
             );
         }
         match (operator, a.kind, b.kind) {
-            (BinaryOp::Add | BinaryOp::Or | BinaryOp::Xor, _, ValueKind::Constant(0)) => left,
+            (
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Or | BinaryOp::Xor,
+                _,
+                ValueKind::Constant(0),
+            ) => left,
+            (BinaryOp::Sub | BinaryOp::Xor, _, _) if left == right => self.constant(a.ty, 0),
             (BinaryOp::Add | BinaryOp::Or | BinaryOp::Xor, ValueKind::Constant(0), _) => right,
             (BinaryOp::And | BinaryOp::Or, _, _) if left == right => left,
             (BinaryOp::And, _, ValueKind::Constant(bits)) if bits == a.ty.mask() => left,
@@ -318,15 +338,26 @@ impl ValueArena {
             let result = match operator {
                 CompareOp::Eq => a == b,
                 CompareOp::Ne => a != b,
-                CompareOp::Lt => a < b,
-                CompareOp::Ge => a >= b,
+                CompareOp::LtUnsigned => a < b,
+                CompareOp::GeUnsigned => a >= b,
+                CompareOp::LtSigned => {
+                    integer::signed_value(self.values[left].ty, a)
+                        < integer::signed_value(self.values[right].ty, b)
+                }
+                CompareOp::GeSigned => {
+                    integer::signed_value(self.values[left].ty, a)
+                        >= integer::signed_value(self.values[right].ty, b)
+                }
             };
             return self.constant(Type::I1, u64::from(result));
         }
         if left == right {
             return self.constant(
                 Type::I1,
-                u64::from(matches!(operator, CompareOp::Eq | CompareOp::Ge)),
+                u64::from(matches!(
+                    operator,
+                    CompareOp::Eq | CompareOp::GeUnsigned | CompareOp::GeSigned
+                )),
             );
         }
         if matches!(operator, CompareOp::Eq | CompareOp::Ne) {
@@ -363,8 +394,21 @@ impl ValueArena {
                 return self.zero_test(difference, operator == CompareOp::Ne);
             }
         }
-        let left = self.normalize(left);
-        let right = self.normalize(right);
+        let (left, right) = if matches!(operator, CompareOp::LtSigned | CompareOp::GeSigned) {
+            // A narrow arithmetic value may have dirty upper bits. Interpret its
+            // logical sign before comparing the full Wasm carriers.
+            let carrier = if a.ty == Type::I64 {
+                Type::I64
+            } else {
+                Type::I32
+            };
+            (
+                self.sign_extend(left, carrier),
+                self.sign_extend(right, carrier),
+            )
+        } else {
+            (self.normalize(left), self.normalize(right))
+        };
         self.intern(Value {
             ty: Type::I1,
             kind: ValueKind::Compare(operator, left, right),
@@ -440,6 +484,7 @@ impl ValueArena {
             }
             ValueKind::Convert(input)
             | ValueKind::SignExtend(input)
+            | ValueKind::Popcnt(input)
             | ValueKind::Normalize(input)
             | ValueKind::ZeroTest { input, .. } => self.availability[input],
         }

@@ -170,6 +170,7 @@ impl Scheduler<'_> {
             match terminal {
                 Terminal::Yield(_) => unreachable!("yield leaves its value on the arm's stack"),
                 Terminal::Return(_) => Instruction::Return,
+                Terminal::Trap => Instruction::Unreachable,
                 Terminal::TailCall(invocation) => Instruction::ReturnCall(
                     self.functions[invocation.target.0]
                         .expect("a tail-call target has a function index"),
@@ -278,7 +279,8 @@ impl Scheduler<'_> {
                 }
                 ValueKind::Normalize(input)
                 | ValueKind::Convert(input)
-                | ValueKind::SignExtend(input) => {
+                | ValueKind::SignExtend(input)
+                | ValueKind::Popcnt(input) => {
                     pending.push(Walk::Finish(id));
                     pending.push(Walk::Value(input));
                 }
@@ -320,6 +322,8 @@ impl Scheduler<'_> {
             ValueKind::Binary(operator, _, _) => match (operator, wide) {
                 (BinaryOp::Add, false) => Instruction::I32Add,
                 (BinaryOp::Add, true) => Instruction::I64Add,
+                (BinaryOp::Sub, false) => Instruction::I32Sub,
+                (BinaryOp::Sub, true) => Instruction::I64Sub,
                 (BinaryOp::And, false) => Instruction::I32And,
                 (BinaryOp::And, true) => Instruction::I64And,
                 (BinaryOp::Or, false) => Instruction::I32Or,
@@ -334,6 +338,13 @@ impl Scheduler<'_> {
                 (ShiftOp::Right, true) => Instruction::I64ShrU,
             },
             ValueKind::Select { .. } => Instruction::Select,
+            ValueKind::Popcnt(_) => {
+                if wide {
+                    Instruction::I64Popcnt
+                } else {
+                    Instruction::I32Popcnt
+                }
+            }
             ValueKind::SignExtend(input) => {
                 match self.body.values[input].ty {
                     Type::I1 => {
@@ -361,10 +372,14 @@ impl Scheduler<'_> {
                     (CompareOp::Eq, true) => Instruction::I64Eq,
                     (CompareOp::Ne, false) => Instruction::I32Ne,
                     (CompareOp::Ne, true) => Instruction::I64Ne,
-                    (CompareOp::Lt, false) => Instruction::I32LtU,
-                    (CompareOp::Lt, true) => Instruction::I64LtU,
-                    (CompareOp::Ge, false) => Instruction::I32GeU,
-                    (CompareOp::Ge, true) => Instruction::I64GeU,
+                    (CompareOp::LtUnsigned, false) => Instruction::I32LtU,
+                    (CompareOp::LtUnsigned, true) => Instruction::I64LtU,
+                    (CompareOp::GeUnsigned, false) => Instruction::I32GeU,
+                    (CompareOp::GeUnsigned, true) => Instruction::I64GeU,
+                    (CompareOp::LtSigned, false) => Instruction::I32LtS,
+                    (CompareOp::LtSigned, true) => Instruction::I64LtS,
+                    (CompareOp::GeSigned, false) => Instruction::I32GeS,
+                    (CompareOp::GeSigned, true) => Instruction::I64GeS,
                 }
             }
             ValueKind::ZeroTest { input, nonzero } => {

@@ -93,8 +93,14 @@ This is a public repository. Commit messages use `component: title`.
   part before presenting it. Get an independent review for substantive changes and
   inspect the exact staged diff, including every file proposed for the commit.
 - Report decisions, verification and material limitations, including module-boundary
-  decisions for substantially expanded files. Include one table row per changed file
-  with its filename, added lines, removed lines and reason for the change.
+  decisions for substantially expanded files.
+- Every completed change report includes a concise walkthrough of added or reshaped
+  types, schemas and consumer APIs, with representative code excerpts and the reasons
+  for their design. Distinguish new interfaces from existing ones reused by the change.
+  If these did not change, say so.
+- Split file accounting into two tables: production code and documentation, and tests
+  and fixtures, including test modules under src. Each changed file appears exactly
+  once with a clickable filename, added lines, removed lines and reason for the change.
 - Wait for the user's fresh ACK before committing the prepared part and starting the
   next substantial part. Resolve routine implementation choices while completing the
   current part; do not leave it half-finished merely to request those choices.

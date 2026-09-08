@@ -1,4 +1,4 @@
-use super::super::{declare, Gpr32, Register, State};
+use super::super::{Cpu, Gpr32, Register, State};
 use wasm86_compiler::{Program, Signature, Type, I1, I16, I32};
 
 use crate::test_step::ModuleFile;
@@ -15,13 +15,13 @@ enum IndexSource {
 
 fn synchronized_registers(source: IndexSource) -> crate::CompiledModule {
     let mut program = Program::new();
-    let memory = declare(&mut program);
+    let cpu = Cpu::declare(&mut program);
     let function = program.declare(Signature {
         parameters: vec![Type::I32, Type::I1],
         result: Type::I64,
     });
     let mut body = program.define(function).unwrap();
-    let mut state = State::new(memory);
+    let mut state = State::new(&cpu);
     let index = match source {
         IndexSource::Parameter => body.parameter::<I32>(0).unwrap(),
         IndexSource::OldEax => state.read_register(&mut body, Gpr32::Eax).unwrap(),
@@ -165,7 +165,7 @@ fn register_synchronization_in_optimizing_v8() {
 
 fn synchronized_byte_registers() -> crate::CompiledModule {
     let mut program = Program::new();
-    let memory = declare(&mut program);
+    let cpu = Cpu::declare(&mut program);
     let function = program
         .function(
             Signature {
@@ -175,7 +175,7 @@ fn synchronized_byte_registers() -> crate::CompiledModule {
             |mut body| {
                 let index = body.parameter::<I32>(0)?;
                 let stop = body.parameter::<I1>(1)?;
-                let mut state = State::new(memory);
+                let mut state = State::new(&cpu);
                 let old_high =
                     state.read_register(&mut body, RegisterCode::from_code(4).view::<I8>())?;
                 state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
@@ -278,7 +278,7 @@ fn byte_register_synchronization_in_optimizing_v8() {
 
 fn synchronized_word_registers() -> crate::CompiledModule {
     let mut program = Program::new();
-    let memory = declare(&mut program);
+    let cpu = Cpu::declare(&mut program);
     let function = program
         .function(
             Signature {
@@ -288,7 +288,7 @@ fn synchronized_word_registers() -> crate::CompiledModule {
             |mut body| {
                 let index = body.parameter::<I32>(0)?;
                 let stop = body.parameter::<I1>(1)?;
-                let mut state = State::new(memory);
+                let mut state = State::new(&cpu);
                 let old_word =
                     state.read_register(&mut body, RegisterCode::from_code(0).view::<I16>())?;
                 state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;

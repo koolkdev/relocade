@@ -1,14 +1,14 @@
-use wasm86_compiler::{BuildError, Func, FunctionBuilder, Mem, Program, Signature, Type, Val, I32};
+use wasm86_compiler::{BuildError, Func, FunctionBuilder, Program, Signature, Type, Val, I32};
 
 use crate::{
     declare_dispatch, decode::RuntimeDecoder, execution::ExecutionBuilder,
-    instruction::DecodedInstruction, memory::Memory, state, CompiledModule,
+    instruction::DecodedInstruction, memory::Memory, state::Cpu, CompiledModule,
 };
 
-/// Builds `step() -> i64`, which fetches and executes one byte, word or dword
-/// MOV at the current EIP, using the forms described in the
+/// Builds `step() -> i64`, which fetches and executes one MOV, ADD, CMP or SETcc
+/// at the current EIP, using the forms described in the
 /// [crate documentation](crate). Addresses remain 32-bit for every data width.
-/// Success updates the destination, EIP and instruction count,
+/// Success publishes the instruction effects, EIP and instruction count,
 /// then tail-calls `wasm86.dispatch(i32) -> i64` with the next EIP.
 ///
 /// The module imports distinct `wasm86.cpuState`, `wasm86.guest` and
@@ -32,8 +32,9 @@ use crate::{
 /// An unsupported instruction form returns `(8 << 48) | (opcode << 32) | EIP`, an
 /// unsupported-subset exit rather than an architectural invalid-opcode exception.
 /// `opcode` is the first byte after any `66` prefixes; EIP is the instruction start.
-/// C6/C7 reject an unsupported ModRM.reg
-/// extension before reading its remaining fields. Supported forms fetch every
+/// Group instructions reject an unsupported ModRM.reg extension before reading
+/// their remaining fields. The diagnostic byte for an extended opcode is `0F`.
+/// Supported forms fetch every
 /// field before checking data access.
 /// Faults and unsupported forms preserve this instruction's CPU state and
 /// count and do not dispatch. EIP and count wrap at 32 bits.
@@ -52,7 +53,7 @@ use crate::{
 /// ```
 pub fn compile_interpreter_step() -> Result<CompiledModule, BuildError> {
     let mut program = Program::new();
-    let cpu = state::declare(&mut program);
+    let cpu = Cpu::declare(&mut program);
     let memory = Memory::declare(&mut program)?;
     let dispatch = declare_dispatch(&mut program);
     let signature = Signature {
@@ -62,17 +63,17 @@ pub fn compile_interpreter_step() -> Result<CompiledModule, BuildError> {
     let step = program.declare(signature.clone());
     let exact = program.declare(signature);
     let decoder = RuntimeDecoder::new(&mut program, memory, |body, decoded| {
-        complete(body, cpu, memory, dispatch, decoded)
+        complete(body, &cpu, memory, dispatch, decoded)
     })?;
 
     let mut body = program.define(step)?;
-    let start = state::read_eip(&mut body, cpu)?;
+    let start = cpu.read_eip(&mut body)?;
     let direct = decoder.direct_window(&mut body, &start)?;
     body.if_(&direct.unavailable, |arm| arm.tail_call(exact, &[]))?;
     decoder.decode(body, &start, Some(&direct.physical))?;
 
     let mut body = program.define(exact)?;
-    let start = state::read_eip(&mut body, cpu)?;
+    let start = cpu.read_eip(&mut body)?;
     decoder.decode(body, &start, None)?;
 
     program.export("step", step)?;
@@ -84,7 +85,7 @@ pub fn compile_interpreter_step() -> Result<CompiledModule, BuildError> {
 
 fn complete(
     body: FunctionBuilder<'_>,
-    cpu: Mem,
+    cpu: &Cpu,
     memory: Memory,
     dispatch: Func,
     decoded: DecodedInstruction<Val<I32>, Val<I32>>,

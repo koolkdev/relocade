@@ -25,7 +25,7 @@ impl RegisterTerm {
     fn read(
         self,
         body: &mut FunctionBuilder<'_>,
-        state: &mut State,
+        state: &mut State<'_>,
     ) -> Result<Val<I32>, BuildError> {
         // Synchronize completed definitions in the parent. The load itself can
         // stay in the selected arm, without retaining child values in the cache.
@@ -41,7 +41,7 @@ impl RegisterTerm {
 
 pub(super) fn resolve<V: IntoOp<I32>>(
     body: &mut FunctionBuilder<'_>,
-    state: &mut State,
+    state: &mut State<'_>,
     address: Address32<V>,
 ) -> Result<Val<I32>, BuildError> {
     let mut value = match address.base {

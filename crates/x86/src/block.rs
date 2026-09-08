@@ -1,12 +1,12 @@
 use wasm86_compiler::{Program, Signature, Type};
 
 use crate::{
-    declare_dispatch, decode, execution::ExecutionBuilder, memory::Memory, state, BlockError,
+    declare_dispatch, decode, execution::ExecutionBuilder, memory::Memory, state::Cpu, BlockError,
     CompiledModule,
 };
 
 /// Compiles exactly `instruction_limit` instructions starting at `start_eip`.
-/// Supports the byte, word and dword MOV forms described in the
+/// Supports the MOV, ADD, CMP and SETcc forms described in the
 /// [crate documentation](crate). ModRM/SIB addressing and absolute offsets are
 /// 32-bit. The `66` operand-size prefix selects word operands. Bytes after the
 /// requested instructions are ignored.
@@ -20,7 +20,7 @@ use crate::{
 /// 52 in steps of four, EIP at 56 and the completed-instruction count at 144.
 /// Byte and word register writes preserve the remaining bits of their parent register.
 /// Overlapping views synchronize through CPU backing when required; final dirty
-/// views are written in first-write order, followed by EIP and count. The block
+/// definitions are written in first-write order, followed by EIP and count. The block
 /// then tail-calls the imported `wasm86.dispatch(i32) -> i64` with the next EIP
 /// and returns its result.
 ///
@@ -29,6 +29,9 @@ use crate::{
 /// Addresses are flat: segment bases are ignored. A data fault publishes earlier
 /// completed instructions, keeps EIP at the faulting instruction, and skips dispatch.
 /// All bytes of a store are permission-checked before any of them are written.
+/// ADD checks write permission before reading its destination or changing flags;
+/// CMP requires only read permission. Status flags use the lazy CPU record
+/// described in the [crate documentation](crate).
 pub fn compile_block_from_bytes(
     start_eip: u32,
     bytes: &[u8],
@@ -49,7 +52,7 @@ pub fn compile_block_from_bytes(
     }
 
     let mut program = Program::new();
-    let cpu = state::declare(&mut program);
+    let cpu = Cpu::declare(&mut program);
     let memory = decoded_instructions
         .iter()
         .any(|decoded_instruction| decoded_instruction.instruction.uses_memory())
@@ -62,7 +65,7 @@ pub fn compile_block_from_bytes(
             result: Type::I64,
         },
         |body| {
-            let mut execution = ExecutionBuilder::new(body, cpu, memory, dispatch, start_eip)?;
+            let mut execution = ExecutionBuilder::new(body, &cpu, memory, dispatch, start_eip)?;
             for decoded_instruction in decoded_instructions {
                 execution.execute(decoded_instruction)?;
             }

@@ -1,20 +1,21 @@
+mod flags;
 mod synchronization;
 
-use super::{declare, Gpr32, Register, State};
+use super::{Cpu, Gpr32, Register, State};
 use wasm86_compiler::{Program, Signature, Type, I1, I32};
 use wasmparser::{Operator, Parser, Payload};
 
 #[test]
 fn named_writes_coalesce_without_crossing_indexed_writes() {
     let mut program = Program::new();
-    let memory = declare(&mut program);
+    let cpu = Cpu::declare(&mut program);
     let function = program.declare(Signature {
         parameters: vec![Type::I32],
         result: Type::I32,
     });
     let mut body = program.define(function).unwrap();
     let index = body.parameter::<I32>(0).unwrap();
-    let mut state = State::new(memory);
+    let mut state = State::new(&cpu);
     state.write_register(&mut body, Gpr32::Eax, 0).unwrap();
     state.write_register(&mut body, Gpr32::Eax, 1).unwrap();
     state
@@ -48,14 +49,14 @@ fn named_writes_coalesce_without_crossing_indexed_writes() {
 #[test]
 fn publishing_an_exit_keeps_pending_writes_for_the_continuation() {
     let mut program = Program::new();
-    let memory = declare(&mut program);
+    let cpu = Cpu::declare(&mut program);
     let function = program.declare(Signature {
         parameters: vec![Type::I1],
         result: Type::I32,
     });
     let mut body = program.define(function).unwrap();
     let stop = body.parameter::<I1>(0).unwrap();
-    let mut state = State::new(memory);
+    let mut state = State::new(&cpu);
     state.write_register(&mut body, Gpr32::Eax, 42).unwrap();
     body.if_(stop, |mut branch| {
         state.publish(&mut branch, 0x1005, 1)?;

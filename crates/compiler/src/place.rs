@@ -353,6 +353,7 @@ pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
             ValueKind::Normalize(input)
             | ValueKind::Convert(input)
             | ValueKind::SignExtend(input)
+            | ValueKind::Popcnt(input)
             | ValueKind::ZeroTest { input, .. } => demand(body, &tree, &mut demands, input, anchor),
             // Address reads preserve their snapshots where this read actually runs.
             ValueKind::Load { location, .. } => {
