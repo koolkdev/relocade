@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use wasm86_compiler::{Val, I32, I8};
+use wasm86_compiler::{Val, I16, I32, I8};
 
 use crate::ssa::SsaType;
 
@@ -89,20 +89,34 @@ impl RegisterType for I8 {
     }
 }
 
-impl RegisterType for I32 {
-    const BACKING_SLOT_COUNT: u32 = 8;
-
-    fn select(code: RegisterCode) -> RegisterSelection {
+impl RegisterSelection {
+    fn at_slot_start(code: RegisterCode) -> Self {
         match code {
-            RegisterCode::Known(code) => RegisterSelection::Named {
+            RegisterCode::Known(code) => Self::Named {
                 parent: Gpr32::from_code(code),
                 byte: 0,
             },
-            RegisterCode::Indexed(code) => RegisterSelection::Indexed {
+            RegisterCode::Indexed(code) => Self::Indexed {
                 slot: code.and(7),
                 byte: None,
             },
         }
+    }
+}
+
+impl RegisterType for I16 {
+    const BACKING_SLOT_COUNT: u32 = 8;
+
+    fn select(code: RegisterCode) -> RegisterSelection {
+        RegisterSelection::at_slot_start(code)
+    }
+}
+
+impl RegisterType for I32 {
+    const BACKING_SLOT_COUNT: u32 = 8;
+
+    fn select(code: RegisterCode) -> RegisterSelection {
+        RegisterSelection::at_slot_start(code)
     }
 }
 

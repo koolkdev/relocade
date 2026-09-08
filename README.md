@@ -2,39 +2,46 @@
 
 Rust components for x86 execution in WebAssembly.
 
-`wasm86-x86` compiles byte and dword MOV blocks from byte snapshots:
+`wasm86-x86` compiles byte, word and dword MOV blocks from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
 ```
 
-The requested instruction count is exact. Missing or unsupported selected bytes
-are construction errors; bytes after the selection are ignored. The returned
+The requested instruction count is exact. Missing, overlong or unsupported
+selected instructions are construction errors; bytes after the selection are ignored. The returned
 module exports `block_1000` and imports `wasm86.cpuState` memory (minimum one
 64-KiB page) and `wasm86.dispatch(i32) -> i64`. CPU state uses little-endian 32-bit
 fields: EAX through EDI in encoding order at offsets 24–52, EIP at 56, and the
 completed-instruction count at 144. Final dirty views retain first-write order,
 then EIP and count are updated with 32-bit wrapping arithmetic. The block
 tail-calls dispatch with the next EIP and returns its result. This snapshot path
-supports these unprefixed MOV forms:
+supports these MOV forms in default-32 operand and address mode:
 
-| Operands | Byte | Dword |
-| --- | --- | --- |
-| Opcode-selected register and immediate | B0–B7 | B8–BF |
-| Register and register/memory | 88/8A | 89/8B |
-| Register/memory destination and immediate | C6 /0 | C7 /0 |
-| Accumulator and absolute memory offset | A0/A2 | A1/A3 |
+| Operands | Byte | Word (`66`) | Dword |
+| --- | --- | --- | --- |
+| Opcode-selected register and immediate | B0–B7 | B8–BF | B8–BF |
+| Register and register/memory | 88/8A | 89/8B | 89/8B |
+| Register/memory destination and immediate | C6 /0 | C7 /0 | C7 /0 |
+| Accumulator and absolute memory offset | A0/A2 | A1/A3 | A1/A3 |
 
-Byte register codes select AL/CL/DL/BL/AH/CH/DH/BH; writes preserve every other
-byte of the parent register. Memory addresses use 32-bit ModRM/SIB base, index,
-scale and displacement fields, or a 32-bit absolute offset. A0/A2 use AL and
-A1/A3 use EAX; their encoded address is four bytes in either case.
+The `66` operand-size prefix selects word data; repeating it keeps that size.
+Byte forms remain byte-sized with `66`. Other prefixes, including address-size
+`67`, are outside the supported subset. The fifteen-byte instruction limit
+includes every prefix, opcode and required operand field.
+
+Byte register codes select AL/CL/DL/BL/AH/CH/DH/BH. Word codes select the low
+sixteen bits of EAX through EDI. Byte and word writes preserve the other bits
+of the parent register. Memory addresses use 32-bit ModRM/SIB base, index,
+scale and displacement fields, or a 32-bit absolute offset. A0/A2 use AL;
+A1/A3 use AX with `66` and EAX otherwise. Their encoded address is always four
+bytes, independent of the data width.
 Effective-address sums wrap at 32 bits; both frontends use flat addresses and
 ignore segment bases. Blocks containing only register operands retain just the
 CPU and dispatch imports.
 
 `compile_interpreter_step()` builds a generated `step() -> i64` entry for the
-same unprefixed MOV subset. Both compiler functions return a `CompiledModule`
+same MOV subset. Both compiler functions return a `CompiledModule`
 containing WebAssembly bytes and its exported entry name.
 
 ```rust
@@ -45,11 +52,15 @@ The step reads EIP from CPU state and fetches the instruction from paged guest
 memory. A successful five-byte contiguous-range check permits direct reads of
 fields within that window; later fields use checked fetch. Otherwise the exact
 path checks the opcode first and reads only required fields, checking bytes in
-order when a dword cannot be read directly. C6/C7 read ModRM and reject an
+order when a word or dword cannot be read directly. C6/C7 read ModRM and reject an
 unsupported extension before fetching any SIB, displacement or immediate. For
 /0, all instruction fields are fetched before any data access is checked.
-Success uses the same MOV semantics, state publication and
-dispatch as snapshot blocks.
+No read requests byte sixteen. A wide field crossing the limit is read byte
+by byte: a missing required byte below the limit faults first. If those bytes
+are available, requiring byte sixteen returns general protection with error code
+zero. Snapshot decoding follows the same byte order but reports truncation
+or `InstructionTooLong` as construction errors. Success uses the same MOV
+semantics, state publication and dispatch as snapshot blocks.
 
 Snapshot decoding reads supplied bytes while compiling; runtime decoding reads
 guest bytes during execution. Both use shared instruction forms for opcode
@@ -60,8 +71,8 @@ checks memory access, and tracks instruction progress. Shared MOV semantics read
 the source and writes the destination through that builder. A fault publishes
 completed register writes into its terminating branch without consuming the
 parent state used by the successful path. One value environment tracks typed
-byte and dword locations, forwarding known definitions and caching reads. Reads
-through overlapping views synchronize earlier definitions to backing. A covering
+byte, word and dword locations, forwarding known definitions and caching reads.
+Reads through overlapping views synchronize earlier definitions to backing. A covering
 write replaces superseded definitions. Computed register accesses synchronize
 overlapping definitions, then invalidate potentially written locations. These
 are completed effects; publication does not undo a partially executed instruction.
@@ -77,8 +88,8 @@ Wasm trap, not a guest page fault.
 A missing instruction page returns the 64-bit word
 `(4 << 48) | (0x10 << 32) | first_unavailable_address`. A data fault returns
 `(4 << 48) | (error << 32) | first_denied_address`, where error bit 1 identifies a
-write and bit 0 identifies a present but denied page. A four-byte data range that
-crosses `0xffffffff` is rejected at its start with read error 0 or write error 2;
+write and bit 0 identifies a present but denied page. A word or dword data range
+that crosses `0xffffffff` is rejected at its start with read error 0 or write error 2;
 this is the current address-space policy. A one-byte access at that address fits
 without consulting another page. Instruction fetch instead wraps.
 All pages are checked before a data store writes any byte, including scattered
@@ -86,10 +97,12 @@ physical backing. A fault publishes earlier completed instructions and leaves EI
 at the faulting instruction; the failed instruction does not retire or dispatch.
 
 An unsupported instruction form returns `(8 << 48) | (opcode << 32) | instruction_eip`.
-The opcode field contains the instruction's first byte. This reports the
-implementation's unsupported subset, not an architectural invalid-opcode fault.
-The step executes one instruction and has no prefix,
-instruction-budget, segment or run-loop behavior.
+The opcode field contains the first byte after any `66` prefixes. This reports
+the implementation's unsupported subset, not an architectural invalid-opcode
+fault. An instruction requiring more than fifteen bytes returns `2 << 48`, the
+zero-error general-protection word, without retiring or dispatching. The step
+executes one instruction and has no instruction-budget, segment or run-loop
+behavior.
 
 `wasm86-compiler` builds scalar WebAssembly functions from integer constants,
 parameters and typed integer expressions. Values such as `Val<I1>` and `Val<I32>` carry

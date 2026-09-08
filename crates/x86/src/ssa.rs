@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Mem, MemoryInt, Val, I32, I8};
+use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Mem, MemoryInt, Val, I16, I32, I8};
 
 #[derive(Clone, Copy)]
 pub(super) struct Location<T: SsaType> {
@@ -59,9 +59,10 @@ impl Span {
     }
 }
 
-/// Values retain their logical type; byte definitions need no mask before a store.
+/// Values retain their logical type; stores discard bits beyond the location width.
 pub(super) enum DefinitionValue {
     Byte(Val<I8>),
+    Word(Val<I16>),
     Dword(Val<I32>),
 }
 
@@ -74,6 +75,7 @@ impl DefinitionValue {
     ) -> Result<(), BuildError> {
         match self {
             Self::Byte(value) => body.store(memory, offset, value),
+            Self::Word(value) => body.store(memory, offset, value),
             Self::Dword(value) => body.store(memory, offset, value),
         }
     }
@@ -102,6 +104,7 @@ macro_rules! ssa_type {
 }
 
 ssa_type!(I8, Byte);
+ssa_type!(I16, Word);
 ssa_type!(I32, Dword);
 
 struct Definition {

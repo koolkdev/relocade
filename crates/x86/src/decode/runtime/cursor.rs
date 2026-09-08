@@ -1,8 +1,12 @@
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32, I8};
+mod read;
+
+use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32, I8};
 
 use crate::{
-    fetch,
-    instruction::{DecodedFields, Encoding, Form, Location, OperandWidth, MOV_DWORD_IMMEDIATE},
+    instruction::{
+        DecodedFields, Encoding, Location, OperandSize, OperandWidth, ResolvedForm,
+        MAX_INSTRUCTION_BYTES, MOV_OPERAND_IMMEDIATE,
+    },
     memory::Memory,
     register::RegisterCode,
 };
@@ -16,6 +20,8 @@ pub(super) struct RuntimeCursor {
     memory: Memory,
     instruction_eip: Val<I32>,
     offset: Val<I32>,
+    maximum_offset: u32,
+    operand_size: OperandSize,
     window: Option<Window>,
 }
 
@@ -44,12 +50,45 @@ impl RuntimeCursor {
             memory,
             instruction_eip: instruction_eip.clone(),
             offset: body.value(consumed)?,
+            maximum_offset: consumed,
+            operand_size: OperandSize::Dword,
             window: physical_start.map(|physical_start| Window {
                 physical_start: physical_start.clone(),
                 consumed,
-                bytes: MOV_DWORD_IMMEDIATE.minimum_length(),
+                bytes: MOV_OPERAND_IMMEDIATE
+                    .resolve(OperandSize::Dword)
+                    .minimum_length(),
             }),
         })
+    }
+
+    /// Resumes after an operand-size prefix, retaining the instruction's total
+    /// byte count rather than starting a new cursor at the opcode.
+    pub(super) fn after_prefix(
+        memory: Memory,
+        instruction_eip: &Val<I32>,
+        consumed: &Val<I32>,
+    ) -> Self {
+        Self {
+            memory,
+            instruction_eip: instruction_eip.clone(),
+            offset: consumed.clone(),
+            maximum_offset: MAX_INSTRUCTION_BYTES,
+            operand_size: OperandSize::Word,
+            window: None,
+        }
+    }
+
+    pub(super) fn operand_size(&self) -> OperandSize {
+        self.operand_size
+    }
+
+    pub(super) fn physical_start(&self) -> Option<&Val<I32>> {
+        self.window.as_ref().map(|window| &window.physical_start)
+    }
+
+    pub(super) fn consumed(&self) -> &Val<I32> {
+        &self.offset
     }
 
     pub(super) fn instruction_eip(&self) -> &Val<I32> {
@@ -60,32 +99,9 @@ impl RuntimeCursor {
         self.instruction_eip.add(&self.offset)
     }
 
-    pub(super) fn byte(&mut self, body: &mut FunctionBuilder<'_>) -> Result<Val<I8>, BuildError> {
-        let value = match &self.window {
-            Some(window) if window.covers(1) => {
-                self.memory
-                    .load(body, &window.physical_start, window.consumed)?
-            }
-            _ => fetch::byte(body, self.memory, &self.next_eip())?,
-        };
-        self.advance(1);
-        Ok(value)
-    }
-
-    pub(super) fn dword(&mut self, body: &mut FunctionBuilder<'_>) -> Result<Val<I32>, BuildError> {
-        let value = match &self.window {
-            Some(window) if window.covers(4) => {
-                self.memory
-                    .load(body, &window.physical_start, window.consumed)?
-            }
-            _ => fetch::dword(body, self.memory, &self.next_eip())?,
-        };
-        self.advance(4);
-        Ok(value)
-    }
-
     fn advance(&mut self, bytes: u32) {
         self.offset = self.offset.add(bytes);
+        self.maximum_offset = self.maximum_offset.saturating_add(bytes);
         if let Some(window) = &mut self.window {
             window.consumed += bytes;
         }
@@ -98,6 +114,7 @@ impl RuntimeCursor {
     ) -> Result<Val<I32>, BuildError> {
         match width {
             OperandWidth::Byte => Ok(self.byte(body)?.unsigned().extend::<I32>()),
+            OperandWidth::Word => Ok(self.read::<I16>(body)?.unsigned().extend::<I32>()),
             OperandWidth::Dword => self.dword(body),
         }
     }
@@ -105,7 +122,7 @@ impl RuntimeCursor {
     pub(super) fn modrm_fields(
         &mut self,
         body: &mut FunctionBuilder<'_>,
-        form: &Form,
+        form: &ResolvedForm,
         modrm: &Val<I8>,
         rm: Location<Val<I32>>,
     ) -> Result<DecodedFields<Val<I32>>, BuildError> {
@@ -138,6 +155,7 @@ impl RuntimeCursor {
             |absent_field_body| absent_field_body.yield_(0),
         )?;
         self.offset = self.offset.add(present.unsigned().extend::<I32>());
+        self.maximum_offset += 1;
         Ok(value)
     }
 
@@ -168,6 +186,7 @@ impl RuntimeCursor {
                 short_displacement_body.yield_(value)
             },
         )?;
+        self.maximum_offset += 4;
         self.offset = self
             .offset
             .add(has_dword_displacement.unsigned().extend::<I32>().shl(2))

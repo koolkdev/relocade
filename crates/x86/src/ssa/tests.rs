@@ -1,13 +1,15 @@
 use super::{Environment, Location, Span};
-use wasm86_compiler::{FunctionBuilder, MemoryImport, Program, Signature, Type, Val, I32, I8};
+use wasm86_compiler::{FunctionBuilder, MemoryImport, Program, Signature, Type, Val, I16, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[derive(Debug, Eq, PartialEq)]
 enum Access {
     Load(u64),
     LoadByte(u64),
+    LoadWord(u64),
     Store(u64, Option<i32>),
     StoreByte(u64, Option<i32>),
+    StoreWord(u64, Option<i32>),
 }
 
 fn accesses(
@@ -41,8 +43,14 @@ fn accesses(
                     Operator::I32Load8U { memarg } => {
                         accesses.push(Access::LoadByte(memarg.offset))
                     }
+                    Operator::I32Load16U { memarg } => {
+                        accesses.push(Access::LoadWord(memarg.offset))
+                    }
                     Operator::I32Store8 { memarg } => {
                         accesses.push(Access::StoreByte(memarg.offset, previous_constant));
+                    }
+                    Operator::I32Store16 { memarg } => {
+                        accesses.push(Access::StoreWord(memarg.offset, previous_constant));
                     }
                     Operator::I32Load { memarg } => accesses.push(Access::Load(memarg.offset)),
                     Operator::I32Store { memarg } => {
@@ -139,18 +147,26 @@ fn partial_accesses_preserve_other_bytes_and_held_values() {
         state
             .define(body, Location::<I32>::new(0), 0x1122_3344)
             .unwrap();
-        let old_high_byte = state.read(body, Location::<I8>::new(1)).unwrap();
+        let old_word = state.read(body, Location::<I16>::new(0)).unwrap();
         state.define(body, Location::<I8>::new(1), 0xaa).unwrap();
+        let patched_word = state.read(body, Location::<I16>::new(0)).unwrap();
+        state.define(body, Location::<I16>::new(0), 0xbbcc).unwrap();
         let current = state.read(body, Location::<I32>::new(0)).unwrap();
         state.publish(body).unwrap();
-        old_high_byte.unsigned().extend::<I32>().add(current)
+        old_word
+            .unsigned()
+            .extend::<I32>()
+            .add(patched_word.unsigned().extend::<I32>())
+            .add(current)
     });
     assert_eq!(
         emitted,
         [
             Access::Store(0, Some(0x1122_3344)),
-            Access::LoadByte(1),
+            Access::LoadWord(0),
             Access::StoreByte(1, Some(0xaa)),
+            Access::LoadWord(0),
+            Access::StoreWord(0, Some(0xbbcc)),
             Access::Load(0),
         ]
     );
@@ -161,18 +177,21 @@ fn covering_definitions_replace_pending_partial_writes() {
     let emitted = accesses(|body, state| {
         state.define(body, Location::<I8>::new(0), 0x11).unwrap();
         state.define(body, Location::<I8>::new(1), 0x22).unwrap();
+        state.define(body, Location::<I16>::new(0), 0x3344).unwrap();
         state
-            .define(body, Location::<I32>::new(0), 0x3344_5566)
+            .define(body, Location::<I32>::new(0), 0x5566_7788)
             .unwrap();
-        state.define(body, Location::<I8>::new(8), 0x77).unwrap();
+        state.define(body, Location::<I16>::new(8), 0x99aa).unwrap();
+        state.define(body, Location::<I8>::new(10), 0xbb).unwrap();
         state.publish(body).unwrap();
         body.parameter::<I32>(0).unwrap()
     });
     assert_eq!(
         emitted,
         [
-            Access::Store(0, Some(0x3344_5566)),
-            Access::StoreByte(8, Some(0x77)),
+            Access::Store(0, Some(0x5566_7788)),
+            Access::StoreWord(8, Some(0x99aa)),
+            Access::StoreByte(10, Some(0xbb)),
         ]
     );
 }

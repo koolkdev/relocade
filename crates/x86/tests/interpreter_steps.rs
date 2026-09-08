@@ -626,7 +626,7 @@ fn check_execution(flags: &[&str]) {
         &[],
         Outcome::Exit(0x0004_0010_0000_2000),
     );
-    for (opcode, exit) in [(0x90, 0x0008_0090_0000_1fff), (0x66, 0x0008_0066_0000_1fff)] {
+    for (opcode, exit) in [(0x90, 0x0008_0090_0000_1fff), (0x67, 0x0008_0067_0000_1fff)] {
         let unsupported = Image {
             label: "unsupported opcode at page end",
             cpu: state(0x1fff),

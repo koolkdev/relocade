@@ -1,8 +1,9 @@
 use crate::{
     address::{Address32, IndexTerm, RegisterTerm},
     instruction::{
-        DecodedFields, DecodedInstruction, Encoding, Form, Location, OperandWidth,
-        ACCUMULATOR_OFFSET_FORMS, MODRM_FORMS, OPCODE_REGISTER_IMMEDIATE_FORMS,
+        DecodedFields, DecodedInstruction, Encoding, Location, OperandSize, OperandWidth,
+        ResolvedForm, ACCUMULATOR_OFFSET_FORMS, MAX_INSTRUCTION_BYTES, MODRM_FORMS,
+        OPCODE_REGISTER_IMMEDIATE_FORMS, OPERAND_SIZE_PREFIX,
     },
     register::{Gpr32, RegisterCode},
     BlockError,
@@ -12,11 +13,19 @@ pub(crate) fn snapshot(
     bytes: &[u8],
     instruction_eip: u32,
 ) -> Result<(DecodedInstruction<u32, u32>, &[u8]), BlockError> {
-    let Some(&opcode) = bytes.first() else {
-        return Err(BlockError::TruncatedInstruction {
-            address: instruction_eip,
-            available: 0,
-        });
+    let mut cursor = SnapshotCursor {
+        bytes,
+        instruction_eip,
+        offset: 0,
+    };
+    let mut operand_size = OperandSize::Dword;
+    let opcode = loop {
+        let byte = cursor.byte()?;
+        if byte != OPERAND_SIZE_PREFIX {
+            break byte;
+        }
+        // Repeating the override preserves the selected size; it does not toggle it.
+        operand_size = OperandSize::Word;
     };
     let form = OPCODE_REGISTER_IMMEDIATE_FORMS
         .iter()
@@ -26,29 +35,25 @@ pub(crate) fn snapshot(
         .ok_or(BlockError::UnsupportedInstruction {
             address: instruction_eip,
             opcode,
-        })?;
-    let mut cursor = SnapshotCursor {
-        bytes,
-        instruction_eip,
-        offset: Encoding::OPCODE_BYTES as usize,
-    };
+        })?
+        .resolve(operand_size);
     let fields = match form.encoding {
         Encoding::OpcodeRegisterImmediate => DecodedFields::OpcodeRegisterImmediate {
             register: RegisterCode::from_code(opcode),
-            immediate: cursor.immediate(form.width)?,
+            immediate: cursor.integer(form.width)?,
         },
         Encoding::RegisterRm { .. } | Encoding::RmImmediate { .. } => {
             let modrm = cursor.byte()?;
-            if !form.matches_modrm(modrm) {
+            if !form.encoding.matches_modrm(modrm) {
                 return Err(BlockError::UnsupportedInstruction {
                     address: instruction_eip,
                     opcode,
                 });
             }
-            cursor.modrm_fields(form, modrm)?
+            cursor.modrm_fields(&form, modrm)?
         }
         Encoding::AccumulatorOffset { .. } => DecodedFields::AccumulatorOffset {
-            offset: cursor.dword()?,
+            offset: cursor.integer(OperandWidth::Dword)?,
         },
     };
     let next_eip = instruction_eip.wrapping_add(cursor.offset as u32);
@@ -66,6 +71,11 @@ struct SnapshotCursor<'a> {
 
 impl SnapshotCursor<'_> {
     fn byte(&mut self) -> Result<u8, BlockError> {
+        if self.offset >= MAX_INSTRUCTION_BYTES as usize {
+            return Err(BlockError::InstructionTooLong {
+                address: self.instruction_eip,
+            });
+        }
         let value = *self
             .bytes
             .get(self.offset)
@@ -77,25 +87,21 @@ impl SnapshotCursor<'_> {
         Ok(value)
     }
 
-    fn dword(&mut self) -> Result<u32, BlockError> {
-        let bytes = self.bytes.get(self.offset..self.offset + 4).ok_or(
-            BlockError::TruncatedInstruction {
-                address: self.instruction_eip,
-                available: self.bytes.len(),
-            },
-        )?;
-        self.offset += 4;
-        Ok(u32::from_le_bytes(bytes.try_into().unwrap()))
-    }
-
-    fn immediate(&mut self, width: OperandWidth) -> Result<u32, BlockError> {
-        match width {
-            OperandWidth::Byte => self.byte().map(u32::from),
-            OperandWidth::Dword => self.dword(),
+    fn integer(&mut self, width: OperandWidth) -> Result<u32, BlockError> {
+        // Consume required bytes in order: missing bytes before the length limit
+        // report truncation, while byte sixteen is never requested.
+        let mut bits = 0;
+        for offset in 0..width.bytes() {
+            bits |= u32::from(self.byte()?) << (offset * 8);
         }
+        Ok(bits)
     }
 
-    fn modrm_fields(&mut self, form: &Form, modrm: u8) -> Result<DecodedFields<u32>, BlockError> {
+    fn modrm_fields(
+        &mut self,
+        form: &ResolvedForm,
+        modrm: u8,
+    ) -> Result<DecodedFields<u32>, BlockError> {
         let rm = if modrm >> 6 == 3 {
             Location::Register(RegisterCode::from_code(modrm))
         } else {
@@ -108,7 +114,7 @@ impl SnapshotCursor<'_> {
             },
             Encoding::RmImmediate { .. } => DecodedFields::RmImmediate {
                 rm,
-                immediate: self.immediate(form.width)?,
+                immediate: self.integer(form.width)?,
             },
             _ => unreachable!("the selected form has a ModRM field"),
         })
@@ -133,7 +139,7 @@ impl SnapshotCursor<'_> {
         };
         let no_base = mode == 0 && base == 5;
         let displacement = if mode == 2 || no_base {
-            self.dword()?
+            self.integer(OperandWidth::Dword)?
         } else if mode == 1 {
             self.byte()? as i8 as i32 as u32
         } else {

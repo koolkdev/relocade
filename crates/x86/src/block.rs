@@ -6,10 +6,11 @@ use crate::{
 };
 
 /// Compiles exactly `instruction_limit` instructions starting at `start_eip`.
-/// Supports the unprefixed byte and dword MOV forms described in the
+/// Supports the byte, word and dword MOV forms described in the
 /// [crate documentation](crate). ModRM/SIB addressing and absolute offsets are
-/// 32-bit. Bytes after the requested instructions are ignored.
-/// Missing or unsupported selected bytes are construction errors. This byte-only
+/// 32-bit. The `66` operand-size prefix selects word operands. Bytes after the
+/// requested instructions are ignored.
+/// Incomplete, unsupported or overlong instructions are construction errors. This byte-only
 /// input carries no guest-fault information.
 /// EIP and the completed-instruction count advance with 32-bit wrapping arithmetic.
 ///
@@ -17,7 +18,7 @@ use crate::{
 /// imports `wasm86.cpuState`, a memory of at least one 64-KiB page. Its little-endian
 /// 32-bit fields are EAX, ECX, EDX, EBX, ESP, EBP, ESI and EDI at offsets 24 through
 /// 52 in steps of four, EIP at 56 and the completed-instruction count at 144.
-/// Byte register writes preserve the other bytes of their parent register.
+/// Byte and word register writes preserve the remaining bits of their parent register.
 /// Overlapping views synchronize through CPU backing when required; final dirty
 /// views are written in first-write order, followed by EIP and count. The block
 /// then tail-calls the imported `wasm86.dispatch(i32) -> i64` with the next EIP

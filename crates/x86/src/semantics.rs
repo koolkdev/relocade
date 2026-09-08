@@ -1,4 +1,4 @@
-use wasm86_compiler::{AtLeast, BuildError, IntoOp, I32, I8};
+use wasm86_compiler::{AtLeast, BuildError, IntoOp, I16, I32, I8};
 
 use crate::{
     execution::ExecutionBuilder,
@@ -11,12 +11,13 @@ pub(super) fn lower(
     instruction: Instruction<impl IntoOp<I32>>,
 ) -> Result<(), BuildError> {
     match instruction.width {
-        OperandWidth::Byte => lower_integer::<I8>(execution, instruction),
-        OperandWidth::Dword => lower_integer::<I32>(execution, instruction),
+        OperandWidth::Byte => lower_typed_instruction::<I8>(execution, instruction),
+        OperandWidth::Word => lower_typed_instruction::<I16>(execution, instruction),
+        OperandWidth::Dword => lower_typed_instruction::<I32>(execution, instruction),
     }
 }
 
-fn lower_integer<T: RegisterType>(
+fn lower_typed_instruction<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_>,
     instruction: Instruction<impl IntoOp<I32>>,
 ) -> Result<(), BuildError>
