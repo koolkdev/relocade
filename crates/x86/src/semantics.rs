@@ -1,21 +1,32 @@
-use wasm86_compiler::{BuildError, IntoOp, I32};
+use wasm86_compiler::{AtLeast, BuildError, IntoOp, I32, I8};
 
 use crate::{
     execution::ExecutionBuilder,
-    instruction::{Instruction, Operand32, Semantic},
+    instruction::{Instruction, OperandWidth, Semantic},
+    register::RegisterType,
 };
 
-pub(super) fn lower<V: IntoOp<I32>>(
+pub(super) fn lower(
     execution: &mut ExecutionBuilder<'_>,
-    instruction: Instruction<V>,
+    instruction: Instruction<impl IntoOp<I32>>,
 ) -> Result<(), BuildError> {
+    match instruction.width {
+        OperandWidth::Byte => lower_integer::<I8>(execution, instruction),
+        OperandWidth::Dword => lower_integer::<I32>(execution, instruction),
+    }
+}
+
+fn lower_integer<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_>,
+    instruction: Instruction<impl IntoOp<I32>>,
+) -> Result<(), BuildError>
+where
+    I32: AtLeast<T>,
+{
     match instruction.semantic {
-        Semantic::Mov32 => match instruction.source {
-            Operand32::Immediate(value) => execution.write(instruction.destination, value),
-            Operand32::Location(source) => {
-                let value = execution.read(source)?;
-                execution.write(instruction.destination, value)
-            }
-        },
+        Semantic::Mov => {
+            let value = execution.read::<T>(instruction.source)?;
+            execution.write::<T>(instruction.destination, value)
+        }
     }
 }

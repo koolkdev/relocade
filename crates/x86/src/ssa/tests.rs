@@ -1,11 +1,13 @@
 use super::{Environment, Location, Span};
-use wasm86_compiler::{FunctionBuilder, MemoryImport, Program, Signature, Type, Val, I32};
+use wasm86_compiler::{FunctionBuilder, MemoryImport, Program, Signature, Type, Val, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[derive(Debug, Eq, PartialEq)]
 enum Access {
     Load(u64),
+    LoadByte(u64),
     Store(u64, Option<i32>),
+    StoreByte(u64, Option<i32>),
 }
 
 fn accesses(
@@ -36,6 +38,12 @@ fn accesses(
             for operation in code.get_operators_reader().unwrap() {
                 let operation = operation.unwrap();
                 match operation {
+                    Operator::I32Load8U { memarg } => {
+                        accesses.push(Access::LoadByte(memarg.offset))
+                    }
+                    Operator::I32Store8 { memarg } => {
+                        accesses.push(Access::StoreByte(memarg.offset, previous_constant));
+                    }
                     Operator::I32Load { memarg } => accesses.push(Access::Load(memarg.offset)),
                     Operator::I32Store { memarg } => {
                         accesses.push(Access::Store(memarg.offset, previous_constant));
@@ -55,10 +63,10 @@ fn accesses(
 #[test]
 fn repeated_reads_reuse_the_old_value_after_a_new_definition() {
     let emitted = accesses(|body, state| {
-        let first = state.read(body, Location(0)).unwrap();
-        let second = state.read(body, Location(0)).unwrap();
-        state.define(body, Location(0), 9).unwrap();
-        let current = state.read(body, Location(0)).unwrap();
+        let first = state.read(body, Location::<I32>::new(0)).unwrap();
+        let second = state.read(body, Location::<I32>::new(0)).unwrap();
+        state.define(body, Location::<I32>::new(0), 9).unwrap();
+        let current = state.read(body, Location::<I32>::new(0)).unwrap();
         state.publish(body).unwrap();
         first.add(second).add(current)
     });
@@ -68,8 +76,8 @@ fn repeated_reads_reuse_the_old_value_after_a_new_definition() {
 #[test]
 fn defining_the_value_already_in_backing_needs_no_store() {
     let emitted = accesses(|body, state| {
-        let value = state.read(body, Location(0)).unwrap();
-        state.define(body, Location(0), &value).unwrap();
+        let value = state.read(body, Location::<I32>::new(0)).unwrap();
+        state.define(body, Location::<I32>::new(0), &value).unwrap();
         state.publish(body).unwrap();
         value
     });
@@ -79,10 +87,10 @@ fn defining_the_value_already_in_backing_needs_no_store() {
 #[test]
 fn first_writes_order_publication_independently_of_reads_and_overwrites() {
     let emitted = accesses(|body, state| {
-        let old = state.read(body, Location(8)).unwrap();
-        state.define(body, Location(0), 7).unwrap();
-        state.define(body, Location(8), 9).unwrap();
-        state.define(body, Location(0), 11).unwrap();
+        let old = state.read(body, Location::<I32>::new(8)).unwrap();
+        state.define(body, Location::<I32>::new(0), 7).unwrap();
+        state.define(body, Location::<I32>::new(8), 9).unwrap();
+        state.define(body, Location::<I32>::new(0), 11).unwrap();
         state.publish(body).unwrap();
         old
     });
@@ -100,14 +108,16 @@ fn first_writes_order_publication_independently_of_reads_and_overwrites() {
 fn computed_accesses_synchronize_and_invalidate_only_their_declared_range() {
     let emitted = accesses(|body, state| {
         let address = body.parameter::<I32>(0).unwrap().and(1).shl(2);
-        state.define(body, Location(0), 7).unwrap();
-        state.define(body, Location(8), 9).unwrap();
-        let before = state.read_at(body, Span::new(0, 8), &address, 0).unwrap();
-        state
-            .write_at(body, Span::new(0, 8), &address, 0, 11)
+        state.define(body, Location::<I32>::new(0), 7).unwrap();
+        state.define(body, Location::<I32>::new(8), 9).unwrap();
+        let before = state
+            .read_at::<I32>(body, Span::new(0, 8), &address, 0)
             .unwrap();
-        let after = state.read(body, Location(0)).unwrap();
-        let disjoint = state.read(body, Location(8)).unwrap();
+        state
+            .write_at::<I32>(body, Span::new(0, 8), &address, 0, 11)
+            .unwrap();
+        let after = state.read(body, Location::<I32>::new(0)).unwrap();
+        let disjoint = state.read(body, Location::<I32>::new(8)).unwrap();
         state.publish(body).unwrap();
         before.add(after).add(disjoint)
     });
@@ -119,6 +129,50 @@ fn computed_accesses_synchronize_and_invalidate_only_their_declared_range() {
             Access::Store(0, Some(11)),
             Access::Store(8, Some(9)),
             Access::Load(0),
+        ]
+    );
+}
+
+#[test]
+fn partial_accesses_preserve_other_bytes_and_held_values() {
+    let emitted = accesses(|body, state| {
+        state
+            .define(body, Location::<I32>::new(0), 0x1122_3344)
+            .unwrap();
+        let old_high_byte = state.read(body, Location::<I8>::new(1)).unwrap();
+        state.define(body, Location::<I8>::new(1), 0xaa).unwrap();
+        let current = state.read(body, Location::<I32>::new(0)).unwrap();
+        state.publish(body).unwrap();
+        old_high_byte.unsigned().extend::<I32>().add(current)
+    });
+    assert_eq!(
+        emitted,
+        [
+            Access::Store(0, Some(0x1122_3344)),
+            Access::LoadByte(1),
+            Access::StoreByte(1, Some(0xaa)),
+            Access::Load(0),
+        ]
+    );
+}
+
+#[test]
+fn covering_definitions_replace_pending_partial_writes() {
+    let emitted = accesses(|body, state| {
+        state.define(body, Location::<I8>::new(0), 0x11).unwrap();
+        state.define(body, Location::<I8>::new(1), 0x22).unwrap();
+        state
+            .define(body, Location::<I32>::new(0), 0x3344_5566)
+            .unwrap();
+        state.define(body, Location::<I8>::new(8), 0x77).unwrap();
+        state.publish(body).unwrap();
+        body.parameter::<I32>(0).unwrap()
+    });
+    assert_eq!(
+        emitted,
+        [
+            Access::Store(0, Some(0x3344_5566)),
+            Access::StoreByte(8, Some(0x77)),
         ]
     );
 }

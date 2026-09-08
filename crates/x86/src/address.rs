@@ -3,10 +3,10 @@
 
 use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Val, I1, I32};
 
-use crate::{register::Register32, state::State};
+use crate::{register::Register, state::State};
 
 pub(super) struct RegisterTerm {
-    pub(super) register: Register32,
+    pub(super) register: Register<I32>,
     pub(super) present: Option<Val<I1>>,
 }
 

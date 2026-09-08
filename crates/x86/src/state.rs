@@ -3,7 +3,7 @@ pub(super) mod exit;
 use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Mem, MemoryImport, Program, Val, I32};
 
 use crate::{
-    register::{Gpr32, Register32},
+    register::{Gpr32, Register, RegisterSelection, RegisterType},
     ssa::{Environment, Location, Span},
 };
 
@@ -17,6 +17,14 @@ fn register_offset(register: Gpr32) -> u32 {
         Gpr32::Ebp => 44,
         Gpr32::Esi => 48,
         Gpr32::Edi => 52,
+    }
+}
+
+fn indexed_offset(slot: Val<I32>, byte: Option<Val<I32>>) -> Val<I32> {
+    let offset = slot.shl(2);
+    match byte {
+        Some(byte) => offset.add(byte),
+        None => offset,
     }
 }
 
@@ -52,36 +60,43 @@ impl State {
         }
     }
 
-    pub(super) fn read_register(
+    pub(super) fn read_register<T: RegisterType>(
         &mut self,
         body: &mut FunctionBuilder<'_>,
-        register: impl Into<Register32>,
-    ) -> Result<Val<I32>, BuildError> {
-        match register.into() {
-            Register32::Named(register) => {
-                self.values.read(body, Location(register_offset(register)))
-            }
-            Register32::Indexed(index) => {
+        register: impl Into<Register<T>>,
+    ) -> Result<Val<T>, BuildError> {
+        match register.into().selection {
+            RegisterSelection::Named { parent, byte } => self
+                .values
+                .read(body, Location::new(register_offset(parent) + byte)),
+            RegisterSelection::Indexed { slot, byte } => {
+                let offset = indexed_offset(slot, byte);
                 self.values
-                    .read_at(body, Span::new(24, 32), index.shl(2), 24)
+                    .read_at(body, Span::new(24, T::BACKING_SLOT_COUNT * 4), offset, 24)
             }
         }
     }
 
-    pub(super) fn write_register(
+    pub(super) fn write_register<T: RegisterType>(
         &mut self,
         body: &mut FunctionBuilder<'_>,
-        register: impl Into<Register32>,
-        value: impl IntoOp<I32>,
+        register: impl Into<Register<T>>,
+        value: impl IntoOp<T>,
     ) -> Result<(), BuildError> {
-        match register.into() {
-            Register32::Named(register) => {
+        match register.into().selection {
+            RegisterSelection::Named { parent, byte } => {
                 self.values
-                    .define(body, Location(register_offset(register)), value)
+                    .define(body, Location::new(register_offset(parent) + byte), value)
             }
-            Register32::Indexed(index) => {
-                self.values
-                    .write_at(body, Span::new(24, 32), index.shl(2), 24, value)
+            RegisterSelection::Indexed { slot, byte } => {
+                let offset = indexed_offset(slot, byte);
+                self.values.write_at(
+                    body,
+                    Span::new(24, T::BACKING_SLOT_COUNT * 4),
+                    offset,
+                    24,
+                    value,
+                )
             }
         }
     }

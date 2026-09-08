@@ -6,8 +6,9 @@ use crate::{
 };
 
 /// Compiles exactly `instruction_limit` instructions starting at `start_eip`.
-/// Supports unprefixed MOV imm32 to a register and register/memory MOV (`89`/`8B`)
-/// with 32-bit ModRM/SIB addressing. Bytes after the selection are ignored.
+/// Supports unprefixed byte MOV (`B0`–`B7`, `88`, `8A`) and dword MOV
+/// (`B8`–`BF`, `89`, `8B`), with 32-bit ModRM/SIB addressing. Bytes after the
+/// requested instructions are ignored.
 /// Missing or unsupported selected bytes are construction errors. This byte-only
 /// input carries no guest-fault information.
 /// EIP and the completed-instruction count advance with 32-bit wrapping arithmetic.
@@ -16,9 +17,11 @@ use crate::{
 /// imports `wasm86.cpuState`, a memory of at least one 64-KiB page. Its little-endian
 /// 32-bit fields are EAX, ECX, EDX, EBX, ESP, EBP, ESI and EDI at offsets 24 through
 /// 52 in steps of four, EIP at 56 and the completed-instruction count at 144.
-/// Other bytes are preserved. Final register values are written in first-write
-/// order, followed by EIP and count. The block then tail-calls the imported
-/// `wasm86.dispatch(i32) -> i64` with the next EIP and returns its result.
+/// Byte register writes preserve the other bytes of their parent register.
+/// Overlapping views synchronize through CPU backing when required; final dirty
+/// views are written in first-write order, followed by EIP and count. The block
+/// then tail-calls the imported `wasm86.dispatch(i32) -> i64` with the next EIP
+/// and returns its result.
 ///
 /// Blocks with data-memory operands also import guest RAM and the page table,
 /// using the layout and fault words documented by [`crate::compile_interpreter_step`].

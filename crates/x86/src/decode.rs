@@ -6,10 +6,11 @@ use crate::{
     address::{Address32, IndexTerm, RegisterTerm},
     fetch,
     instruction::{
-        DecodedInstruction, Encoding, Location32, Operand32, MODRM_FORMS, MOV_IMMEDIATE,
+        DecodedInstruction, Encoding, Form, Location, Operand, OperandWidth, IMMEDIATE_FORMS,
+        MODRM_FORMS, MOV_BYTE_IMMEDIATE, MOV_DWORD_IMMEDIATE,
     },
     memory::{DirectRange, Intent, Memory},
-    register::{Gpr32, Register32},
+    register::{Gpr32, Register, RegisterCode},
     state::exit,
     BlockError,
 };
@@ -24,7 +25,8 @@ pub(super) fn snapshot(
             available: 0,
         });
     };
-    let form = std::iter::once(&MOV_IMMEDIATE)
+    let form = IMMEDIATE_FORMS
+        .iter()
         .chain(MODRM_FORMS.iter())
         .find(|form| form.matches(opcode))
         .ok_or(BlockError::UnsupportedOpcode {
@@ -37,19 +39,19 @@ pub(super) fn snapshot(
         offset: form.encoding.operand_offset() as usize,
     };
     let (register, operand) = match form.encoding {
-        Encoding::OpcodeRegisterImmediate32 => (
-            Gpr32::from_code(opcode).into(),
-            Operand32::Immediate(cursor.dword()?),
+        Encoding::OpcodeRegisterImmediate => (
+            RegisterCode::from_code(opcode),
+            Operand::Immediate(cursor.immediate(form.width)?),
         ),
-        Encoding::ModRm32 => {
+        Encoding::ModRm => {
             let modrm = cursor.byte()?;
-            let register = Gpr32::from_code(modrm >> 3).into();
+            let register = RegisterCode::from_code(modrm >> 3);
             let operand = if modrm >> 6 == 3 {
-                Location32::Register(Gpr32::from_code(modrm).into())
+                Location::Register(RegisterCode::from_code(modrm))
             } else {
-                Location32::Memory(cursor.decode_address(modrm)?)
+                Location::Memory(cursor.decode_address(modrm)?)
             };
-            (register, Operand32::Location(operand))
+            (register, Operand::Location(operand))
         }
     };
     let next_eip = instruction_eip.wrapping_add(cursor.offset as u32);
@@ -87,6 +89,13 @@ impl SnapshotCursor<'_> {
         )?;
         self.offset += 4;
         Ok(u32::from_le_bytes(bytes.try_into().unwrap()))
+    }
+
+    fn immediate(&mut self, width: OperandWidth) -> Result<u32, BlockError> {
+        match width {
+            OperandWidth::Byte => self.byte().map(u32::from),
+            OperandWidth::Dword => self.dword(),
+        }
     }
 
     fn decode_address(&mut self, modrm: u8) -> Result<Address32<u32>, BlockError> {
@@ -178,7 +187,7 @@ where
             memory,
             &instruction_eip,
             None,
-            Encoding::ModRm32.minimum_length(),
+            Encoding::ModRm.operand_offset() + 1,
         )?;
         decoder.decode_memory(body, cursor, &opcode, &modrm)?;
 
@@ -190,7 +199,7 @@ where
             memory,
             &instruction_eip,
             None,
-            Encoding::ModRm32.operand_offset(),
+            Encoding::ModRm.operand_offset(),
         )?;
         decoder.decode_modrm(body, cursor, &opcode)?;
 
@@ -203,7 +212,7 @@ where
             memory,
             &instruction_eip,
             Some(&physical_start),
-            Encoding::ModRm32.operand_offset(),
+            Encoding::ModRm.operand_offset(),
         )?;
         decoder.decode_modrm(body, cursor, &opcode)?;
         Ok(decoder)
@@ -216,7 +225,7 @@ where
     ) -> Result<DirectRange, BuildError> {
         // A memory operand handler checks any SIB/displacement suffix separately;
         // extending this common proof would burden shorter instruction forms.
-        let bytes = MOV_IMMEDIATE.encoding.minimum_length();
+        let bytes = MOV_DWORD_IMMEDIATE.minimum_length();
         self.memory
             .check_direct_access(body, instruction_eip, bytes, Intent::Fetch)
     }
@@ -232,35 +241,46 @@ where
         let mut cursor =
             RuntimeCursor::new(&body, self.memory, instruction_eip, physical_start, 0)?;
         let opcode = cursor.byte(&mut body)?;
-        body.if_(
-            MOV_IMMEDIATE.matches_value(&opcode).eq(0),
-            |mut modrm_dispatch_body| {
-                for form in &MODRM_FORMS {
-                    modrm_dispatch_body.if_(form.matches_value(&opcode), |form_body| {
-                        match physical_start {
-                            Some(physical_start) => form_body.tail_call(
-                                self.direct_modrm_handler,
-                                &[
-                                    instruction_eip.into(),
-                                    (&opcode).into(),
-                                    physical_start.into(),
-                                ],
-                            ),
-                            None => form_body.tail_call(
-                                self.checked_modrm_handler,
-                                &[instruction_eip.into(), (&opcode).into()],
-                            ),
-                        }
-                    })?;
-                }
-                modrm_dispatch_body.return_(exit::unsupported(instruction_eip, &opcode))
-            },
-        )?;
-        let immediate = cursor.dword(&mut body)?;
-        let register = Register32::indexed(opcode.unsigned().extend::<I32>());
-        let decoded_instruction = MOV_IMMEDIATE.bind(
+        body.if_(MOV_DWORD_IMMEDIATE.matches_value(&opcode), |form_body| {
+            self.decode_immediate(form_body, cursor.clone(), &opcode, &MOV_DWORD_IMMEDIATE)
+        })?;
+        for form in &MODRM_FORMS {
+            body.if_(
+                form.matches_value(&opcode),
+                |form_body| match physical_start {
+                    Some(physical_start) => form_body.tail_call(
+                        self.direct_modrm_handler,
+                        &[
+                            instruction_eip.into(),
+                            (&opcode).into(),
+                            physical_start.into(),
+                        ],
+                    ),
+                    None => form_body.tail_call(
+                        self.checked_modrm_handler,
+                        &[instruction_eip.into(), (&opcode).into()],
+                    ),
+                },
+            )?;
+        }
+        body.if_(MOV_BYTE_IMMEDIATE.matches_value(&opcode), |form_body| {
+            self.decode_immediate(form_body, cursor, &opcode, &MOV_BYTE_IMMEDIATE)
+        })?;
+        body.return_(exit::unsupported(instruction_eip, &opcode))
+    }
+
+    fn decode_immediate(
+        &self,
+        mut body: FunctionBuilder<'_>,
+        mut cursor: RuntimeCursor,
+        opcode: &Val<I8>,
+        form: &Form,
+    ) -> Result<(), BuildError> {
+        let bits = cursor.immediate(&mut body, form.width)?;
+        let register = RegisterCode::indexed(opcode.unsigned().extend::<I32>());
+        let decoded_instruction = form.bind(
             register,
-            Operand32::Immediate(immediate),
+            Operand::Immediate(bits),
             cursor.instruction_eip.clone(),
             cursor.next_eip(),
         );
@@ -292,8 +312,8 @@ where
         for form in &MODRM_FORMS {
             body.if_(form.matches_value(opcode), |form_body| {
                 let decoded_instruction = form.bind(
-                    Register32::indexed(register.clone()),
-                    Operand32::Location(Location32::Register(Register32::indexed(rm.clone()))),
+                    RegisterCode::indexed(register.clone()),
+                    Operand::Location(Location::Register(RegisterCode::indexed(rm.clone()))),
                     cursor.instruction_eip.clone(),
                     next_eip.clone(),
                 );
@@ -321,12 +341,12 @@ where
             body.if_(form.matches_value(opcode), |form_body| {
                 let address = Address32 {
                     base: Some(RegisterTerm {
-                        register: Register32::indexed(base.clone()),
+                        register: Register::<I32>::indexed(base.clone()),
                         present: Some(no_base.eq(0)),
                     }),
                     index: Some(IndexTerm {
                         register: RegisterTerm {
-                            register: Register32::indexed(
+                            register: Register::<I32>::indexed(
                                 sib.unsigned().shr(3).unsigned().extend::<I32>(),
                             ),
                             present: Some(has_sib.and(sib.unsigned().shr(3).and(7).ne(4))),
@@ -336,10 +356,10 @@ where
                     displacement: displacement.clone(),
                 };
                 let register =
-                    Register32::indexed(modrm.unsigned().shr(3).unsigned().extend::<I32>());
+                    RegisterCode::indexed(modrm.unsigned().shr(3).unsigned().extend::<I32>());
                 let decoded_instruction = form.bind(
                     register,
-                    Operand32::Location(Location32::Memory(address)),
+                    Operand::Location(Location::Memory(address)),
                     cursor.instruction_eip.clone(),
                     cursor.next_eip(),
                 );
@@ -390,7 +410,7 @@ impl RuntimeCursor {
             window: physical_start.map(|physical_start| Window {
                 physical_start: physical_start.clone(),
                 consumed,
-                bytes: MOV_IMMEDIATE.encoding.minimum_length(),
+                bytes: MOV_DWORD_IMMEDIATE.minimum_length(),
             }),
         })
     }
@@ -427,6 +447,17 @@ impl RuntimeCursor {
         self.offset = self.offset.add(bytes);
         if let Some(window) = &mut self.window {
             window.consumed += bytes;
+        }
+    }
+
+    fn immediate(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        width: OperandWidth,
+    ) -> Result<Val<I32>, BuildError> {
+        match width {
+            OperandWidth::Byte => Ok(self.byte(body)?.unsigned().extend::<I32>()),
+            OperandWidth::Dword => self.dword(body),
         }
     }
 

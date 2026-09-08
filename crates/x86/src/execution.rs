@@ -1,9 +1,10 @@
-use wasm86_compiler::{BuildError, Func, FunctionBuilder, IntoOp, Mem, Val, I32};
+use wasm86_compiler::{AtLeast, BuildError, Func, FunctionBuilder, IntoOp, Mem, Val, I32};
 
 use crate::{
     address,
-    instruction::{DecodedInstruction, Location32},
+    instruction::{DecodedInstruction, Location, Operand},
     memory::{Access, Intent, Memory},
+    register::RegisterType,
     semantics,
     state::{exit, State},
 };
@@ -50,47 +51,54 @@ impl<'a> ExecutionBuilder<'a> {
         Ok(())
     }
 
-    pub(super) fn read<V: IntoOp<I32>>(
+    pub(super) fn read<T: RegisterType>(
         &mut self,
-        location: Location32<V>,
-    ) -> Result<Val<I32>, BuildError> {
-        match location {
-            Location32::Register(register) => self.state.read_register(&mut self.body, register),
-            Location32::Memory(address) => {
+        operand: Operand<impl IntoOp<I32>>,
+    ) -> Result<Val<T>, BuildError>
+    where
+        I32: AtLeast<T>,
+    {
+        match operand {
+            Operand::Immediate(bits) => Ok(self.body.value::<I32>(bits)?.truncate::<T>()),
+            Operand::Location(Location::Register(code)) => {
+                self.state.read_register(&mut self.body, code.view::<T>())
+            }
+            Operand::Location(Location::Memory(address)) => {
                 let address = address::resolve(&mut self.body, &mut self.state, address)?;
                 let memory = self.memory.expect("a memory operand declares guest memory");
-                let access = self.checked(memory, &address, Intent::Read)?;
+                let access = self.checked::<T>(memory, &address, Intent::Read)?;
                 memory.read(&mut self.body, &access)
             }
         }
     }
 
-    pub(super) fn write<V: IntoOp<I32>>(
+    pub(super) fn write<T: RegisterType>(
         &mut self,
-        location: Location32<V>,
-        value: impl IntoOp<I32>,
+        location: Location<impl IntoOp<I32>>,
+        value: impl IntoOp<T>,
     ) -> Result<(), BuildError> {
         match location {
-            Location32::Register(register) => {
-                self.state.write_register(&mut self.body, register, value)
+            Location::Register(code) => {
+                self.state
+                    .write_register(&mut self.body, code.view::<T>(), value)
             }
-            Location32::Memory(address) => {
+            Location::Memory(address) => {
                 let address = address::resolve(&mut self.body, &mut self.state, address)?;
                 let memory = self.memory.expect("a memory operand declares guest memory");
-                let access = self.checked(memory, &address, Intent::Write)?;
+                let access = self.checked::<T>(memory, &address, Intent::Write)?;
                 let value = self.body.value(value)?;
                 memory.write(&mut self.body, &access, &value)
             }
         }
     }
 
-    fn checked(
+    fn checked<T: RegisterType>(
         &mut self,
         memory: Memory,
         address: &Val<I32>,
         intent: Intent,
-    ) -> Result<Access<I32>, BuildError> {
-        let access = memory.resolve_access::<I32>(&mut self.body, address, intent)?;
+    ) -> Result<Access<T>, BuildError> {
+        let access = memory.resolve_access::<T>(&mut self.body, address, intent)?;
         self.body.if_(&access.fault.condition, |mut arm| {
             self.state.publish(&mut arm, &self.eip, self.completed)?;
             arm.return_(exit::page_fault(&access.fault.address, &access.fault.error))

@@ -230,7 +230,7 @@ fn runtime_decoding_keeps_the_wide_immediate_fast_path() {
                         Operator::I32Load8U { memarg } if memarg.memory == 1 => {
                             code.guest_loads.push((memarg.offset, 8))
                         }
-                        Operator::I32Store { memarg } => {
+                        Operator::I32Store { memarg } | Operator::I32Store8 { memarg } => {
                             code.stores.push((memarg.memory, memarg.offset))
                         }
                         Operator::ReturnCall { function_index } => code.tails.push(function_index),

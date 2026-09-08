@@ -2,7 +2,7 @@
 
 Rust components for x86 execution in WebAssembly.
 
-`wasm86-x86` compiles 32-bit MOV blocks from byte snapshots:
+`wasm86-x86` compiles byte and dword MOV blocks from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
@@ -13,17 +13,19 @@ are construction errors; bytes after the selection are ignored. The returned
 module exports `block_1000` and imports `wasm86.cpuState` memory (minimum one
 64-KiB page) and `wasm86.dispatch(i32) -> i64`. CPU state uses little-endian 32-bit
 fields: EAX through EDI in encoding order at offsets 24–52, EIP at 56, and the
-completed-instruction count at 144. Final register writes retain first-write
-order, then EIP and count are updated with 32-bit wrapping arithmetic. The block
+completed-instruction count at 144. Final dirty views retain first-write order,
+then EIP and count are updated with 32-bit wrapping arithmetic. The block
 tail-calls dispatch with the next EIP and returns its result. This snapshot path
-supports B8–BF with imm32 operands and 89/8B with register or memory operands.
+supports B0–B7 with imm8, B8–BF with imm32, byte register/memory forms 88/8A,
+and dword register/memory forms 89/8B. Byte codes select AL/CL/DL/BL/AH/CH/DH/BH;
+writes preserve every other byte of the parent register.
 Memory addresses use 32-bit ModRM/SIB base, index, scale and displacement fields.
 Effective-address sums wrap at 32 bits; both frontends use flat addresses and
 ignore segment bases. Blocks containing only register operands retain just the
 CPU and dispatch imports.
 
 `compile_interpreter_step()` builds a generated `step() -> i64` entry for the
-same unprefixed MOV32 subset. Both compiler functions return a `CompiledModule`
+same unprefixed MOV subset. Both compiler functions return a `CompiledModule`
 containing WebAssembly bytes and its exported entry name.
 
 ```rust
@@ -46,11 +48,12 @@ window and completion policy. An execution builder resolves operand locations,
 checks memory access, and tracks instruction progress. Shared MOV semantics reads
 the source and writes the destination through that builder. A fault publishes
 completed register writes into its terminating branch without consuming the
-parent state used by the successful path. A location-based value environment
-forwards known register definitions and caches reads. Computed register accesses
-synchronize overlapping definitions to backing, then invalidate potentially
-written locations. These are completed effects; publication does not undo a
-partially executed instruction.
+parent state used by the successful path. One value environment tracks typed
+byte and dword locations, forwarding known definitions and caching reads. Reads
+through overlapping views synchronize earlier definitions to backing. A covering
+write replaces superseded definitions. Computed register accesses synchronize
+overlapping definitions, then invalidate potentially written locations. These
+are completed effects; publication does not undo a partially executed instruction.
 
 The step and snapshot blocks with memory operands also import `wasm86.guest`
 (minimum one Wasm page) and `wasm86.machine` (minimum 64 pages, or 4 MiB).
@@ -65,7 +68,8 @@ A missing instruction page returns the 64-bit word
 `(4 << 48) | (error << 32) | first_denied_address`, where error bit 1 identifies a
 write and bit 0 identifies a present but denied page. A four-byte data range that
 crosses `0xffffffff` is rejected at its start with read error 0 or write error 2;
-this is the current address-space policy. Instruction fetch instead wraps.
+this is the current address-space policy. A one-byte access at that address fits
+without consulting another page. Instruction fetch instead wraps.
 All pages are checked before a data store writes any byte, including scattered
 physical backing. A fault publishes earlier completed instructions and leaves EIP
 at the faulting instruction; the failed instruction does not retire or dispatch.
@@ -130,11 +134,11 @@ specify their type with `condition.select::<I32>(7, 9)`.
 Use `if_value` to execute only the selected branch and obtain its value:
 
 ```rust
-let selected = body.if_value::<I32>(value.eq(0),
+let branch_value = body.if_value::<I32>(value.eq(0),
     |arm| arm.yield_(7),
     |arm| arm.yield_(value.add(1)),
 )?;
-body.return_(selected.add(2))?;
+body.return_(branch_value.add(2))?;
 ```
 
 `yield_` consumes the direct value-arm builder and supplies the conditional's
@@ -146,8 +150,9 @@ or function boundary needs their logical low bits. Construction errors discard
 both arms and leave the parent usable.
 
 Functions can also finish with `body.tail_call(target, &[value.argument()])`.
-The target may be imported or defined. Use `Val::argument()` or `.into()` to combine values and literals
-in one argument list; the call checks them against its signature.
+The target may be imported or defined. Use `Val::argument()` or `.into()` to
+combine values and literals in one argument list; the call checks them against
+its signature.
 `Program::import_function` takes a `FunctionImport` containing the module name,
 field name and logical `Signature`. Unused function imports are omitted; a direct
 export also retains an imported function.

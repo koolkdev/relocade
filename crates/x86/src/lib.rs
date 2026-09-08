@@ -1,7 +1,7 @@
 //! Builds WebAssembly execution entries for a small x86 instruction subset.
 //!
-//! Supports 32-bit MOV from an immediate (`B8` through `BF`, followed by imm32)
-//! or a register/memory operand (`89` and `8B`, with 32-bit ModRM/SIB addressing).
+//! Supports byte MOV (`B0`–`B7`, `88`, `8A`) and dword MOV (`B8`–`BF`, `89`, `8B`)
+//! with immediate, register and memory operands. ModRM/SIB addresses are 32-bit.
 //!
 //! ```
 //! use wasm86_x86::compile_block_from_bytes;

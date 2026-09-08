@@ -5,8 +5,9 @@ use crate::{
     instruction::DecodedInstruction, memory::Memory, state, CompiledModule,
 };
 
-/// Builds `step() -> i64`, which fetches and executes one unprefixed MOV32 at the
-/// current EIP: B8–BF with imm32, or 89/8B with 32-bit ModRM/SIB addressing.
+/// Builds `step() -> i64`, which fetches and executes one unprefixed byte or
+/// dword MOV at the current EIP. Immediate forms are B0–B7/B8–BF; register/memory
+/// forms are 88/8A and 89/8B, with 32-bit ModRM/SIB addressing.
 /// Success updates the destination, EIP and instruction count,
 /// then tail-calls `wasm86.dispatch(i32) -> i64` with the next EIP.
 ///
@@ -24,8 +25,9 @@ use crate::{
 /// `(4 << 48) | (error << 32) | address`: error bit 1 identifies a write and bit 0
 /// identifies a present but denied page. The address is the first denied byte.
 /// This address-space policy rejects a four-byte data range crossing 0xffffffff
-/// with a fault at its start (error 0 for a read, 2 for a write). Instruction fetch
-/// instead wraps. All data permissions are checked before any guest store.
+/// with a fault at its start (error 0 for a read, 2 for a write). A one-byte
+/// access at 0xffffffff does not cross that boundary. Instruction fetch wraps.
+/// All data permissions are checked before any guest store.
 ///
 /// An unsupported opcode returns `(8 << 48) | (opcode << 32) | EIP`, an
 /// unsupported-subset exit rather than an architectural invalid-opcode exception.

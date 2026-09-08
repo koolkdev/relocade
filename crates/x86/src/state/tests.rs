@@ -1,4 +1,4 @@
-use super::{declare, Gpr32, Register32, State};
+use super::{declare, Gpr32, Register, State};
 use wasm86_compiler::{Program, Signature, Type, I1, I32};
 use wasmparser::{Operator, Parser, Payload};
 
@@ -16,7 +16,7 @@ fn named_writes_coalesce_without_crossing_indexed_writes() {
     state.write_register(&mut body, Gpr32::Eax, 0).unwrap();
     state.write_register(&mut body, Gpr32::Eax, 1).unwrap();
     state
-        .write_register(&mut body, Register32::indexed(index), 2)
+        .write_register(&mut body, Register::<I32>::indexed(index), 2)
         .unwrap();
     state.write_register(&mut body, Gpr32::Eax, 3).unwrap();
     state.write_register(&mut body, Gpr32::Eax, 4).unwrap();
@@ -104,7 +104,9 @@ fn publishing_an_exit_keeps_pending_writes_for_the_continuation() {
 use crate::test_step::ModuleFile;
 
 use std::fmt::Write as _;
-use wasm86_compiler::I64;
+use wasm86_compiler::{I64, I8};
+
+use crate::register::RegisterCode;
 
 enum IndexSource {
     Parameter,
@@ -132,10 +134,10 @@ fn synchronized_registers(source: IndexSource) -> crate::CompiledModule {
     })
     .unwrap();
     let before = state
-        .read_register(&mut body, Register32::indexed(index.clone()))
+        .read_register(&mut body, Register::<I32>::indexed(index.clone()))
         .unwrap();
     state
-        .write_register(&mut body, Register32::indexed(index), 99)
+        .write_register(&mut body, Register::<I32>::indexed(index), 99)
         .unwrap();
     let after = state.read_register(&mut body, Gpr32::Eax).unwrap();
     state.publish(&mut body, 0x100a, 2).unwrap();
@@ -152,6 +154,28 @@ fn synchronized_registers(source: IndexSource) -> crate::CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }
+}
+
+fn check_register_observation(
+    module: &ModuleFile,
+    flags: &[&str],
+    initial: &[u8; 152],
+    arguments: [u32; 2],
+    expected_cpu: &[u8; 152],
+    result: i64,
+) {
+    let mut expected = format!("return {result}\nstate ");
+    for byte in expected_cpu {
+        write!(&mut expected, "{byte:02x}").unwrap();
+    }
+    expected.push_str("\nguest unchanged\nmachine unchanged\n");
+    let [index, stop] = arguments;
+    let input = format!("[{initial:?},[],[],[[\"i32\",{index}],[\"i32\",{stop}]]]");
+    assert_eq!(
+        module.observe(flags, &input, 1),
+        expected,
+        "index {index}, stop {stop}, flags {flags:?}"
+    );
 }
 
 fn check_register_synchronization(flags: &[&str]) {
@@ -181,17 +205,7 @@ fn check_register_synchronization(flags: &[&str]) {
         for &(offset, value) in updates {
             expected_cpu[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
         }
-        let mut expected = format!("return {result}\nstate ");
-        for byte in expected_cpu {
-            write!(&mut expected, "{byte:02x}").unwrap();
-        }
-        expected.push_str("\nguest unchanged\nmachine unchanged\n");
-        let input = format!("[{cpu:?},[],[],[[\"i32\",{index}],[\"i32\",{stop}]]]");
-        assert_eq!(
-            module.observe(flags, &input, 1),
-            expected,
-            "index {index}, stop {stop}, flags {flags:?}"
-        );
+        check_register_observation(module, flags, cpu, [index, stop], &expected_cpu, result);
     };
     let module = ModuleFile::new(&synchronized_registers(IndexSource::Parameter));
     for (index, offset, result) in [
@@ -243,6 +257,119 @@ fn register_synchronization_in_v8() {
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn register_synchronization_in_optimizing_v8() {
     check_register_synchronization(&[
+        "--no-liftoff",
+        "--no-wasm-lazy-compilation",
+        "--no-wasm-tier-up",
+    ]);
+}
+
+fn synchronized_byte_registers() -> crate::CompiledModule {
+    let mut program = Program::new();
+    let memory = declare(&mut program);
+    let function = program
+        .function(
+            Signature {
+                parameters: vec![Type::I32, Type::I1],
+                result: Type::I64,
+            },
+            |mut body| {
+                let index = body.parameter::<I32>(0)?;
+                let stop = body.parameter::<I1>(1)?;
+                let mut state = State::new(memory);
+                let old_high =
+                    state.read_register(&mut body, RegisterCode::from_code(4).view::<I8>())?;
+                state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
+                state.write_register(&mut body, Gpr32::Esp, 0x1357_9bdf)?;
+                state.write_register(&mut body, RegisterCode::from_code(4).view::<I8>(), 0xaa)?;
+                body.if_(stop, |mut branch| {
+                    state.publish(&mut branch, 0x1007, 2)?;
+                    branch.return_(7)
+                })?;
+                let before =
+                    state.read_register(&mut body, Register::<I8>::indexed(index.clone()))?;
+                state.write_register(&mut body, Register::<I8>::indexed(index), old_high.add(1))?;
+                let after = state.read_register(&mut body, Gpr32::Eax)?;
+                state.publish(&mut body, 0x1009, 3)?;
+                body.return_(
+                    before
+                        .unsigned()
+                        .extend::<I64>()
+                        .shl(32)
+                        .or(after.unsigned().extend::<I64>()),
+                )
+            },
+        )
+        .unwrap();
+    program.export("run", function).unwrap();
+    crate::CompiledModule {
+        bytes: program.compile().unwrap(),
+        entry: "run".into(),
+    }
+}
+
+fn check_byte_register_synchronization(flags: &[&str]) {
+    let mut initial = [0xa5; 152];
+    for (offset, value) in [
+        (24, 0xffff_ff04_u32),
+        (28, 0x2222_2222),
+        (32, 0x3333_3333),
+        (36, 0x4444_4444),
+        (40, 0x5555_5555),
+        (44, 0x6666_6666),
+        (48, 0x7777_7777),
+        (52, 0x8888_8888),
+        (56, 0x1000),
+        (144, 0xffff_ffff),
+    ] {
+        initial[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    let module = ModuleFile::new(&synchronized_byte_registers());
+    for (index, offset, before, eax) in [
+        (0, 24, 0x44_u64, 0x1122_aa00_u32),
+        (1, 28, 0x22, 0x1122_aa44),
+        (2, 32, 0x33, 0x1122_aa44),
+        (3, 36, 0x44, 0x1122_aa44),
+        (4, 25, 0xaa, 0x1122_0044),
+        (5, 29, 0x22, 0x1122_aa44),
+        (6, 33, 0x33, 0x1122_aa44),
+        (7, 37, 0x44, 0x1122_aa44),
+    ] {
+        let mut expected = initial;
+        for (offset, value) in [(24, eax), (40, 0x1357_9bdf), (56, 0x1009), (144, 2)] {
+            expected[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        expected[offset] = 0;
+        check_register_observation(
+            &module,
+            flags,
+            &initial,
+            [index, 0],
+            &expected,
+            ((before << 32) | u64::from(eax)) as i64,
+        );
+    }
+    let mut expected = initial;
+    for (offset, value) in [
+        (24, 0x1122_aa44_u32),
+        (40, 0x1357_9bdf),
+        (56, 0x1007),
+        (144, 1),
+    ] {
+        expected[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    check_register_observation(&module, flags, &initial, [4, 1], &expected, 7);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn byte_register_synchronization_in_v8() {
+    check_byte_register_synchronization(&[]);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn byte_register_synchronization_in_optimizing_v8() {
+    check_byte_register_synchronization(&[
         "--no-liftoff",
         "--no-wasm-lazy-compilation",
         "--no-wasm-tier-up",
