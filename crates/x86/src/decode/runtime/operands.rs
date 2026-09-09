@@ -20,23 +20,23 @@ impl<C> RuntimeDecoder<'_, C>
 where
     C: Fn(FunctionBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
 {
-    /// Decodes fields of forms whose operands do not use ModRM.
+    /// Decodes fields after exact opcode selection for forms without ModRM.
     pub(super) fn decode_opcode_operands(
         &self,
         mut body: FunctionBuilder<'_>,
         mut cursor: RuntimeCursor<'_>,
-        opcode: &Val<I8>,
+        opcode: u8,
         form: &SizedForm,
     ) -> Result<(), BuildError> {
         let fields = match form.encoding {
-            Encoding::OpcodeRegister => DecodedFields::Location(Location::Register(
-                RegisterCode::indexed(opcode.unsigned().extend::<I32>()),
-            )),
+            Encoding::OpcodeRegister => {
+                DecodedFields::Location(Location::Register(RegisterCode::from_code(opcode)))
+            }
             Encoding::OpcodeRegisterImmediate => DecodedFields::OpcodeRegisterImmediate {
-                register: RegisterCode::indexed(opcode.unsigned().extend::<I32>()),
+                register: RegisterCode::from_code(opcode),
                 immediate: cursor.immediate(&mut body, form)?,
             },
-            Encoding::AccumulatorImmediate => DecodedFields::AccumulatorImmediate {
+            Encoding::Immediate { .. } => DecodedFields::Immediate {
                 immediate: cursor.immediate(&mut body, form)?,
             },
             Encoding::AccumulatorOffset => DecodedFields::AccumulatorOffset {

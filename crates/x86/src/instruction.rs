@@ -94,6 +94,14 @@ pub(super) struct UnaryInstruction<V> {
 pub(super) enum Instruction<V> {
     Binary(BinaryInstruction<V>),
     Unary(UnaryInstruction<V>),
+    Push {
+        width: OperandWidth,
+        source: Operand<V>,
+    },
+    Pop {
+        width: OperandWidth,
+        destination: Location<V>,
+    },
     SetCondition {
         condition: Condition,
         destination: Location<V>,
@@ -114,6 +122,7 @@ impl<V> Instruction<V> {
                     || matches!(instruction.right, Operand::Location(Location::Memory(_)))
             }
             Self::Unary(instruction) => matches!(instruction.destination, Location::Memory(_)),
+            Self::Push { .. } | Self::Pop { .. } => true,
             Self::SetCondition { destination, .. } => matches!(destination, Location::Memory(_)),
         }
     }

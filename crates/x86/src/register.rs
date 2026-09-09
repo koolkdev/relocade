@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use wasm86_compiler::{Val, I16, I32, I8};
+use wasm86_compiler::{Val, I1, I16, I32, I8};
 
 use crate::ssa::SsaType;
 
@@ -145,6 +145,22 @@ pub(super) struct Register<T: RegisterType> {
 impl<T: RegisterType> Register<T> {
     pub(super) fn indexed(code: Val<I32>) -> Self {
         RegisterCode::indexed(code).view()
+    }
+}
+
+impl Register<I32> {
+    pub(super) fn known(&self) -> Option<Gpr32> {
+        match self.selection {
+            RegisterSelection::Named { parent, .. } => Some(parent),
+            RegisterSelection::Indexed { .. } => None,
+        }
+    }
+
+    pub(super) fn is(&self, register: Gpr32) -> Val<I1> {
+        match &self.selection {
+            RegisterSelection::Named { parent, .. } => (*parent == register).into(),
+            RegisterSelection::Indexed { slot, .. } => slot.eq(register as u32),
+        }
     }
 }
 

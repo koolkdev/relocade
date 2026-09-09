@@ -38,8 +38,11 @@ where
         }
         let opcodes: Vec<_> = actions.keys().copied().collect();
         body.switch(opcode, &opcodes, |mut arm, key| {
-            match key.and_then(|key| actions.get(&key)) {
-                Some(OpcodeAction::Instruction(forms)) => {
+            let Some(opcode_case) = key else {
+                return cursor.return_unsupported(arm, opcode);
+            };
+            match &actions[&opcode_case] {
+                OpcodeAction::Instruction(forms) => {
                     let form = forms[0];
                     if form.encoding.has_modrm() {
                         self.decode_modrm_operands(arm, cursor.clone(), opcode, forms)
@@ -47,25 +50,24 @@ where
                         self.decode_opcode_operands(
                             arm,
                             cursor.clone(),
-                            opcode,
+                            opcode_case as u8,
                             &form.with_operand_size(cursor.operand_size()),
                         )
                     }
                 }
-                Some(OpcodeAction::ExtendedMap) => {
+                OpcodeAction::ExtendedMap => {
                     let mut extended = cursor.clone();
                     extended.enter_extended_map();
                     let selector = extended.byte(&mut arm)?;
                     self.decode_opcode(arm, extended, &selector)
                 }
-                Some(OpcodeAction::OperandSizePrefix) => {
+                OpcodeAction::OperandSizePrefix => {
                     let mut prefixed = cursor.clone();
                     prefixed.select_word_operands();
                     let opcode = prefixed.byte(&mut arm)?;
                     self.opcode_handlers
                         .tail_call(arm, &prefixed, &[(&opcode).into()])
                 }
-                None => cursor.return_unsupported(arm, opcode),
             }
         })?;
         body.trap()

@@ -1,12 +1,13 @@
 mod operands;
+mod stack;
 
 use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32};
 
 use crate::{
     flags::{Condition, FlagSource, LocalFlagSource},
     instruction::{self, DecodedInstruction},
-    memory::Memory,
-    state::{Cpu, State},
+    memory::{Access, Intent, Memory},
+    state::{exit, Cpu, State},
 };
 
 /// Builds one execution path. State definitions and progress describe completed
@@ -62,6 +63,20 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     pub(super) fn condition(&mut self, condition: Condition) -> Result<Val<I1>, BuildError> {
         self.state.condition(&mut self.body, condition)
+    }
+
+    fn checked<T: MemoryInt>(
+        &mut self,
+        memory: &'module Memory,
+        address: &Val<I32>,
+        intent: Intent,
+    ) -> Result<Access<T>, BuildError> {
+        let access = memory.resolve_access::<T>(&mut self.body, address, intent)?;
+        self.body.if_(&access.fault.condition, |mut arm| {
+            self.state.publish(&mut arm, &self.eip, self.completed)?;
+            arm.return_(exit::page_fault(&access.fault.address, &access.fault.error))
+        })?;
+        Ok(access)
     }
 
     pub(super) fn complete(mut self) -> Result<(), BuildError> {

@@ -34,7 +34,9 @@ pub(crate) enum ImmediateWidth {
 pub(crate) enum Encoding {
     OpcodeRegister,
     OpcodeRegisterImmediate,
-    AccumulatorImmediate,
+    Immediate {
+        immediate: ImmediateWidth,
+    },
     RegisterRm,
     /// The immediate follows any address fields.
     RmImmediate {
@@ -74,7 +76,7 @@ pub(crate) enum DecodedFields<V> {
         register: RegisterCode,
         immediate: V,
     },
-    AccumulatorImmediate {
+    Immediate {
         immediate: V,
     },
     RegisterRm {
@@ -113,6 +115,8 @@ enum Operation {
         right: OperandBinding,
     },
     Unary(UnaryOperation),
+    Push(OperandBinding),
+    Pop(LocationBinding),
     SetCondition(Condition),
 }
 
@@ -157,7 +161,10 @@ pub(crate) struct SizedForm {
 impl SizedForm {
     pub(crate) const fn immediate_width(&self) -> OperandWidth {
         match self.encoding {
-            Encoding::RmImmediate {
+            Encoding::Immediate {
+                immediate: ImmediateWidth::SignedByte,
+            }
+            | Encoding::RmImmediate {
                 immediate: ImmediateWidth::SignedByte,
             } => OperandWidth::Byte,
             _ => self.width,
@@ -166,7 +173,9 @@ impl SizedForm {
     pub(crate) fn sign_extends_immediate(&self) -> bool {
         matches!(
             self.encoding,
-            Encoding::RmImmediate {
+            Encoding::Immediate {
+                immediate: ImmediateWidth::SignedByte,
+            } | Encoding::RmImmediate {
                 immediate: ImmediateWidth::SignedByte,
             }
         )

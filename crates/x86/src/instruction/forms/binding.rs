@@ -36,6 +36,14 @@ impl SizedForm {
                     destination,
                 })
             }
+            Operation::Push(source) => Instruction::Push {
+                width: self.width,
+                source: fields.bind_operand(source),
+            },
+            Operation::Pop(destination) => Instruction::Pop {
+                width: self.width,
+                destination: fields.bind_location(destination),
+            },
             Operation::Binary {
                 operation,
                 left,
@@ -60,14 +68,18 @@ impl<V: Clone> DecodedFields<V> {
         match binding {
             LocationBinding::Register => {
                 let (Self::OpcodeRegisterImmediate { register, .. }
-                | Self::RegisterRm { register, .. }) = self
+                | Self::RegisterRm { register, .. }
+                | Self::Location(Location::Register(register))) = self
                 else {
                     unreachable!("the form selects a decoded register field")
                 };
                 Location::Register(register.clone())
             }
             LocationBinding::Rm => {
-                let (Self::RegisterRm { rm, .. } | Self::RmImmediate { rm, .. }) = self else {
+                let (Self::RegisterRm { rm, .. }
+                | Self::RmImmediate { rm, .. }
+                | Self::Location(rm)) = self
+                else {
                     unreachable!("the form selects a decoded r/m field")
                 };
                 rm.clone()
@@ -91,7 +103,7 @@ impl<V: Clone> DecodedFields<V> {
             OperandBinding::Location(location) => self.bind_location(location).into(),
             OperandBinding::Immediate => {
                 let (Self::OpcodeRegisterImmediate { immediate, .. }
-                | Self::AccumulatorImmediate { immediate }
+                | Self::Immediate { immediate }
                 | Self::RmImmediate { immediate, .. }) = self
                 else {
                     unreachable!("the form selects a decoded immediate")

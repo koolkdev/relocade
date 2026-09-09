@@ -3,7 +3,7 @@
 Rust components for x86 execution in WebAssembly.
 
 `wasm86-x86` compiles MOV, ADD, ADC, SUB, SBB, CMP, AND, OR, XOR, TEST,
-INC, DEC, NEG, NOT and SETcc blocks from byte snapshots:
+INC, DEC, NEG, NOT, PUSH, POP and SETcc blocks from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
@@ -81,6 +81,11 @@ supports these forms in default-32 operand and address mode:
 | DEC register/memory | FE /1 | FF /1 | FF /1 |
 | NOT register/memory | F6 /2 | F7 /2 | F7 /2 |
 | NEG register/memory | F6 /3 | F7 /3 | F7 /3 |
+| PUSH opcode-selected register | — | 50–57 | 50–57 |
+| POP opcode-selected register | — | 58–5F | 58–5F |
+| PUSH immediate | — | 68/6A | 68/6A |
+| PUSH register/memory | — | FF /6 | FF /6 |
+| POP register/memory | — | 8F /0 | 8F /0 |
 | SETcc register/memory destination | 0F 90–9F | — | — |
 
 Group `83` sign-extends its encoded byte immediate to the operand width. SETcc
@@ -88,6 +93,8 @@ writes a byte containing 0 or 1; its ModRM.reg field is ignored.
 Unary forms have one destination and no immediate. The ModRM extension selects
 both the operation and its fields: `F6`/`F7` /0 reads a TEST immediate, while
 /2 and /3 finish after the register or address fields.
+PUSH `68` reads an operand-sized immediate; `6A` sign-extends its encoded byte
+to the operand width.
 
 The `66` operand-size prefix selects word data; repeating it keeps that size.
 Byte forms remain byte-sized with `66`. Other prefixes, including address-size
@@ -101,8 +108,24 @@ scale and displacement fields, or a 32-bit absolute offset. A0/A2 use AL;
 A1/A3 use AX with `66` and EAX otherwise. Their encoded address is always four
 bytes, independent of the data width.
 Effective-address sums wrap at 32 bits; both frontends use flat addresses and
-ignore segment bases. Blocks containing only register operands retain just the
-CPU and dispatch imports.
+ignore segment bases. Blocks without explicit or implicit guest-memory access
+retain just the CPU and dispatch imports.
+
+PUSH and POP transfer a word or dword through a 32-bit stack pointer. PUSH reads
+its source using the entry register values, then subtracts the operand size from
+ESP and stores on the stack. Thus PUSH ESP stores the original ESP. POP reads the
+stack, then adds the operand size to ESP; a memory destination using ESP is
+addressed with that incremented value. A POP ESP register destination replaces
+the incremented pointer with the popped dword. POP SP replaces its low word,
+preserving the high word of the incremented ESP. These instructions preserve
+the entire flag source and always require guest-memory imports.
+
+Stack operations check each complete source and destination access before
+changing registers or memory. Faults preserve the faulting instruction's entry
+state while publishing any earlier completed instructions. When both accesses
+would fault, wasm86 checks the source first; this is its deterministic access
+policy. Operand size controls the two- or four-byte transfer and pointer change;
+stack addresses remain 32-bit in this flat-address subset.
 
 `compile_interpreter_step()` builds a generated `step() -> i64` entry for the
 same instruction subset. Both compiler functions return a `CompiledModule`
@@ -136,6 +159,8 @@ shared lowering in `instruction/lower.rs`. The runtime decoder owns its byte cur
 window and completion policy. Every opcode map uses the same catalog-driven
 switch and selects operand decoding by encoding. Only the chosen opcode checks
 its ModRM extension. Direct, checked and prefixed entries share field handling.
+An exact opcode case retains its register selection, so compact MOV, unary and
+stack forms use fixed register views. ModRM and SIB fields select runtime views.
 Memory decoding selects the SIB or ordinary layout
 before reading address fields; ordinary addresses have no index term. Direct
 entries retain the original fetch window across fields whose bounds fit it.
@@ -148,6 +173,11 @@ access. ADD, ADC, SUB, SBB, AND, OR and XOR use this operation. CMP and TEST onl
 operands and set flags, so their memory operands require no write permission.
 A fault publishes completed definitions into its terminating branch without
 consuming the parent state used by the successful path.
+Address resolution accepts explicit register values for an access. POP supplies
+its next ESP when preparing the destination, so the usual base, index, scale and
+displacement calculation sees that value while fault publication retains entry
+ESP. After both accesses pass their guards, POP defines ESP and writes the
+prepared target.
 
 The register value environment tracks typed byte, word and dword locations,
 forwarding known definitions and caching reads. A location describes either a

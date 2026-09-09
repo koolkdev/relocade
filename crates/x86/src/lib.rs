@@ -6,6 +6,13 @@
 //! `F6`/`F7` /0. Group `83` sign-extends its byte immediate to the operand width.
 //! INC/DEC use `FE`/`FF` /0 and /1, or opcode-selected word/dword registers `40`–`4F`.
 //! NOT and NEG use `F6`/`F7` /2 and /3. These unary forms have no immediate.
+//! Word/dword PUSH and POP use `50`–`5F`, `FF` /6 and `8F` /0. PUSH also accepts
+//! an operand-sized immediate (`68`) or a sign-extended byte (`6A`). The stack
+//! pointer is always 32-bit: PUSH reads its source before decrementing ESP;
+//! POP uses the incremented ESP to address a memory destination. POP ESP replaces
+//! the pointer with the popped dword; POP SP preserves the incremented high word.
+//! Each full memory access is checked before effects, source first. A fault
+//! preserves the current instruction's entry state and publishes earlier progress.
 //! ModRM/SIB effective addresses and absolute offsets are 32-bit, independent
 //! of the data width.
 //! In this default-32 mode, `66` selects word operands; repetition has the same
@@ -14,7 +21,7 @@
 //! including prefixes and all required operand fields.
 //!
 //! Binary arithmetic, logic and NEG replace all six status flags. INC/DEC preserve
-//! CF and update the other five; MOV, NOT and SETcc preserve them all.
+//! CF and update the other five; MOV, NOT, PUSH, POP and SETcc preserve them all.
 //! CMP and TEST only change flags. The CPU
 //! stores flags lazily: byte 0 selects the record kind, and little-endian dwords
 //! at 4 and 8 hold the original, zero-extended operands. SUB kinds are 1, 5 and 9;

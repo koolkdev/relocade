@@ -3,17 +3,16 @@
 use wasm86_compiler::{AtLeast, BuildError, Val, I32};
 
 use crate::{
-    address,
+    address::{self, RegisterValue},
     instruction::{Location, Operand},
     memory::{Access, Intent, Memory},
     register::{Register, RegisterType},
-    state::exit,
 };
 
 use super::ExecutionBuilder;
 
 /// A location whose complete write span has passed its architectural guards.
-enum WriteTarget<'memory, T: RegisterType> {
+pub(super) enum WriteTarget<'memory, T: RegisterType> {
     Register(Register<T>),
     Memory {
         memory: &'memory Memory,
@@ -35,7 +34,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
                 self.state.read_register(&mut self.body, code.view::<T>())
             }
             Operand::Location(Location::Memory(address)) => {
-                let address = address::resolve(&mut self.body, &mut self.state, address)?;
+                let address = address::resolve(&mut self.body, &mut self.state, address, &[])?;
                 let memory = self.memory.expect("a memory operand declares guest memory");
                 let access = self.checked::<T>(memory, &address, Intent::Read)?;
                 memory.read(&mut self.body, &access)
@@ -48,7 +47,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         location: Location<impl Into<Val<I32>>>,
         value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
-        let target = self.prepare_write::<T>(location)?;
+        let target = self.prepare_write::<T>(location, &[])?;
         self.write_target(target, value)
     }
 
@@ -60,20 +59,21 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         location: Location<impl Into<Val<I32>>>,
         update: impl FnOnce(&mut Self, Val<T>) -> Result<Val<T>, BuildError>,
     ) -> Result<(), BuildError> {
-        let target = self.prepare_write::<T>(location)?;
+        let target = self.prepare_write::<T>(location, &[])?;
         let old_value = self.read_target(&target)?;
         let value = update(self, old_value)?;
         self.write_target(target, value)
     }
 
-    fn prepare_write<T: RegisterType>(
+    pub(super) fn prepare_write<T: RegisterType>(
         &mut self,
         location: Location<impl Into<Val<I32>>>,
+        bindings: &[RegisterValue],
     ) -> Result<WriteTarget<'memory, T>, BuildError> {
         Ok(match location {
             Location::Register(code) => WriteTarget::Register(code.view::<T>()),
             Location::Memory(address) => {
-                let address = address::resolve(&mut self.body, &mut self.state, address)?;
+                let address = address::resolve(&mut self.body, &mut self.state, address, bindings)?;
                 let memory = self.memory.expect("a memory operand declares guest memory");
                 let access = self.checked::<T>(memory, &address, Intent::Write)?;
                 WriteTarget::Memory { memory, access }
@@ -93,7 +93,8 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         }
     }
 
-    fn write_target<T: RegisterType>(
+    /// Applies a prepared target without further architectural guards.
+    pub(super) fn write_target<T: RegisterType>(
         &mut self,
         target: WriteTarget<'memory, T>,
         value: impl Into<Val<T>>,
@@ -107,19 +108,5 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
                 memory.write(&mut self.body, &access, &value)
             }
         }
-    }
-
-    fn checked<T: RegisterType>(
-        &mut self,
-        memory: &'memory Memory,
-        address: &Val<I32>,
-        intent: Intent,
-    ) -> Result<Access<T>, BuildError> {
-        let access = memory.resolve_access::<T>(&mut self.body, address, intent)?;
-        self.body.if_(&access.fault.condition, |mut arm| {
-            self.state.publish(&mut arm, &self.eip, self.completed)?;
-            arm.return_(exit::page_fault(&access.fault.address, &access.fault.error))
-        })?;
-        Ok(access)
     }
 }

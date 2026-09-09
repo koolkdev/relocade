@@ -61,7 +61,7 @@ pub(crate) fn snapshot(
             register: RegisterCode::from_code(opcode),
             immediate: cursor.immediate(&form)?,
         },
-        Encoding::AccumulatorImmediate => DecodedFields::AccumulatorImmediate {
+        Encoding::Immediate { .. } => DecodedFields::Immediate {
             immediate: cursor.immediate(&form)?,
         },
         Encoding::RegisterRm | Encoding::RmImmediate { .. } | Encoding::Rm => {

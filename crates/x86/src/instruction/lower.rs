@@ -16,6 +16,7 @@ pub(crate) fn lower(
     let width = match &instruction {
         Instruction::Binary(instruction) => instruction.width,
         Instruction::Unary(instruction) => instruction.width,
+        Instruction::Push { width, .. } | Instruction::Pop { width, .. } => *width,
         Instruction::SetCondition { .. } => OperandWidth::Byte,
     };
     match width {
@@ -36,6 +37,8 @@ where
     match instruction {
         Instruction::Binary(instruction) => lower_binary::<T>(execution, instruction),
         Instruction::Unary(instruction) => lower_unary::<T>(execution, instruction),
+        Instruction::Push { source, .. } => execution.push::<T>(source),
+        Instruction::Pop { destination, .. } => execution.pop::<T>(destination),
         Instruction::SetCondition {
             condition,
             destination,

@@ -1,5 +1,6 @@
 mod binary;
 mod moves;
+mod stack;
 mod unary;
 
 use super::*;
@@ -28,6 +29,23 @@ const fn primary_form(
     }
 }
 
+const fn opcode_register(opcode: u8, operation: Operation) -> Form {
+    let mut form = primary_form(
+        opcode,
+        WidthRule::OperandSize,
+        Encoding::OpcodeRegister,
+        operation,
+    );
+    form.mask = 0xf8;
+    form
+}
+
+const fn rm(opcode: u8, width: WidthRule, extension: u8, operation: Operation) -> Form {
+    let mut form = primary_form(opcode, width, Encoding::Rm, operation);
+    form.extension = Some(extension);
+    form
+}
+
 const fn register_rm(
     opcode: u8,
     width: WidthRule,
@@ -54,7 +72,9 @@ const fn accumulator_immediate(opcode: u8, width: WidthRule, operation: BinaryOp
     primary_form(
         opcode,
         width,
-        Encoding::AccumulatorImmediate,
+        Encoding::Immediate {
+            immediate: ImmediateWidth::Operand,
+        },
         Operation::Binary {
             operation,
             left: LocationBinding::Accumulator,
@@ -111,6 +131,7 @@ fn primary_forms() -> impl Iterator<Item = &'static Form> + Clone {
         .chain(binary::modrm_forms())
         .chain(binary::accumulator_immediate_forms())
         .chain(unary::FORMS.iter())
+        .chain(stack::FORMS.iter())
 }
 
 pub(crate) fn modrm_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form> + Clone {
