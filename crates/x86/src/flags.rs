@@ -5,7 +5,8 @@ mod condition;
 pub(super) use condition::Condition;
 
 use std::convert::Infallible;
-use wasm86_compiler::{IntoOp, MemoryInt, Val, I1, I16, I32, I8};
+
+use wasm86_compiler::{MemoryInt, Val, I1, I16, I32, I8};
 
 /// Dense indices for local flag values; CPU record offsets belong to state.
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -73,6 +74,22 @@ impl<T: MemoryInt> FlagSource<T> {
         Self::Explicit { result, flags }
     }
 
+    /// Replaces one flag while retaining the result and all other flag rules.
+    /// The resulting source uses its composed flags for every condition query.
+    pub(super) fn with_flag(self, flag: StatusFlag, value: Val<I1>) -> Self {
+        let flags = StatusFlag::ALL.map(|candidate| {
+            if candidate == flag {
+                value.clone()
+            } else {
+                self.flag(candidate)
+            }
+        });
+        Self::Explicit {
+            result: self.result().clone(),
+            flags,
+        }
+    }
+
     pub(super) fn result(&self) -> &Val<T> {
         match self {
             Self::Arithmetic { result, .. }
@@ -88,7 +105,7 @@ impl<T: MemoryInt> FlagSource<T> {
                 left,
                 right,
                 result,
-            } => arithmetic_flag(*kind, left, right, result, false, flag),
+            } => arithmetic_flag(*kind, left, right, result, &false.into(), flag),
             Self::Logic { result } => logic_flag(result, flag),
             Self::Explicit { flags, .. } => flags[flag as usize].clone(),
         }
@@ -115,9 +132,10 @@ impl<T: MemoryInt> FlagSource<T> {
             }
             Self::Arithmetic { .. } | Self::Explicit { .. } => {}
         }
-        condition
-            .evaluate(|flag| Ok::<_, Infallible>(self.flag(flag)))
-            .unwrap_or_else(|never| match never {})
+        match condition.evaluate(|flag| Ok::<_, Infallible>(self.flag(flag))) {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
     }
 }
 
@@ -133,7 +151,7 @@ fn arithmetic_flag<T: MemoryInt>(
     left: &Val<T>,
     right: &Val<T>,
     result: &Val<T>,
-    carry_in: impl IntoOp<I1>,
+    carry_in: &Val<I1>,
     flag: StatusFlag,
 ) -> Val<I1> {
     match flag {
@@ -144,7 +162,7 @@ fn arithmetic_flag<T: MemoryInt>(
                 ArithmeticKind::Add => (result, left),
                 ArithmeticKind::Sub => (left, right),
             };
-            left.unsigned().lt(right).or(left.eq(right).and(carry_in))
+            carry_in.select(right.unsigned().ge(left), left.unsigned().lt(right))
         }
         StatusFlag::AF => bit(&left.xor(right).xor(result), 4),
         StatusFlag::OF => {
@@ -193,11 +211,13 @@ impl From<FlagSource<I32>> for LocalFlagSource {
     }
 }
 
-/// Logical results clear CF/OF and use zero for architecturally undefined AF.
-/// Their remaining flags use the same result rules as arithmetic.
+/// Logical results clear CF/OF and share arithmetic's result flag rules.
 pub(super) fn logic_flag<T: MemoryInt>(result: &Val<T>, flag: StatusFlag) -> Val<I1> {
     match flag {
-        StatusFlag::CF | StatusFlag::OF | StatusFlag::AF => result.and(0).ne(0),
+        StatusFlag::CF | StatusFlag::OF => false.into(),
+        // AF is architecturally undefined. Zero is our deterministic policy;
+        // preserving it would require evaluating the previous flag source.
+        StatusFlag::AF => false.into(),
         StatusFlag::PF | StatusFlag::ZF | StatusFlag::SF => result_flag(result, flag),
     }
 }

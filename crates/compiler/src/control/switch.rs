@@ -2,7 +2,7 @@
 use std::collections::HashSet;
 
 use super::{Region, SwitchCase};
-use crate::{AtLeast, BuildError, FunctionBuilder, IntType, IntoOp, Operation, Type, Val, I32};
+use crate::{AtLeast, BuildError, FunctionBuilder, IntType, Operation, Type, Val, I32};
 
 impl FunctionBuilder<'_> {
     /// Executes the arm whose key equals the selector, or the default arm when no
@@ -16,7 +16,7 @@ impl FunctionBuilder<'_> {
     /// Dense key ranges use a branch table; sparse ranges need no large table.
     pub fn switch<S: IntType>(
         &mut self,
-        selector: impl IntoOp<S>,
+        selector: impl Into<Val<S>>,
         cases: &[u32],
         build: impl FnMut(FunctionBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError>
@@ -60,7 +60,7 @@ impl FunctionBuilder<'_> {
     /// ```
     pub fn switch_value<R: IntType, S: IntType>(
         &mut self,
-        selector: impl IntoOp<S>,
+        selector: impl Into<Val<S>>,
         cases: &[u32],
         build: impl FnMut(FunctionBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
     ) -> Result<Val<R>, BuildError>
@@ -87,7 +87,7 @@ impl FunctionBuilder<'_> {
 
     fn switch_selector<S: IntType>(
         &self,
-        selector: impl IntoOp<S>,
+        selector: impl Into<Val<S>>,
         cases: &[u32],
     ) -> Result<usize, BuildError>
     where

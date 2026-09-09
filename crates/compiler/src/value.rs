@@ -1,165 +1,145 @@
+mod argument;
+
+pub use argument::Argument;
+
 use std::marker::PhantomData;
 
 use crate::arena::ExpressionArena;
 use crate::{
-    integer::{BinaryOp, CompareOp, ShiftOp},
+    integer::{self, BinaryOp, CompareOp, ShiftOp},
     AtLeast, BuildError, IntType, Type, I1, I32, I64,
 };
 
-/// An integer value in one function body, with its type checked by Rust.
+/// A literal or function-body integer expression, with its type checked by Rust.
 ///
-/// Operations build expressions immediately. Cloning a value shares the body's
-/// storage; it does not clone the expression or its operands. A construction error
-/// is reported when the resulting value is stored, yielded, returned or passed
-/// to a call.
-/// Completing or dropping the outer function builder closes expression construction.
-/// Values depending on a child read, call or join can only be consumed in that
-/// child or its descendants.
+/// Native literals use ordinary conversions, such as `Val::<I1>::from(false)` or
+/// `Val::<I32>::from(7)`. Literals and calculations containing only literals can
+/// be used in any body. Once an operation uses a body expression, its result
+/// belongs to that body, including when it folds to a constant.
+/// Signed i32 inputs sign-extend and unsigned u32 inputs zero-extend; both keep
+/// only the logical low bits in narrower types. A u64 input requires I64.
+///
+/// Operations construct values immediately. Cloning an expression shares its
+/// storage. Construction errors are reported when a value is checked, stored,
+/// yielded, returned or passed to a call. Completing or dropping the outer builder
+/// closes expression construction in that body. Values depending on a child read,
+/// call or join can only be consumed in that child or its descendants.
+///
+/// A boolean input requires I1:
+/// ```compile_fail
+/// use wasm86_compiler::{Val, I8};
+/// let value = Val::<I8>::from(false);
+/// ```
 #[derive(Clone)]
 pub struct Val<T: IntType> {
-    arena: ExpressionArena,
-    expression: Result<usize, BuildError>,
+    source: ValueSource,
     ty: PhantomData<T>,
 }
 
-/// An integer value or literal supplied where a function signature determines its type.
-/// Values keep their logical type and body; literals use the expected type.
-/// Signed i32 literals sign-extend to I64; u32 literals zero-extend. Both reduce
-/// to the low bits for narrower types. A u64 literal requires I64, and bool requires I1.
 #[derive(Clone)]
-pub struct Argument(Operand);
-
-#[derive(Clone)]
-enum Operand {
-    Value {
+enum ValueSource {
+    Literal(u64),
+    Expression {
         arena: ExpressionArena,
         expression: Result<usize, BuildError>,
-        ty: Type,
     },
-    Signed(i32),
-    Unsigned(u32),
-    Wide(u64),
-    Bit(bool),
 }
 
-impl Argument {
-    pub(super) fn resolve(
-        &self,
-        arena: &ExpressionArena,
-        expected: Type,
-    ) -> Result<usize, BuildError> {
-        let bits = match &self.0 {
-            Operand::Value {
+impl ValueSource {
+    fn resolve(&self, arena: &ExpressionArena, ty: Type) -> Result<usize, BuildError> {
+        match self {
+            Self::Literal(bits) => arena.constant(ty, *bits),
+            Self::Expression {
                 arena: owner,
                 expression,
-                ty,
             } => {
-                let value = checked_expression(owner, arena, expression)?;
-                if *ty != expected {
-                    return Err(BuildError::TypeMismatch {
-                        expected,
-                        actual: *ty,
-                    });
+                if !owner.same_body(arena) {
+                    return Err(BuildError::ForeignBody);
                 }
-                return Ok(value);
+                arena.check_open()?;
+                expression.clone()
             }
-            Operand::Signed(value) => *value as i64 as u64,
-            Operand::Unsigned(value) => u64::from(*value),
-            Operand::Wide(value) if expected == Type::I64 => *value,
-            Operand::Bit(value) if expected == Type::I1 => u64::from(*value),
-            Operand::Wide(_) => {
-                return Err(BuildError::TypeMismatch {
-                    expected,
-                    actual: Type::I64,
-                })
-            }
-            Operand::Bit(_) => {
-                return Err(BuildError::TypeMismatch {
-                    expected,
-                    actual: Type::I1,
-                })
-            }
-        };
-        arena.constant(expected, bits)
+        }
     }
 }
 
-impl<T: IntType> From<&Val<T>> for Argument {
+impl<T: IntType> From<&Val<T>> for Val<T> {
     fn from(value: &Val<T>) -> Self {
-        Self(Operand::Value {
-            arena: value.arena.clone(),
-            expression: value.expression.clone(),
-            ty: T::TYPE,
-        })
+        value.clone()
     }
 }
 
-impl<T: IntType> From<Val<T>> for Argument {
-    fn from(value: Val<T>) -> Self {
-        Self(Operand::Value {
-            arena: value.arena,
-            expression: value.expression,
-            ty: T::TYPE,
-        })
-    }
-}
-
-impl From<i32> for Argument {
+impl<T: IntType> From<i32> for Val<T> {
     fn from(value: i32) -> Self {
-        Self(Operand::Signed(value))
-    }
-}
-impl From<u32> for Argument {
-    fn from(value: u32) -> Self {
-        Self(Operand::Unsigned(value))
-    }
-}
-impl From<u64> for Argument {
-    fn from(value: u64) -> Self {
-        Self(Operand::Wide(value))
-    }
-}
-impl From<bool> for Argument {
-    fn from(value: bool) -> Self {
-        Self(Operand::Bit(value))
+        Self::literal(value as i64 as u64)
     }
 }
 
-fn checked_expression(
-    owner: &ExpressionArena,
-    body: &ExpressionArena,
-    expression: &Result<usize, BuildError>,
-) -> Result<usize, BuildError> {
-    if !owner.same_body(body) {
-        return Err(BuildError::ForeignBody);
+impl<T: IntType> From<u32> for Val<T> {
+    fn from(value: u32) -> Self {
+        Self::literal(u64::from(value))
     }
-    body.check_open()?;
-    expression.clone()
+}
+
+impl From<u64> for Val<I64> {
+    fn from(value: u64) -> Self {
+        Self::literal(value)
+    }
+}
+
+impl From<bool> for Val<I1> {
+    fn from(value: bool) -> Self {
+        Self::literal(u64::from(value))
+    }
 }
 
 impl<T: IntType> Val<T> {
     pub(super) fn new(arena: ExpressionArena, expression: Result<usize, BuildError>) -> Self {
         Self {
-            arena,
-            expression,
+            source: ValueSource::Expression { arena, expression },
+            ty: PhantomData,
+        }
+    }
+
+    fn literal(bits: u64) -> Self {
+        Self {
+            source: ValueSource::Literal(T::TYPE.normalize(bits)),
             ty: PhantomData,
         }
     }
 
     pub(super) fn checked_expression(&self, arena: &ExpressionArena) -> Result<usize, BuildError> {
-        checked_expression(&self.arena, arena, &self.expression)
+        self.source.resolve(arena, T::TYPE)
     }
 
-    /// Returns whether both values identify the same successfully constructed
-    /// expression in the same body. This does not compare their runtime values.
-    /// Completing the body does not change this identity; consuming either value
-    /// still checks body ownership and branch visibility.
+    /// Returns whether values share a successful representation. Two literals
+    /// share their normalized bits; expressions share their body and node.
+    /// A literal and a body expression have distinct identities, even when the
+    /// expression is constant. This does not compare arbitrary runtime values.
+    /// Completing a body preserves identity; consuming its expressions still
+    /// checks body ownership and branch visibility.
     pub fn same_expression(&self, other: &Self) -> bool {
-        self.arena.same_body(&other.arena)
-            && matches!((&self.expression, &other.expression), (Ok(left), Ok(right)) if left == right)
+        match (&self.source, &other.source) {
+            (ValueSource::Literal(left), ValueSource::Literal(right)) => left == right,
+            (
+                ValueSource::Expression {
+                    arena: left_arena,
+                    expression: left,
+                },
+                ValueSource::Expression {
+                    arena: right_arena,
+                    expression: right,
+                },
+            ) => {
+                left_arena.same_body(right_arena)
+                    && matches!((left, right), (Ok(left), Ok(right)) if left == right)
+            }
+            _ => false,
+        }
     }
 
-    /// Passes this value in a call argument list while retaining its logical type and body.
+    /// Passes this value in a call argument list, retaining its logical type and
+    /// any body ownership. A typed literal keeps its type too.
     pub fn argument(&self) -> Argument {
         self.into()
     }
@@ -181,39 +161,36 @@ impl<T: IntType> Val<T> {
     /// }
     /// ```
     #[allow(clippy::should_implement_trait)]
-    pub fn add(&self, other: impl IntoOp<T>) -> Self {
+    pub fn add(&self, other: impl Into<Val<T>>) -> Self {
         self.binary(BinaryOp::Add, other)
     }
 
     /// Subtracts an integer value or literal of the same type, wrapping on underflow.
     /// Narrow results retain their logical low bits, just like addition.
     #[allow(clippy::should_implement_trait)]
-    pub fn sub(&self, other: impl IntoOp<T>) -> Self {
+    pub fn sub(&self, other: impl Into<Val<T>>) -> Self {
         self.binary(BinaryOp::Sub, other)
     }
 
     /// Keeps bits set in both operands.
-    pub fn and(&self, other: impl IntoOp<T>) -> Self {
+    pub fn and(&self, other: impl Into<Val<T>>) -> Self {
         self.binary(BinaryOp::And, other)
     }
 
     /// Sets bits present in either operand.
-    pub fn or(&self, other: impl IntoOp<T>) -> Self {
+    pub fn or(&self, other: impl Into<Val<T>>) -> Self {
         self.binary(BinaryOp::Or, other)
     }
 
     /// Keeps bits set in exactly one operand.
-    pub fn xor(&self, other: impl IntoOp<T>) -> Self {
+    pub fn xor(&self, other: impl Into<Val<T>>) -> Self {
         self.binary(BinaryOp::Xor, other)
     }
 
     /// Counts set bits in the logical value, ignoring upper carrier bits.
     /// The count retains the receiver's type and always fits in it.
     pub fn popcnt(&self) -> Self {
-        let expression = self
-            .checked_expression(&self.arena)
-            .and_then(|input| self.arena.popcnt(input));
-        Self::new(self.arena.clone(), expression)
+        self.map(integer::popcnt, |arena, input| arena.popcnt(input))
     }
 
     /// Shifts left, retaining the logical type's low bits.
@@ -221,17 +198,17 @@ impl<T: IntType> Val<T> {
     /// In particular, an I8 shift by 8 produces zero; a shift by 32 is identity.
     /// A computed count has type I32, including when shifting an I64 value.
     #[allow(clippy::should_implement_trait)]
-    pub fn shl(&self, count: impl IntoOp<I32>) -> Self {
+    pub fn shl(&self, count: impl Into<Val<I32>>) -> Self {
         self.shift(ShiftOp::Left, count)
     }
 
     /// Tests whether the operands' logical low bits are equal.
-    pub fn eq(&self, other: impl IntoOp<T>) -> Val<I1> {
+    pub fn eq(&self, other: impl Into<Val<T>>) -> Val<I1> {
         self.compare(CompareOp::Eq, other)
     }
 
     /// Tests whether the operands' logical low bits differ.
-    pub fn ne(&self, other: impl IntoOp<T>) -> Val<I1> {
+    pub fn ne(&self, other: impl Into<Val<T>>) -> Val<I1> {
         self.compare(CompareOp::Ne, other)
     }
 
@@ -261,43 +238,73 @@ impl<T: IntType> Val<T> {
         self.convert()
     }
 
-    fn operands(&self, other: impl IntoOp<T>) -> Result<(usize, usize), BuildError> {
-        // Check both operands before a fold can discard either.
-        let other = other.into();
-        Ok((
-            self.checked_expression(&self.arena)?,
-            other.resolve(&self.arena, T::TYPE)?,
-        ))
+    fn map<R: IntType>(
+        &self,
+        literal: impl FnOnce(u64) -> u64,
+        expression: impl FnOnce(&ExpressionArena, usize) -> Result<usize, BuildError>,
+    ) -> Val<R> {
+        match &self.source {
+            ValueSource::Literal(bits) => Val::literal(literal(*bits)),
+            ValueSource::Expression { arena, .. } => Val::new(
+                arena.clone(),
+                self.checked_expression(arena)
+                    .and_then(|input| expression(arena, input)),
+            ),
+        }
     }
 
-    fn binary(&self, operator: BinaryOp, other: impl IntoOp<T>) -> Self {
-        let expression = self
-            .operands(other)
-            .and_then(|(left, right)| self.arena.binary(operator, left, right));
-        Self::new(self.arena.clone(), expression)
+    fn combine<U: IntType, R: IntType>(
+        &self,
+        other: &Val<U>,
+        literal: impl FnOnce(u64, u64) -> u64,
+        expression: impl FnOnce(&ExpressionArena, usize, usize) -> Result<usize, BuildError>,
+    ) -> Val<R> {
+        match (&self.source, &other.source) {
+            (ValueSource::Literal(left), ValueSource::Literal(right)) => {
+                Val::literal(literal(*left, *right))
+            }
+            (ValueSource::Expression { arena, .. }, _)
+            | (_, ValueSource::Expression { arena, .. }) => {
+                // Resolve both inputs before a fold can discard either. A bound
+                // result keeps its arena even when the resulting node is constant.
+                let result = self.checked_expression(arena).and_then(|left| {
+                    let right = other.checked_expression(arena)?;
+                    expression(arena, left, right)
+                });
+                Val::new(arena.clone(), result)
+            }
+        }
     }
 
-    fn compare(&self, operator: CompareOp, other: impl IntoOp<T>) -> Val<I1> {
-        let expression = self
-            .operands(other)
-            .and_then(|(left, right)| self.arena.compare(operator, left, right));
-        Val::new(self.arena.clone(), expression)
+    fn binary(&self, operator: BinaryOp, other: impl Into<Val<T>>) -> Self {
+        let other: Self = other.into();
+        self.combine(
+            &other,
+            |left, right| integer::binary(operator, left, right),
+            |arena, left, right| arena.binary(operator, left, right),
+        )
     }
 
-    fn shift(&self, operator: ShiftOp, count: impl IntoOp<I32>) -> Self {
-        let count = count.into();
-        let expression = self.checked_expression(&self.arena).and_then(|input| {
-            let count = count.resolve(&self.arena, Type::I32)?;
-            self.arena.shift(operator, input, count)
-        });
-        Self::new(self.arena.clone(), expression)
+    fn compare(&self, operator: CompareOp, other: impl Into<Val<T>>) -> Val<I1> {
+        let other: Self = other.into();
+        self.combine(
+            &other,
+            |left, right| u64::from(integer::compare(T::TYPE, operator, left, right)),
+            |arena, left, right| arena.compare(operator, left, right),
+        )
+    }
+
+    fn shift(&self, operator: ShiftOp, count: impl Into<Val<I32>>) -> Self {
+        let count: Val<I32> = count.into();
+        self.combine(
+            &count,
+            |value, count| integer::shift(T::TYPE, operator, value, count as u32),
+            |arena, value, count| arena.shift(operator, value, count),
+        )
     }
 
     fn convert<To: IntType>(&self) -> Val<To> {
-        let expression = self
-            .checked_expression(&self.arena)
-            .and_then(|input| self.arena.convert(input, To::TYPE));
-        Val::new(self.arena.clone(), expression)
+        self.map(|bits| bits, |arena, input| arena.convert(input, To::TYPE))
     }
 }
 
@@ -322,17 +329,34 @@ impl Val<I1> {
     /// ```
     pub fn select<T: IntType>(
         &self,
-        when_true: impl IntoOp<T>,
-        when_false: impl IntoOp<T>,
+        when_true: impl Into<Val<T>>,
+        when_false: impl Into<Val<T>>,
     ) -> Val<T> {
-        let when_true = when_true.into();
-        let when_false = when_false.into();
-        let expression = self.checked_expression(&self.arena).and_then(|condition| {
-            let when_true = when_true.resolve(&self.arena, T::TYPE)?;
-            let when_false = when_false.resolve(&self.arena, T::TYPE)?;
-            self.arena.select(condition, when_true, when_false)
-        });
-        Val::new(self.arena.clone(), expression)
+        let when_true: Val<T> = when_true.into();
+        let when_false: Val<T> = when_false.into();
+        match (&self.source, &when_true.source, &when_false.source) {
+            (
+                ValueSource::Literal(condition),
+                ValueSource::Literal(when_true),
+                ValueSource::Literal(when_false),
+            ) => Val::literal(if *condition != 0 {
+                *when_true
+            } else {
+                *when_false
+            }),
+            (ValueSource::Expression { arena, .. }, _, _)
+            | (_, ValueSource::Expression { arena, .. }, _)
+            | (_, _, ValueSource::Expression { arena, .. }) => {
+                // All three inputs participate in ownership and visibility, even
+                // when a literal condition determines the selected alternative.
+                let expression = self.checked_expression(arena).and_then(|condition| {
+                    let when_true = when_true.checked_expression(arena)?;
+                    let when_false = when_false.checked_expression(arena)?;
+                    arena.select(condition, when_true, when_false)
+                });
+                Val::new(arena.clone(), expression)
+            }
+        }
     }
 }
 
@@ -349,12 +373,12 @@ impl<T: IntType> Unsigned<'_, T> {
     }
 
     /// Tests unsigned less-than and returns a logical one-bit value.
-    pub fn lt(&self, other: impl IntoOp<T>) -> Val<I1> {
+    pub fn lt(&self, other: impl Into<Val<T>>) -> Val<I1> {
         self.0.compare(CompareOp::LtUnsigned, other)
     }
 
     /// Tests unsigned greater-than-or-equal and returns a logical one-bit value.
-    pub fn ge(&self, other: impl IntoOp<T>) -> Val<I1> {
+    pub fn ge(&self, other: impl Into<Val<T>>) -> Val<I1> {
         self.0.compare(CompareOp::GeUnsigned, other)
     }
 
@@ -376,37 +400,25 @@ pub struct Signed<'a, T: IntType>(&'a Val<T>);
 impl<T: IntType> Signed<'_, T> {
     /// Tests signed less-than using each operand's logical sign bit.
     /// For I1, true is -1 and false is zero.
-    pub fn lt(&self, other: impl IntoOp<T>) -> Val<I1> {
+    pub fn lt(&self, other: impl Into<Val<T>>) -> Val<I1> {
         self.0.compare(CompareOp::LtSigned, other)
     }
 
     /// Tests signed greater-than-or-equal using each operand's logical sign bit.
     /// Arithmetic wraps before its result is interpreted as signed.
-    pub fn ge(&self, other: impl IntoOp<T>) -> Val<I1> {
+    pub fn ge(&self, other: impl Into<Val<T>>) -> Val<I1> {
         self.0.compare(CompareOp::GeSigned, other)
     }
 
     /// Widens by repeating the source's logical sign bit. The destination cannot
     /// be narrower. For I1, the bit pattern 1 extends to all ones.
     pub fn extend<To: AtLeast<T>>(&self) -> Val<To> {
-        let expression = self
-            .0
-            .checked_expression(&self.0.arena)
-            .and_then(|input| self.0.arena.sign_extend(input, To::TYPE));
-        Val::new(self.0.arena.clone(), expression)
+        self.0.map(
+            |bits| integer::signed_value(T::TYPE, bits) as u64,
+            |arena, input| arena.sign_extend(input, To::TYPE),
+        )
     }
 }
-
-/// A typed integer value or an integer literal accepted for that type.
-/// Literal operands are constructed in the body consuming the operand.
-pub trait IntoOp<T: IntType>: Into<Argument> {}
-
-impl<T: IntType> IntoOp<T> for &Val<T> {}
-impl<T: IntType> IntoOp<T> for Val<T> {}
-impl<T: IntType> IntoOp<T> for i32 {}
-impl<T: IntType> IntoOp<T> for u32 {}
-impl IntoOp<I64> for u64 {}
-impl IntoOp<I1> for bool {}
 
 #[cfg(test)]
 mod tests;

@@ -125,9 +125,9 @@ fn setcc_ignores_modrm_reg_without_changing_its_destination() {
 #[test]
 fn unsupported_extensions_stop_before_address_and_immediate_fields() {
     for (code, opcode) in [
-        (&[0xf6, 0x14][..], 0xf6),
-        (&[0xf7, 0x1c][..], 0xf7),
-        (&[0x66, 0xf7, 0x15][..], 0xf7),
+        (&[0xf6, 0x24][..], 0xf6),
+        (&[0xf7, 0x2c][..], 0xf7),
+        (&[0x66, 0xf7, 0x35][..], 0xf7),
         (&[0xf6, 0x0c][..], 0xf6),
         (&[0x66, 0xf7, 0x3d][..], 0xf7),
         (&[0x0f, 0x0b][..], 0x0f),
@@ -237,9 +237,9 @@ fn binary_fetch_faults_follow_decode_precedence() {
             Exit::Other(0x0008_00f7_0000_1ffe),
         ),
         (
-            "unsupported unary extension before SIB",
+            "unsupported F7 extension before SIB",
             0x1ffe,
-            vec![0xf7, 0x14],
+            vec![0xf7, 0x24],
             Exit::Other(0x0008_00f7_0000_1ffe),
         ),
         (
@@ -275,7 +275,7 @@ fn binary_fetch_faults_follow_decode_precedence() {
         (
             "last-byte unsupported group avoids a length fault",
             0x1ff1,
-            [vec![0x66; 13], vec![0xf7, 0x14]].concat(),
+            [vec![0x66; 13], vec![0xf7, 0x24]].concat(),
             Exit::Other(0x0008_00f7_0000_1ff1),
         ),
         (

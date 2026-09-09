@@ -1,7 +1,7 @@
 //! Address components decoded from bytes; register values are read only when
 //! shared instruction semantics computes the linear address.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Val, I1, I32};
+use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32};
 
 use crate::{register::Register, state::State};
 
@@ -42,7 +42,7 @@ impl RegisterTerm {
     }
 }
 
-pub(super) fn resolve<V: IntoOp<I32>>(
+pub(super) fn resolve<V: Into<Val<I32>>>(
     body: &mut FunctionBuilder<'_>,
     state: &mut State<'_>,
     address: Address32<V>,

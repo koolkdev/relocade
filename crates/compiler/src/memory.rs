@@ -1,6 +1,6 @@
 use crate::{
-    place, AtLeast, Body, BuildError, FunctionBuilder, IntoOp, Operation, Program, Val, ValueKind,
-    I1, I16, I32, I64, I8,
+    place, AtLeast, Body, BuildError, FunctionBuilder, Operation, Program, Val, ValueKind, I1, I16,
+    I32, I64, I8,
 };
 
 /// An imported memory. Use only with the program that declared it.
@@ -128,7 +128,7 @@ impl FunctionBuilder<'_> {
     pub fn load_at<T: MemoryInt>(
         &mut self,
         memory: Mem,
-        address: impl IntoOp<I32>,
+        address: impl Into<Val<I32>>,
         offset: u32,
     ) -> Result<Val<T>, BuildError> {
         let base = self.operand(address)?;
@@ -145,7 +145,7 @@ impl FunctionBuilder<'_> {
         &mut self,
         memory: Mem,
         offset: u32,
-        value: impl IntoOp<T>,
+        value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
         self.store_at(memory, 0, offset, value)
     }
@@ -157,9 +157,9 @@ impl FunctionBuilder<'_> {
     pub fn store_at<T: MemoryInt>(
         &mut self,
         memory: Mem,
-        address: impl IntoOp<I32>,
+        address: impl Into<Val<I32>>,
         offset: u32,
-        value: impl IntoOp<T>,
+        value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
         let base = self.operand(address)?;
         let value = self.operand(value)?;

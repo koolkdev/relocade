@@ -1,6 +1,6 @@
 //! Operand reads, writes and updates share address and permission checks.
 
-use wasm86_compiler::{AtLeast, BuildError, IntoOp, Val, I32};
+use wasm86_compiler::{AtLeast, BuildError, Val, I32};
 
 use crate::{
     address,
@@ -24,7 +24,7 @@ enum WriteTarget<'memory, T: RegisterType> {
 impl<'memory> ExecutionBuilder<'_, 'memory> {
     pub(crate) fn read<T: RegisterType>(
         &mut self,
-        operand: Operand<impl IntoOp<I32>>,
+        operand: Operand<impl Into<Val<I32>>>,
     ) -> Result<Val<T>, BuildError>
     where
         I32: AtLeast<T>,
@@ -45,8 +45,8 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
 
     pub(crate) fn write<T: RegisterType>(
         &mut self,
-        location: Location<impl IntoOp<I32>>,
-        value: impl IntoOp<T>,
+        location: Location<impl Into<Val<I32>>>,
+        value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
         let target = self.prepare_write::<T>(location)?;
         self.write_target(target, value)
@@ -57,7 +57,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
     /// other faulting operands before changing architectural state.
     pub(crate) fn update<T: RegisterType>(
         &mut self,
-        location: Location<impl IntoOp<I32>>,
+        location: Location<impl Into<Val<I32>>>,
         update: impl FnOnce(&mut Self, Val<T>) -> Result<Val<T>, BuildError>,
     ) -> Result<(), BuildError> {
         let target = self.prepare_write::<T>(location)?;
@@ -68,7 +68,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
 
     fn prepare_write<T: RegisterType>(
         &mut self,
-        location: Location<impl IntoOp<I32>>,
+        location: Location<impl Into<Val<I32>>>,
     ) -> Result<WriteTarget<'memory, T>, BuildError> {
         Ok(match location {
             Location::Register(code) => WriteTarget::Register(code.view::<T>()),
@@ -96,7 +96,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
     fn write_target<T: RegisterType>(
         &mut self,
         target: WriteTarget<'memory, T>,
-        value: impl IntoOp<T>,
+        value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
         match target {
             WriteTarget::Register(register) => {

@@ -1,6 +1,6 @@
 mod operands;
 
-use wasm86_compiler::{BuildError, Func, FunctionBuilder, IntoOp, MemoryInt, Val, I1, I32};
+use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32};
 
 use crate::{
     flags::{Condition, FlagSource, LocalFlagSource},
@@ -26,7 +26,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         cpu: &'module Cpu,
         memory: Option<&'module Memory>,
         dispatch: Func,
-        start: impl IntoOp<I32>,
+        start: impl Into<Val<I32>>,
     ) -> Result<Self, BuildError> {
         let eip = body.value(start)?;
         Ok(Self {
@@ -39,7 +39,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         })
     }
 
-    pub(super) fn execute<V: IntoOp<I32>, P: IntoOp<I32>>(
+    pub(super) fn execute<V: Into<Val<I32>>, P: Into<Val<I32>>>(
         &mut self,
         decoded: DecodedInstruction<V, P>,
     ) -> Result<(), BuildError> {

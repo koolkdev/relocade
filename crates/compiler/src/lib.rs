@@ -42,7 +42,7 @@ use integer::{BinaryOp, CompareOp, ShiftOp};
 use memory::Location;
 pub use memory::{Mem, MemoryImport, MemoryInt};
 pub use types::{AtLeast, IntType, Type, I1, I16, I32, I64, I8};
-pub use value::{Argument, IntoOp, Signed, Unsigned, Val};
+pub use value::{Argument, Signed, Unsigned, Val};
 
 /// A function's parameter types and optional return type.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -407,9 +407,9 @@ impl FunctionBuilder<'_> {
         Ok(Val::new(self.arena.clone(), Ok(value)))
     }
 
-    /// Obtains a typed value to retain or use in an expression. Existing values
-    /// must belong to this body and be visible in the active branch; they keep
-    /// their original expression and sharing. Literals follow [`Argument`]'s rules.
+    /// Checks and binds a typed value to this body. Bound values must already
+    /// belong to this body and be visible in the active branch; they keep their
+    /// expression and sharing. Standalone literals are admitted as body constants.
     /// Stores, conditions and returns also accept literals directly.
     ///
     /// ```compile_fail
@@ -418,7 +418,7 @@ impl FunctionBuilder<'_> {
     ///     let value = body.value::<I32>(1_u64);
     /// }
     /// ```
-    pub fn value<T: IntType>(&self, operand: impl IntoOp<T>) -> Result<Val<T>, BuildError> {
+    pub fn value<T: IntType>(&self, operand: impl Into<Val<T>>) -> Result<Val<T>, BuildError> {
         let value = self.operand(operand)?;
         Ok(Val::new(self.arena.clone(), Ok(value)))
     }
@@ -456,8 +456,11 @@ impl FunctionBuilder<'_> {
         self.complete(Terminal::Trap)
     }
 
-    fn operand<T: IntType>(&self, value: impl IntoOp<T>) -> Result<usize, BuildError> {
-        self.argument(value, T::TYPE)
+    fn operand<T: IntType>(&self, value: impl Into<Val<T>>) -> Result<usize, BuildError> {
+        let value: Val<T> = value.into();
+        let expression = value.checked_expression(&self.arena)?;
+        self.arena.require_visible(expression, self.region.id)?;
+        Ok(expression)
     }
 
     fn argument(&self, value: impl Into<Argument>, expected: Type) -> Result<usize, BuildError> {

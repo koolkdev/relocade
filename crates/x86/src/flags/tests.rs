@@ -1,3 +1,5 @@
+mod overrides;
+
 use crate::test_step as step;
 
 use super::{logic_flag, ArithmeticKind, Condition, FlagSource, StatusFlag};
@@ -122,44 +124,112 @@ fn auxiliary_carry_handles_nibble_boundaries_and_dirty_upper_bits() {
                 ("sub", 15, 1, 1),
                 ("sub", 14, 1, 0),
                 ("sub", 255, 1, 1),
+            ],
+        ),
+        (
+            auxiliary_carry::<I16>(),
+            vec![("add", 65534, 1, 1), ("sub", 65535, 1, 1)],
+        ),
+        (
+            auxiliary_carry::<I32>(),
+            vec![("add", -1, 1, 0), ("sub", -1, 1, 1)],
+        ),
+    ] {
+        assert_auxiliary_carry(module, &cases);
+    }
+}
+
+#[test]
+fn logical_undefined_auxiliary_flag_uses_zero_policy() {
+    for (module, cases) in [
+        (
+            auxiliary_carry::<I8>(),
+            vec![
                 ("logic", 14, 1, 0),
                 ("logic", 255, 1, 0),
+                ("logic", 255, 255, 0),
+            ],
+        ),
+        (
+            auxiliary_carry::<I16>(),
+            vec![("logic", 65535, 1, 0), ("logic", 65535, 65535, 0)],
+        ),
+        (
+            auxiliary_carry::<I32>(),
+            vec![("logic", -1, 1, 0), ("logic", i32::MAX, -1, 0)],
+        ),
+    ] {
+        assert_auxiliary_carry(module, &cases);
+    }
+}
+
+#[test]
+fn negation_auxiliary_carry_depends_on_the_original_low_nibble() {
+    // The module adds one to its first parameter, giving a logical zero here.
+    // These cases therefore query AF for zero minus the original operand.
+    for (module, cases) in [
+        (
+            auxiliary_carry::<I8>(),
+            vec![
+                ("sub", 255, 0, 0),
+                ("sub", 255, 15, 1),
+                ("sub", 255, 16, 0),
+                ("sub", 255, 128, 0),
+                ("sub", 255, 255, 1),
             ],
         ),
         (
             auxiliary_carry::<I16>(),
             vec![
-                ("add", 65534, 1, 1),
-                ("sub", 65535, 1, 1),
-                ("logic", 65535, 1, 0),
+                ("sub", 65535, 0, 0),
+                ("sub", 65535, 15, 1),
+                ("sub", 65535, 16, 0),
+                ("sub", 65535, 32768, 0),
+                ("sub", 65535, 65535, 1),
             ],
         ),
         (
             auxiliary_carry::<I32>(),
-            vec![("add", -1, 1, 0), ("sub", -1, 1, 1), ("logic", -1, 1, 0)],
+            vec![
+                ("sub", -1, 0, 0),
+                ("sub", -1, 15, 1),
+                ("sub", -1, 16, 0),
+                ("sub", -1, i32::MIN, 0),
+                ("sub", -1, -1, 1),
+            ],
         ),
     ] {
-        let mut module = step::TestModule::new(&module);
-        for (entry, left, right, expected) in cases {
-            module.entry = entry.into();
-            let input = step::Input {
-                arguments: vec![step::Argument::I32(left), step::Argument::I32(right)],
-                ..step::Input::new(&[])
-            };
-            assert_eq!(
-                module.observe(&input, 1),
-                step::Observation {
-                    events: vec![step::Event::Return {
-                        outcome: step::Outcome::Returned(Some(step::Argument::I32(expected))),
-                        snapshot: step::Snapshot {
-                            cpu: vec![],
-                            guest: None
-                        },
-                    }],
-                    guest_unchanged: true,
-                    machine_unchanged: true,
-                }
-            );
-        }
+        assert_auxiliary_carry(module, &cases);
     }
+}
+
+fn assert_auxiliary_carry(module: CompiledModule, cases: &[(&str, i32, i32, i32)]) {
+    let mut module = step::TestModule::new(&module);
+    for &(entry, left, right, expected) in cases {
+        module.entry = entry.into();
+        assert_return(&module, &[left, right], expected);
+    }
+}
+
+fn assert_return(module: &step::TestModule, arguments: &[i32], expected: i32) {
+    let input = step::Input {
+        arguments: arguments.iter().copied().map(step::Argument::I32).collect(),
+        ..step::Input::new(&[])
+    };
+    assert_eq!(
+        module.observe(&input, 1),
+        step::Observation {
+            events: vec![step::Event::Return {
+                outcome: step::Outcome::Returned(Some(step::Argument::I32(expected))),
+                snapshot: step::Snapshot {
+                    cpu: vec![],
+                    guest: None
+                },
+            }],
+            guest_unchanged: true,
+            machine_unchanged: true,
+        },
+        "{}({arguments:?})",
+        module.entry,
+    );
 }

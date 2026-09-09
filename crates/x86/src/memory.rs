@@ -3,8 +3,8 @@ mod scattered;
 use std::{cell::Cell, marker::PhantomData};
 
 use wasm86_compiler::{
-    BuildError, Func, FunctionBuilder, IntoOp, Mem, MemoryImport, MemoryInt, Program, Signature,
-    Type, Val, I1, I32,
+    BuildError, Func, FunctionBuilder, Mem, MemoryImport, MemoryInt, Program, Signature, Type, Val,
+    I1, I32,
 };
 
 const PAGE_SHIFT: u32 = 12;
@@ -289,7 +289,7 @@ impl PageTable {
         self,
         body: &mut FunctionBuilder<'_>,
         start: &Val<I32>,
-        last_byte_offset: impl IntoOp<I32>,
+        last_byte_offset: impl Into<Val<I32>>,
         first_entry: &Val<I32>,
     ) -> Result<TwoPageSpan, BuildError> {
         let last_address = start.add(last_byte_offset);
@@ -336,7 +336,7 @@ struct TwoPageSpan {
 
 impl TwoPageSpan {
     /// Rejects missing permissions or an address-space wrap.
-    fn access_denied(&self, required_permissions: impl IntoOp<I32> + Copy) -> Val<I1> {
+    fn access_denied(&self, required_permissions: impl Into<Val<I32>> + Copy) -> Val<I1> {
         self.first_entry
             .and(&self.second_entry)
             .and(required_permissions)

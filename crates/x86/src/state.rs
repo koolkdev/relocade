@@ -8,7 +8,7 @@ pub(super) use cpu::Cpu;
 pub use layout::{CpuState, Registers, StatusFlags, StoredFlags};
 
 use access::{cpu_load, cpu_store, register_location};
-use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Val, I32};
+use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32};
 
 use crate::{
     register::{Register, RegisterType},
@@ -43,7 +43,7 @@ impl<'cpu> State<'cpu> {
         &mut self,
         body: &mut FunctionBuilder<'_>,
         register: impl Into<Register<T>>,
-        value: impl IntoOp<T>,
+        value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
         self.registers
             .define(body, register_location(register.into()), value)
@@ -56,7 +56,7 @@ impl<'cpu> State<'cpu> {
     pub(super) fn publish(
         &self,
         body: &mut FunctionBuilder<'_>,
-        next_eip: impl IntoOp<I32>,
+        next_eip: impl Into<Val<I32>>,
         completed: u32,
     ) -> Result<(), BuildError> {
         self.publish_flags(body)?;

@@ -1,14 +1,12 @@
+mod binding;
 mod catalog;
 mod opcodes;
 
 pub(crate) use catalog::*;
 pub(crate) use opcodes::forms_by_opcode;
 
-use super::{
-    BinaryInstruction, BinaryOperation, DecodedInstruction, Instruction, Location, Operand,
-    OperandSize, OperandWidth,
-};
-use crate::{address::Address32, flags::Condition, register::RegisterCode};
+use super::{BinaryOperation, Location, OperandSize, OperandWidth, UnaryOperation};
+use crate::{flags::Condition, register::RegisterCode};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum OpcodeMap {
@@ -34,36 +32,23 @@ pub(crate) enum ImmediateWidth {
 
 #[derive(Clone, Copy)]
 pub(crate) enum Encoding {
+    OpcodeRegister,
     OpcodeRegisterImmediate,
     AccumulatorImmediate,
-    RegisterRm {
-        register: RegisterRole,
-    },
-    /// ModRM.reg selects an opcode extension; r/m names the left operand.
+    RegisterRm,
+    /// The immediate follows any address fields.
     RmImmediate {
-        extension: u8,
         immediate: ImmediateWidth,
     },
-    /// ModRM.reg is ignored; r/m names the only operand.
+    /// The r/m field names the only operand. The form may constrain ModRM.reg.
     Rm,
     /// The address field remains 32-bit regardless of the data width.
-    AccumulatorOffset {
-        accumulator: RegisterRole,
-    },
+    AccumulatorOffset,
 }
 
 impl Encoding {
     pub(crate) fn has_modrm(self) -> bool {
-        matches!(
-            self,
-            Self::RegisterRm { .. } | Self::RmImmediate { .. } | Self::Rm
-        )
-    }
-    pub(crate) fn matches_modrm(self, modrm: u8) -> bool {
-        match self {
-            Self::RmImmediate { extension, .. } => ((modrm >> 3) & 7) == extension,
-            _ => true,
-        }
+        matches!(self, Self::RegisterRm | Self::RmImmediate { .. } | Self::Rm)
     }
 }
 
@@ -82,24 +67,9 @@ impl WidthRule {
     }
 }
 
-/// Position of the encoded register in the binary operand pair.
-#[derive(Clone, Copy)]
-pub(crate) enum RegisterRole {
-    Left,
-    Right,
-}
-impl RegisterRole {
-    fn bind<V>(self, register: RegisterCode, other: Location<V>) -> (Location<V>, Operand<V>) {
-        let register = Location::Register(register);
-        match self {
-            Self::Left => (register, Operand::Location(other)),
-            Self::Right => (other, Operand::Location(register)),
-        }
-    }
-}
-
 /// Physical fields, before assignment to the operation's operand roles.
 pub(crate) enum DecodedFields<V> {
+    Location(Location<V>),
     OpcodeRegisterImmediate {
         register: RegisterCode,
         immediate: V,
@@ -115,17 +85,34 @@ pub(crate) enum DecodedFields<V> {
         rm: Location<V>,
         immediate: V,
     },
-    Rm {
-        rm: Location<V>,
-    },
     AccumulatorOffset {
         offset: V,
     },
 }
 
+/// A location's role is independent of the fields needed to decode it.
+#[derive(Clone, Copy)]
+enum LocationBinding {
+    Register,
+    Rm,
+    Accumulator,
+    AbsoluteOffset,
+}
+
+#[derive(Clone, Copy)]
+enum OperandBinding {
+    Location(LocationBinding),
+    Immediate,
+}
+
 #[derive(Clone, Copy)]
 enum Operation {
-    Binary(BinaryOperation),
+    Binary {
+        operation: BinaryOperation,
+        left: LocationBinding,
+        right: OperandBinding,
+    },
+    Unary(UnaryOperation),
     SetCondition(Condition),
 }
 
@@ -135,12 +122,14 @@ pub(crate) struct Form {
     mask: u8,
     pub(crate) map: OpcodeMap,
     pub(crate) encoding: Encoding,
+    /// Required ModRM.reg opcode extension; otherwise those bits belong to the encoding.
+    pub(crate) extension: Option<u8>,
     width: WidthRule,
     operation: Operation,
 }
 impl Form {
-    pub(crate) const fn resolve(&self, size: OperandSize) -> ResolvedForm {
-        ResolvedForm {
+    pub(crate) const fn with_operand_size(&self, size: OperandSize) -> SizedForm {
+        SizedForm {
             encoding: self.encoding,
             width: self.width.resolve(size),
             operation: self.operation,
@@ -150,21 +139,26 @@ impl Form {
     pub(crate) fn matches(&self, opcode: u8) -> bool {
         opcode & self.mask == self.opcode
     }
+    pub(crate) fn matches_modrm(&self, modrm: u8) -> bool {
+        match self.extension {
+            Some(extension) => ((modrm >> 3) & 7) == extension,
+            None => true,
+        }
+    }
 }
 
 /// A form whose operand width is fixed before its fields are read.
 #[derive(Clone, Copy)]
-pub(crate) struct ResolvedForm {
+pub(crate) struct SizedForm {
     pub(crate) encoding: Encoding,
     pub(crate) width: OperandWidth,
     operation: Operation,
 }
-impl ResolvedForm {
+impl SizedForm {
     pub(crate) const fn immediate_width(&self) -> OperandWidth {
         match self.encoding {
             Encoding::RmImmediate {
                 immediate: ImmediateWidth::SignedByte,
-                ..
             } => OperandWidth::Byte,
             _ => self.width,
         }
@@ -174,76 +168,7 @@ impl ResolvedForm {
             self.encoding,
             Encoding::RmImmediate {
                 immediate: ImmediateWidth::SignedByte,
-                ..
             }
         )
-    }
-    pub(crate) fn bind<V, P>(
-        &self,
-        fields: DecodedFields<V>,
-        eip: P,
-        next_eip: P,
-    ) -> DecodedInstruction<V, P> {
-        let instruction = match self.operation {
-            Operation::SetCondition(condition) => {
-                let DecodedFields::Rm { rm } = fields else {
-                    unreachable!("SETcc has one r/m field")
-                };
-                Instruction::SetCondition {
-                    condition,
-                    destination: rm,
-                }
-            }
-            Operation::Binary(operation) => {
-                let (left, right) = self.bind_binary(fields);
-                Instruction::Binary(BinaryInstruction {
-                    operation,
-                    width: self.width,
-                    left,
-                    right,
-                })
-            }
-        };
-        DecodedInstruction {
-            instruction,
-            eip,
-            next_eip,
-        }
-    }
-    fn bind_binary<V>(&self, fields: DecodedFields<V>) -> (Location<V>, Operand<V>) {
-        match (self.encoding, fields) {
-            (
-                Encoding::OpcodeRegisterImmediate,
-                DecodedFields::OpcodeRegisterImmediate {
-                    register,
-                    immediate,
-                },
-            ) => (Location::Register(register), Operand::Immediate(immediate)),
-            (Encoding::AccumulatorImmediate, DecodedFields::AccumulatorImmediate { immediate }) => {
-                (
-                    Location::Register(RegisterCode::from_code(0)),
-                    Operand::Immediate(immediate),
-                )
-            }
-            (
-                Encoding::RegisterRm { register: role },
-                DecodedFields::RegisterRm { register, rm },
-            ) => role.bind(register, rm),
-            (Encoding::RmImmediate { .. }, DecodedFields::RmImmediate { rm, immediate }) => {
-                (rm, Operand::Immediate(immediate))
-            }
-            (
-                Encoding::AccumulatorOffset { accumulator: role },
-                DecodedFields::AccumulatorOffset { offset },
-            ) => role.bind(
-                RegisterCode::from_code(0),
-                Location::Memory(Address32 {
-                    base: None,
-                    index: None,
-                    displacement: offset,
-                }),
-            ),
-            _ => unreachable!("decoded fields match the selected encoding"),
-        }
     }
 }

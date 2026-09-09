@@ -2,7 +2,7 @@ use crate::{
     address::{Address32, IndexTerm, RegisterTerm},
     instruction::{
         opcode_forms, DecodedFields, DecodedInstruction, Encoding, Location, OpcodeMap,
-        OperandSize, OperandWidth, ResolvedForm, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
+        OperandSize, OperandWidth, SizedForm, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
         OPERAND_SIZE_PREFIX,
     },
     register::{Gpr32, RegisterCode},
@@ -44,16 +44,19 @@ pub(crate) fn snapshot(
         let modrm = cursor.byte()?;
         let form = std::iter::once(first)
             .chain(candidates)
-            .find(|form| form.encoding.matches_modrm(modrm))
+            .find(|form| form.matches_modrm(modrm))
             .ok_or(BlockError::UnsupportedInstruction {
                 address: instruction_eip,
                 opcode: reported_opcode,
             })?;
-        (form.resolve(operand_size), Some(modrm))
+        (form.with_operand_size(operand_size), Some(modrm))
     } else {
-        (first.resolve(operand_size), None)
+        (first.with_operand_size(operand_size), None)
     };
     let fields = match form.encoding {
+        Encoding::OpcodeRegister => {
+            DecodedFields::Location(Location::Register(RegisterCode::from_code(opcode)))
+        }
         Encoding::OpcodeRegisterImmediate => DecodedFields::OpcodeRegisterImmediate {
             register: RegisterCode::from_code(opcode),
             immediate: cursor.immediate(&form)?,
@@ -61,10 +64,10 @@ pub(crate) fn snapshot(
         Encoding::AccumulatorImmediate => DecodedFields::AccumulatorImmediate {
             immediate: cursor.immediate(&form)?,
         },
-        Encoding::RegisterRm { .. } | Encoding::RmImmediate { .. } | Encoding::Rm => {
+        Encoding::RegisterRm | Encoding::RmImmediate { .. } | Encoding::Rm => {
             cursor.modrm_fields(&form, modrm.expect("the selected encoding has ModRM"))?
         }
-        Encoding::AccumulatorOffset { .. } => DecodedFields::AccumulatorOffset {
+        Encoding::AccumulatorOffset => DecodedFields::AccumulatorOffset {
             offset: cursor.integer(OperandWidth::Dword)?,
         },
     };
@@ -109,7 +112,7 @@ impl SnapshotCursor<'_> {
         Ok(bits)
     }
 
-    fn immediate(&mut self, form: &ResolvedForm) -> Result<u32, BlockError> {
+    fn immediate(&mut self, form: &SizedForm) -> Result<u32, BlockError> {
         let bits = self.integer(form.immediate_width())?;
         Ok(if form.sign_extends_immediate() {
             bits as u8 as i8 as i32 as u32
@@ -120,7 +123,7 @@ impl SnapshotCursor<'_> {
 
     fn modrm_fields(
         &mut self,
-        form: &ResolvedForm,
+        form: &SizedForm,
         modrm: u8,
     ) -> Result<DecodedFields<u32>, BlockError> {
         let rm = if modrm >> 6 == 3 {
@@ -129,7 +132,7 @@ impl SnapshotCursor<'_> {
             Location::Memory(self.decode_address(modrm)?)
         };
         Ok(match form.encoding {
-            Encoding::RegisterRm { .. } => DecodedFields::RegisterRm {
+            Encoding::RegisterRm => DecodedFields::RegisterRm {
                 register: RegisterCode::from_code(modrm >> 3),
                 rm,
             },
@@ -137,7 +140,7 @@ impl SnapshotCursor<'_> {
                 rm,
                 immediate: self.immediate(form)?,
             },
-            Encoding::Rm => DecodedFields::Rm { rm },
+            Encoding::Rm => DecodedFields::Location(rm),
             _ => unreachable!("the selected form has a ModRM field"),
         })
     }

@@ -1,6 +1,6 @@
 use crate::fixture::Fixture;
 use crate::wasm::TestModule;
-use wasm86_compiler::{IntType, Program, Signature, Type, I1, I16, I32, I64, I8};
+use wasm86_compiler::{IntType, Program, Signature, Type, Val, I1, I16, I32, I64, I8};
 
 #[test]
 fn dword_literals_preserve_their_bits() {
@@ -10,7 +10,7 @@ fn dword_literals_preserve_their_bits() {
         (0x7fff_ffff, i32::MAX),
         (u32::MAX, -1),
     ] {
-        let module = Fixture::new().expression(&[], |body| body.value::<I32>(bits).unwrap());
+        let module = Fixture::new().expression(&[], |_| Val::<I32>::from(bits));
         assert_eq!(module.instantiate().call::<i32>(()).unwrap(), expected);
     }
 }
@@ -23,21 +23,20 @@ fn qword_literals_preserve_their_bits() {
         (0x7fff_ffff_ffff_ffff, i64::MAX),
         (u64::MAX, -1),
     ] {
-        let module = Fixture::new().expression(&[], |body| body.value::<I64>(bits).unwrap());
+        let module = Fixture::new().expression(&[], |_| Val::<I64>::from(bits));
         assert_eq!(module.instantiate().call::<i64>(()).unwrap(), expected);
     }
 }
 
 #[test]
 fn native_literals_keep_their_signed_or_unsigned_value() {
-    let signed32 = Fixture::new().expression(&[], |body| body.value::<I32>(-2147483647).unwrap());
+    let signed32 = Fixture::new().expression(&[], |_| Val::<I32>::from(-2147483647));
     assert_eq!(signed32.instantiate().call::<i32>(()).unwrap(), -2147483647);
 
-    let signed64 = Fixture::new().expression(&[], |body| body.value::<I64>(0).unwrap().add(-1));
+    let signed64 = Fixture::new().expression(&[], |_| Val::<I64>::from(0).add(-1));
     assert_eq!(signed64.instantiate().call::<i64>(()).unwrap(), -1);
 
-    let unsigned64 =
-        Fixture::new().expression(&[], |body| body.value::<I64>(0).unwrap().add(u32::MAX));
+    let unsigned64 = Fixture::new().expression(&[], |_| Val::<I64>::from(0).add(u32::MAX));
     assert_eq!(
         unsigned64.instantiate().call::<i64>(()).unwrap(),
         4294967295
@@ -46,12 +45,26 @@ fn native_literals_keep_their_signed_or_unsigned_value() {
 
 #[test]
 fn constant_additions_wrap_at_the_carrier_width() {
-    let dword =
-        Fixture::new().expression(&[], |body| body.value::<I32>(0x7fff_ffff).unwrap().add(1));
+    let dword = Fixture::new().expression(&[], |_| Val::<I32>::from(0x7fff_ffff).add(1));
     assert_eq!(dword.instantiate().call::<i32>(()).unwrap(), i32::MIN);
 
-    let qword = Fixture::new().expression(&[], |body| body.value::<I64>(u64::MAX).unwrap().add(1));
+    let qword = Fixture::new().expression(&[], |_| Val::<I64>::from(u64::MAX).add(1));
     assert_eq!(qword.instantiate().call::<i64>(()).unwrap(), 0);
+}
+
+#[test]
+fn standalone_expressions_can_be_reused_in_different_function_bodies() {
+    let seven = Val::<I32>::from(5).add(2);
+    let constant = Fixture::new().expression(&[], |_| Val::from(&seven));
+    assert_eq!(constant.instantiate().call::<i32>(()).unwrap(), 7);
+
+    let difference = Fixture::new().expression(&[Type::I32], |body| {
+        seven.sub(body.parameter::<I32>(0).unwrap())
+    });
+    let mut instance = difference.instantiate();
+    for (input, expected) in [(3, 4), (-2, 9), (i32::MIN, -2147483641)] {
+        assert_eq!(instance.call::<i32>(input).unwrap(), expected);
+    }
 }
 
 #[test]
@@ -101,9 +114,9 @@ fn qword_addition_wraps_and_accepts_signed_operands() {
 #[test]
 fn narrow_literals_keep_only_their_logical_bits() {
     fn check<T: IntType>(bits: u32, expected: i32, all_bits: i32) {
-        let positive = Fixture::new().expression(&[], |body| body.value::<T>(bits).unwrap());
+        let positive = Fixture::new().expression(&[], |_| Val::<T>::from(bits));
         assert_eq!(positive.instantiate().call::<i32>(()).unwrap(), expected);
-        let negative = Fixture::new().expression(&[], |body| body.value::<T>(-1).unwrap());
+        let negative = Fixture::new().expression(&[], |_| Val::<T>::from(-1));
         assert_eq!(negative.instantiate().call::<i32>(()).unwrap(), all_bits);
     }
     check::<I1>(2, 0, 1);
@@ -113,7 +126,7 @@ fn narrow_literals_keep_only_their_logical_bits() {
 
 #[test]
 fn boolean_addition_uses_its_logical_bit() {
-    let module = Fixture::new().expression(&[], |body| body.value::<I1>(true).unwrap().add(true));
+    let module = Fixture::new().expression(&[], |_| Val::<I1>::from(true).add(true));
     assert_eq!(module.instantiate().call::<i32>(()).unwrap(), 0);
 }
 

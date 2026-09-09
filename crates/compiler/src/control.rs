@@ -1,6 +1,4 @@
-use crate::{
-    Argument, BuildError, FunctionBuilder, IntType, IntoOp, Operation, Terminal, Type, Val, I1,
-};
+use crate::{Argument, BuildError, FunctionBuilder, IntType, Operation, Terminal, Type, Val, I1};
 
 mod switch;
 
@@ -108,7 +106,7 @@ impl FunctionBuilder<'_> {
     /// ```
     pub fn if_(
         &mut self,
-        condition: impl IntoOp<I1>,
+        condition: impl Into<Val<I1>>,
         build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         let condition = self.operand(condition)?;
@@ -145,7 +143,7 @@ impl FunctionBuilder<'_> {
     /// ```
     pub fn if_else(
         &mut self,
-        condition: impl IntoOp<I1>,
+        condition: impl Into<Val<I1>>,
         then_build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
         else_build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
@@ -190,7 +188,7 @@ impl FunctionBuilder<'_> {
     /// ```
     pub fn if_value<T: IntType>(
         &mut self,
-        condition: impl IntoOp<I1>,
+        condition: impl Into<Val<I1>>,
         then_build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
         else_build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<Val<T>, BuildError> {

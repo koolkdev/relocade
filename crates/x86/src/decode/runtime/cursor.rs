@@ -4,7 +4,7 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32, I8};
 
 use crate::{
     instruction::{
-        DecodedFields, Encoding, Location, OpcodeMap, OperandSize, OperandWidth, ResolvedForm,
+        DecodedFields, Encoding, Location, OpcodeMap, OperandSize, OperandWidth, SizedForm,
         EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
     },
     memory::Memory,
@@ -147,7 +147,7 @@ impl<'memory> RuntimeCursor<'memory> {
     pub(super) fn immediate(
         &mut self,
         body: &mut FunctionBuilder<'_>,
-        form: &ResolvedForm,
+        form: &SizedForm,
     ) -> Result<Val<I32>, BuildError> {
         if form.sign_extends_immediate() {
             return Ok(self.byte(body)?.signed().extend::<I32>());
@@ -162,12 +162,12 @@ impl<'memory> RuntimeCursor<'memory> {
     pub(super) fn modrm_fields(
         &mut self,
         body: &mut FunctionBuilder<'_>,
-        form: &ResolvedForm,
+        form: &SizedForm,
         modrm: &Val<I8>,
         rm: Location<Val<I32>>,
     ) -> Result<DecodedFields<Val<I32>>, BuildError> {
         Ok(match form.encoding {
-            Encoding::RegisterRm { .. } => DecodedFields::RegisterRm {
+            Encoding::RegisterRm => DecodedFields::RegisterRm {
                 register: RegisterCode::indexed(modrm.unsigned().shr(3).unsigned().extend::<I32>()),
                 rm,
             },
@@ -175,7 +175,7 @@ impl<'memory> RuntimeCursor<'memory> {
                 rm,
                 immediate: self.immediate(body, form)?,
             },
-            Encoding::Rm => DecodedFields::Rm { rm },
+            Encoding::Rm => DecodedFields::Location(rm),
             _ => unreachable!("the selected form has a ModRM field"),
         })
     }

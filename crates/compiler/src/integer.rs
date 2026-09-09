@@ -34,6 +34,39 @@ pub(super) fn shift_count(ty: Type, count: u32) -> u32 {
     count & if ty == Type::I64 { 63 } else { 31 }
 }
 
+pub(super) fn binary(operator: BinaryOp, left: u64, right: u64) -> u64 {
+    match operator {
+        BinaryOp::Add => left.wrapping_add(right),
+        BinaryOp::Sub => left.wrapping_sub(right),
+        BinaryOp::And => left & right,
+        BinaryOp::Or => left | right,
+        BinaryOp::Xor => left ^ right,
+    }
+}
+
+pub(super) fn compare(ty: Type, operator: CompareOp, left: u64, right: u64) -> bool {
+    match operator {
+        CompareOp::Eq => left == right,
+        CompareOp::Ne => left != right,
+        CompareOp::LtUnsigned => left < right,
+        CompareOp::GeUnsigned => left >= right,
+        CompareOp::LtSigned => signed_value(ty, left) < signed_value(ty, right),
+        CompareOp::GeSigned => signed_value(ty, left) >= signed_value(ty, right),
+    }
+}
+
+pub(super) fn shift(ty: Type, operator: ShiftOp, value: u64, count: u32) -> u64 {
+    let count = shift_count(ty, count);
+    match operator {
+        ShiftOp::Left => value.wrapping_shl(count),
+        ShiftOp::Right => value >> count,
+    }
+}
+
+pub(super) fn popcnt(value: u64) -> u64 {
+    u64::from(value.count_ones())
+}
+
 /// A conservative bound on the nonzero bits in the emitted integer, including
 /// upper bits that the logical type does not observe.
 pub(super) fn unsigned_bits(value: Value, values: &[Value], inputs: &[u8]) -> u8 {

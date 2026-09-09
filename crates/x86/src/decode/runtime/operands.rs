@@ -9,7 +9,7 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
 use crate::{
     instruction::{
         forms_by_opcode, modrm_forms, DecodedFields, DecodedInstruction, Encoding, Form, Location,
-        OpcodeMap, ResolvedForm,
+        OpcodeMap, SizedForm,
     },
     register::RegisterCode,
 };
@@ -20,43 +20,33 @@ impl<C> RuntimeDecoder<'_, C>
 where
     C: Fn(FunctionBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
 {
-    /// Decodes an opcode-selected register or accumulator followed by an immediate.
-    pub(super) fn decode_immediate_operands(
+    /// Decodes fields of forms whose operands do not use ModRM.
+    pub(super) fn decode_opcode_operands(
         &self,
         mut body: FunctionBuilder<'_>,
         mut cursor: RuntimeCursor<'_>,
         opcode: &Val<I8>,
-        form: &ResolvedForm,
+        form: &SizedForm,
     ) -> Result<(), BuildError> {
-        let bits = cursor.immediate(&mut body, form)?;
         let fields = match form.encoding {
+            Encoding::OpcodeRegister => DecodedFields::Location(Location::Register(
+                RegisterCode::indexed(opcode.unsigned().extend::<I32>()),
+            )),
             Encoding::OpcodeRegisterImmediate => DecodedFields::OpcodeRegisterImmediate {
                 register: RegisterCode::indexed(opcode.unsigned().extend::<I32>()),
-                immediate: bits,
+                immediate: cursor.immediate(&mut body, form)?,
             },
-            Encoding::AccumulatorImmediate => {
-                DecodedFields::AccumulatorImmediate { immediate: bits }
-            }
-            _ => unreachable!("the selected form has an immediate and no ModRM"),
+            Encoding::AccumulatorImmediate => DecodedFields::AccumulatorImmediate {
+                immediate: cursor.immediate(&mut body, form)?,
+            },
+            Encoding::AccumulatorOffset => DecodedFields::AccumulatorOffset {
+                offset: cursor.dword(&mut body)?,
+            },
+            _ => unreachable!("the selected form has no ModRM"),
         };
         let decoded_instruction =
             form.bind(fields, cursor.instruction_eip().clone(), cursor.next_eip());
         (self.complete_instruction)(body, decoded_instruction)
-    }
-
-    pub(super) fn decode_accumulator_offset_operands(
-        &self,
-        mut body: FunctionBuilder<'_>,
-        mut cursor: RuntimeCursor<'_>,
-        form: &ResolvedForm,
-    ) -> Result<(), BuildError> {
-        let offset = cursor.dword(&mut body)?;
-        let instruction = form.bind(
-            DecodedFields::AccumulatorOffset { offset },
-            cursor.instruction_eip().clone(),
-            cursor.next_eip(),
-        );
-        (self.complete_instruction)(body, instruction)
     }
 
     pub(super) fn decode_modrm_operands(
@@ -100,7 +90,7 @@ where
         modrm: &Val<I8>,
         form: &Form,
     ) -> Result<(), BuildError> {
-        let form = form.resolve(cursor.operand_size());
+        let form = form.with_operand_size(cursor.operand_size());
         let rm = Location::Register(RegisterCode::indexed(modrm.unsigned().extend::<I32>()));
         let fields = cursor.modrm_fields(&mut body, &form, modrm, rm)?;
         let instruction = form.bind(fields, cursor.instruction_eip().clone(), cursor.next_eip());
@@ -127,7 +117,7 @@ where
                     let Some(form) = form else {
                         return cursor.return_unsupported(arm, opcode);
                     };
-                    let form = form.resolve(cursor.operand_size());
+                    let form = form.with_operand_size(cursor.operand_size());
                     let mut form_cursor = cursor.clone();
                     let fields = form_cursor.modrm_fields(
                         &mut arm,
@@ -158,15 +148,15 @@ fn dispatch_form_by_extension(
     forms: &[&'static Form],
     continue_decoding: &impl Fn(FunctionBuilder<'_>, Option<&Form>) -> Result<(), BuildError>,
 ) -> Result<(), BuildError> {
-    if !matches!(forms[0].encoding, Encoding::RmImmediate { .. }) {
+    if forms[0].extension.is_none() {
         return continue_decoding(body, Some(forms[0]));
     }
     let extensions: BTreeMap<_, _> = forms
         .iter()
         .map(|form| {
-            let Encoding::RmImmediate { extension, .. } = form.encoding else {
-                unreachable!("one opcode has one physical ModRM layout")
-            };
+            let extension = form
+                .extension
+                .expect("group forms select ModRM.reg extensions");
             (u32::from(extension), *form)
         })
         .collect();

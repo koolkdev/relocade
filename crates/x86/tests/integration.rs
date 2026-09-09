@@ -28,5 +28,7 @@ mod memory_moves;
 mod mov_blocks;
 #[path = "suites/operand_fetch.rs"]
 mod operand_fetch;
+#[path = "suites/unary_operations.rs"]
+mod unary_operations;
 #[path = "suites/word_moves.rs"]
 mod word_moves;

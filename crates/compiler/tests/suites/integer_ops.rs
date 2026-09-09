@@ -1,6 +1,6 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, MemoryBytes, Value};
-use wasm86_compiler::{Type, I16, I32, I64, I8};
+use wasm86_compiler::{Type, Val, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[path = "integer_ops/addressing.rs"]
@@ -220,7 +220,7 @@ fn zero_shifts_do_not_force_unused_count_loads() {
     let memory = fixture.memory("state", &[7, 0, 0, 0]);
     let module = fixture.function(&[], Some(Type::I32), |mut b| {
         let count = b.load::<I32>(memory, 65536)?;
-        let value = b.value::<I32>(0)?.shl(count);
+        let value = Val::<I32>::from(0).shl(count);
         b.return_(value)
     });
     let code = inspect(module.bytes());
@@ -235,9 +235,7 @@ fn zero_shifts_do_not_force_unused_count_loads() {
 
 #[test]
 fn signed_literal_extension_folds_the_logical_sign_bit() {
-    let module = Fixture::new().expression(&[], |b| {
-        b.value::<I8>(255).unwrap().signed().extend::<I32>()
-    });
+    let module = Fixture::new().expression(&[], |_| Val::<I8>::from(255).signed().extend::<I32>());
     let code = inspect(module.bytes());
     assert_eq!(code.constants, [-1]);
     assert_eq!((code.shifts, code.conversions, code.locals), (0, 0, 0));

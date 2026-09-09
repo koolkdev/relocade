@@ -24,6 +24,14 @@ pub(super) enum BinaryOperation {
     Test,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum UnaryOperation {
+    Increment,
+    Decrement,
+    Negate,
+    Not,
+}
+
 /// Width of the instruction's data operands; effective addresses remain 32-bit.
 #[derive(Clone, Copy)]
 pub(super) enum OperandWidth {
@@ -56,6 +64,7 @@ pub(super) enum Operand<V> {
     Location(Location<V>),
 }
 
+#[derive(Clone)]
 pub(super) enum Location<V> {
     Register(RegisterCode),
     Memory(Address32<V>),
@@ -76,8 +85,15 @@ pub(super) struct BinaryInstruction<V> {
     pub(super) right: Operand<V>,
 }
 
+pub(super) struct UnaryInstruction<V> {
+    pub(super) operation: UnaryOperation,
+    pub(super) width: OperandWidth,
+    pub(super) destination: Location<V>,
+}
+
 pub(super) enum Instruction<V> {
     Binary(BinaryInstruction<V>),
+    Unary(UnaryInstruction<V>),
     SetCondition {
         condition: Condition,
         destination: Location<V>,
@@ -97,6 +113,7 @@ impl<V> Instruction<V> {
                 matches!(instruction.left, Location::Memory(_))
                     || matches!(instruction.right, Operand::Location(Location::Memory(_)))
             }
+            Self::Unary(instruction) => matches!(instruction.destination, Location::Memory(_)),
             Self::SetCondition { destination, .. } => matches!(destination, Location::Memory(_)),
         }
     }

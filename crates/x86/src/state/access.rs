@@ -2,7 +2,7 @@
 
 use std::mem::{offset_of, size_of};
 
-use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Mem, MemoryInt, Val, I32, I8};
+use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, Val, I32, I8};
 
 use crate::{
     register::{Gpr32, Register, RegisterSelection, RegisterType},
@@ -57,7 +57,7 @@ pub(in crate::state) fn store<T: CpuField>(
     memory: Mem,
     offset: u32,
     _field: fn(&CpuState) -> &T,
-    value: impl IntoOp<T::Int>,
+    value: impl Into<Val<T::Int>>,
 ) -> Result<(), BuildError> {
     body.store::<T::Int>(memory, offset, value)
 }

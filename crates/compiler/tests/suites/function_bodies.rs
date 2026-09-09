@@ -1,4 +1,4 @@
-use wasm86_compiler::{BuildError, Program, Signature, Type, I1, I32, I64, I8};
+use wasm86_compiler::{BuildError, Program, Signature, Type, Val, I1, I32, I64, I8};
 
 #[test]
 fn dropping_a_body_leaves_its_function_unfinished() {
@@ -66,6 +66,8 @@ fn foreign_zero_is_rejected_without_poisoning_other_expressions() {
     });
     let body = program.define(function).unwrap();
     let own = body.parameter::<I32>(0).unwrap();
+    let folded = Val::<I32>::from(0).and(&foreign_zero);
+    assert_eq!(body.value(folded).err(), Some(BuildError::ForeignBody));
     let invalid = own.add(&foreign_zero).add(0);
     assert!(matches!(
         body.return_(&invalid),
@@ -97,6 +99,14 @@ fn parameter_and_return_types_must_match_the_signature() {
         body.return_(&other_type),
         Err(BuildError::TypeMismatch { .. })
     ));
+    let body = program.define(function).unwrap();
+    assert_eq!(
+        body.return_(Val::<I8>::from(1)),
+        Err(BuildError::TypeMismatch {
+            expected: Type::I1,
+            actual: Type::I8,
+        })
+    );
     let body = program.define(function).unwrap();
     let result = body.parameter::<I1>(0).unwrap();
     body.return_(&result).unwrap();

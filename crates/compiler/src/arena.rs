@@ -141,10 +141,7 @@ impl ExpressionArena {
                     return input;
                 }
                 if let ValueKind::Constant(bits) = value.kind {
-                    let bits = match operator {
-                        ShiftOp::Left => bits.wrapping_shl(effective),
-                        ShiftOp::Right => bits >> effective,
-                    };
+                    let bits = integer::shift(value.ty, operator, bits, effective);
                     return arena.constant(value.ty, bits);
                 }
             }
@@ -209,7 +206,7 @@ impl ExpressionArena {
         self.with_open(|arena| {
             let value = arena.values[input];
             if let ValueKind::Constant(bits) = value.kind {
-                return arena.constant(value.ty, u64::from(bits.count_ones()));
+                return arena.constant(value.ty, integer::popcnt(bits));
             }
             let input = arena.normalize(input);
             arena.intern(Value {
@@ -297,16 +294,7 @@ impl ValueArena {
         let b = self.values[right];
         debug_assert_eq!(a.ty, b.ty);
         if let (ValueKind::Constant(a), ValueKind::Constant(b)) = (a.kind, b.kind) {
-            return self.constant(
-                self.values[left].ty,
-                match operator {
-                    BinaryOp::Add => a.wrapping_add(b),
-                    BinaryOp::Sub => a.wrapping_sub(b),
-                    BinaryOp::And => a & b,
-                    BinaryOp::Or => a | b,
-                    BinaryOp::Xor => a ^ b,
-                },
-            );
+            return self.constant(self.values[left].ty, integer::binary(operator, a, b));
         }
         match (operator, a.kind, b.kind) {
             (
@@ -335,20 +323,7 @@ impl ValueArena {
         let b = self.values[right];
         debug_assert_eq!(a.ty, b.ty);
         if let (ValueKind::Constant(a), ValueKind::Constant(b)) = (a.kind, b.kind) {
-            let result = match operator {
-                CompareOp::Eq => a == b,
-                CompareOp::Ne => a != b,
-                CompareOp::LtUnsigned => a < b,
-                CompareOp::GeUnsigned => a >= b,
-                CompareOp::LtSigned => {
-                    integer::signed_value(self.values[left].ty, a)
-                        < integer::signed_value(self.values[right].ty, b)
-                }
-                CompareOp::GeSigned => {
-                    integer::signed_value(self.values[left].ty, a)
-                        >= integer::signed_value(self.values[right].ty, b)
-                }
-            };
+            let result = integer::compare(self.values[left].ty, operator, a, b);
             return self.constant(Type::I1, u64::from(result));
         }
         if left == right {

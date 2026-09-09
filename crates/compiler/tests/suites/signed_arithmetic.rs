@@ -48,37 +48,29 @@ fn wrapping_difference_uses_one_subtraction_and_signed_carrier_comparison() {
 fn constant_subtraction_and_comparisons_fold_at_the_logical_width() {
     for (module, expected) in [
         (
-            Fixture::new().expression(&[], |b| b.value::<I8>(0).unwrap().sub(1).signed().lt(0)),
+            Fixture::new().expression(&[], |_| Val::<I8>::from(0).sub(1).signed().lt(0)),
             1,
         ),
         (
-            Fixture::new().expression(&[], |b| b.value::<I8>(0).unwrap().sub(129).signed().lt(0)),
+            Fixture::new().expression(&[], |_| Val::<I8>::from(0).sub(129).signed().lt(0)),
             0,
         ),
         (
-            Fixture::new().expression(&[], |b| {
-                b.value::<I16>(0).unwrap().sub(32769).signed().ge(0)
+            Fixture::new().expression(&[], |_| Val::<I16>::from(0).sub(32769).signed().ge(0)),
+            1,
+        ),
+        (
+            Fixture::new().expression(&[], |_| {
+                Val::<I32>::from(0x8000_0000u32).sub(1).signed().ge(0)
             }),
             1,
         ),
         (
-            Fixture::new().expression(&[], |b| {
-                b.value::<I32>(0x8000_0000u32)
-                    .unwrap()
-                    .sub(1)
-                    .signed()
-                    .ge(0)
-            }),
-            1,
-        ),
-        (
-            Fixture::new().expression(&[], |b| b.value::<I64>(0).unwrap().sub(1).signed().ge(0)),
+            Fixture::new().expression(&[], |_| Val::<I64>::from(0).sub(1).signed().ge(0)),
             0,
         ),
         (
-            Fixture::new().expression(&[], |b| {
-                b.value::<I1>(false).unwrap().sub(true).signed().lt(false)
-            }),
+            Fixture::new().expression(&[], |_| Val::<I1>::from(false).sub(true).signed().lt(false)),
             1,
         ),
         (

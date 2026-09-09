@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
 
 use crate::instruction::{
-    forms_by_opcode, opcode_forms, DecodedInstruction, Encoding, Form, OpcodeMap,
-    EXTENDED_OPCODE_ESCAPE, OPERAND_SIZE_PREFIX,
+    forms_by_opcode, opcode_forms, DecodedInstruction, Form, OpcodeMap, EXTENDED_OPCODE_ESCAPE,
+    OPERAND_SIZE_PREFIX,
 };
 
 use super::{cursor::RuntimeCursor, RuntimeDecoder};
@@ -41,25 +41,15 @@ where
             match key.and_then(|key| actions.get(&key)) {
                 Some(OpcodeAction::Instruction(forms)) => {
                     let form = forms[0];
-                    match form.encoding {
-                        Encoding::RegisterRm { .. }
-                        | Encoding::RmImmediate { .. }
-                        | Encoding::Rm => {
-                            self.decode_modrm_operands(arm, cursor.clone(), opcode, forms)
-                        }
-                        Encoding::OpcodeRegisterImmediate | Encoding::AccumulatorImmediate => self
-                            .decode_immediate_operands(
-                                arm,
-                                cursor.clone(),
-                                opcode,
-                                &form.resolve(cursor.operand_size()),
-                            ),
-                        Encoding::AccumulatorOffset { .. } => self
-                            .decode_accumulator_offset_operands(
-                                arm,
-                                cursor.clone(),
-                                &form.resolve(cursor.operand_size()),
-                            ),
+                    if form.encoding.has_modrm() {
+                        self.decode_modrm_operands(arm, cursor.clone(), opcode, forms)
+                    } else {
+                        self.decode_opcode_operands(
+                            arm,
+                            cursor.clone(),
+                            opcode,
+                            &form.with_operand_size(cursor.operand_size()),
+                        )
                     }
                 }
                 Some(OpcodeAction::ExtendedMap) => {

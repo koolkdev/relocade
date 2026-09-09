@@ -47,6 +47,7 @@ impl Gpr32 {
 }
 
 /// A register view interprets the low three encoding bits for its operand width.
+#[derive(Clone)]
 pub(super) enum RegisterCode {
     Known(u8),
     Indexed(Val<I32>),

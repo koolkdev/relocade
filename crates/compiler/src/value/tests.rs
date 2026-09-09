@@ -1,8 +1,18 @@
-use super::Val;
-use crate::{BuildError, Func, FunctionImport, MemoryImport, Program, Signature, Type, I32};
+use super::{Val, ValueSource};
+use crate::{
+    BuildError, Func, FunctionImport, MemoryImport, Program, Signature, Type, I1, I32, I64, I8,
+};
 
 fn assert_closed(value: &Val<I32>) {
-    assert_eq!(value.add(0).expression, Err(BuildError::BodyClosed));
+    for result in [value.add(0), Val::<I32>::from(0).and(value)] {
+        assert!(matches!(
+            result.source,
+            ValueSource::Expression {
+                expression: Err(BuildError::BodyClosed),
+                ..
+            }
+        ));
+    }
 }
 
 #[test]
@@ -83,8 +93,11 @@ fn a_tail_call_closes_retained_values_and_arguments() {
     body.tail_call(target, std::slice::from_ref(&argument))
         .unwrap();
     assert_closed(&value);
+    let ValueSource::Expression { arena, .. } = &value.source else {
+        panic!("an admitted value retains its body");
+    };
     assert_eq!(
-        argument.resolve(&value.arena, Type::I32),
+        argument.resolve(arena, Type::I32),
         Err(BuildError::BodyClosed)
     );
     assert!(program.compile().is_ok());
@@ -106,8 +119,11 @@ fn a_failed_tail_closes_its_values_without_retaining_the_import() {
         Err(BuildError::ForeignBody)
     );
     assert_closed(&value);
+    let ValueSource::Expression { arena, .. } = &value.source else {
+        panic!("an admitted value retains its body");
+    };
     assert_eq!(
-        argument.resolve(&value.arena, Type::I32),
+        argument.resolve(arena, Type::I32),
         Err(BuildError::BodyClosed)
     );
 
@@ -167,6 +183,34 @@ fn expression_identity_reuses_nodes_but_keeps_read_events_distinct() {
 }
 
 #[test]
+fn equivalent_literals_share_admitted_expressions() {
+    let mut program = Program::new();
+    let function = program.declare(Signature {
+        parameters: vec![Type::I32],
+        result: Some(Type::I32),
+    });
+    let body = program.define(function).unwrap();
+    let literal = Val::<I8>::from(-1);
+    assert!(literal.same_expression(&Val::<I8>::from(0x1ff_u32)));
+    let byte = body.value(&literal).unwrap();
+    assert!(!literal.same_expression(&byte));
+    assert!(byte.same_expression(&body.value(Val::<I8>::from(0x1ff_u32)).unwrap()));
+    assert!(byte.same_expression(&body.value::<I8>(255).unwrap()));
+
+    let signed = body.value(Val::<I64>::from(-1)).unwrap();
+    assert!(signed.same_expression(&body.value(Val::<I64>::from(u64::MAX)).unwrap()));
+    let unsigned = body.value(Val::<I64>::from(u32::MAX)).unwrap();
+    assert!(unsigned.same_expression(&body.value(Val::<I64>::from(0xffff_ffff_u64)).unwrap()));
+    assert!(!signed.same_expression(&unsigned));
+
+    let input = body.parameter::<I32>(0).unwrap();
+    let condition = Val::<I1>::from(false);
+    assert!(condition.select(99, &input).same_expression(&input));
+    body.return_(input).unwrap();
+    assert!(program.compile().is_ok());
+}
+
+#[test]
 fn expression_identity_is_false_for_foreign_or_failed_values() {
     let mut program = Program::new();
     let signature = Signature {
@@ -210,8 +254,6 @@ fn a_zero_shift_still_checks_the_computed_count_owner() {
 
 #[test]
 fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
-    use crate::I1;
-
     let mut program = Program::new();
     let memory = program.import_memory(MemoryImport {
         module: "test".into(),
@@ -227,9 +269,12 @@ fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
     let foreign = discarded.value::<I32>(9).unwrap();
     drop(discarded);
     let mut body = program.define(function).unwrap();
-    let condition = body.value::<I1>(true).unwrap();
     assert_eq!(
-        body.value(condition.select(7, foreign)).err(),
+        body.value(Val::<I1>::from(true).select(7, &foreign)).err(),
+        Some(BuildError::ForeignBody)
+    );
+    assert_eq!(
+        body.value(Val::<I1>::from(false).select(&foreign, 7)).err(),
         Some(BuildError::ForeignBody)
     );
 
@@ -241,9 +286,16 @@ fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
     .unwrap();
     body.if_(false, |mut branch| {
         let local = branch.load::<I32>(memory, 4)?;
+        let sibling = sibling.as_ref().unwrap();
         assert_eq!(
             branch
-                .value(condition.select(local, sibling.unwrap()))
+                .value(Val::<I1>::from(true).select(&local, sibling))
+                .err(),
+            Some(BuildError::OutOfScope)
+        );
+        assert_eq!(
+            branch
+                .value(Val::<I1>::from(false).select(sibling, &local))
                 .err(),
             Some(BuildError::OutOfScope)
         );
@@ -273,6 +325,10 @@ fn arithmetic_identity_folds_preserve_operand_errors() {
     );
     assert_eq!(
         body.value(failed.signed().ge(&failed)).err(),
+        Some(BuildError::ForeignBody)
+    );
+    assert_eq!(
+        body.value(Val::<I32>::from(0).and(&failed)).err(),
         Some(BuildError::ForeignBody)
     );
     body.return_(value.sub(0)).unwrap();

@@ -1,7 +1,7 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, Callback, Input, MemoryBytes, Observation, TestModule, Value};
 
-use wasm86_compiler::{Program, Type, I1, I32, I64, I8};
+use wasm86_compiler::{BuildError, Program, Type, Val, I1, I32, I64, I8};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, Validator};
 
 fn ordered_imports() -> TestModule {
@@ -435,6 +435,33 @@ fn a_logical_one_bit_call_result_can_control_a_branch() {
         ]
     );
     assert_eq!(code.masks, 0);
+}
+
+#[test]
+fn standalone_typed_arguments_keep_their_logical_type() {
+    let mut fixture = Fixture::new();
+    let receive = fixture.callback(
+        "receive",
+        signature(&[Type::I1], Some(Type::I1)),
+        Some(Value::I32(1)),
+    );
+    let module = fixture.function(&[], Some(Type::I1), |mut body| {
+        assert_eq!(
+            body.call::<I1>(receive, &[Val::<I8>::from(1).into()]).err(),
+            Some(BuildError::TypeMismatch {
+                expected: Type::I1,
+                actual: Type::I8,
+            })
+        );
+        let result = body.call::<I1>(receive, &[1.into()])?;
+        body.return_(result)
+    });
+    let mut instance = module.instantiate();
+    assert_eq!(instance.call::<i32>(()).unwrap(), 1);
+    assert_eq!(
+        instance.callbacks(),
+        &[Call::new("receive", &[Value::I32(1)])]
+    );
 }
 
 #[test]

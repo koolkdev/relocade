@@ -1,9 +1,11 @@
 //! Builds WebAssembly execution entries for a small x86 instruction subset.
 //!
-//! Supports byte, word and dword MOV, ADD, ADC, SUB, SBB, CMP, AND, OR, XOR and TEST,
-//! plus byte SETcc (`0F 90`–`0F 9F`). Ordinary binary families include register,
+//! Supports byte, word and dword MOV, ADD, ADC, SUB, SBB, CMP, AND, OR, XOR, TEST,
+//! INC, DEC, NEG and NOT, plus byte SETcc (`0F 90`–`0F 9F`). Binary families include register,
 //! register/memory and immediate forms. TEST supports `84`/`85`, `A8`/`A9` and
 //! `F6`/`F7` /0. Group `83` sign-extends its byte immediate to the operand width.
+//! INC/DEC use `FE`/`FF` /0 and /1, or opcode-selected word/dword registers `40`–`4F`.
+//! NOT and NEG use `F6`/`F7` /2 and /3. These unary forms have no immediate.
 //! ModRM/SIB effective addresses and absolute offsets are 32-bit, independent
 //! of the data width.
 //! In this default-32 mode, `66` selects word operands; repetition has the same
@@ -11,18 +13,22 @@
 //! `67`, are outside the subset. Instructions contain at most fifteen bytes,
 //! including prefixes and all required operand fields.
 //!
-//! Arithmetic and logical operations replace all six status flags; MOV and SETcc
-//! preserve them. CMP and TEST only change flags. The CPU
+//! Binary arithmetic, logic and NEG replace all six status flags. INC/DEC preserve
+//! CF and update the other five; MOV, NOT and SETcc preserve them all.
+//! CMP and TEST only change flags. The CPU
 //! stores flags lazily: byte 0 selects the record kind, and little-endian dwords
 //! at 4 and 8 hold the original, zero-extended operands. SUB kinds are 1, 5 and 9;
 //! ADD kinds are 2, 6 and 10, for byte, word and dword operations respectively.
 //! Logic records use kinds 3, 7 and 11 with the result at offset 4; offset 8 is unused.
-//! They clear CF/OF and use zero for undefined AF. A nonzero kind owns all six
+//! They clear CF/OF. For architecturally undefined AF, wasm86 chooses zero to avoid
+//! retaining the old flag source; this is an implementation policy, not an x86
+//! guarantee. Undefined flags remain ordinary readable bits. A nonzero kind owns all six
 //! status flags, so their concrete bytes may be stale. Kind 0 instead reads the
 //! concrete CF/PF/AF/ZF/SF/OF bytes at offsets 12 through 17, each containing 0 or 1.
 //! ADC adds the incoming CF; SBB subtracts it as a borrow. Their local sources
 //! retain the result and six explicit symbolic flag values. At publication,
 //! they write all six concrete flags before kind 0, leaving unused payloads intact.
+//! INC/DEC publish through the same concrete format; NEG uses SUB with a zero left operand.
 //! Other kind values trap when a condition reads them. Flag reads preserve the
 //! record, and these instructions leave non-status flag bytes untouched.
 //!

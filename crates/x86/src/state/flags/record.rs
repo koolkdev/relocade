@@ -2,19 +2,10 @@
 
 use wasm86_compiler::{AtLeast, BuildError, FunctionBuilder, Mem, MemoryInt, Val, I1, I32, I8};
 
-use crate::flags::{ArithmeticKind, FlagSource, StatusFlag};
+use crate::flags::{ArithmeticKind, FlagSource};
 use crate::state::access::cpu_store;
 
 pub(in crate::state) const CONCRETE_KIND: u8 = 0;
-
-pub(in crate::state) const STATUS_FLAGS: [StatusFlag; 6] = [
-    StatusFlag::CF,
-    StatusFlag::PF,
-    StatusFlag::AF,
-    StatusFlag::ZF,
-    StatusFlag::SF,
-    StatusFlag::OF,
-];
 
 pub(in crate::state) fn width_code<T: MemoryInt>() -> u8 {
     match T::BYTES {
@@ -66,8 +57,8 @@ impl<T: MemoryInt> FlagRecord<T> {
             FlagSource::Logic { result } => Self::Logic {
                 result: result.clone(),
             },
-            FlagSource::Explicit { .. } => Self::Concrete {
-                status: STATUS_FLAGS.map(|flag| source.flag(flag)),
+            FlagSource::Explicit { flags, .. } => Self::Concrete {
+                status: flags.clone(),
             },
         }
     }

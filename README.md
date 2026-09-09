@@ -2,7 +2,8 @@
 
 Rust components for x86 execution in WebAssembly.
 
-`wasm86-x86` compiles MOV, ADD, ADC, SUB, SBB, CMP, AND, OR, XOR, TEST and SETcc blocks from byte snapshots:
+`wasm86-x86` compiles MOV, ADD, ADC, SUB, SBB, CMP, AND, OR, XOR, TEST,
+INC, DEC, NEG, NOT and SETcc blocks from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
@@ -74,10 +75,19 @@ supports these forms in default-32 operand and address mode:
 | TEST register/memory and register | 84 | 85 | 85 |
 | TEST accumulator and immediate | A8 | A9 | A9 |
 | TEST register/memory and immediate | F6 /0 | F7 /0 | F7 /0 |
+| INC opcode-selected register | — | 40–47 | 40–47 |
+| DEC opcode-selected register | — | 48–4F | 48–4F |
+| INC register/memory | FE /0 | FF /0 | FF /0 |
+| DEC register/memory | FE /1 | FF /1 | FF /1 |
+| NOT register/memory | F6 /2 | F7 /2 | F7 /2 |
+| NEG register/memory | F6 /3 | F7 /3 | F7 /3 |
 | SETcc register/memory destination | 0F 90–9F | — | — |
 
 Group `83` sign-extends its encoded byte immediate to the operand width. SETcc
 writes a byte containing 0 or 1; its ModRM.reg field is ignored.
+Unary forms have one destination and no immediate. The ModRM extension selects
+both the operation and its fields: `F6`/`F7` /0 reads a TEST immediate, while
+/2 and /3 finish after the register or address fields.
 
 The `66` operand-size prefix selects word data; repeating it keeps that size.
 Byte forms remain byte-sized with `66`. Other prefixes, including address-size
@@ -118,7 +128,10 @@ semantics, state publication and dispatch as snapshot blocks.
 
 Snapshot decoding reads supplied bytes while compiling; runtime decoding reads
 guest bytes during execution. Both use shared instruction forms for opcode
-patterns, physical fields and operand binding, then pass decoded operands to
+patterns, physical fields and operand binding. Binary forms describe the left and
+right operand sources independently; either can reuse the same location resolver.
+Applying the operand-size attribute fixes the data width before fields are read.
+Both decoders then pass decoded operands to
 shared lowering in `instruction/lower.rs`. The runtime decoder owns its byte cursor, proven
 window and completion policy. Every opcode map uses the same catalog-driven
 switch and selects operand decoding by encoding. Only the chosen opcode checks
@@ -158,10 +171,18 @@ input to construction and has no separate role in the retained source.
 Flag-bit extraction uses typed truncation, so raw intermediates can remain
 unnormalized until an operation or publication needs their logical low bit.
 The `arithmetic` and `arithmetic_with_carry` constructors return this same source
-type, with common result, flag and condition queries. Semantic operations produce
-a source, then call `set_flags` once to retain it as the new architectural flags.
+type, with common result, flag and condition queries. These queries construct
+expressions without a builder. Semantic operations produce a source, then call
+`set_flags` once to validate and retain it as the new architectural flags.
 A same-block condition uses only the expressions it needs; CMP and SUB conditions
 can compare the original operands directly.
+
+INC and DEC add or subtract one while preserving CF. They reuse arithmetic flag
+equations and replace the resulting carry expression with the prior carry value,
+after the operand's write checks pass. Their complete symbolic source publishes
+six concrete status bytes, like ADC/SBB. NEG uses subtraction from zero and its
+existing lazy record; CF is set exactly when the original operand is nonzero.
+NOT inverts the operand bits and preserves the entire flag source.
 
 At publication, state converts the current source into a `FlagRecord`: arithmetic
 operands, a logical result, or six concrete status bits. Its payload variant
@@ -180,7 +201,16 @@ AND, OR, XOR and TEST retain only the logical result. Their records use kinds 3/
 with the zero-extended result at offset 4; offset 8 is unused and remains untouched.
 The flag owner retains only the current source and writes its record at publication;
 replacing a source does not schedule or repair individual field writes. Logic clears
-CF/OF and uses zero for architecturally undefined AF.
+CF/OF as required by x86. Its AF value is architecturally undefined; wasm86 chooses
+zero. This deterministic choice avoids retaining or evaluating the old flag source.
+
+An undefined flag still produces a normal bit when read; it does not authorize a
+trap or make the guest instruction undefined behavior. An unaffected flag must
+retain its previous logical value. Implementation choices for undefined flags are
+made per instruction family, shared by interpreter and blocks, and documented
+separately from architectural guarantees. They do not promise to reproduce a
+particular physical CPU's undocumented behavior. Architecture comparisons exclude
+undefined flag values; separate policy tests may assert wasm86's chosen value.
 A nonzero kind owns all six status flags, so concrete flag bytes may be stale.
 Kind 0 instead reads CF/PF/AF/ZF/SF/OF from bytes 12–17, each containing 0 or 1.
 Other kind values trap when read. A stored direct query selects its exact record
@@ -226,16 +256,30 @@ executes one instruction and has no instruction-budget, segment or run-loop
 behavior.
 
 `wasm86-compiler` builds scalar WebAssembly functions from integer constants,
-parameters and typed integer expressions. Values such as `Val<I1>` and `Val<I32>` carry
-logical integer types; function signatures use the corresponding `Type` variants.
+parameters and typed integer expressions. `Val<T>` represents either a standalone
+literal or an expression belonging to a function body. Values such as `Val<I1>`
+and `Val<I32>` carry logical integer types; function signatures use the
+corresponding `Type` variants.
 `Signature.result` is `Some(Type::I32)`, for example, for a returned integer, or
 `None` for a function with no result. Parameters remain logical integer types.
-Supported integer sizes are 1, 8, 16, 32 and 64 bits. Values support fluent
-expressions such as `value.add(1)`. Calling `body.return_(&value)` completes the
-function body; shared expressions use reusable WebAssembly locals.
-At a return, the signature supplies the logical type, so `body.return_(7)` is
-valid too. Use `body.value::<I32>(operand)?` when a value must be retained or used to
-start a symbolic expression; it accepts a literal or an existing typed value.
+Supported integer sizes are 1, 8, 16, 32 and 64 bits.
+
+Create standalone values with standard Rust conversions, such as
+`Val::<I32>::from(7)` or `let cleared: Val<I1> = false.into();`. Fluent operations
+and typed builder operands accept `Into<Val<T>>`, so `value.add(1)` and
+`body.store::<I8>(memory, 12, 9)` accept native literals directly. Signed `i32` and
+unsigned `u32` literals convert to any logical integer type; `bool` converts only
+to `Val<I1>`, and `u64` only to `Val<I64>`. Negative `i32` literals sign-extend to
+I64, `u32` literals zero-extend, and narrower targets retain the low bits.
+
+Standalone literals can be used in different function bodies. Once an expression
+uses a body-owned value, it remains bound to that body even if it folds to a
+constant. `body.value::<I32>(operand)?` admits a value into a body
+and checks ownership and scope immediately. Other expression construction errors
+are reported when the value is consumed. Calling `body.return_(&value)` completes
+the function body; shared expressions use reusable WebAssembly locals. A raw
+literal can take its logical type from the return signature, so `body.return_(7)`
+is valid too.
 
 Use `program.function(signature, |body| { ... })?` to declare and complete a
 function together. The handle is returned only after the callback completes its
@@ -279,7 +323,8 @@ conditional stores, which can require capturing a read before the condition.
 
 Use `condition.select(when_true, when_false)` for a pure value choice. Both
 alternatives are eager inputs, so select does not guard a load or call. Shared
-inputs and the selection itself follow normal value placement. Two literals can
+inputs and the selection itself follow normal value placement. Both alternatives
+must satisfy ownership and scope rules, including an unused alternative. Two literals can
 specify their type with `condition.select::<I32>(7, 9)`.
 
 Use `switch` to execute one case selected by an integer value. The callback receives
@@ -327,8 +372,11 @@ trap, regardless of the function result type.
 
 Functions can also finish with `body.tail_call(target, &[value.argument()])`.
 The target may be imported or defined. Use `Val::argument()` or `.into()` to
-combine values and literals in one argument list; the call checks them against
-its signature.
+combine values and literals in one `Argument` list; the call checks them against
+its runtime signature. A `Val<T>` retains its logical type in this list, including
+a standalone literal: `Val::<I8>::from(7)` still requires an I8 parameter. A raw
+primitive such as `7.into()` instead takes its logical type from the corresponding
+parameter. Returns follow the same distinction.
 `Program::import_function` takes a `FunctionImport` containing the module name,
 field name and logical `Signature`. Unused function imports are omitted; a direct
 export also retains an imported function.

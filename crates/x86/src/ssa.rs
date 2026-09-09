@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Mem, MemoryInt, Val, I16, I32, I8};
+use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, Val, I16, I32, I8};
 
 #[derive(Clone)]
 pub(super) struct Location<T: SsaType> {
@@ -185,7 +185,7 @@ impl Environment {
         &mut self,
         body: &mut FunctionBuilder<'_>,
         location: Location<T>,
-        value: impl IntoOp<T>,
+        value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
         let offset = match location.address {
             Address::Fixed(offset) => offset,
