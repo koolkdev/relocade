@@ -1,6 +1,6 @@
 use crate::{
     place, AtLeast, Body, BuildError, FunctionBuilder, IntoOp, Operation, Program, Val, ValueKind,
-    I16, I32, I64, I8,
+    I1, I16, I32, I64, I8,
 };
 
 /// An imported memory. Use only with the program that declared it.
@@ -20,6 +20,7 @@ pub struct MemoryImport {
 
 /// An integer type supported by memory accesses at its logical width.
 /// Loads and stores access exactly 1, 2, 4 or 8 bytes for I8, I16, I32 or I64.
+/// These types also support narrowing to an individual logical bit.
 /// Storing an I1 value in a larger slot is a separate, unsupported operation.
 /// ```compile_fail
 /// use wasm86_compiler::{FunctionBuilder, Mem, I1};
@@ -27,7 +28,7 @@ pub struct MemoryImport {
 ///     let bit = body.load::<I1>(memory, 0);
 /// }
 /// ```
-pub trait MemoryInt: AtLeast<I8> {
+pub trait MemoryInt: AtLeast<I1> + AtLeast<I8> {
     /// The number of bytes read or written by an access of this type.
     const BYTES: u32;
 }

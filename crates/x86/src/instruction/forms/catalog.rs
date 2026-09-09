@@ -222,8 +222,10 @@ const fn binary_family(first_opcode: u8, operation: BinaryOperation) -> BinaryFa
     }
 }
 
-const BINARY_FAMILIES: [BinaryFamily; 6] = [
+const BINARY_FAMILIES: [BinaryFamily; 8] = [
     binary_family(0x00, BinaryOperation::Add),
+    binary_family(0x10, BinaryOperation::AddWithCarry),
+    binary_family(0x18, BinaryOperation::SubtractWithBorrow),
     binary_family(0x38, BinaryOperation::Compare),
     binary_family(0x28, BinaryOperation::Subtract),
     binary_family(0x20, BinaryOperation::And),

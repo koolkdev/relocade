@@ -1,6 +1,6 @@
 use crate::test_step as step;
 
-use super::{logic_flag, ArithmeticKind, ArithmeticSource, Condition, StatusFlag};
+use super::{logic_flag, ArithmeticKind, Condition, FlagSource, StatusFlag};
 use crate::CompiledModule;
 use wasm86_compiler::{MemoryInt, Program, Signature, Type, I16, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
@@ -18,7 +18,7 @@ fn auxiliary_carry<T: MemoryInt>() -> CompiledModule {
                     // The addition can leave dirty upper carrier bits before the flag query.
                     let left = body.parameter::<T>(0)?.add(1);
                     let right = body.parameter::<T>(1)?;
-                    body.return_(ArithmeticSource::new(kind, left, right).flag(StatusFlag::AF))
+                    body.return_(FlagSource::arithmetic(kind, left, right).flag(StatusFlag::AF))
                 },
             )
             .unwrap();
@@ -76,7 +76,10 @@ fn signed_cmp_conditions_use_original_operands_without_computing_flags() {
                 |body| {
                     let left = body.parameter::<I32>(0)?;
                     let right = body.parameter::<I32>(1)?;
-                    body.return_(ArithmeticSource::subtract(left, right).condition(condition))
+                    body.return_(
+                        FlagSource::arithmetic(ArithmeticKind::Sub, left, right)
+                            .condition(condition),
+                    )
                 },
             )
             .unwrap();

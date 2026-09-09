@@ -1,6 +1,6 @@
 //! Builds WebAssembly execution entries for a small x86 instruction subset.
 //!
-//! Supports byte, word and dword MOV, ADD, SUB, CMP, AND, OR, XOR and TEST,
+//! Supports byte, word and dword MOV, ADD, ADC, SUB, SBB, CMP, AND, OR, XOR and TEST,
 //! plus byte SETcc (`0F 90`–`0F 9F`). Ordinary binary families include register,
 //! register/memory and immediate forms. TEST supports `84`/`85`, `A8`/`A9` and
 //! `F6`/`F7` /0. Group `83` sign-extends its byte immediate to the operand width.
@@ -20,6 +20,9 @@
 //! They clear CF/OF and use zero for undefined AF. A nonzero kind owns all six
 //! status flags, so their concrete bytes may be stale. Kind 0 instead reads the
 //! concrete CF/PF/AF/ZF/SF/OF bytes at offsets 12 through 17, each containing 0 or 1.
+//! ADC adds the incoming CF; SBB subtracts it as a borrow. Their local sources
+//! retain the result and six explicit symbolic flag values. At publication,
+//! they write all six concrete flags before kind 0, leaving unused payloads intact.
 //! Other kind values trap when a condition reads them. Flag reads preserve the
 //! record, and these instructions leave non-status flag bytes untouched.
 //!
@@ -46,7 +49,6 @@ mod instruction;
 mod interpreter;
 mod memory;
 mod register;
-mod semantics;
 mod ssa;
 mod state;
 

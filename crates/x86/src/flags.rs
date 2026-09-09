@@ -5,8 +5,9 @@ mod condition;
 pub(super) use condition::Condition;
 
 use std::convert::Infallible;
-use wasm86_compiler::{MemoryInt, Val, I1, I16, I32, I8};
+use wasm86_compiler::{IntoOp, MemoryInt, Val, I1, I16, I32, I8};
 
+/// Dense indices for local flag values; CPU record offsets belong to state.
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum StatusFlag {
     CF,
@@ -17,37 +18,40 @@ pub(super) enum StatusFlag {
     OF,
 }
 
+impl StatusFlag {
+    pub(super) const ALL: [Self; 6] = [Self::CF, Self::PF, Self::AF, Self::ZF, Self::SF, Self::OF];
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum ArithmeticKind {
     Add,
     Sub,
 }
 
-/// Operands and result retain the instruction's logical width. Building a source
-/// does not evaluate its flags; each query authors only the expressions it needs.
+/// A complete status source keeps the values its flag rules require.
 #[derive(Clone)]
-pub(super) struct ArithmeticSource<T: MemoryInt> {
-    pub(super) kind: ArithmeticKind,
-    pub(super) left: Val<T>,
-    pub(super) right: Val<T>,
-    pub(super) result: Val<T>,
+pub(super) enum FlagSource<T: MemoryInt> {
+    /// Two operands and their sum or difference retain their logical width.
+    Arithmetic {
+        kind: ArithmeticKind,
+        left: Val<T>,
+        right: Val<T>,
+        result: Val<T>,
+    },
+    Logic {
+        result: Val<T>,
+    },
+    /// Symbolic flag values in StatusFlag order; the compiler places evaluation.
+    Explicit {
+        result: Val<T>,
+        flags: [Val<I1>; 6],
+    },
 }
 
-impl<T: MemoryInt> ArithmeticSource<T> {
-    pub(super) fn add(left: Val<T>, right: Val<T>) -> Self {
-        Self::new(ArithmeticKind::Add, left, right)
-    }
-
-    pub(super) fn subtract(left: Val<T>, right: Val<T>) -> Self {
-        Self::new(ArithmeticKind::Sub, left, right)
-    }
-
-    pub(super) fn new(kind: ArithmeticKind, left: Val<T>, right: Val<T>) -> Self {
-        let result = match kind {
-            ArithmeticKind::Add => left.add(&right),
-            ArithmeticKind::Sub => left.sub(&right),
-        };
-        Self {
+impl<T: MemoryInt> FlagSource<T> {
+    pub(super) fn arithmetic(kind: ArithmeticKind, left: Val<T>, right: Val<T>) -> Self {
+        let result = arithmetic_result(kind, &left, &right);
+        Self::Arithmetic {
             kind,
             left,
             right,
@@ -55,32 +59,61 @@ impl<T: MemoryInt> ArithmeticSource<T> {
         }
     }
 
+    pub(super) fn arithmetic_with_carry(
+        kind: ArithmeticKind,
+        left: Val<T>,
+        right: Val<T>,
+        carry_in: Val<I1>,
+    ) -> Self {
+        let result = arithmetic_result(kind, &left, &right);
+        let carry = carry_in.unsigned().extend::<T>();
+        let result = arithmetic_result(kind, &result, &carry);
+        let flags = StatusFlag::ALL
+            .map(|flag| arithmetic_flag(kind, &left, &right, &result, &carry_in, flag));
+        Self::Explicit { result, flags }
+    }
+
+    pub(super) fn result(&self) -> &Val<T> {
+        match self {
+            Self::Arithmetic { result, .. }
+            | Self::Logic { result }
+            | Self::Explicit { result, .. } => result,
+        }
+    }
+
     pub(super) fn flag(&self, flag: StatusFlag) -> Val<I1> {
-        match flag {
-            StatusFlag::CF => match self.kind {
-                ArithmeticKind::Add => self.result.unsigned().lt(&self.left),
-                ArithmeticKind::Sub => self.left.unsigned().lt(&self.right),
-            },
-            StatusFlag::AF => bit(&self.left.xor(&self.right).xor(&self.result), 4),
-            StatusFlag::OF => {
-                let left_xor_result = self.left.xor(&self.result);
-                let other = match self.kind {
-                    ArithmeticKind::Add => self.right.xor(&self.result),
-                    ArithmeticKind::Sub => self.left.xor(&self.right),
-                };
-                bit(&left_xor_result.and(other), T::BYTES * 8 - 1)
-            }
-            StatusFlag::PF | StatusFlag::ZF | StatusFlag::SF => result_flag(&self.result, flag),
+        match self {
+            Self::Arithmetic {
+                kind,
+                left,
+                right,
+                result,
+            } => arithmetic_flag(*kind, left, right, result, false, flag),
+            Self::Logic { result } => logic_flag(result, flag),
+            Self::Explicit { flags, .. } => flags[flag as usize].clone(),
         }
     }
 
     pub(super) fn condition(&self, condition: Condition) -> Val<I1> {
-        // A subtraction relation follows its original operands, including signed
-        // overflow cases. These conditions need no intermediate flag image.
-        if self.kind == ArithmeticKind::Sub {
-            if let Some(compare) = condition.operand_comparison::<T>() {
-                return compare(&self.left, &self.right);
+        match self {
+            Self::Arithmetic {
+                kind: ArithmeticKind::Sub,
+                left,
+                right,
+                ..
+            } => {
+                // Plain subtraction relations follow the operands, including
+                // signed overflow. Other sources use their flag expressions.
+                if let Some(compare) = condition.operand_comparison::<T>() {
+                    return compare(left, right);
+                }
             }
+            Self::Logic { result } => {
+                if let Some(compare) = condition.logic_result_comparison::<T>() {
+                    return compare(result);
+                }
+            }
+            Self::Arithmetic { .. } | Self::Explicit { .. } => {}
         }
         condition
             .evaluate(|flag| Ok::<_, Infallible>(self.flag(flag)))
@@ -88,26 +121,41 @@ impl<T: MemoryInt> ArithmeticSource<T> {
     }
 }
 
-/// A complete status source keeps only the values its flag rules require.
-#[derive(Clone)]
-pub(super) enum FlagSource<T: MemoryInt> {
-    Arithmetic(ArithmeticSource<T>),
-    Logic { result: Val<T> },
+fn arithmetic_result<T: MemoryInt>(kind: ArithmeticKind, left: &Val<T>, right: &Val<T>) -> Val<T> {
+    match kind {
+        ArithmeticKind::Add => left.add(right),
+        ArithmeticKind::Sub => left.sub(right),
+    }
 }
 
-impl<T: MemoryInt> FlagSource<T> {
-    pub(super) fn condition(&self, condition: Condition) -> Val<I1> {
-        match self {
-            Self::Arithmetic(source) => source.condition(condition),
-            Self::Logic { result } => {
-                if let Some(compare) = condition.logic_result_comparison::<T>() {
-                    return compare(result);
-                }
-                condition
-                    .evaluate(|flag| Ok::<_, Infallible>(logic_flag(result, flag)))
-                    .unwrap_or_else(|never| match never {})
-            }
+fn arithmetic_flag<T: MemoryInt>(
+    kind: ArithmeticKind,
+    left: &Val<T>,
+    right: &Val<T>,
+    result: &Val<T>,
+    carry_in: impl IntoOp<I1>,
+    flag: StatusFlag,
+) -> Val<I1> {
+    match flag {
+        StatusFlag::CF => {
+            // Addition compares its wrapped result; subtraction compares its
+            // operands. Incoming carry or borrow decides the equality case.
+            let (left, right) = match kind {
+                ArithmeticKind::Add => (result, left),
+                ArithmeticKind::Sub => (left, right),
+            };
+            left.unsigned().lt(right).or(left.eq(right).and(carry_in))
         }
+        StatusFlag::AF => bit(&left.xor(right).xor(result), 4),
+        StatusFlag::OF => {
+            let left_xor_result = left.xor(result);
+            let other = match kind {
+                ArithmeticKind::Add => right.xor(result),
+                ArithmeticKind::Sub => left.xor(right),
+            };
+            bit(&left_xor_result.and(other), T::BYTES * 8 - 1)
+        }
+        StatusFlag::PF | StatusFlag::ZF | StatusFlag::SF => result_flag(result, flag),
     }
 }
 
@@ -164,7 +212,7 @@ fn result_flag<T: MemoryInt>(result: &Val<T>, flag: StatusFlag) -> Val<I1> {
 }
 
 fn bit<T: MemoryInt>(value: &Val<T>, index: u32) -> Val<I1> {
-    value.unsigned().shr(index).and(1).ne(0)
+    value.unsigned().shr(index).truncate::<I1>()
 }
 
 #[cfg(test)]

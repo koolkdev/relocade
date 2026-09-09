@@ -417,6 +417,10 @@ impl ValueArena {
 
     fn zero_test(&mut self, input: usize, nonzero: bool) -> usize {
         let input = self.normalize(input);
+        // A value already restricted to zero or one is its own nonzero test.
+        if nonzero && self.unsigned_bits[input] <= 1 {
+            return self.convert(input, Type::I1);
+        }
         self.intern(Value {
             ty: Type::I1,
             kind: ValueKind::ZeroTest { input, nonzero },

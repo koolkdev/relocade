@@ -2,7 +2,7 @@
 
 Rust components for x86 execution in WebAssembly.
 
-`wasm86-x86` compiles MOV, ADD, SUB, CMP, AND, OR, XOR, TEST and SETcc blocks from byte snapshots:
+`wasm86-x86` compiles MOV, ADD, ADC, SUB, SBB, CMP, AND, OR, XOR, TEST and SETcc blocks from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
@@ -26,13 +26,19 @@ supports these forms in default-32 operand and address mode:
 | MOV accumulator and absolute memory offset | A0/A2 | A1/A3 | A1/A3 |
 | ADD register and register/memory | 00/02 | 01/03 | 01/03 |
 | ADD accumulator and immediate | 04 | 05 | 05 |
-| CMP register and register/memory | 38/3A | 39/3B | 39/3B |
-| CMP accumulator and immediate | 3C | 3D | 3D |
 | ADD register/memory and immediate | 80 /0 | 81/83 /0 | 81/83 /0 |
-| CMP register/memory and immediate | 80 /7 | 81/83 /7 | 81/83 /7 |
+| ADC register and register/memory | 10/12 | 11/13 | 11/13 |
+| ADC accumulator and immediate | 14 | 15 | 15 |
+| ADC register/memory and immediate | 80 /2 | 81/83 /2 | 81/83 /2 |
 | SUB register and register/memory | 28/2A | 29/2B | 29/2B |
 | SUB accumulator and immediate | 2C | 2D | 2D |
 | SUB register/memory and immediate | 80 /5 | 81/83 /5 | 81/83 /5 |
+| SBB register and register/memory | 18/1A | 19/1B | 19/1B |
+| SBB accumulator and immediate | 1C | 1D | 1D |
+| SBB register/memory and immediate | 80 /3 | 81/83 /3 | 81/83 /3 |
+| CMP register and register/memory | 38/3A | 39/3B | 39/3B |
+| CMP accumulator and immediate | 3C | 3D | 3D |
+| CMP register/memory and immediate | 80 /7 | 81/83 /7 | 81/83 /7 |
 | AND register and register/memory | 20/22 | 21/23 | 21/23 |
 | AND accumulator and immediate | 24 | 25 | 25 |
 | AND register/memory and immediate | 80 /4 | 81/83 /4 | 81/83 /4 |
@@ -90,7 +96,7 @@ semantics, state publication and dispatch as snapshot blocks.
 Snapshot decoding reads supplied bytes while compiling; runtime decoding reads
 guest bytes during execution. Both use shared instruction forms for opcode
 patterns, physical fields and operand binding, then pass decoded operands to
-shared instruction lowering. The runtime decoder owns its byte cursor, proven
+shared lowering in `instruction/lower.rs`. The runtime decoder owns its byte cursor, proven
 window and completion policy. Every opcode map uses the same catalog-driven
 switch and selects operand decoding by encoding. Only the chosen opcode checks
 its ModRM extension. Direct, checked and prefixed entries share field handling.
@@ -102,7 +108,7 @@ checks memory access, and tracks instruction progress. Binary instructions have
 left and right operands; their operation determines which effects are applied.
 The builder's `update` checks write permission before reading the old left value,
 then runs the semantic callback and stores its result through the same checked
-access. ADD, SUB, AND, OR and XOR use this operation. CMP and TEST only read
+access. ADD, ADC, SUB, SBB, AND, OR and XOR use this operation. CMP and TEST only read
 operands and set flags, so their memory operands require no write permission.
 A fault publishes completed definitions into its terminating branch without
 consuming the parent state used by the successful path.
@@ -114,17 +120,37 @@ write replaces superseded definitions. Computed register accesses synchronize
 overlapping definitions, then invalidate potentially written locations. These
 are completed effects; publication does not undo a partially executed instruction.
 
-ADD, SUB and CMP retain the original operands as a lazy source for CF, PF, AF, ZF, SF
-and OF. `FlagState` distinguishes stored CPU records from local flag sources.
-A typed `FlagSource` retains either arithmetic operands or a logical result.
-Constructing an `ArithmeticSource` builds value expressions; calling
-`set_arithmetic_flags` retains that source as the new architectural flags.
+ADD, SUB and CMP retain the original operands as a lazy source for CF, PF, AF,
+ZF, SF and OF. ADC adds the incoming CF; SBB subtracts it as a borrow. They read
+CF after all operand guards, then construct symbolic flags from the original
+operands and final result using the same arithmetic equations as ADD/SUB.
+`FlagState` distinguishes stored CPU records from local flag sources.
+A typed `FlagSource` retains arithmetic operands, a logical result, or explicit
+result and flag values. ADC/SBB use explicit values; their incoming carry is an
+input to construction and has no separate role in the retained source.
+Flag-bit extraction uses typed truncation, so raw intermediates can remain
+unnormalized until an operation or publication needs their logical low bit.
+The `arithmetic` and `arithmetic_with_carry` constructors return this same source
+type, with common result, flag and condition queries. Semantic operations produce
+a source, then call `set_flags` once to retain it as the new architectural flags.
 A same-block condition uses only the expressions it needs; CMP and SUB conditions
-can compare the original operands directly. Publication writes the zero-extended
-operands to CPU dwords 4 and 8, then the kind byte at 0. SUB kinds 1/5/9 and ADD
-kinds 2/6/10 denote byte/word/dword operands. AND, OR, XOR and TEST retain only
-the logical result through `set_logic_flags`. Their records use kinds 3/7/11 with
-the zero-extended result at offset 4; offset 8 is unused and remains untouched.
+can compare the original operands directly.
+
+At publication, state converts the current source into a `FlagRecord`: arithmetic
+operands, a logical result, or six concrete status bits. Its payload variant
+determines the record kind. One writer stores the payload before its kind; it does
+not inspect the instruction or its incoming carry. The record exists only at this
+boundary. Explicit flags are symbolic expressions; the compiler places their
+evaluation where needed and leaves unused expressions unevaluated. Their array
+uses logical `StatusFlag` indices; record conversion defines the CPU byte order.
+
+ADD, SUB and CMP publish zero-extended operands to CPU dwords 4 and 8, then the
+kind byte at 0. SUB kinds 1/5/9 and ADD
+kinds 2/6/10 denote byte/word/dword operands. ADC/SBB sources instead publish all
+six concrete flag bytes, then kind 0: the stored two-operand format cannot retain
+an incoming carry. Their unused payload dwords remain untouched.
+AND, OR, XOR and TEST retain only the logical result. Their records use kinds 3/7/11
+with the zero-extended result at offset 4; offset 8 is unused and remains untouched.
 The flag owner retains only the current source and writes its record at publication;
 replacing a source does not schedule or repair individual field writes. Logic clears
 CF/OF and uses zero for architecturally undefined AF.
@@ -288,6 +314,8 @@ A one-bit argument or result is therefore `0` or `1`. The compiler normalizes
 narrow call arguments once per shared value without masking intermediate
 arithmetic. Imported functions must return narrow results with their unused
 upper bits clear too, including when the import is exported directly.
+When bit bounds prove that a value is already zero or one, testing it for nonzero
+reuses that value as a logical bit without another Boolean calculation.
 
 Fixed-offset memory access supports `I8`, `I16`, `I32` and `I64`, using 1, 2, 4
 and 8 bytes respectively. `body.load::<I32>(memory, offset)` reads a snapshot;

@@ -1,13 +1,13 @@
 use wasm86_compiler::{AtLeast, BuildError, IntoOp, Val, I16, I32, I8};
 
+use super::{BinaryInstruction, BinaryOperation, Instruction, OperandWidth};
 use crate::{
     execution::ExecutionBuilder,
-    flags::{ArithmeticSource, FlagSource, LocalFlagSource},
-    instruction::{BinaryInstruction, BinaryOperation, Instruction, OperandWidth},
+    flags::{ArithmeticKind, Condition, FlagSource, LocalFlagSource},
     register::RegisterType,
 };
 
-pub(super) fn lower(
+pub(crate) fn lower(
     execution: &mut ExecutionBuilder<'_, '_>,
     instruction: Instruction<impl IntoOp<I32>>,
 ) -> Result<(), BuildError> {
@@ -43,10 +43,18 @@ where
 
     let apply_operation = |execution: &mut ExecutionBuilder<'_, '_>, left: Val<T>| {
         let right = execution.read::<T>(instruction.right)?;
-        let arithmetic = match operation {
-            BinaryOperation::Add => ArithmeticSource::add(left, right),
+        let source = match operation {
+            BinaryOperation::Add => FlagSource::arithmetic(ArithmeticKind::Add, left, right),
             BinaryOperation::Subtract | BinaryOperation::Compare => {
-                ArithmeticSource::subtract(left, right)
+                FlagSource::arithmetic(ArithmeticKind::Sub, left, right)
+            }
+            BinaryOperation::AddWithCarry | BinaryOperation::SubtractWithBorrow => {
+                let carry_in = execution.condition(Condition::B)?;
+                let kind = match operation {
+                    BinaryOperation::AddWithCarry => ArithmeticKind::Add,
+                    _ => ArithmeticKind::Sub,
+                };
+                FlagSource::arithmetic_with_carry(kind, left, right, carry_in)
             }
             BinaryOperation::And
             | BinaryOperation::Or
@@ -58,13 +66,13 @@ where
                     BinaryOperation::Xor => left.xor(right),
                     _ => unreachable!("the handler selected a logical operation"),
                 };
-                execution.set_logic_flags(&result)?;
-                return Ok(result);
+                FlagSource::Logic { result }
             }
             BinaryOperation::Mov => unreachable!("MOV completed without reading its destination"),
         };
-        execution.set_arithmetic_flags(&arithmetic)?;
-        Ok(arithmetic.result)
+        let result = source.result().clone();
+        execution.set_flags(source)?;
+        Ok(result)
     };
 
     if matches!(operation, BinaryOperation::Compare | BinaryOperation::Test) {

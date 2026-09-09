@@ -3,10 +3,9 @@ mod operands;
 use wasm86_compiler::{BuildError, Func, FunctionBuilder, IntoOp, MemoryInt, Val, I1, I32};
 
 use crate::{
-    flags::{ArithmeticSource, Condition, FlagSource, LocalFlagSource},
-    instruction::DecodedInstruction,
+    flags::{Condition, FlagSource, LocalFlagSource},
+    instruction::{self, DecodedInstruction},
     memory::Memory,
-    semantics,
     state::{Cpu, State},
 };
 
@@ -45,30 +44,20 @@ impl<'body, 'cpu> ExecutionBuilder<'body, 'cpu> {
         decoded: DecodedInstruction<V, P>,
     ) -> Result<(), BuildError> {
         self.eip = self.body.value(decoded.eip)?;
-        semantics::lower(self, decoded.instruction)?;
+        instruction::lower(self, decoded.instruction)?;
         self.eip = self.body.value(decoded.next_eip)?;
         self.completed += 1;
         Ok(())
     }
 
-    pub(super) fn set_arithmetic_flags<T: MemoryInt>(
+    pub(super) fn set_flags<T: MemoryInt>(
         &mut self,
-        source: &ArithmeticSource<T>,
+        source: FlagSource<T>,
     ) -> Result<(), BuildError>
     where
         FlagSource<T>: Into<LocalFlagSource>,
     {
-        self.state.set_arithmetic_flags(&mut self.body, source)
-    }
-
-    pub(super) fn set_logic_flags<T: MemoryInt>(
-        &mut self,
-        result: &Val<T>,
-    ) -> Result<(), BuildError>
-    where
-        FlagSource<T>: Into<LocalFlagSource>,
-    {
-        self.state.set_logic_flags(&mut self.body, result)
+        self.state.set_flags(&mut self.body, source)
     }
 
     pub(super) fn condition(&mut self, condition: Condition) -> Result<Val<I1>, BuildError> {

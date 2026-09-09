@@ -1,6 +1,8 @@
 mod forms;
+mod lower;
 
 pub(crate) use forms::*;
+pub(super) use lower::lower;
 
 use crate::{address::Address32, flags::Condition, register::RegisterCode};
 
@@ -12,7 +14,9 @@ pub(super) const EXTENDED_OPCODE_ESCAPE: u8 = 0x0f;
 pub(super) enum BinaryOperation {
     Mov,
     Add,
+    AddWithCarry,
     Subtract,
+    SubtractWithBorrow,
     And,
     Or,
     Xor,

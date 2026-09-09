@@ -68,8 +68,8 @@ fn check_length(code: &[u8]) {
 }
 
 #[test]
-fn logical_and_subtract_encodings_use_the_selected_immediate_width() {
-    for base in [0x08, 0x20, 0x28, 0x30] {
+fn binary_encodings_use_the_selected_immediate_width() {
+    for base in [0x08, 0x10, 0x18, 0x20, 0x28, 0x30] {
         for code in [
             vec![base, 0xd8],
             vec![base + 1, 0xd8],
@@ -85,7 +85,7 @@ fn logical_and_subtract_encodings_use_the_selected_immediate_width() {
             check_length(&code);
         }
     }
-    for modrm in [0xc8, 0xe0, 0xe8, 0xf0] {
+    for modrm in [0xc8, 0xd0, 0xd8, 0xe0, 0xe8, 0xf0] {
         for code in [
             vec![0x80, modrm, 0x80],
             vec![0x81, modrm, 0x80, 0x81, 0x83, 0x66],
@@ -128,9 +128,9 @@ fn setcc_ignores_modrm_reg_without_changing_its_destination() {
 #[test]
 fn unsupported_extensions_stop_before_address_and_immediate_fields() {
     for (code, opcode) in [
-        (&[0x80, 0x14][..], 0x80),
-        (&[0x81, 0x1c][..], 0x81),
-        (&[0x66, 0x83, 0x15][..], 0x83),
+        (&[0xf6, 0x14][..], 0xf6),
+        (&[0xf7, 0x1c][..], 0xf7),
+        (&[0x66, 0xf7, 0x15][..], 0xf7),
         (&[0xf6, 0x0c][..], 0xf6),
         (&[0x66, 0xf7, 0x3d][..], 0xf7),
         (&[0x0f, 0x0b][..], 0x0f),
@@ -220,10 +220,10 @@ fn execute(flags: &[&str]) {
             0x0008_00f7_0000_1ffe,
         ),
         (
-            "unsupported ADC group extension before SIB",
+            "unsupported unary extension before SIB",
             0x1ffe,
-            vec![0x81, 0x14],
-            0x0008_0081_0000_1ffe,
+            vec![0xf7, 0x14],
+            0x0008_00f7_0000_1ffe,
         ),
         (
             "unsupported second opcode before ModRM",
@@ -258,8 +258,8 @@ fn execute(flags: &[&str]) {
         (
             "last-byte unsupported group avoids a length fault",
             0x1ff1,
-            [vec![0x66; 13], vec![0x81, 0x14]].concat(),
-            0x0008_0081_0000_1ff1,
+            [vec![0x66; 13], vec![0xf7, 0x14]].concat(),
+            0x0008_00f7_0000_1ff1,
         ),
         (
             "TEST immediate beyond length limit",

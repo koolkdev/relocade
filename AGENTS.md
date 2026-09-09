@@ -28,6 +28,10 @@ This is a public repository. Commit messages use `component: title`.
   bytes, shared semantics define effects, memory owns access policy and faults,
   state owns architectural layout and publication, and the compiler owns value
   construction, placement and lowering.
+- Keep representation choices and invariants with their owner. Interfaces should
+  express the caller's intent without requiring knowledge of internal details.
+  When callers must coordinate internal steps or repeat special cases, review
+  whether responsibility belongs on the other side of the boundary.
 - Review execution policies across interpreter and JIT. Distinguish compilation
   bounds, runtime stopping guarantees and host responsiveness; behavior in one
   reference frontend does not settle the shared contract.
