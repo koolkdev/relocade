@@ -14,7 +14,10 @@ module exports `block_1000` and imports `wasm86.cpuState` memory (minimum one
 64-KiB page) and `wasm86.dispatch(i32) -> i64`. CPU state uses little-endian 32-bit
 fields: EAX through EDI in encoding order at offsets 24–52, EIP at 56, and the
 completed-instruction count at 144. An exit publishes its current flag source, then
-dirty registers in first-write order. EIP and count use 32-bit wrapping arithmetic. The block
+dirty registers in first-write order. EIP and count use 32-bit wrapping arithmetic.
+The number of completed instructions is fixed during compilation for each exit.
+An exit with progress reads the runtime counter and adds that number; an exit
+with no progress leaves it unchanged. The block
 tail-calls dispatch with the next EIP and returns its result. This snapshot path
 supports these forms in default-32 operand and address mode:
 
@@ -345,6 +348,10 @@ arithmetic. Imported functions must return narrow results with their unused
 upper bits clear too, including when the import is exported directly.
 When bit bounds prove that a value is already zero or one, testing it for nonzero
 reuses that value as a logical bit without another Boolean calculation.
+An unshared nonzero test used only by `if_`, `if_else`, `if_value` or `select`
+can pass its normalized `i32` input directly to Wasm's truth test. Numeric Boolean
+uses and switch keys retain their exact zero-or-one value. Narrow inputs still
+observe their logical width, and `i64` tests still inspect all 64 bits.
 
 Fixed-offset memory access supports `I8`, `I16`, `I32` and `I64`, using 1, 2, 4
 and 8 bytes respectively. `body.load::<I32>(memory, offset)` reads a snapshot;

@@ -1,3 +1,5 @@
+#[path = "zero_tests/conditions.rs"]
+mod conditions;
 #[path = "support/wasm.rs"]
 mod wasm;
 use wasm::ModuleFile;
@@ -164,6 +166,7 @@ fn proven_zero_or_one_values_need_no_predicate_but_keep_the_i32_result_carrier()
 }
 
 fn check_execution(flags: &[&str]) {
+    conditions::check_execution(flags);
     let cases = cases();
     let module = ModuleFile::new(&module(&cases));
     for case in &cases {

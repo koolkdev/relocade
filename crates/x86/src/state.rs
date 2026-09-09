@@ -104,12 +104,15 @@ impl<'cpu> State<'cpu> {
         self.publish_flags(body)?;
         self.registers.publish(body)?;
         body.store::<I32>(self.cpu.memory(), EIP_OFFSET, next_eip)?;
-        let count = body.load::<I32>(self.cpu.memory(), INSTRUCTION_COUNT_OFFSET)?;
-        body.store(
-            self.cpu.memory(),
-            INSTRUCTION_COUNT_OFFSET,
-            count.add(completed),
-        )
+        if completed != 0 {
+            let count = body.load::<I32>(self.cpu.memory(), INSTRUCTION_COUNT_OFFSET)?;
+            body.store(
+                self.cpu.memory(),
+                INSTRUCTION_COUNT_OFFSET,
+                count.add(completed),
+            )?;
+        }
+        Ok(())
     }
 }
 

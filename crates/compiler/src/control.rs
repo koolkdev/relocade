@@ -27,14 +27,6 @@ impl Operation {
             .chain(second)
     }
 
-    pub(super) fn selector(&self) -> Option<usize> {
-        match self {
-            Self::If { condition, .. } => Some(*condition),
-            Self::Switch { selector, .. } => Some(*selector),
-            _ => None,
-        }
-    }
-
     pub(super) fn branch_output(&self) -> Option<usize> {
         match self {
             Self::If { output, .. } | Self::Switch { output, .. } => *output,

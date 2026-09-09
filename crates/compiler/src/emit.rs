@@ -96,8 +96,10 @@ impl Scheduler<'_> {
                 self.open_switch(cases.len(), block_type);
             }
             // Keep the selector on the stack while common values are captured.
-            if let Some(selector) = operation.selector() {
-                self.value(selector);
+            match operation {
+                Operation::If { condition, .. } => self.value(self.condition_input(*condition)),
+                Operation::Switch { selector, .. } => self.value(*selector),
+                _ => {}
             }
             let site = Site {
                 region: region.id,
@@ -211,6 +213,26 @@ impl Scheduler<'_> {
         self.evaluate(root, false);
     }
 
+    fn condition_input(&self, condition: usize) -> usize {
+        let condition = place::representation(self.body, condition);
+        let ValueKind::ZeroTest {
+            input,
+            nonzero: true,
+        } = self.body.values[condition].kind
+        else {
+            return condition;
+        };
+        // Wasm truth consumers accept any nonzero i32. ZeroTest already normalized
+        // its input; a saved Boolean must retain its canonical numeric value.
+        if self.placement.slots[condition].is_none()
+            && wasm_type(self.body.values[input].ty) == ValType::I32
+        {
+            input
+        } else {
+            condition
+        }
+    }
+
     fn evaluate(&mut self, root: usize, capture: bool) {
         let mut pending = vec![Walk::Value(root)];
         while let Some(next) = pending.pop() {
@@ -281,7 +303,7 @@ impl Scheduler<'_> {
                     when_false,
                 } => {
                     pending.push(Walk::Finish(id));
-                    pending.push(Walk::Value(condition));
+                    pending.push(Walk::Value(self.condition_input(condition)));
                     pending.push(Walk::Value(when_false));
                     pending.push(Walk::Value(when_true));
                 }

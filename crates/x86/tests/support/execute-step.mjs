@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 const [path, entry, returned, invocations = '1'] = process.argv.slice(2);
-const [cpu, guestPatches, machinePatches, arguments_ = [], observeGuest = false] = JSON.parse(readFileSync(0, 'utf8'));
+const [cpu, guestPatches, machinePatches, arguments_ = [], observeGuest = false, cpuPatchesBeforeCalls = []] = JSON.parse(readFileSync(0, 'utf8'));
 const args = arguments_.map(([type, value]) => type === 'i64' ? BigInt(value) : Number(value));
 const cpuState = new WebAssembly.Memory({ initial: 1 });
 const guest = new WebAssembly.Memory({ initial: 1 });
@@ -34,6 +34,9 @@ const guestChanges = () => {
 };
 const machineBefore = Buffer.from(new Uint8Array(machine.buffer));
 for (let call = 0; call < Number(invocations); call++) {
+  for (const [offset, bytes] of cpuPatchesBeforeCalls[call] ?? []) {
+    new Uint8Array(cpuState.buffer).set(bytes, offset);
+  }
   let result;
   try {
     result = instance.exports[entry](...args);

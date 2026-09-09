@@ -6,6 +6,38 @@ use wasm86_compiler::{Program, Signature, Type, I1, I32};
 use wasmparser::{Operator, Parser, Payload};
 
 #[test]
+fn zero_progress_exits_do_not_read_or_write_instruction_count() {
+    let mut program = Program::new();
+    let cpu = Cpu::declare(&mut program);
+    program
+        .function(
+            Signature {
+                parameters: vec![],
+                result: Some(Type::I32),
+            },
+            |mut body| {
+                let state = State::new(&cpu);
+                state.publish(&mut body, 0x1000, 0)?;
+                body.return_(7)
+            },
+        )
+        .unwrap();
+    let bytes = program.compile().unwrap();
+    wasmparser::Validator::new().validate_all(&bytes).unwrap();
+    for payload in Parser::new(0).parse_all(&bytes) {
+        if let Payload::CodeSectionEntry(code) = payload.unwrap() {
+            for operation in code.get_operators_reader().unwrap() {
+                assert!(!matches!(
+                    operation.unwrap(),
+                    Operator::I32Load { memarg } | Operator::I32Store { memarg }
+                        if memarg.offset == 144
+                ));
+            }
+        }
+    }
+}
+
+#[test]
 fn named_writes_coalesce_without_crossing_indexed_writes() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
