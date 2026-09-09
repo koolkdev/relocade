@@ -3,6 +3,7 @@ use wasm86_compiler::{MemoryInt, Val, I1};
 use super::StatusFlag;
 
 pub(crate) type OperandComparison<T> = fn(&Val<T>, &Val<T>) -> Val<I1>;
+pub(crate) type ResultComparison<T> = fn(&Val<T>) -> Val<I1>;
 
 /// The discriminant is the low four opcode bits; its low bit inverts a pair.
 #[repr(u8)]
@@ -85,6 +86,16 @@ impl Condition {
             Self::GE => |left, right| left.signed().ge(right),
             Self::LE => |left, right| right.signed().ge(left),
             Self::G => |left, right| right.signed().lt(left),
+            _ => return None,
+        })
+    }
+
+    /// Returns the zero/nonzero test that a logical result answers directly.
+    /// The unary predicate needs no unused record operand or flag image.
+    pub(crate) fn logic_result_comparison<T: MemoryInt>(self) -> Option<ResultComparison<T>> {
+        Some(match self {
+            Self::E => |result| result.eq(0),
+            Self::NE => |result| result.ne(0),
             _ => return None,
         })
     }

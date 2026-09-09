@@ -1,11 +1,9 @@
 mod operands;
 
-use wasm86_compiler::{
-    AtLeast, BuildError, Func, FunctionBuilder, IntoOp, MemoryInt, Val, I1, I32,
-};
+use wasm86_compiler::{BuildError, Func, FunctionBuilder, IntoOp, MemoryInt, Val, I1, I32};
 
 use crate::{
-    flags::{ArithmeticFlagSource, ArithmeticSource, Condition},
+    flags::{ArithmeticSource, Condition, FlagSource, LocalFlagSource},
     instruction::DecodedInstruction,
     memory::Memory,
     semantics,
@@ -58,10 +56,19 @@ impl<'body, 'cpu> ExecutionBuilder<'body, 'cpu> {
         source: &ArithmeticSource<T>,
     ) -> Result<(), BuildError>
     where
-        I32: AtLeast<T>,
-        ArithmeticSource<T>: Into<ArithmeticFlagSource>,
+        FlagSource<T>: Into<LocalFlagSource>,
     {
         self.state.set_arithmetic_flags(&mut self.body, source)
+    }
+
+    pub(super) fn set_logic_flags<T: MemoryInt>(
+        &mut self,
+        result: &Val<T>,
+    ) -> Result<(), BuildError>
+    where
+        FlagSource<T>: Into<LocalFlagSource>,
+    {
+        self.state.set_logic_flags(&mut self.body, result)
     }
 
     pub(super) fn condition(&mut self, condition: Condition) -> Result<Val<I1>, BuildError> {

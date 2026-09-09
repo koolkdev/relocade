@@ -5,49 +5,71 @@ use wasm86_compiler::{
     I32, I8,
 };
 
-use crate::flags::{logic_flag, ArithmeticKind, ArithmeticSource, Condition};
+use crate::flags::{ArithmeticKind, ArithmeticSource, Condition, FlagSource};
 
 use super::{super::flags, Cpu};
 
+/// Builds one typed comparison inside an already selected record case.
+type RecordQuery = fn(&Cpu, &mut FunctionBuilder<'_>, Condition) -> Result<Val<I1>, BuildError>;
+
 impl Cpu {
-    /// Reads a stored condition without materializing flags. CMP relations stay
-    /// in the consumer; other records use the shared readonly reader.
+    /// Reads a stored condition without materializing flags. Subtraction relations
+    /// and logical zero tests stay in the consumer; other records use the shared
+    /// readonly reader.
     pub(in crate::state) fn read_condition(
         &self,
         body: &mut FunctionBuilder<'_>,
         condition: Condition,
     ) -> Result<Val<I1>, BuildError> {
-        let Some(compare_dword) = condition.operand_comparison::<I32>() else {
+        if condition.operand_comparison::<I32>().is_none() {
             return self.read_condition_fallback(body, condition);
-        };
+        }
+        let mut queries: Vec<(u32, RecordQuery)> = vec![
+            (
+                u32::from(flags::encode_kind::<I8>(ArithmeticKind::Sub)),
+                read_subtraction::<I8>,
+            ),
+            (
+                u32::from(flags::encode_kind::<I16>(ArithmeticKind::Sub)),
+                read_subtraction::<I16>,
+            ),
+            (
+                u32::from(flags::encode_kind::<I32>(ArithmeticKind::Sub)),
+                read_subtraction::<I32>,
+            ),
+        ];
+        if condition.logic_result_comparison::<I32>().is_some() {
+            queries.extend([
+                (
+                    u32::from(flags::encode_logic::<I8>()),
+                    read_logic::<I8> as RecordQuery,
+                ),
+                (
+                    u32::from(flags::encode_logic::<I16>()),
+                    read_logic::<I16> as RecordQuery,
+                ),
+                (
+                    u32::from(flags::encode_logic::<I32>()),
+                    read_logic::<I32> as RecordQuery,
+                ),
+            ]);
+        }
+        queries.sort_unstable_by_key(|(kind, _)| *kind);
+        let kinds: Vec<_> = queries.iter().map(|(kind, _)| *kind).collect();
         let kind = body.load::<I8>(self.memory, flags::KIND_OFFSET)?;
-        let is_sub = kind
-            .eq(u32::from(flags::encode_kind::<I8>(ArithmeticKind::Sub)))
-            .or(kind.eq(u32::from(flags::encode_kind::<I16>(ArithmeticKind::Sub))))
-            .or(kind.eq(u32::from(flags::encode_kind::<I32>(ArithmeticKind::Sub))));
-        body.if_value::<I1>(
-            is_sub,
-            |mut arm| {
-                let left = arm.load::<I32>(self.memory, flags::LEFT_OFFSET)?;
-                let right = arm.load::<I32>(self.memory, flags::RIGHT_OFFSET)?;
-                let byte = compare_operands::<I8>(condition, &left, &right);
-                let word = compare_operands::<I16>(condition, &left, &right);
-                let dword = compare_dword(&left, &right);
-                let wider = kind
-                    .unsigned()
-                    .lt(u32::from(flags::width_code::<I32>()))
-                    .select(word, dword);
-                let compared = kind
-                    .unsigned()
-                    .lt(u32::from(flags::width_code::<I16>()))
-                    .select(byte, wider);
-                arm.yield_(compared)
-            },
-            |mut fallback| {
-                let result = self.read_condition_fallback(&mut fallback, condition)?;
-                fallback.yield_(result)
-            },
-        )
+        body.switch_value::<I1, _>(&kind, &kinds, |mut arm, kind| {
+            let result = match kind {
+                Some(kind) => {
+                    let (_, query) = queries
+                        .iter()
+                        .find(|(key, _)| *key == kind)
+                        .expect("the switch selects a declared record query");
+                    query(self, &mut arm, condition)?
+                }
+                None => self.read_condition_fallback(&mut arm, condition)?,
+            };
+            arm.yield_(result)
+        })
     }
 
     fn read_condition_fallback(
@@ -138,25 +160,41 @@ where
             |arm| arm.return_(source.condition(condition)),
         )?;
     }
-    let logic_kind = flags::width_code::<T>() | 3;
-    body.if_(stored_kind.eq(u32::from(logic_kind)), |arm| {
-        let result = condition.evaluate(|flag| Ok::<_, BuildError>(logic_flag(&left, flag)))?;
-        arm.return_(result)
-    })?;
+    body.if_(
+        stored_kind.eq(u32::from(flags::encode_logic::<T>())),
+        |arm| arm.return_(FlagSource::Logic { result: left }.condition(condition)),
+    )?;
     // The selected width accepts only its SUB, ADD and logic source tags.
     body.trap()
 }
 
-fn compare_operands<T: MemoryInt>(
+fn read_subtraction<T: MemoryInt>(
+    cpu: &Cpu,
+    body: &mut FunctionBuilder<'_>,
     condition: Condition,
-    left: &Val<I32>,
-    right: &Val<I32>,
-) -> Val<I1>
+) -> Result<Val<I1>, BuildError>
 where
     I32: AtLeast<T>,
 {
     let compare = condition
         .operand_comparison::<T>()
         .expect("the condition has an operand comparison");
-    compare(&left.truncate::<T>(), &right.truncate::<T>())
+    let left = body.load::<I32>(cpu.memory, flags::LEFT_OFFSET)?;
+    let right = body.load::<I32>(cpu.memory, flags::RIGHT_OFFSET)?;
+    Ok(compare(&left.truncate::<T>(), &right.truncate::<T>()))
+}
+
+fn read_logic<T: MemoryInt>(
+    cpu: &Cpu,
+    body: &mut FunctionBuilder<'_>,
+    condition: Condition,
+) -> Result<Val<I1>, BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let compare = condition
+        .logic_result_comparison::<T>()
+        .expect("the condition has a logical result comparison");
+    let result = body.load::<I32>(cpu.memory, flags::LEFT_OFFSET)?;
+    Ok(compare(&result.truncate::<T>()))
 }

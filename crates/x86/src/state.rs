@@ -37,7 +37,7 @@ const INSTRUCTION_COUNT_OFFSET: u32 = 144;
 
 pub(super) struct State<'cpu> {
     cpu: &'cpu Cpu,
-    values: Environment,
+    registers: Environment,
     flags: flags::FlagState,
 }
 
@@ -45,7 +45,7 @@ impl<'cpu> State<'cpu> {
     pub(super) fn new(cpu: &'cpu Cpu) -> Self {
         Self {
             cpu,
-            values: Environment::new(cpu.memory()),
+            registers: Environment::new(cpu.memory()),
             flags: flags::FlagState::default(),
         }
     }
@@ -57,11 +57,11 @@ impl<'cpu> State<'cpu> {
     ) -> Result<Val<T>, BuildError> {
         match register.into().selection {
             RegisterSelection::Named { parent, byte } => self
-                .values
+                .registers
                 .read(body, Location::new(register_offset(parent) + byte)),
             RegisterSelection::Indexed { slot, byte } => {
                 let offset = indexed_offset(slot, byte);
-                self.values
+                self.registers
                     .read_at(body, Span::new(24, T::BACKING_SLOT_COUNT * 4), offset, 24)
             }
         }
@@ -75,12 +75,12 @@ impl<'cpu> State<'cpu> {
     ) -> Result<(), BuildError> {
         match register.into().selection {
             RegisterSelection::Named { parent, byte } => {
-                self.values
+                self.registers
                     .define(body, Location::new(register_offset(parent) + byte), value)
             }
             RegisterSelection::Indexed { slot, byte } => {
                 let offset = indexed_offset(slot, byte);
-                self.values.write_at(
+                self.registers.write_at(
                     body,
                     Span::new(24, T::BACKING_SLOT_COUNT * 4),
                     offset,
@@ -101,7 +101,8 @@ impl<'cpu> State<'cpu> {
         next_eip: impl IntoOp<I32>,
         completed: u32,
     ) -> Result<(), BuildError> {
-        self.values.publish(body)?;
+        self.publish_flags(body)?;
+        self.registers.publish(body)?;
         body.store::<I32>(self.cpu.memory(), EIP_OFFSET, next_eip)?;
         let count = body.load::<I32>(self.cpu.memory(), INSTRUCTION_COUNT_OFFSET)?;
         body.store(

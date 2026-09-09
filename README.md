@@ -2,7 +2,7 @@
 
 Rust components for x86 execution in WebAssembly.
 
-`wasm86-x86` compiles MOV, ADD, CMP and SETcc blocks from byte snapshots:
+`wasm86-x86` compiles MOV, ADD, SUB, CMP, AND, OR, XOR, TEST and SETcc blocks from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
@@ -13,8 +13,8 @@ selected instructions are construction errors; bytes after the selection are ign
 module exports `block_1000` and imports `wasm86.cpuState` memory (minimum one
 64-KiB page) and `wasm86.dispatch(i32) -> i64`. CPU state uses little-endian 32-bit
 fields: EAX through EDI in encoding order at offsets 24–52, EIP at 56, and the
-completed-instruction count at 144. Final dirty definitions retain first-write order,
-then EIP and count are updated with 32-bit wrapping arithmetic. The block
+completed-instruction count at 144. An exit publishes its current flag source, then
+dirty registers in first-write order. EIP and count use 32-bit wrapping arithmetic. The block
 tail-calls dispatch with the next EIP and returns its result. This snapshot path
 supports these forms in default-32 operand and address mode:
 
@@ -30,6 +30,21 @@ supports these forms in default-32 operand and address mode:
 | CMP accumulator and immediate | 3C | 3D | 3D |
 | ADD register/memory and immediate | 80 /0 | 81/83 /0 | 81/83 /0 |
 | CMP register/memory and immediate | 80 /7 | 81/83 /7 | 81/83 /7 |
+| SUB register and register/memory | 28/2A | 29/2B | 29/2B |
+| SUB accumulator and immediate | 2C | 2D | 2D |
+| SUB register/memory and immediate | 80 /5 | 81/83 /5 | 81/83 /5 |
+| AND register and register/memory | 20/22 | 21/23 | 21/23 |
+| AND accumulator and immediate | 24 | 25 | 25 |
+| AND register/memory and immediate | 80 /4 | 81/83 /4 | 81/83 /4 |
+| OR register and register/memory | 08/0A | 09/0B | 09/0B |
+| OR accumulator and immediate | 0C | 0D | 0D |
+| OR register/memory and immediate | 80 /1 | 81/83 /1 | 81/83 /1 |
+| XOR register and register/memory | 30/32 | 31/33 | 31/33 |
+| XOR accumulator and immediate | 34 | 35 | 35 |
+| XOR register/memory and immediate | 80 /6 | 81/83 /6 | 81/83 /6 |
+| TEST register/memory and register | 84 | 85 | 85 |
+| TEST accumulator and immediate | A8 | A9 | A9 |
+| TEST register/memory and immediate | F6 /0 | F7 /0 | F7 /0 |
 | SETcc register/memory destination | 0F 90–9F | — | — |
 
 Group `83` sign-extends its encoded byte immediate to the operand width. SETcc
@@ -76,39 +91,53 @@ Snapshot decoding reads supplied bytes while compiling; runtime decoding reads
 guest bytes during execution. Both use shared instruction forms for opcode
 patterns, physical fields and operand binding, then pass decoded operands to
 shared instruction lowering. The runtime decoder owns its byte cursor, proven
-window and completion policy. An execution builder resolves operand locations,
+window and completion policy. Every opcode map uses the same catalog-driven
+switch and selects operand decoding by encoding. Only the chosen opcode checks
+its ModRM extension. Direct, checked and prefixed entries share field handling.
+Memory decoding selects the SIB or ordinary layout
+before reading address fields; ordinary addresses have no index term. Direct
+entries retain the original fetch window across fields whose bounds fit it.
+An execution builder resolves operand locations,
 checks memory access, and tracks instruction progress. Binary instructions have
 left and right operands; their operation determines which effects are applied.
 The builder's `update` checks write permission before reading the old left value,
 then runs the semantic callback and stores its result through the same checked
-access. ADD uses this operation; CMP only reads operands and sets arithmetic flags.
+access. ADD, SUB, AND, OR and XOR use this operation. CMP and TEST only read
+operands and set flags, so their memory operands require no write permission.
 A fault publishes completed definitions into its terminating branch without
 consuming the parent state used by the successful path.
 
-One value environment tracks typed byte, word and dword locations, forwarding
-known definitions and caching reads.
+The register value environment tracks typed byte, word and dword locations,
+forwarding known definitions and caching reads.
 Reads through overlapping views synchronize earlier definitions to backing. A covering
 write replaces superseded definitions. Computed register accesses synchronize
 overlapping definitions, then invalidate potentially written locations. These
 are completed effects; publication does not undo a partially executed instruction.
 
-ADD and CMP retain the original operands as a lazy source for CF, PF, AF, ZF, SF
-and OF. `FlagState` distinguishes stored CPU records from a local arithmetic source.
+ADD, SUB and CMP retain the original operands as a lazy source for CF, PF, AF, ZF, SF
+and OF. `FlagState` distinguishes stored CPU records from local flag sources.
+A typed `FlagSource` retains either arithmetic operands or a logical result.
 Constructing an `ArithmeticSource` builds value expressions; calling
 `set_arithmetic_flags` retains that source as the new architectural flags.
-A same-block condition uses only the expressions it needs; CMP conditions
-can compare those original operands directly. Publication writes the zero-extended
+A same-block condition uses only the expressions it needs; CMP and SUB conditions
+can compare the original operands directly. Publication writes the zero-extended
 operands to CPU dwords 4 and 8, then the kind byte at 0. SUB kinds 1/5/9 and ADD
-kinds 2/6/10 denote byte/word/dword operands. Incoming logic records use kinds
-3/7/11 with the result at offset 4; they clear CF/OF and use zero for undefined AF.
+kinds 2/6/10 denote byte/word/dword operands. AND, OR, XOR and TEST retain only
+the logical result through `set_logic_flags`. Their records use kinds 3/7/11 with
+the zero-extended result at offset 4; offset 8 is unused and remains untouched.
+The flag owner retains only the current source and writes its record at publication;
+replacing a source does not schedule or repair individual field writes. Logic clears
+CF/OF and uses zero for architecturally undefined AF.
 A nonzero kind owns all six status flags, so concrete flag bytes may be stale.
 Kind 0 instead reads CF/PF/AF/ZF/SF/OF from bytes 12–17, each containing 0 or 1.
-Other kind values trap when read. Stored CMP relations compare operands directly
-in the consumer; other records use shared readonly condition readers. Inverse
+Other kind values trap when read. A stored direct query selects its exact record
+kind before reading its typed inputs. Subtraction relations compare the original
+operands; logical zero/nonzero queries compare only the result. Other queries use
+shared readonly condition readers. Inverse
 conditions share a reader and cached result. Readers are created only when needed;
 querying a condition preserves the stored representation.
 MOV and SETcc preserve flags, and these instructions leave non-status flag bytes
-untouched. An ADD destination fault preserves the previous instruction's flags.
+untouched. A faulting operand access preserves the previous instruction's flags.
 
 The step and snapshot blocks with memory operands also import `wasm86.guest`
 (minimum one Wasm page) and `wasm86.machine` (minimum 64 pages, or 4 MiB).
@@ -192,6 +221,28 @@ Use `condition.select(when_true, when_false)` for a pure value choice. Both
 alternatives are eager inputs, so select does not guard a load or call. Shared
 inputs and the selection itself follow normal value placement. Two literals can
 specify their type with `condition.select::<I32>(7, 9)`.
+
+Use `switch` to execute one case selected by an integer value. The callback receives
+`Some(key)` for a listed case and `None` for the default. Case keys must be unique
+and fit the selector's logical type. Each case can fall through, return, tail-call
+or trap; falling through continues after the switch.
+
+```rust
+body.switch(&opcode, &[0x28, 0x85], |arm, key| match key {
+    Some(0x28) => arm.return_(1),
+    Some(0x85) => arm.return_(2),
+    _ => arm.return_(0),
+})?;
+```
+
+`switch_value::<I32, _>` instead returns a value. Every case, including the default,
+must yield, return, tail-call or trap, and at least one must yield. Child values obey
+the same scope rules as conditional arms. Dense case ranges use a Wasm branch
+table; sparse ranges use balanced comparisons without allocating a large table.
+Calculations using only parameters and constants can be captured separately in
+each arm that uses them. Nested branches within one arm share its capture. Values
+used after the join retain their common capture. Memory reads, call results, joined
+values and expressions depending on them keep their snapshot rules.
 
 Use `if_value` to execute only the selected branch and obtain its value:
 

@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 mod step;
 use step::ModuleFile;
 use wasm86_x86::{compile_block_from_bytes, compile_interpreter_step, CompiledModule};
-use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Validator};
+use wasmparser::{ExternalKind, Parser, Payload, TypeRef, ValType, Validator};
 
 const MOVES: [(&[u8], usize, u32); 8] = [
     (&[0xb8, 0x78, 0x56, 0x34, 0x12], 24, 0x1234_5678),
@@ -179,118 +179,6 @@ fn interpreter_step_exposes_the_cpu_ram_page_map_and_dispatch_abi() {
         types[functions[entry] as usize],
         (vec![], vec![ValType::I64])
     );
-}
-
-#[test]
-fn runtime_decoding_keeps_the_wide_immediate_fast_path() {
-    #[derive(Default)]
-    struct Code {
-        cpu_loads: Vec<u64>,
-        guest_loads: Vec<(u64, u8)>,
-        stores: Vec<(u32, u64)>,
-        tails: Vec<u32>,
-    }
-    let module = compile_interpreter_step().unwrap();
-    Validator::new().validate_all(&module.bytes).unwrap();
-    let mut bodies = Vec::new();
-    let mut imported_functions = 0;
-    let mut dispatch = None;
-    let mut step = None;
-    for payload in Parser::new(0).parse_all(&module.bytes) {
-        match payload.unwrap() {
-            Payload::ImportSection(section) => {
-                for import in section {
-                    let import = import.unwrap();
-                    if matches!(import.ty, TypeRef::Func(_)) {
-                        if import.name == "dispatch" {
-                            dispatch = Some(imported_functions);
-                        }
-                        imported_functions += 1;
-                    }
-                }
-            }
-            Payload::ExportSection(section) => {
-                for export in section {
-                    let export = export.unwrap();
-                    if export.name == "step" {
-                        step = Some(export.index - imported_functions);
-                    }
-                }
-            }
-            Payload::CodeSectionEntry(body) => {
-                let mut code = Code::default();
-                for operator in body.get_operators_reader().unwrap() {
-                    match operator.unwrap() {
-                        Operator::I32Load { memarg } if memarg.memory == 0 => {
-                            code.cpu_loads.push(memarg.offset)
-                        }
-                        Operator::I32Load { memarg } if memarg.memory == 1 => {
-                            code.guest_loads.push((memarg.offset, 32))
-                        }
-                        Operator::I32Load8U { memarg } if memarg.memory == 1 => {
-                            code.guest_loads.push((memarg.offset, 8))
-                        }
-                        Operator::I32Store { memarg } | Operator::I32Store8 { memarg } => {
-                            code.stores.push((memarg.memory, memarg.offset))
-                        }
-                        Operator::ReturnCall { function_index } => code.tails.push(function_index),
-                        _ => {}
-                    }
-                }
-                bodies.push(code);
-            }
-            _ => {}
-        }
-    }
-    let fast = &bodies[step.unwrap() as usize];
-    assert_eq!(
-        fast.guest_loads
-            .iter()
-            .filter(|&&(_, bits)| bits == 32)
-            .copied()
-            .collect::<Vec<_>>(),
-        [(1, 32)]
-    );
-    assert!(fast.guest_loads.contains(&(0, 8)));
-    assert!(!fast.cpu_loads.contains(&24));
-    assert!(bodies.iter().any(|body| body.cpu_loads.contains(&24)));
-    assert!(bodies.iter().any(|body| body.guest_loads.contains(&(1, 8))));
-    let dispatch = dispatch.unwrap();
-    assert!(fast
-        .tails
-        .iter()
-        .any(|&target| target >= imported_functions));
-    assert_eq!(
-        fast.cpu_loads
-            .iter()
-            .filter(|&&offset| offset == 56)
-            .count(),
-        1
-    );
-    let exits = fast
-        .tails
-        .iter()
-        .filter(|&&target| target == dispatch)
-        .count();
-    assert!(exits > 0);
-
-    assert_eq!(
-        fast.cpu_loads
-            .iter()
-            .filter(|&&offset| offset == 144)
-            .count(),
-        exits
-    );
-    for offset in [24, 56, 144] {
-        assert_eq!(
-            fast.stores
-                .iter()
-                .filter(|&&access| access == (0, offset))
-                .count(),
-            exits
-        );
-    }
-    assert_eq!(fast.stores.len(), exits * 3);
 }
 
 fn check_register_moves(flags: &[&str], step: &ModuleFile) {

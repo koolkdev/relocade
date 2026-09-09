@@ -1,13 +1,14 @@
 mod catalog;
+mod opcodes;
 
 pub(crate) use catalog::*;
+pub(crate) use opcodes::forms_by_opcode;
 
 use super::{
     BinaryInstruction, BinaryOperation, DecodedInstruction, Instruction, Location, Operand,
     OperandSize, OperandWidth,
 };
 use crate::{address::Address32, flags::Condition, register::RegisterCode};
-use wasm86_compiler::{Val, I1, I8};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum OpcodeMap {
@@ -62,14 +63,6 @@ impl Encoding {
         match self {
             Self::RmImmediate { extension, .. } => ((modrm >> 3) & 7) == extension,
             _ => true,
-        }
-    }
-    pub(crate) fn extension_match(self, modrm: &Val<I8>) -> Option<Val<I1>> {
-        match self {
-            Self::RmImmediate { extension, .. } => {
-                Some(modrm.and(0x38).eq(u32::from(extension) << 3))
-            }
-            _ => None,
         }
     }
 }
@@ -150,26 +143,12 @@ impl Form {
         ResolvedForm {
             encoding: self.encoding,
             width: self.width.resolve(size),
-            map: self.map,
             operation: self.operation,
         }
-    }
-    pub(crate) fn same_opcode(&self, other: &Self) -> bool {
-        self.map == other.map && self.opcode == other.opcode && self.mask == other.mask
     }
     /// The caller has already selected this form's opcode map.
     pub(crate) fn matches(&self, opcode: u8) -> bool {
         opcode & self.mask == self.opcode
-    }
-    pub(crate) fn matches_value(&self, opcode: &Val<I8>) -> Val<I1> {
-        opcode.and(u32::from(self.mask)).eq(u32::from(self.opcode))
-    }
-    pub(crate) fn matches_modrm_value(&self, opcode: &Val<I8>, modrm: &Val<I8>) -> Val<I1> {
-        let opcode_match = self.matches_value(opcode);
-        match self.encoding.extension_match(modrm) {
-            Some(extension) => opcode_match.and(extension),
-            None => opcode_match,
-        }
     }
 }
 
@@ -178,7 +157,6 @@ impl Form {
 pub(crate) struct ResolvedForm {
     pub(crate) encoding: Encoding,
     pub(crate) width: OperandWidth,
-    map: OpcodeMap,
     operation: Operation,
 }
 impl ResolvedForm {
@@ -199,18 +177,6 @@ impl ResolvedForm {
                 ..
             }
         )
-    }
-    /// Opcode bytes and shortest operand fields, excluding prefixes.
-    pub(crate) const fn minimum_length(&self) -> u32 {
-        self.map.bytes()
-            + match self.encoding {
-                Encoding::OpcodeRegisterImmediate | Encoding::AccumulatorImmediate => {
-                    self.width.bytes()
-                }
-                Encoding::RegisterRm { .. } | Encoding::Rm => 1,
-                Encoding::RmImmediate { .. } => 1 + self.immediate_width().bytes(),
-                Encoding::AccumulatorOffset { .. } => 4,
-            }
     }
     pub(crate) fn bind<V, P>(
         &self,

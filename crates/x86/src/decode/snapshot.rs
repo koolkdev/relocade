@@ -1,9 +1,9 @@
 use crate::{
     address::{Address32, IndexTerm, RegisterTerm},
     instruction::{
-        primary_forms, DecodedFields, DecodedInstruction, Encoding, Location, OpcodeMap,
+        opcode_forms, DecodedFields, DecodedInstruction, Encoding, Location, OpcodeMap,
         OperandSize, OperandWidth, ResolvedForm, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
-        OPERAND_SIZE_PREFIX, SET_CONDITION_FORMS,
+        OPERAND_SIZE_PREFIX,
     },
     register::{Gpr32, RegisterCode},
     BlockError,
@@ -33,9 +33,7 @@ pub(crate) fn snapshot(
     } else {
         (opcode, OpcodeMap::Primary)
     };
-    let mut candidates = primary_forms()
-        .chain(SET_CONDITION_FORMS.iter())
-        .filter(|form| form.map == map && form.matches(opcode));
+    let mut candidates = opcode_forms(map).filter(|form| form.matches(opcode));
     let first = candidates
         .next()
         .ok_or(BlockError::UnsupportedInstruction {

@@ -10,6 +10,8 @@ use crate::{
     place, Body, Operation, Terminal, Type, ValueKind,
 };
 
+mod switch;
+
 struct LocalEvent {
     // Position in the byte buffer, excluding local instructions inserted later.
     offset: usize,
@@ -75,22 +77,27 @@ impl Scheduler<'_> {
     fn region(&mut self, region: &Region, yield_result: bool) {
         let forwarding = if yield_result {
             match (&region.terminal, region.operations.last()) {
-                (
-                    Some(Terminal::Yield(value)),
-                    Some(Operation::If {
-                        output: Some(output),
-                        ..
-                    }),
-                ) => place::representation(self.body, *value) == *output,
+                (Some(Terminal::Yield(value)), Some(operation)) => operation
+                    .branch_output()
+                    .is_some_and(|output| place::representation(self.body, *value) == output),
                 _ => false,
             }
         } else {
             false
         };
         for (index, operation) in region.operations.iter().enumerate() {
-            // Keep the condition on the stack while common values are captured.
-            if let Operation::If { condition, .. } = operation {
-                self.value(*condition);
+            let live_output = operation
+                .branch_output()
+                .filter(|&id| self.placement.slots[id].is_some());
+            let block_type = live_output.map_or(BlockType::Empty, |id| {
+                BlockType::Result(wasm_type(self.body.values[id].ty))
+            });
+            if let Operation::Switch { cases, .. } = operation {
+                self.open_switch(cases.len(), block_type);
+            }
+            // Keep the selector on the stack while common values are captured.
+            if let Some(selector) = operation.selector() {
+                self.value(selector);
             }
             let site = Site {
                 region: region.id,
@@ -130,13 +137,8 @@ impl Scheduler<'_> {
                 Operation::If {
                     branch,
                     else_branch,
-                    output,
                     ..
                 } => {
-                    let live_output = output.filter(|&id| self.placement.slots[id].is_some());
-                    let block_type = live_output.map_or(BlockType::Empty, |id| {
-                        BlockType::Result(wasm_type(self.body.values[id].ty))
-                    });
                     Instruction::If(block_type).encode(&mut self.bytes);
                     let before_arm = self.emitted.clone();
                     self.region(branch, live_output.is_some());
@@ -149,11 +151,14 @@ impl Scheduler<'_> {
                     // Neither arm can initialize values for the other. Only the
                     // selected result becomes available to the parent after End.
                     self.emitted = before_arm;
-                    if let Some(output) = live_output {
-                        if !(forwarding && index + 1 == region.operations.len()) {
-                            self.completed(output, true);
-                        }
-                    }
+                }
+                Operation::Switch { cases, default, .. } => {
+                    self.switch(cases, default, live_output.is_some());
+                }
+            }
+            if let Some(output) = live_output {
+                if !(forwarding && index + 1 == region.operations.len()) {
+                    self.completed(output, true);
                 }
             }
         }
@@ -256,7 +261,7 @@ impl Scheduler<'_> {
                 .encode(&mut self.bytes),
                 ValueKind::Parameter(index) => Instruction::LocalGet(index).encode(&mut self.bytes),
                 ValueKind::JoinResult { .. } => {
-                    unreachable!("a used join was saved after its conditional")
+                    unreachable!("a used join was saved after its branch operation")
                 }
                 ValueKind::Binary(_, a, b)
                 | ValueKind::Compare(_, a, b)

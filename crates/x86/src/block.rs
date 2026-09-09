@@ -6,7 +6,7 @@ use crate::{
 };
 
 /// Compiles exactly `instruction_limit` instructions starting at `start_eip`.
-/// Supports the MOV, ADD, CMP and SETcc forms described in the
+/// Supports the instruction forms described in the
 /// [crate documentation](crate). ModRM/SIB addressing and absolute offsets are
 /// 32-bit. The `66` operand-size prefix selects word operands. Bytes after the
 /// requested instructions are ignored.
@@ -29,8 +29,9 @@ use crate::{
 /// Addresses are flat: segment bases are ignored. A data fault publishes earlier
 /// completed instructions, keeps EIP at the faulting instruction, and skips dispatch.
 /// All bytes of a store are permission-checked before any of them are written.
-/// ADD checks write permission before reading its destination or changing flags;
-/// CMP requires only read permission. Status flags use the lazy CPU record
+/// Read-modify-write operations check write permission before reading their
+/// destination or changing flags; CMP and TEST require only read permission.
+/// Status flags use the lazy CPU record
 /// described in the [crate documentation](crate).
 pub fn compile_block_from_bytes(
     start_eip: u32,

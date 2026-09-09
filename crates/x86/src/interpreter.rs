@@ -5,7 +5,7 @@ use crate::{
     instruction::DecodedInstruction, memory::Memory, state::Cpu, CompiledModule,
 };
 
-/// Builds `step() -> i64`, which fetches and executes one MOV, ADD, CMP or SETcc
+/// Builds `step() -> i64`, which fetches and executes one supported instruction
 /// at the current EIP, using the forms described in the
 /// [crate documentation](crate). Addresses remain 32-bit for every data width.
 /// Success publishes the instruction effects, EIP and instruction count,

@@ -4,13 +4,15 @@ use wasmparser::Validator;
 #[path = "support/step.rs"]
 mod step;
 use step::ModuleFile;
+#[path = "support/arithmetic.rs"]
+mod arithmetic;
 #[allow(dead_code)]
 #[path = "support/machine.rs"]
 mod machine;
-use machine::{both, Exit, Image, Step};
-#[path = "support/arithmetic.rs"]
-mod arithmetic;
 use arithmetic::{image, recipe};
+#[path = "support/conditions.rs"]
+mod conditions;
+use conditions::check_conditions;
 
 struct ArithmeticCase {
     name: &'static str,
@@ -191,68 +193,73 @@ const ARITHMETIC: &[ArithmeticCase] = &[
         right: 0,
         conditions: 0x55aa,
     },
+    ArithmeticCase {
+        name: "byte SUB borrows and preserves upper EAX",
+        code: &[0x28, 0xd8],
+        eax: 0x4433_2200,
+        ebx: 1,
+        result: 0x4433_22ff,
+        kind: 1,
+        left: 0,
+        right: 1,
+        conditions: 0x5566,
+    },
+    ArithmeticCase {
+        name: "reverse byte SUB reads old AL before replacing AH",
+        code: &[0x2a, 0xe0],
+        eax: 0x4433_8001,
+        ebx: 0,
+        result: 0x4433_7f01,
+        kind: 1,
+        left: 0x80,
+        right: 1,
+        conditions: 0x5aa9,
+    },
+    ArithmeticCase {
+        name: "word SUB retains signed overflow and low-byte parity",
+        code: &[0x66, 0x29, 0xd8],
+        eax: 0x4433_8000,
+        ebx: 0xdead_0001,
+        result: 0x4433_7fff,
+        kind: 5,
+        left: 0x8000,
+        right: 1,
+        conditions: 0x56a9,
+    },
+    ArithmeticCase {
+        name: "dword SUB separates signed and unsigned order",
+        code: &[0x2b, 0xc3],
+        eax: 0x7fff_fffe,
+        ebx: 0xffff_fffe,
+        result: 0x8000_0000,
+        kind: 9,
+        left: 0x7fff_fffe,
+        right: 0xffff_fffe,
+        conditions: 0xa565,
+    },
+    ArithmeticCase {
+        name: "group SUB sign extends its byte immediate to a word",
+        code: &[0x66, 0x83, 0xe8, 0xff],
+        eax: 0x4433_0000,
+        ebx: 0,
+        result: 0x4433_0001,
+        kind: 5,
+        left: 0,
+        right: 0xffff,
+        conditions: 0xaa66,
+    },
+    ArithmeticCase {
+        name: "group SUB sign extends its byte immediate to a dword",
+        code: &[0x83, 0xe8, 0x80],
+        eax: 0xffff_ff80,
+        ebx: 0,
+        result: 0,
+        kind: 9,
+        left: 0xffff_ff80,
+        right: 0xffff_ff80,
+        conditions: 0x665a,
+    },
 ];
-
-fn check_condition_sequence(
-    flags: &[&str],
-    step: &ModuleFile,
-    name: &str,
-    prefix: &[u8],
-    image: &mut Image,
-    prefix_updates: &[(usize, u32)],
-    conditions: u16,
-) {
-    let mut code = prefix.to_vec();
-    for condition in 0..16 {
-        // ModRM.reg is ignored by SETcc. Every possible value appears here.
-        code.extend_from_slice(&[
-            0x0f,
-            0x90 + condition,
-            0x47 | ((condition & 7) << 3),
-            condition,
-        ]);
-    }
-    image.data(0x3000, &code);
-    image.register(52, 0x6000);
-    image.map(6, 0xa000, true);
-    image.data(0x9fff, &[0xa5; 18]);
-    let results = (0..16)
-        .map(|condition| [((conditions >> condition) & 1) as u8])
-        .collect::<Vec<_>>();
-    let mut updates = Vec::new();
-    if !prefix.is_empty() {
-        let mut changes = prefix_updates.to_vec();
-        changes.extend_from_slice(&[(56, 0x1000 + prefix.len() as u32), (144, 0)]);
-        updates.push(changes);
-    }
-    for condition in 0..16 {
-        updates.push(vec![
-            (56, 0x1000 + prefix.len() as u32 + 4 * (condition + 1)),
-            (144, condition + u32::from(!prefix.is_empty())),
-        ]);
-    }
-    let writes = results
-        .iter()
-        .enumerate()
-        .map(|(condition, result)| [(0xa000 + condition as u32, result.as_slice())])
-        .collect::<Vec<_>>();
-    let mut steps = Vec::new();
-    if !prefix.is_empty() {
-        steps.push(Step {
-            cpu: &updates[0],
-            ram: &[],
-            exit: Exit::Dispatch(0x1000 + prefix.len() as u32),
-        });
-    }
-    for condition in 0..16 {
-        steps.push(Step {
-            cpu: &updates[condition + usize::from(!prefix.is_empty())],
-            ram: &writes[condition],
-            exit: Exit::Dispatch(0x1000 + prefix.len() as u32 + 4 * (condition as u32 + 1)),
-        });
-    }
-    both(step, flags, name, &code, steps.len() as u32, image, &steps);
-}
 
 fn check_arithmetic_conditions(flags: &[&str], step: &ModuleFile) {
     for case in ARITHMETIC {
@@ -261,7 +268,7 @@ fn check_arithmetic_conditions(flags: &[&str], step: &ModuleFile) {
         image.register(36, case.ebx);
         let mut updates = recipe(case.kind, case.left, case.right).to_vec();
         updates.push((24, case.result));
-        check_condition_sequence(
+        check_conditions(
             flags,
             step,
             case.name,
@@ -284,16 +291,30 @@ fn check_incoming_records(flags: &[&str], step: &ModuleFile) {
         ("stored byte logic", 3, 0x80, 0x1234_5678, 0x59aa),
         ("stored word logic", 7, 0x8000, 0x1234_5678, 0x55aa),
         ("stored dword logic", 11, 0x8000_0000, 0x1234_5678, 0x55aa),
+        (
+            "stored byte logic ignores upper result bits",
+            3,
+            0x100,
+            0x1234_5678,
+            0x665a,
+        ),
+        (
+            "stored word logic ignores upper result bits",
+            7,
+            0x10000,
+            0x1234_5678,
+            0x665a,
+        ),
     ] {
         let mut image = image(&[]);
         for (offset, value) in recipe(kind, left, right) {
             image.register(offset, value);
         }
-        check_condition_sequence(flags, step, name, &[], &mut image, &[], conditions);
+        check_conditions(flags, step, name, &[], &mut image, &[], conditions);
     }
     let mut concrete = image(&[]);
     concrete.cpu[12..18].copy_from_slice(&[0, 1, 0, 1, 0, 0]);
-    check_condition_sequence(
+    check_conditions(
         flags,
         step,
         "concrete equal flags ignore stale recipe operands",

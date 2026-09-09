@@ -5,7 +5,7 @@ pub(super) fn image(code: &[u8]) -> Image {
     image.cpu[0] = 0;
     image.cpu[12..23].fill(0);
     image.cpu[12..18].fill(1); // Stale status bits must not win over a new recipe.
-    image.cpu[19] = 1; // DF is unrelated to ADD, CMP and SETcc.
+    image.cpu[19] = 1; // DF is unrelated to these binary operations and SETcc.
     image
 }
 

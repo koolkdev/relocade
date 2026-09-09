@@ -1,4 +1,4 @@
-//! Arithmetic flag formulas and condition folding over logical-width values.
+//! Status-flag sources and condition folding over logical-width values.
 //! CPU record layout, pending definitions and publication belong to state.
 
 mod condition;
@@ -75,7 +75,7 @@ impl<T: MemoryInt> ArithmeticSource<T> {
     }
 
     pub(super) fn condition(&self, condition: Condition) -> Val<I1> {
-        // A CMP's relation follows its original operands, including signed
+        // A subtraction relation follows its original operands, including signed
         // overflow cases. These conditions need no intermediate flag image.
         if self.kind == ArithmeticKind::Sub {
             if let Some(compare) = condition.operand_comparison::<T>() {
@@ -88,15 +88,38 @@ impl<T: MemoryInt> ArithmeticSource<T> {
     }
 }
 
-/// State retains different instruction widths without erasing compiler value types.
+/// A complete status source keeps only the values its flag rules require.
 #[derive(Clone)]
-pub(super) enum ArithmeticFlagSource {
-    Byte(ArithmeticSource<I8>),
-    Word(ArithmeticSource<I16>),
-    Dword(ArithmeticSource<I32>),
+pub(super) enum FlagSource<T: MemoryInt> {
+    Arithmetic(ArithmeticSource<T>),
+    Logic { result: Val<T> },
 }
 
-impl ArithmeticFlagSource {
+impl<T: MemoryInt> FlagSource<T> {
+    pub(super) fn condition(&self, condition: Condition) -> Val<I1> {
+        match self {
+            Self::Arithmetic(source) => source.condition(condition),
+            Self::Logic { result } => {
+                if let Some(compare) = condition.logic_result_comparison::<T>() {
+                    return compare(result);
+                }
+                condition
+                    .evaluate(|flag| Ok::<_, Infallible>(logic_flag(result, flag)))
+                    .unwrap_or_else(|never| match never {})
+            }
+        }
+    }
+}
+
+/// State retains different source widths without erasing compiler value types.
+#[derive(Clone)]
+pub(super) enum LocalFlagSource {
+    Byte(FlagSource<I8>),
+    Word(FlagSource<I16>),
+    Dword(FlagSource<I32>),
+}
+
+impl LocalFlagSource {
     pub(super) fn condition(&self, condition: Condition) -> Val<I1> {
         match self {
             Self::Byte(source) => source.condition(condition),
@@ -106,24 +129,24 @@ impl ArithmeticFlagSource {
     }
 }
 
-impl From<ArithmeticSource<I8>> for ArithmeticFlagSource {
-    fn from(source: ArithmeticSource<I8>) -> Self {
+impl From<FlagSource<I8>> for LocalFlagSource {
+    fn from(source: FlagSource<I8>) -> Self {
         Self::Byte(source)
     }
 }
-impl From<ArithmeticSource<I16>> for ArithmeticFlagSource {
-    fn from(source: ArithmeticSource<I16>) -> Self {
+impl From<FlagSource<I16>> for LocalFlagSource {
+    fn from(source: FlagSource<I16>) -> Self {
         Self::Word(source)
     }
 }
-impl From<ArithmeticSource<I32>> for ArithmeticFlagSource {
-    fn from(source: ArithmeticSource<I32>) -> Self {
+impl From<FlagSource<I32>> for LocalFlagSource {
+    fn from(source: FlagSource<I32>) -> Self {
         Self::Dword(source)
     }
 }
 
-/// Existing logic records clear CF/OF and use zero for undefined AF. Their other
-/// flags use the same result rules as arithmetic.
+/// Logical results clear CF/OF and use zero for architecturally undefined AF.
+/// Their remaining flags use the same result rules as arithmetic.
 pub(super) fn logic_flag<T: MemoryInt>(result: &Val<T>, flag: StatusFlag) -> Val<I1> {
     match flag {
         StatusFlag::CF | StatusFlag::OF | StatusFlag::AF => result.and(0).ne(0),

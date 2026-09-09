@@ -12,7 +12,12 @@ pub(super) const EXTENDED_OPCODE_ESCAPE: u8 = 0x0f;
 pub(super) enum BinaryOperation {
     Mov,
     Add,
+    Subtract,
+    And,
+    Or,
+    Xor,
     Compare,
+    Test,
 }
 
 /// Width of the instruction's data operands; effective addresses remain 32-bit.
@@ -59,7 +64,7 @@ impl<V> From<Location<V>> for Operand<V> {
 }
 
 /// Binary operands in Intel order. The operation determines whether the left
-/// location is written; CMP only reads it.
+/// location is written; CMP and TEST only read it.
 pub(super) struct BinaryInstruction<V> {
     pub(super) operation: BinaryOperation,
     pub(super) width: OperandWidth,

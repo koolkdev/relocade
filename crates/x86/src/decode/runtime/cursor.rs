@@ -5,17 +5,21 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32, I8};
 use crate::{
     instruction::{
         DecodedFields, Encoding, Location, OpcodeMap, OperandSize, OperandWidth, ResolvedForm,
-        EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES, MOV_OPERAND_IMMEDIATE,
+        EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
     },
     memory::Memory,
     register::RegisterCode,
     state::exit,
 };
 
-/// A proven window uses fixed displacements; a checked cursor advances in the
-/// wrapping instruction address space. A read beyond the proven extent uses
-/// checked fetch. Conditional fields discard the window and advance the parent
-/// cursor by their selected size, never by retaining a child-scoped position.
+// One primary opcode and the widest scalar field fit this shared fetch window.
+// Longer forms retain the same proof and check fields beyond its extent.
+pub(super) const DIRECT_FETCH_BYTES: u32 = 1 + OperandWidth::Dword.bytes();
+
+/// A proven window permits direct reads while every possible cursor position
+/// fits its extent. Conditional fields advance a parent expression and its upper
+/// bound; child-scoped positions never escape. Reads beyond the proof use checked
+/// fetch in the wrapping instruction address space.
 #[derive(Clone)]
 pub(super) struct RuntimeCursor {
     memory: Memory,
@@ -30,13 +34,13 @@ pub(super) struct RuntimeCursor {
 #[derive(Clone)]
 struct Window {
     physical_start: Val<I32>,
-    consumed: u32,
+    fixed_offset: Option<u32>,
     bytes: u32,
 }
 
 impl Window {
-    fn covers(&self, bytes: u32) -> bool {
-        u64::from(self.consumed) + u64::from(bytes) <= u64::from(self.bytes)
+    fn covers(&self, maximum_offset: u32, bytes: u32) -> bool {
+        u64::from(maximum_offset) + u64::from(bytes) <= u64::from(self.bytes)
     }
 }
 
@@ -57,10 +61,8 @@ impl RuntimeCursor {
             opcode_map: OpcodeMap::Primary,
             window: physical_start.map(|physical_start| Window {
                 physical_start: physical_start.clone(),
-                consumed,
-                bytes: MOV_OPERAND_IMMEDIATE
-                    .resolve(OperandSize::Dword)
-                    .minimum_length(),
+                fixed_offset: Some(consumed),
+                bytes: DIRECT_FETCH_BYTES,
             }),
         })
     }
@@ -130,7 +132,15 @@ impl RuntimeCursor {
         self.offset = self.offset.add(bytes);
         self.maximum_offset = self.maximum_offset.saturating_add(bytes);
         if let Some(window) = &mut self.window {
-            window.consumed += bytes;
+            if let Some(offset) = &mut window.fixed_offset {
+                *offset += bytes;
+            }
+        }
+    }
+
+    fn mark_conditional_offset(&mut self) {
+        if let Some(window) = &mut self.window {
+            window.fixed_offset = None;
         }
     }
 
@@ -170,33 +180,12 @@ impl RuntimeCursor {
         })
     }
 
-    pub(super) fn optional_byte(
-        &mut self,
-        body: &mut FunctionBuilder<'_>,
-        present: &Val<I1>,
-    ) -> Result<Val<I8>, BuildError> {
-        self.window = None;
-        let mut conditional_cursor = self.clone();
-        let value = body.if_value::<I8>(
-            present,
-            |mut field_body| {
-                let value = conditional_cursor.byte(&mut field_body)?;
-                field_body.yield_(value)
-            },
-            |absent_field_body| absent_field_body.yield_(0),
-        )?;
-        self.offset = self.offset.add(present.unsigned().extend::<I32>());
-        self.maximum_offset += 1;
-        Ok(value)
-    }
-
     pub(super) fn displacement(
         &mut self,
         body: &mut FunctionBuilder<'_>,
         mode: &Val<I8>,
         no_base: &Val<I1>,
     ) -> Result<Val<I32>, BuildError> {
-        self.window = None;
         let has_dword_displacement = mode.eq(2).or(no_base);
         let has_byte_displacement = mode.eq(1);
         let value = body.if_value::<I32>(
@@ -217,6 +206,7 @@ impl RuntimeCursor {
                 short_displacement_body.yield_(value)
             },
         )?;
+        self.mark_conditional_offset();
         self.maximum_offset += 4;
         self.offset = self
             .offset

@@ -2,6 +2,47 @@ use crate::{
     Argument, BuildError, FunctionBuilder, IntType, IntoOp, Operation, Terminal, Type, Val, I1,
 };
 
+mod switch;
+
+pub(super) struct SwitchCase {
+    pub(super) key: u32,
+    pub(super) region: Region,
+}
+
+impl Operation {
+    pub(super) fn children(&self) -> impl DoubleEndedIterator<Item = &Region> {
+        let (first, second, cases): (_, _, &[SwitchCase]) = match self {
+            Self::If {
+                branch,
+                else_branch,
+                ..
+            } => (Some(branch), else_branch.as_ref(), &[]),
+            Self::Switch { cases, default, .. } => (Some(default), None, cases),
+            _ => (None, None, &[]),
+        };
+        cases
+            .iter()
+            .map(|case| &case.region)
+            .chain(first)
+            .chain(second)
+    }
+
+    pub(super) fn selector(&self) -> Option<usize> {
+        match self {
+            Self::If { condition, .. } => Some(*condition),
+            Self::Switch { selector, .. } => Some(*selector),
+            _ => None,
+        }
+    }
+
+    pub(super) fn branch_output(&self) -> Option<usize> {
+        match self {
+            Self::If { output, .. } | Self::Switch { output, .. } => *output,
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) struct Site {
     pub(super) region: usize,
@@ -35,17 +76,7 @@ impl<'a> Iterator for Regions<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let region = self.0.pop()?;
         for operation in region.operations.iter().rev() {
-            if let Operation::If {
-                branch,
-                else_branch,
-                ..
-            } = operation
-            {
-                if let Some(other) = else_branch {
-                    self.0.push(other);
-                }
-                self.0.push(branch);
-            }
+            self.0.extend(operation.children().rev());
         }
         Some(region)
     }
@@ -173,18 +204,8 @@ impl FunctionBuilder<'_> {
         let condition = self.operand(condition)?;
         let branch = self.build_branch(Some(T::TYPE), then_build)?;
         let else_branch = self.build_branch(Some(T::TYPE), else_build)?;
-        let results: Vec<_> = [&branch, &else_branch]
-            .into_iter()
-            .filter_map(|arm| match arm.terminal {
-                Some(Terminal::Yield(value)) => Some(value),
-                _ => None,
-            })
-            .collect();
-        if results.is_empty() {
-            return Err(BuildError::MissingBranchValue);
-        }
         let condition = self.arena.normalize(condition)?;
-        let output = self.arena.join_result(T::TYPE, self.site(), &results)?;
+        let output = self.join_output(T::TYPE, [&branch, &else_branch])?;
         self.region.operations.push(Operation::If {
             condition,
             branch,
@@ -195,9 +216,9 @@ impl FunctionBuilder<'_> {
     }
 
     /// Supplies this value-producing arm's result, consuming its builder.
-    /// The enclosing `if_value` supplies a literal's type; typed values must match it.
-    /// Execution then continues after that conditional, rather than returning
-    /// from the function. Use only on the arm passed directly to `if_value`.
+    /// The enclosing `if_value` or `switch_value` supplies a literal's type;
+    /// typed values must match it. Execution continues after that branch operation,
+    /// rather than returning from the function. Use only on its direct value arm.
     /// An inner `if_` cannot yield on behalf of an enclosing value arm.
     pub fn yield_(mut self, value: impl Into<Argument>) -> Result<(), BuildError> {
         self.fallthrough = false;
@@ -230,6 +251,24 @@ impl FunctionBuilder<'_> {
             fallthrough: true,
         })?;
         destination.ok_or(BuildError::IncompleteBranch)
+    }
+
+    fn join_output<'a>(
+        &self,
+        ty: Type,
+        branches: impl IntoIterator<Item = &'a Region>,
+    ) -> Result<usize, BuildError> {
+        let results: Vec<_> = branches
+            .into_iter()
+            .filter_map(|arm| match arm.terminal {
+                Some(Terminal::Yield(value)) => Some(value),
+                _ => None,
+            })
+            .collect();
+        if results.is_empty() {
+            return Err(BuildError::MissingBranchValue);
+        }
+        self.arena.join_result(ty, self.site(), &results)
     }
 }
 

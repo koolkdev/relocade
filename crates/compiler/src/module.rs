@@ -34,7 +34,7 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
             // Imports follow authored operations, including unused loads.
             for operation in &region.operations {
                 let location = match operation {
-                    Operation::If { .. } => continue,
+                    Operation::If { .. } | Operation::Switch { .. } => continue,
                     Operation::Call { invocation, .. } => {
                         used_functions[invocation.target.0] = true;
                         continue;

@@ -5,16 +5,19 @@ use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Val, I1, I32};
 
 use crate::{register::Register, state::State};
 
+#[derive(Clone)]
 pub(super) struct RegisterTerm {
     pub(super) register: Register<I32>,
     pub(super) present: Option<Val<I1>>,
 }
 
+#[derive(Clone)]
 pub(super) struct IndexTerm<V> {
     pub(super) register: RegisterTerm,
     pub(super) shift: V,
 }
 
+#[derive(Clone)]
 pub(super) struct Address32<V> {
     pub(super) base: Option<RegisterTerm>,
     pub(super) index: Option<IndexTerm<V>>,

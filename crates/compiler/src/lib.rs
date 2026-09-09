@@ -72,6 +72,8 @@ pub enum BuildError {
     IncompleteBranch,
     InvalidYield,
     MissingBranchValue,
+    DuplicateSwitchCase { key: u32 },
+    SwitchCaseOutOfRange { key: u32, selector: Type },
     TypeMismatch { expected: Type, actual: Type },
     DuplicateExport,
 }
@@ -101,8 +103,12 @@ impl fmt::Display for BuildError {
             Self::InvalidYield => {
                 formatter.write_str("yield requires a direct value-producing arm")
             }
-            Self::MissingBranchValue => {
-                formatter.write_str("neither conditional arm yields a value")
+            Self::MissingBranchValue => formatter.write_str("no branch yields a value"),
+            Self::DuplicateSwitchCase { key } => {
+                write!(formatter, "switch case {key} appears more than once")
+            }
+            Self::SwitchCaseOutOfRange { key, selector } => {
+                write!(formatter, "switch case {key} does not fit {selector:?}")
             }
             Self::BodyClosed => formatter.write_str("function body is no longer open"),
             Self::TypeMismatch { expected, actual } => {
@@ -168,6 +174,12 @@ enum Operation {
         else_branch: Option<Region>,
         output: Option<usize>,
     },
+    Switch {
+        selector: usize,
+        cases: Vec<control::SwitchCase>,
+        default: Region,
+        output: Option<usize>,
+    },
     Call {
         invocation: Invocation,
         output: usize,
@@ -216,12 +228,12 @@ enum ValueKind {
     },
 }
 
-/// Builds a function body or a conditional branch. A yield, return, tail call or trap
+/// Builds a function body or a branch. A yield, return, tail call or trap
 /// consumes the active builder; completing the outer builder saves the function
 /// body.
 ///
 /// Dropping the outer builder without completing it leaves the function undefined.
-/// Dropping a child of `if_` or `if_else` completes a branch that falls through.
+/// Dropping a child of `if_`, `if_else` or `switch` completes a branch that falls through.
 /// A value-producing arm must instead yield a value, return, tail-call or trap.
 /// A builder cannot be used after its program is consumed:
 /// ```compile_fail

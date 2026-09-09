@@ -10,7 +10,7 @@ mod machine;
 use machine::{both, check, Exit, Image, Step};
 
 #[test]
-fn arithmetic_lengths_follow_the_selected_operand_and_immediate_widths() {
+fn binary_lengths_follow_the_selected_operand_and_immediate_widths() {
     for code in [
         &[0x00, 0xd8][..],
         &[0x01, 0xd8],
@@ -41,25 +41,75 @@ fn arithmetic_lengths_follow_the_selected_operand_and_immediate_widths() {
         &[0x81, 0x84, 0x8b, 0, 0x40, 0, 0, 0x80, 0x81, 0x83, 0x66],
         &[0x0f, 0x94, 0x84, 0x8b, 0, 0x40, 0, 0],
     ] {
-        for available in 0..code.len() {
-            assert!(
-                matches!(
-                    compile_block_from_bytes(0x1000, &code[..available], 1),
-                    Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual }) if actual == available
-                ),
-                "{code:02x?}, available {available}"
-            );
-        }
-        let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        Validator::new().validate_all(&module.bytes).unwrap();
-        let mut with_suffix = code.to_vec();
-        with_suffix.push(0x0f);
-        assert_eq!(
-            compile_block_from_bytes(0x1000, &with_suffix, 1)
-                .unwrap()
-                .bytes,
-            module.bytes
+        check_length(code);
+    }
+}
+
+fn check_length(code: &[u8]) {
+    for available in 0..code.len() {
+        assert!(
+            matches!(
+                compile_block_from_bytes(0x1000, &code[..available], 1),
+                Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual }) if actual == available
+            ),
+            "{code:02x?}, available {available}"
         );
+    }
+    let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
+    Validator::new().validate_all(&module.bytes).unwrap();
+    let mut with_suffix = code.to_vec();
+    with_suffix.push(0x0f);
+    assert_eq!(
+        compile_block_from_bytes(0x1000, &with_suffix, 1)
+            .unwrap()
+            .bytes,
+        module.bytes
+    );
+}
+
+#[test]
+fn logical_and_subtract_encodings_use_the_selected_immediate_width() {
+    for base in [0x08, 0x20, 0x28, 0x30] {
+        for code in [
+            vec![base, 0xd8],
+            vec![base + 1, 0xd8],
+            vec![base + 2, 0xc3],
+            vec![base + 3, 0xc3],
+            vec![base + 4, 0x80],
+            vec![base + 5, 0x80, 0x81, 0x83, 0x66],
+            vec![0x66, base + 1, 0xd8],
+            vec![0x66, base + 3, 0xc3],
+            vec![0x66, base + 5, 0x80, 0x81],
+            vec![0x66, base + 4, 0x80],
+        ] {
+            check_length(&code);
+        }
+    }
+    for modrm in [0xc8, 0xe0, 0xe8, 0xf0] {
+        for code in [
+            vec![0x80, modrm, 0x80],
+            vec![0x81, modrm, 0x80, 0x81, 0x83, 0x66],
+            vec![0x83, modrm, 0xff],
+            vec![0x66, 0x81, modrm, 0x80, 0x81],
+            vec![0x66, 0x83, modrm, 0xff],
+        ] {
+            check_length(&code);
+        }
+    }
+    for code in [
+        &[0x84, 0xd8][..],
+        &[0x85, 0xd8],
+        &[0x66, 0x85, 0xd8],
+        &[0xa8, 0xff],
+        &[0xa9, 0x80, 0x81, 0x83, 0x66],
+        &[0x66, 0xa9, 0x80, 0x81],
+        &[0xf6, 0xc0, 0x80],
+        &[0xf7, 0xc0, 0x80, 0x81, 0x83, 0x66],
+        &[0x66, 0xf7, 0xc0, 0x80, 0x81],
+        &[0xf7, 0x84, 0x8b, 0, 0x40, 0, 0, 0x80, 0x81, 0x83, 0x66],
+        &[0x66, 0x81, 0xa4, 0x8b, 0, 0x40, 0, 0, 0x80, 0x81],
+    ] {
+        check_length(code);
     }
 }
 
@@ -78,9 +128,11 @@ fn setcc_ignores_modrm_reg_without_changing_its_destination() {
 #[test]
 fn unsupported_extensions_stop_before_address_and_immediate_fields() {
     for (code, opcode) in [
-        (&[0x80, 0x0c][..], 0x80),
-        (&[0x81, 0x34][..], 0x81),
-        (&[0x66, 0x83, 0x2d][..], 0x83),
+        (&[0x80, 0x14][..], 0x80),
+        (&[0x81, 0x1c][..], 0x81),
+        (&[0x66, 0x83, 0x15][..], 0x83),
+        (&[0xf6, 0x0c][..], 0xf6),
+        (&[0x66, 0xf7, 0x3d][..], 0xf7),
         (&[0x0f, 0x0b][..], 0x0f),
         (&[0x66, 0x0f, 0xff][..], 0x0f),
     ] {
@@ -97,6 +149,7 @@ fn unsupported_extensions_stop_before_address_and_immediate_fields() {
         (13, &[0x0f, 0x94][..]),
         (12, &[0x0f, 0x94, 0x04][..]),
         (12, &[0x81, 0xc0, 1][..]),
+        (12, &[0xf7, 0xc0, 1][..]),
     ] {
         let code = [vec![0x66; prefixes], suffix.to_vec()].concat();
         assert_eq!(code.len(), 15);
@@ -143,9 +196,33 @@ fn execute(flags: &[&str]) {
             0x0004_0010_0000_2000,
         ),
         (
-            "unsupported ADD group extension before SIB",
+            "missing byte TEST immediate before data denial",
+            0x1ff9,
+            vec![0xf6, 0x04, 0x25, 0, 0x40, 0, 0],
+            0x0004_0010_0000_2000,
+        ),
+        (
+            "missing dword TEST immediate before data denial",
+            0x1ff7,
+            vec![0xf7, 0x04, 0x25, 0, 0x40, 0, 0, 0xff, 0xff],
+            0x0004_0010_0000_2000,
+        ),
+        (
+            "unsupported F6 extension before SIB",
             0x1ffe,
-            vec![0x81, 0x0c],
+            vec![0xf6, 0x0c],
+            0x0008_00f6_0000_1ffe,
+        ),
+        (
+            "unsupported F7 extension before displacement",
+            0x1ffe,
+            vec![0xf7, 0x3d],
+            0x0008_00f7_0000_1ffe,
+        ),
+        (
+            "unsupported ADC group extension before SIB",
+            0x1ffe,
+            vec![0x81, 0x14],
             0x0008_0081_0000_1ffe,
         ),
         (
@@ -181,8 +258,20 @@ fn execute(flags: &[&str]) {
         (
             "last-byte unsupported group avoids a length fault",
             0x1ff1,
-            [vec![0x66; 13], vec![0x81, 0x0c]].concat(),
+            [vec![0x66; 13], vec![0x81, 0x14]].concat(),
             0x0008_0081_0000_1ff1,
+        ),
+        (
+            "TEST immediate beyond length limit",
+            0x1ff1,
+            [vec![0x66; 12], vec![0xf7, 0xc0, 1]].concat(),
+            0x0002_0000_0000_0000,
+        ),
+        (
+            "last-byte F6 extension rejection avoids a length fault",
+            0x1ff1,
+            [vec![0x66; 13], vec![0xf6, 0x0c]].concat(),
+            0x0008_00f6_0000_1ff1,
         ),
         (
             "last-byte second opcode rejection avoids a length fault",
@@ -264,13 +353,13 @@ fn execute(flags: &[&str]) {
 
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
-fn arithmetic_fetch_precedence_executes_in_v8() {
+fn binary_fetch_precedence_executes_in_v8() {
     execute(&[]);
 }
 
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
-fn arithmetic_fetch_precedence_executes_in_optimizing_v8() {
+fn binary_fetch_precedence_executes_in_optimizing_v8() {
     execute(&[
         "--no-liftoff",
         "--no-wasm-lazy-compilation",

@@ -1,6 +1,6 @@
 use crate::test_step as step;
 
-use super::{ArithmeticKind, ArithmeticSource, Condition, StatusFlag};
+use super::{logic_flag, ArithmeticKind, ArithmeticSource, Condition, StatusFlag};
 use crate::CompiledModule;
 use wasm86_compiler::{MemoryInt, Program, Signature, Type, I16, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
@@ -24,6 +24,19 @@ fn auxiliary_carry<T: MemoryInt>() -> CompiledModule {
             .unwrap();
         program.export(name, function).unwrap();
     }
+    let logic = program
+        .function(
+            Signature {
+                parameters: vec![T::TYPE; 2],
+                result: Type::I1,
+            },
+            |body| {
+                let result = body.parameter::<T>(0)?.add(1).xor(body.parameter::<T>(1)?);
+                body.return_(logic_flag(&result, StatusFlag::AF))
+            },
+        )
+        .unwrap();
+    program.export("logic", logic).unwrap();
     CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "add".into(),
@@ -105,15 +118,21 @@ fn check_auxiliary_carry(flags: &[&str]) {
                 ("sub", 15, 1, 1),
                 ("sub", 14, 1, 0),
                 ("sub", 255, 1, 1),
+                ("logic", 14, 1, 0),
+                ("logic", 255, 1, 0),
             ],
         ),
         (
             auxiliary_carry::<I16>(),
-            vec![("add", 65534, 1, 1), ("sub", 65535, 1, 1)],
+            vec![
+                ("add", 65534, 1, 1),
+                ("sub", 65535, 1, 1),
+                ("logic", 65535, 1, 0),
+            ],
         ),
         (
             auxiliary_carry::<I32>(),
-            vec![("add", -1, 1, 0), ("sub", -1, 1, 1)],
+            vec![("add", -1, 1, 0), ("sub", -1, 1, 1), ("logic", -1, 1, 0)],
         ),
     ] {
         let mut module = step::ModuleFile::new(&module);

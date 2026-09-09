@@ -1,4 +1,6 @@
-use wasm86_compiler::{BuildError, Func, FunctionBuilder, Program, Signature, Type, Val, I32, I8};
+use wasm86_compiler::{
+    Argument, BuildError, Func, FunctionBuilder, Program, Signature, Type, Val, I32, I8,
+};
 
 use crate::{
     instruction::{OpcodeMap, OperandSize},
@@ -7,28 +9,61 @@ use crate::{
 
 use super::cursor::RuntimeCursor;
 
-/// Each operand layout continues either an unprefixed instruction window,
-/// checked unprefixed reads, or the total byte count of a prefixed instruction.
-/// All three entries use the same field decoder.
-pub(super) struct OperandHandlers {
+/// Identifies the already-decoded fields supplied to a generated decoder entry.
+#[derive(Clone, Copy)]
+pub(super) enum DecodePoint {
+    Opcode,
+    MemoryOperand(OpcodeMap),
+}
+
+impl DecodePoint {
+    fn opcode_map(self) -> OpcodeMap {
+        match self {
+            Self::Opcode => OpcodeMap::Primary,
+            Self::MemoryOperand(map) => map,
+        }
+    }
+
+    fn field_count(self) -> usize {
+        match self {
+            Self::Opcode => 1,
+            Self::MemoryOperand(_) => 2,
+        }
+    }
+
+    fn consumed(self) -> u32 {
+        self.opcode_map().bytes() + u32::from(matches!(self, Self::MemoryOperand(_)))
+    }
+}
+
+/// Direct and checked entries share field decoding. A prefixed entry resumes
+/// from the instruction's total byte count. Passing the proven physical window
+/// through a direct entry lets later operand fields reuse the original check.
+pub(super) struct DecodeHandlers {
+    point: DecodePoint,
     direct: Func,
     checked: Func,
     prefixed: Func,
 }
 
-impl OperandHandlers {
-    pub(super) fn declare(program: &mut Program) -> Self {
+impl DecodeHandlers {
+    pub(super) fn declare(program: &mut Program, point: DecodePoint) -> Self {
+        let mut parameters = vec![Type::I32];
+        parameters.resize(point.field_count() + 1, Type::I8);
+        let checked = program.declare(Signature {
+            parameters: parameters.clone(),
+            result: Type::I64,
+        });
+        parameters.push(Type::I32);
         Self {
-            checked: program.declare(Signature {
-                parameters: vec![Type::I32, Type::I8],
-                result: Type::I64,
-            }),
+            point,
+            checked,
             direct: program.declare(Signature {
-                parameters: vec![Type::I32, Type::I8, Type::I32],
+                parameters: parameters.clone(),
                 result: Type::I64,
             }),
             prefixed: program.declare(Signature {
-                parameters: vec![Type::I32, Type::I8, Type::I32],
+                parameters,
                 result: Type::I64,
             }),
         }
@@ -53,16 +88,17 @@ impl OperandHandlers {
             let body = program.define(function)?;
             let instruction_eip = body.parameter::<I32>(0)?;
             let opcode = body.parameter::<I8>(1)?;
-            let cursor = if matches!(entry, Entry::Prefixed) {
+            let position_parameter = self.point.field_count() as u32 + 1;
+            let mut cursor = if matches!(entry, Entry::Prefixed) {
                 RuntimeCursor::resume(
                     memory,
                     &instruction_eip,
-                    &body.parameter::<I32>(2)?,
+                    &body.parameter::<I32>(position_parameter)?,
                     OperandSize::Word,
                 )
             } else {
                 let physical_start = if matches!(entry, Entry::Direct) {
-                    Some(body.parameter::<I32>(2)?)
+                    Some(body.parameter::<I32>(position_parameter)?)
                 } else {
                     None
                 };
@@ -71,37 +107,39 @@ impl OperandHandlers {
                     memory,
                     &instruction_eip,
                     physical_start.as_ref(),
-                    OpcodeMap::Primary.bytes(),
+                    self.point.consumed(),
                 )?
             };
+            if self.point.opcode_map() == OpcodeMap::Extended {
+                cursor.enter_extended_map();
+            }
             decode(body, cursor, &opcode)?;
         }
         Ok(())
     }
 
+    /// `fields` contains the opcode, followed by ModRM at a memory-operand entry.
     pub(super) fn tail_call(
         &self,
         body: FunctionBuilder<'_>,
         cursor: &RuntimeCursor,
-        opcode: &Val<I8>,
+        fields: &[Argument],
     ) -> Result<(), BuildError> {
-        let instruction_eip = cursor.instruction_eip();
-        match cursor.operand_size() {
-            OperandSize::Word => body.tail_call(
-                self.prefixed,
-                &[
-                    instruction_eip.into(),
-                    opcode.into(),
-                    cursor.consumed().into(),
-                ],
-            ),
+        let mut arguments = vec![cursor.instruction_eip().into()];
+        arguments.extend_from_slice(fields);
+        let target = match cursor.operand_size() {
+            OperandSize::Word => {
+                arguments.push(cursor.consumed().into());
+                self.prefixed
+            }
             OperandSize::Dword => match cursor.physical_start() {
-                Some(physical_start) => body.tail_call(
-                    self.direct,
-                    &[instruction_eip.into(), opcode.into(), physical_start.into()],
-                ),
-                None => body.tail_call(self.checked, &[instruction_eip.into(), opcode.into()]),
+                Some(physical_start) => {
+                    arguments.push(physical_start.into());
+                    self.direct
+                }
+                None => self.checked,
             },
-        }
+        };
+        body.tail_call(target, &arguments)
     }
 }

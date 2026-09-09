@@ -1,11 +1,9 @@
-//! Status flags from stored CPU records or locally computed arithmetic.
-//! The SSA environment owns the stored definitions; this owner interprets them.
+//! Status sources, stored-record layout and publication of completed flags.
 
 use wasm86_compiler::{AtLeast, BuildError, FunctionBuilder, MemoryInt, Val, I1, I32, I8};
 
-use crate::{
-    flags::{ArithmeticFlagSource, ArithmeticKind, ArithmeticSource, Condition, StatusFlag},
-    ssa::Location,
+use crate::flags::{
+    ArithmeticKind, ArithmeticSource, Condition, FlagSource, LocalFlagSource, StatusFlag,
 };
 
 use super::State;
@@ -55,12 +53,16 @@ pub(super) fn encode_kind<T: MemoryInt>(kind: ArithmeticKind) -> u8 {
         }
 }
 
-/// Current status flags come from CPU backing or the latest local arithmetic.
+pub(super) fn encode_logic<T: MemoryInt>() -> u8 {
+    width_code::<T>() | 3
+}
+
+/// Current status flags come from CPU backing or a locally computed source.
 pub(super) enum FlagState {
     Stored {
         cached_conditions: [Option<Val<I1>>; Condition::CANONICAL.len()],
     },
-    Arithmetic(ArithmeticFlagSource),
+    Local(LocalFlagSource),
 }
 
 impl Default for FlagState {
@@ -72,35 +74,99 @@ impl Default for FlagState {
 }
 
 impl State<'_> {
-    /// Replaces all six status flags with this arithmetic source, retaining it
-    /// for condition queries. Call only after the instruction's fault guards pass;
-    /// the concrete flag bytes remain untouched.
+    /// Replaces all six status flags after the instruction's fault guards pass.
+    /// The concrete flag bytes remain untouched.
     pub(crate) fn set_arithmetic_flags<T: MemoryInt>(
         &mut self,
         body: &mut FunctionBuilder<'_>,
         source: &ArithmeticSource<T>,
     ) -> Result<(), BuildError>
     where
-        I32: AtLeast<T>,
-        ArithmeticSource<T>: Into<ArithmeticFlagSource>,
+        FlagSource<T>: Into<LocalFlagSource>,
     {
-        self.values.define(
+        self.set_flag_source(body, FlagSource::Arithmetic(source.clone()))
+    }
+
+    /// Logical flags retain only the result. CF/OF are clear and undefined AF
+    /// follows the zero policy; set them after every architectural guard.
+    pub(crate) fn set_logic_flags<T: MemoryInt>(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        result: &Val<T>,
+    ) -> Result<(), BuildError>
+    where
+        FlagSource<T>: Into<LocalFlagSource>,
+    {
+        self.set_flag_source(
             body,
-            Location::<I32>::new(LEFT_OFFSET),
-            source.left.unsigned().extend::<I32>(),
-        )?;
-        self.values.define(
-            body,
-            Location::<I32>::new(RIGHT_OFFSET),
-            source.right.unsigned().extend::<I32>(),
-        )?;
-        self.values.define(
-            body,
-            Location::<I8>::new(KIND_OFFSET),
-            u32::from(encode_kind::<T>(source.kind)),
-        )?;
-        self.flags = FlagState::Arithmetic(source.clone().into());
+            FlagSource::Logic {
+                result: result.clone(),
+            },
+        )
+    }
+
+    fn set_flag_source<T: MemoryInt>(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        source: FlagSource<T>,
+    ) -> Result<(), BuildError>
+    where
+        FlagSource<T>: Into<LocalFlagSource>,
+    {
+        // Check every retained value before replacing the current source. This
+        // checks body ownership and scope without evaluating any flag expressions.
+        match &source {
+            FlagSource::Arithmetic(source) => {
+                body.value(&source.left)?;
+                body.value(&source.right)?;
+                body.value(&source.result)?;
+            }
+            FlagSource::Logic { result } => {
+                body.value(result)?;
+            }
+        }
+        self.flags = FlagState::Local(source.into());
         Ok(())
+    }
+
+    pub(super) fn publish_flags(&self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+        let FlagState::Local(source) = &self.flags else {
+            return Ok(());
+        };
+        match source {
+            LocalFlagSource::Byte(source) => self.publish_flag_source(body, source),
+            LocalFlagSource::Word(source) => self.publish_flag_source(body, source),
+            LocalFlagSource::Dword(source) => self.publish_flag_source(body, source),
+        }
+    }
+
+    fn publish_flag_source<T: MemoryInt>(
+        &self,
+        body: &mut FunctionBuilder<'_>,
+        source: &FlagSource<T>,
+    ) -> Result<(), BuildError>
+    where
+        I32: AtLeast<T>,
+    {
+        let memory = self.cpu.memory();
+        let kind = match source {
+            FlagSource::Arithmetic(source) => {
+                body.store(memory, LEFT_OFFSET, source.left.unsigned().extend::<I32>())?;
+                body.store(
+                    memory,
+                    RIGHT_OFFSET,
+                    source.right.unsigned().extend::<I32>(),
+                )?;
+                encode_kind::<T>(source.kind)
+            }
+            FlagSource::Logic { result } => {
+                // A logical record leaves the unused right payload untouched.
+                body.store(memory, LEFT_OFFSET, result.unsigned().extend::<I32>())?;
+                encode_logic::<T>()
+            }
+        };
+        // Write the tag after every payload it describes.
+        body.store::<I8>(memory, KIND_OFFSET, u32::from(kind))
     }
 
     pub(crate) fn condition(
@@ -109,7 +175,7 @@ impl State<'_> {
         condition: Condition,
     ) -> Result<Val<I1>, BuildError> {
         match &mut self.flags {
-            FlagState::Arithmetic(source) => body.value(source.condition(condition)),
+            FlagState::Local(source) => body.value(source.condition(condition)),
             FlagState::Stored { cached_conditions } => {
                 let canonical = condition.canonical();
                 let slot = &mut cached_conditions[condition_index(canonical)];

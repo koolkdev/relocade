@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) const MOV_OPERAND_IMMEDIATE: Form = Form {
+const MOV_OPERAND_IMMEDIATE: Form = Form {
     opcode: 0xb8,
     map: OpcodeMap::Primary,
     mask: 0xf8,
@@ -9,7 +9,7 @@ pub(crate) const MOV_OPERAND_IMMEDIATE: Form = Form {
     operation: Operation::Binary(BinaryOperation::Mov),
 };
 
-pub(crate) const MOV_BYTE_IMMEDIATE: Form = Form {
+const MOV_BYTE_IMMEDIATE: Form = Form {
     opcode: 0xb0,
     map: OpcodeMap::Primary,
     mask: 0xf8,
@@ -18,10 +18,9 @@ pub(crate) const MOV_BYTE_IMMEDIATE: Form = Form {
     operation: Operation::Binary(BinaryOperation::Mov),
 };
 
-pub(crate) const OPCODE_REGISTER_IMMEDIATE_FORMS: [Form; 2] =
-    [MOV_OPERAND_IMMEDIATE, MOV_BYTE_IMMEDIATE];
+const OPCODE_REGISTER_IMMEDIATE_FORMS: [Form; 2] = [MOV_OPERAND_IMMEDIATE, MOV_BYTE_IMMEDIATE];
 
-pub(crate) const MOV_MODRM_FORMS: [Form; 6] = [
+const MOV_MODRM_FORMS: [Form; 6] = [
     register_rm(
         0x89,
         WidthRule::OperandSize,
@@ -62,7 +61,7 @@ pub(crate) const MOV_MODRM_FORMS: [Form; 6] = [
     ),
 ];
 
-pub(crate) const ACCUMULATOR_OFFSET_FORMS: [Form; 4] = [
+const ACCUMULATOR_OFFSET_FORMS: [Form; 4] = [
     Form {
         opcode: 0xa0,
         map: OpcodeMap::Primary,
@@ -146,125 +145,154 @@ const fn rm_immediate(
     )
 }
 
-pub(crate) const ARITHMETIC_MODRM_FORMS: [Form; 14] = [
+/// The ordinary binary families share operand layouts. Bits 3–5 of the first
+/// opcode also select their extension in groups 80, 81 and 83.
+struct BinaryFamily {
+    register_rm: [Form; 4],
+    accumulator_immediate: [Form; 2],
+    rm_immediate: [Form; 3],
+}
+
+const fn binary_family(first_opcode: u8, operation: BinaryOperation) -> BinaryFamily {
+    let extension = first_opcode >> 3;
+    BinaryFamily {
+        register_rm: [
+            register_rm(
+                first_opcode,
+                WidthRule::Byte,
+                RegisterRole::Right,
+                operation,
+            ),
+            register_rm(
+                first_opcode + 1,
+                WidthRule::OperandSize,
+                RegisterRole::Right,
+                operation,
+            ),
+            register_rm(
+                first_opcode + 2,
+                WidthRule::Byte,
+                RegisterRole::Left,
+                operation,
+            ),
+            register_rm(
+                first_opcode + 3,
+                WidthRule::OperandSize,
+                RegisterRole::Left,
+                operation,
+            ),
+        ],
+        accumulator_immediate: [
+            binary_form(
+                first_opcode + 4,
+                WidthRule::Byte,
+                Encoding::AccumulatorImmediate,
+                operation,
+            ),
+            binary_form(
+                first_opcode + 5,
+                WidthRule::OperandSize,
+                Encoding::AccumulatorImmediate,
+                operation,
+            ),
+        ],
+        rm_immediate: [
+            rm_immediate(
+                0x80,
+                WidthRule::Byte,
+                extension,
+                ImmediateWidth::Operand,
+                operation,
+            ),
+            rm_immediate(
+                0x81,
+                WidthRule::OperandSize,
+                extension,
+                ImmediateWidth::Operand,
+                operation,
+            ),
+            rm_immediate(
+                0x83,
+                WidthRule::OperandSize,
+                extension,
+                ImmediateWidth::SignedByte,
+                operation,
+            ),
+        ],
+    }
+}
+
+const BINARY_FAMILIES: [BinaryFamily; 6] = [
+    binary_family(0x00, BinaryOperation::Add),
+    binary_family(0x38, BinaryOperation::Compare),
+    binary_family(0x28, BinaryOperation::Subtract),
+    binary_family(0x20, BinaryOperation::And),
+    binary_family(0x08, BinaryOperation::Or),
+    binary_family(0x30, BinaryOperation::Xor),
+];
+
+const TEST_MODRM_FORMS: [Form; 4] = [
     register_rm(
-        0x00,
+        0x84,
         WidthRule::Byte,
         RegisterRole::Right,
-        BinaryOperation::Add,
+        BinaryOperation::Test,
     ),
     register_rm(
-        0x01,
+        0x85,
         WidthRule::OperandSize,
         RegisterRole::Right,
-        BinaryOperation::Add,
-    ),
-    register_rm(
-        0x02,
-        WidthRule::Byte,
-        RegisterRole::Left,
-        BinaryOperation::Add,
-    ),
-    register_rm(
-        0x03,
-        WidthRule::OperandSize,
-        RegisterRole::Left,
-        BinaryOperation::Add,
-    ),
-    register_rm(
-        0x38,
-        WidthRule::Byte,
-        RegisterRole::Right,
-        BinaryOperation::Compare,
-    ),
-    register_rm(
-        0x39,
-        WidthRule::OperandSize,
-        RegisterRole::Right,
-        BinaryOperation::Compare,
-    ),
-    register_rm(
-        0x3a,
-        WidthRule::Byte,
-        RegisterRole::Left,
-        BinaryOperation::Compare,
-    ),
-    register_rm(
-        0x3b,
-        WidthRule::OperandSize,
-        RegisterRole::Left,
-        BinaryOperation::Compare,
+        BinaryOperation::Test,
     ),
     rm_immediate(
-        0x80,
+        0xf6,
         WidthRule::Byte,
         0,
         ImmediateWidth::Operand,
-        BinaryOperation::Add,
+        BinaryOperation::Test,
     ),
     rm_immediate(
-        0x80,
-        WidthRule::Byte,
-        7,
-        ImmediateWidth::Operand,
-        BinaryOperation::Compare,
-    ),
-    rm_immediate(
-        0x81,
+        0xf7,
         WidthRule::OperandSize,
         0,
         ImmediateWidth::Operand,
-        BinaryOperation::Add,
-    ),
-    rm_immediate(
-        0x81,
-        WidthRule::OperandSize,
-        7,
-        ImmediateWidth::Operand,
-        BinaryOperation::Compare,
-    ),
-    rm_immediate(
-        0x83,
-        WidthRule::OperandSize,
-        0,
-        ImmediateWidth::SignedByte,
-        BinaryOperation::Add,
-    ),
-    rm_immediate(
-        0x83,
-        WidthRule::OperandSize,
-        7,
-        ImmediateWidth::SignedByte,
-        BinaryOperation::Compare,
+        BinaryOperation::Test,
     ),
 ];
 
-pub(crate) const ACCUMULATOR_IMMEDIATE_FORMS: [Form; 4] = [
+const TEST_ACCUMULATOR_FORMS: [Form; 2] = [
     binary_form(
-        0x04,
+        0xa8,
         WidthRule::Byte,
         Encoding::AccumulatorImmediate,
-        BinaryOperation::Add,
+        BinaryOperation::Test,
     ),
     binary_form(
-        0x05,
+        0xa9,
         WidthRule::OperandSize,
         Encoding::AccumulatorImmediate,
-        BinaryOperation::Add,
-    ),
-    binary_form(
-        0x3c,
-        WidthRule::Byte,
-        Encoding::AccumulatorImmediate,
-        BinaryOperation::Compare,
-    ),
-    binary_form(
-        0x3d,
-        WidthRule::OperandSize,
-        Encoding::AccumulatorImmediate,
-        BinaryOperation::Compare,
+        BinaryOperation::Test,
     ),
 ];
+
+fn binary_modrm_forms() -> impl Iterator<Item = &'static Form> + Clone {
+    BINARY_FAMILIES
+        .iter()
+        .flat_map(|family| family.register_rm.iter())
+        .chain(
+            BINARY_FAMILIES
+                .iter()
+                .flat_map(|family| family.rm_immediate.iter()),
+        )
+        .chain(TEST_MODRM_FORMS.iter())
+}
+
+fn accumulator_immediate_forms() -> impl Iterator<Item = &'static Form> + Clone {
+    BINARY_FAMILIES
+        .iter()
+        .flat_map(|family| family.accumulator_immediate.iter())
+        .chain(TEST_ACCUMULATOR_FORMS.iter())
+}
 
 const fn set_condition_forms() -> [Form; 16] {
     let first = Form {
@@ -285,26 +313,23 @@ const fn set_condition_forms() -> [Form; 16] {
     forms
 }
 
-pub(crate) const SET_CONDITION_FORMS: [Form; 16] = set_condition_forms();
+const SET_CONDITION_FORMS: [Form; 16] = set_condition_forms();
 
-pub(crate) fn primary_forms() -> impl Iterator<Item = &'static Form> + Clone {
+fn primary_forms() -> impl Iterator<Item = &'static Form> + Clone {
     OPCODE_REGISTER_IMMEDIATE_FORMS
         .iter()
         .chain(MOV_MODRM_FORMS.iter())
         .chain(ACCUMULATOR_OFFSET_FORMS.iter())
-        .chain(ARITHMETIC_MODRM_FORMS.iter())
-        .chain(ACCUMULATOR_IMMEDIATE_FORMS.iter())
+        .chain(binary_modrm_forms())
+        .chain(accumulator_immediate_forms())
 }
 
 pub(crate) fn modrm_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form> + Clone {
-    MOV_MODRM_FORMS
-        .iter()
-        .chain(ARITHMETIC_MODRM_FORMS.iter())
-        .chain(SET_CONDITION_FORMS.iter())
-        .filter(move |form| form.map == map)
+    opcode_forms(map).filter(|form| form.encoding.has_modrm())
 }
 
-/// SETcc occupies one complete sixteen-selector family in the extended map.
-pub(crate) fn is_set_condition(selector: &Val<I8>) -> Val<I1> {
-    selector.and(0xf0).eq(0x90)
+pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form> + Clone {
+    primary_forms()
+        .chain(SET_CONDITION_FORMS.iter())
+        .filter(move |form| form.map == map)
 }

@@ -2,9 +2,22 @@ use wasm86_compiler::{AtLeast, BuildError, FunctionBuilder, MemoryInt, Val, I32,
 
 use crate::{instruction::MAX_INSTRUCTION_BYTES, memory::Intent, state::exit};
 
-use super::RuntimeCursor;
+use super::{RuntimeCursor, Window};
 
 impl RuntimeCursor {
+    fn read_window<T: MemoryInt>(
+        &self,
+        body: &mut FunctionBuilder<'_>,
+        window: &Window,
+    ) -> Result<Val<T>, BuildError> {
+        match window.fixed_offset {
+            Some(offset) => self.memory.load(body, &window.physical_start, offset),
+            None => self
+                .memory
+                .load(body, &window.physical_start.add(&self.offset), 0),
+        }
+    }
+
     pub(in super::super) fn byte(
         &mut self,
         body: &mut FunctionBuilder<'_>,
@@ -16,9 +29,8 @@ impl RuntimeCursor {
             )?;
         }
         let value = match &self.window {
-            Some(window) if window.covers(1) => {
-                self.memory
-                    .load(body, &window.physical_start, window.consumed)?
+            Some(window) if window.covers(self.maximum_offset, 1) => {
+                self.read_window(body, window)?
             }
             _ => {
                 let access =
@@ -49,10 +61,8 @@ impl RuntimeCursor {
         I32: AtLeast<T>,
     {
         if let Some(window) = &self.window {
-            if window.covers(T::BYTES) {
-                let value = self
-                    .memory
-                    .load(body, &window.physical_start, window.consumed)?;
+            if window.covers(self.maximum_offset, T::BYTES) {
+                let value = self.read_window(body, window)?;
                 self.advance(T::BYTES);
                 return Ok(value);
             }
