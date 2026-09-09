@@ -25,7 +25,7 @@ fn module<T: IntType>(
     let state = memory(&mut program);
     let function = program.declare(Signature {
         parameters: parameters.to_vec(),
-        result: T::TYPE,
+        result: Some(T::TYPE),
     });
     let mut body = program.define(function).unwrap();
     let result = build(&mut body, state);
@@ -42,12 +42,12 @@ fn stores_and_tail() -> Vec<u8> {
         name: "receive".into(),
         signature: Signature {
             parameters: vec![Type::I32],
-            result: Type::I64,
+            result: Some(Type::I64),
         },
     });
     let function = program.declare(Signature {
         parameters: vec![Type::I1],
-        result: Type::I64,
+        result: Some(Type::I64),
     });
     let mut body = program.define(function).unwrap();
     let condition = body.parameter::<I1>(0).unwrap();
@@ -219,12 +219,12 @@ fn nested_tail() -> Vec<u8> {
         name: "receive".into(),
         signature: Signature {
             parameters: vec![Type::I32],
-            result: Type::I64,
+            result: Some(Type::I64),
         },
     });
     let function = program.declare(Signature {
         parameters: vec![Type::I1; 2],
-        result: Type::I64,
+        result: Some(Type::I64),
     });
     let mut body = program.define(function).unwrap();
     let outer = body.parameter::<I1>(0).unwrap();

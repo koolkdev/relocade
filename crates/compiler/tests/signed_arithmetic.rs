@@ -17,7 +17,7 @@ fn function<T: IntType>(
         .function(
             Signature {
                 parameters: parameters.to_vec(),
-                result: T::TYPE,
+                result: Some(T::TYPE),
             },
             |body| {
                 let result = build(&body);
@@ -86,7 +86,7 @@ fn shared_underflow() -> Vec<u8> {
         .function(
             Signature {
                 parameters: vec![],
-                result: Type::I32,
+                result: Some(Type::I32),
             },
             |mut body| {
                 let difference = body.load::<I8>(memory, 0)?.sub(1);

@@ -4,7 +4,7 @@ use crate::{instruction::MAX_INSTRUCTION_BYTES, memory::Intent, state::exit};
 
 use super::{RuntimeCursor, Window};
 
-impl RuntimeCursor {
+impl RuntimeCursor<'_> {
     fn read_window<T: MemoryInt>(
         &self,
         body: &mut FunctionBuilder<'_>,

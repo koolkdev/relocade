@@ -19,7 +19,7 @@ fn shape<T: IntType>(
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: parameters.to_vec(),
-        result: T::TYPE,
+        result: Some(T::TYPE),
     });
     let body = program.define(function).unwrap();
     let result = build(&body);
@@ -166,7 +166,7 @@ fn logical_signatures_share_their_wasm_integer_representation() {
     fn identity<T: IntType>(program: &mut Program, name: &str) {
         let function = program.declare(Signature {
             parameters: vec![T::TYPE],
-            result: T::TYPE,
+            result: Some(T::TYPE),
         });
         let body = program.define(function).unwrap();
         let result = body.parameter::<T>(0).unwrap();

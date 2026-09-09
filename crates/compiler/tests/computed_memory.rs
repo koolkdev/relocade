@@ -26,7 +26,7 @@ fn with_memories<T: IntType>(
         .collect();
     let function = program.declare(Signature {
         parameters: vec![Type::I32; parameters],
-        result: T::TYPE,
+        result: Some(T::TYPE),
     });
     let mut body = program.define(function).unwrap();
     let result = build(&mut body, &memories);

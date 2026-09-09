@@ -36,7 +36,7 @@ impl FunctionBuilder<'_> {
 
     /// Executes one arm and joins its value in the parent, using `switch`'s key
     /// matching and construction order. Each arm must consume its builder with
-    /// `yield_`, `return_`, `tail_call` or `trap`; at least one arm must yield.
+    /// `yield_`, `return_`, `return_void`, `tail_call` or `trap`; at least one arm must yield.
     /// A callback error discards all arms and leaves the parent usable.
     ///
     /// Only the joined result becomes available in the parent. Other values
@@ -46,7 +46,7 @@ impl FunctionBuilder<'_> {
     /// use wasm86_compiler::{Program, Signature, Type, I32, I8};
     /// let mut program = Program::new();
     /// let function = program.function(Signature {
-    ///     parameters: vec![Type::I8], result: Type::I32,
+    ///     parameters: vec![Type::I8], result: Some(Type::I32),
     /// }, |mut body| {
     ///     let selector = body.parameter::<I8>(0)?;
     ///     let value = body.switch_value::<I32, _>(&selector, &[2, 5], |arm, key| {

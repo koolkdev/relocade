@@ -29,7 +29,7 @@ fn with_memories<T: IntType>(
         .collect();
     let function = program.declare(Signature {
         parameters: vec![],
-        result: T::TYPE,
+        result: Some(T::TYPE),
     });
     let mut body = program.define(function).unwrap();
     let result = build(&mut body, &memories);
@@ -321,7 +321,7 @@ fn abandoned_bodies_do_not_retain_memory_imports() {
     let memory = import(&mut program, "abandoned");
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let mut body = program.define(function).unwrap();
     body.load::<I32>(memory, 0).unwrap();

@@ -104,7 +104,7 @@ impl FunctionBuilder<'_> {
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let function = program.declare(Signature {
-    ///     parameters: vec![Type::I32], result: Type::I32,
+    ///     parameters: vec![Type::I32], result: Some(Type::I32),
     /// });
     /// let mut body = program.define(function)?;
     /// let value = body.parameter::<I32>(0)?;
@@ -139,7 +139,7 @@ impl FunctionBuilder<'_> {
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let function = program.declare(Signature {
-    ///     parameters: vec![Type::I32], result: Type::I32,
+    ///     parameters: vec![Type::I32], result: Some(Type::I32),
     /// });
     /// let mut body = program.define(function)?;
     /// let value = body.parameter::<I32>(0)?;
@@ -171,7 +171,8 @@ impl FunctionBuilder<'_> {
     }
 
     /// Selects a value by executing one of two branches. Each arm must consume
-    /// its builder with `yield_`, `return_`, `tail_call` or `trap`; at least one must yield.
+    /// its builder with `yield_`, `return_`, `return_void`, `tail_call` or `trap`;
+    /// at least one must yield.
     /// A yield supplies this conditional's value, while a return exits the function.
     /// A construction error discards both arms and leaves the parent usable.
     ///
@@ -182,7 +183,7 @@ impl FunctionBuilder<'_> {
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let function = program.declare(Signature {
-    ///     parameters: vec![Type::I32], result: Type::I32,
+    ///     parameters: vec![Type::I32], result: Some(Type::I32),
     /// });
     /// let mut body = program.define(function)?;
     /// let value = body.parameter::<I32>(0)?;
@@ -288,7 +289,7 @@ mod tests {
         });
         let signature = Signature {
             parameters: vec![],
-            result: Type::I32,
+            result: Some(Type::I32),
         };
         let target = program.import_function(FunctionImport {
             module: "test".into(),
@@ -325,7 +326,7 @@ mod tests {
         let mut program = Program::new();
         let function = program.declare(Signature {
             parameters: vec![],
-            result: Type::I32,
+            result: Some(Type::I32),
         });
         let mut body = program.define(function).unwrap();
         assert_eq!(
@@ -350,7 +351,7 @@ mod tests {
         let mut program = Program::new();
         let function = program.declare(Signature {
             parameters: vec![],
-            result: Type::I32,
+            result: Some(Type::I32),
         });
         let mut body = program.define(function).unwrap();
         let value = body.value::<I32>(7).unwrap();
@@ -376,7 +377,7 @@ mod tests {
         });
         let signature = Signature {
             parameters: vec![],
-            result: Type::I32,
+            result: Some(Type::I32),
         };
         let target = program.import_function(FunctionImport {
             module: "test".into(),
@@ -417,7 +418,7 @@ mod tests {
         let mut program = Program::new();
         let function = program.declare(Signature {
             parameters: vec![],
-            result: Type::I32,
+            result: Some(Type::I32),
         });
         let mut body = program.define(function).unwrap();
         let mut escaped = None;

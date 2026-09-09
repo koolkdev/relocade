@@ -104,7 +104,7 @@ impl Cpu {
         let function = program.function(
             Signature {
                 parameters: vec![],
-                result: Type::I1,
+                result: Some(Type::I1),
             },
             |body| self.define_condition_resolver(body, canonical),
         )?;

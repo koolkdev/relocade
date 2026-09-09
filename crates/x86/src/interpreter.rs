@@ -58,12 +58,12 @@ pub fn compile_interpreter_step() -> Result<CompiledModule, BuildError> {
     let dispatch = declare_dispatch(&mut program);
     let signature = Signature {
         parameters: vec![],
-        result: Type::I64,
+        result: Some(Type::I64),
     };
     let step = program.declare(signature.clone());
     let exact = program.declare(signature);
-    let decoder = RuntimeDecoder::new(&mut program, memory, |body, decoded| {
-        complete(body, &cpu, memory, dispatch, decoded)
+    let decoder = RuntimeDecoder::new(&mut program, &memory, |body, decoded| {
+        complete(body, &cpu, &memory, dispatch, decoded)
     })?;
 
     let mut body = program.define(step)?;
@@ -86,7 +86,7 @@ pub fn compile_interpreter_step() -> Result<CompiledModule, BuildError> {
 fn complete(
     body: FunctionBuilder<'_>,
     cpu: &Cpu,
-    memory: Memory,
+    memory: &Memory,
     dispatch: Func,
     decoded: DecodedInstruction<Val<I32>, Val<I32>>,
 ) -> Result<(), BuildError> {

@@ -20,21 +20,21 @@ use self::{
 /// All primary forms share opcode selection. Direct, checked and prefixed
 /// entries carry the cursor's fetch guarantees; memory entries resume after
 /// opcode and ModRM validation.
-pub(crate) struct RuntimeDecoder<C> {
-    memory: Memory,
+pub(crate) struct RuntimeDecoder<'memory, C> {
+    memory: &'memory Memory,
     opcode_handlers: DecodeHandlers,
     primary_modrm_memory_handlers: DecodeHandlers,
     extended_modrm_memory_handlers: DecodeHandlers,
     complete_instruction: C,
 }
 
-impl<C> RuntimeDecoder<C>
+impl<'memory, C> RuntimeDecoder<'memory, C>
 where
     C: Fn(FunctionBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
 {
     pub(crate) fn new(
         program: &mut Program,
-        memory: Memory,
+        memory: &'memory Memory,
         complete_instruction: C,
     ) -> Result<Self, BuildError> {
         let decoder = Self {

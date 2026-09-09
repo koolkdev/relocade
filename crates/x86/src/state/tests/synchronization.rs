@@ -18,7 +18,7 @@ fn synchronized_registers(source: IndexSource) -> crate::CompiledModule {
     let cpu = Cpu::declare(&mut program);
     let function = program.declare(Signature {
         parameters: vec![Type::I32, Type::I1],
-        result: Type::I64,
+        result: Some(Type::I64),
     });
     let mut body = program.define(function).unwrap();
     let mut state = State::new(&cpu);
@@ -170,7 +170,7 @@ fn synchronized_byte_registers() -> crate::CompiledModule {
         .function(
             Signature {
                 parameters: vec![Type::I32, Type::I1],
-                result: Type::I64,
+                result: Some(Type::I64),
             },
             |mut body| {
                 let index = body.parameter::<I32>(0)?;
@@ -283,7 +283,7 @@ fn synchronized_word_registers() -> crate::CompiledModule {
         .function(
             Signature {
                 parameters: vec![Type::I32, Type::I1],
-                result: Type::I64,
+                result: Some(Type::I64),
             },
             |mut body| {
                 let index = body.parameter::<I32>(0)?;

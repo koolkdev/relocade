@@ -11,20 +11,20 @@ use crate::{
 
 /// Builds one execution path. State definitions and progress describe completed
 /// instructions; a fault publishes that boundary before the current effects.
-pub(super) struct ExecutionBuilder<'body, 'cpu> {
+pub(super) struct ExecutionBuilder<'body, 'module> {
     body: FunctionBuilder<'body>,
-    state: State<'cpu>,
-    memory: Option<Memory>,
+    state: State<'module>,
+    memory: Option<&'module Memory>,
     dispatch: Func,
     eip: Val<I32>,
     completed: u32,
 }
 
-impl<'body, 'cpu> ExecutionBuilder<'body, 'cpu> {
+impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     pub(super) fn new(
         body: FunctionBuilder<'body>,
-        cpu: &'cpu Cpu,
-        memory: Option<Memory>,
+        cpu: &'module Cpu,
+        memory: Option<&'module Memory>,
         dispatch: Func,
         start: impl IntoOp<I32>,
     ) -> Result<Self, BuildError> {

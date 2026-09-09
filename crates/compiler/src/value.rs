@@ -312,7 +312,7 @@ impl Val<I1> {
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let function = program.declare(Signature {
-    ///     parameters: vec![Type::I32], result: Type::I32,
+    ///     parameters: vec![Type::I32], result: Some(Type::I32),
     /// });
     /// let body = program.define(function)?;
     /// let value = body.parameter::<I32>(0)?;

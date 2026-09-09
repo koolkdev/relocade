@@ -1,8 +1,10 @@
-use std::marker::PhantomData;
+mod scattered;
+
+use std::{cell::Cell, marker::PhantomData};
 
 use wasm86_compiler::{
     BuildError, Func, FunctionBuilder, IntoOp, Mem, MemoryImport, MemoryInt, Program, Signature,
-    Type, Val, I1, I32, I8,
+    Type, Val, I1, I32,
 };
 
 const PAGE_SHIFT: u32 = 12;
@@ -16,11 +18,14 @@ const WRITABLE: u32 = 2;
 const SCATTERED: u32 = 4;
 const LATER_DENIAL: u32 = 8;
 
-#[derive(Clone, Copy)]
+/// Owns generated access helpers for one module. Frontends discard this owner
+/// and its program together when construction fails.
 pub(super) struct Memory {
     guest: Mem,
     table: PageTable,
     range_resolver: Func,
+    scattered_readers: [Cell<Option<Func>>; 3],
+    scattered_writers: [Cell<Option<Func>>; 3],
 }
 
 #[derive(Clone, Copy)]
@@ -89,7 +94,7 @@ impl Memory {
         let range_resolver = program.function(
             Signature {
                 parameters: vec![Type::I32, Type::I32, Type::I32, Type::I32],
-                result: Type::I32,
+                result: Some(Type::I32),
             },
             |body| table.define_range_resolver(body),
         )?;
@@ -97,13 +102,15 @@ impl Memory {
             guest,
             table,
             range_resolver,
+            scattered_readers: std::array::from_fn(|_| Cell::new(None)),
+            scattered_writers: std::array::from_fn(|_| Cell::new(None)),
         })
     }
 
     /// Resolves a positive fixed span of at most one page in length. Such a span
     /// touches at most two pages, so its first and last bytes determine permission.
     fn resolve_range(
-        self,
+        &self,
         body: &mut FunctionBuilder<'_>,
         start: &Val<I32>,
         bytes: u32,
@@ -139,7 +146,7 @@ impl Memory {
     /// Proves that the complete span permits the requested access and has
     /// contiguous physical backing. Failure does not raise an architectural fault.
     pub(super) fn check_direct_access(
-        self,
+        &self,
         body: &mut FunctionBuilder<'_>,
         start: &Val<I32>,
         bytes: u32,
@@ -175,7 +182,7 @@ impl Memory {
     /// Checks one linear span, rejecting a range past the end of the 32-bit
     /// address space. Instruction fetch implements EIP wrap through byte reads.
     pub(super) fn resolve_access<T: MemoryInt>(
-        self,
+        &self,
         body: &mut FunctionBuilder<'_>,
         start: &Val<I32>,
         intent: Intent,
@@ -206,7 +213,7 @@ impl Memory {
     }
 
     pub(super) fn read<T: MemoryInt>(
-        self,
+        &self,
         body: &mut FunctionBuilder<'_>,
         access: &Access<T>,
     ) -> Result<Val<T>, BuildError> {
@@ -216,18 +223,8 @@ impl Memory {
         body.if_value::<T>(
             &access.scattered,
             |mut arm| {
-                // Guest accesses cannot alter the separate page table. After the
-                // whole-span check, scattered bytes need only a frame lookup.
-                let mut value = self
-                    .load::<I8>(&mut arm, &access.physical, 0)?
-                    .unsigned()
-                    .extend::<T>();
-                for offset in 1..T::BYTES {
-                    let address = access.linear.add(offset);
-                    let entry = self.table.entry(&mut arm, &address)?;
-                    let byte = self.load::<I8>(&mut arm, &physical_address(&entry, &address), 0)?;
-                    value = value.or(byte.unsigned().extend::<T>().shl(offset * 8));
-                }
+                let reader = self.scattered_reader::<T>(arm.program())?;
+                let value = arm.call::<T>(reader, &[(&access.linear).into()])?;
                 arm.yield_(value)
             },
             |mut arm| {
@@ -238,7 +235,7 @@ impl Memory {
     }
 
     pub(super) fn write<T: MemoryInt>(
-        self,
+        &self,
         body: &mut FunctionBuilder<'_>,
         access: &Access<T>,
         value: &Val<T>,
@@ -253,18 +250,8 @@ impl Memory {
         body.if_else(
             &access.scattered,
             |mut arm| {
-                arm.store_at::<I8>(self.guest, &access.physical, 0, value.truncate::<I8>())?;
-                for offset in 1..T::BYTES {
-                    let address = access.linear.add(offset);
-                    let entry = self.table.entry(&mut arm, &address)?;
-                    arm.store_at::<I8>(
-                        self.guest,
-                        physical_address(&entry, &address),
-                        0,
-                        value.unsigned().shr(offset * 8).truncate::<I8>(),
-                    )?;
-                }
-                Ok(())
+                let writer = self.scattered_writer::<T>(arm.program())?;
+                arm.call_void(writer, &[(&access.linear).into(), value.into()])
             },
             |mut arm| arm.store_at::<T>(self.guest, &access.physical, 0, value),
         )
@@ -272,7 +259,7 @@ impl Memory {
 
     /// The caller must prove this entire read is present and physically contiguous.
     pub(super) fn load<T: MemoryInt>(
-        self,
+        &self,
         body: &mut FunctionBuilder<'_>,
         physical: &Val<I32>,
         offset: u32,

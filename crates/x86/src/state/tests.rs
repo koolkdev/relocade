@@ -11,7 +11,7 @@ fn named_writes_coalesce_without_crossing_indexed_writes() {
     let cpu = Cpu::declare(&mut program);
     let function = program.declare(Signature {
         parameters: vec![Type::I32],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let mut body = program.define(function).unwrap();
     let index = body.parameter::<I32>(0).unwrap();
@@ -52,7 +52,7 @@ fn publishing_an_exit_keeps_pending_writes_for_the_continuation() {
     let cpu = Cpu::declare(&mut program);
     let function = program.declare(Signature {
         parameters: vec![Type::I1],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let mut body = program.define(function).unwrap();
     let stop = body.parameter::<I1>(0).unwrap();

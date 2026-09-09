@@ -11,7 +11,7 @@ use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Vali
 fn signature(parameters: &[Type], result: Type) -> Signature {
     Signature {
         parameters: parameters.to_vec(),
-        result,
+        result: Some(result),
     }
 }
 

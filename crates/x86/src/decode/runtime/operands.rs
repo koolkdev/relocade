@@ -16,7 +16,7 @@ use crate::{
 
 use super::{cursor::RuntimeCursor, RuntimeDecoder};
 
-impl<C> RuntimeDecoder<C>
+impl<C> RuntimeDecoder<'_, C>
 where
     C: Fn(FunctionBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
 {
@@ -24,7 +24,7 @@ where
     pub(super) fn decode_immediate_operands(
         &self,
         mut body: FunctionBuilder<'_>,
-        mut cursor: RuntimeCursor,
+        mut cursor: RuntimeCursor<'_>,
         opcode: &Val<I8>,
         form: &ResolvedForm,
     ) -> Result<(), BuildError> {
@@ -47,7 +47,7 @@ where
     pub(super) fn decode_accumulator_offset_operands(
         &self,
         mut body: FunctionBuilder<'_>,
-        mut cursor: RuntimeCursor,
+        mut cursor: RuntimeCursor<'_>,
         form: &ResolvedForm,
     ) -> Result<(), BuildError> {
         let offset = cursor.dword(&mut body)?;
@@ -62,7 +62,7 @@ where
     pub(super) fn decode_modrm_operands(
         &self,
         mut body: FunctionBuilder<'_>,
-        mut cursor: RuntimeCursor,
+        mut cursor: RuntimeCursor<'_>,
         opcode: &Val<I8>,
         forms: &[&'static Form],
     ) -> Result<(), BuildError> {
@@ -82,7 +82,7 @@ where
     fn tail_call_memory_decoder(
         &self,
         body: FunctionBuilder<'_>,
-        cursor: &RuntimeCursor,
+        cursor: &RuntimeCursor<'_>,
         opcode: &Val<I8>,
         modrm: &Val<I8>,
     ) -> Result<(), BuildError> {
@@ -96,7 +96,7 @@ where
     fn decode_register_operands(
         &self,
         mut body: FunctionBuilder<'_>,
-        mut cursor: RuntimeCursor,
+        mut cursor: RuntimeCursor<'_>,
         modrm: &Val<I8>,
         form: &Form,
     ) -> Result<(), BuildError> {
@@ -112,7 +112,7 @@ where
     pub(super) fn decode_memory_operands(
         &self,
         body: FunctionBuilder<'_>,
-        cursor: RuntimeCursor,
+        cursor: RuntimeCursor<'_>,
         opcode: &Val<I8>,
         modrm: &Val<I8>,
     ) -> Result<(), BuildError> {

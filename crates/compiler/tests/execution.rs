@@ -19,7 +19,7 @@ fn define_export<T: IntType>(
 ) {
     let function = program.declare(Signature {
         parameters: parameters.to_vec(),
-        result: T::TYPE,
+        result: Some(T::TYPE),
     });
     let body = program.define(function).unwrap();
     let result = build(&body);
@@ -140,7 +140,7 @@ fn check_execution(flags: &[&str]) {
 
     let signature = Signature {
         parameters: vec![],
-        result: Type::I32,
+        result: Some(Type::I32),
     };
     let first = program.declare(signature.clone());
     let second = program.declare(signature);

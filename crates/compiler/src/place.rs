@@ -308,7 +308,13 @@ pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
                 }
                 Operation::Call { invocation, output } => {
                     if effects[invocation.target.0].must_execute() {
-                        demand(body, &tree, &mut demands, *output, point);
+                        if let Some(output) = output {
+                            demand(body, &tree, &mut demands, *output, point);
+                        } else {
+                            for &argument in &invocation.arguments {
+                                demand(body, &tree, &mut demands, argument, point);
+                            }
+                        }
                     }
                 }
                 Operation::Load(_) => {}

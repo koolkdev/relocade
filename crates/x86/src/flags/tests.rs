@@ -12,7 +12,7 @@ fn auxiliary_carry<T: MemoryInt>() -> CompiledModule {
             .function(
                 Signature {
                     parameters: vec![T::TYPE; 2],
-                    result: Type::I1,
+                    result: Some(Type::I1),
                 },
                 |body| {
                     // The addition can leave dirty upper carrier bits before the flag query.
@@ -28,7 +28,7 @@ fn auxiliary_carry<T: MemoryInt>() -> CompiledModule {
         .function(
             Signature {
                 parameters: vec![T::TYPE; 2],
-                result: Type::I1,
+                result: Some(Type::I1),
             },
             |body| {
                 let result = body.parameter::<T>(0)?.add(1).xor(body.parameter::<T>(1)?);
@@ -71,7 +71,7 @@ fn signed_cmp_conditions_use_original_operands_without_computing_flags() {
             .function(
                 Signature {
                     parameters: vec![Type::I32; 2],
-                    result: Type::I1,
+                    result: Some(Type::I1),
                 },
                 |body| {
                     let left = body.parameter::<I32>(0)?;

@@ -24,7 +24,7 @@ fn module<T: IntType>(
     let state = memory(&mut program);
     let run = program.declare(Signature {
         parameters: parameters.to_vec(),
-        result: T::TYPE,
+        result: Some(T::TYPE),
     });
     let mut body = program.define(run).unwrap();
     let value = build(&mut body, state);
@@ -99,14 +99,14 @@ fn call_snapshot() -> Vec<u8> {
     let state = memory(&mut program);
     let mutate = program.declare(Signature {
         parameters: vec![],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let mut body = program.define(mutate).unwrap();
     body.store::<I32>(state, 0, 9).unwrap();
     body.return_(11).unwrap();
     let run = program.declare(Signature {
         parameters: vec![Type::I1],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let mut body = program.define(run).unwrap();
     let condition = body.parameter::<I1>(0).unwrap();

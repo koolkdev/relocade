@@ -142,7 +142,7 @@ fn declare_dispatch(program: &mut Program) -> Func {
         name: "dispatch".into(),
         signature: Signature {
             parameters: vec![Type::I32],
-            result: Type::I64,
+            result: Some(Type::I64),
         },
     })
 }

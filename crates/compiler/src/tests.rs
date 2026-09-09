@@ -8,7 +8,7 @@ fn completed_functions_can_be_called_and_exported_with_logical_signatures() {
         .function(
             Signature {
                 parameters: vec![Type::I32],
-                result: Type::I1,
+                result: Some(Type::I1),
             },
             |body| {
                 let value = body.parameter::<I32>(0)?;
@@ -20,7 +20,7 @@ fn completed_functions_can_be_called_and_exported_with_logical_signatures() {
         .function(
             Signature {
                 parameters: vec![Type::I32],
-                result: Type::I1,
+                result: Some(Type::I1),
             },
             |mut body| {
                 let input = body.parameter::<I32>(0)?;
@@ -62,7 +62,7 @@ fn a_callback_error_discards_even_a_completed_body_and_its_import_use() {
         .function(
             Signature {
                 parameters: vec![],
-                result: Type::I32,
+                result: Some(Type::I32),
             },
             |mut body| {
                 let value = body.load::<I32>(memory, 0)?;
@@ -76,7 +76,7 @@ fn a_callback_error_discards_even_a_completed_body_and_its_import_use() {
         .function(
             Signature {
                 parameters: vec![],
-                result: Type::I32,
+                result: Some(Type::I32),
             },
             |body| body.return_(7),
         )
@@ -97,7 +97,7 @@ fn a_successful_callback_must_complete_its_body() {
         .function(
             Signature {
                 parameters: vec![],
-                result: Type::I1,
+                result: Some(Type::I1),
             },
             |_body| Ok(()),
         )
@@ -107,7 +107,7 @@ fn a_successful_callback_must_complete_its_body() {
         .function(
             Signature {
                 parameters: vec![],
-                result: Type::I1,
+                result: Some(Type::I1),
             },
             |body| body.return_(true),
         )
@@ -124,7 +124,7 @@ fn an_open_body_builds_a_helper_without_reopening_itself() {
     let mut program = Program::new();
     let signature = Signature {
         parameters: vec![Type::I32],
-        result: Type::I1,
+        result: Some(Type::I1),
     };
     let outer = program.declare(signature.clone());
     let mut body = program.define(outer).unwrap();
@@ -175,7 +175,7 @@ fn a_failed_function_restores_forward_declarations_and_discards_appended_resourc
     let mut program = Program::new();
     let signature = Signature {
         parameters: vec![],
-        result: Type::I32,
+        result: Some(Type::I32),
     };
     let prior = program
         .function(signature.clone(), |body| body.return_(11))

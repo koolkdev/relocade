@@ -13,12 +13,15 @@ use crate::{
 use super::ExecutionBuilder;
 
 /// A location whose complete write span has passed its architectural guards.
-enum WriteTarget<T: RegisterType> {
+enum WriteTarget<'memory, T: RegisterType> {
     Register(Register<T>),
-    Memory { memory: Memory, access: Access<T> },
+    Memory {
+        memory: &'memory Memory,
+        access: Access<T>,
+    },
 }
 
-impl ExecutionBuilder<'_, '_> {
+impl<'memory> ExecutionBuilder<'_, 'memory> {
     pub(crate) fn read<T: RegisterType>(
         &mut self,
         operand: Operand<impl IntoOp<I32>>,
@@ -66,7 +69,7 @@ impl ExecutionBuilder<'_, '_> {
     fn prepare_write<T: RegisterType>(
         &mut self,
         location: Location<impl IntoOp<I32>>,
-    ) -> Result<WriteTarget<T>, BuildError> {
+    ) -> Result<WriteTarget<'memory, T>, BuildError> {
         Ok(match location {
             Location::Register(code) => WriteTarget::Register(code.view::<T>()),
             Location::Memory(address) => {
@@ -80,7 +83,7 @@ impl ExecutionBuilder<'_, '_> {
 
     fn read_target<T: RegisterType>(
         &mut self,
-        target: &WriteTarget<T>,
+        target: &WriteTarget<'memory, T>,
     ) -> Result<Val<T>, BuildError> {
         match target {
             WriteTarget::Register(register) => {
@@ -92,7 +95,7 @@ impl ExecutionBuilder<'_, '_> {
 
     fn write_target<T: RegisterType>(
         &mut self,
-        target: WriteTarget<T>,
+        target: WriteTarget<'memory, T>,
         value: impl IntoOp<T>,
     ) -> Result<(), BuildError> {
         match target {
@@ -108,7 +111,7 @@ impl ExecutionBuilder<'_, '_> {
 
     fn checked<T: RegisterType>(
         &mut self,
-        memory: Memory,
+        memory: &'memory Memory,
         address: &Val<I32>,
         intent: Intent,
     ) -> Result<Access<T>, BuildError> {

@@ -63,10 +63,11 @@ pub fn compile_block_from_bytes(
     let function = program.function(
         Signature {
             parameters: vec![],
-            result: Type::I64,
+            result: Some(Type::I64),
         },
         |body| {
-            let mut execution = ExecutionBuilder::new(body, &cpu, memory, dispatch, start_eip)?;
+            let mut execution =
+                ExecutionBuilder::new(body, &cpu, memory.as_ref(), dispatch, start_eip)?;
             for decoded_instruction in decoded_instructions {
                 execution.execute(decoded_instruction)?;
             }

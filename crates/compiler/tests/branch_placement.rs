@@ -24,14 +24,14 @@ fn module(
         name: "receive".into(),
         signature: Signature {
             parameters: vec![Type::I32],
-            result: Type::I32,
+            result: Some(Type::I32),
         },
     });
     let run = program
         .function(
             Signature {
                 parameters: parameters.to_vec(),
-                result: Type::I32,
+                result: Some(Type::I32),
             },
             |body| build(body, state, receive),
         )

@@ -13,7 +13,7 @@ fn a_terminating_publication_retains_the_earlier_flag_recipe() {
         .function(
             Signature {
                 parameters: vec![Type::I1],
-                result: Type::I32,
+                result: Some(Type::I32),
             },
             |mut body| {
                 let mut state = State::new(&cpu);
@@ -91,7 +91,7 @@ fn changing_flag_sources_keeps_payloads_before_kind_and_earlier_exits() {
         .function(
             Signature {
                 parameters: vec![Type::I1; 2],
-                result: Type::I1,
+                result: Some(Type::I1),
             },
             |mut body| {
                 let mut state = State::new(&cpu);
@@ -150,7 +150,7 @@ fn carry_sources_publish_all_concrete_flags_before_the_kind() {
         .function(
             Signature {
                 parameters: vec![Type::I1],
-                result: Type::I32,
+                result: Some(Type::I32),
             },
             |mut body| {
                 let mut state = State::new(&cpu);
@@ -207,7 +207,7 @@ fn invalid_flag_sources_leave_the_previous_source_unchanged() {
     let mut foreign_program = Program::new();
     let foreign_function = foreign_program.declare(Signature {
         parameters: vec![Type::I32],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let foreign_body = foreign_program.define(foreign_function).unwrap();
     let foreign = foreign_body.parameter::<I32>(0).unwrap();
@@ -217,7 +217,7 @@ fn invalid_flag_sources_leave_the_previous_source_unchanged() {
         .function(
             Signature {
                 parameters: vec![],
-                result: Type::I32,
+                result: Some(Type::I32),
             },
             |mut body| {
                 let mut state = State::new(&cpu);
@@ -296,7 +296,7 @@ fn invalid_explicit_values_leave_the_previous_source_unchanged() {
     let mut foreign_program = Program::new();
     let foreign_function = foreign_program.declare(Signature {
         parameters: vec![Type::I32, Type::I1],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let foreign_body = foreign_program.define(foreign_function).unwrap();
     let foreign_result = foreign_body.parameter::<I32>(0).unwrap();
@@ -307,7 +307,7 @@ fn invalid_explicit_values_leave_the_previous_source_unchanged() {
         .function(
             Signature {
                 parameters: vec![],
-                result: Type::I32,
+                result: Some(Type::I32),
             },
             |mut body| {
                 let mut state = State::new(&cpu);
@@ -387,7 +387,7 @@ fn flags_after_register_synchronization() -> crate::CompiledModule {
         .function(
             Signature {
                 parameters: vec![Type::I32, Type::I1],
-                result: Type::I64,
+                result: Some(Type::I64),
             },
             |mut body| {
                 let mut state = State::new(&cpu);

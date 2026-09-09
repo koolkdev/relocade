@@ -10,7 +10,7 @@ use wasmparser::{BlockType, Operator, Parser, Payload, ValType, Validator};
 fn signature(parameters: &[Type], result: Type) -> Signature {
     Signature {
         parameters: parameters.to_vec(),
-        result,
+        result: Some(result),
     }
 }
 

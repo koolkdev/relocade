@@ -6,13 +6,15 @@ use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
 use crate::test_step::ModuleFile;
 
+mod helpers;
+
 fn return_fault(body: &mut FunctionBuilder<'_>, fault: &AccessFault) -> Result<(), BuildError> {
     body.if_(&fault.condition, |arm| {
         arm.return_(crate::state::exit::page_fault(&fault.address, &fault.error))
     })
 }
 
-fn define_width<T: MemoryInt>(program: &mut Program, memory: Memory, name: &str)
+fn define_read<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str)
 where
     I64: AtLeast<T>,
 {
@@ -20,7 +22,7 @@ where
         .function(
             Signature {
                 parameters: vec![Type::I32],
-                result: Type::I64,
+                result: Some(Type::I64),
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
@@ -31,13 +33,15 @@ where
             },
         )
         .unwrap();
-    program.export(&format!("read{name}"), read).unwrap();
+    program.export(name, read).unwrap();
+}
 
+fn define_write<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str) {
     let write = program
         .function(
             Signature {
                 parameters: vec![Type::I32, T::TYPE],
-                result: Type::I64,
+                result: Some(Type::I64),
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
@@ -49,16 +53,20 @@ where
             },
         )
         .unwrap();
-    program.export(&format!("write{name}"), write).unwrap();
+    program.export(name, write).unwrap();
 }
 
 fn accesses() -> Vec<u8> {
     let mut program = Program::new();
     let memory = Memory::declare(&mut program).unwrap();
-    define_width::<I8>(&mut program, memory, "8");
-    define_width::<I16>(&mut program, memory, "16");
-    define_width::<I32>(&mut program, memory, "32");
-    define_width::<I64>(&mut program, memory, "64");
+    define_read::<I8>(&mut program, &memory, "read8");
+    define_write::<I8>(&mut program, &memory, "write8");
+    define_read::<I16>(&mut program, &memory, "read16");
+    define_write::<I16>(&mut program, &memory, "write16");
+    define_read::<I32>(&mut program, &memory, "read32");
+    define_write::<I32>(&mut program, &memory, "write32");
+    define_read::<I64>(&mut program, &memory, "read64");
+    define_write::<I64>(&mut program, &memory, "write64");
     program.compile().unwrap()
 }
 

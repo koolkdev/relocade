@@ -183,6 +183,11 @@ without consulting another page. Instruction fetch instead wraps.
 All pages are checked before a data store writes any byte, including scattered
 physical backing. A fault publishes earlier completed instructions and leaves EIP
 at the faulting instruction; the failed instruction does not retire or dispatch.
+Contiguous accesses use native loads and stores. Scattered accesses call a shared
+helper for their logical width and direction, resolving each byte's physical
+address after the full span passes permission checks. Memory creates each helper
+when first needed and shares it across the module's functions; byte accesses need
+no transfer helper.
 
 An unsupported instruction form returns `(8 << 48) | (opcode << 32) | instruction_eip`.
 The opcode field contains the first byte after any `66` prefixes, including `0F`
@@ -196,6 +201,8 @@ behavior.
 `wasm86-compiler` builds scalar WebAssembly functions from integer constants,
 parameters and typed integer expressions. Values such as `Val<I1>` and `Val<I32>` carry
 logical integer types; function signatures use the corresponding `Type` variants.
+`Signature.result` is `Some(Type::I32)`, for example, for a returned integer, or
+`None` for a function with no result. Parameters remain logical integer types.
 Supported integer sizes are 1, 8, 16, 32 and 64 bits. Values support fluent
 expressions such as `value.add(1)`. Calling `body.return_(&value)` completes the
 function body; shared expressions use reusable WebAssembly locals.
@@ -303,10 +310,32 @@ For a call that returns to the current function, use
 `body.call::<I32>(helper, &[value.argument(), 7.into()])?`. Its typed result can
 be shared by later expressions. A result created inside a branch stays within
 that branch and its descendants. The compiler conservatively infers which
-memory bytes defined helpers may read or write: calls without writes may be
-deferred or omitted when unused, including their possible traps. Calls that may
-write, imported calls and unresolved recursive calls execute in authored order
-even when unused.
+memory bytes defined helpers may read or write. Helpers without inferred writes
+or unknown effects may be deferred or omitted when unused, including their
+arguments and possible traps. Calls that may write, call imports or reach
+unresolved recursion execute in authored order even when unused.
+
+For a function with no result, use `body.call_void(target, arguments)?` and finish
+its definition with `body.return_void()`. The same inferred effects determine
+whether the invocation must execute; calls without writes or unknown effects are
+omitted, including their arguments and possible traps. They have no value to discard:
+
+```rust
+let writer = program.function(Signature {
+    parameters: vec![Type::I32],
+    result: None,
+}, |mut body| {
+    let value = body.parameter::<I32>(0)?;
+    body.store(memory, 12, value)?;
+    body.return_void()
+})?;
+// In another function:
+body.call_void(writer, &[7.into()])?;
+```
+
+Typed calls require a result of the requested logical type; no-result calls
+require a signature with `result: None`. Returns obey the containing function's
+signature, and a tail call requires matching optional result types.
 
 WebAssembly carries 1-, 8- and 16-bit integers in `i32`. Narrow arguments must have
 their unused upper bits clear, and returned narrow values satisfy the same rule.

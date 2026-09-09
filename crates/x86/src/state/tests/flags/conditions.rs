@@ -14,7 +14,7 @@ fn stored_condition_resolver_is_shared_by_repeated_inverse_queries_and_bodies() 
             .function(
                 Signature {
                     parameters: vec![],
-                    result: Type::I32,
+                    result: Some(Type::I32),
                 },
                 |mut body| {
                     let mut state = State::new(&cpu);
@@ -61,7 +61,7 @@ fn stored_signed_cmp_conditions_compare_in_the_consumer_and_guard_the_fallback()
         .function(
             Signature {
                 parameters: vec![],
-                result: Type::I1,
+                result: Some(Type::I1),
             },
             |mut body| {
                 let mut state = State::new(&cpu);
@@ -128,7 +128,7 @@ fn stored_logical_equality_reads_only_the_result_in_the_consumer() {
         .function(
             Signature {
                 parameters: vec![],
-                result: Type::I1,
+                result: Some(Type::I1),
             },
             |mut body| {
                 let mut state = State::new(&cpu);

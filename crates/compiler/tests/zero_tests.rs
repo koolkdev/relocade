@@ -113,7 +113,7 @@ fn module(cases: &[Case]) -> Vec<u8> {
     for case in cases {
         let function = program.declare(Signature {
             parameters: vec![case.parameter],
-            result: Type::I1,
+            result: Some(Type::I1),
         });
         let body = program.define(function).unwrap();
         let value = (case.build)(&body);

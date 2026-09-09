@@ -8,7 +8,7 @@
 //! let mut program = Program::new();
 //! let increment = program.function(Signature {
 //!     parameters: vec![Type::I32],
-//!     result: Type::I32,
+//!     result: Some(Type::I32),
 //! }, |body| {
 //!     let value = body.parameter::<I32>(0)?;
 //!     body.return_(value.add(1))
@@ -44,11 +44,11 @@ pub use memory::{Mem, MemoryImport, MemoryInt};
 pub use types::{AtLeast, IntType, Type, I1, I16, I32, I64, I8};
 pub use value::{Argument, IntoOp, Signed, Unsigned, Val};
 
-/// A function's parameter types and single return type.
+/// A function's parameter types and optional return type.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Signature {
     pub parameters: Vec<Type>,
-    pub result: Type,
+    pub result: Option<Type>,
 }
 
 /// A declared function.
@@ -75,6 +75,8 @@ pub enum BuildError {
     DuplicateSwitchCase { key: u32 },
     SwitchCaseOutOfRange { key: u32, selector: Type },
     TypeMismatch { expected: Type, actual: Type },
+    MissingResult,
+    UnexpectedResult,
     DuplicateExport,
 }
 
@@ -114,6 +116,8 @@ impl fmt::Display for BuildError {
             Self::TypeMismatch { expected, actual } => {
                 write!(formatter, "expected {expected:?}, received {actual:?}")
             }
+            Self::MissingResult => formatter.write_str("a result is required"),
+            Self::UnexpectedResult => formatter.write_str("no result is expected"),
             Self::DuplicateExport => formatter.write_str("export name is already declared"),
         }
     }
@@ -148,15 +152,15 @@ struct Body {
 enum Terminal {
     Trap,
     Yield(usize),
-    Return(usize),
+    Return(Option<usize>),
     TailCall(Invocation),
 }
 
 impl Terminal {
     fn inputs(&self) -> &[usize] {
         match self {
-            Self::Trap => &[],
-            Self::Yield(value) | Self::Return(value) => std::slice::from_ref(value),
+            Self::Trap | Self::Return(None) => &[],
+            Self::Yield(value) | Self::Return(Some(value)) => std::slice::from_ref(value),
             Self::TailCall(invocation) => &invocation.arguments,
         }
     }
@@ -182,7 +186,7 @@ enum Operation {
     },
     Call {
         invocation: Invocation,
-        output: usize,
+        output: Option<usize>,
     },
 }
 
@@ -239,7 +243,7 @@ enum ValueKind {
 /// ```compile_fail
 /// use wasm86_compiler::{Program, Signature, Type, I32};
 /// let mut program = Program::new();
-/// let function = program.declare(Signature { parameters: vec![], result: Type::I32 });
+/// let function = program.declare(Signature { parameters: vec![], result: Some(Type::I32) });
 /// let body = program.define(function).unwrap();
 /// let module = program.compile();
 /// body.return_(0).unwrap();
@@ -425,9 +429,24 @@ impl FunctionBuilder<'_> {
     /// saves the function body; an error there leaves the function undefined.
     pub fn return_(mut self, result: impl Into<Argument>) -> Result<(), BuildError> {
         self.fallthrough = false;
-        let result = self.argument(result, self.signature().result)?;
+        let ty = self
+            .signature()
+            .result
+            .ok_or(BuildError::UnexpectedResult)?;
+        let result = self.argument(result, ty)?;
         let result = self.arena.normalize(result)?;
-        self.complete(Terminal::Return(result))
+        self.complete(Terminal::Return(Some(result)))
+    }
+
+    /// Returns from a function whose signature has no result, consuming this builder.
+    /// In a branch, only that branch is completed. As with [`Self::return_`], an
+    /// invalid return leaves an outer function undefined and a branch incomplete.
+    pub fn return_void(mut self) -> Result<(), BuildError> {
+        self.fallthrough = false;
+        if self.signature().result.is_some() {
+            return Err(BuildError::MissingResult);
+        }
+        self.complete(Terminal::Return(None))
     }
 
     /// Ends this execution path with a WebAssembly trap. This consumes the active

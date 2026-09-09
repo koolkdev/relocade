@@ -52,7 +52,7 @@ impl DecodeHandlers {
         parameters.resize(point.field_count() + 1, Type::I8);
         let checked = program.declare(Signature {
             parameters: parameters.clone(),
-            result: Type::I64,
+            result: Some(Type::I64),
         });
         parameters.push(Type::I32);
         Self {
@@ -60,20 +60,20 @@ impl DecodeHandlers {
             checked,
             direct: program.declare(Signature {
                 parameters: parameters.clone(),
-                result: Type::I64,
+                result: Some(Type::I64),
             }),
             prefixed: program.declare(Signature {
                 parameters,
-                result: Type::I64,
+                result: Some(Type::I64),
             }),
         }
     }
 
-    pub(super) fn define(
+    pub(super) fn define<'memory>(
         &self,
         program: &mut Program,
-        memory: Memory,
-        decode: impl Fn(FunctionBuilder<'_>, RuntimeCursor, &Val<I8>) -> Result<(), BuildError>,
+        memory: &'memory Memory,
+        decode: impl Fn(FunctionBuilder<'_>, RuntimeCursor<'memory>, &Val<I8>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         enum Entry {
             Checked,
@@ -122,7 +122,7 @@ impl DecodeHandlers {
     pub(super) fn tail_call(
         &self,
         body: FunctionBuilder<'_>,
-        cursor: &RuntimeCursor,
+        cursor: &RuntimeCursor<'_>,
         fields: &[Argument],
     ) -> Result<(), BuildError> {
         let mut arguments = vec![cursor.instruction_eip().into()];

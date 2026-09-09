@@ -66,12 +66,12 @@ impl FunctionBuilder<'_> {
     ///     name: "dispatch".into(),
     ///     signature: Signature {
     ///         parameters: vec![Type::I32],
-    ///         result: Type::I64,
+    ///         result: Some(Type::I64),
     ///     },
     /// });
     /// let block = program.declare(Signature {
     ///     parameters: vec![],
-    ///     result: Type::I64,
+    ///     result: Some(Type::I64),
     /// });
     /// let body = program.define(block)?;
     /// body.tail_call(dispatch, &[0x1004.into()])?;
@@ -89,23 +89,24 @@ impl FunctionBuilder<'_> {
     /// Each call creates a distinct result, visible only in this branch and its
     /// descendants. Reusing that value shares one invocation.
     ///
-    /// Defined helpers with no writes can run later or disappear when unused;
-    /// possible traps in the call or its argument computations move or disappear
-    /// with it. Read snapshots remain protected across overlapping writes.
-    /// Calls that may write, imported calls and unresolved recursive calls execute
-    /// in authored order, even when their result is unused. Narrow results follow
+    /// Defined helpers without inferred writes or unknown effects can run later
+    /// or disappear when unused. Possible traps in the call or its argument
+    /// computations move or disappear with it. Read snapshots remain protected
+    /// across overlapping writes. Calls that may write, call imports or reach
+    /// unresolved recursion execute in authored order, even when their result is
+    /// unused. These rules also apply to [`Self::call_void`]. Narrow results follow
     /// the same zero-extended calling convention as tail calls.
     ///
     /// ```
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let increment = program.declare(Signature {
-    ///     parameters: vec![Type::I32], result: Type::I32,
+    ///     parameters: vec![Type::I32], result: Some(Type::I32),
     /// });
     /// let helper = program.define(increment)?;
     /// let input = helper.parameter::<I32>(0)?;
     /// helper.return_(input.add(1))?;
-    /// let function = program.declare(Signature { parameters: vec![], result: Type::I32 });
+    /// let function = program.declare(Signature { parameters: vec![], result: Some(Type::I32) });
     /// let mut body = program.define(function)?;
     /// let result = body.call::<I32>(increment, &[7.into()])?;
     /// body.return_(result.add(1))?;
@@ -118,19 +119,59 @@ impl FunctionBuilder<'_> {
         target: Func,
         arguments: &[Argument],
     ) -> Result<Val<T>, BuildError> {
-        let invocation = self.resolve_call(target, arguments, T::TYPE)?;
+        let invocation = self.resolve_call(target, arguments, Some(T::TYPE))?;
         let output = self.arena.call_result(T::TYPE, self.site())?;
-        self.region
-            .operations
-            .push(Operation::Call { invocation, output });
+        self.region.operations.push(Operation::Call {
+            invocation,
+            output: Some(output),
+        });
         Ok(Val::new(self.arena.clone(), Ok(output)))
+    }
+
+    /// Calls a function with no result, leaving this builder open. Inferred
+    /// effects determine execution as with [`Self::call`]: calls that may write,
+    /// call imports or reach unresolved recursion execute in authored order.
+    /// Other invocations are omitted, including their arguments and possible
+    /// traps. Arguments follow the same logical types and normalization as typed
+    /// calls. No value is constructed or discarded.
+    ///
+    /// ```
+    /// use wasm86_compiler::{MemoryImport, Program, Signature, Type, I32};
+    /// let mut program = Program::new();
+    /// let state = program.import_memory(MemoryImport {
+    ///     module: "test".into(), name: "state".into(), minimum: 1, maximum: None,
+    /// });
+    /// let write = program.function(Signature {
+    ///     parameters: vec![Type::I32], result: None,
+    /// }, |mut body| {
+    ///     let value = body.parameter::<I32>(0)?;
+    ///     body.store(state, 0, value)?;
+    ///     body.return_void()
+    /// })?;
+    /// let run = program.function(Signature {
+    ///     parameters: vec![], result: None,
+    /// }, |mut body| {
+    ///     body.call_void(write, &[7.into()])?;
+    ///     body.return_void()
+    /// })?;
+    /// program.export("run", run)?;
+    /// let bytes = program.compile()?;
+    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// ```
+    pub fn call_void(&mut self, target: Func, arguments: &[Argument]) -> Result<(), BuildError> {
+        let invocation = self.resolve_call(target, arguments, None)?;
+        self.region.operations.push(Operation::Call {
+            invocation,
+            output: None,
+        });
+        Ok(())
     }
 
     fn resolve_call(
         &self,
         target: Func,
         arguments: &[Argument],
-        expected: crate::Type,
+        expected: Option<crate::Type>,
     ) -> Result<Invocation, BuildError> {
         let signature = &self
             .program
@@ -145,9 +186,11 @@ impl FunctionBuilder<'_> {
             });
         }
         if signature.result != expected {
-            return Err(BuildError::TypeMismatch {
-                expected,
-                actual: signature.result,
+            return Err(match (expected, signature.result) {
+                (Some(expected), Some(actual)) => BuildError::TypeMismatch { expected, actual },
+                (Some(_), None) => BuildError::MissingResult,
+                (None, Some(_)) => BuildError::UnexpectedResult,
+                (None, None) => unreachable!("equal result signatures were already accepted"),
             });
         }
         let mut values = Vec::with_capacity(arguments.len());
@@ -180,12 +223,12 @@ mod tests {
             name: "target".into(),
             signature: Signature {
                 parameters: vec![Type::I1],
-                result: Type::I8,
+                result: Some(Type::I8),
             },
         });
         let function = program.declare(Signature {
             parameters: vec![],
-            result: Type::I32,
+            result: Some(Type::I32),
         });
         let discarded = program.define(function).unwrap();
         let foreign = discarded.value::<I1>(true).unwrap();
@@ -222,7 +265,7 @@ mod tests {
         let mut program = Program::new();
         let signature = Signature {
             parameters: vec![],
-            result: Type::I32,
+            result: Some(Type::I32),
         };
         let helper = program.declare(signature.clone());
         program.define(helper).unwrap().return_(7).unwrap();

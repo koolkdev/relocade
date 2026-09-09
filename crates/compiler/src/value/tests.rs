@@ -16,7 +16,7 @@ fn returning_from_a_body_closes_retained_loads() {
     });
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let mut body = program.define(function).unwrap();
     let value = body.load::<I32>(memory, 0).unwrap();
@@ -30,7 +30,7 @@ fn dropping_a_body_closes_retained_values() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let body = program.define(function).unwrap();
     let value = body.value::<I32>(7).unwrap();
@@ -43,7 +43,7 @@ fn a_failed_return_closes_retained_values() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Type::I64,
+        result: Some(Type::I64),
     });
     let body = program.define(function).unwrap();
     let value = body.value::<I32>(7).unwrap();
@@ -64,12 +64,12 @@ fn tail_program() -> (Program, Func, Func) {
         name: "target".into(),
         signature: Signature {
             parameters: vec![Type::I32],
-            result: Type::I32,
+            result: Some(Type::I32),
         },
     });
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     (program, function, target)
 }
@@ -124,7 +124,7 @@ fn retaining_a_failed_expression_leaves_the_body_usable() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![Type::I32],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let discarded = program.define(function).unwrap();
     let foreign_zero = discarded.value::<I32>(0).unwrap();
@@ -152,7 +152,7 @@ fn expression_identity_reuses_nodes_but_keeps_read_events_distinct() {
     });
     let function = program.declare(Signature {
         parameters: vec![Type::I32],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let mut body = program.define(function).unwrap();
     let input = body.parameter::<I32>(0).unwrap();
@@ -171,7 +171,7 @@ fn expression_identity_is_false_for_foreign_or_failed_values() {
     let mut program = Program::new();
     let signature = Signature {
         parameters: vec![],
-        result: Type::I32,
+        result: Some(Type::I32),
     };
     let first = program.declare(signature.clone());
     let second = program.declare(signature);
@@ -193,7 +193,7 @@ fn a_zero_shift_still_checks_the_computed_count_owner() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![Type::I32],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let discarded = program.define(function).unwrap();
     let foreign = discarded.parameter::<I32>(0).unwrap();
@@ -221,7 +221,7 @@ fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
     });
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let discarded = program.define(function).unwrap();
     let foreign = discarded.value::<I32>(9).unwrap();
@@ -259,7 +259,7 @@ fn arithmetic_identity_folds_preserve_operand_errors() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let discarded = program.define(function).unwrap();
     let foreign_zero = discarded.value::<I32>(0).unwrap();

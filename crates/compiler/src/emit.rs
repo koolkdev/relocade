@@ -115,9 +115,16 @@ impl Scheduler<'_> {
                 Operation::Load(_) => {}
                 Operation::Call { invocation, output } => {
                     if self.effects[invocation.target.0].must_execute() {
-                        self.evaluate(*output, true);
-                        if self.placement.slots[*output].is_none() {
-                            Instruction::Drop.encode(&mut self.bytes);
+                        if let Some(output) = output {
+                            self.evaluate(*output, true);
+                            if self.placement.slots[*output].is_none() {
+                                Instruction::Drop.encode(&mut self.bytes);
+                            }
+                        } else {
+                            for &argument in &invocation.arguments {
+                                self.value(argument);
+                            }
+                            self.call(invocation.target);
                         }
                     }
                 }
@@ -223,11 +230,7 @@ impl Scheduler<'_> {
                     let ValueKind::CallResult { site } = self.body.values[id].kind else {
                         unreachable!("call completion names a call result")
                     };
-                    let target = self.body.invocation(site).target;
-                    Instruction::Call(
-                        self.functions[target.0].expect("a call target has a function index"),
-                    )
-                    .encode(&mut self.bytes);
+                    self.call(self.body.invocation(site).target);
                     self.completed(id, capture && id == root);
                     continue;
                 }
@@ -428,6 +431,11 @@ impl Scheduler<'_> {
             align: location.bytes.trailing_zeros(),
             memory_index: self.memories[location.memory.0].expect("an authored memory is imported"),
         }
+    }
+
+    fn call(&mut self, target: crate::Func) {
+        Instruction::Call(self.functions[target.0].expect("a call target has a function index"))
+            .encode(&mut self.bytes);
     }
 
     fn load(&mut self, id: usize) {

@@ -15,14 +15,14 @@ enum OpcodeAction {
     OperandSizePrefix,
 }
 
-impl<C> RuntimeDecoder<C>
+impl<C> RuntimeDecoder<'_, C>
 where
     C: Fn(FunctionBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
 {
     pub(super) fn decode_opcode(
         &self,
         mut body: FunctionBuilder<'_>,
-        cursor: RuntimeCursor,
+        cursor: RuntimeCursor<'_>,
         opcode: &Val<I8>,
     ) -> Result<(), BuildError> {
         let mut actions: BTreeMap<_, _> = forms_by_opcode(opcode_forms(cursor.opcode_map()))

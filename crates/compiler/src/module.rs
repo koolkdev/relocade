@@ -88,14 +88,16 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
                 .copied()
                 .map(emit::wasm_type)
                 .collect::<Vec<_>>(),
-            emit::wasm_type(declaration.signature.result),
+            declaration.signature.result.map(emit::wasm_type),
         );
         function_types[id] =
             *interned
                 .entry(signature)
                 .or_insert_with_key(|(parameters, result)| {
                     let index = types.len();
-                    types.ty().function(parameters.iter().copied(), [*result]);
+                    types
+                        .ty()
+                        .function(parameters.iter().copied(), result.iter().copied());
                     index
                 });
     }

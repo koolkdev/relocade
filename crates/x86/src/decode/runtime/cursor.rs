@@ -21,8 +21,8 @@ pub(super) const DIRECT_FETCH_BYTES: u32 = 1 + OperandWidth::Dword.bytes();
 /// bound; child-scoped positions never escape. Reads beyond the proof use checked
 /// fetch in the wrapping instruction address space.
 #[derive(Clone)]
-pub(super) struct RuntimeCursor {
-    memory: Memory,
+pub(super) struct RuntimeCursor<'memory> {
+    memory: &'memory Memory,
     instruction_eip: Val<I32>,
     offset: Val<I32>,
     maximum_offset: u32,
@@ -44,10 +44,10 @@ impl Window {
     }
 }
 
-impl RuntimeCursor {
+impl<'memory> RuntimeCursor<'memory> {
     pub(super) fn new(
         body: &FunctionBuilder<'_>,
-        memory: Memory,
+        memory: &'memory Memory,
         instruction_eip: &Val<I32>,
         physical_start: Option<&Val<I32>>,
         consumed: u32,
@@ -70,7 +70,7 @@ impl RuntimeCursor {
     /// Resumes checked reads at the instruction's total consumed byte count.
     /// Prefixes and opcode escapes never start a new instruction-length budget.
     pub(super) fn resume(
-        memory: Memory,
+        memory: &'memory Memory,
         instruction_eip: &Val<I32>,
         consumed: &Val<I32>,
         operand_size: OperandSize,

@@ -11,7 +11,7 @@ use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 fn signature(parameters: &[Type], result: Type) -> Signature {
     Signature {
         parameters: parameters.to_vec(),
-        result,
+        result: Some(result),
     }
 }
 

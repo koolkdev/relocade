@@ -9,7 +9,7 @@ fn population<T: IntType>(program: &mut Program, name: &str) {
         .function(
             Signature {
                 parameters: vec![T::TYPE],
-                result: T::TYPE,
+                result: Some(T::TYPE),
             },
             |body| {
                 let input = body.parameter::<T>(0)?;
@@ -31,7 +31,7 @@ fn operations() -> Vec<u8> {
         .function(
             Signature {
                 parameters: vec![Type::I32; 2],
-                result: Type::I32,
+                result: Some(Type::I32),
             },
             |body| {
                 let left = body.parameter::<I32>(0)?;
@@ -75,7 +75,7 @@ fn constant_xor_and_population_count_fold_without_runtime_work() {
         .function(
             Signature {
                 parameters: vec![],
-                result: Type::I64,
+                result: Some(Type::I64),
             },
             |body| {
                 let count = body

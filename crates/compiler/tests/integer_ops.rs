@@ -16,7 +16,7 @@ fn function<T: IntType>(
 ) {
     let declared = program.declare(Signature {
         parameters: parameters.to_vec(),
-        result: T::TYPE,
+        result: Some(T::TYPE),
     });
     let body = program.define(declared).unwrap();
     let value = build(&body);
@@ -213,7 +213,7 @@ fn zero_shift_with_unused_count() -> Vec<u8> {
     let memory = state(&mut p);
     let run = p.declare(Signature {
         parameters: vec![],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let mut b = p.define(run).unwrap();
     let count = b.load::<I32>(memory, 65536).unwrap();
@@ -440,7 +440,7 @@ fn load_conversion() -> Vec<u8> {
     let memory = state(&mut p);
     let run = p.declare(Signature {
         parameters: vec![],
-        result: Type::I32,
+        result: Some(Type::I32),
     });
     let mut b = p.define(run).unwrap();
     let loaded = b.load::<I8>(memory, 0).unwrap();
@@ -460,12 +460,12 @@ fn shared_boundary() -> Vec<u8> {
         name: "receive".into(),
         signature: Signature {
             parameters: vec![Type::I32, Type::I8, Type::I1, Type::I32],
-            result: Type::I64,
+            result: Some(Type::I64),
         },
     });
     let run = p.declare(Signature {
         parameters: vec![Type::I8],
-        result: Type::I64,
+        result: Some(Type::I64),
     });
     let mut b = p.define(run).unwrap();
     let raw = b.parameter::<I8>(0).unwrap().add(1);
