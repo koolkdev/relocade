@@ -9,4 +9,7 @@ publish.workspace = true
 wasm-encoder = { version = "=0.254.0", default-features = false }
 
 [dev-dependencies]
+serde.workspace = true
+wasm86-test-support.workspace = true
 wasmparser = { version = "=0.224.1", default-features = false, features = ["std", "validate"] }
+wasmtime.workspace = true

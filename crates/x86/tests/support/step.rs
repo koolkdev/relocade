@@ -1,65 +1,193 @@
-use std::{
-    fs,
-    io::Write as _,
-    path::PathBuf,
-    process::{Command, Stdio},
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::{path::Path, sync::OnceLock};
 
-pub(super) struct ModuleFile {
-    path: PathBuf,
-    pub(super) entry: String,
+use serde::{Deserialize, Serialize};
+pub(crate) use wasm86_test_support::{Outcome, Value as Argument};
+use wasmtime::{Caller, Linker, Memory, MemoryType, Module, Store, Trap};
+
+#[derive(Serialize)]
+pub(crate) struct Input {
+    pub(crate) cpu: Vec<u8>,
+    pub(crate) guest: Vec<(u32, Vec<u8>)>,
+    pub(crate) machine: Vec<(u32, Vec<u8>)>,
+    pub(crate) arguments: Vec<Argument>,
+    pub(crate) observe_guest: bool,
+    pub(crate) cpu_patches_before_calls: Vec<Vec<(u32, Vec<u8>)>>,
+    #[serde(with = "wasm86_test_support::decimal_i64")]
+    pub(crate) dispatch_return: i64,
 }
 
-impl ModuleFile {
-    pub(super) fn new(module: &crate::CompiledModule) -> Self {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "wasm86-step-{}-{}.wasm",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::write(&path, &module.bytes).unwrap();
+impl Input {
+    pub(crate) fn new(cpu: &[u8]) -> Self {
         Self {
-            path,
+            cpu: cpu.to_vec(),
+            guest: Vec::new(),
+            machine: Vec::new(),
+            arguments: Vec::new(),
+            observe_guest: false,
+            cpu_patches_before_calls: Vec::new(),
+            dispatch_return: i64::MIN,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub(crate) struct Snapshot {
+    pub(crate) cpu: Vec<u8>,
+    pub(crate) guest: Option<Vec<(u32, u8)>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum Event {
+    Dispatch {
+        eip: i32,
+        snapshot: Snapshot,
+    },
+    Return {
+        outcome: Outcome,
+        snapshot: Snapshot,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub(crate) struct Observation {
+    pub(crate) events: Vec<Event>,
+    pub(crate) guest_unchanged: bool,
+    pub(crate) machine_unchanged: bool,
+}
+
+pub(crate) struct TestModule {
+    bytes: Vec<u8>,
+    compiled: OnceLock<Module>,
+    pub(crate) entry: String,
+}
+
+impl TestModule {
+    pub(crate) fn new(module: &crate::CompiledModule) -> Self {
+        Self {
+            bytes: module.bytes.clone(),
+            compiled: OnceLock::new(),
             entry: module.entry.clone(),
         }
     }
 
-    pub(super) fn observe(&self, flags: &[&str], input: &str, invocations: usize) -> String {
-        let mut child = Command::new("node")
-            .args(flags)
-            .arg(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/support/execute-step.mjs"
-            ))
-            .arg(&self.path)
-            .arg(&self.entry)
-            .arg(i64::MIN.to_string())
-            .arg(invocations.to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("the explicit V8 lane requires Node.js on PATH");
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(input.as_bytes())
+    #[allow(dead_code)] // The unit test target builds small private helper modules.
+    pub(crate) fn interpreter() -> &'static Self {
+        static INTERPRETER: OnceLock<TestModule> = OnceLock::new();
+        INTERPRETER.get_or_init(|| Self::new(&crate::compile_interpreter_step().unwrap()))
+    }
+
+    pub(crate) fn observe(&self, input: &Input, invocations: usize) -> Observation {
+        let engine = wasm86_test_support::engine();
+        let module = self
+            .compiled
+            .get_or_init(|| Module::new(engine, &self.bytes).expect("compile the test module"));
+        let mut store = Store::new(engine, Vec::<Event>::new());
+        let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
+        let guest = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
+        let machine = Memory::new(&mut store, MemoryType::new(64, None)).unwrap();
+        cpu.write(&mut store, 0, &input.cpu).unwrap();
+        for (memory, patches) in [(guest, &input.guest), (machine, &input.machine)] {
+            for (offset, bytes) in patches {
+                memory.write(&mut store, *offset as usize, bytes).unwrap();
+            }
+        }
+        let guest_before = guest.data(&store).to_vec();
+        let machine_before = machine.data(&store).to_vec();
+        let mut linker = Linker::new(engine);
+        for (name, memory) in [("cpuState", cpu), ("guest", guest), ("machine", machine)] {
+            linker.define(&store, "wasm86", name, memory).unwrap();
+        }
+        let cpu_len = input.cpu.len();
+        let observe_guest = input.observe_guest;
+        let dispatch_return = input.dispatch_return;
+        let dispatch_guest_before = guest_before.clone();
+        linker
+            .func_wrap(
+                "wasm86",
+                "dispatch",
+                move |mut caller: Caller<'_, Vec<Event>>, eip: i32| {
+                    let snapshot = Snapshot {
+                        cpu: cpu.data(&caller)[..cpu_len].to_vec(),
+                        guest: observe_guest
+                            .then(|| changes(&dispatch_guest_before, guest.data(&caller))),
+                    };
+                    caller.data_mut().push(Event::Dispatch { eip, snapshot });
+                    dispatch_return
+                },
+            )
             .unwrap();
-        let output = child.wait_with_output().unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8(output.stdout).unwrap()
+        let instance = linker
+            .instantiate(&mut store, module)
+            .expect("instantiate the test module");
+        let entry = instance
+            .get_func(&mut store, &self.entry)
+            .expect("the test entry is exported");
+        let arguments = input
+            .arguments
+            .iter()
+            .map(|value| value.wasm())
+            .collect::<Vec<_>>();
+        let mut results = vec![wasmtime::Val::I32(0); entry.ty(&store).results().len()];
+        for call in 0..invocations {
+            for (offset, bytes) in input
+                .cpu_patches_before_calls
+                .get(call)
+                .into_iter()
+                .flatten()
+            {
+                cpu.write(&mut store, *offset as usize, bytes).unwrap();
+            }
+            let outcome = match entry.call(&mut store, &arguments, &mut results) {
+                Ok(()) => match results.as_slice() {
+                    [] => Outcome::Returned(None),
+                    [value] => Outcome::Returned(Some(Argument::from_wasm(value))),
+                    _ => panic!("the test entry returns at most one integer"),
+                },
+                Err(error) if error.downcast_ref::<Trap>().is_some() => Outcome::Trap,
+                Err(error) => panic!("calling test entry {} failed: {error:#}", self.entry),
+            };
+            let snapshot = Snapshot {
+                cpu: cpu.data(&store)[..cpu_len].to_vec(),
+                guest: observe_guest.then(|| changes(&guest_before, guest.data(&store))),
+            };
+            store.data_mut().push(Event::Return { outcome, snapshot });
+        }
+        let guest_unchanged = guest_before == guest.data(&store);
+        let machine_unchanged = machine_before == machine.data(&store);
+        Observation {
+            events: store.into_data(),
+            guest_unchanged,
+            machine_unchanged,
+        }
+    }
+
+    #[allow(dead_code)] // The unit test target uses only Wasmtime.
+    pub(crate) fn observe_v8(&self, input: &Input, invocations: usize) -> Observation {
+        #[derive(Serialize)]
+        struct Request<'a> {
+            entry: &'a str,
+            invocations: usize,
+            input: &'a Input,
+        }
+        wasm86_test_support::run_v8(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/execute-step.mjs"),
+            &self.bytes,
+            &Request {
+                entry: &self.entry,
+                invocations,
+                input,
+            },
+        )
     }
 }
 
-impl Drop for ModuleFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
+fn changes(before: &[u8], after: &[u8]) -> Vec<(u32, u8)> {
+    before
+        .iter()
+        .zip(after)
+        .enumerate()
+        .filter(|(_, (old, new))| old != new)
+        .map(|(offset, (_, &new))| (offset as u32, new))
+        .collect()
 }

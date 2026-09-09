@@ -1,9 +1,8 @@
 use super::super::{Cpu, Gpr32, Register, State};
 use wasm86_compiler::{Program, Signature, Type, I1, I16, I32};
 
-use crate::test_step::ModuleFile;
+use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 
-use std::fmt::Write as _;
 use wasm86_compiler::{I64, I8};
 
 use crate::register::RegisterCode;
@@ -57,28 +56,36 @@ fn synchronized_registers(source: IndexSource) -> crate::CompiledModule {
 }
 
 fn check_register_observation(
-    module: &ModuleFile,
-    flags: &[&str],
+    module: &TestModule,
     initial: &[u8; 152],
     arguments: [u32; 2],
     expected_cpu: &[u8; 152],
     result: i64,
 ) {
-    let mut expected = format!("return {result}\nstate ");
-    for byte in expected_cpu {
-        write!(&mut expected, "{byte:02x}").unwrap();
-    }
-    expected.push_str("\nguest unchanged\nmachine unchanged\n");
     let [index, stop] = arguments;
-    let input = format!("[{initial:?},[],[],[[\"i32\",{index}],[\"i32\",{stop}]]]");
+    let input = Input {
+        arguments: vec![Argument::I32(index as i32), Argument::I32(stop as i32)],
+        ..Input::new(initial)
+    };
     assert_eq!(
-        module.observe(flags, &input, 1),
-        expected,
-        "index {index}, stop {stop}, flags {flags:?}"
+        module.observe(&input, 1),
+        Observation {
+            events: vec![Event::Return {
+                outcome: Outcome::Returned(Some(Argument::I64(result))),
+                snapshot: Snapshot {
+                    cpu: expected_cpu.to_vec(),
+                    guest: None,
+                },
+            }],
+            guest_unchanged: true,
+            machine_unchanged: true,
+        },
+        "index {index}, stop {stop}"
     );
 }
 
-fn check_register_synchronization(flags: &[&str]) {
+#[test]
+fn register_synchronization_in_wasmtime() {
     let mut initial = [0xa5; 152];
     for (offset, value) in [
         (24, 0x1111_1111_u32),
@@ -95,7 +102,7 @@ fn check_register_synchronization(flags: &[&str]) {
     ] {
         initial[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
-    let check = |module: &ModuleFile,
+    let check = |module: &TestModule,
                  cpu: &[u8; 152],
                  index: u32,
                  stop: u32,
@@ -105,9 +112,9 @@ fn check_register_synchronization(flags: &[&str]) {
         for &(offset, value) in updates {
             expected_cpu[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
         }
-        check_register_observation(module, flags, cpu, [index, stop], &expected_cpu, result);
+        check_register_observation(module, cpu, [index, stop], &expected_cpu, result);
     };
-    let module = ModuleFile::new(&synchronized_registers(IndexSource::Parameter));
+    let module = TestModule::new(&synchronized_registers(IndexSource::Parameter));
     for (index, offset, result) in [
         (0, 24, 0x0000_002a_0000_0063_u64),
         (1, 28, 0x2222_2222_0000_002a),
@@ -136,7 +143,7 @@ fn check_register_synchronization(flags: &[&str]) {
         7,
     );
     initial[24..28].copy_from_slice(&5_u32.to_le_bytes());
-    let module = ModuleFile::new(&synchronized_registers(IndexSource::OldEax));
+    let module = TestModule::new(&synchronized_registers(IndexSource::OldEax));
     check(
         &module,
         &initial,
@@ -145,22 +152,6 @@ fn check_register_synchronization(flags: &[&str]) {
         &[(24, 42), (44, 99), (56, 0x100a), (144, 1)],
         0x6666_6666_0000_002a,
     );
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn register_synchronization_in_v8() {
-    check_register_synchronization(&[]);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn register_synchronization_in_optimizing_v8() {
-    check_register_synchronization(&[
-        "--no-liftoff",
-        "--no-wasm-lazy-compilation",
-        "--no-wasm-tier-up",
-    ]);
 }
 
 fn synchronized_byte_registers() -> crate::CompiledModule {
@@ -207,7 +198,8 @@ fn synchronized_byte_registers() -> crate::CompiledModule {
     }
 }
 
-fn check_byte_register_synchronization(flags: &[&str]) {
+#[test]
+fn byte_register_synchronization_in_wasmtime() {
     let mut initial = [0xa5; 152];
     for (offset, value) in [
         (24, 0xffff_ff04_u32),
@@ -223,7 +215,7 @@ fn check_byte_register_synchronization(flags: &[&str]) {
     ] {
         initial[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
-    let module = ModuleFile::new(&synchronized_byte_registers());
+    let module = TestModule::new(&synchronized_byte_registers());
     for (index, offset, before, eax) in [
         (0, 24, 0x44_u64, 0x1122_aa00_u32),
         (1, 28, 0x22, 0x1122_aa44),
@@ -241,7 +233,6 @@ fn check_byte_register_synchronization(flags: &[&str]) {
         expected[offset] = 0;
         check_register_observation(
             &module,
-            flags,
             &initial,
             [index, 0],
             &expected,
@@ -257,23 +248,7 @@ fn check_byte_register_synchronization(flags: &[&str]) {
     ] {
         expected[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
-    check_register_observation(&module, flags, &initial, [4, 1], &expected, 7);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn byte_register_synchronization_in_v8() {
-    check_byte_register_synchronization(&[]);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn byte_register_synchronization_in_optimizing_v8() {
-    check_byte_register_synchronization(&[
-        "--no-liftoff",
-        "--no-wasm-lazy-compilation",
-        "--no-wasm-tier-up",
-    ]);
+    check_register_observation(&module, &initial, [4, 1], &expected, 7);
 }
 
 fn synchronized_word_registers() -> crate::CompiledModule {
@@ -329,7 +304,8 @@ fn synchronized_word_registers() -> crate::CompiledModule {
     }
 }
 
-fn check_word_register_synchronization(flags: &[&str]) {
+#[test]
+fn word_register_synchronization_in_wasmtime() {
     let mut initial = [0xa5; 152];
     for (offset, value) in [
         (24, 0xaaaa_ccdd_u32),
@@ -345,7 +321,7 @@ fn check_word_register_synchronization(flags: &[&str]) {
     ] {
         initial[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
-    let module = ModuleFile::new(&synchronized_word_registers());
+    let module = TestModule::new(&synchronized_word_registers());
     for (index, offset, before, eax) in [
         (0, 24, 0xaade_u64, 0x1122_0000_u32),
         (1, 28, 0x2222, 0x1122_aade),
@@ -364,7 +340,6 @@ fn check_word_register_synchronization(flags: &[&str]) {
         expected[offset..offset + 2].copy_from_slice(&0_u16.to_le_bytes());
         check_register_observation(
             &module,
-            flags,
             &initial,
             [index, 0],
             &expected,
@@ -380,21 +355,5 @@ fn check_word_register_synchronization(flags: &[&str]) {
     ] {
         expected[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
-    check_register_observation(&module, flags, &initial, [7, 1], &expected, 7);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn word_register_synchronization_in_v8() {
-    check_word_register_synchronization(&[]);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn word_register_synchronization_in_optimizing_v8() {
-    check_word_register_synchronization(&[
-        "--no-liftoff",
-        "--no-wasm-lazy-compilation",
-        "--no-wasm-tier-up",
-    ]);
+    check_register_observation(&module, &initial, [7, 1], &expected, 7);
 }

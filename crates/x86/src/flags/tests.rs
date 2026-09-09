@@ -109,7 +109,8 @@ fn signed_cmp_conditions_use_original_operands_without_computing_flags() {
     ));
 }
 
-fn check_auxiliary_carry(flags: &[&str]) {
+#[test]
+fn auxiliary_carry_handles_nibble_boundaries_and_dirty_upper_bits() {
     for (module, cases) in [
         (
             auxiliary_carry::<I8>(),
@@ -138,30 +139,27 @@ fn check_auxiliary_carry(flags: &[&str]) {
             vec![("add", -1, 1, 0), ("sub", -1, 1, 1), ("logic", -1, 1, 0)],
         ),
     ] {
-        let mut module = step::ModuleFile::new(&module);
+        let mut module = step::TestModule::new(&module);
         for (entry, left, right, expected) in cases {
             module.entry = entry.into();
-            let input = format!("[[],[],[],[[\"i32\",{left}],[\"i32\",{right}]]]");
+            let input = step::Input {
+                arguments: vec![step::Argument::I32(left), step::Argument::I32(right)],
+                ..step::Input::new(&[])
+            };
             assert_eq!(
-                module.observe(flags, &input, 1),
-                format!("return {expected}\nstate \nguest unchanged\nmachine unchanged\n")
+                module.observe(&input, 1),
+                step::Observation {
+                    events: vec![step::Event::Return {
+                        outcome: step::Outcome::Returned(Some(step::Argument::I32(expected))),
+                        snapshot: step::Snapshot {
+                            cpu: vec![],
+                            guest: None
+                        },
+                    }],
+                    guest_unchanged: true,
+                    machine_unchanged: true,
+                }
             );
         }
     }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn auxiliary_carry_executes_in_v8() {
-    check_auxiliary_carry(&[]);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn auxiliary_carry_executes_in_v8_optimizing() {
-    check_auxiliary_carry(&[
-        "--no-liftoff",
-        "--no-wasm-lazy-compilation",
-        "--no-wasm-tier-up",
-    ]);
 }

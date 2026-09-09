@@ -1,52 +1,58 @@
 import { readFileSync } from 'node:fs';
 
-const [path, entry, returned, invocations = '1'] = process.argv.slice(2);
-const [cpu, guestPatches, machinePatches, arguments_ = [], observeGuest = false, cpuPatchesBeforeCalls = []] = JSON.parse(readFileSync(0, 'utf8'));
-const args = arguments_.map(([type, value]) => type === 'i64' ? BigInt(value) : Number(value));
+const { entry, invocations, input } = JSON.parse(readFileSync(0, 'utf8'));
+const decode = ({ type, value }) => type === 'i64' ? BigInt(value) : value;
+const encode = value => value === undefined ? null : typeof value === 'bigint'
+  ? { type: 'i64', value: value.toString() } : { type: 'i32', value };
 const cpuState = new WebAssembly.Memory({ initial: 1 });
 const guest = new WebAssembly.Memory({ initial: 1 });
 const machine = new WebAssembly.Memory({ initial: 64 });
-const snapshot = () => Buffer.from(cpuState.buffer, 0, cpu.length).toString('hex');
-const lines = [];
-const module = new WebAssembly.Module(readFileSync(path));
-const instance = new WebAssembly.Instance(module, {
-  wasm86: {
-    cpuState, guest, machine,
-    dispatch: (...args) => {
-      lines.push(`dispatch(${args.join(',')}) ${snapshot()}`);
-      if (observeGuest) lines.push(`guest at dispatch ${guestChanges()}`);
-      return BigInt(returned);
-    },
-  },
-});
-new Uint8Array(cpuState.buffer).set(cpu);
-for (const [memory, patches] of [[guest, guestPatches], [machine, machinePatches]]) {
+new Uint8Array(cpuState.buffer).set(input.cpu);
+for (const [memory, patches] of [[guest, input.guest], [machine, input.machine]]) {
   for (const [offset, bytes] of patches) new Uint8Array(memory.buffer).set(bytes, offset);
 }
 const guestBefore = Buffer.from(new Uint8Array(guest.buffer));
-const guestChanges = () => {
-  const bytes = new Uint8Array(guest.buffer);
-  const changes = [];
-  for (let offset = 0; offset < bytes.length; offset++) {
-    if (bytes[offset] !== guestBefore[offset]) changes.push([offset, bytes[offset]]);
-  }
-  return JSON.stringify(changes);
-};
 const machineBefore = Buffer.from(new Uint8Array(machine.buffer));
-for (let call = 0; call < Number(invocations); call++) {
-  for (const [offset, bytes] of cpuPatchesBeforeCalls[call] ?? []) {
+const snapshot = () => {
+  const changes = [];
+  if (input.observe_guest) {
+    const bytes = new Uint8Array(guest.buffer);
+    for (let offset = 0; offset < bytes.length; offset++) {
+      if (bytes[offset] !== guestBefore[offset]) changes.push([offset, bytes[offset]]);
+    }
+  }
+  return {
+    cpu: Array.from(new Uint8Array(cpuState.buffer, 0, input.cpu.length)),
+    guest: input.observe_guest ? changes : null,
+  };
+};
+const events = [];
+const module = new WebAssembly.Module(readFileSync(process.argv[2]));
+const instance = new WebAssembly.Instance(module, {
+  wasm86: {
+    cpuState, guest, machine,
+    dispatch: eip => {
+      events.push({ kind: 'dispatch', eip, snapshot: snapshot() });
+      return BigInt(input.dispatch_return);
+    },
+  },
+});
+const args = input.arguments.map(decode);
+for (let call = 0; call < invocations; call++) {
+  for (const [offset, bytes] of input.cpu_patches_before_calls[call] ?? []) {
     new Uint8Array(cpuState.buffer).set(bytes, offset);
   }
-  let result;
+  let outcome;
   try {
-    result = instance.exports[entry](...args);
+    outcome = { kind: 'returned', value: encode(instance.exports[entry](...args)) };
   } catch (error) {
     if (!(error instanceof WebAssembly.RuntimeError)) throw error;
-    result = 'trap';
+    outcome = { kind: 'trap' };
   }
-  lines.push(`return ${result}`, `state ${snapshot()}`);
-  if (observeGuest) lines.push(`guest at return ${guestChanges()}`);
+  events.push({ kind: 'return', outcome, snapshot: snapshot() });
 }
-lines.push(`guest ${guestBefore.equals(Buffer.from(guest.buffer)) ? 'unchanged' : 'changed'}`);
-lines.push(`machine ${machineBefore.equals(Buffer.from(machine.buffer)) ? 'unchanged' : 'changed'}`);
-process.stdout.write(`${lines.join('\n')}\n`);
+process.stdout.write(JSON.stringify({
+  events,
+  guest_unchanged: guestBefore.equals(Buffer.from(guest.buffer)),
+  machine_unchanged: machineBefore.equals(Buffer.from(machine.buffer)),
+}));

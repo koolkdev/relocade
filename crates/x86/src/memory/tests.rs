@@ -4,7 +4,7 @@ use wasm86_compiler::{
 };
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
-use crate::test_step::ModuleFile;
+use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 
 mod helpers;
 
@@ -120,8 +120,8 @@ struct WidthCase {
     physical: u32,
     first: &'static [u8],
     second: &'static [u8],
-    argument: &'static str,
-    result: &'static str,
+    argument: Argument,
+    result: i64,
     missing_read: u64,
 }
 
@@ -132,8 +132,8 @@ const WIDTHS: &[WidthCase] = &[
         physical: 0x8fff,
         first: &[0x91],
         second: &[],
-        argument: "[\"i32\",145]",
-        result: "145",
+        argument: Argument::I32(145),
+        result: 145,
         missing_read: 0x0004_0000_0000_4fff,
     },
     WidthCase {
@@ -142,8 +142,8 @@ const WIDTHS: &[WidthCase] = &[
         physical: 0x8fff,
         first: &[0xfe],
         second: &[0x91],
-        argument: "[\"i32\",37374]",
-        result: "37374",
+        argument: Argument::I32(37374),
+        result: 37374,
         missing_read: 0x0004_0000_0000_4fff,
     },
     WidthCase {
@@ -152,8 +152,8 @@ const WIDTHS: &[WidthCase] = &[
         physical: 0x8ffe,
         first: &[0x78, 0x56],
         second: &[0x34, 0x92],
-        argument: "[\"i32\",2452903544]",
-        result: "2452903544",
+        argument: Argument::I32(2452903544u32 as i32),
+        result: 2452903544,
         missing_read: 0x0004_0000_0000_4ffe,
     },
     WidthCase {
@@ -162,8 +162,8 @@ const WIDTHS: &[WidthCase] = &[
         physical: 0x8ffc,
         first: &[0x11, 0x22, 0x33, 0x44],
         second: &[0x55, 0x66, 0x77, 0x88],
-        argument: "[\"i64\",\"-8613303245920329199\"]",
-        result: "-8613303245920329199",
+        argument: Argument::I64(-8613303245920329199),
+        result: -8613303245920329199,
         missing_read: 0x0004_0000_0000_4ffc,
     },
 ];
@@ -175,60 +175,68 @@ fn image(
     second_permissions: u8,
     first: &[u8],
     second: &[u8],
-    arguments: &str,
-) -> String {
+    arguments: &[Argument],
+) -> Input {
     let first_bytes = [&[0xa5][..], first, &[0x5a]].concat();
     let second_bytes = [second, &[0x5a]].concat();
-    format!(
-        "[{:?},[[{}, {:?}],[{}, {:?}]],[[16,[{},128,0,0]],[20,[{},{},0,0]]],{},true]",
-        [0xa5u8; 152],
-        case.physical - 1,
-        first_bytes,
-        second_frame,
-        second_bytes,
-        first_permissions,
-        second_permissions,
-        second_frame >> 8,
-        arguments
-    )
+    Input {
+        guest: vec![
+            (case.physical - 1, first_bytes),
+            (second_frame, second_bytes),
+        ],
+        machine: vec![
+            (
+                16,
+                (0x8000 | u32::from(first_permissions))
+                    .to_le_bytes()
+                    .to_vec(),
+            ),
+            (
+                20,
+                (second_frame | u32::from(second_permissions))
+                    .to_le_bytes()
+                    .to_vec(),
+            ),
+        ],
+        arguments: arguments.to_vec(),
+        observe_guest: true,
+        ..Input::new(&[0xa5u8; 152])
+    }
 }
 
-fn check(module: &ModuleFile, flags: &[&str], input: &str, result: &str, changes: &[(u32, u8)]) {
-    let changes = changes
-        .iter()
-        .map(|(offset, value)| format!("[{offset},{value}]"))
-        .collect::<Vec<_>>()
-        .join(",");
-    let expected = format!(
-        "return {result}\nstate {}\nguest at return [{changes}]\nguest {}\nmachine unchanged\n",
-        "a5".repeat(152),
-        if changes.is_empty() {
-            "unchanged"
-        } else {
-            "changed"
-        }
-    );
+fn check(module: &TestModule, input: &Input, result: i64, changes: &[(u32, u8)]) {
     assert_eq!(
-        module.observe(flags, input, 1),
-        expected,
-        "{}, flags {flags:?}",
+        module.observe(input, 1),
+        Observation {
+            events: vec![Event::Return {
+                outcome: Outcome::Returned(Some(Argument::I64(result))),
+                snapshot: Snapshot {
+                    cpu: vec![0xa5; 152],
+                    guest: Some(changes.to_vec()),
+                },
+            }],
+            guest_unchanged: changes.is_empty(),
+            machine_unchanged: true,
+        },
+        "{}",
         module.entry
     );
 }
 
-fn check_execution(flags: &[&str]) {
+#[test]
+fn memory_widths_execute_in_wasmtime() {
     let bytes = accesses();
     for case in WIDTHS {
-        let read = ModuleFile::new(&crate::CompiledModule {
+        let read = TestModule::new(&crate::CompiledModule {
             bytes: bytes.clone(),
             entry: format!("read{}", case.name),
         });
-        let write = ModuleFile::new(&crate::CompiledModule {
+        let write = TestModule::new(&crate::CompiledModule {
             bytes: bytes.clone(),
             entry: format!("write{}", case.name),
         });
-        let read_args = format!("[[\"i32\",{}]]", case.linear);
-        let write_args = format!("[[\"i32\",{}],{}]", case.linear, case.argument);
+        let read_args = [Argument::I32(case.linear as i32)];
+        let write_args = [Argument::I32(case.linear as i32), case.argument];
         let initial_first = vec![0xff; case.first.len()];
         let initial_second = vec![0xff; case.second.len()];
         for second_frame in [0x9000, 0xa000] {
@@ -242,7 +250,7 @@ fn check_execution(flags: &[&str]) {
                 case.second,
                 &read_args,
             );
-            check(&read, flags, &input, case.result, &[]);
+            check(&read, &input, case.result, &[]);
             let input = image(
                 case,
                 second_frame,
@@ -264,10 +272,10 @@ fn check_execution(flags: &[&str]) {
                         .map(|(i, byte)| (second_frame + i as u32, *byte)),
                 )
                 .collect::<Vec<_>>();
-            check(&write, flags, &input, "7", &changes);
+            check(&write, &input, 7, &changes);
         }
         let input = image(case, 0xa000, 0, 1, case.first, case.second, &read_args);
-        check(&read, flags, &input, &case.missing_read.to_string(), &[]);
+        check(&read, &input, case.missing_read as i64, &[]);
 
         // A one-byte access ends on the first page; wider cases need the second page too.
         let (first_permissions, fault) = if case.second.is_empty() {
@@ -284,22 +292,6 @@ fn check_execution(flags: &[&str]) {
             &initial_second,
             &write_args,
         );
-        check(&write, flags, &input, &fault.to_string(), &[]);
+        check(&write, &input, fault as i64, &[]);
     }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn memory_widths_execute_in_v8() {
-    check_execution(&[]);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn memory_widths_execute_in_optimizing_v8() {
-    check_execution(&[
-        "--no-liftoff",
-        "--no-wasm-lazy-compilation",
-        "--no-wasm-tier-up",
-    ]);
 }

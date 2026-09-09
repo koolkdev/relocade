@@ -190,7 +190,8 @@ fn byte_accesses_do_not_build_transfer_helpers() {
     assert!(module.transfer_helpers(true).is_empty());
 }
 
-fn check_read_before_write(flags: &[&str]) {
+#[test]
+fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmtime() {
     let mut program = Program::new();
     let memory = Memory::declare(&mut program).unwrap();
     let function = program
@@ -218,7 +219,7 @@ fn check_read_before_write(flags: &[&str]) {
         )
         .unwrap();
     program.export("replace", function).unwrap();
-    let module = ModuleFile::new(&crate::CompiledModule {
+    let module = TestModule::new(&crate::CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "replace".into(),
     });
@@ -230,13 +231,12 @@ fn check_read_before_write(flags: &[&str]) {
         3,
         case.first,
         case.second,
-        "[[\"i32\",20476],[\"i64\",\"72623859790382856\"]]",
+        &[Argument::I32(20476), Argument::I64(72623859790382856)],
     );
     check(
         &module,
-        flags,
         &input,
-        "1",
+        1,
         &[
             (0x8ffc, 8),
             (0x8ffd, 7),
@@ -248,20 +248,4 @@ fn check_read_before_write(flags: &[&str]) {
             (0xa003, 1),
         ],
     );
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_v8() {
-    check_read_before_write(&[]);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_optimizing_v8() {
-    check_read_before_write(&[
-        "--no-liftoff",
-        "--no-wasm-lazy-compilation",
-        "--no-wasm-tier-up",
-    ]);
 }

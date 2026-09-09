@@ -1,11 +1,10 @@
 use super::{
     machine::{both, Exit, Image, Step},
-    step::ModuleFile,
+    step::TestModule,
 };
 
-pub(super) fn check_conditions(
-    flags: &[&str],
-    step: &ModuleFile,
+pub(crate) fn check_conditions(
+    step: &TestModule,
     name: &str,
     prefix: &[u8],
     image: &mut Image,
@@ -61,5 +60,5 @@ pub(super) fn check_conditions(
             exit: Exit::Dispatch(0x1000 + prefix.len() as u32 + 4 * (condition as u32 + 1)),
         });
     }
-    both(step, flags, name, &code, steps.len() as u32, image, &steps);
+    both(step, name, &code, steps.len() as u32, image, &steps);
 }

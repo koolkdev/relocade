@@ -1,3 +1,5 @@
+use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot};
+
 mod conditions;
 
 use super::super::{Cpu, Gpr32, Register, State};
@@ -417,9 +419,9 @@ fn flags_after_register_synchronization() -> crate::CompiledModule {
     }
 }
 
-fn check_flag_publication(flags: &[&str]) {
-    use std::fmt::Write as _;
-    let module = crate::test_step::ModuleFile::new(&flags_after_register_synchronization());
+#[test]
+fn flag_publication_preserves_register_snapshots_in_wasmtime() {
+    let module = crate::test_step::TestModule::new(&flags_after_register_synchronization());
     let mut initial = [0xa5u8; 152];
     for (offset, value) in [(24, 7u32), (28, 9), (56, 0x1000), (144, 0xffff_ffff)] {
         initial[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
@@ -441,29 +443,25 @@ fn check_flag_publication(flags: &[&str]) {
                 expected[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
             }
             let result = if stop == 1 { 7 } else { 0 };
-            let mut observation = format!("return {result}\nstate ");
-            for byte in expected {
-                write!(&mut observation, "{byte:02x}").unwrap();
-            }
-            observation.push_str("\nguest unchanged\nmachine unchanged\n");
-            let input = format!("[{initial:?},[],[],[[\"i32\",{index}],[\"i32\",{stop}]]]");
-            assert_eq!(module.observe(flags, &input, 1), observation);
+            let input = Input {
+                arguments: vec![Argument::I32(index), Argument::I32(stop)],
+                ..Input::new(&initial)
+            };
+            assert_eq!(
+                module.observe(&input, 1),
+                Observation {
+                    events: vec![Event::Return {
+                        outcome: Outcome::Returned(Some(Argument::I64(result))),
+                        snapshot: Snapshot {
+                            cpu: expected.to_vec(),
+                            guest: None,
+                        },
+                    }],
+                    guest_unchanged: true,
+                    machine_unchanged: true,
+                },
+                "index {index}, stop {stop}"
+            );
         }
     }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn flag_publication_preserves_register_snapshots_in_v8() {
-    check_flag_publication(&[]);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn flag_publication_preserves_register_snapshots_in_v8_optimizing() {
-    check_flag_publication(&[
-        "--no-liftoff",
-        "--no-wasm-lazy-compilation",
-        "--no-wasm-tier-up",
-    ]);
 }
