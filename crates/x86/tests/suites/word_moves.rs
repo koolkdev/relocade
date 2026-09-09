@@ -1,4 +1,4 @@
-use wasm86_x86::compile_block_from_bytes;
+use wasm86_x86::{compile_block_from_bytes, Gpr32};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
 use crate::support::machine;
@@ -7,21 +7,21 @@ use machine::{both, Exit, Image, Step};
 use step::TestModule;
 
 // Word views occupy the low two bytes of each complete architectural register.
-const REGISTERS: [(&str, usize, u32); 8] = [
-    ("AX", 24, 0x4433_2211),
-    ("CX", 28, 0x8877_6655),
-    ("DX", 32, 0xccbb_aa99),
-    ("BX", 36, 0x10ff_eedd),
-    ("SP", 40, 0x7654_3210),
-    ("BP", 44, 0xfedc_ba98),
-    ("SI", 48, 0x0123_4567),
-    ("DI", 52, 0x89ab_cdef),
+const REGISTERS: [(&str, Gpr32, u32); 8] = [
+    ("AX", Gpr32::Eax, 0x4433_2211),
+    ("CX", Gpr32::Ecx, 0x8877_6655),
+    ("DX", Gpr32::Edx, 0xccbb_aa99),
+    ("BX", Gpr32::Ebx, 0x10ff_eedd),
+    ("SP", Gpr32::Esp, 0x7654_3210),
+    ("BP", Gpr32::Ebp, 0xfedc_ba98),
+    ("SI", Gpr32::Esi, 0x0123_4567),
+    ("DI", Gpr32::Edi, 0x89ab_cdef),
 ];
 
 fn image(code: &[u8]) -> Image {
     let mut image = Image::new(code);
-    for (_, offset, value) in REGISTERS {
-        image.register(offset, value);
+    for (_, register, value) in REGISTERS {
+        image.cpu.registers[register] = value;
     }
     image
 }
@@ -95,16 +95,21 @@ fn registers() {
             vec![0x66, 0xb8 + register, low, high],
             vec![0x66, 0xc7, 0xc0 + register, low, high],
         ] {
-            let (name, offset, _) = REGISTERS[register as usize];
+            let (name, destination, _) = REGISTERS[register as usize];
             let next_eip = 0x1000 + code.len() as u32;
+            let image = image(&code);
+            let mut expected_cpu = image.cpu;
+            expected_cpu.registers[destination] = expected;
+            expected_cpu.eip = next_eip;
+            expected_cpu.instruction_count = 0;
             both(
                 step,
                 &format!("word immediate to {name} through {:02x}", code[1]),
                 &code,
                 1,
-                &image(&code),
+                &image,
                 &[Step {
-                    cpu: &[(offset, expected), (56, next_eip), (144, 0)],
+                    cpu: expected_cpu,
                     ram: &[],
                     exit: Exit::Dispatch(next_eip),
                 }],
@@ -128,6 +133,11 @@ fn registers() {
             [0x66, 0x89, 0xc0 | (source << 3) | destination],
             [0x66, 0x8b, 0xc0 | (destination << 3) | source],
         ] {
+            let image = image(&code);
+            let mut expected_cpu = image.cpu;
+            expected_cpu.registers[REGISTERS[destination as usize].1] = expected;
+            expected_cpu.eip = 0x1003;
+            expected_cpu.instruction_count = 0;
             both(
                 step,
                 &format!(
@@ -136,13 +146,9 @@ fn registers() {
                 ),
                 &code,
                 1,
-                &image(&code),
+                &image,
                 &[Step {
-                    cpu: &[
-                        (REGISTERS[destination as usize].1, expected),
-                        (56, 0x1003),
-                        (144, 0),
-                    ],
+                    cpu: expected_cpu,
                     ram: &[],
                     exit: Exit::Dispatch(0x1003),
                 }],
@@ -162,103 +168,134 @@ fn mixed_register_views() {
         0xb8, 0xaa, 0xbb, 0xcc, 0xdd, // mov eax, ddccbbaa
         0x66, 0x89, 0xca, // mov dx, cx
     ];
+    let image = image(&code);
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.eax = 0x4433_1234;
+    expected_cpu.eip = 0x1004;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1004),
+    });
+
+    expected_cpu.registers.eax = 0x4433_5634;
+    expected_cpu.eip = 0x1006;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1006),
+    });
+
+    expected_cpu.registers.ecx = 0x8877_5634;
+    expected_cpu.eip = 0x1009;
+    expected_cpu.instruction_count = 2;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1009),
+    });
+
+    expected_cpu.registers.eax = 0x4433_5678;
+    expected_cpu.eip = 0x100b;
+    expected_cpu.instruction_count = 3;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x100b),
+    });
+
+    expected_cpu.registers.eax = 0xddcc_bbaa;
+    expected_cpu.eip = 0x1010;
+    expected_cpu.instruction_count = 4;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1010),
+    });
+
+    expected_cpu.registers.edx = 0xccbb_5634;
+    expected_cpu.eip = 0x1013;
+    expected_cpu.instruction_count = 5;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1013),
+    });
+
     both(
         step,
         "word snapshot survives byte and dword overwrites",
         &code,
         6,
-        &image(&code),
-        &[
-            Step {
-                cpu: &[(24, 0x4433_1234), (56, 0x1004), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1004),
-            },
-            Step {
-                cpu: &[(24, 0x4433_5634), (56, 0x1006), (144, 1)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1006),
-            },
-            Step {
-                cpu: &[(28, 0x8877_5634), (56, 0x1009), (144, 2)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1009),
-            },
-            Step {
-                cpu: &[(24, 0x4433_5678), (56, 0x100b), (144, 3)],
-                ram: &[],
-                exit: Exit::Dispatch(0x100b),
-            },
-            Step {
-                cpu: &[(24, 0xddcc_bbaa), (56, 0x1010), (144, 4)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1010),
-            },
-            Step {
-                cpu: &[(32, 0xccbb_5634), (56, 0x1013), (144, 5)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1013),
-            },
-        ],
+        &image,
+        &steps,
     );
 }
 
 #[test]
 fn addressed_words() {
     let step = TestModule::interpreter();
-    for (name, code, registers, expected_cpu, expected_ram) in [
+    for (name, code, registers, expected_eax, expected_ram) in [
         (
             "base read",
             &[0x66, 0x8b, 0x03][..],
-            &[(36, 0x4020)][..],
-            &[(24, 0x4433_88a1)][..],
+            &[(Gpr32::Ebx, 0x4020)][..],
+            Some(0x4433_88a1),
             &[][..],
         ),
         (
             "load uses old destination as base",
             &[0x66, 0x8b, 0x00][..],
-            &[(24, 0x4020)][..],
-            &[(24, 0x0000_88a1)][..],
+            &[(Gpr32::Eax, 0x4020)][..],
+            Some(0x0000_88a1),
             &[][..],
         ),
         (
             "store source is also its address register",
             &[0x66, 0x89, 0x00][..],
-            &[(24, 0x4020)][..],
-            &[][..],
+            &[(Gpr32::Eax, 0x4020)][..],
+            None,
             &[(0x8020, &[0x20, 0x40][..])][..],
         ),
         (
             "negative disp8",
             &[0x66, 0x89, 0x43, 0x80][..],
-            &[(36, 0x40a0)][..],
-            &[][..],
+            &[(Gpr32::Ebx, 0x40a0)][..],
+            None,
             &[(0x8020, &[0x11, 0x22][..])][..],
         ),
         (
             "scaled wrapped address",
             &[0x66, 0xc7, 0x84, 0x8b, 0x20, 0x40, 0, 0, 0xa1, 0x88][..],
-            &[(36, 0xffff_fff0), (28, 4)][..],
-            &[][..],
+            &[(Gpr32::Ebx, 0xffff_fff0), (Gpr32::Ecx, 4)][..],
+            None,
             &[(0x8020, &[0xa1, 0x88][..])][..],
         ),
         (
             "SIB without base or index",
             &[0x66, 0xc7, 0x04, 0x25, 0x20, 0x40, 0, 0, 0, 0x80][..],
             &[][..],
-            &[][..],
+            None,
             &[(0x8020, &[0, 0x80][..])][..],
         ),
     ] {
         let mut image = image(code);
-        for &(offset, value) in registers {
-            image.register(offset, value);
+        for &(register, value) in registers {
+            image.cpu.registers[register] = value;
         }
         image.map(4, 0x8000, true);
         image.data(0x801f, &[0xa5, 0xa1, 0x88, 0x5a]);
         let next_eip = 0x1000 + code.len() as u32;
-        let mut cpu = vec![(56, next_eip), (144, 0)];
-        cpu.extend_from_slice(expected_cpu);
+        let mut expected_cpu = image.cpu;
+        expected_cpu.eip = next_eip;
+        expected_cpu.instruction_count = 0;
+        if let Some(eax) = expected_eax {
+            expected_cpu.registers.eax = eax;
+        }
         both(
             step,
             name,
@@ -266,22 +303,26 @@ fn addressed_words() {
             1,
             &image,
             &[Step {
-                cpu: &cpu,
+                cpu: expected_cpu,
                 ram: expected_ram,
                 exit: Exit::Dispatch(next_eip),
             }],
         );
     }
-    for (opcode, cpu, ram) in [
-        (0xa1, &[(24, 0x4433_88a1)][..], &[][..]),
-        (0xa3, &[][..], &[(0x8020, &[0x11, 0x22][..])][..]),
+    for (opcode, expected_eax, ram) in [
+        (0xa1, Some(0x4433_88a1), &[][..]),
+        (0xa3, None, &[(0x8020, &[0x11, 0x22][..])][..]),
     ] {
         let code = [0x66, opcode, 0x20, 0x40, 0, 0x80];
         let mut image = image(&code);
         image.map(0x80004, 0x8000, true);
         image.data(0x801f, &[0xa5, 0xa1, 0x88, 0x5a]);
-        let mut changes = vec![(56, 0x1006), (144, 0)];
-        changes.extend_from_slice(cpu);
+        let mut expected_cpu = image.cpu;
+        expected_cpu.eip = 0x1006;
+        expected_cpu.instruction_count = 0;
+        if let Some(eax) = expected_eax {
+            expected_cpu.registers.eax = eax;
+        }
         both(
             step,
             "word moffs keeps all 32 address bits",
@@ -289,7 +330,7 @@ fn addressed_words() {
             1,
             &image,
             &[Step {
-                cpu: &changes,
+                cpu: expected_cpu,
                 ram,
                 exit: Exit::Dispatch(0x1006),
             }],
@@ -308,9 +349,11 @@ fn page_boundaries() {
             image.map(5, next_frame, true);
             image.data(0x8ffe, &[0xa5, 0xa1]);
             image.data(next_frame, &[0x88, 0x5a]);
-            let mut cpu = vec![(56, 0x1006), (144, 0)];
+            let mut expected_cpu = image.cpu;
+            expected_cpu.eip = 0x1006;
+            expected_cpu.instruction_count = 0;
             let ram = if opcode == 0xa1 {
-                cpu.push((24, 0x4433_88a1));
+                expected_cpu.registers.eax = 0x4433_88a1;
                 vec![]
             } else {
                 vec![(0x8fff, &[0x11][..]), (next_frame, &[0x22][..])]
@@ -322,7 +365,7 @@ fn page_boundaries() {
                 1,
                 &image,
                 &[Step {
-                    cpu: &cpu,
+                    cpu: expected_cpu,
                     ram: &ram,
                     exit: Exit::Dispatch(0x1006),
                 }],
@@ -357,6 +400,7 @@ fn page_boundaries() {
         }
         image.data(0x8ffe, &[0xa5, 0xa1]);
         image.data(0xa000, &[0x88, 0x5a]);
+        let expected_cpu = image.cpu;
         both(
             step,
             name,
@@ -364,7 +408,7 @@ fn page_boundaries() {
             1,
             &image,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: fault,
             }],
@@ -392,6 +436,7 @@ fn page_boundaries() {
         image.map(0, 0xa000, true);
         image.data(0x8fff, &[0xa1]);
         image.data(0xa000, &[0x88]);
+        let expected_cpu = image.cpu;
         both(
             step,
             "word data range rejects address-space wrap",
@@ -399,7 +444,7 @@ fn page_boundaries() {
             1,
             &image,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: fault,
             }],
@@ -409,6 +454,10 @@ fn page_boundaries() {
     let mut image = image(&code);
     image.map(0xfffff, 0x8000, false);
     image.data(0x8ffe, &[0xa1, 0x88]);
+    let mut expected_cpu = image.cpu;
+    expected_cpu.registers.eax = 0x4433_88a1;
+    expected_cpu.eip = 0x1006;
+    expected_cpu.instruction_count = 0;
     both(
         step,
         "word fits at the final two linear bytes",
@@ -416,7 +465,7 @@ fn page_boundaries() {
         1,
         &image,
         &[Step {
-            cpu: &[(24, 0x4433_88a1), (56, 0x1006), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(0x1006),
         }],
@@ -429,72 +478,94 @@ fn progress_and_aliases() {
     let code = [0x66, 0xbb, 0, 0x40, 0x66, 0x8b, 0x03];
     for mapped in [false, true] {
         let mut image = image(&code);
-        image.register(36, 0x8000_1234);
+        image.cpu.registers.ebx = 0x8000_1234;
         image.data(0x8000, &[0xa1, 0x88]);
         if mapped {
             image.map(0x80004, 0x8000, false);
         }
-        let last = if mapped {
-            Step {
-                cpu: &[(24, 0x4433_88a1), (56, 0x1007), (144, 1)],
+        let mut expected_cpu = image.cpu;
+        let mut steps = Vec::new();
+
+        expected_cpu.registers.ebx = 0x8000_4000;
+        expected_cpu.eip = 0x1004;
+        expected_cpu.instruction_count = 0;
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit: Exit::Dispatch(0x1004),
+        });
+
+        if mapped {
+            expected_cpu.registers.eax = 0x4433_88a1;
+            expected_cpu.eip = 0x1007;
+            expected_cpu.instruction_count = 1;
+            steps.push(Step {
+                cpu: expected_cpu,
                 ram: &[],
                 exit: Exit::Dispatch(0x1007),
-            }
+            });
         } else {
-            Step {
-                cpu: &[],
+            steps.push(Step {
+                cpu: expected_cpu,
                 ram: &[],
                 exit: Exit::PageFault {
                     address: 0x80004000,
                     error: 0x0,
                 },
-            }
-        };
+            });
+        }
+
         both(
             step,
             "word address definition forwards the preserved upper half",
             &code,
             2,
             &image,
-            &[
-                Step {
-                    cpu: &[(36, 0x8000_4000), (56, 0x1004), (144, 0)],
-                    ram: &[],
-                    exit: Exit::Dispatch(0x1004),
-                },
-                last,
-            ],
+            &steps,
         );
     }
     let code = [0x66, 0x8b, 0x03, 0x66, 0x89, 0x11, 0x66, 0x89, 0xc6];
     let mut image = image(&code);
-    image.register(36, 0x4000);
-    image.register(28, 0x6000);
+    image.cpu.registers.ebx = 0x4000;
+    image.cpu.registers.ecx = 0x6000;
     image.map(4, 0x8000, true);
     image.map(6, 0x8000, true);
     image.data(0x7fff, &[0xa5, 0xa1, 0x88, 0x5a]);
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.eax = 0x4433_88a1;
+    expected_cpu.eip = 0x1003;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1003),
+    });
+
+    expected_cpu.eip = 0x1006;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[(0x8000, &[0x99, 0xaa])],
+        exit: Exit::Dispatch(0x1006),
+    });
+
+    expected_cpu.registers.esi = 0x0123_88a1;
+    expected_cpu.eip = 0x1009;
+    expected_cpu.instruction_count = 2;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1009),
+    });
+
     both(
         step,
         "word read survives an aliased physical store",
         &code,
         3,
         &image,
-        &[
-            Step {
-                cpu: &[(24, 0x4433_88a1), (56, 0x1003), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1003),
-            },
-            Step {
-                cpu: &[(56, 0x1006), (144, 1)],
-                ram: &[(0x8000, &[0x99, 0xaa])],
-                exit: Exit::Dispatch(0x1006),
-            },
-            Step {
-                cpu: &[(48, 0x0123_88a1), (56, 0x1009), (144, 2)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1009),
-            },
-        ],
+        &steps,
     );
 }

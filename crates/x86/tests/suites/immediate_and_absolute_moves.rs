@@ -1,4 +1,4 @@
-use wasm86_x86::{compile_block_from_bytes, BlockError};
+use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32};
 use wasmparser::Validator;
 
 use crate::support::machine;
@@ -58,7 +58,8 @@ fn unsupported_group_extensions_do_not_require_an_address_or_immediate() {
 
 #[test]
 fn register_immediates() {
-    use crate::support::guest::{Cpu, Exit as GuestExit, Machine, Register::*};
+    use crate::support::guest::{Exit as GuestExit, Machine};
+    use Gpr32::*;
     // The parent words are literal byte-alias expectations; ModRM's reg field
     // selects the /0 form, while its r/m field selects the destination.
     for (register, name, parent, immediate, result) in [
@@ -73,11 +74,11 @@ fn register_immediates() {
     ] {
         let code = [0xc6, 0xc0 + register, immediate];
         let mut machine = Machine::new(&code);
-        machine.cpu = Cpu::from_bytes(image(&[]).cpu);
+        machine.cpu = image(&[]).cpu;
         let mut expected = machine.state();
-        expected.cpu.set_register(parent, result);
-        expected.cpu.set_eip(0x1003);
-        expected.cpu.set_instruction_count(0);
+        expected.cpu.registers[parent] = result;
+        expected.cpu.eip = 0x1003;
+        expected.cpu.instruction_count = 0;
         for actual in [machine.run_step(), machine.run_block(1)] {
             assert_eq!(
                 actual.exit,
@@ -105,11 +106,11 @@ fn register_immediates() {
     ] {
         let code = [0xc7, 0xc0 + register, 0xa0, 0x66, 0xc7, 0x88];
         let mut machine = Machine::new(&code);
-        machine.cpu = Cpu::from_bytes(image(&[]).cpu);
+        machine.cpu = image(&[]).cpu;
         let mut expected = machine.state();
-        expected.cpu.set_register(parent, 0x88c7_66a0);
-        expected.cpu.set_eip(0x1006);
-        expected.cpu.set_instruction_count(0);
+        expected.cpu.registers[parent] = 0x88c7_66a0;
+        expected.cpu.eip = 0x1006;
+        expected.cpu.instruction_count = 0;
         for actual in [machine.run_step(), machine.run_block(1)] {
             assert_eq!(
                 actual.exit,
@@ -134,28 +135,28 @@ fn addressed_immediates() {
         (
             "byte through base",
             &[0xc6, 0x03, 0x80][..],
-            &[(36, 0x4020)][..],
+            &[(Gpr32::Ebx, 0x4020)][..],
             0x8020,
             &[0x80][..],
         ),
         (
             "dword after negative disp8",
             &[0xc7, 0x43, 0x80, 0xa0, 0x66, 0xc7, 0x88][..],
-            &[(36, 0x4080)][..],
+            &[(Gpr32::Ebx, 0x4080)][..],
             0x8000,
             &[0xa0, 0x66, 0xc7, 0x88][..],
         ),
         (
             "byte after scaled index and positive disp8",
             &[0xc6, 0x44, 0x8b, 0x7f, 0xff][..],
-            &[(36, 0x3f01), (28, 32)][..],
+            &[(Gpr32::Ebx, 0x3f01), (Gpr32::Ecx, 32)][..],
             0x8000,
             &[0xff][..],
         ),
         (
             "dword after wrapped scaled address",
             &[0xc7, 0x84, 0x8b, 0, 0x40, 0, 0, 0xa0, 0x66, 0xc7, 0x88][..],
-            &[(36, 0xffff_fff0), (28, 4)][..],
+            &[(Gpr32::Ebx, 0xffff_fff0), (Gpr32::Ecx, 4)][..],
             0x8000,
             &[0xa0, 0x66, 0xc7, 0x88][..],
         ),
@@ -169,14 +170,14 @@ fn addressed_immediates() {
         (
             "dword with index and no base",
             &[0xc7, 0x04, 0x8d, 0xf0, 0x3f, 0, 0, 0xff, 0xff, 0xff, 0xff][..],
-            &[(28, 4)][..],
+            &[(Gpr32::Ecx, 4)][..],
             0x8000,
             &[0xff, 0xff, 0xff, 0xff][..],
         ),
     ] {
         let mut image = image(code);
-        for &(offset, value) in registers {
-            image.register(offset, value);
+        for &(register, value) in registers {
+            image.cpu.registers[register] = value;
         }
         image.map(4, 0x8000, true);
         let mut before = vec![0xa5];
@@ -184,6 +185,9 @@ fn addressed_immediates() {
         before.push(0x5a);
         image.data(address - 1, &before);
         let next_eip = 0x1000 + code.len() as u32;
+        let mut expected_cpu = image.cpu;
+        expected_cpu.eip = next_eip;
+        expected_cpu.instruction_count = 0;
         both(
             step,
             name,
@@ -191,7 +195,7 @@ fn addressed_immediates() {
             1,
             &image,
             &[Step {
-                cpu: &[(56, next_eip), (144, 0)],
+                cpu: expected_cpu,
                 ram: &[(address, stored)],
                 exit: Exit::Dispatch(next_eip),
             }],
@@ -202,23 +206,23 @@ fn addressed_immediates() {
 #[test]
 fn absolute_offsets() {
     let step = TestModule::interpreter();
-    for (opcode, cpu, ram) in [
-        (0xa0, &[(24, 0x4433_22a0)][..], &[][..]),
-        (0xa1, &[(24, 0x88c7_66a0)][..], &[][..]),
-        (0xa2, &[][..], &[(0x8020, &[0x11][..])][..]),
-        (
-            0xa3,
-            &[][..],
-            &[(0x8020, &[0x11, 0x22, 0x33, 0x44][..])][..],
-        ),
+    for (opcode, eax, ram) in [
+        (0xa0, Some(0x4433_22a0), &[][..]),
+        (0xa1, Some(0x88c7_66a0), &[][..]),
+        (0xa2, None, &[(0x8020, &[0x11][..])][..]),
+        (0xa3, None, &[(0x8020, &[0x11, 0x22, 0x33, 0x44][..])][..]),
     ] {
         // Both byte and dword data forms have a full 32-bit absolute offset.
         let code = [opcode, 0x20, 0x40, 0, 0x80];
         let mut image = image(&code);
         image.map(0x80004, 0x8000, true);
         image.data(0x801f, &[0xa5, 0xa0, 0x66, 0xc7, 0x88, 0x5a]);
-        let mut changes = vec![(56, 0x1005), (144, 0)];
-        changes.extend_from_slice(cpu);
+        let mut expected_cpu = image.cpu;
+        if let Some(value) = eax {
+            expected_cpu.registers.eax = value;
+        }
+        expected_cpu.eip = 0x1005;
+        expected_cpu.instruction_count = 0;
         both(
             step,
             &format!("absolute opcode {opcode:02x} with high offset bit"),
@@ -226,22 +230,26 @@ fn absolute_offsets() {
             1,
             &image,
             &[Step {
-                cpu: &changes,
+                cpu: expected_cpu,
                 ram,
                 exit: Exit::Dispatch(0x1005),
             }],
         );
     }
-    for (opcode, cpu, ram) in [
-        (0xa0, &[(24, 0x4433_2280)][..], &[][..]),
-        (0xa2, &[][..], &[(0x8fff, &[0x11][..])][..]),
+    for (opcode, eax, ram) in [
+        (0xa0, Some(0x4433_2280), &[][..]),
+        (0xa2, None, &[(0x8fff, &[0x11][..])][..]),
     ] {
         let code = [opcode, 0xff, 0xff, 0xff, 0xff];
         let mut image = image(&code);
         image.map(0xfffff, 0x8000, true);
         image.data(0x8ffe, &[0xa5, 0x80]);
-        let mut changes = vec![(56, 0x1005), (144, 0)];
-        changes.extend_from_slice(cpu);
+        let mut expected_cpu = image.cpu;
+        if let Some(value) = eax {
+            expected_cpu.registers.eax = value;
+        }
+        expected_cpu.eip = 0x1005;
+        expected_cpu.instruction_count = 0;
         both(
             step,
             "absolute byte at the last linear address",
@@ -249,7 +257,7 @@ fn absolute_offsets() {
             1,
             &image,
             &[Step {
-                cpu: &changes,
+                cpu: expected_cpu,
                 ram,
                 exit: Exit::Dispatch(0x1005),
             }],
@@ -263,9 +271,11 @@ fn absolute_offsets() {
             image.map(5, next_frame, true);
             image.data(0x8ffd, &[0xa5, 0xa0, 0x66]);
             image.data(next_frame, &[0xc7, 0x88, 0x5a]);
-            let mut cpu = vec![(56, 0x1005), (144, 0)];
+            let mut expected_cpu = image.cpu;
+            expected_cpu.eip = 0x1005;
+            expected_cpu.instruction_count = 0;
             let ram = if opcode == 0xa1 {
-                cpu.push((24, 0x88c7_66a0));
+                expected_cpu.registers.eax = 0x88c7_66a0;
                 vec![]
             } else {
                 vec![(0x8ffe, &[0x11, 0x22][..]), (next_frame, &[0x33, 0x44][..])]
@@ -277,7 +287,7 @@ fn absolute_offsets() {
                 1,
                 &image,
                 &[Step {
-                    cpu: &cpu,
+                    cpu: expected_cpu,
                     ram: &ram,
                     exit: Exit::Dispatch(0x1005),
                 }],
@@ -292,6 +302,7 @@ fn data_faults() {
     let code = [0xa0, 0, 0x40, 0, 0];
     let mut invalid_backing = image(&code);
     invalid_backing.map(4, 0x10000, false);
+    let expected_cpu = invalid_backing.cpu;
     both(
         step,
         "present frame outside RAM traps before updating AL",
@@ -299,7 +310,7 @@ fn data_faults() {
         1,
         &invalid_backing,
         &[Step {
-            cpu: &[],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Trap,
         }],
@@ -308,6 +319,7 @@ fn data_faults() {
     let mut missing = image(&code);
     missing.map(4, 0x8000, false);
     missing.data(0x8ffe, &[0xa0, 0x66]);
+    let expected_cpu = missing.cpu;
     both(
         step,
         "absolute read reports the missing second page",
@@ -315,7 +327,7 @@ fn data_faults() {
         1,
         &missing,
         &[Step {
-            cpu: &[],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::PageFault {
                 address: 0x00005000,
@@ -328,11 +340,12 @@ fn data_faults() {
         &[0xc7, 0x03, 0xa0, 0x66, 0xc7, 0x88][..],
     ] {
         let mut denied = image(code);
-        denied.register(36, 0x4ffe);
+        denied.cpu.registers.ebx = 0x4ffe;
         denied.map(4, 0x8000, true);
         denied.map(5, 0xa000, false);
         denied.data(0x8ffd, &[0xa5, 1, 2]);
         denied.data(0xa000, &[3, 4, 0x5a]);
+        let expected_cpu = denied.cpu;
         both(
             step,
             "denied second page leaves the entire dword unchanged",
@@ -340,7 +353,7 @@ fn data_faults() {
             1,
             &denied,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: Exit::PageFault {
                     address: 0x00005000,
@@ -371,6 +384,7 @@ fn data_faults() {
         wrapped.map(0, 0xa000, true);
         wrapped.data(0x8ffe, &[1, 2]);
         wrapped.data(0xa000, &[3, 4]);
+        let expected_cpu = wrapped.cpu;
         both(
             step,
             "absolute dword span rejects linear wrap",
@@ -378,7 +392,7 @@ fn data_faults() {
             1,
             &wrapped,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: fault,
             }],
@@ -392,54 +406,58 @@ fn progress_and_aliases() {
     let code = [
         0xc7, 0xc3, 0, 0x40, 0, 0, 0xc6, 0x03, 0x80, 0xa1, 0, 0x50, 0, 0,
     ];
-    for (name, final_step) in [
+    for (name, exit) in [
         (
             "prior register and byte store survive a later fault",
-            Step {
-                cpu: &[],
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x00005000,
-                    error: 0x0,
-                },
+            Exit::PageFault {
+                address: 0x00005000,
+                error: 0x0,
             },
         ),
         (
             "forwarded address continues through an absolute load",
-            Step {
-                cpu: &[(24, 0x88c7_66a0), (56, 0x100e), (144, 2)],
-                ram: &[],
-                exit: Exit::Dispatch(0x100e),
-            },
+            Exit::Dispatch(0x100e),
         ),
     ] {
         let mut image = image(&code);
         image.map(4, 0x8000, true);
         image.data(0x7fff, &[0xa5, 0xcc, 0x5a]);
         image.data(0x9000, &[0xa0, 0x66, 0xc7, 0x88]);
-        if matches!(final_step.exit, Exit::Dispatch(_)) {
+        if matches!(exit, Exit::Dispatch(_)) {
             image.map(5, 0x9000, false);
         }
-        both(
-            step,
-            name,
-            &code,
-            3,
-            &image,
-            &[
-                Step {
-                    cpu: &[(36, 0x4000), (56, 0x1006), (144, 0)],
-                    ram: &[],
-                    exit: Exit::Dispatch(0x1006),
-                },
-                Step {
-                    cpu: &[(56, 0x1009), (144, 1)],
-                    ram: &[(0x8000, &[0x80])],
-                    exit: Exit::Dispatch(0x1009),
-                },
-                final_step,
-            ],
-        );
+        let mut expected_cpu = image.cpu;
+        let mut steps = Vec::new();
+
+        expected_cpu.registers.ebx = 0x4000;
+        expected_cpu.eip = 0x1006;
+        expected_cpu.instruction_count = 0;
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit: Exit::Dispatch(0x1006),
+        });
+
+        expected_cpu.eip = 0x1009;
+        expected_cpu.instruction_count = 1;
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[(0x8000, &[0x80])],
+            exit: Exit::Dispatch(0x1009),
+        });
+
+        if matches!(exit, Exit::Dispatch(_)) {
+            expected_cpu.registers.eax = 0x88c7_66a0;
+            expected_cpu.eip = 0x100e;
+            expected_cpu.instruction_count = 2;
+        }
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit,
+        });
+
+        both(step, name, &code, 3, &image, &steps);
     }
     let code = [
         0xc6, 0xc4, 0x80, 0xa3, 0, 0x40, 0, 0, 0xc7, 0xc0, 0xef, 0xbe, 0xad, 0xde, 0xa0, 1, 0x40,
@@ -448,34 +466,51 @@ fn progress_and_aliases() {
     let mut aliases = image(&code);
     aliases.map(4, 0x8000, true);
     aliases.data(0x7fff, &[0xa5, 0, 0, 0, 0, 0x5a]);
+    let mut expected_cpu = aliases.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.eax = 0x4433_8011;
+    expected_cpu.eip = 0x1003;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1003),
+    });
+
+    expected_cpu.eip = 0x1008;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[(0x8000, &[0x11, 0x80, 0x33, 0x44])],
+        exit: Exit::Dispatch(0x1008),
+    });
+
+    expected_cpu.registers.eax = 0xdead_beef;
+    expected_cpu.eip = 0x100e;
+    expected_cpu.instruction_count = 2;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x100e),
+    });
+
+    expected_cpu.registers.eax = 0xdead_be80;
+    expected_cpu.eip = 0x1013;
+    expected_cpu.instruction_count = 3;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1013),
+    });
+
     both(
         step,
         "accumulator byte and dword views share their stored value",
         &code,
         4,
         &aliases,
-        &[
-            Step {
-                cpu: &[(24, 0x4433_8011), (56, 0x1003), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1003),
-            },
-            Step {
-                cpu: &[(56, 0x1008), (144, 1)],
-                ram: &[(0x8000, &[0x11, 0x80, 0x33, 0x44])],
-                exit: Exit::Dispatch(0x1008),
-            },
-            Step {
-                cpu: &[(24, 0xdead_beef), (56, 0x100e), (144, 2)],
-                ram: &[],
-                exit: Exit::Dispatch(0x100e),
-            },
-            Step {
-                cpu: &[(24, 0xdead_be80), (56, 0x1013), (144, 3)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1013),
-            },
-        ],
+        &steps,
     );
     let code = [
         0xa1, 0, 0x40, 0, 0, 0xc7, 0x05, 0, 0x60, 0, 0, 0x99, 0x77, 0x66, 0x55, 0x89, 0xc6,
@@ -484,29 +519,42 @@ fn progress_and_aliases() {
     aliases.map(4, 0x8000, true);
     aliases.map(6, 0x8000, true);
     aliases.data(0x7fff, &[0xa5, 0x11, 0x22, 0x33, 0x44, 0x5a]);
+    let mut expected_cpu = aliases.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.eax = 0x4433_2211;
+    expected_cpu.eip = 0x1005;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1005),
+    });
+
+    expected_cpu.eip = 0x100f;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[(0x8000, &[0x99, 0x77, 0x66, 0x55])],
+        exit: Exit::Dispatch(0x100f),
+    });
+
+    expected_cpu.registers.esi = 0x4433_2211;
+    expected_cpu.eip = 0x1011;
+    expected_cpu.instruction_count = 2;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1011),
+    });
+
     both(
         step,
         "held absolute load survives a grouped store through a physical alias",
         &code,
         3,
         &aliases,
-        &[
-            Step {
-                cpu: &[(24, 0x4433_2211), (56, 0x1005), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1005),
-            },
-            Step {
-                cpu: &[(56, 0x100f), (144, 1)],
-                ram: &[(0x8000, &[0x99, 0x77, 0x66, 0x55])],
-                exit: Exit::Dispatch(0x100f),
-            },
-            Step {
-                cpu: &[(48, 0x4433_2211), (56, 0x1011), (144, 2)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1011),
-            },
-        ],
+        &steps,
     );
 }
 
@@ -528,14 +576,15 @@ fn encoding_fetches() {
         ),
     ] {
         let mut missing = image(&[]);
-        missing.register(56, start);
+        missing.cpu.eip = start;
         missing.data(0x3000 + (start & 0xfff), available);
+        let expected_cpu = missing.cpu;
         check(
             step,
             name,
             &missing,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: Exit::PageFault {
                     address: 0x00002000,
@@ -546,14 +595,15 @@ fn encoding_fetches() {
     }
     for (opcode, modrm) in [(0xc6, 0x0c), (0xc7, 0x3d)] {
         let mut unsupported = image(&[]);
-        unsupported.register(56, 0x1ffe);
+        unsupported.cpu.eip = 0x1ffe;
         unsupported.data(0x3ffe, &[opcode, modrm]);
+        let expected_cpu = unsupported.cpu;
         check(
             step,
             "unsupported group does not fetch the inaccessible address tail",
             &unsupported,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: Exit::Other((8 << 48) | ((opcode as u64) << 32) | 0x1ffe),
             }],
@@ -574,11 +624,14 @@ fn encoding_fetches() {
         ),
     ] {
         let mut complete = image(&[]);
-        complete.register(36, 0x4000);
-        complete.register(56, start);
+        complete.cpu.registers.ebx = 0x4000;
+        complete.cpu.eip = start;
         complete.map(4, 0x8000, true);
         complete.data(0x3000 + (start & 0xfff), code);
         complete.data(0x7fff, &[0xa5, 0, 0, 0, 0, 0x5a]);
+        let mut expected_cpu = complete.cpu;
+        expected_cpu.eip = 0x2000;
+        expected_cpu.instruction_count = 0;
         both(
             step,
             name,
@@ -586,7 +639,7 @@ fn encoding_fetches() {
             1,
             &complete,
             &[Step {
-                cpu: &[(56, 0x2000), (144, 0)],
+                cpu: expected_cpu,
                 ram: &[(0x8000, stored)],
                 exit: Exit::Dispatch(0x2000),
             }],
@@ -594,14 +647,17 @@ fn encoding_fetches() {
     }
     let code = [0xc7, 0x84, 0x8b, 0, 0x40, 0, 0, 0xa0, 0x66, 0xc7, 0x88];
     let mut scattered = image(&[]);
-    scattered.register(36, 0xffff_fff0);
-    scattered.register(28, 4);
-    scattered.register(56, 0x1ff9);
+    scattered.cpu.registers.ebx = 0xffff_fff0;
+    scattered.cpu.registers.ecx = 4;
+    scattered.cpu.eip = 0x1ff9;
     scattered.map(2, 0xa000, false);
     scattered.map(4, 0x8000, true);
     scattered.data(0x3ff9, &code[..7]);
     scattered.data(0xa000, &code[7..]);
     scattered.data(0x7fff, &[0xa5, 0, 0, 0, 0, 0x5a]);
+    let mut expected_cpu = scattered.cpu;
+    expected_cpu.eip = 0x2004;
+    expected_cpu.instruction_count = 0;
     both(
         step,
         "eleven-byte instruction fetch crosses scattered frames",
@@ -609,18 +665,22 @@ fn encoding_fetches() {
         1,
         &scattered,
         &[Step {
-            cpu: &[(56, 0x2004), (144, 0)],
+            cpu: expected_cpu,
             ram: &[(0x8000, &[0xa0, 0x66, 0xc7, 0x88])],
             exit: Exit::Dispatch(0x2004),
         }],
     );
     let code = [0xc7, 0xc0, 0xa0, 0x66, 0xc7, 0x88];
     let mut wrapped = image(&[]);
-    wrapped.register(56, 0xffff_fffc);
+    wrapped.cpu.eip = 0xffff_fffc;
     wrapped.map(0xfffff, 0x8000, false);
     wrapped.map(0, 0xa000, false);
     wrapped.data(0x8ffc, &code[..4]);
     wrapped.data(0xa000, &code[4..]);
+    let mut expected_cpu = wrapped.cpu;
+    expected_cpu.registers.eax = 0x88c7_66a0;
+    expected_cpu.eip = 2;
+    expected_cpu.instruction_count = 0;
     both(
         step,
         "group immediate fetch wraps EIP",
@@ -628,7 +688,7 @@ fn encoding_fetches() {
         1,
         &wrapped,
         &[Step {
-            cpu: &[(24, 0x88c7_66a0), (56, 2), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(2),
         }],

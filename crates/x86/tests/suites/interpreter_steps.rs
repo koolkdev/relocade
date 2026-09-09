@@ -1,40 +1,40 @@
 use crate::support::machine::{check, Exit, Image, Step};
 use crate::support::step;
 use step::TestModule;
-use wasm86_x86::{compile_block_from_bytes, compile_interpreter_step};
+use wasm86_x86::{compile_block_from_bytes, compile_interpreter_step, CpuState, Gpr32};
 use wasmparser::{ExternalKind, Parser, Payload, TypeRef, ValType, Validator};
 
-const MOVES: [(&[u8], usize, u32); 8] = [
-    (&[0xb8, 0x78, 0x56, 0x34, 0x12], 24, 0x1234_5678),
-    (&[0xb9, 0, 0, 0, 0x80], 28, 0x8000_0000),
-    (&[0xba, 0xff, 0xff, 0xff, 0xff], 32, 0xffff_ffff),
-    (&[0xbb, 0, 0, 0, 0], 36, 0),
-    (&[0xbc, 0xf3, 0x0f, 0xb8, 0x66], 40, 0x66b8_0ff3),
-    (&[0xbd, 0xff, 0xff, 0xff, 0x7f], 44, 0x7fff_ffff),
-    (&[0xbe, 0xef, 0xbe, 0xad, 0xde], 48, 0xdead_beef),
-    (&[0xbf, 0x21, 0x43, 0x65, 0x87], 52, 0x8765_4321),
+const MOVES: [(&[u8], Gpr32, u32); 8] = [
+    (&[0xb8, 0x78, 0x56, 0x34, 0x12], Gpr32::Eax, 0x1234_5678),
+    (&[0xb9, 0, 0, 0, 0x80], Gpr32::Ecx, 0x8000_0000),
+    (&[0xba, 0xff, 0xff, 0xff, 0xff], Gpr32::Edx, 0xffff_ffff),
+    (&[0xbb, 0, 0, 0, 0], Gpr32::Ebx, 0),
+    (&[0xbc, 0xf3, 0x0f, 0xb8, 0x66], Gpr32::Esp, 0x66b8_0ff3),
+    (&[0xbd, 0xff, 0xff, 0xff, 0x7f], Gpr32::Ebp, 0x7fff_ffff),
+    (&[0xbe, 0xef, 0xbe, 0xad, 0xde], Gpr32::Esi, 0xdead_beef),
+    (&[0xbf, 0x21, 0x43, 0x65, 0x87], Gpr32::Edi, 0x8765_4321),
 ];
 
-const REGISTERS: [(usize, u32); 8] = [
-    (24, 0x1111_1111),
-    (28, 0x2222_2222),
-    (32, 0x3333_3333),
-    (36, 0x4444_4444),
-    (40, 0x5555_5555),
-    (44, 0x6666_6666),
-    (48, 0x7777_7777),
-    (52, 0x8888_8888),
+const REGISTERS: [(Gpr32, u32); 8] = [
+    (Gpr32::Eax, 0x1111_1111),
+    (Gpr32::Ecx, 0x2222_2222),
+    (Gpr32::Edx, 0x3333_3333),
+    (Gpr32::Ebx, 0x4444_4444),
+    (Gpr32::Esp, 0x5555_5555),
+    (Gpr32::Ebp, 0x6666_6666),
+    (Gpr32::Esi, 0x7777_7777),
+    (Gpr32::Edi, 0x8888_8888),
 ];
 
-fn state(eip: u32) -> [u8; 152] {
-    let mut bytes = [0xa5; 152];
-    for (offset, value) in REGISTERS {
-        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+fn state(eip: u32) -> CpuState {
+    let mut cpu = CpuState::filled(0xa5);
+    for (register, value) in REGISTERS {
+        cpu.registers[register] = value;
     }
-    for (offset, value) in [(56, eip), (144, 0xffff_ffff), (148, 0)] {
-        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-    }
-    bytes
+    cpu.eip = eip;
+    cpu.instruction_count = 0xffff_ffff;
+    cpu.reserved_tail = [0; 4];
+    cpu
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn interpreter_step_exposes_the_cpu_ram_page_map_and_dispatch_abi() {
 fn register_moves_and_forwarded_values() {
     let step = TestModule::interpreter();
     for (source, &(_, value)) in REGISTERS.iter().enumerate() {
-        for (destination, &(offset, _)) in REGISTERS.iter().enumerate() {
+        for (destination, &(register, _)) in REGISTERS.iter().enumerate() {
             for bytes in [
                 [0x89, 0xc0 | ((source as u8) << 3) | destination as u8],
                 [0x8b, 0xc0 | ((destination as u8) << 3) | source as u8],
@@ -125,13 +125,16 @@ fn register_moves_and_forwarded_values() {
                     guest: vec![(0x3234, bytes.to_vec())],
                     machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
                 };
-                let updates = [(offset, value), (56, 0x1236), (144, 0)];
+                let mut expected_cpu = image.cpu;
+                expected_cpu.registers[register] = value;
+                expected_cpu.eip = 0x1236;
+                expected_cpu.instruction_count = 0;
                 check(
                     step,
                     image_name,
                     &image,
                     &[Step {
-                        cpu: &updates,
+                        cpu: expected_cpu,
                         ram: &[],
                         exit: Exit::Dispatch(4662),
                     }],
@@ -143,7 +146,7 @@ fn register_moves_and_forwarded_values() {
                     image_name,
                     &image,
                     &[Step {
-                        cpu: &updates,
+                        cpu: expected_cpu,
                         ram: &[],
                         exit: Exit::Dispatch(4662),
                     }],
@@ -161,59 +164,71 @@ fn register_moves_and_forwarded_values() {
         guest: vec![(0x3000, (rotation).to_vec())],
         machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
     };
-    check(
-        step,
-        image_name,
-        &image,
-        &[
-            Step {
-                cpu: &[(32, 0x1111_1111), (56, 0x1002), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(4098),
-            },
-            Step {
-                cpu: &[(24, 0x2222_2222), (56, 0x1004), (144, 1)],
-                ram: &[],
-                exit: Exit::Dispatch(4100),
-            },
-            Step {
-                cpu: &[(28, 0x1111_1111), (56, 0x1006), (144, 2)],
-                ram: &[],
-                exit: Exit::Dispatch(4102),
-            },
-            Step {
-                cpu: &[(52, 0x2222_2222), (56, 0x1008), (144, 3)],
-                ram: &[],
-                exit: Exit::Dispatch(4104),
-            },
-            Step {
-                cpu: &[(48, 0x1111_1111), (56, 0x100a), (144, 4)],
-                ram: &[],
-                exit: Exit::Dispatch(4106),
-            },
-            Step {
-                cpu: &[(36, 0x1111_1111), (56, 0x100c), (144, 5)],
-                ram: &[],
-                exit: Exit::Dispatch(4108),
-            },
-        ],
-    );
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.edx = 0x1111_1111;
+    expected_cpu.eip = 0x1002;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(4098),
+    });
+
+    expected_cpu.registers.eax = 0x2222_2222;
+    expected_cpu.eip = 0x1004;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(4100),
+    });
+
+    expected_cpu.registers.ecx = 0x1111_1111;
+    expected_cpu.eip = 0x1006;
+    expected_cpu.instruction_count = 2;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(4102),
+    });
+
+    expected_cpu.registers.edi = 0x2222_2222;
+    expected_cpu.eip = 0x1008;
+    expected_cpu.instruction_count = 3;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(4104),
+    });
+
+    expected_cpu.registers.esi = 0x1111_1111;
+    expected_cpu.eip = 0x100a;
+    expected_cpu.instruction_count = 4;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(4106),
+    });
+
+    expected_cpu.registers.ebx = 0x1111_1111;
+    expected_cpu.eip = 0x100c;
+    expected_cpu.instruction_count = 5;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(4108),
+    });
+
+    check(step, image_name, &image, &steps);
     let snapshot = TestModule::new(&compile_block_from_bytes(0x1000, rotation, 6).unwrap());
     check(
         &snapshot,
         image_name,
         &image,
         &[Step {
-            cpu: &[
-                (24, 0x2222_2222),
-                (28, 0x1111_1111),
-                (32, 0x1111_1111),
-                (36, 0x1111_1111),
-                (48, 0x1111_1111),
-                (52, 0x2222_2222),
-                (56, 0x100c),
-                (144, 5),
-            ],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(4108),
         }],
@@ -226,47 +241,53 @@ fn register_moves_and_forwarded_values() {
         guest: vec![(0x3000, (forward).to_vec())],
         machine: image.machine.clone(),
     };
-    check(
-        step,
-        image_name,
-        &image,
-        &[
-            Step {
-                cpu: &[(24, 42), (56, 0x1005), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(4101),
-            },
-            Step {
-                cpu: &[(28, 42), (56, 0x1007), (144, 1)],
-                ram: &[],
-                exit: Exit::Dispatch(4103),
-            },
-            Step {
-                cpu: &[(32, 42), (56, 0x1009), (144, 2)],
-                ram: &[],
-                exit: Exit::Dispatch(4105),
-            },
-            Step {
-                cpu: &[(36, 42), (56, 0x100b), (144, 3)],
-                ram: &[],
-                exit: Exit::Dispatch(4107),
-            },
-        ],
-    );
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.eax = 42;
+    expected_cpu.eip = 0x1005;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(4101),
+    });
+
+    expected_cpu.registers.ecx = 42;
+    expected_cpu.eip = 0x1007;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(4103),
+    });
+
+    expected_cpu.registers.edx = 42;
+    expected_cpu.eip = 0x1009;
+    expected_cpu.instruction_count = 2;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(4105),
+    });
+
+    expected_cpu.registers.ebx = 42;
+    expected_cpu.eip = 0x100b;
+    expected_cpu.instruction_count = 3;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(4107),
+    });
+
+    check(step, image_name, &image, &steps);
     let snapshot = TestModule::new(&compile_block_from_bytes(0x1000, forward, 4).unwrap());
     check(
         &snapshot,
         image_name,
         &image,
         &[Step {
-            cpu: &[
-                (24, 42),
-                (28, 42),
-                (32, 42),
-                (36, 42),
-                (56, 0x100b),
-                (144, 3),
-            ],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(4107),
         }],
@@ -279,41 +300,44 @@ fn register_moves_and_forwarded_values() {
         guest: vec![(0x3000, (old_value).to_vec())],
         machine: image.machine.clone(),
     };
-    check(
-        step,
-        image_name,
-        &image,
-        &[
-            Step {
-                cpu: &[(28, 0x1111_1111), (56, 0x1002), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(4098),
-            },
-            Step {
-                cpu: &[(24, 9), (56, 0x1007), (144, 1)],
-                ram: &[],
-                exit: Exit::Dispatch(4103),
-            },
-            Step {
-                cpu: &[(32, 0x1111_1111), (56, 0x1009), (144, 2)],
-                ram: &[],
-                exit: Exit::Dispatch(4105),
-            },
-        ],
-    );
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.ecx = 0x1111_1111;
+    expected_cpu.eip = 0x1002;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(4098),
+    });
+
+    expected_cpu.registers.eax = 9;
+    expected_cpu.eip = 0x1007;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(4103),
+    });
+
+    expected_cpu.registers.edx = 0x1111_1111;
+    expected_cpu.eip = 0x1009;
+    expected_cpu.instruction_count = 2;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(4105),
+    });
+
+    check(step, image_name, &image, &steps);
     let snapshot = TestModule::new(&compile_block_from_bytes(0x1000, old_value, 3).unwrap());
     check(
         &snapshot,
         image_name,
         &image,
         &[Step {
-            cpu: &[
-                (24, 9),
-                (28, 0x1111_1111),
-                (32, 0x1111_1111),
-                (56, 0x1009),
-                (144, 2),
-            ],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(4105),
         }],
@@ -325,12 +349,16 @@ fn register_moves_and_forwarded_values() {
         guest: vec![(0x3ffe, [0x89, 0xc1].to_vec())],
         machine: image.machine.clone(),
     };
+    let mut expected_cpu = complete.cpu;
+    expected_cpu.registers.ecx = 0x1111_1111;
+    expected_cpu.eip = 0x2000;
+    expected_cpu.instruction_count = 0;
     check(
         step,
         complete_name,
         &complete,
         &[Step {
-            cpu: &[(28, 0x1111_1111), (56, 0x2000), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(8192),
         }],
@@ -341,12 +369,16 @@ fn register_moves_and_forwarded_values() {
         guest: vec![(0x3fff, [0x8b].to_vec()), (0x1000, [0xf8].to_vec())],
         machine: vec![(4, [1, 0x30, 0, 0, 1, 0x10, 0, 0].to_vec())],
     };
+    let mut expected_cpu = scattered.cpu;
+    expected_cpu.registers.edi = 0x1111_1111;
+    expected_cpu.eip = 0x2001;
+    expected_cpu.instruction_count = 0;
     check(
         step,
         scattered_name,
         &scattered,
         &[Step {
-            cpu: &[(52, 0x1111_1111), (56, 0x2001), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(8193),
         }],
@@ -360,12 +392,16 @@ fn register_moves_and_forwarded_values() {
             (0, [1, 0x10, 0, 0].to_vec()),
         ],
     };
+    let mut expected_cpu = wrapped.cpu;
+    expected_cpu.registers.ecx = 0x1111_1111;
+    expected_cpu.eip = 1;
+    expected_cpu.instruction_count = 0;
     check(
         step,
         wrapped_name,
         &wrapped,
         &[Step {
-            cpu: &[(28, 0x1111_1111), (56, 1), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(1),
         }],
@@ -377,7 +413,7 @@ fn register_moves_and_forwarded_values() {
         wrapped_name,
         &wrapped,
         &[Step {
-            cpu: &[(28, 0x1111_1111), (56, 1), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(1),
         }],
@@ -389,72 +425,79 @@ fn register_moves_and_forwarded_values() {
         guest: vec![(0x3ffa, [0xb8, 42, 0, 0, 0, 0x89].to_vec())],
         machine: image.machine.clone(),
     };
-    check(
-        step,
-        missing_modrm_name,
-        &missing_modrm,
-        &[
-            Step {
-                cpu: &[(24, 42), (56, 0x1fff), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(8191),
-            },
-            Step {
-                cpu: &[],
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x00002000,
-                    error: 0x10,
-                },
-            },
-        ],
-    );
+    let mut expected_cpu = missing_modrm.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.eax = 42;
+    expected_cpu.eip = 0x1fff;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(8191),
+    });
+
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::PageFault {
+            address: 0x00002000,
+            error: 0x10,
+        },
+    });
+
+    check(step, missing_modrm_name, &missing_modrm, &steps);
     let memory_form_name = "missing displacement preserves the preceding instruction progress";
     let memory_form = Image {
         cpu: state(0x1ff9),
         guest: vec![(0x3ff9, [0xb8, 42, 0, 0, 0, 0x89, 0x05].to_vec())],
         machine: image.machine.clone(),
     };
-    check(
-        step,
-        memory_form_name,
-        &memory_form,
-        &[
-            Step {
-                cpu: &[(24, 42), (56, 0x1ffe), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(8190),
-            },
-            Step {
-                cpu: &[],
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x00002000,
-                    error: 0x10,
-                },
-            },
-        ],
-    );
+    let mut expected_cpu = memory_form.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.eax = 42;
+    expected_cpu.eip = 0x1ffe;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(8190),
+    });
+
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::PageFault {
+            address: 0x00002000,
+            error: 0x10,
+        },
+    });
+
+    check(step, memory_form_name, &memory_form, &steps);
 }
 
 #[test]
 fn immediate_moves_and_fetch_boundaries() {
     let step = TestModule::interpreter();
     // Virtual page 1 maps to frame 3. PRESENT alone permits instruction fetch.
-    for &(bytes, offset, value) in &MOVES {
+    for &(bytes, register, value) in &MOVES {
         let image_name = "all register codes";
         let image = Image {
             cpu: state(0x1234),
             guest: vec![(0x3234, (bytes).to_vec())],
             machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
         };
-        let updates = [(offset, value), (56, 0x1239), (144, 0)];
+        let mut expected_cpu = image.cpu;
+        expected_cpu.registers[register] = value;
+        expected_cpu.eip = 0x1239;
+        expected_cpu.instruction_count = 0;
         check(
             step,
             image_name,
             &image,
             &[Step {
-                cpu: &updates,
+                cpu: expected_cpu,
                 ram: &[],
                 exit: Exit::Dispatch(4665),
             }],
@@ -465,7 +508,7 @@ fn immediate_moves_and_fetch_boundaries() {
             image_name,
             &image,
             &[Step {
-                cpu: &updates,
+                cpu: expected_cpu,
                 ram: &[],
                 exit: Exit::Dispatch(4665),
             }],
@@ -477,12 +520,16 @@ fn immediate_moves_and_fetch_boundaries() {
         guest: vec![(0x3ffd, (MOVES[0].0).to_vec())],
         machine: vec![(4, [1, 0x30, 0, 0, 1, 0x40, 0, 0].to_vec())],
     };
+    let mut expected_cpu = contiguous.cpu;
+    expected_cpu.registers.eax = 0x1234_5678;
+    expected_cpu.eip = 0x2002;
+    expected_cpu.instruction_count = 0;
     check(
         step,
         contiguous_name,
         &contiguous,
         &[Step {
-            cpu: &[(24, 0x1234_5678), (56, 0x2002), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(8194),
         }],
@@ -496,12 +543,16 @@ fn immediate_moves_and_fetch_boundaries() {
         ],
         machine: vec![(4, [1, 0x30, 0, 0, 1, 0x10, 0, 0].to_vec())],
     };
+    let mut expected_cpu = scattered.cpu;
+    expected_cpu.registers.eax = 0x1234_5678;
+    expected_cpu.eip = 0x2002;
+    expected_cpu.instruction_count = 0;
     check(
         step,
         scattered_name,
         &scattered,
         &[Step {
-            cpu: &[(24, 0x1234_5678), (56, 0x2002), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(8194),
         }],
@@ -512,7 +563,7 @@ fn immediate_moves_and_fetch_boundaries() {
         scattered_name,
         &scattered,
         &[Step {
-            cpu: &[(24, 0x1234_5678), (56, 0x2002), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(8194),
         }],
@@ -526,12 +577,16 @@ fn immediate_moves_and_fetch_boundaries() {
         ],
         machine: vec![(4, [1, 0x30, 0, 0, 1, 0x10, 0, 0].to_vec())],
     };
+    let mut expected_cpu = split_opcode.cpu;
+    expected_cpu.registers.eax = 0x1234_5678;
+    expected_cpu.eip = 0x2004;
+    expected_cpu.instruction_count = 0;
     check(
         step,
         split_opcode_name,
         &split_opcode,
         &[Step {
-            cpu: &[(24, 0x1234_5678), (56, 0x2004), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(8196),
         }],
@@ -543,12 +598,16 @@ fn immediate_moves_and_fetch_boundaries() {
         guest: vec![(0x3ffb, (MOVES[0].0).to_vec())],
         machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
     };
+    let mut expected_cpu = exact_end.cpu;
+    expected_cpu.registers.eax = 0x1234_5678;
+    expected_cpu.eip = 0x2000;
+    expected_cpu.instruction_count = 0;
     check(
         step,
         exact_end_name,
         &exact_end,
         &[Step {
-            cpu: &[(24, 0x1234_5678), (56, 0x2000), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(8192),
         }],
@@ -559,12 +618,13 @@ fn immediate_moves_and_fetch_boundaries() {
         guest: vec![],
         machine: vec![(4, [0, 0xf0, 0xff, 0xff].to_vec())],
     };
+    let expected_cpu = absent_opcode.cpu;
     check(
         step,
         absent_opcode_name,
         &absent_opcode,
         &[Step {
-            cpu: &[],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::PageFault {
                 address: 0x00001234,
@@ -578,12 +638,13 @@ fn immediate_moves_and_fetch_boundaries() {
         guest: vec![(0x3fff, [0xb8].to_vec())],
         machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
     };
+    let expected_cpu = missing_immediate.cpu;
     check(
         step,
         missing_immediate_name,
         &missing_immediate,
         &[Step {
-            cpu: &[],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::PageFault {
                 address: 0x00002000,
@@ -597,12 +658,13 @@ fn immediate_moves_and_fetch_boundaries() {
         guest: vec![(0x3ffd, [0xb8, 0x78, 0x56].to_vec())],
         machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
     };
+    let expected_cpu = partial_immediate.cpu;
     check(
         step,
         partial_immediate_name,
         &partial_immediate,
         &[Step {
-            cpu: &[],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::PageFault {
                 address: 0x00002000,
@@ -620,12 +682,13 @@ fn immediate_moves_and_fetch_boundaries() {
             guest: vec![(0x3fff, [opcode].to_vec())],
             machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
         };
+        let expected_cpu = unsupported.cpu;
         check(
             step,
             unsupported_name,
             &unsupported,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit,
             }],
@@ -643,12 +706,16 @@ fn immediate_moves_and_fetch_boundaries() {
             (0, [1, 0x10, 0, 0].to_vec()),
         ],
     };
+    let mut expected_cpu = wrapped.cpu;
+    expected_cpu.registers.eax = 0x1234_5678;
+    expected_cpu.eip = 2;
+    expected_cpu.instruction_count = 0;
     check(
         step,
         wrapped_name,
         &wrapped,
         &[Step {
-            cpu: &[(24, 0x1234_5678), (56, 2), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(2),
         }],
@@ -659,7 +726,7 @@ fn immediate_moves_and_fetch_boundaries() {
         wrapped_name,
         &wrapped,
         &[Step {
-            cpu: &[(24, 0x1234_5678), (56, 2), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(2),
         }],
@@ -670,12 +737,13 @@ fn immediate_moves_and_fetch_boundaries() {
         guest: wrapped.guest.clone(),
         machine: vec![(0x003f_fffc, [1, 0x30, 0, 0].to_vec())],
     };
+    let expected_cpu = wrapped_fault.cpu;
     check(
         step,
         wrapped_fault_name,
         &wrapped_fault,
         &[Step {
-            cpu: &[],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::PageFault {
                 address: 0x00000000,
@@ -689,12 +757,16 @@ fn immediate_moves_and_fetch_boundaries() {
         guest: vec![(0x3ffd, (MOVES[0].0).to_vec())],
         machine: vec![(0x001f_fffc, [1, 0x30, 0, 0, 1, 0x40, 0, 0].to_vec())],
     };
+    let mut expected_cpu = high_eip.cpu;
+    expected_cpu.registers.eax = 0x1234_5678;
+    expected_cpu.eip = 0x8000_0002;
+    expected_cpu.instruction_count = 0;
     check(
         step,
         high_eip_name,
         &high_eip,
         &[Step {
-            cpu: &[(24, 0x1234_5678), (56, 0x8000_0002), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch((-2147483646_i32) as u32),
         }],
@@ -705,12 +777,13 @@ fn immediate_moves_and_fetch_boundaries() {
         guest: vec![],
         machine: vec![(4, [1, 0, 1, 0].to_vec())],
     };
+    let expected_cpu = invalid_frame.cpu;
     check(
         step,
         invalid_frame_name,
         &invalid_frame,
         &[Step {
-            cpu: &[],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Trap,
         }],
@@ -721,12 +794,16 @@ fn immediate_moves_and_fetch_boundaries() {
         guest: vec![(0x3000, [0xb8, 42, 0, 0, 0, 0xbf, 7, 0, 0, 0].to_vec())],
         machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
     };
+    let mut expected_cpu = two.cpu;
+    expected_cpu.registers.eax = 42;
+    expected_cpu.eip = 0x1005;
+    expected_cpu.instruction_count = 0;
     check(
         step,
         two_name,
         &two,
         &[Step {
-            cpu: &[(24, 42), (56, 0x1005), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(4101),
         }],
@@ -739,22 +816,30 @@ fn immediate_moves_and_fetch_boundaries() {
     };
     let snapshot =
         TestModule::new(&compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1).unwrap());
+    let mut expected_cpu = changed.cpu;
+    expected_cpu.registers.edi = 7;
+    expected_cpu.eip = 0x1005;
+    expected_cpu.instruction_count = 0;
     check(
         step,
         changed_name,
         &changed,
         &[Step {
-            cpu: &[(52, 7), (56, 0x1005), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(4101),
         }],
     );
+    let mut expected_cpu = changed.cpu;
+    expected_cpu.registers.eax = 42;
+    expected_cpu.eip = 0x1005;
+    expected_cpu.instruction_count = 0;
     check(
         &snapshot,
         changed_name,
         &changed,
         &[Step {
-            cpu: &[(24, 42), (56, 0x1005), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(4101),
         }],

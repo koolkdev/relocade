@@ -3,7 +3,7 @@ use crate::support::step;
 
 use machine::{Exit, Image, Step};
 use step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
-use wasm86_x86::compile_block_from_bytes;
+use wasm86_x86::{compile_block_from_bytes, CpuState, Gpr32};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
 // MOV EAX, [2000]; MOV ECX, [4000]; MOV EDX, [6000].
@@ -86,7 +86,7 @@ fn instruction_counts_include_only_completed_instructions_at_each_fault() {
     for counts in [[37, 38, 39, 40], [0xffff_fffe, 0xffff_ffff, 0, 1]] {
         for readable_pages in 0..=3 {
             let mut image = Image::new(READS);
-            image.register(144, counts[0]);
+            image.cpu.instruction_count = counts[0];
             for &(page, frame, value) in [
                 (2, 0x5000, 0x4433_2211_u32),
                 (4, 0x7000, 0x8877_6655),
@@ -98,25 +98,30 @@ fn instruction_counts_include_only_completed_instructions_at_each_fault() {
                 image.map(page, frame, false);
                 image.data(frame, &value.to_le_bytes());
             }
-            let completed = [
-                [(24, 0x4433_2211), (56, 0x1005), (144, counts[1])],
-                [(28, 0x8877_6655), (56, 0x100b), (144, counts[2])],
-                [(32, 0xccbb_aa99), (56, 0x1011), (144, counts[3])],
-            ];
-            let mut steps = completed
-                .iter()
-                .take(readable_pages)
-                .map(|cpu| Step {
-                    cpu,
+            let mut expected_cpu = image.cpu;
+            let mut steps = Vec::new();
+            for (completed, &(register, value, next)) in [
+                (Gpr32::Eax, 0x4433_2211, 0x1005),
+                (Gpr32::Ecx, 0x8877_6655, 0x100b),
+                (Gpr32::Edx, 0xccbb_aa99, 0x1011),
+            ]
+            .iter()
+            .take(readable_pages)
+            .enumerate()
+            {
+                expected_cpu.registers[register] = value;
+                expected_cpu.eip = next;
+                expected_cpu.instruction_count = counts[completed + 1];
+                steps.push(Step {
+                    cpu: expected_cpu,
                     ram: &[],
-                    exit: Exit::Dispatch(cpu[1].1),
-                })
-                .collect::<Vec<_>>();
-            let fault_cpu = [(144, counts[readable_pages])];
+                    exit: Exit::Dispatch(next),
+                });
+            }
             if readable_pages < 3 {
                 let address = [0x2000, 0x4000, 0x6000][readable_pages];
                 steps.push(Step {
-                    cpu: &fault_cpu,
+                    cpu: expected_cpu,
                     ram: &[],
                     exit: Exit::PageFault { address, error: 0 },
                 });
@@ -140,26 +145,30 @@ fn instruction_counts_include_only_completed_instructions_at_each_fault() {
 fn instruction_counts_reread_host_changes_between_invocations() {
     let module =
         compile_block_from_bytes(0x1000, &[0xb8, 7, 0, 0, 0, 0xb9, 9, 0, 0, 0], 2).unwrap();
-    let mut initial = [0xa5; 152];
-    initial[56..60].copy_from_slice(&0x1000_u32.to_le_bytes());
-    initial[144..148].copy_from_slice(&37_u32.to_le_bytes());
+    let mut initial = CpuState::filled(0xa5);
+    initial.eip = 0x1000;
+    initial.instruction_count = 37;
+    let mut expected_cpu = initial;
+    expected_cpu.registers.eax = 7;
+    expected_cpu.registers.ecx = 9;
+    expected_cpu.eip = 0x100a;
+    let mut before_second = expected_cpu;
+    before_second.instruction_count = 0xffff_fffe;
+    let mut before_third = expected_cpu;
+    before_third.instruction_count = 7;
     let input = Input {
         cpu_patches_before_calls: vec![
             vec![],
-            vec![(144, vec![254, 255, 255, 255])],
-            vec![(144, vec![7, 0, 0, 0])],
+            vec![(0, before_second.to_bytes().to_vec())],
+            vec![(0, before_third.to_bytes().to_vec())],
         ],
-        ..Input::new(&initial)
+        ..Input::new(&initial.to_bytes())
     };
-    let mut expected_cpu = initial;
-    for (offset, value) in [(24, 7_u32), (28, 9), (56, 0x100a)] {
-        expected_cpu[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-    }
     let mut events = Vec::new();
     for count in [39_u32, 0, 9] {
-        expected_cpu[144..148].copy_from_slice(&count.to_le_bytes());
+        expected_cpu.instruction_count = count;
         let snapshot = Snapshot {
-            cpu: expected_cpu.to_vec(),
+            cpu: expected_cpu.to_bytes().to_vec(),
             guest: None,
         };
         events.push(Event::Dispatch {
@@ -183,45 +192,51 @@ fn instruction_counts_reread_host_changes_between_invocations() {
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn instruction_counts_execute_in_optimizing_v8() {
     let mut image = Image::new(READS);
-    image.register(144, 0xffff_fffe);
+    image.cpu.instruction_count = 0xffff_fffe;
     image.map(2, 0x5000, false);
     image.map(4, 0x7000, false);
     image.data(0x5000, &0x4433_2211_u32.to_le_bytes());
     image.data(0x7000, &0x8877_6655_u32.to_le_bytes());
-    let first = [(24, 0x4433_2211), (56, 0x1005), (144, 0xffff_ffff)];
-    let second = [(28, 0x8877_6655), (56, 0x100b), (144, 0)];
-    let steps = [
-        Step {
-            cpu: &first,
-            ram: &[],
-            exit: Exit::Dispatch(0x1005),
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.eax = 0x4433_2211;
+    expected_cpu.eip = 0x1005;
+    expected_cpu.instruction_count = 0xffff_ffff;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1005),
+    });
+
+    expected_cpu.registers.ecx = 0x8877_6655;
+    expected_cpu.eip = 0x100b;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x100b),
+    });
+
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::PageFault {
+            address: 0x00006000,
+            error: 0x0,
         },
-        Step {
-            cpu: &second,
-            ram: &[],
-            exit: Exit::Dispatch(0x100b),
-        },
-        Step {
-            cpu: &[],
-            ram: &[],
-            exit: Exit::PageFault {
-                address: 0x00006000,
-                error: 0x0,
-            },
-        },
-    ];
+    });
     assert_eq!(
         TestModule::interpreter().observe_v8(&image.input(), 3),
         machine::expected(&image, &steps),
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, READS, 3).unwrap());
-    let cpu = [first, second].concat();
     assert_eq!(
         block.observe_v8(&image.input(), 1),
         machine::expected(
             &image,
             &[Step {
-                cpu: &cpu,
+                cpu: expected_cpu,
                 ram: &[],
                 exit: Exit::PageFault {
                     address: 0x00006000,

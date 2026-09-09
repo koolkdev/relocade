@@ -1,16 +1,20 @@
+use wasm86_x86::StatusFlags;
+
 use super::machine::Image;
 
 pub(crate) fn image(code: &[u8]) -> Image {
     let mut image = Image::new(code);
-    image.cpu[0] = 0;
-    image.cpu[12..23].fill(0);
-    image.cpu[12..18].fill(1); // Stale status bits must not win over a new recipe.
-    image.cpu[19] = 1; // DF is unrelated to these binary operations and SETcc.
+    image.cpu.flags.kind = 0;
+    // Stale status bits must not win over a new recipe.
+    image.cpu.flags.status = StatusFlags {
+        cf: 1,
+        pf: 1,
+        af: 1,
+        zf: 1,
+        sf: 1,
+        of: 1,
+    };
+    // DF is unrelated to these binary operations and SETcc; the last byte remains a canary.
+    image.cpu.flags.non_status = [0, 1, 0, 0, 0, 0xa5];
     image
-}
-
-// These fields assert the external lazy-record ABI, not architectural flag bits.
-// Padding and concrete flag bytes retain the fixture's original contents.
-pub(crate) fn recipe(kind: u8, left: u32, right: u32) -> [(usize, u32); 3] {
-    [(0, 0xa5a5_a500 | u32::from(kind)), (4, left), (8, right)]
 }

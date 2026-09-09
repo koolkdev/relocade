@@ -1,19 +1,20 @@
 use crate::support::step;
 use step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
-use wasm86_x86::{compile_block_from_bytes, BlockError, CompiledModule};
+use wasm86_x86::{
+    compile_block_from_bytes, BlockError, CompiledModule, CpuState, Gpr32, Registers,
+};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Validator};
 
 // Intel SDM, MOV: B8+rd id copies imm32 into r32 and leaves flags unchanged.
-// Offsets below are literal CPU/Wasm ABI expectations, independent of state helpers.
-const SINGLE_MOVES: [(&[u8], usize, u32); 8] = [
-    (&[0xb8, 0x78, 0x56, 0x34, 0x12], 24, 0x1234_5678),
-    (&[0xb9, 0, 0, 0, 0x80], 28, 0x8000_0000),
-    (&[0xba, 0xff, 0xff, 0xff, 0xff], 32, 0xffff_ffff),
-    (&[0xbb, 0, 0, 0, 0], 36, 0),
-    (&[0xbc, 0xf3, 0x0f, 0xb8, 0x66], 40, 0x66b8_0ff3),
-    (&[0xbd, 0xff, 0xff, 0xff, 0x7f], 44, 0x7fff_ffff),
-    (&[0xbe, 0xef, 0xbe, 0xad, 0xde], 48, 0xdead_beef),
-    (&[0xbf, 0x21, 0x43, 0x65, 0x87], 52, 0x8765_4321),
+const SINGLE_MOVES: [(&[u8], Gpr32, u32); 8] = [
+    (&[0xb8, 0x78, 0x56, 0x34, 0x12], Gpr32::Eax, 0x1234_5678),
+    (&[0xb9, 0, 0, 0, 0x80], Gpr32::Ecx, 0x8000_0000),
+    (&[0xba, 0xff, 0xff, 0xff, 0xff], Gpr32::Edx, 0xffff_ffff),
+    (&[0xbb, 0, 0, 0, 0], Gpr32::Ebx, 0),
+    (&[0xbc, 0xf3, 0x0f, 0xb8, 0x66], Gpr32::Esp, 0x66b8_0ff3),
+    (&[0xbd, 0xff, 0xff, 0xff, 0x7f], Gpr32::Ebp, 0x7fff_ffff),
+    (&[0xbe, 0xef, 0xbe, 0xad, 0xde], Gpr32::Esi, 0xdead_beef),
+    (&[0xbf, 0x21, 0x43, 0x65, 0x87], Gpr32::Edi, 0x8765_4321),
 ];
 const TWO: &[u8] = &[0xb8, 0x78, 0x56, 0x34, 0x12, 0xbf, 0xff, 0xff, 0xff, 0xff];
 const OVERWRITE: &[u8] = &[0xb8, 0x78, 0x56, 0x34, 0x12, 0xb8, 0xff, 0xff, 0xff, 0xff];
@@ -151,45 +152,39 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
     assert_eq!(tails, [0]);
 }
 
-fn state(count: u32) -> [u8; 152] {
-    let mut bytes = [0xa5; 152];
-    for (offset, value) in [
-        (24, 0x1111_1111u32),
-        (28, 0x2222_2222),
-        (32, 0x3333_3333),
-        (36, 0x4444_4444),
-        (40, 0x5555_5555),
-        (44, 0x6666_6666),
-        (48, 0x7777_7777),
-        (52, 0x8888_8888),
-        (56, 0xdead_beef),
-        (144, count),
-        (148, 0x1234_5678),
-    ] {
-        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-    }
-    bytes
+fn state(count: u32) -> CpuState {
+    let mut cpu = CpuState::filled(0xa5);
+    cpu.registers = Registers {
+        eax: 0x1111_1111,
+        ecx: 0x2222_2222,
+        edx: 0x3333_3333,
+        ebx: 0x4444_4444,
+        esp: 0x5555_5555,
+        ebp: 0x6666_6666,
+        esi: 0x7777_7777,
+        edi: 0x8888_8888,
+    };
+    cpu.eip = 0xdead_beef;
+    cpu.instruction_count = count;
+    cpu.reserved_tail = 0x1234_5678_u32.to_le_bytes();
+    cpu
 }
 
 fn check(
     block: &CompiledModule,
-    initial: &[u8],
-    updates: &[(usize, u32)],
+    initial: &CpuState,
+    expected: CpuState,
     dispatched: i32,
     returned: i64,
 ) {
     let module = TestModule::new(block);
-    let mut expected = initial.to_vec();
-    for (offset, value) in updates {
-        expected[*offset..*offset + 4].copy_from_slice(&value.to_le_bytes());
-    }
     let snapshot = Snapshot {
-        cpu: expected,
+        cpu: expected.to_bytes().to_vec(),
         guest: None,
     };
     let input = Input {
         dispatch_return: returned,
-        ..Input::new(initial)
+        ..Input::new(&initial.to_bytes())
     };
     assert_eq!(
         module.observe(&input, 1),
@@ -207,7 +202,7 @@ fn check(
             guest_unchanged: true,
             machine_unchanged: true,
         },
-        "entry {}, updates {updates:?}",
+        "entry {}, expected {expected:?}",
         block.entry
     );
 }
@@ -215,69 +210,58 @@ fn check(
 #[test]
 fn mov_blocks_publish_completed_state() {
     let initial = state(u32::MAX);
-    for &(bytes, offset, value) in &SINGLE_MOVES {
+    for &(bytes, register, value) in &SINGLE_MOVES {
         let block = compile_block_from_bytes(0x1000, bytes, 1).unwrap();
-        check(
-            &block,
-            &initial,
-            &[(offset, value), (56, 0x1005), (144, 0)],
-            4101,
-            i64::MIN,
-        );
+        let mut expected = initial;
+        expected.registers[register] = value;
+        expected.eip = 0x1005;
+        expected.instruction_count = 0;
+        check(&block, &initial, expected, 4101, i64::MIN);
     }
-    for (bytes, limit, updates, next) in [
-        (
-            TWO,
-            2,
-            &[(24, 0x1234_5678), (52, 0xffff_ffff), (56, 0x100a), (144, 1)][..],
-            4106,
-        ),
-        (
-            OVERWRITE,
-            2,
-            &[(24, 0xffff_ffff), (56, 0x100a), (144, 1)][..],
-            4106,
-        ),
-        (
-            REVERSE,
-            2,
-            &[(52, 0xffff_ffff), (24, 0x1234_5678), (56, 0x100a), (144, 1)][..],
-            4106,
-        ),
+    for (bytes, limit, eax, edi, next_eip, count, dispatched) in [
+        (TWO, 2, 0x1234_5678, 0xffff_ffff, 0x100a, 1, 4106),
+        (OVERWRITE, 2, 0xffff_ffff, 0x8888_8888, 0x100a, 1, 4106),
+        (REVERSE, 2, 0x1234_5678, 0xffff_ffff, 0x100a, 1, 4106),
         (
             FIRST_WRITE_ORDER,
             3,
-            &[(52, 0x3333_3333), (24, 0x2222_2222), (56, 0x100f), (144, 2)][..],
+            0x2222_2222,
+            0x3333_3333,
+            0x100f,
+            2,
             4111,
         ),
-        (
-            TWO,
-            1,
-            &[(24, 0x1234_5678), (56, 0x1005), (144, 0)][..],
-            4101,
-        ),
+        (TWO, 1, 0x1234_5678, 0x8888_8888, 0x1005, 0, 4101),
     ] {
         let block = compile_block_from_bytes(0x1000, bytes, limit).unwrap();
-        check(&block, &initial, updates, next, 0x1234_5678_9abc_def0);
-    }
-    for (start, eip, dispatched) in [(0xffff_fffd, 2, 2), (0x7fff_fffd, 0x8000_0002, -2147483646)] {
-        let block = compile_block_from_bytes(start, SINGLE_MOVES[0].0, 1).unwrap();
+        let mut expected = initial;
+        expected.registers.eax = eax;
+        expected.registers.edi = edi;
+        expected.eip = next_eip;
+        expected.instruction_count = count;
         check(
             &block,
             &initial,
-            &[(24, 0x1234_5678), (56, eip), (144, 0)],
+            expected,
             dispatched,
-            -1,
+            0x1234_5678_9abc_def0,
         );
     }
+    for (start, eip, dispatched) in [(0xffff_fffd, 2, 2), (0x7fff_fffd, 0x8000_0002, -2147483646)] {
+        let block = compile_block_from_bytes(start, SINGLE_MOVES[0].0, 1).unwrap();
+        let mut expected = initial;
+        expected.registers.eax = 0x1234_5678;
+        expected.eip = eip;
+        expected.instruction_count = 0;
+        check(&block, &initial, expected, dispatched, -1);
+    }
     let block = compile_block_from_bytes(0x1000, SINGLE_MOVES[0].0, 1).unwrap();
-    check(
-        &block,
-        &state(17),
-        &[(24, 0x1234_5678), (56, 0x1005), (144, 18)],
-        4101,
-        i64::MAX,
-    );
+    let initial = state(17);
+    let mut expected = initial;
+    expected.registers.eax = 0x1234_5678;
+    expected.eip = 0x1005;
+    expected.instruction_count = 18;
+    check(&block, &initial, expected, 4101, i64::MAX);
 }
 
 #[test]

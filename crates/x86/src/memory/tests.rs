@@ -5,6 +5,7 @@ use wasm86_compiler::{
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
+use crate::CpuState;
 
 mod helpers;
 
@@ -200,7 +201,7 @@ fn image(
         ],
         arguments: arguments.to_vec(),
         observe_guest: true,
-        ..Input::new(&[0xa5u8; 152])
+        ..Input::new(&CpuState::filled(0xa5).to_bytes())
     }
 }
 
@@ -211,7 +212,7 @@ fn check(module: &TestModule, input: &Input, result: i64, changes: &[(u32, u8)])
             events: vec![Event::Return {
                 outcome: Outcome::Returned(Some(Argument::I64(result))),
                 snapshot: Snapshot {
-                    cpu: vec![0xa5; 152],
+                    cpu: CpuState::filled(0xa5).to_bytes().to_vec(),
                     guest: Some(changes.to_vec()),
                 },
             }],

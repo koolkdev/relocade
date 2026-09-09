@@ -1,4 +1,4 @@
-use wasm86_x86::{compile_block_from_bytes, BlockError};
+use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32};
 use wasmparser::Validator;
 
 use crate::support::step;
@@ -10,7 +10,7 @@ use machine::{both, check, Exit, Image, Step};
 struct Address {
     name: &'static str,
     code: &'static [u8],
-    registers: &'static [(usize, u32)],
+    registers: &'static [(Gpr32, u32)],
     linear: u32,
     stored: u32,
 }
@@ -19,91 +19,91 @@ const ADDRESSES: &[Address] = &[
     Address {
         name: "EAX base",
         code: &[0x8b, 0x10],
-        registers: &[(24, 0x4000)],
+        registers: &[(Gpr32::Eax, 0x4000)],
         linear: 0x4000,
         stored: 0xdead_beef,
     },
     Address {
         name: "ECX base",
         code: &[0x8b, 0x11],
-        registers: &[(28, 0x4000)],
+        registers: &[(Gpr32::Ecx, 0x4000)],
         linear: 0x4000,
         stored: 0xdead_beef,
     },
     Address {
         name: "EDX address read before EDX replacement",
         code: &[0x8b, 0x12],
-        registers: &[(32, 0x4000)],
+        registers: &[(Gpr32::Edx, 0x4000)],
         linear: 0x4000,
         stored: 0x4000,
     },
     Address {
         name: "EBX base",
         code: &[0x8b, 0x13],
-        registers: &[(36, 0x4000)],
+        registers: &[(Gpr32::Ebx, 0x4000)],
         linear: 0x4000,
         stored: 0xdead_beef,
     },
     Address {
         name: "ESP through SIB with no index",
         code: &[0x8b, 0x14, 0x24],
-        registers: &[(40, 0x4000)],
+        registers: &[(Gpr32::Esp, 0x4000)],
         linear: 0x4000,
         stored: 0xdead_beef,
     },
     Address {
         name: "EBP with displacement zero",
         code: &[0x8b, 0x55, 0],
-        registers: &[(44, 0x4000)],
+        registers: &[(Gpr32::Ebp, 0x4000)],
         linear: 0x4000,
         stored: 0xdead_beef,
     },
     Address {
         name: "ESI base",
         code: &[0x8b, 0x16],
-        registers: &[(48, 0x4000)],
+        registers: &[(Gpr32::Esi, 0x4000)],
         linear: 0x4000,
         stored: 0xdead_beef,
     },
     Address {
         name: "EDI base",
         code: &[0x8b, 0x17],
-        registers: &[(52, 0x4000)],
+        registers: &[(Gpr32::Edi, 0x4000)],
         linear: 0x4000,
         stored: 0xdead_beef,
     },
     Address {
         name: "scale one",
         code: &[0x8b, 0x54, 0x0b, 0x10],
-        registers: &[(36, 0x4000), (28, 3)],
+        registers: &[(Gpr32::Ebx, 0x4000), (Gpr32::Ecx, 3)],
         linear: 0x4013,
         stored: 0xdead_beef,
     },
     Address {
         name: "scale two",
         code: &[0x8b, 0x54, 0x4b, 0x10],
-        registers: &[(36, 0x4000), (28, 3)],
+        registers: &[(Gpr32::Ebx, 0x4000), (Gpr32::Ecx, 3)],
         linear: 0x4016,
         stored: 0xdead_beef,
     },
     Address {
         name: "scale four",
         code: &[0x8b, 0x54, 0x8b, 0x10],
-        registers: &[(36, 0x4000), (28, 3)],
+        registers: &[(Gpr32::Ebx, 0x4000), (Gpr32::Ecx, 3)],
         linear: 0x401c,
         stored: 0xdead_beef,
     },
     Address {
         name: "scale eight",
         code: &[0x8b, 0x54, 0xcb, 0x10],
-        registers: &[(36, 0x4000), (28, 3)],
+        registers: &[(Gpr32::Ebx, 0x4000), (Gpr32::Ecx, 3)],
         linear: 0x4028,
         stored: 0xdead_beef,
     },
     Address {
         name: "SIB absent index ignores scale",
         code: &[0x8b, 0x14, 0xe3],
-        registers: &[(36, 0x4000)],
+        registers: &[(Gpr32::Ebx, 0x4000)],
         linear: 0x4000,
         stored: 0xdead_beef,
     },
@@ -124,35 +124,35 @@ const ADDRESSES: &[Address] = &[
     Address {
         name: "SIB EBP index without base",
         code: &[0x8b, 0x14, 0xad, 0, 0x40, 0, 0],
-        registers: &[(44, 3)],
+        registers: &[(Gpr32::Ebp, 3)],
         linear: 0x400c,
         stored: 0xdead_beef,
     },
     Address {
         name: "negative disp8 boundary",
         code: &[0x8b, 0x50, 0x80],
-        registers: &[(24, 0x4080)],
+        registers: &[(Gpr32::Eax, 0x4080)],
         linear: 0x4000,
         stored: 0xdead_beef,
     },
     Address {
         name: "positive disp8 boundary",
         code: &[0x8b, 0x50, 0x7f],
-        registers: &[(24, 0x3f81)],
+        registers: &[(Gpr32::Eax, 0x3f81)],
         linear: 0x4000,
         stored: 0xdead_beef,
     },
     Address {
         name: "high-bit disp32 wrapping sum",
         code: &[0x8b, 0x90, 0, 0, 0, 0x80],
-        registers: &[(24, 0x8000_4000)],
+        registers: &[(Gpr32::Eax, 0x8000_4000)],
         linear: 0x4000,
         stored: 0xdead_beef,
     },
     Address {
         name: "scaled effective address wraps",
         code: &[0x8b, 0x14, 0x88],
-        registers: &[(24, 0xffff_fffc), (28, 2)],
+        registers: &[(Gpr32::Eax, 0xffff_fffc), (Gpr32::Ecx, 2)],
         linear: 4,
         stored: 0xdead_beef,
     },
@@ -166,17 +166,19 @@ fn addresses() {
             let mut code = address.code.to_vec();
             code[0] = opcode;
             let mut image = Image::new(&code);
-            for &(offset, value) in address.registers {
-                image.register(offset, value);
+            for &(register, value) in address.registers {
+                image.cpu.registers[register] = value;
             }
             image.map(address.linear >> 12, 0x8000, true);
             let physical = 0x8000 | (address.linear & 0xfff);
             image.data(physical - 1, &[0xa5, 0x78, 0x56, 0x34, 0x92, 0x5a]);
             let next = 0x1000 + code.len() as u32;
-            let mut updates = vec![(56, next), (144, 0)];
+            let mut expected_cpu = image.cpu;
+            expected_cpu.eip = next;
+            expected_cpu.instruction_count = 0;
             let value = address.stored.to_le_bytes();
             let writes = if opcode == 0x8b {
-                updates.push((32, 0x9234_5678));
+                expected_cpu.registers.edx = 0x9234_5678;
                 vec![]
             } else {
                 vec![(physical, &value[..])]
@@ -188,7 +190,7 @@ fn addresses() {
                 1,
                 &image,
                 &[Step {
-                    cpu: &updates,
+                    cpu: expected_cpu,
                     ram: &writes,
                     exit: Exit::Dispatch(next),
                 }],
@@ -231,14 +233,16 @@ fn accesses() {
         for opcode in [0x8b, 0x89] {
             let code = [opcode, 0x13];
             let mut image = Image::new(&code);
-            image.register(36, 0x4ffe);
+            image.cpu.registers.ebx = 0x4ffe;
             image.map(4, 0x8000, true);
             image.map(5, second_frame, true);
             image.data(0x8ffd, &[0xa5, 0x78, 0x56]);
             image.data(second_frame, &[0x34, 0x92, 0x5a]);
-            let mut cpu = vec![(56, 0x1002), (144, 0)];
+            let mut expected_cpu = image.cpu;
+            expected_cpu.eip = 0x1002;
+            expected_cpu.instruction_count = 0;
             let ram = if opcode == 0x8b {
-                cpu.push((32, 0x9234_5678));
+                expected_cpu.registers.edx = 0x9234_5678;
                 vec![]
             } else {
                 vec![
@@ -253,7 +257,7 @@ fn accesses() {
                 1,
                 &image,
                 &[Step {
-                    cpu: &cpu,
+                    cpu: expected_cpu,
                     ram: &ram,
                     exit: Exit::Dispatch(0x1002),
                 }],
@@ -335,7 +339,7 @@ fn accesses() {
     ] {
         let code = [opcode, 0x13];
         let mut image = Image::new(&code);
-        image.register(36, address);
+        image.cpu.registers.ebx = address;
         for (page, frame, permissions) in [(4, 0x8000, first), (5, 0xa000, second)] {
             match permissions {
                 Page::Absent => {}
@@ -345,6 +349,7 @@ fn accesses() {
         }
         image.data(0x8ffd, &[0xa5, 0x78, 0x56]);
         image.data(0xa000, &[0x34, 0x92, 0x5a]);
+        let expected_cpu = image.cpu;
         both(
             step,
             name,
@@ -352,7 +357,7 @@ fn accesses() {
             1,
             &image,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit,
             }],
@@ -377,11 +382,12 @@ fn accesses() {
     ] {
         let code = [opcode, 0x13];
         let mut image = Image::new(&code);
-        image.register(36, 0xffff_fffe);
+        image.cpu.registers.ebx = 0xffff_fffe;
         image.map(0xfffff, 0x8000, true);
         image.map(0, 0xa000, true);
         image.data(0x8ffe, &[0x78, 0x56]);
         image.data(0xa000, &[0x34, 0x92]);
+        let expected_cpu = image.cpu;
         both(
             step,
             "dword range wrap denial",
@@ -389,7 +395,7 @@ fn accesses() {
             1,
             &image,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit,
             }],
@@ -398,8 +404,9 @@ fn accesses() {
     for opcode in [0x8b, 0x89] {
         let code = [opcode, 0x13];
         let mut image = Image::new(&code);
-        image.register(36, 0x4000);
+        image.cpu.registers.ebx = 0x4000;
         image.map(4, 0x10000, true);
+        let expected_cpu = image.cpu;
         both(
             step,
             "present frame without RAM backing traps",
@@ -407,7 +414,7 @@ fn accesses() {
             1,
             &image,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: Exit::Trap,
             }],
@@ -427,15 +434,16 @@ fn accesses() {
         ),
     ] {
         let mut image = Image::new(&[]);
-        image.register(56, start);
-        image.register(24, 0x4000);
+        image.cpu.eip = start;
+        image.cpu.registers.eax = 0x4000;
         image.data(0x3000 + (start & 0xfff), code);
+        let expected_cpu = image.cpu;
         check(
             step,
             name,
             &image,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: Exit::PageFault {
                     address: 0x00002000,
@@ -446,11 +454,15 @@ fn accesses() {
     }
     let code = [0x8b, 0x14, 0x24];
     let mut image = Image::new(&[]);
-    image.register(56, 0x1ffd);
-    image.register(40, 0x4000);
+    image.cpu.eip = 0x1ffd;
+    image.cpu.registers.esp = 0x4000;
     image.data(0x3ffd, &code);
     image.map(4, 0x8000, false);
     image.data(0x8000, &[0x78, 0x56, 0x34, 0x92]);
+    let mut expected_cpu = image.cpu;
+    expected_cpu.registers.edx = 0x9234_5678;
+    expected_cpu.eip = 0x2000;
+    expected_cpu.instruction_count = 0;
     both(
         step,
         "complete SIB at page end",
@@ -458,20 +470,24 @@ fn accesses() {
         1,
         &image,
         &[Step {
-            cpu: &[(32, 0x9234_5678), (56, 0x2000), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(0x2000),
         }],
     );
     let code = [0x8b, 0x90, 0, 0x40, 0, 0];
     let mut image = Image::new(&[]);
-    image.register(56, 0x1ffc);
-    image.register(24, 0);
+    image.cpu.eip = 0x1ffc;
+    image.cpu.registers.eax = 0;
     image.data(0x3ffc, &code[..4]);
     image.data(0x6000, &code[4..]);
     image.map(2, 0x6000, false);
     image.map(4, 0x8000, false);
     image.data(0x8000, &[0x78, 0x56, 0x34, 0x92]);
+    let mut expected_cpu = image.cpu;
+    expected_cpu.registers.edx = 0x9234_5678;
+    expected_cpu.eip = 0x2002;
+    expected_cpu.instruction_count = 0;
     both(
         step,
         "displacement crosses scattered instruction pages",
@@ -479,7 +495,7 @@ fn accesses() {
         1,
         &image,
         &[Step {
-            cpu: &[(32, 0x9234_5678), (56, 0x2002), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(0x2002),
         }],
@@ -492,42 +508,53 @@ fn progress() {
     for (opcode, modrm) in [(0x8b, 0x13), (0x89, 0x03)] {
         let code = [0xb8, 42, 0, 0, 0, opcode, modrm, 0xb9, 7, 0, 0, 0];
         let mut image = Image::new(&code);
-        image.register(36, 0x4000);
+        image.cpu.registers.ebx = 0x4000;
         image.map(4, 0x8000, true);
         image.data(0x8000, &[0x78, 0x56, 0x34, 0x92]);
-        let second_cpu = if opcode == 0x8b {
-            vec![(32, 0x9234_5678), (56, 0x1007), (144, 1)]
-        } else {
-            vec![(56, 0x1007), (144, 1)]
-        };
         let writes = if opcode == 0x89 {
             vec![(0x8000, &[42, 0, 0, 0][..])]
         } else {
             vec![]
         };
+        let mut expected_cpu = image.cpu;
+        let mut steps = Vec::new();
+
+        expected_cpu.registers.eax = 42;
+        expected_cpu.eip = 0x1005;
+        expected_cpu.instruction_count = 0;
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit: Exit::Dispatch(0x1005),
+        });
+
+        if opcode == 0x8b {
+            expected_cpu.registers.edx = 0x9234_5678;
+        }
+        expected_cpu.eip = 0x1007;
+        expected_cpu.instruction_count = 1;
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &writes,
+            exit: Exit::Dispatch(0x1007),
+        });
+
+        expected_cpu.registers.ecx = 7;
+        expected_cpu.eip = 0x100c;
+        expected_cpu.instruction_count = 2;
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit: Exit::Dispatch(0x100c),
+        });
+
         both(
             step,
             "successful memory operation continues",
             &code,
             3,
             &image,
-            &[
-                Step {
-                    cpu: &[(24, 42), (56, 0x1005), (144, 0)],
-                    ram: &[],
-                    exit: Exit::Dispatch(0x1005),
-                },
-                Step {
-                    cpu: &second_cpu,
-                    ram: &writes,
-                    exit: Exit::Dispatch(0x1007),
-                },
-                Step {
-                    cpu: &[(28, 7), (56, 0x100c), (144, 2)],
-                    ram: &[],
-                    exit: Exit::Dispatch(0x100c),
-                },
-            ],
+            &steps,
         );
         image.machine.truncate(1);
         let fault = if opcode == 0x89 {
@@ -542,58 +569,75 @@ fn progress() {
                 error: 0x0,
             }
         };
+        let mut expected_cpu = image.cpu;
+        let mut steps = Vec::new();
+
+        expected_cpu.registers.eax = 42;
+        expected_cpu.eip = 0x1005;
+        expected_cpu.instruction_count = 0;
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit: Exit::Dispatch(0x1005),
+        });
+
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit: fault,
+        });
+
         both(
             step,
             "data fault publishes only completed prefix",
             &code,
             3,
             &image,
-            &[
-                Step {
-                    cpu: &[(24, 42), (56, 0x1005), (144, 0)],
-                    ram: &[],
-                    exit: Exit::Dispatch(0x1005),
-                },
-                Step {
-                    cpu: &[],
-                    ram: &[],
-                    exit: fault,
-                },
-            ],
+            &steps,
         );
     }
     let code = [0xb8, 42, 0, 0, 0, 0x89, 0x03, 0x8b, 0x11];
     let mut image = Image::new(&code);
-    image.register(36, 0x4000);
-    image.register(28, 0x5000);
+    image.cpu.registers.ebx = 0x4000;
+    image.cpu.registers.ecx = 0x5000;
     image.map(4, 0x8000, true);
     image.data(0x8000, &[0xa5; 4]);
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.eax = 42;
+    expected_cpu.eip = 0x1005;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1005),
+    });
+
+    expected_cpu.eip = 0x1007;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[(0x8000, &[42, 0, 0, 0])],
+        exit: Exit::Dispatch(0x1007),
+    });
+
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::PageFault {
+            address: 0x00005000,
+            error: 0x0,
+        },
+    });
+
     both(
         step,
         "completed store survives later read fault",
         &code,
         3,
         &image,
-        &[
-            Step {
-                cpu: &[(24, 42), (56, 0x1005), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1005),
-            },
-            Step {
-                cpu: &[(56, 0x1007), (144, 1)],
-                ram: &[(0x8000, &[42, 0, 0, 0])],
-                exit: Exit::Dispatch(0x1007),
-            },
-            Step {
-                cpu: &[],
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x00005000,
-                    error: 0x0,
-                },
-            },
-        ],
+        &steps,
     );
 }
 
@@ -604,52 +648,73 @@ fn forwarded_addresses() {
     let mut image = Image::new(&code);
     image.map(4, 0x8000, true);
     image.data(0x8000, &[0x78, 0x56, 0x34, 0x92]);
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.ebx = 0x4000;
+    expected_cpu.eip = 0x1005;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1005),
+    });
+
+    expected_cpu.registers.eax = 0x9234_5678;
+    expected_cpu.eip = 0x1007;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1007),
+    });
+
+    expected_cpu.registers.esi = 7;
+    expected_cpu.eip = 0x100c;
+    expected_cpu.instruction_count = 2;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x100c),
+    });
+
     both(
         step,
         "memory address uses the preceding register definition",
         &code,
         3,
         &image,
-        &[
-            Step {
-                cpu: &[(36, 0x4000), (56, 0x1005), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1005),
-            },
-            Step {
-                cpu: &[(24, 0x9234_5678), (56, 0x1007), (144, 1)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1007),
-            },
-            Step {
-                cpu: &[(48, 7), (56, 0x100c), (144, 2)],
-                ram: &[],
-                exit: Exit::Dispatch(0x100c),
-            },
-        ],
+        &steps,
     );
     image.machine.truncate(1);
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.ebx = 0x4000;
+    expected_cpu.eip = 0x1005;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1005),
+    });
+
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::PageFault {
+            address: 0x00004000,
+            error: 0x0,
+        },
+    });
+
     both(
         step,
         "data fault publishes the preceding address definition",
         &code,
         3,
         &image,
-        &[
-            Step {
-                cpu: &[(36, 0x4000), (56, 0x1005), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1005),
-            },
-            Step {
-                cpu: &[],
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x00004000,
-                    error: 0x0,
-                },
-            },
-        ],
+        &steps,
     );
 }
 
@@ -658,34 +723,47 @@ fn aliased_guest_snapshot() {
     let step = TestModule::interpreter();
     let code = [0x8b, 0x03, 0x89, 0x11, 0x8b, 0xf0];
     let mut image = Image::new(&code);
-    image.register(36, 0x4000);
-    image.register(28, 0x6000);
+    image.cpu.registers.ebx = 0x4000;
+    image.cpu.registers.ecx = 0x6000;
     image.map(4, 0x8000, true);
     image.map(6, 0x8000, true);
     image.data(0x7fff, &[0xa5, 0x78, 0x56, 0x34, 0x92, 0x5a]);
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.eax = 0x9234_5678;
+    expected_cpu.eip = 0x1002;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1002),
+    });
+
+    expected_cpu.eip = 0x1004;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[(0x8000, &[0xef, 0xbe, 0xad, 0xde])],
+        exit: Exit::Dispatch(0x1004),
+    });
+
+    expected_cpu.registers.esi = 0x9234_5678;
+    expected_cpu.eip = 0x1006;
+    expected_cpu.instruction_count = 2;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1006),
+    });
+
     both(
         step,
         "distinct guest pages alias the loaded snapshot",
         &code,
         3,
         &image,
-        &[
-            Step {
-                cpu: &[(24, 0x9234_5678), (56, 0x1002), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1002),
-            },
-            Step {
-                cpu: &[(56, 0x1004), (144, 1)],
-                ram: &[(0x8000, &[0xef, 0xbe, 0xad, 0xde])],
-                exit: Exit::Dispatch(0x1004),
-            },
-            Step {
-                cpu: &[(48, 0x9234_5678), (56, 0x1006), (144, 2)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1006),
-            },
-        ],
+        &steps,
     );
 }
 
@@ -697,8 +775,8 @@ fn memory_accesses_and_faults_execute_in_optimizing_v8() {
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 3).unwrap());
     for bad_frame in [false, true] {
         let mut image = Image::new(&code);
-        image.register(36, 0x4ffe);
-        image.register(28, 0x6000);
+        image.cpu.registers.ebx = 0x4ffe;
+        image.cpu.registers.ecx = 0x6000;
         image.map(4, 0x8000, true);
         image.map(5, 0xa000, true);
         image.data(0x8ffd, &[0xa5, 0x78, 0x56]);
@@ -715,33 +793,38 @@ fn memory_accesses_and_faults_execute_in_optimizing_v8() {
             }
         };
         let writes = [(0x8ffe, &[42, 0][..]), (0xa000, &[0, 0][..])];
-        let steps = [
-            Step {
-                cpu: &[(24, 42), (56, 0x1005), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1005),
-            },
-            Step {
-                cpu: &[(56, 0x1007), (144, 1)],
-                ram: &writes,
-                exit: Exit::Dispatch(0x1007),
-            },
-            Step {
-                cpu: &[],
-                ram: &[],
-                exit,
-            },
-        ];
+        let mut expected_cpu = image.cpu;
+        let mut steps = Vec::new();
+
+        expected_cpu.registers.eax = 42;
+        expected_cpu.eip = 0x1005;
+        expected_cpu.instruction_count = 0;
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit: Exit::Dispatch(0x1005),
+        });
+
+        expected_cpu.eip = 0x1007;
+        expected_cpu.instruction_count = 1;
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &writes,
+            exit: Exit::Dispatch(0x1007),
+        });
+
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit,
+        });
+
         assert_eq!(
             TestModule::interpreter().observe_v8(&image.input(), 3),
             machine::expected(&image, &steps),
         );
         // A Wasm trap interrupts snapshot publication; successful stores remain visible.
-        let cpu = if bad_frame {
-            &[][..]
-        } else {
-            &[(24, 42), (56, 0x1007), (144, 1)][..]
-        };
+        let cpu = if bad_frame { image.cpu } else { expected_cpu };
         assert_eq!(
             block.observe_v8(&image.input(), 1),
             machine::expected(
@@ -758,15 +841,15 @@ fn memory_accesses_and_faults_execute_in_optimizing_v8() {
 
 #[test]
 fn read_does_not_require_writable_memory() {
-    use crate::support::guest::{Exit, Machine, Permissions::*, Register::*};
+    use crate::support::guest::{Exit, Machine, Permissions::*};
 
     let mut machine = Machine::new(&[0x8b, 0x13]); // MOV EDX, [EBX].
-    machine.cpu.set_register(Ebx, 0x4020);
+    machine.cpu.registers.ebx = 0x4020;
     machine.memory(0x4020, &0x9234_5678_u32.to_le_bytes(), ReadOnly);
     let mut expected = machine.state();
-    expected.cpu.set_register(Edx, 0x9234_5678);
-    expected.cpu.set_eip(0x1002);
-    expected.cpu.set_instruction_count(0);
+    expected.cpu.registers.edx = 0x9234_5678;
+    expected.cpu.eip = 0x1002;
+    expected.cpu.instruction_count = 0;
 
     for result in [machine.run_step(), machine.run_block(1)] {
         assert_eq!(result.exit, Exit::Dispatch(0x1002));
@@ -778,10 +861,10 @@ fn read_does_not_require_writable_memory() {
 
 #[test]
 fn an_unmapped_read_preserves_cpu_and_memory() {
-    use crate::support::guest::{Exit, Machine, Permissions::*, Register::*};
+    use crate::support::guest::{Exit, Machine, Permissions::*};
 
     let mut machine = Machine::new(&[0x8b, 0x13]); // MOV EDX, [EBX].
-    machine.cpu.set_register(Ebx, 0x4020);
+    machine.cpu.registers.ebx = 0x4020;
     // Retain data canaries even though this read has no mapping.
     machine.memory(0x8ffd, &[0xa5, 0x78, 0x56], ReadWrite);
     machine.memory(0xa000, &[0x34, 0x92, 0x5a], ReadWrite);
@@ -802,15 +885,15 @@ fn an_unmapped_read_preserves_cpu_and_memory() {
 
 #[test]
 fn a_store_changes_only_the_addressed_bytes() {
-    use crate::support::guest::{Exit, Machine, Permissions::ReadWrite, Register::*};
+    use crate::support::guest::{Exit, Machine, Permissions::ReadWrite};
 
     let mut machine = Machine::new(&[0x89, 0x13]); // MOV [EBX], EDX.
-    machine.cpu.set_register(Ebx, 0x4020);
-    machine.cpu.set_register(Edx, 0x1234_5678);
+    machine.cpu.registers.ebx = 0x4020;
+    machine.cpu.registers.edx = 0x1234_5678;
     machine.memory(0x401f, &[0xa5, 0, 0, 0, 0, 0x5a], ReadWrite);
     let mut expected = machine.state();
-    expected.cpu.set_eip(0x1002);
-    expected.cpu.set_instruction_count(0);
+    expected.cpu.eip = 0x1002;
+    expected.cpu.instruction_count = 0;
     expected
         .memory
         .write(0x4020, &0x1234_5678_u32.to_le_bytes());

@@ -2,6 +2,7 @@
 //! still use `machine::Image` and the lower-level execution observations directly.
 
 use std::{collections::BTreeMap, fmt};
+use wasm86_x86::CpuState;
 
 pub(crate) use super::machine::Exit;
 
@@ -9,102 +10,6 @@ use super::{
     machine::Image,
     step::{Argument, Event, Outcome, Snapshot, TestModule},
 };
-
-#[derive(Clone, Copy)]
-pub(crate) enum Register {
-    Eax = 24,
-    Ecx = 28,
-    Edx = 32,
-    Ebx = 36,
-    Esp = 40,
-    Ebp = 44,
-    Esi = 48,
-    Edi = 52,
-}
-
-#[derive(Clone, Eq, PartialEq)]
-pub(crate) struct Cpu([u8; 152]);
-
-impl fmt::Debug for Cpu {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("Cpu")
-            .field(
-                "eax",
-                &format_args!("{:#010x}", self.register(Register::Eax)),
-            )
-            .field(
-                "ecx",
-                &format_args!("{:#010x}", self.register(Register::Ecx)),
-            )
-            .field(
-                "edx",
-                &format_args!("{:#010x}", self.register(Register::Edx)),
-            )
-            .field(
-                "ebx",
-                &format_args!("{:#010x}", self.register(Register::Ebx)),
-            )
-            .field(
-                "esp",
-                &format_args!("{:#010x}", self.register(Register::Esp)),
-            )
-            .field(
-                "ebp",
-                &format_args!("{:#010x}", self.register(Register::Ebp)),
-            )
-            .field(
-                "esi",
-                &format_args!("{:#010x}", self.register(Register::Esi)),
-            )
-            .field(
-                "edi",
-                &format_args!("{:#010x}", self.register(Register::Edi)),
-            )
-            .field("eip", &format_args!("{:#010x}", self.eip()))
-            .field("instruction_count", &self.instruction_count())
-            .field("bytes", &format_args!("{:02x?}", self.0))
-            .finish()
-    }
-}
-
-impl Cpu {
-    pub(crate) fn from_bytes(bytes: [u8; 152]) -> Self {
-        Self(bytes)
-    }
-
-    pub(crate) fn register(&self, register: Register) -> u32 {
-        self.word(register as usize)
-    }
-
-    pub(crate) fn set_register(&mut self, register: Register, value: u32) {
-        self.set_word(register as usize, value);
-    }
-
-    pub(crate) fn eip(&self) -> u32 {
-        self.word(56)
-    }
-
-    pub(crate) fn set_eip(&mut self, value: u32) {
-        self.set_word(56, value);
-    }
-
-    pub(crate) fn instruction_count(&self) -> u32 {
-        self.word(144)
-    }
-
-    pub(crate) fn set_instruction_count(&mut self, value: u32) {
-        self.set_word(144, value);
-    }
-
-    fn word(&self, offset: usize) -> u32 {
-        u32::from_le_bytes(self.0[offset..offset + 4].try_into().unwrap())
-    }
-
-    fn set_word(&mut self, offset: usize, value: u32) {
-        self.0[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-    }
-}
 
 #[derive(Clone, Copy)]
 pub(crate) enum Permissions {
@@ -115,7 +20,7 @@ pub(crate) enum Permissions {
 const CODE_START: u32 = 0x1000;
 
 pub(crate) struct Machine {
-    pub(crate) cpu: Cpu,
+    pub(crate) cpu: CpuState,
     code: Vec<u8>,
     image: Image,
     pages: BTreeMap<u32, u32>,
@@ -131,7 +36,7 @@ impl Machine {
         );
         let image = Image::new(code);
         Self {
-            cpu: Cpu(image.cpu),
+            cpu: image.cpu,
             code: code.to_vec(),
             image,
             pages: BTreeMap::from([(1, 0x3000)]),
@@ -178,7 +83,7 @@ impl Machine {
 
     pub(crate) fn run_block(&self, instruction_limit: u32) -> Execution {
         let module = wasm86_x86::compile_block_from_bytes(
-            self.cpu.eip(),
+            self.cpu.eip,
             self.code_at_eip(),
             instruction_limit,
         )
@@ -187,7 +92,7 @@ impl Machine {
     }
 
     fn code_at_eip(&self) -> &[u8] {
-        let offset = self.cpu.eip().wrapping_sub(CODE_START) as usize;
+        let offset = self.cpu.eip.wrapping_sub(CODE_START) as usize;
         assert!(offset < self.code.len(), "EIP must select the fixture code");
         &self.code[offset..]
     }
@@ -198,7 +103,7 @@ impl Machine {
             bytes[*offset as usize..*offset as usize + data.len()].copy_from_slice(data);
         }
         State {
-            cpu: self.cpu.clone(),
+            cpu: self.cpu,
             memory: Memory {
                 bytes,
                 pages: self.pages.clone(),
@@ -209,12 +114,12 @@ impl Machine {
     fn run(&self, module: &TestModule) -> Execution {
         self.code_at_eip();
         let mut input = self.image.input();
-        input.cpu = self.cpu.0.to_vec();
+        input.cpu = self.cpu.to_bytes().to_vec();
         let observation = module.observe(&input, 1);
         let initial = self.state();
         let state = |snapshot: &Snapshot| {
             let mut state = initial.clone();
-            state.cpu = Cpu(snapshot.cpu.as_slice().try_into().unwrap());
+            state.cpu = CpuState::from_bytes(snapshot.cpu.as_slice().try_into().unwrap());
             for &(offset, value) in snapshot.guest.as_ref().unwrap() {
                 state.memory.bytes[offset as usize] = value;
             }
@@ -304,7 +209,7 @@ impl fmt::Debug for Memory {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct State {
-    pub(crate) cpu: Cpu,
+    pub(crate) cpu: CpuState,
     pub(crate) memory: Memory,
 }
 

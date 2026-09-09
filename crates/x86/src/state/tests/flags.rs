@@ -1,8 +1,10 @@
+use crate::state::access::cpu_load;
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot};
+use crate::{CpuState, Gpr32};
 
 mod conditions;
 
-use super::super::{Cpu, Gpr32, Register, State};
+use super::super::{Cpu, Register, State};
 use crate::flags::{ArithmeticKind, Condition, FlagSource, StatusFlag};
 use wasm86_compiler::{BuildError, Program, Signature, Type, I1, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
@@ -259,7 +261,7 @@ fn invalid_flag_sources_leave_the_previous_source_unchanged() {
                 );
                 let mut child_value = None;
                 body.if_(false, |mut arm| {
-                    child_value = Some(arm.load::<I32>(cpu.memory(), 24)?);
+                    child_value = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?);
                     Ok(())
                 })?;
                 let child_value = child_value.unwrap();
@@ -322,8 +324,8 @@ fn invalid_explicit_values_leave_the_previous_source_unchanged() {
                 let mut child_values = None;
                 body.if_(false, |mut arm| {
                     child_values = Some((
-                        arm.load::<I32>(cpu.memory(), 24)?,
-                        arm.load::<I8>(cpu.memory(), 12)?.ne(0),
+                        cpu_load!(&mut arm, cpu.memory(), registers.eax)?,
+                        cpu_load!(&mut arm, cpu.memory(), flags.status.cf)?.ne(0),
                     ));
                     Ok(())
                 })?;
@@ -422,30 +424,35 @@ fn flags_after_register_synchronization() -> crate::CompiledModule {
 #[test]
 fn flag_publication_preserves_register_snapshots_in_wasmtime() {
     let module = crate::test_step::TestModule::new(&flags_after_register_synchronization());
-    let mut initial = [0xa5u8; 152];
-    for (offset, value) in [(24, 7u32), (28, 9), (56, 0x1000), (144, 0xffff_ffff)] {
-        initial[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-    }
+    let mut initial = CpuState::filled(0xa5);
+    initial.registers.eax = 7;
+    initial.registers.ecx = 9;
+    initial.eip = 0x1000;
+    initial.instruction_count = 0xffff_ffff;
     for index in [0, 1] {
         for stop in [0, 1] {
             let mut expected = initial;
-            expected[0] = if stop == 1 { 9 } else { 11 };
-            let patches = if stop == 1 {
-                vec![(4, 7u32), (8, 1), (24, 0xdead_beef), (56, 0x1002), (144, 0)]
-            } else {
-                // The untaken earlier exit never publishes its right payload.
-                vec![(4, 0u32), (24, 0xdead_beef), (56, 0x1004), (144, 1)]
-            };
+            expected.registers.eax = 0xdead_beef;
             if index == 1 {
-                expected[28..32].copy_from_slice(&0u32.to_le_bytes());
+                expected.registers.ecx = 0;
             }
-            for (offset, value) in patches {
-                expected[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+            if stop == 1 {
+                expected.flags.kind = 9;
+                expected.flags.left = 7;
+                expected.flags.right = 1;
+                expected.eip = 0x1002;
+                expected.instruction_count = 0;
+            } else {
+                expected.flags.kind = 11;
+                expected.flags.left = 0;
+                // The untaken earlier exit never publishes its right payload.
+                expected.eip = 0x1004;
+                expected.instruction_count = 1;
             }
             let result = if stop == 1 { 7 } else { 0 };
             let input = Input {
                 arguments: vec![Argument::I32(index), Argument::I32(stop)],
-                ..Input::new(&initial)
+                ..Input::new(&initial.to_bytes())
             };
             assert_eq!(
                 module.observe(&input, 1),
@@ -453,7 +460,7 @@ fn flag_publication_preserves_register_snapshots_in_wasmtime() {
                     events: vec![Event::Return {
                         outcome: Outcome::Returned(Some(Argument::I64(result))),
                         snapshot: Snapshot {
-                            cpu: expected.to_vec(),
+                            cpu: expected.to_bytes().to_vec(),
                             guest: None,
                         },
                     }],

@@ -8,8 +8,8 @@ use step::TestModule;
 
 fn image(code: &[u8]) -> Image {
     let mut image = Image::new(code);
-    image.register(24, 0x4433_2211);
-    image.register(36, 0x10ff_eedd);
+    image.cpu.registers.eax = 0x4433_2211;
+    image.cpu.registers.ebx = 0x10ff_eedd;
     image
 }
 
@@ -93,24 +93,35 @@ fn instruction_length_counts_prefixes_and_each_required_field_byte() {
 fn operand_size() {
     let step = TestModule::interpreter();
     let code = [0x66, 0x66, 0xb8, 0x34, 0x12, 0xb9, 0x55, 0x66, 0x77, 0x88];
+    let repeated_override = image(&code);
+    let mut expected_cpu = repeated_override.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.eax = 0x4433_1234;
+    expected_cpu.eip = 0x1005;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1005),
+    });
+
+    expected_cpu.registers.ecx = 0x8877_6655;
+    expected_cpu.eip = 0x100a;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x100a),
+    });
+
     both(
         step,
         "repeated override is idempotent and ends with its instruction",
         &code,
         2,
-        &image(&code),
-        &[
-            Step {
-                cpu: &[(24, 0x4433_1234), (56, 0x1005), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1005),
-            },
-            Step {
-                cpu: &[(28, 0x8877_6655), (56, 0x100a), (144, 1)],
-                ram: &[],
-                exit: Exit::Dispatch(0x100a),
-            },
-        ],
+        &repeated_override,
+        &steps,
     );
     for (name, code, expected, stored) in [
         (
@@ -154,6 +165,10 @@ fn operand_size() {
         image.map(4, 0x8000, true);
         image.data(0x801f, &[0xa5, 0x80, 0x5a]);
         let next_eip = 0x1000 + code.len() as u32;
+        let mut expected_cpu = image.cpu;
+        expected_cpu.registers.eax = expected;
+        expected_cpu.eip = next_eip;
+        expected_cpu.instruction_count = 0;
         both(
             step,
             name,
@@ -161,7 +176,7 @@ fn operand_size() {
             1,
             &image,
             &[Step {
-                cpu: &[(24, expected), (56, next_eip), (144, 0)],
+                cpu: expected_cpu,
                 ram: stored,
                 exit: Exit::Dispatch(next_eip),
             }],
@@ -184,13 +199,17 @@ fn fetch_boundaries() {
         ),
     ] {
         let mut image = image(&code);
-        image.register(56, start);
+        image.cpu.eip = start;
         image.guest.clear();
         image.map(first_page, first_frame, false);
         image.map(if first_page == 1 { 2 } else { 0 }, 0xa000, false);
         let available = 0x1000 - (start & 0xfff);
         image.data(first_frame + (start & 0xfff), &code[..available as usize]);
         image.data(0xa000, &code[available as usize..]);
+        let mut expected_cpu = image.cpu;
+        expected_cpu.registers.eax = 0x4433_1234;
+        expected_cpu.eip = next_eip;
+        expected_cpu.instruction_count = 0;
         both(
             step,
             name,
@@ -198,16 +217,20 @@ fn fetch_boundaries() {
             1,
             &image,
             &[Step {
-                cpu: &[(24, 0x4433_1234), (56, next_eip), (144, 0)],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: Exit::Dispatch(next_eip),
             }],
         );
     }
     let mut at_end = image(&code);
-    at_end.register(56, 0x1ffc);
+    at_end.cpu.eip = 0x1ffc;
     at_end.guest.clear();
     at_end.data(0x3ffc, &code);
+    let mut expected_cpu = at_end.cpu;
+    expected_cpu.registers.eax = 0x4433_1234;
+    expected_cpu.eip = 0x2000;
+    expected_cpu.instruction_count = 0;
     both(
         step,
         "complete word instruction needs no following page",
@@ -215,7 +238,7 @@ fn fetch_boundaries() {
         1,
         &at_end,
         &[Step {
-            cpu: &[(24, 0x4433_1234), (56, 0x2000), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(0x2000),
         }],
@@ -241,16 +264,17 @@ fn fetch_boundaries() {
         ),
     ] {
         let mut image = image(available_bytes);
-        image.register(56, start);
-        image.register(36, 0x4000);
+        image.cpu.eip = start;
+        image.cpu.registers.ebx = 0x4000;
         image.guest.clear();
         image.data(0x3000 + (start & 0xfff), available_bytes);
+        let expected_cpu = image.cpu;
         check(
             step,
             name,
             &image,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: Exit::PageFault {
                     address: 0x00002000,
@@ -263,15 +287,18 @@ fn fetch_boundaries() {
         0x66, 0x66, 0x66, 0xc7, 0x84, 0x8b, 0x20, 0x40, 0, 0, 0xa1, 0x88,
     ];
     let mut image = image(&code);
-    image.register(56, 0x1ff8);
-    image.register(36, 0xffff_fff0);
-    image.register(28, 4);
+    image.cpu.eip = 0x1ff8;
+    image.cpu.registers.ebx = 0xffff_fff0;
+    image.cpu.registers.ecx = 4;
     image.guest.clear();
     image.data(0x3ff8, &code[..8]);
     image.map(2, 0xa000, false);
     image.data(0xa000, &code[8..]);
     image.map(4, 0x8000, true);
     image.data(0x801f, &[0xa5, 0, 0, 0x5a]);
+    let mut expected_cpu = image.cpu;
+    expected_cpu.eip = 0x2004;
+    expected_cpu.instruction_count = 0;
     both(
         step,
         "prefixed SIB displacement crosses scattered code pages",
@@ -279,7 +306,7 @@ fn fetch_boundaries() {
         1,
         &image,
         &[Step {
-            cpu: &[(56, 0x2004), (144, 0)],
+            cpu: expected_cpu,
             ram: &[(0x8020, &[0xa1, 0x88])],
             exit: Exit::Dispatch(0x2004),
         }],
@@ -292,9 +319,13 @@ fn length_precedence() {
     let mut maximum = vec![0x66; 12];
     maximum.extend_from_slice(&[0xb8, 0x34, 0x12]);
     let mut maximum_image = image(&maximum);
-    maximum_image.register(56, 0x1ff1);
+    maximum_image.cpu.eip = 0x1ff1;
     maximum_image.guest.clear();
     maximum_image.data(0x3ff1, &maximum);
+    let mut expected_cpu = maximum_image.cpu;
+    expected_cpu.registers.eax = 0x4433_1234;
+    expected_cpu.eip = 0x2000;
+    expected_cpu.instruction_count = 0;
     both(
         step,
         "fifteen-byte word MOV retires without fetching a sixteenth byte",
@@ -302,7 +333,7 @@ fn length_precedence() {
         1,
         &maximum_image,
         &[Step {
-            cpu: &[(24, 0x4433_1234), (56, 0x2000), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(0x2000),
         }],
@@ -370,15 +401,16 @@ fn length_precedence() {
         let mut code = vec![0x66; prefixes];
         code.extend_from_slice(suffix);
         let mut image = image(&code);
-        image.register(56, start);
+        image.cpu.eip = start;
         image.guest.clear();
         image.data(0x3000 + (start & 0xfff), &code);
+        let expected_cpu = image.cpu;
         check(
             step,
             name,
             &image,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: expected,
             }],
@@ -410,15 +442,16 @@ fn length_precedence() {
         let mut code = vec![0x66; prefixes];
         code.extend_from_slice(suffix);
         let mut image = image(&code);
-        image.register(56, start);
+        image.cpu.eip = start;
         image.guest.clear();
         image.data(0x3000 + (start & 0xfff), &code);
+        let expected_cpu = image.cpu;
         check(
             step,
             name,
             &image,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: expected,
             }],
@@ -431,21 +464,29 @@ fn completed_progress() {
     let step = TestModule::interpreter();
     let mut code = vec![0x66, 0xb8, 0x34, 0x12];
     code.extend_from_slice(&[0x66; 15]);
+    let image = image(&code);
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.registers.eax = 0x4433_1234;
+    expected_cpu.eip = 0x1004;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1004),
+    });
+
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Other(0x0002_0000_0000_0000),
+    });
+
     check(
         step,
         "overlong next instruction preserves completed word progress",
-        &image(&code),
-        &[
-            Step {
-                cpu: &[(24, 0x4433_1234), (56, 0x1004), (144, 0)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1004),
-            },
-            Step {
-                cpu: &[],
-                ram: &[],
-                exit: Exit::Other(0x0002_0000_0000_0000),
-            },
-        ],
+        &image,
+        &steps,
     );
 }

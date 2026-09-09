@@ -7,10 +7,10 @@ fn image(start: u32, code: &[u8]) -> Image {
     let mut image = Image::new(&[]);
     image.guest.clear();
     image.data(0x3000 + (start & 0xfff), code);
-    image.register(56, start);
-    for offset in [36, 40, 52] {
-        image.register(offset, 0x8000);
-    }
+    image.cpu.eip = start;
+    image.cpu.registers.ebx = 0x8000;
+    image.cpu.registers.esp = 0x8000;
+    image.cpu.registers.edi = 0x8000;
     image.map(8, 0x5000, true);
     image.data(0x507f, &[0xa5; 4]);
     image
@@ -33,12 +33,15 @@ fn conditional_operand_fields_respect_the_proven_fetch_extent() {
             0x2000,
         ),
     ] {
+        let mut expected_cpu = image(start, code).cpu;
+        expected_cpu.eip = next;
+        expected_cpu.instruction_count = 0;
         check(
             module,
             name,
             &image(start, code),
             &[Step {
-                cpu: &[(56, next), (144, 0)],
+                cpu: expected_cpu,
                 ram: &[(0x507f, &[0x80])],
                 exit: Exit::Dispatch(next),
             }],
@@ -56,12 +59,13 @@ fn conditional_operand_fields_respect_the_proven_fetch_extent() {
             &[0xc7, 0x44, 0x24, 0x7f, 0x12][..],
         ),
     ] {
+        let expected_cpu = image(start, code).cpu;
         check(
             module,
             name,
             &image(start, code),
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: Exit::PageFault {
                     address: 0x00002000,
@@ -75,14 +79,17 @@ fn conditional_operand_fields_respect_the_proven_fetch_extent() {
         ("extended opcode uses checked reads at page end", 0x1ffc),
     ] {
         let mut image = image(start, &[0x0f, 0x94, 0x47, 0x7f]);
-        image.cpu[0] = 11;
-        image.register(4, 0);
+        image.cpu.flags.kind = 11;
+        image.cpu.flags.left = 0;
+        let mut expected_cpu = image.cpu;
+        expected_cpu.eip = start + 4;
+        expected_cpu.instruction_count = 0;
         check(
             module,
             name,
             &image,
             &[Step {
-                cpu: &[(56, start + 4), (144, 0)],
+                cpu: expected_cpu,
                 ram: &[(0x507f, &[1])],
                 exit: Exit::Dispatch(start + 4),
             }],

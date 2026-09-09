@@ -1,11 +1,11 @@
-use wasm86_x86::compile_block_from_bytes;
+use wasm86_x86::{compile_block_from_bytes, CpuState, StatusFlags};
 use wasmparser::Validator;
 
 use crate::support::arithmetic;
 use crate::support::conditions;
 use crate::support::machine;
 use crate::support::step;
-use arithmetic::{image, recipe};
+use arithmetic::image;
 use conditions::check_conditions;
 use machine::{both, check, Exit, Image, Step};
 use step::TestModule;
@@ -39,8 +39,7 @@ const WIDTHS: [u32; 3] = [8, 16, 32];
 
 struct Expected {
     result: u32,
-    // Literal CPU order: CF, PF, AF, ZF, SF, OF.
-    status: [u8; 6],
+    status: StatusFlags,
     conditions: u16,
 }
 
@@ -87,7 +86,14 @@ fn expected(op: Operation, bits: u32, left: u32, right: u32, carry: bool) -> Exp
     }
     Expected {
         result,
-        status: [cf, pf, af, zf, sf, of].map(u8::from),
+        status: StatusFlags {
+            cf: u8::from(cf),
+            pf: u8::from(pf),
+            af: u8::from(af),
+            zf: u8::from(zf),
+            sf: u8::from(sf),
+            of: u8::from(of),
+        },
         conditions,
     }
 }
@@ -110,18 +116,10 @@ fn code_with_width(bits: u32, opcode: u8, tail: &[u8]) -> Vec<u8> {
     code
 }
 
-fn concrete_updates(image: &Image, expected: &Expected) -> Vec<(usize, u32)> {
-    let mut cpu = image.cpu;
-    cpu[0] = 0;
-    cpu[12..18].copy_from_slice(&expected.status);
-    [0, 12, 16]
-        .map(|offset| {
-            (
-                offset,
-                u32::from_le_bytes(cpu[offset..offset + 4].try_into().unwrap()),
-            )
-        })
-        .to_vec()
+fn concrete_cpu(mut cpu: CpuState, expected: &Expected) -> CpuState {
+    cpu.flags.kind = 0;
+    cpu.flags.status = expected.status;
+    cpu
 }
 
 fn check_result(
@@ -130,11 +128,13 @@ fn check_result(
     code: &[u8],
     image: &Image,
     expected: &Expected,
-    register: (usize, u32),
+    eax: u32,
 ) {
     let next = 0x1000 + code.len() as u32;
-    let mut updates = concrete_updates(image, expected);
-    updates.extend_from_slice(&[register, (56, next), (144, 0)]);
+    let mut cpu = concrete_cpu(image.cpu, expected);
+    cpu.registers.eax = eax;
+    cpu.eip = next;
+    cpu.instruction_count = 0;
     both(
         step,
         name,
@@ -142,7 +142,7 @@ fn check_result(
         1,
         image,
         &[Step {
-            cpu: &updates,
+            cpu,
             ram: &[],
             exit: Exit::Dispatch(next),
         }],
@@ -174,17 +174,17 @@ fn edge_conditions() {
                     let eax = register_result(0x4433_2200, bits, left);
                     let expected = expected(op, bits, left, right, carry);
                     let mut image = image(&code);
-                    image.cpu[12] = u8::from(carry);
-                    image.register(24, eax);
-                    image.register(36, right);
-                    let mut updates = concrete_updates(&image, &expected);
-                    updates.push((24, register_result(eax, bits, expected.result)));
+                    image.cpu.flags.status.cf = u8::from(carry);
+                    image.cpu.registers.eax = eax;
+                    image.cpu.registers.ebx = right;
+                    let mut cpu = concrete_cpu(image.cpu, &expected);
+                    cpu.registers.eax = register_result(eax, bits, expected.result);
                     check_conditions(
                         step,
                         &format!("{op:?}/{bits}: {left:#x}, {right:#x}, carry {carry}"),
                         &code,
                         &mut image,
-                        &updates,
+                        &cpu,
                         expected.conditions,
                     );
                 }
@@ -240,8 +240,8 @@ fn register_and_immediate_forms() {
             for (code, right) in forms {
                 let mut image = image(&code);
                 let eax = register_result(0x4433_2200, bits, 1);
-                image.register(24, eax);
-                image.register(36, right);
+                image.cpu.registers.eax = eax;
+                image.cpu.registers.ebx = right;
                 let expected = expected(op, bits, 1, right, true);
                 check_result(
                     step,
@@ -249,7 +249,7 @@ fn register_and_immediate_forms() {
                     &code,
                     &image,
                     &expected,
-                    (24, register_result(eax, bits, expected.result)),
+                    register_result(eax, bits, expected.result),
                 );
             }
         }
@@ -257,7 +257,7 @@ fn register_and_immediate_forms() {
             let code = [op.opcode(), modrm];
             let mut image = image(&code);
             let eax = 0x4433_7f80u32;
-            image.register(24, eax);
+            image.cpu.registers.eax = eax;
             let expected = expected(op, 8, eax >> left_shift, eax >> right_shift, true);
             let result = (eax & !(0xff << left_shift)) | (expected.result << left_shift);
             check_result(
@@ -266,14 +266,14 @@ fn register_and_immediate_forms() {
                 &code,
                 &image,
                 &expected,
-                (24, result),
+                result,
             );
         }
         for bits in [16, 32] {
             let code = code_with_width(bits, op.opcode() + 1, &[0xc0]);
             let mut image = image(&code);
             let eax = 0x8000_8000;
-            image.register(24, eax);
+            image.cpu.registers.eax = eax;
             let expected = expected(op, bits, eax, eax, true);
             check_result(
                 step,
@@ -281,7 +281,7 @@ fn register_and_immediate_forms() {
                 &code,
                 &image,
                 &expected,
-                (24, register_result(eax, bits, expected.result)),
+                register_result(eax, bits, expected.result),
             );
         }
     }
@@ -314,12 +314,12 @@ fn incoming_sources() {
                         &vec![0; (bits / 8) as usize],
                     );
                     let mut image = image(&code);
-                    for (offset, value) in recipe(width_tag | kind, left | high, right | high) {
-                        image.register(offset, value);
-                    }
-                    image.cpu[12] = u8::from(!carry);
+                    image.cpu.flags.kind = width_tag | kind;
+                    image.cpu.flags.left = left | high;
+                    image.cpu.flags.right = right | high;
+                    image.cpu.flags.status.cf = u8::from(!carry);
                     let eax = register_result(0x4433_2200, bits, 0);
-                    image.register(24, eax);
+                    image.cpu.registers.eax = eax;
                     let expected = expected(op, bits, 0, 0, carry);
                     check_result(
                         step,
@@ -327,7 +327,7 @@ fn incoming_sources() {
                         &code,
                         &image,
                         &expected,
-                        (24, register_result(eax, bits, expected.result)),
+                        register_result(eax, bits, expected.result),
                     );
                 }
             }
@@ -350,11 +350,11 @@ fn local_sources_and_publication() {
                 let consumer = [op.opcode() + 1, 0xd8];
                 let code = [producer.as_slice(), &consumer].concat();
                 let mut image = image(&code);
-                image.cpu[12] = u8::from(!carry);
-                image.register(24, 0xffff_ffff);
-                image.register(28, register_result(0x4433_2200, source_bits, left));
-                image.register(32, right);
-                image.register(36, 0);
+                image.cpu.flags.status.cf = u8::from(!carry);
+                image.cpu.registers.eax = 0xffff_ffff;
+                image.cpu.registers.ecx = register_result(0x4433_2200, source_bits, left);
+                image.cpu.registers.edx = right;
+                image.cpu.registers.ebx = 0;
                 let ecx = register_result(0x4433_2200, source_bits, source_result);
                 let tag = kind
                     | match source_bits {
@@ -362,48 +362,59 @@ fn local_sources_and_publication() {
                         16 => 4,
                         _ => 8,
                     };
-                let mut first = if kind == 3 {
-                    vec![(0, 0xa5a5_a500 | u32::from(tag)), (4, source_result)]
+                let mut expected_cpu = image.cpu;
+                let mut steps = Vec::new();
+
+                if kind == 3 {
+                    expected_cpu.flags.kind = tag;
+                    expected_cpu.flags.left = source_result;
                 } else {
-                    recipe(tag, left, right).to_vec()
-                };
-                first.extend_from_slice(&[
-                    (28, ecx),
-                    (56, 0x1000 + producer.len() as u32),
-                    (144, 0),
-                ]);
+                    expected_cpu.flags.kind = tag;
+                    expected_cpu.flags.left = left;
+                    expected_cpu.flags.right = right;
+                }
+                expected_cpu.registers.ecx = ecx;
+                expected_cpu.eip = 0x1000 + producer.len() as u32;
+                expected_cpu.instruction_count = 0;
+                steps.push(Step {
+                    cpu: expected_cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(expected_cpu.eip),
+                });
+
                 let expected = expected(op, 32, 0xffff_ffff, 0, carry);
                 let next = 0x1000 + code.len() as u32;
-                let mut last = concrete_updates(&image, &expected);
-                last.extend_from_slice(&[(24, expected.result), (56, next), (144, 1)]);
+                expected_cpu.flags.kind = 0;
+                expected_cpu.flags.status = expected.status;
+                expected_cpu.registers.eax = expected.result;
+                expected_cpu.eip = next;
+                expected_cpu.instruction_count = 1;
+                steps.push(Step {
+                    cpu: expected_cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(next),
+                });
+
                 check(
                     step,
                     "carry consumes the prior completed source",
                     &image,
-                    &[
-                        Step {
-                            cpu: &first,
-                            ram: &[],
-                            exit: Exit::Dispatch(0x1000 + producer.len() as u32),
-                        },
-                        Step {
-                            cpu: &last,
-                            ram: &[],
-                            exit: Exit::Dispatch(next),
-                        },
-                    ],
+                    &steps,
                 );
+
                 // A single snapshot publishes only its final flags. The overwritten
                 // source's unused payload must retain its original backing bytes.
                 let snapshot = compile_block_from_bytes(0x1000, &code, 2).unwrap();
                 Validator::new().validate_all(&snapshot.bytes).unwrap();
-                last.push((28, ecx));
+                expected_cpu.flags.left = image.cpu.flags.left;
+                expected_cpu.flags.right = image.cpu.flags.right;
+
                 check(
                     &TestModule::new(&snapshot),
                     "local carry source publishes concrete flags",
                     &image,
                     &[Step {
-                        cpu: &last,
+                        cpu: expected_cpu,
                         ram: &[],
                         exit: Exit::Dispatch(next),
                     }],
@@ -413,10 +424,12 @@ fn local_sources_and_publication() {
     }
 }
 
-fn mixed_carry_updates(image: &Image) -> Vec<Vec<(usize, u32)>> {
+fn mixed_carry_steps(image: &Image) -> Vec<Step<'static>> {
     let mut eax = 0xffff_ffff;
     let mut carry = true;
-    let mut updates = Vec::new();
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
     for (count, (op, bits, next)) in [
         (Operation::Adc, 8, 0x1002),
         (Operation::Sbb, 16, 0x1005),
@@ -427,12 +440,19 @@ fn mixed_carry_updates(image: &Image) -> Vec<Vec<(usize, u32)>> {
     {
         let result = expected(op, bits, eax, 0, carry);
         eax = register_result(eax, bits, result.result);
-        carry = result.status[0] != 0;
-        let mut changes = concrete_updates(image, &result);
-        changes.extend_from_slice(&[(24, eax), (56, next), (144, count as u32)]);
-        updates.push(changes);
+        carry = result.status.cf != 0;
+        expected_cpu.flags.kind = 0;
+        expected_cpu.flags.status = result.status;
+        expected_cpu.registers.eax = eax;
+        expected_cpu.eip = next;
+        expected_cpu.instruction_count = count as u32;
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit: Exit::Dispatch(next),
+        });
     }
-    updates
+    steps
 }
 
 #[test]
@@ -440,18 +460,10 @@ fn mixed_carry_chain_replaces_incoming_carry() {
     let step = TestModule::interpreter();
     let code = [0x10, 0xd8, 0x66, 0x19, 0xd8, 0x11, 0xd8];
     let mut image = image(&code);
-    image.register(24, 0xffff_ffff);
-    image.register(36, 0);
-    let updates = mixed_carry_updates(&image);
-    let steps = updates
-        .iter()
-        .zip([0x1002, 0x1005, 0x1007])
-        .map(|(cpu, next)| Step {
-            cpu,
-            ram: &[],
-            exit: Exit::Dispatch(next),
-        })
-        .collect::<Vec<_>>();
+    image.cpu.registers.eax = 0xffff_ffff;
+    image.cpu.registers.ebx = 0;
+    let steps = mixed_carry_steps(&image);
+
     both(
         step,
         "mixed-width carry chain replaces cached incoming CF",
@@ -467,18 +479,10 @@ fn mixed_carry_chain_replaces_incoming_carry() {
 fn mixed_carry_chain_executes_in_optimizing_v8() {
     let code = [0x10, 0xd8, 0x66, 0x19, 0xd8, 0x11, 0xd8];
     let mut image = image(&code);
-    image.register(24, 0xffff_ffff);
-    image.register(36, 0);
-    let updates = mixed_carry_updates(&image);
-    let steps = updates
-        .iter()
-        .zip([0x1002, 0x1005, 0x1007])
-        .map(|(cpu, next)| Step {
-            cpu,
-            ram: &[],
-            exit: Exit::Dispatch(next),
-        })
-        .collect::<Vec<_>>();
+    image.cpu.registers.eax = 0xffff_ffff;
+    image.cpu.registers.ebx = 0;
+    let steps = mixed_carry_steps(&image);
+
     assert_eq!(
         TestModule::interpreter().observe_v8(&image.input(), 3),
         machine::expected(&image, &steps),
@@ -489,7 +493,7 @@ fn mixed_carry_chain_executes_in_optimizing_v8() {
         machine::expected(
             &image,
             &[Step {
-                cpu: updates.last().unwrap(),
+                cpu: steps.last().unwrap().cpu,
                 ram: &[],
                 exit: Exit::Dispatch(0x1007)
             }]

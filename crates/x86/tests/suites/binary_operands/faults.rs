@@ -121,16 +121,23 @@ fn operand_faults_precede_state_changes() {
     ] {
         let code = [&[0x01, 0xd1][..], faulting].concat();
         let mut image = image(&code);
-        image.register(24, 1);
-        image.register(28, 0x7fff_fffe);
-        image.register(32, 2);
-        image.register(36, 0x4ffe);
+        image.cpu.registers.eax = 1;
+        image.cpu.registers.ecx = 0x7fff_fffe;
+        image.cpu.registers.edx = 2;
+        image.cpu.registers.ebx = 0x4ffe;
         image.map(4, 0x8000, first_writable);
         if let Some(writable) = second_page {
             image.map(5, 0xa000, writable);
         }
         image.data(0x8ffd, &[0xa5, 0xff, 0xff]);
         image.data(0xa000, &[0xff, 0xff, 0x5a]);
+        let mut completed = image.cpu;
+        completed.flags.kind = 10;
+        completed.flags.left = 0x7fff_fffe;
+        completed.flags.right = 2;
+        completed.registers.ecx = 0x8000_0000;
+        completed.eip = 0x1002;
+        completed.instruction_count = 0;
         both(
             step,
             name,
@@ -139,19 +146,12 @@ fn operand_faults_precede_state_changes() {
             &image,
             &[
                 Step {
-                    cpu: &[
-                        (0, 0xa5a5_a50a),
-                        (4, 0x7fff_fffe),
-                        (8, 2),
-                        (28, 0x8000_0000),
-                        (56, 0x1002),
-                        (144, 0),
-                    ],
+                    cpu: completed,
                     ram: &[],
                     exit: Exit::Dispatch(0x1002),
                 },
                 Step {
-                    cpu: &[],
+                    cpu: completed,
                     ram: &[],
                     exit: fault,
                 },
@@ -160,7 +160,7 @@ fn operand_faults_precede_state_changes() {
     }
     let code = [0x0f, 0x94, 0x03];
     let mut image = image(&code);
-    image.register(36, 0x4000);
+    image.cpu.registers.ebx = 0x4000;
     image.map(4, 0x8000, false);
     image.data(0x8000, &[0xa5]);
     both(
@@ -170,7 +170,7 @@ fn operand_faults_precede_state_changes() {
         1,
         &image,
         &[Step {
-            cpu: &[],
+            cpu: image.cpu,
             ram: &[],
             exit: Exit::PageFault {
                 address: 0x00004000,

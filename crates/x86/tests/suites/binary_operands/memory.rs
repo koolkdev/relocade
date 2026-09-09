@@ -1,7 +1,6 @@
 use super::{
     image,
     machine::{both, Exit, Step},
-    recipe,
     step::TestModule,
 };
 
@@ -61,13 +60,18 @@ fn memory_operands_preserve_aliases_and_partial_registers() {
         ),
     ] {
         let mut image = image(code);
-        image.register(24, eax);
-        image.register(36, 0x4000);
+        image.cpu.registers.eax = eax;
+        image.cpu.registers.ebx = 0x4000;
         image.map(4, 0x8000, false);
         image.data(0x8000, memory);
         let next = 0x1000 + code.len() as u32;
-        let mut changes = recipe(kind, left, right).to_vec();
-        changes.extend_from_slice(&[(24, result), (56, next), (144, 0)]);
+        let mut expected = image.cpu;
+        expected.flags.kind = kind;
+        expected.flags.left = left;
+        expected.flags.right = right;
+        expected.registers.eax = result;
+        expected.eip = next;
+        expected.instruction_count = 0;
         both(
             step,
             name,
@@ -75,7 +79,7 @@ fn memory_operands_preserve_aliases_and_partial_registers() {
             1,
             &image,
             &[Step {
-                cpu: &changes,
+                cpu: expected,
                 ram: &[],
                 exit: Exit::Dispatch(next),
             }],
@@ -84,12 +88,18 @@ fn memory_operands_preserve_aliases_and_partial_registers() {
     for (name, next_frame) in [("contiguous RMW", 0x9000), ("scattered RMW", 0xa000)] {
         let code = [0x01, 0x03];
         let mut image = image(&code);
-        image.register(24, 1);
-        image.register(36, 0x4ffe);
+        image.cpu.registers.eax = 1;
+        image.cpu.registers.ebx = 0x4ffe;
         image.map(4, 0x8000, true);
         image.map(5, next_frame, true);
         image.data(0x8ffd, &[0xa5, 0xff, 0xff]);
         image.data(next_frame, &[0xff, 0x7f, 0x5a]);
+        let mut expected = image.cpu;
+        expected.flags.kind = 10;
+        expected.flags.left = 0x7fff_ffff;
+        expected.flags.right = 1;
+        expected.eip = 0x1002;
+        expected.instruction_count = 0;
         both(
             step,
             name,
@@ -97,13 +107,7 @@ fn memory_operands_preserve_aliases_and_partial_registers() {
             1,
             &image,
             &[Step {
-                cpu: &[
-                    (0, 0xa5a5_a50a),
-                    (4, 0x7fff_ffff),
-                    (8, 1),
-                    (56, 0x1002),
-                    (144, 0),
-                ],
+                cpu: expected,
                 ram: &[(0x8ffe, &[0, 0]), (next_frame, &[0, 0x80])],
                 exit: Exit::Dispatch(0x1002),
             }],
@@ -172,14 +176,18 @@ fn memory_operands_preserve_aliases_and_partial_registers() {
         ),
     ] {
         let mut image = image(code);
-        image.register(24, eax);
-        image.register(36, if code[0] == 0x66 { 0x40a0 } else { 0x4020 });
+        image.cpu.registers.eax = eax;
+        image.cpu.registers.ebx = if code[0] == 0x66 { 0x40a0 } else { 0x4020 };
         image.map(4, 0x8000, true);
         image.data(0x801f, &[0xa5, 0xcc, 0xcc, 0x5a]);
         image.data(0x8020, before);
         let next = 0x1000 + code.len() as u32;
-        let mut changes = recipe(kind, left, right).to_vec();
-        changes.extend_from_slice(&[(56, next), (144, 0)]);
+        let mut expected = image.cpu;
+        expected.flags.kind = kind;
+        expected.flags.left = left;
+        expected.flags.right = right;
+        expected.eip = next;
+        expected.instruction_count = 0;
         both(
             step,
             name,
@@ -187,7 +195,7 @@ fn memory_operands_preserve_aliases_and_partial_registers() {
             1,
             &image,
             &[Step {
-                cpu: &changes,
+                cpu: expected,
                 ram: &[(0x8020, after)],
                 exit: Exit::Dispatch(next),
             }],
@@ -256,15 +264,19 @@ fn logical_memory_operands_publish_flags() {
     ] {
         for next_frame in [0x9000, 0xa000] {
             let mut image = image(code);
-            image.register(24, eax);
-            image.register(36, 0x4fff);
+            image.cpu.registers.eax = eax;
+            image.cpu.registers.ebx = 0x4fff;
             image.map(4, 0x8000, after.is_some());
             image.map(5, next_frame, after.is_some());
             image.data(0x8ffe, &[0xa5, before[0]]);
             image.data(next_frame, &before[1..]);
             image.data(next_frame + before.len() as u32 - 1, &[0x5a]);
             let next = 0x1000 + code.len() as u32;
-            let changes = [(0, 0xa5a5_a500 | kind), (4, result), (56, next), (144, 0)];
+            let mut expected = image.cpu;
+            expected.flags.kind = kind;
+            expected.flags.left = result;
+            expected.eip = next;
+            expected.instruction_count = 0;
             let writes = after.map(|bytes| [(0x8fff, &bytes[..1]), (next_frame, &bytes[1..])]);
             both(
                 step,
@@ -273,7 +285,7 @@ fn logical_memory_operands_publish_flags() {
                 1,
                 &image,
                 &[Step {
-                    cpu: &changes,
+                    cpu: expected,
                     ram: writes
                         .as_ref()
                         .map(|writes| writes.as_slice())

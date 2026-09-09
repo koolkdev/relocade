@@ -1,4 +1,4 @@
-use super::{Environment, Location, Span};
+use super::{Environment, Location};
 use wasm86_compiler::{FunctionBuilder, MemoryImport, Program, Signature, Type, Val, I16, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -116,27 +116,24 @@ fn first_writes_order_publication_independently_of_reads_and_overwrites() {
 fn computed_accesses_synchronize_and_invalidate_only_their_declared_range() {
     let emitted = accesses(|body, state| {
         let address = body.parameter::<I32>(0).unwrap().and(1).shl(2);
-        state.define(body, Location::<I32>::new(0), 7).unwrap();
-        state.define(body, Location::<I32>::new(8), 9).unwrap();
-        let before = state
-            .read_at::<I32>(body, Span::new(0, 8), &address, 0)
-            .unwrap();
-        state
-            .write_at::<I32>(body, Span::new(0, 8), &address, 0, 11)
-            .unwrap();
-        let after = state.read(body, Location::<I32>::new(0)).unwrap();
-        let disjoint = state.read(body, Location::<I32>::new(8)).unwrap();
+        state.define(body, Location::<I32>::new(16), 7).unwrap();
+        state.define(body, Location::<I32>::new(24), 9).unwrap();
+        let indexed = Location::<I32>::indexed(16, 8, address);
+        let before = state.read(body, indexed.clone()).unwrap();
+        state.define(body, indexed, 11).unwrap();
+        let after = state.read(body, Location::<I32>::new(16)).unwrap();
+        let disjoint = state.read(body, Location::<I32>::new(24)).unwrap();
         state.publish(body).unwrap();
         before.add(after).add(disjoint)
     });
     assert_eq!(
         emitted,
         [
-            Access::Store(0, Some(7)),
-            Access::Load(0),
-            Access::Store(0, Some(11)),
-            Access::Store(8, Some(9)),
-            Access::Load(0),
+            Access::Store(16, Some(7)),
+            Access::Load(16),
+            Access::Store(16, Some(11)),
+            Access::Store(24, Some(9)),
+            Access::Load(16),
         ]
     );
 }

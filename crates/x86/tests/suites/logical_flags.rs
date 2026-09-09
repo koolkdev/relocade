@@ -186,62 +186,78 @@ fn replacing_arithmetic() {
         0x0f, 0x92, 0xc0, // SETB AL
     ];
     let mut image = image(&code);
-    image.register(24, 0xffff_ffff);
+    image.cpu.registers.eax = 0xffff_ffff;
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.flags.kind = 10;
+    expected_cpu.flags.left = 0xffff_ffff;
+    expected_cpu.flags.right = 1;
+    expected_cpu.registers.eax = 0;
+    expected_cpu.eip = 0x1005;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1005),
+    });
+
+    expected_cpu.flags.kind = 11;
+    expected_cpu.flags.left = 0;
+    expected_cpu.eip = 0x1007;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1007),
+    });
+
+    expected_cpu.registers.eax = 0x100;
+    expected_cpu.eip = 0x100a;
+    expected_cpu.instruction_count = 2;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x100a),
+    });
+
+    expected_cpu.registers.eax = 0x17f;
+    expected_cpu.eip = 0x100c;
+    expected_cpu.instruction_count = 3;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x100c),
+    });
+
+    expected_cpu.registers.eax = 0x100;
+    expected_cpu.eip = 0x100f;
+    expected_cpu.instruction_count = 4;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x100f),
+    });
+
     check(
         step,
         "published arithmetic B remains unused after logic",
         &image,
-        &[
-            Step {
-                cpu: &[
-                    (0, 0xa5a5_a50a),
-                    (4, 0xffff_ffff),
-                    (8, 1),
-                    (24, 0),
-                    (56, 0x1005),
-                    (144, 0),
-                ],
-                ram: &[],
-                exit: Exit::Dispatch(0x1005),
-            },
-            Step {
-                cpu: &[(0, 0xa5a5_a50b), (4, 0), (56, 0x1007), (144, 1)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1007),
-            },
-            Step {
-                cpu: &[(24, 0x100), (56, 0x100a), (144, 2)],
-                ram: &[],
-                exit: Exit::Dispatch(0x100a),
-            },
-            Step {
-                cpu: &[(24, 0x17f), (56, 0x100c), (144, 3)],
-                ram: &[],
-                exit: Exit::Dispatch(0x100c),
-            },
-            Step {
-                cpu: &[(24, 0x100), (56, 0x100f), (144, 4)],
-                ram: &[],
-                exit: Exit::Dispatch(0x100f),
-            },
-        ],
+        &steps,
     );
+
     let snapshot = compile_block_from_bytes(0x1000, &code, 5).unwrap();
     Validator::new().validate_all(&snapshot.bytes).unwrap();
     // One snapshot never publishes the replaced ADD record: its unused B stays
     // at the original backing value. Both paths expose the same logical flags.
+    expected_cpu.flags.right = image.cpu.flags.right;
+
     check(
         &TestModule::new(&snapshot),
         "logic discards an unpublished arithmetic B",
         &image,
         &[Step {
-            cpu: &[
-                (0, 0xa5a5_a50b),
-                (4, 0),
-                (24, 0x100),
-                (56, 0x100f),
-                (144, 4),
-            ],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(0x100f),
         }],
@@ -257,43 +273,49 @@ fn replacing_logic() {
         0x0f, 0x94, 0xc4, // SETE AH
     ];
     let mut image = image(&code);
-    image.register(24, 0x4433_8001);
+    image.cpu.registers.eax = 0x4433_8001;
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.flags.kind = 7;
+    expected_cpu.flags.left = 1;
+    expected_cpu.registers.eax = 0x4433_0001;
+    expected_cpu.eip = 0x1004;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1004),
+    });
+
+    expected_cpu.flags.kind = 9;
+    expected_cpu.flags.left = 0x4433_0001;
+    expected_cpu.flags.right = 0x4433_0001;
+    expected_cpu.registers.eax = 0;
+    expected_cpu.eip = 0x1009;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1009),
+    });
+
+    expected_cpu.registers.eax = 0x100;
+    expected_cpu.eip = 0x100c;
+    expected_cpu.instruction_count = 2;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x100c),
+    });
+
     both(
         step,
         "arithmetic replaces a logical result with its original operands",
         &code,
         3,
         &image,
-        &[
-            Step {
-                cpu: &[
-                    (0, 0xa5a5_a507),
-                    (4, 1),
-                    (24, 0x4433_0001),
-                    (56, 0x1004),
-                    (144, 0),
-                ],
-                ram: &[],
-                exit: Exit::Dispatch(0x1004),
-            },
-            Step {
-                cpu: &[
-                    (0, 0xa5a5_a509),
-                    (4, 0x4433_0001),
-                    (8, 0x4433_0001),
-                    (24, 0),
-                    (56, 0x1009),
-                    (144, 1),
-                ],
-                ram: &[],
-                exit: Exit::Dispatch(0x1009),
-            },
-            Step {
-                cpu: &[(24, 0x100), (56, 0x100c), (144, 2)],
-                ram: &[],
-                exit: Exit::Dispatch(0x100c),
-            },
-        ],
+        &steps,
     );
 }
 
@@ -302,20 +324,19 @@ fn logical_results_and_conditions() {
     let step = TestModule::interpreter();
     for case in LOGICAL {
         let mut image = image(case.code);
-        image.register(24, case.eax);
-        image.register(36, case.ebx);
+        image.cpu.registers.eax = case.eax;
+        image.cpu.registers.ebx = case.ebx;
         // Logic publishes kind and result. The unused B field remains untouched.
-        let changes = [
-            (0, 0xa5a5_a500 | u32::from(case.kind)),
-            (4, case.result),
-            (24, case.final_eax),
-        ];
+        let mut expected = image.cpu;
+        expected.flags.kind = case.kind;
+        expected.flags.left = case.result;
+        expected.registers.eax = case.final_eax;
         check_conditions(
             step,
             case.name,
             case.code,
             &mut image,
-            &changes,
+            &expected,
             case.conditions,
         );
     }

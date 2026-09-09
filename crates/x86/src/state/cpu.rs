@@ -8,7 +8,7 @@ use wasm86_compiler::{BuildError, Func, FunctionBuilder, Mem, MemoryImport, Prog
 
 use crate::flags::Condition;
 
-use super::EIP_OFFSET;
+use super::access::cpu_load;
 
 pub(crate) struct Cpu {
     memory: Mem,
@@ -33,6 +33,6 @@ impl Cpu {
     }
 
     pub(crate) fn read_eip(&self, body: &mut FunctionBuilder<'_>) -> Result<Val<I32>, BuildError> {
-        body.load(self.memory, EIP_OFFSET)
+        cpu_load!(body, self.memory, eip)
     }
 }

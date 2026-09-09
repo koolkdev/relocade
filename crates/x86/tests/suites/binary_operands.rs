@@ -4,7 +4,7 @@ use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 use crate::support::arithmetic;
 use crate::support::machine;
 use crate::support::step;
-use arithmetic::{image, recipe};
+use arithmetic::image;
 use machine::{both, Exit, Step};
 use step::TestModule;
 #[path = "binary_operands/faults.rs"]
@@ -148,10 +148,15 @@ fn register_aliases() {
         ),
     ] {
         let mut image = image(code);
-        image.register(24, eax);
+        image.cpu.registers.eax = eax;
         let next = 0x1000 + code.len() as u32;
-        let mut changes = recipe(kind, left, right).to_vec();
-        changes.extend_from_slice(&[(24, result), (56, next), (144, 0)]);
+        let mut expected = image.cpu;
+        expected.flags.kind = kind;
+        expected.flags.left = left;
+        expected.flags.right = right;
+        expected.registers.eax = result;
+        expected.eip = next;
+        expected.instruction_count = 0;
         both(
             step,
             name,
@@ -159,7 +164,7 @@ fn register_aliases() {
             1,
             &image,
             &[Step {
-                cpu: &changes,
+                cpu: expected,
                 ram: &[],
                 exit: Exit::Dispatch(next),
             }],
@@ -169,41 +174,55 @@ fn register_aliases() {
         0x04, 1, 0x66, 0x0f, 0x94, 0xfc, 0xb0, 0x7f, 0x0f, 0x92, 0xc0,
     ];
     let mut image = image(&code);
-    image.register(24, 0x4433_22ff);
+    image.cpu.registers.eax = 0x4433_22ff;
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
+
+    expected_cpu.flags.kind = 2;
+    expected_cpu.flags.left = 0xff;
+    expected_cpu.flags.right = 1;
+    expected_cpu.registers.eax = 0x4433_2200;
+    expected_cpu.eip = 0x1002;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1002),
+    });
+
+    expected_cpu.registers.eax = 0x4433_0100;
+    expected_cpu.eip = 0x1006;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1006),
+    });
+
+    expected_cpu.registers.eax = 0x4433_017f;
+    expected_cpu.eip = 0x1008;
+    expected_cpu.instruction_count = 2;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1008),
+    });
+
+    expected_cpu.registers.eax = 0x4433_0101;
+    expected_cpu.eip = 0x100b;
+    expected_cpu.instruction_count = 3;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x100b),
+    });
+
     both(
         step,
         "SETcc and MOV preserve prior ADD flags while changing aliases",
         &code,
         4,
         &image,
-        &[
-            Step {
-                cpu: &[
-                    (0, 0xa5a5_a502),
-                    (4, 0xff),
-                    (8, 1),
-                    (24, 0x4433_2200),
-                    (56, 0x1002),
-                    (144, 0),
-                ],
-                ram: &[],
-                exit: Exit::Dispatch(0x1002),
-            },
-            Step {
-                cpu: &[(24, 0x4433_0100), (56, 0x1006), (144, 1)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1006),
-            },
-            Step {
-                cpu: &[(24, 0x4433_017f), (56, 0x1008), (144, 2)],
-                ram: &[],
-                exit: Exit::Dispatch(0x1008),
-            },
-            Step {
-                cpu: &[(24, 0x4433_0101), (56, 0x100b), (144, 3)],
-                ram: &[],
-                exit: Exit::Dispatch(0x100b),
-            },
-        ],
+        &steps,
     );
 }

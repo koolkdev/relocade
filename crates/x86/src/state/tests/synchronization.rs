@@ -1,4 +1,4 @@
-use super::super::{Cpu, Gpr32, Register, State};
+use super::super::{Cpu, Register, State};
 use wasm86_compiler::{Program, Signature, Type, I1, I16, I32};
 
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
@@ -6,6 +6,7 @@ use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, T
 use wasm86_compiler::{I64, I8};
 
 use crate::register::RegisterCode;
+use crate::{CpuState, Gpr32, Registers};
 
 enum IndexSource {
     Parameter,
@@ -57,15 +58,15 @@ fn synchronized_registers(source: IndexSource) -> crate::CompiledModule {
 
 fn check_register_observation(
     module: &TestModule,
-    initial: &[u8; 152],
+    initial: &CpuState,
     arguments: [u32; 2],
-    expected_cpu: &[u8; 152],
+    expected_cpu: &CpuState,
     result: i64,
 ) {
     let [index, stop] = arguments;
     let input = Input {
         arguments: vec![Argument::I32(index as i32), Argument::I32(stop as i32)],
-        ..Input::new(initial)
+        ..Input::new(&initial.to_bytes())
     };
     assert_eq!(
         module.observe(&input, 1),
@@ -73,7 +74,7 @@ fn check_register_observation(
             events: vec![Event::Return {
                 outcome: Outcome::Returned(Some(Argument::I64(result))),
                 snapshot: Snapshot {
-                    cpu: expected_cpu.to_vec(),
+                    cpu: expected_cpu.to_bytes().to_vec(),
                     guest: None,
                 },
             }],
@@ -86,72 +87,54 @@ fn check_register_observation(
 
 #[test]
 fn register_synchronization_in_wasmtime() {
-    let mut initial = [0xa5; 152];
-    for (offset, value) in [
-        (24, 0x1111_1111_u32),
-        (28, 0x2222_2222),
-        (32, 0x3333_3333),
-        (36, 0x4444_4444),
-        (40, 0x5555_5555),
-        (44, 0x6666_6666),
-        (48, 0x7777_7777),
-        (52, 0x8888_8888),
-        (56, 0x1000),
-        (144, 0xffff_ffff),
-        (148, 0),
-    ] {
-        initial[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-    }
-    let check = |module: &TestModule,
-                 cpu: &[u8; 152],
-                 index: u32,
-                 stop: u32,
-                 updates: &[(usize, u32)],
-                 result: i64| {
-        let mut expected_cpu = *cpu;
-        for &(offset, value) in updates {
-            expected_cpu[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-        }
-        check_register_observation(module, cpu, [index, stop], &expected_cpu, result);
+    let mut initial = CpuState {
+        registers: Registers {
+            eax: 0x1111_1111,
+            ecx: 0x2222_2222,
+            edx: 0x3333_3333,
+            ebx: 0x4444_4444,
+            esp: 0x5555_5555,
+            ebp: 0x6666_6666,
+            esi: 0x7777_7777,
+            edi: 0x8888_8888,
+        },
+        eip: 0x1000,
+        instruction_count: 0xffff_ffff,
+        reserved_tail: [0; 4],
+        ..CpuState::filled(0xa5)
     };
     let module = TestModule::new(&synchronized_registers(IndexSource::Parameter));
-    for (index, offset, result) in [
-        (0, 24, 0x0000_002a_0000_0063_u64),
-        (1, 28, 0x2222_2222_0000_002a),
-        (2, 32, 0x3333_3333_0000_002a),
-        (3, 36, 0x4444_4444_0000_002a),
-        (4, 40, 0x5555_5555_0000_002a),
-        (5, 44, 0x6666_6666_0000_002a),
-        (6, 48, 0x7777_7777_0000_002a),
-        (7, 52, 0x8888_8888_0000_002a),
+    for (index, register, result) in [
+        (0, Gpr32::Eax, 0x0000_002a_0000_0063_u64),
+        (1, Gpr32::Ecx, 0x2222_2222_0000_002a),
+        (2, Gpr32::Edx, 0x3333_3333_0000_002a),
+        (3, Gpr32::Ebx, 0x4444_4444_0000_002a),
+        (4, Gpr32::Esp, 0x5555_5555_0000_002a),
+        (5, Gpr32::Ebp, 0x6666_6666_0000_002a),
+        (6, Gpr32::Esi, 0x7777_7777_0000_002a),
+        (7, Gpr32::Edi, 0x8888_8888_0000_002a),
     ] {
-        check(
-            &module,
-            &initial,
-            index,
-            0,
-            &[(24, 42), (offset, 99), (56, 0x100a), (144, 1)],
-            result as i64,
-        );
+        let mut expected = initial;
+        expected.registers.eax = 42;
+        expected.registers[register] = 99;
+        expected.eip = 0x100a;
+        expected.instruction_count = 1;
+        check_register_observation(&module, &initial, [index, 0], &expected, result as i64);
     }
-    check(
-        &module,
-        &initial,
-        0,
-        1,
-        &[(24, 42), (56, 0x1005), (144, 0)],
-        7,
-    );
-    initial[24..28].copy_from_slice(&5_u32.to_le_bytes());
+    let mut expected = initial;
+    expected.registers.eax = 42;
+    expected.eip = 0x1005;
+    expected.instruction_count = 0;
+    check_register_observation(&module, &initial, [0, 1], &expected, 7);
+
+    initial.registers.eax = 5;
     let module = TestModule::new(&synchronized_registers(IndexSource::OldEax));
-    check(
-        &module,
-        &initial,
-        0,
-        0,
-        &[(24, 42), (44, 99), (56, 0x100a), (144, 1)],
-        0x6666_6666_0000_002a,
-    );
+    let mut expected = initial;
+    expected.registers.eax = 42;
+    expected.registers.ebp = 99;
+    expected.eip = 0x100a;
+    expected.instruction_count = 1;
+    check_register_observation(&module, &initial, [0, 0], &expected, 0x6666_6666_0000_002a);
 }
 
 fn synchronized_byte_registers() -> crate::CompiledModule {
@@ -200,37 +183,38 @@ fn synchronized_byte_registers() -> crate::CompiledModule {
 
 #[test]
 fn byte_register_synchronization_in_wasmtime() {
-    let mut initial = [0xa5; 152];
-    for (offset, value) in [
-        (24, 0xffff_ff04_u32),
-        (28, 0x2222_2222),
-        (32, 0x3333_3333),
-        (36, 0x4444_4444),
-        (40, 0x5555_5555),
-        (44, 0x6666_6666),
-        (48, 0x7777_7777),
-        (52, 0x8888_8888),
-        (56, 0x1000),
-        (144, 0xffff_ffff),
-    ] {
-        initial[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-    }
+    let initial = CpuState {
+        registers: Registers {
+            eax: 0xffff_ff04,
+            ecx: 0x2222_2222,
+            edx: 0x3333_3333,
+            ebx: 0x4444_4444,
+            esp: 0x5555_5555,
+            ebp: 0x6666_6666,
+            esi: 0x7777_7777,
+            edi: 0x8888_8888,
+        },
+        eip: 0x1000,
+        instruction_count: 0xffff_ffff,
+        ..CpuState::filled(0xa5)
+    };
     let module = TestModule::new(&synchronized_byte_registers());
-    for (index, offset, before, eax) in [
-        (0, 24, 0x44_u64, 0x1122_aa00_u32),
-        (1, 28, 0x22, 0x1122_aa44),
-        (2, 32, 0x33, 0x1122_aa44),
-        (3, 36, 0x44, 0x1122_aa44),
-        (4, 25, 0xaa, 0x1122_0044),
-        (5, 29, 0x22, 0x1122_aa44),
-        (6, 33, 0x33, 0x1122_aa44),
-        (7, 37, 0x44, 0x1122_aa44),
+    for (index, parent, parent_value, before, eax) in [
+        (0, Gpr32::Eax, 0x1122_aa00, 0x44_u64, 0x1122_aa00_u32),
+        (1, Gpr32::Ecx, 0x2222_2200, 0x22, 0x1122_aa44),
+        (2, Gpr32::Edx, 0x3333_3300, 0x33, 0x1122_aa44),
+        (3, Gpr32::Ebx, 0x4444_4400, 0x44, 0x1122_aa44),
+        (4, Gpr32::Eax, 0x1122_0044, 0xaa, 0x1122_0044),
+        (5, Gpr32::Ecx, 0x2222_0022, 0x22, 0x1122_aa44),
+        (6, Gpr32::Edx, 0x3333_0033, 0x33, 0x1122_aa44),
+        (7, Gpr32::Ebx, 0x4444_0044, 0x44, 0x1122_aa44),
     ] {
         let mut expected = initial;
-        for (offset, value) in [(24, eax), (40, 0x1357_9bdf), (56, 0x1009), (144, 2)] {
-            expected[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-        }
-        expected[offset] = 0;
+        expected.registers.eax = eax;
+        expected.registers.esp = 0x1357_9bdf;
+        expected.registers[parent] = parent_value;
+        expected.eip = 0x1009;
+        expected.instruction_count = 2;
         check_register_observation(
             &module,
             &initial,
@@ -240,14 +224,10 @@ fn byte_register_synchronization_in_wasmtime() {
         );
     }
     let mut expected = initial;
-    for (offset, value) in [
-        (24, 0x1122_aa44_u32),
-        (40, 0x1357_9bdf),
-        (56, 0x1007),
-        (144, 1),
-    ] {
-        expected[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-    }
+    expected.registers.eax = 0x1122_aa44;
+    expected.registers.esp = 0x1357_9bdf;
+    expected.eip = 0x1007;
+    expected.instruction_count = 1;
     check_register_observation(&module, &initial, [4, 1], &expected, 7);
 }
 
@@ -306,38 +286,39 @@ fn synchronized_word_registers() -> crate::CompiledModule {
 
 #[test]
 fn word_register_synchronization_in_wasmtime() {
-    let mut initial = [0xa5; 152];
-    for (offset, value) in [
-        (24, 0xaaaa_ccdd_u32),
-        (28, 0x2222_2222),
-        (32, 0x3333_3333),
-        (36, 0x4444_4444),
-        (40, 0x5555_5555),
-        (44, 0x6666_6666),
-        (48, 0x7777_7777),
-        (52, 0x8888_8888),
-        (56, 0x1000),
-        (144, 0xffff_ffff),
-    ] {
-        initial[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-    }
+    let initial = CpuState {
+        registers: Registers {
+            eax: 0xaaaa_ccdd,
+            ecx: 0x2222_2222,
+            edx: 0x3333_3333,
+            ebx: 0x4444_4444,
+            esp: 0x5555_5555,
+            ebp: 0x6666_6666,
+            esi: 0x7777_7777,
+            edi: 0x8888_8888,
+        },
+        eip: 0x1000,
+        instruction_count: 0xffff_ffff,
+        ..CpuState::filled(0xa5)
+    };
     let module = TestModule::new(&synchronized_word_registers());
-    for (index, offset, before, eax) in [
-        (0, 24, 0xaade_u64, 0x1122_0000_u32),
-        (1, 28, 0x2222, 0x1122_aade),
-        (2, 32, 0x3333, 0x1122_aade),
-        (3, 36, 0x4444, 0x1122_aade),
-        (4, 40, 0x5555, 0x1122_aade),
-        (5, 44, 0x6666, 0x1122_aade),
-        (6, 48, 0x7777, 0x1122_aade),
-        (7, 52, 0x9bdf, 0x1122_aade),
+    for (index, parent, parent_value, before, eax) in [
+        (0, Gpr32::Eax, 0x1122_0000, 0xaade_u64, 0x1122_0000_u32),
+        (1, Gpr32::Ecx, 0x2222_0000, 0x2222, 0x1122_aade),
+        (2, Gpr32::Edx, 0x3333_0000, 0x3333, 0x1122_aade),
+        (3, Gpr32::Ebx, 0x4444_0000, 0x4444, 0x1122_aade),
+        (4, Gpr32::Esp, 0x5555_0000, 0x5555, 0x1122_aade),
+        (5, Gpr32::Ebp, 0x6666_0000, 0x6666, 0x1122_aade),
+        (6, Gpr32::Esi, 0x7777_0000, 0x7777, 0x1122_aade),
+        (7, Gpr32::Edi, 0x1357_0000, 0x9bdf, 0x1122_aade),
     ] {
         let mut expected = initial;
-        for (offset, value) in [(24, eax), (52, 0x1357_9bdf), (56, 0x100b), (144, 4)] {
-            expected[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-        }
+        expected.registers.eax = eax;
+        expected.registers.edi = 0x1357_9bdf;
         // The held 0xccdd plus 0x3323 wraps to zero in the word store.
-        expected[offset..offset + 2].copy_from_slice(&0_u16.to_le_bytes());
+        expected.registers[parent] = parent_value;
+        expected.eip = 0x100b;
+        expected.instruction_count = 4;
         check_register_observation(
             &module,
             &initial,
@@ -347,13 +328,9 @@ fn word_register_synchronization_in_wasmtime() {
         );
     }
     let mut expected = initial;
-    for (offset, value) in [
-        (24, 0x1122_aade_u32),
-        (52, 0x1357_9bdf),
-        (56, 0x1009),
-        (144, 3),
-    ] {
-        expected[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-    }
+    expected.registers.eax = 0x1122_aade;
+    expected.registers.edi = 0x1357_9bdf;
+    expected.eip = 0x1009;
+    expected.instruction_count = 3;
     check_register_observation(&module, &initial, [7, 1], &expected, 7);
 }

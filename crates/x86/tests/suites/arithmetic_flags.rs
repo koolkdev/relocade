@@ -1,7 +1,9 @@
+use wasm86_x86::StatusFlags;
+
 use crate::support::arithmetic;
 use crate::support::conditions;
 use crate::support::step;
-use arithmetic::{image, recipe};
+use arithmetic::image;
 use conditions::check_conditions;
 use step::TestModule;
 
@@ -257,16 +259,19 @@ fn arithmetic_conditions() {
     let step = TestModule::interpreter();
     for case in ARITHMETIC {
         let mut image = image(case.code);
-        image.register(24, case.eax);
-        image.register(36, case.ebx);
-        let mut updates = recipe(case.kind, case.left, case.right).to_vec();
-        updates.push((24, case.result));
+        image.cpu.registers.eax = case.eax;
+        image.cpu.registers.ebx = case.ebx;
+        let mut expected = image.cpu;
+        expected.flags.kind = case.kind;
+        expected.flags.left = case.left;
+        expected.flags.right = case.right;
+        expected.registers.eax = case.result;
         check_conditions(
             step,
             case.name,
             case.code,
             &mut image,
-            &updates,
+            &expected,
             case.conditions,
         );
     }
@@ -301,19 +306,28 @@ fn incoming_records() {
         ),
     ] {
         let mut image = image(&[]);
-        for (offset, value) in recipe(kind, left, right) {
-            image.register(offset, value);
-        }
-        check_conditions(step, name, &[], &mut image, &[], conditions);
+        image.cpu.flags.kind = kind;
+        image.cpu.flags.left = left;
+        image.cpu.flags.right = right;
+        let expected = image.cpu;
+        check_conditions(step, name, &[], &mut image, &expected, conditions);
     }
     let mut concrete = image(&[]);
-    concrete.cpu[12..18].copy_from_slice(&[0, 1, 0, 1, 0, 0]);
+    concrete.cpu.flags.status = StatusFlags {
+        cf: 0,
+        pf: 1,
+        af: 0,
+        zf: 1,
+        sf: 0,
+        of: 0,
+    };
+    let expected = concrete.cpu;
     check_conditions(
         step,
         "concrete equal flags ignore stale recipe operands",
         &[],
         &mut concrete,
-        &[],
+        &expected,
         0x665a,
     );
 }

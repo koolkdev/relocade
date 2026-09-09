@@ -298,16 +298,17 @@ fn binary_fetch_faults_follow_decode_precedence() {
         ),
     ] {
         let mut image = Image::new(&[]);
-        image.cpu[0] = 0;
-        image.register(56, start);
-        image.register(36, 0x4000);
+        image.cpu.flags.kind = 0;
+        image.cpu.eip = start;
+        image.cpu.registers.ebx = 0x4000;
         image.data(0x3000 + (start & 0xfff), &code);
+        let expected_cpu = image.cpu;
         check(
             step,
             name,
             &image,
             &[Step {
-                cpu: &[],
+                cpu: expected_cpu,
                 ram: &[],
                 exit: fault,
             }],
@@ -315,13 +316,17 @@ fn binary_fetch_faults_follow_decode_precedence() {
     }
     let code = [0x0f, 0x94, 0xc4];
     let mut image = Image::new(&[]);
-    image.cpu[0] = 0;
-    image.cpu[15] = 1;
-    image.register(24, 0x4433_2211);
-    image.register(56, 0x1fff);
+    image.cpu.flags.kind = 0;
+    image.cpu.flags.status.zf = 1;
+    image.cpu.registers.eax = 0x4433_2211;
+    image.cpu.eip = 0x1fff;
     image.map(2, 0xa000, false);
     image.data(0x3fff, &code[..1]);
     image.data(0xa000, &code[1..]);
+    let mut expected_cpu = image.cpu;
+    expected_cpu.registers.eax = 0x4433_0111;
+    expected_cpu.eip = 0x2002;
+    expected_cpu.instruction_count = 0;
     both(
         step,
         "extended opcode spans scattered code pages",
@@ -329,7 +334,7 @@ fn binary_fetch_faults_follow_decode_precedence() {
         1,
         &image,
         &[Step {
-            cpu: &[(24, 0x4433_0111), (56, 0x2002), (144, 0)],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(0x2002),
         }],
@@ -337,13 +342,21 @@ fn binary_fetch_faults_follow_decode_precedence() {
 
     let code = [0x05, 1, 0, 0, 0];
     let mut image = Image::new(&[]);
-    image.cpu[0] = 0;
-    image.register(24, 0xffff_ffff);
-    image.register(56, 0xffff_fffd);
+    image.cpu.flags.kind = 0;
+    image.cpu.registers.eax = 0xffff_ffff;
+    image.cpu.eip = 0xffff_fffd;
     image.map(0xfffff, 0x8000, false);
     image.map(0, 0xa000, false);
     image.data(0x8ffd, &code[..3]);
     image.data(0xa000, &code[3..]);
+    let mut expected_cpu = image.cpu;
+    expected_cpu.flags.kind = 10;
+    expected_cpu.flags.reserved = [0xa5; 3];
+    expected_cpu.flags.left = 0xffff_ffff;
+    expected_cpu.flags.right = 1;
+    expected_cpu.registers.eax = 0;
+    expected_cpu.eip = 2;
+    expected_cpu.instruction_count = 0;
     both(
         step,
         "ADD immediate wraps instruction addresses",
@@ -351,14 +364,7 @@ fn binary_fetch_faults_follow_decode_precedence() {
         1,
         &image,
         &[Step {
-            cpu: &[
-                (0, 0xa5a5_a50a),
-                (4, 0xffff_ffff),
-                (8, 1),
-                (24, 0),
-                (56, 2),
-                (144, 0),
-            ],
+            cpu: expected_cpu,
             ram: &[],
             exit: Exit::Dispatch(2),
         }],

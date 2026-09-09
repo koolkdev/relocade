@@ -1,7 +1,7 @@
 use super::{
-    code_with_width, concrete_updates, expected, image as flag_image,
+    code_with_width, concrete_cpu, expected, image as flag_image,
     machine::{both, check, Exit, Step},
-    mask, recipe, register_result,
+    mask, register_result,
     step::TestModule,
     OPERATIONS, WIDTHS,
 };
@@ -24,8 +24,8 @@ fn carry_memory_operands_use_incoming_flags() {
                     } else {
                         (register_result(0x4433_0000, bits, mask(bits)), 0)
                     };
-                    image.register(24, eax);
-                    image.register(36, 0x4fff);
+                    image.cpu.registers.eax = eax;
+                    image.cpu.registers.ebx = 0x4fff;
                     image.map(4, 0x8000, destination_is_memory);
                     image.map(5, next_frame, destination_is_memory);
                     let before = memory.to_le_bytes();
@@ -34,16 +34,17 @@ fn carry_memory_operands_use_incoming_flags() {
                     image.data(next_frame + length as u32 - 1, &[0x5a]);
                     let result = expected(op, bits, mask(bits), 0, true);
                     let next = 0x1000 + code.len() as u32;
-                    let mut changes = concrete_updates(&image, &result);
-                    changes.extend_from_slice(&[(56, next), (144, 0)]);
+                    let mut cpu = concrete_cpu(image.cpu, &result);
+                    cpu.eip = next;
+                    cpu.instruction_count = 0;
                     if !destination_is_memory {
-                        changes.push((24, register_result(eax, bits, result.result)));
+                        cpu.registers.eax = register_result(eax, bits, result.result);
                     }
                     let after = result.result.to_le_bytes();
                     let writes = [(0x8fff, &after[..1]), (next_frame, &after[1..length])];
                     both(step, &format!("{op:?}/{bits} memory role {destination_is_memory}, frame {next_frame:#x}"),
                         &code, 1, &image, &[Step {
-                            cpu: &changes,
+                            cpu,
                             ram: if destination_is_memory { &writes } else { &[] },
                             exit: Exit::Dispatch(next),
                         }]);
@@ -63,14 +64,15 @@ fn carry_memory_operands_use_incoming_flags() {
                 let tail = [&[0x43 | (op.extension() << 3), 0x80], immediate.as_slice()].concat();
                 let code = code_with_width(bits, opcode, &tail);
                 let mut image = flag_image(&code);
-                image.register(36, 0x40a0);
+                image.cpu.registers.ebx = 0x40a0;
                 image.map(4, 0x8000, true);
                 image.data(0x801f, &[0xa5; 6]);
                 image.data(0x8020, &1u32.to_le_bytes()[..length]);
                 let result = expected(op, bits, 1, right, true);
                 let next = 0x1000 + code.len() as u32;
-                let mut changes = concrete_updates(&image, &result);
-                changes.extend_from_slice(&[(56, next), (144, 0)]);
+                let mut cpu = concrete_cpu(image.cpu, &result);
+                cpu.eip = next;
+                cpu.instruction_count = 0;
                 let after = result.result.to_le_bytes();
                 both(
                     step,
@@ -79,7 +81,7 @@ fn carry_memory_operands_use_incoming_flags() {
                     1,
                     &image,
                     &[Step {
-                        cpu: &changes,
+                        cpu,
                         ram: &[(0x8020, &after[..length])],
                         exit: Exit::Dispatch(next),
                     }],
@@ -92,16 +94,17 @@ fn carry_memory_operands_use_incoming_flags() {
         ] {
             let code = [opcode, 0x00];
             let mut image = flag_image(&code);
-            image.register(24, eax);
+            image.cpu.registers.eax = eax;
             image.map(4, 0x8000, !changes_eax);
             image.data(0x801f, &[0xa5; 6]);
             let bits = if changes_eax { 32 } else { 8 };
             image.data(0x8020, &u32::to_le_bytes(memory)[..(bits / 8) as usize]);
             let result = expected(op, bits, left, right, true);
-            let mut changes = concrete_updates(&image, &result);
-            changes.extend_from_slice(&[(56, 0x1002), (144, 0)]);
+            let mut cpu = concrete_cpu(image.cpu, &result);
+            cpu.eip = 0x1002;
+            cpu.instruction_count = 0;
             if changes_eax {
-                changes.push((24, result.result));
+                cpu.registers.eax = result.result;
             }
             let after = [result.result as u8];
             let writes = [(0x8020, after.as_slice())];
@@ -112,7 +115,7 @@ fn carry_memory_operands_use_incoming_flags() {
                 1,
                 &image,
                 &[Step {
-                    cpu: &changes,
+                    cpu,
                     ram: if changes_eax { &[] } else { &writes },
                     exit: Exit::Dispatch(0x1002),
                 }],
@@ -200,8 +203,8 @@ fn operand_faults_precede_carry_evaluation() {
                 );
                 let mut image = flag_image(&code);
                 // Resolving this invalid record would trap. An operand fault must win.
-                image.cpu[0] = 0xff;
-                image.register(36, 0x4fff);
+                image.cpu.flags.kind = 0xff;
+                image.cpu.registers.ebx = 0x4fff;
                 if let Some(writable) = first_writable {
                     image.map(4, 0x8000, writable);
                 }
@@ -217,7 +220,7 @@ fn operand_faults_precede_carry_evaluation() {
                     1,
                     &image,
                     &[Step {
-                        cpu: &[],
+                        cpu: image.cpu,
                         ram: &[],
                         exit: fault,
                     }],
@@ -226,68 +229,83 @@ fn operand_faults_precede_carry_evaluation() {
         }
         let code = [0x01, 0xd1, op.opcode() + 1, 0x03];
         let mut image = flag_image(&code);
-        image.register(24, 0);
-        image.register(28, 0xffff_ffff);
-        image.register(32, 1);
-        image.register(36, 0x4fff);
+        image.cpu.registers.eax = 0;
+        image.cpu.registers.ecx = 0xffff_ffff;
+        image.cpu.registers.edx = 1;
+        image.cpu.registers.ebx = 0x4fff;
         image.map(4, 0x8000, true);
         image.data(0x8ffe, &[0xa5, 0xff]);
-        let mut first = recipe(10, 0xffff_ffff, 1).to_vec();
-        first.extend_from_slice(&[(28, 0), (56, 0x1002), (144, 0)]);
+        let mut expected_cpu = image.cpu;
+        let mut steps = Vec::new();
+
+        expected_cpu.flags.kind = 10;
+        expected_cpu.flags.left = 0xffff_ffff;
+        expected_cpu.flags.right = 1;
+        expected_cpu.registers.ecx = 0;
+        expected_cpu.eip = 0x1002;
+        expected_cpu.instruction_count = 0;
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit: Exit::Dispatch(0x1002),
+        });
+
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit: Exit::PageFault {
+                address: 0x00005000,
+                error: 0x2,
+            },
+        });
+
         both(
             step,
             "failed carry RMW publishes prior completed arithmetic",
             &code,
             2,
             &image,
-            &[
-                Step {
-                    cpu: &first,
-                    ram: &[],
-                    exit: Exit::Dispatch(0x1002),
-                },
-                Step {
-                    cpu: &[],
-                    ram: &[],
-                    exit: Exit::PageFault {
-                        address: 0x00005000,
-                        error: 0x2,
-                    },
-                },
-            ],
+            &steps,
         );
 
         let code = [op.opcode() + 1, 0xd1, op.opcode() + 1, 0x03];
         let mut image = flag_image(&code);
-        image.register(28, 0xffff_ffff);
-        image.register(32, 1);
-        image.register(36, 0x4fff);
+        image.cpu.registers.ecx = 0xffff_ffff;
+        image.cpu.registers.edx = 1;
+        image.cpu.registers.ebx = 0x4fff;
         image.map(4, 0x8000, true);
         image.data(0x8ffe, &[0xa5, 0xff]);
         let result = expected(op, 32, 0xffff_ffff, 1, true);
-        let mut first = concrete_updates(&image, &result);
-        first.extend_from_slice(&[(28, result.result), (56, 0x1002), (144, 0)]);
+        let mut expected_cpu = image.cpu;
+        let mut steps = Vec::new();
+
+        expected_cpu.flags.kind = 0;
+        expected_cpu.flags.status = result.status;
+        expected_cpu.registers.ecx = result.result;
+        expected_cpu.eip = 0x1002;
+        expected_cpu.instruction_count = 0;
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit: Exit::Dispatch(0x1002),
+        });
+
+        steps.push(Step {
+            cpu: expected_cpu,
+            ram: &[],
+            exit: Exit::PageFault {
+                address: 0x00005000,
+                error: 0x2,
+            },
+        });
+
         both(
             step,
             "operand fault publishes the prior completed carry source",
             &code,
             2,
             &image,
-            &[
-                Step {
-                    cpu: &first,
-                    ram: &[],
-                    exit: Exit::Dispatch(0x1002),
-                },
-                Step {
-                    cpu: &[],
-                    ram: &[],
-                    exit: Exit::PageFault {
-                        address: 0x00005000,
-                        error: 0x2,
-                    },
-                },
-            ],
+            &steps,
         );
 
         let group = op.extension() << 3;
@@ -302,15 +320,15 @@ fn operand_faults_precede_carry_evaluation() {
         ] {
             let start = 0x2000 - code.len() as u32;
             let mut image = flag_image(&[]);
-            image.cpu[0] = 0xff;
-            image.register(56, start);
+            image.cpu.flags.kind = 0xff;
+            image.cpu.eip = start;
             image.data(0x3000 + (start & 0xfff), &code);
             check(
                 step,
                 "carry fetch fault precedes operand access and CF resolution",
                 &image,
                 &[Step {
-                    cpu: &[],
+                    cpu: image.cpu,
                     ram: &[],
                     exit: Exit::PageFault {
                         address: 0x00002000,
@@ -322,15 +340,15 @@ fn operand_faults_precede_carry_evaluation() {
         for suffix in [vec![op.opcode()], vec![0x81, group | 0xc0, 1]] {
             let code = [vec![0x66; 15 - suffix.len()], suffix].concat();
             let mut image = flag_image(&[]);
-            image.cpu[0] = 0xff;
-            image.register(56, 0x1ff1);
+            image.cpu.flags.kind = 0xff;
+            image.cpu.eip = 0x1ff1;
             image.data(0x3ff1, &code);
             check(
                 step,
                 "carry field beyond byte fifteen raises length before fetch",
                 &image,
                 &[Step {
-                    cpu: &[],
+                    cpu: image.cpu,
                     ram: &[],
                     exit: Exit::Other(0x0002_0000_0000_0000),
                 }],

@@ -4,8 +4,9 @@ use wasm86_compiler::{Val, I16, I32, I8};
 
 use crate::ssa::SsaType;
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub(super) enum Gpr32 {
+/// A general-purpose register, independent of its position in CPU backing memory.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Gpr32 {
     Eax,
     Ecx,
     Edx,
@@ -17,7 +18,20 @@ pub(super) enum Gpr32 {
 }
 
 impl Gpr32 {
-    pub(super) fn from_code(code: u8) -> Self {
+    /// General-purpose registers in x86 encoding order.
+    pub const ALL: [Self; 8] = [
+        Self::Eax,
+        Self::Ecx,
+        Self::Edx,
+        Self::Ebx,
+        Self::Esp,
+        Self::Ebp,
+        Self::Esi,
+        Self::Edi,
+    ];
+
+    /// Decode the low three bits of an x86 register code.
+    pub fn from_code(code: u8) -> Self {
         match code & 7 {
             0 => Self::Eax,
             1 => Self::Ecx,

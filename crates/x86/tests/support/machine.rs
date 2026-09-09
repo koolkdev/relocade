@@ -1,43 +1,38 @@
-use wasm86_x86::compile_block_from_bytes;
+use wasm86_x86::{compile_block_from_bytes, CpuState, Registers};
 use wasmparser::Validator;
 
 use super::step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 
 pub(crate) struct Image {
-    pub(crate) cpu: [u8; 152],
+    pub(crate) cpu: CpuState,
     pub(crate) guest: Vec<(u32, Vec<u8>)>,
     pub(crate) machine: Vec<(u32, Vec<u8>)>,
 }
 
 impl Image {
     pub(crate) fn new(code: &[u8]) -> Self {
+        let mut cpu = CpuState::filled(0xa5);
+        cpu.registers = Registers {
+            eax: 0x1111_1111,
+            ecx: 0x2222_2222,
+            edx: 0xdead_beef,
+            ebx: 0x4444_4444,
+            esp: 0x5555_5555,
+            ebp: 0x6666_6666,
+            esi: 0x7777_7777,
+            edi: 0x8888_8888,
+        };
+        cpu.eip = 0x1000;
+        cpu.instruction_count = u32::MAX;
+        cpu.reserved[20..28].fill(0);
+        cpu.reserved_tail.fill(0);
         let mut image = Self {
-            cpu: [0xa5; 152],
+            cpu,
             guest: vec![(0x3000, code.to_vec())],
             machine: vec![],
         };
-        for (offset, value) in [
-            (24, 0x1111_1111),
-            (28, 0x2222_2222),
-            (32, 0xdead_beef),
-            (36, 0x4444_4444),
-            (40, 0x5555_5555),
-            (44, 0x6666_6666),
-            (48, 0x7777_7777),
-            (52, 0x8888_8888),
-            (56, 0x1000),
-            (80, 0),
-            (84, 0),
-            (144, 0xffff_ffff),
-            (148, 0),
-        ] {
-            image.register(offset, value);
-        }
         image.map(1, 0x3000, false);
         image
-    }
-    pub(crate) fn register(&mut self, offset: usize, value: u32) {
-        self.cpu[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
     pub(crate) fn map(&mut self, page: u32, frame: u32, writable: bool) {
         let entry = frame | 1 | if writable { 2 } else { 0 };
@@ -51,7 +46,7 @@ impl Image {
             guest: self.guest.clone(),
             machine: self.machine.clone(),
             observe_guest: true,
-            ..Input::new(&self.cpu)
+            ..Input::new(&self.cpu.to_bytes())
         }
     }
 }
@@ -77,13 +72,12 @@ impl Exit {
     }
 }
 pub(crate) struct Step<'a> {
-    pub(crate) cpu: &'a [(usize, u32)],
+    pub(crate) cpu: CpuState,
     pub(crate) ram: &'a [(u32, &'a [u8])],
     pub(crate) exit: Exit,
 }
 
 pub(crate) fn expected(image: &Image, steps: &[Step<'_>]) -> Observation {
-    let mut cpu = image.cpu;
     let mut initial_ram = vec![0; 65536];
     for (offset, bytes) in &image.guest {
         initial_ram[*offset as usize..*offset as usize + bytes.len()].copy_from_slice(bytes);
@@ -91,14 +85,11 @@ pub(crate) fn expected(image: &Image, steps: &[Step<'_>]) -> Observation {
     let mut ram = initial_ram.clone();
     let mut events = Vec::new();
     for step in steps {
-        for &(offset, value) in step.cpu {
-            cpu[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-        }
         for &(offset, bytes) in step.ram {
             ram[offset as usize..offset as usize + bytes.len()].copy_from_slice(bytes);
         }
         let snapshot = Snapshot {
-            cpu: cpu.to_vec(),
+            cpu: step.cpu.to_bytes().to_vec(),
             guest: Some(
                 initial_ram
                     .iter()
@@ -149,13 +140,9 @@ pub(crate) fn both(
     steps: &[Step<'_>],
 ) {
     check(step, name, image, steps);
-    let start = u32::from_le_bytes(image.cpu[56..60].try_into().unwrap());
+    let start = image.cpu.eip;
     let snapshot = compile_block_from_bytes(start, code, count).unwrap();
     Validator::new().validate_all(&snapshot.bytes).unwrap();
-    let cpu = steps
-        .iter()
-        .flat_map(|step| step.cpu.iter().copied())
-        .collect::<Vec<_>>();
     let ram = steps
         .iter()
         .flat_map(|step| step.ram.iter().copied())
@@ -165,7 +152,7 @@ pub(crate) fn both(
         name,
         image,
         &[Step {
-            cpu: &cpu,
+            cpu: steps.last().unwrap().cpu,
             ram: &ram,
             exit: steps.last().unwrap().exit,
         }],
@@ -174,13 +161,9 @@ pub(crate) fn both(
 
 pub(crate) fn byte_register_image(code: &[u8]) -> Image {
     let mut image = Image::new(code);
-    for (offset, value) in [
-        (24, 0x4433_2211),
-        (28, 0x8877_6655),
-        (32, 0xccbb_aa99),
-        (36, 0x10ff_eedd),
-    ] {
-        image.register(offset, value);
-    }
+    image.cpu.registers.eax = 0x4433_2211;
+    image.cpu.registers.ecx = 0x8877_6655;
+    image.cpu.registers.edx = 0xccbb_aa99;
+    image.cpu.registers.ebx = 0x10ff_eedd;
     image
 }

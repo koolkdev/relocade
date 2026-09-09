@@ -1,39 +1,19 @@
+mod access;
 mod cpu;
 pub(super) mod exit;
 mod flags;
+mod layout;
 
 pub(super) use cpu::Cpu;
+pub use layout::{CpuState, Registers, StatusFlags, StoredFlags};
 
+use access::{cpu_load, cpu_store, register_location};
 use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Val, I32};
 
 use crate::{
-    register::{Gpr32, Register, RegisterSelection, RegisterType},
-    ssa::{Environment, Location, Span},
+    register::{Register, RegisterType},
+    ssa::Environment,
 };
-
-fn register_offset(register: Gpr32) -> u32 {
-    match register {
-        Gpr32::Eax => 24,
-        Gpr32::Ecx => 28,
-        Gpr32::Edx => 32,
-        Gpr32::Ebx => 36,
-        Gpr32::Esp => 40,
-        Gpr32::Ebp => 44,
-        Gpr32::Esi => 48,
-        Gpr32::Edi => 52,
-    }
-}
-
-fn indexed_offset(slot: Val<I32>, byte: Option<Val<I32>>) -> Val<I32> {
-    let offset = slot.shl(2);
-    match byte {
-        Some(byte) => offset.add(byte),
-        None => offset,
-    }
-}
-
-const EIP_OFFSET: u32 = 56;
-const INSTRUCTION_COUNT_OFFSET: u32 = 144;
 
 pub(super) struct State<'cpu> {
     cpu: &'cpu Cpu,
@@ -55,16 +35,8 @@ impl<'cpu> State<'cpu> {
         body: &mut FunctionBuilder<'_>,
         register: impl Into<Register<T>>,
     ) -> Result<Val<T>, BuildError> {
-        match register.into().selection {
-            RegisterSelection::Named { parent, byte } => self
-                .registers
-                .read(body, Location::new(register_offset(parent) + byte)),
-            RegisterSelection::Indexed { slot, byte } => {
-                let offset = indexed_offset(slot, byte);
-                self.registers
-                    .read_at(body, Span::new(24, T::BACKING_SLOT_COUNT * 4), offset, 24)
-            }
-        }
+        self.registers
+            .read(body, register_location(register.into()))
     }
 
     pub(super) fn write_register<T: RegisterType>(
@@ -73,22 +45,8 @@ impl<'cpu> State<'cpu> {
         register: impl Into<Register<T>>,
         value: impl IntoOp<T>,
     ) -> Result<(), BuildError> {
-        match register.into().selection {
-            RegisterSelection::Named { parent, byte } => {
-                self.registers
-                    .define(body, Location::new(register_offset(parent) + byte), value)
-            }
-            RegisterSelection::Indexed { slot, byte } => {
-                let offset = indexed_offset(slot, byte);
-                self.registers.write_at(
-                    body,
-                    Span::new(24, T::BACKING_SLOT_COUNT * 4),
-                    offset,
-                    24,
-                    value,
-                )
-            }
-        }
+        self.registers
+            .define(body, register_location(register.into()), value)
     }
 
     /// Publishes current completed instructions on a terminating path. Indexed
@@ -103,13 +61,14 @@ impl<'cpu> State<'cpu> {
     ) -> Result<(), BuildError> {
         self.publish_flags(body)?;
         self.registers.publish(body)?;
-        body.store::<I32>(self.cpu.memory(), EIP_OFFSET, next_eip)?;
+        cpu_store!(body, self.cpu.memory(), eip, next_eip)?;
         if completed != 0 {
-            let count = body.load::<I32>(self.cpu.memory(), INSTRUCTION_COUNT_OFFSET)?;
-            body.store(
+            let count = cpu_load!(body, self.cpu.memory(), instruction_count)?;
+            cpu_store!(
+                body,
                 self.cpu.memory(),
-                INSTRUCTION_COUNT_OFFSET,
-                count.add(completed),
+                instruction_count,
+                count.add(completed)
             )?;
         }
         Ok(())

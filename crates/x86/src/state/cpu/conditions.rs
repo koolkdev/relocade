@@ -5,10 +5,13 @@ use wasm86_compiler::{
     I32, I8,
 };
 
-use crate::flags::{ArithmeticKind, Condition, FlagSource};
+use crate::flags::{ArithmeticKind, Condition, FlagSource, StatusFlag};
 
 use super::{
-    super::flags::{condition_index, record},
+    super::{
+        access::cpu_load,
+        flags::{condition_index, record},
+    },
     Cpu,
 };
 
@@ -59,7 +62,7 @@ impl Cpu {
         }
         queries.sort_unstable_by_key(|(kind, _)| *kind);
         let kinds: Vec<_> = queries.iter().map(|(kind, _)| *kind).collect();
-        let kind = body.load::<I8>(self.memory, record::KIND_OFFSET)?;
+        let kind = cpu_load!(body, self.memory, flags.kind)?;
         body.switch_value::<I1, _>(&kind, &kinds, |mut arm, kind| {
             let result = match kind {
                 Some(kind) => {
@@ -117,19 +120,23 @@ impl Cpu {
         mut body: FunctionBuilder<'_>,
         condition: Condition,
     ) -> Result<(), BuildError> {
-        let kind = body.load::<I8>(self.memory, record::KIND_OFFSET)?;
+        let kind = cpu_load!(&mut body, self.memory, flags.kind)?;
         body.if_(kind.eq(u32::from(record::CONCRETE_KIND)), |mut arm| {
             let result = condition.evaluate(|flag| {
-                let concrete = arm.load::<I8>(
-                    self.memory,
-                    record::CONCRETE_OFFSET + record::status_index(flag) as u32,
-                )?;
+                let concrete = match flag {
+                    StatusFlag::CF => cpu_load!(&mut arm, self.memory, flags.status.cf)?,
+                    StatusFlag::PF => cpu_load!(&mut arm, self.memory, flags.status.pf)?,
+                    StatusFlag::AF => cpu_load!(&mut arm, self.memory, flags.status.af)?,
+                    StatusFlag::ZF => cpu_load!(&mut arm, self.memory, flags.status.zf)?,
+                    StatusFlag::SF => cpu_load!(&mut arm, self.memory, flags.status.sf)?,
+                    StatusFlag::OF => cpu_load!(&mut arm, self.memory, flags.status.of)?,
+                };
                 Ok::<_, BuildError>(concrete.truncate::<I1>())
             })?;
             arm.return_(result)
         })?;
-        let left = body.load::<I32>(self.memory, record::LEFT_OFFSET)?;
-        let right = body.load::<I32>(self.memory, record::RIGHT_OFFSET)?;
+        let left = cpu_load!(&mut body, self.memory, flags.left)?;
+        let right = cpu_load!(&mut body, self.memory, flags.right)?;
         // The kind groups records by operand width; dispatch that region before
         // testing its operation so later widths do not scan earlier operations.
         body.if_(
@@ -182,8 +189,8 @@ where
     let compare = condition
         .operand_comparison::<T>()
         .expect("the condition has an operand comparison");
-    let left = body.load::<I32>(cpu.memory, record::LEFT_OFFSET)?;
-    let right = body.load::<I32>(cpu.memory, record::RIGHT_OFFSET)?;
+    let left = cpu_load!(body, cpu.memory, flags.left)?;
+    let right = cpu_load!(body, cpu.memory, flags.right)?;
     Ok(compare(&left.truncate::<T>(), &right.truncate::<T>()))
 }
 
@@ -198,6 +205,6 @@ where
     let compare = condition
         .logic_result_comparison::<T>()
         .expect("the condition has a logical result comparison");
-    let result = body.load::<I32>(cpu.memory, record::LEFT_OFFSET)?;
+    let result = cpu_load!(body, cpu.memory, flags.left)?;
     Ok(compare(&result.truncate::<T>()))
 }

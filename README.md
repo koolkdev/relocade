@@ -11,9 +11,29 @@ let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1
 The requested instruction count is exact. Missing, overlong or unsupported
 selected instructions are construction errors; bytes after the selection are ignored. The returned
 module exports `block_1000` and imports `wasm86.cpuState` memory (minimum one
-64-KiB page) and `wasm86.dispatch(i32) -> i64`. CPU state uses little-endian 32-bit
-fields: EAX through EDI in encoding order at offsets 24–52, EIP at 56, and the
-completed-instruction count at 144. An exit publishes its current flag source, then
+64-KiB page) and `wasm86.dispatch(i32) -> i64`.
+
+`CpuState` exposes the backing state as plain Rust fields. `Registers`,
+`StoredFlags` and `StatusFlags` retain every field, including reserved bytes and
+inactive flag data. The types support copying and full equality comparisons:
+
+```rust
+let mut cpu = wasm86_x86::CpuState::default();
+cpu.registers.ebx = 0x1234_5678;
+cpu.eip = 0x1000;
+let bytes = cpu.to_bytes();
+assert_eq!(wasm86_x86::CpuState::from_bytes(bytes), cpu);
+```
+
+Copy `cpu.to_bytes()` into the start of the imported CPU memory to initialize it.
+Decode its first `CpuState::BYTE_LEN` bytes with `CpuState::from_bytes` to inspect
+the result. Conversion is explicitly little endian on every host and preserves
+noncanonical flag bytes without interpreting them. The backing image is 152 bytes:
+EAX through EDI are dwords in encoding order at offsets 24–52, EIP is at 56, and the
+completed-instruction count is at 144. `Registers` also supports indexing by
+`Gpr32` for cases that select a register dynamically.
+
+An exit publishes its current flag source, then
 dirty registers in first-write order. EIP and count use 32-bit wrapping arithmetic.
 The number of completed instructions is fixed during compilation for each exit.
 An exit with progress reads the runtime counter and adds that number; an exit
@@ -117,7 +137,11 @@ A fault publishes completed definitions into its terminating branch without
 consuming the parent state used by the successful path.
 
 The register value environment tracks typed byte, word and dword locations,
-forwarding known definitions and caching reads.
+forwarding known definitions and caching reads. A location describes either a
+fixed offset or a computed address together with its possible backing range;
+reads and definitions use the same interface for both. State derives register
+locations from the `CpuState` layout. Named CPU loads and stores use field paths,
+with offsets and storage widths inferred from the Rust fields.
 Reads through overlapping views synchronize earlier definitions to backing. A covering
 write replaces superseded definitions. Computed register accesses synchronize
 overlapping definitions, then invalidate potentially written locations. These
@@ -429,6 +453,27 @@ decoded exit and memory. CPU comparisons retain every byte, including untouched
 fields; diagnostics also show register names. Tests of physical page mappings,
 fault ordering or publication layout can use the lower-level image and boundary
 observations directly.
+
+Both fixtures use the public `CpuState`, so expected CPU state is an ordinary
+copy with the changed fields assigned directly:
+
+```rust
+let mut machine = Machine::new(&[0x89, 0xda]); // MOV EDX, EBX
+machine.cpu.registers.ebx = 42;
+let mut expected = machine.state();
+expected.cpu.registers.edx = 42;
+expected.cpu.eip = 0x1002;
+expected.cpu.instruction_count = 0; // The fixture starts at u32::MAX.
+let actual = machine.run_step();
+assert_eq!(actual.state, expected);
+assert_eq!(actual.exit, Exit::Dispatch(0x1002));
+assert_eq!(actual.dispatches, [(0x1002, expected)]);
+assert!(actual.machine_unchanged);
+```
+
+For instruction sequences, update one expected CPU value and append each `Step`
+immediately after its changes. Keep its expected exit and memory effects together;
+a faulting instruction retains the current CPU value.
 
 Add a named test in the relevant `tests/suites` module, or beside the component
 when it needs private APIs. Cargo filters select that test directly, for example

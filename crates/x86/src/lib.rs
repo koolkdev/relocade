@@ -62,6 +62,8 @@ use wasm86_compiler::{Func, FunctionImport, Program, Signature, Type};
 
 pub use block::compile_block_from_bytes;
 pub use interpreter::compile_interpreter_step;
+pub use register::Gpr32;
+pub use state::{CpuState, Registers, StatusFlags, StoredFlags};
 
 /// A WebAssembly module and the exported function that enters it.
 pub struct CompiledModule {

@@ -2,24 +2,35 @@ use std::marker::PhantomData;
 
 use wasm86_compiler::{BuildError, FunctionBuilder, IntoOp, Mem, MemoryInt, Val, I16, I32, I8};
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct Location<T: SsaType> {
-    offset: u32,
+    address: Address,
     marker: PhantomData<T>,
+}
+
+#[derive(Clone)]
+enum Address {
+    Fixed(u32),
+    Indexed { span: Span, displacement: Val<I32> },
 }
 
 impl<T: SsaType> Location<T> {
     pub(super) fn new(offset: u32) -> Self {
         Self {
-            offset,
+            address: Address::Fixed(offset),
             marker: PhantomData,
         }
     }
 
-    fn key(self) -> LocationKey {
-        LocationKey {
-            offset: self.offset,
-            bytes: T::BYTES,
+    /// The range beginning at `base` must cover every possible accessed byte.
+    /// `displacement` is relative to that base, including any subfield offset.
+    pub(super) fn indexed(base: u32, bytes: u32, displacement: Val<I32>) -> Self {
+        Self {
+            address: Address::Indexed {
+                span: Span::new(base, bytes),
+                displacement,
+            },
+            marker: PhantomData,
         }
     }
 }
@@ -37,13 +48,13 @@ impl LocationKey {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct Span {
+struct Span {
     start: u64,
     end: u64,
 }
 
 impl Span {
-    pub(super) fn new(offset: u32, bytes: u32) -> Self {
+    fn new(offset: u32, bytes: u32) -> Self {
         Self {
             start: u64::from(offset),
             end: u64::from(offset) + u64::from(bytes),
@@ -138,7 +149,18 @@ impl Environment {
         body: &mut FunctionBuilder<'_>,
         location: Location<T>,
     ) -> Result<Val<T>, BuildError> {
-        let location = location.key();
+        let offset = match location.address {
+            Address::Fixed(offset) => offset,
+            Address::Indexed { span, displacement } => {
+                let displacement = body.value(displacement)?;
+                self.flush(body, span, false)?;
+                return body.load_at::<T>(self.memory, displacement, span.start as u32);
+            }
+        };
+        let location = LocationKey {
+            offset,
+            bytes: T::BYTES,
+        };
         if let Some(entry) = self
             .definitions
             .iter()
@@ -165,8 +187,23 @@ impl Environment {
         location: Location<T>,
         value: impl IntoOp<T>,
     ) -> Result<(), BuildError> {
+        let offset = match location.address {
+            Address::Fixed(offset) => offset,
+            Address::Indexed { span, displacement } => {
+                let displacement = body.value(displacement)?;
+                let value = body.value(value)?;
+                self.flush(body, span, false)?;
+                body.store_at(self.memory, displacement, span.start as u32, value)?;
+                self.definitions
+                    .retain(|entry| !span.overlaps(entry.location.span()));
+                return Ok(());
+            }
+        };
         let value = body.value(value)?;
-        let location = location.key();
+        let location = LocationKey {
+            offset,
+            bytes: T::BYTES,
+        };
         if let Some(entry) = self
             .definitions
             .iter()
@@ -203,38 +240,6 @@ impl Environment {
             });
             self.writes += 1;
         }
-        Ok(())
-    }
-
-    /// The supplied span must cover every possible byte of the computed access.
-    pub(super) fn read_at<T: SsaType>(
-        &mut self,
-        body: &mut FunctionBuilder<'_>,
-        span: Span,
-        address: impl IntoOp<I32>,
-        offset: u32,
-    ) -> Result<Val<T>, BuildError> {
-        let address = body.value(address)?;
-        self.flush(body, span, false)?;
-        body.load_at::<T>(self.memory, address, offset)
-    }
-
-    /// The span must cover every possible written byte. Earlier definitions are
-    /// synchronized and every possibly written location is invalidated.
-    pub(super) fn write_at<T: SsaType>(
-        &mut self,
-        body: &mut FunctionBuilder<'_>,
-        span: Span,
-        address: impl IntoOp<I32>,
-        offset: u32,
-        value: impl IntoOp<T>,
-    ) -> Result<(), BuildError> {
-        let address = body.value(address)?;
-        let value = body.value(value)?;
-        self.flush(body, span, false)?;
-        body.store_at(self.memory, address, offset, value)?;
-        self.definitions
-            .retain(|entry| !span.overlaps(entry.location.span()));
         Ok(())
     }
 
