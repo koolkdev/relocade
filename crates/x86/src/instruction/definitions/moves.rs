@@ -96,11 +96,25 @@ const ACCUMULATOR_OFFSET_FORMS: [Form; 4] = [
     ),
 ];
 
+const fn extending_move(opcode: u8, handlers: SizedHandlers<Handler>) -> Form {
+    let mut form = register_rm(opcode, handlers, RegisterRole::Destination);
+    form.map = OpcodeMap::Extended;
+    form
+}
+
+const EXTENDING_FORMS: [Form; 4] = [
+    extending_move(0xb6, binary_handlers!(movzx, source = I8)),
+    extending_move(0xb7, binary_handlers!(movzx, source = I16)),
+    extending_move(0xbe, binary_handlers!(movsx, source = I8)),
+    extending_move(0xbf, binary_handlers!(movsx, source = I16)),
+];
+
 pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
     OPCODE_REGISTER_IMMEDIATE_FORMS
         .iter()
         .chain(MOV_MODRM_FORMS.iter())
         .chain(ACCUMULATOR_OFFSET_FORMS.iter())
+        .chain(EXTENDING_FORMS.iter())
 }
 
 fn mov<T: RegisterType>(
@@ -113,4 +127,28 @@ where
 {
     let value = source.read(execution)?;
     destination.write(execution, value)
+}
+
+fn movzx<Destination: RegisterType + AtLeast<Source>, Source: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: TypedLocation<Destination>,
+    source: Input<Source>,
+) -> Result<(), BuildError>
+where
+    I32: AtLeast<Source>,
+{
+    let value = source.read(execution)?;
+    destination.write(execution, value.unsigned().extend::<Destination>())
+}
+
+fn movsx<Destination: RegisterType + AtLeast<Source>, Source: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: TypedLocation<Destination>,
+    source: Input<Source>,
+) -> Result<(), BuildError>
+where
+    I32: AtLeast<Source>,
+{
+    let value = source.read(execution)?;
+    destination.write(execution, value.signed().extend::<Destination>())
 }

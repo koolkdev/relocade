@@ -11,6 +11,10 @@
 //! pointer is always 32-bit: PUSH reads its source before decrementing ESP;
 //! POP uses the incremented ESP to address a memory destination. POP ESP replaces
 //! the pointer with the popped dword; POP SP preserves the incremented high word.
+//! MOVZX (`0F B6`/`0F B7`) and MOVSX (`0F BE`/`0F BF`) read a byte/word
+//! register or memory source into a dword destination, or a word with `66`.
+//! They zero-extend or sign-extend from the opcode's fixed source width. The
+//! word-to-word `66 0F B7`/`66 0F BF` forms copy the source unchanged.
 //! Relative JMP uses `EB`/`E9`; Jcc uses `70`–`7F`/`0F 80`–`0F 8F`.
 //! Short displacements are signed bytes; near displacements are word/dword-sized.
 //! Targets are relative to the end of the instruction. With `66`, taken targets
@@ -28,7 +32,8 @@
 //! including prefixes and all required operand fields.
 //!
 //! Binary arithmetic, logic and NEG replace all six status flags. INC/DEC preserve
-//! CF and update the other five; MOV, NOT, PUSH, POP, SETcc and branches preserve them all.
+//! CF and update the other five; MOV, MOVZX, MOVSX, NOT, PUSH, POP, SETcc and branches
+//! preserve them all.
 //! CMP and TEST only change flags. The CPU
 //! stores flags lazily: byte 0 selects the record kind, and little-endian dwords
 //! at 4 and 8 hold the original, zero-extended operands. SUB kinds are 1, 5 and 9;

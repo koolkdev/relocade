@@ -14,6 +14,8 @@ mod byte_moves;
 mod carry_arithmetic;
 #[path = "suites/count_publication.rs"]
 mod count_publication;
+#[path = "suites/extending_moves.rs"]
+mod extending_moves;
 #[path = "suites/immediate_and_absolute_moves.rs"]
 mod immediate_and_absolute_moves;
 #[path = "suites/instruction_prefixes.rs"]

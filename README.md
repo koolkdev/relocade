@@ -90,6 +90,16 @@ supports these forms in default-32 operand and address mode:
 | POP register/memory | — | 8F /0 | 8F /0 |
 | SETcc register/memory destination | 0F 90–9F | — | — |
 
+MOVZX (`0F B6`/`0F B7`) and MOVSX (`0F BE`/`0F BF`) read a byte or word
+register/memory source into a register destination. MOVZX fills the added bits
+with zero; MOVSX repeats the source sign bit. The destination is a dword, or a
+word with `66`; the source width remains fixed by the opcode. Word destinations
+preserve the register's upper half, and all forms preserve flags. Only the source
+span is read and checked, even when the destination is wider. The `66 0F B7` and
+`66 0F BF` word-to-word forms copy the source unchanged. These forms are accepted
+by [Intel XED](https://github.com/intelxed/xed/blob/main/datafiles/xed-isa.txt),
+although the SDM's ordinary MOVZX/MOVSX opcode tables omit them.
+
 Relative branches use `EB` for short JMP, `E9` for near JMP, `70`–`7F` for
 short Jcc and `0F 80`–`0F 8F` for near Jcc. Short displacements are signed
 bytes. Near displacements occupy a word with `66`, or a dword otherwise.
@@ -284,8 +294,8 @@ operands; logical zero/nonzero queries compare only the result. Other queries us
 shared readonly condition readers. Inverse
 conditions share a reader and cached result. Readers are created only when needed;
 querying a condition preserves the stored representation.
-MOV and SETcc preserve flags, and these instructions leave non-status flag bytes
-untouched. A faulting operand access preserves the previous instruction's flags.
+MOV, MOVZX, MOVSX and SETcc preserve flags, and these instructions leave non-status
+flag bytes untouched. A faulting operand access preserves the previous instruction's flags.
 
 The step and snapshot blocks with memory operands also import `wasm86.guest`
 (minimum one Wasm page) and `wasm86.machine` (minimum 64 pages, or 4 MiB).
