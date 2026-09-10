@@ -37,9 +37,17 @@ const fn shift_forms(extension: u8, handlers: IntegerHandlers<Handler>) -> [Form
     ]
 }
 
-const FAMILIES: [[Form; 6]; 5] = [
+const FAMILIES: [[Form; 6]; 7] = [
     shift_forms(0, binary_handlers!(rotate, source = I8, RotateKind::Left)),
     shift_forms(1, binary_handlers!(rotate, source = I8, RotateKind::Right)),
+    shift_forms(
+        2,
+        binary_handlers!(rotate_through_carry, source = I8, RotateKind::Left),
+    ),
+    shift_forms(
+        3,
+        binary_handlers!(rotate_through_carry, source = I8, RotateKind::Right),
+    ),
     shift_forms(4, binary_handlers!(shift, source = I8, ShiftKind::Left)),
     shift_forms(
         5,
@@ -63,7 +71,25 @@ fn rotate<T: RegisterType>(
 ) -> Result<(), BuildError> {
     destination.update(execution, |execution, input| {
         let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
-        let rotated = kind.apply(input, count.clone());
+        let rotated = kind.plain(input, count.clone());
+        execution.set_flags_if(count.ne(0), rotated.flags)?;
+        Ok(rotated.result)
+    })
+}
+
+fn rotate_through_carry<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: TypedLocation<T>,
+    count: Input<I8>,
+    kind: RotateKind,
+) -> Result<(), BuildError>
+where
+    I32: AtLeast<T>,
+{
+    destination.update(execution, |execution, input| {
+        let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
+        let carry = execution.condition(Condition::B)?;
+        let rotated = kind.through_carry(input, count.clone(), carry);
         execution.set_flags_if(count.ne(0), rotated.flags)?;
         Ok(rotated.result)
     })

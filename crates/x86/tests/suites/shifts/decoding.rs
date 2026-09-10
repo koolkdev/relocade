@@ -96,15 +96,8 @@ fn the_fifteenth_byte_can_supply_a_zero_immediate_count() {
 
 #[test]
 fn unsupported_groups_stop_before_address_or_count_bytes() {
-    for (opcode, extension) in [
-        (0xc0, 2),
-        (0xc1, 3),
-        (0xd0, 2),
-        (0xd1, 3),
-        (0xd2, 6),
-        (0xd3, 6),
-    ] {
-        let code = [opcode, 0x04 | (extension << 3)]; // Missing SIB, and possibly an immediate.
+    for opcode in [0xc0, 0xc1, 0xd0, 0xd1, 0xd2, 0xd3] {
+        let code = [opcode, 0x34]; // Unsupported /6, missing SIB and possibly an immediate.
         assert!(matches!(
             compile_block_from_bytes(0x1ffe, &code, 1),
             Err(BlockError::UnsupportedInstruction { address: 0x1ffe, opcode: actual }) if actual == opcode
@@ -114,7 +107,7 @@ fn unsupported_groups_stop_before_address_or_count_bytes() {
         image.data(0x3ffe, &code);
         check(
             TestModule::interpreter(),
-            "carry rotations and undocumented group six remain unsupported",
+            "undocumented group six remains unsupported",
             &image,
             &[Step {
                 cpu: image.cpu,

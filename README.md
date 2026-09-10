@@ -3,8 +3,8 @@
 Rust components for x86 execution in WebAssembly.
 
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
-SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, SHL, SHR, SAR, ROL, ROR, PUSH,
-POP, SETcc and relative JMP/Jcc blocks from byte snapshots:
+SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, SHL, SHR, SAR, ROL, ROR, RCL,
+RCR, PUSH, POP, SETcc and relative JMP/Jcc blocks from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
@@ -86,6 +86,8 @@ supports these forms in default-32 operand and address mode:
 | NEG register/memory | F6 /3 | F7 /3 | F7 /3 |
 | ROL register/memory by one, CL or imm8 | D0/D2/C0 /0 | D1/D3/C1 /0 | D1/D3/C1 /0 |
 | ROR register/memory by one, CL or imm8 | D0/D2/C0 /1 | D1/D3/C1 /1 | D1/D3/C1 /1 |
+| RCL register/memory by one, CL or imm8 | D0/D2/C0 /2 | D1/D3/C1 /2 | D1/D3/C1 /2 |
+| RCR register/memory by one, CL or imm8 | D0/D2/C0 /3 | D1/D3/C1 /3 | D1/D3/C1 /3 |
 | SHL/SAL register/memory by one, CL or imm8 | D0/D2/C0 /4 | D1/D3/C1 /4 | D1/D3/C1 /4 |
 | SHR register/memory by one, CL or imm8 | D0/D2/C0 /5 | D1/D3/C1 /5 | D1/D3/C1 /5 |
 | SAR register/memory by one, CL or imm8 | D0/D2/C0 /7 | D1/D3/C1 /7 | D1/D3/C1 /7 |
@@ -150,8 +152,17 @@ CF; ROR copies the result sign bit. PF/AF/ZF/SF retain their prior logical value
 A full byte or word turn can therefore leave the operand unchanged while changing
 CF. OF is defined only when the masked count is one: ROL uses result sign XOR CF,
 and ROR uses the XOR of the top two result bits. wasm86 chooses zero for undefined
-OF, including a byte rotate by nine. Through-carry rotations RCL/RCR, double shifts
-and the undocumented group `/6` SHL alias are outside this subset.
+OF, including a byte rotate by nine.
+
+RCL and RCR rotate through the incoming CF, which adds one bit to the ring.
+After masking to five bits, counts wrap modulo 9 for bytes and 17 for words;
+dword counts remain 0–31 in a 33-bit ring. A complete carry-ring turn preserves
+the operand and CF. OF uses the same left/right rules as ROL/ROR only when the
+masked count is one; wasm86 chooses zero for larger masked counts, including
+complete rings and a byte RCL/RCR by ten. A zero masked count preserves the
+entire flag source. PF/AF/ZF/SF, old-CL capture and full-span memory write checks
+follow ROL/ROR. Double shifts and the undocumented group `/6` SHL alias are
+outside this subset.
 
 LEA (`8D`) computes the effective address encoded by ModRM/SIB and writes it to a
 dword register. With `66`, it writes the low word and preserves the upper half of
@@ -356,11 +367,12 @@ Shifts construct a result and six symbolic flags through `FlagSource::shift`.
 masked count. Its predicate and every source value are validated before state
 changes. Constant predicates either replace or preserve the current state;
 runtime predicates append to the history. Rotations return a typed result and a
-partial CF/OF change through `RotateKind::apply`, then use the same conditional
-setter. A condition query composes the bits it needs when a partial change affects
-them; complete sources retain their comparison shortcuts. Conditional values
-use pure selections. Stored reads stay on the owning path so cached values remain
-available to later queries. Reading flags never modifies the stored record.
+partial CF/OF change through `RotateKind::plain` or `RotateKind::through_carry`,
+then use the same conditional setter. A condition query composes the bits it
+needs when a partial change affects them; complete sources retain their comparison
+shortcuts. Conditional values use pure selections. Stored reads stay on the owning
+path so cached values remain available to later queries. Reading flags never
+modifies the stored record.
 
 At publication, state converts the current source into a `FlagRecord`: arithmetic
 operands, a logical result, or six concrete status bits. Its payload variant
@@ -737,7 +749,7 @@ for direct assertions. For example:
 ```rust
 #[test]
 fn byte_addition_wraps() {
-    let module = Fixture::new().function(&[Type::I8], Some(Type::I8), |body| {
+    let module = Fixture::new().function(&[Type::I8], &[Type::I8], |body| {
         let value = body.parameter::<I8>(0)?;
         body.return_(value.add(1))
     });
