@@ -2,7 +2,7 @@ use wasm86_x86::compile_block_from_bytes;
 
 use crate::support::{
     arithmetic,
-    machine::{self, both, check, Exit, Image, Step},
+    machine::{self, both, Exit, Image, Step},
     step::TestModule,
 };
 
@@ -134,7 +134,6 @@ fn false_conditions_do_not_suppress_source_faults() {
                 error: 0,
             },
         ),
-        (false, 0x4000, Some(0x10000), Exit::Trap),
     ] {
         let mut code = if word { vec![0x66] } else { vec![] };
         code.extend_from_slice(&[0x0f, 0x45, 0x03]); // CMOVNE EAX/AX, [EBX], ZF=1
@@ -161,10 +160,9 @@ fn false_conditions_do_not_suppress_source_faults() {
 
 const KNOWN_FALSE_READ: &[u8] = &[0x31, 0xc0, 0x0f, 0x45, 0x0b]; // XOR EAX,EAX; CMOVNE ECX,[EBX]
 
-fn known_false_read_trap() -> (Image, [Step<'static>; 2]) {
+fn known_false_source_fault() -> (Image, [Step<'static>; 2]) {
     let mut image = arithmetic::image(KNOWN_FALSE_READ);
     image.cpu.registers.ebx = 0x4000;
-    image.map(4, 0x10000, false);
     let mut cpu = image.cpu;
     cpu.registers.eax = 0;
     cpu.flags.kind = 11;
@@ -182,32 +180,25 @@ fn known_false_read_trap() -> (Image, [Step<'static>; 2]) {
             Step {
                 cpu,
                 ram: &[],
-                exit: Exit::Trap,
+                exit: Exit::PageFault {
+                    address: 0x4000,
+                    error: 0,
+                },
             },
         ],
     )
 }
 
 #[test]
-fn known_false_condition_keeps_the_guest_read_effect() {
-    let (image, steps) = known_false_read_trap();
-    check(
+fn known_false_condition_still_checks_source_access() {
+    let (image, steps) = known_false_source_fault();
+    both(
         TestModule::interpreter(),
-        "false memory CMOV still traps after XOR",
+        "false memory CMOV still reports an absent source page after XOR",
+        KNOWN_FALSE_READ,
+        2,
         &image,
         &steps,
-    );
-    // A host trap interrupts snapshot publication, unlike a guest page fault.
-    let block = TestModule::new(&compile_block_from_bytes(0x1000, KNOWN_FALSE_READ, 2).unwrap());
-    check(
-        &block,
-        "constant false selection retains the guest read",
-        &image,
-        &[Step {
-            cpu: image.cpu,
-            ram: &[],
-            exit: Exit::Trap,
-        }],
     );
 }
 
@@ -299,11 +290,11 @@ fn conditional_moves_and_false_source_faults_execute_in_optimizing_v8() {
         ),
         "snapshot block",
     );
-    let (image, steps) = known_false_read_trap();
+    let (image, steps) = known_false_source_fault();
     assert_eq!(
         TestModule::interpreter().observe_v8(&image.input(), 2),
         machine::expected(&image, &steps),
-        "interpreter reads a known-false source",
+        "interpreter checks a known-false source",
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, KNOWN_FALSE_READ, 2).unwrap());
     assert_eq!(
@@ -311,11 +302,11 @@ fn conditional_moves_and_false_source_faults_execute_in_optimizing_v8() {
         machine::expected(
             &image,
             &[Step {
-                cpu: image.cpu,
+                cpu: steps[1].cpu,
                 ram: &[],
-                exit: Exit::Trap
+                exit: steps[1].exit,
             }]
         ),
-        "snapshot block reads a known-false source",
+        "snapshot block checks a known-false source",
     );
 }

@@ -120,7 +120,7 @@ fn unary_memory_updates_cover_each_width_and_split_mapping() {
 }
 
 #[test]
-fn unary_rmw_proves_write_access_before_reading_flags_or_changing_memory() {
+fn unary_rmw_faults_leave_flags_and_memory_unchanged() {
     struct Fault {
         first_writable: Option<bool>,
         next_writable: Option<bool>,
@@ -172,8 +172,7 @@ fn unary_rmw_proves_write_access_before_reading_flags_or_changing_memory() {
             }
             let mut image = Image::new(code);
             image.cpu.registers.ebx = 0x4fff;
-            // INC/DEC would trap when querying this record. The operand fault wins.
-            image.cpu.flags.kind = 0xff;
+            image.cpu.flags.kind = 0;
             if let Some(writable) = fault.first_writable {
                 image.map(4, 0x8000, writable);
             }
@@ -184,7 +183,7 @@ fn unary_rmw_proves_write_access_before_reading_flags_or_changing_memory() {
             image.data(0xa000, &[0xff, 0xff, 0xff, 0x5a]);
             both(
                 TestModule::interpreter(),
-                "unary RMW access proof precedes effects",
+                "unary RMW access fault leaves flags and memory unchanged",
                 code,
                 1,
                 &image,
@@ -221,12 +220,12 @@ fn unary_rmw_rejects_a_wrapping_range_even_when_both_pages_are_mapped() {
         for first_writable in [true, false] {
             let mut image = Image::new(code);
             image.cpu.registers.ebx = address;
-            image.cpu.flags.kind = 0xff;
+            image.cpu.flags.kind = 0;
             image.map(0xfffff, 0x8000, first_writable);
             image.map(0, 0xa000, true);
             image.data(0x8ffe, &[0x11, 0x22]);
             image.data(0xa000, &[0x33, 0x44]);
-            // Range wrap wins over a read-only first page and invalid flags.
+            // Range wrap wins over a read-only first page.
             both(
                 TestModule::interpreter(),
                 "unary range wrap follows the memory policy",

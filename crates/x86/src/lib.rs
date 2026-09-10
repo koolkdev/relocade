@@ -52,7 +52,7 @@
 //! retain the result and six explicit symbolic flag values. At publication,
 //! they write all six concrete flags before kind 0, leaving unused payloads intact.
 //! INC/DEC publish through the same concrete format; NEG uses SUB with a zero left operand.
-//! Other kind values trap when a condition reads them. Flag reads preserve the
+//! Valid record kinds are an internal invariant. Flag reads preserve the
 //! record, and these instructions leave non-status flag bytes untouched.
 //!
 //! ```

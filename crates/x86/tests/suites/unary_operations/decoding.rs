@@ -174,7 +174,7 @@ fn unsupported_group_extensions_stop_before_sib_or_displacement_fetch() {
 }
 
 #[test]
-fn required_unary_fields_fault_before_data_or_old_carry_access() {
+fn required_unary_fields_fault_before_data_access() {
     for code in [
         &[0xfe][..],
         &[0xff, 0x04],
@@ -183,7 +183,7 @@ fn required_unary_fields_fault_before_data_or_old_carry_access() {
     ] {
         let start = 0x2000 - code.len() as u32;
         let mut image = Image::new(&[]);
-        image.cpu.flags.kind = 0xff;
+        image.cpu.flags.kind = 0;
         image.cpu.registers.ebx = 0x4000;
         image.cpu.eip = start;
         image.data(0x3000 + (start & 0xfff), code);
@@ -213,7 +213,7 @@ fn required_unary_fields_fault_before_data_or_old_carry_access() {
             Some(BlockError::InstructionTooLong { address: 0x1ff1 }),
         );
         let mut image = Image::new(&[]);
-        image.cpu.flags.kind = 0xff;
+        image.cpu.flags.kind = 0;
         image.cpu.eip = 0x1ff1;
         image.data(0x3ff1, &code);
         check(

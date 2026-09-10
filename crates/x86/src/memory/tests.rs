@@ -8,7 +8,6 @@ use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, T
 use crate::CpuState;
 
 mod helpers;
-mod required_reads;
 
 fn return_fault(body: FunctionBuilder<'_>, fault: AccessFault) -> Result<(), BuildError> {
     body.return_(crate::state::exit::page_fault(&fault.address, &fault.error))

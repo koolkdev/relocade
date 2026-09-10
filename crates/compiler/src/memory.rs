@@ -99,7 +99,6 @@ impl FunctionBuilder<'_> {
     /// Each call creates a separate read. Reusing its value preserves that read's
     /// snapshot across overlapping stores. A used read may run later, past stores
     /// to other bytes; an unused read and its possible trap are omitted.
-    /// Use [`Self::evaluate`] when the access must occur even if its value is unused.
     pub fn load<T: MemoryInt>(&mut self, memory: Mem, offset: u32) -> Result<Val<T>, BuildError> {
         self.load_at(memory, 0, offset)
     }

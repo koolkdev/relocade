@@ -27,8 +27,6 @@ mod integer_ops;
 mod memory;
 #[path = "suites/no_result_functions.rs"]
 mod no_result_functions;
-#[path = "suites/ordered_evaluation.rs"]
-mod ordered_evaluation;
 #[path = "suites/ordinary_calls.rs"]
 mod ordinary_calls;
 #[path = "suites/signed_arithmetic.rs"]

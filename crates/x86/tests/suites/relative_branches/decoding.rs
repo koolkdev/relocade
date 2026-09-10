@@ -42,19 +42,18 @@ fn snapshots_require_every_opcode_and_displacement_byte_before_ending_a_block() 
 }
 
 #[test]
-fn runtime_fetches_all_branch_fields_before_reading_the_condition() {
+fn runtime_fetches_all_branch_fields_for_both_condition_outcomes() {
     for &code in ENCODINGS {
         for available in 1..code.len() {
             let start = 0x2000 - available as u32;
-            // The untaken condition still requires the displacement. The invalid
-            // record separately proves that field faults precede condition reads.
-            for kind in [0, 0xff] {
+            // The untaken condition still requires the displacement.
+            for zero in [0, 1] {
                 let mut image = image_at(start, &code[..available]);
-                image.cpu.flags.kind = kind;
-                image.cpu.flags.status.zf = 0;
+                image.cpu.flags.kind = 0;
+                image.cpu.flags.status.zf = zero;
                 check(
                     TestModule::interpreter(),
-                    &format!("incomplete branch {code:02x?}, {available} bytes, flag kind {kind}"),
+                    &format!("incomplete branch {code:02x?}, {available} bytes, ZF={zero}"),
                     &image,
                     &[Step {
                         cpu: image.cpu,
@@ -68,20 +67,6 @@ fn runtime_fetches_all_branch_fields_before_reading_the_condition() {
             }
         }
     }
-    let mut image = image_at(0x1000, &[0x74, 1]);
-    image.cpu.flags.kind = 0xff;
-    both(
-        TestModule::interpreter(),
-        "complete JE reads its invalid flag record",
-        &[0x74, 1],
-        1,
-        &image,
-        &[Step {
-            cpu: image.cpu,
-            ram: &[],
-            exit: Exit::Trap,
-        }],
-    );
 }
 
 #[test]
@@ -151,13 +136,13 @@ fn prefix_bytes_count_toward_the_branch_length_limit() {
             compile_block_from_bytes(0x1ff1, &overlong, 1),
             Err(BlockError::InstructionTooLong { address: 0x1ff1 })
         ));
-        for kind in [0, 0xff] {
+        for zero in [0, 1] {
             let mut image = image_at(0x1ff1, &overlong[..15]);
-            image.cpu.flags.kind = kind;
-            image.cpu.flags.status.zf = 0;
+            image.cpu.flags.kind = 0;
+            image.cpu.flags.status.zf = zero;
             check(
                 TestModule::interpreter(),
-                "overlong branch faults before condition or next-page fetch",
+                "overlong branch faults before next-page fetch",
                 &image,
                 &[Step {
                     cpu: image.cpu,

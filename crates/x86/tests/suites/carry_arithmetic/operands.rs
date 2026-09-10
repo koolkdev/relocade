@@ -125,7 +125,7 @@ fn carry_memory_operands_use_incoming_flags() {
 }
 
 #[test]
-fn operand_faults_precede_carry_evaluation() {
+fn operand_faults_preserve_flags_and_prior_progress() {
     let step = TestModule::interpreter();
     for op in OPERATIONS {
         for bits in WIDTHS {
@@ -202,8 +202,6 @@ fn operand_faults_precede_carry_evaluation() {
                     &[0x03],
                 );
                 let mut image = flag_image(&code);
-                // Resolving this invalid record would trap. An operand fault must win.
-                image.cpu.flags.kind = 0xff;
                 image.cpu.registers.ebx = 0x4fff;
                 if let Some(writable) = first_writable {
                     image.map(4, 0x8000, writable);
@@ -215,7 +213,7 @@ fn operand_faults_precede_carry_evaluation() {
                 image.data(0xa000, &[0xff, 0xff, 0xff, 0x5a]);
                 both(
                     step,
-                    &format!("{op:?}/{bits} proves the full operand before reading CF"),
+                    &format!("{op:?}/{bits} leaves flags and memory unchanged on an operand fault"),
                     &code,
                     1,
                     &image,
@@ -320,12 +318,11 @@ fn operand_faults_precede_carry_evaluation() {
         ] {
             let start = 0x2000 - code.len() as u32;
             let mut image = flag_image(&[]);
-            image.cpu.flags.kind = 0xff;
             image.cpu.eip = start;
             image.data(0x3000 + (start & 0xfff), &code);
             check(
                 step,
-                "carry fetch fault precedes operand access and CF resolution",
+                "carry fetch fault preserves flags and precedes operand access",
                 &image,
                 &[Step {
                     cpu: image.cpu,
@@ -340,7 +337,6 @@ fn operand_faults_precede_carry_evaluation() {
         for suffix in [vec![op.opcode()], vec![0x81, group | 0xc0, 1]] {
             let code = [vec![0x66; 15 - suffix.len()], suffix].concat();
             let mut image = flag_image(&[]);
-            image.cpu.flags.kind = 0xff;
             image.cpu.eip = 0x1ff1;
             image.data(0x3ff1, &code);
             check(

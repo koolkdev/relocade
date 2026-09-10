@@ -28,6 +28,12 @@ This is a public repository. Commit messages use `component: title`.
   bytes, shared semantics define effects, memory owns access policy and faults,
   state owns architectural layout and publication, and the compiler owns value
   construction, placement and lowering.
+- Trust internal consistency, including valid physical backing for present memory
+  mappings. Unexpected host or Wasm traps from broken internal invariants are bugs,
+  not supported execution outcomes. Do not add APIs, scheduling constraints,
+  recovery paths or tests to preserve their occurrence, ordering or post-trap state.
+  Keep expected guest faults and deliberately authored compiler traps distinct
+  from these internal failures.
 - Keep representation choices and invariants with their owner. Interfaces should
   express the caller's intent without requiring knowledge of internal details.
   When callers must coordinate internal steps or repeat special cases, review

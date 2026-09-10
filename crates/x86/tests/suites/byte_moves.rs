@@ -485,23 +485,6 @@ fn memory() {
             }],
         );
     }
-    let code = [0x8a, 0x23];
-    let mut image = byte_image(&code);
-    image.cpu.registers.ebx = 0x4000;
-    image.map(4, 0x10000, false);
-    let expected_cpu = image.cpu;
-    both(
-        step,
-        "present byte frame outside RAM traps",
-        &code,
-        1,
-        &image,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Trap,
-        }],
-    );
 }
 
 #[test]

@@ -234,7 +234,6 @@ pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
                 index,
             });
             match operation {
-                Operation::Evaluate(value) => demand(body, &tree, &mut demands, *value, point),
                 Operation::Store { location, value } => {
                     demand(body, &tree, &mut demands, location.base, point);
                     demand(body, &tree, &mut demands, *value, point);

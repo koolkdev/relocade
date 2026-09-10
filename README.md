@@ -297,12 +297,12 @@ particular physical CPU's undocumented behavior. Architecture comparisons exclud
 undefined flag values; separate policy tests may assert wasm86's chosen value.
 A nonzero kind owns all six status flags, so concrete flag bytes may be stale.
 Kind 0 instead reads CF/PF/AF/ZF/SF/OF from bytes 12–17, each containing 0 or 1.
-Other kind values trap when read. A stored direct query selects its exact record
-kind before reading its typed inputs. Subtraction relations compare the original
-operands; logical zero/nonzero queries compare only the result. Other queries use
-shared readonly condition readers. Inverse
-conditions share a reader and cached result. Readers are created only when needed;
-querying a condition preserves the stored representation.
+Valid record kinds are an internal invariant. A stored direct query selects its
+exact record kind before reading its typed inputs. Subtraction relations compare
+the original operands; logical zero/nonzero queries compare only the result.
+Other queries use shared readonly condition readers. Inverse conditions share a
+reader and cached result. Readers are created only when needed; querying a
+condition preserves the stored representation.
 MOV, MOVZX, MOVSX, CMOVcc and SETcc preserve flags, and these instructions leave
 non-status flag bytes untouched. A faulting operand access preserves the previous
 instruction's flags.
@@ -312,10 +312,9 @@ The step and snapshot blocks with memory operands also import `wasm86.guest`
 All three memory imports require distinct backing objects. Machine memory starts
 with 2^20 little-endian 32-bit page-table entries: bit 0 marks presence, bit 1
 permits writes, and bits 12–31 identify a 4-KiB frame in guest memory. Data reads
-require presence. Present frames must fit the backing RAM; invalid backing is a
-Wasm trap, not a guest page fault.
-Architectural data reads are evaluated even when later computation discards their
-values, preserving the access and its possible backing-memory trap.
+require presence. Present frames must fit the backing RAM; this is an internal
+invariant. Unexpected host or Wasm traps from inconsistent internal state are not
+part of the guest execution contract.
 
 A missing instruction page returns the 64-bit word
 `(4 << 48) | (0x10 << 32) | first_unavailable_address`. A data fault returns
@@ -517,17 +516,15 @@ For a call that returns to the current function, use
 `body.call::<I32>(helper, &[value.argument(), 7.into()])?`. Its typed result can
 be shared by later expressions. A result created inside a branch stays within
 that branch and its descendants. The compiler conservatively infers which
-memory bytes defined helpers may read or write. Helpers without inferred writes,
-required evaluations or unknown effects may be deferred or omitted when unused,
-including their arguments and possible traps. Calls that may write, explicitly
-evaluate a value, call imports or reach unresolved recursion execute in authored
-order even when unused.
+memory bytes defined helpers may read or write. Helpers without inferred writes
+or unknown effects may be deferred or omitted when unused, including their
+arguments and possible traps. Calls that may write, call imports or reach
+unresolved recursion execute in authored order even when unused.
 
 For a function with no result, use `body.call_void(target, arguments)?` and finish
 its definition with `body.return_void()`. The same inferred effects determine
-whether the invocation must execute; calls without writes, required evaluations
-or unknown effects are omitted, including their arguments and possible traps.
-They have no value to discard:
+whether the invocation must execute; calls without writes or unknown effects are
+omitted, including their arguments and possible traps. They have no value to discard:
 
 ```rust
 let writer = program.function(Signature {
@@ -566,15 +563,6 @@ Literal operands work directly: `body.store::<I32>(memory, 12, 9)`.
 Stores keep their authored order, used loads preserve their value across writes,
 and unused loads are omitted. Distinct memory declarations require distinct
 backing memories.
-
-`body.evaluate(&value)?` requires evaluation by that statement, even if no later
-operation uses the value. This preserves possible traps before subsequent effects
-and retains calls to helpers that perform such evaluations. It keeps the existing
-snapshot rules: an overlapping store may force an earlier read, and reusing the
-value does not repeat that read. Evaluate the read itself when it must occur
-independently of a calculation; constant folding can remove unused inputs before
-the resulting expression is evaluated. Architectural guest data reads use this
-operation in the shared memory owner.
 
 For computed addresses, use `body.load_at::<I8>(memory, &address, offset)` and
 `body.store_at(memory, &address, offset, &value)`, where `address` is a `Val<I32>`

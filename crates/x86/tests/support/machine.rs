@@ -56,7 +56,6 @@ pub(crate) enum Exit {
     Dispatch(u32),
     PageFault { address: u32, error: u16 },
     Other(u64),
-    Trap,
 }
 
 impl Exit {
@@ -112,7 +111,6 @@ pub(crate) fn expected(image: &Image, steps: &[Step<'_>]) -> Observation {
                 ((4_u64 << 48) | (u64::from(error) << 32) | u64::from(address)) as i64,
             ))),
             Exit::Other(word) => Outcome::Returned(Some(Argument::I64(word as i64))),
-            Exit::Trap => Outcome::Trap,
         };
         events.push(Event::Return { outcome, snapshot });
     }

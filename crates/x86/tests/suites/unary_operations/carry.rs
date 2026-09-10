@@ -97,26 +97,6 @@ fn increment_and_decrement_read_carry_from_stored_sources() {
 }
 
 #[test]
-fn invalid_carry_records_trap_before_a_register_update() {
-    for code in [
-        &[0xfe, 0xc4][..],
-        &[0x66, 0x4b],
-        &[0xff, 0xc0],
-        &[0xff, 0xc8],
-    ] {
-        let mut machine = Machine::new(code);
-        machine.cpu.flags.kind = 0xff;
-        let expected = machine.state();
-        for execution in [machine.run_step(), machine.run_block(1)] {
-            assert_eq!(execution.exit, Exit::Trap);
-            assert_eq!(execution.state, expected);
-            assert!(execution.dispatches.is_empty());
-            assert!(execution.machine_unchanged);
-        }
-    }
-}
-
-#[test]
 fn local_carry_survives_increment_and_decrement_then_feeds_adc_sbb_and_setcc() {
     struct Producer {
         name: &'static str,

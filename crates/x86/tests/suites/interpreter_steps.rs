@@ -771,23 +771,6 @@ fn immediate_moves_and_fetch_boundaries() {
             exit: Exit::Dispatch((-2147483646_i32) as u32),
         }],
     );
-    let invalid_frame_name = "present frame outside RAM";
-    let invalid_frame = Image {
-        cpu: state(0x1000),
-        guest: vec![],
-        machine: vec![(4, [1, 0, 1, 0].to_vec())],
-    };
-    let expected_cpu = invalid_frame.cpu;
-    check(
-        step,
-        invalid_frame_name,
-        &invalid_frame,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Trap,
-        }],
-    );
     let two_name = "one instruction only";
     let two = Image {
         cpu: state(0x1000),

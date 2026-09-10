@@ -227,25 +227,21 @@ impl Memory {
         body: &mut FunctionBuilder<'_>,
         access: &Access<T>,
     ) -> Result<Val<T>, BuildError> {
-        let value = if T::BYTES == 1 {
-            self.load(body, &access.physical, 0)?
-        } else {
-            body.if_value::<T>(
-                &access.scattered,
-                |mut arm| {
-                    let reader = self.scattered_reader::<T>(arm.program())?;
-                    let value = arm.call::<T>(reader, &[(&access.linear).into()])?;
-                    arm.yield_(value)
-                },
-                |mut arm| {
-                    let value = self.load::<T>(&mut arm, &access.physical, 0)?;
-                    arm.yield_(value)
-                },
-            )?
-        };
-        // Guest reads remain observable even when later computation drops the value.
-        body.evaluate(&value)?;
-        Ok(value)
+        if T::BYTES == 1 {
+            return self.load(body, &access.physical, 0);
+        }
+        body.if_value::<T>(
+            &access.scattered,
+            |mut arm| {
+                let reader = self.scattered_reader::<T>(arm.program())?;
+                let value = arm.call::<T>(reader, &[(&access.linear).into()])?;
+                arm.yield_(value)
+            },
+            |mut arm| {
+                let value = self.load::<T>(&mut arm, &access.physical, 0)?;
+                arm.yield_(value)
+            },
+        )
     }
 
     pub(super) fn write<T: MemoryInt>(

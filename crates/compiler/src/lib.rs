@@ -24,7 +24,6 @@ mod call;
 mod control;
 mod effects;
 mod emit;
-mod evaluation;
 mod integer;
 mod locals;
 mod memory;
@@ -175,7 +174,6 @@ impl Terminal {
 
 enum Operation {
     Load(usize),
-    Evaluate(usize),
     Store {
         location: Location,
         value: usize,

@@ -401,25 +401,6 @@ fn accesses() {
             }],
         );
     }
-    for opcode in [0x8b, 0x89] {
-        let code = [opcode, 0x13];
-        let mut image = Image::new(&code);
-        image.cpu.registers.ebx = 0x4000;
-        image.map(4, 0x10000, true);
-        let expected_cpu = image.cpu;
-        both(
-            step,
-            "present frame without RAM backing traps",
-            &code,
-            1,
-            &image,
-            &[Step {
-                cpu: expected_cpu,
-                ram: &[],
-                exit: Exit::Trap,
-            }],
-        );
-    }
     for (name, start, code) in [
         ("missing SIB before data access", 0x1ffe, &[0x8b, 0x04][..]),
         (
@@ -770,73 +751,62 @@ fn aliased_guest_snapshot() {
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn memory_accesses_and_faults_execute_in_optimizing_v8() {
-    // A scattered store completes before a later read faults or traps.
+    // A scattered store completes before a later read faults.
     let code = [0xb8, 42, 0, 0, 0, 0x89, 0x03, 0x8b, 0x11];
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 3).unwrap());
-    for bad_frame in [false, true] {
-        let mut image = Image::new(&code);
-        image.cpu.registers.ebx = 0x4ffe;
-        image.cpu.registers.ecx = 0x6000;
-        image.map(4, 0x8000, true);
-        image.map(5, 0xa000, true);
-        image.data(0x8ffd, &[0xa5, 0x78, 0x56]);
-        image.data(0xa000, &[0x34, 0x92, 0x5a]);
-        if bad_frame {
-            image.map(6, 0x10000, false);
-        }
-        let exit = if bad_frame {
-            Exit::Trap
-        } else {
-            Exit::PageFault {
-                address: 0x00006000,
-                error: 0x0,
-            }
-        };
-        let writes = [(0x8ffe, &[42, 0][..]), (0xa000, &[0, 0][..])];
-        let mut expected_cpu = image.cpu;
-        let mut steps = Vec::new();
+    let mut image = Image::new(&code);
+    image.cpu.registers.ebx = 0x4ffe;
+    image.cpu.registers.ecx = 0x6000;
+    image.map(4, 0x8000, true);
+    image.map(5, 0xa000, true);
+    image.data(0x8ffd, &[0xa5, 0x78, 0x56]);
+    image.data(0xa000, &[0x34, 0x92, 0x5a]);
+    let exit = Exit::PageFault {
+        address: 0x00006000,
+        error: 0x0,
+    };
+    let writes = [(0x8ffe, &[42, 0][..]), (0xa000, &[0, 0][..])];
+    let mut expected_cpu = image.cpu;
+    let mut steps = Vec::new();
 
-        expected_cpu.registers.eax = 42;
-        expected_cpu.eip = 0x1005;
-        expected_cpu.instruction_count = 0;
-        steps.push(Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(0x1005),
-        });
+    expected_cpu.registers.eax = 42;
+    expected_cpu.eip = 0x1005;
+    expected_cpu.instruction_count = 0;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit: Exit::Dispatch(0x1005),
+    });
 
-        expected_cpu.eip = 0x1007;
-        expected_cpu.instruction_count = 1;
-        steps.push(Step {
-            cpu: expected_cpu,
-            ram: &writes,
-            exit: Exit::Dispatch(0x1007),
-        });
+    expected_cpu.eip = 0x1007;
+    expected_cpu.instruction_count = 1;
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &writes,
+        exit: Exit::Dispatch(0x1007),
+    });
 
-        steps.push(Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit,
-        });
+    steps.push(Step {
+        cpu: expected_cpu,
+        ram: &[],
+        exit,
+    });
 
-        assert_eq!(
-            TestModule::interpreter().observe_v8(&image.input(), 3),
-            machine::expected(&image, &steps),
-        );
-        // A Wasm trap interrupts snapshot publication; successful stores remain visible.
-        let cpu = if bad_frame { image.cpu } else { expected_cpu };
-        assert_eq!(
-            block.observe_v8(&image.input(), 1),
-            machine::expected(
-                &image,
-                &[Step {
-                    cpu,
-                    ram: &writes,
-                    exit
-                }]
-            ),
-        );
-    }
+    assert_eq!(
+        TestModule::interpreter().observe_v8(&image.input(), 3),
+        machine::expected(&image, &steps),
+    );
+    assert_eq!(
+        block.observe_v8(&image.input(), 1),
+        machine::expected(
+            &image,
+            &[Step {
+                cpu: expected_cpu,
+                ram: &writes,
+                exit
+            }]
+        ),
+    );
 }
 
 #[test]

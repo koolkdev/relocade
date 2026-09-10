@@ -137,7 +137,10 @@ impl Machine {
             panic!("execution ends with a return boundary");
         };
         let exit = match outcome {
-            Outcome::Trap => Exit::Trap,
+            Outcome::Trap => panic!(
+                "unexpected Wasm trap in {} starting at guest EIP {:#010x}",
+                module.entry, self.cpu.eip
+            ),
             Outcome::Returned(Some(Argument::I64(value))) => {
                 if let Some((eip, _)) = dispatches.last() {
                     assert_eq!(*value, i64::MIN);

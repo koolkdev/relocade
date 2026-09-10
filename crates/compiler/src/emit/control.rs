@@ -50,15 +50,6 @@ impl Scheduler<'_> {
             }
             match operation {
                 Operation::Load(_) => {}
-                Operation::Evaluate(value) => {
-                    let value = place::representation(self.body, *value);
-                    if !self.emitted[value] || self.placement.slots[value].is_none() {
-                        self.evaluate(value, true);
-                        if self.placement.slots[value].is_none() {
-                            Instruction::Drop.encode(&mut self.bytes);
-                        }
-                    }
-                }
                 Operation::Call { invocation, output } => {
                     if self.effects[invocation.target.0].must_execute() {
                         if let Some(output) = output {

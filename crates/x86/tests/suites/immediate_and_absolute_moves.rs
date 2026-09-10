@@ -299,22 +299,6 @@ fn absolute_offsets() {
 #[test]
 fn data_faults() {
     let step = TestModule::interpreter();
-    let code = [0xa0, 0, 0x40, 0, 0];
-    let mut invalid_backing = image(&code);
-    invalid_backing.map(4, 0x10000, false);
-    let expected_cpu = invalid_backing.cpu;
-    both(
-        step,
-        "present frame outside RAM traps before updating AL",
-        &code,
-        1,
-        &invalid_backing,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Trap,
-        }],
-    );
     let code = [0xa1, 0xfe, 0x4f, 0, 0];
     let mut missing = image(&code);
     missing.map(4, 0x8000, false);

@@ -89,14 +89,13 @@ impl FunctionBuilder<'_> {
     /// Each call creates a distinct result, visible only in this branch and its
     /// descendants. Reusing that value shares one invocation.
     ///
-    /// Defined helpers without inferred writes, required evaluations or unknown
-    /// effects can run later or disappear when unused. Possible traps in the call
-    /// or its argument computations move or disappear with it. Read snapshots
-    /// remain protected across overlapping writes. Calls that may write, explicitly
-    /// evaluate a value, call imports or reach unresolved recursion execute in
-    /// authored order, even when their result is unused. These rules also apply to
-    /// [`Self::call_void`]. Narrow results follow the same zero-extended calling
-    /// convention as tail calls.
+    /// Defined helpers without inferred writes or unknown effects can run later
+    /// or disappear when unused. Possible traps in the call or its argument
+    /// computations move or disappear with it. Read snapshots remain protected
+    /// across overlapping writes. Calls that may write, call imports or reach
+    /// unresolved recursion execute in authored order, even when their result is
+    /// unused. These rules also apply to [`Self::call_void`]. Narrow results follow
+    /// the same zero-extended calling convention as tail calls.
     ///
     /// ```
     /// use wasm86_compiler::{Program, Signature, Type, I32};
@@ -131,8 +130,7 @@ impl FunctionBuilder<'_> {
 
     /// Calls a function with no result, leaving this builder open. Inferred
     /// effects determine execution as with [`Self::call`]: calls that may write,
-    /// explicitly evaluate a value, call imports or reach unresolved recursion
-    /// execute in authored order.
+    /// call imports or reach unresolved recursion execute in authored order.
     /// Other invocations are omitted, including their arguments and possible
     /// traps. Arguments follow the same logical types and normalization as typed
     /// calls. No value is constructed or discarded.

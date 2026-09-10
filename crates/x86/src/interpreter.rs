@@ -17,8 +17,8 @@ use crate::{
 /// CPU fields match [`crate::compile_block_from_bytes`]. Machine memory contains
 /// 2^20 little-endian 32-bit page-table entries starting at byte zero. Bit 0 marks
 /// presence, bit 1 permits data writes, and bits 12 through 31 identify a 4-KiB
-/// frame in guest memory. Reads require presence. Present frames must have valid
-/// backing; invalid backing remains a Wasm trap. Addresses are flat 32-bit sums:
+/// frame in guest memory. Reads require presence. Valid backing for present frames
+/// is an internal invariant. Addresses are flat 32-bit sums:
 /// segment bases are ignored, and effective-address arithmetic wraps at 32 bits.
 ///
 /// A missing instruction page returns `(4 << 48) | (0x10 << 32) | address`, using

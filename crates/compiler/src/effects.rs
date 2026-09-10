@@ -1,4 +1,4 @@
-//! Memory footprints and required evaluations used when placing calls and reads.
+//! Memory footprints used when placing calls and reads.
 use std::ops::Range;
 
 use crate::{
@@ -48,7 +48,6 @@ pub(super) enum Effects {
     Known {
         reads: Vec<MemoryRange>,
         writes: Vec<MemoryRange>,
-        required_evaluation: bool,
     },
 }
 
@@ -56,11 +55,7 @@ impl Effects {
     pub(super) fn must_execute(&self) -> bool {
         match self {
             Self::Unknown => true,
-            Self::Known {
-                writes,
-                required_evaluation,
-                ..
-            } => *required_evaluation || !writes.is_empty(),
+            Self::Known { writes, .. } => !writes.is_empty(),
         }
     }
 
@@ -96,7 +91,6 @@ fn include(target: &mut Vec<MemoryRange>, ranges: impl IntoIterator<Item = Memor
 fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
     let mut reads = Vec::new();
     let mut writes = Vec::new();
-    let mut required_evaluation = false;
     let mut callees = Vec::new();
     for region in body.region.walk() {
         for operation in &region.operations {
@@ -107,7 +101,6 @@ fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
                     };
                     include(&mut reads, [MemoryRange::from_location(location, body)]);
                 }
-                Operation::Evaluate(_) => required_evaluation = true,
                 Operation::Store { location, .. } => {
                     include(&mut writes, [MemoryRange::from_location(*location, body)])
                 }
@@ -125,19 +118,13 @@ fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
             Effects::Known {
                 reads: child_reads,
                 writes: child_writes,
-                required_evaluation: child_evaluation,
             } => {
                 include(&mut reads, child_reads.iter().cloned());
                 include(&mut writes, child_writes.iter().cloned());
-                required_evaluation |= child_evaluation;
             }
         }
     }
-    Some(Effects::Known {
-        reads,
-        writes,
-        required_evaluation,
-    })
+    Some(Effects::Known { reads, writes })
 }
 
 pub(super) fn infer(program: &Program) -> Vec<Effects> {

@@ -146,13 +146,6 @@ fn failed_reads_leave_the_destination_flags_and_count_unchanged() {
                 error: 0,
             },
         ),
-        (
-            "present byte frame outside guest RAM traps",
-            0xb6,
-            0x4000,
-            Some(0x10000),
-            Exit::Trap,
-        ),
     ] {
         let code = [0x0f, opcode, 0x03];
         let mut image = byte_register_image(&code);
