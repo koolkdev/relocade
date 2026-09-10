@@ -79,6 +79,14 @@ impl<T: RegisterType> TypedLocation<T> {
         execution.update::<T>(self.location, update)
     }
 
+    pub(crate) fn exchange(
+        self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        other: Self,
+    ) -> Result<(), BuildError> {
+        execution.exchange::<T>(self.location, other.location)
+    }
+
     pub(crate) fn into_location(self) -> Location<Val<I32>> {
         self.location
     }

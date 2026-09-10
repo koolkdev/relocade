@@ -5,10 +5,11 @@ use super::{
 };
 use crate::instruction::handlers::{Handler, SizedHandlers};
 
+/// The binary argument selected by ModRM.reg, independent of reads and writes.
 #[derive(Clone, Copy)]
-pub(in crate::instruction) enum RegisterRole {
-    Destination,
-    Source,
+pub(in crate::instruction) enum RegisterSide {
+    Left,
+    Right,
 }
 
 pub(in crate::instruction) const fn primary_form(
@@ -63,11 +64,11 @@ pub(in crate::instruction) const fn rm(
 pub(in crate::instruction) const fn register_rm(
     opcode: u8,
     handlers: SizedHandlers<Handler>,
-    register: RegisterRole,
+    register_side: RegisterSide,
 ) -> Form {
-    let (left, right) = match register {
-        RegisterRole::Destination => (LocationBinding::Register, LocationBinding::Rm),
-        RegisterRole::Source => (LocationBinding::Rm, LocationBinding::Register),
+    let (left, right) = match register_side {
+        RegisterSide::Left => (LocationBinding::Register, LocationBinding::Rm),
+        RegisterSide::Right => (LocationBinding::Rm, LocationBinding::Register),
     };
     primary_form(
         opcode,

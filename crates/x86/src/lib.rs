@@ -18,6 +18,11 @@
 //! LEA (`8D`) writes a ModRM/SIB effective address to a dword register, or its
 //! low word with `66`. It reads full 32-bit address registers, preserves flags,
 //! and performs no data-memory access. Register-mode ModRM is unsupported.
+//! XCHG (`86`/`87`) exchanges a byte/word/dword register with a register or memory
+//! operand. `90`–`97` exchange AX/EAX with an opcode-selected register; `90` and
+//! `66 90` are NOP aliases. Both old values and any address use the entry register
+//! state. Memory requires full write permission before either operand changes.
+//! Memories are unshared; concurrent shared-memory synchronization is outside this ABI.
 //! CMOVcc (`0F 40`–`0F 4F`) conditionally copies a word/dword register or memory
 //! source into a register. Its source is read even when the condition is false.
 //! A false condition preserves the destination; a taken word move preserves its
@@ -29,7 +34,7 @@
 //! the full 32-bit fallthrough EIP. Branches retire once and dispatch without
 //! fetching the destination instruction. Snapshot blocks end at the first branch
 //! or the requested instruction limit, whichever comes first.
-//! Each full memory access is checked before effects, source first. A fault
+//! Each full memory access is checked before instruction effects. A fault
 //! preserves the current instruction's entry state and publishes earlier progress.
 //! ModRM/SIB effective addresses and absolute offsets are 32-bit, independent
 //! of the data width.
@@ -39,8 +44,8 @@
 //! including prefixes and all required operand fields.
 //!
 //! Binary arithmetic, logic and NEG replace all six status flags. INC/DEC preserve
-//! CF and update the other five; MOV, MOVZX, MOVSX, LEA, CMOVcc, NOT, PUSH, POP, SETcc and
-//! branches preserve them all.
+//! CF and update the other five; MOV, MOVZX, MOVSX, LEA, XCHG, CMOVcc, NOT, PUSH,
+//! POP, SETcc and branches preserve them all.
 //! CMP and TEST only change flags. The CPU
 //! stores flags lazily: byte 0 selects the record kind, and little-endian dwords
 //! at 4 and 8 hold the original, zero-extended operands. SUB kinds are 1, 5 and 9;

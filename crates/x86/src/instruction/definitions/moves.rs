@@ -31,17 +31,17 @@ const OPCODE_REGISTER_IMMEDIATE_FORMS: [Form; 2] = [
 ];
 
 const MOV_MODRM_FORMS: [Form; 6] = [
-    register_rm(0x89, HANDLERS.sized, RegisterRole::Source),
-    register_rm(0x8b, HANDLERS.sized, RegisterRole::Destination),
+    register_rm(0x89, HANDLERS.sized, RegisterSide::Right),
+    register_rm(0x8b, HANDLERS.sized, RegisterSide::Left),
     register_rm(
         0x88,
         SizedHandlers::fixed(HANDLERS.byte),
-        RegisterRole::Source,
+        RegisterSide::Right,
     ),
     register_rm(
         0x8a,
         SizedHandlers::fixed(HANDLERS.byte),
-        RegisterRole::Destination,
+        RegisterSide::Left,
     ),
     rm_immediate(
         0xc6,
@@ -97,7 +97,7 @@ const ACCUMULATOR_OFFSET_FORMS: [Form; 4] = [
 ];
 
 const fn extending_move(opcode: u8, handlers: SizedHandlers<Handler>) -> Form {
-    let mut form = register_rm(opcode, handlers, RegisterRole::Destination);
+    let mut form = register_rm(opcode, handlers, RegisterSide::Left);
     form.map = OpcodeMap::Extended;
     form
 }

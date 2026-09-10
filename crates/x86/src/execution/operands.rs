@@ -1,4 +1,4 @@
-//! Operand reads, writes and updates share address and permission checks.
+//! Operand accesses share address resolution and permission checks.
 
 use wasm86_compiler::{AtLeast, BuildError, Val, I32};
 
@@ -67,6 +67,20 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         let old_value = self.read_target(&target)?;
         let value = update(self, old_value)?;
         self.write_target(target, value)
+    }
+
+    /// Resolves and checks both write targets before exchanging their old values.
+    pub(crate) fn exchange<T: RegisterType>(
+        &mut self,
+        left: Location<impl Into<Val<I32>>>,
+        right: Location<impl Into<Val<I32>>>,
+    ) -> Result<(), BuildError> {
+        let left = self.prepare_write::<T>(left, &[])?;
+        let right = self.prepare_write::<T>(right, &[])?;
+        let left_value = self.read_target(&left)?;
+        let right_value = self.read_target(&right)?;
+        self.write_target(right, left_value)?;
+        self.write_target(left, right_value)
     }
 
     pub(super) fn prepare_write<T: RegisterType>(

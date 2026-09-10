@@ -673,7 +673,7 @@ fn immediate_moves_and_fetch_boundaries() {
         }],
     );
     for (opcode, exit) in [
-        (0x90, Exit::Other(0x0008_0090_0000_1fff)),
+        (0x62, Exit::Other(0x0008_0062_0000_1fff)),
         (0x67, Exit::Other(0x0008_0067_0000_1fff)),
     ] {
         let unsupported_name = "unsupported opcode at page end";

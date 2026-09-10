@@ -17,7 +17,7 @@ const fn move_condition(code: u8) -> Form {
     let mut form = register_rm(
         0x40 + code,
         binary_handlers!(cmov, condition).sized,
-        RegisterRole::Destination,
+        RegisterSide::Left,
     );
     form.map = OpcodeMap::Extended;
     form.condition = Some(Condition::from_code(code));

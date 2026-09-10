@@ -72,32 +72,44 @@ pub(super) enum HandlerCall<V> {
 
 // Widths and constant arguments select concrete Rust functions. Conditional bodies
 // receive the condition bound by their form; all bodies remain ordinary Rust code.
+macro_rules! typed_operand {
+    (Input, $width:ty, $operand:ident) => {
+        Input::<$width>::new($operand)
+    };
+    (TypedLocation, $width:ty, $operand:ident) => {
+        TypedLocation::<$width>::from_operand($operand)
+    };
+}
+
 macro_rules! binary_handlers {
     ($handler:ident, source = $source:ty $(, $argument:expr)*) => {
         SizedHandlers {
-            word: binary_handlers!(@pair $handler, I16, $source [] $(, $argument)*),
-            dword: binary_handlers!(@pair $handler, I32, $source [] $(, $argument)*),
+            word: binary_handlers!(@pair $handler, I16, Input, $source [] $(, $argument)*),
+            dword: binary_handlers!(@pair $handler, I32, Input, $source [] $(, $argument)*),
         }
     };
+    ($handler:ident, right = $right:ident $(, $argument:expr)*) => {
+        binary_handlers!(@widths $handler, $right [] $(, $argument)*)
+    };
     ($handler:ident, condition $(, $argument:expr)*) => {
-        binary_handlers!(@widths $handler [condition] $(, $argument)*)
+        binary_handlers!(@widths $handler, Input [condition] $(, $argument)*)
     };
     ($handler:ident $(, $argument:expr)*) => {
-        binary_handlers!(@widths $handler [] $(, $argument)*)
+        binary_handlers!(@widths $handler, Input [] $(, $argument)*)
     };
-    (@widths $handler:ident [$($condition:ident)?] $(, $argument:expr)*) => {
+    (@widths $handler:ident, $right:ident [$($condition:ident)?] $(, $argument:expr)*) => {
         IntegerHandlers {
-            byte: binary_handlers!(@pair $handler, I8, I8 [$($condition)?] $(, $argument)*),
+            byte: binary_handlers!(@pair $handler, I8, $right, I8 [$($condition)?] $(, $argument)*),
             sized: SizedHandlers {
-                word: binary_handlers!(@pair $handler, I16, I16 [$($condition)?] $(, $argument)*),
-                dword: binary_handlers!(@pair $handler, I32, I32 [$($condition)?] $(, $argument)*),
+                word: binary_handlers!(@pair $handler, I16, $right, I16 [$($condition)?] $(, $argument)*),
+                dword: binary_handlers!(@pair $handler, I32, $right, I32 [$($condition)?] $(, $argument)*),
             },
         }
     };
-    (@pair $handler:ident, $destination:ty, $source:ty [$($condition:ident)?] $(, $argument:expr)*) => {
-        Handler::Binary(|execution, destination, source, _bound_condition, fallthrough| {
+    (@pair $handler:ident, $left_width:ty, $right:ident, $right_width:ty [$($condition:ident)?] $(, $argument:expr)*) => {
+        Handler::Binary(|execution, left, right, _bound_condition, fallthrough| {
             $(let $condition = _bound_condition.expect("condition-dependent forms bind a condition");)?
-            $handler(execution, TypedLocation::<$destination>::new(destination), Input::<$source>::new(source) $(, $condition)? $(, $argument)*)?;
+            $handler(execution, TypedLocation::<$left_width>::new(left), typed_operand!($right, $right_width, right) $(, $condition)? $(, $argument)*)?;
             Ok(fallthrough)
         })
     };
@@ -125,12 +137,10 @@ macro_rules! unary_handlers {
     (@width $handler:ident, $operand:ident, $width:ty [$($condition:ident)?] $(, $argument:expr)*) => {
         Handler::Unary(|execution, operand, _bound_condition, fallthrough| {
             $(let $condition = _bound_condition.expect("condition-dependent forms bind a condition");)?
-            $handler(execution, unary_handlers!(@operand $operand, $width, operand) $(, $condition)? $(, $argument)*)?;
+            $handler(execution, typed_operand!($operand, $width, operand) $(, $condition)? $(, $argument)*)?;
             Ok(fallthrough)
         })
     };
-    (@operand Input, $width:ty, $operand:ident) => { Input::<$width>::new($operand) };
-    (@operand TypedLocation, $width:ty, $operand:ident) => { TypedLocation::<$width>::from_operand($operand) };
 }
 
-pub(super) use {binary_handlers, unary_handlers};
+pub(super) use {binary_handlers, typed_operand, unary_handlers};

@@ -2,7 +2,7 @@
 
 Rust components for x86 execution in WebAssembly.
 
-`wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, CMOVcc, ADD, ADC, SUB, SBB, CMP,
+`wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, XCHG, CMOVcc, ADD, ADC, SUB, SBB, CMP,
 AND, OR, XOR, TEST, INC, DEC, NEG, NOT, PUSH, POP, SETcc and relative JMP/Jcc blocks
 from byte snapshots:
 
@@ -90,6 +90,8 @@ supports these forms in default-32 operand and address mode:
 | PUSH register/memory | — | FF /6 | FF /6 |
 | POP register/memory | — | 8F /0 | 8F /0 |
 | SETcc register/memory destination | 0F 90–9F | — | — |
+| XCHG register/memory and register | 86 | 87 | 87 |
+| XCHG accumulator and opcode-selected register | — | 90–97 | 90–97 |
 
 MOVZX (`0F B6`/`0F B7`) and MOVSX (`0F BE`/`0F BF`) read a byte or word
 register/memory source into a register destination. MOVZX fills the added bits
@@ -100,6 +102,16 @@ span is read and checked, even when the destination is wider. The `66 0F B7` and
 `66 0F BF` word-to-word forms copy the source unchanged. These forms are accepted
 by [Intel XED](https://github.com/intelxed/xed/blob/main/datafiles/xed-isa.txt),
 although the SDM's ordinary MOVZX/MOVSX opcode tables omit them.
+
+XCHG exchanges two old values and preserves flags. `86` exchanges a byte and `87`
+exchanges a dword, or a word with `66`. `90`–`97` exchange EAX with an opcode-selected
+register, or AX with `66`; `90` and `66 90` are NOP aliases. Byte and word exchanges
+preserve the other register bits. Memory addresses use the original base and index
+values, including when either register is exchanged. The full memory span must be
+writable before either operand changes, even when their old values are equal.
+Memory XCHG is implicitly locked on x86. wasm86 uses unshared WebAssembly memories
+and completes the exchange before returning to the host; concurrent shared-memory
+execution is outside this ABI.
 
 LEA (`8D`) computes the effective address encoded by ModRM/SIB and writes it to a
 dword register. With `66`, it writes the low word and preserves the upper half of
@@ -201,6 +213,8 @@ from its width table. Related operations share a handler by binding a constant
 from a family-local operation enum. Adding an operation with an existing encoding
 and argument shape requires no central instruction enum or lowering case.
 Physical immediate widths remain independent of the handler's logical widths.
+`RegisterSide::Left` and `Right` place the ModRM register field in a binary
+argument; the handler determines which arguments it reads or writes.
 
 Binding assigns decoded fields to unary or binary arguments without reading
 architectural state. Lowering converts snapshot literals and runtime expressions
@@ -222,6 +236,9 @@ of its argument shape. Execution owns retirement and publication.
 The `condition` adapter option forwards a form's bound `Condition` to an ordinary
 typed body. CMOV uses `binary_handlers!(cmov, condition).sized`; SETcc uses the
 fixed-width `unary_handlers!(setcc, TypedLocation, width = I8, condition)` adapter.
+`binary_handlers!(xchg, right = TypedLocation)` binds both arguments as writable
+locations. Unary and binary adapters share operand conversion; the default binary
+right argument remains an `Input<T>`.
 
 The runtime decoder owns its byte cursor, proven window and completion policy.
 Every opcode map uses the same form-driven switch and selects operand decoding
@@ -234,11 +251,15 @@ before reading address fields; ordinary addresses have no index term. Direct
 entries retain the original fetch window across fields whose bounds fit it.
 An execution builder resolves operand locations, checks memory access, and tracks
 instruction progress. Typed handler operands pass their logical widths to its
-`read`, `write` and `update` operations. The builder's `update` checks write permission before
-reading the old destination value,
-then runs the semantic callback and stores its result through the same checked
-access. ADD, ADC, SUB, SBB, AND, OR and XOR use this operation. CMP and TEST only read
-operands and set flags, so their memory operands require no write permission.
+`read`, `write`, `update` and `exchange` operations. The builder's `update` checks
+write permission before reading the old destination value, then runs the semantic
+callback and stores its result through the same checked access. ADD, ADC, SUB,
+SBB, AND, OR and XOR use this operation. CMP and TEST only read operands and set
+flags, so their memory operands require no write permission.
+`TypedLocation::exchange` prepares both write targets, reads their old values and
+writes the replacements through those same targets. This keeps address resolution
+and guest-fault checks ahead of both writes without exposing prepared targets to
+instruction handlers.
 A fault publishes completed definitions into its terminating branch without
 consuming the parent state used by the successful path.
 Address resolution accepts explicit register values for an access. POP supplies
@@ -317,9 +338,9 @@ the original operands; logical zero/nonzero queries compare only the result.
 Other queries use shared readonly condition readers. Inverse conditions share a
 reader and cached result. Readers are created only when needed; querying a
 condition preserves the stored representation.
-MOV, MOVZX, MOVSX, LEA, CMOVcc and SETcc preserve flags, and these instructions leave
-non-status flag bytes untouched. A faulting operand access preserves the previous
-instruction's flags.
+MOV, MOVZX, MOVSX, LEA, XCHG, CMOVcc and SETcc preserve flags, and these instructions
+leave non-status flag bytes untouched. A faulting operand access preserves the
+previous instruction's flags.
 
 The step and snapshot blocks with memory operands also import `wasm86.guest`
 (minimum one Wasm page) and `wasm86.machine` (minimum 64 pages, or 4 MiB).

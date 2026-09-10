@@ -3,12 +3,15 @@
 mod alu;
 mod branches;
 mod conditions;
+mod exchanges;
 mod moves;
 mod stack;
 
 use super::{
     forms::*,
-    handlers::{binary_handlers, unary_handlers, Handler, IntegerHandlers, SizedHandlers},
+    handlers::{
+        binary_handlers, typed_operand, unary_handlers, Handler, IntegerHandlers, SizedHandlers,
+    },
     Input, TypedLocation,
 };
 use crate::{execution::ExecutionBuilder, flags::Condition};
@@ -20,6 +23,7 @@ pub(crate) fn modrm_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form>
 
 pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form> + Clone {
     moves::forms()
+        .chain(exchanges::FORMS.iter())
         .chain(alu::forms())
         .chain(stack::FORMS.iter())
         .chain(conditions::FORMS.iter())
