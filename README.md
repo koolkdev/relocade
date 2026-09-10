@@ -276,6 +276,15 @@ address after the full span passes permission checks. Memory creates each helper
 when first needed and shares it across the module's functions; byte accesses need
 no transfer helper.
 
+Memory checks natural alignment first for multi-byte data accesses. Aligned
+accesses and unaligned spans within one page share the ordinary permission check;
+only a crossing span calls the range resolver. Successful resolution returns a
+physical address and a separate logical bit for scattered backing. Denials join
+one fault callback, which must terminate before a checked access can be returned.
+The execution builder uses that callback to publish state once per access fault.
+Page-table translation owns page facts and range-wrap priority; memory access
+control owns the successful and faulting paths.
+
 An unsupported instruction form returns `(8 << 48) | (opcode << 32) | instruction_eip`.
 The opcode field contains the first byte after any `66` prefixes, including `0F`
 for an extended opcode. This reports
@@ -371,13 +380,20 @@ body.switch(&opcode, &[0x28, 0x85], |arm, key| match key {
 ```
 
 `switch_value::<I32, _>` instead returns a value. Every case, including the default,
-must yield, return, tail-call or trap, and at least one must yield. Child values obey
+must yield, branch to an enclosing block, return, tail-call or trap, and at least
+one must yield. Child values obey
 the same scope rules as conditional arms. Dense case ranges use a Wasm branch
 table; sparse ranges use balanced comparisons without allocating a large table.
-Calculations using only parameters and constants can be captured separately in
-each arm that uses them. Nested branches within one arm share its capture. Values
-used after the join retain their common capture. Memory reads, call results, joined
-values and expressions depending on them keep their snapshot rules.
+Nontrapping calculations can be placed separately in mutually exclusive arms.
+Their memory reads, call results and joined inputs retain their snapshots and
+sharing rules. Nested branches within one arm share its capture, and a use after
+the join retains a common capture.
+
+A comparison used only as an `if_` condition inside two separately guarded regions
+can also be calculated within each region. This permits at most one additional
+primitive test; its operands keep their ordinary sharing. Transparent blocks do
+not count as guards. This keeps a conditional check behind its guards without
+duplicating an entire shared calculation or reloading a saved memory value.
 
 Use `if_value` to execute only the selected branch and obtain its value:
 
@@ -390,12 +406,41 @@ body.return_(branch_value.add(2))?;
 ```
 
 `yield_` consumes the direct value-arm builder and supplies the conditional's
-result; `return_` still returns from the whole function. Every arm must yield,
-return, tail-call or trap, and at least one arm must yield. Arm effects remain ordered,
+result; `return_` still returns from the whole function. For a nonempty result,
+every arm must yield, branch to an enclosing block, return, tail-call or trap,
+and at least one arm must yield. Arm effects remain ordered,
 while an unused yielded expression and its possible traps can disappear. A join
 preserves raw intermediate bits; narrow values are normalized when an operation
 or function boundary needs their logical low bits. Construction errors discard
 both arms and leave the parent usable.
+
+Conditionals, switches and blocks use the same logical `Results` shape. A scalar
+marker such as `I32` returns `Val<I32>`; a tuple such as `(I32, I1)` returns
+`(Val<I32>, Val<I1>)`. `()` has no results and allows fallthrough without a yield.
+Tuple components are checked and placed independently, so an unused component
+does not force its load or pure call to execute. Native literals passed to
+`yield_` or `branch` take their types from the result shape, like call arguments.
+
+Use `block` when nested paths need to leave one enclosing region with results.
+This example assumes an I64-returning function, I32 addresses and I1 conditions:
+
+```rust
+let (address, present) = body.block::<(I32, I1)>(|mut checks, denied| {
+    checks.if_(&first_missing, |arm| arm.branch(&denied, (&start, false)))?;
+    checks.if_(&second_read_only, |arm| arm.branch(&denied, (&next_page, true)))?;
+    checks.return_(0)
+})?;
+body.return_(address.unsigned().extend::<I64>()
+    .or(present.unsigned().extend::<I64>().shl(32)))?;
+```
+
+`Label<R>` names the block's exit. `branch` consumes its active builder,
+passes the declared values and skips the rest of that block. The direct block
+body can also use `yield_`. Labels belong to one function body and remain usable
+only in their block and its descendants; keeping a clone cannot extend that
+scope or revive a discarded block. Nonempty blocks require complete paths and
+at least one incoming result. Wasm multi-value signatures and branch depths stay
+inside the compiler. Function signatures have at most one result.
 
 `body.trap()` consumes its builder and ends that execution path with a WebAssembly
 trap, regardless of the function result type.

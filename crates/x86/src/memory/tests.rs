@@ -9,10 +9,8 @@ use crate::CpuState;
 
 mod helpers;
 
-fn return_fault(body: &mut FunctionBuilder<'_>, fault: &AccessFault) -> Result<(), BuildError> {
-    body.if_(&fault.condition, |arm| {
-        arm.return_(crate::state::exit::page_fault(&fault.address, &fault.error))
-    })
+fn return_fault(body: FunctionBuilder<'_>, fault: AccessFault) -> Result<(), BuildError> {
+    body.return_(crate::state::exit::page_fault(&fault.address, &fault.error))
 }
 
 fn define_read<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str)
@@ -27,8 +25,8 @@ where
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
-                let access = memory.resolve_access::<T>(&mut body, &address, Intent::Read)?;
-                return_fault(&mut body, &access.fault)?;
+                let access =
+                    memory.resolve_access::<T>(&mut body, &address, Intent::Read, return_fault)?;
                 let value = memory.read(&mut body, &access)?;
                 body.return_(value.unsigned().extend::<I64>())
             },
@@ -47,8 +45,8 @@ fn define_write<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
                 let value = body.parameter::<T>(1)?;
-                let access = memory.resolve_access::<T>(&mut body, &address, Intent::Write)?;
-                return_fault(&mut body, &access.fault)?;
+                let access =
+                    memory.resolve_access::<T>(&mut body, &address, Intent::Write, return_fault)?;
                 memory.write(&mut body, &access, &value)?;
                 body.return_(7)
             },
@@ -69,6 +67,34 @@ fn accesses() -> Vec<u8> {
     define_read::<I64>(&mut program, &memory, "read64");
     define_write::<I64>(&mut program, &memory, "write64");
     program.compile().unwrap()
+}
+
+#[test]
+fn access_fault_handlers_must_terminate_the_denied_path() {
+    fn reject_fallthrough<T: MemoryInt>() {
+        let mut program = Program::new();
+        let memory = Memory::declare(&mut program).unwrap();
+        let result = program.function(
+            Signature {
+                parameters: vec![Type::I32],
+                result: Some(Type::I64),
+            },
+            |mut body| {
+                let address = body.parameter::<I32>(0)?;
+                memory.resolve_access::<T>(
+                    &mut body,
+                    &address,
+                    Intent::Write,
+                    |_fault_body, _fault| Ok(()),
+                )?;
+                body.return_(7)
+            },
+        );
+        assert_eq!(result.err(), Some(BuildError::IncompleteBranch));
+    }
+
+    reject_fallthrough::<I8>();
+    reject_fallthrough::<I32>();
 }
 
 #[test]
@@ -294,5 +320,86 @@ fn memory_widths_execute_in_wasmtime() {
             &write_args,
         );
         check(&write, &input, fault as i64, &[]);
+    }
+}
+
+#[test]
+fn aligned_and_unaligned_single_page_transfers_ignore_unrelated_pte_bits() {
+    let bytes = accesses();
+    for case in WIDTHS.iter().filter(|case| !case.second.is_empty()) {
+        let read = TestModule::new(&crate::CompiledModule {
+            bytes: bytes.clone(),
+            entry: format!("read{}", case.name),
+        });
+        let write = TestModule::new(&crate::CompiledModule {
+            bytes: bytes.clone(),
+            entry: format!("write{}", case.name),
+        });
+        let payload = [case.first, case.second].concat();
+        for offset in [0, 1] {
+            let address = 0x4000 + offset;
+            let physical = 0x8000 + offset;
+            let mut input = Input {
+                guest: vec![(physical - 1, [&[0xa5][..], &payload, &[0x5a]].concat())],
+                // All unrelated low bits are set; the next virtual page is absent.
+                machine: vec![(16, 0x8fffu32.to_le_bytes().to_vec())],
+                arguments: vec![Argument::I32(address as i32)],
+                observe_guest: true,
+                ..Input::new(&CpuState::filled(0xa5).to_bytes())
+            };
+            check(&read, &input, case.result, &[]);
+
+            input.guest[0].1[1..1 + payload.len()].fill(0xff);
+            input.arguments.push(case.argument);
+            let changes = payload
+                .iter()
+                .enumerate()
+                .map(|(index, byte)| (physical + index as u32, *byte))
+                .collect::<Vec<_>>();
+            check(&write, &input, 7, &changes);
+        }
+    }
+}
+
+#[test]
+fn wrapping_writes_report_range_faults_before_read_only_page_faults() {
+    let bytes = accesses();
+    for (entry, address, value, fault) in [
+        (
+            "write16",
+            0xffff_ffffu32,
+            Argument::I32(0x1234),
+            0x0004_0002_ffff_ffffi64,
+        ),
+        (
+            "write32",
+            0xffff_fffe,
+            Argument::I32(0x1234_5678),
+            0x0004_0002_ffff_fffe,
+        ),
+        (
+            "write64",
+            0xffff_fffc,
+            Argument::I64(0x0102_0304_0506_0708),
+            0x0004_0002_ffff_fffc,
+        ),
+    ] {
+        let write = TestModule::new(&crate::CompiledModule {
+            bytes: bytes.clone(),
+            entry: entry.into(),
+        });
+        let input = Input {
+            guest: vec![(0x8ff8, vec![0xa5; 8]), (0xa000, vec![0x5a; 8])],
+            // The final page is present and read-only, page zero is writable,
+            // and unrelated PTE bits cannot override the range-wrap fault.
+            machine: vec![
+                (0x003f_fffc, 0x8ffdu32.to_le_bytes().to_vec()),
+                (0, 0xafffu32.to_le_bytes().to_vec()),
+            ],
+            arguments: vec![Argument::I32(address as i32), value],
+            observe_guest: true,
+            ..Input::new(&CpuState::filled(0xa5).to_bytes())
+        };
+        check(&write, &input, fault, &[]);
     }
 }

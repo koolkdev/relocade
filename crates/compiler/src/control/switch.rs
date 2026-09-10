@@ -1,8 +1,8 @@
 //! Multiway branch construction and logical selector validation.
 use std::collections::HashSet;
 
-use super::{Region, SwitchCase};
-use crate::{AtLeast, BuildError, FunctionBuilder, IntType, Operation, Type, Val, I32};
+use super::{JoinTarget, Region, SwitchCase};
+use crate::{AtLeast, BuildError, FunctionBuilder, IntType, Operation, Results, Val, I32};
 
 impl FunctionBuilder<'_> {
     /// Executes the arm whose key equals the selector, or the default arm when no
@@ -29,14 +29,16 @@ impl FunctionBuilder<'_> {
             selector,
             cases,
             default,
-            output: None,
+            outputs: Vec::new(),
         });
         Ok(())
     }
 
-    /// Executes one arm and joins its value in the parent, using `switch`'s key
-    /// matching and construction order. Each arm must consume its builder with
-    /// `yield_`, `return_`, `return_void`, `tail_call` or `trap`; at least one arm must yield.
+    /// Executes one arm and joins its typed result in the parent, using `switch`'s
+    /// key matching and construction order. Nonempty result arms must consume
+    /// their builder with `yield_`, an outward `branch`, `return_`, `return_void`,
+    /// `tail_call` or `trap`; at least one must yield to this switch. Unit result
+    /// arms may fall through.
     /// A callback error discards all arms and leaves the parent usable.
     ///
     /// Only the joined result becomes available in the parent. Other values
@@ -58,31 +60,33 @@ impl FunctionBuilder<'_> {
     /// let bytes = program.compile()?;
     /// # Ok::<(), wasm86_compiler::BuildError>(())
     /// ```
-    pub fn switch_value<R: IntType, S: IntType>(
+    pub fn switch_value<R: Results, S: IntType>(
         &mut self,
         selector: impl Into<Val<S>>,
         cases: &[u32],
         build: impl FnMut(FunctionBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
-    ) -> Result<Val<R>, BuildError>
+    ) -> Result<R::Values, BuildError>
     where
         I32: AtLeast<S>,
     {
         let selector = self.switch_selector(selector, cases)?;
-        let (cases, default) = self.switch_arms(Some(R::TYPE), cases, build)?;
-        let output = self.join_output(
-            R::TYPE,
+        let target = self.result_target::<R>();
+        let (cases, default) = self.switch_arms(Some(&target), cases, build)?;
+        let outputs = self.join_outputs(
+            &target,
             cases
                 .iter()
                 .map(|case| &case.region)
                 .chain(std::iter::once(&default)),
         )?;
+        let values = super::results::bind::<R>(self, &outputs);
         self.region.operations.push(Operation::Switch {
             selector,
             cases,
             default,
-            output: Some(output),
+            outputs,
         });
-        Ok(Val::new(self.arena.clone(), Ok(output)))
+        Ok(values)
     }
 
     fn switch_selector<S: IntType>(
@@ -111,16 +115,16 @@ impl FunctionBuilder<'_> {
 
     fn switch_arms(
         &mut self,
-        result: Option<Type>,
+        target: Option<&JoinTarget>,
         keys: &[u32],
         mut build: impl FnMut(FunctionBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
     ) -> Result<(Vec<SwitchCase>, Region), BuildError> {
         let mut cases = Vec::with_capacity(keys.len());
         for &key in keys {
-            let region = self.build_branch(result, |arm| build(arm, Some(key)))?;
+            let region = self.build_branch(target, |arm| build(arm, Some(key)))?;
             cases.push(SwitchCase { key, region });
         }
-        let default = self.build_branch(result, |arm| build(arm, None))?;
+        let default = self.build_branch(target, |arm| build(arm, None))?;
         cases.sort_unstable_by_key(|case| case.key);
         Ok((cases, default))
     }

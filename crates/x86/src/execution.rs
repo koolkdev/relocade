@@ -71,12 +71,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         address: &Val<I32>,
         intent: Intent,
     ) -> Result<Access<T>, BuildError> {
-        let access = memory.resolve_access::<T>(&mut self.body, address, intent)?;
-        self.body.if_(&access.fault.condition, |mut arm| {
-            self.state.publish(&mut arm, &self.eip, self.completed)?;
-            arm.return_(exit::page_fault(&access.fault.address, &access.fault.error))
-        })?;
-        Ok(access)
+        memory.resolve_access::<T>(&mut self.body, address, intent, |mut fault_body, fault| {
+            self.state
+                .publish(&mut fault_body, &self.eip, self.completed)?;
+            fault_body.return_(exit::page_fault(&fault.address, &fault.error))
+        })
     }
 
     pub(super) fn complete(mut self) -> Result<(), BuildError> {

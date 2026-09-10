@@ -1,5 +1,5 @@
 //! Placement of reads and shared values among structured effects.
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use wasm_encoder::ValType;
 
@@ -10,6 +10,8 @@ use crate::{
     memory::Location,
     Body, Func, Operation, Terminal, ValueKind,
 };
+
+mod recompute;
 
 pub(super) struct Placement {
     pub(super) slots: Vec<Option<usize>>,
@@ -104,17 +106,6 @@ impl<'a> Tree<'a> {
         }
     }
 
-    fn arm_containing(&self, point: Point, branch: Site) -> Option<usize> {
-        let mut region = point.site.region;
-        loop {
-            let parent = self.0[&region].parent?;
-            if parent == branch {
-                return Some(region);
-            }
-            region = parent.region;
-        }
-    }
-
     fn clobbers(
         &self,
         origin: Site,
@@ -204,25 +195,6 @@ impl Demand {
         self.last = last;
         self.points.push(point);
     }
-
-    fn split_between_arms(&self, tree: &Tree<'_>) -> Option<Vec<Self>> {
-        if self.first != self.last || self.first.phase != Phase::Header || self.at_first {
-            return None;
-        }
-        // A common header is only a bound. Split actual uses by its direct child,
-        // then choose normal placement within each child, including nested uses.
-        // Physical demands in the parent's Main or Header phase cannot be split.
-        let mut arms = BTreeMap::<usize, Self>::new();
-        for &point in &self.points {
-            let arm = tree.arm_containing(point, self.first.site)?;
-            if let Some(demand) = arms.get_mut(&arm) {
-                demand.include(point, tree);
-            } else {
-                arms.insert(arm, Self::at(point));
-            }
-        }
-        Some(arms.into_values().collect())
-    }
 }
 
 // A conversion within one Wasm type changes only the logical type. All its
@@ -252,41 +224,8 @@ fn demand(
     }
 }
 
-fn parameter_only_values(body: &Body) -> Vec<bool> {
-    let mut pure = Vec::with_capacity(body.values.len());
-    // Every operand precedes its user. Loads, calls and joins retain their
-    // existing snapshot and placement rules even when their inputs are pure.
-    for value in &body.values {
-        pure.push(match value.kind {
-            ValueKind::Constant(_) | ValueKind::Parameter(_) => true,
-            ValueKind::Binary(_, left, right)
-            | ValueKind::Compare(_, left, right)
-            | ValueKind::Shift {
-                value: left,
-                count: right,
-                ..
-            } => pure[left] && pure[right],
-            ValueKind::Select {
-                condition,
-                when_true,
-                when_false,
-            } => pure[condition] && pure[when_true] && pure[when_false],
-            ValueKind::Normalize(input)
-            | ValueKind::Convert(input)
-            | ValueKind::SignExtend(input)
-            | ValueKind::Popcnt(input)
-            | ValueKind::ZeroTest { input, .. } => pure[input],
-            ValueKind::Load { .. }
-            | ValueKind::CallResult { .. }
-            | ValueKind::JoinResult { .. } => false,
-        });
-    }
-    pure
-}
-
 pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
     let tree = Tree::new(&body.region);
-    let parameter_only = parameter_only_values(body);
     let mut demands = vec![None; body.values.len()];
     for region in body.region.walk() {
         for (index, operation) in region.operations.iter().enumerate() {
@@ -317,11 +256,11 @@ pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
                         }
                     }
                 }
-                Operation::Load(_) => {}
+                Operation::Load(_) | Operation::Block { .. } => {}
             }
         }
         if let Some(terminal) = &region.terminal {
-            if matches!(terminal, Terminal::Yield(_)) {
+            if matches!(terminal, Terminal::Branch { .. }) {
                 continue;
             }
             for &value in terminal.inputs() {
@@ -339,40 +278,35 @@ pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
         }
     }
     let mut capture_points = vec![Vec::new(); body.values.len()];
+    let mut saved = vec![false; body.values.len()];
     // Operands precede consumers. Each chosen placement needs its inputs once.
-    // Pure expressions may have one placement in each mutually exclusive arm;
-    // dependencies follow those physical points rather than a common header.
+    // Recomputed expressions pass their actual placements to their inputs;
+    // snapshot producers retain their own sharing and clobber rules.
     for id in (0..body.values.len()).rev() {
         let Some(use_) = demands[id].clone() else {
             continue;
         };
-        if let ValueKind::JoinResult { site } = body.values[id].kind {
+        if let ValueKind::JoinResult { site, component } = body.values[id].kind {
+            saved[id] = true;
             let operation = &tree.0[&site.region].region.operations[site.index];
             // The branch operation stays at its authored site. A live output needs
-            // each yielding value only at the end of its own arm.
+            // each incoming component only at its actual branch site, including
+            // exits nested within other control operations.
             for arm in operation.children() {
-                if let Some(Terminal::Yield(value)) = arm.terminal {
+                for (exit, arguments) in arm.exits_to(site) {
                     demand(
                         body,
                         &tree,
                         &mut demands,
-                        value,
-                        Point::main(Site {
-                            region: arm.id,
-                            index: arm.operations.len(),
-                        }),
+                        arguments[component],
+                        Point::main(exit),
                     );
                 }
             }
             continue;
         }
-        let uses = if parameter_only[id] {
-            use_.split_between_arms(&tree)
-        } else {
-            None
-        }
-        .unwrap_or_else(|| vec![use_]);
-        for use_ in uses {
+        for use_ in recompute::groups(body, id, use_, &tree) {
+            saved[id] |= use_.points.len() > 1;
             let mut anchor = use_.first;
             match body.values[id].kind {
                 ValueKind::Load { location, site } => {
@@ -413,6 +347,7 @@ pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
                 )
             {
                 capture_points[id].push(anchor);
+                saved[id] = true;
             }
             match body.values[id].kind {
                 ValueKind::Binary(_, a, b)
@@ -459,11 +394,7 @@ pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
         .iter()
         .enumerate()
         .map(|(id, value)| {
-            if demands[id].as_ref().is_some_and(|use_| {
-                use_.points.len() > 1
-                    || !capture_points[id].is_empty()
-                    || matches!(value.kind, ValueKind::JoinResult { .. })
-            }) && !matches!(value.kind, ValueKind::Constant(_) | ValueKind::Parameter(_))
+            if saved[id] && !matches!(value.kind, ValueKind::Constant(_) | ValueKind::Parameter(_))
             {
                 let slot = slot_types.len();
                 slot_types.push(wasm_type(value.ty));

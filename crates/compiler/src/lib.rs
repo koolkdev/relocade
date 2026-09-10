@@ -37,6 +37,7 @@ use std::fmt;
 use arena::ExpressionArena;
 pub use call::FunctionImport;
 use call::Invocation;
+pub use control::{Arguments, Label, Results};
 use control::{Destination, Region, Site};
 use integer::{BinaryOp, CompareOp, ShiftOp};
 use memory::Location;
@@ -99,13 +100,17 @@ impl fmt::Display for BuildError {
             }
             Self::MissingBody => formatter.write_str("function has no finished body"),
             Self::UnknownParameter => formatter.write_str("unknown function parameter"),
-            Self::ForeignBody => formatter.write_str("value belongs to another body"),
-            Self::OutOfScope => formatter.write_str("value is not available in this branch"),
+            Self::ForeignBody => formatter.write_str("value or label belongs to another body"),
+            Self::OutOfScope => {
+                formatter.write_str("value or label is not available in this scope")
+            }
             Self::IncompleteBranch => formatter.write_str("branch termination did not complete"),
             Self::InvalidYield => {
-                formatter.write_str("yield requires a direct value-producing arm")
+                formatter.write_str("yield requires a direct result arm or block")
             }
-            Self::MissingBranchValue => formatter.write_str("no branch yields a value"),
+            Self::MissingBranchValue => {
+                formatter.write_str("no branch supplies the required result")
+            }
             Self::DuplicateSwitchCase { key } => {
                 write!(formatter, "switch case {key} appears more than once")
             }
@@ -151,7 +156,7 @@ struct Body {
 
 enum Terminal {
     Trap,
-    Yield(usize),
+    Branch { target: Site, arguments: Vec<usize> },
     Return(Option<usize>),
     TailCall(Invocation),
 }
@@ -160,7 +165,8 @@ impl Terminal {
     fn inputs(&self) -> &[usize] {
         match self {
             Self::Trap | Self::Return(None) => &[],
-            Self::Yield(value) | Self::Return(Some(value)) => std::slice::from_ref(value),
+            Self::Return(Some(value)) => std::slice::from_ref(value),
+            Self::Branch { arguments, .. } => arguments,
             Self::TailCall(invocation) => &invocation.arguments,
         }
     }
@@ -172,17 +178,21 @@ enum Operation {
         location: Location,
         value: usize,
     },
+    Block {
+        region: Region,
+        outputs: Vec<usize>,
+    },
     If {
         condition: usize,
         branch: Region,
         else_branch: Option<Region>,
-        output: Option<usize>,
+        outputs: Vec<usize>,
     },
     Switch {
         selector: usize,
         cases: Vec<control::SwitchCase>,
         default: Region,
-        output: Option<usize>,
+        outputs: Vec<usize>,
     },
     Call {
         invocation: Invocation,
@@ -229,16 +239,18 @@ enum ValueKind {
     },
     JoinResult {
         site: Site,
+        component: usize,
     },
 }
 
-/// Builds a function body or a branch. A yield, return, tail call or trap
+/// Builds a function body, block or branch. A yield, branch, return, tail call or trap
 /// consumes the active builder; completing the outer builder saves the function
 /// body.
 ///
 /// Dropping the outer builder without completing it leaves the function undefined.
 /// Dropping a child of `if_`, `if_else` or `switch` completes a branch that falls through.
-/// A value-producing arm must instead yield a value, return, tail-call or trap.
+/// A nonempty result arm must instead yield, branch outward, return, tail-call or trap.
+/// Blocks and result arms with the unit shape may also fall through.
 /// A builder cannot be used after its program is consumed:
 /// ```compile_fail
 /// use wasm86_compiler::{Program, Signature, Type, I32};
@@ -504,8 +516,10 @@ impl Drop for FunctionBuilder<'_> {
             }
             Destination::Branch {
                 region: destination,
-                result: None,
-            } if self.fallthrough => {
+                target,
+            } if self.fallthrough
+                && target.as_ref().is_none_or(|target| target.types.is_empty()) =>
+            {
                 **destination = Some(std::mem::replace(&mut self.region, Region::new(0)));
             }
             Destination::Branch { .. } => {}

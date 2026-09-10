@@ -80,6 +80,7 @@ impl ExpressionArena {
         &self,
         ty: Type,
         site: Site,
+        component: usize,
         inputs: &[usize],
     ) -> Result<usize, BuildError> {
         self.with_open(|arena| {
@@ -93,7 +94,7 @@ impl ExpressionArena {
             arena.push_with_bits(
                 Value {
                     ty,
-                    kind: ValueKind::JoinResult { site },
+                    kind: ValueKind::JoinResult { site, component },
                 },
                 bits,
             )
@@ -112,6 +113,16 @@ impl ExpressionArena {
         let arena = self.0.borrow();
         let arena = arena.as_ref().ok_or(BuildError::BodyClosed)?;
         if arena.availability[value].is_some_and(|owner| arena.contains(owner, scope)) {
+            Ok(())
+        } else {
+            Err(BuildError::OutOfScope)
+        }
+    }
+
+    pub(super) fn require_scope(&self, owner: usize, scope: usize) -> Result<(), BuildError> {
+        let arena = self.0.borrow();
+        let arena = arena.as_ref().ok_or(BuildError::BodyClosed)?;
+        if arena.contains(owner, scope) {
             Ok(())
         } else {
             Err(BuildError::OutOfScope)
@@ -429,7 +440,7 @@ impl ValueArena {
             ValueKind::Constant(_) | ValueKind::Parameter(_) => Some(0),
             ValueKind::Load { site, .. }
             | ValueKind::CallResult { site }
-            | ValueKind::JoinResult { site } => Some(site.region),
+            | ValueKind::JoinResult { site, .. } => Some(site.region),
             ValueKind::Binary(_, a, b)
             | ValueKind::Compare(_, a, b)
             | ValueKind::Shift {

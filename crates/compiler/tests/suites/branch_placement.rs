@@ -4,6 +4,9 @@ use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 use wasm86_compiler::{Type, I1, I32};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
+#[path = "branch_placement/guarded.rs"]
+mod guarded;
+
 fn exclusive_switch_arms() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0]);
@@ -196,6 +199,9 @@ enum Event {
     BlockEnd,
     Add,
     Xor,
+    Compare,
+    ZeroTest,
+    LocalWrite,
     Load,
     Store,
     Call,
@@ -249,6 +255,9 @@ fn inspect(bytes: &[u8]) -> Vec<Event> {
                         Operator::BrTable { .. } => Event::Table,
                         Operator::I32Add => Event::Add,
                         Operator::I32Xor => Event::Xor,
+                        Operator::I32GeU => Event::Compare,
+                        Operator::I32Eqz => Event::ZeroTest,
+                        Operator::LocalSet { .. } | Operator::LocalTee { .. } => Event::LocalWrite,
                         Operator::I32Load { .. } => Event::Load,
                         Operator::I32Store { .. } => Event::Store,
                         Operator::Call { .. } => Event::Call,
@@ -401,6 +410,10 @@ fn load_call_and_join_inputs_keep_their_snapshot_before_arm_writes() {
             .position(|event| *event == Event::Store)
             .unwrap();
         assert!(read < write, "{events:?}");
+        assert_eq!(
+            events.iter().filter(|event| **event == Event::Xor).count(),
+            2
+        );
         assert_eq!(xor_counts_on_paths(&events, &mut 0).iter().max(), Some(&1));
     }
 }

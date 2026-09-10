@@ -218,25 +218,28 @@ fn unary_rmw_rejects_a_wrapping_range_even_when_both_pages_are_mapped() {
         } else {
             0xffff_fffe
         };
-        let mut image = Image::new(code);
-        image.cpu.registers.ebx = address;
-        image.cpu.flags.kind = 0xff;
-        image.map(0xfffff, 0x8000, true);
-        image.map(0, 0xa000, true);
-        image.data(0x8ffe, &[0x11, 0x22]);
-        image.data(0xa000, &[0x33, 0x44]);
-        both(
-            TestModule::interpreter(),
-            "unary range wrap follows the memory policy",
-            code,
-            1,
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::PageFault { address, error: 2 },
-            }],
-        );
+        for first_writable in [true, false] {
+            let mut image = Image::new(code);
+            image.cpu.registers.ebx = address;
+            image.cpu.flags.kind = 0xff;
+            image.map(0xfffff, 0x8000, first_writable);
+            image.map(0, 0xa000, true);
+            image.data(0x8ffe, &[0x11, 0x22]);
+            image.data(0xa000, &[0x33, 0x44]);
+            // Range wrap wins over a read-only first page and invalid flags.
+            both(
+                TestModule::interpreter(),
+                "unary range wrap follows the memory policy",
+                code,
+                1,
+                &image,
+                &[Step {
+                    cpu: image.cpu,
+                    ram: &[],
+                    exit: Exit::PageFault { address, error: 2 },
+                }],
+            );
+        }
     }
 }
 

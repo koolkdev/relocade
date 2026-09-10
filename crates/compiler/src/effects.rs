@@ -105,7 +105,7 @@ fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
                     include(&mut writes, [MemoryRange::from_location(*location, body)])
                 }
                 Operation::Call { invocation, .. } => callees.push(invocation.target),
-                Operation::If { .. } | Operation::Switch { .. } => {}
+                Operation::Block { .. } | Operation::If { .. } | Operation::Switch { .. } => {}
             }
         }
         if let Some(Terminal::TailCall(invocation)) = &region.terminal {

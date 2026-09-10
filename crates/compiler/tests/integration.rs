@@ -5,6 +5,8 @@ mod wasm;
 
 #[path = "suites/bit_counts.rs"]
 mod bit_counts;
+#[path = "suites/blocks.rs"]
+mod blocks;
 #[path = "suites/branch_placement.rs"]
 mod branch_placement;
 #[path = "suites/computed_memory.rs"]

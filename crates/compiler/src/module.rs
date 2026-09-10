@@ -2,11 +2,41 @@
 use std::collections::HashMap;
 
 use wasm_encoder::{
-    CodeSection, EntityType, ExportKind, ExportSection, FunctionSection, ImportSection, MemoryType,
-    Module, TypeSection,
+    BlockType, CodeSection, EntityType, ExportKind, ExportSection, FunctionSection, ImportSection,
+    MemoryType, Module, TypeSection, ValType,
 };
 
 use crate::{effects, emit, FunctionKind, Operation, Program, Terminal, ValueKind};
+
+/// Function and multi-result block signatures share one deterministic carrier table.
+#[derive(Default)]
+pub(super) struct Types {
+    section: TypeSection,
+    interned: HashMap<(Vec<ValType>, Vec<ValType>), u32>,
+}
+
+impl Types {
+    fn function(&mut self, parameters: Vec<ValType>, results: Vec<ValType>) -> u32 {
+        *self
+            .interned
+            .entry((parameters, results))
+            .or_insert_with_key(|(parameters, results)| {
+                let index = self.section.len();
+                self.section
+                    .ty()
+                    .function(parameters.iter().copied(), results.iter().copied());
+                index
+            })
+    }
+
+    pub(super) fn block(&mut self, results: &[ValType]) -> BlockType {
+        match results {
+            [] => BlockType::Empty,
+            [result] => BlockType::Result(*result),
+            _ => BlockType::FunctionType(self.function(Vec::new(), results.to_vec())),
+        }
+    }
+}
 
 pub(super) fn encode(program: &Program) -> Vec<u8> {
     let defined: Vec<_> = program
@@ -34,7 +64,9 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
             // Imports follow authored operations, including unused loads.
             for operation in &region.operations {
                 let location = match operation {
-                    Operation::If { .. } | Operation::Switch { .. } => continue,
+                    Operation::Block { .. } | Operation::If { .. } | Operation::Switch { .. } => {
+                        continue
+                    }
                     Operation::Call { invocation, .. } => {
                         used_functions[invocation.target.0] = true;
                         continue;
@@ -69,8 +101,7 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
             Some(u32::try_from(index).expect("function index fits the Wasm index space"));
     }
 
-    let mut types = TypeSection::new();
-    let mut interned = HashMap::new();
+    let mut types = Types::default();
     let mut function_types = vec![0; program.functions.len()];
     // Logical signatures can share a Wasm signature. Assign types in definition
     // order, then live import order, independently of hash-map iteration order.
@@ -80,7 +111,7 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
         .chain(imported.iter().copied())
     {
         let declaration = &program.functions[id];
-        let signature = (
+        function_types[id] = types.function(
             declaration
                 .signature
                 .parameters
@@ -88,21 +119,14 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
                 .copied()
                 .map(emit::wasm_type)
                 .collect::<Vec<_>>(),
-            declaration.signature.result.map(emit::wasm_type),
+            declaration
+                .signature
+                .result
+                .map(emit::wasm_type)
+                .into_iter()
+                .collect(),
         );
-        function_types[id] =
-            *interned
-                .entry(signature)
-                .or_insert_with_key(|(parameters, result)| {
-                    let index = types.len();
-                    types
-                        .ty()
-                        .function(parameters.iter().copied(), result.iter().copied());
-                    index
-                });
     }
-    let mut module = Module::new();
-    module.section(&types);
     let mut imports = ImportSection::new();
     for id in imported {
         let FunctionKind::Imported { module, name } = &program.functions[id].kind else {
@@ -131,14 +155,10 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
             );
         }
     }
-    if !imports.is_empty() {
-        module.section(&imports);
-    }
     let mut functions = FunctionSection::new();
     for (id, _) in &defined {
         functions.function(function_types[*id]);
     }
-    module.section(&functions);
 
     let mut exports = ExportSection::new();
     for (name, function) in &program.exports {
@@ -148,7 +168,6 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
             function_indices[function.0].expect("an exported function is retained"),
         );
     }
-    module.section(&exports);
     let effects = effects::infer(program);
     let mut code = CodeSection::new();
     for (id, body) in defined {
@@ -160,8 +179,18 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
             &memories,
             &function_indices,
             &effects,
+            &mut types,
         ));
     }
+    // Emission interns only live multi-result block shapes. Attach the complete
+    // type table first while preserving the existing function signature order.
+    let mut module = Module::new();
+    module.section(&types.section);
+    if !imports.is_empty() {
+        module.section(&imports);
+    }
+    module.section(&functions);
+    module.section(&exports);
     module.section(&code);
     module.finish()
 }

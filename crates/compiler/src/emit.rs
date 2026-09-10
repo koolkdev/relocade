@@ -1,15 +1,17 @@
 //! Instruction ordering and storage of shared expression results.
-use wasm_encoder::{BlockType, Encode, Function, Instruction, MemArg, ValType};
+use wasm_encoder::{Encode, Function, Instruction, MemArg, ValType};
 
 use crate::{
-    control::{Region, Site},
+    control::Site,
     effects::Effects,
     integer::{BinaryOp, CompareOp, ShiftOp},
     locals,
     memory::Location,
-    place, Body, Operation, Terminal, Type, ValueKind,
+    module::Types,
+    place, Body, Type, ValueKind,
 };
 
+mod control;
 mod switch;
 
 struct LocalEvent {
@@ -40,11 +42,18 @@ enum Walk {
     FinishZero(usize, Option<Type>),
 }
 
+struct ControlLabel {
+    target: Option<Site>,
+    outputs: Vec<usize>,
+}
+
 struct Scheduler<'a> {
     body: &'a Body,
     memories: &'a [Option<u32>],
     functions: &'a [Option<u32>],
     effects: &'a [Effects],
+    types: &'a mut Types,
+    labels: Vec<ControlLabel>,
     placement: place::Placement,
     emitted: Vec<bool>,
     bytes: Vec<u8>,
@@ -57,143 +66,26 @@ pub(super) fn encode(
     memories: &[Option<u32>],
     functions: &[Option<u32>],
     effects: &[Effects],
+    types: &mut Types,
 ) -> Function {
     let mut scheduler = Scheduler {
         body,
         memories,
         functions,
         effects,
+        types,
+        labels: Vec::new(),
         placement: place::plan(body, effects),
         emitted: vec![false; body.values.len()],
         bytes: Vec::new(),
         events: Vec::new(),
     };
-    scheduler.region(&body.region, false);
+    scheduler.region(&body.region, None);
     Instruction::End.encode(&mut scheduler.bytes);
     scheduler.finish(parameter_count)
 }
 
 impl Scheduler<'_> {
-    fn region(&mut self, region: &Region, yield_result: bool) {
-        let forwarding = if yield_result {
-            match (&region.terminal, region.operations.last()) {
-                (Some(Terminal::Yield(value)), Some(operation)) => operation
-                    .branch_output()
-                    .is_some_and(|output| place::representation(self.body, *value) == output),
-                _ => false,
-            }
-        } else {
-            false
-        };
-        for (index, operation) in region.operations.iter().enumerate() {
-            let live_output = operation
-                .branch_output()
-                .filter(|&id| self.placement.slots[id].is_some());
-            let block_type = live_output.map_or(BlockType::Empty, |id| {
-                BlockType::Result(wasm_type(self.body.values[id].ty))
-            });
-            if let Operation::Switch { cases, .. } = operation {
-                self.open_switch(cases.len(), block_type);
-            }
-            // Keep the selector on the stack while common values are captured.
-            match operation {
-                Operation::If { condition, .. } => self.value(self.condition_input(*condition)),
-                Operation::Switch { selector, .. } => self.value(*selector),
-                _ => {}
-            }
-            let site = Site {
-                region: region.id,
-                index,
-            };
-            if let Some(captures) = self.placement.captures.get(&site) {
-                for index in 0..captures.len() {
-                    let id = self.placement.captures[&site][index];
-                    if !self.emitted[id] {
-                        self.evaluate(id, true);
-                    }
-                }
-            }
-            match operation {
-                Operation::Load(_) => {}
-                Operation::Call { invocation, output } => {
-                    if self.effects[invocation.target.0].must_execute() {
-                        if let Some(output) = output {
-                            self.evaluate(*output, true);
-                            if self.placement.slots[*output].is_none() {
-                                Instruction::Drop.encode(&mut self.bytes);
-                            }
-                        } else {
-                            for &argument in &invocation.arguments {
-                                self.value(argument);
-                            }
-                            self.call(invocation.target);
-                        }
-                    }
-                }
-                Operation::Store { location, value } => {
-                    self.value(location.base);
-                    self.value(*value);
-                    let argument = self.memory_argument(*location);
-                    match location.bytes {
-                        1 => Instruction::I32Store8(argument),
-                        2 => Instruction::I32Store16(argument),
-                        4 => Instruction::I32Store(argument),
-                        8 => Instruction::I64Store(argument),
-                        _ => unreachable!("memory locations have a supported byte size"),
-                    }
-                    .encode(&mut self.bytes);
-                }
-                Operation::If {
-                    branch,
-                    else_branch,
-                    ..
-                } => {
-                    Instruction::If(block_type).encode(&mut self.bytes);
-                    let before_arm = self.emitted.clone();
-                    self.region(branch, live_output.is_some());
-                    self.emitted.clone_from(&before_arm);
-                    if let Some(other) = else_branch {
-                        Instruction::Else.encode(&mut self.bytes);
-                        self.region(other, live_output.is_some());
-                    }
-                    Instruction::End.encode(&mut self.bytes);
-                    // Neither arm can initialize values for the other. Only the
-                    // selected result becomes available to the parent after End.
-                    self.emitted = before_arm;
-                }
-                Operation::Switch { cases, default, .. } => {
-                    self.switch(cases, default, live_output.is_some());
-                }
-            }
-            if let Some(output) = live_output {
-                if !(forwarding && index + 1 == region.operations.len()) {
-                    self.completed(output, true);
-                }
-            }
-        }
-        if let Some(terminal) = &region.terminal {
-            if let Terminal::Yield(value) = terminal {
-                if yield_result && !forwarding {
-                    self.value(*value);
-                }
-                return;
-            }
-            for &value in terminal.inputs() {
-                self.value(value);
-            }
-            match terminal {
-                Terminal::Yield(_) => unreachable!("yield leaves its value on the arm's stack"),
-                Terminal::Return(_) => Instruction::Return,
-                Terminal::Trap => Instruction::Unreachable,
-                Terminal::TailCall(invocation) => Instruction::ReturnCall(
-                    self.functions[invocation.target.0]
-                        .expect("a tail-call target has a function index"),
-                ),
-            }
-            .encode(&mut self.bytes);
-        }
-    }
-
     fn local(&mut self, slot: usize, operation: LocalOp) {
         self.events.push(LocalEvent {
             offset: self.bytes.len(),

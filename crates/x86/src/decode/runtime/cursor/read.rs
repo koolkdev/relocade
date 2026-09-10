@@ -33,12 +33,14 @@ impl RuntimeCursor<'_> {
                 self.read_window(body, window)?
             }
             _ => {
-                let access =
-                    self.memory
-                        .resolve_access::<I8>(body, &self.next_eip(), Intent::Fetch)?;
-                body.if_(&access.fault.condition, |fault_body| {
-                    fault_body.return_(exit::page_fault(&access.fault.address, &access.fault.error))
-                })?;
+                let access = self.memory.resolve_access::<I8>(
+                    body,
+                    &self.next_eip(),
+                    Intent::Fetch,
+                    |fault_body, fault| {
+                        fault_body.return_(exit::page_fault(&fault.address, &fault.error))
+                    },
+                )?;
                 self.memory.read(body, &access)?
             }
         };

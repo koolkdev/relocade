@@ -5,38 +5,44 @@ use wasm_encoder::{BlockType, Encode, Instruction, ValType};
 
 use super::{LocalOp, Scheduler};
 use crate::{
-    control::{Region, SwitchCase},
+    control::{Region, Site, SwitchCase},
     Terminal,
 };
 
 impl Scheduler<'_> {
-    pub(super) fn open_switch(&mut self, cases: usize, result: BlockType) {
+    pub(super) fn open_switch(
+        &mut self,
+        cases: usize,
+        result: BlockType,
+        site: Site,
+        outputs: &[usize],
+    ) {
         // The outer block joins falling-through arms. Each inner block is a case
         // label, followed by the default label. Open them before evaluating the
         // selector so its stack value is inside the innermost label's scope.
-        Instruction::Block(result).encode(&mut self.bytes);
+        self.begin_control(Instruction::Block(result), Some(site), outputs);
         for _ in 0..=cases {
-            Instruction::Block(BlockType::Empty).encode(&mut self.bytes);
+            self.begin_control(Instruction::Block(BlockType::Empty), None, &[]);
         }
     }
 
-    pub(super) fn switch(&mut self, cases: &[SwitchCase], default: &Region, yield_result: bool) {
+    pub(super) fn switch(&mut self, cases: &[SwitchCase], default: &Region, site: Site) {
         self.dispatch_switch(cases);
         let before_arm = self.emitted.clone();
-        for (index, case) in cases.iter().enumerate() {
-            Instruction::End.encode(&mut self.bytes);
+        for case in cases {
+            self.end_control();
             self.emitted.clone_from(&before_arm);
-            self.region(&case.region, yield_result);
-            if matches!(case.region.terminal, None | Some(Terminal::Yield(_))) {
-                let depth = u32::try_from(cases.len() - index)
-                    .expect("branch depth fits the Wasm index space");
-                Instruction::Br(depth).encode(&mut self.bytes);
+            self.region(&case.region, Some(site));
+            if case.region.terminal.is_none()
+                || matches!(&case.region.terminal, Some(Terminal::Branch { target, .. }) if *target == site)
+            {
+                self.branch_to(site);
             }
         }
-        Instruction::End.encode(&mut self.bytes);
+        self.end_control();
         self.emitted.clone_from(&before_arm);
-        self.region(default, yield_result);
-        Instruction::End.encode(&mut self.bytes);
+        self.region(default, Some(site));
+        self.end_control();
         self.emitted = before_arm;
     }
 
@@ -84,13 +90,13 @@ impl Scheduler<'_> {
         Instruction::I32Const(cases[midpoint].key as i32).encode(&mut self.bytes);
         if cases.len() == 1 {
             Instruction::I32Eq.encode(&mut self.bytes);
-            Instruction::If(BlockType::Result(ValType::I32)).encode(&mut self.bytes);
+            self.begin_control(Instruction::If(BlockType::Result(ValType::I32)), None, &[]);
             Instruction::I32Const(first_index as i32).encode(&mut self.bytes);
             Instruction::Else.encode(&mut self.bytes);
             Instruction::I32Const(default as i32).encode(&mut self.bytes);
         } else {
             Instruction::I32LtU.encode(&mut self.bytes);
-            Instruction::If(BlockType::Result(ValType::I32)).encode(&mut self.bytes);
+            self.begin_control(Instruction::If(BlockType::Result(ValType::I32)), None, &[]);
             self.sparse_case_index(&cases[..midpoint], first_index, default, selector_slot);
             Instruction::Else.encode(&mut self.bytes);
             self.sparse_case_index(
@@ -100,6 +106,6 @@ impl Scheduler<'_> {
                 selector_slot,
             );
         }
-        Instruction::End.encode(&mut self.bytes);
+        self.end_control();
     }
 }
