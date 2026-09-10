@@ -17,9 +17,9 @@ use crate::{
 pub(super) const DIRECT_FETCH_BYTES: u32 = 1 + OperandWidth::Dword.bytes();
 
 /// A proven window permits direct reads while every possible cursor position
-/// fits its extent. Conditional fields advance a parent expression and its upper
-/// bound; child-scoped positions never escape. Reads beyond the proof use checked
-/// fetch in the wrapping instruction address space.
+/// fits its extent. Conditional fields join their final positions while keeping
+/// a conservative upper bound. Reads beyond the proof use checked fetch in the
+/// wrapping instruction address space.
 #[derive(Clone)]
 pub(super) struct RuntimeCursor<'memory> {
     memory: &'memory Memory,
@@ -188,30 +188,29 @@ impl<'memory> RuntimeCursor<'memory> {
     ) -> Result<Val<I32>, BuildError> {
         let has_dword_displacement = mode.eq(2).or(no_base);
         let has_byte_displacement = mode.eq(1);
-        let value = body.if_value::<I32>(
+        let (value, next_offset) = body.if_value::<(I32, I32)>(
             &has_dword_displacement,
             |mut dword_body| {
-                let value = self.clone().dword(&mut dword_body)?;
-                dword_body.yield_(value)
+                let mut cursor = self.clone();
+                let value = cursor.dword(&mut dword_body)?;
+                dword_body.yield_((value, cursor.offset))
             },
             |mut short_displacement_body| {
-                let value = short_displacement_body.if_value::<I32>(
+                let result = short_displacement_body.if_value::<(I32, I32)>(
                     &has_byte_displacement,
                     |mut byte_body| {
-                        let value = self.clone().byte(&mut byte_body)?;
-                        byte_body.yield_(value.signed().extend::<I32>())
+                        let mut cursor = self.clone();
+                        let value = cursor.byte(&mut byte_body)?;
+                        byte_body.yield_((value.signed().extend::<I32>(), cursor.offset))
                     },
-                    |no_displacement_body| no_displacement_body.yield_(0),
+                    |no_displacement_body| no_displacement_body.yield_((0, &self.offset)),
                 )?;
-                short_displacement_body.yield_(value)
+                short_displacement_body.yield_(result)
             },
         )?;
         self.mark_conditional_offset();
         self.maximum_offset += 4;
-        self.offset = self
-            .offset
-            .add(has_dword_displacement.unsigned().extend::<I32>().shl(2))
-            .add(has_byte_displacement.unsigned().extend::<I32>());
+        self.offset = next_offset;
         Ok(value)
     }
 }
