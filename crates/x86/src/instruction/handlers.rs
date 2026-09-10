@@ -70,47 +70,62 @@ pub(super) enum HandlerCall<V> {
     },
 }
 
-// Widths and constant arguments select concrete Rust functions; handlers remain ordinary code.
+// Widths and constant arguments select concrete Rust functions. Conditional bodies
+// receive the condition bound by their form; all bodies remain ordinary Rust code.
 macro_rules! binary_handlers {
     ($handler:ident, source = $source:ty $(, $argument:expr)*) => {
         SizedHandlers {
-            word: binary_handlers!(@pair $handler, I16, $source $(, $argument)*),
-            dword: binary_handlers!(@pair $handler, I32, $source $(, $argument)*),
+            word: binary_handlers!(@pair $handler, I16, $source [] $(, $argument)*),
+            dword: binary_handlers!(@pair $handler, I32, $source [] $(, $argument)*),
         }
     };
+    ($handler:ident, condition $(, $argument:expr)*) => {
+        binary_handlers!(@widths $handler [condition] $(, $argument)*)
+    };
     ($handler:ident $(, $argument:expr)*) => {
+        binary_handlers!(@widths $handler [] $(, $argument)*)
+    };
+    (@widths $handler:ident [$($condition:ident)?] $(, $argument:expr)*) => {
         IntegerHandlers {
-            byte: binary_handlers!(@pair $handler, I8, I8 $(, $argument)*),
+            byte: binary_handlers!(@pair $handler, I8, I8 [$($condition)?] $(, $argument)*),
             sized: SizedHandlers {
-                word: binary_handlers!(@pair $handler, I16, I16 $(, $argument)*),
-                dword: binary_handlers!(@pair $handler, I32, I32 $(, $argument)*),
+                word: binary_handlers!(@pair $handler, I16, I16 [$($condition)?] $(, $argument)*),
+                dword: binary_handlers!(@pair $handler, I32, I32 [$($condition)?] $(, $argument)*),
             },
         }
     };
-    (@pair $handler:ident, $destination:ty, $source:ty $(, $argument:expr)*) => {
-        Handler::Binary(|execution, destination, source, _, fallthrough| {
-            $handler(execution, TypedLocation::<$destination>::new(destination), Input::<$source>::new(source) $(, $argument)*)?;
+    (@pair $handler:ident, $destination:ty, $source:ty [$($condition:ident)?] $(, $argument:expr)*) => {
+        Handler::Binary(|execution, destination, source, _bound_condition, fallthrough| {
+            $(let $condition = _bound_condition.expect("condition-dependent forms bind a condition");)?
+            $handler(execution, TypedLocation::<$destination>::new(destination), Input::<$source>::new(source) $(, $condition)? $(, $argument)*)?;
             Ok(fallthrough)
         })
     };
 }
 
 macro_rules! unary_handlers {
+    ($handler:ident, $operand:ident, width = $width:ty, condition $(, $argument:expr)*) => {
+        unary_handlers!(@width $handler, $operand, $width [condition] $(, $argument)*)
+    };
+    ($handler:ident, $operand:ident, width = $width:ty $(, $argument:expr)*) => {
+        unary_handlers!(@width $handler, $operand, $width [] $(, $argument)*)
+    };
     ($handler:ident, $operand:ident, sized $(, $argument:expr)*) => {
         SizedHandlers {
-            word: unary_handlers!(@width $handler, $operand, I16 $(, $argument)*),
-            dword: unary_handlers!(@width $handler, $operand, I32 $(, $argument)*),
+            word: unary_handlers!(@width $handler, $operand, I16 [] $(, $argument)*),
+            dword: unary_handlers!(@width $handler, $operand, I32 [] $(, $argument)*),
         }
     };
     ($handler:ident, $operand:ident $(, $argument:expr)*) => {
         IntegerHandlers {
-            byte: unary_handlers!(@width $handler, $operand, I8 $(, $argument)*),
+            byte: unary_handlers!(@width $handler, $operand, I8 [] $(, $argument)*),
             sized: unary_handlers!($handler, $operand, sized $(, $argument)*),
         }
     };
-    (@width $handler:ident, $operand:ident, $width:ty $(, $argument:expr)*) => {
-        Handler::Unary(|execution, operand, _, fallthrough| {
-            $handler(execution, unary_handlers!(@operand $operand, $width, operand) $(, $argument)*)?;
+    (@width $handler:ident, $operand:ident, $width:ty [$($condition:ident)?] $(, $argument:expr)*) => {
+        Handler::Unary(|execution, operand, _bound_condition, fallthrough| {
+            $(let $condition = _bound_condition.expect("condition-dependent forms bind a condition");)?
+            $handler(execution, unary_handlers!(@operand $operand, $width, operand) $(, $condition)? $(, $argument)*)?;
             Ok(fallthrough)
         })
     };

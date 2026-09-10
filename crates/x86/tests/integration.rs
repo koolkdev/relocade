@@ -12,6 +12,8 @@ mod binary_operands;
 mod byte_moves;
 #[path = "suites/carry_arithmetic.rs"]
 mod carry_arithmetic;
+#[path = "suites/conditional_moves.rs"]
+mod conditional_moves;
 #[path = "suites/count_publication.rs"]
 mod count_publication;
 #[path = "suites/extending_moves.rs"]

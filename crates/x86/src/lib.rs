@@ -15,6 +15,10 @@
 //! register or memory source into a dword destination, or a word with `66`.
 //! They zero-extend or sign-extend from the opcode's fixed source width. The
 //! word-to-word `66 0F B7`/`66 0F BF` forms copy the source unchanged.
+//! CMOVcc (`0F 40`–`0F 4F`) conditionally copies a word/dword register or memory
+//! source into a register. Its source is read even when the condition is false.
+//! A false condition preserves the destination; a taken word move preserves its
+//! upper half. Both outcomes retire once and preserve flags.
 //! Relative JMP uses `EB`/`E9`; Jcc uses `70`–`7F`/`0F 80`–`0F 8F`.
 //! Short displacements are signed bytes; near displacements are word/dword-sized.
 //! Targets are relative to the end of the instruction. With `66`, taken targets
@@ -32,8 +36,8 @@
 //! including prefixes and all required operand fields.
 //!
 //! Binary arithmetic, logic and NEG replace all six status flags. INC/DEC preserve
-//! CF and update the other five; MOV, MOVZX, MOVSX, NOT, PUSH, POP, SETcc and branches
-//! preserve them all.
+//! CF and update the other five; MOV, MOVZX, MOVSX, CMOVcc, NOT, PUSH, POP, SETcc and
+//! branches preserve them all.
 //! CMP and TEST only change flags. The CPU
 //! stores flags lazily: byte 0 selects the record kind, and little-endian dwords
 //! at 4 and 8 hold the original, zero-extended operands. SUB kinds are 1, 5 and 9;
