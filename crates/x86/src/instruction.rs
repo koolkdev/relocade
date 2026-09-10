@@ -24,9 +24,11 @@ pub(super) enum OperandSize {
     Dword,
 }
 
-/// Decoded bits and locations; handlers assign their logical widths.
+/// Decoded values and locations; handlers assign their logical widths.
 pub(super) enum Operand<V> {
     Immediate(V),
+    /// The address value itself, without accessing the addressed memory.
+    Address(Address32<V>),
     Location(Location<V>),
 }
 

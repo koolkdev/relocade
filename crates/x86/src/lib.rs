@@ -15,6 +15,9 @@
 //! register or memory source into a dword destination, or a word with `66`.
 //! They zero-extend or sign-extend from the opcode's fixed source width. The
 //! word-to-word `66 0F B7`/`66 0F BF` forms copy the source unchanged.
+//! LEA (`8D`) writes a ModRM/SIB effective address to a dword register, or its
+//! low word with `66`. It reads full 32-bit address registers, preserves flags,
+//! and performs no data-memory access. Register-mode ModRM is unsupported.
 //! CMOVcc (`0F 40`–`0F 4F`) conditionally copies a word/dword register or memory
 //! source into a register. Its source is read even when the condition is false.
 //! A false condition preserves the destination; a taken word move preserves its
@@ -36,7 +39,7 @@
 //! including prefixes and all required operand fields.
 //!
 //! Binary arithmetic, logic and NEG replace all six status flags. INC/DEC preserve
-//! CF and update the other five; MOV, MOVZX, MOVSX, CMOVcc, NOT, PUSH, POP, SETcc and
+//! CF and update the other five; MOV, MOVZX, MOVSX, LEA, CMOVcc, NOT, PUSH, POP, SETcc and
 //! branches preserve them all.
 //! CMP and TEST only change flags. The CPU
 //! stores flags lazily: byte 0 selects the record kind, and little-endian dwords

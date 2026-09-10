@@ -56,7 +56,7 @@ where
         opcode: &Val<I8>,
         forms: &[&'static Form],
     ) -> Result<(), BuildError> {
-        // Opcode selection is complete; only its extension remains to be checked.
+        // Select the extension, then validate the addressing mode before binding.
         let modrm = cursor.byte(&mut body)?;
         dispatch_form_by_extension(body, &modrm, forms, &|mut arm, form| {
             let Some(form) = form else {
@@ -65,6 +65,9 @@ where
             arm.if_(modrm.unsigned().shr(6).ne(3), |memory_body| {
                 self.tail_call_memory_decoder(memory_body, &cursor, opcode, &modrm)
             })?;
+            if !form.accepts_register_rm() {
+                return cursor.return_unsupported(arm, opcode);
+            }
             let rm = Location::Register(RegisterCode::indexed(modrm.unsigned().extend::<I32>()));
             self.complete_modrm_instruction(arm, cursor.clone(), &modrm, form, rm)
         })

@@ -82,6 +82,12 @@ impl<V: Clone> DecodedFields<V> {
     fn bind_operand(&self, binding: OperandBinding) -> Operand<V> {
         match binding {
             OperandBinding::Location(location) => self.bind_location(location).into(),
+            OperandBinding::RmAddress => {
+                let Location::Memory(address) = self.bind_location(LocationBinding::Rm) else {
+                    unreachable!("address bindings require a memory addressing mode");
+                };
+                Operand::Address(address)
+            }
             OperandBinding::Immediate => {
                 let (Self::OpcodeRegisterImmediate { immediate, .. }
                 | Self::Immediate { immediate }

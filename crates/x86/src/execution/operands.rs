@@ -30,6 +30,10 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
     {
         match operand {
             Operand::Immediate(bits) => Ok(self.body.value::<I32>(bits)?.truncate::<T>()),
+            Operand::Address(address) => {
+                let address = address::resolve(&mut self.body, &mut self.state, address, &[])?;
+                Ok(address.truncate::<T>())
+            }
             Operand::Location(Location::Register(code)) => {
                 self.state.read_register(&mut self.body, code.view::<T>())
             }

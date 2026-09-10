@@ -124,6 +124,8 @@ pub(super) enum LocationBinding {
 pub(super) enum OperandBinding {
     Location(LocationBinding),
     Immediate,
+    /// The r/m address fields form a value; register addressing is not accepted.
+    RmAddress,
 }
 
 #[derive(Clone, Copy)]
@@ -167,6 +169,18 @@ impl Form {
     pub(crate) fn matches_modrm(&self, modrm: u8) -> bool {
         self.extension
             .is_none_or(|extension| ((modrm >> 3) & 7) == extension)
+            && (modrm >> 6 != 3 || self.accepts_register_rm())
+    }
+
+    pub(crate) fn accepts_register_rm(&self) -> bool {
+        !matches!(
+            self.binding,
+            OperandBindingShape::Unary(OperandBinding::RmAddress)
+                | OperandBindingShape::Binary {
+                    right: OperandBinding::RmAddress,
+                    ..
+                }
+        )
     }
 }
 

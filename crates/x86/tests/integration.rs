@@ -16,6 +16,8 @@ mod carry_arithmetic;
 mod conditional_moves;
 #[path = "suites/count_publication.rs"]
 mod count_publication;
+#[path = "suites/effective_addresses.rs"]
+mod effective_addresses;
 #[path = "suites/extending_moves.rs"]
 mod extending_moves;
 #[path = "suites/immediate_and_absolute_moves.rs"]

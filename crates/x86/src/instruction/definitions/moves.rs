@@ -109,12 +109,23 @@ const EXTENDING_FORMS: [Form; 4] = [
     extending_move(0xbf, binary_handlers!(movsx, source = I16)),
 ];
 
+const EFFECTIVE_ADDRESS_FORMS: [Form; 1] = [primary_form(
+    0x8d,
+    Encoding::RegisterRm,
+    HANDLERS.sized,
+    OperandBindingShape::Binary {
+        left: LocationBinding::Register,
+        right: OperandBinding::RmAddress,
+    },
+)];
+
 pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
     OPCODE_REGISTER_IMMEDIATE_FORMS
         .iter()
         .chain(MOV_MODRM_FORMS.iter())
         .chain(ACCUMULATOR_OFFSET_FORMS.iter())
         .chain(EXTENDING_FORMS.iter())
+        .chain(EFFECTIVE_ADDRESS_FORMS.iter())
 }
 
 fn mov<T: RegisterType>(

@@ -2,8 +2,9 @@
 
 Rust components for x86 execution in WebAssembly.
 
-`wasm86-x86` compiles MOV, ADD, ADC, SUB, SBB, CMP, AND, OR, XOR, TEST,
-INC, DEC, NEG, NOT, PUSH, POP, SETcc and relative JMP/Jcc blocks from byte snapshots:
+`wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, CMOVcc, ADD, ADC, SUB, SBB, CMP,
+AND, OR, XOR, TEST, INC, DEC, NEG, NOT, PUSH, POP, SETcc and relative JMP/Jcc blocks
+from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
@@ -99,6 +100,14 @@ span is read and checked, even when the destination is wider. The `66 0F B7` and
 `66 0F BF` word-to-word forms copy the source unchanged. These forms are accepted
 by [Intel XED](https://github.com/intelxed/xed/blob/main/datafiles/xed-isa.txt),
 although the SDM's ordinary MOVZX/MOVSX opcode tables omit them.
+
+LEA (`8D`) computes the effective address encoded by ModRM/SIB and writes it to a
+dword register. With `66`, it writes the low word and preserves the upper half of
+the destination. Address calculation always uses full 32-bit base and index
+registers and wraps at 32 bits before destination truncation. LEA preserves flags
+and performs no data-memory access or page-permission checks. Its source requires
+a memory addressing mode; register-mode ModRM is unsupported. LEA-only snapshots
+need no guest or page-table memory imports.
 
 CMOVcc (`0F 40`–`0F 4F`) conditionally copies a word or dword register/memory
 source into a register. All sixteen conditions use the same flag queries as
@@ -199,6 +208,11 @@ to the common `Val<I32>` carrier and calls the bound Rust handler. `Input<T>` an
 `TypedLocation<T>` attach logical width to values and locations while deferring
 access until the handler requests it. Their widths remain independent of that
 carrier and of 32-bit addresses.
+`Operand::Address` holds an address value separately from a memory location.
+The `RmAddress` binding requires a memory addressing mode in both decoders;
+reading this input resolves the full address and then applies the destination
+width. LEA uses this binding with the ordinary MOV handler, so it shares address
+arithmetic and register writes without declaring a data-memory access.
 Both unary and binary calls receive the bound condition and fallthrough EIP and
 return the successor EIP. Ordinary typed handlers return `Result<()>`; their
 adapters return fallthrough after success. A relative branch computes its target
@@ -303,7 +317,7 @@ the original operands; logical zero/nonzero queries compare only the result.
 Other queries use shared readonly condition readers. Inverse conditions share a
 reader and cached result. Readers are created only when needed; querying a
 condition preserves the stored representation.
-MOV, MOVZX, MOVSX, CMOVcc and SETcc preserve flags, and these instructions leave
+MOV, MOVZX, MOVSX, LEA, CMOVcc and SETcc preserve flags, and these instructions leave
 non-status flag bytes untouched. A faulting operand access preserves the previous
 instruction's flags.
 

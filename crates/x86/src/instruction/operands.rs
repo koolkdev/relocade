@@ -87,6 +87,7 @@ impl<T: RegisterType> TypedLocation<T> {
 pub(super) fn map_operand<V: Into<Val<I32>>>(operand: Operand<V>) -> Operand<Val<I32>> {
     match operand {
         Operand::Immediate(bits) => Operand::Immediate(bits.into()),
+        Operand::Address(address) => Operand::Address(map_address(address)),
         Operand::Location(location) => map_location(location).into(),
     }
 }
@@ -94,13 +95,17 @@ pub(super) fn map_operand<V: Into<Val<I32>>>(operand: Operand<V>) -> Operand<Val
 pub(super) fn map_location<V: Into<Val<I32>>>(location: Location<V>) -> Location<Val<I32>> {
     match location {
         Location::Register(register) => Location::Register(register),
-        Location::Memory(address) => Location::Memory(Address32 {
-            base: address.base,
-            index: address.index.map(|index| IndexTerm {
-                register: index.register,
-                shift: index.shift.into(),
-            }),
-            displacement: address.displacement.into(),
+        Location::Memory(address) => Location::Memory(map_address(address)),
+    }
+}
+
+fn map_address<V: Into<Val<I32>>>(address: Address32<V>) -> Address32<Val<I32>> {
+    Address32 {
+        base: address.base,
+        index: address.index.map(|index| IndexTerm {
+            register: index.register,
+            shift: index.shift.into(),
         }),
+        displacement: address.displacement.into(),
     }
 }
