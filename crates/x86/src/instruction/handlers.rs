@@ -1,6 +1,6 @@
 //! Adapts typed instruction bodies to concrete handlers for each operand width.
 //!
-//! Both operand shapes receive the bound condition and fallthrough EIP, and return
+//! Every operand shape receives the bound condition and fallthrough EIP, and returns
 //! the successor EIP. The adapters below complete ordinary bodies with fallthrough.
 
 use wasm86_compiler::{BuildError, Val, I32};
@@ -23,11 +23,21 @@ pub(super) type UnaryHandler = for<'body, 'module> fn(
     fallthrough_eip: Val<I32>,
 ) -> Result<Val<I32>, BuildError>;
 
+pub(super) type TernaryHandler = for<'body, 'module> fn(
+    execution: &mut ExecutionBuilder<'body, 'module>,
+    destination: Location<Val<I32>>,
+    first_source: Operand<Val<I32>>,
+    second_source: Operand<Val<I32>>,
+    condition: Option<Condition>,
+    fallthrough_eip: Val<I32>,
+) -> Result<Val<I32>, BuildError>;
+
 /// These are Rust code-generation functions, selected while decoding a form.
 #[derive(Clone, Copy)]
 pub(super) enum Handler {
     Binary(BinaryHandler),
     Unary(UnaryHandler),
+    Ternary(TernaryHandler),
 }
 
 #[derive(Clone, Copy)]
@@ -67,6 +77,12 @@ pub(super) enum HandlerCall<V> {
     Unary {
         handler: UnaryHandler,
         operand: Operand<V>,
+    },
+    Ternary {
+        handler: TernaryHandler,
+        destination: Location<V>,
+        first_source: Operand<V>,
+        second_source: Operand<V>,
     },
 }
 
@@ -149,4 +165,25 @@ macro_rules! unary_handlers {
     };
 }
 
-pub(super) use {binary_handlers, typed_operand, unary_handlers};
+macro_rules! ternary_handlers {
+    ($handler:ident, second_source = $second_width:ty, sized $(, $argument:expr)*) => {
+        SizedHandlers {
+            word: ternary_handlers!(@width $handler, I16, $second_width $(, $argument)*),
+            dword: ternary_handlers!(@width $handler, I32, $second_width $(, $argument)*),
+        }
+    };
+    (@width $handler:ident, $width:ty, $second_width:ty $(, $argument:expr)*) => {
+        Handler::Ternary(|execution, destination, first_source, second_source, _condition, fallthrough| {
+            $handler(
+                execution,
+                TypedLocation::<$width>::new(destination),
+                Input::<$width>::new(first_source),
+                Input::<$second_width>::new(second_source)
+                $(, $argument)*
+            )?;
+            Ok(fallthrough)
+        })
+    };
+}
+
+pub(super) use {binary_handlers, ternary_handlers, typed_operand, unary_handlers};

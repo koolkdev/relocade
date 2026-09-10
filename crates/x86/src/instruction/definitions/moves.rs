@@ -132,7 +132,7 @@ const EXTENDING_FORMS: [Form; 4] = [
 
 const EFFECTIVE_ADDRESS_FORMS: [Form; 1] = [primary_form(
     0x8d,
-    Encoding::RegisterRm,
+    Encoding::ModRm { immediate: None },
     HANDLERS.sized,
     OperandBindingShape::Binary {
         left: LocationBinding::Register,

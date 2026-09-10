@@ -18,6 +18,8 @@ mod carry_rotates;
 mod conditional_moves;
 #[path = "suites/count_publication.rs"]
 mod count_publication;
+#[path = "suites/double_shifts.rs"]
+mod double_shifts;
 #[path = "suites/effective_addresses.rs"]
 mod effective_addresses;
 #[path = "suites/exchange_arithmetic.rs"]

@@ -3,8 +3,8 @@
 Rust components for x86 execution in WebAssembly.
 
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
-SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, SHL, SHR, SAR, ROL, ROR, RCL,
-RCR, PUSH, POP, SETcc and relative JMP/Jcc blocks from byte snapshots:
+SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, SHL, SHR, SAR, SHLD, SHRD,
+ROL, ROR, RCL, RCR, PUSH, POP, SETcc and relative JMP/Jcc blocks from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
@@ -91,6 +91,8 @@ supports these forms in default-32 operand and address mode:
 | SHL/SAL register/memory by one, CL or imm8 | D0/D2/C0 /4 | D1/D3/C1 /4 | D1/D3/C1 /4 |
 | SHR register/memory by one, CL or imm8 | D0/D2/C0 /5 | D1/D3/C1 /5 | D1/D3/C1 /5 |
 | SAR register/memory by one, CL or imm8 | D0/D2/C0 /7 | D1/D3/C1 /7 | D1/D3/C1 /7 |
+| SHLD register/memory and register by imm8 or CL | — | 0F A4/A5 | 0F A4/A5 |
+| SHRD register/memory and register by imm8 or CL | — | 0F AC/AD | 0F AC/AD |
 | PUSH opcode-selected register | — | 50–57 | 50–57 |
 | POP opcode-selected register | — | 58–5F | 58–5F |
 | PUSH immediate | — | 68/6A | 68/6A |
@@ -145,6 +147,19 @@ OF is defined only for count one: SHL uses the result sign XOR CF, SHR uses the
 original sign, and SAR clears it. AF is undefined for every nonzero count.
 wasm86 chooses zero for those undefined CF/OF/AF values.
 
+SHLD and SHRD shift a word or dword destination while filling from a same-width
+source register. They take CL or an immediate byte as their third operand, with
+the same five-bit count mask. The source and old CL are captured before any
+destination write, including when they alias the destination. A zero masked
+count preserves the destination and entire flag source; memory still requires
+write permission for the complete span. A word count of sixteen copies the
+source into the destination, with CF holding the last bit removed from the old
+destination. For counts from one through the operand width, PF/ZF/SF describe
+the result; OF at count one is the old sign XOR the new sign. AF is undefined,
+and OF is undefined above one; wasm86 chooses zero for both. For word counts
+17–31, the architecture leaves the result and all six flags undefined. wasm86
+chooses a zero result, clears CF/AF/OF, and computes PF/ZF/SF from that result.
+
 ROL and ROR rotate within the operand width. They use the same count forms, mask,
 old-CL capture and full-span write checks as shifts. A zero masked count preserves
 the entire flag source. For nonzero masked counts, ROL copies result bit zero to
@@ -161,8 +176,7 @@ the operand and CF. OF uses the same left/right rules as ROL/ROR only when the
 masked count is one; wasm86 chooses zero for larger masked counts, including
 complete rings and a byte RCL/RCR by ten. A zero masked count preserves the
 entire flag source. PF/AF/ZF/SF, old-CL capture and full-span memory write checks
-follow ROL/ROR. Double shifts and the undocumented group `/6` SHL alias are
-outside this subset.
+follow ROL/ROR. The undocumented group `/6` SHL alias is outside this subset.
 
 LEA (`8D`) computes the effective address encoded by ModRM/SIB and writes it to a
 dword register. With `66`, it writes the low word and preserves the upper half of
@@ -264,12 +278,16 @@ from its width table. Related operations share a handler by binding a constant
 from a family-local operation enum. Adding an operation with an existing encoding
 and argument shape requires no central instruction enum or lowering case.
 Physical immediate widths remain independent of the handler's logical widths.
+`Encoding::ModRm` describes the common reg/rm fields and an optional trailing
+immediate. Both decoders retain those fields in `DecodedFields::ModRm`; a form's
+extension and bindings decide whether the reg bits select an opcode or an operand.
+The immediate is fetched after all address fields, regardless of operand roles.
 The `register_rm` constructor takes the opcode map explicitly, sharing physical
 layout and operand binding across primary and extended instructions.
 `RegisterSide::Left` and `Right` place the ModRM register field in a binary
 argument; the handler determines which arguments it reads or writes.
 
-Binding assigns decoded fields to unary or binary arguments without reading
+Binding assigns decoded fields to unary, binary or ternary arguments without reading
 architectural state. Lowering converts snapshot literals and runtime expressions
 to the common `Val<I32>` carrier and calls the bound Rust handler. `Input<T>` and
 `TypedLocation<T>` attach logical width to values and locations while deferring
@@ -280,12 +298,15 @@ The `RmAddress` binding requires a memory addressing mode in both decoders;
 reading this input resolves the full address and then applies the destination
 width. LEA uses this binding with the ordinary MOV handler, so it shares address
 arithmetic and register writes without declaring a data-memory access.
-Both unary and binary calls receive the bound condition and fallthrough EIP and
-return the successor EIP. Ordinary typed handlers return `Result<()>`; their
+Every call shape receives the bound condition and fallthrough EIP and
+returns the successor EIP. Ordinary typed handlers return `Result<()>`; their
 adapters return fallthrough after success. A relative branch computes its target
 and, for Jcc, selects it using the existing condition query. Condition, implicit
 memory use and block termination belong to the whole instruction, independently
 of its argument shape. Execution owns retirement and publication.
+Ternary calls name a destination and two source operands. The sized adapter
+`ternary_handlers!(double_shift, second_source = I8, sized, operation)` gives the
+body a word/dword destination and first source, with an independent byte count.
 The `condition` adapter option forwards a form's bound `Condition` to an ordinary
 typed body. CMOV uses `binary_handlers!(cmov, condition).sized`; SETcc uses the
 fixed-width `unary_handlers!(setcc, TypedLocation, width = I8, condition)` adapter.
@@ -374,7 +395,10 @@ record; CF is set exactly when the original operand is nonzero. NOT returns an
 inverted value and an empty flag change.
 
 `ShiftOp::apply` constructs a result and six symbolic flags. Its variants name
-left, logical-right and arithmetic-right shifts. `RotateDirection::rotate` and
+left, logical-right and arithmetic-right shifts. `DoubleShiftOp::apply` accepts
+an additional source value. Both use the shared shift result/flag construction;
+double shifts keep CF defined at a count equal to the operand width.
+`RotateDirection::rotate` and
 `rotate_through_carry` return the same `AluResult` with a partial CF/OF change.
 `set_flags_if(count.ne(0), outcome.flags)` retains the change only for a nonzero
 masked count. Its predicate and every source value are validated before state

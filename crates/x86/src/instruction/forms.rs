@@ -71,26 +71,25 @@ pub(crate) enum Encoding {
     Immediate {
         immediate: ImmediateWidth,
     },
-    RegisterRm,
-    /// The immediate follows any address fields.
-    RmImmediate {
-        immediate: ImmediateWidth,
+    /// ModRM always supplies reg/rm fields. Any immediate follows the address.
+    ModRm {
+        immediate: Option<ImmediateWidth>,
     },
-    /// Only the r/m field names an encoded operand; other operands may be implicit.
-    Rm,
     /// The address field remains 32-bit regardless of the data width.
     AccumulatorOffset,
 }
 
 impl Encoding {
     pub(crate) fn has_modrm(self) -> bool {
-        matches!(self, Self::RegisterRm | Self::RmImmediate { .. } | Self::Rm)
+        matches!(self, Self::ModRm { .. })
     }
 }
 
 /// Physical fields, before assignment to the operation's operand roles.
 pub(crate) enum DecodedFields<V> {
-    Location(Location<V>),
+    OpcodeRegister {
+        register: RegisterCode,
+    },
     OpcodeRegisterImmediate {
         register: RegisterCode,
         immediate: V,
@@ -98,13 +97,10 @@ pub(crate) enum DecodedFields<V> {
     Immediate {
         immediate: V,
     },
-    RegisterRm {
+    ModRm {
         register: RegisterCode,
         rm: Location<V>,
-    },
-    RmImmediate {
-        rm: Location<V>,
-        immediate: V,
+        immediate: Option<V>,
     },
     AccumulatorOffset {
         offset: V,
@@ -137,6 +133,11 @@ pub(super) enum OperandBindingShape {
     Binary {
         left: LocationBinding,
         right: OperandBinding,
+    },
+    Ternary {
+        destination: LocationBinding,
+        first_source: OperandBinding,
+        second_source: OperandBinding,
     },
 }
 
@@ -176,14 +177,16 @@ impl Form {
     }
 
     pub(crate) fn accepts_register_rm(&self) -> bool {
-        !matches!(
-            self.binding,
-            OperandBindingShape::Unary(OperandBinding::RmAddress)
-                | OperandBindingShape::Binary {
-                    right: OperandBinding::RmAddress,
-                    ..
-                }
-        )
+        let requires_address = |operand| matches!(operand, OperandBinding::RmAddress);
+        !match self.binding {
+            OperandBindingShape::Unary(operand) => requires_address(operand),
+            OperandBindingShape::Binary { right, .. } => requires_address(right),
+            OperandBindingShape::Ternary {
+                first_source,
+                second_source,
+                ..
+            } => requires_address(first_source) || requires_address(second_source),
+        }
     }
 }
 
@@ -212,7 +215,9 @@ impl SizedForm {
         match self.form.encoding {
             Encoding::OpcodeRegisterImmediate { immediate }
             | Encoding::Immediate { immediate }
-            | Encoding::RmImmediate { immediate } => immediate,
+            | Encoding::ModRm {
+                immediate: Some(immediate),
+            } => immediate,
             _ => unreachable!("the selected encoding contains an immediate field"),
         }
     }

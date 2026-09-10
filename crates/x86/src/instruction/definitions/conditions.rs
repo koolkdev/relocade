@@ -4,7 +4,7 @@ use crate::register::RegisterType;
 const fn set_condition(code: u8) -> Form {
     let mut form = primary_form(
         0x90 + code,
-        Encoding::Rm,
+        Encoding::ModRm { immediate: None },
         SizedHandlers::fixed(unary_handlers!(setcc, TypedLocation, width = I8, condition)),
         OperandBindingShape::Unary(OperandBinding::Location(LocationBinding::Rm)),
     );

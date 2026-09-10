@@ -29,6 +29,19 @@ impl SizedForm {
                 handler,
                 operand: fields.bind_operand(operand),
             },
+            (
+                Handler::Ternary(handler),
+                OperandBindingShape::Ternary {
+                    destination,
+                    first_source,
+                    second_source,
+                },
+            ) => HandlerCall::Ternary {
+                handler,
+                destination: fields.bind_location(destination),
+                first_source: fields.bind_operand(first_source),
+                second_source: fields.bind_operand(second_source),
+            },
             _ => unreachable!("the form binds the handler's argument shape"),
         };
         DecodedInstruction {
@@ -49,18 +62,15 @@ impl<V: Clone + From<u32>> DecodedFields<V> {
         match binding {
             LocationBinding::Register => {
                 let (Self::OpcodeRegisterImmediate { register, .. }
-                | Self::RegisterRm { register, .. }
-                | Self::Location(Location::Register(register))) = self
+                | Self::ModRm { register, .. }
+                | Self::OpcodeRegister { register }) = self
                 else {
                     unreachable!("the form selects a decoded register field")
                 };
                 Location::Register(register.clone())
             }
             LocationBinding::Rm => {
-                let (Self::RegisterRm { rm, .. }
-                | Self::RmImmediate { rm, .. }
-                | Self::Location(rm)) = self
-                else {
+                let Self::ModRm { rm, .. } = self else {
                     unreachable!("the form selects a decoded r/m field")
                 };
                 rm.clone()
@@ -93,7 +103,10 @@ impl<V: Clone + From<u32>> DecodedFields<V> {
             OperandBinding::Immediate => {
                 let (Self::OpcodeRegisterImmediate { immediate, .. }
                 | Self::Immediate { immediate }
-                | Self::RmImmediate { immediate, .. }) = self
+                | Self::ModRm {
+                    immediate: Some(immediate),
+                    ..
+                }) = self
                 else {
                     unreachable!("the form selects a decoded immediate")
                 };

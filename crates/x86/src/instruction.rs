@@ -71,6 +71,16 @@ impl<V> Instruction<V> {
                     left.uses_memory() || right.uses_memory()
                 }
                 HandlerCall::Unary { operand, .. } => operand.uses_memory(),
+                HandlerCall::Ternary {
+                    destination,
+                    first_source,
+                    second_source,
+                    ..
+                } => {
+                    destination.uses_memory()
+                        || first_source.uses_memory()
+                        || second_source.uses_memory()
+                }
             }
     }
 }

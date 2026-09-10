@@ -53,7 +53,7 @@ pub(in crate::instruction) const fn rm(
 ) -> Form {
     let mut form = primary_form(
         opcode,
-        Encoding::Rm,
+        Encoding::ModRm { immediate: None },
         handlers,
         OperandBindingShape::Unary(OperandBinding::Location(LocationBinding::Rm)),
     );
@@ -73,7 +73,7 @@ pub(in crate::instruction) const fn register_rm(
     };
     let mut form = primary_form(
         opcode,
-        Encoding::RegisterRm,
+        Encoding::ModRm { immediate: None },
         handlers,
         OperandBindingShape::Binary {
             left,
@@ -108,7 +108,9 @@ pub(in crate::instruction) const fn rm_immediate(
 ) -> Form {
     let mut form = primary_form(
         opcode,
-        Encoding::RmImmediate { immediate },
+        Encoding::ModRm {
+            immediate: Some(immediate),
+        },
         handlers,
         OperandBindingShape::Binary {
             left: LocationBinding::Rm,

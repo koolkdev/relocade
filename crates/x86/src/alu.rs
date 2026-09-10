@@ -11,7 +11,7 @@ mod unary;
 pub(crate) use arithmetic::ArithmeticOp;
 pub(crate) use logic::LogicOp;
 pub(crate) use rotates::RotateDirection;
-pub(crate) use shifts::ShiftOp;
+pub(crate) use shifts::{DoubleShiftOp, ShiftOp};
 pub(crate) use unary::UnaryOp;
 
 use wasm86_compiler::{MemoryInt, Val, I1};

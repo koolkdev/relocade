@@ -1,6 +1,6 @@
 //! Logical-width shift results and the flags defined for a nonzero count.
 
-use wasm86_compiler::{MemoryInt, Val, I1, I32};
+use wasm86_compiler::{AtLeast, MemoryInt, Val, I1, I32};
 
 use super::{
     bit,
@@ -13,6 +13,12 @@ pub(crate) enum ShiftOp {
     Left,
     RightLogical,
     RightArithmetic,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum DoubleShiftOp {
+    Left,
+    Right,
 }
 
 impl ShiftOp {
@@ -45,20 +51,67 @@ impl ShiftOp {
             Self::Left => bit(&result, width - 1).xor(&carry),
             Self::RightLogical => bit(&input, width - 1),
             Self::RightArithmetic => false.into(),
-        }
-        .and(count.eq(1));
+        };
         // For nonzero counts, AF is undefined and OF is undefined except at one.
         // SHL/SHR also leave CF undefined at or above the operand width. Choose
         // zero for each undefined flag; none requires reading the prior source.
-        let flags = StatusFlag::ALL.map(|flag| match flag {
-            StatusFlag::CF => carry.clone(),
-            StatusFlag::OF => overflow.clone(),
-            StatusFlag::AF => false.into(),
-            StatusFlag::PF | StatusFlag::ZF | StatusFlag::SF => result_flag(&result, flag),
-        });
-        AluResult {
-            result,
-            flags: FlagChange::from(FlagSource::<T>::Explicit { flags }),
+        result_with_flags(result, carry, overflow, &count)
+    }
+}
+
+impl DoubleShiftOp {
+    /// The caller masks the count to five bits and applies flags only if nonzero.
+    /// Word counts above sixteen choose a zero result and zero CF/AF/OF, with
+    /// PF/ZF/SF describing that result. The architecture leaves these undefined.
+    pub(crate) fn apply<T: MemoryInt>(
+        self,
+        input: Val<T>,
+        source: Val<T>,
+        count: Val<I32>,
+    ) -> AluResult<T>
+    where
+        I32: AtLeast<T>,
+        FlagSource<T>: Into<AnyFlagSource>,
+    {
+        let width = T::BYTES * 8;
+        let wrap_count = Val::<I32>::from(width).sub(&count);
+        let input32 = input.unsigned().extend::<I32>();
+        let source32 = source.unsigned().extend::<I32>();
+        let shifted = match self {
+            Self::Left => input32.shl(&count).or(source32.unsigned().shr(&wrap_count)),
+            Self::Right => input32.unsigned().shr(&count).or(source32.shl(&wrap_count)),
+        };
+        // Wasm wraps a dword shift by 32 to zero. Select the original operand
+        // when count is zero so the source cannot contribute through that wrap.
+        let result = count.ne(0).select(shifted.truncate::<T>(), &input);
+        let carry = match self {
+            Self::Left => input.unsigned().shr(wrap_count).truncate::<I1>(),
+            Self::Right => input.unsigned().shr(count.sub(1)).truncate::<I1>(),
         }
+        .and(count.unsigned().lt(width + 1));
+        let overflow = bit(&input, width - 1).xor(bit(&result, width - 1));
+        result_with_flags(result, carry, overflow, &count)
+    }
+}
+
+fn result_with_flags<T: MemoryInt>(
+    result: Val<T>,
+    carry: Val<I1>,
+    overflow: Val<I1>,
+    count: &Val<I32>,
+) -> AluResult<T>
+where
+    FlagSource<T>: Into<AnyFlagSource>,
+{
+    let overflow = overflow.and(count.eq(1));
+    let flags = StatusFlag::ALL.map(|flag| match flag {
+        StatusFlag::CF => carry.clone(),
+        StatusFlag::OF => overflow.clone(),
+        StatusFlag::AF => false.into(),
+        StatusFlag::PF | StatusFlag::ZF | StatusFlag::SF => result_flag(&result, flag),
+    });
+    AluResult {
+        result,
+        flags: FlagChange::from(FlagSource::<T>::Explicit { flags }),
     }
 }

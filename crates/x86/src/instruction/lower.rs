@@ -26,5 +26,18 @@ pub(crate) fn lower(
             instruction.condition,
             fallthrough_eip,
         ),
+        HandlerCall::Ternary {
+            handler,
+            destination,
+            first_source,
+            second_source,
+        } => handler(
+            execution,
+            map_location(destination),
+            map_operand(first_source),
+            map_operand(second_source),
+            instruction.condition,
+            fallthrough_eip,
+        ),
     }
 }

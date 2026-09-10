@@ -11,7 +11,8 @@ mod stack;
 use super::{
     forms::*,
     handlers::{
-        binary_handlers, typed_operand, unary_handlers, Handler, IntegerHandlers, SizedHandlers,
+        binary_handlers, ternary_handlers, typed_operand, unary_handlers, Handler, IntegerHandlers,
+        SizedHandlers,
     },
     Input, TypedLocation,
 };

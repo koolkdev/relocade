@@ -10,6 +10,10 @@
 //! for counts one/CL/imm8; word/dword forms use D1/D3/C1. Counts are masked with 31.
 //! Zero preserves value and flags, but memory still requires full write permission.
 //! SAR repeats the logical sign bit. CL is read before writing an overlapping destination.
+//! SHLD (`0F A4`/`0F A5`) and SHRD (`0F AC`/`0F AD`) shift a word/dword
+//! register/memory destination while filling from a same-width register. Their
+//! third operand is imm8 or CL, masked with 31. Both sources use entry register
+//! values. Zero preserves the destination and flags with the same full write check.
 //! Word/dword PUSH and POP use `50`–`5F`, `FF` /6 and `8F` /0. PUSH also accepts
 //! an operand-sized immediate (`68`) or a sign-extended byte (`6A`). The stack
 //! pointer is always 32-bit: PUSH reads its source before decrementing ESP;
@@ -76,6 +80,9 @@
 //! sign XOR CF for SHL, original sign for SHR, zero for SAR. AF is undefined for
 //! nonzero counts. wasm86 chooses zero for undefined CF/OF/AF. Zero-count shifts
 //! preserve the previous source, including an earlier instruction's pending flags.
+//! SHLD/SHRD keep CF defined through the operand width; OF at one compares the
+//! old and new sign. Word counts 17–31 leave result and all six flags undefined:
+//! wasm86 chooses a zero result, zero CF/AF/OF and PF/ZF/SF from that result.
 //! Valid record kinds are an internal invariant. Flag reads preserve the
 //! record, and these instructions leave non-status flag bytes untouched.
 //!

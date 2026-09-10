@@ -53,9 +53,9 @@ pub(crate) fn snapshot(
         (first.with_operand_size(operand_size), None)
     };
     let fields = match form.encoding() {
-        Encoding::OpcodeRegister => {
-            DecodedFields::Location(Location::Register(RegisterCode::from_code(opcode)))
-        }
+        Encoding::OpcodeRegister => DecodedFields::OpcodeRegister {
+            register: RegisterCode::from_code(opcode),
+        },
         Encoding::OpcodeRegisterImmediate { .. } => DecodedFields::OpcodeRegisterImmediate {
             register: RegisterCode::from_code(opcode),
             immediate: cursor.immediate(&form)?,
@@ -63,7 +63,7 @@ pub(crate) fn snapshot(
         Encoding::Immediate { .. } => DecodedFields::Immediate {
             immediate: cursor.immediate(&form)?,
         },
-        Encoding::RegisterRm | Encoding::RmImmediate { .. } | Encoding::Rm => {
+        Encoding::ModRm { .. } => {
             cursor.modrm_fields(&form, modrm.expect("the selected encoding has ModRM"))?
         }
         Encoding::AccumulatorOffset => DecodedFields::AccumulatorOffset {
@@ -130,17 +130,14 @@ impl SnapshotCursor<'_> {
         } else {
             Location::Memory(self.decode_address(modrm)?)
         };
-        Ok(match form.encoding() {
-            Encoding::RegisterRm => DecodedFields::RegisterRm {
-                register: RegisterCode::from_code(modrm >> 3),
-                rm,
-            },
-            Encoding::RmImmediate { .. } => DecodedFields::RmImmediate {
-                rm,
-                immediate: self.immediate(form)?,
-            },
-            Encoding::Rm => DecodedFields::Location(rm),
-            _ => unreachable!("the selected form has a ModRM field"),
+        let Encoding::ModRm { immediate } = form.encoding() else {
+            unreachable!("the selected form has a ModRM field");
+        };
+        let immediate = immediate.map(|_| self.immediate(form)).transpose()?;
+        Ok(DecodedFields::ModRm {
+            register: RegisterCode::from_code(modrm >> 3),
+            rm,
+            immediate,
         })
     }
 

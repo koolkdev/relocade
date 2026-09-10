@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     alu::{
         flags::{AnyFlagSource, FlagSource},
-        RotateDirection, ShiftOp,
+        DoubleShiftOp, RotateDirection, ShiftOp,
     },
     register::RegisterType,
 };
@@ -15,7 +15,7 @@ const fn implicit_count(
 ) -> Form {
     let mut form = primary_form(
         opcode,
-        Encoding::Rm,
+        Encoding::ModRm { immediate: None },
         handlers,
         OperandBindingShape::Binary {
             left: LocationBinding::Rm,
@@ -68,8 +68,51 @@ const FAMILIES: [[Form; 6]; 7] = [
     ),
 ];
 
+const fn double_shift_form(opcode: u8, handlers: SizedHandlers<Handler>, immediate: bool) -> Form {
+    let mut form = primary_form(
+        opcode,
+        Encoding::ModRm {
+            immediate: if immediate {
+                Some(ImmediateWidth::Byte)
+            } else {
+                None
+            },
+        },
+        handlers,
+        OperandBindingShape::Ternary {
+            destination: LocationBinding::Rm,
+            first_source: OperandBinding::Location(LocationBinding::Register),
+            second_source: if immediate {
+                OperandBinding::Immediate
+            } else {
+                OperandBinding::Location(LocationBinding::CountRegister)
+            },
+        },
+    );
+    form.map = OpcodeMap::Extended;
+    form
+}
+
+const DOUBLE_LEFT: SizedHandlers<Handler> =
+    ternary_handlers!(double_shift, second_source = I8, sized, DoubleShiftOp::Left);
+const DOUBLE_RIGHT: SizedHandlers<Handler> = ternary_handlers!(
+    double_shift,
+    second_source = I8,
+    sized,
+    DoubleShiftOp::Right
+);
+const DOUBLE_FORMS: [Form; 4] = [
+    double_shift_form(0xa4, DOUBLE_LEFT, true),
+    double_shift_form(0xa5, DOUBLE_LEFT, false),
+    double_shift_form(0xac, DOUBLE_RIGHT, true),
+    double_shift_form(0xad, DOUBLE_RIGHT, false),
+];
+
 pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
-    FAMILIES.iter().flat_map(|family| family.iter())
+    FAMILIES
+        .iter()
+        .flat_map(|family| family.iter())
+        .chain(DOUBLE_FORMS.iter())
 }
 
 fn rotate<T: RegisterType>(
@@ -116,6 +159,26 @@ where
     destination.update(execution, |execution, input| {
         let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
         let outcome = operation.apply(input, count.clone());
+        execution.set_flags_if(count.ne(0), outcome.flags)?;
+        Ok(outcome.result)
+    })
+}
+
+fn double_shift<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: TypedLocation<T>,
+    source: Input<T>,
+    count: Input<I8>,
+    operation: DoubleShiftOp,
+) -> Result<(), BuildError>
+where
+    I32: AtLeast<T>,
+    FlagSource<T>: Into<AnyFlagSource>,
+{
+    destination.update(execution, |execution, input| {
+        let source = source.read(execution)?;
+        let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
+        let outcome = operation.apply(input, source, count.clone());
         execution.set_flags_if(count.ne(0), outcome.flags)?;
         Ok(outcome.result)
     })
