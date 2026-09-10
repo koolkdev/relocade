@@ -36,10 +36,25 @@ const fn alu_family(first_opcode: u8, handlers: IntegerHandlers<Handler>) -> Alu
     let byte = SizedHandlers::fixed(handlers.byte);
     AluFamily {
         register_rm: [
-            register_rm(first_opcode, byte, RegisterSide::Right),
-            register_rm(first_opcode + 1, handlers.sized, RegisterSide::Right),
-            register_rm(first_opcode + 2, byte, RegisterSide::Left),
-            register_rm(first_opcode + 3, handlers.sized, RegisterSide::Left),
+            register_rm(OpcodeMap::Primary, first_opcode, byte, RegisterSide::Right),
+            register_rm(
+                OpcodeMap::Primary,
+                first_opcode + 1,
+                handlers.sized,
+                RegisterSide::Right,
+            ),
+            register_rm(
+                OpcodeMap::Primary,
+                first_opcode + 2,
+                byte,
+                RegisterSide::Left,
+            ),
+            register_rm(
+                OpcodeMap::Primary,
+                first_opcode + 3,
+                handlers.sized,
+                RegisterSide::Left,
+            ),
         ],
         accumulator_immediate: [
             accumulator_immediate(first_opcode + 4, ImmediateWidth::Byte, byte),
@@ -79,8 +94,13 @@ const ALU_FAMILIES: [AluFamily; 8] = [
 
 const TEST: IntegerHandlers<Handler> = binary_handlers!(test);
 const TEST_MODRM_FORMS: [Form; 4] = [
-    register_rm(0x84, SizedHandlers::fixed(TEST.byte), RegisterSide::Right),
-    register_rm(0x85, TEST.sized, RegisterSide::Right),
+    register_rm(
+        OpcodeMap::Primary,
+        0x84,
+        SizedHandlers::fixed(TEST.byte),
+        RegisterSide::Right,
+    ),
+    register_rm(OpcodeMap::Primary, 0x85, TEST.sized, RegisterSide::Right),
     rm_immediate(
         0xf6,
         0,

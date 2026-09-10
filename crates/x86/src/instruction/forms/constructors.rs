@@ -62,6 +62,7 @@ pub(in crate::instruction) const fn rm(
 }
 
 pub(in crate::instruction) const fn register_rm(
+    map: OpcodeMap,
     opcode: u8,
     handlers: SizedHandlers<Handler>,
     register_side: RegisterSide,
@@ -70,7 +71,7 @@ pub(in crate::instruction) const fn register_rm(
         RegisterSide::Left => (LocationBinding::Register, LocationBinding::Rm),
         RegisterSide::Right => (LocationBinding::Rm, LocationBinding::Register),
     };
-    primary_form(
+    let mut form = primary_form(
         opcode,
         Encoding::RegisterRm,
         handlers,
@@ -78,7 +79,9 @@ pub(in crate::instruction) const fn register_rm(
             left,
             right: OperandBinding::Location(right),
         },
-    )
+    );
+    form.map = map;
+    form
 }
 
 pub(in crate::instruction) const fn accumulator_immediate(

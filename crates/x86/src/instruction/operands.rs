@@ -6,7 +6,7 @@ use wasm86_compiler::{AtLeast, BuildError, Val, I32};
 use super::{Location, Operand};
 use crate::{
     address::{Address32, IndexTerm},
-    execution::ExecutionBuilder,
+    execution::{ExecutionBuilder, PairValues},
     register::RegisterType,
 };
 
@@ -42,6 +42,10 @@ pub(crate) struct TypedLocation<T: RegisterType> {
 }
 
 impl<T: RegisterType> TypedLocation<T> {
+    pub(crate) fn accumulator() -> Self {
+        Self::new(Location::accumulator())
+    }
+
     pub(crate) fn new(location: Location<Val<I32>>) -> Self {
         Self {
             location,
@@ -79,12 +83,16 @@ impl<T: RegisterType> TypedLocation<T> {
         execution.update::<T>(self.location, update)
     }
 
-    pub(crate) fn exchange(
+    pub(crate) fn update_pair<'body, 'module>(
         self,
-        execution: &mut ExecutionBuilder<'_, '_>,
+        execution: &mut ExecutionBuilder<'body, 'module>,
         other: Self,
+        update: impl FnOnce(
+            &mut ExecutionBuilder<'body, 'module>,
+            PairValues<T>,
+        ) -> Result<PairValues<T>, BuildError>,
     ) -> Result<(), BuildError> {
-        execution.exchange::<T>(self.location, other.location)
+        execution.update_pair::<T>(self.location, other.location, update)
     }
 
     pub(crate) fn into_location(self) -> Location<Val<I32>> {

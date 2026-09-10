@@ -11,6 +11,12 @@ use crate::{
 
 use super::ExecutionBuilder;
 
+/// Values read from or written to a pair of locations.
+pub(crate) struct PairValues<T: RegisterType> {
+    pub(crate) left: Val<T>,
+    pub(crate) right: Val<T>,
+}
+
 /// A location whose complete write span has passed its architectural guards.
 pub(super) enum WriteTarget<'memory, T: RegisterType> {
     Register(Register<T>),
@@ -69,18 +75,24 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         self.write_target(target, value)
     }
 
-    /// Resolves and checks both write targets before exchanging their old values.
-    pub(crate) fn exchange<T: RegisterType>(
+    /// Resolves and checks both write targets, then reads both old values before
+    /// calling the update. Writes right before left, so left wins when they alias.
+    /// The callback must read any other faulting operands before changing state.
+    pub(crate) fn update_pair<T: RegisterType>(
         &mut self,
         left: Location<impl Into<Val<I32>>>,
         right: Location<impl Into<Val<I32>>>,
+        update: impl FnOnce(&mut Self, PairValues<T>) -> Result<PairValues<T>, BuildError>,
     ) -> Result<(), BuildError> {
         let left = self.prepare_write::<T>(left, &[])?;
         let right = self.prepare_write::<T>(right, &[])?;
-        let left_value = self.read_target(&left)?;
-        let right_value = self.read_target(&right)?;
-        self.write_target(right, left_value)?;
-        self.write_target(left, right_value)
+        let old_values = PairValues {
+            left: self.read_target(&left)?,
+            right: self.read_target(&right)?,
+        };
+        let values = update(self, old_values)?;
+        self.write_target(right, values.right)?;
+        self.write_target(left, values.left)
     }
 
     pub(super) fn prepare_write<T: RegisterType>(

@@ -1,6 +1,8 @@
 mod operands;
 mod stack;
 
+pub(crate) use operands::PairValues;
+
 use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32};
 
 use crate::{

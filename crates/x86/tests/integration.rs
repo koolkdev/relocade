@@ -18,6 +18,8 @@ mod conditional_moves;
 mod count_publication;
 #[path = "suites/effective_addresses.rs"]
 mod effective_addresses;
+#[path = "suites/exchange_arithmetic.rs"]
+mod exchange_arithmetic;
 #[path = "suites/exchanges.rs"]
 mod exchanges;
 #[path = "suites/extending_moves.rs"]

@@ -15,11 +15,11 @@ const fn set_condition(code: u8) -> Form {
 
 const fn move_condition(code: u8) -> Form {
     let mut form = register_rm(
+        OpcodeMap::Extended,
         0x40 + code,
         binary_handlers!(cmov, condition).sized,
         RegisterSide::Left,
     );
-    form.map = OpcodeMap::Extended;
     form.condition = Some(Condition::from_code(code));
     form
 }

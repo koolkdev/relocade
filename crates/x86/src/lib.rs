@@ -23,6 +23,12 @@
 //! `66 90` are NOP aliases. Both old values and any address use the entry register
 //! state. Memory requires full write permission before either operand changes.
 //! Memories are unshared; concurrent shared-memory synchronization is outside this ABI.
+//! XADD (`0F C0`/`0F C1`) writes the sum to its register/memory destination and
+//! the old destination to its source register, with ADD flags. CMPXCHG (`0F B0`/`0F B1`)
+//! compares AL/AX/EAX with its destination, with subtraction flags. Equality writes
+//! the source register to the destination; mismatch copies the old destination to
+//! the accumulator. Both support byte/word/dword operands and check full memory
+//! write permission before any effects, including a mismatching CMPXCHG.
 //! CMOVcc (`0F 40`–`0F 4F`) conditionally copies a word/dword register or memory
 //! source into a register. Its source is read even when the condition is false.
 //! A false condition preserves the destination; a taken word move preserves its
@@ -43,7 +49,7 @@
 //! `67`, are outside the subset. Instructions contain at most fifteen bytes,
 //! including prefixes and all required operand fields.
 //!
-//! Binary arithmetic, logic and NEG replace all six status flags. INC/DEC preserve
+//! Binary arithmetic, logic, NEG, XADD and CMPXCHG replace all six status flags. INC/DEC preserve
 //! CF and update the other five; MOV, MOVZX, MOVSX, LEA, XCHG, CMOVcc, NOT, PUSH,
 //! POP, SETcc and branches preserve them all.
 //! CMP and TEST only change flags. The CPU

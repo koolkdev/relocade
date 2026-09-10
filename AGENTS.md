@@ -97,6 +97,9 @@ This is a public repository. Commit messages use `component: title`.
   Require relevant runtime evidence before changing the mechanism.
 - Focus performance work on frequent hot paths. Keep rare paths correct and watch
   for material regressions, but do not chase possible 1–5% gains there.
+- For instruction additions, compare common generated snapshot blocks. Defer
+  interpreter performance comparisons until interpreter work, and keep split-page
+  accesses in correctness coverage rather than instruction performance workloads.
 - Byte preservation is evidence, not a reason to retain a poor abstraction or duplicate
   a mechanism. Review design changes together with their generated-code consequences.
 - Complete implementation, comments, tests and relevant validation for the current

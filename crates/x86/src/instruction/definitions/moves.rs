@@ -31,14 +31,21 @@ const OPCODE_REGISTER_IMMEDIATE_FORMS: [Form; 2] = [
 ];
 
 const MOV_MODRM_FORMS: [Form; 6] = [
-    register_rm(0x89, HANDLERS.sized, RegisterSide::Right),
-    register_rm(0x8b, HANDLERS.sized, RegisterSide::Left),
     register_rm(
+        OpcodeMap::Primary,
+        0x89,
+        HANDLERS.sized,
+        RegisterSide::Right,
+    ),
+    register_rm(OpcodeMap::Primary, 0x8b, HANDLERS.sized, RegisterSide::Left),
+    register_rm(
+        OpcodeMap::Primary,
         0x88,
         SizedHandlers::fixed(HANDLERS.byte),
         RegisterSide::Right,
     ),
     register_rm(
+        OpcodeMap::Primary,
         0x8a,
         SizedHandlers::fixed(HANDLERS.byte),
         RegisterSide::Left,
@@ -96,17 +103,31 @@ const ACCUMULATOR_OFFSET_FORMS: [Form; 4] = [
     ),
 ];
 
-const fn extending_move(opcode: u8, handlers: SizedHandlers<Handler>) -> Form {
-    let mut form = register_rm(opcode, handlers, RegisterSide::Left);
-    form.map = OpcodeMap::Extended;
-    form
-}
-
 const EXTENDING_FORMS: [Form; 4] = [
-    extending_move(0xb6, binary_handlers!(movzx, source = I8)),
-    extending_move(0xb7, binary_handlers!(movzx, source = I16)),
-    extending_move(0xbe, binary_handlers!(movsx, source = I8)),
-    extending_move(0xbf, binary_handlers!(movsx, source = I16)),
+    register_rm(
+        OpcodeMap::Extended,
+        0xb6,
+        binary_handlers!(movzx, source = I8),
+        RegisterSide::Left,
+    ),
+    register_rm(
+        OpcodeMap::Extended,
+        0xb7,
+        binary_handlers!(movzx, source = I16),
+        RegisterSide::Left,
+    ),
+    register_rm(
+        OpcodeMap::Extended,
+        0xbe,
+        binary_handlers!(movsx, source = I8),
+        RegisterSide::Left,
+    ),
+    register_rm(
+        OpcodeMap::Extended,
+        0xbf,
+        binary_handlers!(movsx, source = I16),
+        RegisterSide::Left,
+    ),
 ];
 
 const EFFECTIVE_ADDRESS_FORMS: [Form; 1] = [primary_form(

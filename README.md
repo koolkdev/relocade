@@ -2,9 +2,9 @@
 
 Rust components for x86 execution in WebAssembly.
 
-`wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, XCHG, CMOVcc, ADD, ADC, SUB, SBB, CMP,
-AND, OR, XOR, TEST, INC, DEC, NEG, NOT, PUSH, POP, SETcc and relative JMP/Jcc blocks
-from byte snapshots:
+`wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
+SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, PUSH, POP, SETcc and relative
+JMP/Jcc blocks from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
@@ -92,6 +92,8 @@ supports these forms in default-32 operand and address mode:
 | SETcc register/memory destination | 0F 90–9F | — | — |
 | XCHG register/memory and register | 86 | 87 | 87 |
 | XCHG accumulator and opcode-selected register | — | 90–97 | 90–97 |
+| XADD register/memory destination and register | 0F C0 | 0F C1 | 0F C1 |
+| CMPXCHG register/memory destination and register | 0F B0 | 0F B1 | 0F B1 |
 
 MOVZX (`0F B6`/`0F B7`) and MOVSX (`0F BE`/`0F BF`) read a byte or word
 register/memory source into a register destination. MOVZX fills the added bits
@@ -112,6 +114,17 @@ writable before either operand changes, even when their old values are equal.
 Memory XCHG is implicitly locked on x86. wasm86 uses unshared WebAssembly memories
 and completes the exchange before returning to the host; concurrent shared-memory
 execution is outside this ABI.
+
+XADD adds the two old operands into the destination, copies the old destination
+to the source register, and sets all six flags like ADD. When both operands name
+the same register, that register receives the sum. CMPXCHG compares AL, AX or EAX
+with the destination and sets all six flags like accumulator minus destination.
+On equality it copies the source register to the destination; otherwise it copies
+the old destination to the accumulator. Byte and word writes preserve the other
+register bits. Both instructions resolve memory addresses from the old registers
+and require full write permission before changing registers, memory or flags;
+CMPXCHG requires it even when the comparison fails. CMPXCHG8B and explicit LOCK
+prefixes remain outside the supported subset.
 
 LEA (`8D`) computes the effective address encoded by ModRM/SIB and writes it to a
 dword register. With `66`, it writes the low word and preserves the upper half of
@@ -213,6 +226,8 @@ from its width table. Related operations share a handler by binding a constant
 from a family-local operation enum. Adding an operation with an existing encoding
 and argument shape requires no central instruction enum or lowering case.
 Physical immediate widths remain independent of the handler's logical widths.
+The `register_rm` constructor takes the opcode map explicitly, sharing physical
+layout and operand binding across primary and extended instructions.
 `RegisterSide::Left` and `Right` place the ModRM register field in a binary
 argument; the handler determines which arguments it reads or writes.
 
@@ -251,15 +266,20 @@ before reading address fields; ordinary addresses have no index term. Direct
 entries retain the original fetch window across fields whose bounds fit it.
 An execution builder resolves operand locations, checks memory access, and tracks
 instruction progress. Typed handler operands pass their logical widths to its
-`read`, `write`, `update` and `exchange` operations. The builder's `update` checks
+`read`, `write`, `update` and `update_pair` operations. The builder's `update` checks
 write permission before reading the old destination value, then runs the semantic
 callback and stores its result through the same checked access. ADD, ADC, SUB,
 SBB, AND, OR and XOR use this operation. CMP and TEST only read operands and set
 flags, so their memory operands require no write permission.
-`TypedLocation::exchange` prepares both write targets, reads their old values and
-writes the replacements through those same targets. This keeps address resolution
-and guest-fault checks ahead of both writes without exposing prepared targets to
-instruction handlers.
+`TypedLocation::update_pair` prepares both write targets, then passes their old
+values to a callback as `PairValues { left, right }`. The callback returns the same
+shape with replacements. The builder writes right before left, so the left result
+wins when both locations alias. XCHG swaps the old values; XADD returns the sum and
+old destination; CMPXCHG pairs its destination with `TypedLocation::accumulator()`
+and selects their new values after comparison. This keeps address resolution and
+guest-fault checks ahead of all effects without exposing prepared targets to
+instruction handlers. Accumulator binding and typed construction share the same
+decoded location constructor.
 A fault publishes completed definitions into its terminating branch without
 consuming the parent state used by the successful path.
 Address resolution accepts explicit register values for an access. POP supplies
@@ -279,8 +299,8 @@ write replaces superseded definitions. Computed register accesses synchronize
 overlapping definitions, then invalidate potentially written locations. These
 are completed effects; publication does not undo a partially executed instruction.
 
-ADD, SUB and CMP retain the original operands as a lazy source for CF, PF, AF,
-ZF, SF and OF. ADC adds the incoming CF; SBB subtracts it as a borrow. They read
+ADD, XADD, SUB, CMP and CMPXCHG retain the original operands as a lazy source for
+CF, PF, AF, ZF, SF and OF. ADC adds the incoming CF; SBB subtracts it as a borrow. They read
 CF after all operand guards, then construct symbolic flags from the original
 operands and final result using the same arithmetic equations as ADD/SUB.
 `FlagState` distinguishes stored CPU records from local flag sources.
@@ -311,8 +331,8 @@ boundary. Explicit flags are symbolic expressions; the compiler places their
 evaluation where needed and leaves unused expressions unevaluated. Their array
 uses logical `StatusFlag` indices; record conversion defines the CPU byte order.
 
-ADD, SUB and CMP publish zero-extended operands to CPU dwords 4 and 8, then the
-kind byte at 0. SUB kinds 1/5/9 and ADD
+ADD, XADD, SUB, CMP and CMPXCHG publish zero-extended operands to CPU dwords 4 and 8,
+then the kind byte at 0. SUB kinds 1/5/9 and ADD
 kinds 2/6/10 denote byte/word/dword operands. ADC/SBB sources instead publish all
 six concrete flag bytes, then kind 0: the stored two-operand format cannot retain
 an incoming carry. Their unused payload dwords remain untouched.

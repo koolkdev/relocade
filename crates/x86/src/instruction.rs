@@ -76,6 +76,10 @@ impl<V> Instruction<V> {
 }
 
 impl<V> Location<V> {
+    pub(crate) fn accumulator() -> Self {
+        Self::Register(RegisterCode::from_code(0))
+    }
+
     fn uses_memory(&self) -> bool {
         matches!(self, Self::Memory(_))
     }

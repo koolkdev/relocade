@@ -7,7 +7,6 @@ use crate::{
         handlers::{Handler, HandlerCall},
         DecodedInstruction, Instruction, Location, Operand,
     },
-    register::RegisterCode,
 };
 
 impl SizedForm {
@@ -65,7 +64,7 @@ impl<V: Clone> DecodedFields<V> {
                 };
                 rm.clone()
             }
-            LocationBinding::Accumulator => Location::Register(RegisterCode::from_code(0)),
+            LocationBinding::Accumulator => Location::accumulator(),
             LocationBinding::AbsoluteOffset => {
                 let Self::AccumulatorOffset { offset } = self else {
                     unreachable!("the form selects a decoded absolute offset")
