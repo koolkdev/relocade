@@ -195,8 +195,7 @@ impl FunctionBuilder<'_> {
         }
         let mut values = Vec::with_capacity(arguments.len());
         for (argument, expected) in arguments.iter().zip(&signature.parameters) {
-            let value = argument.resolve(&self.arena, *expected)?;
-            self.arena.require_visible(value, self.region.id)?;
+            let value = argument.resolve(&self.arena, *expected, self.region.id)?;
             values.push(value);
         }
         // Validate every argument before creating shared results with upper bits cleared.
@@ -277,10 +276,10 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        assert_eq!(
-            body.value(escaped.unwrap().add(1)).err(),
-            Some(BuildError::OutOfScope)
-        );
+        let escaped = escaped.unwrap();
+        for value in [escaped.add(1), escaped.and(0).add(1)] {
+            assert_eq!(body.value(value).err(), Some(BuildError::OutOfScope));
+        }
         body.return_(0).unwrap();
         assert!(program.compile().is_ok());
     }

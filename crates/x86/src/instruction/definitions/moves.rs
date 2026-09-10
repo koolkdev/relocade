@@ -107,25 +107,25 @@ const EXTENDING_FORMS: [Form; 4] = [
     register_rm(
         OpcodeMap::Extended,
         0xb6,
-        binary_handlers!(movzx, source = I8),
+        binary_handlers!(movzx, source = I8, sized),
         RegisterSide::Left,
     ),
     register_rm(
         OpcodeMap::Extended,
         0xb7,
-        binary_handlers!(movzx, source = I16),
+        binary_handlers!(movzx, source = I16, sized),
         RegisterSide::Left,
     ),
     register_rm(
         OpcodeMap::Extended,
         0xbe,
-        binary_handlers!(movsx, source = I8),
+        binary_handlers!(movsx, source = I8, sized),
         RegisterSide::Left,
     ),
     register_rm(
         OpcodeMap::Extended,
         0xbf,
-        binary_handlers!(movsx, source = I16),
+        binary_handlers!(movsx, source = I16, sized),
         RegisterSide::Left,
     ),
 ];

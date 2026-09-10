@@ -29,6 +29,8 @@ mod memory;
 mod no_result_functions;
 #[path = "suites/ordinary_calls.rs"]
 mod ordinary_calls;
+#[path = "suites/shifts.rs"]
+mod shifts;
 #[path = "suites/signed_arithmetic.rs"]
 mod signed_arithmetic;
 #[path = "suites/switches.rs"]

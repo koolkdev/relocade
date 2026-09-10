@@ -5,7 +5,7 @@ use crate::{arena::ExpressionArena, BuildError, IntType, Type};
 
 /// An integer value or literal supplied where a function signature determines its type.
 /// Typed values, including typed literals, keep their logical type and any body
-/// ownership. Native literals supplied directly use the expected type.
+/// ownership and branch visibility. Native literals supplied directly use the expected type.
 /// Signed i32 literals sign-extend to I64; u32 literals zero-extend. Both reduce
 /// to the low bits for narrower types. A u64 literal requires I64, and bool requires I1.
 #[derive(Clone)]
@@ -25,6 +25,7 @@ impl Argument {
         &self,
         arena: &ExpressionArena,
         expected: Type,
+        scope: usize,
     ) -> Result<usize, BuildError> {
         let bits = match &self.0 {
             Operand::Value { source, ty } => {
@@ -35,7 +36,7 @@ impl Argument {
                         actual: *ty,
                     });
                 }
-                return Ok(value);
+                return value.admit(arena, scope);
             }
             Operand::Signed(value) => *value as i64 as u64,
             Operand::Unsigned(value) => u64::from(*value),

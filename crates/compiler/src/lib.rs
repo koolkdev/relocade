@@ -431,8 +431,7 @@ impl FunctionBuilder<'_> {
     /// }
     /// ```
     pub fn value<T: IntType>(&self, operand: impl Into<Val<T>>) -> Result<Val<T>, BuildError> {
-        let value = self.operand(operand)?;
-        Ok(Val::new(self.arena.clone(), Ok(value)))
+        operand.into().bind(&self.arena, self.region.id)
     }
 
     /// Returns this value from the generated function, consuming the active builder.
@@ -470,15 +469,11 @@ impl FunctionBuilder<'_> {
 
     fn operand<T: IntType>(&self, value: impl Into<Val<T>>) -> Result<usize, BuildError> {
         let value: Val<T> = value.into();
-        let expression = value.checked_expression(&self.arena)?;
-        self.arena.require_visible(expression, self.region.id)?;
-        Ok(expression)
+        value.checked_expression(&self.arena, self.region.id)
     }
 
     fn argument(&self, value: impl Into<Argument>, expected: Type) -> Result<usize, BuildError> {
-        let value = value.into().resolve(&self.arena, expected)?;
-        self.arena.require_visible(value, self.region.id)?;
-        Ok(value)
+        value.into().resolve(&self.arena, expected, self.region.id)
     }
 
     fn site(&self) -> Site {

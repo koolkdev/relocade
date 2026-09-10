@@ -40,6 +40,8 @@ mod mov_blocks;
 mod operand_fetch;
 #[path = "suites/relative_branches.rs"]
 mod relative_branches;
+#[path = "suites/shifts.rs"]
+mod shifts;
 #[path = "suites/stack_operations.rs"]
 mod stack_operations;
 #[path = "suites/unary_operations.rs"]

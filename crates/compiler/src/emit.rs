@@ -256,8 +256,10 @@ impl Scheduler<'_> {
             ValueKind::Shift { operator, .. } => match (operator, wide) {
                 (ShiftOp::Left, false) => Instruction::I32Shl,
                 (ShiftOp::Left, true) => Instruction::I64Shl,
-                (ShiftOp::Right, false) => Instruction::I32ShrU,
-                (ShiftOp::Right, true) => Instruction::I64ShrU,
+                (ShiftOp::RightUnsigned, false) => Instruction::I32ShrU,
+                (ShiftOp::RightUnsigned, true) => Instruction::I64ShrU,
+                (ShiftOp::RightSigned, false) => Instruction::I32ShrS,
+                (ShiftOp::RightSigned, true) => Instruction::I64ShrS,
             },
             ValueKind::Select { .. } => Instruction::Select,
             ValueKind::Popcnt(_) => {

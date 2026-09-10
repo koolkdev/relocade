@@ -2,6 +2,7 @@ use crate::state::access::cpu_load;
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot};
 use crate::{CpuState, Gpr32};
 
+mod conditional;
 mod conditions;
 
 use super::super::{Cpu, Register, State};
@@ -68,7 +69,9 @@ fn flag_stores(bytes: &[u8]) -> Vec<(usize, u64, i32)> {
             for operation in body.get_operators_reader().unwrap() {
                 let operation = operation.unwrap();
                 match operation {
-                    Operator::If { .. } => depth += 1,
+                    Operator::If { .. } | Operator::Block { .. } | Operator::Loop { .. } => {
+                        depth += 1;
+                    }
                     Operator::End if depth > 0 => depth -= 1,
                     Operator::I32Store { memarg } | Operator::I32Store8 { memarg }
                         if memarg.offset <= 17 =>

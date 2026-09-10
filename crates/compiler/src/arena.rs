@@ -109,10 +109,30 @@ impl ExpressionArena {
         })
     }
 
-    pub(super) fn require_visible(&self, value: usize, scope: usize) -> Result<(), BuildError> {
+    pub(super) fn required_scope(&self, value: usize) -> Result<Option<usize>, BuildError> {
         let arena = self.0.borrow();
         let arena = arena.as_ref().ok_or(BuildError::BodyClosed)?;
-        if arena.availability[value].is_some_and(|owner| arena.contains(owner, scope)) {
+        Ok(arena.availability[value])
+    }
+
+    pub(super) fn merge_scopes(
+        &self,
+        left: Option<usize>,
+        right: Option<usize>,
+    ) -> Result<Option<usize>, BuildError> {
+        let arena = self.0.borrow();
+        let arena = arena.as_ref().ok_or(BuildError::BodyClosed)?;
+        Ok(arena.merge_scopes(left, right))
+    }
+
+    pub(super) fn require_visible(
+        &self,
+        required: Option<usize>,
+        scope: usize,
+    ) -> Result<(), BuildError> {
+        let arena = self.0.borrow();
+        let arena = arena.as_ref().ok_or(BuildError::BodyClosed)?;
+        if required.is_some_and(|owner| arena.contains(owner, scope)) {
             Ok(())
         } else {
             Err(BuildError::OutOfScope)
@@ -161,7 +181,17 @@ impl ExpressionArena {
             }
             let input = match operator {
                 ShiftOp::Left => input,
-                ShiftOp::Right => arena.normalize(input),
+                ShiftOp::RightUnsigned => arena.normalize(input),
+                // Interpret the logical sign before shifting the Wasm carrier;
+                // upper bits from narrow arithmetic need not be normalized.
+                ShiftOp::RightSigned => arena.sign_extend(
+                    input,
+                    if value.ty == Type::I64 {
+                        Type::I64
+                    } else {
+                        Type::I32
+                    },
+                ),
             };
             let count = if value.ty == Type::I64 {
                 arena.convert(count, Type::I64)
@@ -195,19 +225,11 @@ impl ExpressionArena {
                     when_false,
                 },
             };
-            let folded = match arena.values[condition].kind {
-                ValueKind::Constant(0) => Some(when_false),
-                ValueKind::Constant(_) => Some(when_true),
-                _ if when_true == when_false => Some(when_true),
-                _ => None,
-            };
-            if let Some(input) = folded {
-                // A fold must not make a child or sibling operand usable in a
-                // scope where the original selection was unavailable.
-                let scope = arena.availability(value);
-                if scope.is_some() && scope == arena.availability[input] {
-                    return input;
-                }
+            match arena.values[condition].kind {
+                ValueKind::Constant(0) => return when_false,
+                ValueKind::Constant(_) => return when_true,
+                _ if when_true == when_false => return when_true,
+                _ => {}
             }
             arena.intern(value)
         })
@@ -433,8 +455,20 @@ impl ValueArena {
         scope == owner
     }
 
-    // Pure expressions may be built anywhere, but consuming them requires every
-    // read, call or join dependency to be visible. Sibling results have no such scope.
+    fn merge_scopes(&self, left: Option<usize>, right: Option<usize>) -> Option<usize> {
+        let left = left?;
+        let right = right?;
+        if self.contains(left, right) {
+            Some(right)
+        } else if self.contains(right, left) {
+            Some(left)
+        } else {
+            None
+        }
+    }
+
+    // Scope of dependencies remaining in the runtime node. Handle provenance
+    // separately retains requirements discarded by folding.
     fn availability(&self, value: Value) -> Option<usize> {
         match value.kind {
             ValueKind::Constant(_) | ValueKind::Parameter(_) => Some(0),
@@ -445,32 +479,17 @@ impl ValueArena {
             | ValueKind::Compare(_, a, b)
             | ValueKind::Shift {
                 value: a, count: b, ..
-            } => {
-                let a = self.availability[a]?;
-                let b = self.availability[b]?;
-                if self.contains(a, b) {
-                    Some(b)
-                } else if self.contains(b, a) {
-                    Some(a)
-                } else {
-                    None
-                }
-            }
+            } => self.merge_scopes(self.availability[a], self.availability[b]),
             ValueKind::Select {
                 condition,
                 when_true,
                 when_false,
             } => {
-                let mut scope = self.availability[condition]?;
+                let mut scope = self.availability[condition];
                 for input in [when_true, when_false] {
-                    let other = self.availability[input]?;
-                    if self.contains(scope, other) {
-                        scope = other;
-                    } else if !self.contains(other, scope) {
-                        return None;
-                    }
+                    scope = self.merge_scopes(scope, self.availability[input]);
                 }
-                Some(scope)
+                scope
             }
             ValueKind::Convert(input)
             | ValueKind::SignExtend(input)

@@ -12,7 +12,8 @@ pub(super) enum BinaryOp {
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum ShiftOp {
     Left,
-    Right,
+    RightUnsigned,
+    RightSigned,
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -59,7 +60,8 @@ pub(super) fn shift(ty: Type, operator: ShiftOp, value: u64, count: u32) -> u64 
     let count = shift_count(ty, count);
     match operator {
         ShiftOp::Left => value.wrapping_shl(count),
-        ShiftOp::Right => value >> count,
+        ShiftOp::RightUnsigned => value >> count,
+        ShiftOp::RightSigned => (signed_value(ty, value) >> count) as u64,
     }
 }
 
@@ -93,12 +95,14 @@ pub(super) fn unsigned_bits(value: Value, values: &[Value], inputs: &[u8]) -> u8
                 let count = shift_count(value.ty, bits as u32) as u8;
                 match operator {
                     ShiftOp::Left => inputs[input].saturating_add(count).min(carrier_bits),
-                    ShiftOp::Right => inputs[input].saturating_sub(count),
+                    ShiftOp::RightUnsigned => inputs[input].saturating_sub(count),
+                    ShiftOp::RightSigned => carrier_bits,
                 }
             }
             _ => match operator {
                 ShiftOp::Left => carrier_bits,
-                ShiftOp::Right => inputs[input],
+                ShiftOp::RightUnsigned => inputs[input],
+                ShiftOp::RightSigned => carrier_bits,
             },
         },
         ValueKind::SignExtend(_) => carrier_bits,

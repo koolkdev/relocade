@@ -63,6 +63,17 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.state.set_flags(&mut self.body, source)
     }
 
+    pub(super) fn set_flags_if<T: MemoryInt>(
+        &mut self,
+        condition: impl Into<Val<I1>>,
+        source: FlagSource<T>,
+    ) -> Result<(), BuildError>
+    where
+        FlagSource<T>: Into<LocalFlagSource>,
+    {
+        self.state.set_flags_if(&mut self.body, condition, source)
+    }
+
     pub(super) fn condition(&mut self, condition: Condition) -> Result<Val<I1>, BuildError> {
         self.state.condition(&mut self.body, condition)
     }

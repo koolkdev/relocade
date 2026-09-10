@@ -3,7 +3,7 @@
 Rust components for x86 execution in WebAssembly.
 
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
-SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, PUSH, POP, SETcc and relative
+SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, SHL, SHR, SAR, PUSH, POP, SETcc and relative
 JMP/Jcc blocks from byte snapshots:
 
 ```rust
@@ -84,6 +84,9 @@ supports these forms in default-32 operand and address mode:
 | DEC register/memory | FE /1 | FF /1 | FF /1 |
 | NOT register/memory | F6 /2 | F7 /2 | F7 /2 |
 | NEG register/memory | F6 /3 | F7 /3 | F7 /3 |
+| SHL/SAL register/memory by one, CL or imm8 | D0/D2/C0 /4 | D1/D3/C1 /4 | D1/D3/C1 /4 |
+| SHR register/memory by one, CL or imm8 | D0/D2/C0 /5 | D1/D3/C1 /5 | D1/D3/C1 /5 |
+| SAR register/memory by one, CL or imm8 | D0/D2/C0 /7 | D1/D3/C1 /7 | D1/D3/C1 /7 |
 | PUSH opcode-selected register | — | 50–57 | 50–57 |
 | POP opcode-selected register | — | 58–5F | 58–5F |
 | PUSH immediate | — | 68/6A | 68/6A |
@@ -125,6 +128,19 @@ register bits. Both instructions resolve memory addresses from the old registers
 and require full write permission before changing registers, memory or flags;
 CMPXCHG requires it even when the comparison fails. CMPXCHG8B and explicit LOCK
 prefixes remain outside the supported subset.
+
+SHL (also named SAL), SHR and SAR take a count of one, CL or an immediate byte.
+All counts are masked to five bits, including byte and word operands. A zero
+masked count preserves the value and flags. Memory still requires write permission
+for the entire operand before the instruction can complete. CL and the destination
+are read before writing, including when the destination is CL, CH, CX or ECX.
+SHR fills vacated bits with zero; SAR repeats the original sign bit.
+For nonzero counts, PF/ZF/SF describe the result. CF holds the last shifted-out bit,
+except that SHL/SHR leave CF undefined at counts at or above the operand width.
+OF is defined only for count one: SHL uses the result sign XOR CF, SHR uses the
+original sign, and SAR clears it. AF is undefined for every nonzero count.
+wasm86 chooses zero for those undefined CF/OF/AF values. Rotates, double shifts and
+the undocumented group `/6` SHL alias are outside this subset.
 
 LEA (`8D`) computes the effective address encoded by ModRM/SIB and writes it to a
 dword register. With `66`, it writes the low word and preserves the upper half of
@@ -303,7 +319,8 @@ ADD, XADD, SUB, CMP and CMPXCHG retain the original operands as a lazy source fo
 CF, PF, AF, ZF, SF and OF. ADC adds the incoming CF; SBB subtracts it as a borrow. They read
 CF after all operand guards, then construct symbolic flags from the original
 operands and final result using the same arithmetic equations as ADD/SUB.
-`FlagState` distinguishes stored CPU records from local flag sources.
+`FlagState` holds a stored CPU record or local source as its base, followed by
+conditional replacements in instruction order.
 A typed `FlagSource` retains arithmetic operands, a logical result, or explicit
 result and flag values. ADC/SBB use explicit values; their incoming carry is an
 input to construction and has no separate role in the retained source.
@@ -313,6 +330,7 @@ The `arithmetic` and `arithmetic_with_carry` constructors return this same sourc
 type, with common result, flag and condition queries. These queries construct
 expressions without a builder. Semantic operations produce a source, then call
 `set_flags` once to validate and retain it as the new architectural flags.
+An unconditional replacement discards earlier conditional replacements.
 A same-block condition uses only the expressions it needs; CMP and SUB conditions
 can compare the original operands directly.
 
@@ -323,6 +341,15 @@ six concrete status bytes, like ADC/SBB. NEG uses subtraction from zero and its
 existing lazy record; CF is set exactly when the original operand is nonzero.
 NOT inverts the operand bits and preserves the entire flag source.
 
+Shifts construct a result and six symbolic flags through `FlagSource::shift`.
+`set_flags_if(count.ne(0), source)` retains the replacement only for a nonzero
+masked count. Its predicate and every source value are validated before state
+changes. Constant predicates either replace or preserve the current state;
+runtime predicates append to the history. A condition query starts at the base
+and folds replacements from oldest to newest with pure value selections. Stored
+condition reads remain on the owning path, so their cached values stay available
+to later queries. Reading flags never materializes or modifies the stored record.
+
 At publication, state converts the current source into a `FlagRecord`: arithmetic
 operands, a logical result, or six concrete status bits. Its payload variant
 determines the record kind. One writer stores the payload before its kind; it does
@@ -330,6 +357,12 @@ not inspect the instruction or its incoming carry. The record exists only at thi
 boundary. Explicit flags are symbolic expressions; the compiler places their
 evaluation where needed and leaves unused expressions unevaluated. Their array
 uses logical `StatusFlag` indices; record conversion defines the CPU byte order.
+Conditional publication checks replacements newest first and writes the first
+applicable source, or the base if none applies. It uses a flat list and bounded
+control nesting. A stored base needs no writes: a zero-count shift preserves its
+entire backing record. A prior local source still publishes its own record when
+the shift count is zero. Publication in a fault or exit branch leaves the live
+state and its condition caches unchanged.
 
 ADD, XADD, SUB, CMP and CMPXCHG publish zero-extended operands to CPU dwords 4 and 8,
 then the kind byte at 0. SUB kinds 1/5/9 and ADD
@@ -338,7 +371,7 @@ six concrete flag bytes, then kind 0: the stored two-operand format cannot retai
 an incoming carry. Their unused payload dwords remain untouched.
 AND, OR, XOR and TEST retain only the logical result. Their records use kinds 3/7/11
 with the zero-extended result at offset 4; offset 8 is unused and remains untouched.
-The flag owner retains only the current source and writes its record at publication;
+The flag owner retains the current source choices and writes one record at publication;
 replacing a source does not schedule or repair individual field writes. Logic clears
 CF/OF as required by x86. Its AF value is architecturally undefined; wasm86 chooses
 zero. This deterministic choice avoids retaining or evaluating the old flag source.
@@ -424,7 +457,10 @@ I64, `u32` literals zero-extend, and narrower targets retain the low bits.
 
 Standalone literals can be used in different function bodies. Once an expression
 uses a body-owned value, it remains bound to that body even if it folds to a
-constant. `body.value::<I32>(operand)?` admits a value into a body
+constant. Folding also preserves the branch visibility required by every original
+operand. These admission checks are separate from runtime data dependencies, so
+a legal constant fold can omit reads it no longer needs.
+`body.value::<I32>(operand)?` admits a value into a body
 and checks ownership and scope immediately. Other expression construction errors
 are reported when the value is consumed. Calling `body.return_(&value)` completes
 the function body; shared expressions use reusable WebAssembly locals. A raw
@@ -443,14 +479,15 @@ Expressions support wrapping addition and subtraction, bitwise `and`/`or`/`xor`,
 logical-width `popcnt`, `shl`, and `eq`/`ne` predicates that return `Val<I1>`. The borrowed `unsigned()` view
 provides `shr`, `lt`, `ge` and zero extension, for example
 `byte.unsigned().extend::<I32>().shl(8)`. `truncate::<I8>()` retains the low eight
-bits. The borrowed `signed()` view provides `lt`/`ge` comparisons and sign extension, such as
+bits. The borrowed `signed()` view provides arithmetic `shr`, `lt`/`ge` comparisons and sign extension, such as
 `displacement.signed().extend::<I32>()`. Rust checks conversion direction;
-conversions to the same type are allowed. Left shifts accept an I32 value or a
-literal count; unsigned right shifts currently take literal counts.
-Shift counts are modulo 32 for I1/I8/I16/I32 and modulo 64 for I64, so shifting an
-I8 by 8 produces zero and shifting it by 32 preserves its value. Comparisons,
-unsigned right shifts and widening read the logical low bits, including after
-arithmetic that overflows a narrow type.
+conversions to the same type are allowed. All shifts accept an I32 value or a
+literal count, for example `byte.signed().shr(count)`.
+Shift counts are modulo 32 for I1/I8/I16/I32 and modulo 64 for I64. Left and unsigned
+right shifts of an I8 by 8 produce zero; shifting it by 32 preserves its value. Comparisons,
+right shifts and widening read the logical low bits, including after arithmetic
+that overflows a narrow type. Arithmetic right shift repeats the logical sign bit;
+it does not interpret unused carrier bits as part of the operand.
 
 Build conditional code with the same builder methods:
 

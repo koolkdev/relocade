@@ -82,10 +82,16 @@ macro_rules! typed_operand {
 }
 
 macro_rules! binary_handlers {
-    ($handler:ident, source = $source:ty $(, $argument:expr)*) => {
+    ($handler:ident, source = $source:ty, sized $(, $argument:expr)*) => {
         SizedHandlers {
             word: binary_handlers!(@pair $handler, I16, Input, $source [] $(, $argument)*),
             dword: binary_handlers!(@pair $handler, I32, Input, $source [] $(, $argument)*),
+        }
+    };
+    ($handler:ident, source = $source:ty $(, $argument:expr)*) => {
+        IntegerHandlers {
+            byte: binary_handlers!(@pair $handler, I8, Input, $source [] $(, $argument)*),
+            sized: binary_handlers!($handler, source = $source, sized $(, $argument)*),
         }
     };
     ($handler:ident, right = $right:ident $(, $argument:expr)*) => {

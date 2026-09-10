@@ -1,13 +1,16 @@
 mod argument;
+mod source;
 
 pub use argument::Argument;
 
 use std::marker::PhantomData;
 
+use source::{BoundExpression, ValueSource};
+
 use crate::arena::ExpressionArena;
 use crate::{
     integer::{self, BinaryOp, CompareOp, ShiftOp},
-    AtLeast, BuildError, IntType, Type, I1, I32, I64,
+    AtLeast, BuildError, IntType, I1, I32, I64,
 };
 
 /// A literal or function-body integer expression, with its type checked by Rust.
@@ -15,7 +18,8 @@ use crate::{
 /// Native literals use ordinary conversions, such as `Val::<I1>::from(false)` or
 /// `Val::<I32>::from(7)`. Literals and calculations containing only literals can
 /// be used in any body. Once an operation uses a body expression, its result
-/// belongs to that body, including when it folds to a constant.
+/// belongs to that body, including when it folds to a constant. Folding also
+/// preserves the branch visibility required by every original operand.
 /// Signed i32 inputs sign-extend and unsigned u32 inputs zero-extend; both keep
 /// only the logical low bits in narrower types. A u64 input requires I64.
 ///
@@ -34,33 +38,6 @@ use crate::{
 pub struct Val<T: IntType> {
     source: ValueSource,
     ty: PhantomData<T>,
-}
-
-#[derive(Clone)]
-enum ValueSource {
-    Literal(u64),
-    Expression {
-        arena: ExpressionArena,
-        expression: Result<usize, BuildError>,
-    },
-}
-
-impl ValueSource {
-    fn resolve(&self, arena: &ExpressionArena, ty: Type) -> Result<usize, BuildError> {
-        match self {
-            Self::Literal(bits) => arena.constant(ty, *bits),
-            Self::Expression {
-                arena: owner,
-                expression,
-            } => {
-                if !owner.same_body(arena) {
-                    return Err(BuildError::ForeignBody);
-                }
-                arena.check_open()?;
-                expression.clone()
-            }
-        }
-    }
 }
 
 impl<T: IntType> From<&Val<T>> for Val<T> {
@@ -94,24 +71,6 @@ impl From<bool> for Val<I1> {
 }
 
 impl<T: IntType> Val<T> {
-    pub(super) fn new(arena: ExpressionArena, expression: Result<usize, BuildError>) -> Self {
-        Self {
-            source: ValueSource::Expression { arena, expression },
-            ty: PhantomData,
-        }
-    }
-
-    fn literal(bits: u64) -> Self {
-        Self {
-            source: ValueSource::Literal(T::TYPE.normalize(bits)),
-            ty: PhantomData,
-        }
-    }
-
-    pub(super) fn checked_expression(&self, arena: &ExpressionArena) -> Result<usize, BuildError> {
-        self.source.resolve(arena, T::TYPE)
-    }
-
     /// Returns whether values share a successful representation. Two literals
     /// share their normalized bits; expressions share their body and node.
     /// A literal and a body expression have distinct identities, even when the
@@ -132,14 +91,14 @@ impl<T: IntType> Val<T> {
                 },
             ) => {
                 left_arena.same_body(right_arena)
-                    && matches!((left, right), (Ok(left), Ok(right)) if left == right)
+                    && matches!((left, right), (Ok(left), Ok(right)) if left.value == right.value)
             }
             _ => false,
         }
     }
 
     /// Passes this value in a call argument list, retaining its logical type and
-    /// any body ownership. A typed literal keeps its type too.
+    /// its body ownership and branch visibility. A typed literal keeps its type too.
     pub fn argument(&self) -> Argument {
         self.into()
     }
@@ -245,10 +204,11 @@ impl<T: IntType> Val<T> {
     ) -> Val<R> {
         match &self.source {
             ValueSource::Literal(bits) => Val::literal(literal(*bits)),
-            ValueSource::Expression { arena, .. } => Val::new(
+            ValueSource::Expression { arena, .. } => Val::bound(
                 arena.clone(),
-                self.checked_expression(arena)
-                    .and_then(|input| expression(arena, input)),
+                self.source
+                    .resolve(arena, T::TYPE)
+                    .and_then(|input| Ok(input.with_value(expression(arena, input.value)?))),
             ),
         }
     }
@@ -267,11 +227,16 @@ impl<T: IntType> Val<T> {
             | (_, ValueSource::Expression { arena, .. }) => {
                 // Resolve both inputs before a fold can discard either. A bound
                 // result keeps its arena even when the resulting node is constant.
-                let result = self.checked_expression(arena).and_then(|left| {
-                    let right = other.checked_expression(arena)?;
-                    expression(arena, left, right)
+                let result = self.source.resolve(arena, T::TYPE).and_then(|left| {
+                    let right = other.source.resolve(arena, U::TYPE)?;
+                    let required_scope =
+                        arena.merge_scopes(left.required_scope(), right.required_scope())?;
+                    Ok(BoundExpression::new(
+                        expression(arena, left.value, right.value)?,
+                        required_scope,
+                    ))
                 });
-                Val::new(arena.clone(), result)
+                Val::bound(arena.clone(), result)
             }
         }
     }
@@ -349,12 +314,19 @@ impl Val<I1> {
             | (_, _, ValueSource::Expression { arena, .. }) => {
                 // All three inputs participate in ownership and visibility, even
                 // when a literal condition determines the selected alternative.
-                let expression = self.checked_expression(arena).and_then(|condition| {
-                    let when_true = when_true.checked_expression(arena)?;
-                    let when_false = when_false.checked_expression(arena)?;
-                    arena.select(condition, when_true, when_false)
+                let expression = self.source.resolve(arena, I1::TYPE).and_then(|condition| {
+                    let when_true = when_true.source.resolve(arena, T::TYPE)?;
+                    let when_false = when_false.source.resolve(arena, T::TYPE)?;
+                    let alternatives = arena
+                        .merge_scopes(when_true.required_scope(), when_false.required_scope())?;
+                    let required_scope =
+                        arena.merge_scopes(condition.required_scope(), alternatives)?;
+                    Ok(BoundExpression::new(
+                        arena.select(condition.value, when_true.value, when_false.value)?,
+                        required_scope,
+                    ))
                 });
-                Val::new(arena.clone(), expression)
+                Val::bound(arena.clone(), expression)
             }
         }
     }
@@ -367,9 +339,10 @@ impl<T: IntType> Unsigned<'_, T> {
     /// Shifts the logical bits right, filling with zeros.
     /// Counts are modulo 32 for I1/I8/I16/I32, and modulo 64 for I64.
     /// An I8 shift by 8 produces zero, including for values with bit 7 set.
+    /// A computed count has type I32, including when shifting an I64 value.
     #[allow(clippy::should_implement_trait)]
-    pub fn shr(&self, count: u32) -> Val<T> {
-        self.0.shift(ShiftOp::Right, count)
+    pub fn shr(&self, count: impl Into<Val<I32>>) -> Val<T> {
+        self.0.shift(ShiftOp::RightUnsigned, count)
     }
 
     /// Tests unsigned less-than and returns a logical one-bit value.
@@ -398,6 +371,13 @@ impl<T: IntType> Unsigned<'_, T> {
 pub struct Signed<'a, T: IntType>(&'a Val<T>);
 
 impl<T: IntType> Signed<'_, T> {
+    /// Shifts right, repeating the logical sign bit.
+    /// Accepts an I32 count or a literal; counts wrap modulo 64 for I64 and 32 otherwise.
+    #[allow(clippy::should_implement_trait)]
+    pub fn shr(&self, count: impl Into<Val<I32>>) -> Val<T> {
+        self.0.shift(ShiftOp::RightSigned, count)
+    }
+
     /// Tests signed less-than using each operand's logical sign bit.
     /// For I1, true is -1 and false is zero.
     pub fn lt(&self, other: impl Into<Val<T>>) -> Val<I1> {

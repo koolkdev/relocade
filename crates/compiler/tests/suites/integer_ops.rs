@@ -201,39 +201,6 @@ fn multiple_bits_require_full_equality() {
 }
 
 #[test]
-fn dynamic_shifts_share_the_count_and_shifted_value() {
-    let module = Fixture::new().expression(&[Type::I32, Type::I32], |b| {
-        let count = b.parameter::<I32>(1).unwrap().add(1);
-        let shifted = b.parameter::<I32>(0).unwrap().shl(count);
-        shifted.add(&shifted)
-    });
-    let code = inspect(module.bytes());
-    assert_eq!(
-        (code.shifts, code.adds, code.locals, code.writes),
-        (1, 2, 1, 1)
-    );
-}
-
-#[test]
-fn zero_shifts_do_not_force_unused_count_loads() {
-    let mut fixture = Fixture::new();
-    let memory = fixture.memory("state", &[7, 0, 0, 0]);
-    let module = fixture.function(&[], Some(Type::I32), |mut b| {
-        let count = b.load::<I32>(memory, 65536)?;
-        let value = Val::<I32>::from(0).shl(count);
-        b.return_(value)
-    });
-    let code = inspect(module.bytes());
-    assert!(code.accesses.is_empty());
-    assert_eq!(code.shifts, 0);
-    assert_eq!(code.constants, [0]);
-    let mut instance = module.instantiate();
-    assert_eq!(instance.call::<i32>(()).unwrap(), 0);
-    assert_eq!(&instance.memory("state")[..4], &[7, 0, 0, 0]);
-    assert!(instance.callbacks().is_empty());
-}
-
-#[test]
 fn signed_literal_extension_folds_the_logical_sign_bit() {
     let module = Fixture::new().expression(&[], |_| Val::<I8>::from(255).signed().extend::<I32>());
     let code = inspect(module.bytes());

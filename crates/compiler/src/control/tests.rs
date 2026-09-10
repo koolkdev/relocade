@@ -85,7 +85,7 @@ fn completing_a_child_keeps_parent_values_open_until_the_function_completes() {
     let arena = body.arena.clone();
     body.return_(&result).unwrap();
     assert_eq!(
-        result.checked_expression(&arena),
+        result.checked_expression(&arena, 0),
         Err(BuildError::BodyClosed)
     );
     assert!(program.compile().is_ok());
@@ -159,15 +159,15 @@ fn yielding_a_nested_join_exposes_only_the_new_parent_result() {
             |arm| arm.yield_(3),
         )
         .unwrap();
-    assert_eq!(
-        body.value(escaped.unwrap().add(1)).err(),
-        Some(BuildError::OutOfScope)
-    );
+    let escaped = escaped.unwrap();
+    for value in [escaped.add(1), escaped.and(0).add(1)] {
+        assert_eq!(body.value(value).err(), Some(BuildError::OutOfScope));
+    }
     let result = selected.add(1);
     let arena = body.arena.clone();
     body.return_(&result).unwrap();
     assert_eq!(
-        result.checked_expression(&arena),
+        result.checked_expression(&arena, 0),
         Err(BuildError::BodyClosed)
     );
     assert!(program.compile().is_ok());

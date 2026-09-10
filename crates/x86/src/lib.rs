@@ -6,6 +6,10 @@
 //! `F6`/`F7` /0. Group `83` sign-extends its byte immediate to the operand width.
 //! INC/DEC use `FE`/`FF` /0 and /1, or opcode-selected word/dword registers `40`–`4F`.
 //! NOT and NEG use `F6`/`F7` /2 and /3. These unary forms have no immediate.
+//! SHL/SAL, SHR and SAR use group extensions /4, /5 and /7. Byte forms use D0/D2/C0
+//! for counts one/CL/imm8; word/dword forms use D1/D3/C1. Counts are masked with 31.
+//! Zero preserves value and flags, but memory still requires full write permission.
+//! SAR repeats the logical sign bit. CL is read before writing an overlapping destination.
 //! Word/dword PUSH and POP use `50`–`5F`, `FF` /6 and `8F` /0. PUSH also accepts
 //! an operand-sized immediate (`68`) or a sign-extended byte (`6A`). The stack
 //! pointer is always 32-bit: PUSH reads its source before decrementing ESP;
@@ -66,6 +70,12 @@
 //! retain the result and six explicit symbolic flag values. At publication,
 //! they write all six concrete flags before kind 0, leaving unused payloads intact.
 //! INC/DEC publish through the same concrete format; NEG uses SUB with a zero left operand.
+//! Nonzero shifts publish concrete flags through that format too. PF/ZF/SF describe
+//! the result and CF the last shifted-out bit, except SHL/SHR CF is undefined at
+//! counts at or above the operand width. OF is defined only at count one: result
+//! sign XOR CF for SHL, original sign for SHR, zero for SAR. AF is undefined for
+//! nonzero counts. wasm86 chooses zero for undefined CF/OF/AF. Zero-count shifts
+//! preserve the previous source, including an earlier instruction's pending flags.
 //! Valid record kinds are an internal invariant. Flag reads preserve the
 //! record, and these instructions leave non-status flag bytes untouched.
 //!

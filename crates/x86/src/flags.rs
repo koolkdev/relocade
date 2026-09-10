@@ -2,7 +2,9 @@
 //! CPU record layout, pending definitions and publication belong to state.
 
 mod condition;
+mod shifts;
 pub(super) use condition::Condition;
+pub(super) use shifts::ShiftKind;
 
 use std::convert::Infallible;
 

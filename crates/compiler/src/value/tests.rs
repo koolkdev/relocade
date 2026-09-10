@@ -1,3 +1,5 @@
+mod visibility;
+
 use super::{Val, ValueSource};
 use crate::{
     BuildError, Func, FunctionImport, MemoryImport, Program, Signature, Type, I1, I32, I64, I8,
@@ -97,7 +99,7 @@ fn a_tail_call_closes_retained_values_and_arguments() {
         panic!("an admitted value retains its body");
     };
     assert_eq!(
-        argument.resolve(arena, Type::I32),
+        argument.resolve(arena, Type::I32, 0),
         Err(BuildError::BodyClosed)
     );
     assert!(program.compile().is_ok());
@@ -123,7 +125,7 @@ fn a_failed_tail_closes_its_values_without_retaining_the_import() {
         panic!("an admitted value retains its body");
     };
     assert_eq!(
-        argument.resolve(arena, Type::I32),
+        argument.resolve(arena, Type::I32, 0),
         Err(BuildError::BodyClosed)
     );
 
@@ -244,65 +246,14 @@ fn a_zero_shift_still_checks_the_computed_count_owner() {
     drop(discarded);
     let body = program.define(function).unwrap();
     let zero = body.value::<I32>(0).unwrap();
-    assert_eq!(
-        body.value(zero.shl(foreign)).err(),
-        Some(BuildError::ForeignBody)
-    );
+    for shifted in [
+        zero.shl(&foreign),
+        zero.unsigned().shr(&foreign),
+        zero.signed().shr(&foreign),
+    ] {
+        assert_eq!(body.value(shifted).err(), Some(BuildError::ForeignBody));
+    }
     body.return_(zero).unwrap();
-    assert!(program.compile().is_ok());
-}
-
-#[test]
-fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
-    let mut program = Program::new();
-    let memory = program.import_memory(MemoryImport {
-        module: "test".into(),
-        name: "memory".into(),
-        minimum: 1,
-        maximum: None,
-    });
-    let function = program.declare(Signature {
-        parameters: vec![],
-        result: Some(Type::I32),
-    });
-    let discarded = program.define(function).unwrap();
-    let foreign = discarded.value::<I32>(9).unwrap();
-    drop(discarded);
-    let mut body = program.define(function).unwrap();
-    assert_eq!(
-        body.value(Val::<I1>::from(true).select(7, &foreign)).err(),
-        Some(BuildError::ForeignBody)
-    );
-    assert_eq!(
-        body.value(Val::<I1>::from(false).select(&foreign, 7)).err(),
-        Some(BuildError::ForeignBody)
-    );
-
-    let mut sibling = None;
-    body.if_(false, |mut branch| {
-        sibling = Some(branch.load::<I32>(memory, 0)?);
-        Ok(())
-    })
-    .unwrap();
-    body.if_(false, |mut branch| {
-        let local = branch.load::<I32>(memory, 4)?;
-        let sibling = sibling.as_ref().unwrap();
-        assert_eq!(
-            branch
-                .value(Val::<I1>::from(true).select(&local, sibling))
-                .err(),
-            Some(BuildError::OutOfScope)
-        );
-        assert_eq!(
-            branch
-                .value(Val::<I1>::from(false).select(sibling, &local))
-                .err(),
-            Some(BuildError::OutOfScope)
-        );
-        Ok(())
-    })
-    .unwrap();
-    body.return_(7).unwrap();
     assert!(program.compile().is_ok());
 }
 

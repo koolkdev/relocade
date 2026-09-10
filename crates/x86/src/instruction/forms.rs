@@ -76,7 +76,7 @@ pub(crate) enum Encoding {
     RmImmediate {
         immediate: ImmediateWidth,
     },
-    /// The r/m field names the only operand. The form may constrain ModRM.reg.
+    /// Only the r/m field names an encoded operand; other operands may be implicit.
     Rm,
     /// The address field remains 32-bit regardless of the data width.
     AccumulatorOffset,
@@ -117,6 +117,7 @@ pub(super) enum LocationBinding {
     Register,
     Rm,
     Accumulator,
+    CountRegister,
     AbsoluteOffset,
 }
 
@@ -124,6 +125,8 @@ pub(super) enum LocationBinding {
 pub(super) enum OperandBinding {
     Location(LocationBinding),
     Immediate,
+    /// An implicit literal, interpreted at the handler's logical operand width.
+    Constant(u32),
     /// The r/m address fields form a value; register addressing is not accepted.
     RmAddress,
 }

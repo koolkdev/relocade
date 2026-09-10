@@ -5,6 +5,7 @@ mod branches;
 mod conditions;
 mod exchanges;
 mod moves;
+mod shifts;
 mod stack;
 
 use super::{
@@ -25,6 +26,7 @@ pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form
     moves::forms()
         .chain(exchanges::FORMS.iter())
         .chain(alu::forms())
+        .chain(shifts::forms())
         .chain(stack::FORMS.iter())
         .chain(conditions::FORMS.iter())
         .chain(branches::FORMS.iter())
