@@ -141,7 +141,10 @@ impl Machine {
                 "unexpected Wasm trap in {} starting at guest EIP {:#010x}",
                 module.entry, self.cpu.eip
             ),
-            Outcome::Returned(Some(Argument::I64(value))) => {
+            Outcome::Returned(values) => {
+                let [Argument::I64(value)] = values.as_slice() else {
+                    panic!("an x86 entry returns i64");
+                };
                 if let Some((eip, _)) = dispatches.last() {
                     assert_eq!(*value, i64::MIN);
                     Exit::Dispatch(*eip)
@@ -149,7 +152,6 @@ impl Machine {
                     Exit::from_word(*value as u64)
                 }
             }
-            _ => panic!("an x86 entry returns i64"),
         };
         let state = state(snapshot);
         // Keep the host's full-memory invariant as well as the projected bytes.

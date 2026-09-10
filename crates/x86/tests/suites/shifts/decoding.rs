@@ -97,8 +97,8 @@ fn the_fifteenth_byte_can_supply_a_zero_immediate_count() {
 #[test]
 fn unsupported_groups_stop_before_address_or_count_bytes() {
     for (opcode, extension) in [
-        (0xc0, 0),
-        (0xc1, 1),
+        (0xc0, 2),
+        (0xc1, 3),
         (0xd0, 2),
         (0xd1, 3),
         (0xd2, 6),
@@ -114,7 +114,7 @@ fn unsupported_groups_stop_before_address_or_count_bytes() {
         image.data(0x3ffe, &code);
         check(
             TestModule::interpreter(),
-            "rotations and undocumented group six remain unsupported",
+            "carry rotations and undocumented group six remain unsupported",
             &image,
             &[Step {
                 cpu: image.cpu,

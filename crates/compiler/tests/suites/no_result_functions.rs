@@ -14,33 +14,33 @@ fn shared_writer() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let writer = fixture
         .program
-        .function(signature(&[Type::I32], None), |mut body| {
+        .function(signature(&[Type::I32], &[]), |mut body| {
             let value = body.parameter::<I32>(0)?;
             body.store(state, 0, value)?;
-            body.return_void()
+            body.return_(())
         })
         .unwrap();
-    fixture.function(&[Type::I32], None, |mut body| {
+    fixture.function(&[Type::I32], &[], |mut body| {
         let input = body.parameter::<I32>(0)?;
-        body.call_void(writer, &[input.add(1).into()])?;
-        body.return_void()
+        body.call::<()>(writer, &[input.add(1).into()])?;
+        body.return_(())
     })
 }
 
 fn imported_tail() -> TestModule {
     let mut fixture = Fixture::new();
-    let receive = fixture.callback("receive", signature(&[Type::I8, Type::I8], None), None);
+    let receive = fixture.callback("receive", signature(&[Type::I8, Type::I8], &[]), &[]);
     let relay = fixture
         .program
-        .function(signature(&[Type::I8], None), |body| {
+        .function(signature(&[Type::I8], &[]), |body| {
             let value = body.parameter::<I8>(0)?.add(1);
             body.tail_call(receive, &[(&value).into(), value.into()])
         })
         .unwrap();
-    fixture.function(&[Type::I8], None, |mut body| {
+    fixture.function(&[Type::I8], &[], |mut body| {
         let value = body.parameter::<I8>(0)?.add(1);
-        body.call_void(relay, &[value.into()])?;
-        body.return_void()
+        body.call::<()>(relay, &[value.into()])?;
+        body.return_(())
     })
 }
 
@@ -49,18 +49,18 @@ fn mutating_call() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let mutator = fixture
         .program
-        .function(signature(&[], None), |mut body| {
+        .function(signature(&[], &[]), |mut body| {
             body.store::<I32>(state, 0, 9)?;
-            body.return_void()
+            body.return_(())
         })
         .unwrap();
     let wrapper = fixture
         .program
-        .function(signature(&[], None), |body| body.tail_call(mutator, &[]))
+        .function(signature(&[], &[]), |body| body.tail_call(mutator, &[]))
         .unwrap();
-    fixture.function(&[], Some(Type::I32), |mut body| {
+    fixture.function(&[], &[Type::I32], |mut body| {
         let before = body.load::<I32>(state, 0)?;
-        body.call_void(wrapper, &[])?;
+        body.call::<()>(wrapper, &[])?;
         let after = body.load::<I32>(state, 0)?;
         body.return_(before.add(after))
     })
@@ -69,18 +69,18 @@ fn mutating_call() -> TestModule {
 fn returning_value_arm(use_switch: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[1, 0, 0, 0]);
-    fixture.function(&[Type::I1], None, |mut body| {
+    fixture.function(&[Type::I1], &[], |mut body| {
         let stop = body.parameter::<I1>(0)?;
         let value = if use_switch {
             body.switch_value::<I32, _>(stop, &[1], |arm, key| match key {
-                Some(1) => arm.return_void(),
+                Some(1) => arm.return_(()),
                 _ => arm.yield_(7),
             })?
         } else {
-            body.if_value::<I32>(stop, |arm| arm.return_void(), |arm| arm.yield_(7))?
+            body.if_value::<I32>(stop, |arm| arm.return_(()), |arm| arm.yield_(7))?
         };
         body.store(state, 0, value)?;
-        body.return_void()
+        body.return_(())
     })
 }
 
@@ -89,32 +89,32 @@ fn conditional_calls() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     let writer = fixture
         .program
-        .function(signature(&[Type::I32, Type::I32], None), |mut body| {
+        .function(signature(&[Type::I32, Type::I32], &[]), |mut body| {
             let first = body.parameter::<I32>(0)?;
             let second = body.parameter::<I32>(1)?;
             body.store(state, 0, first)?;
             body.store(state, 4, second)?;
-            body.return_void()
+            body.return_(())
         })
         .unwrap();
-    fixture.function(&[Type::I1], None, |mut body| {
+    fixture.function(&[Type::I1], &[], |mut body| {
         let write = body.parameter::<I1>(0)?;
         let before = body.load::<I32>(state, 0)?;
         let shared = before.add(1);
         body.if_(write, |mut arm| {
-            arm.call_void(writer, &[(&shared).into(), (&shared).into()])
+            arm.call::<()>(writer, &[(&shared).into(), (&shared).into()])
         })?;
         body.store(state, 8, shared)?;
-        body.return_void()
+        body.return_(())
     })
 }
 
 fn recursive_tail() -> TestModule {
     let mut fixture = Fixture::new();
-    let run = fixture.program.declare(signature(&[Type::I32], None));
+    let run = fixture.program.declare(signature(&[Type::I32], &[]));
     let mut body = fixture.program.define(run).unwrap();
     let remaining = body.parameter::<I32>(0).unwrap();
-    body.if_(remaining.eq(0), |arm| arm.return_void()).unwrap();
+    body.if_(remaining.eq(0), |arm| arm.return_(())).unwrap();
     body.tail_call(run, &[remaining.sub(1).into()]).unwrap();
     fixture.finish(run)
 }

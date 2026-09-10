@@ -40,7 +40,7 @@ impl FunctionBuilder<'_> {
     /// use wasm86_compiler::{Program, Signature, Type, I1, I32};
     /// let mut program = Program::new();
     /// let function = program.function(Signature {
-    ///     parameters: vec![Type::I1], result: Some(Type::I32),
+    ///     parameters: vec![Type::I1], results: vec![Type::I32],
     /// }, |mut body| {
     ///     let early = body.parameter::<I1>(0)?;
     ///     let (value, flag) = body.block::<(I32, I1)>(|mut block, exit| {
@@ -67,7 +67,7 @@ impl FunctionBuilder<'_> {
         };
         let region = self.build_region(scope, Some(&target), |body| build(body, label))?;
         let outputs = self.join_outputs(&target, [&region])?;
-        let values = super::results::bind::<R>(self, &outputs);
+        let values = crate::results::bind::<R>(self, &outputs);
         self.region
             .operations
             .push(Operation::Block { region, outputs });
@@ -87,7 +87,7 @@ impl FunctionBuilder<'_> {
             return Err(BuildError::ForeignBody);
         }
         self.arena.require_scope(label.scope, self.region.id)?;
-        let arguments = self.result_arguments(arguments, &super::results::types::<R>())?;
+        let arguments = self.result_arguments(arguments, &crate::results::types::<R>())?;
         self.complete(Terminal::Branch {
             target: label.target,
             arguments,

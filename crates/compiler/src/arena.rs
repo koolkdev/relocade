@@ -4,10 +4,12 @@ use std::rc::Rc;
 
 use crate::{
     control::Site,
-    integer::{self, BinaryOp, CompareOp, ShiftOp},
+    integer::{self, BinaryOp, CompareOp},
     memory::Location,
     BuildError, Type, Value, ValueKind,
 };
+
+mod shifts;
 
 #[derive(Clone)]
 pub(super) struct ExpressionArena(Rc<RefCell<Option<ValueArena>>>);
@@ -67,11 +69,16 @@ impl ExpressionArena {
         })
     }
 
-    pub(super) fn call_result(&self, ty: Type, site: Site) -> Result<usize, BuildError> {
+    pub(super) fn call_result(
+        &self,
+        ty: Type,
+        site: Site,
+        component: usize,
+    ) -> Result<usize, BuildError> {
         self.with_open(|arena| {
             arena.push(Value {
                 ty,
-                kind: ValueKind::CallResult { site },
+                kind: ValueKind::CallResult { site, component },
             })
         })
     }
@@ -156,57 +163,6 @@ impl ExpressionArena {
         right: usize,
     ) -> Result<usize, BuildError> {
         self.with_open(|arena| arena.binary(operator, left, right))
-    }
-
-    pub(super) fn shift(
-        &self,
-        operator: ShiftOp,
-        input: usize,
-        count: usize,
-    ) -> Result<usize, BuildError> {
-        self.with_open(|arena| {
-            let value = arena.values[input];
-            if let ValueKind::Constant(bits) = arena.values[count].kind {
-                let effective = integer::shift_count(value.ty, bits as u32);
-                if effective == 0 {
-                    return input;
-                }
-                if let ValueKind::Constant(bits) = value.kind {
-                    let bits = integer::shift(value.ty, operator, bits, effective);
-                    return arena.constant(value.ty, bits);
-                }
-            }
-            if matches!(value.kind, ValueKind::Constant(0)) {
-                return input;
-            }
-            let input = match operator {
-                ShiftOp::Left => input,
-                ShiftOp::RightUnsigned => arena.normalize(input),
-                // Interpret the logical sign before shifting the Wasm carrier;
-                // upper bits from narrow arithmetic need not be normalized.
-                ShiftOp::RightSigned => arena.sign_extend(
-                    input,
-                    if value.ty == Type::I64 {
-                        Type::I64
-                    } else {
-                        Type::I32
-                    },
-                ),
-            };
-            let count = if value.ty == Type::I64 {
-                arena.convert(count, Type::I64)
-            } else {
-                count
-            };
-            arena.intern(Value {
-                ty: value.ty,
-                kind: ValueKind::Shift {
-                    operator,
-                    value: input,
-                    count,
-                },
-            })
-        })
     }
 
     pub(super) fn select(
@@ -473,11 +429,14 @@ impl ValueArena {
         match value.kind {
             ValueKind::Constant(_) | ValueKind::Parameter(_) => Some(0),
             ValueKind::Load { site, .. }
-            | ValueKind::CallResult { site }
+            | ValueKind::CallResult { site, .. }
             | ValueKind::JoinResult { site, .. } => Some(site.region),
             ValueKind::Binary(_, a, b)
             | ValueKind::Compare(_, a, b)
             | ValueKind::Shift {
+                value: a, count: b, ..
+            }
+            | ValueKind::Rotate {
                 value: a, count: b, ..
             } => self.merge_scopes(self.availability[a], self.availability[b]),
             ValueKind::Select {

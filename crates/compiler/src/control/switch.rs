@@ -36,7 +36,7 @@ impl FunctionBuilder<'_> {
 
     /// Executes one arm and joins its typed result in the parent, using `switch`'s
     /// key matching and construction order. Nonempty result arms must consume
-    /// their builder with `yield_`, an outward `branch`, `return_`, `return_void`,
+    /// their builder with `yield_`, an outward `branch`, `return_`,
     /// `tail_call` or `trap`; at least one must yield to this switch. Unit result
     /// arms may fall through.
     /// A callback error discards all arms and leaves the parent usable.
@@ -48,7 +48,7 @@ impl FunctionBuilder<'_> {
     /// use wasm86_compiler::{Program, Signature, Type, I32, I8};
     /// let mut program = Program::new();
     /// let function = program.function(Signature {
-    ///     parameters: vec![Type::I8], result: Some(Type::I32),
+    ///     parameters: vec![Type::I8], results: vec![Type::I32],
     /// }, |mut body| {
     ///     let selector = body.parameter::<I8>(0)?;
     ///     let value = body.switch_value::<I32, _>(&selector, &[2, 5], |arm, key| {
@@ -79,7 +79,7 @@ impl FunctionBuilder<'_> {
                 .map(|case| &case.region)
                 .chain(std::iter::once(&default)),
         )?;
-        let values = super::results::bind::<R>(self, &outputs);
+        let values = crate::results::bind::<R>(self, &outputs);
         self.region.operations.push(Operation::Switch {
             selector,
             cases,

@@ -24,7 +24,7 @@ fn accesses(
     });
     let function = program.declare(Signature {
         parameters: vec![Type::I32],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let mut body = program.define(function).unwrap();
     let mut state = Environment::new(memory);

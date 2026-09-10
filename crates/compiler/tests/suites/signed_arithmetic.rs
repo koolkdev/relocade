@@ -100,7 +100,7 @@ fn signed_arithmetic_wraps_and_compares_at_logical_widths() {
             .function(
                 Signature {
                     parameters: parameters.to_vec(),
-                    result: Some(T::TYPE),
+                    results: vec![T::TYPE],
                 },
                 |body| {
                     let result = build(&body);
@@ -278,7 +278,7 @@ fn signed_arithmetic_wraps_and_compares_at_logical_widths() {
     ] {
         assert_eq!(
             instance.call_values(name, &[left, right]).unwrap(),
-            Some(expected),
+            vec![expected],
             "{name}({left:?}, {right:?})"
         );
     }
@@ -289,7 +289,7 @@ fn underflow_shares_raw_store_bits_with_signed_and_unsigned_observers() {
     for (initial, expected, stored) in [([0, 0xa5], 511, [0xff, 0xa5]), ([7, 0xa5], 6, [6, 0xa5])] {
         let mut fixture = Fixture::new();
         let memory = fixture.memory("state", &initial);
-        let module = fixture.function(&[], Some(Type::I32), |mut body| {
+        let module = fixture.function(&[], &[Type::I32], |mut body| {
             let difference = body.load::<I8>(memory, 0)?.sub(1);
             body.store(memory, 0, &difference)?;
             let negative = difference.signed().lt(0).unsigned().extend::<I32>();

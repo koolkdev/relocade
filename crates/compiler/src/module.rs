@@ -121,9 +121,10 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
                 .collect::<Vec<_>>(),
             declaration
                 .signature
-                .result
+                .results
+                .iter()
+                .copied()
                 .map(emit::wasm_type)
-                .into_iter()
                 .collect(),
         );
     }

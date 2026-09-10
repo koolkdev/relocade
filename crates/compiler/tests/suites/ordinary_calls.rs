@@ -8,10 +8,10 @@ fn ordered_imports() -> TestModule {
     let mut fixture = Fixture::new();
     let receive = fixture.callback(
         "receive",
-        signature(&[Type::I32, Type::I64], Some(Type::I64)),
-        Some(Value::I64(i64::MAX)),
+        signature(&[Type::I32, Type::I64], &[Type::I64]),
+        &[Value::I64(i64::MAX)],
     );
-    fixture.function(&[Type::I32, Type::I64], Some(Type::I64), |mut body| {
+    fixture.function(&[Type::I32, Type::I64], &[Type::I64], |mut body| {
         let word = body.parameter::<I32>(0)?.add(1);
         let wide = body.parameter::<I64>(1)?.add(1);
         let arguments = [word.argument(), wide.argument()];
@@ -26,10 +26,10 @@ fn narrow_arguments_and_result() -> TestModule {
     let state = fixture.memory("state", &[0xa5, 0x5a]);
     let receive = fixture.callback(
         "receive",
-        signature(&[Type::I8, Type::I8], Some(Type::I8)),
-        Some(Value::I32(255)),
+        signature(&[Type::I8, Type::I8], &[Type::I8]),
+        &[Value::I32(255)],
     );
-    fixture.function(&[Type::I8], Some(Type::I8), |mut body| {
+    fixture.function(&[Type::I8], &[Type::I8], |mut body| {
         let raw = body.parameter::<I8>(0)?.add(1);
         body.store(state, 0, &raw)?;
         let answer = body.call::<I8>(receive, &[raw.argument(), raw.argument()])?;
@@ -40,9 +40,9 @@ fn narrow_arguments_and_result() -> TestModule {
 fn transitive_mutation() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 11, 0, 0, 0, 0xa5, 0x5a]);
-    let run = fixture.program.declare(signature(&[], Some(Type::I32)));
-    let wrapper = fixture.program.declare(signature(&[], Some(Type::I32)));
-    let mutator = fixture.program.declare(signature(&[], Some(Type::I32)));
+    let run = fixture.program.declare(signature(&[], &[Type::I32]));
+    let wrapper = fixture.program.declare(signature(&[], &[Type::I32]));
+    let mutator = fixture.program.declare(signature(&[], &[Type::I32]));
     let mut body = fixture.program.define(run).unwrap();
     let before = body.load::<I32>(state, 0).unwrap();
     let answer = body.call::<I32>(wrapper, &[]).unwrap();
@@ -75,8 +75,8 @@ fn readonly_call(
 ) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", initial);
-    let run = fixture.program.declare(signature(&[], Some(Type::I32)));
-    let reader = fixture.program.declare(signature(&[], Some(Type::I32)));
+    let run = fixture.program.declare(signature(&[], &[Type::I32]));
+    let reader = fixture.program.declare(signature(&[], &[Type::I32]));
     let mut body = fixture.program.define(run).unwrap();
     let before = body.call::<I32>(reader, &[]).unwrap();
     if store_offset != 0 {
@@ -102,10 +102,10 @@ fn computed_helper_read(initial: &[u8]) -> TestModule {
     let state = fixture.memory("state", initial);
     let run = fixture
         .program
-        .declare(signature(&[Type::I32], Some(Type::I32)));
+        .declare(signature(&[Type::I32], &[Type::I32]));
     let reader = fixture
         .program
-        .declare(signature(&[Type::I32], Some(Type::I32)));
+        .declare(signature(&[Type::I32], &[Type::I32]));
     let mut body = fixture.program.define(run).unwrap();
     let address = body.parameter::<I32>(0).unwrap();
     let before = body.call::<I32>(reader, &[address.argument()]).unwrap();
@@ -122,10 +122,10 @@ fn predicate_result() -> TestModule {
     let mut fixture = Fixture::new();
     let run = fixture
         .program
-        .declare(signature(&[Type::I32], Some(Type::I32)));
+        .declare(signature(&[Type::I32], &[Type::I32]));
     let predicate = fixture
         .program
-        .declare(signature(&[Type::I32], Some(Type::I1)));
+        .declare(signature(&[Type::I32], &[Type::I1]));
     let mut body = fixture.program.define(run).unwrap();
     let input = body.parameter::<I32>(0).unwrap();
     let condition = body.call::<I1>(predicate, &[input.argument()]).unwrap();
@@ -142,8 +142,8 @@ fn branch_call() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 11, 0, 0, 0, 0xa5, 0x5a]);
     let run = fixture
         .program
-        .declare(signature(&[Type::I1], Some(Type::I32)));
-    let helper = fixture.program.declare(signature(&[], Some(Type::I32)));
+        .declare(signature(&[Type::I1], &[Type::I32]));
+    let helper = fixture.program.declare(signature(&[], &[Type::I32]));
     let mut body = fixture.program.define(run).unwrap();
     let condition = body.parameter::<I1>(0).unwrap();
     body.store::<I32>(state, 0, 1).unwrap();
@@ -166,9 +166,9 @@ fn snapshot_across_a_tail_arm() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
     let run = fixture
         .program
-        .declare(signature(&[Type::I1], Some(Type::I32)));
-    let wrapper = fixture.program.declare(signature(&[], Some(Type::I32)));
-    let mutator = fixture.program.declare(signature(&[], Some(Type::I32)));
+        .declare(signature(&[Type::I1], &[Type::I32]));
+    let wrapper = fixture.program.declare(signature(&[], &[Type::I32]));
+    let mutator = fixture.program.declare(signature(&[], &[Type::I32]));
     let mut body = fixture.program.define(run).unwrap();
     let condition = body.parameter::<I1>(0).unwrap();
     let before = body.load::<I32>(state, 65536).unwrap();
@@ -193,10 +193,10 @@ fn trapping_argument() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]);
     let receive = fixture.callback(
         "receive",
-        signature(&[Type::I32], Some(Type::I32)),
-        Some(Value::I32(17)),
+        signature(&[Type::I32], &[Type::I32]),
+        &[Value::I32(17)],
     );
-    fixture.function(&[], Some(Type::I32), |mut body| {
+    fixture.function(&[], &[Type::I32], |mut body| {
         let argument = body.load::<I32>(state, 65536)?;
         body.store::<I32>(state, 0, 1)?;
         let answer = body.call::<I32>(receive, &[argument.argument()])?;
@@ -308,9 +308,9 @@ fn imported_calls_execute_once_each_even_without_memory_or_a_used_result() {
 #[test]
 fn calls_depending_on_recursion_are_retained_when_unused() {
     let mut program = Program::new();
-    let recursive = program.declare(signature(&[], Some(Type::I32)));
-    let wrapper = program.declare(signature(&[], Some(Type::I32)));
-    let run = program.declare(signature(&[], Some(Type::I32)));
+    let recursive = program.declare(signature(&[], &[Type::I32]));
+    let wrapper = program.declare(signature(&[], &[Type::I32]));
+    let run = program.declare(signature(&[], &[Type::I32]));
     for (function, target) in [(recursive, recursive), (wrapper, recursive), (run, wrapper)] {
         let mut body = program.define(function).unwrap();
         let _unused = body.call::<I32>(target, &[]).unwrap();
@@ -442,10 +442,10 @@ fn standalone_typed_arguments_keep_their_logical_type() {
     let mut fixture = Fixture::new();
     let receive = fixture.callback(
         "receive",
-        signature(&[Type::I1], Some(Type::I1)),
-        Some(Value::I32(1)),
+        signature(&[Type::I1], &[Type::I1]),
+        &[Value::I32(1)],
     );
-    let module = fixture.function(&[], Some(Type::I1), |mut body| {
+    let module = fixture.function(&[], &[Type::I1], |mut body| {
         assert_eq!(
             body.call::<I1>(receive, &[Val::<I8>::from(1).into()]).err(),
             Some(BuildError::TypeMismatch {
@@ -625,10 +625,10 @@ fn trapping_call_arguments_prevent_host_calls_at_runtime() {
 fn v8_imported_calls_preserve_order_and_i64_values() {
     let module = ordered_imports();
     let input = Input::call("run", &[Value::I32(i32::MAX), Value::I64(i64::MAX)])
-        .with_callbacks(&[Callback::new("receive", Value::I64(i64::MAX))]);
+        .with_callbacks(&[Callback::new("receive", &[Value::I64(i64::MAX)])]);
     assert_eq!(
         module.run_v8(&input),
-        Observation::returned(Value::I64(-2)).with_callbacks(&[
+        Observation::returned(&[Value::I64(-2)]).with_callbacks(&[
             Call::new("receive", &[Value::I32(i32::MIN), Value::I64(i64::MIN)]),
             Call::new("receive", &[Value::I32(i32::MIN), Value::I64(i64::MIN)]),
         ]),

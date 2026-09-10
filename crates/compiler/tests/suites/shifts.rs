@@ -55,7 +55,7 @@ fn zero_shifts_do_not_force_unused_count_loads() {
     for direction in ["left", "unsigned right", "signed right"] {
         let mut fixture = Fixture::new();
         let memory = fixture.memory("state", &[7, 0, 0, 0]);
-        let module = fixture.function(&[], Some(Type::I32), |mut body| {
+        let module = fixture.function(&[], &[Type::I32], |mut body| {
             let count = body.load::<I32>(memory, 65536)?;
             let zero = Val::<I32>::from(0);
             let shifted = match direction {
@@ -176,7 +176,7 @@ fn computed_right_shifts_use_i32_counts_at_every_logical_width() {
                     instance
                         .call_values("run", &[input, Value::I32(count as i32)])
                         .unwrap(),
-                    Some(Value::I64(expected as i64)),
+                    vec![Value::I64(expected as i64)],
                     "{:?}, count={count}, signed={is_signed}",
                     T::TYPE,
                 );
@@ -279,7 +279,7 @@ fn narrow_right_shifts_ignore_dirty_upper_bits_before_and_after_shifting() {
 fn count_snapshot() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[1, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1, Type::I32], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
         let branch = body.parameter::<I1>(0)?;
         let input = body.parameter::<I32>(1)?.truncate::<I8>();
         let count = body.load::<I32>(memory, 0)?;
@@ -325,7 +325,7 @@ fn computed_right_shifts_and_count_snapshots_execute_in_v8() {
                 &Input::call("run", &[Value::I32(branch), Value::I32(0x1234_0080)])
                     .with_memories(&[MemoryBytes::new("state", &[1, 0, 0, 0, 0xa5, 0x5a])]),
             ),
-            Observation::returned(Value::I32(expected))
+            Observation::returned(&[Value::I32(expected)])
                 .with_memories(&[MemoryBytes::new("state", &[stored, 0, 0, 0, 0xa5, 0x5a])]),
         );
     }
@@ -341,7 +341,7 @@ fn computed_right_shifts_and_count_snapshots_execute_in_v8() {
                 "run",
                 &[Value::I64(i64::MIN + 1), Value::I32(count)]
             )),
-            Observation::returned(Value::I64(expected)),
+            Observation::returned(&[Value::I64(expected)]),
         );
     }
 }

@@ -6,7 +6,7 @@ pub(crate) use operands::PairValues;
 use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32};
 
 use crate::{
-    flags::{Condition, FlagSource, LocalFlagSource},
+    flags::{Condition, FlagChange},
     instruction::{self, DecodedInstruction},
     memory::{Access, Intent, Memory},
     state::{exit, Cpu, State},
@@ -53,25 +53,16 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         Ok(())
     }
 
-    pub(super) fn set_flags<T: MemoryInt>(
-        &mut self,
-        source: FlagSource<T>,
-    ) -> Result<(), BuildError>
-    where
-        FlagSource<T>: Into<LocalFlagSource>,
-    {
-        self.state.set_flags(&mut self.body, source)
+    pub(super) fn set_flags(&mut self, change: impl Into<FlagChange>) -> Result<(), BuildError> {
+        self.state.set_flags(&mut self.body, change)
     }
 
-    pub(super) fn set_flags_if<T: MemoryInt>(
+    pub(super) fn set_flags_if(
         &mut self,
         condition: impl Into<Val<I1>>,
-        source: FlagSource<T>,
-    ) -> Result<(), BuildError>
-    where
-        FlagSource<T>: Into<LocalFlagSource>,
-    {
-        self.state.set_flags_if(&mut self.body, condition, source)
+        change: impl Into<FlagChange>,
+    ) -> Result<(), BuildError> {
+        self.state.set_flags_if(&mut self.body, condition, change)
     }
 
     pub(super) fn condition(&mut self, condition: Condition) -> Result<Val<I1>, BuildError> {

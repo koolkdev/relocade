@@ -63,39 +63,43 @@ impl<T: MemoryInt> FlagRecord<T> {
         }
     }
 
-    fn encoded_kind(&self) -> u8 {
-        match self {
-            Self::Arithmetic { operation, .. } => encode_kind::<T>(*operation),
-            Self::Logic { .. } => encode_logic::<T>(),
-            Self::Concrete { .. } => CONCRETE_KIND,
-        }
-    }
-
     pub(super) fn write(self, body: &mut FunctionBuilder<'_>, memory: Mem) -> Result<(), BuildError>
     where
         I32: AtLeast<T>,
     {
-        let kind = self.encoded_kind();
-        match self {
-            Self::Arithmetic { left, right, .. } => {
+        let kind = match self {
+            Self::Arithmetic {
+                operation,
+                left,
+                right,
+            } => {
                 cpu_store!(body, memory, flags.left, left.unsigned().extend::<I32>())?;
                 cpu_store!(body, memory, flags.right, right.unsigned().extend::<I32>())?;
+                encode_kind::<T>(operation)
             }
             Self::Logic { result } => {
                 cpu_store!(body, memory, flags.left, result.unsigned().extend::<I32>())?;
+                encode_logic::<T>()
             }
-            Self::Concrete { status } => {
-                let [cf, pf, af, zf, sf, of] = status;
-                cpu_store!(body, memory, flags.status.cf, cf.unsigned().extend::<I8>())?;
-                cpu_store!(body, memory, flags.status.pf, pf.unsigned().extend::<I8>())?;
-                cpu_store!(body, memory, flags.status.af, af.unsigned().extend::<I8>())?;
-                cpu_store!(body, memory, flags.status.zf, zf.unsigned().extend::<I8>())?;
-                cpu_store!(body, memory, flags.status.sf, sf.unsigned().extend::<I8>())?;
-                cpu_store!(body, memory, flags.status.of, of.unsigned().extend::<I8>())?;
-            }
-        }
+            Self::Concrete { status } => return write_concrete(body, memory, status),
+        };
         // Publish the tag after every field it describes. Unused fields retain
         // their backing bytes; only the chosen payload is written.
         cpu_store!(body, memory, flags.kind, u32::from(kind))
     }
+}
+
+pub(super) fn write_concrete(
+    body: &mut FunctionBuilder<'_>,
+    memory: Mem,
+    status: [Val<I1>; 6],
+) -> Result<(), BuildError> {
+    let [cf, pf, af, zf, sf, of] = status;
+    cpu_store!(body, memory, flags.status.cf, cf.unsigned().extend::<I8>())?;
+    cpu_store!(body, memory, flags.status.pf, pf.unsigned().extend::<I8>())?;
+    cpu_store!(body, memory, flags.status.af, af.unsigned().extend::<I8>())?;
+    cpu_store!(body, memory, flags.status.zf, zf.unsigned().extend::<I8>())?;
+    cpu_store!(body, memory, flags.status.sf, sf.unsigned().extend::<I8>())?;
+    cpu_store!(body, memory, flags.status.of, of.unsigned().extend::<I8>())?;
+    cpu_store!(body, memory, flags.kind, u32::from(CONCRETE_KIND))
 }

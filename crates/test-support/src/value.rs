@@ -26,10 +26,10 @@ impl Value {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Outcome {
-    Returned(Option<Value>),
+    Returned(Vec<Value>),
     Trap,
 }
 
@@ -54,7 +54,7 @@ mod tests {
     use super::{Outcome, Value};
 
     #[test]
-    fn wire_values_preserve_integer_limits_and_void_returns() {
+    fn wire_values_preserve_integer_limits_and_result_vectors() {
         for (value, json) in [
             (
                 Value::I32(i32::MIN),
@@ -72,10 +72,23 @@ mod tests {
             assert_eq!(serde_json::to_string(&value).unwrap(), json);
             assert_eq!(serde_json::from_str::<Value>(json).unwrap(), value);
         }
-        assert_eq!(
-            serde_json::to_string(&Outcome::Returned(None)).unwrap(),
-            r#"{"kind":"returned","value":null}"#
-        );
+        for (outcome, json) in [
+            (
+                Outcome::Returned(vec![]),
+                r#"{"kind":"returned","value":[]}"#,
+            ),
+            (
+                Outcome::Returned(vec![Value::I32(1)]),
+                r#"{"kind":"returned","value":[{"type":"i32","value":1}]}"#,
+            ),
+            (
+                Outcome::Returned(vec![Value::I32(1), Value::I64(i64::MIN), Value::I32(255)]),
+                r#"{"kind":"returned","value":[{"type":"i32","value":1},{"type":"i64","value":"-9223372036854775808"},{"type":"i32","value":255}]}"#,
+            ),
+        ] {
+            assert_eq!(serde_json::to_string(&outcome).unwrap(), json);
+            assert_eq!(serde_json::from_str::<Outcome>(json).unwrap(), outcome);
+        }
         assert_eq!(
             serde_json::from_str::<Outcome>(r#"{"kind":"trap"}"#).unwrap(),
             Outcome::Trap

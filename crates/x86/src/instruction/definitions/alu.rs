@@ -237,13 +237,15 @@ where
         let flags = match operation {
             UnaryOperation::Not => return Ok(input.xor(-1)),
             UnaryOperation::Increment | UnaryOperation::Decrement => {
-                let carry = execution.condition(Condition::B)?;
                 let kind = if matches!(operation, UnaryOperation::Increment) {
                     ArithmeticKind::Add
                 } else {
                     ArithmeticKind::Sub
                 };
-                FlagSource::arithmetic(kind, input, 1.into()).with_flag(StatusFlag::CF, carry)
+                let flags = FlagSource::arithmetic(kind, input, 1.into());
+                let result = flags.result().clone();
+                execution.set_flags(flags.preserving(StatusFlag::CF))?;
+                return Ok(result);
             }
             UnaryOperation::Negate => FlagSource::arithmetic(ArithmeticKind::Sub, 0.into(), input),
         };

@@ -20,7 +20,7 @@ impl Memory {
         let function = program.function(
             Signature {
                 parameters: vec![Type::I32],
-                result: Some(T::TYPE),
+                results: vec![T::TYPE],
             },
             |body| self.define_scattered_reader::<T>(body),
         )?;
@@ -39,7 +39,7 @@ impl Memory {
         let function = program.function(
             Signature {
                 parameters: vec![Type::I32, T::TYPE],
-                result: None,
+                results: vec![],
             },
             |body| self.define_scattered_writer::<T>(body),
         )?;
@@ -78,7 +78,7 @@ impl Memory {
                 value.unsigned().shr(offset * 8).truncate::<I8>(),
             )?;
         }
-        body.return_void()
+        body.return_(())
     }
 }
 

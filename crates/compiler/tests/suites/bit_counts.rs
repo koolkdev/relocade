@@ -9,7 +9,7 @@ fn population_counts_use_logical_bits_and_native_carrier_operations() {
             .function(
                 Signature {
                     parameters: vec![T::TYPE],
-                    result: Some(T::TYPE),
+                    results: vec![T::TYPE],
                 },
                 |body| {
                     let input = body.parameter::<T>(0)?;
@@ -30,7 +30,7 @@ fn population_counts_use_logical_bits_and_native_carrier_operations() {
         .function(
             Signature {
                 parameters: vec![Type::I32; 2],
-                result: Some(Type::I32),
+                results: vec![Type::I32],
             },
             |body| {
                 let left = body.parameter::<I32>(0)?;
@@ -90,7 +90,7 @@ fn population_counts_use_logical_bits_and_native_carrier_operations() {
 
 #[test]
 fn constant_xor_and_population_count_fold_without_runtime_work() {
-    let module = Fixture::new().function(&[], Some(Type::I64), |body| {
+    let module = Fixture::new().function(&[], &[Type::I64], |body| {
         let count = body
             .value::<I64>(0xff00_ff00_ff00_ff00u64)?
             .xor(0x0f0f_0f0f_0f0f_0f0fu64)

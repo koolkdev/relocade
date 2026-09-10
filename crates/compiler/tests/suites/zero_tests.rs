@@ -115,7 +115,7 @@ fn module(cases: &[Case]) -> TestModule {
     for case in cases {
         let function = program.declare(Signature {
             parameters: vec![case.parameter],
-            result: Some(Type::I1),
+            results: vec![Type::I1],
         });
         let body = program.define(function).unwrap();
         let value = (case.build)(&body);
@@ -175,7 +175,7 @@ fn zero_test_predicates_return_canonical_booleans_at_runtime() {
         for &(input, expected) in case.inputs {
             assert_eq!(
                 instance.call_values(case.name, &[input]).unwrap(),
-                Some(Value::I32(expected)),
+                vec![Value::I32(expected)],
                 "{} with {input:?}",
                 case.name,
             );

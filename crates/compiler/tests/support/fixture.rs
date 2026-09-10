@@ -5,10 +5,10 @@ use wasm86_compiler::{
 
 use crate::wasm::{Callback, MemoryBytes, TestModule, Value};
 
-pub fn signature(parameters: &[Type], result: Option<Type>) -> Signature {
+pub fn signature(parameters: &[Type], results: &[Type]) -> Signature {
     Signature {
         parameters: parameters.into(),
-        result,
+        results: results.into(),
     }
 }
 
@@ -35,11 +35,8 @@ impl Fixture {
         })
     }
 
-    pub fn callback(&mut self, name: &str, signature: Signature, result: Option<Value>) -> Func {
-        self.callbacks.push(match result {
-            Some(value) => Callback::new(name, value),
-            None => Callback::void(name),
-        });
+    pub fn callback(&mut self, name: &str, signature: Signature, results: &[Value]) -> Func {
+        self.callbacks.push(Callback::new(name, results));
         self.program.import_function(FunctionImport {
             module: "test".into(),
             name: name.into(),
@@ -51,12 +48,12 @@ impl Fixture {
     pub fn function(
         mut self,
         parameters: &[Type],
-        result: Option<Type>,
+        results: &[Type],
         build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
     ) -> TestModule {
         let run = self
             .program
-            .function(signature(parameters, result), build)
+            .function(signature(parameters, results), build)
             .expect("build fixture function");
         self.finish(run)
     }
@@ -66,7 +63,7 @@ impl Fixture {
         parameters: &[Type],
         build: impl FnOnce(&FunctionBuilder<'_>) -> Val<T>,
     ) -> TestModule {
-        self.function(parameters, Some(T::TYPE), |body| {
+        self.function(parameters, &[T::TYPE], |body| {
             let value = build(&body);
             body.return_(value)
         })

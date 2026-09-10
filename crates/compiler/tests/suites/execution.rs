@@ -69,7 +69,7 @@ fn standalone_expressions_can_be_reused_in_different_function_bodies() {
 
 #[test]
 fn dword_addition_wraps_and_accepts_signed_operands() {
-    let module = Fixture::new().function(&[Type::I32; 2], Some(Type::I32), |body| {
+    let module = Fixture::new().function(&[Type::I32; 2], &[Type::I32], |body| {
         let left = body.parameter::<I32>(0)?;
         let right = body.parameter::<I32>(1)?;
         body.return_(left.add(right))
@@ -91,7 +91,7 @@ fn dword_addition_wraps_and_accepts_signed_operands() {
 
 #[test]
 fn qword_addition_wraps_and_accepts_signed_operands() {
-    let module = Fixture::new().function(&[Type::I64; 2], Some(Type::I64), |body| {
+    let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64], |body| {
         let left = body.parameter::<I64>(0)?;
         let right = body.parameter::<I64>(1)?;
         body.return_(left.add(right))
@@ -147,7 +147,7 @@ fn narrow_parameters_preserve_canonical_arguments() {
 #[test]
 fn narrow_addition_wraps_at_the_logical_width() {
     fn check<T: IntType>(cases: &[((i32, i32), i32)]) {
-        let module = Fixture::new().function(&[T::TYPE; 2], Some(T::TYPE), |body| {
+        let module = Fixture::new().function(&[T::TYPE; 2], &[T::TYPE], |body| {
             let left = body.parameter::<T>(0)?;
             let right = body.parameter::<T>(1)?;
             body.return_(left.add(right))
@@ -221,7 +221,7 @@ fn shared_qword_intermediates_wrap_without_changing_their_uses() {
 #[test]
 fn overlapping_and_disjoint_subexpressions_preserve_dword_results() {
     for overlap in [true, false] {
-        let module = Fixture::new().function(&[Type::I32; 2], Some(Type::I32), |body| {
+        let module = Fixture::new().function(&[Type::I32; 2], &[Type::I32], |body| {
             let a = body.parameter::<I32>(0)?.add(1);
             let b = body.parameter::<I32>(1)?.add(2);
             let _dead = a.add(9);
@@ -239,7 +239,7 @@ fn overlapping_and_disjoint_subexpressions_preserve_dword_results() {
 #[test]
 fn overlapping_and_disjoint_subexpressions_preserve_qword_results() {
     for overlap in [true, false] {
-        let module = Fixture::new().function(&[Type::I64; 2], Some(Type::I64), |body| {
+        let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64], |body| {
             let a = body.parameter::<I64>(0)?.add(1);
             let b = body.parameter::<I64>(1)?.add(2);
             let _dead = a.add(9);
@@ -284,7 +284,7 @@ fn exports_follow_declarations_and_can_alias_the_same_function() {
     let mut program = Program::new();
     let signature = Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     };
     let first = program.declare(signature.clone());
     let second = program.declare(signature);

@@ -12,7 +12,7 @@ const POINTER: &[u8] = &[8, 0, 0, 0, 0xa5, 0x5a, 0xc3, 0x3c, 7, 0, 0, 0, 5, 0, 0
 fn byte_at_offset(wrap_base: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0xa5, 0xb8, 0x5a, 0xc3]);
-    fixture.function(&[Type::I32], Some(Type::I8), |mut body| {
+    fixture.function(&[Type::I32], &[Type::I8], |mut body| {
         let base = body.parameter::<I32>(0)?;
         let address = if wrap_base { base.add(1) } else { base };
         let byte = body.load_at::<I8>(memory, &address, u32::from(!wrap_base))?;
@@ -25,7 +25,7 @@ fn wide_snapshot(separate_base: bool, store_offset: u32) -> TestModule {
     let memory = fixture.memory("state", WIDE);
     fixture.function(
         &vec![Type::I32; if separate_base { 2 } else { 1 }],
-        Some(Type::I64),
+        &[Type::I64],
         |mut body| {
             let base = body.parameter::<I32>(0)?;
             let other = body.parameter::<I32>(u32::from(separate_base))?;
@@ -39,7 +39,7 @@ fn wide_snapshot(separate_base: bool, store_offset: u32) -> TestModule {
 fn constant_bases() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", WIDE);
-    fixture.function(&[], Some(Type::I64), |mut body| {
+    fixture.function(&[], &[Type::I64], |mut body| {
         let loaded = body.load_at::<I64>(memory, 4, 0)?;
         body.store_at::<I32>(memory, 12, 0, 9)?;
         body.return_(loaded)
@@ -49,7 +49,7 @@ fn constant_bases() -> TestModule {
 fn nested_loads(reuse_pointer: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", POINTER);
-    fixture.function(&[], Some(Type::I32), |mut body| {
+    fixture.function(&[], &[Type::I32], |mut body| {
         let pointer = body.load::<I32>(memory, 0)?;
         let loaded = body.load_at::<I32>(memory, &pointer, 0)?;
         body.store::<I32>(memory, 0, 12)?;
@@ -71,7 +71,7 @@ fn deferred_load_with_captured_pointer() -> TestModule {
             0xa5, 0x5a, 0xc3, 0x3c, 0xa5, 0x5a, 0xc3, 0x3c, 7, 0, 0, 0, 5, 0, 0, 0,
         ],
     );
-    fixture.function(&[], Some(Type::I32), |mut body| {
+    fixture.function(&[], &[Type::I32], |mut body| {
         let pointer = body.load::<I32>(state, 0)?;
         let loaded = body.load_at::<I32>(other, &pointer, 0)?;
         body.store::<I32>(state, 0, 12)?;
@@ -82,7 +82,7 @@ fn deferred_load_with_captured_pointer() -> TestModule {
 fn store_through_snapshot() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", POINTER);
-    fixture.function(&[], Some(Type::I32), |mut body| {
+    fixture.function(&[], &[Type::I32], |mut body| {
         let pointer = body.load::<I32>(memory, 0)?;
         body.store::<I32>(memory, 0, 12)?;
         body.store_at::<I32>(memory, &pointer, 0, 9)?;
@@ -96,7 +96,7 @@ fn shared_address() -> TestModule {
         "state",
         &[0xa5, 0x5a, 0xc3, 0x3c, 7, 0, 0, 0, 5, 0, 0, 0, 3, 0, 0, 0],
     );
-    fixture.function(&[Type::I32], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
         let address = body.parameter::<I32>(0)?.add(4);
         let loaded = body.load_at::<I32>(memory, &address, 0)?;
         body.store_at::<I32>(memory, &address, 4, 9)?;
@@ -108,7 +108,7 @@ fn shared_address() -> TestModule {
 fn disjoint_load_trap() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a, 0xc3, 0x3c]);
-    fixture.function(&[Type::I32], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
         let base = body.parameter::<I32>(0)?;
         let loaded = body.load_at::<I32>(memory, &base, 65536)?;
         body.store_at::<I32>(memory, &base, 0, 9)?;
@@ -120,7 +120,7 @@ fn separate_memories() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
     let other = fixture.memory("other", &[5, 0, 0, 0, 0x5a, 0xa5]);
-    fixture.function(&[Type::I32], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
         let base = body.parameter::<I32>(0)?;
         let loaded = body.load_at::<I32>(state, &base, 0)?;
         body.store_at::<I32>(other, &base, 0, 9)?;
@@ -133,7 +133,7 @@ fn unused_address_chain() -> TestModule {
     fixture.memory("unused", &[]);
     let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
     let other = fixture.memory("other", &[5, 0, 0, 0, 0x5a, 0xa5]);
-    fixture.function(&[Type::I32], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
         let base = body.parameter::<I32>(0)?;
         let pointer = body.load_at::<I32>(state, &base, 0)?;
         let _unused = body.load_at::<I8>(other, &pointer, 0)?;

@@ -5,7 +5,7 @@ fn dropping_a_body_leaves_its_function_unfinished() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let body = program.define(function).unwrap();
     drop(body);
@@ -17,7 +17,7 @@ fn values_from_a_completed_body_are_rejected_by_another_builder() {
     let mut program = Program::new();
     let signature = Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     };
     let first = program.declare(signature.clone());
     let second = program.declare(signature);
@@ -37,7 +37,7 @@ fn restarting_a_body_rejects_its_old_values() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Some(Type::I64),
+        results: vec![Type::I64],
     });
     let body = program.define(function).unwrap();
     let retained = body.value::<I64>(7).unwrap();
@@ -54,7 +54,7 @@ fn foreign_zero_is_rejected_without_poisoning_other_expressions() {
     let mut foreign_program = Program::new();
     let foreign_function = foreign_program.declare(Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let foreign_body = foreign_program.define(foreign_function).unwrap();
     let foreign_zero = foreign_body.value::<I32>(0).unwrap();
@@ -62,7 +62,7 @@ fn foreign_zero_is_rejected_without_poisoning_other_expressions() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![Type::I32],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let body = program.define(function).unwrap();
     let own = body.parameter::<I32>(0).unwrap();
@@ -87,7 +87,7 @@ fn parameter_and_return_types_must_match_the_signature() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![Type::I1],
-        result: Some(Type::I1),
+        results: vec![Type::I1],
     });
     let body = program.define(function).unwrap();
     assert!(matches!(

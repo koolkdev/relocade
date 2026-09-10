@@ -79,7 +79,7 @@ impl Memory {
         let range_resolver = program.function(
             Signature {
                 parameters: vec![Type::I32, Type::I32, Type::I32, Type::I32],
-                result: Some(Type::I32),
+                results: vec![Type::I32],
             },
             |body| table.define_range_resolver(body),
         )?;
@@ -261,7 +261,7 @@ impl Memory {
             &access.scattered,
             |mut arm| {
                 let writer = self.scattered_writer::<T>(arm.program())?;
-                arm.call_void(writer, &[(&access.linear).into(), value.into()])
+                arm.call::<()>(writer, &[(&access.linear).into(), value.into()])
             },
             |mut arm| arm.store_at::<T>(self.guest, &access.physical, 0, value),
         )

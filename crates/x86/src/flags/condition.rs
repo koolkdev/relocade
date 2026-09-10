@@ -1,6 +1,6 @@
 use wasm86_compiler::{MemoryInt, Val, I1};
 
-use super::StatusFlag;
+use super::{FlagMask, StatusFlag};
 
 pub(crate) type OperandComparison<T> = fn(&Val<T>, &Val<T>) -> Val<I1>;
 pub(crate) type ResultComparison<T> = fn(&Val<T>) -> Val<I1>;
@@ -28,6 +28,23 @@ pub(crate) enum Condition {
 }
 
 impl Condition {
+    pub(crate) fn flags(self) -> FlagMask {
+        use StatusFlag::*;
+        match self.canonical() {
+            Self::O => FlagMask::of(OF),
+            Self::B => FlagMask::of(CF),
+            Self::E => FlagMask::of(ZF),
+            Self::BE => FlagMask::of(CF).union(FlagMask::of(ZF)),
+            Self::S => FlagMask::of(SF),
+            Self::P => FlagMask::of(PF),
+            Self::L => FlagMask::of(SF).union(FlagMask::of(OF)),
+            Self::LE => FlagMask::of(ZF)
+                .union(FlagMask::of(SF))
+                .union(FlagMask::of(OF)),
+            _ => unreachable!("only canonical conditions have distinct flag dependencies"),
+        }
+    }
+
     /// One predicate per inverse pair, in opcode order. Stored-condition readers
     /// can share that predicate and invert its result for the paired condition.
     pub(crate) const CANONICAL: [Self; 8] = [

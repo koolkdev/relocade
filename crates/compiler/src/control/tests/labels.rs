@@ -3,7 +3,7 @@ use crate::{BuildError, MemoryImport, Program, Signature, Type, I1, I32, I64};
 fn signature() -> Signature {
     Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     }
 }
 
@@ -94,7 +94,7 @@ fn branch_and_yield_arguments_validate_counts_logical_types_and_visibility() {
     assert_eq!(
         body.block::<(I32, I1)>(|block, label| block.branch(&label, 7))
             .err(),
-        Some(BuildError::ArgumentCount {
+        Some(BuildError::ResultCount {
             expected: 2,
             actual: 1
         })
@@ -106,7 +106,7 @@ fn branch_and_yield_arguments_validate_counts_logical_types_and_visibility() {
             |arm| arm.yield_((11, true))
         )
         .err(),
-        Some(BuildError::ArgumentCount {
+        Some(BuildError::ResultCount {
             expected: 2,
             actual: 3
         })
@@ -169,7 +169,7 @@ fn a_swallowed_bad_outward_branch_cannot_become_implicit_fallthrough() {
             block.if_(true, |branch| {
                 assert_eq!(
                     branch.branch(&label, 7),
-                    Err(BuildError::ArgumentCount {
+                    Err(BuildError::ResultCount {
                         expected: 0,
                         actual: 1
                     })
@@ -203,7 +203,7 @@ fn failed_late_branches_discard_earlier_arms_and_their_imports() {
             block.yield_(7)
         })
         .err(),
-        Some(BuildError::ArgumentCount {
+        Some(BuildError::ResultCount {
             expected: 2,
             actual: 1
         })

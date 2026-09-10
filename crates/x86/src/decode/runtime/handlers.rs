@@ -52,7 +52,7 @@ impl DecodeHandlers {
         parameters.resize(point.field_count() + 1, Type::I8);
         let checked = program.declare(Signature {
             parameters: parameters.clone(),
-            result: Some(Type::I64),
+            results: vec![Type::I64],
         });
         parameters.push(Type::I32);
         Self {
@@ -60,11 +60,11 @@ impl DecodeHandlers {
             checked,
             direct: program.declare(Signature {
                 parameters: parameters.clone(),
-                result: Some(Type::I64),
+                results: vec![Type::I64],
             }),
             prefixed: program.declare(Signature {
                 parameters,
-                result: Some(Type::I64),
+                results: vec![Type::I64],
             }),
         }
     }

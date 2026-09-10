@@ -1,9 +1,13 @@
 //! Status-flag sources and condition folding over logical-width values.
 //! CPU record layout, pending definitions and publication belong to state.
 
+mod changes;
 mod condition;
+mod rotates;
 mod shifts;
+pub(super) use changes::{FlagChange, FlagMask};
 pub(super) use condition::Condition;
+pub(super) use rotates::RotateKind;
 pub(super) use shifts::ShiftKind;
 
 use std::convert::Infallible;
@@ -74,22 +78,6 @@ impl<T: MemoryInt> FlagSource<T> {
         let flags = StatusFlag::ALL
             .map(|flag| arithmetic_flag(kind, &left, &right, &result, &carry_in, flag));
         Self::Explicit { result, flags }
-    }
-
-    /// Replaces one flag while retaining the result and all other flag rules.
-    /// The resulting source uses its composed flags for every condition query.
-    pub(super) fn with_flag(self, flag: StatusFlag, value: Val<I1>) -> Self {
-        let flags = StatusFlag::ALL.map(|candidate| {
-            if candidate == flag {
-                value.clone()
-            } else {
-                self.flag(candidate)
-            }
-        });
-        Self::Explicit {
-            result: self.result().clone(),
-            flags,
-        }
     }
 
     pub(super) fn result(&self) -> &Val<T> {
@@ -188,6 +176,14 @@ pub(super) enum LocalFlagSource {
 }
 
 impl LocalFlagSource {
+    pub(super) fn flag(&self, flag: StatusFlag) -> Val<I1> {
+        match self {
+            Self::Byte(source) => source.flag(flag),
+            Self::Word(source) => source.flag(flag),
+            Self::Dword(source) => source.flag(flag),
+        }
+    }
+
     pub(super) fn condition(&self, condition: Condition) -> Val<I1> {
         match self {
             Self::Byte(source) => source.condition(condition),

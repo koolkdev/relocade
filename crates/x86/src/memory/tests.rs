@@ -21,7 +21,7 @@ where
         .function(
             Signature {
                 parameters: vec![Type::I32],
-                result: Some(Type::I64),
+                results: vec![Type::I64],
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
@@ -40,7 +40,7 @@ fn define_write<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str
         .function(
             Signature {
                 parameters: vec![Type::I32, T::TYPE],
-                result: Some(Type::I64),
+                results: vec![Type::I64],
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
@@ -77,7 +77,7 @@ fn access_fault_handlers_must_terminate_the_denied_path() {
         let result = program.function(
             Signature {
                 parameters: vec![Type::I32],
-                result: Some(Type::I64),
+                results: vec![Type::I64],
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
@@ -236,7 +236,7 @@ fn check(module: &TestModule, input: &Input, result: i64, changes: &[(u32, u8)])
         module.observe(input, 1),
         Observation {
             events: vec![Event::Return {
-                outcome: Outcome::Returned(Some(Argument::I64(result))),
+                outcome: Outcome::Returned(vec![Argument::I64(result)]),
                 snapshot: Snapshot {
                     cpu: CpuState::filled(0xa5).to_bytes().to_vec(),
                     guest: Some(changes.to_vec()),

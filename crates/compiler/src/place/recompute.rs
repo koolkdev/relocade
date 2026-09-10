@@ -12,6 +12,7 @@ pub(super) fn groups(body: &Body, id: usize, demand: Demand, tree: &Tree<'_>) ->
         ValueKind::Binary(..)
             | ValueKind::Compare(..)
             | ValueKind::Shift { .. }
+            | ValueKind::Rotate { .. }
             | ValueKind::Select { .. }
             | ValueKind::Normalize(_)
             | ValueKind::Convert(_)

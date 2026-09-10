@@ -31,7 +31,7 @@ fn fold_chains_keep_original_visibility_and_runtime_identity() {
     let (mut program, memory) = memory_program();
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let mut body = program.define(function).unwrap();
     let mut retained = vec![];
@@ -51,6 +51,28 @@ fn fold_chains_keep_original_visibility_and_runtime_identity() {
             (Val::<I32>::from(0).shl(&input).add(1), 1),
             (Val::<I32>::from(0).unsigned().shr(&input).add(1), 1),
             (Val::<I32>::from(0).signed().shr(&input).add(1), 1),
+            (Val::<I32>::from(0).rotl(&input).add(1), 1),
+            (Val::<I32>::from(0).rotr(&input).add(1), 1),
+            (Val::<I32>::from(-1).rotl(&input).add(1), 0),
+            (Val::<I32>::from(-1).rotr(&input).add(1), 0),
+            (Val::<I32>::from(129).rotl(input.and(0)), 129),
+            (Val::<I32>::from(129).rotr(input.and(0).add(32)), 129),
+            (
+                Val::<I1>::from(true)
+                    .rotl(&input)
+                    .unsigned()
+                    .extend::<I32>(),
+                1,
+            ),
+            (
+                Val::<I1>::from(false)
+                    .rotr(&input)
+                    .unsigned()
+                    .extend::<I32>(),
+                0,
+            ),
+            (input.rotl(32).and(0).add(1), 1),
+            (input.rotr(0).and(0).add(1), 1),
             (input.eq(&input).unsigned().extend::<I32>().add(1), 2),
             (Val::<I1>::from(false).select(&input, 7).add(1), 8),
             (input.ne(&input).select(&input, 8).add(1), 9),
@@ -76,7 +98,7 @@ fn folded_operands_from_siblings_have_no_shared_visible_scope() {
     let (mut program, memory) = memory_program();
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let mut body = program.define(function).unwrap();
     let first = child_constant(&mut body, memory);
@@ -84,6 +106,8 @@ fn folded_operands_from_siblings_have_no_shared_visible_scope() {
         let local = sibling.load::<I32>(memory, 4)?.and(0).add(1);
         for value in [
             first.add(&local),
+            first.rotl(&local),
+            first.rotr(&local),
             first.eq(&local).unsigned().extend::<I32>(),
             Val::<I1>::from(true).select(&first, &local),
             Val::<I1>::from(false).select(&first, &local),
@@ -106,12 +130,12 @@ fn every_operand_and_argument_boundary_checks_folded_visibility() {
         name: "target".into(),
         signature: Signature {
             parameters: vec![Type::I32],
-            result: Some(Type::I32),
+            results: vec![Type::I32],
         },
     });
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let mut body = program.define(function).unwrap();
     let value = child_constant(&mut body, memory);
@@ -149,7 +173,7 @@ fn returns_and_tail_calls_check_folded_argument_visibility() {
         let (mut program, memory) = memory_program();
         let signature = Signature {
             parameters: vec![Type::I32],
-            result: Some(Type::I32),
+            results: vec![Type::I32],
         };
         let target = program.import_function(FunctionImport {
             module: "test".into(),
@@ -178,7 +202,7 @@ fn legal_child_folds_discard_dead_loads_and_joins_gain_parent_visibility() {
         .function(
             Signature {
                 parameters: vec![Type::I1],
-                result: Some(Type::I32),
+                results: vec![Type::I32],
             },
             |mut body| {
                 let predicate = body.parameter::<I1>(0)?;
@@ -237,7 +261,7 @@ fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
     });
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let discarded = program.define(function).unwrap();
     let foreign = discarded.value::<I32>(9).unwrap();

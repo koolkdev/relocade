@@ -198,7 +198,7 @@ fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmti
         .function(
             Signature {
                 parameters: vec![Type::I32, Type::I64],
-                result: Some(Type::I64),
+                results: vec![Type::I64],
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;

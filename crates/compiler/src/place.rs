@@ -11,6 +11,7 @@ use crate::{
     Body, Func, Operation, Terminal, ValueKind,
 };
 
+mod calls;
 mod recompute;
 
 pub(super) struct Placement {
@@ -224,92 +225,130 @@ fn demand(
     }
 }
 
+struct Planner<'a> {
+    body: &'a Body,
+    effects: &'a [Effects],
+    tree: Tree<'a>,
+    demands: Vec<Option<Demand>>,
+    capture_points: Vec<Vec<Point>>,
+    saved: Vec<bool>,
+}
+
 pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
-    let tree = Tree::new(&body.region);
-    let mut demands = vec![None; body.values.len()];
-    for region in body.region.walk() {
-        for (index, operation) in region.operations.iter().enumerate() {
-            let point = Point::main(Site {
-                region: region.id,
-                index,
-            });
-            match operation {
-                Operation::Store { location, value } => {
-                    demand(body, &tree, &mut demands, location.base, point);
-                    demand(body, &tree, &mut demands, *value, point);
-                }
-                Operation::If {
-                    condition: selector,
-                    ..
-                }
-                | Operation::Switch { selector, .. } => {
-                    demand(body, &tree, &mut demands, *selector, point)
-                }
-                Operation::Call { invocation, output } => {
-                    if effects[invocation.target.0].must_execute() {
-                        if let Some(output) = output {
-                            demand(body, &tree, &mut demands, *output, point);
-                        } else {
+    let mut planner = Planner {
+        body,
+        effects,
+        tree: Tree::new(&body.region),
+        demands: vec![None; body.values.len()],
+        capture_points: vec![Vec::new(); body.values.len()],
+        saved: vec![false; body.values.len()],
+    };
+    planner.collect_demands();
+    planner.place_values();
+    planner.finish()
+}
+
+impl Planner<'_> {
+    fn collect_demands(&mut self) {
+        let body = self.body;
+        let tree = &self.tree;
+        let effects = self.effects;
+        let demands = &mut self.demands;
+        for region in body.region.walk() {
+            for (index, operation) in region.operations.iter().enumerate() {
+                let point = Point::main(Site {
+                    region: region.id,
+                    index,
+                });
+                match operation {
+                    Operation::Store { location, value } => {
+                        demand(body, tree, demands, location.base, point);
+                        demand(body, tree, demands, *value, point);
+                    }
+                    Operation::If {
+                        condition: selector,
+                        ..
+                    }
+                    | Operation::Switch { selector, .. } => {
+                        demand(body, tree, demands, *selector, point)
+                    }
+                    Operation::Call {
+                        invocation,
+                        outputs,
+                    } => {
+                        if outputs.is_empty() && effects[invocation.target.0].must_execute() {
                             for &argument in &invocation.arguments {
-                                demand(body, &tree, &mut demands, argument, point);
+                                demand(body, tree, demands, argument, point);
                             }
                         }
                     }
+                    Operation::Load(_) | Operation::Block { .. } => {}
                 }
-                Operation::Load(_) | Operation::Block { .. } => {}
             }
-        }
-        if let Some(terminal) = &region.terminal {
-            if matches!(terminal, Terminal::Branch { .. }) {
-                continue;
-            }
-            for &value in terminal.inputs() {
-                demand(
-                    body,
-                    &tree,
-                    &mut demands,
-                    value,
-                    Point::main(Site {
-                        region: region.id,
-                        index: region.operations.len(),
-                    }),
-                );
-            }
-        }
-    }
-    let mut capture_points = vec![Vec::new(); body.values.len()];
-    let mut saved = vec![false; body.values.len()];
-    // Operands precede consumers. Each chosen placement needs its inputs once.
-    // Recomputed expressions pass their actual placements to their inputs;
-    // snapshot producers retain their own sharing and clobber rules.
-    for id in (0..body.values.len()).rev() {
-        let Some(use_) = demands[id].clone() else {
-            continue;
-        };
-        if let ValueKind::JoinResult { site, component } = body.values[id].kind {
-            saved[id] = true;
-            let operation = &tree.0[&site.region].region.operations[site.index];
-            // The branch operation stays at its authored site. A live output needs
-            // each incoming component only at its actual branch site, including
-            // exits nested within other control operations.
-            for arm in operation.children() {
-                for (exit, arguments) in arm.exits_to(site) {
+            if let Some(terminal) = &region.terminal {
+                if matches!(terminal, Terminal::Branch { .. }) {
+                    continue;
+                }
+                for &value in terminal.inputs() {
                     demand(
                         body,
-                        &tree,
-                        &mut demands,
-                        arguments[component],
-                        Point::main(exit),
+                        tree,
+                        demands,
+                        value,
+                        Point::main(Site {
+                            region: region.id,
+                            index: region.operations.len(),
+                        }),
                     );
                 }
             }
-            continue;
         }
-        for use_ in recompute::groups(body, id, use_, &tree) {
-            saved[id] |= use_.points.len() > 1;
-            let mut anchor = use_.first;
-            match body.values[id].kind {
-                ValueKind::Load { location, site } => {
+    }
+
+    fn place_values(&mut self) {
+        let body = self.body;
+        let effects = self.effects;
+        // Operands precede consumers. Each chosen placement needs its inputs once.
+        // Recomputed expressions pass their actual placements to their inputs;
+        // snapshot producers retain their own sharing and clobber rules.
+        for id in (0..body.values.len()).rev() {
+            if let ValueKind::CallResult { site, component } = body.values[id].kind {
+                // Failed branch construction can leave values from a discarded region.
+                if !self.tree.0.contains_key(&site.region) {
+                    continue;
+                }
+                let (_, outputs) = body.call(site);
+                // Result IDs are adjacent and follow every argument. Visit the group
+                // at its last component, after all consumers have supplied demand.
+                if component + 1 == outputs.len() {
+                    self.place_call(site);
+                }
+                continue;
+            }
+            let tree = &self.tree;
+            let demands = &mut self.demands;
+            let capture_points = &mut self.capture_points;
+            let saved = &mut self.saved;
+            let Some(use_) = demands[id].clone() else {
+                continue;
+            };
+            if let ValueKind::JoinResult { site, component } = body.values[id].kind {
+                saved[id] = true;
+                let operation = &tree.0[&site.region].region.operations[site.index];
+                // The branch operation stays at its authored site. A live output needs
+                // each incoming component only at its actual branch site, including
+                // exits nested within other control operations.
+                for arm in operation.children() {
+                    for (exit, arguments) in arm.exits_to(site) {
+                        demand(body, tree, demands, arguments[component], Point::main(exit));
+                    }
+                }
+                continue;
+            }
+            for use_ in recompute::groups(body, id, use_, tree) {
+                saved[id] |= use_.points.len() > 1;
+                let mut anchor = use_.first;
+                if let ValueKind::Load { location, site } = body.values[id].kind {
                     if tree.clobbers(
                         site,
                         anchor.site,
@@ -319,101 +358,94 @@ pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
                         anchor = Point::main(site);
                     }
                 }
-                ValueKind::CallResult { site } => {
-                    let summary = &effects[body.invocation(site).target.0];
-                    if summary.must_execute() {
-                        anchor = Point::main(site);
-                    } else if let Effects::Known { reads, .. } = summary {
-                        if tree.clobbers(
-                            site,
-                            anchor.site,
-                            |location| {
-                                reads
-                                    .iter()
-                                    .any(|read| read.overlaps_location(location, body))
-                            },
-                            |target| effects[target.0].writes_reads(reads),
-                        ) {
-                            anchor = Point::main(site);
-                        }
+                if (!use_.at_first || anchor != use_.first)
+                    && !matches!(
+                        body.values[id].kind,
+                        ValueKind::Constant(_) | ValueKind::Parameter(_)
+                    )
+                {
+                    capture_points[id].push(anchor);
+                    saved[id] = true;
+                }
+                match body.values[id].kind {
+                    ValueKind::Binary(_, a, b)
+                    | ValueKind::Compare(_, a, b)
+                    | ValueKind::Shift {
+                        value: a, count: b, ..
+                    }
+                    | ValueKind::Rotate {
+                        value: a, count: b, ..
+                    } => {
+                        demand(body, tree, demands, a, anchor);
+                        demand(body, tree, demands, b, anchor);
+                    }
+                    ValueKind::Select {
+                        condition,
+                        when_true,
+                        when_false,
+                    } => {
+                        demand(body, tree, demands, when_true, anchor);
+                        demand(body, tree, demands, when_false, anchor);
+                        demand(body, tree, demands, condition, anchor);
+                    }
+                    ValueKind::Normalize(input)
+                    | ValueKind::Convert(input)
+                    | ValueKind::SignExtend(input)
+                    | ValueKind::Popcnt(input)
+                    | ValueKind::ZeroTest { input, .. } => {
+                        demand(body, tree, demands, input, anchor)
+                    }
+                    // Address reads preserve their snapshots where this read runs.
+                    ValueKind::Load { location, .. } => {
+                        demand(body, tree, demands, location.base, anchor)
+                    }
+                    ValueKind::Constant(_) | ValueKind::Parameter(_) => {}
+                    ValueKind::CallResult { .. } => {
+                        unreachable!("call outputs share one placement")
+                    }
+                    ValueKind::JoinResult { .. } => {
+                        unreachable!("join demands stay inside their arms")
                     }
                 }
-                _ => {}
-            }
-            if (!use_.at_first || anchor != use_.first)
-                && !matches!(
-                    body.values[id].kind,
-                    ValueKind::Constant(_) | ValueKind::Parameter(_)
-                )
-            {
-                capture_points[id].push(anchor);
-                saved[id] = true;
-            }
-            match body.values[id].kind {
-                ValueKind::Binary(_, a, b)
-                | ValueKind::Compare(_, a, b)
-                | ValueKind::Shift {
-                    value: a, count: b, ..
-                } => {
-                    demand(body, &tree, &mut demands, a, anchor);
-                    demand(body, &tree, &mut demands, b, anchor);
-                }
-                ValueKind::Select {
-                    condition,
-                    when_true,
-                    when_false,
-                } => {
-                    demand(body, &tree, &mut demands, when_true, anchor);
-                    demand(body, &tree, &mut demands, when_false, anchor);
-                    demand(body, &tree, &mut demands, condition, anchor);
-                }
-                ValueKind::Normalize(input)
-                | ValueKind::Convert(input)
-                | ValueKind::SignExtend(input)
-                | ValueKind::Popcnt(input)
-                | ValueKind::ZeroTest { input, .. } => {
-                    demand(body, &tree, &mut demands, input, anchor)
-                }
-                // Address reads preserve their snapshots where this read runs.
-                ValueKind::Load { location, .. } => {
-                    demand(body, &tree, &mut demands, location.base, anchor)
-                }
-                ValueKind::CallResult { site } => {
-                    for &argument in &body.invocation(site).arguments {
-                        demand(body, &tree, &mut demands, argument, anchor);
-                    }
-                }
-                ValueKind::Constant(_) | ValueKind::Parameter(_) => {}
-                ValueKind::JoinResult { .. } => unreachable!("join demands stay inside their arms"),
             }
         }
     }
-    let mut slot_types = Vec::new();
-    let slots = body
-        .values
-        .iter()
-        .enumerate()
-        .map(|(id, value)| {
-            if saved[id] && !matches!(value.kind, ValueKind::Constant(_) | ValueKind::Parameter(_))
-            {
-                let slot = slot_types.len();
-                slot_types.push(wasm_type(value.ty));
-                Some(slot)
-            } else {
-                None
+
+    fn finish(self) -> Placement {
+        let Self {
+            body,
+            capture_points,
+            saved,
+            ..
+        } = self;
+        let mut slot_types = Vec::new();
+        let slots = body
+            .values
+            .iter()
+            .enumerate()
+            .map(|(id, value)| {
+                if saved[id]
+                    && !matches!(value.kind, ValueKind::Constant(_) | ValueKind::Parameter(_))
+                {
+                    let slot = slot_types.len();
+                    slot_types.push(wasm_type(value.ty));
+                    Some(slot)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut captures: HashMap<_, Vec<_>> = HashMap::new();
+        // Increasing value order places captured dependencies before their users.
+        for (id, points) in capture_points.into_iter().enumerate() {
+            for point in points {
+                captures.entry(point.site).or_default().push(id);
             }
-        })
-        .collect();
-    let mut captures: HashMap<_, Vec<_>> = HashMap::new();
-    // Increasing value order places captured dependencies before their users.
-    for (id, points) in capture_points.into_iter().enumerate() {
-        for point in points {
-            captures.entry(point.site).or_default().push(id);
         }
-    }
-    Placement {
-        slots,
-        captures,
-        slot_types,
+        Placement {
+            slots,
+            captures,
+            slot_types,
+        }
     }
 }

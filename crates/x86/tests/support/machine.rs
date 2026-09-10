@@ -105,12 +105,12 @@ pub(crate) fn expected(image: &Image, steps: &[Step<'_>]) -> Observation {
                     eip: eip as i32,
                     snapshot: snapshot.clone(),
                 });
-                Outcome::Returned(Some(Argument::I64(i64::MIN)))
+                Outcome::Returned(vec![Argument::I64(i64::MIN)])
             }
-            Exit::PageFault { address, error } => Outcome::Returned(Some(Argument::I64(
+            Exit::PageFault { address, error } => Outcome::Returned(vec![Argument::I64(
                 ((4_u64 << 48) | (u64::from(error) << 32) | u64::from(address)) as i64,
-            ))),
-            Exit::Other(word) => Outcome::Returned(Some(Argument::I64(word as i64))),
+            )]),
+            Exit::Other(word) => Outcome::Returned(vec![Argument::I64(word as i64)]),
         };
         events.push(Event::Return { outcome, snapshot });
     }

@@ -6,7 +6,7 @@ use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
 fn dense_values() -> TestModule {
     let fixture = Fixture::new();
-    fixture.function(&[Type::I32], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
         let selector = body.parameter::<I32>(0)?;
         let result = body.switch_value::<I32, _>(&selector, &[10, 11, 12, 13], |arm, key| {
             arm.yield_(match key {
@@ -23,7 +23,7 @@ fn dense_values() -> TestModule {
 
 fn sparse_endpoints() -> TestModule {
     let fixture = Fixture::new();
-    fixture.function(&[Type::I32], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
         let selector = body.parameter::<I32>(0)?;
         let result =
             body.switch_value::<I32, _>(&selector, &[0xffff_ffff, 0, 0x8000_0000], |arm, key| {
@@ -40,7 +40,7 @@ fn sparse_endpoints() -> TestModule {
 
 fn narrow_selector() -> TestModule {
     let fixture = Fixture::new();
-    fixture.function(&[Type::I8], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I8], &[Type::I32], |mut body| {
         let selector = body.parameter::<I8>(0)?.add(1);
         let result = body.switch_value::<I32, _>(&selector, &[0, 1, 255], |arm, key| {
             arm.yield_(match key {
@@ -57,7 +57,7 @@ fn narrow_selector() -> TestModule {
 fn narrow_result() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0xa5, 0xa5, 0xa5, 0xa5]);
-    fixture.function(&[Type::I32, Type::I8], Some(Type::I8), |mut body| {
+    fixture.function(&[Type::I32, Type::I8], &[Type::I8], |mut body| {
         let selector = body.parameter::<I32>(0)?;
         let input = body.parameter::<I8>(1)?;
         let result = body.switch_value::<I8, _>(selector, &[0, 1], |arm, key| {
@@ -72,7 +72,7 @@ fn nested_value_and_exit() -> TestModule {
     let fixture = Fixture::new();
     fixture.function(
         &[Type::I32, Type::I1, Type::I64],
-        Some(Type::I64),
+        &[Type::I64],
         |mut body| {
             let selector = body.parameter::<I32>(0)?;
             let condition = body.parameter::<I1>(1)?;
@@ -99,16 +99,16 @@ fn selected_effects_and_snapshot() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0]);
     let receive = fixture.callback(
         "receive",
-        signature(&[Type::I32], Some(Type::I32)),
-        Some(Value::I32(41)),
+        signature(&[Type::I32], &[Type::I32]),
+        &[Value::I32(41)],
     );
-    let mutate = fixture.program.declare(signature(&[], Some(Type::I32)));
+    let mutate = fixture.program.declare(signature(&[], &[Type::I32]));
     let mut mutation = fixture.program.define(mutate).unwrap();
     mutation.store::<I32>(state, 0, 13).unwrap();
     mutation.return_(99).unwrap();
     let run = fixture
         .program
-        .declare(signature(&[Type::I32, Type::I32], Some(Type::I32)));
+        .declare(signature(&[Type::I32, Type::I32], &[Type::I32]));
     let mut body = fixture.program.define(run).unwrap();
     let selector = body.parameter::<I32>(0).unwrap();
     let address = body.parameter::<I32>(1).unwrap();
@@ -137,10 +137,10 @@ fn shared_call_result() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0]);
     let receive = fixture.callback(
         "receive",
-        signature(&[Type::I32], Some(Type::I32)),
-        Some(Value::I32(23)),
+        signature(&[Type::I32], &[Type::I32]),
+        &[Value::I32(23)],
     );
-    fixture.function(&[Type::I32], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
         let selector = body.parameter::<I32>(0)?;
         let result = body.switch_value::<I32, _>(selector, &[0, 1], |mut arm, key| {
             arm.store::<I32>(state, 0, key.map_or(3, |key| key + 1))?;
@@ -157,10 +157,10 @@ fn unused_result_keeps_effects() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let receive = fixture.callback(
         "receive",
-        signature(&[Type::I32], Some(Type::I32)),
-        Some(Value::I32(23)),
+        signature(&[Type::I32], &[Type::I32]),
+        &[Value::I32(23)],
     );
-    fixture.function(&[Type::I32], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
         let selector = body.parameter::<I32>(0)?;
         let _unused = body.switch_value::<I32, _>(selector, &[1, 2], |mut arm, key| {
             arm.store::<I32>(state, 0, key.unwrap_or(3))?;
@@ -176,7 +176,7 @@ fn unused_result_keeps_effects() -> TestModule {
 
 fn empty_default() -> TestModule {
     let fixture = Fixture::new();
-    fixture.function(&[Type::I32], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
         let selector = body.parameter::<I32>(0)?;
         let mut visits = 0;
         let value = body.switch_value::<I32, _>(selector, &[], |arm, key| {
@@ -194,7 +194,7 @@ fn failed_switch_discards_effects() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0]);
     let run = fixture
         .program
-        .declare(signature(&[Type::I32], Some(Type::I32)));
+        .declare(signature(&[Type::I32], &[Type::I32]));
     let mut body = fixture.program.define(run).unwrap();
     let selector = body.parameter::<I32>(0).unwrap();
     let mut visited_default = false;
@@ -203,7 +203,7 @@ fn failed_switch_discards_effects() -> TestModule {
             let receive = arm.program().import_function(FunctionImport {
                 module: "test".into(),
                 name: "receive".into(),
-                signature: signature(&[Type::I32], Some(Type::I32)),
+                signature: signature(&[Type::I32], &[Type::I32]),
             });
             let _answer = arm.call::<I32>(receive, &[9.into()])?;
             arm.store::<I32>(state, 0, 9)
@@ -335,7 +335,7 @@ fn values_from_completed_switch_arms_cannot_escape_their_scope() {
         minimum: 1,
         maximum: None,
     });
-    let run = program.declare(signature(&[Type::I32], Some(Type::I32)));
+    let run = program.declare(signature(&[Type::I32], &[Type::I32]));
     let mut body = program.define(run).unwrap();
     let selector = body.parameter::<I32>(0).unwrap();
     let mut child = None;
@@ -364,7 +364,7 @@ fn empty_cases_build_only_the_default_and_need_no_table() {
 #[test]
 fn selectors_and_keys_are_validated_before_arm_construction() {
     let mut program = Program::new();
-    let run = program.declare(signature(&[Type::I8], Some(Type::I32)));
+    let run = program.declare(signature(&[Type::I8], &[Type::I32]));
     let mut body = program.define(run).unwrap();
     let selector = body.parameter::<I8>(0).unwrap();
     let mut calls = 0;
@@ -388,7 +388,7 @@ fn selectors_and_keys_are_validated_before_arm_construction() {
         })
     );
     let mut foreign_program = Program::new();
-    let foreign_run = foreign_program.declare(signature(&[Type::I32], Some(Type::I32)));
+    let foreign_run = foreign_program.declare(signature(&[Type::I32], &[Type::I32]));
     let foreign_body = foreign_program.define(foreign_run).unwrap();
     let foreign = foreign_body.parameter::<I32>(0).unwrap();
     assert_eq!(
@@ -409,7 +409,7 @@ fn selectors_and_keys_are_validated_before_arm_construction() {
 #[test]
 fn value_switches_require_a_yield_and_completed_arms() {
     let mut program = Program::new();
-    let run = program.declare(signature(&[Type::I32], Some(Type::I32)));
+    let run = program.declare(signature(&[Type::I32], &[Type::I32]));
     let mut body = program.define(run).unwrap();
     let selector = body.parameter::<I32>(0).unwrap();
     let incomplete = body.switch_value::<I32, _>(&selector, &[0], |arm, key| {

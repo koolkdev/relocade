@@ -50,19 +50,9 @@ impl Scheduler<'_> {
             }
             match operation {
                 Operation::Load(_) => {}
-                Operation::Call { invocation, output } => {
+                Operation::Call { invocation, .. } => {
                     if self.effects[invocation.target.0].must_execute() {
-                        if let Some(output) = output {
-                            self.evaluate(*output, true);
-                            if self.placement.slots[*output].is_none() {
-                                Instruction::Drop.encode(&mut self.bytes);
-                            }
-                        } else {
-                            for &argument in &invocation.arguments {
-                                self.value(argument);
-                            }
-                            self.call(invocation.target);
-                        }
+                        self.authored_call(site);
                     }
                 }
                 Operation::Store { location, value } => {

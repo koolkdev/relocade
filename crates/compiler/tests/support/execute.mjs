@@ -20,7 +20,8 @@ const callbacks = [];
 for (const callback of input.callbacks) {
   imports.test[callback.name] = (...arguments_) => {
     callbacks.push({ name: callback.name, arguments: arguments_.map(scalar), memories: snapshot() });
-    return callback.result === null ? undefined : value(callback.result);
+    const results = callback.results.map(value);
+    return results.length === 0 ? undefined : results.length === 1 ? results[0] : results;
   };
 }
 const module = new WebAssembly.Module(readFileSync(process.argv[2]));
@@ -28,7 +29,8 @@ const instance = new WebAssembly.Instance(module, imports);
 let outcome;
 try {
   const result = instance.exports[input.entry](...input.arguments.map(value));
-  outcome = { kind: 'returned', value: result === undefined ? null : scalar(result) };
+  const results = result === undefined ? [] : Array.isArray(result) ? result : [result];
+  outcome = { kind: 'returned', value: results.map(scalar) };
 } catch (error) {
   if (!(error instanceof WebAssembly.RuntimeError)) throw error;
   outcome = { kind: 'trap' };

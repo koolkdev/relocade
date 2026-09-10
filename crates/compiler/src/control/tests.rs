@@ -14,7 +14,7 @@ fn a_failed_else_branch_discards_both_arms_without_closing_the_parent() {
     });
     let signature = Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     };
     let target = program.import_function(FunctionImport {
         module: "test".into(),
@@ -51,7 +51,7 @@ fn a_swallowed_terminal_error_cannot_turn_into_branch_fallthrough() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let mut body = program.define(function).unwrap();
     assert_eq!(
@@ -76,7 +76,7 @@ fn completing_a_child_keeps_parent_values_open_until_the_function_completes() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let mut body = program.define(function).unwrap();
     let value = body.value::<I32>(7).unwrap();
@@ -102,7 +102,7 @@ fn a_failed_yield_discards_both_arms_without_retaining_their_imports() {
     });
     let signature = Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     };
     let target = program.import_function(FunctionImport {
         module: "test".into(),
@@ -143,7 +143,7 @@ fn yielding_a_nested_join_exposes_only_the_new_parent_result() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let mut body = program.define(function).unwrap();
     let mut escaped = None;

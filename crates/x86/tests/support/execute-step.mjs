@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 
 const { entry, invocations, input } = JSON.parse(readFileSync(0, 'utf8'));
 const decode = ({ type, value }) => type === 'i64' ? BigInt(value) : value;
-const encode = value => value === undefined ? null : typeof value === 'bigint'
+const encode = value => typeof value === 'bigint'
   ? { type: 'i64', value: value.toString() } : { type: 'i32', value };
 const cpuState = new WebAssembly.Memory({ initial: 1 });
 const guest = new WebAssembly.Memory({ initial: 1 });
@@ -44,7 +44,9 @@ for (let call = 0; call < invocations; call++) {
   }
   let outcome;
   try {
-    outcome = { kind: 'returned', value: encode(instance.exports[entry](...args)) };
+    const result = instance.exports[entry](...args);
+    const values = result === undefined ? [] : Array.isArray(result) ? result : [result];
+    outcome = { kind: 'returned', value: values.map(encode) };
   } catch (error) {
     if (!(error instanceof WebAssembly.RuntimeError)) throw error;
     outcome = { kind: 'trap' };

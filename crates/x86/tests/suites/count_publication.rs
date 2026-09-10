@@ -176,7 +176,7 @@ fn instruction_counts_reread_host_changes_between_invocations() {
             snapshot: snapshot.clone(),
         });
         events.push(Event::Return {
-            outcome: Outcome::Returned(Some(Argument::I64(i64::MIN))),
+            outcome: Outcome::Returned(vec![Argument::I64(i64::MIN)]),
             snapshot,
         });
     }

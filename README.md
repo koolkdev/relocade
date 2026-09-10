@@ -3,8 +3,8 @@
 Rust components for x86 execution in WebAssembly.
 
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
-SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, SHL, SHR, SAR, PUSH, POP, SETcc and relative
-JMP/Jcc blocks from byte snapshots:
+SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, SHL, SHR, SAR, ROL, ROR, PUSH,
+POP, SETcc and relative JMP/Jcc blocks from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
@@ -84,6 +84,8 @@ supports these forms in default-32 operand and address mode:
 | DEC register/memory | FE /1 | FF /1 | FF /1 |
 | NOT register/memory | F6 /2 | F7 /2 | F7 /2 |
 | NEG register/memory | F6 /3 | F7 /3 | F7 /3 |
+| ROL register/memory by one, CL or imm8 | D0/D2/C0 /0 | D1/D3/C1 /0 | D1/D3/C1 /0 |
+| ROR register/memory by one, CL or imm8 | D0/D2/C0 /1 | D1/D3/C1 /1 | D1/D3/C1 /1 |
 | SHL/SAL register/memory by one, CL or imm8 | D0/D2/C0 /4 | D1/D3/C1 /4 | D1/D3/C1 /4 |
 | SHR register/memory by one, CL or imm8 | D0/D2/C0 /5 | D1/D3/C1 /5 | D1/D3/C1 /5 |
 | SAR register/memory by one, CL or imm8 | D0/D2/C0 /7 | D1/D3/C1 /7 | D1/D3/C1 /7 |
@@ -139,8 +141,17 @@ For nonzero counts, PF/ZF/SF describe the result. CF holds the last shifted-out 
 except that SHL/SHR leave CF undefined at counts at or above the operand width.
 OF is defined only for count one: SHL uses the result sign XOR CF, SHR uses the
 original sign, and SAR clears it. AF is undefined for every nonzero count.
-wasm86 chooses zero for those undefined CF/OF/AF values. Rotates, double shifts and
-the undocumented group `/6` SHL alias are outside this subset.
+wasm86 chooses zero for those undefined CF/OF/AF values.
+
+ROL and ROR rotate within the operand width. They use the same count forms, mask,
+old-CL capture and full-span write checks as shifts. A zero masked count preserves
+the entire flag source. For nonzero masked counts, ROL copies result bit zero to
+CF; ROR copies the result sign bit. PF/AF/ZF/SF retain their prior logical values.
+A full byte or word turn can therefore leave the operand unchanged while changing
+CF. OF is defined only when the masked count is one: ROL uses result sign XOR CF,
+and ROR uses the XOR of the top two result bits. wasm86 chooses zero for undefined
+OF, including a byte rotate by nine. Through-carry rotations RCL/RCR, double shifts
+and the undocumented group `/6` SHL alias are outside this subset.
 
 LEA (`8D`) computes the effective address encoded by ModRM/SIB and writes it to a
 dword register. With `66`, it writes the low word and preserves the upper half of
@@ -320,7 +331,7 @@ CF, PF, AF, ZF, SF and OF. ADC adds the incoming CF; SBB subtracts it as a borro
 CF after all operand guards, then construct symbolic flags from the original
 operands and final result using the same arithmetic equations as ADD/SUB.
 `FlagState` holds a stored CPU record or local source as its base, followed by
-conditional replacements in instruction order.
+complete or partial changes in instruction order.
 A typed `FlagSource` retains arithmetic operands, a logical result, or explicit
 result and flag values. ADC/SBB use explicit values; their incoming carry is an
 input to construction and has no separate role in the retained source.
@@ -328,27 +339,28 @@ Flag-bit extraction uses typed truncation, so raw intermediates can remain
 unnormalized until an operation or publication needs their logical low bit.
 The `arithmetic` and `arithmetic_with_carry` constructors return this same source
 type, with common result, flag and condition queries. These queries construct
-expressions without a builder. Semantic operations produce a source, then call
-`set_flags` once to validate and retain it as the new architectural flags.
-An unconditional replacement discards earlier conditional replacements.
+expressions without a builder. `set_flags` accepts a `FlagChange`: either a
+complete source or individual flag values, with omitted flags preserved.
+An unconditional complete replacement discards the earlier history.
 A same-block condition uses only the expressions it needs; CMP and SUB conditions
 can compare the original operands directly.
 
 INC and DEC add or subtract one while preserving CF. They reuse arithmetic flag
-equations and replace the resulting carry expression with the prior carry value,
-after the operand's write checks pass. Their complete symbolic source publishes
-six concrete status bytes, like ADC/SBB. NEG uses subtraction from zero and its
-existing lazy record; CF is set exactly when the original operand is nonzero.
+equations through `source.preserving(StatusFlag::CF)`, which leaves the old carry
+unread until a query or publication needs it. NEG uses subtraction from zero and
+its existing lazy record; CF is set exactly when the original operand is nonzero.
 NOT inverts the operand bits and preserves the entire flag source.
 
 Shifts construct a result and six symbolic flags through `FlagSource::shift`.
 `set_flags_if(count.ne(0), source)` retains the replacement only for a nonzero
 masked count. Its predicate and every source value are validated before state
 changes. Constant predicates either replace or preserve the current state;
-runtime predicates append to the history. A condition query starts at the base
-and folds replacements from oldest to newest with pure value selections. Stored
-condition reads remain on the owning path, so their cached values stay available
-to later queries. Reading flags never materializes or modifies the stored record.
+runtime predicates append to the history. Rotations return a typed result and a
+partial CF/OF change through `RotateKind::apply`, then use the same conditional
+setter. A condition query composes the bits it needs when a partial change affects
+them; complete sources retain their comparison shortcuts. Conditional values
+use pure selections. Stored reads stay on the owning path so cached values remain
+available to later queries. Reading flags never modifies the stored record.
 
 At publication, state converts the current source into a `FlagRecord`: arithmetic
 operands, a logical result, or six concrete status bits. Its payload variant
@@ -357,12 +369,15 @@ not inspect the instruction or its incoming carry. The record exists only at thi
 boundary. Explicit flags are symbolic expressions; the compiler places their
 evaluation where needed and leaves unused expressions unevaluated. Their array
 uses logical `StatusFlag` indices; record conversion defines the CPU byte order.
-Conditional publication checks replacements newest first and writes the first
-applicable source, or the base if none applies. It uses a flat list and bounded
-control nesting. A stored base needs no writes: a zero-count shift preserves its
-entire backing record. A prior local source still publishes its own record when
-the shift count is zero. Publication in a fault or exit branch leaves the live
-state and its condition caches unchanged.
+Publication checks whether an active partial change survives the latest complete
+replacement. If so, it composes six status bits and writes a concrete record.
+Otherwise it checks complete replacements newest first and publishes the first
+active source, or the base. Both paths use a flat history and bounded control
+nesting. A stored base needs no writes: a zero-count shift or rotate preserves its
+entire backing record. A prior local source still publishes its own record.
+Publication uses a separate cache in its exit arm, leaving the live state intact.
+Admission and history, queries, record conversion, and publication each have a
+focused module under `state::flags`.
 
 ADD, XADD, SUB, CMP and CMPXCHG publish zero-extended operands to CPU dwords 4 and 8,
 then the kind byte at 0. SUB kinds 1/5/9 and ADD
@@ -384,13 +399,15 @@ separately from architectural guarantees. They do not promise to reproduce a
 particular physical CPU's undocumented behavior. Architecture comparisons exclude
 undefined flag values; separate policy tests may assert wasm86's chosen value.
 A nonzero kind owns all six status flags, so concrete flag bytes may be stale.
-Kind 0 instead reads CF/PF/AF/ZF/SF/OF from bytes 12–17, each containing 0 or 1.
+Kind 0 reads the low bit of CF/PF/AF/ZF/SF/OF bytes 12–17. Publication writes
+canonical bytes containing 0 or 1; reads also accept noncanonical input bytes.
 Valid record kinds are an internal invariant. A stored direct query selects its
 exact record kind before reading its typed inputs. Subtraction relations compare
 the original operands; logical zero/nonzero queries compare only the result.
-Other queries use shared readonly condition readers. Inverse conditions share a
-reader and cached result. Readers are created only when needed; querying a
-condition preserves the stored representation.
+Other queries use shared readonly readers. Inverse conditions share a reader and
+cached result. Partial changes request missing inherited flags together as separate
+I1 results, sharing one record decoder and invocation. Readers are created only when needed;
+queries preserve the stored representation.
 MOV, MOVZX, MOVSX, LEA, XCHG, CMOVcc and SETcc preserve flags, and these instructions
 leave non-status flag bytes untouched. A faulting operand access preserves the
 previous instruction's flags.
@@ -438,13 +455,14 @@ zero-error general-protection word, without retiring or dispatching. The step
 executes one instruction and has no instruction-budget, segment or run-loop
 behavior.
 
-`wasm86-compiler` builds scalar WebAssembly functions from integer constants,
+`wasm86-compiler` builds WebAssembly functions from integer constants,
 parameters and typed integer expressions. `Val<T>` represents either a standalone
 literal or an expression belonging to a function body. Values such as `Val<I1>`
 and `Val<I32>` carry logical integer types; function signatures use the
 corresponding `Type` variants.
-`Signature.result` is `Some(Type::I32)`, for example, for a returned integer, or
-`None` for a function with no result. Parameters remain logical integer types.
+`Signature.results` lists the logical return types in order: `vec![Type::I32]`
+returns one integer, `vec![Type::I1, Type::I1]` returns two flags, and `vec![]`
+returns no values. Parameters also use logical integer types.
 Supported integer sizes are 1, 8, 16, 32 and 64 bits.
 
 Create standalone values with standard Rust conversions, such as
@@ -488,6 +506,10 @@ right shifts of an I8 by 8 produce zero; shifting it by 32 preserves its value. 
 right shifts and widening read the logical low bits, including after arithmetic
 that overflows a narrow type. Arithmetic right shift repeats the logical sign bit;
 it does not interpret unused carrier bits as part of the operand.
+`value.rotl(count)` and `value.rotr(count)` accept the same I32-or-literal count
+interface, but rotate modulo the logical width: 1, 8, 16, 32 or 64 bits. For example,
+`byte.rotl(8)` preserves the byte. Wide rotations use native Wasm operations;
+narrow rotations combine shifts within the logical width.
 
 Build conditional code with the same builder methods:
 
@@ -562,12 +584,14 @@ preserves raw intermediate bits; narrow values are normalized when an operation
 or function boundary needs their logical low bits. Construction errors discard
 both arms and leave the parent usable.
 
-Conditionals, switches and blocks use the same logical `Results` shape. A scalar
+Calls, conditionals, switches and blocks use the same logical `Results` shape. A scalar
 marker such as `I32` returns `Val<I32>`; a tuple such as `(I32, I1)` returns
-`(Val<I32>, Val<I1>)`. `()` has no results and allows fallthrough without a yield.
-Tuple components are checked and placed independently, so an unused component
+`(Val<I32>, Val<I1>)`; `[I1; 4]` returns four typed flags. Shapes can be nested.
+`()` has no results and allows control blocks to fall through without a yield.
+Control-block components are checked and placed independently, so an unused component
 does not force its load or pure call to execute. Native literals passed to
-`yield_` or `branch` take their types from the result shape, like call arguments.
+`return_`, `yield_` or `branch` take their types from the result shape, like call
+arguments. These methods also accept tuples, arrays and vectors of scalar arguments.
 
 Use `block` when nested paths need to leave one enclosing region with results.
 This example assumes an I64-returning function, I32 addresses and I1 conditions:
@@ -588,7 +612,7 @@ body can also use `yield_`. Labels belong to one function body and remain usable
 only in their block and its descendants; keeping a clone cannot extend that
 scope or revive a discarded block. Nonempty blocks require complete paths and
 at least one incoming result. Wasm multi-value signatures and branch depths stay
-inside the compiler. Function signatures have at most one result.
+inside the compiler.
 
 `body.trap()` consumes its builder and ends that execution path with a WebAssembly
 trap, regardless of the function result type.
@@ -607,33 +631,42 @@ export also retains an imported function.
 For a call that returns to the current function, use
 `body.call::<I32>(helper, &[value.argument(), 7.into()])?`. Its typed result can
 be shared by later expressions. A result created inside a branch stays within
-that branch and its descendants. The compiler conservatively infers which
+that branch and its descendants. Multiple results use the same call API:
+
+```rust
+let (carry, overflow) = body.call::<(I1, I1)>(flag_reader, &[])?;
+body.return_((carry, overflow))?;
+```
+
+All components belong to one invocation, which runs once wherever its results
+are needed. When a call runs, its callee evaluates every declared result even
+if the caller discards some components. The compiler conservatively infers which
 memory bytes defined helpers may read or write. Helpers without inferred writes
 or unknown effects may be deferred or omitted when unused, including their
 arguments and possible traps. Calls that may write, call imports or reach
 unresolved recursion execute in authored order even when unused.
 
-For a function with no result, use `body.call_void(target, arguments)?` and finish
-its definition with `body.return_void()`. The same inferred effects determine
+For a function with no result, use `body.call::<()>(target, arguments)?` and finish
+its definition with `body.return_(())`. The same inferred effects determine
 whether the invocation must execute; calls without writes or unknown effects are
 omitted, including their arguments and possible traps. They have no value to discard:
 
 ```rust
 let writer = program.function(Signature {
     parameters: vec![Type::I32],
-    result: None,
+    results: vec![],
 }, |mut body| {
     let value = body.parameter::<I32>(0)?;
     body.store(memory, 12, value)?;
-    body.return_void()
+    body.return_(())
 })?;
 // In another function:
-body.call_void(writer, &[7.into()])?;
+body.call::<()>(writer, &[7.into()])?;
 ```
 
-Typed calls require a result of the requested logical type; no-result calls
-require a signature with `result: None`. Returns obey the containing function's
-signature, and a tail call requires matching optional result types.
+Calls require the complete requested result shape to match the callee's logical
+signature. Returns obey the containing function's signature, and a tail call
+requires the same ordered result types.
 
 WebAssembly carries 1-, 8- and 16-bit integers in `i32`. Narrow arguments must have
 their unused upper bits clear, and returned narrow values satisfy the same rule.

@@ -1,13 +1,15 @@
-//! Current symbolic flag sources, admission and stored-condition caching.
+//! Admission and history of complete and partial symbolic flag changes.
 
+mod publication;
+mod queries;
 pub(super) mod record;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, Val, I1};
+use wasm86_compiler::{BuildError, FunctionBuilder, MemoryInt, Val, I1};
 
-use crate::flags::{Condition, FlagSource, LocalFlagSource};
+use crate::flags::{Condition, FlagChange, FlagMask, FlagSource, LocalFlagSource};
 
-use super::{Cpu, State};
-use record::FlagRecord;
+use super::State;
+use queries::StoredFlagCache;
 
 pub(super) fn condition_index(canonical: Condition) -> usize {
     Condition::CANONICAL
@@ -16,153 +18,98 @@ pub(super) fn condition_index(canonical: Condition) -> usize {
         .expect("a canonical condition has a cache slot")
 }
 
-/// One unconditional source followed by conditional replacements in program order.
-/// Definitions and queries stay on the execution path; terminal publication may
-/// use descendant arms without changing this history or its cached conditions.
+/// Changes follow one complete source in program order. Publication may use
+/// descendant arms without changing this history or its query caches.
 #[derive(Default)]
 pub(super) struct FlagState {
     base: FlagBase,
-    updates: Vec<ConditionalFlagUpdate>,
+    updates: Vec<FlagUpdate>,
 }
 
+#[derive(Clone)]
 enum FlagBase {
-    Stored {
-        cached_conditions: [Option<Val<I1>>; Condition::CANONICAL.len()],
-    },
+    Stored(StoredFlagCache),
     Local(LocalFlagSource),
 }
 
-struct ConditionalFlagUpdate {
-    condition: Val<I1>,
-    source: LocalFlagSource,
+struct FlagUpdate {
+    /// None denotes an unconditional change.
+    condition: Option<Val<I1>>,
+    change: FlagChange,
 }
 
 impl Default for FlagBase {
     fn default() -> Self {
-        Self::Stored {
-            cached_conditions: Condition::CANONICAL.map(|_| None),
-        }
+        Self::Stored(StoredFlagCache::default())
     }
 }
 
 impl FlagState {
-    fn replace(&mut self, source: LocalFlagSource) {
-        self.base = FlagBase::Local(source);
-        self.updates.clear();
+    fn apply(&mut self, condition: Option<Val<I1>>, change: FlagChange) {
+        match (condition, change) {
+            (None, FlagChange::Complete(source)) => {
+                self.base = FlagBase::Local(source);
+                self.updates.clear();
+            }
+            (condition, change) => self.updates.push(FlagUpdate { condition, change }),
+        }
     }
 }
 
 impl State<'_> {
-    /// Replaces all six status flags after the instruction's fault guards pass.
-    /// Retains a symbolic source without choosing or writing a CPU record yet.
-    pub(crate) fn set_flags<T: MemoryInt>(
+    /// Applies a symbolic flag change after the instruction's fault guards pass.
+    pub(crate) fn set_flags(
         &mut self,
         body: &mut FunctionBuilder<'_>,
-        source: FlagSource<T>,
-    ) -> Result<(), BuildError>
-    where
-        FlagSource<T>: Into<LocalFlagSource>,
-    {
-        admit_source(body, &source)?;
-        self.flags.replace(source.into());
+        change: impl Into<FlagChange>,
+    ) -> Result<(), BuildError> {
+        let change = change.into();
+        admit_change(body, &change)?;
+        if change.writes() != FlagMask::EMPTY {
+            self.flags.apply(None, change);
+        }
         Ok(())
     }
 
-    /// Replaces all six flags only when the predicate is true. A false predicate
-    /// keeps the complete previous source, including an untouched stored record.
-    /// As with unconditional replacement, all guest fault guards must pass first.
-    pub(crate) fn set_flags_if<T: MemoryInt>(
+    /// Applies a change only when the predicate is true; false retains the
+    /// complete previous source, including an untouched stored record.
+    pub(crate) fn set_flags_if(
         &mut self,
         body: &mut FunctionBuilder<'_>,
         condition: impl Into<Val<I1>>,
-        source: FlagSource<T>,
-    ) -> Result<(), BuildError>
-    where
-        FlagSource<T>: Into<LocalFlagSource>,
-    {
+        change: impl Into<FlagChange>,
+    ) -> Result<(), BuildError> {
         let condition = body.value(condition)?;
-        admit_source(body, &source)?;
-        // Admitted constants share their arena representation, including folded
-        // expressions. Validate the source even when its predicate is false.
-        if condition.same_expression(&body.value::<I1>(false)?) {
+        let change = change.into();
+        admit_change(body, &change)?;
+        // Validate every provided value even when the predicate folds to false.
+        if condition.same_expression(&body.value::<I1>(false)?)
+            || change.writes() == FlagMask::EMPTY
+        {
             return Ok(());
         }
-        let source = source.into();
-        if condition.same_expression(&body.value::<I1>(true)?) {
-            self.flags.replace(source);
+        let condition = if condition.same_expression(&body.value::<I1>(true)?) {
+            None
         } else {
-            self.flags
-                .updates
-                .push(ConditionalFlagUpdate { condition, source });
-        }
+            Some(condition)
+        };
+        self.flags.apply(condition, change);
         Ok(())
-    }
-
-    pub(super) fn publish_flags(&self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
-        let memory = self.cpu.memory();
-        if self.flags.updates.is_empty() {
-            return self.flags.base.publish(body, memory);
-        }
-        // The last active replacement owns the record. Outward branches avoid
-        // nesting one control region per update and skip every older payload.
-        body.block::<()>(|mut block, done| {
-            for update in self.flags.updates.iter().rev() {
-                block.if_(&update.condition, |mut arm| {
-                    publish_source(&mut arm, memory, &update.source)?;
-                    arm.branch(&done, ())
-                })?;
-            }
-            self.flags.base.publish(&mut block, memory)
-        })
-    }
-
-    pub(crate) fn condition(
-        &mut self,
-        body: &mut FunctionBuilder<'_>,
-        condition: Condition,
-    ) -> Result<Val<I1>, BuildError> {
-        let mut value = self.flags.base.condition(body, self.cpu, condition)?;
-        for update in &self.flags.updates {
-            value = update
-                .condition
-                .select(update.source.condition(condition), value);
-        }
-        body.value(value)
     }
 }
 
-impl FlagBase {
-    fn publish(&self, body: &mut FunctionBuilder<'_>, memory: Mem) -> Result<(), BuildError> {
-        match self {
-            Self::Stored { .. } => Ok(()),
-            Self::Local(source) => publish_source(body, memory, source),
-        }
-    }
-
-    fn condition(
-        &mut self,
-        body: &mut FunctionBuilder<'_>,
-        cpu: &Cpu,
-        condition: Condition,
-    ) -> Result<Val<I1>, BuildError> {
-        match self {
-            Self::Local(source) => body.value(source.condition(condition)),
-            Self::Stored { cached_conditions } => {
-                let canonical = condition.canonical();
-                let slot = &mut cached_conditions[condition_index(canonical)];
-                let value = if let Some(value) = slot.as_ref() {
-                    body.value(value)?
-                } else {
-                    let value = cpu.read_condition(body, canonical)?;
-                    *slot = Some(value.clone());
-                    value
-                };
-                Ok(if condition.is_inverted() {
-                    value.eq(0)
-                } else {
-                    value
-                })
+fn admit_change(body: &FunctionBuilder<'_>, change: &FlagChange) -> Result<(), BuildError> {
+    match change {
+        FlagChange::Complete(source) => match source {
+            LocalFlagSource::Byte(source) => admit_source(body, source),
+            LocalFlagSource::Word(source) => admit_source(body, source),
+            LocalFlagSource::Dword(source) => admit_source(body, source),
+        },
+        FlagChange::Partial(flags) => {
+            for value in flags.iter().flatten() {
+                body.value(value)?;
             }
+            Ok(())
         }
     }
 }
@@ -171,7 +118,6 @@ fn admit_source<T: MemoryInt>(
     body: &FunctionBuilder<'_>,
     source: &FlagSource<T>,
 ) -> Result<(), BuildError> {
-    // Admission checks body ownership and scope without evaluating flag rules.
     match source {
         FlagSource::Arithmetic {
             left,
@@ -194,16 +140,4 @@ fn admit_source<T: MemoryInt>(
         }
     }
     Ok(())
-}
-
-fn publish_source(
-    body: &mut FunctionBuilder<'_>,
-    memory: Mem,
-    source: &LocalFlagSource,
-) -> Result<(), BuildError> {
-    match source {
-        LocalFlagSource::Byte(source) => FlagRecord::from_source(source).write(body, memory),
-        LocalFlagSource::Word(source) => FlagRecord::from_source(source).write(body, memory),
-        LocalFlagSource::Dword(source) => FlagRecord::from_source(source).write(body, memory),
-    }
 }

@@ -25,10 +25,14 @@ mod generated_code;
 mod integer_ops;
 #[path = "suites/memory.rs"]
 mod memory;
+#[path = "suites/multi_result_functions.rs"]
+mod multi_result_functions;
 #[path = "suites/no_result_functions.rs"]
 mod no_result_functions;
 #[path = "suites/ordinary_calls.rs"]
 mod ordinary_calls;
+#[path = "suites/rotations.rs"]
+mod rotations;
 #[path = "suites/shifts.rs"]
 mod shifts;
 #[path = "suites/signed_arithmetic.rs"]

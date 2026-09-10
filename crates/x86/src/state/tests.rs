@@ -14,7 +14,7 @@ fn zero_progress_exits_do_not_read_or_write_instruction_count() {
         .function(
             Signature {
                 parameters: vec![],
-                result: Some(Type::I32),
+                results: vec![Type::I32],
             },
             |mut body| {
                 let state = State::new(&cpu);
@@ -44,7 +44,7 @@ fn named_writes_coalesce_without_crossing_indexed_writes() {
     let cpu = Cpu::declare(&mut program);
     let function = program.declare(Signature {
         parameters: vec![Type::I32],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let mut body = program.define(function).unwrap();
     let index = body.parameter::<I32>(0).unwrap();
@@ -85,7 +85,7 @@ fn publishing_an_exit_keeps_pending_writes_for_the_continuation() {
     let cpu = Cpu::declare(&mut program);
     let function = program.declare(Signature {
         parameters: vec![Type::I1],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let mut body = program.define(function).unwrap();
     let stop = body.parameter::<I1>(0).unwrap();

@@ -27,21 +27,14 @@ impl MemoryBytes {
 #[derive(Clone, Debug, Serialize)]
 pub struct Callback {
     name: String,
-    result: Option<Value>,
+    results: Vec<Value>,
 }
 
 impl Callback {
-    pub fn new(name: &str, result: Value) -> Self {
+    pub fn new(name: &str, results: &[Value]) -> Self {
         Self {
             name: name.into(),
-            result: Some(result),
-        }
-    }
-
-    pub fn void(name: &str) -> Self {
-        Self {
-            name: name.into(),
-            result: None,
+            results: results.into(),
         }
     }
 }
@@ -76,9 +69,9 @@ pub struct Observation {
 }
 
 impl Observation {
-    pub fn returned(value: Value) -> Self {
+    pub fn returned(values: &[Value]) -> Self {
         Self {
-            outcome: Outcome::Returned(Some(value)),
+            outcome: Outcome::Returned(values.into()),
             callbacks: vec![],
             memories: vec![],
         }
@@ -194,12 +187,17 @@ impl TestModule {
                 panic!("callback import must be a function")
             };
             assert!(
-                matches!(
-                    (callback.result, ty.results().collect::<Vec<_>>().as_slice()),
-                    (None, [])
-                        | (Some(Value::I32(_)), [ValType::I32])
-                        | (Some(Value::I64(_)), [ValType::I64])
-                ),
+                callback.results.len() == ty.results().len()
+                    && callback
+                        .results
+                        .iter()
+                        .zip(ty.results())
+                        .all(|(value, ty)| {
+                            matches!(
+                                (value, ty),
+                                (Value::I32(_), ValType::I32) | (Value::I64(_), ValType::I64)
+                            )
+                        }),
                 "callback result does not match its import signature"
             );
             let callback = callback.clone();
@@ -212,8 +210,8 @@ impl TestModule {
                     memories: snapshot(&caller, &memories),
                 };
                 caller.data_mut().push(call);
-                if let Some(value) = callback.result {
-                    results[0] = value.wasm();
+                for (result, value) in results.iter_mut().zip(&callback.results) {
+                    *result = value.wasm();
                 }
                 Ok(())
             });
@@ -279,7 +277,7 @@ impl Instance {
         &mut self,
         entry: &str,
         arguments: &[Value],
-    ) -> Result<Option<Value>, wasmtime::Trap> {
+    ) -> Result<Vec<Value>, wasmtime::Trap> {
         let function = self
             .instance
             .get_func(&mut self.store, entry)
@@ -297,10 +295,6 @@ impl Instance {
                 _ => panic!("test exports return only integers"),
             })
             .collect::<Vec<_>>();
-        assert!(
-            results.len() <= 1,
-            "test exports return at most one integer"
-        );
         function
             .call(&mut self.store, &arguments, &mut results)
             .map_err(|error| {
@@ -308,7 +302,7 @@ impl Instance {
                     .downcast::<wasmtime::Trap>()
                     .unwrap_or_else(|error| panic!("invoke fixture export {entry}: {error:#}"))
             })?;
-        Ok(results.first().map(Value::from_wasm))
+        Ok(results.iter().map(Value::from_wasm).collect())
     }
 }
 

@@ -307,7 +307,7 @@ fn same_width_conversions_emit_no_operations() {
 fn converted_loads_preserve_the_snapshot_across_overlapping_stores() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0xff, 0xa5, 0x5a]);
-    let module = fixture.function(&[], Some(Type::I32), |mut b| {
+    let module = fixture.function(&[], &[Type::I32], |mut b| {
         let loaded = b.load::<I8>(memory, 0)?;
         let wide = loaded.unsigned().extend::<I32>();
         let masked = wide.and(7);
@@ -336,10 +336,10 @@ fn narrow_observers_share_normalization_across_store_and_call_boundaries() {
         let memory = fixture.memory("state", &[0xff, 0xa5, 0x5a]);
         let target = fixture.callback(
             "receive",
-            signature(&[Type::I32, Type::I8, Type::I1, Type::I32], Some(Type::I64)),
-            Some(Value::I64(result)),
+            signature(&[Type::I32, Type::I8, Type::I1, Type::I32], &[Type::I64]),
+            &[Value::I64(result)],
         );
-        let module = fixture.function(&[Type::I8], Some(Type::I64), |mut b| {
+        let module = fixture.function(&[Type::I8], &[Type::I64], |mut b| {
             let raw = b.parameter::<I8>(0)?.add(1);
             b.store(memory, 0, &raw)?;
             let wide = raw.unsigned().extend::<I32>();

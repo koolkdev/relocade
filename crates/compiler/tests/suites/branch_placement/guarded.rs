@@ -16,51 +16,43 @@ fn guarded_snapshot(source: Source) -> TestModule {
     let state = fixture.memory("state", &INITIAL);
     let reader = fixture
         .program
-        .function(signature(&[], Some(Type::I32)), |mut body| {
+        .function(signature(&[], &[Type::I32]), |mut body| {
             let value = body.load::<I32>(state, 0)?;
             body.return_(value)
         })
         .unwrap();
-    let receive = fixture.callback(
-        "receive",
-        signature(&[], Some(Type::I32)),
-        Some(Value::I32(7)),
-    );
-    fixture.function(
-        &[Type::I1, Type::I1, Type::I1],
-        Some(Type::I32),
-        |mut body| {
-            let first = body.parameter::<I1>(0)?;
-            let second = body.parameter::<I1>(1)?;
-            let choose_load = body.parameter::<I1>(2)?;
-            let previous = match source {
-                Source::Load => body.load::<I32>(state, 0)?,
-                Source::ReadOnlyCall => body.call::<I32>(reader, &[])?,
-                Source::Callback => body.call::<I32>(receive, &[])?,
-                Source::Join => body.if_value::<I32>(
-                    choose_load,
-                    |mut arm| {
-                        let value = arm.load::<I32>(state, 0)?;
-                        arm.yield_(value)
-                    },
-                    |arm| arm.yield_(3),
-                )?,
-            };
-            let test = previous.unsigned().ge(5);
-            body.block::<()>(|mut block, _| {
-                block.if_(first, |mut guarded| {
-                    guarded.if_(&test, |mut reached| reached.store::<I32>(state, 4, 101))
-                })
-            })?;
-            body.store::<I32>(state, 0, 1)?;
-            body.block::<()>(|mut block, _| {
-                block.if_(second, |mut guarded| {
-                    guarded.if_(&test, |mut reached| reached.store::<I32>(state, 8, 202))
-                })
-            })?;
-            body.return_(17)
-        },
-    )
+    let receive = fixture.callback("receive", signature(&[], &[Type::I32]), &[Value::I32(7)]);
+    fixture.function(&[Type::I1, Type::I1, Type::I1], &[Type::I32], |mut body| {
+        let first = body.parameter::<I1>(0)?;
+        let second = body.parameter::<I1>(1)?;
+        let choose_load = body.parameter::<I1>(2)?;
+        let previous = match source {
+            Source::Load => body.load::<I32>(state, 0)?,
+            Source::ReadOnlyCall => body.call::<I32>(reader, &[])?,
+            Source::Callback => body.call::<I32>(receive, &[])?,
+            Source::Join => body.if_value::<I32>(
+                choose_load,
+                |mut arm| {
+                    let value = arm.load::<I32>(state, 0)?;
+                    arm.yield_(value)
+                },
+                |arm| arm.yield_(3),
+            )?,
+        };
+        let test = previous.unsigned().ge(5);
+        body.block::<()>(|mut block, _| {
+            block.if_(first, |mut guarded| {
+                guarded.if_(&test, |mut reached| reached.store::<I32>(state, 4, 101))
+            })
+        })?;
+        body.store::<I32>(state, 0, 1)?;
+        body.block::<()>(|mut block, _| {
+            block.if_(second, |mut guarded| {
+                guarded.if_(&test, |mut reached| reached.store::<I32>(state, 8, 202))
+            })
+        })?;
+        body.return_(17)
+    })
 }
 
 fn comparisons(module: &TestModule) -> Vec<usize> {
@@ -139,7 +131,7 @@ fn two_guarded_tests_use_one_snapshot_across_an_intervening_write() {
 fn repeated_tests(count: usize, guarded: bool, returned: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0; 12]);
-    fixture.function(&[Type::I1, Type::I32], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
         let enabled = body.parameter::<I1>(0)?;
         let test = body.parameter::<I32>(1)?.unsigned().ge(5);
         for index in 0..count {
@@ -189,7 +181,7 @@ fn additional_guards_transparent_blocks_and_ordinary_uses_keep_a_shared_test() {
 fn a_capture_needed_by_shared_arithmetic_keeps_its_test_available() {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0; 12]);
-    let module = fixture.function(&[Type::I1, Type::I32], Some(Type::I32), |mut body| {
+    let module = fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
         let enabled = body.parameter::<I1>(0)?;
         let test = body.parameter::<I32>(1)?.unsigned().ge(5);
         let number = test.unsigned().extend::<I32>().add(10);
@@ -220,7 +212,7 @@ fn single_truth_uses_in_separate_guards_need_no_saved_boolean() {
     let state = fixture.memory("state", &[0; 8]);
     let module = fixture.function(
         &[Type::I1, Type::I1, Type::I32],
-        Some(Type::I32),
+        &[Type::I32],
         |mut body| {
             let first = body.parameter::<I1>(0)?;
             let second = body.parameter::<I1>(1)?;
@@ -255,7 +247,7 @@ fn single_truth_uses_in_separate_guards_need_no_saved_boolean() {
 fn exclusive_arms_share_repeated_inputs_without_repeating_snapshot_reads() {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 0, 0, 0, 0]);
-    let module = fixture.function(&[Type::I1], Some(Type::I32), |mut body| {
+    let module = fixture.function(&[Type::I1], &[Type::I32], |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let previous = body.load::<I32>(state, 0)?;
         let changed = previous.xor(16);
@@ -299,10 +291,10 @@ fn guarded_predicates_preserve_load_call_and_join_snapshots_in_v8() {
                 &[Value::I32(first), Value::I32(second), Value::I32(1)],
             )
             .with_memories(&[MemoryBytes::new("state", &INITIAL)]);
-            let mut expected = Observation::returned(Value::I32(17))
+            let mut expected = Observation::returned(&[Value::I32(17)])
                 .with_memories(&[MemoryBytes::new("state", &expected_memory(first, second))]);
             if matches!(source, Source::Callback) {
-                input = input.with_callbacks(&[Callback::new("receive", Value::I32(7))]);
+                input = input.with_callbacks(&[Callback::new("receive", &[Value::I32(7)])]);
                 expected = expected
                     .with_callbacks(&[Call::new("receive", &[])
                         .with_memories(&[MemoryBytes::new("state", &INITIAL)])]);

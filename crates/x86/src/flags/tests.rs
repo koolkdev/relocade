@@ -1,5 +1,3 @@
-mod overrides;
-
 use crate::test_step as step;
 
 use super::{logic_flag, ArithmeticKind, Condition, FlagSource, StatusFlag};
@@ -14,7 +12,7 @@ fn auxiliary_carry<T: MemoryInt>() -> CompiledModule {
             .function(
                 Signature {
                     parameters: vec![T::TYPE; 2],
-                    result: Some(Type::I1),
+                    results: vec![Type::I1],
                 },
                 |body| {
                     // The addition can leave dirty upper carrier bits before the flag query.
@@ -30,7 +28,7 @@ fn auxiliary_carry<T: MemoryInt>() -> CompiledModule {
         .function(
             Signature {
                 parameters: vec![T::TYPE; 2],
-                result: Some(Type::I1),
+                results: vec![Type::I1],
             },
             |body| {
                 let result = body.parameter::<T>(0)?.add(1).xor(body.parameter::<T>(1)?);
@@ -73,7 +71,7 @@ fn signed_cmp_conditions_use_original_operands_without_computing_flags() {
             .function(
                 Signature {
                     parameters: vec![Type::I32; 2],
-                    result: Some(Type::I1),
+                    results: vec![Type::I1],
                 },
                 |body| {
                     let left = body.parameter::<I32>(0)?;
@@ -220,7 +218,7 @@ fn assert_return(module: &step::TestModule, arguments: &[i32], expected: i32) {
         module.observe(&input, 1),
         step::Observation {
             events: vec![step::Event::Return {
-                outcome: step::Outcome::Returned(Some(step::Argument::I32(expected))),
+                outcome: step::Outcome::Returned(vec![step::Argument::I32(expected)]),
                 snapshot: step::Snapshot {
                     cpu: vec![],
                     guest: None

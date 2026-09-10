@@ -17,6 +17,12 @@ pub(super) enum ShiftOp {
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
+pub(super) enum RotateOp {
+    Left,
+    Right,
+}
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum CompareOp {
     Eq,
     Ne,
@@ -33,6 +39,10 @@ pub(super) fn signed_value(ty: Type, bits: u64) -> i64 {
 
 pub(super) fn shift_count(ty: Type, count: u32) -> u32 {
     count & if ty == Type::I64 { 63 } else { 31 }
+}
+
+pub(super) fn rotate_count(ty: Type, count: u32) -> u32 {
+    count & u32::from(ty.bits() - 1)
 }
 
 pub(super) fn binary(operator: BinaryOp, left: u64, right: u64) -> u64 {
@@ -62,6 +72,18 @@ pub(super) fn shift(ty: Type, operator: ShiftOp, value: u64, count: u32) -> u64 
         ShiftOp::Left => value.wrapping_shl(count),
         ShiftOp::RightUnsigned => value >> count,
         ShiftOp::RightSigned => (signed_value(ty, value) >> count) as u64,
+    }
+}
+
+pub(super) fn rotate(ty: Type, operator: RotateOp, value: u64, count: u32) -> u64 {
+    let count = rotate_count(ty, count);
+    if count == 0 {
+        return value;
+    }
+    let remaining = u32::from(ty.bits()) - count;
+    match operator {
+        RotateOp::Left => (value << count) | (value >> remaining),
+        RotateOp::Right => (value >> count) | (value << remaining),
     }
 }
 
@@ -105,7 +127,7 @@ pub(super) fn unsigned_bits(value: Value, values: &[Value], inputs: &[u8]) -> u8
                 ShiftOp::RightSigned => carrier_bits,
             },
         },
-        ValueKind::SignExtend(_) => carrier_bits,
+        ValueKind::Rotate { .. } | ValueKind::SignExtend(_) => carrier_bits,
         ValueKind::Popcnt(input) => (u8::BITS - inputs[input].leading_zeros()) as u8,
         ValueKind::Select {
             when_true,

@@ -183,7 +183,7 @@ fn predicate_module() -> TestModule {
                 .function(
                     Signature {
                         parameters: vec![predicate.parameter],
-                        result: Some(Type::I32),
+                        results: vec![Type::I32],
                     },
                     |body| {
                         let condition = (predicate.build)(&body);
@@ -271,12 +271,12 @@ fn shared_numeric_condition() -> TestModule {
     let state = fixture.memory("state", &[0xa5; 8]);
     let echo = fixture
         .program
-        .function(signature(&[Type::I1], Some(Type::I32)), |body| {
+        .function(signature(&[Type::I1], &[Type::I32]), |body| {
             let value = body.parameter::<I1>(0)?;
             body.return_(value.unsigned().extend::<I32>())
         })
         .unwrap();
-    fixture.function(&[Type::I32], Some(Type::I64), |mut body| {
+    fixture.function(&[Type::I32], &[Type::I64], |mut body| {
         let condition = body.parameter::<I32>(0)?.and(8).ne(0);
         body.store(state, 0, condition.unsigned().extend::<I8>())?;
         body.if_(&condition, |mut arm| arm.store::<I32>(state, 4, 17))?;
@@ -303,7 +303,7 @@ fn shared_conditions_keep_one_canonical_value_for_numeric_observers() {
 fn condition_snapshot(initial: u32) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &initial.to_le_bytes());
-    fixture.function(&[], Some(Type::I32), |mut body| {
+    fixture.function(&[], &[Type::I32], |mut body| {
         let condition = body.load::<I32>(state, 0)?.and(8).ne(0);
         body.store::<I32>(state, 0, 0)?;
         body.return_(condition.select::<I32>(17, 29))
@@ -320,7 +320,7 @@ fn an_unshared_condition_preserves_its_read_snapshot_without_a_boolean_local() {
 }
 
 fn numeric_switch(value_form: bool) -> TestModule {
-    Fixture::new().function(&[Type::I32], Some(Type::I32), |mut body| {
+    Fixture::new().function(&[Type::I32], &[Type::I32], |mut body| {
         let selector = body
             .parameter::<I32>(0)?
             .and(8)
@@ -362,7 +362,7 @@ fn numeric_predicates_control_all_conditional_forms_at_runtime() {
             for &(input, expected) in predicate.inputs {
                 assert_eq!(
                     instance.call_values(&name, &[input]).unwrap(),
-                    Some(Value::I32(expected)),
+                    vec![Value::I32(expected)],
                     "{name} with {input:?}",
                 );
             }
@@ -417,7 +417,7 @@ fn v8_conditions_preserve_numeric_values_and_memory_snapshots() {
             .with_memories(&[MemoryBytes::new("state", &[0xa5; 8])]);
         assert_eq!(
             module.run_v8(&input),
-            Observation::returned(Value::I64(result))
+            Observation::returned(&[Value::I64(result)])
                 .with_memories(&[MemoryBytes::new("state", &memory)]),
         );
     }
@@ -426,7 +426,7 @@ fn v8_conditions_preserve_numeric_values_and_memory_snapshots() {
     let input = Input::call("run", &[]).with_memories(&[MemoryBytes::new("state", &[8, 0, 0, 0])]);
     assert_eq!(
         module.run_v8(&input),
-        Observation::returned(Value::I32(17))
+        Observation::returned(&[Value::I32(17)])
             .with_memories(&[MemoryBytes::new("state", &[0, 0, 0, 0])]),
     );
 }

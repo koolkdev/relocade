@@ -7,7 +7,7 @@ use wasmparser::{Operator, Parser, Payload, TypeRef};
 fn snapshot_and_fresh_read() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", INITIAL);
-    fixture.function(&[], Some(Type::I32), |mut body| {
+    fixture.function(&[], &[Type::I32], |mut body| {
         let before = body.load::<I32>(state, 0)?;
         body.store::<I32>(state, 0, 9)?;
         let after = body.load::<I32>(state, 0)?;
@@ -18,7 +18,7 @@ fn snapshot_and_fresh_read() -> TestModule {
 fn shared_snapshot(return_load: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", INITIAL);
-    fixture.function(&[], Some(Type::I32), |mut body| {
+    fixture.function(&[], &[Type::I32], |mut body| {
         let loaded = body.load::<I32>(memory, 0)?;
         let shared = loaded.add(1);
         body.store::<I32>(memory, 8, 1)?;
@@ -37,7 +37,7 @@ fn shared_snapshot(return_load: bool) -> TestModule {
 fn read_modify_write() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", INITIAL);
-    fixture.function(&[], Some(Type::I32), |mut body| {
+    fixture.function(&[], &[Type::I32], |mut body| {
         let loaded = body.load::<I32>(memory, 0)?;
         body.store(memory, 0, loaded.add(1))?;
         let result = body.value::<I32>(7)?;
@@ -48,7 +48,7 @@ fn read_modify_write() -> TestModule {
 fn wide_snapshot(store_offset: u32) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", WIDE);
-    fixture.function(&[], Some(Type::I64), |mut body| {
+    fixture.function(&[], &[Type::I64], |mut body| {
         let loaded = body.load::<I64>(memory, 0)?;
         body.store::<I32>(memory, store_offset, 9)?;
         let result = loaded;
@@ -59,7 +59,7 @@ fn wide_snapshot(store_offset: u32) -> TestModule {
 fn wide_write_and_fresh_read() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", WIDE);
-    fixture.function(&[], Some(Type::I64), |mut body| {
+    fixture.function(&[], &[Type::I64], |mut body| {
         let before = body.load::<I64>(memory, 0)?;
         body.store::<I64>(memory, 0, u64::MAX)?;
         let after = body.load::<I64>(memory, 0)?;
@@ -71,7 +71,7 @@ fn wide_write_and_fresh_read() -> TestModule {
 fn high_offset_load(has_overlapping_store: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", INITIAL);
-    fixture.function(&[], Some(Type::I64), |mut body| {
+    fixture.function(&[], &[Type::I64], |mut body| {
         let loaded = body.load::<I64>(memory, u32::MAX)?;
         body.store::<I32>(memory, 0, 9)?;
         if has_overlapping_store {
@@ -85,7 +85,7 @@ fn high_offset_load(has_overlapping_store: bool) -> TestModule {
 fn increment_narrow<T: MemoryInt>(initial: &[u8], offset: u32) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", initial);
-    fixture.function(&[], Some(T::TYPE), |mut body| {
+    fixture.function(&[], &[T::TYPE], |mut body| {
         let loaded = body.load::<T>(memory, offset)?;
         body.store(memory, offset, loaded.add(1))?;
         let result = loaded;
@@ -97,7 +97,7 @@ fn unused_load() -> TestModule {
     let mut fixture = Fixture::new();
     fixture.memory("unused", &[]);
     let memory = fixture.memory("state", INITIAL);
-    fixture.function(&[], Some(Type::I32), |mut body| {
+    fixture.function(&[], &[Type::I32], |mut body| {
         let _unused = body.load::<I32>(memory, 65536)?;
         let result = body.value::<I32>(7)?;
         body.return_(result)
@@ -107,7 +107,7 @@ fn unused_load() -> TestModule {
 fn trapping_load(has_overlapping_store: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", INITIAL);
-    fixture.function(&[], Some(Type::I32), |mut body| {
+    fixture.function(&[], &[Type::I32], |mut body| {
         let loaded = body.load::<I32>(memory, 65536)?;
         body.store::<I32>(memory, 0, 9)?;
         if has_overlapping_store {
@@ -122,7 +122,7 @@ fn different_memories() -> TestModule {
     fixture.memory("unused", &[]);
     let other = fixture.memory("other", &[5, 0, 0, 0]);
     let memory = fixture.memory("state", &[7, 0, 0, 0]);
-    fixture.function(&[], Some(Type::I32), |mut body| {
+    fixture.function(&[], &[Type::I32], |mut body| {
         let loaded = body.load::<I32>(memory, 0)?;
         body.store::<I32>(other, 0, 9)?;
         let result = loaded;
@@ -309,7 +309,7 @@ fn abandoned_bodies_do_not_retain_memory_imports() {
     });
     let function = program.declare(Signature {
         parameters: vec![],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let mut body = program.define(function).unwrap();
     body.load::<I32>(memory, 0).unwrap();
@@ -445,7 +445,7 @@ fn store_traps_preserve_only_preceding_stores() {
     let module = {
         let mut fixture = Fixture::new();
         let memory = fixture.memory("state", INITIAL);
-        fixture.function(&[], Some(Type::I32), |mut body| {
+        fixture.function(&[], &[Type::I32], |mut body| {
             body.store::<I32>(memory, 0, 1)?;
             body.store::<I32>(memory, 65536, 2)?;
             body.store::<I32>(memory, 0, 3)?;

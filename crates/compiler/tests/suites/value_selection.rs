@@ -18,7 +18,7 @@ fn eager_loads() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 9, 0, 0, 0]);
     fixture.function(
         &[Type::I1, Type::I32, Type::I32],
-        Some(Type::I32),
+        &[Type::I32],
         |mut body| {
             let value = selected_loads(&mut body, state);
             body.return_(value)
@@ -31,7 +31,7 @@ fn lazy_loads() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 9, 0, 0, 0]);
     fixture.function(
         &[Type::I1, Type::I32, Type::I32],
-        Some(Type::I32),
+        &[Type::I32],
         |mut body| {
             let condition = body.parameter::<I1>(0)?;
             let left = body.parameter::<I32>(1)?;
@@ -57,7 +57,7 @@ fn unused_selection() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     fixture.function(
         &[Type::I1, Type::I32, Type::I32],
-        Some(Type::I32),
+        &[Type::I32],
         |mut body| {
             let _unused = selected_loads(&mut body, state);
             let value = body.value::<I32>(17)?;
@@ -70,7 +70,7 @@ fn exit_selection() -> TestModule {
     let fixture = Fixture::new();
     fixture.function(
         &[Type::I1, Type::I1, Type::I32],
-        Some(Type::I32),
+        &[Type::I32],
         |mut body| {
             let condition = body.parameter::<I1>(0)?;
             let exit = body.parameter::<I1>(1)?;
@@ -86,7 +86,7 @@ fn exit_selection() -> TestModule {
 fn store_snapshot() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let previous = body.load::<I32>(state, 0)?;
         let selected = condition.select(previous, 5);
@@ -101,12 +101,12 @@ fn call_snapshot() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
     let mutate = fixture
         .program
-        .function(signature(&[], Some(Type::I32)), |mut body| {
+        .function(signature(&[], &[Type::I32]), |mut body| {
             body.store::<I32>(state, 0, 9)?;
             body.return_(11)
         })
         .unwrap();
-    fixture.function(&[Type::I1], Some(Type::I32), |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let previous = body.load::<I32>(state, 0)?;
         let selected = condition.select(previous, 5);
@@ -118,7 +118,7 @@ fn call_snapshot() -> TestModule {
 fn narrow_selection() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0x5a]);
-    fixture.function(&[Type::I1, Type::I8], Some(Type::I8), |mut body| {
+    fixture.function(&[Type::I1, Type::I8], &[Type::I8], |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let value = body.parameter::<I8>(1)?;
         let selected = condition.select(value.add(1), value.add(2));
@@ -291,7 +291,7 @@ fn selected_narrow_values_are_canonical_at_stores() {
 fn selected_wide_values_preserve_i64_carriers() {
     let module = {
         let fixture = Fixture::new();
-        fixture.function(&[Type::I1, Type::I64, Type::I64], Some(Type::I64), |body| {
+        fixture.function(&[Type::I1, Type::I64, Type::I64], &[Type::I64], |body| {
             let value = body
                 .parameter::<I1>(0)?
                 .select(body.parameter::<I64>(1)?, body.parameter::<I64>(2)?);

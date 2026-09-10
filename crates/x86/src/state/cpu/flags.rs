@@ -1,11 +1,11 @@
-//! Stored condition queries and their shared fallback readers.
+//! Stored condition and flag-subset queries over CPU records.
 
 use wasm86_compiler::{
     AtLeast, BuildError, Func, FunctionBuilder, MemoryInt, Program, Signature, Type, Val, I1, I16,
     I32, I8,
 };
 
-use crate::flags::{ArithmeticKind, Condition, FlagSource, StatusFlag};
+use crate::flags::{ArithmeticKind, Condition, FlagMask, FlagSource, LocalFlagSource, StatusFlag};
 
 use super::{
     super::{
@@ -17,6 +17,68 @@ use super::{
 
 /// Builds one typed comparison inside an already selected record case.
 type RecordQuery = fn(&Cpu, &mut FunctionBuilder<'_>, Condition) -> Result<Val<I1>, BuildError>;
+
+#[derive(Clone, Copy)]
+enum StoredQuery {
+    Condition(Condition),
+    Flags(FlagMask),
+}
+
+impl StoredQuery {
+    fn result_types(self) -> Vec<Type> {
+        match self {
+            Self::Condition(_) => vec![Type::I1],
+            Self::Flags(mask) => mask.flags().map(|_| Type::I1).collect(),
+        }
+    }
+
+    fn return_concrete(self, cpu: &Cpu, mut body: FunctionBuilder<'_>) -> Result<(), BuildError> {
+        match self {
+            Self::Condition(condition) => {
+                let result = condition.evaluate(|flag| cpu.read_concrete_flag(&mut body, flag))?;
+                body.return_(result)
+            }
+            Self::Flags(mask) => {
+                let results = mask
+                    .flags()
+                    .map(|flag| cpu.read_concrete_flag(&mut body, flag))
+                    .collect::<Result<Vec<_>, _>>()?;
+                body.return_(results)
+            }
+        }
+    }
+
+    fn return_from_source(
+        self,
+        body: FunctionBuilder<'_>,
+        source: &LocalFlagSource,
+    ) -> Result<(), BuildError> {
+        match self {
+            Self::Condition(condition) => body.return_(source.condition(condition)),
+            Self::Flags(mask) => body.return_(
+                mask.flags()
+                    .map(|flag| source.flag(flag))
+                    .collect::<Vec<_>>(),
+            ),
+        }
+    }
+}
+
+fn call_flags(
+    body: &mut FunctionBuilder<'_>,
+    resolver: Func,
+    count: usize,
+) -> Result<Vec<Val<I1>>, BuildError> {
+    match count {
+        1 => body.call::<[I1; 1]>(resolver, &[]).map(Vec::from),
+        2 => body.call::<[I1; 2]>(resolver, &[]).map(Vec::from),
+        3 => body.call::<[I1; 3]>(resolver, &[]).map(Vec::from),
+        4 => body.call::<[I1; 4]>(resolver, &[]).map(Vec::from),
+        5 => body.call::<[I1; 5]>(resolver, &[]).map(Vec::from),
+        6 => body.call::<[I1; 6]>(resolver, &[]).map(Vec::from),
+        _ => unreachable!("a nonempty flag subset has one to six results"),
+    }
+}
 
 impl Cpu {
     /// Reads a stored condition without materializing flags. Subtraction relations
@@ -78,12 +140,34 @@ impl Cpu {
         })
     }
 
+    /// Resolves a subset in one record dispatch; unrequested slots are empty.
+    /// Reading never changes CPU storage.
+    pub(in crate::state) fn read_flags(
+        &self,
+        body: &mut FunctionBuilder<'_>,
+        mask: FlagMask,
+    ) -> Result<[Option<Val<I1>>; 6], BuildError> {
+        let mut flags = StatusFlag::ALL.map(|_| None);
+        if mask.bits() == 0 {
+            return Ok(flags);
+        }
+        let resolver = self.flag_resolver(body.program(), StoredQuery::Flags(mask))?;
+        let values = call_flags(body, resolver, mask.flags().count())?;
+        for (flag, value) in mask.flags().zip(values) {
+            flags[flag as usize] = Some(value);
+        }
+        Ok(flags)
+    }
+
     fn read_condition_fallback(
         &self,
         body: &mut FunctionBuilder<'_>,
         condition: Condition,
     ) -> Result<Val<I1>, BuildError> {
-        let resolver = self.condition_resolver(body.program(), condition)?;
+        let resolver = self.flag_resolver(
+            body.program(),
+            StoredQuery::Condition(condition.canonical()),
+        )?;
         let value = body.call::<I1>(resolver, &[])?;
         Ok(if condition.is_inverted() {
             value.eq(0)
@@ -92,48 +176,37 @@ impl Cpu {
         })
     }
 
-    /// Returns the shared reader for the canonical member of an inverse pair.
-    /// State caches that result and inverts it for the opposite condition.
-    fn condition_resolver(
-        &self,
-        program: &mut Program,
-        condition: Condition,
-    ) -> Result<Func, BuildError> {
-        let canonical = condition.canonical();
-        let slot = &self.condition_resolvers[condition_index(canonical)];
+    /// Shares canonical condition readers and readers for matching flag subsets.
+    /// State owns result caching on the path where a reader is called.
+    fn flag_resolver(&self, program: &mut Program, query: StoredQuery) -> Result<Func, BuildError> {
+        let slot = match query {
+            StoredQuery::Condition(condition) => {
+                &self.condition_resolvers[condition_index(condition)]
+            }
+            StoredQuery::Flags(mask) => &self.flag_resolvers[usize::from(mask.bits())],
+        };
         if let Some(function) = slot.get() {
             return Ok(function);
         }
         let function = program.function(
             Signature {
                 parameters: vec![],
-                result: Some(Type::I1),
+                results: query.result_types(),
             },
-            |body| self.define_condition_resolver(body, canonical),
+            |body| self.define_flag_resolver(body, query),
         )?;
         slot.set(Some(function));
         Ok(function)
     }
 
-    fn define_condition_resolver(
+    fn define_flag_resolver(
         &self,
         mut body: FunctionBuilder<'_>,
-        condition: Condition,
+        query: StoredQuery,
     ) -> Result<(), BuildError> {
         let kind = cpu_load!(&mut body, self.memory, flags.kind)?;
-        body.if_(kind.eq(u32::from(record::CONCRETE_KIND)), |mut arm| {
-            let result = condition.evaluate(|flag| {
-                let concrete = match flag {
-                    StatusFlag::CF => cpu_load!(&mut arm, self.memory, flags.status.cf)?,
-                    StatusFlag::PF => cpu_load!(&mut arm, self.memory, flags.status.pf)?,
-                    StatusFlag::AF => cpu_load!(&mut arm, self.memory, flags.status.af)?,
-                    StatusFlag::ZF => cpu_load!(&mut arm, self.memory, flags.status.zf)?,
-                    StatusFlag::SF => cpu_load!(&mut arm, self.memory, flags.status.sf)?,
-                    StatusFlag::OF => cpu_load!(&mut arm, self.memory, flags.status.of)?,
-                };
-                Ok::<_, BuildError>(concrete.truncate::<I1>())
-            })?;
-            arm.return_(result)
+        body.if_(kind.eq(u32::from(record::CONCRETE_KIND)), |arm| {
+            query.return_concrete(self, arm)
         })?;
         let left = cpu_load!(&mut body, self.memory, flags.left)?;
         let right = cpu_load!(&mut body, self.memory, flags.right)?;
@@ -141,38 +214,55 @@ impl Cpu {
         // testing its operation so later widths do not scan earlier operations.
         body.if_(
             kind.unsigned().lt(u32::from(record::width_code::<I16>())),
-            |arm| return_condition::<I8>(arm, &kind, &left, &right, condition),
+            |arm| return_query::<I8>(arm, &kind, &left, &right, query),
         )?;
         body.if_(
             kind.unsigned().lt(u32::from(record::width_code::<I32>())),
-            |arm| return_condition::<I16>(arm, &kind, &left, &right, condition),
+            |arm| return_query::<I16>(arm, &kind, &left, &right, query),
         )?;
-        return_condition::<I32>(body, &kind, &left, &right, condition)
+        return_query::<I32>(body, &kind, &left, &right, query)
+    }
+
+    fn read_concrete_flag(
+        &self,
+        body: &mut FunctionBuilder<'_>,
+        flag: StatusFlag,
+    ) -> Result<Val<I1>, BuildError> {
+        let value = match flag {
+            StatusFlag::CF => cpu_load!(body, self.memory, flags.status.cf)?,
+            StatusFlag::PF => cpu_load!(body, self.memory, flags.status.pf)?,
+            StatusFlag::AF => cpu_load!(body, self.memory, flags.status.af)?,
+            StatusFlag::ZF => cpu_load!(body, self.memory, flags.status.zf)?,
+            StatusFlag::SF => cpu_load!(body, self.memory, flags.status.sf)?,
+            StatusFlag::OF => cpu_load!(body, self.memory, flags.status.of)?,
+        };
+        Ok(value.truncate::<I1>())
     }
 }
 
-fn return_condition<T: MemoryInt>(
+fn return_query<T: MemoryInt>(
     mut body: FunctionBuilder<'_>,
     stored_kind: &Val<I8>,
     left: &Val<I32>,
     right: &Val<I32>,
-    condition: Condition,
+    query: StoredQuery,
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
+    FlagSource<T>: Into<LocalFlagSource>,
 {
     let left = left.truncate::<T>();
     let right = right.truncate::<T>();
     for kind in [ArithmeticKind::Sub, ArithmeticKind::Add] {
-        let source = FlagSource::arithmetic(kind, left.clone(), right.clone());
+        let source = FlagSource::arithmetic(kind, left.clone(), right.clone()).into();
         body.if_(
             stored_kind.eq(u32::from(record::encode_kind::<T>(kind))),
-            |arm| arm.return_(source.condition(condition)),
+            |arm| query.return_from_source(arm, &source),
         )?;
     }
     body.if_(
         stored_kind.eq(u32::from(record::encode_logic::<T>())),
-        |arm| arm.return_(FlagSource::Logic { result: left }.condition(condition)),
+        |arm| query.return_from_source(arm, &FlagSource::Logic { result: left }.into()),
     )?;
     // The selected width accepts only its SUB, ADD and logic source tags.
     body.trap()

@@ -10,10 +10,10 @@ fn zero_arguments() -> TestModule {
     let mut fixture = Fixture::new();
     let target = fixture.callback(
         "receive",
-        signature(&[], Some(Type::I64)),
-        Some(Value::I64(9223372036854775807)),
+        signature(&[], &[Type::I64]),
+        &[Value::I64(9223372036854775807)],
     );
-    fixture.function(&[], Some(Type::I64), |body| body.tail_call(target, &[]))
+    fixture.function(&[], &[Type::I64], |body| body.tail_call(target, &[]))
 }
 
 fn shared_arguments(store: bool, second_root: bool, callback_result: i64) -> TestModule {
@@ -26,10 +26,10 @@ fn shared_arguments(store: bool, second_root: bool, callback_result: i64) -> Tes
     };
     let target = fixture.callback(
         "receive",
-        signature(&parameters, Some(Type::I64)),
-        Some(Value::I64(callback_result)),
+        signature(&parameters, &[Type::I64]),
+        &[Value::I64(callback_result)],
     );
-    fixture.function(&[Type::I8], Some(Type::I64), |mut body| {
+    fixture.function(&[Type::I8], &[Type::I64], |mut body| {
         let raw = body.parameter::<I8>(0)?.add(1);
         let raw = body.value(&raw)?;
         let other = raw.add(1);
@@ -50,10 +50,10 @@ fn canonical_arguments() -> TestModule {
     let state = fixture.memory("state", &[0xff, 0xa5, 0x5a]);
     let target = fixture.callback(
         "receive",
-        signature(&[Type::I8, Type::I16, Type::I1], Some(Type::I8)),
-        Some(Value::I32(255)),
+        signature(&[Type::I8, Type::I16, Type::I1], &[Type::I8]),
+        &[Value::I32(255)],
     );
-    fixture.function(&[Type::I16], Some(Type::I8), |mut body| {
+    fixture.function(&[Type::I16], &[Type::I8], |mut body| {
         let loaded = body.load::<I8>(state, 0)?;
         let parameter = body.parameter::<I16>(0)?;
         body.tail_call(
@@ -65,32 +65,28 @@ fn canonical_arguments() -> TestModule {
 
 fn imported_and_defined_targets() -> TestModule {
     let mut fixture = Fixture::new();
-    fixture.callback(
-        "unused",
-        signature(&[], Some(Type::I1)),
-        Some(Value::I32(0)),
-    );
-    let run = fixture.program.declare(signature(&[], Some(Type::I64)));
+    fixture.callback("unused", signature(&[], &[Type::I1]), &[Value::I32(0)]);
+    let run = fixture.program.declare(signature(&[], &[Type::I64]));
     let right = fixture.callback(
         "right",
-        signature(&[Type::I32], Some(Type::I64)),
-        Some(Value::I64(101)),
+        signature(&[Type::I32], &[Type::I64]),
+        &[Value::I64(101)],
     );
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let helper = fixture
         .program
-        .declare(signature(&[Type::I32], Some(Type::I64)));
+        .declare(signature(&[Type::I32], &[Type::I64]));
     let left = fixture.callback(
         "left",
-        signature(&[Type::I32], Some(Type::I64)),
-        Some(Value::I64(202)),
+        signature(&[Type::I32], &[Type::I64]),
+        &[Value::I64(202)],
     );
     let direct = fixture.callback(
         "direct",
-        signature(&[Type::I64], Some(Type::I64)),
-        Some(Value::I64(-9223372036854775808)),
+        signature(&[Type::I64], &[Type::I64]),
+        &[Value::I64(-9223372036854775808)],
     );
-    let other = fixture.program.declare(signature(&[], Some(Type::I64)));
+    let other = fixture.program.declare(signature(&[], &[Type::I64]));
     let mut body = fixture.program.define(run).unwrap();
     body.store::<I32>(state, 0, 11).unwrap();
     body.tail_call(helper, &[11.into()]).unwrap();
@@ -272,12 +268,12 @@ fn tail_signatures_require_logical_argument_and_result_types() {
             name: "receive".into(),
             signature: Signature {
                 parameters: vec![target_parameter],
-                result: Some(target_result),
+                results: vec![target_result],
             },
         });
         let run = program.declare(Signature {
             parameters: vec![],
-            result: Some(Type::I1),
+            results: vec![Type::I1],
         });
         let body = program.define(run).unwrap();
         let bit = body.value::<I1>(true).unwrap();
@@ -364,13 +360,13 @@ fn tail_calls_preserve_mixed_integer_carriers_at_runtime() {
             "receive",
             signature(
                 &[Type::I16, Type::I1, Type::I64, Type::I8, Type::I32],
-                Some(Type::I64),
+                &[Type::I64],
             ),
-            Some(Value::I64(callback_result)),
+            &[Value::I64(callback_result)],
         );
         let module = fixture.function(
             &[Type::I1, Type::I8, Type::I16, Type::I32, Type::I64],
-            Some(Type::I64),
+            &[Type::I64],
             |body| {
                 let bit = body.parameter::<I1>(0)?.add(1);
                 let byte = body.parameter::<I8>(1)?.add(1);
@@ -420,10 +416,10 @@ fn tail_argument_traps_preserve_prior_stores_at_runtime() {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let target = fixture.callback(
         "receive",
-        signature(&[Type::I32], Some(Type::I64)),
-        Some(Value::I64(99)),
+        signature(&[Type::I32], &[Type::I64]),
+        &[Value::I64(99)],
     );
-    let module = fixture.function(&[], Some(Type::I64), |mut body| {
+    let module = fixture.function(&[], &[Type::I64], |mut body| {
         let loaded = body.load::<I32>(state, 65536)?;
         body.store::<I32>(state, 0, 9)?;
         body.tail_call(target, &[loaded.argument()])
@@ -472,10 +468,10 @@ fn v8_tail_calls_publish_memory_and_normalize_shared_arguments() {
     let module = shared_arguments(true, true, 17);
     let input = Input::call("run", &[Value::I32(255)])
         .with_memories(&[MemoryBytes::new("state", &[0xff, 0xa5, 0x5a])])
-        .with_callbacks(&[Callback::new("receive", Value::I64(17))]);
+        .with_callbacks(&[Callback::new("receive", &[Value::I64(17)])]);
     assert_eq!(
         module.run_v8(&input),
-        Observation::returned(Value::I64(17))
+        Observation::returned(&[Value::I64(17)])
             .with_callbacks(&[
                 Call::new("receive", &[Value::I32(0), Value::I32(1), Value::I32(0)])
                     .with_memories(&[MemoryBytes::new("state", &[0, 0xa5, 0x5a])]),

@@ -1,48 +1,12 @@
 use crate::flags::{ArithmeticKind, Condition, FlagSource, StatusFlag};
 use crate::state::access::cpu_load;
 use crate::state::{Cpu, State};
-use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
-use crate::{CompiledModule, CpuState, StatusFlags};
+use crate::test_step::TestModule;
+use crate::{CompiledModule, StatusFlags};
 use wasm86_compiler::{BuildError, Program, Signature, Type, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
-fn initial_cpu() -> CpuState {
-    let mut cpu = CpuState::filled(0xa5);
-    cpu.flags.kind = 9;
-    cpu.flags.left = 7;
-    cpu.flags.right = 8;
-    cpu.eip = 0x1000;
-    cpu.instruction_count = u32::MAX;
-    cpu
-}
-
-fn assert_result(
-    module: &TestModule,
-    initial: &CpuState,
-    arguments: &[i32],
-    expected: &CpuState,
-    result: i64,
-) {
-    let input = Input {
-        arguments: arguments.iter().copied().map(Argument::I32).collect(),
-        ..Input::new(&initial.to_bytes())
-    };
-    assert_eq!(
-        module.observe(&input, 1),
-        Observation {
-            events: vec![Event::Return {
-                outcome: Outcome::Returned(Some(Argument::I64(result))),
-                snapshot: Snapshot {
-                    cpu: expected.to_bytes().to_vec(),
-                    guest: None,
-                },
-            }],
-            guest_unchanged: true,
-            machine_unchanged: true,
-        },
-        "arguments {arguments:?}"
-    );
-}
+use super::fixture::{assert_result, initial_cpu};
 
 fn conditional_publication(local_base: bool) -> CompiledModule {
     let mut program = Program::new();
@@ -51,7 +15,7 @@ fn conditional_publication(local_base: bool) -> CompiledModule {
         .function(
             Signature {
                 parameters: vec![Type::I1; 3],
-                result: Some(Type::I64),
+                results: vec![Type::I64],
             },
             |mut body| {
                 let mut state = State::new(&cpu);
@@ -153,7 +117,7 @@ fn conditional_flags_keep_earlier_exits_and_publish_only_the_last_active_source(
 }
 
 #[test]
-fn unconditional_replacement_retains_a_carry_read_from_conditional_flags() {
+fn preserving_or_consuming_carry_uses_the_selected_conditional_source() {
     for preserve_carry in [false, true] {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
@@ -161,7 +125,7 @@ fn unconditional_replacement_retains_a_carry_read_from_conditional_flags() {
             .function(
                 Signature {
                     parameters: vec![Type::I1],
-                    result: Some(Type::I64),
+                    results: vec![Type::I64],
                 },
                 |mut body| {
                     let mut state = State::new(&cpu);
@@ -171,20 +135,24 @@ fn unconditional_replacement_retains_a_carry_read_from_conditional_flags() {
                         replace,
                         FlagSource::<I8>::Logic { result: 0.into() },
                     )?;
-                    let carry = state.condition(&mut body, Condition::B)?;
-                    let source = if preserve_carry {
-                        FlagSource::<I8>::arithmetic(ArithmeticKind::Add, 255.into(), 1.into())
-                            .with_flag(StatusFlag::CF, carry)
+                    let result = if preserve_carry {
+                        let source =
+                            FlagSource::<I8>::arithmetic(ArithmeticKind::Add, 255.into(), 1.into());
+                        let result = source.result().unsigned().extend::<I64>();
+                        state.set_flags(&mut body, source.preserving(StatusFlag::CF))?;
+                        result
                     } else {
-                        FlagSource::<I8>::arithmetic_with_carry(
+                        let carry = state.condition(&mut body, Condition::B)?;
+                        let source = FlagSource::<I8>::arithmetic_with_carry(
                             ArithmeticKind::Add,
                             255.into(),
                             0.into(),
                             carry,
-                        )
+                        );
+                        let result = source.result().unsigned().extend::<I64>();
+                        state.set_flags(&mut body, source)?;
+                        result
                     };
-                    let result = source.result().unsigned().extend::<I64>();
-                    state.set_flags(&mut body, source)?;
                     state.publish(&mut body, 0x1004, 2)?;
                     body.return_(result)
                 },
@@ -230,7 +198,7 @@ fn constant_predicates_omit_false_updates_and_discard_history_on_true() {
             .function(
                 Signature {
                     parameters: vec![Type::I1],
-                    result: Some(Type::I64),
+                    results: vec![Type::I64],
                 },
                 |mut body| {
                     let mut state = State::new(&cpu);
@@ -297,7 +265,7 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
     let mut foreign_program = Program::new();
     let foreign_function = foreign_program.declare(Signature {
         parameters: vec![Type::I32],
-        result: Some(Type::I32),
+        results: vec![Type::I32],
     });
     let foreign_body = foreign_program.define(foreign_function).unwrap();
     let foreign = foreign_body.parameter::<I32>(0).unwrap();
@@ -307,7 +275,7 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
         .function(
             Signature {
                 parameters: vec![Type::I1],
-                result: Some(Type::I32),
+                results: vec![Type::I32],
             },
             |mut body| {
                 let mut state = State::new(&cpu);
@@ -376,7 +344,7 @@ fn conditional_publication_keeps_constant_control_depth_as_history_grows() {
         .function(
             Signature {
                 parameters: vec![Type::I32],
-                result: Some(Type::I32),
+                results: vec![Type::I32],
             },
             |mut body| {
                 let mut state = State::new(&cpu);

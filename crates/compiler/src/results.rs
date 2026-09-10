@@ -1,5 +1,5 @@
 //! Logical result shapes and signature-directed arguments.
-use crate::{Argument, FunctionBuilder, IntType, Type, Val};
+use crate::{Argument, BuildError, FunctionBuilder, IntType, Type, Val};
 
 mod sealed {
     use super::*;
@@ -12,11 +12,11 @@ mod sealed {
     }
 }
 
-/// The logical result shape of a block, conditional or switch.
+/// The logical result shape of a call, block, conditional or switch.
 ///
 /// An integer marker such as `I32` produces `Val<I32>`. `()` produces no values.
 /// Tuples of up to eight shapes produce corresponding tuples of typed values;
-/// shapes may be nested to describe larger results. Components retain their
+/// arrays repeat a shape, and shapes may be nested. Components retain their
 /// logical types even when several types use the same WebAssembly carrier.
 pub trait Results: sealed::Shape {
     type Values: sealed::Values;
@@ -56,11 +56,28 @@ impl sealed::Values for () {
     fn bind(_: &FunctionBuilder<'_>, _: &mut dyn Iterator<Item = usize>) {}
 }
 
-/// Values or native literals supplied to a block result or branch label.
+impl<R: Results, const N: usize> Results for [R; N] {
+    type Values = [R::Values; N];
+}
+
+impl<R: Results, const N: usize> sealed::Shape for [R; N] {}
+
+impl<V: sealed::Values, const N: usize> sealed::Values for [V; N] {
+    fn types() -> Vec<Type> {
+        V::types().repeat(N)
+    }
+
+    fn bind(body: &FunctionBuilder<'_>, outputs: &mut dyn Iterator<Item = usize>) -> Self {
+        std::array::from_fn(|_| V::bind(body, outputs))
+    }
+}
+
+/// Values or native literals supplied to a function return, block result or branch label.
 ///
 /// A scalar argument supplies one result, `()` supplies none, and a tuple
-/// supplies the concatenated arguments of its components. The enclosing logical
-/// result signature validates the number, types, body ownership and visibility.
+/// or array supplies its components in order. A vector supplies a runtime-sized
+/// list of scalar arguments. The logical signature validates their number,
+/// types, body ownership and visibility.
 pub struct Arguments(pub(super) Vec<Argument>);
 
 impl<T: Into<Argument>> From<T> for Arguments {
@@ -72,6 +89,47 @@ impl<T: Into<Argument>> From<T> for Arguments {
 impl From<()> for Arguments {
     fn from(_: ()) -> Self {
         Self(vec![])
+    }
+}
+
+impl<T: Into<Arguments>, const N: usize> From<[T; N]> for Arguments {
+    fn from(values: [T; N]) -> Self {
+        Self(
+            values
+                .into_iter()
+                .flat_map(|value| value.into().0)
+                .collect(),
+        )
+    }
+}
+
+impl<T: Into<Argument>> From<Vec<T>> for Arguments {
+    fn from(values: Vec<T>) -> Self {
+        Self(values.into_iter().map(Into::into).collect())
+    }
+}
+
+impl FunctionBuilder<'_> {
+    pub(super) fn result_arguments(
+        &self,
+        arguments: impl Into<Arguments>,
+        types: &[Type],
+    ) -> Result<Vec<usize>, BuildError> {
+        let arguments = arguments.into().0;
+        check_count(types.len(), arguments.len())?;
+        arguments
+            .into_iter()
+            .zip(types)
+            .map(|(argument, &ty)| self.argument(argument, ty))
+            .collect()
+    }
+}
+
+pub(super) fn check_count(expected: usize, actual: usize) -> Result<(), BuildError> {
+    if expected == actual {
+        Ok(())
+    } else {
+        Err(BuildError::ResultCount { expected, actual })
     }
 }
 

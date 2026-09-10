@@ -4,13 +4,14 @@ use wasm_encoder::{Encode, Function, Instruction, MemArg, ValType};
 use crate::{
     control::Site,
     effects::Effects,
-    integer::{BinaryOp, CompareOp, ShiftOp},
+    integer::{BinaryOp, CompareOp, RotateOp, ShiftOp},
     locals,
     memory::Location,
     module::Types,
     place, Body, Type, ValueKind,
 };
 
+mod calls;
 mod control;
 mod switch;
 
@@ -141,11 +142,10 @@ impl Scheduler<'_> {
                     continue;
                 }
                 Walk::FinishCall(id) => {
-                    let ValueKind::CallResult { site } = self.body.values[id].kind else {
+                    let ValueKind::CallResult { site, .. } = self.body.values[id].kind else {
                         unreachable!("call completion names a call result")
                     };
-                    self.call(self.body.invocation(site).target);
-                    self.completed(id, capture && id == root);
+                    self.finish_call(site, Some((id, capture && id == root)));
                     continue;
                 }
                 Walk::FinishZero(id, extension) => {
@@ -183,6 +183,9 @@ impl Scheduler<'_> {
                 ValueKind::Binary(_, a, b)
                 | ValueKind::Compare(_, a, b)
                 | ValueKind::Shift {
+                    value: a, count: b, ..
+                }
+                | ValueKind::Rotate {
                     value: a, count: b, ..
                 } => {
                     pending.push(Walk::Finish(id));
@@ -223,9 +226,9 @@ impl Scheduler<'_> {
                     pending.push(Walk::FinishZero(id, extension));
                     pending.push(Walk::Value(input));
                 }
-                ValueKind::CallResult { site } => {
+                ValueKind::CallResult { site, .. } => {
                     pending.push(Walk::FinishCall(id));
-                    for &argument in self.body.invocation(site).arguments.iter().rev() {
+                    for &argument in self.body.call(site).0.arguments.iter().rev() {
                         pending.push(Walk::Value(argument));
                     }
                 }
@@ -260,6 +263,12 @@ impl Scheduler<'_> {
                 (ShiftOp::RightUnsigned, true) => Instruction::I64ShrU,
                 (ShiftOp::RightSigned, false) => Instruction::I32ShrS,
                 (ShiftOp::RightSigned, true) => Instruction::I64ShrS,
+            },
+            ValueKind::Rotate { operator, .. } => match (operator, wide) {
+                (RotateOp::Left, false) => Instruction::I32Rotl,
+                (RotateOp::Left, true) => Instruction::I64Rotl,
+                (RotateOp::Right, false) => Instruction::I32Rotr,
+                (RotateOp::Right, true) => Instruction::I64Rotr,
             },
             ValueKind::Select { .. } => Instruction::Select,
             ValueKind::Popcnt(_) => {

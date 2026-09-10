@@ -1,4 +1,4 @@
-//! Guest-independent construction of scalar WebAssembly functions.
+//! Guest-independent construction of typed WebAssembly functions.
 //!
 //! Build functions, choose their exports, then compile the module:
 //!
@@ -8,7 +8,7 @@
 //! let mut program = Program::new();
 //! let increment = program.function(Signature {
 //!     parameters: vec![Type::I32],
-//!     result: Some(Type::I32),
+//!     results: vec![Type::I32],
 //! }, |body| {
 //!     let value = body.parameter::<I32>(0)?;
 //!     body.return_(value.add(1))
@@ -29,6 +29,7 @@ mod locals;
 mod memory;
 mod module;
 mod place;
+mod results;
 mod types;
 mod value;
 
@@ -37,19 +38,20 @@ use std::fmt;
 use arena::ExpressionArena;
 pub use call::FunctionImport;
 use call::Invocation;
-pub use control::{Arguments, Label, Results};
+pub use control::Label;
 use control::{Destination, Region, Site};
-use integer::{BinaryOp, CompareOp, ShiftOp};
+use integer::{BinaryOp, CompareOp, RotateOp, ShiftOp};
 use memory::Location;
 pub use memory::{Mem, MemoryImport, MemoryInt};
+pub use results::{Arguments, Results};
 pub use types::{AtLeast, IntType, Type, I1, I16, I32, I64, I8};
 pub use value::{Argument, Signed, Unsigned, Val};
 
-/// A function's parameter types and optional return type.
+/// A function's ordered logical parameter and result types.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Signature {
     pub parameters: Vec<Type>,
-    pub result: Option<Type>,
+    pub results: Vec<Type>,
 }
 
 /// A declared function.
@@ -76,8 +78,7 @@ pub enum BuildError {
     DuplicateSwitchCase { key: u32 },
     SwitchCaseOutOfRange { key: u32, selector: Type },
     TypeMismatch { expected: Type, actual: Type },
-    MissingResult,
-    UnexpectedResult,
+    ResultCount { expected: usize, actual: usize },
     DuplicateExport,
 }
 
@@ -121,8 +122,9 @@ impl fmt::Display for BuildError {
             Self::TypeMismatch { expected, actual } => {
                 write!(formatter, "expected {expected:?}, received {actual:?}")
             }
-            Self::MissingResult => formatter.write_str("a result is required"),
-            Self::UnexpectedResult => formatter.write_str("no result is expected"),
+            Self::ResultCount { expected, actual } => {
+                write!(formatter, "expected {expected} results, received {actual}")
+            }
             Self::DuplicateExport => formatter.write_str("export name is already declared"),
         }
     }
@@ -157,16 +159,15 @@ struct Body {
 enum Terminal {
     Trap,
     Branch { target: Site, arguments: Vec<usize> },
-    Return(Option<usize>),
+    Return(Vec<usize>),
     TailCall(Invocation),
 }
 
 impl Terminal {
     fn inputs(&self) -> &[usize] {
         match self {
-            Self::Trap | Self::Return(None) => &[],
-            Self::Return(Some(value)) => std::slice::from_ref(value),
-            Self::Branch { arguments, .. } => arguments,
+            Self::Trap => &[],
+            Self::Return(arguments) | Self::Branch { arguments, .. } => arguments,
             Self::TailCall(invocation) => &invocation.arguments,
         }
     }
@@ -196,7 +197,7 @@ enum Operation {
     },
     Call {
         invocation: Invocation,
-        output: Option<usize>,
+        outputs: Vec<usize>,
     },
 }
 
@@ -213,6 +214,11 @@ enum ValueKind {
     Binary(BinaryOp, usize, usize),
     Shift {
         operator: ShiftOp,
+        value: usize,
+        count: usize,
+    },
+    Rotate {
+        operator: RotateOp,
         value: usize,
         count: usize,
     },
@@ -236,6 +242,7 @@ enum ValueKind {
     },
     CallResult {
         site: Site,
+        component: usize,
     },
     JoinResult {
         site: Site,
@@ -255,7 +262,7 @@ enum ValueKind {
 /// ```compile_fail
 /// use wasm86_compiler::{Program, Signature, Type, I32};
 /// let mut program = Program::new();
-/// let function = program.declare(Signature { parameters: vec![], result: Some(Type::I32) });
+/// let function = program.declare(Signature { parameters: vec![], results: vec![Type::I32] });
 /// let body = program.define(function).unwrap();
 /// let module = program.compile();
 /// body.return_(0).unwrap();
@@ -434,30 +441,18 @@ impl FunctionBuilder<'_> {
         operand.into().bind(&self.arena, self.region.id)
     }
 
-    /// Returns this value from the generated function, consuming the active builder.
-    /// A literal uses the signature's result type; a typed value must match it.
+    /// Returns values from the function, consuming the active builder.
+    /// The signature determines literal types; typed values must match it.
+    /// Scalars, tuples, arrays and vectors supply ordered results; `()` supplies none.
     /// In a branch, only that branch is completed. Completing the outer builder
     /// saves the function body; an error there leaves the function undefined.
-    pub fn return_(mut self, result: impl Into<Argument>) -> Result<(), BuildError> {
+    pub fn return_(mut self, arguments: impl Into<Arguments>) -> Result<(), BuildError> {
         self.fallthrough = false;
-        let ty = self
-            .signature()
-            .result
-            .ok_or(BuildError::UnexpectedResult)?;
-        let result = self.argument(result, ty)?;
-        let result = self.arena.normalize(result)?;
-        self.complete(Terminal::Return(Some(result)))
-    }
-
-    /// Returns from a function whose signature has no result, consuming this builder.
-    /// In a branch, only that branch is completed. As with [`Self::return_`], an
-    /// invalid return leaves an outer function undefined and a branch incomplete.
-    pub fn return_void(mut self) -> Result<(), BuildError> {
-        self.fallthrough = false;
-        if self.signature().result.is_some() {
-            return Err(BuildError::MissingResult);
+        let mut arguments = self.result_arguments(arguments, &self.signature().results)?;
+        for argument in &mut arguments {
+            *argument = self.arena.normalize(*argument)?;
         }
-        self.complete(Terminal::Return(None))
+        self.complete(Terminal::Return(arguments))
     }
 
     /// Ends this execution path with a WebAssembly trap. This consumes the active

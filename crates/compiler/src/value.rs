@@ -9,7 +9,7 @@ use source::{BoundExpression, ValueSource};
 
 use crate::arena::ExpressionArena;
 use crate::{
-    integer::{self, BinaryOp, CompareOp, ShiftOp},
+    integer::{self, BinaryOp, CompareOp, RotateOp, ShiftOp},
     AtLeast, BuildError, IntType, I1, I32, I64,
 };
 
@@ -161,6 +161,16 @@ impl<T: IntType> Val<T> {
         self.shift(ShiftOp::Left, count)
     }
 
+    /// Rotates the logical bits left. The I32 count wraps modulo the logical width.
+    pub fn rotl(&self, count: impl Into<Val<I32>>) -> Self {
+        self.rotate(RotateOp::Left, count)
+    }
+
+    /// Rotates the logical bits right. The I32 count wraps modulo the logical width.
+    pub fn rotr(&self, count: impl Into<Val<I32>>) -> Self {
+        self.rotate(RotateOp::Right, count)
+    }
+
     /// Tests whether the operands' logical low bits are equal.
     pub fn eq(&self, other: impl Into<Val<T>>) -> Val<I1> {
         self.compare(CompareOp::Eq, other)
@@ -268,6 +278,15 @@ impl<T: IntType> Val<T> {
         )
     }
 
+    fn rotate(&self, operator: RotateOp, count: impl Into<Val<I32>>) -> Self {
+        let count: Val<I32> = count.into();
+        self.combine(
+            &count,
+            |value, count| integer::rotate(T::TYPE, operator, value, count as u32),
+            |arena, value, count| arena.rotate(operator, value, count),
+        )
+    }
+
     fn convert<To: IntType>(&self) -> Val<To> {
         self.map(|bits| bits, |arena, input| arena.convert(input, To::TYPE))
     }
@@ -284,7 +303,7 @@ impl Val<I1> {
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let function = program.declare(Signature {
-    ///     parameters: vec![Type::I32], result: Some(Type::I32),
+    ///     parameters: vec![Type::I32], results: vec![Type::I32],
     /// });
     /// let body = program.define(function)?;
     /// let value = body.parameter::<I32>(0)?;

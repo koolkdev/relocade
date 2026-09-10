@@ -70,7 +70,7 @@ pub fn compile_block_from_bytes(
     let function = program.function(
         Signature {
             parameters: vec![],
-            result: Some(Type::I64),
+            results: vec![Type::I64],
         },
         |body| {
             let mut execution =

@@ -60,7 +60,7 @@ pub fn compile_interpreter_step() -> Result<CompiledModule, BuildError> {
     let dispatch = declare_dispatch(&mut program);
     let signature = Signature {
         parameters: vec![],
-        result: Some(Type::I64),
+        results: vec![Type::I64],
     };
     let step = program.declare(signature.clone());
     let exact = program.declare(signature);

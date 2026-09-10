@@ -139,11 +139,7 @@ impl TestModule {
                 cpu.write(&mut store, *offset as usize, bytes).unwrap();
             }
             let outcome = match entry.call(&mut store, &arguments, &mut results) {
-                Ok(()) => match results.as_slice() {
-                    [] => Outcome::Returned(None),
-                    [value] => Outcome::Returned(Some(Argument::from_wasm(value))),
-                    _ => panic!("the test entry returns at most one integer"),
-                },
+                Ok(()) => Outcome::Returned(results.iter().map(Argument::from_wasm).collect()),
                 Err(error) if error.downcast_ref::<Trap>().is_some() => Outcome::Trap,
                 Err(error) => panic!("calling test entry {} failed: {error:#}", self.entry),
             };

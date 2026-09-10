@@ -195,7 +195,7 @@ fn check(
                     snapshot: snapshot.clone()
                 },
                 Event::Return {
-                    outcome: Outcome::Returned(Some(Argument::I64(returned))),
+                    outcome: Outcome::Returned(vec![Argument::I64(returned)]),
                     snapshot
                 },
             ],

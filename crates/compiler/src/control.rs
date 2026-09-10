@@ -1,13 +1,11 @@
 //! Structured regions, result joins and branch construction.
-use crate::{BuildError, FunctionBuilder, Operation, Terminal, Type};
+use crate::{results, Arguments, BuildError, FunctionBuilder, Operation, Results, Terminal, Type};
 
 mod block;
 mod conditional;
-mod results;
 mod switch;
 
 pub use block::Label;
-pub use results::{Arguments, Results};
 
 pub(super) struct SwitchCase {
     pub(super) key: u32,
@@ -137,25 +135,6 @@ impl FunctionBuilder<'_> {
             target: target.site,
             arguments,
         })
-    }
-
-    fn result_arguments(
-        &self,
-        arguments: impl Into<Arguments>,
-        types: &[Type],
-    ) -> Result<Vec<usize>, BuildError> {
-        let arguments = arguments.into().0;
-        if arguments.len() != types.len() {
-            return Err(BuildError::ArgumentCount {
-                expected: types.len(),
-                actual: arguments.len(),
-            });
-        }
-        arguments
-            .into_iter()
-            .zip(types)
-            .map(|(argument, &ty)| self.argument(argument, ty))
-            .collect()
     }
 
     fn result_target<R: Results>(&self) -> JoinTarget {

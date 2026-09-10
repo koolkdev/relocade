@@ -15,7 +15,7 @@ impl FunctionBuilder<'_> {
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let function = program.declare(Signature {
-    ///     parameters: vec![Type::I32], result: Some(Type::I32),
+    ///     parameters: vec![Type::I32], results: vec![Type::I32],
     /// });
     /// let mut body = program.define(function)?;
     /// let value = body.parameter::<I32>(0)?;
@@ -50,7 +50,7 @@ impl FunctionBuilder<'_> {
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let function = program.declare(Signature {
-    ///     parameters: vec![Type::I32], result: Some(Type::I32),
+    ///     parameters: vec![Type::I32], results: vec![Type::I32],
     /// });
     /// let mut body = program.define(function)?;
     /// let value = body.parameter::<I32>(0)?;
@@ -83,7 +83,7 @@ impl FunctionBuilder<'_> {
 
     /// Selects a typed result by executing one of two branches. Nonempty result
     /// arms must consume their builder with `yield_`, an outward `branch`,
-    /// `return_`, `return_void`, `tail_call` or `trap`; at least one must yield
+    /// `return_`, `tail_call` or `trap`; at least one must yield
     /// to this conditional. Unit result arms may fall through.
     /// A yield supplies this conditional's result, while a return exits the function.
     /// A construction error discards both arms and leaves the parent usable.
@@ -95,7 +95,7 @@ impl FunctionBuilder<'_> {
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let function = program.declare(Signature {
-    ///     parameters: vec![Type::I32], result: Some(Type::I32),
+    ///     parameters: vec![Type::I32], results: vec![Type::I32],
     /// });
     /// let mut body = program.define(function)?;
     /// let value = body.parameter::<I32>(0)?;
@@ -120,7 +120,7 @@ impl FunctionBuilder<'_> {
         let else_branch = self.build_branch(Some(&target), else_build)?;
         let condition = self.arena.normalize(condition)?;
         let outputs = self.join_outputs(&target, [&branch, &else_branch])?;
-        let values = super::results::bind::<R>(self, &outputs);
+        let values = crate::results::bind::<R>(self, &outputs);
         self.region.operations.push(Operation::If {
             condition,
             branch,

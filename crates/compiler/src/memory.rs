@@ -115,7 +115,7 @@ impl FunctionBuilder<'_> {
     ///     module: "guest".into(), name: "memory".into(), minimum: 1, maximum: None,
     /// });
     /// let function = program.declare(Signature {
-    ///     parameters: vec![Type::I32], result: Some(Type::I8),
+    ///     parameters: vec![Type::I32], results: vec![Type::I8],
     /// });
     /// let mut body = program.define(function)?;
     /// let address = body.parameter::<I32>(0)?;
@@ -197,7 +197,7 @@ mod tests {
         });
         let function = program.declare(Signature {
             parameters: vec![],
-            result: Some(Type::I32),
+            results: vec![Type::I32],
         });
         let discarded = program.define(function).unwrap();
         let foreign = discarded.value::<I32>(9).unwrap();

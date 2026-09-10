@@ -6,7 +6,7 @@ use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 fn finish(body: FunctionBuilder<'_>, result: Option<Type>) -> Result<(), BuildError> {
     match result {
         Some(Type::I32) => body.return_(7),
-        None => body.return_void(),
+        None => body.return_(()),
         _ => unreachable!("the fixtures compare I32 and absent results"),
     }
 }
@@ -22,7 +22,7 @@ fn call_unused(
             let _unused = body.call::<I32>(target, arguments)?;
             Ok(())
         }
-        None => body.call_void(target, arguments),
+        None => body.call::<()>(target, arguments),
         _ => unreachable!("the fixtures compare I32 and absent results"),
     }
 }
@@ -49,7 +49,7 @@ fn pure_call(result: Option<Type>, behavior: Pure) -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let helper = fixture
         .program
-        .function(signature(&[Type::I32], result), |mut body| {
+        .function(signature(&[Type::I32], result.as_slice()), |mut body| {
             match behavior {
                 Pure::Trap => return body.trap(),
                 Pure::ReadTrap => {
@@ -59,8 +59,8 @@ fn pure_call(result: Option<Type>, behavior: Pure) -> TestModule {
                 Pure::VoidDescendant => {
                     let trap = body
                         .program()
-                        .function(signature(&[], None), |body| body.trap())?;
-                    body.call_void(trap, &[])?;
+                        .function(signature(&[], &[]), |body| body.trap())?;
+                    body.call::<()>(trap, &[])?;
                 }
                 Pure::Empty | Pure::TrappingArgument => {}
             }
@@ -68,7 +68,7 @@ fn pure_call(result: Option<Type>, behavior: Pure) -> TestModule {
         })
         .unwrap();
     fixture.program.export("helper", helper).unwrap();
-    fixture.function(&[], None, |mut body| {
+    fixture.function(&[], &[], |mut body| {
         body.store::<I32>(state, 0, 1)?;
         let argument = match behavior {
             Pure::TrappingArgument => body.load::<I32>(state, 65536)?.into(),
@@ -76,7 +76,7 @@ fn pure_call(result: Option<Type>, behavior: Pure) -> TestModule {
         };
         call_unused(&mut body, helper, result, &[argument])?;
         body.store::<I32>(state, 0, 2)?;
-        body.return_void()
+        body.return_(())
     })
 }
 
@@ -103,11 +103,13 @@ fn effectful_call(result: Option<Type>, behavior: Effect) -> TestModule {
     let helper = if matches!(behavior, Effect::Host) {
         fixture.callback(
             "receive",
-            signature(&[Type::I32], result),
-            result.map(|_| Value::I32(99)),
+            signature(&[Type::I32], result.as_slice()),
+            result.map(|_| Value::I32(99)).as_slice(),
         )
     } else {
-        let helper = fixture.program.declare(signature(&[Type::I32], result));
+        let helper = fixture
+            .program
+            .declare(signature(&[Type::I32], result.as_slice()));
         let mut body = fixture.program.define(helper).unwrap();
         let input = body.parameter::<I32>(0).unwrap();
         if matches!(behavior, Effect::Recursive) {
@@ -125,13 +127,13 @@ fn effectful_call(result: Option<Type>, behavior: Effect) -> TestModule {
     };
     let wrapper = fixture
         .program
-        .function(signature(&[Type::I32], result), |mut body| {
+        .function(signature(&[Type::I32], result.as_slice()), |mut body| {
             let input = body.parameter::<I32>(0)?;
             call_unused(&mut body, helper, result, &[input.into()])?;
             finish(body, result)
         })
         .unwrap();
-    fixture.function(&[], None, |mut body| {
+    fixture.function(&[], &[], |mut body| {
         body.store::<I32>(state, 0, 1)?;
         let argument = match behavior {
             Effect::TrappingArgument => body.load::<I32>(state, 65536)?.into(),
@@ -139,7 +141,7 @@ fn effectful_call(result: Option<Type>, behavior: Effect) -> TestModule {
         };
         call_unused(&mut body, wrapper, result, &[argument])?;
         body.store::<I32>(state, 0, 2)?;
-        body.return_void()
+        body.return_(())
     })
 }
 
