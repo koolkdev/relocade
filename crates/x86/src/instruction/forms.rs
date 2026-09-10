@@ -9,7 +9,7 @@ use super::{
     handlers::{Handler, SizedHandlers},
     Location, OperandSize,
 };
-use crate::{flags::Condition, register::RegisterCode};
+use crate::{alu::flags::Condition, register::RegisterCode};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum OpcodeMap {

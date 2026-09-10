@@ -2,7 +2,7 @@
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1};
 
-use crate::flags::{Condition, FlagChange, FlagMask, StatusFlag};
+use crate::alu::flags::{Condition, FlagChange, FlagMask, StatusFlag};
 use crate::state::{Cpu, State};
 
 use super::{condition_index, FlagBase, FlagUpdate};

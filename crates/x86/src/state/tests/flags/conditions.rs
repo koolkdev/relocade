@@ -1,5 +1,5 @@
 use crate::{
-    flags::Condition,
+    alu::flags::Condition,
     state::{Cpu, State},
 };
 use wasm86_compiler::{Program, Signature, Type, I32};

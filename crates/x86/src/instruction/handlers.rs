@@ -6,7 +6,7 @@
 use wasm86_compiler::{BuildError, Val, I32};
 
 use super::{Location, Operand, OperandSize};
-use crate::{execution::ExecutionBuilder, flags::Condition};
+use crate::{alu::flags::Condition, execution::ExecutionBuilder};
 
 pub(super) type BinaryHandler = for<'body, 'module> fn(
     execution: &mut ExecutionBuilder<'body, 'module>,

@@ -2,7 +2,7 @@
 
 use wasm86_compiler::{AtLeast, BuildError, FunctionBuilder, Mem, MemoryInt, Val, I1, I32, I8};
 
-use crate::flags::{ArithmeticKind, FlagSource};
+use crate::alu::{flags::FlagSource, ArithmeticOp};
 use crate::state::access::cpu_store;
 
 pub(in crate::state) const CONCRETE_KIND: u8 = 0;
@@ -16,11 +16,11 @@ pub(in crate::state) fn width_code<T: MemoryInt>() -> u8 {
     }
 }
 
-pub(in crate::state) fn encode_kind<T: MemoryInt>(kind: ArithmeticKind) -> u8 {
+pub(in crate::state) fn encode_kind<T: MemoryInt>(operation: ArithmeticOp) -> u8 {
     width_code::<T>()
-        | match kind {
-            ArithmeticKind::Sub => 1,
-            ArithmeticKind::Add => 2,
+        | match operation {
+            ArithmeticOp::Subtract => 1,
+            ArithmeticOp::Add => 2,
         }
 }
 
@@ -32,7 +32,7 @@ pub(in crate::state) fn encode_logic<T: MemoryInt>() -> u8 {
 /// A record is constructed only when the current source must be published.
 pub(super) enum FlagRecord<T: MemoryInt> {
     Arithmetic {
-        operation: ArithmeticKind,
+        operation: ArithmeticOp,
         left: Val<T>,
         right: Val<T>,
     },
@@ -48,16 +48,19 @@ impl<T: MemoryInt> FlagRecord<T> {
     pub(super) fn from_source(source: &FlagSource<T>) -> Self {
         match source {
             FlagSource::Arithmetic {
-                kind, left, right, ..
+                operation,
+                left,
+                right,
+                ..
             } => Self::Arithmetic {
-                operation: *kind,
+                operation: *operation,
                 left: left.clone(),
                 right: right.clone(),
             },
             FlagSource::Logic { result } => Self::Logic {
                 result: result.clone(),
             },
-            FlagSource::Explicit { flags, .. } => Self::Concrete {
+            FlagSource::Explicit { flags } => Self::Concrete {
                 status: flags.clone(),
             },
         }

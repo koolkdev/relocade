@@ -11,7 +11,7 @@ pub(super) use lower::lower;
 use operands::{map_location, map_operand};
 pub(crate) use operands::{Input, TypedLocation};
 
-use crate::{address::Address32, flags::Condition, register::RegisterCode};
+use crate::{address::Address32, alu::flags::Condition, register::RegisterCode};
 
 pub(super) const MAX_INSTRUCTION_BYTES: u32 = 15;
 pub(super) const OPERAND_SIZE_PREFIX: u8 = 0x66;

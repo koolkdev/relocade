@@ -5,7 +5,10 @@ use wasm86_compiler::{
     I32, I8,
 };
 
-use crate::flags::{ArithmeticKind, Condition, FlagMask, FlagSource, LocalFlagSource, StatusFlag};
+use crate::alu::{
+    flags::{AnyFlagSource, Condition, FlagMask, FlagSource, StatusFlag},
+    ArithmeticOp,
+};
 
 use super::{
     super::{
@@ -51,7 +54,7 @@ impl StoredQuery {
     fn return_from_source(
         self,
         body: FunctionBuilder<'_>,
-        source: &LocalFlagSource,
+        source: &AnyFlagSource,
     ) -> Result<(), BuildError> {
         match self {
             Self::Condition(condition) => body.return_(source.condition(condition)),
@@ -94,15 +97,15 @@ impl Cpu {
         }
         let mut queries: Vec<(u32, RecordQuery)> = vec![
             (
-                u32::from(record::encode_kind::<I8>(ArithmeticKind::Sub)),
+                u32::from(record::encode_kind::<I8>(ArithmeticOp::Subtract)),
                 read_subtraction::<I8>,
             ),
             (
-                u32::from(record::encode_kind::<I16>(ArithmeticKind::Sub)),
+                u32::from(record::encode_kind::<I16>(ArithmeticOp::Subtract)),
                 read_subtraction::<I16>,
             ),
             (
-                u32::from(record::encode_kind::<I32>(ArithmeticKind::Sub)),
+                u32::from(record::encode_kind::<I32>(ArithmeticOp::Subtract)),
                 read_subtraction::<I32>,
             ),
         ];
@@ -249,14 +252,20 @@ fn return_query<T: MemoryInt>(
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
-    FlagSource<T>: Into<LocalFlagSource>,
+    FlagSource<T>: Into<AnyFlagSource>,
 {
     let left = left.truncate::<T>();
     let right = right.truncate::<T>();
-    for kind in [ArithmeticKind::Sub, ArithmeticKind::Add] {
-        let source = FlagSource::arithmetic(kind, left.clone(), right.clone()).into();
+    for operation in [ArithmeticOp::Subtract, ArithmeticOp::Add] {
+        let source = FlagSource::Arithmetic {
+            operation,
+            left: left.clone(),
+            right: right.clone(),
+            result: operation.result(&left, &right),
+        }
+        .into();
         body.if_(
-            stored_kind.eq(u32::from(record::encode_kind::<T>(kind))),
+            stored_kind.eq(u32::from(record::encode_kind::<T>(operation))),
             |arm| query.return_from_source(arm, &source),
         )?;
     }

@@ -1,6 +1,9 @@
 use super::*;
 use crate::{
-    flags::{ArithmeticKind, FlagSource, LocalFlagSource, StatusFlag},
+    alu::{
+        flags::{AnyFlagSource, FlagSource},
+        ArithmeticOp, LogicOp, UnaryOp,
+    },
     register::RegisterType,
 };
 
@@ -13,14 +16,6 @@ enum BinaryOperation {
     And,
     Or,
     Xor,
-}
-
-#[derive(Clone, Copy)]
-enum UnaryOperation {
-    Increment,
-    Decrement,
-    Negate,
-    Not,
 }
 
 /// The main ALU families share operand layouts. Bits 3–5 of the first
@@ -116,13 +111,12 @@ const TEST_ACCUMULATOR_FORMS: [Form; 2] = [
 ];
 
 const INCREMENT: IntegerHandlers<Handler> =
-    unary_handlers!(update_unary, TypedLocation, UnaryOperation::Increment);
+    unary_handlers!(update_unary, TypedLocation, UnaryOp::Increment);
 const DECREMENT: IntegerHandlers<Handler> =
-    unary_handlers!(update_unary, TypedLocation, UnaryOperation::Decrement);
-const NOT: IntegerHandlers<Handler> =
-    unary_handlers!(update_unary, TypedLocation, UnaryOperation::Not);
+    unary_handlers!(update_unary, TypedLocation, UnaryOp::Decrement);
+const NOT: IntegerHandlers<Handler> = unary_handlers!(update_unary, TypedLocation, UnaryOp::Not);
 const NEGATE: IntegerHandlers<Handler> =
-    unary_handlers!(update_unary, TypedLocation, UnaryOperation::Negate);
+    unary_handlers!(update_unary, TypedLocation, UnaryOp::Negate);
 
 const UNARY_FORMS: [Form; 10] = [
     opcode_register(0x40, INCREMENT.sized),
@@ -164,34 +158,27 @@ fn update_binary<T: RegisterType>(
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
-    FlagSource<T>: Into<LocalFlagSource>,
+    FlagSource<T>: Into<AnyFlagSource>,
 {
     destination.update(execution, |execution, left| {
         let right = source.read(execution)?;
-        let flags = match operation {
-            BinaryOperation::Add => FlagSource::arithmetic(ArithmeticKind::Add, left, right),
-            BinaryOperation::Subtract => FlagSource::arithmetic(ArithmeticKind::Sub, left, right),
+        let outcome = match operation {
+            BinaryOperation::Add => ArithmeticOp::Add.apply(left, right),
+            BinaryOperation::Subtract => ArithmeticOp::Subtract.apply(left, right),
             BinaryOperation::AddWithCarry => {
                 let carry = execution.condition(Condition::B)?;
-                FlagSource::arithmetic_with_carry(ArithmeticKind::Add, left, right, carry)
+                ArithmeticOp::Add.apply_with_carry(left, right, carry)
             }
             BinaryOperation::SubtractWithBorrow => {
                 let carry = execution.condition(Condition::B)?;
-                FlagSource::arithmetic_with_carry(ArithmeticKind::Sub, left, right, carry)
+                ArithmeticOp::Subtract.apply_with_carry(left, right, carry)
             }
-            BinaryOperation::And => FlagSource::Logic {
-                result: left.and(right),
-            },
-            BinaryOperation::Or => FlagSource::Logic {
-                result: left.or(right),
-            },
-            BinaryOperation::Xor => FlagSource::Logic {
-                result: left.xor(right),
-            },
+            BinaryOperation::And => LogicOp::And.apply(left, right),
+            BinaryOperation::Or => LogicOp::Or.apply(left, right),
+            BinaryOperation::Xor => LogicOp::Xor.apply(left, right),
         };
-        let result = flags.result().clone();
-        execution.set_flags(flags)?;
-        Ok(result)
+        execution.set_flags(outcome.flags)?;
+        Ok(outcome.result)
     })
 }
 
@@ -202,11 +189,11 @@ fn compare<T: RegisterType>(
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
-    FlagSource<T>: Into<LocalFlagSource>,
+    FlagSource<T>: Into<AnyFlagSource>,
 {
     let left = left.read(execution)?;
     let right = right.read(execution)?;
-    execution.set_flags(FlagSource::arithmetic(ArithmeticKind::Sub, left, right))
+    execution.set_flags(ArithmeticOp::Subtract.apply(left, right).flags)
 }
 
 fn test<T: RegisterType>(
@@ -216,41 +203,24 @@ fn test<T: RegisterType>(
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
-    FlagSource<T>: Into<LocalFlagSource>,
+    FlagSource<T>: Into<AnyFlagSource>,
 {
     let left = left.read(execution)?;
     let right = right.read(execution)?;
-    execution.set_flags(FlagSource::Logic {
-        result: left.and(right),
-    })
+    execution.set_flags(LogicOp::And.apply(left, right).flags)
 }
 
 fn update_unary<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<T>,
-    operation: UnaryOperation,
+    operation: UnaryOp,
 ) -> Result<(), BuildError>
 where
-    FlagSource<T>: Into<LocalFlagSource>,
+    FlagSource<T>: Into<AnyFlagSource>,
 {
     destination.update(execution, |execution, input| {
-        let flags = match operation {
-            UnaryOperation::Not => return Ok(input.xor(-1)),
-            UnaryOperation::Increment | UnaryOperation::Decrement => {
-                let kind = if matches!(operation, UnaryOperation::Increment) {
-                    ArithmeticKind::Add
-                } else {
-                    ArithmeticKind::Sub
-                };
-                let flags = FlagSource::arithmetic(kind, input, 1.into());
-                let result = flags.result().clone();
-                execution.set_flags(flags.preserving(StatusFlag::CF))?;
-                return Ok(result);
-            }
-            UnaryOperation::Negate => FlagSource::arithmetic(ArithmeticKind::Sub, 0.into(), input),
-        };
-        let result = flags.result().clone();
-        execution.set_flags(flags)?;
-        Ok(result)
+        let outcome = operation.apply(input);
+        execution.set_flags(outcome.flags)?;
+        Ok(outcome.result)
     })
 }

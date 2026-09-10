@@ -337,38 +337,49 @@ write replaces superseded definitions. Computed register accesses synchronize
 overlapping definitions, then invalidate potentially written locations. These
 are completed effects; publication does not undo a partially executed instruction.
 
-ADD, XADD, SUB, CMP and CMPXCHG retain the original operands as a lazy source for
-CF, PF, AF, ZF, SF and OF. ADC adds the incoming CF; SBB subtracts it as a borrow. They read
-CF after all operand guards, then construct symbolic flags from the original
-operands and final result using the same arithmetic equations as ADD/SUB.
-`FlagState` holds a stored CPU record or local source as its base, followed by
-complete or partial changes in instruction order.
-A typed `FlagSource` retains arithmetic operands, a logical result, or explicit
-result and flag values. ADC/SBB use explicit values; their incoming carry is an
-input to construction and has no separate role in the retained source.
-Flag-bit extraction uses typed truncation, so raw intermediates can remain
-unnormalized until an operation or publication needs their logical low bit.
-The `arithmetic` and `arithmetic_with_carry` constructors return this same source
-type, with common result, flag and condition queries. These queries construct
-expressions without a builder. `set_flags` accepts a `FlagChange`: either a
-complete source or individual flag values, with omitted flags preserved.
+The `alu` module owns pure arithmetic, logic, unary, shift and rotate semantics.
+Operations return `AluResult<T> { result, flags }`: a logical-width destination
+value and a `FlagChange`. Instruction handlers read operands, request an ALU
+outcome, apply its flag change and write its result through checked locations.
+For example, ADD uses `ArithmeticOp::Add.apply(left, right)` and AND uses
+`LogicOp::And.apply(left, right)`. CMP and TEST use those same operations and
+discard the destination result. ALU construction and flag queries build symbolic
+expressions without a builder; they perform no CPU reads or writes.
+
+ADD, XADD, SUB, CMP and CMPXCHG retain their arithmetic operands and result in a
+typed `FlagSource` for later flag queries. Logic sources retain their result;
+explicit sources retain only six symbolic flag values. `AnyFlagSource` holds a
+byte, word or dword source without erasing the compiler values' logical types.
+ADC and SBB use `ArithmeticOp::apply_with_carry`, with the incoming CF read after all
+operand guards. They share ADD/SUB's arithmetic equations, adding CF or subtracting
+it as a borrow, and return explicit flag values alongside the destination result.
+The stored-record decoder reuses `ArithmeticOp::result` to reconstruct an
+arithmetic source from its original operands. A same-block CMP or SUB condition
+can compare those operands directly without calculating unused flags.
+
+The `alu::flags` modules own flag descriptions, masks, partial changes and
+condition rules. Flag-bit extraction uses typed truncation, so raw intermediates
+can remain unnormalized until an operation needs their logical low bit.
+`state::flags` owns admission, pending history and publication. Its `FlagState`
+holds a stored CPU record or symbolic source as its base, followed by complete or
+partial changes in instruction order. `set_flags` accepts a `FlagChange`: either
+a complete source or individual flag values, with omitted flags preserved.
 An unconditional complete replacement discards the earlier history.
-A same-block condition uses only the expressions it needs; CMP and SUB conditions
-can compare the original operands directly.
 
-INC and DEC add or subtract one while preserving CF. They reuse arithmetic flag
-equations through `source.preserving(StatusFlag::CF)`, which leaves the old carry
-unread until a query or publication needs it. NEG uses subtraction from zero and
-its existing lazy record; CF is set exactly when the original operand is nonzero.
-NOT inverts the operand bits and preserves the entire flag source.
+`UnaryOp::apply` defines INC, DEC, NEG and NOT. INC and DEC reuse the arithmetic
+operation and `outcome.flags.preserving(StatusFlag::CF)`, which removes the CF
+change without reading the old carry. The same method can remove a flag from an
+already partial change. NEG uses subtraction from zero and its existing lazy
+record; CF is set exactly when the original operand is nonzero. NOT returns an
+inverted value and an empty flag change.
 
-Shifts construct a result and six symbolic flags through `FlagSource::shift`.
-`set_flags_if(count.ne(0), source)` retains the replacement only for a nonzero
+`ShiftOp::apply` constructs a result and six symbolic flags. Its variants name
+left, logical-right and arithmetic-right shifts. `RotateDirection::rotate` and
+`rotate_through_carry` return the same `AluResult` with a partial CF/OF change.
+`set_flags_if(count.ne(0), outcome.flags)` retains the change only for a nonzero
 masked count. Its predicate and every source value are validated before state
 changes. Constant predicates either replace or preserve the current state;
-runtime predicates append to the history. Rotations return a typed result and a
-partial CF/OF change through `RotateKind::plain` or `RotateKind::through_carry`,
-then use the same conditional setter. A condition query composes the bits it
+runtime predicates append to the history. A condition query composes the bits it
 needs when a partial change affects them; complete sources retain their comparison
 shortcuts. Conditional values use pure selections. Stored reads stay on the owning
 path so cached values remain available to later queries. Reading flags never
@@ -398,7 +409,7 @@ six concrete flag bytes, then kind 0: the stored two-operand format cannot retai
 an incoming carry. Their unused payload dwords remain untouched.
 AND, OR, XOR and TEST retain only the logical result. Their records use kinds 3/7/11
 with the zero-extended result at offset 4; offset 8 is unused and remains untouched.
-The flag owner retains the current source choices and writes one record at publication;
+The state owner retains the current source choices and writes one record at publication;
 replacing a source does not schedule or repair individual field writes. Logic clears
 CF/OF as required by x86. Its AF value is architecturally undefined; wasm86 chooses
 zero. This deterministic choice avoids retaining or evaluating the old flag source.

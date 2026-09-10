@@ -2,7 +2,7 @@
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Mem, Val, I1};
 
-use crate::flags::{FlagChange, FlagMask, LocalFlagSource};
+use crate::alu::flags::{AnyFlagSource, FlagChange, FlagMask};
 use crate::state::State;
 
 use super::{
@@ -95,11 +95,11 @@ impl FlagBase {
 fn publish_source(
     body: &mut FunctionBuilder<'_>,
     memory: Mem,
-    source: &LocalFlagSource,
+    source: &AnyFlagSource,
 ) -> Result<(), BuildError> {
     match source {
-        LocalFlagSource::Byte(source) => FlagRecord::from_source(source).write(body, memory),
-        LocalFlagSource::Word(source) => FlagRecord::from_source(source).write(body, memory),
-        LocalFlagSource::Dword(source) => FlagRecord::from_source(source).write(body, memory),
+        AnyFlagSource::Byte(source) => FlagRecord::from_source(source).write(body, memory),
+        AnyFlagSource::Word(source) => FlagRecord::from_source(source).write(body, memory),
+        AnyFlagSource::Dword(source) => FlagRecord::from_source(source).write(body, memory),
     }
 }

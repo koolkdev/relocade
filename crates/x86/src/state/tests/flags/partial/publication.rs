@@ -1,4 +1,5 @@
-use crate::flags::{ArithmeticKind, Condition, FlagChange, FlagSource, StatusFlag};
+use crate::alu::flags::{Condition, FlagChange, FlagSource, StatusFlag};
+use crate::alu::ArithmeticOp;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::{CompiledModule, StatusFlags};
@@ -91,7 +92,7 @@ fn mixed_histories_preserve_all_conditions_records_and_earlier_publications() {
                     if local_base {
                         state.set_flags(
                             &mut body,
-                            FlagSource::<I32>::arithmetic(ArithmeticKind::Sub, 4.into(), 5.into()),
+                            ArithmeticOp::Subtract.apply::<I32>(4, 5).flags,
                         )?;
                     }
                     let first = body.parameter::<I1>(0)?;

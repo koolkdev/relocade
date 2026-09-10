@@ -1,4 +1,4 @@
-use crate::flags::{FlagMask, StatusFlag};
+use crate::alu::flags::{FlagMask, StatusFlag};
 use crate::state::access::cpu_load;
 use crate::state::Cpu;
 use crate::test_step::{Argument, Event, Input, Outcome, TestModule};

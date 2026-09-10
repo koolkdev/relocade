@@ -1,4 +1,5 @@
-use crate::flags::{ArithmeticKind, Condition, FlagSource, StatusFlag};
+use crate::alu::flags::{Condition, FlagSource, StatusFlag};
+use crate::alu::ArithmeticOp;
 use crate::state::access::cpu_load;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
@@ -20,17 +21,14 @@ fn conditional_publication(local_base: bool) -> CompiledModule {
             |mut body| {
                 let mut state = State::new(&cpu);
                 if local_base {
-                    state.set_flags(
-                        &mut body,
-                        FlagSource::<I32>::arithmetic(ArithmeticKind::Sub, 4.into(), 5.into()),
-                    )?;
+                    state.set_flags(&mut body, ArithmeticOp::Subtract.apply::<I32>(4, 5).flags)?;
                 }
                 let initial_equal = state.condition(&mut body, Condition::E)?;
                 let first = body.parameter::<I1>(0)?;
                 state.set_flags_if(
                     &mut body,
                     first,
-                    FlagSource::<I8>::arithmetic(ArithmeticKind::Add, 255.into(), 1.into()),
+                    ArithmeticOp::Add.apply::<I8>(255, 1).flags,
                 )?;
                 let first_equal = state.condition(&mut body, Condition::E)?;
                 let stop = body.parameter::<I1>(2)?;
@@ -136,21 +134,15 @@ fn preserving_or_consuming_carry_uses_the_selected_conditional_source() {
                         FlagSource::<I8>::Logic { result: 0.into() },
                     )?;
                     let result = if preserve_carry {
-                        let source =
-                            FlagSource::<I8>::arithmetic(ArithmeticKind::Add, 255.into(), 1.into());
-                        let result = source.result().unsigned().extend::<I64>();
-                        state.set_flags(&mut body, source.preserving(StatusFlag::CF))?;
+                        let addition = ArithmeticOp::Add.apply::<I8>(255, 1);
+                        let result = addition.result.unsigned().extend::<I64>();
+                        state.set_flags(&mut body, addition.flags.preserving(StatusFlag::CF))?;
                         result
                     } else {
                         let carry = state.condition(&mut body, Condition::B)?;
-                        let source = FlagSource::<I8>::arithmetic_with_carry(
-                            ArithmeticKind::Add,
-                            255.into(),
-                            0.into(),
-                            carry,
-                        );
-                        let result = source.result().unsigned().extend::<I64>();
-                        state.set_flags(&mut body, source)?;
+                        let addition = ArithmeticOp::Add.apply_with_carry::<I8>(255, 0, carry);
+                        let result = addition.result.unsigned().extend::<I64>();
+                        state.set_flags(&mut body, addition.flags)?;
                         result
                     };
                     state.publish(&mut body, 0x1004, 2)?;
@@ -207,7 +199,7 @@ fn constant_predicates_omit_false_updates_and_discard_history_on_true() {
                         state.set_flags_if(
                             &mut body,
                             pending,
-                            FlagSource::<I16>::arithmetic(ArithmeticKind::Add, 2.into(), 3.into()),
+                            ArithmeticOp::Add.apply::<I16>(2, 3).flags,
                         )?;
                     }
                     let folded = body
@@ -299,7 +291,6 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
                     for condition in [false, true] {
                         for flag in StatusFlag::ALL {
                             let invalid_source = FlagSource::<I32>::Explicit {
-                                result: 0.into(),
                                 flags: StatusFlag::ALL.map(|candidate| {
                                     if candidate == flag {
                                         invalid.eq(0)

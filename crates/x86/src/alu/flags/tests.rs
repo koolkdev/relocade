@@ -1,13 +1,14 @@
 use crate::test_step as step;
 
-use super::{logic_flag, ArithmeticKind, Condition, FlagSource, StatusFlag};
+use super::{Condition, FlagChange, FlagMask, FlagSource, StatusFlag};
+use crate::alu::ArithmeticOp;
 use crate::CompiledModule;
-use wasm86_compiler::{MemoryInt, Program, Signature, Type, I16, I32, I8};
+use wasm86_compiler::{MemoryInt, Program, Signature, Type, I1, I16, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 fn auxiliary_carry<T: MemoryInt>() -> CompiledModule {
     let mut program = Program::new();
-    for (name, kind) in [("add", ArithmeticKind::Add), ("sub", ArithmeticKind::Sub)] {
+    for (name, operation) in [("add", ArithmeticOp::Add), ("sub", ArithmeticOp::Subtract)] {
         let function = program
             .function(
                 Signature {
@@ -18,7 +19,14 @@ fn auxiliary_carry<T: MemoryInt>() -> CompiledModule {
                     // The addition can leave dirty upper carrier bits before the flag query.
                     let left = body.parameter::<T>(0)?.add(1);
                     let right = body.parameter::<T>(1)?;
-                    body.return_(FlagSource::arithmetic(kind, left, right).flag(StatusFlag::AF))
+                    let result = operation.result(&left, &right);
+                    let source = FlagSource::Arithmetic {
+                        operation,
+                        left,
+                        right,
+                        result,
+                    };
+                    body.return_(source.flag(StatusFlag::AF))
                 },
             )
             .unwrap();
@@ -32,7 +40,7 @@ fn auxiliary_carry<T: MemoryInt>() -> CompiledModule {
             },
             |body| {
                 let result = body.parameter::<T>(0)?.add(1).xor(body.parameter::<T>(1)?);
-                body.return_(logic_flag(&result, StatusFlag::AF))
+                body.return_(FlagSource::Logic { result }.flag(StatusFlag::AF))
             },
         )
         .unwrap();
@@ -76,10 +84,15 @@ fn signed_cmp_conditions_use_original_operands_without_computing_flags() {
                 |body| {
                     let left = body.parameter::<I32>(0)?;
                     let right = body.parameter::<I32>(1)?;
-                    body.return_(
-                        FlagSource::arithmetic(ArithmeticKind::Sub, left, right)
-                            .condition(condition),
-                    )
+                    let operation = ArithmeticOp::Subtract;
+                    let result = operation.result(&left, &right);
+                    let source = FlagSource::Arithmetic {
+                        operation,
+                        left,
+                        right,
+                        result,
+                    };
+                    body.return_(source.condition(condition))
                 },
             )
             .unwrap();
@@ -199,6 +212,39 @@ fn negation_auxiliary_carry_depends_on_the_original_low_nibble() {
     ] {
         assert_auxiliary_carry(module, &cases);
     }
+}
+
+#[test]
+fn preserving_a_flag_removes_only_its_update_from_complete_and_partial_changes() {
+    let mut program = Program::new();
+    let function = program.declare(Signature {
+        parameters: vec![Type::I1; 6],
+        results: vec![],
+    });
+    let body = program.define(function).unwrap();
+    let values = std::array::from_fn(|index| body.parameter::<I1>(index as u32).unwrap());
+    let complete: FlagChange = FlagSource::<I32>::Explicit {
+        flags: values.clone(),
+    }
+    .into();
+    let complete = complete.preserving(StatusFlag::CF);
+    assert_eq!(complete.writes().bits(), 0b111110);
+    for flag in StatusFlag::ALL.into_iter().skip(1) {
+        assert!(complete.flag(flag).same_expression(&values[flag as usize]));
+    }
+
+    let partial = FlagChange::partial([
+        (StatusFlag::CF, values[0].clone()),
+        (StatusFlag::OF, values[5].clone()),
+    ])
+    .preserving(StatusFlag::CF);
+    assert_eq!(partial.writes().bits(), 0b100000);
+    assert!(partial.flag(StatusFlag::OF).same_expression(&values[5]));
+    let partial = partial.preserving(StatusFlag::PF);
+    assert_eq!(partial.writes().bits(), 0b100000);
+    assert!(partial.flag(StatusFlag::OF).same_expression(&values[5]));
+    assert!(partial.preserving(StatusFlag::OF).writes() == FlagMask::EMPTY);
+    body.return_(()).unwrap();
 }
 
 fn assert_auxiliary_carry(module: CompiledModule, cases: &[(&str, i32, i32, i32)]) {

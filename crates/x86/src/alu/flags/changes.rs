@@ -2,7 +2,7 @@
 
 use wasm86_compiler::{MemoryInt, Val, I1};
 
-use super::{FlagSource, LocalFlagSource, StatusFlag};
+use super::{AnyFlagSource, FlagSource, StatusFlag};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) struct FlagMask(u8);
@@ -39,7 +39,7 @@ impl FlagMask {
 }
 
 pub(crate) enum FlagChange {
-    Complete(LocalFlagSource),
+    Complete(AnyFlagSource),
     Partial([Option<Val<I1>>; 6]),
 }
 
@@ -75,20 +75,19 @@ impl FlagChange {
                 .clone(),
         }
     }
-}
 
-impl<T: MemoryInt> FlagSource<T> {
-    /// Applies this source while preserving one flag from the current state.
-    pub(crate) fn preserving(self, flag: StatusFlag) -> FlagChange {
-        FlagChange::Partial(
-            StatusFlag::ALL.map(|candidate| (candidate != flag).then(|| self.flag(candidate))),
-        )
+    /// Leaves this flag unchanged and retains every other change already described.
+    pub(crate) fn preserving(self, flag: StatusFlag) -> Self {
+        let written = self.writes();
+        Self::Partial(StatusFlag::ALL.map(|candidate| {
+            (candidate != flag && written.contains(candidate)).then(|| self.flag(candidate))
+        }))
     }
 }
 
 impl<T: MemoryInt> From<FlagSource<T>> for FlagChange
 where
-    FlagSource<T>: Into<LocalFlagSource>,
+    FlagSource<T>: Into<AnyFlagSource>,
 {
     fn from(source: FlagSource<T>) -> Self {
         Self::Complete(source.into())

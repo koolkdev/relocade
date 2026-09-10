@@ -6,7 +6,7 @@ pub(crate) use operands::PairValues;
 use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32};
 
 use crate::{
-    flags::{Condition, FlagChange},
+    alu::flags::{Condition, FlagChange},
     instruction::{self, DecodedInstruction},
     memory::{Access, Intent, Memory},
     state::{exit, Cpu, State},

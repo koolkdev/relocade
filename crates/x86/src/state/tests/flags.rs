@@ -1,3 +1,4 @@
+use crate::alu::ArithmeticOp;
 use crate::state::access::cpu_load;
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot};
 use crate::{CpuState, Gpr32};
@@ -9,7 +10,7 @@ mod partial;
 mod subsets;
 
 use super::super::{Cpu, Register, State};
-use crate::flags::{ArithmeticKind, Condition, FlagSource, StatusFlag};
+use crate::alu::flags::{Condition, FlagSource, StatusFlag};
 use wasm86_compiler::{BuildError, Program, Signature, Type, I1, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -25,22 +26,18 @@ fn a_terminating_publication_retains_the_earlier_flag_recipe() {
             },
             |mut body| {
                 let mut state = State::new(&cpu);
-                let first = FlagSource::arithmetic(
-                    ArithmeticKind::Add,
-                    body.value::<I8>(254)?,
-                    body.value::<I8>(2)?,
-                );
+                let first = ArithmeticOp::Add
+                    .apply(body.value::<I8>(254)?, body.value::<I8>(2)?)
+                    .flags;
                 state.set_flags(&mut body, first)?;
                 let stop = body.parameter::<I1>(0)?;
                 body.if_(stop, |mut arm| {
                     state.publish(&mut arm, 0x1002, 1)?;
                     arm.return_(1)
                 })?;
-                let second = FlagSource::arithmetic(
-                    ArithmeticKind::Sub,
-                    body.value::<I32>(7)?,
-                    body.value::<I32>(5)?,
-                );
+                let second = ArithmeticOp::Subtract
+                    .apply(body.value::<I32>(7)?, body.value::<I32>(5)?)
+                    .flags;
                 state.set_flags(&mut body, second)?;
                 state.publish(&mut body, 0x1007, 2)?;
                 body.return_(0)
@@ -105,11 +102,9 @@ fn changing_flag_sources_keeps_payloads_before_kind_and_earlier_exits() {
             },
             |mut body| {
                 let mut state = State::new(&cpu);
-                let arithmetic = FlagSource::arithmetic(
-                    ArithmeticKind::Sub,
-                    body.value::<I32>(7)?,
-                    body.value::<I32>(5)?,
-                );
+                let arithmetic = ArithmeticOp::Subtract
+                    .apply(body.value::<I32>(7)?, body.value::<I32>(5)?)
+                    .flags;
                 state.set_flags(&mut body, arithmetic)?;
                 let first_stop = body.parameter::<I1>(0)?;
                 body.if_(first_stop, |mut arm| {
@@ -124,11 +119,9 @@ fn changing_flag_sources_keeps_payloads_before_kind_and_earlier_exits() {
                     state.publish(&mut arm, 0x1004, 2)?;
                     arm.return_(nonzero)
                 })?;
-                let last = FlagSource::arithmetic(
-                    ArithmeticKind::Add,
-                    body.value::<I32>(11)?,
-                    body.value::<I32>(13)?,
-                );
+                let last = ArithmeticOp::Add
+                    .apply(body.value::<I32>(11)?, body.value::<I32>(13)?)
+                    .flags;
                 state.set_flags(&mut body, last)?;
                 state.publish(&mut body, 0x1006, 3)?;
                 body.return_(true)
@@ -165,24 +158,22 @@ fn carry_sources_publish_all_concrete_flags_before_the_kind() {
             |mut body| {
                 let mut state = State::new(&cpu);
                 let carry_in = body.value::<I1>(true)?;
-                let addition = FlagSource::arithmetic_with_carry(
-                    ArithmeticKind::Add,
-                    body.value::<I8>(0)?,
-                    body.value::<I8>(255)?,
-                    carry_in.clone(),
-                );
+                let addition = ArithmeticOp::Add
+                    .apply_with_carry(
+                        body.value::<I8>(0)?,
+                        body.value::<I8>(255)?,
+                        carry_in.clone(),
+                    )
+                    .flags;
                 state.set_flags(&mut body, addition)?;
                 let stop = body.parameter::<I1>(0)?;
                 body.if_(stop, |mut arm| {
                     state.publish(&mut arm, 0x1002, 1)?;
                     arm.return_(1)
                 })?;
-                let subtraction = FlagSource::arithmetic_with_carry(
-                    ArithmeticKind::Sub,
-                    body.value::<I8>(0)?,
-                    body.value::<I8>(0)?,
-                    carry_in,
-                );
+                let subtraction = ArithmeticOp::Subtract
+                    .apply_with_carry(body.value::<I8>(0)?, body.value::<I8>(0)?, carry_in)
+                    .flags;
                 state.set_flags(&mut body, subtraction)?;
                 state.publish(&mut body, 0x1004, 2)?;
                 body.return_(0)
@@ -231,17 +222,13 @@ fn invalid_flag_sources_leave_the_previous_source_unchanged() {
             },
             |mut body| {
                 let mut state = State::new(&cpu);
-                let current = FlagSource::arithmetic(
-                    ArithmeticKind::Add,
-                    body.value::<I32>(7)?,
-                    body.value::<I32>(5)?,
-                );
+                let current = ArithmeticOp::Add
+                    .apply(body.value::<I32>(7)?, body.value::<I32>(5)?)
+                    .flags;
                 state.set_flags(&mut body, current)?;
-                let invalid = FlagSource::arithmetic(
-                    ArithmeticKind::Add,
-                    body.value::<I32>(9)?,
-                    foreign.clone(),
-                );
+                let invalid = ArithmeticOp::Add
+                    .apply(body.value::<I32>(9)?, foreign.clone())
+                    .flags;
                 assert_eq!(
                     state.set_flags(&mut body, invalid),
                     Err(BuildError::ForeignBody)
@@ -255,12 +242,9 @@ fn invalid_flag_sources_leave_the_previous_source_unchanged() {
                     ),
                     Err(BuildError::ForeignBody)
                 );
-                let invalid_carry = FlagSource::arithmetic_with_carry(
-                    ArithmeticKind::Add,
-                    body.value::<I32>(9)?,
-                    body.value::<I32>(3)?,
-                    foreign.eq(0),
-                );
+                let invalid_carry = ArithmeticOp::Add
+                    .apply_with_carry(body.value::<I32>(9)?, body.value::<I32>(3)?, foreign.eq(0))
+                    .flags;
                 assert_eq!(
                     state.set_flags(&mut body, invalid_carry),
                     Err(BuildError::ForeignBody)
@@ -280,12 +264,13 @@ fn invalid_flag_sources_leave_the_previous_source_unchanged() {
                     ),
                     Err(BuildError::OutOfScope)
                 );
-                let invalid_carry = FlagSource::arithmetic_with_carry(
-                    ArithmeticKind::Sub,
-                    body.value::<I32>(9)?,
-                    body.value::<I32>(3)?,
-                    child_value.eq(0),
-                );
+                let invalid_carry = ArithmeticOp::Subtract
+                    .apply_with_carry(
+                        body.value::<I32>(9)?,
+                        body.value::<I32>(3)?,
+                        child_value.eq(0),
+                    )
+                    .flags;
                 assert_eq!(
                     state.set_flags(&mut body, invalid_carry),
                     Err(BuildError::OutOfScope)
@@ -302,15 +287,14 @@ fn invalid_flag_sources_leave_the_previous_source_unchanged() {
 }
 
 #[test]
-fn invalid_explicit_values_leave_the_previous_source_unchanged() {
+fn invalid_explicit_flags_leave_the_previous_source_unchanged() {
     let mut foreign_program = Program::new();
     let foreign_function = foreign_program.declare(Signature {
-        parameters: vec![Type::I32, Type::I1],
-        results: vec![Type::I32],
+        parameters: vec![Type::I1],
+        results: vec![Type::I1],
     });
     let foreign_body = foreign_program.define(foreign_function).unwrap();
-    let foreign_result = foreign_body.parameter::<I32>(0).unwrap();
-    let foreign_flag = foreign_body.parameter::<I1>(1).unwrap();
+    let foreign_flag = foreign_body.parameter::<I1>(0).unwrap();
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     program
@@ -321,51 +305,33 @@ fn invalid_explicit_values_leave_the_previous_source_unchanged() {
             },
             |mut body| {
                 let mut state = State::new(&cpu);
-                let current = FlagSource::arithmetic(
-                    ArithmeticKind::Add,
-                    body.value::<I32>(7)?,
-                    body.value::<I32>(5)?,
-                );
+                let current = ArithmeticOp::Add
+                    .apply(body.value::<I32>(7)?, body.value::<I32>(5)?)
+                    .flags;
                 state.set_flags(&mut body, current)?;
-                let mut child_values = None;
+                let mut child_flag = None;
                 body.if_(false, |mut arm| {
-                    child_values = Some((
-                        cpu_load!(&mut arm, cpu.memory(), registers.eax)?,
-                        cpu_load!(&mut arm, cpu.memory(), flags.status.cf)?.ne(0),
-                    ));
+                    child_flag = Some(cpu_load!(&mut arm, cpu.memory(), flags.status.cf)?.ne(0));
                     Ok(())
                 })?;
-                let (child_result, child_flag) = child_values.unwrap();
-                let valid_result = body.value::<I32>(99)?;
                 let valid_flag = body.value::<I1>(false)?;
-                for (origin, invalid_result, invalid_flag, error) in [
-                    (
-                        "foreign",
-                        foreign_result,
-                        foreign_flag,
-                        BuildError::ForeignBody,
-                    ),
-                    ("child", child_result, child_flag, BuildError::OutOfScope),
+                for (origin, invalid_flag, error) in [
+                    ("foreign", foreign_flag, BuildError::ForeignBody),
+                    ("child", child_flag.unwrap(), BuildError::OutOfScope),
                 ] {
                     for (field, status_flag) in [
-                        ("result", None),
-                        ("CF", Some(StatusFlag::CF)),
-                        ("PF", Some(StatusFlag::PF)),
-                        ("AF", Some(StatusFlag::AF)),
-                        ("ZF", Some(StatusFlag::ZF)),
-                        ("SF", Some(StatusFlag::SF)),
-                        ("OF", Some(StatusFlag::OF)),
+                        ("CF", StatusFlag::CF),
+                        ("PF", StatusFlag::PF),
+                        ("AF", StatusFlag::AF),
+                        ("ZF", StatusFlag::ZF),
+                        ("SF", StatusFlag::SF),
+                        ("OF", StatusFlag::OF),
                     ] {
-                        // Only one retained field is invalid, so another field
-                        // cannot mask a missing ownership or visibility check.
-                        let source = FlagSource::Explicit {
-                            result: if status_flag.is_none() {
-                                invalid_result.clone()
-                            } else {
-                                valid_result.clone()
-                            },
+                        // Only one flag is invalid, so another flag cannot mask
+                        // a missing ownership or visibility check.
+                        let source = FlagSource::<I32>::Explicit {
                             flags: StatusFlag::ALL.map(|flag| {
-                                if status_flag == Some(flag) {
+                                if status_flag == flag {
                                     invalid_flag.clone()
                                 } else {
                                     valid_flag.clone()
@@ -384,7 +350,7 @@ fn invalid_explicit_values_leave_the_previous_source_unchanged() {
             },
         )
         .unwrap();
-    foreign_body.return_(0).unwrap();
+    foreign_body.return_(false).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
     assert_eq!(flag_stores(&bytes), [(0, 4, 7), (0, 8, 5), (0, 0, 10)]);
@@ -402,8 +368,9 @@ fn flags_after_register_synchronization() -> crate::CompiledModule {
             |mut body| {
                 let mut state = State::new(&cpu);
                 let old_eax = state.read_register(&mut body, Gpr32::Eax)?;
-                let source =
-                    FlagSource::arithmetic(ArithmeticKind::Sub, old_eax, body.value::<I32>(1)?);
+                let source = ArithmeticOp::Subtract
+                    .apply(old_eax, body.value::<I32>(1)?)
+                    .flags;
                 state.set_flags(&mut body, source)?;
                 let index = body.parameter::<I32>(0)?;
                 state.write_register(&mut body, Register::<I32>::indexed(index), 0)?;

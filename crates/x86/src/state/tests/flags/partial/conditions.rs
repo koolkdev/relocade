@@ -1,6 +1,5 @@
-use crate::flags::{
-    ArithmeticKind, Condition, FlagChange, FlagSource, LocalFlagSource, StatusFlag,
-};
+use crate::alu::flags::{AnyFlagSource, Condition, FlagChange, FlagSource, StatusFlag};
+use crate::alu::ArithmeticOp;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::CompiledModule;
@@ -24,7 +23,7 @@ fn partial_carry_changes_unsigned_conditions_and_retains_subtraction_results() {
     where
         I32: AtLeast<T>,
         I64: AtLeast<T>,
-        FlagSource<T>: Into<LocalFlagSource>,
+        FlagSource<T>: Into<AnyFlagSource>,
     {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
@@ -40,9 +39,9 @@ fn partial_carry_changes_unsigned_conditions_and_retains_subtraction_results() {
                         let left = body.parameter::<T>(0)?;
                         let right = body.parameter::<T>(1)?;
                         let carry = body.parameter::<I1>(2)?;
-                        let source = FlagSource::arithmetic(ArithmeticKind::Sub, left, right);
-                        let arithmetic_result = source.result().unsigned().extend::<I32>();
-                        state.set_flags(&mut body, source)?;
+                        let subtraction = ArithmeticOp::Subtract.apply(left, right);
+                        let arithmetic_result = subtraction.result.unsigned().extend::<I32>();
+                        state.set_flags(&mut body, subtraction.flags)?;
                         state
                             .set_flags(&mut body, FlagChange::partial([(StatusFlag::CF, carry)]))?;
                         let result = match condition {

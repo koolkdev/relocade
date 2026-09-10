@@ -1,7 +1,10 @@
 use super::*;
 use crate::{
+    alu::{
+        flags::{AnyFlagSource, FlagSource},
+        ArithmeticOp,
+    },
     execution::PairValues,
-    flags::{ArithmeticKind, FlagSource, LocalFlagSource},
     register::RegisterType,
 };
 
@@ -72,12 +75,12 @@ fn xadd<T: RegisterType>(
     source: TypedLocation<T>,
 ) -> Result<(), BuildError>
 where
-    FlagSource<T>: Into<LocalFlagSource>,
+    FlagSource<T>: Into<AnyFlagSource>,
 {
     destination.update_pair(execution, source, |execution, old| {
-        let flags = FlagSource::arithmetic(ArithmeticKind::Add, old.left.clone(), old.right);
-        let sum = flags.result().clone();
-        execution.set_flags(flags)?;
+        let outcome = ArithmeticOp::Add.apply(old.left.clone(), old.right);
+        let sum = outcome.result;
+        execution.set_flags(outcome.flags)?;
         Ok(PairValues {
             left: sum,
             right: old.left,
@@ -92,16 +95,16 @@ fn cmpxchg<T: RegisterType>(
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
-    FlagSource<T>: Into<LocalFlagSource>,
+    FlagSource<T>: Into<AnyFlagSource>,
 {
     destination.update_pair(execution, TypedLocation::accumulator(), |execution, old| {
         let replacement = source.read(execution)?;
         let equal = old.right.eq(&old.left);
-        execution.set_flags(FlagSource::arithmetic(
-            ArithmeticKind::Sub,
-            old.right.clone(),
-            old.left.clone(),
-        ))?;
+        execution.set_flags(
+            ArithmeticOp::Subtract
+                .apply(old.right.clone(), old.left.clone())
+                .flags,
+        )?;
         Ok(PairValues {
             left: equal.select(replacement, &old.left),
             right: equal.select(old.right, old.left),

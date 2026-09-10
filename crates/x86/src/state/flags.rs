@@ -6,7 +6,7 @@ pub(super) mod record;
 
 use wasm86_compiler::{BuildError, FunctionBuilder, MemoryInt, Val, I1};
 
-use crate::flags::{Condition, FlagChange, FlagMask, FlagSource, LocalFlagSource};
+use crate::alu::flags::{AnyFlagSource, Condition, FlagChange, FlagMask, FlagSource};
 
 use super::State;
 use queries::StoredFlagCache;
@@ -29,7 +29,7 @@ pub(super) struct FlagState {
 #[derive(Clone)]
 enum FlagBase {
     Stored(StoredFlagCache),
-    Local(LocalFlagSource),
+    Local(AnyFlagSource),
 }
 
 struct FlagUpdate {
@@ -101,9 +101,9 @@ impl State<'_> {
 fn admit_change(body: &FunctionBuilder<'_>, change: &FlagChange) -> Result<(), BuildError> {
     match change {
         FlagChange::Complete(source) => match source {
-            LocalFlagSource::Byte(source) => admit_source(body, source),
-            LocalFlagSource::Word(source) => admit_source(body, source),
-            LocalFlagSource::Dword(source) => admit_source(body, source),
+            AnyFlagSource::Byte(source) => admit_source(body, source),
+            AnyFlagSource::Word(source) => admit_source(body, source),
+            AnyFlagSource::Dword(source) => admit_source(body, source),
         },
         FlagChange::Partial(flags) => {
             for value in flags.iter().flatten() {
@@ -129,8 +129,7 @@ fn admit_source<T: MemoryInt>(
             body.value(right)?;
             body.value(result)?;
         }
-        FlagSource::Explicit { result, flags } => {
-            body.value(result)?;
+        FlagSource::Explicit { flags } => {
             for flag in flags {
                 body.value(flag)?;
             }

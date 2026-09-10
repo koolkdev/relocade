@@ -1,4 +1,5 @@
-use crate::flags::{ArithmeticKind, FlagChange, FlagSource, StatusFlag};
+use crate::alu::flags::{FlagChange, StatusFlag};
+use crate::alu::ArithmeticOp;
 use crate::state::access::cpu_load;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
@@ -26,10 +27,7 @@ fn rejected_partial_values_and_predicates_leave_pending_changes_intact() {
             },
             |mut body| {
                 let mut state = State::new(&cpu);
-                state.set_flags(
-                    &mut body,
-                    FlagSource::<I32>::arithmetic(ArithmeticKind::Add, 7.into(), 5.into()),
-                )?;
+                state.set_flags(&mut body, ArithmeticOp::Add.apply::<I32>(7, 5).flags)?;
                 let pending = body.parameter::<I1>(0)?;
                 state.set_flags_if(
                     &mut body,

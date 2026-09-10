@@ -6,7 +6,7 @@ use std::cell::Cell;
 
 use wasm86_compiler::{BuildError, Func, FunctionBuilder, Mem, MemoryImport, Program, Val, I32};
 
-use crate::flags::{Condition, StatusFlag};
+use crate::alu::flags::{Condition, StatusFlag};
 
 use super::access::cpu_load;
 

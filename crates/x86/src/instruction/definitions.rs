@@ -15,7 +15,7 @@ use super::{
     },
     Input, TypedLocation,
 };
-use crate::{execution::ExecutionBuilder, flags::Condition};
+use crate::{alu::flags::Condition, execution::ExecutionBuilder};
 use wasm86_compiler::{AtLeast, BuildError, Val, I16, I32, I8};
 
 pub(crate) fn modrm_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form> + Clone {

@@ -2,42 +2,49 @@
 
 use wasm86_compiler::{MemoryInt, Val, I1, I32};
 
-use super::{bit, result_flag, FlagSource, StatusFlag};
+use super::{
+    bit,
+    flags::{AnyFlagSource, FlagChange, FlagSource, StatusFlag},
+    result_flag, AluResult,
+};
 
 #[derive(Clone, Copy)]
-pub(crate) enum ShiftKind {
+pub(crate) enum ShiftOp {
     Left,
-    RightUnsigned,
-    RightSigned,
+    RightLogical,
+    RightArithmetic,
 }
 
-impl<T: MemoryInt> FlagSource<T> {
+impl ShiftOp {
     /// The caller masks the x86 count to five bits and installs these flags only
     /// when that count is nonzero. The result also remains valid at count zero.
-    pub(crate) fn shift(kind: ShiftKind, input: Val<T>, count: Val<I32>) -> Self {
+    pub(crate) fn apply<T: MemoryInt>(self, input: Val<T>, count: Val<I32>) -> AluResult<T>
+    where
+        FlagSource<T>: Into<AnyFlagSource>,
+    {
         let width = T::BYTES * 8;
-        let result = match kind {
-            ShiftKind::Left => input.shl(&count),
-            ShiftKind::RightUnsigned => input.unsigned().shr(&count),
-            ShiftKind::RightSigned => input.signed().shr(&count),
+        let result = match self {
+            Self::Left => input.shl(&count),
+            Self::RightLogical => input.unsigned().shr(&count),
+            Self::RightArithmetic => input.signed().shr(&count),
         };
-        let carry = match kind {
-            ShiftKind::Left => input
+        let carry = match self {
+            Self::Left => input
                 .unsigned()
                 .shr(Val::<I32>::from(width).sub(&count))
                 .truncate::<I1>()
                 .and(count.unsigned().lt(width)),
-            ShiftKind::RightUnsigned => input
+            Self::RightLogical => input
                 .unsigned()
                 .shr(count.sub(1))
                 .truncate::<I1>()
                 .and(count.unsigned().lt(width)),
-            ShiftKind::RightSigned => input.signed().shr(count.sub(1)).truncate::<I1>(),
+            Self::RightArithmetic => input.signed().shr(count.sub(1)).truncate::<I1>(),
         };
-        let overflow = match kind {
-            ShiftKind::Left => bit(&result, width - 1).xor(&carry),
-            ShiftKind::RightUnsigned => bit(&input, width - 1),
-            ShiftKind::RightSigned => false.into(),
+        let overflow = match self {
+            Self::Left => bit(&result, width - 1).xor(&carry),
+            Self::RightLogical => bit(&input, width - 1),
+            Self::RightArithmetic => false.into(),
         }
         .and(count.eq(1));
         // For nonzero counts, AF is undefined and OF is undefined except at one.
@@ -49,6 +56,9 @@ impl<T: MemoryInt> FlagSource<T> {
             StatusFlag::AF => false.into(),
             StatusFlag::PF | StatusFlag::ZF | StatusFlag::SF => result_flag(&result, flag),
         });
-        Self::Explicit { result, flags }
+        AluResult {
+            result,
+            flags: FlagChange::from(FlagSource::<T>::Explicit { flags }),
+        }
     }
 }

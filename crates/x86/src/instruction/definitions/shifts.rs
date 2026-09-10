@@ -1,6 +1,9 @@
 use super::*;
 use crate::{
-    flags::{FlagSource, LocalFlagSource, RotateKind, ShiftKind},
+    alu::{
+        flags::{AnyFlagSource, FlagSource},
+        RotateDirection, ShiftOp,
+    },
     register::RegisterType,
 };
 
@@ -38,24 +41,30 @@ const fn shift_forms(extension: u8, handlers: IntegerHandlers<Handler>) -> [Form
 }
 
 const FAMILIES: [[Form; 6]; 7] = [
-    shift_forms(0, binary_handlers!(rotate, source = I8, RotateKind::Left)),
-    shift_forms(1, binary_handlers!(rotate, source = I8, RotateKind::Right)),
+    shift_forms(
+        0,
+        binary_handlers!(rotate, source = I8, RotateDirection::Left),
+    ),
+    shift_forms(
+        1,
+        binary_handlers!(rotate, source = I8, RotateDirection::Right),
+    ),
     shift_forms(
         2,
-        binary_handlers!(rotate_through_carry, source = I8, RotateKind::Left),
+        binary_handlers!(rotate_through_carry, source = I8, RotateDirection::Left),
     ),
     shift_forms(
         3,
-        binary_handlers!(rotate_through_carry, source = I8, RotateKind::Right),
+        binary_handlers!(rotate_through_carry, source = I8, RotateDirection::Right),
     ),
-    shift_forms(4, binary_handlers!(shift, source = I8, ShiftKind::Left)),
+    shift_forms(4, binary_handlers!(shift, source = I8, ShiftOp::Left)),
     shift_forms(
         5,
-        binary_handlers!(shift, source = I8, ShiftKind::RightUnsigned),
+        binary_handlers!(shift, source = I8, ShiftOp::RightLogical),
     ),
     shift_forms(
         7,
-        binary_handlers!(shift, source = I8, ShiftKind::RightSigned),
+        binary_handlers!(shift, source = I8, ShiftOp::RightArithmetic),
     ),
 ];
 
@@ -67,13 +76,13 @@ fn rotate<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<T>,
     count: Input<I8>,
-    kind: RotateKind,
+    direction: RotateDirection,
 ) -> Result<(), BuildError> {
     destination.update(execution, |execution, input| {
         let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
-        let rotated = kind.plain(input, count.clone());
-        execution.set_flags_if(count.ne(0), rotated.flags)?;
-        Ok(rotated.result)
+        let outcome = direction.rotate(input, count.clone());
+        execution.set_flags_if(count.ne(0), outcome.flags)?;
+        Ok(outcome.result)
     })
 }
 
@@ -81,7 +90,7 @@ fn rotate_through_carry<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<T>,
     count: Input<I8>,
-    kind: RotateKind,
+    direction: RotateDirection,
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
@@ -89,9 +98,9 @@ where
     destination.update(execution, |execution, input| {
         let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
         let carry = execution.condition(Condition::B)?;
-        let rotated = kind.through_carry(input, count.clone(), carry);
-        execution.set_flags_if(count.ne(0), rotated.flags)?;
-        Ok(rotated.result)
+        let outcome = direction.rotate_through_carry(input, count.clone(), carry);
+        execution.set_flags_if(count.ne(0), outcome.flags)?;
+        Ok(outcome.result)
     })
 }
 
@@ -99,16 +108,15 @@ fn shift<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<T>,
     count: Input<I8>,
-    kind: ShiftKind,
+    operation: ShiftOp,
 ) -> Result<(), BuildError>
 where
-    FlagSource<T>: Into<LocalFlagSource>,
+    FlagSource<T>: Into<AnyFlagSource>,
 {
     destination.update(execution, |execution, input| {
         let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
-        let flags = FlagSource::shift(kind, input, count.clone());
-        let result = flags.result().clone();
-        execution.set_flags_if(count.ne(0), flags)?;
-        Ok(result)
+        let outcome = operation.apply(input, count.clone());
+        execution.set_flags_if(count.ne(0), outcome.flags)?;
+        Ok(outcome.result)
     })
 }

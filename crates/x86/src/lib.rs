@@ -66,8 +66,8 @@
 //! guarantee. Undefined flags remain ordinary readable bits. A nonzero kind owns all six
 //! status flags, so their concrete bytes may be stale. Kind 0 instead reads the
 //! concrete CF/PF/AF/ZF/SF/OF bytes at offsets 12 through 17, each containing 0 or 1.
-//! ADC adds the incoming CF; SBB subtracts it as a borrow. Their local sources
-//! retain the result and six explicit symbolic flag values. At publication,
+//! ADC adds the incoming CF; SBB subtracts it as a borrow. Their ALU outcomes
+//! contain the result and six explicit symbolic flag values. At publication,
 //! they write all six concrete flags before kind 0, leaving unused payloads intact.
 //! INC/DEC publish through the same concrete format; NEG uses SUB with a zero left operand.
 //! Nonzero shifts publish concrete flags through that format too. PF/ZF/SF describe
@@ -94,10 +94,10 @@
 #![forbid(unsafe_code)]
 
 mod address;
+mod alu;
 mod block;
 mod decode;
 mod execution;
-mod flags;
 mod instruction;
 mod interpreter;
 mod memory;
