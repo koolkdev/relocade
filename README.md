@@ -3,14 +3,16 @@
 Rust components for x86 execution in WebAssembly.
 
 `wasm86-x86` compiles MOV, ADD, ADC, SUB, SBB, CMP, AND, OR, XOR, TEST,
-INC, DEC, NEG, NOT, PUSH, POP and SETcc blocks from byte snapshots:
+INC, DEC, NEG, NOT, PUSH, POP, SETcc and relative JMP/Jcc blocks from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
 ```
 
-The requested instruction count is exact. Missing, overlong or unsupported
-selected instructions are construction errors; bytes after the selection are ignored. The returned
+Compilation stops at the first branch or the requested instruction limit,
+whichever comes first. A conditional branch ends the block whether taken or not.
+Missing, overlong or unsupported instructions before that boundary are construction
+errors; bytes after it are ignored. The returned
 module exports `block_1000` and imports `wasm86.cpuState` memory (minimum one
 64-KiB page) and `wasm86.dispatch(i32) -> i64`.
 
@@ -88,6 +90,21 @@ supports these forms in default-32 operand and address mode:
 | POP register/memory | — | 8F /0 | 8F /0 |
 | SETcc register/memory destination | 0F 90–9F | — | — |
 
+Relative branches use `EB` for short JMP, `E9` for near JMP, `70`–`7F` for
+short Jcc and `0F 80`–`0F 8F` for near Jcc. Short displacements are signed
+bytes. Near displacements occupy a word with `66`, or a dword otherwise.
+Targets are relative to the byte after the complete instruction, including
+prefixes. A taken branch with `66` truncates its target to sixteen bits,
+including a short branch whose displacement remains one byte. An untaken Jcc
+retains the full 32-bit fallthrough address. Repeated `66` prefixes have the
+same effect as one.
+
+Branches preserve registers and flags and retire once before dispatching the
+chosen EIP. All required instruction fields are fetched before evaluating a
+condition. Branch execution does not fetch the destination instruction; its
+fetch faults belong to the next execution entry. Snapshot compilation stops
+at the branch and never follows its destination or decodes its fallthrough.
+
 Group `83` sign-extends its encoded byte immediate to the operand width. SETcc
 writes a byte containing 0 or 1; its ModRM.reg field is ignored.
 Unary forms have one destination and no immediate. The ModRM extension selects
@@ -151,23 +168,41 @@ semantics, state publication and dispatch as snapshot blocks.
 
 Snapshot decoding reads supplied bytes while compiling; runtime decoding reads
 guest bytes during execution. Both use shared instruction forms for opcode
-patterns, physical fields and operand binding. Binary forms describe the left and
-right operand sources independently; either can reuse the same location resolver.
-Applying the operand-size attribute fixes the data width before fields are read.
-Both decoders then pass decoded operands to
-shared lowering in `instruction/lower.rs`. The runtime decoder owns its byte cursor, proven
-window and completion policy. Every opcode map uses the same catalog-driven
-switch and selects operand decoding by encoding. Only the chosen opcode checks
+patterns, physical fields and operand binding. `instruction::definitions` keeps
+each instruction family's forms alongside its Rust handlers. The shared `forms`
+module owns physical layouts and binding; `handlers` owns width adapters and
+callable argument shapes. A form selects a concrete handler
+from its width table. Related operations share a handler by binding a constant
+from a family-local operation enum. Adding an operation with an existing encoding
+and argument shape requires no central instruction enum or lowering case.
+Physical immediate widths remain independent of the handler's logical widths.
+
+Binding assigns decoded fields to unary or binary arguments without reading
+architectural state. Lowering converts snapshot literals and runtime expressions
+to the common `Val<I32>` carrier and calls the bound Rust handler. `Input<T>` and
+`TypedLocation<T>` attach logical width to values and locations while deferring
+access until the handler requests it. Their widths remain independent of that
+carrier and of 32-bit addresses.
+Both unary and binary calls receive the bound condition and fallthrough EIP and
+return the successor EIP. Ordinary typed handlers return `Result<()>`; their
+adapters return fallthrough after success. A relative branch computes its target
+and, for Jcc, selects it using the existing condition query. Condition, implicit
+memory use and block termination belong to the whole instruction, independently
+of its argument shape. Execution owns retirement and publication.
+
+The runtime decoder owns its byte cursor, proven window and completion policy.
+Every opcode map uses the same form-driven switch and selects operand decoding
+by encoding. Only the chosen opcode checks
 its ModRM extension. Direct, checked and prefixed entries share field handling.
 An exact opcode case retains its register selection, so compact MOV, unary and
 stack forms use fixed register views. ModRM and SIB fields select runtime views.
 Memory decoding selects the SIB or ordinary layout
 before reading address fields; ordinary addresses have no index term. Direct
 entries retain the original fetch window across fields whose bounds fit it.
-An execution builder resolves operand locations,
-checks memory access, and tracks instruction progress. Binary instructions have
-left and right operands; their operation determines which effects are applied.
-The builder's `update` checks write permission before reading the old left value,
+An execution builder resolves operand locations, checks memory access, and tracks
+instruction progress. Typed handler operands pass their logical widths to its
+`read`, `write` and `update` operations. The builder's `update` checks write permission before
+reading the old destination value,
 then runs the semantic callback and stores its result through the same checked
 access. ADD, ADC, SUB, SBB, AND, OR and XOR use this operation. CMP and TEST only read
 operands and set flags, so their memory operands require no write permission.

@@ -45,8 +45,8 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         decoded: DecodedInstruction<V, P>,
     ) -> Result<(), BuildError> {
         self.eip = self.body.value(decoded.eip)?;
-        instruction::lower(self, decoded.instruction)?;
-        self.eip = self.body.value(decoded.next_eip)?;
+        let fallthrough_eip = self.body.value(decoded.fallthrough_eip)?;
+        self.eip = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
         self.completed += 1;
         Ok(())
     }

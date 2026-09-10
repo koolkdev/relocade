@@ -11,6 +11,13 @@
 //! pointer is always 32-bit: PUSH reads its source before decrementing ESP;
 //! POP uses the incremented ESP to address a memory destination. POP ESP replaces
 //! the pointer with the popped dword; POP SP preserves the incremented high word.
+//! Relative JMP uses `EB`/`E9`; Jcc uses `70`–`7F`/`0F 80`–`0F 8F`.
+//! Short displacements are signed bytes; near displacements are word/dword-sized.
+//! Targets are relative to the end of the instruction. With `66`, taken targets
+//! are truncated to sixteen bits even for short branches; an untaken Jcc retains
+//! the full 32-bit fallthrough EIP. Branches retire once and dispatch without
+//! fetching the destination instruction. Snapshot blocks end at the first branch
+//! or the requested instruction limit, whichever comes first.
 //! Each full memory access is checked before effects, source first. A fault
 //! preserves the current instruction's entry state and publishes earlier progress.
 //! ModRM/SIB effective addresses and absolute offsets are 32-bit, independent
@@ -21,7 +28,7 @@
 //! including prefixes and all required operand fields.
 //!
 //! Binary arithmetic, logic and NEG replace all six status flags. INC/DEC preserve
-//! CF and update the other five; MOV, NOT, PUSH, POP and SETcc preserve them all.
+//! CF and update the other five; MOV, NOT, PUSH, POP, SETcc and branches preserve them all.
 //! CMP and TEST only change flags. The CPU
 //! stores flags lazily: byte 0 selects the record kind, and little-endian dwords
 //! at 4 and 8 hold the original, zero-extended operands. SUB kinds are 1, 5 and 9;

@@ -4,17 +4,16 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32, I8};
 
 use crate::{
     instruction::{
-        DecodedFields, Encoding, Location, OpcodeMap, OperandSize, OperandWidth, SizedForm,
-        EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
+        FieldWidth, OpcodeMap, OperandSize, SizedForm, EXTENDED_OPCODE_ESCAPE,
+        MAX_INSTRUCTION_BYTES,
     },
     memory::Memory,
-    register::RegisterCode,
     state::exit,
 };
 
 // One primary opcode and the widest scalar field fit this shared fetch window.
 // Longer forms retain the same proof and check fields beyond its extent.
-pub(super) const DIRECT_FETCH_BYTES: u32 = 1 + OperandWidth::Dword.bytes();
+pub(super) const DIRECT_FETCH_BYTES: u32 = 1 + FieldWidth::Dword.bytes();
 
 /// A proven window permits direct reads while every possible cursor position
 /// fits its extent. Conditional fields join their final positions while keeping
@@ -153,31 +152,10 @@ impl<'memory> RuntimeCursor<'memory> {
             return Ok(self.byte(body)?.signed().extend::<I32>());
         }
         match form.immediate_width() {
-            OperandWidth::Byte => Ok(self.byte(body)?.unsigned().extend::<I32>()),
-            OperandWidth::Word => Ok(self.read::<I16>(body)?.unsigned().extend::<I32>()),
-            OperandWidth::Dword => self.dword(body),
+            FieldWidth::Byte => Ok(self.byte(body)?.unsigned().extend::<I32>()),
+            FieldWidth::Word => Ok(self.read::<I16>(body)?.unsigned().extend::<I32>()),
+            FieldWidth::Dword => self.dword(body),
         }
-    }
-
-    pub(super) fn modrm_fields(
-        &mut self,
-        body: &mut FunctionBuilder<'_>,
-        form: &SizedForm,
-        modrm: &Val<I8>,
-        rm: Location<Val<I32>>,
-    ) -> Result<DecodedFields<Val<I32>>, BuildError> {
-        Ok(match form.encoding {
-            Encoding::RegisterRm => DecodedFields::RegisterRm {
-                register: RegisterCode::indexed(modrm.unsigned().shr(3).unsigned().extend::<I32>()),
-                rm,
-            },
-            Encoding::RmImmediate { .. } => DecodedFields::RmImmediate {
-                rm,
-                immediate: self.immediate(body, form)?,
-            },
-            Encoding::Rm => DecodedFields::Location(rm),
-            _ => unreachable!("the selected form has a ModRM field"),
-        })
     }
 
     pub(super) fn displacement(

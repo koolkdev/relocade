@@ -1,9 +1,8 @@
 use crate::{
     address::{Address32, IndexTerm, RegisterTerm},
     instruction::{
-        opcode_forms, DecodedFields, DecodedInstruction, Encoding, Location, OpcodeMap,
-        OperandSize, OperandWidth, SizedForm, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
-        OPERAND_SIZE_PREFIX,
+        opcode_forms, DecodedFields, DecodedInstruction, Encoding, FieldWidth, Location, OpcodeMap,
+        OperandSize, SizedForm, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES, OPERAND_SIZE_PREFIX,
     },
     register::{Gpr32, RegisterCode},
     BlockError,
@@ -53,11 +52,11 @@ pub(crate) fn snapshot(
     } else {
         (first.with_operand_size(operand_size), None)
     };
-    let fields = match form.encoding {
+    let fields = match form.encoding() {
         Encoding::OpcodeRegister => {
             DecodedFields::Location(Location::Register(RegisterCode::from_code(opcode)))
         }
-        Encoding::OpcodeRegisterImmediate => DecodedFields::OpcodeRegisterImmediate {
+        Encoding::OpcodeRegisterImmediate { .. } => DecodedFields::OpcodeRegisterImmediate {
             register: RegisterCode::from_code(opcode),
             immediate: cursor.immediate(&form)?,
         },
@@ -68,7 +67,7 @@ pub(crate) fn snapshot(
             cursor.modrm_fields(&form, modrm.expect("the selected encoding has ModRM"))?
         }
         Encoding::AccumulatorOffset => DecodedFields::AccumulatorOffset {
-            offset: cursor.integer(OperandWidth::Dword)?,
+            offset: cursor.integer(FieldWidth::Dword)?,
         },
     };
     let next_eip = instruction_eip.wrapping_add(cursor.offset as u32);
@@ -102,7 +101,7 @@ impl SnapshotCursor<'_> {
         Ok(value)
     }
 
-    fn integer(&mut self, width: OperandWidth) -> Result<u32, BlockError> {
+    fn integer(&mut self, width: FieldWidth) -> Result<u32, BlockError> {
         // Consume required bytes in order: missing bytes before the length limit
         // report truncation, while byte sixteen is never requested.
         let mut bits = 0;
@@ -131,7 +130,7 @@ impl SnapshotCursor<'_> {
         } else {
             Location::Memory(self.decode_address(modrm)?)
         };
-        Ok(match form.encoding {
+        Ok(match form.encoding() {
             Encoding::RegisterRm => DecodedFields::RegisterRm {
                 register: RegisterCode::from_code(modrm >> 3),
                 rm,
@@ -164,7 +163,7 @@ impl SnapshotCursor<'_> {
         };
         let no_base = mode == 0 && base == 5;
         let displacement = if mode == 2 || no_base {
-            self.integer(OperandWidth::Dword)?
+            self.integer(FieldWidth::Dword)?
         } else if mode == 1 {
             self.byte()? as i8 as i32 as u32
         } else {

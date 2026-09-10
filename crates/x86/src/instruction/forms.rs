@@ -1,11 +1,14 @@
 mod binding;
-mod catalog;
+mod constructors;
 mod opcodes;
 
-pub(crate) use catalog::*;
+pub(super) use constructors::*;
 pub(crate) use opcodes::forms_by_opcode;
 
-use super::{BinaryOperation, Location, OperandSize, OperandWidth, UnaryOperation};
+use super::{
+    handlers::{Handler, SizedHandlers},
+    Location, OperandSize,
+};
 use crate::{flags::Condition, register::RegisterCode};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -23,17 +26,48 @@ impl OpcodeMap {
     }
 }
 
-/// Physical immediate width and its conversion to the instruction operand width.
+/// Storage width of an integer field in the instruction encoding.
+#[derive(Clone, Copy)]
+pub(crate) enum FieldWidth {
+    Byte,
+    Word,
+    Dword,
+}
+
+impl FieldWidth {
+    pub(crate) const fn bytes(self) -> u32 {
+        match self {
+            Self::Byte => 1,
+            Self::Word => 2,
+            Self::Dword => 4,
+        }
+    }
+}
+
+/// Physical immediate bytes, independent of the handler's logical operand widths.
 #[derive(Clone, Copy)]
 pub(crate) enum ImmediateWidth {
-    Operand,
+    Byte,
+    OperandSize,
     SignedByte,
+}
+
+impl ImmediateWidth {
+    const fn width(self, size: OperandSize) -> FieldWidth {
+        match (self, size) {
+            (Self::Byte | Self::SignedByte, _) => FieldWidth::Byte,
+            (Self::OperandSize, OperandSize::Word) => FieldWidth::Word,
+            (Self::OperandSize, OperandSize::Dword) => FieldWidth::Dword,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
 pub(crate) enum Encoding {
     OpcodeRegister,
-    OpcodeRegisterImmediate,
+    OpcodeRegisterImmediate {
+        immediate: ImmediateWidth,
+    },
     Immediate {
         immediate: ImmediateWidth,
     },
@@ -51,21 +85,6 @@ pub(crate) enum Encoding {
 impl Encoding {
     pub(crate) fn has_modrm(self) -> bool {
         matches!(self, Self::RegisterRm | Self::RmImmediate { .. } | Self::Rm)
-    }
-}
-
-#[derive(Clone, Copy)]
-enum WidthRule {
-    Byte,
-    OperandSize,
-}
-impl WidthRule {
-    const fn resolve(self, size: OperandSize) -> OperandWidth {
-        match (self, size) {
-            (Self::Byte, _) => OperandWidth::Byte,
-            (Self::OperandSize, OperandSize::Word) => OperandWidth::Word,
-            (Self::OperandSize, OperandSize::Dword) => OperandWidth::Dword,
-        }
     }
 }
 
@@ -94,7 +113,7 @@ pub(crate) enum DecodedFields<V> {
 
 /// A location's role is independent of the fields needed to decode it.
 #[derive(Clone, Copy)]
-enum LocationBinding {
+pub(super) enum LocationBinding {
     Register,
     Rm,
     Accumulator,
@@ -102,82 +121,82 @@ enum LocationBinding {
 }
 
 #[derive(Clone, Copy)]
-enum OperandBinding {
+pub(super) enum OperandBinding {
     Location(LocationBinding),
     Immediate,
 }
 
 #[derive(Clone, Copy)]
-enum Operation {
+pub(super) enum OperandBindingShape {
+    Unary(OperandBinding),
     Binary {
-        operation: BinaryOperation,
         left: LocationBinding,
         right: OperandBinding,
     },
-    Unary(UnaryOperation),
-    Push(OperandBinding),
-    Pop(LocationBinding),
-    SetCondition(Condition),
 }
 
 #[derive(Clone, Copy)]
 pub(crate) struct Form {
-    opcode: u8,
-    mask: u8,
+    pub(super) opcode: u8,
+    pub(super) mask: u8,
     pub(crate) map: OpcodeMap,
     pub(crate) encoding: Encoding,
     /// Required ModRM.reg opcode extension; otherwise those bits belong to the encoding.
     pub(crate) extension: Option<u8>,
-    width: WidthRule,
-    operation: Operation,
+    pub(super) handlers: SizedHandlers<Handler>,
+    pub(super) binding: OperandBindingShape,
+    pub(super) condition: Option<Condition>,
+    pub(super) implicit_memory: bool,
+    pub(super) ends_block: bool,
 }
+
 impl Form {
-    pub(crate) const fn with_operand_size(&self, size: OperandSize) -> SizedForm {
+    pub(crate) fn with_operand_size(&self, size: OperandSize) -> SizedForm {
         SizedForm {
-            encoding: self.encoding,
-            width: self.width.resolve(size),
-            operation: self.operation,
+            form: *self,
+            operand_size: size,
+            handler: self.handlers.resolve(size),
         }
     }
+
     /// The caller has already selected this form's opcode map.
     pub(crate) fn matches(&self, opcode: u8) -> bool {
         opcode & self.mask == self.opcode
     }
+
     pub(crate) fn matches_modrm(&self, modrm: u8) -> bool {
-        match self.extension {
-            Some(extension) => ((modrm >> 3) & 7) == extension,
-            None => true,
-        }
+        self.extension
+            .is_none_or(|extension| ((modrm >> 3) & 7) == extension)
     }
 }
 
-/// A form whose operand width is fixed before its fields are read.
+/// Physical fetch widths and the concrete handler are selected from the prefix state.
 #[derive(Clone, Copy)]
 pub(crate) struct SizedForm {
-    pub(crate) encoding: Encoding,
-    pub(crate) width: OperandWidth,
-    operation: Operation,
+    form: Form,
+    operand_size: OperandSize,
+    handler: Handler,
 }
+
 impl SizedForm {
-    pub(crate) const fn immediate_width(&self) -> OperandWidth {
-        match self.encoding {
-            Encoding::Immediate {
-                immediate: ImmediateWidth::SignedByte,
-            }
-            | Encoding::RmImmediate {
-                immediate: ImmediateWidth::SignedByte,
-            } => OperandWidth::Byte,
-            _ => self.width,
-        }
+    pub(crate) fn encoding(&self) -> Encoding {
+        self.form.encoding
     }
+
+    pub(crate) fn immediate_width(&self) -> FieldWidth {
+        self.immediate().width(self.operand_size)
+    }
+
     pub(crate) fn sign_extends_immediate(&self) -> bool {
-        matches!(
-            self.encoding,
-            Encoding::Immediate {
-                immediate: ImmediateWidth::SignedByte,
-            } | Encoding::RmImmediate {
-                immediate: ImmediateWidth::SignedByte,
-            }
-        )
+        matches!(self.immediate(), ImmediateWidth::SignedByte)
+    }
+
+    fn immediate(&self) -> ImmediateWidth {
+        match self.form.encoding {
+            Encoding::OpcodeRegisterImmediate { immediate }
+            | Encoding::Immediate { immediate }
+            | Encoding::RmImmediate { immediate } => immediate,
+            _ => unreachable!("the selected encoding contains an immediate field"),
+        }
     }
 }

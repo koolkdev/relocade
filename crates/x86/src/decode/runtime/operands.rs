@@ -28,11 +28,11 @@ where
         opcode: u8,
         form: &SizedForm,
     ) -> Result<(), BuildError> {
-        let fields = match form.encoding {
+        let fields = match form.encoding() {
             Encoding::OpcodeRegister => {
                 DecodedFields::Location(Location::Register(RegisterCode::from_code(opcode)))
             }
-            Encoding::OpcodeRegisterImmediate => DecodedFields::OpcodeRegisterImmediate {
+            Encoding::OpcodeRegisterImmediate { .. } => DecodedFields::OpcodeRegisterImmediate {
                 register: RegisterCode::from_code(opcode),
                 immediate: cursor.immediate(&mut body, form)?,
             },
@@ -65,7 +65,8 @@ where
             arm.if_(modrm.unsigned().shr(6).ne(3), |memory_body| {
                 self.tail_call_memory_decoder(memory_body, &cursor, opcode, &modrm)
             })?;
-            self.decode_register_operands(arm, cursor.clone(), &modrm, form)
+            let rm = Location::Register(RegisterCode::indexed(modrm.unsigned().extend::<I32>()));
+            self.complete_modrm_instruction(arm, cursor.clone(), &modrm, form, rm)
         })
     }
 
@@ -83,16 +84,27 @@ where
         handlers.tail_call(body, cursor, &[opcode.into(), modrm.into()])
     }
 
-    fn decode_register_operands(
+    fn complete_modrm_instruction(
         &self,
         mut body: FunctionBuilder<'_>,
         mut cursor: RuntimeCursor<'_>,
         modrm: &Val<I8>,
         form: &Form,
+        rm: Location<Val<I32>>,
     ) -> Result<(), BuildError> {
         let form = form.with_operand_size(cursor.operand_size());
-        let rm = Location::Register(RegisterCode::indexed(modrm.unsigned().extend::<I32>()));
-        let fields = cursor.modrm_fields(&mut body, &form, modrm, rm)?;
+        let fields = match form.encoding() {
+            Encoding::RegisterRm => DecodedFields::RegisterRm {
+                register: RegisterCode::indexed(modrm.unsigned().shr(3).unsigned().extend::<I32>()),
+                rm,
+            },
+            Encoding::RmImmediate { .. } => DecodedFields::RmImmediate {
+                rm,
+                immediate: cursor.immediate(&mut body, &form)?,
+            },
+            Encoding::Rm => DecodedFields::Location(rm),
+            _ => unreachable!("the selected form has a ModRM field"),
+        };
         let instruction = form.bind(fields, cursor.instruction_eip().clone(), cursor.next_eip());
         (self.complete_instruction)(body, instruction)
     }
@@ -113,24 +125,17 @@ where
                 let Some(forms) = key.and_then(|key| forms.get(&key)) else {
                     return cursor.return_unsupported(arm, opcode);
                 };
-                dispatch_form_by_extension(arm, modrm, forms, &|mut arm, form| {
+                dispatch_form_by_extension(arm, modrm, forms, &|arm, form| {
                     let Some(form) = form else {
                         return cursor.return_unsupported(arm, opcode);
                     };
-                    let form = form.with_operand_size(cursor.operand_size());
-                    let mut form_cursor = cursor.clone();
-                    let fields = form_cursor.modrm_fields(
-                        &mut arm,
-                        &form,
+                    self.complete_modrm_instruction(
+                        arm,
+                        cursor.clone(),
                         modrm,
+                        form,
                         Location::Memory(address.clone()),
-                    )?;
-                    let instruction = form.bind(
-                        fields,
-                        form_cursor.instruction_eip().clone(),
-                        form_cursor.next_eip(),
-                    );
-                    (self.complete_instruction)(arm, instruction)
+                    )
                 })
             })?;
             body.trap()

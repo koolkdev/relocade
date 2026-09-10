@@ -5,14 +5,16 @@ use crate::{
     CompiledModule,
 };
 
-/// Compiles exactly `instruction_limit` instructions starting at `start_eip`.
+/// Compiles from `start_eip` through the first branch or `instruction_limit`
+/// instructions, whichever comes first. A conditional branch ends the block
+/// on both outcomes. Bytes after that boundary are ignored.
 /// Supports the instruction forms described in the
 /// [crate documentation](crate). ModRM/SIB addressing and absolute offsets are
-/// 32-bit. The `66` operand-size prefix selects word operands. Bytes after the
-/// requested instructions are ignored.
+/// 32-bit. The `66` operand-size prefix selects word operands.
 /// Incomplete, unsupported or overlong instructions are construction errors. This byte-only
 /// input carries no guest-fault information.
-/// EIP and the completed-instruction count advance with 32-bit wrapping arithmetic.
+/// EIP and the completed-instruction count use 32-bit wrapping arithmetic;
+/// a taken branch with `66` additionally truncates its target to sixteen bits.
 ///
 /// The exported `block_<hex start_eip>` function has signature `() -> i64` and
 /// imports `wasm86.cpuState`, a memory of at least one 64-KiB page. Its little-endian
@@ -21,8 +23,9 @@ use crate::{
 /// Byte and word register writes preserve the remaining bits of their parent register.
 /// Overlapping views synchronize through CPU backing when required; final dirty
 /// definitions are written in first-write order, followed by EIP and count. The block
-/// then tail-calls the imported `wasm86.dispatch(i32) -> i64` with the next EIP
+/// then tail-calls the imported `wasm86.dispatch(i32) -> i64` with the successor EIP
 /// and returns its result.
+/// A branch selects its target or fallthrough without fetching another instruction.
 ///
 /// Blocks with data-memory operands also import guest RAM and the page table,
 /// using the layout and fault words documented by [`crate::compile_interpreter_step`].
@@ -47,9 +50,13 @@ pub fn compile_block_from_bytes(
     let mut next_eip = start_eip;
     for _ in 0..instruction_limit {
         let (decoded_instruction, rest) = decode::snapshot(remaining_bytes, next_eip)?;
-        next_eip = decoded_instruction.next_eip;
+        next_eip = decoded_instruction.fallthrough_eip;
         remaining_bytes = rest;
+        let ends_block = decoded_instruction.instruction.ends_block();
         decoded_instructions.push(decoded_instruction);
+        if ends_block {
+            break;
+        }
     }
 
     let mut program = Program::new();

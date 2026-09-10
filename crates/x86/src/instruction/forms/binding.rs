@@ -1,10 +1,11 @@
-//! Resolves each operand's declared source and constructs semantic instructions.
+//! Assigns decoded fields to the handler's arguments without reading guest state.
 
-use super::{DecodedFields, LocationBinding, OperandBinding, Operation, SizedForm};
+use super::{DecodedFields, LocationBinding, OperandBinding, OperandBindingShape, SizedForm};
 use crate::{
     address::Address32,
     instruction::{
-        BinaryInstruction, DecodedInstruction, Instruction, Location, Operand, UnaryInstruction,
+        handlers::{Handler, HandlerCall},
+        DecodedInstruction, Instruction, Location, Operand,
     },
     register::RegisterCode,
 };
@@ -14,51 +15,31 @@ impl SizedForm {
         &self,
         fields: DecodedFields<V>,
         eip: P,
-        next_eip: P,
+        fallthrough_eip: P,
     ) -> DecodedInstruction<V, P> {
-        let instruction = match self.operation {
-            Operation::SetCondition(condition) => {
-                let DecodedFields::Location(destination) = fields else {
-                    unreachable!("SETcc has one decoded location")
-                };
-                Instruction::SetCondition {
-                    condition,
-                    destination,
+        let call = match (self.handler, self.form.binding) {
+            (Handler::Binary(handler), OperandBindingShape::Binary { left, right }) => {
+                HandlerCall::Binary {
+                    handler,
+                    left: fields.bind_location(left),
+                    right: fields.bind_operand(right),
                 }
             }
-            Operation::Unary(operation) => {
-                let DecodedFields::Location(destination) = fields else {
-                    unreachable!("unary instructions have one decoded location")
-                };
-                Instruction::Unary(UnaryInstruction {
-                    operation,
-                    width: self.width,
-                    destination,
-                })
-            }
-            Operation::Push(source) => Instruction::Push {
-                width: self.width,
-                source: fields.bind_operand(source),
+            (Handler::Unary(handler), OperandBindingShape::Unary(operand)) => HandlerCall::Unary {
+                handler,
+                operand: fields.bind_operand(operand),
             },
-            Operation::Pop(destination) => Instruction::Pop {
-                width: self.width,
-                destination: fields.bind_location(destination),
-            },
-            Operation::Binary {
-                operation,
-                left,
-                right,
-            } => Instruction::Binary(BinaryInstruction {
-                operation,
-                width: self.width,
-                left: fields.bind_location(left),
-                right: fields.bind_operand(right),
-            }),
+            _ => unreachable!("the form binds the handler's argument shape"),
         };
         DecodedInstruction {
-            instruction,
+            instruction: Instruction {
+                call,
+                condition: self.form.condition,
+                implicit_memory: self.form.implicit_memory,
+                ends_block: self.form.ends_block,
+            },
             eip,
-            next_eip,
+            fallthrough_eip,
         }
     }
 }

@@ -9,7 +9,8 @@ use crate::{
 /// at the current EIP, using the forms described in the
 /// [crate documentation](crate). Addresses remain 32-bit for every data width.
 /// Success publishes the instruction effects, EIP and instruction count,
-/// then tail-calls `wasm86.dispatch(i32) -> i64` with the next EIP.
+/// then tail-calls `wasm86.dispatch(i32) -> i64` with the successor EIP. Relative
+/// branches dispatch their target or fallthrough without fetching that instruction.
 ///
 /// The module imports distinct `wasm86.cpuState`, `wasm86.guest` and
 /// `wasm86.machine` memories, with minimum sizes of 1, 1 and 64 Wasm pages.
@@ -37,7 +38,8 @@ use crate::{
 /// Supported forms fetch every
 /// field before checking data access.
 /// Faults and unsupported forms preserve this instruction's CPU state and
-/// count and do not dispatch. EIP and count wrap at 32 bits.
+/// count and do not dispatch. EIP and count wrap at 32 bits; taken branches with `66`
+/// truncate their targets to sixteen bits. Untaken branches keep full fallthrough EIP.
 ///
 /// The `66` operand-size prefix selects word operands and leaves byte operands
 /// unchanged. Repeating it does not toggle the width. Other prefixes are outside
