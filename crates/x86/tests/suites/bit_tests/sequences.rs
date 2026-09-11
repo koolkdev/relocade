@@ -1,153 +1,258 @@
-use wasm86_x86::{compile_block_from_bytes, StatusFlags};
+use wasm86_x86::Gpr32::{Eax, Ebp, Ebx, Ecx, Edi, Edx, Esi, Esp};
 
 use crate::support::{
-    machine::{check, expected as observe_expected, Exit, Image, Step},
-    step::TestModule,
+    cases::{
+        FlagExpectation,
+        FlagExpectation::{Clear, Preserved, Set},
+        Flags,
+        Permissions::{ReadOnly, ReadWrite},
+    },
+    sequences::{test_sequences, Checkpoint, SequenceCase},
 };
 
-use super::{expected, image, retire, Operation};
+use super::bit_flags;
 
-const MEMORY_WRITE: &[(u32, &[u8])] = &[(0x8000, &[1, 0, 0, 0])];
+#[derive(Clone, Copy)]
+struct CarryPath {
+    carry: FlagExpectation,
+    edx_after_setc: u32,
+    edi_after_adc: u32,
+    flags_after_adc: Flags<FlagExpectation>,
+    eax_after_bts: u32,
+    bts_carry: FlagExpectation,
+}
 
-fn flags_then_fault(index: u32) -> (Vec<u8>, Image, Vec<Step<'static>>) {
-    let code = [
-        0x00, 0xd0, // ADD AL,DL produces zero, carry and auxiliary carry
-        0x0f, 0xa3, 0xcd, // BT EBP,ECX replaces only carry
-        0x0f, 0x94, 0xc0, // SETZ AL still reads the ADD result
-        0x0f, 0x92, 0xc2, // SETC DL reads the old tested bit
-        0x46, // INC ESI retains carry
-        0x66, 0x83, 0xd7, 0, // ADC DI,0 consumes that carry
-        0x66, 0x0f, 0xab, 0xd0, // BTS AX,DX uses the just-written low index
-        0x0f, 0xba, 0x34, 0x24, 31, // BTR dword [ESP],31
-        0x66, 0x0f, 0xbb, 0xc9, // BTC CX,CX captures its own old index
-        0x0f, 0x92, 0xc6, // SETC DH records the complemented bit's old value
-        0x83, 0xd5, 0, // ADC EBP,0 consumes that old bit
-        0x66, 0x0f, 0xa3, 0x3b, // BT word [EBX],DI reads a signed indexed, read-only unit
-        0x66, 0x0f, 0xba, 0x2b, 255, // BTS word [EBX],255 requires write permission
-    ];
-    let mut image = image(&code);
-    image.cpu.registers.eax = 0x4433_80ff;
-    image.cpu.registers.ecx = 0x8877_0000 | index;
-    image.cpu.registers.edx = 0xccbb_aa01;
-    image.cpu.registers.ebx = 0x5002;
-    image.cpu.registers.esp = 0x4000;
-    image.cpu.registers.ebp = 0x8000_0001;
-    image.cpu.registers.esi = u32::MAX;
-    image.cpu.registers.edi = 0xdead_ffff;
-    image.cpu.instruction_count = 0xffff_fff9;
-    image.map(4, 0x8000, true);
-    image.map(5, 0xa000, false);
-    image.data(0x7fff, &[0x5a, 1, 0, 0, 0x80, 0x5a]);
-    image.data(0x9fff, &[0x5a, 0, 0x80, 1, 0, 0x5a]);
-    let mut cpu = image.cpu;
-    cpu.registers.eax = 0x4433_8000;
-    cpu.flags.kind = 2;
-    cpu.flags.left = 0xff;
-    cpu.flags.right = 1;
-    let mut steps = vec![retire(&mut cpu, 2, &[])];
-    let add_flags = StatusFlags {
-        cf: 1,
-        pf: 1,
-        af: 1,
-        zf: 1,
-        sf: 0,
-        of: 0,
-    };
-    let tested = expected(Operation::Bt, 32, 0x8000_0001, cpu.registers.ecx);
-    let carry = tested.carry;
-    tested.apply_flags(&mut cpu, add_flags);
-    steps.push(retire(&mut cpu, 3, &[]));
-    cpu.registers.eax = 0x4433_8001;
-    steps.push(retire(&mut cpu, 3, &[]));
-    cpu.registers.edx = 0xccbb_aa00 | u32::from(carry);
-    steps.push(retire(&mut cpu, 3, &[]));
-    cpu.registers.esi = 0;
-    steps.push(retire(&mut cpu, 1, &[]));
-    cpu.registers.edi = if carry == 1 { 0xdead_0000 } else { 0xdead_ffff };
-    cpu.flags.status = StatusFlags {
-        cf: carry,
-        pf: 1,
-        af: carry,
-        zf: carry,
-        sf: 1 - carry,
-        of: 0,
-    };
-    steps.push(retire(&mut cpu, 4, &[]));
-    cpu.registers.eax = 0x4433_8001 | (u32::from(carry) << 1);
-    cpu.flags.status.cf = 1 - carry;
-    steps.push(retire(&mut cpu, 4, &[]));
-    cpu.flags.status.cf = 1;
-    steps.push(retire(&mut cpu, 5, MEMORY_WRITE));
-    let complemented = expected(Operation::Btc, 16, cpu.registers.ecx, cpu.registers.ecx);
-    cpu.registers.ecx = (cpu.registers.ecx & 0xffff_0000) | complemented.value;
-    cpu.flags.status.cf = complemented.carry;
-    steps.push(retire(&mut cpu, 4, &[]));
-    cpu.registers.edx = 0xccbb_0000 | (u32::from(complemented.carry) << 8) | u32::from(carry);
-    steps.push(retire(&mut cpu, 3, &[]));
-    cpu.registers.ebp = 0x8000_0001 + u32::from(complemented.carry);
-    cpu.flags.status = StatusFlags {
-        cf: 0,
-        pf: 0,
-        af: 0,
-        zf: 0,
-        sf: 1,
-        of: 0,
-    };
-    steps.push(retire(&mut cpu, 3, &[]));
-    // DI is either -1 or zero. Both selected words contain a set tested bit.
-    cpu.flags.status.cf = 1;
-    steps.push(retire(&mut cpu, 4, &[]));
-    steps.push(Step {
-        cpu,
-        ram: &[],
-        exit: Exit::PageFault {
-            address: 0x5002,
-            error: 3,
+// These are literal outcomes for the two carry values read by SETC and ADC.
+const CARRY_SET: CarryPath = CarryPath {
+    carry: Set,
+    edx_after_setc: 0xccbb_aa01,
+    edi_after_adc: 0xdead_0000,
+    flags_after_adc: Flags {
+        cf: Set,
+        pf: Set,
+        af: Set,
+        zf: Set,
+        sf: Clear,
+        of: Clear,
+    },
+    eax_after_bts: 0x4433_8003,
+    bts_carry: Clear,
+};
+const CARRY_CLEAR: CarryPath = CarryPath {
+    carry: Clear,
+    edx_after_setc: 0xccbb_aa00,
+    edi_after_adc: 0xdead_ffff,
+    flags_after_adc: Flags {
+        cf: Clear,
+        pf: Set,
+        af: Clear,
+        zf: Clear,
+        sf: Set,
+        of: Clear,
+    },
+    eax_after_bts: 0x4433_8001,
+    bts_carry: Set,
+};
+
+fn pending_flags_and_carry_before_a_fault() -> Vec<SequenceCase> {
+    struct Values {
+        index: u32,
+        initial_ecx: u32,
+        path: CarryPath,
+        ecx_after_btc: u32,
+        btc_carry: FlagExpectation,
+        edx_after_setc_dh: u32,
+        ebp_after_adc: u32,
+    }
+    let mut cases = Vec::new();
+    for values in [
+        Values {
+            index: 0x0000_0000,
+            initial_ecx: 0x8877_0000,
+            path: CARRY_SET,
+            ecx_after_btc: 0x8877_0001,
+            btc_carry: Clear,
+            edx_after_setc_dh: 0xccbb_0001,
+            ebp_after_adc: 0x8000_0001,
         },
-    });
-    (code.to_vec(), image, steps)
-}
-
-fn fault_boundary(image: &Image, steps: &[Step<'_>]) -> Step<'static> {
-    let last = steps.last().unwrap();
-    let mut cpu = last.cpu;
-    // Intermediate ADD operands reached interpreter boundaries only. The block
-    // publishes concrete flags and leaves the previous lazy payload untouched.
-    cpu.flags.left = image.cpu.flags.left;
-    cpu.flags.right = image.cpu.flags.right;
-    Step {
-        cpu,
-        ram: MEMORY_WRITE,
-        exit: last.exit,
-    }
-}
-
-#[test]
-fn bit_tests_compose_with_pending_flags_conditions_and_carry_arithmetic_before_a_fault() {
-    for index in [0, 1, 15, 16, 31, 32, 33, 0xffff, u32::MAX] {
-        let (code, image, steps) = flags_then_fault(index);
-        let name = format!("bit index {index:x} feeds conditions, partial flags and ADC");
-        check(TestModule::interpreter(), &name, &image, &steps);
-        let block = TestModule::new(&compile_block_from_bytes(image.cpu.eip, &code, 13).unwrap());
-        check(&block, &name, &image, &[fault_boundary(&image, &steps)]);
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn bit_tests_and_pending_flags_execute_in_optimizing_v8() {
-    for index in [0, 1, 31, u32::MAX] {
-        let (code, image, steps) = flags_then_fault(index);
-        assert_eq!(
-            TestModule::interpreter().observe_v8(&image.input(), steps.len()),
-            observe_expected(&image, &steps),
-            "interpreter bit index {index:x}"
+        Values {
+            index: 0x0000_0001,
+            initial_ecx: 0x8877_0001,
+            path: CARRY_CLEAR,
+            ecx_after_btc: 0x8877_0003,
+            btc_carry: Clear,
+            edx_after_setc_dh: 0xccbb_0000,
+            ebp_after_adc: 0x8000_0001,
+        },
+        Values {
+            index: 0x0000_000f,
+            initial_ecx: 0x8877_000f,
+            path: CARRY_CLEAR,
+            ecx_after_btc: 0x8877_800f,
+            btc_carry: Clear,
+            edx_after_setc_dh: 0xccbb_0000,
+            ebp_after_adc: 0x8000_0001,
+        },
+        Values {
+            index: 0x0000_0010,
+            initial_ecx: 0x8877_0010,
+            path: CARRY_CLEAR,
+            ecx_after_btc: 0x8877_0011,
+            btc_carry: Clear,
+            edx_after_setc_dh: 0xccbb_0000,
+            ebp_after_adc: 0x8000_0001,
+        },
+        Values {
+            index: 0x0000_001f,
+            initial_ecx: 0x8877_001f,
+            path: CARRY_SET,
+            ecx_after_btc: 0x8877_801f,
+            btc_carry: Clear,
+            edx_after_setc_dh: 0xccbb_0001,
+            ebp_after_adc: 0x8000_0001,
+        },
+        Values {
+            index: 0x0000_0020,
+            initial_ecx: 0x8877_0020,
+            path: CARRY_SET,
+            ecx_after_btc: 0x8877_0021,
+            btc_carry: Clear,
+            edx_after_setc_dh: 0xccbb_0001,
+            ebp_after_adc: 0x8000_0001,
+        },
+        Values {
+            index: 0x0000_0021,
+            initial_ecx: 0x8877_0021,
+            path: CARRY_CLEAR,
+            ecx_after_btc: 0x8877_0023,
+            btc_carry: Clear,
+            edx_after_setc_dh: 0xccbb_0000,
+            ebp_after_adc: 0x8000_0001,
+        },
+        Values {
+            index: 0x0000_ffff,
+            initial_ecx: 0x8877_ffff,
+            path: CARRY_SET,
+            ecx_after_btc: 0x8877_7fff,
+            btc_carry: Set,
+            edx_after_setc_dh: 0xccbb_0101,
+            ebp_after_adc: 0x8000_0002,
+        },
+        Values {
+            index: 0xffff_ffff,
+            initial_ecx: 0xffff_ffff,
+            path: CARRY_SET,
+            ecx_after_btc: 0xffff_7fff,
+            btc_carry: Set,
+            edx_after_setc_dh: 0xccbb_0101,
+            ebp_after_adc: 0x8000_0002,
+        },
+    ] {
+        let path = values.path;
+        cases.push(
+            SequenceCase::from_opaque_flags(format!(
+                "bit index {:x} feeds conditions, partial flags and ADC before a write fault",
+                values.index,
+            ))
+            .stored_flags(super::STORED_FLAGS)
+            .instruction_count(0xffff_fff9)
+            .initial_registers(&[
+                (Eax, 0x4433_80ff),
+                (Ecx, values.initial_ecx),
+                (Edx, 0xccbb_aa01),
+                (Ebx, 0x5002),
+                (Esp, 0x4000),
+                (Ebp, 0x8000_0001),
+                (Esi, u32::MAX),
+                (Edi, 0xdead_ffff),
+            ])
+            .map_page(4, 0x8000, ReadWrite)
+            .map_page(5, 0xa000, ReadOnly)
+            .backing(0x7fff, &[0x5a, 1, 0, 0, 0x80, 0x5a])
+            .backing(0x9fff, &[0x5a, 0, 0x80, 1, 0, 0x5a])
+            // ADD AL,DL publishes zero, carry and auxiliary carry.
+            .step(
+                Checkpoint::new(
+                    &[0x00, 0xd0],
+                    Flags {
+                        cf: Set,
+                        pf: Set,
+                        af: Set,
+                        zf: Set,
+                        sf: Clear,
+                        of: Clear,
+                    },
+                )
+                .register(Eax, 0x4433_8000),
+            )
+            .step(Checkpoint::new(&[0x0f, 0xa3, 0xcd], bit_flags(path.carry))) // BT EBP,ECX
+            .step(
+                Checkpoint::preserving_flags(&[0x0f, 0x94, 0xc0]) // SETZ AL
+                    .register(Eax, 0x4433_8001),
+            )
+            .step(
+                Checkpoint::preserving_flags(&[0x0f, 0x92, 0xc2]) // SETC DL
+                    .register(Edx, path.edx_after_setc),
+            )
+            .step(
+                Checkpoint::new(
+                    &[0x46],
+                    Flags {
+                        // INC ESI preserves carry.
+                        cf: Preserved,
+                        pf: Set,
+                        af: Set,
+                        zf: Set,
+                        sf: Clear,
+                        of: Clear,
+                    },
+                )
+                .register(Esi, 0),
+            )
+            .step(
+                Checkpoint::new(&[0x66, 0x83, 0xd7, 0], path.flags_after_adc) // ADC DI,0
+                    .register(Edi, path.edi_after_adc),
+            )
+            .step(
+                Checkpoint::new(&[0x66, 0x0f, 0xab, 0xd0], bit_flags(path.bts_carry)) // BTS AX,DX
+                    .register(Eax, path.eax_after_bts),
+            )
+            .step(
+                Checkpoint::new(&[0x0f, 0xba, 0x34, 0x24, 31], bit_flags(Set)) // BTR [ESP],31
+                    .expect_memory(0x4000, &[1, 0, 0, 0]),
+            )
+            .step(
+                Checkpoint::new(&[0x66, 0x0f, 0xbb, 0xc9], bit_flags(values.btc_carry)) // BTC CX,CX
+                    .register(Ecx, values.ecx_after_btc),
+            )
+            .step(
+                Checkpoint::preserving_flags(&[0x0f, 0x92, 0xc6]) // SETC DH
+                    .register(Edx, values.edx_after_setc_dh),
+            )
+            .step(
+                Checkpoint::new(
+                    &[0x83, 0xd5, 0],
+                    Flags {
+                        // ADC EBP,0
+                        cf: Clear,
+                        pf: Clear,
+                        af: Clear,
+                        zf: Clear,
+                        sf: Set,
+                        of: Clear,
+                    },
+                )
+                .register(Ebp, values.ebp_after_adc),
+            )
+            // DI is -1 or zero; both indexed read-only words have their tested bit set.
+            .step(Checkpoint::new(&[0x66, 0x0f, 0xa3, 0x3b], bit_flags(Set)))
+            .step(Checkpoint::preserving_flags(&[0x66, 0x0f, 0xba, 0x2b, 255]).fault(0x5002, 3)),
         );
-        let block = TestModule::new(&compile_block_from_bytes(image.cpu.eip, &code, 13).unwrap());
-        assert_eq!(
-            block.observe_v8(&image.input(), 1),
-            observe_expected(&image, &[fault_boundary(&image, &steps)]),
-            "snapshot bit index {index:x}"
-        );
     }
+    cases
 }
+
+test_sequences!(
+    pending_flags_conditions_and_carry_before_fault,
+    pending_flags_and_carry_before_a_fault()
+);

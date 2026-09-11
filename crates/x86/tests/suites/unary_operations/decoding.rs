@@ -1,7 +1,15 @@
-use wasm86_x86::{compile_block_from_bytes, BlockError, StatusFlags};
+use wasm86_x86::{
+    compile_block_from_bytes, BlockError, CpuState, Gpr32::Eax, StatusFlags, StoredFlags,
+};
 
 use crate::support::{
-    machine::{both, check, Exit, Image, Step},
+    cases::{
+        test_cases,
+        FlagExpectation::{Clear, Preserved, Set, Undefined},
+        Flags, InstructionCase as Case,
+    },
+    machine::{check, Exit, Image, Step},
+    sequences::{test_sequences, Checkpoint, SequenceCase},
     step::TestModule,
 };
 
@@ -52,93 +60,26 @@ fn unary_lengths_stop_after_the_selected_register_or_address() {
     }
 }
 
-#[test]
-fn mixed_test_not_and_neg_encodings_consume_only_their_own_fields() {
-    let code = [
-        0xf6, 0xc0, 0xf7, // TEST AL, 0xf7
-        0xf6, 0xd0, // NOT AL
-        0xf6, 0xd8, // NEG AL
-        0xf7, 0xc0, 0xf6, 0xf7, 0xfe, 0xff, // TEST EAX, 0xfffe_f7f6
-        0xf7, 0xd0, // NOT EAX
-        0xf7, 0xd8, // NEG EAX
-    ];
-    let mut image = Image::new(&code);
-    image.cpu.flags.kind = 0xff;
-    image.cpu.registers.eax = 0x1234_5678;
-    let mut expected_cpu = image.cpu;
-    let mut steps = Vec::new();
-
-    expected_cpu.flags.kind = 3;
-    expected_cpu.flags.left = 0x70;
-    expected_cpu.eip = 0x1003;
-    expected_cpu.instruction_count = 0;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x1003),
-    });
-
-    expected_cpu.registers.eax = 0x1234_5687;
-    expected_cpu.eip = 0x1005;
-    expected_cpu.instruction_count = 1;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x1005),
-    });
-
-    expected_cpu.registers.eax = 0x1234_5679;
-    expected_cpu.flags.kind = 1;
-    expected_cpu.flags.left = 0;
-    expected_cpu.flags.right = 0x87;
-    expected_cpu.eip = 0x1007;
-    expected_cpu.instruction_count = 2;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x1007),
-    });
-
-    expected_cpu.flags.kind = 11;
-    expected_cpu.flags.left = 0x1234_5670;
-    expected_cpu.eip = 0x100d;
-    expected_cpu.instruction_count = 3;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x100d),
-    });
-
-    expected_cpu.registers.eax = 0xedcb_a986;
-    expected_cpu.eip = 0x100f;
-    expected_cpu.instruction_count = 4;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x100f),
-    });
-
-    expected_cpu.registers.eax = 0x1234_567a;
-    expected_cpu.flags.kind = 9;
-    expected_cpu.flags.left = 0;
-    expected_cpu.flags.right = 0xedcb_a986;
-    expected_cpu.eip = 0x1011;
-    expected_cpu.instruction_count = 5;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x1011),
-    });
-
-    both(
-        TestModule::interpreter(),
-        "mixed F6/F7 forms",
-        &code,
-        6,
-        &image,
-        &steps,
-    );
+#[rustfmt::skip]
+fn mixed_group_fields() -> Vec<SequenceCase> {
+    vec![SequenceCase::from_opaque_flags("mixed F6/F7 forms consume their own fields")
+        .stored_flags(StoredFlags { kind: 0xff, ..CpuState::filled(0xa5).flags })
+        .initial_register(Eax, 0x1234_5678)
+        .step(Checkpoint::new(&[0xf6, 0xc0, 0xf7],
+            Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Clear, of: Clear }))
+        .step(Checkpoint::preserving_flags(&[0xf6, 0xd0]).register(Eax, 0x1234_5687))
+        .step(Checkpoint::new(&[0xf6, 0xd8],
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x1234_5679))
+        .step(Checkpoint::new(&[0xf7, 0xc0, 0xf6, 0xf7, 0xfe, 0xff],
+            Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Clear, of: Clear }))
+        .step(Checkpoint::preserving_flags(&[0xf7, 0xd0]).register(Eax, 0xedcb_a986))
+        .step(Checkpoint::new(&[0xf7, 0xd8],
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x1234_567a))]
 }
+
+test_sequences!(mixed_group_opcode_fields, mixed_group_fields());
 
 #[test]
 fn unsupported_group_extensions_stop_before_sib_or_displacement_fetch() {
@@ -229,50 +170,27 @@ fn required_unary_fields_fault_before_data_access() {
     }
 }
 
-#[test]
-fn unary_instructions_can_end_at_byte_fifteen_without_fetching_an_immediate() {
-    for (suffix, result, kind) in [
-        (&[0x40][..], 0x1234_0000, 0),          // Repeated 66 selects INC AX.
-        (&[0xfe, 0xc0][..], 0x1234_ff00, 0),    // Byte INC ignores 66.
-        (&[0xf6, 0xd0][..], 0x1234_ff00, 0xff), // Byte NOT ignores 66.
-        (&[0xf7, 0xd8][..], 0x1234_0001, 5),    // NEG AX has no immediate.
-    ] {
+#[rustfmt::skip]
+fn maximum_length() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (suffix, output) in [(&[0x40][..], 0x1234_0000), (&[0xfe, 0xc0][..], 0x1234_ff00)] {
         let code = [vec![0x66; 15 - suffix.len()], suffix.to_vec()].concat();
-        let mut image = Image::new(&[]);
-        image.cpu.flags.kind = if kind == 0 { 0 } else { 0xff };
-        image.cpu.flags.status.cf = 1;
-        image.cpu.registers.eax = 0x1234_ffff;
-        image.cpu.eip = 0x1ff1;
-        image.data(0x3ff1, &code);
-        let mut expected_cpu = image.cpu;
-        expected_cpu.registers.eax = result;
-        expected_cpu.flags.kind = kind;
-        if kind == 0 {
-            expected_cpu.flags.status = StatusFlags {
-                cf: 1,
-                pf: 1,
-                af: 1,
-                zf: 1,
-                sf: 0,
-                of: 0,
-            };
-        } else if kind == 5 {
-            expected_cpu.flags.left = 0;
-            expected_cpu.flags.right = 0xffff;
-        }
-        expected_cpu.eip = 0x2000;
-        expected_cpu.instruction_count = 0;
-        both(
-            TestModule::interpreter(),
-            "unary instruction ends at byte fifteen",
-            &code,
-            1,
-            &image,
-            &[Step {
-                cpu: expected_cpu,
-                ram: &[],
-                exit: Exit::Dispatch(0x2000),
-            }],
-        );
+        cases.push(Case::new(format!("fifteen-byte INC {suffix:02x?}"), &code, Flags::all(true),
+            Flags { cf: Preserved, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
+            .at(0x1ff1).register(Eax, 0x1234_ffff, output));
     }
+    let invalid = StoredFlags {
+        kind: 0xff, status: StatusFlags { cf: 1, ..CpuState::filled(0xa5).flags.status },
+        ..CpuState::filled(0xa5).flags
+    };
+    cases.push(Case::preserving_flags("fifteen-byte NOT AL has no immediate",
+        &[vec![0x66; 13], vec![0xf6, 0xd0]].concat())
+        .stored_flags(invalid).at(0x1ff1).register(Eax, 0x1234_ffff, 0x1234_ff00));
+    cases.push(Case::replacing_flags("fifteen-byte NEG AX has no immediate",
+        &[vec![0x66; 13], vec![0xf7, 0xd8]].concat(),
+        Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear })
+        .stored_flags(invalid).at(0x1ff1).register(Eax, 0x1234_ffff, 0x1234_0001));
+    cases
 }
+
+test_cases!(fifteen_byte_encodings, maximum_length());

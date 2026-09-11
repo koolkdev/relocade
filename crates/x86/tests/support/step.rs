@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use std::{path::Path, sync::OnceLock};
 
 use serde::{Deserialize, Serialize};
@@ -53,7 +56,33 @@ pub(crate) enum Event {
 pub(crate) struct Observation {
     pub(crate) events: Vec<Event>,
     pub(crate) guest_unchanged: bool,
+    /// True only if machine memory is unchanged at every dispatch and return.
     pub(crate) machine_unchanged: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Engine {
+    Wasmtime,
+    V8,
+}
+
+impl Engine {
+    pub(crate) fn observe(
+        self,
+        module: &TestModule,
+        input: &Input,
+        invocations: usize,
+    ) -> Observation {
+        match self {
+            Self::Wasmtime => module.observe(input, invocations),
+            Self::V8 => module.observe_v8(input, invocations),
+        }
+    }
+}
+
+struct ExecutionEvents {
+    events: Vec<Event>,
+    machine_unchanged: bool,
 }
 
 pub(crate) struct TestModule {
@@ -71,7 +100,6 @@ impl TestModule {
         }
     }
 
-    #[allow(dead_code)] // The unit test target builds small private helper modules.
     pub(crate) fn interpreter() -> &'static Self {
         static INTERPRETER: OnceLock<TestModule> = OnceLock::new();
         INTERPRETER.get_or_init(|| Self::new(&crate::compile_interpreter_step().unwrap()))
@@ -82,7 +110,13 @@ impl TestModule {
         let module = self
             .compiled
             .get_or_init(|| Module::new(engine, &self.bytes).expect("compile the test module"));
-        let mut store = Store::new(engine, Vec::<Event>::new());
+        let mut store = Store::new(
+            engine,
+            ExecutionEvents {
+                events: Vec::new(),
+                machine_unchanged: true,
+            },
+        );
         let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
         let guest = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
         let machine = Memory::new(&mut store, MemoryType::new(64, None)).unwrap();
@@ -102,17 +136,23 @@ impl TestModule {
         let observe_guest = input.observe_guest;
         let dispatch_return = input.dispatch_return;
         let dispatch_guest_before = guest_before.clone();
+        let dispatch_machine_before = machine_before.clone();
         linker
             .func_wrap(
                 "wasm86",
                 "dispatch",
-                move |mut caller: Caller<'_, Vec<Event>>, eip: i32| {
+                move |mut caller: Caller<'_, ExecutionEvents>, eip: i32| {
                     let snapshot = Snapshot {
                         cpu: cpu.data(&caller)[..cpu_len].to_vec(),
                         guest: observe_guest
                             .then(|| changes(&dispatch_guest_before, guest.data(&caller))),
                     };
-                    caller.data_mut().push(Event::Dispatch { eip, snapshot });
+                    let unchanged = dispatch_machine_before == machine.data(&caller);
+                    caller.data_mut().machine_unchanged &= unchanged;
+                    caller
+                        .data_mut()
+                        .events
+                        .push(Event::Dispatch { eip, snapshot });
                     dispatch_return
                 },
             )
@@ -147,18 +187,22 @@ impl TestModule {
                 cpu: cpu.data(&store)[..cpu_len].to_vec(),
                 guest: observe_guest.then(|| changes(&guest_before, guest.data(&store))),
             };
-            store.data_mut().push(Event::Return { outcome, snapshot });
+            let unchanged = machine_before == machine.data(&store);
+            store.data_mut().machine_unchanged &= unchanged;
+            store
+                .data_mut()
+                .events
+                .push(Event::Return { outcome, snapshot });
         }
         let guest_unchanged = guest_before == guest.data(&store);
-        let machine_unchanged = machine_before == machine.data(&store);
+        let machine_unchanged = store.data().machine_unchanged;
         Observation {
-            events: store.into_data(),
+            events: store.into_data().events,
             guest_unchanged,
             machine_unchanged,
         }
     }
 
-    #[allow(dead_code)] // The unit test target uses only Wasmtime.
     pub(crate) fn observe_v8(&self, input: &Input, invocations: usize) -> Observation {
         #[derive(Serialize)]
         struct Request<'a> {

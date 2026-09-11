@@ -1,9 +1,17 @@
-use wasm86_x86::{compile_block_from_bytes, BlockError};
+use wasm86_x86::{
+    compile_block_from_bytes, BlockError, CpuState, Gpr32::Eax, StatusFlags, StoredFlags,
+};
 use wasmparser::Validator;
 
+use crate::support::cases::{
+    test_cases,
+    FlagExpectation::{Clear, Preserved, Set},
+    Flags, InstructionCase as Case,
+    Permissions::ReadOnly,
+};
 use crate::support::machine;
 use crate::support::step;
-use machine::{both, check, Exit, Image, Step};
+use machine::{check, Exit, Image, Step};
 use step::TestModule;
 
 #[test]
@@ -314,59 +322,23 @@ fn binary_fetch_faults_follow_decode_precedence() {
             }],
         );
     }
-    let code = [0x0f, 0x94, 0xc4];
-    let mut image = Image::new(&[]);
-    image.cpu.flags.kind = 0;
-    image.cpu.flags.status.zf = 1;
-    image.cpu.registers.eax = 0x4433_2211;
-    image.cpu.eip = 0x1fff;
-    image.map(2, 0xa000, false);
-    image.data(0x3fff, &code[..1]);
-    image.data(0xa000, &code[1..]);
-    let mut expected_cpu = image.cpu;
-    expected_cpu.registers.eax = 0x4433_0111;
-    expected_cpu.eip = 0x2002;
-    expected_cpu.instruction_count = 0;
-    both(
-        step,
-        "extended opcode spans scattered code pages",
-        &code,
-        1,
-        &image,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(0x2002),
-        }],
-    );
-
-    let code = [0x05, 1, 0, 0, 0];
-    let mut image = Image::new(&[]);
-    image.cpu.flags.kind = 0;
-    image.cpu.registers.eax = 0xffff_ffff;
-    image.cpu.eip = 0xffff_fffd;
-    image.map(0xfffff, 0x8000, false);
-    image.map(0, 0xa000, false);
-    image.data(0x8ffd, &code[..3]);
-    image.data(0xa000, &code[3..]);
-    let mut expected_cpu = image.cpu;
-    expected_cpu.flags.kind = 10;
-    expected_cpu.flags.reserved = [0xa5; 3];
-    expected_cpu.flags.left = 0xffff_ffff;
-    expected_cpu.flags.right = 1;
-    expected_cpu.registers.eax = 0;
-    expected_cpu.eip = 2;
-    expected_cpu.instruction_count = 0;
-    both(
-        step,
-        "ADD immediate wraps instruction addresses",
-        &code,
-        1,
-        &image,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(2),
-        }],
-    );
 }
+
+#[rustfmt::skip]
+fn code_page_boundaries() -> Vec<Case> {
+    vec![
+        Case::new("extended opcode spans scattered code pages", &[0x0f, 0x94, 0xc4], Flags::all(true), Flags::all(Preserved))
+            .stored_flags(StoredFlags { kind: 0,
+                status: StatusFlags { zf: 1, ..CpuState::filled(0xa5).flags.status },
+                ..CpuState::filled(0xa5).flags
+            }).preserve_flag_record()
+            .at(0x1fff).map_page(1, 0x3000, ReadOnly).map_page(2, 0xa000, ReadOnly)
+            .register(Eax, 0x4433_2211, 0x4433_0111),
+        Case::new("ADD immediate wraps instruction addresses", &[0x05, 1, 0, 0, 0], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
+            .at(0xffff_fffd).map_page(0xfffff, 0x8000, ReadOnly).map_page(0, 0xa000, ReadOnly)
+            .register(Eax, 0xffff_ffff, 0),
+    ]
+}
+
+test_cases!(scattered_and_wrapping_code, code_page_boundaries());

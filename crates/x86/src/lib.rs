@@ -122,8 +122,18 @@ mod ssa;
 mod state;
 
 #[cfg(test)]
-#[path = "../tests/support/step.rs"]
-mod test_step;
+extern crate self as wasm86_x86;
+
+#[cfg(test)]
+#[path = "../tests/support/mod.rs"]
+mod support;
+
+#[cfg(test)]
+use support::step as test_step;
+
+#[cfg(test)]
+#[path = "../tests/instructions.rs"]
+mod instruction_tests;
 
 use std::fmt;
 

@@ -1,7 +1,15 @@
-use wasm86_x86::{compile_block_from_bytes, BlockError};
+use wasm86_x86::{
+    compile_block_from_bytes, BlockError,
+    Gpr32::{Eax, Ebx},
+};
 
 use crate::support::{
-    machine::{both, check, Exit, Step},
+    cases::{
+        test_cases,
+        FlagExpectation::{Clear, Set},
+        Flags, InstructionCase as Case,
+    },
+    machine::{check, Exit, Step},
     step::TestModule,
 };
 
@@ -34,37 +42,19 @@ fn snapshot_forms_require_their_encoding_but_no_successor() {
     }
 }
 
-#[test]
-fn fifteen_byte_exchanges_retire_without_fetching_the_next_page() {
-    for (opcode, modrm, eax, kind) in [
-        (0xc1, 0xc0, 0x4433_4422, 6), // XADD AX,AX
-        (0xb1, 0xd8, 0x4433_eedd, 5), // CMPXCHG AX,BX
-    ] {
-        let code = [vec![0x66; 12], vec![0x0f, opcode, modrm]].concat();
-        let mut image = image(&[]);
-        image.cpu.eip = 0x1ff1;
-        image.data(0x3ff1, &code);
-        let mut cpu = image.cpu;
-        cpu.registers.eax = eax;
-        cpu.flags.kind = kind;
-        cpu.flags.left = 0x2211;
-        cpu.flags.right = 0x2211;
-        cpu.eip = 0x2000;
-        cpu.instruction_count = 0;
-        both(
-            TestModule::interpreter(),
-            "fifteen-byte exchange arithmetic",
-            &code,
-            1,
-            &image,
-            &[Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            }],
-        );
-    }
+#[rustfmt::skip]
+fn maximum_length() -> Vec<Case> {
+    vec![
+        Case::new("fifteen-byte XADD AX,AX", &[vec![0x66; 12], vec![0x0f, 0xc1, 0xc0]].concat(), Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Clear, sf: Clear, of: Clear })
+            .at(0x1ff1).register(Eax, 0x4433_2211, 0x4433_4422),
+        Case::new("fifteen-byte CMPXCHG AX,BX", &[vec![0x66; 12], vec![0x0f, 0xb1, 0xd8]].concat(), Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .at(0x1ff1).register(Eax, 0x4433_2211, 0x4433_eedd).initial_register(Ebx, 0x10ff_eedd),
+    ]
 }
+
+test_cases!(fifteen_byte_exchanges, maximum_length());
 
 #[test]
 fn length_limit_precedes_fetching_an_unavailable_field() {

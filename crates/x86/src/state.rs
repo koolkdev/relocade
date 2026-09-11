@@ -3,9 +3,13 @@ mod cpu;
 pub(super) mod exit;
 mod flags;
 mod layout;
+#[cfg(test)]
+mod observation;
 
 pub(super) use cpu::Cpu;
 pub use layout::{CpuState, Registers, StatusFlags, StoredFlags};
+#[cfg(test)]
+pub(crate) use observation::compile_flag_observer;
 
 use access::{cpu_load, cpu_store, register_location};
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32};

@@ -1,149 +1,122 @@
 use wasm86_x86::Gpr32;
 
-use crate::support::{
-    machine::{both, Exit, Step},
-    step::TestModule,
+use crate::support::cases::{
+    test_cases,
+    FlagExpectation::{Clear, Set},
+    InstructionCase,
 };
 
-use super::{expected, image, prior_flags, Operation, OPERATIONS};
+use super::{bit_flags, other_register_inputs, Operation, INITIAL_FLAGS, OPERATIONS, STORED_FLAGS};
 
-#[test]
-fn register_destinations_mask_register_and_immediate_indexes_to_operand_width() {
-    for bits in [16, 32] {
-        let mask = u32::MAX >> (32 - bits);
-        let upper = if bits == 16 { 0x4433_0000 } else { 0 };
-        for operation in OPERATIONS {
-            for value in [0, mask, (1 << (bits - 1)) | 1, 0xa55a_5aa5 & mask] {
-                for (immediate, indexes) in [
-                    (true, &[0, 1, 15, 16, 31, 32, 63, 127, 128, 255][..]),
-                    (
-                        false,
-                        &[
-                            0,
-                            1,
-                            15,
-                            16,
-                            17,
-                            31,
-                            32,
-                            33,
-                            0x7fff,
-                            0x8000,
-                            0xffff,
-                            0x4321_8000,
-                            0x1234_7fff,
-                            0xffff_0001,
-                            0x8000_0000,
-                            u32::MAX,
-                        ][..],
-                    ),
-                ] {
-                    for &index in indexes {
-                        let mut code = if bits == 16 { vec![0x66] } else { vec![] };
-                        if immediate {
-                            code.extend_from_slice(&[
-                                0x0f,
-                                0xba,
-                                0xc0 | (operation.extension() << 3),
-                                index as u8,
-                            ]);
-                        } else {
-                            code.extend_from_slice(&[0x0f, operation.register_opcode(), 0xd0]);
-                        }
-                        let mut image = image(&code);
-                        image.cpu.registers.eax = upper | value;
-                        image.cpu.registers.edx = index;
-                        let result = expected(operation, bits, value, index);
-                        let mut cpu = image.cpu;
-                        cpu.registers.eax = upper | result.value;
-                        result.apply_flags(&mut cpu, prior_flags());
-                        cpu.eip += code.len() as u32;
-                        cpu.instruction_count = 0;
-                        both(
-                            TestModule::interpreter(),
-                            &format!("{operation:?} {bits}-bit {value:x}, index {index:x}, immediate {immediate}"),
-                            &code, 1, &image,
-                            &[Step { cpu, ram: &[], exit: Exit::Dispatch(cpu.eip) }],
-                        );
-                    }
-                }
-            }
-        }
-    }
+fn literal_results() -> Vec<InstructionCase> {
+    [
+        (Operation::Bt, 0x8000_0001, 31, 0x8000_0001, Set),
+        (Operation::Bt, 0x8000_0001, 30, 0x8000_0001, Clear),
+        (Operation::Bts, 1, 0, 1, Set),
+        (Operation::Bts, 0, 31, 0x8000_0000, Clear),
+        (Operation::Btr, 0, 0, 0, Clear),
+        (Operation::Btr, u32::MAX, 31, 0x7fff_ffff, Set),
+        (Operation::Btc, 0, 0, 1, Clear),
+        (Operation::Btc, 1, 32, 0, Set),
+    ]
+    .into_iter()
+    .map(|(operation, input, index, output, carry)| {
+        InstructionCase::new(
+            format!("{operation:?} {input:x}, index {index} publishes the old bit"),
+            &[0x0f, 0xba, 0xc0 | (operation.extension() << 3), index],
+            INITIAL_FLAGS,
+            bit_flags(carry),
+        )
+        .initial_registers(&other_register_inputs(&[Gpr32::Eax]))
+        .stored_flags(STORED_FLAGS)
+        .register(Gpr32::Eax, input, output)
+    })
+    .collect()
 }
 
-#[test]
-fn literal_results_publish_the_old_bit_even_when_the_write_has_no_effect() {
-    for (operation, value, index, result, carry) in [
-        (Operation::Bt, 0x8000_0001, 31, 0x8000_0001, 1),
-        (Operation::Bt, 0x8000_0001, 30, 0x8000_0001, 0),
-        (Operation::Bts, 1, 0, 1, 1),
-        (Operation::Bts, 0, 31, 0x8000_0000, 0),
-        (Operation::Btr, 0, 0, 0, 0),
-        (Operation::Btr, u32::MAX, 31, 0x7fff_ffff, 1),
-        (Operation::Btc, 0, 0, 1, 0),
-        (Operation::Btc, 1, 32, 0, 1),
+test_cases!(old_bit_and_unchanged_writes, literal_results());
+
+fn aliased_indexes() -> Vec<InstructionCase> {
+    struct Alias {
+        bits: u32,
+        register: Gpr32,
+        modrm: u8,
+        input: u32,
+        // BT, BTS, BTR, BTC, in that order.
+        outputs: [u32; 4],
+        carry: crate::support::cases::FlagExpectation,
+    }
+    let mut cases = Vec::new();
+    for alias in [
+        Alias {
+            bits: 16,
+            register: Gpr32::Eax,
+            modrm: 0xc0,
+            input: 0x4433_8003,
+            outputs: [0x4433_8003, 0x4433_800b, 0x4433_8003, 0x4433_800b],
+            carry: Clear,
+        },
+        Alias {
+            bits: 16,
+            register: Gpr32::Ecx,
+            modrm: 0xc9,
+            input: 0x8877_ffff,
+            outputs: [0x8877_ffff, 0x8877_ffff, 0x8877_7fff, 0x8877_7fff],
+            carry: Set,
+        },
+        Alias {
+            bits: 16,
+            register: Gpr32::Esp,
+            modrm: 0xe4,
+            input: 0x8765_0010,
+            outputs: [0x8765_0010, 0x8765_0011, 0x8765_0010, 0x8765_0011],
+            carry: Clear,
+        },
+        Alias {
+            bits: 32,
+            register: Gpr32::Eax,
+            modrm: 0xc0,
+            input: 0x4433_8003,
+            outputs: [0x4433_8003, 0x4433_800b, 0x4433_8003, 0x4433_800b],
+            carry: Clear,
+        },
+        Alias {
+            bits: 32,
+            register: Gpr32::Ecx,
+            modrm: 0xc9,
+            input: 0x8877_ffff,
+            outputs: [0x8877_ffff, 0x8877_ffff, 0x0877_ffff, 0x0877_ffff],
+            carry: Set,
+        },
+        Alias {
+            bits: 32,
+            register: Gpr32::Esp,
+            modrm: 0xe4,
+            input: 0x8765_0010,
+            outputs: [0x8765_0010, 0x8765_0010, 0x8764_0010, 0x8764_0010],
+            carry: Set,
+        },
     ] {
-        let code = [0x0f, 0xba, 0xc0 | (operation.extension() << 3), index];
-        let mut image = image(&code);
-        image.cpu.registers.eax = value;
-        let mut cpu = image.cpu;
-        cpu.registers.eax = result;
-        cpu.flags.kind = 0;
-        cpu.flags.status = wasm86_x86::StatusFlags {
-            cf: carry,
-            ..prior_flags()
-        };
-        cpu.eip += 4;
-        cpu.instruction_count = 0;
-        both(
-            TestModule::interpreter(),
-            &format!("literal {operation:?} {value:x}, index {index}"),
-            &code,
-            1,
-            &image,
-            &[Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            }],
-        );
-    }
-}
-
-#[test]
-fn an_index_aliases_its_destination_before_any_partial_or_full_register_write() {
-    for operation in OPERATIONS {
-        for bits in [16, 32] {
-            for (register, modrm, value) in [
-                (Gpr32::Eax, 0xc0, 0x4433_8003),
-                (Gpr32::Ecx, 0xc9, 0x8877_ffff),
-                (Gpr32::Esp, 0xe4, 0x8765_0010),
-            ] {
-                let mut code = if bits == 16 { vec![0x66] } else { vec![] };
-                code.extend_from_slice(&[0x0f, operation.register_opcode(), modrm]);
-                let mut image = image(&code);
-                image.cpu.registers[register] = value;
-                let result = expected(operation, bits, value, value);
-                let mask = u32::MAX >> (32 - bits);
-                let mut cpu = image.cpu;
-                cpu.registers[register] = (value & !mask) | result.value;
-                result.apply_flags(&mut cpu, prior_flags());
-                cpu.eip += code.len() as u32;
-                cpu.instruction_count = 0;
-                both(
-                    TestModule::interpreter(),
-                    &format!("{operation:?} {bits}-bit destination and index share {register:?}"),
+        for (operation, output) in OPERATIONS.into_iter().zip(alias.outputs) {
+            let mut code = if alias.bits == 16 { vec![0x66] } else { vec![] };
+            code.extend_from_slice(&[0x0f, operation.register_opcode(), alias.modrm]);
+            cases.push(
+                InstructionCase::new(
+                    format!(
+                        "{operation:?} {}-bit destination and index share {:?}",
+                        alias.bits, alias.register
+                    ),
                     &code,
-                    1,
-                    &image,
-                    &[Step {
-                        cpu,
-                        ram: &[],
-                        exit: Exit::Dispatch(cpu.eip),
-                    }],
-                );
-            }
+                    INITIAL_FLAGS,
+                    bit_flags(alias.carry),
+                )
+                .initial_registers(&other_register_inputs(&[alias.register]))
+                .stored_flags(STORED_FLAGS)
+                .register(alias.register, alias.input, output),
+            );
         }
     }
+    cases
 }
+
+test_cases!(indexes_capture_the_old_destination, aliased_indexes());

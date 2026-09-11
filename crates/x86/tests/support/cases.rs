@@ -1,0 +1,373 @@
+//! Literal input/output cases for one guest instruction.
+
+mod execution;
+pub(super) mod expectations;
+mod initial;
+pub(super) mod observation;
+
+#[cfg(test)]
+mod tests;
+
+use super::guest::Mapping;
+use wasm86_x86::{Gpr32, StoredFlags};
+
+pub(crate) use super::guest::Permissions;
+
+pub(crate) struct InstructionCase {
+    pub(super) name: String,
+    pub(super) code: Vec<u8>,
+    pub(super) initial: InitialState,
+    pub(super) expected: ExpectedState,
+}
+
+impl InstructionCase {
+    /// Start at 0x1000, retire one instruction, and dispatch past its encoding.
+    /// Unlisted registers and memory must preserve their initial values.
+    pub(crate) fn new(
+        name: impl Into<String>,
+        code: &[u8],
+        initial_flags: Flags<bool>,
+        expected_flags: Flags<FlagExpectation>,
+    ) -> Self {
+        Self::with_flags(
+            name,
+            code,
+            InitialFlags::Logical {
+                values: initial_flags,
+                stored: None,
+            },
+            ExpectedFlags::Logical {
+                values: expected_flags,
+                preserve_record: false,
+            },
+        )
+    }
+
+    /// Require every byte of an opaque incoming flag record to remain unchanged.
+    /// Instructions that inspect flags should state logical values with `new`.
+    pub(crate) fn preserving_flags(name: impl Into<String>, code: &[u8]) -> Self {
+        Self::with_flags(
+            name,
+            code,
+            InitialFlags::Opaque { stored: None },
+            ExpectedFlags::Preserved,
+        )
+    }
+
+    /// Replace an opaque incoming record with the stated logical flags.
+    /// No flag may use `Preserved`, since the initial values are unspecified.
+    pub(crate) fn replacing_flags(
+        name: impl Into<String>,
+        code: &[u8],
+        expected: Flags<FlagExpectation>,
+    ) -> Self {
+        Self::with_flags(
+            name,
+            code,
+            InitialFlags::Opaque { stored: None },
+            ExpectedFlags::Logical {
+                values: expected,
+                preserve_record: false,
+            },
+        )
+    }
+
+    fn with_flags(
+        name: impl Into<String>,
+        code: &[u8],
+        initial: InitialFlags,
+        expected: ExpectedFlags,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            code: code.to_vec(),
+            initial: InitialState::new(initial),
+            expected: ExpectedState::new(expected),
+        }
+    }
+
+    pub(crate) fn register(self, register: Gpr32, input: u32, output: u32) -> Self {
+        self.initial_register(register, input)
+            .expect_register(register, RegisterExpectation::Exact(output))
+    }
+
+    pub(crate) fn initial_register(mut self, register: Gpr32, input: u32) -> Self {
+        self.initial.registers.push((register, input));
+        self
+    }
+
+    pub(crate) fn initial_registers(mut self, registers: &[(Gpr32, u32)]) -> Self {
+        self.initial.registers.extend_from_slice(registers);
+        self
+    }
+
+    pub(crate) fn instruction_count(mut self, count: u32) -> Self {
+        self.initial.instruction_count = count;
+        self
+    }
+
+    /// Set the incoming stored flag record. A case with logical initial flags
+    /// also verifies that the record represents those stated values.
+    pub(crate) fn stored_flags(mut self, flags: StoredFlags) -> Self {
+        self.initial.flags.set_record(flags);
+        self
+    }
+
+    /// Also require byte-for-byte preservation of the incoming flag record.
+    pub(crate) fn preserve_flag_record(mut self) -> Self {
+        if let ExpectedFlags::Logical {
+            preserve_record, ..
+        } = &mut self.expected.flags
+        {
+            *preserve_record = true;
+        }
+        self
+    }
+
+    pub(crate) fn expect_register(
+        mut self,
+        register: Gpr32,
+        expectation: RegisterExpectation,
+    ) -> Self {
+        self.expected.registers.push((register, expectation));
+        self
+    }
+
+    pub(crate) fn memory(mut self, address: u32, bytes: &[u8], permissions: Permissions) -> Self {
+        self.initial.memory.push(MemoryRegion {
+            address,
+            bytes: bytes.to_vec(),
+            permissions,
+        });
+        self
+    }
+
+    pub(crate) fn map_page(mut self, page: u32, frame: u32, permissions: Permissions) -> Self {
+        self.initial.mappings.push(Mapping {
+            page,
+            frame,
+            permissions,
+        });
+        self
+    }
+
+    pub(crate) fn backing(mut self, offset: u32, bytes: &[u8]) -> Self {
+        self.initial.backing.push((offset, bytes.to_vec()));
+        self
+    }
+
+    pub(crate) fn expect_memory(mut self, address: u32, bytes: &[u8]) -> Self {
+        self.expected.memory.push(MemoryExpectation::Exact {
+            address,
+            bytes: bytes.to_vec(),
+        });
+        self
+    }
+
+    pub(crate) fn undefined_memory(mut self, address: u32, length: u32) -> Self {
+        self.expected
+            .memory
+            .push(MemoryExpectation::Undefined { address, length });
+        self
+    }
+
+    pub(crate) fn at(mut self, origin: u32) -> Self {
+        self.initial.eip = origin;
+        self
+    }
+
+    pub(crate) fn dispatch(mut self, target: u32) -> Self {
+        self.expected.exit = ExpectedExit::Dispatch(target);
+        self
+    }
+
+    pub(crate) fn fault(mut self, address: u32, error: u16) -> Self {
+        self.expected.exit = ExpectedExit::PageFault { address, error };
+        self
+    }
+
+    pub(super) fn expected_eip(&self) -> u32 {
+        match self.expected.exit {
+            ExpectedExit::Fallthrough => self.initial.eip.wrapping_add(self.code.len() as u32),
+            ExpectedExit::Dispatch(target) => target,
+            ExpectedExit::PageFault { .. } => self.initial.eip,
+        }
+    }
+
+    pub(super) fn expected_retired(&self) -> u32 {
+        match self.expected.exit {
+            ExpectedExit::Fallthrough | ExpectedExit::Dispatch(_) => 1,
+            ExpectedExit::PageFault { .. } => 0,
+        }
+    }
+}
+
+pub(super) struct InitialState {
+    pub(super) flags: InitialFlags,
+    pub(super) eip: u32,
+    pub(super) instruction_count: u32,
+    pub(super) registers: Vec<(Gpr32, u32)>,
+    pub(super) memory: Vec<MemoryRegion>,
+    pub(super) mappings: Vec<Mapping>,
+    pub(super) backing: Vec<(u32, Vec<u8>)>,
+}
+
+#[derive(Clone)]
+pub(super) struct ExpectedState {
+    pub(super) flags: ExpectedFlags,
+    pub(super) registers: Vec<(Gpr32, RegisterExpectation)>,
+    pub(super) memory: Vec<MemoryExpectation>,
+    pub(super) exit: ExpectedExit,
+}
+
+impl ExpectedState {
+    pub(super) fn new(flags: ExpectedFlags) -> Self {
+        Self {
+            registers: Vec::new(),
+            memory: Vec::new(),
+            exit: ExpectedExit::Fallthrough,
+            flags,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum InitialFlags {
+    Logical {
+        values: Flags<bool>,
+        stored: Option<StoredFlags>,
+    },
+    Opaque {
+        stored: Option<StoredFlags>,
+    },
+}
+
+impl InitialFlags {
+    pub(super) fn set_record(&mut self, record: StoredFlags) {
+        let (Self::Logical { stored, .. } | Self::Opaque { stored }) = self;
+        *stored = Some(record);
+    }
+    pub(super) fn logical(self) -> Option<Flags<bool>> {
+        match self {
+            Self::Logical { values, .. } => Some(values),
+            Self::Opaque { .. } => None,
+        }
+    }
+    pub(super) fn record(self) -> Option<StoredFlags> {
+        match self {
+            Self::Logical { stored, .. } | Self::Opaque { stored } => stored,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum ExpectedFlags {
+    Logical {
+        values: Flags<FlagExpectation>,
+        preserve_record: bool,
+    },
+    Preserved,
+}
+
+impl ExpectedFlags {
+    pub(super) fn preserves_record(self) -> bool {
+        matches!(
+            self,
+            Self::Preserved
+                | Self::Logical {
+                    preserve_record: true,
+                    ..
+                }
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Flags<T> {
+    pub(crate) cf: T,
+    pub(crate) pf: T,
+    pub(crate) af: T,
+    pub(crate) zf: T,
+    pub(crate) sf: T,
+    pub(crate) of: T,
+}
+
+impl<T: Copy> Flags<T> {
+    pub(crate) const fn all(value: T) -> Self {
+        Self {
+            cf: value,
+            pf: value,
+            af: value,
+            zf: value,
+            sf: value,
+            of: value,
+        }
+    }
+
+    pub(super) fn values(self) -> [T; 6] {
+        [self.cf, self.pf, self.af, self.zf, self.sf, self.of]
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum FlagExpectation {
+    Set,
+    Clear,
+    Preserved,
+    Undefined,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum RegisterExpectation {
+    Exact(u32),
+    DefinedBits { value: u32, mask: u32 },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) enum ExpectedExit {
+    Fallthrough,
+    Dispatch(u32),
+    PageFault { address: u32, error: u16 },
+}
+
+pub(super) struct MemoryRegion {
+    pub(super) address: u32,
+    pub(super) bytes: Vec<u8>,
+    pub(super) permissions: Permissions,
+}
+
+#[derive(Clone)]
+pub(super) enum MemoryExpectation {
+    Exact { address: u32, bytes: Vec<u8> },
+    Undefined { address: u32, length: u32 },
+}
+
+pub(crate) fn check_cases(cases: &[InstructionCase]) {
+    execution::check(cases, execution::Engine::Wasmtime);
+}
+
+pub(crate) fn check_cases_v8(cases: &[InstructionCase]) {
+    execution::check(cases, execution::Engine::V8);
+}
+
+/// Register one case group in the normal test run and the explicit V8 lane.
+macro_rules! test_cases {
+    ($group:ident, $cases:expr $(,)?) => {
+        mod $group {
+            use super::*;
+
+            #[test]
+            fn wasmtime() {
+                $crate::support::cases::check_cases(&($cases));
+            }
+
+            #[test]
+            #[ignore = "requires Node.js; run the explicit V8 lane"]
+            fn v8() {
+                $crate::support::cases::check_cases_v8(&($cases));
+            }
+        }
+    };
+}
+
+pub(crate) use test_cases;

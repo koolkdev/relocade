@@ -1,4 +1,4 @@
-use wasm86_x86::{CpuState, StatusFlags};
+use wasm86_x86::{CpuState, StatusFlags, StoredFlags};
 
 use crate::support::machine::{byte_register_image, Exit, Image, Step};
 
@@ -42,29 +42,34 @@ const PRIOR_FLAGS: StatusFlags = StatusFlags {
     of: 1,
 };
 
-fn image(code: &[u8]) -> Image {
-    let mut image = byte_register_image(code);
-    image.cpu.flags.kind = 9;
-    image.cpu.flags.left = 0x7fff_fffe;
-    image.cpu.flags.right = 0xffff_fffe;
-    image.cpu.flags.status = StatusFlags {
+const STORED_FLAGS: StoredFlags = StoredFlags {
+    kind: 9,
+    reserved: [0xa5; 3],
+    left: 0x7fff_fffe,
+    right: 0xffff_fffe,
+    status: StatusFlags {
         cf: 0xfe,
         pf: 0x7f,
         af: 0x5a,
         zf: 0x80,
         sf: 0xff,
         of: 1,
-    };
-    image.cpu.flags.non_status = [0, 1, 0, 0, 0, 0xa5];
+    },
+    non_status: [0, 1, 0, 0, 0, 0xa5],
+};
+
+fn image(code: &[u8]) -> Image {
+    let mut image = byte_register_image(code);
+    image.cpu.flags = STORED_FLAGS;
     image
 }
 
-struct Expected {
+struct ModelResult {
     value: u32,
     status: Option<StatusFlags>,
 }
 
-impl Expected {
+impl ModelResult {
     fn apply_flags(&self, cpu: &mut CpuState) {
         if let Some(status) = self.status {
             cpu.flags.kind = 0;
@@ -75,13 +80,13 @@ impl Expected {
 
 // Rotate one bit at a time with widened arithmetic. The masked x86 count
 // controls flag changes even when complete turns restore the original value.
-fn expected(
+fn bit_at_a_time_model(
     operation: Operation,
     bits: u32,
     value: u32,
     count: u8,
     prior: StatusFlags,
-) -> Expected {
+) -> ModelResult {
     let modulus = 2_u64.pow(bits);
     let sign = modulus / 2;
     let mut result = u64::from(value) % modulus;
@@ -104,7 +109,7 @@ fn expected(
             Operation::Rol => (result >= sign) != carry,
             Operation::Ror => (result >= sign) != (result % sign >= sign / 2),
         };
-    Expected {
+    ModelResult {
         value: result as u32,
         status: (count != 0).then_some(StatusFlags {
             cf: u8::from(carry),

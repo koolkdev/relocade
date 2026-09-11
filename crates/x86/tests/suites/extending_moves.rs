@@ -1,159 +1,81 @@
-use wasm86_x86::Gpr32;
+#[path = "extending_moves/sequences.rs"]
+mod sequences;
 
-use crate::support::machine::{both, byte_register_image, Exit, Step};
-use crate::support::step::TestModule;
+use crate::support::cases::{test_cases, InstructionCase as Case};
+
+use wasm86_x86::Gpr32;
 
 #[path = "extending_moves/decoding.rs"]
 mod decoding;
 #[path = "extending_moves/memory.rs"]
 mod memory;
 
-#[test]
-fn every_legacy_byte_source_uses_its_low_or_high_byte() {
-    let step = TestModule::interpreter();
-    // Destination codes 4–7 name full registers while the same source codes
-    // name AH–BH. Alternating widths also checks preservation of upper halves.
-    for (code, name, destination, zero, signed) in [
-        (0, "AL", Gpr32::Eax, 0x11, 0x0000_0011),
-        (1, "CL", Gpr32::Ecx, 0x55, 0x0000_0055),
-        (2, "DL", Gpr32::Edx, 0x99, 0xffff_ff99),
-        (3, "BL", Gpr32::Ebx, 0xdd, 0xffff_ffdd),
-        (4, "AH", Gpr32::Esp, 0x22, 0x0000_0022),
-        (5, "CH", Gpr32::Ebp, 0x66, 0x0000_0066),
-        (6, "DH", Gpr32::Esi, 0xaa, 0xffff_ffaa),
-        (7, "BH", Gpr32::Edi, 0xee, 0xffff_ffee),
-    ] {
-        for (opcode, value, word) in [(0xb6, zero, code % 2 == 0), (0xbe, signed, code % 2 != 0)] {
-            let mut bytes = if word { vec![0x66] } else { vec![] };
-            bytes.extend_from_slice(&[0x0f, opcode, 0xc0 | (code << 3) | code]);
-            let image = byte_register_image(&bytes);
-            let mut expected = image.cpu;
-            expected.registers[destination] = if word {
-                (expected.registers[destination] & 0xffff_0000) | (value & 0xffff)
-            } else {
-                value
-            };
-            expected.eip += bytes.len() as u32;
-            expected.instruction_count = 0;
-            both(
-                step,
-                &format!("{name}, opcode {opcode:02x}, word destination {word}"),
-                &bytes,
-                1,
-                &image,
-                &[Step {
-                    cpu: expected,
-                    ram: &[],
-                    exit: Exit::Dispatch(expected.eip),
-                }],
-            );
+#[rustfmt::skip]
+fn legacy_source_cases() -> Vec<Case> {
+    struct Source { code: u8, name: &'static str, source: Gpr32, input: u32, destination: Gpr32, destination_input: u32, zero: u32, signed: u32 }
+    let sources = [
+        Source { code: 0, name: "AL", source: Gpr32::Eax, input: 0x4433_2211, destination: Gpr32::Eax, destination_input: 0x4433_2211, zero: 0x4433_0011, signed: 0x0000_0011 },
+        Source { code: 1, name: "CL", source: Gpr32::Ecx, input: 0x8877_6655, destination: Gpr32::Ecx, destination_input: 0x8877_6655, zero: 0x0000_0055, signed: 0x8877_0055 },
+        Source { code: 2, name: "DL", source: Gpr32::Edx, input: 0xccbb_aa99, destination: Gpr32::Edx, destination_input: 0xccbb_aa99, zero: 0xccbb_0099, signed: 0xffff_ff99 },
+        Source { code: 3, name: "BL", source: Gpr32::Ebx, input: 0x10ff_eedd, destination: Gpr32::Ebx, destination_input: 0x10ff_eedd, zero: 0x0000_00dd, signed: 0x10ff_ffdd },
+        Source { code: 4, name: "AH", source: Gpr32::Eax, input: 0x4433_2211, destination: Gpr32::Esp, destination_input: 0x5555_5555, zero: 0x5555_0022, signed: 0x0000_0022 },
+        Source { code: 5, name: "CH", source: Gpr32::Ecx, input: 0x8877_6655, destination: Gpr32::Ebp, destination_input: 0x6666_6666, zero: 0x0000_0066, signed: 0x6666_0066 },
+        Source { code: 6, name: "DH", source: Gpr32::Edx, input: 0xccbb_aa99, destination: Gpr32::Esi, destination_input: 0x7777_7777, zero: 0x7777_00aa, signed: 0xffff_ffaa },
+        Source { code: 7, name: "BH", source: Gpr32::Ebx, input: 0x10ff_eedd, destination: Gpr32::Edi, destination_input: 0x8888_8888, zero: 0x0000_00ee, signed: 0x8888_ffee },
+    ];
+    let mut cases = Vec::new();
+    for source in sources {
+        for (opcode, output, word) in [(0xb6, source.zero, source.code % 2 == 0), (0xbe, source.signed, source.code % 2 != 0)] {
+            let mut code = if word { vec![0x66] } else { vec![] };
+            code.extend_from_slice(&[0x0f, opcode, 0xc0 | (source.code << 3) | source.code]);
+            let mut case = Case::preserving_flags(format!("{} via {opcode:02x}, word destination {word}", source.name), &code)
+                .register(source.destination, source.destination_input, output);
+            if source.source != source.destination {
+                case = case.initial_register(source.source, source.input);
+            }
+            cases.push(case);
         }
     }
+    cases
 }
+test_cases!(
+    every_legacy_byte_source_uses_its_low_or_high_byte,
+    legacy_source_cases()
+);
 
-#[test]
-fn sign_boundaries_preserve_flags_and_retire_once() {
-    let step = TestModule::interpreter();
-    for (code, source, eax) in [
-        (&[0x0f, 0xbe, 0xc3][..], 0x00, 0x0000_0000),
-        (&[0x66, 0x0f, 0xbe, 0xc3][..], 0x7f, 0x4433_007f),
-        (&[0x0f, 0xbe, 0xc3][..], 0x80, 0xffff_ff80),
-        (&[0x66, 0x0f, 0xbe, 0xc3][..], 0xff, 0x4433_ffff),
-        (&[0x0f, 0xbf, 0xc3][..], 0x0000, 0x0000_0000),
-        (&[0x0f, 0xbf, 0xc3][..], 0x7fff, 0x0000_7fff),
-        (&[0x0f, 0xbf, 0xc3][..], 0x8000, 0xffff_8000),
-        (&[0x0f, 0xbf, 0xc3][..], 0xffff, 0xffff_ffff),
-    ] {
-        let mut image = byte_register_image(code);
-        image.cpu.registers.ebx = 0xa5a5_0000 | source;
-        image.cpu.instruction_count = 41;
-        let mut expected = image.cpu;
-        expected.registers.eax = eax;
-        expected.eip += code.len() as u32;
-        expected.instruction_count = 42;
-        both(
-            step,
-            &format!("sign boundary {source:04x} via {code:02x?}"),
-            code,
-            1,
-            &image,
-            &[Step {
-                cpu: expected,
-                ram: &[],
-                exit: Exit::Dispatch(expected.eip),
-            }],
-        );
-    }
+#[rustfmt::skip]
+fn sign_boundary_cases() -> Vec<Case> {
+    [
+        (&[0x0f, 0xbe, 0xc3][..], 0xa5a5_0000, 0x0000_0000),
+        (&[0x66, 0x0f, 0xbe, 0xc3][..], 0xa5a5_007f, 0x4433_007f),
+        (&[0x0f, 0xbe, 0xc3][..], 0xa5a5_0080, 0xffff_ff80),
+        (&[0x66, 0x0f, 0xbe, 0xc3][..], 0xa5a5_00ff, 0x4433_ffff),
+        (&[0x0f, 0xbf, 0xc3][..], 0xa5a5_0000, 0x0000_0000),
+        (&[0x0f, 0xbf, 0xc3][..], 0xa5a5_7fff, 0x0000_7fff),
+        (&[0x0f, 0xbf, 0xc3][..], 0xa5a5_8000, 0xffff_8000),
+        (&[0x0f, 0xbf, 0xc3][..], 0xa5a5_ffff, 0xffff_ffff),
+    ].into_iter().map(|(code, ebx, eax)| {
+        Case::preserving_flags(format!("MOVSX sign boundary {ebx:08x} via {code:02x?}"), code).instruction_count(41)
+            .initial_register(Gpr32::Ebx, ebx).register(Gpr32::Eax, 0x4433_2211, eax)
+    }).collect()
 }
+test_cases!(
+    sign_boundaries_preserve_flags_and_retire_once,
+    sign_boundary_cases()
+);
 
-#[test]
-fn word_sources_zero_extend_or_keep_the_destination_upper_half() {
-    let step = TestModule::interpreter();
-    for (code, eax) in [
+#[rustfmt::skip]
+fn word_source_cases() -> Vec<Case> {
+    [
         (&[0x0f, 0xb7, 0xc2][..], 0x0000_8000),
         (&[0x66, 0x0f, 0xb7, 0xc2][..], 0x4433_8000),
         (&[0x66, 0x0f, 0xbf, 0xc2][..], 0x4433_8000),
-    ] {
-        let mut image = byte_register_image(code);
-        image.cpu.registers.edx = 0x7fff_8000;
-        let mut expected = image.cpu;
-        expected.registers.eax = eax;
-        expected.eip += code.len() as u32;
-        expected.instruction_count = 0;
-        both(
-            step,
-            "word source uses its low half",
-            code,
-            1,
-            &image,
-            &[Step {
-                cpu: expected,
-                ram: &[],
-                exit: Exit::Dispatch(expected.eip),
-            }],
-        );
-    }
+    ].into_iter().map(|(code, eax)| {
+        Case::preserving_flags(format!("word source uses its low half: {code:02x?}"), code)
+            .initial_register(Gpr32::Edx, 0x7fff_8000).register(Gpr32::Eax, 0x4433_2211, eax)
+    }).collect()
 }
-
-#[test]
-fn mixed_aliases_read_the_source_before_replacing_the_destination() {
-    let step = TestModule::interpreter();
-    let code = [
-        0xb4, 0x80, // MOV AH, 0x80
-        0x66, 0x66, 0x0f, 0xbe, 0xc4, // MOVSX AX, AH, repeated override
-        0x0f, 0xb7, 0xd0, // MOVZX EDX, AX
-        0x0f, 0xbf, 0xc0, // MOVSX EAX, AX
-        0x0f, 0xb6, 0xcc, // MOVZX ECX, AH
-        0xb4, 0x7f, // MOV AH, 0x7f
-        0x66, 0x0f, 0xb6, 0xc0, // MOVZX AX, AL
-        0x0f, 0xbf, 0xf0, // MOVSX ESI, AX
-        0x0f, 0xb6, 0xc0, // MOVZX EAX, AL
-    ];
-    let image = byte_register_image(&code);
-    let mut expected = image.cpu;
-    let mut steps = Vec::new();
-    for (index, (next, destination, value)) in [
-        (0x1002, Gpr32::Eax, 0x4433_8011),
-        (0x1007, Gpr32::Eax, 0x4433_ff80),
-        (0x100a, Gpr32::Edx, 0x0000_ff80),
-        (0x100d, Gpr32::Eax, 0xffff_ff80),
-        (0x1010, Gpr32::Ecx, 0x0000_00ff),
-        (0x1012, Gpr32::Eax, 0xffff_7f80),
-        (0x1016, Gpr32::Eax, 0xffff_0080),
-        (0x1019, Gpr32::Esi, 0x0000_0080),
-        (0x101c, Gpr32::Eax, 0x0000_0080),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        expected.registers[destination] = value;
-        expected.eip = next;
-        expected.instruction_count = index as u32;
-        steps.push(Step {
-            cpu: expected,
-            ram: &[],
-            exit: Exit::Dispatch(next),
-        });
-    }
-    both(step, "mixed register aliases", &code, 9, &image, &steps);
-}
+test_cases!(
+    word_sources_zero_extend_or_keep_the_destination_upper_half,
+    word_source_cases()
+);

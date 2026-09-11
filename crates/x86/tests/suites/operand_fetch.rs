@@ -1,7 +1,11 @@
+use crate::support::cases::{
+    test_cases, FlagExpectation::Preserved, Flags, InstructionCase as Case, Permissions::ReadWrite,
+};
 use crate::support::machine;
 use crate::support::step;
 use machine::{check, Exit, Image, Step};
 use step::TestModule;
+use wasm86_x86::{CpuState, Gpr32, StoredFlags};
 
 fn image(start: u32, code: &[u8]) -> Image {
     let mut image = Image::new(&[]);
@@ -17,36 +21,8 @@ fn image(start: u32, code: &[u8]) -> Image {
 }
 
 #[test]
-fn conditional_operand_fields_respect_the_proven_fetch_extent() {
+fn missing_immediates_fault_after_conditional_address_fields() {
     let module = TestModule::interpreter();
-    for (name, start, code, next) in [
-        (
-            "SIB and displacement fill the five-byte window",
-            0x1ffb,
-            &[0xc6, 0x44, 0x24, 0x7f, 0x80][..],
-            0x2000,
-        ),
-        (
-            "absent SIB leaves a complete four-byte instruction",
-            0x1ffc,
-            &[0xc6, 0x43, 0x7f, 0x80][..],
-            0x2000,
-        ),
-    ] {
-        let mut expected_cpu = image(start, code).cpu;
-        expected_cpu.eip = next;
-        expected_cpu.instruction_count = 0;
-        check(
-            module,
-            name,
-            &image(start, code),
-            &[Step {
-                cpu: expected_cpu,
-                ram: &[(0x507f, &[0x80])],
-                exit: Exit::Dispatch(next),
-            }],
-        );
-    }
     for (name, start, code) in [
         (
             "missing byte immediate after SIB and displacement",
@@ -74,25 +50,73 @@ fn conditional_operand_fields_respect_the_proven_fetch_extent() {
             }],
         );
     }
+}
+
+fn complete_operand_cases() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (name, start, code) in [
+        (
+            "SIB and displacement fill the five-byte window",
+            0x1ffb,
+            &[0xc6, 0x44, 0x24, 0x7f, 0x80][..],
+        ),
+        (
+            "absent SIB leaves a complete four-byte instruction",
+            0x1ffc,
+            &[0xc6, 0x43, 0x7f, 0x80][..],
+        ),
+    ] {
+        cases.push(
+            Case::preserving_flags(name, code)
+                .at(start)
+                .initial_registers(&[
+                    (Gpr32::Ebx, 0x8000),
+                    (Gpr32::Esp, 0x8000),
+                    (Gpr32::Edi, 0x8000),
+                ])
+                .map_page(8, 0x5000, ReadWrite)
+                .backing(0x507f, &[0xa5; 4])
+                .expect_memory(0x807f, &[0x80]),
+        );
+    }
     for (name, start) in [
         ("extended opcode retains its direct window", 0x1ffa),
         ("extended opcode uses checked reads at page end", 0x1ffc),
     ] {
-        let mut image = image(start, &[0x0f, 0x94, 0x47, 0x7f]);
-        image.cpu.flags.kind = 11;
-        image.cpu.flags.left = 0;
-        let mut expected_cpu = image.cpu;
-        expected_cpu.eip = start + 4;
-        expected_cpu.instruction_count = 0;
-        check(
-            module,
-            name,
-            &image,
-            &[Step {
-                cpu: expected_cpu,
-                ram: &[(0x507f, &[1])],
-                exit: Exit::Dispatch(start + 4),
-            }],
+        cases.push(
+            Case::new(
+                name,
+                &[0x0f, 0x94, 0x47, 0x7f],
+                Flags {
+                    cf: false,
+                    pf: true,
+                    af: false,
+                    zf: true,
+                    sf: false,
+                    of: false,
+                },
+                Flags::all(Preserved),
+            )
+            .stored_flags(StoredFlags {
+                kind: 11,
+                left: 0,
+                ..CpuState::filled(0xa5).flags
+            })
+            .preserve_flag_record()
+            .at(start)
+            .initial_registers(&[
+                (Gpr32::Ebx, 0x8000),
+                (Gpr32::Esp, 0x8000),
+                (Gpr32::Edi, 0x8000),
+            ])
+            .map_page(8, 0x5000, ReadWrite)
+            .backing(0x507f, &[0xa5; 4])
+            .expect_memory(0x807f, &[1]),
         );
     }
+    cases
 }
+test_cases!(
+    complete_conditional_fields_at_fetch_boundaries,
+    complete_operand_cases()
+);

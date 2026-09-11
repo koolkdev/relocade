@@ -1,3 +1,5 @@
+// This publication test protects the chosen preservation of PF, AF, SF and OF.
+// Intel leaves those four flags undefined; ordinary cases check only CF and ZF.
 use wasm86_x86::StatusFlags;
 
 use crate::support::{
@@ -5,10 +7,10 @@ use crate::support::{
     step::TestModule,
 };
 
-use super::{expected, image, OPERATIONS};
+use super::{image, Operation, OPERATIONS};
 
 #[test]
-fn bit_tests_preserve_five_logical_flags_from_every_incoming_record_kind() {
+fn concrete_carry_publication_preserves_other_flags_from_every_stored_kind() {
     struct Source {
         kind: u8,
         left: u32,
@@ -158,14 +160,17 @@ fn bit_tests_preserve_five_logical_flags_from_every_incoming_record_kind() {
                     image.cpu.flags.right = source.right;
                     image.cpu.registers.eax = 0x4433_8001;
                     image.cpu.registers.edx = 0x8877_0000 | index;
-                    let result = expected(operation, bits, image.cpu.registers.eax, index);
                     let mut cpu = image.cpu;
-                    cpu.registers.eax = if bits == 16 {
-                        0x4433_0000 | result.value
-                    } else {
-                        result.value
+                    cpu.registers.eax = match (operation, index) {
+                        (Operation::Btr | Operation::Btc, 0) => 0x4433_8000,
+                        (Operation::Bts | Operation::Btc, 1) => 0x4433_8003,
+                        _ => 0x4433_8001,
                     };
-                    result.apply_flags(&mut cpu, source.flags);
+                    cpu.flags.kind = 0;
+                    cpu.flags.status = StatusFlags {
+                        cf: if index == 0 { 1 } else { 0 },
+                        ..source.flags
+                    };
                     cpu.eip += code.len() as u32;
                     cpu.instruction_count = 0;
                     both(

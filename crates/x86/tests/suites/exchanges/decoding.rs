@@ -1,11 +1,13 @@
+use crate::support::cases::{test_cases, InstructionCase as Case};
+use wasm86_x86::Gpr32::{Eax, Ecx};
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 use crate::support::{
-    machine::{both, check, Exit, Step},
+    machine::{check, Exit, Step},
     step::TestModule,
 };
 
-use super::image;
+use super::{image, LAZY_FLAGS};
 
 #[test]
 fn snapshots_require_each_form_field_but_no_immediate_or_successor() {
@@ -43,36 +45,21 @@ fn snapshots_require_each_form_field_but_no_immediate_or_successor() {
     }
 }
 
-#[test]
-fn fifteen_byte_exchanges_finish_without_fetching_their_successor() {
-    for (prefixes, suffix, eax, ecx) in [
-        (14, &[0x90][..], 0x4433_2211, 0x8877_6655),
-        (13, &[0x86, 0xc4][..], 0x4433_1122, 0x8877_6655),
-        (13, &[0x87, 0xc1][..], 0x4433_6655, 0x8877_2211),
-    ] {
-        let code = [vec![0x66; prefixes], suffix.to_vec()].concat();
-        let mut image = image(&[]);
-        image.cpu.eip = 0x1ff1;
-        image.data(0x3ff1, &code);
-        let mut cpu = image.cpu;
-        cpu.registers.eax = eax;
-        cpu.registers.ecx = ecx;
-        cpu.eip = 0x2000;
-        cpu.instruction_count = 0;
-        both(
-            TestModule::interpreter(),
-            "fifteen-byte XCHG ends at the final mapped byte",
-            &code,
-            1,
-            &image,
-            &[Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(0x2000),
-            }],
-        );
-    }
+#[rustfmt::skip]
+fn maximum_length_cases() -> Vec<Case> {
+    [(14, &[0x90][..], 0x4433_2211, 0x8877_6655),
+     (13, &[0x86, 0xc4][..], 0x4433_1122, 0x8877_6655),
+     (13, &[0x87, 0xc1][..], 0x4433_6655, 0x8877_2211)]
+        .into_iter().map(|(prefixes, suffix, eax, ecx)| {
+            let code = [vec![0x66; prefixes], suffix.to_vec()].concat();
+            Case::preserving_flags(format!("fifteen-byte XCHG via {suffix:02x?}"), &code).stored_flags(LAZY_FLAGS)
+                .register(Eax, 0x4433_2211, eax).register(Ecx, 0x8877_6655, ecx).at(0x1ff1)
+        }).collect()
 }
+test_cases!(
+    fifteen_byte_exchanges_finish_without_fetching_their_successor,
+    maximum_length_cases()
+);
 
 #[test]
 fn instruction_length_limit_precedes_fetching_a_required_sixteenth_byte() {

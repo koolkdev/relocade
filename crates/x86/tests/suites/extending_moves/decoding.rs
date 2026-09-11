@@ -1,7 +1,9 @@
+use crate::support::cases::{test_cases, InstructionCase as Case};
+use wasm86_x86::Gpr32;
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 use wasmparser::Validator;
 
-use crate::support::machine::{both, byte_register_image, check, Exit, Step};
+use crate::support::machine::{byte_register_image, check, Exit, Step};
 use crate::support::step::TestModule;
 
 #[test]
@@ -36,32 +38,17 @@ fn encoded_fields_are_required_but_bytes_after_the_instruction_are_not() {
     }
 }
 
-#[test]
-fn fifteen_byte_instruction_retires_without_fetching_a_sixteenth_byte() {
-    let step = TestModule::interpreter();
+fn maximum_length_cases() -> Vec<Case> {
     let mut code = vec![0x66; 12];
     code.extend_from_slice(&[0x0f, 0xbe, 0xc4]);
-    let mut image = byte_register_image(&[]);
-    image.cpu.eip = 0x1ff1;
-    image.cpu.registers.eax = 0x4433_8011;
-    image.data(0x3ff1, &code);
-    let mut expected = image.cpu;
-    expected.registers.eax = 0x4433_ff80;
-    expected.eip = 0x2000;
-    expected.instruction_count = 0;
-    both(
-        step,
-        "maximum-length MOVSX",
-        &code,
-        1,
-        &image,
-        &[Step {
-            cpu: expected,
-            ram: &[],
-            exit: Exit::Dispatch(0x2000),
-        }],
-    );
+    vec![Case::preserving_flags("maximum-length MOVSX", &code)
+        .register(Gpr32::Eax, 0x4433_8011, 0x4433_ff80)
+        .at(0x1ff1)]
 }
+test_cases!(
+    fifteen_byte_instruction_retires_without_fetching_a_sixteenth_byte,
+    maximum_length_cases()
+);
 
 #[test]
 fn length_limit_precedes_fetching_an_unavailable_field() {

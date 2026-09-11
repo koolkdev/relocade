@@ -1,4 +1,4 @@
-use wasm86_x86::{CpuState, StatusFlags};
+use wasm86_x86::{CpuState, StatusFlags, StoredFlags};
 
 use crate::support::machine::{byte_register_image, Exit, Image, Step};
 
@@ -43,29 +43,36 @@ fn prior_flags(carry: u8) -> StatusFlags {
     }
 }
 
+fn stored_flags(carry: u8) -> StoredFlags {
+    StoredFlags {
+        kind: 0,
+        reserved: [0xa5; 3],
+        left: 0x1234_5678,
+        right: 0x8765_4321,
+        status: StatusFlags {
+            cf: 0xfe | carry,
+            pf: 0xfe,
+            af: 0xff,
+            zf: 0x7f,
+            sf: 0x80,
+            of: 0x5b,
+        },
+        non_status: [0, 1, 0, 0, 0, 0xa5],
+    }
+}
+
 fn image(code: &[u8], carry: u8) -> Image {
     let mut image = byte_register_image(code);
-    image.cpu.flags.kind = 0;
-    image.cpu.flags.left = 0x1234_5678;
-    image.cpu.flags.right = 0x8765_4321;
-    image.cpu.flags.status = StatusFlags {
-        cf: 0xfe | carry,
-        pf: 0xfe,
-        af: 0xff,
-        zf: 0x7f,
-        sf: 0x80,
-        of: 0x5b,
-    };
-    image.cpu.flags.non_status = [0, 1, 0, 0, 0, 0xa5];
+    image.cpu.flags = stored_flags(carry);
     image
 }
 
-struct Expected {
+struct ModelResult {
     value: u32,
     status: Option<StatusFlags>,
 }
 
-impl Expected {
+impl ModelResult {
     fn apply_flags(&self, cpu: &mut CpuState) {
         if let Some(status) = self.status {
             cpu.flags.kind = 0;
@@ -77,13 +84,13 @@ impl Expected {
 // Move one bit through the operand and carry at a time. Complete carry rings
 // preserve the stored flags. For other counts, only masked one defines OF;
 // this implementation chooses zero for the remaining undefined OF values.
-fn expected(
+fn bit_at_a_time_model(
     operation: Operation,
     bits: u32,
     value: u32,
     count: u8,
     prior: StatusFlags,
-) -> Expected {
+) -> ModelResult {
     let modulus = 2_u64.pow(bits);
     let sign = modulus / 2;
     let mut result = u64::from(value) % modulus;
@@ -107,7 +114,7 @@ fn expected(
             Operation::Rcl => (result >= sign) != carry,
             Operation::Rcr => (result >= sign) != (result % sign >= sign / 2),
         };
-    Expected {
+    ModelResult {
         value: result as u32,
         status: (u32::from(count) % (bits + 1) != 0).then_some(StatusFlags {
             cf: u8::from(carry),

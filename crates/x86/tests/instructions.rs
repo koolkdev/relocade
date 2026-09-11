@@ -1,7 +1,3 @@
-use wasm86_x86::{compile_interpreter_step, CompiledModule};
-
-mod support;
-
 #[path = "suites/arithmetic_flags.rs"]
 mod arithmetic_flags;
 #[path = "suites/binary_decoding.rs"]

@@ -1,11 +1,17 @@
+use wasm86_x86::Gpr32::{Eax, Ecx};
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 use crate::support::{
-    machine::{both, check, Exit, Step},
+    cases::{
+        test_cases,
+        FlagExpectation::{Clear, Preserved, Set},
+        Flags, InstructionCase as Case,
+    },
+    machine::{check, Exit, Step},
     step::TestModule,
 };
 
-use super::{expected, image, Operation, PRIOR_FLAGS};
+use super::{image, STORED_FLAGS};
 
 #[test]
 fn snapshot_lengths_distinguish_implicit_cl_and_immediate_counts() {
@@ -36,68 +42,6 @@ fn snapshot_lengths_distinguish_implicit_cl_and_immediate_counts() {
             complete.bytes
         );
     }
-}
-
-#[test]
-fn implicit_and_cl_forms_end_without_fetching_an_immediate() {
-    for (opcode, bits, count) in [(0xd0, 8, 1), (0xd1, 32, 1), (0xd2, 8, 32), (0xd3, 32, 32)] {
-        let code = [opcode, 0xc0];
-        let mut image = image(&[]);
-        image.cpu.eip = 0x1ffe;
-        image.cpu.registers.ecx = 0x8877_6620;
-        image.data(0x3ffe, &code);
-        let result = expected(
-            Operation::Rol,
-            bits,
-            image.cpu.registers.eax,
-            count,
-            PRIOR_FLAGS,
-        );
-        let mut cpu = image.cpu;
-        cpu.registers.eax = if bits == 8 {
-            0x4433_2200 | result.value
-        } else {
-            result.value
-        };
-        result.apply_flags(&mut cpu);
-        cpu.eip = 0x2000;
-        cpu.instruction_count = 0;
-        both(
-            TestModule::interpreter(),
-            "non-immediate rotate ends at the last mapped byte",
-            &code,
-            1,
-            &image,
-            &[Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            }],
-        );
-    }
-}
-
-#[test]
-fn the_fifteenth_byte_can_supply_a_zero_immediate_count() {
-    let code = [vec![0x66; 12], vec![0xc1, 0xc0, 32]].concat();
-    let mut image = image(&[]);
-    image.cpu.eip = 0x1ff1;
-    image.data(0x3ff1, &code);
-    let mut cpu = image.cpu;
-    cpu.eip = 0x2000;
-    cpu.instruction_count = 0;
-    both(
-        TestModule::interpreter(),
-        "fifteen-byte ROL AX,32 preserves flags and does not fetch a successor",
-        &code,
-        1,
-        &image,
-        &[Step {
-            cpu,
-            ram: &[],
-            exit: Exit::Dispatch(cpu.eip),
-        }],
-    );
 }
 
 #[test]
@@ -158,3 +102,50 @@ fn required_fields_fault_before_operand_effects() {
         );
     }
 }
+
+const INITIAL: Flags<bool> = Flags {
+    cf: true,
+    pf: true,
+    af: false,
+    zf: false,
+    sf: true,
+    of: true,
+};
+
+#[rustfmt::skip]
+fn page_end_cases() -> Vec<Case> {
+    vec![
+        Case::new("ROL AL,1 at the page end", &[0xd0, 0xc0], INITIAL,
+            Flags { cf: Clear, of: Clear, ..Flags::all(Preserved) })
+            .stored_flags(STORED_FLAGS)
+            .register(Eax, 0x4433_2211, 0x4433_2222).initial_register(Ecx, 0x8877_6620)
+            .at(0x1ffe),
+        Case::new("ROL EAX,1 at the page end", &[0xd1, 0xc0], INITIAL,
+            Flags { cf: Clear, of: Set, ..Flags::all(Preserved) })
+            .stored_flags(STORED_FLAGS)
+            .register(Eax, 0x4433_2211, 0x8866_4422).initial_register(Ecx, 0x8877_6620)
+            .at(0x1ffe),
+        Case::preserving_flags("ROL AL,CL at the page end", &[0xd2, 0xc0])
+            .stored_flags(STORED_FLAGS)
+            .register(Eax, 0x4433_2211, 0x4433_2211).initial_register(Ecx, 0x8877_6620)
+            .at(0x1ffe),
+        Case::preserving_flags("ROL EAX,CL at the page end", &[0xd3, 0xc0])
+            .stored_flags(STORED_FLAGS)
+            .register(Eax, 0x4433_2211, 0x4433_2211).initial_register(Ecx, 0x8877_6620)
+            .at(0x1ffe),
+    ]
+}
+
+#[rustfmt::skip]
+fn fifteen_byte_cases() -> Vec<Case> {
+    vec![
+        Case::preserving_flags("ROL AX,32 completes at byte fifteen",
+            &[0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0xc1, 0xc0, 0x20])
+            .stored_flags(STORED_FLAGS)
+            .initial_register(Eax, 0x4433_2211)
+            .at(0x1ff1),
+    ]
+}
+
+test_cases!(page_end_forms, page_end_cases());
+test_cases!(fifteen_byte_forms, fifteen_byte_cases());

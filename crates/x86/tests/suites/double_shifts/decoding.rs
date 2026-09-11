@@ -1,11 +1,17 @@
+use wasm86_x86::Gpr32::{Eax, Ecx, Edx};
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 use crate::support::{
-    machine::{both, check, Exit, Step},
+    cases::{
+        test_cases,
+        FlagExpectation::{Clear, Set},
+        Flags, InstructionCase as Case,
+    },
+    machine::{check, Exit, Step},
     step::TestModule,
 };
 
-use super::{expected, image, OPERATIONS};
+use super::{image, OPERATIONS, STORED_FLAGS};
 
 #[test]
 fn all_double_shift_forms_decode_their_source_address_and_count() {
@@ -35,78 +41,6 @@ fn all_double_shift_forms_decode_their_source_address_and_count() {
                     .unwrap()
                     .bytes,
                 complete.bytes
-            );
-        }
-    }
-}
-
-#[test]
-fn cl_double_shifts_end_without_fetching_an_immediate() {
-    for operation in OPERATIONS {
-        for bits in [16, 32] {
-            let mut code = if bits == 16 { vec![0x66] } else { vec![] };
-            code.extend_from_slice(&[0x0f, operation.opcode(true), 0xd0]);
-            let start = 0x2000 - code.len() as u32;
-            let mut image = image(&[]);
-            image.cpu.eip = start;
-            image.cpu.registers.ecx = 0x8877_6601;
-            image.data(0x3000 + (start & 0xfff), &code);
-            let shifted = expected(
-                operation,
-                bits,
-                image.cpu.registers.eax,
-                image.cpu.registers.edx,
-                1,
-            );
-            let mask = u32::MAX >> (32 - bits);
-            let mut cpu = image.cpu;
-            cpu.registers.eax = (cpu.registers.eax & !mask) | shifted.value;
-            shifted.apply_flags(&mut cpu);
-            cpu.eip = 0x2000;
-            cpu.instruction_count = 0;
-            both(
-                TestModule::interpreter(),
-                "CL double shift ends at the last mapped byte",
-                &code,
-                1,
-                &image,
-                &[Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                }],
-            );
-        }
-    }
-}
-
-#[test]
-fn the_fifteenth_byte_can_complete_either_double_shift_count_form() {
-    for operation in OPERATIONS {
-        for from_cl in [false, true] {
-            let mut code = vec![0x66; if from_cl { 12 } else { 11 }];
-            code.extend_from_slice(&[0x0f, operation.opcode(from_cl), 0xd0]);
-            if !from_cl {
-                code.push(32);
-            }
-            let mut image = image(&[]);
-            image.cpu.eip = 0x1ff1;
-            image.cpu.registers.ecx = 0x8877_6620;
-            image.data(0x3ff1, &code);
-            let mut cpu = image.cpu;
-            cpu.eip = 0x2000;
-            cpu.instruction_count = 0;
-            both(
-                TestModule::interpreter(),
-                "fifteen-byte double shift retains raw flags at masked zero",
-                &code,
-                1,
-                &image,
-                &[Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                }],
             );
         }
     }
@@ -175,3 +109,66 @@ fn length_limit_precedes_fetching_another_double_shift_field() {
         }
     }
 }
+
+#[rustfmt::skip]
+fn page_end_cases() -> Vec<Case> {
+    vec![
+        Case::replacing_flags("SHLD AX,DX,CL at the page end", &[0x66, 0x0f, 0xa5, 0xd0],
+            Flags { cf: Clear, pf: Clear, af: Clear, zf: Clear, sf: Clear, of: Clear })
+            .stored_flags(STORED_FLAGS)
+            .register(Eax, 0x4433_2211, 0x4433_4423)
+            .initial_registers(&[(Ecx, 0x8877_6601), (Edx, 0xccbb_aa99)])
+            .at(0x1ffc),
+        Case::replacing_flags("SHLD EAX,EDX,CL at the page end", &[0x0f, 0xa5, 0xd0],
+            Flags { cf: Clear, pf: Clear, af: Clear, zf: Clear, sf: Set, of: Set })
+            .stored_flags(STORED_FLAGS)
+            .register(Eax, 0x4433_2211, 0x8866_4423)
+            .initial_registers(&[(Ecx, 0x8877_6601), (Edx, 0xccbb_aa99)])
+            .at(0x1ffd),
+        Case::replacing_flags("SHRD AX,DX,CL at the page end", &[0x66, 0x0f, 0xad, 0xd0],
+            Flags { cf: Set, pf: Clear, af: Clear, zf: Clear, sf: Set, of: Set })
+            .stored_flags(STORED_FLAGS)
+            .register(Eax, 0x4433_2211, 0x4433_9108)
+            .initial_registers(&[(Ecx, 0x8877_6601), (Edx, 0xccbb_aa99)])
+            .at(0x1ffc),
+        Case::replacing_flags("SHRD EAX,EDX,CL at the page end", &[0x0f, 0xad, 0xd0],
+            Flags { cf: Set, pf: Clear, af: Clear, zf: Clear, sf: Set, of: Set })
+            .stored_flags(STORED_FLAGS)
+            .register(Eax, 0x4433_2211, 0xa219_9108)
+            .initial_registers(&[(Ecx, 0x8877_6601), (Edx, 0xccbb_aa99)])
+            .at(0x1ffd),
+    ]
+}
+
+#[rustfmt::skip]
+fn fifteen_byte_cases() -> Vec<Case> {
+    vec![
+        Case::preserving_flags("SHLD AX,DX,32 completes at byte fifteen",
+            &[0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x0f, 0xa4, 0xd0, 0x20])
+            .stored_flags(STORED_FLAGS)
+            .initial_register(Eax, 0x4433_2211)
+            .initial_registers(&[(Ecx, 0x8877_6620), (Edx, 0xccbb_aa99)])
+            .at(0x1ff1),
+        Case::preserving_flags("SHLD AX,DX,CL completes at byte fifteen",
+            &[0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x0f, 0xa5, 0xd0])
+            .stored_flags(STORED_FLAGS)
+            .initial_register(Eax, 0x4433_2211)
+            .initial_registers(&[(Ecx, 0x8877_6620), (Edx, 0xccbb_aa99)])
+            .at(0x1ff1),
+        Case::preserving_flags("SHRD AX,DX,32 completes at byte fifteen",
+            &[0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x0f, 0xac, 0xd0, 0x20])
+            .stored_flags(STORED_FLAGS)
+            .initial_register(Eax, 0x4433_2211)
+            .initial_registers(&[(Ecx, 0x8877_6620), (Edx, 0xccbb_aa99)])
+            .at(0x1ff1),
+        Case::preserving_flags("SHRD AX,DX,CL completes at byte fifteen",
+            &[0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x0f, 0xad, 0xd0])
+            .stored_flags(STORED_FLAGS)
+            .initial_register(Eax, 0x4433_2211)
+            .initial_registers(&[(Ecx, 0x8877_6620), (Edx, 0xccbb_aa99)])
+            .at(0x1ff1),
+    ]
+}
+
+test_cases!(page_end_forms, page_end_cases());
+test_cases!(fifteen_byte_forms, fifteen_byte_cases());

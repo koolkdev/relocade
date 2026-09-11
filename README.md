@@ -820,21 +820,23 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 ```
 
-A focused set of ignored tests runs selected cases in V8/TurboFan, covering
-conditions, calls, count publication, carry arithmetic and memory faults. These
-tests require Node.js 24 on `PATH`:
+The explicit V8/TurboFan lane runs every shared instruction case and sequence,
+plus focused compiler and publication tests. These ignored tests require Node.js
+24 on `PATH`:
 
 ```sh
 cargo test --workspace --locked -- --ignored
 ```
 
-Each component groups its integration suites into one test executable. The
+The compiler groups its integration suites into one test executable. The x86
+instruction suites run in the library test target so they can observe logical
+flags through the private state reader without adding a public testing API. The
 internal `wasm86-test-support` crate supplies shared engine configuration, integer
 carriers, outcomes and V8 process transport; it is a development dependency of
 the product crates. The compiler and x86 hosts own their distinct imports and
 observations. Tests are ordinary named `#[test]` functions: build a module or
 machine image, execute it, and assert returned values or state. There is no engine
-selection to configure when adding a case. Only the focused V8 tests use JSON
+selection to configure when adding a case. Only the V8 tests use JSON
 transport, with decimal strings for 64-bit integers to preserve their bits.
 
 Compiler behavior tests use `Fixture` to keep imported memories and callbacks
@@ -859,36 +861,101 @@ Use the fixture's `program` for multiple functions or explicit declarations, and
 inspect `module.bytes()` when generated Wasm is the subject of the assertion.
 Instantiation starts fresh state; further calls on that instance retain its state.
 
-Ordinary instruction tests use `Machine`: supply code once, set named CPU
-registers, and initialize virtual memory with explicit permissions. `run_step()`
-and `run_block(count)` start from that initial state and expose the resulting CPU,
-decoded exit and memory. CPU comparisons retain every byte, including untouched
-fields; diagnostics also show register names. Tests of physical page mappings,
-fault ordering or publication layout can use the lower-level image and boundary
-observations directly.
-
-Both fixtures use the public `CpuState`, so expected CPU state is an ordinary
-copy with the changed fields assigned directly:
+For one instruction, add named `InstructionCase` values to its suite. Each case
+supplies encoding bytes, its flag contract, and the registers or memory it uses.
+`new` states all six initial flags and all six expected flag rules. Inputs and
+expected results stay together:
 
 ```rust
-let mut machine = Machine::new(&[0x89, 0xda]); // MOV EDX, EBX
-machine.cpu.registers.ebx = 42;
-let mut expected = machine.state();
-expected.cpu.registers.edx = 42;
-expected.cpu.eip = 0x1002;
-expected.cpu.instruction_count = 0; // The fixture starts at u32::MAX.
-let actual = machine.run_step();
-assert_eq!(actual.state, expected);
-assert_eq!(actual.exit, Exit::Dispatch(0x1002));
-assert_eq!(actual.dispatches, [(0x1002, expected)]);
-assert!(actual.machine_unchanged);
+use wasm86_x86::Gpr32::{Eax, Ebx};
+use crate::support::cases::{
+    test_cases, FlagExpectation::{Clear, Set}, Flags, InstructionCase as Case,
+};
+
+fn cases() -> Vec<Case> {
+    vec![
+        Case::new(
+            "ADD AL,BL: signed overflow, upper EAX preserved",
+            &[0x00, 0xd8],
+            Flags { cf: true, pf: true, af: false, zf: true, sf: false, of: false },
+            Flags { cf: Clear, pf: Clear, af: Set, zf: Clear, sf: Set, of: Set },
+        )
+        .register(Eax, 0x4433_227f, 0x4433_2280)
+        .initial_register(Ebx, 1),
+    ]
+}
+
+test_cases!(add_flags, cases());
 ```
 
-For instruction sequences, update one expected CPU value and append each `Step`
-immediately after its changes. Keep its expected exit and memory effects together;
-a faulting instruction retains the current CPU value.
+`register` gives the full parent register's input and output, so narrow writes
+also check untouched upper bits. Unlisted registers and memory must stay unchanged;
+`initial_register` supplies a preserved input. Initialize memory with
+`memory(address, bytes, permissions)` and give changed bytes with `expect_memory`.
+Flags use `Set`, `Clear`, `Preserved` or `Undefined`. Use `DefinedBits` for a
+partially undefined register result or `undefined_memory` for an undefined byte
+span; the surrounding state is still checked. Share named flag values within a
+case group when several cases have the same rules. Expected instruction results
+are literals or independently derived data, never calculated by the runner.
 
-Add a named test in the relevant `tests/suites` module, or beside the component
+The registration creates ordinary Cargo tests for Wasmtime and the explicit V8
+lane. Both run every case through the interpreter and a snapshot block, starting
+from fresh state, and check registers, memory, logical flags, retirement and exit.
+Failure messages identify the case, engine, frontend and mismatched field.
+Logical flags are read from a copy through the existing state reader; observing
+them must leave every CPU byte unchanged. Raw flag-record layout and undefined
+flag policy belong in their separate tests.
+
+For instructions that do not inspect flags, `preserving_flags(name, code)`
+requires the entire incoming record to stay unchanged. `replacing_flags` accepts
+an opaque incoming record and explicit logical outputs; those outputs cannot
+claim `Preserved`. Use `stored_flags(record)` to choose an incoming representation.
+When logical initial flags are supplied, the runner verifies that the record
+represents them. `preserve_flag_record()` additionally requires unchanged record
+bytes for a case that reads logical flags, such as CMOV.
+
+Cases start at `0x1000` and expect one retired instruction with fallthrough
+dispatch. Use `at(origin)`, `instruction_count(count)`, `dispatch(target)` or
+`fault(address, error)` to state different boundaries. Code can cross pages or
+wrap EIP. A fault expects the entry EIP, no retirement and no dispatch.
+For scattered pages and physical canaries, use `map_page(page, frame, permissions)`
+and `backing(offset, bytes)`. Every physical byte outside an expected write must
+remain unchanged, and setup cannot silently replace the instruction encoding.
+
+Use `SequenceCase` with one `Checkpoint` per instruction. Each checkpoint states
+only its changed outputs; the runner checks every interpreter boundary and the
+compiled block's final state. For example:
+
+```rust
+use crate::support::sequences::{test_sequences, Checkpoint, SequenceCase};
+
+fn sequences() -> Vec<SequenceCase> {
+    vec![SequenceCase::preserving_flags("partial writes survive a later store fault")
+        .initial_register(Eax, 0x4433_2211)
+        .initial_register(Ebx, 0x4000)
+        .step(Checkpoint::preserving_flags(&[0x66, 0xb8, 0x34, 0x12])
+            .register(Eax, 0x4433_1234))
+        .step(Checkpoint::preserving_flags(&[0xb4, 0x7f])
+            .register(Eax, 0x4433_7f34))
+        .step(Checkpoint::preserving_flags(&[0x89, 0x03]).fault(0x4000, 2))]
+}
+
+test_sequences!(partial_writes_before_fault, sequences());
+```
+
+`SequenceCase::new` states logical initial flags; `from_opaque_flags` leaves them
+unspecified until a checkpoint replaces them. Use `Checkpoint::new` for explicit
+flag rules. A fault or branch ends the sequence. `trailing_code(bytes, count)`
+can retain a compiled suffix after that boundary to check that it does not run.
+Overlapping writes and undefined spans compose in instruction order.
+
+Keep independent mathematical models, malformed encoding checks, external ABI,
+and exact publication or generated-code assertions in focused tests using the
+lower-level `Image` and observation APIs. Their names should identify that contract.
+
+Add cases and a `test_cases!` or `test_sequences!` registration in the relevant
+`tests/suites` module.
+Use a named test for other scenarios, or place it beside the component
 when it needs private APIs. Cargo filters select that test directly, for example
 `cargo test -p wasm86-compiler test_name`. Keep related boundary values together
 when they check one behavior; give distinct scenarios their own test functions.

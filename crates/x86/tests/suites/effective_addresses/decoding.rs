@@ -1,8 +1,10 @@
+use crate::support::cases::{test_cases, InstructionCase as Case};
+use wasm86_x86::Gpr32::{Eax, Ebx};
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 use crate::support::{
     arithmetic,
-    machine::{both, check, Exit, Step},
+    machine::{check, Exit, Step},
     step::TestModule,
 };
 
@@ -62,28 +64,6 @@ fn snapshots_require_address_fields_but_no_immediate_or_successor() {
 
 #[test]
 fn operand_prefixes_count_toward_the_instruction_length_limit() {
-    let mut code = vec![0x66; 13];
-    code.extend_from_slice(&[0x8d, 0x03]);
-    let mut image = arithmetic::image(&[]);
-    image.cpu.eip = 0x1ff1;
-    image.cpu.registers.ebx = 0x8123_5678;
-    image.data(0x3ff1, &code);
-    let mut cpu = image.cpu;
-    cpu.registers.eax = 0x1111_5678;
-    cpu.eip = 0x2000;
-    cpu.instruction_count = 0;
-    both(
-        TestModule::interpreter(),
-        "fifteen-byte LEA finishes without fetching its unmapped successor",
-        &code,
-        1,
-        &image,
-        &[Step {
-            cpu,
-            ram: &[],
-            exit: Exit::Dispatch(0x2000),
-        }],
-    );
     for (prefixes, suffix) in [
         (14, &[0x8d][..]),
         (13, &[0x8d, 0x04][..]),
@@ -168,3 +148,15 @@ fn completed_lea_is_published_before_a_later_fetch_fault() {
         ],
     );
 }
+
+fn maximum_length_cases() -> Vec<Case> {
+    let code = [vec![0x66; 13], vec![0x8d, 0x03]].concat();
+    vec![Case::preserving_flags(
+        "fifteen-byte LEA finishes before its unmapped successor",
+        &code,
+    )
+    .initial_register(Ebx, 0x8123_5678)
+    .register(Eax, 0x1111_1111, 0x1111_5678)
+    .at(0x1ff1)]
+}
+test_cases!(fifteen_byte_lea, maximum_length_cases());

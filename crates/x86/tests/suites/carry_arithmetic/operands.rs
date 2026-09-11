@@ -1,311 +1,174 @@
-use super::{
-    code_with_width, concrete_cpu, expected, image as flag_image,
-    machine::{both, check, Exit, Step},
-    mask, register_result,
-    step::TestModule,
-    OPERATIONS, WIDTHS,
+use super::{code_with_width, image as flag_image, step::TestModule, OPERATIONS, WIDTHS};
+use crate::support::{
+    cases::{
+        test_cases,
+        FlagExpectation::{Clear, Preserved, Set},
+        Flags, InstructionCase as Case,
+        Permissions::{ReadOnly, ReadWrite},
+    },
+    machine::{check, Exit, Step},
+    sequences::{test_sequences, Checkpoint, SequenceCase},
 };
+use wasm86_x86::Gpr32::{Eax, Ebx, Ecx, Edx};
 
-#[test]
-fn carry_memory_operands_use_incoming_flags() {
-    let step = TestModule::interpreter();
-    for op in OPERATIONS {
-        for bits in WIDTHS {
-            let length = (bits / 8) as usize;
-            for next_frame in [0x9000, 0xa000] {
-                for destination_is_memory in [false, true] {
-                    let opcode = op.opcode()
-                        + u8::from(bits != 8)
-                        + if destination_is_memory { 0 } else { 2 };
-                    let code = code_with_width(bits, opcode, &[0x03]);
-                    let mut image = flag_image(&code);
-                    let (eax, memory) = if destination_is_memory {
-                        (0x4433_0000 & !mask(bits), mask(bits))
-                    } else {
-                        (register_result(0x4433_0000, bits, mask(bits)), 0)
-                    };
-                    image.cpu.registers.eax = eax;
-                    image.cpu.registers.ebx = 0x4fff;
-                    image.map(4, 0x8000, destination_is_memory);
-                    image.map(5, next_frame, destination_is_memory);
-                    let before = memory.to_le_bytes();
-                    image.data(0x8ffe, &[0xa5, before[0]]);
-                    image.data(next_frame, &before[1..length]);
-                    image.data(next_frame + length as u32 - 1, &[0x5a]);
-                    let result = expected(op, bits, mask(bits), 0, true);
-                    let next = 0x1000 + code.len() as u32;
-                    let mut cpu = concrete_cpu(image.cpu, &result);
-                    cpu.eip = next;
-                    cpu.instruction_count = 0;
-                    if !destination_is_memory {
-                        cpu.registers.eax = register_result(eax, bits, result.result);
-                    }
-                    let after = result.result.to_le_bytes();
-                    let writes = [(0x8fff, &after[..1]), (next_frame, &after[1..length])];
-                    both(step, &format!("{op:?}/{bits} memory role {destination_is_memory}, frame {next_frame:#x}"),
-                        &code, 1, &image, &[Step {
-                            cpu,
-                            ram: if destination_is_memory { &writes } else { &[] },
-                            exit: Exit::Dispatch(next),
-                        }]);
-                }
-            }
-            let full = mask(bits).to_le_bytes();
-            let mut immediates = vec![(
-                0x80 + u8::from(bits != 8),
-                full[..length].to_vec(),
-                mask(bits),
-            )];
-            if bits != 8 {
-                immediates.push((0x83, vec![0x80], 0xffff_ff80 & mask(bits)));
-            }
-            for (opcode, immediate, right) in immediates {
-                // A negative displacement follows the group's ModRM before its immediate.
-                let tail = [&[0x43 | (op.extension() << 3), 0x80], immediate.as_slice()].concat();
-                let code = code_with_width(bits, opcode, &tail);
-                let mut image = flag_image(&code);
-                image.cpu.registers.ebx = 0x40a0;
-                image.map(4, 0x8000, true);
-                image.data(0x801f, &[0xa5; 6]);
-                image.data(0x8020, &1u32.to_le_bytes()[..length]);
-                let result = expected(op, bits, 1, right, true);
-                let next = 0x1000 + code.len() as u32;
-                let mut cpu = concrete_cpu(image.cpu, &result);
-                cpu.eip = next;
-                cpu.instruction_count = 0;
-                let after = result.result.to_le_bytes();
-                both(
-                    step,
-                    "carry group uses memory displacement and immediate widths",
-                    &code,
-                    1,
-                    &image,
-                    &[Step {
-                        cpu,
-                        ram: &[(0x8020, &after[..length])],
-                        exit: Exit::Dispatch(next),
-                    }],
-                );
-            }
-        }
-        for (opcode, eax, memory, left, right, changes_eax) in [
-            (op.opcode(), 0x4020, 0xdf, 0xdf, 0x20, false),
-            (op.opcode() + 3, 0x4020, 5, 0x4020, 5, true),
+#[rustfmt::skip]
+fn memory_roles() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for next_frame in [0x9000, 0xa000] {
+        for (name, source_code, destination_code, input, output, maximum, zero, result, flags) in [
+            ("ADC byte", &[0x12, 0x03][..], &[0x10, 0x03][..], 0x4433_00ff, 0x4433_0000,
+                &[0xff][..], &[0][..], &[0][..],
+                Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear }),
+            ("ADC word", &[0x66, 0x13, 0x03][..], &[0x66, 0x11, 0x03][..], 0x4433_ffff, 0x4433_0000,
+                &[0xff, 0xff][..], &[0, 0][..], &[0, 0][..],
+                Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear }),
+            ("ADC dword", &[0x13, 0x03][..], &[0x11, 0x03][..], 0xffff_ffff, 0,
+                &[0xff, 0xff, 0xff, 0xff][..], &[0, 0, 0, 0][..], &[0, 0, 0, 0][..],
+                Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear }),
+            ("SBB byte", &[0x1a, 0x03][..], &[0x18, 0x03][..], 0x4433_00ff, 0x4433_00fe,
+                &[0xff][..], &[0][..], &[0xfe][..],
+                Flags { cf: Clear, pf: Clear, af: Clear, zf: Clear, sf: Set, of: Clear }),
+            ("SBB word", &[0x66, 0x1b, 0x03][..], &[0x66, 0x19, 0x03][..], 0x4433_ffff, 0x4433_fffe,
+                &[0xff, 0xff][..], &[0, 0][..], &[0xfe, 0xff][..],
+                Flags { cf: Clear, pf: Clear, af: Clear, zf: Clear, sf: Set, of: Clear }),
+            ("SBB dword", &[0x1b, 0x03][..], &[0x19, 0x03][..], 0xffff_ffff, 0xffff_fffe,
+                &[0xff, 0xff, 0xff, 0xff][..], &[0, 0, 0, 0][..], &[0xfe, 0xff, 0xff, 0xff][..],
+                Flags { cf: Clear, pf: Clear, af: Clear, zf: Clear, sf: Set, of: Clear }),
         ] {
-            let code = [opcode, 0x00];
-            let mut image = flag_image(&code);
-            image.cpu.registers.eax = eax;
-            image.map(4, 0x8000, !changes_eax);
-            image.data(0x801f, &[0xa5; 6]);
-            let bits = if changes_eax { 32 } else { 8 };
-            image.data(0x8020, &u32::to_le_bytes(memory)[..(bits / 8) as usize]);
-            let result = expected(op, bits, left, right, true);
-            let mut cpu = concrete_cpu(image.cpu, &result);
-            cpu.eip = 0x1002;
-            cpu.instruction_count = 0;
-            if changes_eax {
-                cpu.registers.eax = result.result;
-            }
-            let after = [result.result as u8];
-            let writes = [(0x8020, after.as_slice())];
-            both(
-                step,
-                "carry operand uses the original address register",
-                &code,
-                1,
-                &image,
-                &[Step {
-                    cpu,
-                    ram: if changes_eax { &[] } else { &writes },
-                    exit: Exit::Dispatch(0x1002),
-                }],
-            );
+            let source = Case::new(format!("{name} read source, frame {next_frame:#x}"), source_code, Flags::all(true), flags)
+                .register(Eax, input, output).initial_register(Ebx, 0x4fff)
+                .map_page(4, 0x8000, ReadOnly).map_page(5, next_frame, ReadOnly)
+                .backing(0x8ffe, &[0xa5, zero[0]]).backing(next_frame, &zero[1..])
+                .backing(next_frame + zero.len() as u32 - 1, &[0x5a]);
+            // The literal destination inputs retain the original parent-register canaries.
+            let eax = if maximum.len() == 4 { 0 } else { 0x4433_0000 };
+            let destination = Case::new(format!("{name} RMW destination, frame {next_frame:#x}"), destination_code, Flags::all(true), flags)
+                .initial_register(Eax, eax).initial_register(Ebx, 0x4fff)
+                .map_page(4, 0x8000, ReadWrite).map_page(5, next_frame, ReadWrite)
+                .backing(0x8ffe, &[0xa5, maximum[0]]).backing(next_frame, &maximum[1..])
+                .backing(next_frame + maximum.len() as u32 - 1, &[0x5a])
+                .expect_memory(0x4fff, result);
+            cases.extend([source, destination]);
         }
     }
+    cases
 }
 
-#[test]
-fn operand_faults_preserve_flags_and_prior_progress() {
-    let step = TestModule::interpreter();
+#[rustfmt::skip]
+fn immediate_and_address_operands() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (name, code, before, after, flags) in [
+        ("ADC byte full immediate", &[0x80, 0x53, 0x80, 0xff][..], &[1][..], &[1][..],
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear }),
+        ("ADC word full immediate", &[0x66, 0x81, 0x53, 0x80, 0xff, 0xff][..], &[1, 0][..], &[1, 0][..],
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear }),
+        ("ADC word signed byte immediate", &[0x66, 0x83, 0x53, 0x80, 0x80][..], &[1, 0][..], &[0x82, 0xff][..],
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Clear, sf: Set, of: Clear }),
+        ("ADC dword full immediate", &[0x81, 0x53, 0x80, 0xff, 0xff, 0xff, 0xff][..], &[1, 0, 0, 0][..], &[1, 0, 0, 0][..],
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear }),
+        ("ADC dword signed byte immediate", &[0x83, 0x53, 0x80, 0x80][..], &[1, 0, 0, 0][..], &[0x82, 0xff, 0xff, 0xff][..],
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Clear, sf: Set, of: Clear }),
+        ("SBB byte full immediate", &[0x80, 0x5b, 0x80, 0xff][..], &[1][..], &[1][..],
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear }),
+        ("SBB word full immediate", &[0x66, 0x81, 0x5b, 0x80, 0xff, 0xff][..], &[1, 0][..], &[1, 0][..],
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear }),
+        ("SBB word signed byte immediate", &[0x66, 0x83, 0x5b, 0x80, 0x80][..], &[1, 0][..], &[0x80, 0][..],
+            Flags { cf: Set, pf: Clear, af: Clear, zf: Clear, sf: Clear, of: Clear }),
+        ("SBB dword full immediate", &[0x81, 0x5b, 0x80, 0xff, 0xff, 0xff, 0xff][..], &[1, 0, 0, 0][..], &[1, 0, 0, 0][..],
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear }),
+        ("SBB dword signed byte immediate", &[0x83, 0x5b, 0x80, 0x80][..], &[1, 0, 0, 0][..], &[0x80, 0, 0, 0][..],
+            Flags { cf: Set, pf: Clear, af: Clear, zf: Clear, sf: Clear, of: Clear }),
+    ] {
+        cases.push(Case::new(name, code, Flags::all(true), flags).initial_register(Ebx, 0x40a0)
+            .map_page(4, 0x8000, ReadWrite).backing(0x801f, &[0xa5; 6]).backing(0x8020, before)
+            .expect_memory(0x4020, after));
+    }
+    cases.extend([
+        Case::new("ADC [EAX],AL reads the original address register", &[0x10, 0x00], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
+            .initial_register(Eax, 0x4020).memory(0x401f, &[0xa5, 0xdf, 0xa5, 0xa5, 0xa5, 0xa5], ReadWrite)
+            .expect_memory(0x4020, &[0]),
+        Case::new("ADC EAX,[EAX] reads the original address register", &[0x13, 0x00], Flags::all(true),
+            Flags { cf: Clear, pf: Clear, af: Clear, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x4020, 0x4026).memory(0x401f, &[0xa5, 5, 0, 0, 0, 0xa5], ReadOnly),
+        Case::new("SBB [EAX],AL reads the original address register", &[0x18, 0x00], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Clear, sf: Set, of: Clear })
+            .initial_register(Eax, 0x4020).memory(0x401f, &[0xa5, 0xdf, 0xa5, 0xa5, 0xa5, 0xa5], ReadWrite)
+            .expect_memory(0x4020, &[0xbe]),
+        Case::new("SBB EAX,[EAX] reads the original address register", &[0x1b, 0x00], Flags::all(true),
+            Flags { cf: Clear, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x4020, 0x401a).memory(0x401f, &[0xa5, 5, 0, 0, 0, 0xa5], ReadOnly),
+    ]);
+    cases
+}
+
+test_cases!(memory_directions_and_layouts, memory_roles());
+test_cases!(
+    group_immediates_and_address_aliases,
+    immediate_and_address_operands()
+);
+
+#[rustfmt::skip]
+fn access_faults() -> Vec<Case> {
+    let mut cases = Vec::new();
     for op in OPERATIONS {
         for bits in WIDTHS {
-            for (memory_destination, first_writable, tail_writable, fault) in [
-                (
-                    true,
-                    None,
-                    None,
-                    Exit::PageFault {
-                        address: 0x00004fff,
-                        error: 0x2,
-                    },
-                ),
-                (
-                    false,
-                    None,
-                    None,
-                    Exit::PageFault {
-                        address: 0x00004fff,
-                        error: 0x0,
-                    },
-                ),
-                (
-                    true,
-                    Some(false),
-                    None,
-                    Exit::PageFault {
-                        address: 0x00004fff,
-                        error: 0x3,
-                    },
-                ),
-                (
-                    true,
-                    Some(true),
-                    None,
-                    Exit::PageFault {
-                        address: 0x00005000,
-                        error: 0x2,
-                    },
-                ),
-                (
-                    true,
-                    Some(true),
-                    Some(false),
-                    Exit::PageFault {
-                        address: 0x00005000,
-                        error: 0x3,
-                    },
-                ),
-                (
-                    false,
-                    Some(false),
-                    None,
-                    Exit::PageFault {
-                        address: 0x00005000,
-                        error: 0x0,
-                    },
-                ),
+            for (destination, first, second, address, error) in [
+                (true, None, None, 0x4fff, 2),
+                (false, None, None, 0x4fff, 0),
+                (true, Some(ReadOnly), None, 0x4fff, 3),
+                (true, Some(ReadWrite), None, 0x5000, 2),
+                (true, Some(ReadWrite), Some(ReadOnly), 0x5000, 3),
+                (false, Some(ReadOnly), None, 0x5000, 0),
             ] {
-                if bits == 8
-                    && matches!(
-                        fault,
-                        Exit::PageFault {
-                            address: 0x5000,
-                            ..
-                        }
-                    )
-                {
-                    continue;
-                }
-                let code = code_with_width(
-                    bits,
-                    op.opcode() + u8::from(bits != 8) + if memory_destination { 0 } else { 2 },
-                    &[0x03],
-                );
-                let mut image = flag_image(&code);
-                image.cpu.registers.ebx = 0x4fff;
-                if let Some(writable) = first_writable {
-                    image.map(4, 0x8000, writable);
-                }
-                if let Some(writable) = tail_writable {
-                    image.map(5, 0xa000, writable);
-                }
-                image.data(0x8ffe, &[0xa5, 0xff]);
-                image.data(0xa000, &[0xff, 0xff, 0xff, 0x5a]);
-                both(
-                    step,
-                    &format!("{op:?}/{bits} leaves flags and memory unchanged on an operand fault"),
-                    &code,
-                    1,
-                    &image,
-                    &[Step {
-                        cpu: image.cpu,
-                        ram: &[],
-                        exit: fault,
-                    }],
-                );
+                if bits == 8 && address == 0x5000 { continue; }
+                let code = code_with_width(bits, op.opcode() + u8::from(bits != 8) + if destination { 0 } else { 2 }, &[0x03]);
+                let mut case = Case::new(format!("{op:?}/{bits}, destination {destination}, fault {address:#x}/{error}"),
+                    &code, Flags::all(true), Flags::all(Preserved)).preserve_flag_record()
+                    .initial_register(Ebx, 0x4fff)
+                    .backing(0x8ffe, &[0xa5, 0xff]).backing(0xa000, &[0xff, 0xff, 0xff, 0x5a])
+                    .fault(address, error);
+                if let Some(permissions) = first { case = case.map_page(4, 0x8000, permissions); }
+                if let Some(permissions) = second { case = case.map_page(5, 0xa000, permissions); }
+                cases.push(case);
             }
         }
-        let code = [0x01, 0xd1, op.opcode() + 1, 0x03];
-        let mut image = flag_image(&code);
-        image.cpu.registers.eax = 0;
-        image.cpu.registers.ecx = 0xffff_ffff;
-        image.cpu.registers.edx = 1;
-        image.cpu.registers.ebx = 0x4fff;
-        image.map(4, 0x8000, true);
-        image.data(0x8ffe, &[0xa5, 0xff]);
-        let mut expected_cpu = image.cpu;
-        let mut steps = Vec::new();
+    }
+    cases
+}
 
-        expected_cpu.flags.kind = 10;
-        expected_cpu.flags.left = 0xffff_ffff;
-        expected_cpu.flags.right = 1;
-        expected_cpu.registers.ecx = 0;
-        expected_cpu.eip = 0x1002;
-        expected_cpu.instruction_count = 0;
-        steps.push(Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(0x1002),
-        });
+#[rustfmt::skip]
+fn prior_progress() -> Vec<SequenceCase> {
+    let mut cases = Vec::new();
+    for (name, opcode, carry_result, carry_flags) in [
+        ("ADC", 0x11, 1, Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear }),
+        ("SBB", 0x19, 0xffff_fffd, Flags { cf: Clear, pf: Clear, af: Clear, zf: Clear, sf: Set, of: Clear }),
+    ] {
+        cases.push(SequenceCase::new(format!("failed {name} RMW preserves prior ADD"), Flags::all(true))
+            .initial_register(Eax, 0).initial_register(Ecx, 0xffff_ffff).initial_register(Edx, 1).initial_register(Ebx, 0x4fff)
+            .map_page(4, 0x8000, ReadWrite).backing(0x8ffe, &[0xa5, 0xff])
+            .step(Checkpoint::new(&[0x01, 0xd1],
+                Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear }).register(Ecx, 0))
+            .step(Checkpoint::preserving_flags(&[opcode, 0x03]).fault(0x5000, 2)));
+        cases.push(SequenceCase::new(format!("failed {name} RMW preserves prior {name}"), Flags::all(true))
+            .initial_register(Ecx, 0xffff_ffff).initial_register(Edx, 1).initial_register(Ebx, 0x4fff)
+            .map_page(4, 0x8000, ReadWrite).backing(0x8ffe, &[0xa5, 0xff])
+            .step(Checkpoint::new(&[opcode, 0xd1], carry_flags).register(Ecx, carry_result))
+            .step(Checkpoint::preserving_flags(&[opcode, 0x03]).fault(0x5000, 2)));
+    }
+    cases
+}
 
-        steps.push(Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::PageFault {
-                address: 0x00005000,
-                error: 0x2,
-            },
-        });
+test_cases!(operand_access_faults_preserve_entry_state, access_faults());
+test_sequences!(
+    operand_faults_preserve_completed_arithmetic,
+    prior_progress()
+);
 
-        both(
-            step,
-            "failed carry RMW publishes prior completed arithmetic",
-            &code,
-            2,
-            &image,
-            &steps,
-        );
-
-        let code = [op.opcode() + 1, 0xd1, op.opcode() + 1, 0x03];
-        let mut image = flag_image(&code);
-        image.cpu.registers.ecx = 0xffff_ffff;
-        image.cpu.registers.edx = 1;
-        image.cpu.registers.ebx = 0x4fff;
-        image.map(4, 0x8000, true);
-        image.data(0x8ffe, &[0xa5, 0xff]);
-        let result = expected(op, 32, 0xffff_ffff, 1, true);
-        let mut expected_cpu = image.cpu;
-        let mut steps = Vec::new();
-
-        expected_cpu.flags.kind = 0;
-        expected_cpu.flags.status = result.status;
-        expected_cpu.registers.ecx = result.result;
-        expected_cpu.eip = 0x1002;
-        expected_cpu.instruction_count = 0;
-        steps.push(Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(0x1002),
-        });
-
-        steps.push(Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::PageFault {
-                address: 0x00005000,
-                error: 0x2,
-            },
-        });
-
-        both(
-            step,
-            "operand fault publishes the prior completed carry source",
-            &code,
-            2,
-            &image,
-            &steps,
-        );
-
+#[test]
+fn fetch_and_length_faults_precede_operand_access() {
+    let step = TestModule::interpreter();
+    for op in OPERATIONS {
         let group = op.extension() << 3;
         for code in [
             vec![op.opcode()],

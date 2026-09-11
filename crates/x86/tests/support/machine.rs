@@ -11,6 +11,13 @@ pub(crate) struct Image {
 
 impl Image {
     pub(crate) fn new(code: &[u8]) -> Self {
+        let mut image = Self::empty();
+        image.data(0x3000, code);
+        image.map(1, 0x3000, false);
+        image
+    }
+
+    pub(crate) fn empty() -> Self {
         let mut cpu = CpuState::filled(0xa5);
         cpu.registers = Registers {
             eax: 0x1111_1111,
@@ -26,13 +33,11 @@ impl Image {
         cpu.instruction_count = u32::MAX;
         cpu.reserved[20..28].fill(0);
         cpu.reserved_tail.fill(0);
-        let mut image = Self {
+        Self {
             cpu,
-            guest: vec![(0x3000, code.to_vec())],
+            guest: vec![],
             machine: vec![],
-        };
-        image.map(1, 0x3000, false);
-        image
+        }
     }
     pub(crate) fn map(&mut self, page: u32, frame: u32, writable: bool) {
         let entry = frame | 1 | if writable { 2 } else { 0 };

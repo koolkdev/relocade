@@ -7,10 +7,14 @@ use crate::support::machine;
 use crate::support::step;
 use arithmetic::image;
 use conditions::check_conditions;
-use machine::{both, check, Exit, Image, Step};
+use machine::{check, Exit, Step};
 use step::TestModule;
 #[path = "carry_arithmetic/operands.rs"]
 mod operands;
+#[path = "carry_arithmetic/registers.rs"]
+mod registers;
+#[path = "carry_arithmetic/sources.rs"]
+mod sources;
 
 #[derive(Clone, Copy, Debug)]
 enum Operation {
@@ -122,35 +126,8 @@ fn concrete_cpu(mut cpu: CpuState, expected: &Expected) -> CpuState {
     cpu
 }
 
-fn check_result(
-    step: &TestModule,
-    name: &str,
-    code: &[u8],
-    image: &Image,
-    expected: &Expected,
-    eax: u32,
-) {
-    let next = 0x1000 + code.len() as u32;
-    let mut cpu = concrete_cpu(image.cpu, expected);
-    cpu.registers.eax = eax;
-    cpu.eip = next;
-    cpu.instruction_count = 0;
-    both(
-        step,
-        name,
-        code,
-        1,
-        image,
-        &[Step {
-            cpu,
-            ram: &[],
-            exit: Exit::Dispatch(next),
-        }],
-    );
-}
-
 #[test]
-fn edge_conditions() {
+fn widened_arithmetic_model_checks_edge_results_and_conditions() {
     let step = TestModule::interpreter();
     for op in OPERATIONS {
         for bits in WIDTHS {
@@ -194,149 +171,7 @@ fn edge_conditions() {
 }
 
 #[test]
-fn register_and_immediate_forms() {
-    let step = TestModule::interpreter();
-    for op in OPERATIONS {
-        for bits in WIDTHS {
-            let wide = u8::from(bits != 8);
-            let group = 0xc0 | (op.extension() << 3);
-            let immediate = mask(bits).to_le_bytes();
-            let mut forms = vec![
-                (
-                    code_with_width(bits, op.opcode() + wide, &[0xd8]),
-                    mask(bits),
-                ),
-                (
-                    code_with_width(bits, op.opcode() + 2 + wide, &[0xc3]),
-                    mask(bits),
-                ),
-                (
-                    code_with_width(
-                        bits,
-                        op.opcode() + 4 + wide,
-                        &immediate[..(bits / 8) as usize],
-                    ),
-                    mask(bits),
-                ),
-                (
-                    code_with_width(
-                        bits,
-                        0x80 + wide,
-                        &[&[group], &immediate[..(bits / 8) as usize]].concat(),
-                    ),
-                    mask(bits),
-                ),
-            ];
-            if bits != 8 {
-                for byte in [0x7f, 0x80, 0xff] {
-                    forms.push((
-                        code_with_width(bits, 0x83, &[group, byte]),
-                        (byte as i8 as u32) & mask(bits),
-                    ));
-                }
-            } else {
-                forms.push((vec![0x66, op.opcode() + 4, 0xff], 0xff));
-            }
-            for (code, right) in forms {
-                let mut image = image(&code);
-                let eax = register_result(0x4433_2200, bits, 1);
-                image.cpu.registers.eax = eax;
-                image.cpu.registers.ebx = right;
-                let expected = expected(op, bits, 1, right, true);
-                check_result(
-                    step,
-                    &format!("carry encoding {code:02x?}"),
-                    &code,
-                    &image,
-                    &expected,
-                    register_result(eax, bits, expected.result),
-                );
-            }
-        }
-        for (modrm, left_shift, right_shift) in [(0xe0, 0, 8), (0xc4, 8, 0), (0xe4, 8, 8)] {
-            let code = [op.opcode(), modrm];
-            let mut image = image(&code);
-            let eax = 0x4433_7f80u32;
-            image.cpu.registers.eax = eax;
-            let expected = expected(op, 8, eax >> left_shift, eax >> right_shift, true);
-            let result = (eax & !(0xff << left_shift)) | (expected.result << left_shift);
-            check_result(
-                step,
-                "carry operation reads byte aliases before writing",
-                &code,
-                &image,
-                &expected,
-                result,
-            );
-        }
-        for bits in [16, 32] {
-            let code = code_with_width(bits, op.opcode() + 1, &[0xc0]);
-            let mut image = image(&code);
-            let eax = 0x8000_8000;
-            image.cpu.registers.eax = eax;
-            let expected = expected(op, bits, eax, eax, true);
-            check_result(
-                step,
-                "carry operation reads old self operand",
-                &code,
-                &image,
-                &expected,
-                register_result(eax, bits, expected.result),
-            );
-        }
-    }
-}
-
-#[test]
-fn incoming_sources() {
-    let step = TestModule::interpreter();
-    for source_bits in WIDTHS {
-        let width_tag = match source_bits {
-            8 => 0,
-            16 => 4,
-            _ => 8,
-        };
-        let max = mask(source_bits);
-        // Narrow records deliberately contain unrelated upper payload bits.
-        let high = !max & 0x7e57_ae00;
-        for (kind, left, right, carry) in [
-            (2, max, 1, true),
-            (2, 0, 1, false),
-            (1, 0, 1, true),
-            (1, max, 1, false),
-            (3, max, 0xdead_beef, false),
-        ] {
-            for bits in WIDTHS {
-                for op in OPERATIONS {
-                    let code = code_with_width(
-                        bits,
-                        op.opcode() + 4 + u8::from(bits != 8),
-                        &vec![0; (bits / 8) as usize],
-                    );
-                    let mut image = image(&code);
-                    image.cpu.flags.kind = width_tag | kind;
-                    image.cpu.flags.left = left | high;
-                    image.cpu.flags.right = right | high;
-                    image.cpu.flags.status.cf = u8::from(!carry);
-                    let eax = register_result(0x4433_2200, bits, 0);
-                    image.cpu.registers.eax = eax;
-                    let expected = expected(op, bits, 0, 0, carry);
-                    check_result(
-                        step,
-                        &format!("stored kind {}, {op:?}/{bits}", width_tag | kind),
-                        &code,
-                        &image,
-                        &expected,
-                        register_result(eax, bits, expected.result),
-                    );
-                }
-            }
-        }
-    }
-}
-
-#[test]
-fn local_sources_and_publication() {
+fn discarded_local_carry_operands_remain_unpublished() {
     let step = TestModule::interpreter();
     for source_bits in WIDTHS {
         for (opcode, kind, left, right, source_result, carry) in [
@@ -424,79 +259,23 @@ fn local_sources_and_publication() {
     }
 }
 
-fn mixed_carry_steps(image: &Image) -> Vec<Step<'static>> {
-    let mut eax = 0xffff_ffff;
-    let mut carry = true;
-    let mut expected_cpu = image.cpu;
-    let mut steps = Vec::new();
-
-    for (count, (op, bits, next)) in [
-        (Operation::Adc, 8, 0x1002),
-        (Operation::Sbb, 16, 0x1005),
-        (Operation::Adc, 32, 0x1007),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let result = expected(op, bits, eax, 0, carry);
-        eax = register_result(eax, bits, result.result);
-        carry = result.status.cf != 0;
-        expected_cpu.flags.kind = 0;
-        expected_cpu.flags.status = result.status;
-        expected_cpu.registers.eax = eax;
-        expected_cpu.eip = next;
-        expected_cpu.instruction_count = count as u32;
-        steps.push(Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(next),
-        });
-    }
-    steps
+#[rustfmt::skip]
+fn mixed_carry_sequence() -> Vec<crate::support::sequences::SequenceCase> {
+    use wasm86_x86::Gpr32::{Eax, Ebx};
+    use crate::support::{
+        cases::{Flags, FlagExpectation::{Clear, Set}},
+        sequences::{Checkpoint, SequenceCase},
+    };
+    vec![SequenceCase::new("mixed-width carry chain replaces cached incoming CF", Flags::all(true))
+        .initial_register(Eax, 0xffff_ffff).initial_register(Ebx, 0)
+        .step(Checkpoint::new(&[0x10, 0xd8],
+            Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0xffff_ff00))
+        .step(Checkpoint::new(&[0x66, 0x19, 0xd8],
+            Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Set, of: Clear })
+            .register(Eax, 0xffff_feff))
+        .step(Checkpoint::new(&[0x11, 0xd8],
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Clear, sf: Set, of: Clear }))]
 }
 
-#[test]
-fn mixed_carry_chain_replaces_incoming_carry() {
-    let step = TestModule::interpreter();
-    let code = [0x10, 0xd8, 0x66, 0x19, 0xd8, 0x11, 0xd8];
-    let mut image = image(&code);
-    image.cpu.registers.eax = 0xffff_ffff;
-    image.cpu.registers.ebx = 0;
-    let steps = mixed_carry_steps(&image);
-
-    both(
-        step,
-        "mixed-width carry chain replaces cached incoming CF",
-        &code,
-        3,
-        &image,
-        &steps,
-    );
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn mixed_carry_chain_executes_in_optimizing_v8() {
-    let code = [0x10, 0xd8, 0x66, 0x19, 0xd8, 0x11, 0xd8];
-    let mut image = image(&code);
-    image.cpu.registers.eax = 0xffff_ffff;
-    image.cpu.registers.ebx = 0;
-    let steps = mixed_carry_steps(&image);
-
-    assert_eq!(
-        TestModule::interpreter().observe_v8(&image.input(), 3),
-        machine::expected(&image, &steps),
-    );
-    let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 3).unwrap());
-    assert_eq!(
-        block.observe_v8(&image.input(), 1),
-        machine::expected(
-            &image,
-            &[Step {
-                cpu: steps.last().unwrap().cpu,
-                ram: &[],
-                exit: Exit::Dispatch(0x1007)
-            }]
-        ),
-    );
-}
+crate::support::sequences::test_sequences!(mixed_carry_chain, mixed_carry_sequence());

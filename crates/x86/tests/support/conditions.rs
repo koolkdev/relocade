@@ -1,6 +1,36 @@
 use wasm86_x86::CpuState;
 
 use super::{
+    guest::Permissions::ReadWrite,
+    sequences::{Checkpoint, SequenceCase},
+};
+
+impl SequenceCase {
+    /// Append all sixteen condition stores using EDI=0x6000 and guarded output
+    /// backing. The caller supplies literal results in O, NO, B, AE, ... LE, G order.
+    pub(crate) fn conditions(mut self, results: [u8; 16]) -> Self {
+        self = self
+            .initial_register(wasm86_x86::Gpr32::Edi, 0x6000)
+            .map_page(6, 0xa000, ReadWrite)
+            .backing(0x9fff, &[0xa5; 18]);
+        for (condition, result) in results.into_iter().enumerate() {
+            assert!(result <= 1, "a condition expectation is a literal bit");
+            let condition = condition as u8;
+            self = self.step(
+                Checkpoint::preserving_flags(&[
+                    0x0f,
+                    0x90 + condition,
+                    0x47 | ((condition & 7) << 3),
+                    condition,
+                ])
+                .expect_memory(0x6000 + u32::from(condition), &[result]),
+            );
+        }
+        self
+    }
+}
+
+use super::{
     machine::{both, Exit, Image, Step},
     step::TestModule,
 };

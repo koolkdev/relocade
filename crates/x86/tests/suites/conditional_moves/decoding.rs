@@ -1,9 +1,11 @@
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 use wasmparser::Validator;
 
+use super::{INITIAL_FLAGS, PRESERVED_FLAGS};
 use crate::support::{
     arithmetic,
-    machine::{both, check, Exit, Step},
+    cases::{test_cases, InstructionCase as Case},
+    machine::{check, Exit, Step},
     step::TestModule,
 };
 
@@ -38,31 +40,7 @@ fn conditional_moves_require_the_selected_address_fields() {
 }
 
 #[test]
-fn repeated_operand_prefixes_reach_but_do_not_exceed_fifteen_bytes() {
-    let mut code = vec![0x66; 12];
-    code.extend_from_slice(&[0x0f, 0x44, 0xc1]);
-    let mut image = arithmetic::image(&[]);
-    image.cpu.eip = 0x1ff1;
-    image.cpu.registers.eax = 0x4433_2211;
-    image.cpu.registers.ecx = 0x8877_6655;
-    image.data(0x3ff1, &code);
-    let mut cpu = image.cpu;
-    cpu.registers.eax = 0x4433_6655;
-    cpu.eip = 0x2000;
-    cpu.instruction_count = 0;
-    both(
-        TestModule::interpreter(),
-        "CMOVE finishes at the last available encoding byte",
-        &code,
-        1,
-        &image,
-        &[Step {
-            cpu,
-            ram: &[],
-            exit: Exit::Dispatch(0x2000),
-        }],
-    );
-
+fn repeated_operand_prefixes_reject_a_sixteenth_byte_before_fetch() {
     let mut code = vec![0x66; 13];
     code.extend_from_slice(&[0x0f, 0x44]);
     assert!(matches!(
@@ -109,3 +87,20 @@ fn false_conditions_still_fetch_the_complete_instruction() {
         );
     }
 }
+
+fn complete_prefix_cases() -> Vec<Case> {
+    let mut code = vec![0x66; 12];
+    code.extend_from_slice(&[0x0f, 0x44, 0xc1]);
+    vec![Case::new(
+        "CMOVE finishes at the last available encoding byte",
+        &code,
+        INITIAL_FLAGS,
+        PRESERVED_FLAGS,
+    )
+    .at(0x1ff1)
+    .preserve_flag_record()
+    .register(wasm86_x86::Gpr32::Eax, 0x4433_2211, 0x4433_6655)
+    .initial_register(wasm86_x86::Gpr32::Ecx, 0x8877_6655)]
+}
+
+test_cases!(fifteen_byte_instruction, complete_prefix_cases());

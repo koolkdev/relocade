@@ -1,275 +1,101 @@
-use wasm86_x86::{CpuState, Gpr32};
+use wasm86_x86::Gpr32::{Eax, Ebx, Ecx, Edx};
 
 use crate::support::{
-    conditions::check_conditions,
-    machine::{both, Exit, Image, Step},
-    step::TestModule,
+    cases::{
+        test_cases,
+        FlagExpectation::{Clear, Set},
+        Flags, InstructionCase as Case,
+        Permissions::ReadWrite,
+    },
+    sequences::{test_sequences, Checkpoint, SequenceCase},
 };
 
-use super::image;
-
-struct RegisterCase {
-    name: &'static str,
-    code: &'static [u8],
-    before: &'static [(Gpr32, u32)],
-    after: &'static [(Gpr32, u32)],
-    recipe: (u8, u32, u32),
+#[rustfmt::skip]
+fn registers() -> Vec<Case> {
+    vec![
+        Case::new("byte mismatch replaces AL with old CL", &[0x0f, 0xb0, 0xd1], Flags::all(true),
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Set, of: Clear })
+            .register(Eax, 0x4433_2211, 0x4433_2255).initial_register(Ecx, 0x8877_6655).initial_register(Edx, 0xccbb_aa99),
+        Case::new("byte match replaces CL with DL", &[0x0f, 0xb0, 0xd1], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .initial_register(Eax, 0x4433_2211).register(Ecx, 0x8877_6611, 0x8877_6699).initial_register(Edx, 0xccbb_aa99),
+        Case::new("word mismatch preserves the upper accumulator half", &[0x66, 0x0f, 0xb1, 0xd1], Flags::all(true),
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Set, of: Clear })
+            .register(Eax, 0x4433_2211, 0x4433_6655).initial_register(Ecx, 0x8877_6655).initial_register(Edx, 0xccbb_aa99),
+        Case::new("word match preserves the upper destination half", &[0x66, 0x0f, 0xb1, 0xd1], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .initial_register(Eax, 0x4433_2211).register(Ecx, 0x8877_2211, 0x8877_aa99).initial_register(Edx, 0xccbb_aa99),
+        Case::new("dword mismatch replaces EAX with old ECX", &[0x0f, 0xb1, 0xd1], Flags::all(true),
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Set, of: Set })
+            .register(Eax, 0x4433_2211, 0x8877_6655).initial_register(Ecx, 0x8877_6655).initial_register(Edx, 0xccbb_aa99),
+        Case::new("dword match replaces ECX with EDX", &[0x0f, 0xb1, 0xd1], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .initial_register(Eax, 0x4433_2211).register(Ecx, 0x4433_2211, 0xccbb_aa99).initial_register(Edx, 0xccbb_aa99),
+        Case::new("AL destination takes DL", &[0x0f, 0xb0, 0xd0], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_2211, 0x4433_2299).initial_register(Edx, 0xccbb_aa99),
+        Case::new("AX destination takes DX", &[0x66, 0x0f, 0xb1, 0xd0], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_2211, 0x4433_aa99).initial_register(Edx, 0xccbb_aa99),
+        Case::new("EAX destination takes EDX", &[0x0f, 0xb1, 0xd0], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_2211, 0xccbb_aa99).initial_register(Edx, 0xccbb_aa99),
+        Case::new("AH mismatch replaces AL without replacing AH", &[0x0f, 0xb0, 0xcc], Flags::all(true),
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Set, of: Clear })
+            .register(Eax, 0x4433_2211, 0x4433_2222).initial_register(Ecx, 0x8877_6655),
+        Case::new("AH match changes AH while preserving AL", &[0x0f, 0xb0, 0xcc], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_1111, 0x4433_5511).initial_register(Ecx, 0x8877_6655),
+        Case::new("AH source supplies its old value to matching CL", &[0x0f, 0xb0, 0xe1], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .initial_register(Eax, 0x4433_2211).register(Ecx, 0x8877_6611, 0x8877_6622),
+        Case::new("an accumulator source does not overwrite a mismatch destination", &[0x0f, 0xb1, 0xc1], Flags::all(true),
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Set, of: Set })
+            .register(Eax, 0x4433_2211, 0x8877_6655).initial_register(Ecx, 0x8877_6655),
+        Case::new("a matching source and destination still publish the comparison", &[0x0f, 0xb1, 0xc9], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .initial_register(Eax, 0x4433_2211).initial_register(Ecx, 0x4433_2211),
+    ]
 }
 
-fn check_register(case: RegisterCase) -> (Image, CpuState) {
-    let mut image = image(case.code);
-    for &(register, value) in case.before {
-        image.cpu.registers[register] = value;
-    }
-    let mut cpu = image.cpu;
-    for &(register, value) in case.after {
-        cpu.registers[register] = value;
-    }
-    (cpu.flags.kind, cpu.flags.left, cpu.flags.right) = case.recipe;
-    cpu.eip += case.code.len() as u32;
-    cpu.instruction_count = 0;
-    both(
-        TestModule::interpreter(),
-        case.name,
-        case.code,
-        1,
-        &image,
-        &[Step {
-            cpu,
-            ram: &[],
-            exit: Exit::Dispatch(cpu.eip),
-        }],
-    );
-    (image, cpu)
+test_cases!(register_outcomes_and_aliases, registers());
+
+#[rustfmt::skip]
+fn comparison_conditions() -> Vec<SequenceCase> {
+    vec![
+        SequenceCase::new("equal dword comparison", Flags::all(true))
+            .initial_register(Eax, 0x4433_2211).initial_register(Ecx, 0x4433_2211).initial_register(Edx, 0xccbb_aa99)
+            .step(Checkpoint::new(&[0x0f, 0xb1, 0xd1],
+                Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+                .register(Ecx, 0xccbb_aa99))
+            .conditions([0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0]),
+        SequenceCase::new("byte comparison overflows with an unsigned borrow", Flags::all(true))
+            .initial_register(Eax, 0x4433_227f).initial_register(Ecx, 0x8877_66ff).initial_register(Edx, 0xccbb_aa99)
+            .step(Checkpoint::new(&[0x0f, 0xb0, 0xd1],
+                Flags { cf: Set, pf: Clear, af: Clear, zf: Clear, sf: Set, of: Set })
+                .register(Eax, 0x4433_22ff))
+            .conditions([1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1]),
+    ]
 }
 
-#[test]
-fn register_forms_publish_the_old_comparison_for_both_outcomes_at_every_width() {
-    for case in [
-        RegisterCase {
-            name: "byte mismatch replaces AL with old CL",
-            code: &[0x0f, 0xb0, 0xd1],
-            before: &[],
-            after: &[(Gpr32::Eax, 0x4433_2255)],
-            recipe: (1, 0x11, 0x55),
-        },
-        RegisterCase {
-            name: "byte match replaces CL with DL",
-            code: &[0x0f, 0xb0, 0xd1],
-            before: &[(Gpr32::Ecx, 0x8877_6611)],
-            after: &[(Gpr32::Ecx, 0x8877_6699)],
-            recipe: (1, 0x11, 0x11),
-        },
-        RegisterCase {
-            name: "word mismatch preserves the upper accumulator half",
-            code: &[0x66, 0x0f, 0xb1, 0xd1],
-            before: &[],
-            after: &[(Gpr32::Eax, 0x4433_6655)],
-            recipe: (5, 0x2211, 0x6655),
-        },
-        RegisterCase {
-            name: "word match preserves the upper destination half",
-            code: &[0x66, 0x0f, 0xb1, 0xd1],
-            before: &[(Gpr32::Ecx, 0x8877_2211)],
-            after: &[(Gpr32::Ecx, 0x8877_aa99)],
-            recipe: (5, 0x2211, 0x2211),
-        },
-        RegisterCase {
-            name: "dword mismatch replaces EAX with old ECX",
-            code: &[0x0f, 0xb1, 0xd1],
-            before: &[],
-            after: &[(Gpr32::Eax, 0x8877_6655)],
-            recipe: (9, 0x4433_2211, 0x8877_6655),
-        },
-        RegisterCase {
-            name: "dword match replaces ECX with EDX",
-            code: &[0x0f, 0xb1, 0xd1],
-            before: &[(Gpr32::Ecx, 0x4433_2211)],
-            after: &[(Gpr32::Ecx, 0xccbb_aa99)],
-            recipe: (9, 0x4433_2211, 0x4433_2211),
-        },
-    ] {
-        check_register(case);
-    }
+test_sequences!(setcc_consumers, comparison_conditions());
+
+#[rustfmt::skip]
+fn memory_addresses() -> Vec<Case> {
+    vec![
+        Case::new("word mismatch keeps the old EAX address and upper half", &[0x66, 0x0f, 0xb1, 0x10], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x1111_4020, 0x1111_fedc).initial_register(Edx, 0xccbb_aa99)
+            .memory(0x1111_4020, &[0xdc, 0xfe], ReadWrite),
+        Case::new("matching memory destination takes its EBX address source", &[0x0f, 0xb1, 0x1b], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .initial_register(Eax, 0x4433_2211).initial_register(Ebx, 0x4020)
+            .memory(0x4020, &[0x11, 0x22, 0x33, 0x44], ReadWrite).expect_memory(0x4020, &[0x20, 0x40, 0, 0]),
+        Case::new("matching memory destination takes its scaled ECX index source", &[0x0f, 0xb1, 0x4c, 0x8b, 0x20], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .initial_register(Eax, 0x4433_2211).initial_register(Ebx, 0x4000).initial_register(Ecx, 8)
+            .memory(0x4040, &[0x11, 0x22, 0x33, 0x44], ReadWrite).expect_memory(0x4040, &[8, 0, 0, 0]),
+    ]
 }
 
-#[test]
-fn accumulator_destinations_match_and_take_the_source_value() {
-    for case in [
-        RegisterCase {
-            name: "AL destination takes DL",
-            code: &[0x0f, 0xb0, 0xd0],
-            before: &[],
-            after: &[(Gpr32::Eax, 0x4433_2299)],
-            recipe: (1, 0x11, 0x11),
-        },
-        RegisterCase {
-            name: "AX destination takes DX",
-            code: &[0x66, 0x0f, 0xb1, 0xd0],
-            before: &[],
-            after: &[(Gpr32::Eax, 0x4433_aa99)],
-            recipe: (5, 0x2211, 0x2211),
-        },
-        RegisterCase {
-            name: "EAX destination takes EDX",
-            code: &[0x0f, 0xb1, 0xd0],
-            before: &[],
-            after: &[(Gpr32::Eax, 0xccbb_aa99)],
-            recipe: (9, 0x4433_2211, 0x4433_2211),
-        },
-    ] {
-        check_register(case);
-    }
-}
-
-#[test]
-fn high_bytes_and_source_aliases_use_values_from_before_the_comparison() {
-    for case in [
-        RegisterCase {
-            name: "AH mismatch replaces AL without replacing AH",
-            code: &[0x0f, 0xb0, 0xcc],
-            before: &[],
-            after: &[(Gpr32::Eax, 0x4433_2222)],
-            recipe: (1, 0x11, 0x22),
-        },
-        RegisterCase {
-            name: "AH match changes AH while preserving AL",
-            code: &[0x0f, 0xb0, 0xcc],
-            before: &[(Gpr32::Eax, 0x4433_1111)],
-            after: &[(Gpr32::Eax, 0x4433_5511)],
-            recipe: (1, 0x11, 0x11),
-        },
-        RegisterCase {
-            name: "AH source supplies its old value to matching CL",
-            code: &[0x0f, 0xb0, 0xe1],
-            before: &[(Gpr32::Ecx, 0x8877_6611)],
-            after: &[(Gpr32::Ecx, 0x8877_6622)],
-            recipe: (1, 0x11, 0x11),
-        },
-        RegisterCase {
-            name: "an accumulator source does not overwrite a mismatch destination",
-            code: &[0x0f, 0xb1, 0xc1],
-            before: &[],
-            after: &[(Gpr32::Eax, 0x8877_6655)],
-            recipe: (9, 0x4433_2211, 0x8877_6655),
-        },
-        RegisterCase {
-            name: "a matching source and destination still publish the comparison",
-            code: &[0x0f, 0xb1, 0xc9],
-            before: &[(Gpr32::Ecx, 0x4433_2211)],
-            after: &[],
-            recipe: (9, 0x4433_2211, 0x4433_2211),
-        },
-    ] {
-        check_register(case);
-    }
-}
-
-#[test]
-fn setcc_consumes_equal_and_overflowing_comparison_flags() {
-    for (case, conditions) in [
-        (
-            RegisterCase {
-                name: "equal dword comparison",
-                code: &[0x0f, 0xb1, 0xd1],
-                before: &[(Gpr32::Ecx, 0x4433_2211)],
-                after: &[(Gpr32::Ecx, 0xccbb_aa99)],
-                recipe: (9, 0x4433_2211, 0x4433_2211),
-            },
-            0x665a,
-        ),
-        (
-            RegisterCase {
-                name: "byte comparison overflows with an unsigned borrow",
-                code: &[0x0f, 0xb0, 0xd1],
-                before: &[(Gpr32::Eax, 0x4433_227f), (Gpr32::Ecx, 0x8877_66ff)],
-                after: &[(Gpr32::Eax, 0x4433_22ff)],
-                recipe: (1, 0x7f, 0xff),
-            },
-            0xa965,
-        ),
-    ] {
-        let name = case.name;
-        let code = case.code;
-        let (mut image, cpu) = check_register(case);
-        check_conditions(
-            TestModule::interpreter(),
-            name,
-            code,
-            &mut image,
-            &cpu,
-            conditions,
-        );
-    }
-}
-
-#[test]
-fn memory_comparisons_preserve_old_addresses_and_aliased_sources() {
-    let code = [0x66, 0x0f, 0xb1, 0x10];
-    let mut initial = image(&code);
-    initial.cpu.registers.eax = 0x1111_4020;
-    initial.map(0x11114, 0x8000, true);
-    initial.data(0x8020, &[0xdc, 0xfe]);
-    let mut cpu = initial.cpu;
-    cpu.registers.eax = 0x1111_fedc;
-    (cpu.flags.kind, cpu.flags.left, cpu.flags.right) = (5, 0x4020, 0xfedc);
-    cpu.eip = 0x1004;
-    cpu.instruction_count = 0;
-    both(
-        TestModule::interpreter(),
-        "word mismatch keeps the old EAX address and upper half",
-        &code,
-        1,
-        &initial,
-        &[Step {
-            cpu,
-            ram: &[],
-            exit: Exit::Dispatch(cpu.eip),
-        }],
-    );
-
-    let code = [0x0f, 0xb1, 0x1b];
-    let mut initial = image(&code);
-    initial.cpu.registers.ebx = 0x4020;
-    initial.map(4, 0x8000, true);
-    initial.data(0x8020, &[0x11, 0x22, 0x33, 0x44]);
-    let mut cpu = initial.cpu;
-    (cpu.flags.kind, cpu.flags.left, cpu.flags.right) = (9, 0x4433_2211, 0x4433_2211);
-    cpu.eip = 0x1003;
-    cpu.instruction_count = 0;
-    both(
-        TestModule::interpreter(),
-        "matching memory destination takes its EBX address source",
-        &code,
-        1,
-        &initial,
-        &[Step {
-            cpu,
-            ram: &[(0x8020, &[0x20, 0x40, 0, 0])],
-            exit: Exit::Dispatch(cpu.eip),
-        }],
-    );
-
-    let code = [0x0f, 0xb1, 0x4c, 0x8b, 0x20];
-    let mut initial = image(&code);
-    initial.cpu.registers.ebx = 0x4000;
-    initial.cpu.registers.ecx = 8;
-    initial.map(4, 0x8000, true);
-    initial.data(0x8040, &[0x11, 0x22, 0x33, 0x44]);
-    let mut cpu = initial.cpu;
-    (cpu.flags.kind, cpu.flags.left, cpu.flags.right) = (9, 0x4433_2211, 0x4433_2211);
-    cpu.eip = 0x1005;
-    cpu.instruction_count = 0;
-    both(
-        TestModule::interpreter(),
-        "matching memory destination takes its scaled ECX index source",
-        &code,
-        1,
-        &initial,
-        &[Step {
-            cpu,
-            ram: &[(0x8040, &[8, 0, 0, 0])],
-            exit: Exit::Dispatch(cpu.eip),
-        }],
-    );
-}
+test_cases!(address_aliases, memory_addresses());

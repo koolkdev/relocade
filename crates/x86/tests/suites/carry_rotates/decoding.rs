@@ -1,11 +1,17 @@
+use wasm86_x86::Gpr32::{Eax, Ecx};
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 use crate::support::{
-    machine::{both, check, Exit, Step},
+    cases::{
+        test_cases,
+        FlagExpectation::{Clear, Preserved, Set},
+        Flags, InstructionCase as Case,
+    },
+    machine::{check, Exit, Step},
     step::TestModule,
 };
 
-use super::{expected, image, prior_flags, OPERATIONS};
+use super::{image, stored_flags, OPERATIONS};
 
 #[test]
 fn carry_rotate_forms_decode_their_complete_address_and_count() {
@@ -38,76 +44,6 @@ fn carry_rotate_forms_decode_their_complete_address_and_count() {
                 complete.bytes
             );
         }
-    }
-}
-
-#[test]
-fn implicit_and_cl_carry_rotates_do_not_fetch_an_immediate() {
-    for operation in OPERATIONS {
-        for (opcode, bits, count) in [(0xd0, 8, 1), (0xd1, 32, 1), (0xd2, 8, 32), (0xd3, 32, 32)] {
-            let code = [opcode, 0xc0 | (operation.extension() << 3)];
-            let mut image = image(&[], 1);
-            image.cpu.eip = 0x1ffe;
-            image.cpu.registers.ecx = 0x8877_6620;
-            image.data(0x3ffe, &code);
-            let result = expected(
-                operation,
-                bits,
-                image.cpu.registers.eax,
-                count,
-                prior_flags(1),
-            );
-            let mut cpu = image.cpu;
-            cpu.registers.eax = if bits == 8 {
-                0x4433_2200 | result.value
-            } else {
-                result.value
-            };
-            result.apply_flags(&mut cpu);
-            cpu.eip = 0x2000;
-            cpu.instruction_count = 0;
-            both(
-                TestModule::interpreter(),
-                "carry rotate ends at the last mapped byte",
-                &code,
-                1,
-                &image,
-                &[Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                }],
-            );
-        }
-    }
-}
-
-#[test]
-fn the_fifteenth_byte_can_supply_a_masked_zero_carry_rotate_count() {
-    for operation in OPERATIONS {
-        let code = [
-            vec![0x66; 12],
-            vec![0xc1, 0xc0 | (operation.extension() << 3), 32],
-        ]
-        .concat();
-        let mut image = image(&[], 1);
-        image.cpu.eip = 0x1ff1;
-        image.data(0x3ff1, &code);
-        let mut cpu = image.cpu;
-        cpu.eip = 0x2000;
-        cpu.instruction_count = 0;
-        both(
-            TestModule::interpreter(),
-            "fifteen-byte carry rotate retains raw flags",
-            &code,
-            1,
-            &image,
-            &[Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            }],
-        );
     }
 }
 
@@ -175,3 +111,73 @@ fn length_limit_precedes_fetching_another_carry_rotate_field() {
         }
     }
 }
+
+const INITIAL: Flags<bool> = Flags {
+    cf: true,
+    pf: false,
+    af: true,
+    zf: true,
+    sf: false,
+    of: true,
+};
+
+#[rustfmt::skip]
+fn page_end_cases() -> Vec<Case> {
+    vec![
+        Case::new("RCL AL,1 at the page end", &[0xd0, 0xd0], INITIAL,
+            Flags { cf: Clear, of: Clear, ..Flags::all(Preserved) })
+            .stored_flags(stored_flags(1))
+            .register(Eax, 0x4433_2211, 0x4433_2223).initial_register(Ecx, 0x8877_6620)
+            .at(0x1ffe),
+        Case::new("RCL EAX,1 at the page end", &[0xd1, 0xd0], INITIAL,
+            Flags { cf: Clear, of: Set, ..Flags::all(Preserved) })
+            .stored_flags(stored_flags(1))
+            .register(Eax, 0x4433_2211, 0x8866_4423).initial_register(Ecx, 0x8877_6620)
+            .at(0x1ffe),
+        Case::preserving_flags("RCL AL,CL at the page end", &[0xd2, 0xd0])
+            .stored_flags(stored_flags(1))
+            .register(Eax, 0x4433_2211, 0x4433_2211).initial_register(Ecx, 0x8877_6620)
+            .at(0x1ffe),
+        Case::preserving_flags("RCL EAX,CL at the page end", &[0xd3, 0xd0])
+            .stored_flags(stored_flags(1))
+            .register(Eax, 0x4433_2211, 0x4433_2211).initial_register(Ecx, 0x8877_6620)
+            .at(0x1ffe),
+        Case::new("RCR AL,1 at the page end", &[0xd0, 0xd8], INITIAL,
+            Flags { cf: Set, of: Set, ..Flags::all(Preserved) })
+            .stored_flags(stored_flags(1))
+            .register(Eax, 0x4433_2211, 0x4433_2288).initial_register(Ecx, 0x8877_6620)
+            .at(0x1ffe),
+        Case::new("RCR EAX,1 at the page end", &[0xd1, 0xd8], INITIAL,
+            Flags { cf: Set, of: Set, ..Flags::all(Preserved) })
+            .stored_flags(stored_flags(1))
+            .register(Eax, 0x4433_2211, 0xa219_9108).initial_register(Ecx, 0x8877_6620)
+            .at(0x1ffe),
+        Case::preserving_flags("RCR AL,CL at the page end", &[0xd2, 0xd8])
+            .stored_flags(stored_flags(1))
+            .register(Eax, 0x4433_2211, 0x4433_2211).initial_register(Ecx, 0x8877_6620)
+            .at(0x1ffe),
+        Case::preserving_flags("RCR EAX,CL at the page end", &[0xd3, 0xd8])
+            .stored_flags(stored_flags(1))
+            .register(Eax, 0x4433_2211, 0x4433_2211).initial_register(Ecx, 0x8877_6620)
+            .at(0x1ffe),
+    ]
+}
+
+#[rustfmt::skip]
+fn fifteen_byte_cases() -> Vec<Case> {
+    vec![
+        Case::preserving_flags("RCL AX,32 completes at byte fifteen",
+            &[0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0xc1, 0xd0, 0x20])
+            .stored_flags(stored_flags(1))
+            .initial_register(Eax, 0x4433_2211)
+            .at(0x1ff1),
+        Case::preserving_flags("RCR AX,32 completes at byte fifteen",
+            &[0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0xc1, 0xd8, 0x20])
+            .stored_flags(stored_flags(1))
+            .initial_register(Eax, 0x4433_2211)
+            .at(0x1ff1),
+    ]
+}
+
+test_cases!(page_end_forms, page_end_cases());
+test_cases!(fifteen_byte_forms, fifteen_byte_cases());

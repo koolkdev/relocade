@@ -1,12 +1,13 @@
-use wasm86_x86::compile_block_from_bytes;
+use wasm86_x86::{compile_block_from_bytes, Gpr32::Eax};
+
+use crate::support::cases::{
+    test_cases,
+    FlagExpectation::{Clear, Set},
+    Flags, InstructionCase as Case,
+};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
-use crate::support::arithmetic;
-use crate::support::machine;
-use crate::support::step;
-use arithmetic::image;
-use machine::{both, Exit, Step};
-use step::TestModule;
+use crate::support::sequences::{test_sequences, Checkpoint, SequenceCase};
 #[path = "binary_operands/faults.rs"]
 mod faults;
 #[path = "binary_operands/memory.rs"]
@@ -88,141 +89,45 @@ fn test_and_compare_only_read_guest_memory_while_updates_store() {
     }
 }
 
-#[test]
-fn register_aliases() {
-    let step = TestModule::interpreter();
-    for (name, code, eax, result, left, right, kind) in [
-        (
-            "AL reads old AH",
-            &[0x00, 0xe0][..],
-            0x4433_7f81,
-            0x4433_7f00,
-            0x81,
-            0x7f,
-            2,
-        ),
-        (
-            "AH reads old AL",
-            &[0x00, 0xc4][..],
-            0x4433_8080,
-            0x4433_0080,
-            0x80,
-            0x80,
-            2,
-        ),
-        (
-            "dword self addition uses the old value",
-            &[0x01, 0xc0][..],
-            0x8000_0000,
-            0,
-            0x8000_0000,
-            0x8000_0000,
-            10,
-        ),
-        (
-            "AH compare leaves both aliases intact",
-            &[0x38, 0xc4][..],
-            0x4433_7efe,
-            0x4433_7efe,
-            0x7e,
-            0xfe,
-            1,
-        ),
-        (
-            "accumulator byte ADD ignores operand prefix",
-            &[0x66, 0x04, 1][..],
-            0x4433_22ff,
-            0x4433_2200,
-            0xff,
-            1,
-            2,
-        ),
-        (
-            "accumulator word CMP reads two immediate bytes",
-            &[0x66, 0x3d, 0x11, 0x22][..],
-            0x4433_2211,
-            0x4433_2211,
-            0x2211,
-            0x2211,
-            5,
-        ),
-    ] {
-        let mut image = image(code);
-        image.cpu.registers.eax = eax;
-        let next = 0x1000 + code.len() as u32;
-        let mut expected = image.cpu;
-        expected.flags.kind = kind;
-        expected.flags.left = left;
-        expected.flags.right = right;
-        expected.registers.eax = result;
-        expected.eip = next;
-        expected.instruction_count = 0;
-        both(
-            step,
-            name,
-            code,
-            1,
-            &image,
-            &[Step {
-                cpu: expected,
-                ram: &[],
-                exit: Exit::Dispatch(next),
-            }],
-        );
-    }
-    let code = [
-        0x04, 1, 0x66, 0x0f, 0x94, 0xfc, 0xb0, 0x7f, 0x0f, 0x92, 0xc0,
-    ];
-    let mut image = image(&code);
-    image.cpu.registers.eax = 0x4433_22ff;
-    let mut expected_cpu = image.cpu;
-    let mut steps = Vec::new();
-
-    expected_cpu.flags.kind = 2;
-    expected_cpu.flags.left = 0xff;
-    expected_cpu.flags.right = 1;
-    expected_cpu.registers.eax = 0x4433_2200;
-    expected_cpu.eip = 0x1002;
-    expected_cpu.instruction_count = 0;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x1002),
-    });
-
-    expected_cpu.registers.eax = 0x4433_0100;
-    expected_cpu.eip = 0x1006;
-    expected_cpu.instruction_count = 1;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x1006),
-    });
-
-    expected_cpu.registers.eax = 0x4433_017f;
-    expected_cpu.eip = 0x1008;
-    expected_cpu.instruction_count = 2;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x1008),
-    });
-
-    expected_cpu.registers.eax = 0x4433_0101;
-    expected_cpu.eip = 0x100b;
-    expected_cpu.instruction_count = 3;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x100b),
-    });
-
-    both(
-        step,
-        "SETcc and MOV preserve prior ADD flags while changing aliases",
-        &code,
-        4,
-        &image,
-        &steps,
-    );
+#[rustfmt::skip]
+fn register_aliases() -> Vec<Case> {
+    vec![
+        Case::new("ADD AL,AH reads old AH", &[0x00, 0xe0], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_7f81, 0x4433_7f00),
+        Case::new("ADD AH,AL reads old AL", &[0x00, 0xc4], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Clear, zf: Set, sf: Clear, of: Set })
+            .register(Eax, 0x4433_8080, 0x4433_0080),
+        Case::new("ADD EAX,EAX reads the old value", &[0x01, 0xc0], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Clear, zf: Set, sf: Clear, of: Set })
+            .register(Eax, 0x8000_0000, 0),
+        Case::new("CMP AH,AL preserves both aliases", &[0x38, 0xc4], Flags::all(true),
+            Flags { cf: Set, pf: Clear, af: Clear, zf: Clear, sf: Set, of: Set })
+            .register(Eax, 0x4433_7efe, 0x4433_7efe),
+        Case::new("ADD AL,1 ignores the operand-size prefix", &[0x66, 0x04, 1], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_22ff, 0x4433_2200),
+        Case::new("CMP AX,2211 reads two immediate bytes", &[0x66, 0x3d, 0x11, 0x22], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_2211, 0x4433_2211),
+    ]
 }
+
+test_cases!(register_operand_aliases, register_aliases());
+
+#[rustfmt::skip]
+fn flag_preserving_alias_sequence() -> Vec<SequenceCase> {
+    vec![SequenceCase::new("SETcc and MOV preserve prior ADD flags while changing aliases", Flags::all(true))
+        .initial_register(Eax, 0x4433_22ff)
+        .step(Checkpoint::new(&[0x04, 1],
+            Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_2200))
+        .step(Checkpoint::preserving_flags(&[0x66, 0x0f, 0x94, 0xfc]).register(Eax, 0x4433_0100))
+        .step(Checkpoint::preserving_flags(&[0xb0, 0x7f]).register(Eax, 0x4433_017f))
+        .step(Checkpoint::preserving_flags(&[0x0f, 0x92, 0xc0]).register(Eax, 0x4433_0101))]
+}
+
+test_sequences!(
+    setcc_and_mov_preserve_add_flags,
+    flag_preserving_alias_sequence()
+);

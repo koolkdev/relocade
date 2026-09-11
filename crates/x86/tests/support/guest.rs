@@ -1,6 +1,9 @@
 //! A guest fixture for instruction behavior tests. ABI and page-map tests can
 //! still use `machine::Image` and the lower-level execution observations directly.
 
+#[cfg(test)]
+mod tests;
+
 use std::{collections::BTreeMap, fmt};
 use wasm86_x86::CpuState;
 
@@ -8,10 +11,10 @@ pub(crate) use super::machine::Exit;
 
 use super::{
     machine::Image,
-    step::{Argument, Event, Outcome, Snapshot, TestModule},
+    step::{Argument, Engine, Event, Outcome, Snapshot, TestModule},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Permissions {
     ReadOnly,
     ReadWrite,
@@ -19,80 +22,158 @@ pub(crate) enum Permissions {
 
 const CODE_START: u32 = 0x1000;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Page {
+    frame: u32,
+    permissions: Permissions,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Mapping {
+    pub(crate) page: u32,
+    pub(crate) frame: u32,
+    pub(crate) permissions: Permissions,
+}
+
 pub(crate) struct Machine {
     pub(crate) cpu: CpuState,
+    code_start: u32,
     code: Vec<u8>,
     image: Image,
-    pages: BTreeMap<u32, u32>,
+    pages: BTreeMap<u32, Page>,
     next_frame: u32,
 }
 
 impl Machine {
     /// Load code at 0x1000. Ordinary data setup cannot overwrite it.
     pub(crate) fn new(code: &[u8]) -> Self {
-        assert!(
-            !code.is_empty() && code.len() <= 0x1000,
-            "the ordinary fixture holds one page of code"
-        );
-        let image = Image::new(code);
-        Self {
-            cpu: image.cpu,
-            code: code.to_vec(),
-            image,
-            pages: BTreeMap::from([(1, 0x3000)]),
-            next_frame: 0x4000,
-        }
+        Self::at(CODE_START, code)
     }
 
-    /// Map and initialize ordinary virtual data. Tests of physical aliasing or
-    /// page-map encoding should use `Image::map` and `Image::data` instead.
+    /// Load code at an explicit guest address, including across a page boundary.
+    pub(crate) fn at(address: u32, code: &[u8]) -> Self {
+        Self::with_mappings(address, code, &[])
+    }
+
+    pub(crate) fn with_mappings(address: u32, code: &[u8], mappings: &[Mapping]) -> Self {
+        assert!(
+            !code.is_empty() && code.len() <= 0x1000,
+            "the ordinary fixture holds at most 4096 bytes of code"
+        );
+        let mut image = Image::empty();
+        image.cpu.eip = address;
+        let mut pages = BTreeMap::new();
+        for mapping in mappings {
+            assert!(
+                mapping.page < (1 << 20),
+                "a guest page fits the 32-bit address space"
+            );
+            assert!(
+                mapping.frame & 3 == 0 && mapping.frame <= 0xf000,
+                "a present mapping needs valid physical backing and clear permission bits"
+            );
+            assert!(
+                pages
+                    .insert(
+                        mapping.page,
+                        Page {
+                            frame: mapping.frame,
+                            permissions: mapping.permissions
+                        }
+                    )
+                    .is_none(),
+                "duplicate guest page {:x}",
+                mapping.page
+            );
+            image.map(
+                mapping.page,
+                mapping.frame,
+                matches!(mapping.permissions, Permissions::ReadWrite),
+            );
+        }
+        let mut machine = Self {
+            cpu: image.cpu,
+            code_start: address,
+            code: code.to_vec(),
+            image,
+            pages,
+            next_frame: 0x3000,
+        };
+        let mut cursor = address;
+        let mut remaining = code;
+        while !remaining.is_empty() {
+            let count = remaining.len().min((0x1000 - (cursor & 0xfff)) as usize);
+            let permissions = machine
+                .pages
+                .get(&(cursor >> 12))
+                .map_or(Permissions::ReadOnly, |mapping| mapping.permissions);
+            machine.initialize_memory(cursor, &remaining[..count], permissions);
+            cursor = cursor.wrapping_add(count as u32);
+            remaining = &remaining[count..];
+        }
+        machine
+    }
+
+    /// Map and initialize virtual data. Use explicit mappings and `backing`
+    /// to describe physical aliasing or bytes outside mapped operands.
     pub(crate) fn memory(&mut self, address: u32, bytes: &[u8], permissions: Permissions) {
         let end = u64::from(address) + bytes.len() as u64;
         assert!(
             end <= (1_u64 << 32),
             "use a page-policy fixture for wrapping data"
         );
-        assert!(
-            end <= u64::from(CODE_START)
-                || u64::from(address) >= u64::from(CODE_START) + self.code.len() as u64,
-            "ordinary data setup must not overwrite code"
-        );
+        let code_end = u64::from(self.code_start) + self.code.len() as u64;
+        let overlaps = if code_end <= (1_u64 << 32) {
+            u64::from(address) < code_end && end > u64::from(self.code_start)
+        } else {
+            end > u64::from(self.code_start) || u64::from(address) < code_end - (1_u64 << 32)
+        };
+        assert!(!overlaps, "ordinary data setup must not overwrite code");
+        self.initialize_memory(address, bytes, permissions);
+    }
+
+    fn initialize_memory(&mut self, address: u32, bytes: &[u8], permissions: Permissions) {
         let writable = matches!(permissions, Permissions::ReadWrite);
         let mut address = address;
         let mut bytes = bytes;
         while !bytes.is_empty() {
             let page = address >> 12;
-            let frame = *self.pages.entry(page).or_insert_with(|| {
+            if !self.pages.contains_key(&page) {
+                while self.pages.values().any(|mapped| {
+                    self.next_frame < mapped.frame + 0x1000
+                        && mapped.frame < self.next_frame + 0x1000
+                }) {
+                    self.next_frame += 0x1000;
+                }
                 let frame = self.next_frame;
                 assert!(frame < 0x10000, "test data exceeds the guest memory");
                 self.next_frame += 0x1000;
-                frame
-            });
-            self.image.map(page, frame, writable);
+                self.pages.insert(page, Page { frame, permissions });
+            }
+            let mapping = self.pages[&page];
+            assert_eq!(
+                mapping.permissions, permissions,
+                "conflicting permissions for guest page {page:x}"
+            );
+            self.image.map(page, mapping.frame, writable);
             let offset = address & 0xfff;
             let count = bytes.len().min((0x1000 - offset) as usize);
-            self.image.data(frame + offset, &bytes[..count]);
+            self.image.data(mapping.frame + offset, &bytes[..count]);
             address = address.wrapping_add(count as u32);
             bytes = &bytes[count..];
         }
     }
 
-    pub(crate) fn run_step(&self) -> Execution {
-        self.run(TestModule::interpreter())
-    }
-
-    pub(crate) fn run_block(&self, instruction_limit: u32) -> Execution {
-        let module = wasm86_x86::compile_block_from_bytes(
-            self.cpu.eip,
-            self.code_at_eip(),
-            instruction_limit,
-        )
-        .unwrap();
-        self.run(&TestModule::new(&module))
+    pub(crate) fn backing(&mut self, offset: u32, bytes: &[u8]) {
+        assert!(
+            u64::from(offset) + bytes.len() as u64 <= 0x10000,
+            "physical test data must fit its backing"
+        );
+        self.image.data(offset, bytes);
     }
 
     fn code_at_eip(&self) -> &[u8] {
-        let offset = self.cpu.eip.wrapping_sub(CODE_START) as usize;
+        let offset = self.cpu.eip.wrapping_sub(self.code_start) as usize;
         assert!(offset < self.code.len(), "EIP must select the fixture code");
         &self.code[offset..]
     }
@@ -111,11 +192,26 @@ impl Machine {
         }
     }
 
-    fn run(&self, module: &TestModule) -> Execution {
-        self.code_at_eip();
+    pub(crate) fn run(&self, module: &TestModule, engine: Engine) -> Execution {
+        self.run_many(module, engine, 1).pop().unwrap()
+    }
+
+    pub(crate) fn run_many(
+        &self,
+        module: &TestModule,
+        engine: Engine,
+        invocations: usize,
+    ) -> Vec<Execution> {
+        assert!(invocations > 0, "execution needs at least one invocation");
+        let code = self.code_at_eip();
+        assert_eq!(
+            self.state().memory.read(self.cpu.eip, code.len()),
+            code,
+            "fixture setup changed the instruction bytes"
+        );
         let mut input = self.image.input();
         input.cpu = self.cpu.to_bytes().to_vec();
-        let observation = module.observe(&input, 1);
+        let observation = engine.observe(module, &input, invocations);
         let initial = self.state();
         let state = |snapshot: &Snapshot| {
             let mut state = initial.clone();
@@ -125,50 +221,58 @@ impl Machine {
             }
             state
         };
-        let dispatches = observation
-            .events
-            .iter()
-            .filter_map(|event| match event {
-                Event::Dispatch { eip, snapshot } => Some((*eip as u32, state(snapshot))),
-                Event::Return { .. } => None,
-            })
-            .collect::<Vec<_>>();
-        let Event::Return { outcome, snapshot } = observation.events.last().unwrap() else {
-            panic!("execution ends with a return boundary");
-        };
-        let exit = match outcome {
-            Outcome::Trap => panic!(
-                "unexpected Wasm trap in {} starting at guest EIP {:#010x}",
-                module.entry, self.cpu.eip
-            ),
-            Outcome::Returned(values) => {
-                let [Argument::I64(value)] = values.as_slice() else {
-                    panic!("an x86 entry returns i64");
+        let mut executions = Vec::new();
+        let mut dispatches = Vec::new();
+        for event in &observation.events {
+            let Event::Return { outcome, snapshot } = event else {
+                let Event::Dispatch { eip, snapshot } = event else {
+                    unreachable!()
                 };
-                if let Some((eip, _)) = dispatches.last() {
-                    assert_eq!(*value, i64::MIN);
-                    Exit::Dispatch(*eip)
-                } else {
-                    Exit::from_word(*value as u64)
+                dispatches.push((*eip as u32, state(snapshot)));
+                continue;
+            };
+            let exit = match outcome {
+                Outcome::Trap => panic!(
+                    "unexpected Wasm trap in {} starting at guest EIP {:#010x}",
+                    module.entry, self.cpu.eip
+                ),
+                Outcome::Returned(values) => {
+                    let [Argument::I64(value)] = values.as_slice() else {
+                        panic!("an x86 entry returns i64");
+                    };
+                    if let Some((eip, _)) = dispatches.last() {
+                        assert_eq!(*value, i64::MIN);
+                        Exit::Dispatch(*eip)
+                    } else {
+                        Exit::from_word(*value as u64)
+                    }
                 }
-            }
-        };
-        let state = state(snapshot);
-        // Keep the host's full-memory invariant as well as the projected bytes.
-        assert_eq!(observation.guest_unchanged, state.memory == initial.memory);
-        Execution {
-            state,
-            exit,
-            dispatches,
-            machine_unchanged: observation.machine_unchanged,
+            };
+            executions.push(Execution {
+                state: state(snapshot),
+                exit,
+                dispatches: std::mem::take(&mut dispatches),
+                machine_unchanged: observation.machine_unchanged,
+            });
         }
+        assert!(
+            dispatches.is_empty(),
+            "execution ends with a return boundary"
+        );
+        assert_eq!(executions.len(), invocations);
+        // Keep the host's full-memory invariant as well as the projected bytes.
+        assert_eq!(
+            observation.guest_unchanged,
+            executions.last().unwrap().state.memory == initial.memory
+        );
+        executions
     }
 }
 
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct Memory {
     bytes: Vec<u8>,
-    pages: BTreeMap<u32, u32>,
+    pages: BTreeMap<u32, Page>,
 }
 
 impl Memory {
@@ -187,11 +291,11 @@ impl Memory {
     }
 
     fn physical(&self, address: u32) -> usize {
-        let frame = self
+        let page = self
             .pages
             .get(&(address >> 12))
             .expect("the fixture maps this virtual address");
-        (frame + (address & 0xfff)) as usize
+        (page.frame + (address & 0xfff)) as usize
     }
 }
 

@@ -1,103 +1,46 @@
-use wasm86_x86::{compile_block_from_bytes, StatusFlags};
+use wasm86_x86::{compile_block_from_bytes, CpuState, Gpr32::Eax, StatusFlags, StoredFlags};
 
 use crate::support::{
-    guest::{Exit, Machine},
+    cases::{
+        test_cases,
+        FlagExpectation::{Clear, Preserved, Set},
+        Flags, InstructionCase as Case,
+    },
+    guest::Exit,
     machine::{check, Image, Step},
     step::TestModule,
 };
 
-#[test]
-fn increment_and_decrement_read_carry_from_stored_sources() {
-    struct Source {
-        kind: u8,
-        left: u32,
-        right: u32,
-        stored_carry: u8,
-        carry: u8,
-    }
-    for source in [
-        Source {
-            kind: 0,
-            left: 0xffff_ffff,
-            right: 1,
-            stored_carry: 0x80,
-            carry: 0,
-        },
-        Source {
-            kind: 0,
-            left: 0,
-            right: 1,
-            stored_carry: 0xff,
-            carry: 1,
-        },
-        Source {
-            kind: 2,
-            left: 0xff,
-            right: 1,
-            stored_carry: 0,
-            carry: 1,
-        },
-        Source {
-            kind: 5,
-            left: 0,
-            right: 1,
-            stored_carry: 0,
-            carry: 1,
-        },
-        Source {
-            kind: 9,
-            left: 3,
-            right: 1,
-            stored_carry: 1,
-            carry: 0,
-        },
-        Source {
-            kind: 11,
-            left: 0x8000_0000,
-            right: 0xffff_ffff,
-            stored_carry: 1,
-            carry: 0,
-        },
+#[rustfmt::skip]
+fn saved_carry() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (kind, left, right, stored_carry, flags) in [
+        (0, 0xffff_ffff, 1, 0x80, Flags { cf: false, pf: true, af: true, zf: true, sf: true, of: true }),
+        (0, 0, 1, 0xff, Flags::all(true)),
+        (2, 0xff, 1, 0, Flags { cf: true, pf: true, af: true, zf: true, sf: false, of: false }),
+        (5, 0, 1, 0, Flags { cf: true, pf: true, af: true, zf: false, sf: true, of: false }),
+        (9, 3, 1, 1, Flags { cf: false, pf: false, af: false, zf: false, sf: false, of: false }),
+        (11, 0x8000_0000, 0xffff_ffff, 1, Flags { cf: false, pf: true, af: false, zf: false, sf: true, of: false }),
     ] {
-        for (code, input, result, sign) in [
-            (&[0x40][..], 0x7fff_ffff, 0x8000_0000, 1),
-            (&[0x48][..], 0x8000_0000, 0x7fff_ffff, 0),
-        ] {
-            let mut machine = Machine::new(code);
-            machine.cpu.flags.kind = source.kind;
-            machine.cpu.flags.left = source.left;
-            machine.cpu.flags.right = source.right;
-            machine.cpu.flags.status.cf = source.stored_carry;
-            machine.cpu.registers.eax = input;
-            let mut expected = machine.state();
-            expected.cpu.registers.eax = result;
-            expected.cpu.flags.kind = 0;
-            expected.cpu.flags.status = StatusFlags {
-                cf: source.carry,
-                pf: 1,
-                af: 1,
-                zf: 0,
-                sf: sign,
-                of: 1,
-            };
-            expected.cpu.eip = 0x1001;
-            expected.cpu.instruction_count = 0;
-            for execution in [machine.run_step(), machine.run_block(1)] {
-                assert_eq!(execution.exit, Exit::Dispatch(0x1001));
-                assert_eq!(
-                    execution.state, expected,
-                    "{code:02x?}, source kind {}",
-                    source.kind
-                );
-                assert_eq!(execution.dispatches, [(0x1001, expected.clone())]);
-                assert!(execution.machine_unchanged);
-            }
-        }
+        let record = StoredFlags {
+            kind, left, right,
+            status: StatusFlags { cf: stored_carry, ..CpuState::filled(0xa5).flags.status },
+            ..CpuState::filled(0xa5).flags
+        };
+        cases.push(Case::new(format!("INC EAX consumes saved kind {kind}, CF byte {stored_carry:#x}"), &[0x40], flags,
+            Flags { cf: Preserved, pf: Set, af: Set, zf: Clear, sf: Set, of: Set })
+            .stored_flags(record).register(Eax, 0x7fff_ffff, 0x8000_0000));
+        cases.push(Case::new(format!("DEC EAX consumes saved kind {kind}, CF byte {stored_carry:#x}"), &[0x48], flags,
+            Flags { cf: Preserved, pf: Set, af: Set, zf: Clear, sf: Clear, of: Set })
+            .stored_flags(record).register(Eax, 0x8000_0000, 0x7fff_ffff));
     }
+    cases
 }
 
+test_cases!(increment_and_decrement_use_saved_carry, saved_carry());
+
 #[test]
-fn local_carry_survives_increment_and_decrement_then_feeds_adc_sbb_and_setcc() {
+fn discarded_local_carry_operands_remain_unpublished_through_partial_updates() {
     struct Producer {
         name: &'static str,
         code: &'static [u8],

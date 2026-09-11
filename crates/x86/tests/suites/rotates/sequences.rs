@@ -1,88 +1,14 @@
+//! Checks different raw flag payloads at interpreter and block publication boundaries.
+
 use wasm86_x86::{compile_block_from_bytes, StatusFlags};
 
 use crate::support::{
-    machine::{both, check, Exit, Step},
+    machine::{check, Exit, Step},
+    sequences::test_sequences,
     step::TestModule,
 };
 
-use super::{expected as rotate_expected, image, retire, Operation, PRIOR_FLAGS};
-
-#[test]
-fn pending_add_flags_survive_zero_rotate_and_feed_a_condition() {
-    for rotate in [0xc4, 0xcc] {
-        let code = [0x00, 0xd0, 0xd2, rotate, 0x0f, 0x90, 0xc3];
-        let mut image = image(&code);
-        image.cpu.registers.eax = 0x4433_817f;
-        image.cpu.registers.ecx = 0x8877_6620;
-        image.cpu.registers.edx = 0xccbb_aa01;
-        let mut cpu = image.cpu;
-        cpu.registers.eax = 0x4433_8180;
-        cpu.flags.kind = 2;
-        cpu.flags.left = 0x7f;
-        cpu.flags.right = 1;
-        let mut steps = vec![retire(&mut cpu, 2, &[])];
-        steps.push(retire(&mut cpu, 2, &[]));
-        cpu.registers.ebx = 0x10ff_ee01;
-        steps.push(retire(&mut cpu, 3, &[]));
-        both(
-            TestModule::interpreter(),
-            "zero rotate keeps pending ADD overflow",
-            &code,
-            3,
-            &image,
-            &steps,
-        );
-    }
-}
-
-#[test]
-fn rotate_carry_feeds_subtract_with_borrow_and_a_condition() {
-    for (operation, input) in [(Operation::Rol, 0x80), (Operation::Ror, 1)] {
-        for count in [0, 1, 8] {
-            let code = [
-                0xc0,
-                0xc0 | (operation.extension() << 3),
-                count,
-                0x83,
-                0xda,
-                0, // SBB EDX,0
-                0x0f,
-                0x92,
-                0xc3, // SETC BL
-            ];
-            let mut image = image(&code);
-            image.cpu.registers.eax = 0x4433_2200 | input;
-            image.cpu.registers.edx = 0;
-            let mut cpu = image.cpu;
-            let rotated = rotate_expected(operation, 8, input, count, PRIOR_FLAGS);
-            cpu.registers.eax = 0x4433_2200 | rotated.value;
-            rotated.apply_flags(&mut cpu);
-            let carry = rotated.status.unwrap_or(PRIOR_FLAGS).cf;
-            let mut steps = vec![retire(&mut cpu, 3, &[])];
-            cpu.registers.edx = if carry == 1 { u32::MAX } else { 0 };
-            cpu.flags.kind = 0;
-            cpu.flags.status = StatusFlags {
-                cf: carry,
-                pf: 1,
-                af: carry,
-                zf: 1 - carry,
-                sf: carry,
-                of: 0,
-            };
-            steps.push(retire(&mut cpu, 3, &[]));
-            cpu.registers.ebx = 0x10ff_ee00 | u32::from(carry);
-            steps.push(retire(&mut cpu, 3, &[]));
-            both(
-                TestModule::interpreter(),
-                "rotate carry reaches SBB and SETC",
-                &code,
-                3,
-                &image,
-                &steps,
-            );
-        }
-    }
-}
+use super::{bit_at_a_time_model as rotate_model, image, retire, Operation, PRIOR_FLAGS};
 
 #[test]
 fn add_rotate_and_increment_feed_conditions_and_adc() {
@@ -114,7 +40,7 @@ fn add_rotate_and_increment_feed_conditions_and_adc() {
             sf: 0,
             of: 0,
         };
-        let rotated = rotate_expected(Operation::Rol, 8, 0x80, count, add_flags);
+        let rotated = rotate_model(Operation::Rol, 8, 0x80, count, add_flags);
         cpu.registers.eax = 0x4433_0000 | (rotated.value << 8);
         rotated.apply_flags(&mut cpu);
         let flags = rotated.status.unwrap_or(add_flags);
@@ -210,7 +136,7 @@ fn conditional_shift_and_rotate_flags_are_observed_before_a_full_replacement() {
             let mut steps = vec![retire(&mut cpu, 2, &[])];
             cpu.registers.ecx = 0x8877_6600 | u32::from(rotate_count);
             steps.push(retire(&mut cpu, 2, &[]));
-            let rotated = rotate_expected(Operation::Ror, 8, 1, rotate_count, prior);
+            let rotated = rotate_model(Operation::Ror, 8, 1, rotate_count, prior);
             cpu.registers.eax = (cpu.registers.eax & 0xffff_ff00) | rotated.value;
             rotated.apply_flags(&mut cpu);
             let flags = rotated.status.unwrap_or(prior);
@@ -245,3 +171,8 @@ fn conditional_shift_and_rotate_flags_are_observed_before_a_full_replacement() {
         }
     }
 }
+
+#[path = "sequences/cases.rs"]
+mod cases;
+
+test_sequences!(ordinary_flag_dependencies, cases::flag_dependencies());

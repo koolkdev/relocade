@@ -1,182 +1,105 @@
+use crate::support::{
+    cases::{
+        FlagExpectation::{Clear, Set, Undefined},
+        Flags,
+    },
+    sequences::{test_sequences, Checkpoint, SequenceCase},
+};
+use wasm86_x86::Gpr32::{Eax, Ebx};
+
+use crate::support::{
+    arithmetic::image,
+    machine::{check, Exit, Step},
+    step::TestModule,
+};
 use wasm86_x86::compile_block_from_bytes;
 use wasmparser::Validator;
 
-use crate::support::arithmetic;
-use crate::support::conditions;
-use crate::support::machine;
-use crate::support::step;
-use arithmetic::image;
-use conditions::check_conditions;
-use machine::{both, check, Exit, Step};
-use step::TestModule;
-
-struct LogicalCase {
-    name: &'static str,
-    code: &'static [u8],
-    eax: u32,
-    ebx: u32,
-    final_eax: u32,
-    kind: u8,
-    result: u32,
-    // Bit n is the literal result of condition code n (O through G).
-    conditions: u16,
+#[rustfmt::skip]
+fn result_conditions() -> Vec<SequenceCase> {
+    vec![
+        SequenceCase::new("byte AND retains upper EAX and clears stale carry and overflow", Flags::all(true))
+            .initial_register(Eax, 0x4433_22f3).initial_register(Ebx, 0x0f)
+            .step(Checkpoint::new(&[0x20, 0xd8],
+                Flags { cf: Clear, pf: Set, af: Undefined, zf: Clear, sf: Clear, of: Clear }).register(Eax, 0x4433_2203))
+            .conditions([0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1]),
+        SequenceCase::new("word AND uses the word sign and only the low byte for parity", Flags::all(true))
+            .initial_register(Eax, 0x4433_80ff).initial_register(Ebx, 0xdead_ff00)
+            .step(Checkpoint::new(&[0x66, 0x21, 0xd8],
+                Flags { cf: Clear, pf: Set, af: Undefined, zf: Clear, sf: Set, of: Clear }).register(Eax, 0x4433_8000))
+            .conditions([0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0]),
+        SequenceCase::new("reverse dword AND records a negative odd-parity result", Flags::all(true))
+            .initial_register(Eax, 0x8000_0001).initial_register(Ebx, 0xffff_ffff)
+            .step(Checkpoint::new(&[0x23, 0xc3],
+                Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Set, of: Clear }).register(Eax, 0x8000_0001))
+            .conditions([0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0]),
+        SequenceCase::new("group AND sign extends its byte mask to a dword", Flags::all(true))
+            .initial_register(Eax, 0x89ab_cdef).initial_register(Ebx, 0)
+            .step(Checkpoint::new(&[0x83, 0xe0, 0xff],
+                Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Set, of: Clear }).register(Eax, 0x89ab_cdef))
+            .conditions([0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0]),
+        SequenceCase::new("byte OR reads old AL before replacing AH", Flags::all(true))
+            .initial_register(Eax, 0x4433_8001).initial_register(Ebx, 0)
+            .step(Checkpoint::new(&[0x0a, 0xe0],
+                Flags { cf: Clear, pf: Set, af: Undefined, zf: Clear, sf: Set, of: Clear }).register(Eax, 0x4433_8101))
+            .conditions([0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0]),
+        SequenceCase::new("group OR sign extends its byte mask to a word", Flags::all(true))
+            .initial_register(Eax, 0x4433_0001).initial_register(Ebx, 0)
+            .step(Checkpoint::new(&[0x66, 0x83, 0xc8, 0x80],
+                Flags { cf: Clear, pf: Set, af: Undefined, zf: Clear, sf: Set, of: Clear }).register(Eax, 0x4433_ff81))
+            .conditions([0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0]),
+        SequenceCase::new("dword accumulator OR ignores upper bits for parity", Flags::all(true))
+            .initial_register(Eax, 0x100).initial_register(Ebx, 0)
+            .step(Checkpoint::new(&[0x0d, 1, 0, 0, 0],
+                Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Clear, of: Clear }).register(Eax, 0x101))
+            .conditions([0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]),
+        SequenceCase::new("self XOR clears only AH and produces equal flags", Flags::all(true))
+            .initial_register(Eax, 0x4433_ff80).initial_register(Ebx, 0)
+            .step(Checkpoint::new(&[0x30, 0xe4],
+                Flags { cf: Clear, pf: Set, af: Undefined, zf: Set, sf: Clear, of: Clear }).register(Eax, 0x4433_0080))
+            .conditions([0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0]),
+        SequenceCase::new("reverse word XOR preserves the upper parent register", Flags::all(true))
+            .initial_register(Eax, 0x4433_ffff).initial_register(Ebx, 0xdead_8000)
+            .step(Checkpoint::new(&[0x66, 0x33, 0xc3],
+                Flags { cf: Clear, pf: Set, af: Undefined, zf: Clear, sf: Clear, of: Clear }).register(Eax, 0x4433_7fff))
+            .conditions([0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1]),
+        SequenceCase::new("group XOR sign extends its byte mask to a dword", Flags::all(true))
+            .initial_register(Eax, 0x8000_0000).initial_register(Ebx, 0)
+            .step(Checkpoint::new(&[0x83, 0xf0, 0xff],
+                Flags { cf: Clear, pf: Set, af: Undefined, zf: Clear, sf: Clear, of: Clear }).register(Eax, 0x7fff_ffff))
+            .conditions([0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1]),
+        SequenceCase::new("TEST reads AH and AL without replacing either alias", Flags::all(true))
+            .initial_register(Eax, 0x4433_807f).initial_register(Ebx, 0)
+            .step(Checkpoint::new(&[0x84, 0xc4],
+                Flags { cf: Clear, pf: Set, af: Undefined, zf: Set, sf: Clear, of: Clear }).register(Eax, 0x4433_807f))
+            .conditions([0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0]),
+        SequenceCase::new("word accumulator TEST leaves EAX unchanged", Flags::all(true))
+            .initial_register(Eax, 0x4433_8001).initial_register(Ebx, 0)
+            .step(Checkpoint::new(&[0x66, 0xa9, 0x00, 0xff],
+                Flags { cf: Clear, pf: Set, af: Undefined, zf: Clear, sf: Set, of: Clear }).register(Eax, 0x4433_8001))
+            .conditions([0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0]),
+        SequenceCase::new("dword register TEST keeps both inputs", Flags::all(true))
+            .initial_register(Eax, 0x8000_0001).initial_register(Ebx, 0xffff_ffff)
+            .step(Checkpoint::new(&[0x85, 0xd8],
+                Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Set, of: Clear }).register(Eax, 0x8000_0001))
+            .conditions([0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0]),
+        SequenceCase::new("byte group TEST ignores the operand-size prefix", Flags::all(true))
+            .initial_register(Eax, 0x4433_2280).initial_register(Ebx, 0)
+            .step(Checkpoint::new(&[0x66, 0xf6, 0xc0, 0x80],
+                Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Set, of: Clear }).register(Eax, 0x4433_2280))
+            .conditions([0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0]),
+        SequenceCase::new("dword group TEST publishes its result without a write", Flags::all(true))
+            .initial_register(Eax, 0xffff_fff0).initial_register(Ebx, 0)
+            .step(Checkpoint::new(&[0xf7, 0xc0, 0x0f, 0, 0, 0],
+                Flags { cf: Clear, pf: Set, af: Undefined, zf: Set, sf: Clear, of: Clear }).register(Eax, 0xffff_fff0))
+            .conditions([0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0]),
+    ]
 }
 
-const LOGICAL: &[LogicalCase] = &[
-    LogicalCase {
-        name: "byte AND retains upper EAX and clears stale carry and overflow",
-        code: &[0x20, 0xd8],
-        eax: 0x4433_22f3,
-        ebx: 0x0f,
-        final_eax: 0x4433_2203,
-        kind: 3,
-        result: 3,
-        conditions: 0xa6aa,
-    },
-    LogicalCase {
-        name: "word AND uses the word sign and only the low byte for parity",
-        code: &[0x66, 0x21, 0xd8],
-        eax: 0x4433_80ff,
-        ebx: 0xdead_ff00,
-        final_eax: 0x4433_8000,
-        kind: 7,
-        result: 0x8000,
-        conditions: 0x55aa,
-    },
-    LogicalCase {
-        name: "reverse dword AND records a negative odd-parity result",
-        code: &[0x23, 0xc3],
-        eax: 0x8000_0001,
-        ebx: 0xffff_ffff,
-        final_eax: 0x8000_0001,
-        kind: 11,
-        result: 0x8000_0001,
-        conditions: 0x59aa,
-    },
-    LogicalCase {
-        name: "group AND sign extends its byte mask to a dword",
-        code: &[0x83, 0xe0, 0xff],
-        eax: 0x89ab_cdef,
-        ebx: 0,
-        final_eax: 0x89ab_cdef,
-        kind: 11,
-        result: 0x89ab_cdef,
-        conditions: 0x59aa,
-    },
-    LogicalCase {
-        name: "byte OR reads old AL before replacing AH",
-        code: &[0x0a, 0xe0],
-        eax: 0x4433_8001,
-        ebx: 0,
-        final_eax: 0x4433_8101,
-        kind: 3,
-        result: 0x81,
-        conditions: 0x55aa,
-    },
-    LogicalCase {
-        name: "group OR sign extends its byte mask to a word",
-        code: &[0x66, 0x83, 0xc8, 0x80],
-        eax: 0x4433_0001,
-        ebx: 0,
-        final_eax: 0x4433_ff81,
-        kind: 7,
-        result: 0xff81,
-        conditions: 0x55aa,
-    },
-    LogicalCase {
-        name: "dword accumulator OR ignores upper bits for parity",
-        code: &[0x0d, 1, 0, 0, 0],
-        eax: 0x100,
-        ebx: 0,
-        final_eax: 0x101,
-        kind: 11,
-        result: 0x101,
-        conditions: 0xaaaa,
-    },
-    LogicalCase {
-        name: "self XOR clears only AH and produces equal flags",
-        code: &[0x30, 0xe4],
-        eax: 0x4433_ff80,
-        ebx: 0,
-        final_eax: 0x4433_0080,
-        kind: 3,
-        result: 0,
-        conditions: 0x665a,
-    },
-    LogicalCase {
-        name: "reverse word XOR preserves the upper parent register",
-        code: &[0x66, 0x33, 0xc3],
-        eax: 0x4433_ffff,
-        ebx: 0xdead_8000,
-        final_eax: 0x4433_7fff,
-        kind: 7,
-        result: 0x7fff,
-        conditions: 0xa6aa,
-    },
-    LogicalCase {
-        name: "group XOR sign extends its byte mask to a dword",
-        code: &[0x83, 0xf0, 0xff],
-        eax: 0x8000_0000,
-        ebx: 0,
-        final_eax: 0x7fff_ffff,
-        kind: 11,
-        result: 0x7fff_ffff,
-        conditions: 0xa6aa,
-    },
-    LogicalCase {
-        name: "TEST reads AH and AL without replacing either alias",
-        code: &[0x84, 0xc4],
-        eax: 0x4433_807f,
-        ebx: 0,
-        final_eax: 0x4433_807f,
-        kind: 3,
-        result: 0,
-        conditions: 0x665a,
-    },
-    LogicalCase {
-        name: "word accumulator TEST leaves EAX unchanged",
-        code: &[0x66, 0xa9, 0x00, 0xff],
-        eax: 0x4433_8001,
-        ebx: 0,
-        final_eax: 0x4433_8001,
-        kind: 7,
-        result: 0x8000,
-        conditions: 0x55aa,
-    },
-    LogicalCase {
-        name: "dword register TEST keeps both inputs",
-        code: &[0x85, 0xd8],
-        eax: 0x8000_0001,
-        ebx: 0xffff_ffff,
-        final_eax: 0x8000_0001,
-        kind: 11,
-        result: 0x8000_0001,
-        conditions: 0x59aa,
-    },
-    LogicalCase {
-        name: "byte group TEST ignores the operand-size prefix",
-        code: &[0x66, 0xf6, 0xc0, 0x80],
-        eax: 0x4433_2280,
-        ebx: 0,
-        final_eax: 0x4433_2280,
-        kind: 3,
-        result: 0x80,
-        conditions: 0x59aa,
-    },
-    LogicalCase {
-        name: "dword group TEST publishes its result without a write",
-        code: &[0xf7, 0xc0, 0x0f, 0, 0, 0],
-        eax: 0xffff_fff0,
-        ebx: 0,
-        final_eax: 0xffff_fff0,
-        kind: 11,
-        result: 0,
-        conditions: 0x665a,
-    },
-];
+test_sequences!(results_and_conditions, result_conditions());
 
 #[test]
-fn replacing_arithmetic() {
+fn discarded_arithmetic_operands_remain_unpublished_after_logic() {
     let step = TestModule::interpreter();
     let code = [
         0x05, 1, 0, 0, 0, // ADD EAX,1
@@ -264,80 +187,17 @@ fn replacing_arithmetic() {
     );
 }
 
-#[test]
-fn replacing_logic() {
-    let step = TestModule::interpreter();
-    let code = [
-        0x66, 0x25, 0xff, 0, // AND AX,00ff
-        0x2d, 1, 0, 0x33, 0x44, // SUB EAX,44330001
-        0x0f, 0x94, 0xc4, // SETE AH
-    ];
-    let mut image = image(&code);
-    image.cpu.registers.eax = 0x4433_8001;
-    let mut expected_cpu = image.cpu;
-    let mut steps = Vec::new();
-
-    expected_cpu.flags.kind = 7;
-    expected_cpu.flags.left = 1;
-    expected_cpu.registers.eax = 0x4433_0001;
-    expected_cpu.eip = 0x1004;
-    expected_cpu.instruction_count = 0;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x1004),
-    });
-
-    expected_cpu.flags.kind = 9;
-    expected_cpu.flags.left = 0x4433_0001;
-    expected_cpu.flags.right = 0x4433_0001;
-    expected_cpu.registers.eax = 0;
-    expected_cpu.eip = 0x1009;
-    expected_cpu.instruction_count = 1;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x1009),
-    });
-
-    expected_cpu.registers.eax = 0x100;
-    expected_cpu.eip = 0x100c;
-    expected_cpu.instruction_count = 2;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x100c),
-    });
-
-    both(
-        step,
-        "arithmetic replaces a logical result with its original operands",
-        &code,
-        3,
-        &image,
-        &steps,
-    );
+#[rustfmt::skip]
+fn replacement_sequence() -> Vec<SequenceCase> {
+    vec![SequenceCase::new("arithmetic replaces a logical result", Flags::all(true))
+        .initial_register(Eax, 0x4433_8001)
+        .step(Checkpoint::new(&[0x66, 0x25, 0xff, 0],
+            Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_0001))
+        .step(Checkpoint::new(&[0x2d, 1, 0, 0x33, 0x44],
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0))
+        .step(Checkpoint::preserving_flags(&[0x0f, 0x94, 0xc4]).register(Eax, 0x100))]
 }
 
-#[test]
-fn logical_results_and_conditions() {
-    let step = TestModule::interpreter();
-    for case in LOGICAL {
-        let mut image = image(case.code);
-        image.cpu.registers.eax = case.eax;
-        image.cpu.registers.ebx = case.ebx;
-        // Logic publishes kind and result. The unused B field remains untouched.
-        let mut expected = image.cpu;
-        expected.flags.kind = case.kind;
-        expected.flags.left = case.result;
-        expected.registers.eax = case.final_eax;
-        check_conditions(
-            step,
-            case.name,
-            case.code,
-            &mut image,
-            &expected,
-            case.conditions,
-        );
-    }
-}
+test_sequences!(logic_then_arithmetic, replacement_sequence());

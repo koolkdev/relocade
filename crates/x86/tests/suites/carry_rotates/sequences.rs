@@ -1,3 +1,5 @@
+//! Checks the bit model across pending carry chains and exact fault publication records.
+
 use wasm86_x86::{compile_block_from_bytes, StatusFlags};
 
 use crate::support::{
@@ -5,7 +7,7 @@ use crate::support::{
     step::TestModule,
 };
 
-use super::{expected, image, retire, Operation, OPERATIONS};
+use super::{bit_at_a_time_model, image, retire, Operation, OPERATIONS};
 
 const MEMORY_WRITE: &[(u32, &[u8])] = &[(0x8000, &[0, 0, 0, 0])];
 
@@ -73,7 +75,7 @@ fn flags_then_fault(operation: Operation, count: u8) -> (Vec<u8>, Image, Vec<Ste
         sf: 0,
         of: 0,
     };
-    let rotated = expected(operation, 8, 0x80, count, add_flags);
+    let rotated = bit_at_a_time_model(operation, 8, 0x80, count, add_flags);
     let flags = rotated.status.unwrap_or(add_flags);
     cpu.registers.eax = 0x4433_0000 | (rotated.value << 8);
     rotated.apply_flags(&mut cpu);

@@ -1,6 +1,9 @@
-use wasm86_x86::{CpuState, StatusFlags};
+use wasm86_x86::{CpuState, StatusFlags, StoredFlags};
 
 use crate::support::machine::{byte_register_image, Exit, Image, Step};
+
+#[path = "double_shifts/cases.rs"]
+mod cases;
 
 #[path = "double_shifts/counts.rs"]
 mod counts;
@@ -28,29 +31,34 @@ impl Operation {
 
 const OPERATIONS: [Operation; 2] = [Operation::Shld, Operation::Shrd];
 
-fn image(code: &[u8]) -> Image {
-    let mut image = byte_register_image(code);
-    image.cpu.flags.kind = 6;
-    image.cpu.flags.left = 0x7fff;
-    image.cpu.flags.right = 1;
-    image.cpu.flags.status = StatusFlags {
+const STORED_FLAGS: StoredFlags = StoredFlags {
+    kind: 6,
+    reserved: [0xa5; 3],
+    left: 0x7fff,
+    right: 1,
+    status: StatusFlags {
         cf: 0xfe,
         pf: 0x7f,
         af: 0x5a,
         zf: 0x80,
         sf: 0xff,
         of: 1,
-    };
-    image.cpu.flags.non_status = [0, 1, 0, 0, 0, 0xa5];
+    },
+    non_status: [0, 1, 0, 0, 0, 0xa5],
+};
+
+fn image(code: &[u8]) -> Image {
+    let mut image = byte_register_image(code);
+    image.cpu.flags = STORED_FLAGS;
     image
 }
 
-struct Expected {
+struct ModelResult {
     value: u32,
     status: Option<StatusFlags>,
 }
 
-impl Expected {
+impl ModelResult {
     fn apply_flags(&self, cpu: &mut CpuState) {
         if let Some(status) = self.status {
             cpu.flags.kind = 0;
@@ -61,12 +69,18 @@ impl Expected {
 
 // Shift one destination bit at a time, injecting successive source bits.
 // This oracle does not use the generated carrier's double-shift formula.
-fn expected(operation: Operation, bits: u32, destination: u32, source: u32, count: u8) -> Expected {
+fn bit_at_a_time_model(
+    operation: Operation,
+    bits: u32,
+    destination: u32,
+    source: u32,
+    count: u8,
+) -> ModelResult {
     let count = u32::from(count & 31);
     // Counts beyond a word are architecturally undefined. The emulator's
     // deterministic policy clears the result, CF, AF and OF.
     if count > bits {
-        return Expected {
+        return ModelResult {
             value: 0,
             status: Some(StatusFlags {
                 cf: 0,
@@ -98,7 +112,7 @@ fn expected(operation: Operation, bits: u32, destination: u32, source: u32, coun
             }
         }
     }
-    Expected {
+    ModelResult {
         value: result as u32,
         status: (count != 0).then_some(StatusFlags {
             cf: u8::from(carry),

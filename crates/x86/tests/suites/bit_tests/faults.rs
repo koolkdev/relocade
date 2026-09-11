@@ -1,46 +1,46 @@
-use crate::support::{
-    machine::{both, Exit, Step},
-    step::TestModule,
+use wasm86_x86::Gpr32;
+
+use crate::support::cases::{
+    test_cases, InstructionCase,
+    Permissions::{ReadOnly, ReadWrite},
 };
 
-use super::{image, operand_address, Operation, OPERATIONS};
+use super::{other_register_inputs, Operation, OPERATIONS, STORED_FLAGS};
 
-#[test]
-fn even_unchanged_modifiers_require_write_permission_before_publishing_carry() {
+fn unchanged_modifiers_on_read_only_memory() -> Vec<InstructionCase> {
+    let mut cases = Vec::new();
     for operation in [Operation::Bts, Operation::Btr, Operation::Btc] {
         for bits in [16, 32] {
-            for value in [0_u32, u32::MAX] {
+            for input in [0_u32, u32::MAX] {
                 let mut code = if bits == 16 { vec![0x66] } else { vec![] };
                 code.extend_from_slice(&[0x0f, 0xba, 0x03 | (operation.extension() << 3), 0]);
-                let mut image = image(&code);
-                image.cpu.registers.ebx = 0x4000;
-                image.map(4, 0x8000, false);
-                image.data(0x7fff, &[0x5a]);
-                image.data(0x8000, &value.to_le_bytes());
-                image.data(0x8004, &[0x5a]);
-                both(
-                    TestModule::interpreter(),
-                    &format!("{operation:?} {bits}-bit {value:x} requires a writable operand"),
-                    &code,
-                    1,
-                    &image,
-                    &[Step {
-                        cpu: image.cpu,
-                        ram: &[],
-                        exit: Exit::PageFault {
-                            address: 0x4000,
-                            error: 3,
-                        },
-                    }],
+                cases.push(
+                    InstructionCase::preserving_flags(
+                        format!("{operation:?} {bits}-bit {input:x} requires a writable operand"),
+                        &code,
+                    )
+                    .initial_registers(&other_register_inputs(&[Gpr32::Ebx]))
+                    .stored_flags(STORED_FLAGS)
+                    .initial_register(Gpr32::Ebx, 0x4000)
+                    .map_page(4, 0x8000, ReadOnly)
+                    .backing(0x7fff, &[0x5a])
+                    .backing(0x8000, &input.to_le_bytes())
+                    .backing(0x8004, &[0x5a])
+                    .fault(0x4000, 3),
                 );
             }
         }
     }
+    cases
 }
 
-#[test]
-fn bit_memory_faults_check_the_adjusted_full_operand_before_any_effect() {
-    struct Case {
+test_cases!(
+    unchanged_modifiers_still_require_write_access,
+    unchanged_modifiers_on_read_only_memory()
+);
+
+fn adjusted_operand_faults() -> Vec<InstructionCase> {
+    struct Operand {
         name: &'static str,
         bits: u32,
         base: u32,
@@ -54,8 +54,9 @@ fn bit_memory_faults_check_the_adjusted_full_operand_before_any_effect() {
         write_fault: u32,
         write_error: u16,
     }
-    for case in [
-        Case {
+    let mut cases = Vec::new();
+    for operand in [
+        Operand {
             name: "missing selected word",
             bits: 16,
             base: 0x4000,
@@ -69,7 +70,7 @@ fn bit_memory_faults_check_the_adjusted_full_operand_before_any_effect() {
             write_fault: 0x4000,
             write_error: 2,
         },
-        Case {
+        Operand {
             name: "adjusted dword misses despite a present encoded base",
             bits: 32,
             base: 0x4ffc,
@@ -83,7 +84,7 @@ fn bit_memory_faults_check_the_adjusted_full_operand_before_any_effect() {
             write_fault: 0x5000,
             write_error: 2,
         },
-        Case {
+        Operand {
             name: "word signed index ignores the parent register's high word",
             bits: 16,
             base: 0x5000,
@@ -97,7 +98,7 @@ fn bit_memory_faults_check_the_adjusted_full_operand_before_any_effect() {
             write_fault: 0x4000,
             write_error: 2,
         },
-        Case {
+        Operand {
             name: "bit in first byte still requires the full word",
             bits: 16,
             base: 0x4fff,
@@ -111,7 +112,7 @@ fn bit_memory_faults_check_the_adjusted_full_operand_before_any_effect() {
             write_fault: 0x5000,
             write_error: 2,
         },
-        Case {
+        Operand {
             name: "negative dword index reaches a missing second page",
             bits: 32,
             base: 0x5002,
@@ -125,7 +126,7 @@ fn bit_memory_faults_check_the_adjusted_full_operand_before_any_effect() {
             write_fault: 0x5000,
             write_error: 2,
         },
-        Case {
+        Operand {
             name: "word second page must be writable for modifiers",
             bits: 16,
             base: 0x5001,
@@ -139,7 +140,7 @@ fn bit_memory_faults_check_the_adjusted_full_operand_before_any_effect() {
             write_fault: 0x5000,
             write_error: 3,
         },
-        Case {
+        Operand {
             name: "dword second page must be writable for modifiers",
             bits: 32,
             base: 0x5002,
@@ -153,7 +154,7 @@ fn bit_memory_faults_check_the_adjusted_full_operand_before_any_effect() {
             write_fault: 0x5000,
             write_error: 3,
         },
-        Case {
+        Operand {
             name: "write fails on the first page before a missing second page",
             bits: 16,
             base: 0x5001,
@@ -167,7 +168,7 @@ fn bit_memory_faults_check_the_adjusted_full_operand_before_any_effect() {
             write_fault: 0x4fff,
             write_error: 3,
         },
-        Case {
+        Operand {
             name: "immediate high bits cannot bypass the split operand",
             bits: 16,
             base: 0x4fff,
@@ -181,7 +182,7 @@ fn bit_memory_faults_check_the_adjusted_full_operand_before_any_effect() {
             write_fault: 0x5000,
             write_error: 2,
         },
-        Case {
+        Operand {
             name: "adjusted word span cannot wrap",
             bits: 16,
             base: 1,
@@ -195,7 +196,7 @@ fn bit_memory_faults_check_the_adjusted_full_operand_before_any_effect() {
             write_fault: u32::MAX,
             write_error: 2,
         },
-        Case {
+        Operand {
             name: "adjusted dword span cannot wrap",
             bits: 32,
             base: 2,
@@ -210,62 +211,66 @@ fn bit_memory_faults_check_the_adjusted_full_operand_before_any_effect() {
             write_error: 2,
         },
     ] {
-        assert_eq!(
-            operand_address(case.base, case.bits, case.index, case.immediate),
-            case.address,
-            "{}",
-            case.name
-        );
         for operation in OPERATIONS {
-            let exit = if operation.modifies() {
-                Exit::PageFault {
-                    address: case.write_fault,
-                    error: case.write_error,
-                }
-            } else if let Some(address) = case.read_fault {
-                Exit::PageFault { address, error: 0 }
+            let (address, error) = if operation.modifies() {
+                (operand.write_fault, operand.write_error)
+            } else if let Some(address) = operand.read_fault {
+                (address, 0)
             } else {
                 continue;
             };
-            let mut code = if case.bits == 16 { vec![0x66] } else { vec![] };
-            if case.immediate {
+            let mut code = if operand.bits == 16 {
+                vec![0x66]
+            } else {
+                vec![]
+            };
+            if operand.immediate {
                 code.extend_from_slice(&[
                     0x0f,
                     0xba,
                     0x03 | (operation.extension() << 3),
-                    case.index as u8,
+                    operand.index as u8,
                 ]);
             } else {
                 code.extend_from_slice(&[0x0f, operation.register_opcode(), 0x13]);
             }
-            let mut image = image(&code);
-            image.cpu.registers.ebx = case.base;
-            image.cpu.registers.edx = case.index;
-            if let Some(page) = case.extra_read_only_page {
-                image.map(page, 0xc000, false);
-            }
-            if let Some(writable) = case.first_writable {
-                image.map(case.address >> 12, 0x8000, writable);
-            }
-            if let Some(writable) = case.second_writable {
-                image.map((case.address >> 12) + 1, 0xa000, writable);
-            }
-            image.data(0x8000, &[0x81, 0x80, 0xff, 0xff]);
-            image.data(0x8ffc, &[0x5a, 0x78, 0x56, 0x34]);
-            image.data(0xa000, &[0x12, 0x5a]);
-            image.data(0xc000, &[0xde, 0xad, 0xbe, 0xef]);
-            both(
-                TestModule::interpreter(),
-                &format!("{operation:?}: {}", case.name),
+            let mut case = InstructionCase::preserving_flags(
+                format!("{operation:?}: {}", operand.name),
                 &code,
-                1,
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit,
-                }],
-            );
+            )
+            .initial_registers(&other_register_inputs(&[Gpr32::Ebx, Gpr32::Edx]))
+            .stored_flags(STORED_FLAGS)
+            .initial_register(Gpr32::Ebx, operand.base)
+            .initial_register(Gpr32::Edx, operand.index)
+            .backing(0x8000, &[0x81, 0x80, 0xff, 0xff])
+            .backing(0x8ffc, &[0x5a, 0x78, 0x56, 0x34])
+            .backing(0xa000, &[0x12, 0x5a])
+            .backing(0xc000, &[0xde, 0xad, 0xbe, 0xef])
+            .fault(address, error);
+            if let Some(page) = operand.extra_read_only_page {
+                case = case.map_page(page, 0xc000, ReadOnly);
+            }
+            if let Some(writable) = operand.first_writable {
+                case = case.map_page(
+                    operand.address >> 12,
+                    0x8000,
+                    if writable { ReadWrite } else { ReadOnly },
+                );
+            }
+            if let Some(writable) = operand.second_writable {
+                case = case.map_page(
+                    (operand.address >> 12) + 1,
+                    0xa000,
+                    if writable { ReadWrite } else { ReadOnly },
+                );
+            }
+            cases.push(case);
         }
     }
+    cases
 }
+
+test_cases!(
+    faults_check_the_entire_adjusted_operand,
+    adjusted_operand_faults()
+);

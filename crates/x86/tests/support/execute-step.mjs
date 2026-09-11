@@ -13,7 +13,9 @@ for (const [memory, patches] of [[guest, input.guest], [machine, input.machine]]
 }
 const guestBefore = Buffer.from(new Uint8Array(guest.buffer));
 const machineBefore = Buffer.from(new Uint8Array(machine.buffer));
+let machineUnchanged = true;
 const snapshot = () => {
+  machineUnchanged &&= machineBefore.equals(Buffer.from(machine.buffer));
   const changes = [];
   if (input.observe_guest) {
     const bytes = new Uint8Array(guest.buffer);
@@ -56,5 +58,5 @@ for (let call = 0; call < invocations; call++) {
 process.stdout.write(JSON.stringify({
   events,
   guest_unchanged: guestBefore.equals(Buffer.from(guest.buffer)),
-  machine_unchanged: machineBefore.equals(Buffer.from(machine.buffer)),
+  machine_unchanged: machineUnchanged,
 }));

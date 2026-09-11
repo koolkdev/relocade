@@ -1,4 +1,8 @@
+use crate::support::cases::{
+    test_cases, InstructionCase as Case, Permissions::ReadOnly, RegisterExpectation::Exact,
+};
 use crate::support::machine::{check, Exit, Image, Step};
+use crate::support::sequences::{test_sequences, Checkpoint, SequenceCase};
 use crate::support::step;
 use step::TestModule;
 use wasm86_x86::{compile_block_from_bytes, compile_interpreter_step, CpuState, Gpr32};
@@ -106,725 +110,262 @@ fn interpreter_step_exposes_the_cpu_ram_page_map_and_dispatch_abi() {
     );
 }
 
-#[test]
-fn register_moves_and_forwarded_values() {
-    let step = TestModule::interpreter();
+fn register_moves() -> Vec<Case> {
+    let mut cases = Vec::new();
     for (source, &(_, value)) in REGISTERS.iter().enumerate() {
         for (destination, &(register, _)) in REGISTERS.iter().enumerate() {
-            for bytes in [
+            for code in [
                 [0x89, 0xc0 | ((source as u8) << 3) | destination as u8],
                 [0x8b, 0xc0 | ((destination as u8) << 3) | source as u8],
             ] {
-                let label = format!(
-                    "opcode {:02x}, source {source}, destination {destination}",
-                    bytes[0]
-                );
-                let image_name = &label;
-                let image = Image {
-                    cpu: state(0x1234),
-                    guest: vec![(0x3234, bytes.to_vec())],
-                    machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
-                };
-                let mut expected_cpu = image.cpu;
-                expected_cpu.registers[register] = value;
-                expected_cpu.eip = 0x1236;
-                expected_cpu.instruction_count = 0;
-                check(
-                    step,
-                    image_name,
-                    &image,
-                    &[Step {
-                        cpu: expected_cpu,
-                        ram: &[],
-                        exit: Exit::Dispatch(4662),
-                    }],
-                );
-                let snapshot =
-                    TestModule::new(&compile_block_from_bytes(0x1234, &bytes, 1).unwrap());
-                check(
-                    &snapshot,
-                    image_name,
-                    &image,
-                    &[Step {
-                        cpu: expected_cpu,
-                        ram: &[],
-                        exit: Exit::Dispatch(4662),
-                    }],
+                cases.push(
+                    Case::preserving_flags(
+                        format!(
+                            "MOV opcode {:02x}, source {source}, destination {destination}",
+                            code[0]
+                        ),
+                        &code,
+                    )
+                    .at(0x1234)
+                    .initial_registers(&REGISTERS)
+                    .expect_register(register, Exact(value)),
                 );
             }
         }
     }
+    for &(code, register, value) in &MOVES {
+        cases.push(
+            Case::preserving_flags(format!("MOV {register:?}, immediate {value:#x}"), code)
+                .at(0x1234)
+                .initial_registers(&REGISTERS)
+                .expect_register(register, Exact(value)),
+        );
+    }
+    cases
+}
 
-    let rotation = &[
-        0x89, 0xc2, 0x8b, 0xc1, 0x89, 0xd1, 0x8b, 0xf8, 0x89, 0xce, 0x8b, 0xda,
-    ];
-    let image_name = "register rotation retains source values";
-    let image = Image {
-        cpu: state(0x1000),
-        guest: vec![(0x3000, (rotation).to_vec())],
-        machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
-    };
-    let mut expected_cpu = image.cpu;
-    let mut steps = Vec::new();
+#[rustfmt::skip]
+fn forwarded_values() -> Vec<SequenceCase> {
+    vec![
+        SequenceCase::preserving_flags("register rotation retains source values").initial_registers(&REGISTERS)
+            .step(Checkpoint::preserving_flags(&[0x89, 0xc2]).register(Gpr32::Edx, 0x1111_1111))
+            .step(Checkpoint::preserving_flags(&[0x8b, 0xc1]).register(Gpr32::Eax, 0x2222_2222))
+            .step(Checkpoint::preserving_flags(&[0x89, 0xd1]).register(Gpr32::Ecx, 0x1111_1111))
+            .step(Checkpoint::preserving_flags(&[0x8b, 0xf8]).register(Gpr32::Edi, 0x2222_2222))
+            .step(Checkpoint::preserving_flags(&[0x89, 0xce]).register(Gpr32::Esi, 0x1111_1111))
+            .step(Checkpoint::preserving_flags(&[0x8b, 0xda]).register(Gpr32::Ebx, 0x1111_1111)),
+        SequenceCase::preserving_flags("immediate definition forwards through register copies").initial_registers(&REGISTERS)
+            .step(Checkpoint::preserving_flags(&[0xb8, 42, 0, 0, 0]).register(Gpr32::Eax, 42))
+            .step(Checkpoint::preserving_flags(&[0x89, 0xc1]).register(Gpr32::Ecx, 42))
+            .step(Checkpoint::preserving_flags(&[0x8b, 0xd1]).register(Gpr32::Edx, 42))
+            .step(Checkpoint::preserving_flags(&[0x89, 0xd3]).register(Gpr32::Ebx, 42)),
+        SequenceCase::preserving_flags("earlier copy survives replacing its source register").initial_registers(&REGISTERS)
+            .step(Checkpoint::preserving_flags(&[0x89, 0xc1]).register(Gpr32::Ecx, 0x1111_1111))
+            .step(Checkpoint::preserving_flags(&[0xb8, 9, 0, 0, 0]).register(Gpr32::Eax, 9))
+            .step(Checkpoint::preserving_flags(&[0x8b, 0xd1]).register(Gpr32::Edx, 0x1111_1111)),
+    ]
+}
 
-    expected_cpu.registers.edx = 0x1111_1111;
-    expected_cpu.eip = 0x1002;
-    expected_cpu.instruction_count = 0;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(4098),
-    });
+#[rustfmt::skip]
+fn successful_fetch_boundaries() -> Vec<Case> {
+    vec![
+        Case::preserving_flags("complete register MOV does not fetch a following page", &[0x89, 0xc1])
+            .at(0x1ffe).initial_registers(&REGISTERS).expect_register(Gpr32::Ecx, Exact(0x1111_1111)),
+        Case::preserving_flags("ModRM is in a nonadjacent physical frame", &[0x8b, 0xf8])
+            .at(0x1fff).map_page(1, 0x3000, ReadOnly).map_page(2, 0x1000, ReadOnly)
+            .initial_registers(&REGISTERS).expect_register(Gpr32::Edi, Exact(0x1111_1111)),
+        Case::preserving_flags("register MOV crosses wrapped EIP", &[0x89, 0xc1])
+            .at(0xffff_ffff).map_page(0xfffff, 0x3000, ReadOnly).map_page(0, 0x1000, ReadOnly)
+            .initial_registers(&REGISTERS).expect_register(Gpr32::Ecx, Exact(0x1111_1111)),
+        Case::preserving_flags("immediate crosses contiguous physical frames", &[0xb8, 0x78, 0x56, 0x34, 0x12])
+            .at(0x1ffd).map_page(1, 0x3000, ReadOnly).map_page(2, 0x4000, ReadOnly)
+            .initial_registers(&REGISTERS).expect_register(Gpr32::Eax, Exact(0x1234_5678)),
+        Case::preserving_flags("immediate crosses scattered physical frames", &[0xb8, 0x78, 0x56, 0x34, 0x12])
+            .at(0x1ffd).map_page(1, 0x3000, ReadOnly).map_page(2, 0x1000, ReadOnly)
+            .initial_registers(&REGISTERS).expect_register(Gpr32::Eax, Exact(0x1234_5678)),
+        Case::preserving_flags("opcode and complete immediate occupy separate frames", &[0xb8, 0x78, 0x56, 0x34, 0x12])
+            .at(0x1fff).map_page(1, 0x3000, ReadOnly).map_page(2, 0x1000, ReadOnly)
+            .initial_registers(&REGISTERS).expect_register(Gpr32::Eax, Exact(0x1234_5678)),
+        Case::preserving_flags("immediate is complete at the page end", &[0xb8, 0x78, 0x56, 0x34, 0x12])
+            .at(0x1ffb).initial_registers(&REGISTERS).expect_register(Gpr32::Eax, Exact(0x1234_5678)),
+        Case::preserving_flags("immediate MOV crosses wrapped EIP", &[0xb8, 0x78, 0x56, 0x34, 0x12])
+            .at(0xffff_fffd).map_page(0xfffff, 0x3000, ReadOnly).map_page(0, 0x1000, ReadOnly)
+            .initial_registers(&REGISTERS).expect_register(Gpr32::Eax, Exact(0x1234_5678)),
+        Case::preserving_flags("MOV dispatches an EIP with the sign bit set", &[0xb8, 0x78, 0x56, 0x34, 0x12])
+            .at(0x7fff_fffd).map_page(0x7ffff, 0x3000, ReadOnly).map_page(0x80000, 0x4000, ReadOnly)
+            .initial_registers(&REGISTERS).expect_register(Gpr32::Eax, Exact(0x1234_5678)),
+        Case::preserving_flags("one step retires one instruction even when a successor is present", &[0xb8, 42, 0, 0, 0])
+            .map_page(1, 0x3000, ReadOnly).backing(0x3005, &[0xbf, 7, 0, 0, 0])
+            .initial_registers(&REGISTERS).expect_register(Gpr32::Eax, Exact(42)),
+    ]
+}
 
-    expected_cpu.registers.eax = 0x2222_2222;
-    expected_cpu.eip = 0x1004;
-    expected_cpu.instruction_count = 1;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(4100),
-    });
+test_cases!(register_and_immediate_moves, register_moves());
+test_cases!(
+    scattered_wrapping_and_complete_fetches,
+    successful_fetch_boundaries()
+);
+test_sequences!(register_value_forwarding, forwarded_values());
 
-    expected_cpu.registers.ecx = 0x1111_1111;
-    expected_cpu.eip = 0x1006;
-    expected_cpu.instruction_count = 2;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(4102),
-    });
-
-    expected_cpu.registers.edi = 0x2222_2222;
-    expected_cpu.eip = 0x1008;
-    expected_cpu.instruction_count = 3;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(4104),
-    });
-
-    expected_cpu.registers.esi = 0x1111_1111;
-    expected_cpu.eip = 0x100a;
-    expected_cpu.instruction_count = 4;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(4106),
-    });
-
-    expected_cpu.registers.ebx = 0x1111_1111;
-    expected_cpu.eip = 0x100c;
-    expected_cpu.instruction_count = 5;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(4108),
-    });
-
-    check(step, image_name, &image, &steps);
-    let snapshot = TestModule::new(&compile_block_from_bytes(0x1000, rotation, 6).unwrap());
-    check(
-        &snapshot,
-        image_name,
-        &image,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(4108),
-        }],
-    );
-
-    let forward = &[0xb8, 42, 0, 0, 0, 0x89, 0xc1, 0x8b, 0xd1, 0x89, 0xd3];
-    let image_name = "immediate definition forwards through register copies";
-    let image = Image {
-        cpu: state(0x1000),
-        guest: vec![(0x3000, (forward).to_vec())],
-        machine: image.machine.clone(),
-    };
-    let mut expected_cpu = image.cpu;
-    let mut steps = Vec::new();
-
-    expected_cpu.registers.eax = 42;
-    expected_cpu.eip = 0x1005;
-    expected_cpu.instruction_count = 0;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(4101),
-    });
-
-    expected_cpu.registers.ecx = 42;
-    expected_cpu.eip = 0x1007;
-    expected_cpu.instruction_count = 1;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(4103),
-    });
-
-    expected_cpu.registers.edx = 42;
-    expected_cpu.eip = 0x1009;
-    expected_cpu.instruction_count = 2;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(4105),
-    });
-
-    expected_cpu.registers.ebx = 42;
-    expected_cpu.eip = 0x100b;
-    expected_cpu.instruction_count = 3;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(4107),
-    });
-
-    check(step, image_name, &image, &steps);
-    let snapshot = TestModule::new(&compile_block_from_bytes(0x1000, forward, 4).unwrap());
-    check(
-        &snapshot,
-        image_name,
-        &image,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(4107),
-        }],
-    );
-
-    let old_value = &[0x89, 0xc1, 0xb8, 9, 0, 0, 0, 0x8b, 0xd1];
-    let image_name = "earlier copy survives replacing its source register";
-    let image = Image {
-        cpu: state(0x1000),
-        guest: vec![(0x3000, (old_value).to_vec())],
-        machine: image.machine.clone(),
-    };
-    let mut expected_cpu = image.cpu;
-    let mut steps = Vec::new();
-
-    expected_cpu.registers.ecx = 0x1111_1111;
-    expected_cpu.eip = 0x1002;
-    expected_cpu.instruction_count = 0;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(4098),
-    });
-
-    expected_cpu.registers.eax = 9;
-    expected_cpu.eip = 0x1007;
-    expected_cpu.instruction_count = 1;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(4103),
-    });
-
-    expected_cpu.registers.edx = 0x1111_1111;
-    expected_cpu.eip = 0x1009;
-    expected_cpu.instruction_count = 2;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(4105),
-    });
-
-    check(step, image_name, &image, &steps);
-    let snapshot = TestModule::new(&compile_block_from_bytes(0x1000, old_value, 3).unwrap());
-    check(
-        &snapshot,
-        image_name,
-        &image,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(4105),
-        }],
-    );
-
-    let complete_name = "complete register MOV does not fetch a following page";
-    let complete = Image {
-        cpu: state(0x1ffe),
-        guest: vec![(0x3ffe, [0x89, 0xc1].to_vec())],
-        machine: image.machine.clone(),
-    };
-    let mut expected_cpu = complete.cpu;
-    expected_cpu.registers.ecx = 0x1111_1111;
-    expected_cpu.eip = 0x2000;
-    expected_cpu.instruction_count = 0;
-    check(
-        step,
-        complete_name,
-        &complete,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(8192),
-        }],
-    );
-    let scattered_name = "ModRM is in a nonadjacent physical frame";
-    let scattered = Image {
-        cpu: state(0x1fff),
-        guest: vec![(0x3fff, [0x8b].to_vec()), (0x1000, [0xf8].to_vec())],
-        machine: vec![(4, [1, 0x30, 0, 0, 1, 0x10, 0, 0].to_vec())],
-    };
-    let mut expected_cpu = scattered.cpu;
-    expected_cpu.registers.edi = 0x1111_1111;
-    expected_cpu.eip = 0x2001;
-    expected_cpu.instruction_count = 0;
-    check(
-        step,
-        scattered_name,
-        &scattered,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(8193),
-        }],
-    );
-    let wrapped_name = "register MOV crosses wrapped EIP";
-    let wrapped = Image {
-        cpu: state(0xffff_ffff),
-        guest: vec![(0x3fff, [0x89].to_vec()), (0x1000, [0xc1].to_vec())],
-        machine: vec![
-            (0x003f_fffc, [1, 0x30, 0, 0].to_vec()),
-            (0, [1, 0x10, 0, 0].to_vec()),
-        ],
-    };
-    let mut expected_cpu = wrapped.cpu;
-    expected_cpu.registers.ecx = 0x1111_1111;
-    expected_cpu.eip = 1;
-    expected_cpu.instruction_count = 0;
-    check(
-        step,
-        wrapped_name,
-        &wrapped,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(1),
-        }],
-    );
-    let snapshot =
-        TestModule::new(&compile_block_from_bytes(0xffff_ffff, &[0x89, 0xc1], 1).unwrap());
-    check(
-        &snapshot,
-        wrapped_name,
-        &wrapped,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(1),
-        }],
-    );
-
-    let missing_modrm_name = "missing ModRM preserves the preceding instruction's progress";
-    let missing_modrm = Image {
-        cpu: state(0x1ffa),
-        guest: vec![(0x3ffa, [0xb8, 42, 0, 0, 0, 0x89].to_vec())],
-        machine: image.machine.clone(),
-    };
-    let mut expected_cpu = missing_modrm.cpu;
-    let mut steps = Vec::new();
-
-    expected_cpu.registers.eax = 42;
-    expected_cpu.eip = 0x1fff;
-    expected_cpu.instruction_count = 0;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(8191),
-    });
-
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::PageFault {
-            address: 0x00002000,
-            error: 0x10,
-        },
-    });
-
-    check(step, missing_modrm_name, &missing_modrm, &steps);
-    let memory_form_name = "missing displacement preserves the preceding instruction progress";
-    let memory_form = Image {
-        cpu: state(0x1ff9),
-        guest: vec![(0x3ff9, [0xb8, 42, 0, 0, 0, 0x89, 0x05].to_vec())],
-        machine: image.machine.clone(),
-    };
-    let mut expected_cpu = memory_form.cpu;
-    let mut steps = Vec::new();
-
-    expected_cpu.registers.eax = 42;
-    expected_cpu.eip = 0x1ffe;
-    expected_cpu.instruction_count = 0;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(8190),
-    });
-
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::PageFault {
-            address: 0x00002000,
-            error: 0x10,
-        },
-    });
-
-    check(step, memory_form_name, &memory_form, &steps);
+#[test]
+fn missing_successor_fields_preserve_completed_instruction_progress() {
+    for (name, start, code, completed_eip) in [
+        (
+            "missing ModRM",
+            0x1ffa,
+            &[0xb8, 42, 0, 0, 0, 0x89][..],
+            0x1fff,
+        ),
+        (
+            "missing displacement",
+            0x1ff9,
+            &[0xb8, 42, 0, 0, 0, 0x89, 0x05][..],
+            0x1ffe,
+        ),
+    ] {
+        let image = Image {
+            cpu: state(start),
+            guest: vec![(0x3000 + (start & 0xfff), code.to_vec())],
+            machine: vec![(4, vec![1, 0x30, 0, 0])],
+        };
+        let mut completed = image.cpu;
+        completed.registers.eax = 42;
+        completed.eip = completed_eip;
+        completed.instruction_count = 0;
+        check(
+            TestModule::interpreter(),
+            name,
+            &image,
+            &[
+                Step {
+                    cpu: completed,
+                    ram: &[],
+                    exit: Exit::Dispatch(completed_eip),
+                },
+                Step {
+                    cpu: completed,
+                    ram: &[],
+                    exit: Exit::PageFault {
+                        address: 0x2000,
+                        error: 0x10,
+                    },
+                },
+            ],
+        );
+    }
 }
 
 #[test]
-fn immediate_moves_and_fetch_boundaries() {
-    let step = TestModule::interpreter();
-    // Virtual page 1 maps to frame 3. PRESENT alone permits instruction fetch.
-    for &(bytes, register, value) in &MOVES {
-        let image_name = "all register codes";
-        let image = Image {
-            cpu: state(0x1234),
-            guest: vec![(0x3234, (bytes).to_vec())],
-            machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
-        };
-        let mut expected_cpu = image.cpu;
-        expected_cpu.registers[register] = value;
-        expected_cpu.eip = 0x1239;
-        expected_cpu.instruction_count = 0;
-        check(
-            step,
-            image_name,
-            &image,
-            &[Step {
-                cpu: expected_cpu,
-                ram: &[],
-                exit: Exit::Dispatch(4665),
-            }],
-        );
-        let snapshot = TestModule::new(&compile_block_from_bytes(0x1234, bytes, 1).unwrap());
-        check(
-            &snapshot,
-            image_name,
-            &image,
-            &[Step {
-                cpu: expected_cpu,
-                ram: &[],
-                exit: Exit::Dispatch(4665),
-            }],
-        );
-    }
-    let contiguous_name = "contiguous crossing";
-    let contiguous = Image {
-        cpu: state(0x1ffd),
-        guest: vec![(0x3ffd, (MOVES[0].0).to_vec())],
-        machine: vec![(4, [1, 0x30, 0, 0, 1, 0x40, 0, 0].to_vec())],
-    };
-    let mut expected_cpu = contiguous.cpu;
-    expected_cpu.registers.eax = 0x1234_5678;
-    expected_cpu.eip = 0x2002;
-    expected_cpu.instruction_count = 0;
-    check(
-        step,
-        contiguous_name,
-        &contiguous,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(8194),
-        }],
-    );
-    let scattered_name = "scattered immediate";
-    let scattered = Image {
-        cpu: state(0x1ffd),
-        guest: vec![
-            (0x3ffd, [0xb8, 0x78, 0x56].to_vec()),
-            (0x1000, [0x34, 0x12].to_vec()),
-        ],
-        machine: vec![(4, [1, 0x30, 0, 0, 1, 0x10, 0, 0].to_vec())],
-    };
-    let mut expected_cpu = scattered.cpu;
-    expected_cpu.registers.eax = 0x1234_5678;
-    expected_cpu.eip = 0x2002;
-    expected_cpu.instruction_count = 0;
-    check(
-        step,
-        scattered_name,
-        &scattered,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(8194),
-        }],
-    );
-    let snapshot = TestModule::new(&compile_block_from_bytes(0x1ffd, MOVES[0].0, 1).unwrap());
-    check(
-        &snapshot,
-        scattered_name,
-        &scattered,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(8194),
-        }],
-    );
-    let split_opcode_name = "opcode and complete immediate in separate frames";
-    let split_opcode = Image {
-        cpu: state(0x1fff),
-        guest: vec![
-            (0x3fff, [0xb8].to_vec()),
-            (0x1000, [0x78, 0x56, 0x34, 0x12].to_vec()),
-        ],
-        machine: vec![(4, [1, 0x30, 0, 0, 1, 0x10, 0, 0].to_vec())],
-    };
-    let mut expected_cpu = split_opcode.cpu;
-    expected_cpu.registers.eax = 0x1234_5678;
-    expected_cpu.eip = 0x2004;
-    expected_cpu.instruction_count = 0;
-    check(
-        step,
-        split_opcode_name,
-        &split_opcode,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(8196),
-        }],
-    );
-    // The next page is absent; a complete instruction does not fetch beyond its five bytes.
-    let exact_end_name = "complete at page end";
-    let exact_end = Image {
-        cpu: state(0x1ffb),
-        guest: vec![(0x3ffb, (MOVES[0].0).to_vec())],
-        machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
-    };
-    let mut expected_cpu = exact_end.cpu;
-    expected_cpu.registers.eax = 0x1234_5678;
-    expected_cpu.eip = 0x2000;
-    expected_cpu.instruction_count = 0;
-    check(
-        step,
-        exact_end_name,
-        &exact_end,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(8192),
-        }],
-    );
-    let absent_opcode_name = "absent opcode";
-    let absent_opcode = Image {
-        cpu: state(0x1234),
-        guest: vec![],
-        machine: vec![(4, [0, 0xf0, 0xff, 0xff].to_vec())],
-    };
-    let expected_cpu = absent_opcode.cpu;
-    check(
-        step,
-        absent_opcode_name,
-        &absent_opcode,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::PageFault {
-                address: 0x00001234,
+fn missing_instruction_bytes_and_unsupported_opcodes_preserve_entry_state() {
+    for (name, start, guest, machine, exit) in [
+        (
+            "absent opcode",
+            0x1234,
+            vec![],
+            vec![(4, vec![0, 0xf0, 0xff, 0xff])],
+            Exit::PageFault {
+                address: 0x1234,
                 error: 0x10,
             },
-        }],
-    );
-    let missing_immediate_name = "missing first immediate byte";
-    let missing_immediate = Image {
-        cpu: state(0x1fff),
-        guest: vec![(0x3fff, [0xb8].to_vec())],
-        machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
-    };
-    let expected_cpu = missing_immediate.cpu;
-    check(
-        step,
-        missing_immediate_name,
-        &missing_immediate,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::PageFault {
-                address: 0x00002000,
+        ),
+        (
+            "missing first immediate byte",
+            0x1fff,
+            vec![(0x3fff, vec![0xb8])],
+            vec![(4, vec![1, 0x30, 0, 0])],
+            Exit::PageFault {
+                address: 0x2000,
                 error: 0x10,
             },
-        }],
-    );
-    let partial_immediate_name = "partial immediate";
-    let partial_immediate = Image {
-        cpu: state(0x1ffd),
-        guest: vec![(0x3ffd, [0xb8, 0x78, 0x56].to_vec())],
-        machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
-    };
-    let expected_cpu = partial_immediate.cpu;
-    check(
-        step,
-        partial_immediate_name,
-        &partial_immediate,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::PageFault {
-                address: 0x00002000,
+        ),
+        (
+            "partial immediate",
+            0x1ffd,
+            vec![(0x3ffd, vec![0xb8, 0x78, 0x56])],
+            vec![(4, vec![1, 0x30, 0, 0])],
+            Exit::PageFault {
+                address: 0x2000,
                 error: 0x10,
             },
-        }],
-    );
-    for (opcode, exit) in [
-        (0x62, Exit::Other(0x0008_0062_0000_1fff)),
-        (0x67, Exit::Other(0x0008_0067_0000_1fff)),
+        ),
+        (
+            "unsupported opcode at page end",
+            0x1fff,
+            vec![(0x3fff, vec![0x62])],
+            vec![(4, vec![1, 0x30, 0, 0])],
+            Exit::Other(0x0008_0062_0000_1fff),
+        ),
+        (
+            "unsupported address prefix at page end",
+            0x1fff,
+            vec![(0x3fff, vec![0x67])],
+            vec![(4, vec![1, 0x30, 0, 0])],
+            Exit::Other(0x0008_0067_0000_1fff),
+        ),
+        (
+            "missing page after EIP wrap",
+            0xffff_fffd,
+            vec![(0x3ffd, vec![0xb8, 0x78, 0x56]), (0x1000, vec![0x34, 0x12])],
+            vec![(0x003f_fffc, vec![1, 0x30, 0, 0])],
+            Exit::PageFault {
+                address: 0,
+                error: 0x10,
+            },
+        ),
     ] {
-        let unsupported_name = "unsupported opcode at page end";
-        let unsupported = Image {
-            cpu: state(0x1fff),
-            guest: vec![(0x3fff, [opcode].to_vec())],
-            machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
+        let image = Image {
+            cpu: state(start),
+            guest,
+            machine,
         };
-        let expected_cpu = unsupported.cpu;
         check(
-            step,
-            unsupported_name,
-            &unsupported,
+            TestModule::interpreter(),
+            name,
+            &image,
             &[Step {
-                cpu: expected_cpu,
+                cpu: image.cpu,
                 ram: &[],
                 exit,
             }],
         );
     }
-    let wrapped_name = "wrapped instruction";
-    let wrapped = Image {
-        cpu: state(0xffff_fffd),
-        guest: vec![
-            (0x3ffd, [0xb8, 0x78, 0x56].to_vec()),
-            (0x1000, [0x34, 0x12].to_vec()),
-        ],
-        machine: vec![
-            (0x003f_fffc, [1, 0x30, 0, 0].to_vec()),
-            (0, [1, 0x10, 0, 0].to_vec()),
-        ],
-    };
-    let mut expected_cpu = wrapped.cpu;
-    expected_cpu.registers.eax = 0x1234_5678;
-    expected_cpu.eip = 2;
-    expected_cpu.instruction_count = 0;
-    check(
-        step,
-        wrapped_name,
-        &wrapped,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(2),
-        }],
-    );
-    let snapshot = TestModule::new(&compile_block_from_bytes(0xffff_fffd, MOVES[0].0, 1).unwrap());
-    check(
-        &snapshot,
-        wrapped_name,
-        &wrapped,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(2),
-        }],
-    );
-    let wrapped_fault_name = "missing page after EIP wrap";
-    let wrapped_fault = Image {
-        cpu: wrapped.cpu,
-        guest: wrapped.guest.clone(),
-        machine: vec![(0x003f_fffc, [1, 0x30, 0, 0].to_vec())],
-    };
-    let expected_cpu = wrapped_fault.cpu;
-    check(
-        step,
-        wrapped_fault_name,
-        &wrapped_fault,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::PageFault {
-                address: 0x00000000,
-                error: 0x10,
-            },
-        }],
-    );
-    let high_eip_name = "signed dispatch EIP";
-    let high_eip = Image {
-        cpu: state(0x7fff_fffd),
-        guest: vec![(0x3ffd, (MOVES[0].0).to_vec())],
-        machine: vec![(0x001f_fffc, [1, 0x30, 0, 0, 1, 0x40, 0, 0].to_vec())],
-    };
-    let mut expected_cpu = high_eip.cpu;
-    expected_cpu.registers.eax = 0x1234_5678;
-    expected_cpu.eip = 0x8000_0002;
-    expected_cpu.instruction_count = 0;
-    check(
-        step,
-        high_eip_name,
-        &high_eip,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch((-2147483646_i32) as u32),
-        }],
-    );
-    let two_name = "one instruction only";
-    let two = Image {
+}
+
+#[test]
+fn interpreter_reads_live_bytes_while_a_snapshot_keeps_its_compiled_instruction() {
+    let image = Image {
         cpu: state(0x1000),
-        guest: vec![(0x3000, [0xb8, 42, 0, 0, 0, 0xbf, 7, 0, 0, 0].to_vec())],
-        machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
-    };
-    let mut expected_cpu = two.cpu;
-    expected_cpu.registers.eax = 42;
-    expected_cpu.eip = 0x1005;
-    expected_cpu.instruction_count = 0;
-    check(
-        step,
-        two_name,
-        &two,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(4101),
-        }],
-    );
-    let changed_name = "live bytes differ from snapshot";
-    let changed = Image {
-        cpu: state(0x1000),
-        guest: vec![(0x3000, [0xbf, 7, 0, 0, 0].to_vec())],
-        machine: vec![(4, [1, 0x30, 0, 0].to_vec())],
+        guest: vec![(0x3000, vec![0xbf, 7, 0, 0, 0])],
+        machine: vec![(4, vec![1, 0x30, 0, 0])],
     };
     let snapshot =
         TestModule::new(&compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1).unwrap());
-    let mut expected_cpu = changed.cpu;
-    expected_cpu.registers.edi = 7;
-    expected_cpu.eip = 0x1005;
-    expected_cpu.instruction_count = 0;
+    let mut live = image.cpu;
+    live.registers.edi = 7;
+    live.eip = 0x1005;
+    live.instruction_count = 0;
     check(
-        step,
-        changed_name,
-        &changed,
+        TestModule::interpreter(),
+        "live MOV EDI,7",
+        &image,
         &[Step {
-            cpu: expected_cpu,
+            cpu: live,
             ram: &[],
-            exit: Exit::Dispatch(4101),
+            exit: Exit::Dispatch(0x1005),
         }],
     );
-    let mut expected_cpu = changed.cpu;
-    expected_cpu.registers.eax = 42;
-    expected_cpu.eip = 0x1005;
-    expected_cpu.instruction_count = 0;
+    let mut compiled = image.cpu;
+    compiled.registers.eax = 42;
+    compiled.eip = 0x1005;
+    compiled.instruction_count = 0;
     check(
         &snapshot,
-        changed_name,
-        &changed,
+        "snapshot MOV EAX,42",
+        &image,
         &[Step {
-            cpu: expected_cpu,
+            cpu: compiled,
             ram: &[],
-            exit: Exit::Dispatch(4101),
+            exit: Exit::Dispatch(0x1005),
         }],
     );
 }

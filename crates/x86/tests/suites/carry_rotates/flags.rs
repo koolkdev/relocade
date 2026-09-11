@@ -1,3 +1,5 @@
+//! Varies lazy source kinds and stale bytes to check carry reads and preserved logical flags.
+
 use wasm86_x86::StatusFlags;
 
 use crate::support::{
@@ -5,7 +7,7 @@ use crate::support::{
     step::TestModule,
 };
 
-use super::{expected, image, OPERATIONS};
+use super::{bit_at_a_time_model, image, OPERATIONS};
 
 #[test]
 fn incoming_carry_and_preserved_status_are_read_from_every_lazy_record_kind() {
@@ -109,7 +111,7 @@ fn incoming_carry_and_preserved_status_are_read_from_every_lazy_record_kind() {
                     image.cpu.flags.right = source.right;
                     image.cpu.registers.eax = upper | input;
                     image.cpu.registers.ecx = 0x8877_6600 | u32::from(count);
-                    let result = expected(operation, bits, input, count, prior);
+                    let result = bit_at_a_time_model(operation, bits, input, count, prior);
                     let mut cpu = image.cpu;
                     cpu.registers.eax = upper | result.value;
                     result.apply_flags(&mut cpu);

@@ -1,3 +1,5 @@
+//! Varies concrete and lazy source records against the independent bit model.
+
 use wasm86_x86::StatusFlags;
 
 use crate::support::{
@@ -5,7 +7,7 @@ use crate::support::{
     step::TestModule,
 };
 
-use super::{expected, image, Operation, OPERATIONS, PRIOR_FLAGS};
+use super::{bit_at_a_time_model, image, Operation, OPERATIONS, PRIOR_FLAGS};
 
 #[test]
 fn rotates_preserve_logical_status_from_concrete_and_lazy_records() {
@@ -106,7 +108,7 @@ fn rotates_preserve_logical_status_from_concrete_and_lazy_records() {
                     image.cpu.registers.ecx = 0x8877_6600 | u32::from(count);
                     let input = if operation == Operation::Rol { 0x80 } else { 1 };
                     image.cpu.registers.eax = 0x4433_2200 | input;
-                    let result = expected(operation, 8, input, count, source.logical);
+                    let result = bit_at_a_time_model(operation, 8, input, count, source.logical);
                     let mut cpu = image.cpu;
                     cpu.registers.eax = 0x4433_2200 | result.value;
                     result.apply_flags(&mut cpu);

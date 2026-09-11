@@ -1,11 +1,12 @@
-use wasm86_x86::{compile_block_from_bytes, BlockError};
+use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32};
 
 use crate::support::{
-    machine::{both, check, Exit, Step},
+    cases::{test_cases, FlagExpectation::Clear, InstructionCase},
+    machine::{check, Exit, Step},
     step::TestModule,
 };
 
-use super::{expected, image, prior_flags, OPERATIONS};
+use super::{bit_flags, image, other_register_inputs, INITIAL_FLAGS, OPERATIONS, STORED_FLAGS};
 
 #[test]
 fn register_and_immediate_bit_forms_decode_the_complete_address_and_index() {
@@ -42,43 +43,49 @@ fn register_and_immediate_bit_forms_decode_the_complete_address_and_index() {
     }
 }
 
-#[test]
-fn register_index_forms_end_without_fetching_an_immediate() {
-    for operation in OPERATIONS {
-        for bits in [16, 32] {
+fn register_forms_at_the_page_end() -> Vec<InstructionCase> {
+    let mut cases = Vec::new();
+    // BT, BTS, BTR and BTC at index 31; neither tested input bit is set.
+    for (operation, [word_output, dword_output]) in OPERATIONS.into_iter().zip([
+        [0x4433_2211, 0x4433_2211],
+        [0x4433_a211, 0xc433_2211],
+        [0x4433_2211, 0x4433_2211],
+        [0x4433_a211, 0xc433_2211],
+    ]) {
+        for (bits, output) in [(16, word_output), (32, dword_output)] {
             let mut code = if bits == 16 { vec![0x66] } else { vec![] };
             code.extend_from_slice(&[0x0f, operation.register_opcode(), 0xd0]);
-            let start = 0x2000 - code.len() as u32;
-            let mut image = image(&[]);
-            image.cpu.eip = start;
-            image.cpu.registers.edx = u32::MAX;
-            image.data(0x3000 + (start & 0xfff), &code);
-            let result = expected(operation, bits, image.cpu.registers.eax, u32::MAX);
-            let mask = u32::MAX >> (32 - bits);
-            let mut cpu = image.cpu;
-            cpu.registers.eax = (cpu.registers.eax & !mask) | result.value;
-            result.apply_flags(&mut cpu, prior_flags());
-            cpu.eip = 0x2000;
-            cpu.instruction_count = 0;
-            both(
-                TestModule::interpreter(),
-                "register bit index ends at the last mapped byte",
-                &code,
-                1,
-                &image,
-                &[Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                }],
+            cases.push(
+                InstructionCase::new(
+                    format!("{operation:?} {bits}-bit register index ends at the last mapped byte"),
+                    &code,
+                    INITIAL_FLAGS,
+                    bit_flags(Clear),
+                )
+                .initial_registers(&other_register_inputs(&[Gpr32::Eax, Gpr32::Edx]))
+                .stored_flags(STORED_FLAGS)
+                .at(0x2000 - code.len() as u32)
+                .register(Gpr32::Eax, 0x4433_2211, output)
+                .initial_register(Gpr32::Edx, u32::MAX)
+                .dispatch(0x2000),
             );
         }
     }
+    cases
 }
 
-#[test]
-fn the_fifteenth_byte_can_complete_either_bit_index_form() {
-    for operation in OPERATIONS {
+test_cases!(
+    register_indexes_need_no_immediate_fetch,
+    register_forms_at_the_page_end()
+);
+
+fn complete_fifteenth_bytes() -> Vec<InstructionCase> {
+    let mut cases = Vec::new();
+    for (operation, output) in
+        OPERATIONS
+            .into_iter()
+            .zip([0x4433_2211, 0x4433_a211, 0x4433_2211, 0x4433_a211])
+    {
         for immediate in [false, true] {
             let mut code = vec![0x66; if immediate { 11 } else { 12 }];
             if immediate {
@@ -86,31 +93,29 @@ fn the_fifteenth_byte_can_complete_either_bit_index_form() {
             } else {
                 code.extend_from_slice(&[0x0f, operation.register_opcode(), 0xd0]);
             }
-            let mut image = image(&[]);
-            image.cpu.eip = 0x1ff1;
-            image.cpu.registers.edx = 31;
-            image.data(0x3ff1, &code);
-            let result = expected(operation, 16, image.cpu.registers.eax, 31);
-            let mut cpu = image.cpu;
-            cpu.registers.eax = 0x4433_0000 | result.value;
-            result.apply_flags(&mut cpu, prior_flags());
-            cpu.eip = 0x2000;
-            cpu.instruction_count = 0;
-            both(
-                TestModule::interpreter(),
-                "fifteen-byte bit test or modification",
-                &code,
-                1,
-                &image,
-                &[Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                }],
+            cases.push(
+                InstructionCase::new(
+                    format!("{operation:?} immediate {immediate} completes on byte fifteen"),
+                    &code,
+                    INITIAL_FLAGS,
+                    bit_flags(Clear),
+                )
+                .initial_registers(&other_register_inputs(&[Gpr32::Eax, Gpr32::Edx]))
+                .stored_flags(STORED_FLAGS)
+                .at(0x1ff1)
+                .register(Gpr32::Eax, 0x4433_2211, output)
+                .initial_register(Gpr32::Edx, 31)
+                .dispatch(0x2000),
             );
         }
     }
+    cases
 }
+
+test_cases!(
+    fifteenth_byte_completes_either_index_form,
+    complete_fifteenth_bytes()
+);
 
 #[test]
 fn missing_bit_encoding_fields_fault_before_operand_and_flag_effects() {

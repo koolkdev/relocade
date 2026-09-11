@@ -1,187 +1,142 @@
-use wasm86_x86::{CpuState, StatusFlags};
-
 use crate::support::{
-    arithmetic,
-    machine::{both, Exit, Image, Step},
-    step::TestModule,
+    cases::{
+        test_cases,
+        FlagExpectation::{self, Clear, Preserved, Set, Undefined},
+        Flags, InstructionCase,
+    },
+    sequences::{test_sequences, Checkpoint, SequenceCase},
+};
+use wasm86_x86::{
+    Gpr32::{self, Eax, Ebx},
+    StatusFlags, StoredFlags,
 };
 
-fn check_conditions(name: &str, prefix: &[u8], initial: CpuState, after: CpuState, outcomes: u16) {
-    for condition in 0..16 {
-        for branch in [
-            vec![0x70 + condition, 0x7f],
-            vec![0x0f, 0x80 + condition, 0x7f, 0, 0, 0],
-            vec![0x66, 0x0f, 0x80 + condition, 0x7f, 0],
-        ] {
-            let code = [prefix, branch.as_slice()].concat();
-            let mut image = Image::new(&code);
-            image.cpu = initial;
-            let mut cpu = after;
-            let mut steps = Vec::new();
-            if !prefix.is_empty() {
-                cpu.eip = 0x1000 + prefix.len() as u32;
-                cpu.instruction_count = 0;
-                steps.push(Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                });
-            }
-            cpu.eip = 0x1000 + code.len() as u32;
-            if outcomes & (1 << condition) != 0 {
-                cpu.eip += 0x7f;
-            }
-            cpu.instruction_count = u32::from(!prefix.is_empty());
-            steps.push(Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            });
-            both(
-                TestModule::interpreter(),
-                &format!("{name}, branch {branch:02x?}"),
-                &code,
-                steps.len() as u32,
-                &image,
-                &steps,
-            );
-        }
-    }
+// Outcome order: O, NO, B, AE, E, NE, BE, A, S, NS, P, NP, L, GE, LE, G.
+const CLEAR_INPUTS: [u8; 16] = [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1];
+const EQUAL: [u8; 16] = [0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0];
+const CARRY_OVERFLOW: [u8; 16] = [1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0];
+const NEGATIVE: [u8; 16] = [0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0];
+const SIGNED_UNSIGNED_DISAGREE: [u8; 16] = [1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1];
+const ADC_OVERFLOW: [u8; 16] = [1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1];
+
+struct Form {
+    code: &'static [u8],
+    condition_byte: usize,
 }
+#[rustfmt::skip]
+const FORMS: [Form; 3] = [
+    Form { code: &[0x70, 0x7f], condition_byte: 0 },
+    Form { code: &[0x0f, 0x80, 0x7f, 0, 0, 0], condition_byte: 1 },
+    Form { code: &[0x66, 0x0f, 0x80, 0x7f, 0], condition_byte: 2 },
+];
 
-#[test]
-fn all_conditions_read_concrete_flags_without_changing_the_record() {
-    for (name, status, outcomes) in [
-        (
-            "all condition inputs clear",
-            StatusFlags {
-                cf: 0,
-                pf: 0,
-                af: 1,
-                zf: 0,
-                sf: 0,
-                of: 0,
-            },
-            0xaaaa,
-        ),
-        (
-            "equal without carry",
-            StatusFlags {
-                cf: 0,
-                pf: 1,
-                af: 1,
-                zf: 1,
-                sf: 0,
-                of: 0,
-            },
-            0x665a,
-        ),
-        (
-            "carry and overflow",
-            StatusFlags {
-                cf: 1,
-                pf: 1,
-                af: 1,
-                zf: 1,
-                sf: 0,
-                of: 1,
-            },
-            0x5655,
-        ),
-        (
-            "negative without overflow",
-            StatusFlags {
-                cf: 0,
-                pf: 0,
-                af: 1,
-                zf: 0,
-                sf: 1,
-                of: 0,
-            },
-            0x59aa,
-        ),
-    ] {
-        let mut image = arithmetic::image(&[]);
-        image.cpu.flags.status = status;
-        check_conditions(name, &[], image.cpu, image.cpu, outcomes);
-    }
+#[derive(Clone, Copy)]
+struct Targets {
+    taken: u32,
+    fallthrough: u32,
 }
+#[rustfmt::skip]
+const AT_ENTRY: [Targets; 3] = [
+    Targets { taken: 0x1081, fallthrough: 0x1002 },
+    Targets { taken: 0x1085, fallthrough: 0x1006 },
+    Targets { taken: 0x1084, fallthrough: 0x1005 },
+];
+#[rustfmt::skip]
+const AFTER_TWO_BYTES: [Targets; 3] = [
+    Targets { taken: 0x1083, fallthrough: 0x1004 },
+    Targets { taken: 0x1087, fallthrough: 0x1008 },
+    Targets { taken: 0x1086, fallthrough: 0x1007 },
+];
+#[rustfmt::skip]
+const AFTER_THREE_BYTES: [Targets; 3] = [
+    Targets { taken: 0x1084, fallthrough: 0x1005 },
+    Targets { taken: 0x1088, fallthrough: 0x1009 },
+    Targets { taken: 0x1087, fallthrough: 0x1008 },
+];
 
-#[test]
-fn all_conditions_read_stored_lazy_flags_without_materializing_them() {
-    for (name, kind, left, right, outcomes) in [
-        (
-            "stored ADD carry and overflow",
-            10,
-            0x8000_0000,
-            0x8000_0000,
-            0x5655,
-        ),
-        (
-            "stored SUB signed and unsigned disagreement",
-            9,
-            0x7fff_fffe,
-            0xffff_fffe,
-            0xa565,
-        ),
-        ("stored logical odd result", 11, 1, 0x1234_5678, 0xaaaa),
-        ("stored logical zero result", 11, 0, 0x1234_5678, 0x665a),
-    ] {
-        let mut image = arithmetic::image(&[]);
-        image.cpu.flags.kind = kind;
-        image.cpu.flags.left = left;
-        image.cpu.flags.right = right;
-        check_conditions(name, &[], image.cpu, image.cpu, outcomes);
-    }
-}
-
-#[test]
-fn all_conditions_use_flags_created_inside_the_snapshot_block() {
-    let mut image = arithmetic::image(&[]);
-    image.cpu.registers.eax = 0x8000_0000;
-    let mut after = image.cpu;
-    after.registers.eax = 0;
-    after.flags.kind = 10;
-    after.flags.left = 0x8000_0000;
-    after.flags.right = 0x8000_0000;
-    check_conditions("local ADD", &[0x01, 0xc0], image.cpu, after, 0x5655);
-
-    let mut image = arithmetic::image(&[]);
-    image.cpu.registers.eax = 0x7fff_fffe;
-    image.cpu.registers.ebx = 0xffff_fffe;
-    let mut after = image.cpu;
-    after.flags.kind = 9;
-    after.flags.left = 0x7fff_fffe;
-    after.flags.right = 0xffff_fffe;
-    check_conditions("local CMP", &[0x39, 0xd8], image.cpu, after, 0xa565);
-
-    for (result, outcomes) in [(1, 0xaaaa), (0, 0x665a)] {
-        let mut image = arithmetic::image(&[]);
-        image.cpu.registers.eax = result;
-        let mut after = image.cpu;
-        after.flags.kind = 11;
-        after.flags.left = result;
-        check_conditions("local TEST", &[0x85, 0xc0], image.cpu, after, outcomes);
-    }
-
-    let mut image = arithmetic::image(&[]);
-    image.cpu.registers.eax = 0x7fff_ffff;
-    image.cpu.flags.status.cf = 1;
-    let mut after = image.cpu;
-    after.registers.eax = 0x8000_0000;
-    after.flags.status = StatusFlags {
-        cf: 0,
+const STORED_CANARY: StoredFlags = StoredFlags {
+    kind: 0,
+    reserved: [0xa5; 3],
+    left: 0xa5a5_a5a5,
+    right: 0xa5a5_a5a5,
+    status: StatusFlags {
+        cf: 1,
         pf: 1,
         af: 1,
-        zf: 0,
+        zf: 1,
         sf: 1,
         of: 1,
-    };
-    check_conditions(
-        "local ADC explicit flags",
-        &[0x83, 0xd0, 0],
-        image.cpu,
-        after,
-        0xa5a9,
-    );
+    },
+    non_status: [0, 1, 0, 0, 0, 0xa5],
+};
+
+#[rustfmt::skip]
+fn input_cases() -> Vec<InstructionCase> {
+    struct Input { name: &'static str, flags: Flags<bool>, stored: Option<StoredFlags>, taken: [u8; 16] }
+    let inputs = [
+        Input { name: "all condition inputs clear", flags: Flags { cf: false, pf: false, af: true, zf: false, sf: false, of: false }, stored: None, taken: CLEAR_INPUTS },
+        Input { name: "equal without carry", flags: Flags { cf: false, pf: true, af: true, zf: true, sf: false, of: false }, stored: None, taken: EQUAL },
+        Input { name: "carry and overflow", flags: Flags { cf: true, pf: true, af: true, zf: true, sf: false, of: true }, stored: None, taken: CARRY_OVERFLOW },
+        Input { name: "negative without overflow", flags: Flags { cf: false, pf: false, af: true, zf: false, sf: true, of: false }, stored: None, taken: NEGATIVE },
+        Input { name: "stored ADD carry and overflow", flags: Flags { cf: true, pf: true, af: false, zf: true, sf: false, of: true },
+            stored: Some(StoredFlags { kind: 10, left: 0x8000_0000, right: 0x8000_0000, ..STORED_CANARY }), taken: CARRY_OVERFLOW },
+        Input { name: "stored SUB signed and unsigned disagreement", flags: Flags { cf: true, pf: true, af: false, zf: false, sf: true, of: true },
+            stored: Some(StoredFlags { kind: 9, left: 0x7fff_fffe, right: 0xffff_fffe, ..STORED_CANARY }), taken: SIGNED_UNSIGNED_DISAGREE },
+        Input { name: "stored logical odd result", flags: Flags { cf: false, pf: false, af: false, zf: false, sf: false, of: false },
+            stored: Some(StoredFlags { kind: 11, left: 1, right: 0x1234_5678, ..STORED_CANARY }), taken: CLEAR_INPUTS },
+        Input { name: "stored logical zero result", flags: Flags { cf: false, pf: true, af: false, zf: true, sf: false, of: false },
+            stored: Some(StoredFlags { kind: 11, left: 0, right: 0x1234_5678, ..STORED_CANARY }), taken: EQUAL },
+    ];
+    let mut cases = Vec::new();
+    for input in inputs {
+        for (condition, taken) in input.taken.into_iter().enumerate() {
+            for (form, targets) in FORMS.iter().zip(AT_ENTRY) {
+                let mut code = form.code.to_vec();
+                code[form.condition_byte] += condition as u8;
+                let mut case = InstructionCase::new(format!("{} via {code:02x?}", input.name), &code, input.flags, Flags::all(Preserved))
+                    .dispatch(if taken == 1 { targets.taken } else { targets.fallthrough }).preserve_flag_record();
+                if let Some(record) = input.stored { case = case.stored_flags(record); }
+                cases.push(case);
+            }
+        }
+    }
+    cases
 }
+
+#[rustfmt::skip]
+fn locally_produced_cases() -> Vec<SequenceCase> {
+    struct Producer {
+        name: &'static str, code: &'static [u8], inputs: &'static [(Gpr32, u32)], outputs: &'static [(Gpr32, u32)],
+        flags: Flags<FlagExpectation>, taken: [u8; 16], targets: [Targets; 3],
+    }
+    let producers = [
+        Producer { name: "local ADD", code: &[0x01, 0xc0], inputs: &[(Eax, 0x8000_0000)], outputs: &[(Eax, 0)],
+            flags: Flags { cf: Set, pf: Set, af: Clear, zf: Set, sf: Clear, of: Set }, taken: CARRY_OVERFLOW, targets: AFTER_TWO_BYTES },
+        Producer { name: "local CMP", code: &[0x39, 0xd8], inputs: &[(Eax, 0x7fff_fffe), (Ebx, 0xffff_fffe)], outputs: &[],
+            flags: Flags { cf: Set, pf: Set, af: Clear, zf: Clear, sf: Set, of: Set }, taken: SIGNED_UNSIGNED_DISAGREE, targets: AFTER_TWO_BYTES },
+        Producer { name: "local TEST odd result", code: &[0x85, 0xc0], inputs: &[(Eax, 1)], outputs: &[],
+            flags: Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Clear, of: Clear }, taken: CLEAR_INPUTS, targets: AFTER_TWO_BYTES },
+        Producer { name: "local TEST zero result", code: &[0x85, 0xc0], inputs: &[(Eax, 0)], outputs: &[],
+            flags: Flags { cf: Clear, pf: Set, af: Undefined, zf: Set, sf: Clear, of: Clear }, taken: EQUAL, targets: AFTER_TWO_BYTES },
+        Producer { name: "local ADC explicit flags", code: &[0x83, 0xd0, 0], inputs: &[(Eax, 0x7fff_ffff)], outputs: &[(Eax, 0x8000_0000)],
+            flags: Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Set, of: Set }, taken: ADC_OVERFLOW, targets: AFTER_THREE_BYTES },
+    ];
+    let mut cases = Vec::new();
+    for producer in producers {
+        for (condition, taken) in producer.taken.into_iter().enumerate() {
+            for (form, targets) in FORMS.iter().zip(producer.targets) {
+                let mut branch = form.code.to_vec();
+                branch[form.condition_byte] += condition as u8;
+                let mut first = Checkpoint::new(producer.code, producer.flags);
+                for &(register, output) in producer.outputs { first = first.register(register, output); }
+                cases.push(SequenceCase::new(format!("{} then {branch:02x?}", producer.name), Flags::all(true))
+                    .initial_registers(producer.inputs).step(first)
+                    .step(Checkpoint::preserving_flags(&branch).dispatch(if taken == 1 { targets.taken } else { targets.fallthrough })));
+            }
+        }
+    }
+    cases
+}
+
+test_cases!(concrete_and_stored_flags, input_cases());
+test_sequences!(locally_created_flags, locally_produced_cases());

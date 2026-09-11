@@ -1,85 +1,34 @@
-use wasm86_x86::Gpr32;
+use super::{EVEN, ODD, ZERO};
+use crate::support::cases::{test_cases, InstructionCase as Case, RegisterExpectation::Exact};
+use wasm86_x86::{CpuState, Gpr32, StatusFlags, StoredFlags};
 
-use crate::support::{machine::both, step::TestModule};
-
-use super::{expected, image, retire, OPERATIONS};
-
-#[test]
-fn scans_find_every_bit_position_and_ignore_source_bits_above_the_operand_width() {
-    for bits in [16, 32] {
-        let mut sources = vec![
-            0,
-            u32::MAX,
-            0xffff_0000,
-            0x8000_0000,
-            0x8001_0000,
-            0x8000_8000,
-            0x8000_8001,
-            0x8000_2408,
-        ];
-        let upper = if bits == 16 { 0xa55a_0000 } else { 0 };
-        sources.extend((0..bits).map(|bit| upper | (1 << bit)));
-        for operation in OPERATIONS {
-            for &source in &sources {
-                let mut code = if bits == 16 { vec![0x66] } else { vec![] };
-                code.extend_from_slice(&[0x0f, operation.opcode(), 0xc2]);
-                let mut image = image(&code);
-                image.cpu.registers.edx = source;
-                let mut cpu = image.cpu;
-                expected(operation, bits, source, cpu.registers.eax).apply(&mut cpu, Gpr32::Eax);
-                let step = retire(&mut cpu, code.len() as u32);
-                both(
-                    TestModule::interpreter(),
-                    &format!("{operation:?} {bits}-bit source {source:08x}"),
-                    &code,
-                    1,
-                    &image,
-                    &[step],
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn scan_parity_counts_the_full_source_operand_before_writing_the_index() {
-    for (bits, source, parity) in [
-        (16, 0, 1),
-        (32, 0, 1),
-        (16, 0x100, 0),
-        (32, 0x100, 0),
-        (16, 0x101, 1),
-        (32, 0x101, 1),
-        (16, 0x1_0000, 1),
-        (32, 0x1_0000, 0),
-        (16, 0x1_0001, 0),
-        (32, 0x1_0001, 1),
-        (16, 0x1_0100, 0),
-        (32, 0x1_0100, 1),
+fn parity_cases() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (prefix, source, first, last, flags) in [
+        (&[0x66][..], 0, 0x4433_a55b, 0x4433_a55b, ZERO),
+        (&[][..], 0, 0x4433_a55b, 0x4433_a55b, ZERO),
+        (&[0x66][..], 0x100, 0x4433_0008, 0x4433_0008, ODD),
+        (&[][..], 0x100, 8, 8, ODD),
+        (&[0x66][..], 0x101, 0x4433_0000, 0x4433_0008, EVEN),
+        (&[][..], 0x101, 0, 8, EVEN),
+        (&[0x66][..], 0x1_0000, 0x4433_a55b, 0x4433_a55b, ZERO),
+        (&[][..], 0x1_0000, 16, 16, ODD),
+        (&[0x66][..], 0x1_0001, 0x4433_0000, 0x4433_0000, ODD),
+        (&[][..], 0x1_0001, 0, 16, EVEN),
+        (&[0x66][..], 0x1_0100, 0x4433_0008, 0x4433_0008, ODD),
+        (&[][..], 0x1_0100, 8, 16, EVEN),
     ] {
-        for operation in OPERATIONS {
-            let mut code = if bits == 16 { vec![0x66] } else { vec![] };
-            code.extend_from_slice(&[0x0f, operation.opcode(), 0xc2]);
-            let mut image = image(&code);
-            image.cpu.registers.edx = source;
-            let mut cpu = image.cpu;
-            expected(operation, bits, source, cpu.registers.eax).apply(&mut cpu, Gpr32::Eax);
-            cpu.flags.status.pf = parity;
-            let step = retire(&mut cpu, code.len() as u32);
-            both(
-                TestModule::interpreter(),
-                &format!("{operation:?} {bits}-bit full source parity for {source:08x}"),
-                &code,
-                1,
-                &image,
-                &[step],
-            );
+        for (opcode, result) in [(0xbc, first), (0xbd, last)] {
+            cases.push(Case::replacing_flags(format!("full source parity, prefix {prefix:02x?}, opcode {opcode:x}, source {source:x}"),
+                &[prefix, &[0x0f, opcode, 0xc2]].concat(), flags)
+                .register(Gpr32::Eax, 0x4433_a55b, result).initial_register(Gpr32::Edx, source));
         }
     }
+    cases
 }
+test_cases!(full_source_parity, parity_cases());
 
-#[test]
-fn every_destination_register_reads_distinct_and_self_sources_before_writing() {
+fn alias_cases() -> Vec<Case> {
     let registers = [
         Gpr32::Eax,
         Gpr32::Ecx,
@@ -90,71 +39,83 @@ fn every_destination_register_reads_distinct_and_self_sources_before_writing() {
         Gpr32::Esi,
         Gpr32::Edi,
     ];
-    for bits in [16, 32] {
-        for operation in OPERATIONS {
-            for (destination_code, &destination) in registers.iter().enumerate() {
-                for source_code in [destination_code, (destination_code + 3) % registers.len()] {
-                    for value in [0, 0xffff_0000, 0x8001_0080] {
-                        let source = registers[source_code];
-                        let mut code = if bits == 16 { vec![0x66] } else { vec![] };
-                        code.extend_from_slice(&[
+    let mut cases = Vec::new();
+    // Results are full parent registers: [BSF distinct, BSR distinct, BSF self, BSR self].
+    for (prefix, source, results, flags) in [
+        (&[0x66][..], 0, [0x4433_a55b, 0x4433_a55b, 0, 0], ZERO),
+        (
+            &[0x66][..],
+            0xffff_0000,
+            [0x4433_a55b, 0x4433_a55b, 0xffff_0000, 0xffff_0000],
+            ZERO,
+        ),
+        (
+            &[0x66][..],
+            0x8001_0080,
+            [0x4433_0007, 0x4433_0007, 0x8001_0007, 0x8001_0007],
+            ODD,
+        ),
+        (&[][..], 0, [0x4433_a55b, 0x4433_a55b, 0, 0], ZERO),
+        (&[][..], 0xffff_0000, [16, 31, 16, 31], EVEN),
+        (&[][..], 0x8001_0080, [7, 31, 7, 31], ODD),
+    ] {
+        for (destination_code, &destination) in registers.iter().enumerate() {
+            for self_source in [false, true] {
+                let source_code = if self_source {
+                    destination_code
+                } else {
+                    (destination_code + 3) % registers.len()
+                };
+                for (operation, opcode) in [0xbc, 0xbd].into_iter().enumerate() {
+                    let code = [
+                        prefix,
+                        &[
                             0x0f,
-                            operation.opcode(),
+                            opcode,
                             0xc0 | ((destination_code as u8) << 3) | source_code as u8,
-                        ]);
-                        let mut image = image(&code);
-                        image.cpu.registers[destination] = 0x4433_a55b;
-                        image.cpu.registers[source] = value;
-                        let mut cpu = image.cpu;
-                        expected(operation, bits, value, cpu.registers[destination])
-                            .apply(&mut cpu, destination);
-                        let step = retire(&mut cpu, code.len() as u32);
-                        both(
-                            TestModule::interpreter(),
-                            &format!(
-                                "{operation:?} {bits}-bit {destination:?}, {source:?}={value:x}"
-                            ),
-                            &code,
-                            1,
-                            &image,
-                            &[step],
-                        );
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[test]
-fn scans_replace_every_incoming_flag_record_even_when_the_destination_is_preserved() {
-    for kind in [0, 1, 5, 9, 2, 6, 10, 3, 7, 11] {
-        for bits in [16, 32] {
-            for operation in OPERATIONS {
-                // High source bits contribute to parity. Zero has even parity
-                // regardless of the preserved destination.
-                for source in [0, 0x100, 0x101] {
-                    let mut code = if bits == 16 { vec![0x66] } else { vec![] };
-                    code.extend_from_slice(&[0x0f, operation.opcode(), 0xc2]);
-                    let mut image = image(&code);
-                    image.cpu.flags.kind = kind;
-                    image.cpu.registers.edx = source;
-                    let mut cpu = image.cpu;
-                    expected(operation, bits, source, cpu.registers.eax)
-                        .apply(&mut cpu, Gpr32::Eax);
-                    let step = retire(&mut cpu, code.len() as u32);
-                    both(
-                        TestModule::interpreter(),
-                        &format!(
-                            "{operation:?} {bits}-bit source {source} replaces flag kind {kind}"
-                        ),
+                        ],
+                    ]
+                    .concat();
+                    let output = results[operation + if self_source { 2 } else { 0 }];
+                    let mut case = Case::replacing_flags(
+                        format!("{code:02x?}, source {source:x}"),
                         &code,
-                        1,
-                        &image,
-                        &[step],
-                    );
+                        flags,
+                    )
+                    .initial_register(registers[source_code], source)
+                    .expect_register(destination, Exact(output));
+                    if !self_source {
+                        case = case.initial_register(destination, 0x4433_a55b);
+                    }
+                    cases.push(case);
                 }
             }
         }
     }
+    cases
 }
+test_cases!(all_destination_and_self_source_encodings, alias_cases());
+
+fn flag_replacement_cases() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for kind in [0, 1, 5, 9, 2, 6, 10, 3, 7, 11] {
+        for (prefix, source, first, last, flags) in [
+            (&[0x66][..], 0, 0x4433_a55b, 0x4433_a55b, ZERO),
+            (&[][..], 0, 0x4433_a55b, 0x4433_a55b, ZERO),
+            (&[0x66][..], 0x100, 0x4433_0008, 0x4433_0008, ODD),
+            (&[][..], 0x100, 8, 8, ODD),
+            (&[0x66][..], 0x101, 0x4433_0000, 0x4433_0008, EVEN),
+            (&[][..], 0x101, 0, 8, EVEN),
+        ] {
+            for (opcode, result) in [(0xbc, first), (0xbd, last)] {
+                cases.push(Case::replacing_flags(format!("opcode {opcode:x}, prefix {prefix:02x?}, source {source:x} replaces kind {kind}"),
+                    &[prefix, &[0x0f, opcode, 0xc2]].concat(), flags)
+                    .stored_flags(StoredFlags { kind, left: 0x1234_5678, right: 0x8765_4321,
+                        status: StatusFlags { cf: 1, pf: 1, af: 1, zf: 1, sf: 1, of: 1 }, ..CpuState::filled(0xa5).flags })
+                    .register(Gpr32::Eax, 0x4433_a55b, result).initial_register(Gpr32::Edx, source));
+            }
+        }
+    }
+    cases
+}
+test_cases!(every_stored_flag_kind_is_replaced, flag_replacement_cases());

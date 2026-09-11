@@ -1,11 +1,12 @@
 use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32};
 
 use crate::support::{
-    machine::{both, check, Exit, Step},
+    machine::{check, Exit, Step},
     step::TestModule,
 };
 
-use super::{expected, image, retire, OPERATIONS};
+use super::{image, EVEN, ODD, OPERATIONS, ZERO};
+use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly};
 
 #[test]
 fn bit_scans_decode_the_complete_register_or_memory_source_without_an_immediate() {
@@ -40,68 +41,55 @@ fn bit_scans_decode_the_complete_register_or_memory_source_without_an_immediate(
     }
 }
 
-#[test]
-fn bit_scan_encodings_can_end_at_the_last_mapped_instruction_byte() {
-    for operation in OPERATIONS {
-        for bits in [16, 32] {
+fn complete_encoding_cases() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (prefix, source, first, last, flags) in [
+        (&[0x66][..], 0_u32, 0x4433_a55b, 0x4433_a55b, ZERO),
+        (&[0x66][..], 0x8000_8008, 0x4433_0003, 0x4433_000f, EVEN),
+        (&[][..], 0, 0x4433_a55b, 0x4433_a55b, ZERO),
+        (&[][..], 0x8000_8008, 3, 31, ODD),
+    ] {
+        for (opcode, result) in [(0xbc, first), (0xbd, last)] {
             for memory in [false, true] {
-                for source in [0_u32, 0x8000_8008] {
-                    let mut code = if bits == 16 { vec![0x66] } else { vec![] };
-                    code.extend_from_slice(&[
-                        0x0f,
-                        operation.opcode(),
-                        if memory { 0x03 } else { 0xc2 },
-                    ]);
-                    let start = 0x2000 - code.len() as u32;
-                    let mut image = image(&[]);
-                    image.cpu.eip = start;
-                    image.data(0x3000 + (start & 0xfff), &code);
-                    image.cpu.registers.edx = source;
-                    image.cpu.registers.ebx = 0x4000;
-                    image.map(4, 0x8000, false);
-                    image.data(0x8000, &source.to_le_bytes());
-                    let mut cpu = image.cpu;
-                    expected(operation, bits, source, cpu.registers.eax)
-                        .apply(&mut cpu, Gpr32::Eax);
-                    let step = retire(&mut cpu, code.len() as u32);
-                    both(
-                        TestModule::interpreter(),
-                        &format!("{operation:?} {bits}-bit source {source:x}, memory {memory}, ends at page boundary"),
+                let code = [prefix, &[0x0f, opcode, if memory { 0x03 } else { 0xc2 }]].concat();
+                cases.push(
+                    Case::replacing_flags(
+                        format!("scan {code:02x?} ends at page boundary, source {source:x}"),
                         &code,
-                        1,
-                        &image,
-                        &[step],
-                    );
-                }
+                        flags,
+                    )
+                    .at(0x2000 - code.len() as u32)
+                    .register(Gpr32::Eax, 0x4433_a55b, result)
+                    .initial_register(Gpr32::Edx, source)
+                    .initial_register(Gpr32::Ebx, 0x4000)
+                    .map_page(4, 0x8000, ReadOnly)
+                    .backing(0x8000, &source.to_le_bytes()),
+                );
             }
         }
     }
-}
-
-#[test]
-fn the_fifteenth_byte_can_complete_a_bit_scan() {
-    for operation in OPERATIONS {
-        for source in [0, 0x8000] {
+    for opcode in [0xbc, 0xbd] {
+        for (source, result, flags) in [(0, 0x4433_a55b, ZERO), (0x8000, 0x4433_000f, ODD)] {
             let mut code = vec![0x66; 12];
-            code.extend_from_slice(&[0x0f, operation.opcode(), 0xc2]);
-            let mut image = image(&[]);
-            image.cpu.eip = 0x1ff1;
-            image.cpu.registers.edx = source;
-            image.data(0x3ff1, &code);
-            let mut cpu = image.cpu;
-            expected(operation, 16, source, cpu.registers.eax).apply(&mut cpu, Gpr32::Eax);
-            let step = retire(&mut cpu, 15);
-            both(
-                TestModule::interpreter(),
-                "fifteen-byte bit scan",
-                &code,
-                1,
-                &image,
-                &[step],
+            code.extend_from_slice(&[0x0f, opcode, 0xc2]);
+            cases.push(
+                Case::replacing_flags(
+                    format!("fifteen-byte scan {opcode:x}, source {source:x}"),
+                    &code,
+                    flags,
+                )
+                .at(0x1ff1)
+                .register(Gpr32::Eax, 0x4433_a55b, result)
+                .initial_register(Gpr32::Edx, source),
             );
         }
     }
+    cases
 }
+test_cases!(
+    complete_encodings_at_page_and_length_boundaries,
+    complete_encoding_cases()
+);
 
 #[test]
 fn missing_scan_fields_fault_before_source_access_destination_changes_or_flags() {

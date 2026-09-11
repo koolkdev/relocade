@@ -1,9 +1,17 @@
+use crate::support::{
+    cases::{
+        test_cases, InstructionCase as Case,
+        Permissions::{ReadOnly, ReadWrite},
+    },
+    sequences::{test_sequences, Checkpoint, SequenceCase},
+};
+use wasm86_x86::Gpr32;
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 use wasmparser::Validator;
 
 use crate::support::machine;
 use crate::support::step;
-use machine::{both, check, Exit, Image, Step};
+use machine::{check, Exit, Image, Step};
 use step::TestModule;
 
 fn image(code: &[u8]) -> Image {
@@ -90,160 +98,8 @@ fn instruction_length_counts_prefixes_and_each_required_field_byte() {
 }
 
 #[test]
-fn operand_size() {
+fn missing_prefixed_instruction_fields_fault_before_data_access() {
     let step = TestModule::interpreter();
-    let code = [0x66, 0x66, 0xb8, 0x34, 0x12, 0xb9, 0x55, 0x66, 0x77, 0x88];
-    let repeated_override = image(&code);
-    let mut expected_cpu = repeated_override.cpu;
-    let mut steps = Vec::new();
-
-    expected_cpu.registers.eax = 0x4433_1234;
-    expected_cpu.eip = 0x1005;
-    expected_cpu.instruction_count = 0;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x1005),
-    });
-
-    expected_cpu.registers.ecx = 0x8877_6655;
-    expected_cpu.eip = 0x100a;
-    expected_cpu.instruction_count = 1;
-    steps.push(Step {
-        cpu: expected_cpu,
-        ram: &[],
-        exit: Exit::Dispatch(0x100a),
-    });
-
-    both(
-        step,
-        "repeated override is idempotent and ends with its instruction",
-        &code,
-        2,
-        &repeated_override,
-        &steps,
-    );
-    for (name, code, expected, stored) in [
-        (
-            "byte opcode-register immediate",
-            &[0x66, 0xb4, 0x80][..],
-            0x4433_8011,
-            &[][..],
-        ),
-        (
-            "byte register to r/m",
-            &[0x66, 0x88, 0xd8][..],
-            0x4433_22dd,
-            &[][..],
-        ),
-        (
-            "byte r/m to register",
-            &[0x66, 0x8a, 0xe3][..],
-            0x4433_dd11,
-            &[][..],
-        ),
-        (
-            "byte r/m immediate",
-            &[0x66, 0xc6, 0xc4, 0x80][..],
-            0x4433_8011,
-            &[][..],
-        ),
-        (
-            "byte absolute load",
-            &[0x66, 0xa0, 0x20, 0x40, 0, 0][..],
-            0x4433_2280,
-            &[][..],
-        ),
-        (
-            "byte absolute store",
-            &[0x66, 0xa2, 0x20, 0x40, 0, 0][..],
-            0x4433_2211,
-            &[(0x8020, &[0x11][..])][..],
-        ),
-    ] {
-        let mut image = image(code);
-        image.map(4, 0x8000, true);
-        image.data(0x801f, &[0xa5, 0x80, 0x5a]);
-        let next_eip = 0x1000 + code.len() as u32;
-        let mut expected_cpu = image.cpu;
-        expected_cpu.registers.eax = expected;
-        expected_cpu.eip = next_eip;
-        expected_cpu.instruction_count = 0;
-        both(
-            step,
-            name,
-            code,
-            1,
-            &image,
-            &[Step {
-                cpu: expected_cpu,
-                ram: stored,
-                exit: Exit::Dispatch(next_eip),
-            }],
-        );
-    }
-}
-
-#[test]
-fn fetch_boundaries() {
-    let step = TestModule::interpreter();
-    let code = [0x66, 0xb8, 0x34, 0x12];
-    for (name, start, first_frame, first_page, next_eip) in [
-        ("prefix at page end", 0x1fff, 0x3000, 1, 0x2003),
-        (
-            "instruction fetch wraps EIP",
-            0xffff_fffd,
-            0x8000,
-            0xfffff,
-            1,
-        ),
-    ] {
-        let mut image = image(&code);
-        image.cpu.eip = start;
-        image.guest.clear();
-        image.map(first_page, first_frame, false);
-        image.map(if first_page == 1 { 2 } else { 0 }, 0xa000, false);
-        let available = 0x1000 - (start & 0xfff);
-        image.data(first_frame + (start & 0xfff), &code[..available as usize]);
-        image.data(0xa000, &code[available as usize..]);
-        let mut expected_cpu = image.cpu;
-        expected_cpu.registers.eax = 0x4433_1234;
-        expected_cpu.eip = next_eip;
-        expected_cpu.instruction_count = 0;
-        both(
-            step,
-            name,
-            &code,
-            1,
-            &image,
-            &[Step {
-                cpu: expected_cpu,
-                ram: &[],
-                exit: Exit::Dispatch(next_eip),
-            }],
-        );
-    }
-    let mut at_end = image(&code);
-    at_end.cpu.eip = 0x1ffc;
-    at_end.guest.clear();
-    at_end.data(0x3ffc, &code);
-    let mut expected_cpu = at_end.cpu;
-    expected_cpu.registers.eax = 0x4433_1234;
-    expected_cpu.eip = 0x2000;
-    expected_cpu.instruction_count = 0;
-    both(
-        step,
-        "complete word instruction needs no following page",
-        &code,
-        1,
-        &at_end,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(0x2000),
-        }],
-    );
-
     for (name, start, available_bytes) in [
         ("missing opcode after prefix", 0x1fff, &[0x66][..]),
         (
@@ -283,62 +139,11 @@ fn fetch_boundaries() {
             }],
         );
     }
-    let code = [
-        0x66, 0x66, 0x66, 0xc7, 0x84, 0x8b, 0x20, 0x40, 0, 0, 0xa1, 0x88,
-    ];
-    let mut image = image(&code);
-    image.cpu.eip = 0x1ff8;
-    image.cpu.registers.ebx = 0xffff_fff0;
-    image.cpu.registers.ecx = 4;
-    image.guest.clear();
-    image.data(0x3ff8, &code[..8]);
-    image.map(2, 0xa000, false);
-    image.data(0xa000, &code[8..]);
-    image.map(4, 0x8000, true);
-    image.data(0x801f, &[0xa5, 0, 0, 0x5a]);
-    let mut expected_cpu = image.cpu;
-    expected_cpu.eip = 0x2004;
-    expected_cpu.instruction_count = 0;
-    both(
-        step,
-        "prefixed SIB displacement crosses scattered code pages",
-        &code,
-        1,
-        &image,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[(0x8020, &[0xa1, 0x88])],
-            exit: Exit::Dispatch(0x2004),
-        }],
-    );
 }
 
 #[test]
-fn length_precedence() {
+fn prefix_length_limits_precede_fetch_and_unsupported_checks() {
     let step = TestModule::interpreter();
-    let mut maximum = vec![0x66; 12];
-    maximum.extend_from_slice(&[0xb8, 0x34, 0x12]);
-    let mut maximum_image = image(&maximum);
-    maximum_image.cpu.eip = 0x1ff1;
-    maximum_image.guest.clear();
-    maximum_image.data(0x3ff1, &maximum);
-    let mut expected_cpu = maximum_image.cpu;
-    expected_cpu.registers.eax = 0x4433_1234;
-    expected_cpu.eip = 0x2000;
-    expected_cpu.instruction_count = 0;
-    both(
-        step,
-        "fifteen-byte word MOV retires without fetching a sixteenth byte",
-        &maximum,
-        1,
-        &maximum_image,
-        &[Step {
-            cpu: expected_cpu,
-            ram: &[],
-            exit: Exit::Dispatch(0x2000),
-        }],
-    );
-
     // These fixtures leave the next page absent. A required byte below offset 15
     // can page-fault; a request at offset 15 reports GP before consulting memory.
     for (name, prefixes, suffix, start, expected) in [
@@ -460,7 +265,7 @@ fn length_precedence() {
 }
 
 #[test]
-fn completed_progress() {
+fn an_overlong_successor_preserves_completed_word_progress() {
     let step = TestModule::interpreter();
     let mut code = vec![0x66, 0xb8, 0x34, 0x12];
     code.extend_from_slice(&[0x66; 15]);
@@ -490,3 +295,133 @@ fn completed_progress() {
         &steps,
     );
 }
+
+fn complete_prefix_cases() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (name, code, eax, stored) in [
+        (
+            "byte opcode-register immediate",
+            &[0x66, 0xb4, 0x80][..],
+            0x4433_8011,
+            false,
+        ),
+        (
+            "byte register to r/m",
+            &[0x66, 0x88, 0xd8][..],
+            0x4433_22dd,
+            false,
+        ),
+        (
+            "byte r/m to register",
+            &[0x66, 0x8a, 0xe3][..],
+            0x4433_dd11,
+            false,
+        ),
+        (
+            "byte r/m immediate",
+            &[0x66, 0xc6, 0xc4, 0x80][..],
+            0x4433_8011,
+            false,
+        ),
+        (
+            "byte absolute load",
+            &[0x66, 0xa0, 0x20, 0x40, 0, 0][..],
+            0x4433_2280,
+            false,
+        ),
+        (
+            "byte absolute store",
+            &[0x66, 0xa2, 0x20, 0x40, 0, 0][..],
+            0x4433_2211,
+            true,
+        ),
+    ] {
+        let mut case = Case::preserving_flags(name, code)
+            .register(Gpr32::Eax, 0x4433_2211, eax)
+            .initial_register(Gpr32::Ebx, 0x10ff_eedd)
+            .map_page(4, 0x8000, ReadWrite)
+            .backing(0x801f, &[0xa5, 0x80, 0x5a]);
+        if stored {
+            case = case.expect_memory(0x4020, &[0x11]);
+        }
+        cases.push(case);
+    }
+    for (name, start, first_page, first_frame, second_page) in [
+        ("prefix at page end", 0x1fff, 1, 0x3000, 2),
+        (
+            "instruction fetch wraps EIP",
+            0xffff_fffd,
+            0xfffff,
+            0x8000,
+            0,
+        ),
+    ] {
+        cases.push(
+            Case::preserving_flags(name, &[0x66, 0xb8, 0x34, 0x12])
+                .at(start)
+                .register(Gpr32::Eax, 0x4433_2211, 0x4433_1234)
+                .initial_register(Gpr32::Ebx, 0x10ff_eedd)
+                .map_page(first_page, first_frame, ReadOnly)
+                .map_page(second_page, 0xa000, ReadOnly),
+        );
+    }
+    cases.push(
+        Case::preserving_flags(
+            "complete word instruction needs no following page",
+            &[0x66, 0xb8, 0x34, 0x12],
+        )
+        .at(0x1ffc)
+        .register(Gpr32::Eax, 0x4433_2211, 0x4433_1234)
+        .initial_register(Gpr32::Ebx, 0x10ff_eedd),
+    );
+    cases.push(
+        Case::preserving_flags(
+            "prefixed SIB displacement crosses scattered code pages",
+            &[
+                0x66, 0x66, 0x66, 0xc7, 0x84, 0x8b, 0x20, 0x40, 0, 0, 0xa1, 0x88,
+            ],
+        )
+        .at(0x1ff8)
+        .initial_registers(&[
+            (Gpr32::Eax, 0x4433_2211),
+            (Gpr32::Ebx, 0xffff_fff0),
+            (Gpr32::Ecx, 4),
+        ])
+        .map_page(1, 0x3000, ReadOnly)
+        .map_page(2, 0xa000, ReadOnly)
+        .map_page(4, 0x8000, ReadWrite)
+        .backing(0x801f, &[0xa5, 0, 0, 0x5a])
+        .expect_memory(0x4020, &[0xa1, 0x88]),
+    );
+    let maximum = [vec![0x66; 12], vec![0xb8, 0x34, 0x12]].concat();
+    cases.push(
+        Case::preserving_flags(
+            "fifteen-byte word MOV retires without a sixteenth byte",
+            &maximum,
+        )
+        .at(0x1ff1)
+        .register(Gpr32::Eax, 0x4433_2211, 0x4433_1234)
+        .initial_register(Gpr32::Ebx, 0x10ff_eedd),
+    );
+    cases
+}
+test_cases!(
+    operand_sizes_and_complete_prefix_fetches,
+    complete_prefix_cases()
+);
+
+test_sequences!(
+    repeated_override_ends_with_its_instruction,
+    [SequenceCase::preserving_flags(
+        "repeated override is idempotent and ends with its instruction"
+    )
+    .initial_registers(&[(Gpr32::Eax, 0x4433_2211), (Gpr32::Ebx, 0x10ff_eedd)])
+    .step(
+        Checkpoint::preserving_flags(&[0x66, 0x66, 0xb8, 0x34, 0x12])
+            .register(Gpr32::Eax, 0x4433_1234)
+    )
+    .step(
+        Checkpoint::preserving_flags(&[0xb9, 0x55, 0x66, 0x77, 0x88])
+            .register(Gpr32::Ecx, 0x8877_6655)
+    )]
+);

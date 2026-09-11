@@ -1,7 +1,9 @@
+use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadWrite};
+use wasm86_x86::Gpr32::{Eax, Esp};
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 use crate::support::{
-    machine::{both, check, Exit, Image, Step},
+    machine::{check, Exit, Image, Step},
     step::TestModule,
 };
 
@@ -159,88 +161,25 @@ fn stack_encodings_reject_a_required_sixteenth_byte_before_fetching_it() {
     }
 }
 
-#[test]
-fn all_stack_forms_can_end_at_byte_fifteen_with_repeated_word_prefixes() {
-    struct Case {
-        suffix: &'static [u8],
-        stack_pointer: u32,
-        eax: u32,
-        ram: &'static [(u32, &'static [u8])],
-    }
-    for case in [
-        Case {
-            suffix: &[0x50],
-            stack_pointer: 0x9004,
-            eax: 0x1111_1111,
-            ram: &[(0x8002, &[0x11, 0x11])],
-        },
-        Case {
-            suffix: &[0x58],
-            stack_pointer: 0x9000,
-            eax: 0x1111_5678,
-            ram: &[],
-        },
-        Case {
-            suffix: &[0x68, 0x80, 0xff],
-            stack_pointer: 0x9004,
-            eax: 0x1111_1111,
-            ram: &[(0x8002, &[0x80, 0xff])],
-        },
-        Case {
-            suffix: &[0x6a, 0x80],
-            stack_pointer: 0x9004,
-            eax: 0x1111_1111,
-            ram: &[(0x8002, &[0x80, 0xff])],
-        },
-        Case {
-            suffix: &[0xff, 0xf4],
-            stack_pointer: 0x9004,
-            eax: 0x1111_1111,
-            ram: &[(0x8002, &[0x04, 0x90])],
-        },
-        Case {
-            suffix: &[0x8f, 0xc0],
-            stack_pointer: 0x9000,
-            eax: 0x1111_5678,
-            ram: &[],
-        },
-        Case {
-            suffix: &[0xff, 0x34, 0x24],
-            stack_pointer: 0x9004,
-            eax: 0x1111_1111,
-            ram: &[(0x8002, &[0xbc, 0x9a])],
-        },
-        Case {
-            suffix: &[0x8f, 0x04, 0x24],
-            stack_pointer: 0x9000,
-            eax: 0x1111_1111,
-            ram: &[(0x8002, &[0x78, 0x56])],
-        },
-    ] {
-        let code = [vec![0x66; 15 - case.suffix.len()], case.suffix.to_vec()].concat();
-        let mut image = Image::new(&[]);
-        image.cpu.flags.kind = 0xff;
-        image.cpu.registers.esp = case.stack_pointer;
-        image.cpu.eip = 0x1ff1;
-        image.data(0x3ff1, &code);
-        image.map(9, 0x8000, true);
-        image.data(0x8000, &[0x78, 0x56, 0xa5, 0xa5, 0xbc, 0x9a, 0x5a]);
-        let mut expected_cpu = image.cpu;
-        expected_cpu.registers.esp = 0x9002;
-        expected_cpu.registers.eax = case.eax;
-        expected_cpu.eip = 0x2000;
-        expected_cpu.instruction_count = 0;
-        both(
-            TestModule::interpreter(),
-            "repeated 66 selects word width and no byte sixteen is fetched",
-            &code,
-            1,
-            &image,
-            &[Step {
-                cpu: expected_cpu,
-                ram: case.ram,
-                exit: Exit::Dispatch(0x2000),
-            }],
-        );
-    }
+#[rustfmt::skip]
+fn maximum_length_cases() -> Vec<Case> {
+    struct Form { suffix: &'static [u8], stack: u32, eax: u32, stored: Option<&'static [u8]> }
+    [
+        Form { suffix: &[0x50], stack: 0x9004, eax: 0x1111_1111, stored: Some(&[0x11, 0x11]) },
+        Form { suffix: &[0x58], stack: 0x9000, eax: 0x1111_5678, stored: None },
+        Form { suffix: &[0x68, 0x80, 0xff], stack: 0x9004, eax: 0x1111_1111, stored: Some(&[0x80, 0xff]) },
+        Form { suffix: &[0x6a, 0x80], stack: 0x9004, eax: 0x1111_1111, stored: Some(&[0x80, 0xff]) },
+        Form { suffix: &[0xff, 0xf4], stack: 0x9004, eax: 0x1111_1111, stored: Some(&[0x04, 0x90]) },
+        Form { suffix: &[0x8f, 0xc0], stack: 0x9000, eax: 0x1111_5678, stored: None },
+        Form { suffix: &[0xff, 0x34, 0x24], stack: 0x9004, eax: 0x1111_1111, stored: Some(&[0xbc, 0x9a]) },
+        Form { suffix: &[0x8f, 0x04, 0x24], stack: 0x9000, eax: 0x1111_1111, stored: Some(&[0x78, 0x56]) },
+    ].into_iter().map(|form| {
+        let code = [vec![0x66; 15 - form.suffix.len()], form.suffix.to_vec()].concat();
+        let mut case = Case::preserving_flags(format!("fifteen-byte stack instruction {:02x?}", form.suffix), &code)
+            .at(0x1ff1).register(Esp, form.stack, 0x9002).register(Eax, 0x1111_1111, form.eax)
+            .map_page(9, 0x8000, ReadWrite).memory(0x9000, &[0x78, 0x56, 0xa5, 0xa5, 0xbc, 0x9a, 0x5a], ReadWrite);
+        if let Some(bytes) = form.stored { case = case.expect_memory(0x9002, bytes); }
+        case
+    }).collect()
 }
+test_cases!(all_stack_forms_at_byte_fifteen, maximum_length_cases());
