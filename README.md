@@ -4,7 +4,7 @@ Rust components for x86 execution in WebAssembly.
 
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
 SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, SHL, SHR, SAR, SHLD, SHRD,
-ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, PUSH, POP, SETcc and relative JMP/Jcc blocks
+ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, SETcc and relative JMP/Jcc blocks
 from byte snapshots:
 
 ```rust
@@ -98,6 +98,8 @@ supports these forms in default-32 operand and address mode:
 | BTS register/memory, register or imm8 | — | 0F AB; 0F BA /5 | 0F AB; 0F BA /5 |
 | BTR register/memory, register or imm8 | — | 0F B3; 0F BA /6 | 0F B3; 0F BA /6 |
 | BTC register/memory, register or imm8 | — | 0F BB; 0F BA /7 | 0F BB; 0F BA /7 |
+| BSF register, register/memory | — | 0F BC | 0F BC |
+| BSR register, register/memory | — | 0F BD | 0F BD |
 | PUSH opcode-selected register | — | 50–57 | 50–57 |
 | POP opcode-selected register | — | 58–5F | 58–5F |
 | PUSH immediate | — | 68/6A | 68/6A |
@@ -199,6 +201,17 @@ The original base need not be aligned. The unit's byte offset is added with
 range and page checks. BT needs only read access. BTS/BTR/BTC require full write
 permission even when the bit already has the requested value. Offset and address
 registers use their old values, and a fault preserves the operand and all flags.
+
+BSF and BSR write the position of the lowest or highest set bit, respectively,
+from a word/dword source into a same-width register. Positions start at zero.
+A nonzero source clears ZF; a zero source sets ZF and leaves the destination
+unchanged. Word destinations preserve the upper register half. wasm86 clears
+CF/AF/SF/OF and sets PF when the full logical source has an even number of set
+bits, including a zero source. These rules follow the
+[Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf#page=803).
+Memory sources require read access to the complete
+operand before any destination or flag change. Source and address registers
+use their old values even when they also name the destination.
 
 LEA (`8D`) computes the effective address encoded by ModRM/SIB and writes it to a
 dword register. With `66`, it writes the low word and preserves the upper half of
@@ -427,6 +440,12 @@ the old bit. BT consumes only that change after a read; the modifying forms
 use the existing checked update. No bit-test operation reads the old flag source;
 state composes the preserved flags when a condition or publication needs them.
 
+`BitScanOp::apply` accepts the source and previous destination, and returns
+the final destination and a complete flag change. It uses logical-width compiler
+`ctz`/`clz` operations for the bit position and pure `select` expressions for
+zero inputs. The instruction handler reuses source reads, checked destination
+updates and flag publication; scan semantics need no new operand interface.
+
 `ShiftOp::apply` constructs a result and six symbolic flags. Its variants name
 left, logical-right and arithmetic-right shifts. `DoubleShiftOp::apply` accepts
 an additional source value. Both use the shared shift result/flag construction;
@@ -574,7 +593,10 @@ available for forward references and recursion. An open body can create a needed
 helper through `body.program()`; the active function cannot be reopened.
 
 Expressions support wrapping addition and subtraction, bitwise `and`/`or`/`xor`,
-logical-width `popcnt`, `shl`, and `eq`/`ne` predicates that return `Val<I1>`. The borrowed `unsigned()` view
+logical-width `popcnt`/`clz`/`ctz`, `shl`, and `eq`/`ne` predicates that return
+`Val<I1>`. Bit counts retain the input's logical type; `clz` and `ctz` count
+leading and trailing zero bits and return the logical width for zero input.
+For example, `Val::<I16>::from(0).ctz()` is sixteen. The borrowed `unsigned()` view
 provides `shr`, `lt`, `ge` and zero extension, for example
 `byte.unsigned().extend::<I32>().shl(8)`. `truncate::<I8>()` retains the low eight
 bits. The borrowed `signed()` view provides arithmetic `shr`, `lt`/`ge` comparisons and sign extension, such as

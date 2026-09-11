@@ -2,6 +2,7 @@
 //! Operand access belongs to instruction execution; flag storage belongs to state.
 
 mod arithmetic;
+mod bit_scans;
 mod bit_tests;
 pub(crate) mod flags;
 mod logic;
@@ -10,6 +11,7 @@ mod shifts;
 mod unary;
 
 pub(crate) use arithmetic::ArithmeticOp;
+pub(crate) use bit_scans::BitScanOp;
 pub(crate) use bit_tests::BitTestOp;
 pub(crate) use logic::LogicOp;
 pub(crate) use rotates::RotateDirection;

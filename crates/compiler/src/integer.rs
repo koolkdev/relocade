@@ -23,6 +23,13 @@ pub(super) enum RotateOp {
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
+pub(super) enum BitCountOp {
+    Ones,
+    LeadingZeros,
+    TrailingZeros,
+}
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum CompareOp {
     Eq,
     Ne,
@@ -87,8 +94,13 @@ pub(super) fn rotate(ty: Type, operator: RotateOp, value: u64, count: u32) -> u6
     }
 }
 
-pub(super) fn popcnt(value: u64) -> u64 {
-    u64::from(value.count_ones())
+pub(super) fn bit_count(ty: Type, operator: BitCountOp, value: u64) -> u64 {
+    let width = u32::from(ty.bits());
+    u64::from(match operator {
+        BitCountOp::Ones => value.count_ones(),
+        BitCountOp::LeadingZeros => value.leading_zeros() - (64 - width),
+        BitCountOp::TrailingZeros => value.trailing_zeros().min(width),
+    })
 }
 
 /// A conservative bound on the nonzero bits in the emitted integer, including
@@ -128,7 +140,13 @@ pub(super) fn unsigned_bits(value: Value, values: &[Value], inputs: &[u8]) -> u8
             },
         },
         ValueKind::Rotate { .. } | ValueKind::SignExtend(_) => carrier_bits,
-        ValueKind::Popcnt(input) => (u8::BITS - inputs[input].leading_zeros()) as u8,
+        ValueKind::BitCount(operator, input) => {
+            let maximum = match operator {
+                BitCountOp::Ones => inputs[input],
+                BitCountOp::LeadingZeros | BitCountOp::TrailingZeros => value.ty.bits(),
+            };
+            (u8::BITS - maximum.leading_zeros()) as u8
+        }
         ValueKind::Select {
             when_true,
             when_false,

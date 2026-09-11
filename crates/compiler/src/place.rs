@@ -391,7 +391,7 @@ impl Planner<'_> {
                     ValueKind::Normalize(input)
                     | ValueKind::Convert(input)
                     | ValueKind::SignExtend(input)
-                    | ValueKind::Popcnt(input)
+                    | ValueKind::BitCount(_, input)
                     | ValueKind::ZeroTest { input, .. } => {
                         demand(body, tree, demands, input, anchor)
                     }

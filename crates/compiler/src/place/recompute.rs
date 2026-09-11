@@ -17,7 +17,7 @@ pub(super) fn groups(body: &Body, id: usize, demand: Demand, tree: &Tree<'_>) ->
             | ValueKind::Normalize(_)
             | ValueKind::Convert(_)
             | ValueKind::SignExtend(_)
-            | ValueKind::Popcnt(_)
+            | ValueKind::BitCount(..)
             | ValueKind::ZeroTest { .. }
     ) {
         return vec![demand];

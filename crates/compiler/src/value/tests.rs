@@ -6,7 +6,13 @@ use crate::{
 };
 
 fn assert_closed(value: &Val<I32>) {
-    for result in [value.add(0), Val::<I32>::from(0).and(value)] {
+    for result in [
+        value.add(0),
+        Val::<I32>::from(0).and(value),
+        value.popcnt(),
+        value.clz(),
+        value.ctz(),
+    ] {
         assert!(matches!(
             result.source,
             ValueSource::Expression {
@@ -294,6 +300,9 @@ fn arithmetic_identity_folds_preserve_operand_errors() {
         body.value(Val::<I32>::from(0).and(&failed)).err(),
         Some(BuildError::ForeignBody)
     );
+    for count in [failed.popcnt(), failed.clz(), failed.ctz()] {
+        assert_eq!(body.value(count).err(), Some(BuildError::ForeignBody));
+    }
     body.return_(value.sub(0)).unwrap();
     assert!(program.compile().is_ok());
 }

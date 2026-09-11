@@ -7,8 +7,10 @@ This is a public repository. Commit messages use `component: title`.
 - Commit implementation, permanent behavior tests and useful project documentation only.
   Never commit migration notes, migration scripts, temporary generators, comparison
   ledgers or development-process artifacts. Keep those outside the repository.
-- Rebuild deliberately. Reference code is evidence about behavior and performance,
-  not a design template to copy without review.
+- Rebuild deliberately. Intel's architecture manuals are the authority for
+  architectural behavior. Reference code supplies comparison and performance
+  evidence; it can contain defects and is not a correctness oracle or a design
+  template to copy without review.
 - Review comments, names, test names and test-file placement with the same care as
   implementation. Comments explain contracts and non-obvious reasons in plain
   language; rewrite unclear or obsolete comments instead of carrying them forward.

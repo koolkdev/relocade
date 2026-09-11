@@ -9,7 +9,7 @@ use source::{BoundExpression, ValueSource};
 
 use crate::arena::ExpressionArena;
 use crate::{
-    integer::{self, BinaryOp, CompareOp, RotateOp, ShiftOp},
+    integer::{self, BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
     AtLeast, BuildError, IntType, I1, I32, I64,
 };
 
@@ -149,7 +149,19 @@ impl<T: IntType> Val<T> {
     /// Counts set bits in the logical value, ignoring upper carrier bits.
     /// The count retains the receiver's type and always fits in it.
     pub fn popcnt(&self) -> Self {
-        self.map(integer::popcnt, |arena, input| arena.popcnt(input))
+        self.bit_count(BitCountOp::Ones)
+    }
+
+    /// Counts leading zeros in the logical value, ignoring upper carrier bits.
+    /// Zero returns the logical width. The count retains the receiver's type.
+    pub fn clz(&self) -> Self {
+        self.bit_count(BitCountOp::LeadingZeros)
+    }
+
+    /// Counts trailing zeros in the logical value, ignoring upper carrier bits.
+    /// Zero returns the logical width. The count retains the receiver's type.
+    pub fn ctz(&self) -> Self {
+        self.bit_count(BitCountOp::TrailingZeros)
     }
 
     /// Shifts left, retaining the logical type's low bits.
@@ -257,6 +269,13 @@ impl<T: IntType> Val<T> {
             &other,
             |left, right| integer::binary(operator, left, right),
             |arena, left, right| arena.binary(operator, left, right),
+        )
+    }
+
+    fn bit_count(&self, operator: BitCountOp) -> Self {
+        self.map(
+            |bits| integer::bit_count(T::TYPE, operator, bits),
+            |arena, input| arena.bit_count(operator, input),
         )
     }
 

@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use crate::{
     control::Site,
-    integer::{self, BinaryOp, CompareOp},
+    integer::{self, BinaryOp, BitCountOp, CompareOp},
     memory::Location,
     BuildError, Type, Value, ValueKind,
 };
@@ -191,16 +191,20 @@ impl ExpressionArena {
         })
     }
 
-    pub(super) fn popcnt(&self, input: usize) -> Result<usize, BuildError> {
+    pub(super) fn bit_count(
+        &self,
+        operator: BitCountOp,
+        input: usize,
+    ) -> Result<usize, BuildError> {
         self.with_open(|arena| {
             let value = arena.values[input];
             if let ValueKind::Constant(bits) = value.kind {
-                return arena.constant(value.ty, integer::popcnt(bits));
+                return arena.constant(value.ty, integer::bit_count(value.ty, operator, bits));
             }
             let input = arena.normalize(input);
             arena.intern(Value {
                 ty: value.ty,
-                kind: ValueKind::Popcnt(input),
+                kind: ValueKind::BitCount(operator, input),
             })
         })
     }
@@ -452,7 +456,7 @@ impl ValueArena {
             }
             ValueKind::Convert(input)
             | ValueKind::SignExtend(input)
-            | ValueKind::Popcnt(input)
+            | ValueKind::BitCount(_, input)
             | ValueKind::Normalize(input)
             | ValueKind::ZeroTest { input, .. } => self.availability[input],
         }

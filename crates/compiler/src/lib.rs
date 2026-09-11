@@ -40,7 +40,7 @@ pub use call::FunctionImport;
 use call::Invocation;
 pub use control::Label;
 use control::{Destination, Region, Site};
-use integer::{BinaryOp, CompareOp, RotateOp, ShiftOp};
+use integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp};
 use memory::Location;
 pub use memory::{Mem, MemoryImport, MemoryInt};
 pub use results::{Arguments, Results};
@@ -228,7 +228,7 @@ enum ValueKind {
         when_false: usize,
     },
     SignExtend(usize),
-    Popcnt(usize),
+    BitCount(BitCountOp, usize),
     Compare(CompareOp, usize, usize),
     ZeroTest {
         input: usize,
