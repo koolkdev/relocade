@@ -22,8 +22,7 @@ pub(crate) enum DoubleShiftOp {
 }
 
 impl ShiftOp {
-    /// The caller masks the x86 count to five bits and installs these flags only
-    /// when that count is nonzero. The result also remains valid at count zero.
+    /// The caller masks the x86 count to five bits. Zero preserves value and flags.
     pub(crate) fn apply<T: MemoryInt>(self, input: Val<T>, count: Val<I32>) -> AluResult<T>
     where
         FlagSource<T>: Into<AnyFlagSource>,
@@ -60,7 +59,7 @@ impl ShiftOp {
 }
 
 impl DoubleShiftOp {
-    /// The caller masks the count to five bits and applies flags only if nonzero.
+    /// The caller masks the count to five bits. Zero preserves value and flags.
     /// Word counts above sixteen choose a zero result and zero CF/AF/OF, with
     /// PF/ZF/SF describing that result. The architecture leaves these undefined.
     pub(crate) fn apply<T: MemoryInt>(
@@ -112,6 +111,6 @@ where
     });
     AluResult {
         result,
-        flags: FlagChange::from(FlagSource::<T>::Explicit { flags }),
+        flags: FlagChange::from(FlagSource::<T>::Explicit { flags }).when(count.ne(0)),
     }
 }

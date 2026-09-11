@@ -29,10 +29,9 @@ fn rejected_partial_values_and_predicates_leave_pending_changes_intact() {
                 let mut state = State::new(&cpu);
                 state.set_flags(&mut body, ArithmeticOp::Add.apply::<I32>(7, 5).flags)?;
                 let pending = body.parameter::<I1>(0)?;
-                state.set_flags_if(
+                state.set_flags(
                     &mut body,
-                    pending,
-                    FlagChange::partial([(StatusFlag::ZF, true.into())]),
+                    FlagChange::partial([(StatusFlag::ZF, true.into())]).when(pending),
                 )?;
                 let mut child = None;
                 body.if_(false, |mut arm| {
@@ -53,27 +52,44 @@ fn rejected_partial_values_and_predicates_leave_pending_changes_intact() {
                         );
                         for condition in [false, true] {
                             assert_eq!(
-                                state.set_flags_if(
+                                state.set_flags(
                                     &mut body,
-                                    condition,
-                                    FlagChange::partial([(flag, invalid.clone())])
+                                    FlagChange::partial([(flag, invalid.clone())]).when(condition)
                                 ),
                                 Err(error.clone())
                             );
                         }
                     }
                     assert_eq!(
-                        state.set_flags_if(
+                        state.set_flags(
                             &mut body,
-                            invalid.clone(),
                             FlagChange::partial([(StatusFlag::CF, false.into())])
+                                .when(invalid.clone())
                         ),
                         Err(error.clone())
                     );
                     assert_eq!(
-                        state.set_flags_if(&mut body, invalid, FlagChange::partial([])),
-                        Err(error)
+                        state.set_flags(&mut body, FlagChange::partial([]).when(invalid.clone())),
+                        Err(error.clone())
                     );
+                    for change in [
+                        FlagChange::partial([(StatusFlag::CF, true.into())])
+                            .when(invalid.clone())
+                            .when(false),
+                        FlagChange::partial([(StatusFlag::CF, true.into())])
+                            .when(false)
+                            .when(invalid.clone()),
+                        FlagChange::partial([]).when(invalid.clone()).when(false),
+                        FlagChange::partial([]).when(false).when(invalid.clone()),
+                        FlagChange::partial([(StatusFlag::CF, true.into())])
+                            .when(invalid.clone())
+                            .preserving(StatusFlag::CF),
+                        FlagChange::partial([(StatusFlag::CF, true.into())])
+                            .preserving(StatusFlag::CF)
+                            .when(invalid.clone()),
+                    ] {
+                        assert_eq!(state.set_flags(&mut body, change), Err(error.clone()));
+                    }
                 }
                 state.publish(&mut body, 0x1002, 1)?;
                 body.return_(0_u64)
@@ -124,11 +140,10 @@ fn empty_and_constant_false_partial_changes_preserve_the_stored_record() {
                 let mut state = State::new(&cpu);
                 state.set_flags(&mut body, FlagChange::partial([]))?;
                 let predicate = body.parameter::<I1>(0)?;
-                state.set_flags_if(&mut body, predicate, FlagChange::partial([]))?;
-                state.set_flags_if(
+                state.set_flags(&mut body, FlagChange::partial([]).when(predicate))?;
+                state.set_flags(
                     &mut body,
-                    false,
-                    FlagChange::partial([(StatusFlag::CF, false.into())]),
+                    FlagChange::partial([(StatusFlag::CF, false.into())]).when(false),
                 )?;
                 state.publish(&mut body, 0x1002, 1)?;
                 body.return_(0_u64)

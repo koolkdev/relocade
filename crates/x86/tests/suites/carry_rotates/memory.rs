@@ -91,7 +91,7 @@ fn memory_carry_rotates_use_exact_widths_and_old_address_registers() {
             registers: &[(Gpr32::Ebx, 0x4fff)],
         },
         Case {
-            name: "complete byte carry ring preserves the operand and carry",
+            name: "complete byte carry ring preserves the operand and raw flags",
             code: &[0xc0, 0x13, 9],
             operation: Operation::Rcl,
             bits: 8,

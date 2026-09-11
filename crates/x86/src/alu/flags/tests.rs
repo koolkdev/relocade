@@ -215,7 +215,7 @@ fn negation_auxiliary_carry_depends_on_the_original_low_nibble() {
 }
 
 #[test]
-fn preserving_a_flag_removes_only_its_update_from_complete_and_partial_changes() {
+fn conditioning_and_preserving_flags_keep_the_remaining_values_and_write_mask() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![Type::I1; 6],
@@ -227,7 +227,10 @@ fn preserving_a_flag_removes_only_its_update_from_complete_and_partial_changes()
         flags: values.clone(),
     }
     .into();
-    let complete = complete.preserving(StatusFlag::CF);
+    let complete = complete
+        .when(values[0].clone())
+        .preserving(StatusFlag::CF)
+        .when(values[5].clone());
     assert_eq!(complete.writes().bits(), 0b111110);
     for flag in StatusFlag::ALL.into_iter().skip(1) {
         assert!(complete.flag(flag).same_expression(&values[flag as usize]));
@@ -237,7 +240,9 @@ fn preserving_a_flag_removes_only_its_update_from_complete_and_partial_changes()
         (StatusFlag::CF, values[0].clone()),
         (StatusFlag::OF, values[5].clone()),
     ])
-    .preserving(StatusFlag::CF);
+    .when(values[2].clone())
+    .preserving(StatusFlag::CF)
+    .when(values[3].clone());
     assert_eq!(partial.writes().bits(), 0b100000);
     assert!(partial.flag(StatusFlag::OF).same_expression(&values[5]));
     let partial = partial.preserving(StatusFlag::PF);

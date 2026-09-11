@@ -24,7 +24,7 @@ fn flags_then_fault(operation: Operation, count: u8) -> (Vec<u8>, Image, Vec<Ste
         0xc2, // SETC DL reads the carry-ring result
         0x0f,
         0x90,
-        0xc6, // SETO DH reads the masked-count rule
+        0xc6, // SETO DH reads the resulting overflow
         0x46, // INC ESI preserves the selected carry
         0xb1,
         1, // MOV CL,1

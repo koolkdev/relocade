@@ -5,7 +5,7 @@ mod changes;
 mod condition;
 mod source;
 
-pub(crate) use changes::{FlagChange, FlagMask};
+pub(crate) use changes::{FlagChange, FlagMask, FlagValues};
 pub(crate) use condition::Condition;
 pub(crate) use source::{AnyFlagSource, FlagSource};
 

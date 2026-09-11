@@ -178,12 +178,13 @@ OF, including a byte rotate by nine.
 
 RCL and RCR rotate through the incoming CF, which adds one bit to the ring.
 After masking to five bits, counts wrap modulo 9 for bytes and 17 for words;
-dword counts remain 0–31 in a 33-bit ring. A complete carry-ring turn preserves
-the operand and CF. OF uses the same left/right rules as ROL/ROR only when the
-masked count is one; wasm86 chooses zero for larger masked counts, including
-complete rings and a byte RCL/RCR by ten. A zero masked count preserves the
-entire flag source. PF/AF/ZF/SF, old-CL capture and full-span memory write checks
-follow ROL/ROR. The undocumented group `/6` SHL alias is outside this subset.
+dword counts remain 0–31 in a 33-bit ring. A zero effective count, including a
+complete carry-ring turn, preserves the operand and entire flag source.
+For nonzero effective counts, OF uses the same left/right rules as ROL/ROR only
+when the masked count is one; wasm86 chooses zero for larger masked counts,
+including a byte RCL/RCR by ten. PF/AF/ZF/SF, old-CL capture and full-span memory
+write checks follow ROL/ROR. The undocumented group `/6` SHL alias is outside
+this subset.
 
 BT copies a bit from a word/dword operand into CF. BTS, BTR and BTC also set,
 reset or complement that bit, respectively. CF always receives the old bit.
@@ -423,8 +424,12 @@ condition rules. Flag-bit extraction uses typed truncation, so raw intermediates
 can remain unnormalized until an operation needs their logical low bit.
 `state::flags` owns admission, pending history and publication. Its `FlagState`
 holds a stored CPU record or symbolic source as its base, followed by complete or
-partial changes in instruction order. `set_flags` accepts a `FlagChange`: either
-a complete source or individual flag values, with omitted flags preserved.
+partial changes in instruction order. `set_flags` accepts a `FlagChange` containing
+an optional condition and `FlagValues`: either a complete source or individual
+flag values, with omitted flags preserved. `change.when(predicate)` restricts when
+the change applies; repeated calls combine predicates with AND. `preserving(flag)`
+retains the condition while removing that flag's update. These methods construct
+symbolic descriptions; state validates and normalizes them during admission.
 An unconditional complete replacement discards the earlier history.
 
 `UnaryOp::apply` defines INC, DEC, NEG and NOT. INC and DEC reuse the arithmetic
@@ -450,14 +455,16 @@ updates and flag publication; scan semantics need no new operand interface.
 left, logical-right and arithmetic-right shifts. `DoubleShiftOp::apply` accepts
 an additional source value. Both use the shared shift result/flag construction;
 double shifts keep CF defined at a count equal to the operand width.
-`RotateDirection::rotate` and
-`rotate_through_carry` return the same `AluResult` with a partial CF/OF change.
-`set_flags_if(count.ne(0), outcome.flags)` retains the change only for a nonzero
-masked count. Its predicate and every source value are validated before state
-changes. Constant predicates either replace or preserve the current state;
-runtime predicates append to the history. A condition query composes the bits it
-needs when a partial change affects them; complete sources retain their comparison
-shortcuts. Conditional values use pure selections. Stored reads stay on the owning
+`RotateDirection::rotate` and `rotate_through_carry` describe a partial CF/OF
+change. Each semantic operation attaches its own flag condition with `when`:
+RCL/RCR use the effective count after carry-ring reduction, while shifts and
+ROL/ROR use the masked count. Every handler passes `outcome.flags` to `set_flags`.
+Admission validates the predicate and every supplied flag value before changing
+state, even for false conditions or empty changes. Constant true conditions become
+unconditional changes; false conditions preserve the previous source. Runtime
+conditions stay with their changes in the history. A condition query composes the
+bits it needs when a partial change affects them; complete sources retain their
+comparison shortcuts. Conditional values use pure selections. Stored reads stay on the owning
 path so cached values remain available to later queries. Reading flags never
 modifies the stored record.
 

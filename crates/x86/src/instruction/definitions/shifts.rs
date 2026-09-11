@@ -135,8 +135,8 @@ fn rotate<T: RegisterType>(
 ) -> Result<(), BuildError> {
     destination.update(execution, |execution, input| {
         let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
-        let outcome = direction.rotate(input, count.clone());
-        execution.set_flags_if(count.ne(0), outcome.flags)?;
+        let outcome = direction.rotate(input, count);
+        execution.set_flags(outcome.flags)?;
         Ok(outcome.result)
     })
 }
@@ -153,8 +153,8 @@ where
     destination.update(execution, |execution, input| {
         let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
         let carry = execution.condition(Condition::B)?;
-        let outcome = direction.rotate_through_carry(input, count.clone(), carry);
-        execution.set_flags_if(count.ne(0), outcome.flags)?;
+        let outcome = direction.rotate_through_carry(input, count, carry);
+        execution.set_flags(outcome.flags)?;
         Ok(outcome.result)
     })
 }
@@ -170,8 +170,8 @@ where
 {
     destination.update(execution, |execution, input| {
         let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
-        let outcome = operation.apply(input, count.clone());
-        execution.set_flags_if(count.ne(0), outcome.flags)?;
+        let outcome = operation.apply(input, count);
+        execution.set_flags(outcome.flags)?;
         Ok(outcome.result)
     })
 }
@@ -190,8 +190,8 @@ where
     destination.update(execution, |execution, input| {
         let source = source.read(execution)?;
         let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
-        let outcome = operation.apply(input, source, count.clone());
-        execution.set_flags_if(count.ne(0), outcome.flags)?;
+        let outcome = operation.apply(input, source, count);
+        execution.set_flags(outcome.flags)?;
         Ok(outcome.result)
     })
 }

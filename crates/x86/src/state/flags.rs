@@ -4,9 +4,9 @@ mod publication;
 mod queries;
 pub(super) mod record;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, MemoryInt, Val, I1};
+use wasm86_compiler::{BuildError, FunctionBuilder, MemoryInt, I1};
 
-use crate::alu::flags::{AnyFlagSource, Condition, FlagChange, FlagMask, FlagSource};
+use crate::alu::flags::{AnyFlagSource, Condition, FlagChange, FlagMask, FlagSource, FlagValues};
 
 use super::State;
 use queries::StoredFlagCache;
@@ -20,22 +20,18 @@ pub(super) fn condition_index(canonical: Condition) -> usize {
 
 /// Changes follow one complete source in program order. Publication may use
 /// descendant arms without changing this history or its query caches.
+/// History contains only nonempty changes; any predicate is admitted and nonconstant.
+/// An unconditional complete change replaces the base instead of entering history.
 #[derive(Default)]
 pub(super) struct FlagState {
     base: FlagBase,
-    updates: Vec<FlagUpdate>,
+    updates: Vec<FlagChange>,
 }
 
 #[derive(Clone)]
 enum FlagBase {
     Stored(StoredFlagCache),
     Local(AnyFlagSource),
-}
-
-struct FlagUpdate {
-    /// None denotes an unconditional change.
-    condition: Option<Val<I1>>,
-    change: FlagChange,
 }
 
 impl Default for FlagBase {
@@ -45,67 +41,59 @@ impl Default for FlagBase {
 }
 
 impl FlagState {
-    fn apply(&mut self, condition: Option<Val<I1>>, change: FlagChange) {
-        match (condition, change) {
-            (None, FlagChange::Complete(source)) => {
+    fn apply(&mut self, change: FlagChange) {
+        match change {
+            FlagChange {
+                condition: None,
+                values: FlagValues::Complete(source),
+            } => {
                 self.base = FlagBase::Local(source);
                 self.updates.clear();
             }
-            (condition, change) => self.updates.push(FlagUpdate { condition, change }),
+            change => self.updates.push(change),
         }
     }
 }
 
 impl State<'_> {
     /// Applies a symbolic flag change after the instruction's fault guards pass.
+    /// A false condition retains the entire previous source and stored record.
     pub(crate) fn set_flags(
         &mut self,
         body: &mut FunctionBuilder<'_>,
         change: impl Into<FlagChange>,
     ) -> Result<(), BuildError> {
-        let change = change.into();
-        admit_change(body, &change)?;
-        if change.writes() != FlagMask::EMPTY {
-            self.flags.apply(None, change);
-        }
-        Ok(())
-    }
-
-    /// Applies a change only when the predicate is true; false retains the
-    /// complete previous source, including an untouched stored record.
-    pub(crate) fn set_flags_if(
-        &mut self,
-        body: &mut FunctionBuilder<'_>,
-        condition: impl Into<Val<I1>>,
-        change: impl Into<FlagChange>,
-    ) -> Result<(), BuildError> {
-        let condition = body.value(condition)?;
-        let change = change.into();
-        admit_change(body, &change)?;
-        // Validate every provided value even when the predicate folds to false.
-        if condition.same_expression(&body.value::<I1>(false)?)
-            || change.writes() == FlagMask::EMPTY
-        {
+        let mut change = change.into();
+        change.condition = change
+            .condition
+            .map(|condition| body.value(condition))
+            .transpose()?;
+        admit_values(body, &change.values)?;
+        // Admit every provided value before omitting an empty or false change.
+        if change.writes() == FlagMask::EMPTY {
             return Ok(());
         }
-        let condition = if condition.same_expression(&body.value::<I1>(true)?) {
-            None
-        } else {
-            Some(condition)
-        };
-        self.flags.apply(condition, change);
+        if let Some(condition) = &change.condition {
+            if condition.same_expression(&body.value::<I1>(false)?) {
+                return Ok(());
+            }
+            if condition.same_expression(&body.value::<I1>(true)?) {
+                change.condition = None;
+            }
+        }
+        self.flags.apply(change);
         Ok(())
     }
 }
 
-fn admit_change(body: &FunctionBuilder<'_>, change: &FlagChange) -> Result<(), BuildError> {
-    match change {
-        FlagChange::Complete(source) => match source {
+fn admit_values(body: &FunctionBuilder<'_>, values: &FlagValues) -> Result<(), BuildError> {
+    match values {
+        FlagValues::Complete(source) => match source {
             AnyFlagSource::Byte(source) => admit_source(body, source),
             AnyFlagSource::Word(source) => admit_source(body, source),
             AnyFlagSource::Dword(source) => admit_source(body, source),
         },
-        FlagChange::Partial(flags) => {
+        FlagValues::Partial(flags) => {
             for value in flags.iter().flatten() {
                 body.value(value)?;
             }

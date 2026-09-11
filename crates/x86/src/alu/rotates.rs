@@ -15,7 +15,7 @@ pub(crate) enum RotateDirection {
 }
 
 impl RotateDirection {
-    /// Count is masked to five bits; the caller applies flags only when nonzero.
+    /// Count is masked to five bits; a nonzero masked count changes CF and OF.
     pub(crate) fn rotate<T: MemoryInt>(self, input: Val<T>, count: Val<I32>) -> AluResult<T> {
         let width = T::BYTES * 8;
         let result = match self {
@@ -26,11 +26,14 @@ impl RotateDirection {
             Self::Left => bit(&result, 0),
             Self::Right => bit(&result, width - 1),
         };
-        self.result_with_flags(result, carry, &count)
+        AluResult {
+            flags: self.flags(&result, carry, &count).when(count.ne(0)),
+            result,
+        }
     }
 
     /// Rotates the operand and incoming CF using a count masked to five bits.
-    /// The caller applies flags only when that masked count is nonzero.
+    /// A zero effective count preserves the operand and entire flag source.
     pub(crate) fn rotate_through_carry<T: MemoryInt>(
         self,
         input: Val<T>,
@@ -61,7 +64,10 @@ impl RotateDirection {
         let has_rotation = effective.ne(0);
         let result = has_rotation.select(rotated, input);
         let carry = has_rotation.select(rotated_carry, carry);
-        self.result_with_flags(result, carry, &count)
+        AluResult {
+            flags: self.flags(&result, carry, &count).when(has_rotation),
+            result,
+        }
     }
 
     fn rotate_ring<T: MemoryInt>(self, ring: Val<T>, width: u32, count: &Val<I32>) -> Val<T> {
@@ -74,21 +80,15 @@ impl RotateDirection {
         }
     }
 
-    fn result_with_flags<T: MemoryInt>(
-        self,
-        result: Val<T>,
-        carry: Val<I1>,
-        count: &Val<I32>,
-    ) -> AluResult<T> {
+    fn flags<T: MemoryInt>(self, result: &Val<T>, carry: Val<I1>, count: &Val<I32>) -> FlagChange {
         let width = T::BYTES * 8;
         let overflow = match self {
-            Self::Left => bit(&result, width - 1).xor(&carry),
-            Self::Right => bit(&result, width - 1).xor(bit(&result, width - 2)),
+            Self::Left => bit(result, width - 1).xor(&carry),
+            Self::Right => bit(result, width - 1).xor(bit(result, width - 2)),
         }
         .and(count.eq(1));
-        // OF is undefined when the masked count exceeds one; choose zero.
-        let flags = FlagChange::partial([(StatusFlag::CF, carry), (StatusFlag::OF, overflow)]);
-        AluResult { result, flags }
+        // When flags change, OF is undefined above masked count one; choose zero.
+        FlagChange::partial([(StatusFlag::CF, carry), (StatusFlag::OF, overflow)])
     }
 }
 

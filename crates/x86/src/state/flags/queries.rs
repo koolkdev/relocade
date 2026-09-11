@@ -2,10 +2,10 @@
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1};
 
-use crate::alu::flags::{Condition, FlagChange, FlagMask, StatusFlag};
+use crate::alu::flags::{Condition, FlagChange, FlagMask, FlagValues, StatusFlag};
 use crate::state::{Cpu, State};
 
-use super::{condition_index, FlagBase, FlagUpdate};
+use super::{condition_index, FlagBase};
 
 #[derive(Clone)]
 pub(super) struct StoredFlagCache {
@@ -45,8 +45,7 @@ impl State<'_> {
     ) -> Result<Val<I1>, BuildError> {
         let needed = condition.flags();
         let partial = self.flags.updates.iter().rposition(|update| {
-            matches!(update.change, FlagChange::Partial(_))
-                && update.change.writes().intersects(needed)
+            matches!(update.values, FlagValues::Partial(_)) && update.writes().intersects(needed)
         });
         let (mut value, following) = if let Some(index) = partial {
             let flags = resolve_flags(
@@ -69,7 +68,7 @@ impl State<'_> {
         // All relevant partial changes are already composed. Newer complete
         // sources retain their subtraction and logical-result shortcuts.
         for update in following {
-            if let FlagChange::Complete(source) = &update.change {
+            if let FlagValues::Complete(source) = &update.values {
                 value = update
                     .condition
                     .as_ref()
@@ -85,7 +84,7 @@ pub(super) fn resolve_flags(
     body: &mut FunctionBuilder<'_>,
     cpu: &Cpu,
     base: &mut FlagBase,
-    updates: &[FlagUpdate],
+    updates: &[FlagChange],
     needed: FlagMask,
 ) -> Result<[Option<Val<I1>>; 6], BuildError> {
     // An unconditional definition cuts off the older history of that bit.
@@ -93,7 +92,7 @@ pub(super) fn resolve_flags(
     let starts = StatusFlag::ALL.map(|flag| {
         updates
             .iter()
-            .rposition(|update| update.condition.is_none() && update.change.writes().contains(flag))
+            .rposition(|update| update.condition.is_none() && update.writes().contains(flag))
     });
     let inherited = StatusFlag::ALL.iter().fold(FlagMask::EMPTY, |mask, flag| {
         if needed.contains(*flag) && starts[*flag as usize].is_none() {
@@ -109,13 +108,13 @@ pub(super) fn resolve_flags(
         }
         let start = starts[flag as usize];
         let (mut value, following) = if let Some(index) = start {
-            (updates[index].change.flag(flag), &updates[index + 1..])
+            (updates[index].flag(flag), &updates[index + 1..])
         } else {
             (flags[flag as usize].take().unwrap(), updates)
         };
         for update in following {
-            if update.change.writes().contains(flag) {
-                let changed = update.change.flag(flag);
+            if update.writes().contains(flag) {
+                let changed = update.flag(flag);
                 value = match &update.condition {
                     Some(condition) => condition.select(changed, value),
                     None => changed,

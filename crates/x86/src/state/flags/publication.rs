@@ -2,7 +2,7 @@
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Mem, Val, I1};
 
-use crate::alu::flags::{AnyFlagSource, FlagChange, FlagMask};
+use crate::alu::flags::{AnyFlagSource, FlagMask, FlagValues};
 use crate::state::State;
 
 use super::{
@@ -24,11 +24,11 @@ impl State<'_> {
             .flags
             .updates
             .iter()
-            .any(|update| matches!(update.change, FlagChange::Partial(_)));
+            .any(|update| matches!(update.values, FlagValues::Partial(_)));
         let partial_condition = if has_partial {
             let mut needs_concrete: Val<I1> = false.into();
             for update in &self.flags.updates {
-                let partial = matches!(update.change, FlagChange::Partial(_));
+                let partial = matches!(update.values, FlagValues::Partial(_));
                 needs_concrete = match &update.condition {
                     Some(condition) => condition.select(partial, needs_concrete),
                     None => partial.into(),
@@ -56,7 +56,7 @@ impl State<'_> {
                 })?;
             }
             for update in self.flags.updates.iter().rev() {
-                if let FlagChange::Complete(source) = &update.change {
+                if let FlagValues::Complete(source) = &update.values {
                     block.if_(update.condition.as_ref().unwrap(), |mut arm| {
                         publish_source(&mut arm, memory, source)?;
                         arm.branch(&done, ())

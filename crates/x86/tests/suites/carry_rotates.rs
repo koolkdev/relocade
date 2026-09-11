@@ -8,6 +8,8 @@ mod counts;
 mod decoding;
 #[path = "carry_rotates/flags.rs"]
 mod flags;
+#[path = "carry_rotates/full_rings.rs"]
+mod full_rings;
 #[path = "carry_rotates/memory.rs"]
 mod memory;
 #[path = "carry_rotates/sequences.rs"]
@@ -72,8 +74,9 @@ impl Expected {
     }
 }
 
-// Move one bit through the operand and carry at a time. Complete 9/17-bit
-// rings restore both, but only a masked count of one defines overflow.
+// Move one bit through the operand and carry at a time. Complete carry rings
+// preserve the stored flags. For other counts, only masked one defines OF;
+// this implementation chooses zero for the remaining undefined OF values.
 fn expected(
     operation: Operation,
     bits: u32,
@@ -106,7 +109,7 @@ fn expected(
         };
     Expected {
         value: result as u32,
-        status: (count != 0).then_some(StatusFlags {
+        status: (u32::from(count) % (bits + 1) != 0).then_some(StatusFlags {
             cf: u8::from(carry),
             of: u8::from(overflow),
             ..prior

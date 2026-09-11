@@ -96,13 +96,13 @@ fn mixed_histories_preserve_all_conditions_records_and_earlier_publications() {
                         )?;
                     }
                     let first = body.parameter::<I1>(0)?;
-                    state.set_flags_if(
+                    state.set_flags(
                         &mut body,
-                        first,
                         FlagChange::partial([
                             (StatusFlag::CF, false.into()),
                             (StatusFlag::OF, true.into()),
-                        ]),
+                        ])
+                        .when(first),
                     )?;
                     let stop = body.parameter::<I1>(4)?;
                     body.if_(stop, |mut arm| {
@@ -112,28 +112,27 @@ fn mixed_histories_preserve_all_conditions_records_and_earlier_publications() {
                         arm.return_(0_u64)
                     })?;
                     let second = body.parameter::<I1>(1)?;
-                    state.set_flags_if(
+                    state.set_flags(
                         &mut body,
-                        second,
-                        FlagSource::<I8>::Logic { result: 0.into() },
+                        FlagChange::from(FlagSource::<I8>::Logic { result: 0.into() }).when(second),
                     )?;
                     let third = body.parameter::<I1>(2)?;
-                    state.set_flags_if(
+                    state.set_flags(
                         &mut body,
-                        third,
                         FlagChange::partial([
                             (StatusFlag::ZF, false.into()),
                             (StatusFlag::PF, false.into()),
-                        ]),
+                        ])
+                        .when(third),
                     )?;
                     let fourth = body.parameter::<I1>(3)?;
-                    state.set_flags_if(
+                    state.set_flags(
                         &mut body,
-                        fourth,
                         FlagChange::partial([
                             (StatusFlag::AF, false.into()),
                             (StatusFlag::SF, true.into()),
-                        ]),
+                        ])
+                        .when(fourth),
                     )?;
                     let conditions = query_all(&mut body, &mut state)?;
                     state.publish(&mut body, 0x1008, 4)?;
@@ -226,10 +225,9 @@ fn overwritten_partial_changes_do_not_generate_obsolete_stored_reader_calls() {
                 |mut body| {
                     let mut state = State::new(&cpu);
                     let pending = body.parameter::<I1>(0)?;
-                    state.set_flags_if(
+                    state.set_flags(
                         &mut body,
-                        pending,
-                        FlagChange::partial([(StatusFlag::CF, true.into())]),
+                        FlagChange::partial([(StatusFlag::CF, true.into())]).when(pending),
                     )?;
                     if complete {
                         state.set_flags(&mut body, FlagSource::<I8>::Logic { result: 0.into() })?;
@@ -302,21 +300,21 @@ fn mixed_partial_and_complete_history_keeps_constant_publication_depth() {
                     for index in 0..length {
                         let predicate = selector.eq(index);
                         if index % 2 == 0 {
-                            state.set_flags_if(
+                            state.set_flags(
                                 &mut body,
-                                predicate,
-                                FlagSource::<I32>::Logic {
+                                FlagChange::from(FlagSource::<I32>::Logic {
                                     result: index.into(),
-                                },
+                                })
+                                .when(predicate),
                             )?;
                         } else {
-                            state.set_flags_if(
+                            state.set_flags(
                                 &mut body,
-                                predicate,
                                 FlagChange::partial([
                                     (StatusFlag::CF, (index & 2 != 0).into()),
                                     (StatusFlag::OF, (index & 4 != 0).into()),
-                                ]),
+                                ])
+                                .when(predicate),
                             )?;
                         }
                     }
