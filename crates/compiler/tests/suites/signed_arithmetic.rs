@@ -6,6 +6,9 @@ use wasm86_compiler::{
 };
 use wasmparser::{Operator, Parser, Payload, Validator};
 
+#[path = "signed_arithmetic/representation.rs"]
+mod representation;
+
 fn operators(bytes: &[u8]) -> Vec<Operator<'_>> {
     Validator::new().validate_all(bytes).unwrap();
     Parser::new(0)

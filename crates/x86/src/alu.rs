@@ -1,9 +1,10 @@
-//! Pure x86 operand results and their status-flag changes.
+//! Pure x86 operand results, status-flag changes and numeric fault conditions.
 //! Operand access belongs to instruction execution; flag storage belongs to state.
 
 mod arithmetic;
 mod bit_scans;
 mod bit_tests;
+mod divide;
 pub(crate) mod flags;
 mod logic;
 mod multiply;
@@ -14,6 +15,7 @@ mod unary;
 pub(crate) use arithmetic::ArithmeticOp;
 pub(crate) use bit_scans::BitScanOp;
 pub(crate) use bit_tests::BitTestOp;
+pub(crate) use divide::DivideOp;
 pub(crate) use logic::LogicOp;
 pub(crate) use multiply::MultiplyOp;
 pub(crate) use rotates::RotateDirection;

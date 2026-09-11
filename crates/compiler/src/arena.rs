@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use crate::{
     control::Site,
-    integer::{self, BinaryOp, BitCountOp, CompareOp},
+    integer::{self, BinaryOp, BitBounds, BitCountOp, CompareOp},
     memory::Location,
     value::UnboundExpression,
     BuildError, Type, Value, ValueKind,
@@ -20,7 +20,7 @@ struct ValueArena {
     values: Vec<Value>,
     interned: HashMap<Value, usize>,
     unbound: HashMap<UnboundExpression, usize>,
-    unsigned_bits: Vec<u8>,
+    bounds: Vec<BitBounds>,
     scopes: Vec<usize>,
     availability: Vec<Option<usize>>,
 }
@@ -115,17 +115,17 @@ impl ExpressionArena {
         self.with_open(|arena| {
             // Joining does not clear upper bits. Later observers use the largest
             // bound from the arms that actually yield a value.
-            let bits = inputs
+            let bounds = inputs
                 .iter()
-                .map(|&id| arena.unsigned_bits[id])
-                .max()
+                .map(|&id| arena.bounds[id])
+                .reduce(BitBounds::union)
                 .unwrap();
-            arena.push_with_bits(
+            arena.push_with_bounds(
                 Value {
                     ty,
                     kind: ValueKind::JoinResult { site, component },
                 },
-                bits,
+                bounds,
             )
         })
     }
@@ -298,6 +298,30 @@ impl ValueArena {
         if let ValueKind::Constant(bits) = source.kind {
             return self.constant(target, integer::signed_value(source.ty, bits) as u64);
         }
+        let canonical = self.bounds[input].signed <= source.ty.bits();
+        if canonical && target != Type::I64 {
+            // Preserve the existing signed representation and its sharing when
+            // only the logical type widens; unsigned convert() would mask it.
+            return self.intern(Value {
+                ty: target,
+                kind: ValueKind::Convert(input),
+            });
+        }
+        if canonical {
+            let alias = if source.ty == Type::I32 {
+                input
+            } else {
+                self.intern(Value {
+                    ty: Type::I32,
+                    kind: ValueKind::Convert(input),
+                })
+            };
+            // Crossing into i64 still needs the signed carrier extension.
+            return self.intern(Value {
+                ty: target,
+                kind: ValueKind::SignExtend(alias),
+            });
+        }
         self.intern(Value {
             ty: target,
             kind: ValueKind::SignExtend(input),
@@ -377,6 +401,12 @@ impl ValueArena {
                 )),
             );
         }
+        // Equality can use the signed carriers when both already repeat their
+        // logical sign. Mixed signed/unsigned representations still need masks.
+        let signed_operands = matches!(operator, CompareOp::LtSigned | CompareOp::GeSigned)
+            || (matches!(operator, CompareOp::Eq | CompareOp::Ne)
+                && self.bounds[left].signed <= a.ty.bits()
+                && self.bounds[right].signed <= b.ty.bits());
         if matches!(operator, CompareOp::Eq | CompareOp::Ne) {
             let input = match (a.kind, b.kind) {
                 (_, ValueKind::Constant(0)) => Some(left),
@@ -405,13 +435,16 @@ impl ValueArena {
                     }
                 }
             }
-            if self.unsigned_bits[left] > a.ty.bits() && self.unsigned_bits[right] > a.ty.bits() {
+            if !signed_operands
+                && self.bounds[left].unsigned > a.ty.bits()
+                && self.bounds[right].unsigned > a.ty.bits()
+            {
                 // Compare the low-bit difference once instead of masking both operands.
                 let difference = self.binary(BinaryOp::Xor, left, right);
                 return self.zero_test(difference, operator == CompareOp::Ne);
             }
         }
-        let (left, right) = if matches!(operator, CompareOp::LtSigned | CompareOp::GeSigned) {
+        let (left, right) = if signed_operands {
             (
                 self.sign_extend_carrier(left),
                 self.sign_extend_carrier(right),
@@ -426,9 +459,13 @@ impl ValueArena {
     }
 
     fn zero_test(&mut self, input: usize, nonzero: bool) -> usize {
-        let input = self.normalize(input);
+        let input = if self.bounds[input].signed <= self.values[input].ty.bits() {
+            input
+        } else {
+            self.normalize(input)
+        };
         // A value already restricted to zero or one is its own nonzero test.
-        if nonzero && self.unsigned_bits[input] <= 1 {
+        if nonzero && self.bounds[input].unsigned <= 1 {
             return self.convert(input, Type::I1);
         }
         self.intern(Value {
@@ -439,7 +476,7 @@ impl ValueArena {
 
     fn normalize(&mut self, input: usize) -> usize {
         let value = self.values[input];
-        if self.unsigned_bits[input] <= value.ty.bits() {
+        if self.bounds[input].unsigned <= value.ty.bits() {
             return input;
         }
         // Calls, returns and unsigned observations share the masked result.
@@ -505,14 +542,14 @@ impl ValueArena {
     }
 
     fn push(&mut self, value: Value) -> usize {
-        let bits = integer::unsigned_bits(value, &self.values, &self.unsigned_bits);
-        self.push_with_bits(value, bits)
+        let bounds = BitBounds::for_value(value, &self.values, &self.bounds);
+        self.push_with_bounds(value, bounds)
     }
 
-    fn push_with_bits(&mut self, value: Value, bits: u8) -> usize {
+    fn push_with_bounds(&mut self, value: Value, bounds: BitBounds) -> usize {
         let index = self.values.len();
         self.availability.push(self.availability(value));
-        self.unsigned_bits.push(bits);
+        self.bounds.push(bounds);
         self.values.push(value);
         index
     }

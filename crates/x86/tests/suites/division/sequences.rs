@@ -55,6 +55,20 @@ fn division_sequences() -> Vec<Case> {
             .step(Checkpoint::preserving_flags(&[0xb9, 0xff, 0xff, 0xff, 0xff]).register(Ecx, 0xffff_ffff))
             .step(Checkpoint::preserving_flags(&[0xf7, 0xf9]).divide_error())
             .trailing_code(&[0xba, 0, 0, 0, 0], 1),
+        Case::preserving_flags("constant byte zero divisor preserves the preceding AX and BL writes")
+            .instruction_count(0xffff_fffe)
+            .initial_registers(&[(Eax, 0x4433_ffff), (Ebx, 0x10ff_eeff)])
+            .step(Checkpoint::preserving_flags(&[0x66, 0xb8, 0, 0]).register(Eax, 0x4433_0000))
+            .step(Checkpoint::preserving_flags(&[0xb3, 0]).register(Ebx, 0x10ff_ee00))
+            .step(Checkpoint::preserving_flags(&[0xf6, 0xfb]).divide_error())
+            .trailing_code(&[0x66, 0xb8, 1, 0], 1),
+        Case::preserving_flags("constant byte minimum dividend over negative one preserves the MOV results")
+            .instruction_count(0xffff_fffe)
+            .initial_registers(&[(Eax, 0x4433_ffff), (Ebx, 0x10ff_ee00)])
+            .step(Checkpoint::preserving_flags(&[0x66, 0xb8, 0, 0x80]).register(Eax, 0x4433_8000))
+            .step(Checkpoint::preserving_flags(&[0xb3, 0xff]).register(Ebx, 0x10ff_eeff))
+            .step(Checkpoint::preserving_flags(&[0xf6, 0xfb]).divide_error())
+            .trailing_code(&[0x66, 0xb8, 0, 0], 1),
     ]
 }
 

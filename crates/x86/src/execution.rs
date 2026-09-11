@@ -1,8 +1,6 @@
-mod division;
 mod operands;
 mod stack;
 
-pub(crate) use division::DivideOp;
 pub(crate) use operands::PairValues;
 
 use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32, I64};
@@ -65,7 +63,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     /// Ends a faulting path at the current instruction's entry boundary. Call
     /// before defining any of that instruction's architectural results.
-    fn fault_if(
+    pub(crate) fn fault_if(
         &mut self,
         condition: impl Into<Val<I1>>,
         code: impl Into<Val<I64>>,

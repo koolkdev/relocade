@@ -1,5 +1,5 @@
 //! Instruction ordering and storage of shared expression results.
-use wasm_encoder::{Encode, Function, Instruction, MemArg, ValType};
+use wasm_encoder::{Encode, Function, Instruction, ValType};
 
 use crate::{
     control::Site, effects::Effects, locals, memory::Location, module::Types, place, Body, Type,
@@ -9,6 +9,7 @@ use crate::{
 mod calls;
 mod control;
 mod integer;
+mod memory;
 mod switch;
 
 struct LocalEvent {
@@ -34,7 +35,11 @@ pub(super) fn wasm_type(ty: Type) -> ValType {
 enum Walk {
     Value(usize),
     Finish(usize),
-    FinishLoad(usize),
+    FinishLoad {
+        result: usize,
+        location: Location,
+        signed: bool,
+    },
     FinishCall(usize),
     FinishZero(usize, Option<Type>),
 }
@@ -111,8 +116,8 @@ impl Scheduler<'_> {
         else {
             return condition;
         };
-        // Wasm truth consumers accept any nonzero i32. ZeroTest already normalized
-        // its input; a saved Boolean must retain its canonical numeric value.
+        // Wasm truth consumers accept any nonzero i32. ZeroTest's input is zero
+        // exactly when its logical value is zero; saved Booleans remain zero or one.
         if self.placement.slots[condition].is_none()
             && wasm_type(self.body.values[input].ty) == ValType::I32
         {
@@ -132,9 +137,13 @@ impl Scheduler<'_> {
                     self.completed(id, capture && id == root);
                     continue;
                 }
-                Walk::FinishLoad(id) => {
-                    self.load(id);
-                    self.completed(id, capture && id == root);
+                Walk::FinishLoad {
+                    result,
+                    location,
+                    signed,
+                } => {
+                    self.load(location, self.body.values[result].ty, signed);
+                    self.completed(result, capture && result == root);
                     continue;
                 }
                 Walk::FinishCall(id) => {
@@ -200,10 +209,22 @@ impl Scheduler<'_> {
                 }
                 ValueKind::Normalize(input)
                 | ValueKind::Convert(input)
-                | ValueKind::SignExtend(input)
                 | ValueKind::BitCount(_, input) => {
                     pending.push(Walk::Finish(id));
                     pending.push(Walk::Value(input));
+                }
+                ValueKind::SignExtend(input) => {
+                    if let Some(location) = self.signed_load_location(input) {
+                        pending.push(Walk::FinishLoad {
+                            result: id,
+                            location,
+                            signed: true,
+                        });
+                        pending.push(Walk::Value(location.base));
+                    } else {
+                        pending.push(Walk::Finish(id));
+                        pending.push(Walk::Value(input));
+                    }
                 }
                 ValueKind::ZeroTest { input, .. } => {
                     let mut input = place::representation(self.body, input);
@@ -229,39 +250,20 @@ impl Scheduler<'_> {
                     }
                 }
                 ValueKind::Load { location, .. } => {
-                    pending.push(Walk::FinishLoad(id));
+                    pending.push(Walk::FinishLoad {
+                        result: id,
+                        location,
+                        signed: false,
+                    });
                     pending.push(Walk::Value(location.base));
                 }
             }
         }
     }
 
-    fn memory_argument(&self, location: Location) -> MemArg {
-        MemArg {
-            offset: u64::from(location.offset),
-            align: location.bytes.trailing_zeros(),
-            memory_index: self.memories[location.memory.0].expect("an authored memory is imported"),
-        }
-    }
-
     fn call(&mut self, target: crate::Func) {
         Instruction::Call(self.functions[target.0].expect("a call target has a function index"))
             .encode(&mut self.bytes);
-    }
-
-    fn load(&mut self, id: usize) {
-        let ValueKind::Load { location, .. } = self.body.values[id].kind else {
-            unreachable!("load evaluation names a load value")
-        };
-        let argument = self.memory_argument(location);
-        match location.bytes {
-            1 => Instruction::I32Load8U(argument),
-            2 => Instruction::I32Load16U(argument),
-            4 => Instruction::I32Load(argument),
-            8 => Instruction::I64Load(argument),
-            _ => unreachable!("memory locations have a supported byte size"),
-        }
-        .encode(&mut self.bytes);
     }
 
     fn finish(self, parameter_count: u32) -> Function {

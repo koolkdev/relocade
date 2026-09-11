@@ -1,4 +1,8 @@
-use crate::{Type, Value, ValueKind};
+use crate::Type;
+
+mod bounds;
+
+pub(super) use bounds::BitBounds;
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum BinaryOp {
@@ -128,62 +132,4 @@ pub(super) fn bit_count(ty: Type, operator: BitCountOp, value: u64) -> u64 {
         BitCountOp::LeadingZeros => value.leading_zeros() - (64 - width),
         BitCountOp::TrailingZeros => value.trailing_zeros().min(width),
     })
-}
-
-/// A conservative bound on the nonzero bits in the emitted integer, including
-/// upper bits that the logical type does not observe.
-pub(super) fn unsigned_bits(value: Value, values: &[Value], inputs: &[u8]) -> u8 {
-    let carrier_bits = if value.ty == Type::I64 { 64 } else { 32 };
-    match value.kind {
-        ValueKind::JoinResult { .. } => unreachable!("join bounds come from its yielding arms"),
-        ValueKind::Constant(bits) => (64 - bits.leading_zeros()) as u8,
-        ValueKind::Parameter(_) | ValueKind::Load { .. } | ValueKind::CallResult { .. } => {
-            value.ty.bits()
-        }
-        ValueKind::Binary(operator, a, b) => match operator {
-            BinaryOp::Add => inputs[a].max(inputs[b]).saturating_add(1).min(carrier_bits),
-            // Underflow can set every carrier bit, including above a narrow type.
-            BinaryOp::Sub => carrier_bits,
-            BinaryOp::Mul => inputs[a].saturating_add(inputs[b]).min(carrier_bits),
-            BinaryOp::DivUnsigned | BinaryOp::RemUnsigned => value.ty.bits(),
-            BinaryOp::DivSigned | BinaryOp::RemSigned => carrier_bits,
-            BinaryOp::And => inputs[a].min(inputs[b]),
-            BinaryOp::Or | BinaryOp::Xor => inputs[a].max(inputs[b]),
-        },
-        ValueKind::Shift {
-            operator,
-            value: input,
-            count,
-        } => match values[count].kind {
-            ValueKind::Constant(bits) => {
-                let count = shift_count(value.ty, bits as u32) as u8;
-                match operator {
-                    ShiftOp::Left => inputs[input].saturating_add(count).min(carrier_bits),
-                    ShiftOp::RightUnsigned => inputs[input].saturating_sub(count),
-                    ShiftOp::RightSigned => carrier_bits,
-                }
-            }
-            _ => match operator {
-                ShiftOp::Left => carrier_bits,
-                ShiftOp::RightUnsigned => inputs[input],
-                ShiftOp::RightSigned => carrier_bits,
-            },
-        },
-        ValueKind::Rotate { .. } | ValueKind::SignExtend(_) => carrier_bits,
-        ValueKind::BitCount(operator, input) => {
-            let maximum = match operator {
-                BitCountOp::Ones => inputs[input],
-                BitCountOp::LeadingZeros | BitCountOp::TrailingZeros => value.ty.bits(),
-            };
-            (u8::BITS - maximum.leading_zeros()) as u8
-        }
-        ValueKind::Select {
-            when_true,
-            when_false,
-            ..
-        } => inputs[when_true].max(inputs[when_false]),
-        ValueKind::Normalize(input) => inputs[input].min(value.ty.bits()),
-        ValueKind::Convert(input) => inputs[input].min(carrier_bits),
-        ValueKind::Compare(..) | ValueKind::ZeroTest { .. } => 1,
-    }
 }

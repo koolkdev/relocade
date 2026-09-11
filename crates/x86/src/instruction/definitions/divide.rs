@@ -1,9 +1,9 @@
 use super::*;
 use crate::{
-    alu::DoubleWidth,
-    execution::DivideOp,
+    alu::{DivideOp, DoubleWidth},
     instruction::{Location, Operand},
     register::{RegisterCode, RegisterType},
+    state::exit,
 };
 
 const UNSIGNED: IntegerHandlers<Handler> = unary_handlers!(divide, Input, DivideOp::Unsigned);
@@ -41,7 +41,14 @@ where
             .extend::<T::Double>()
             .or(high.unsigned().extend::<T::Double>().shl(T::BYTES * 8))
     };
-    let result = execution.divide(operation, dividend, divisor)?;
+    execution.fault_if(
+        operation.input_fault(&dividend, &divisor),
+        exit::divide_error(),
+    )?;
+    let result = operation.apply(dividend, divisor);
+    if let Some(overflow) = result.overflow {
+        execution.fault_if(overflow, exit::divide_error())?;
+    }
     if T::BYTES == 1 {
         // Both byte results share AX, preserving the rest of EAX in one write.
         let ax = result.quotient.unsigned().extend::<T::Double>().or(result

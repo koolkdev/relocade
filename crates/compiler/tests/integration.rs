@@ -41,6 +41,8 @@ mod rotations;
 mod shifts;
 #[path = "suites/signed_arithmetic.rs"]
 mod signed_arithmetic;
+#[path = "suites/signed_loads.rs"]
+mod signed_loads;
 #[path = "suites/switches.rs"]
 mod switches;
 #[path = "suites/tail_calls.rs"]
