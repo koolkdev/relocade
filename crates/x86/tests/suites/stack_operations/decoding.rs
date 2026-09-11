@@ -58,9 +58,7 @@ fn stack_encodings_consume_only_their_register_address_or_immediate_fields() {
 #[test]
 fn unsupported_stack_group_extensions_stop_before_address_fetch() {
     let extensions = (1..8).map(|extension| (0x8f, (extension << 3) | 4)).chain([
-        (0xff, 0x14),
         (0xff, 0x1c),
-        (0xff, 0x24),
         (0xff, 0x2c),
         (0xff, 0x3c),
     ]);

@@ -69,8 +69,15 @@
 //! Short displacements are signed bytes; near displacements are word/dword-sized.
 //! Targets are relative to the end of the instruction. With `66`, taken targets
 //! are truncated to sixteen bits even for short branches; an untaken Jcc retains
-//! the full 32-bit fallthrough EIP. Branches retire once and dispatch without
-//! fetching the destination instruction. Snapshot blocks end at the first branch
+//! the full 32-bit fallthrough EIP. Near CALL (`E8` relative, `FF` /2 indirect)
+//! reads its target before pushing the fallthrough pointer at operand width.
+//! Indirect JMP (`FF` /4) reads an absolute target without changing ESP.
+//! Near RET (`C3`) pops its target; `C2` then adds an unsigned imm16 cleanup
+//! byte count to full ESP. Only the return-pointer cell is accessed. Word targets
+//! are zero-extended, and word CALL saves the low fallthrough pointer.
+//! CALL and RET preserve all registers except ESP and preserve every flag.
+//! Far transfers remain outside the subset. Transfers retire once and dispatch without
+//! fetching the destination instruction. Snapshot blocks end at the first control transfer
 //! or the requested instruction limit, whichever comes first.
 //! Each full memory access is checked before instruction effects. A fault
 //! preserves the current instruction's entry state and publishes earlier progress.
@@ -84,7 +91,7 @@
 //! Binary arithmetic, logic, NEG, XADD and CMPXCHG replace all six status flags. INC/DEC preserve
 //! CF and update the other five; MOV, MOVZX, MOVSX, CBW, CWDE, CWD, CDQ,
 //! LEA, XCHG, CMOVcc, NOT, PUSH,
-//! POP, SETcc and branches preserve them all.
+//! POP, CALL, RET, SETcc and jumps preserve them all.
 //! CMP and TEST only change flags. The CPU
 //! stores flags lazily: byte 0 selects the record kind, and little-endian dwords
 //! at 4 and 8 hold the original, zero-extended operands. SUB kinds are 1, 5 and 9;

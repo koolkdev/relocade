@@ -4,7 +4,7 @@ Rust components for x86 execution in WebAssembly.
 
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, CBW, CWDE, CWD, CDQ, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
 SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, MUL, IMUL, DIV, IDIV, SHL, SHR, SAR, SHLD, SHRD,
-ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, SETcc and relative JMP/Jcc blocks
+ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, SETcc, CALL, RET, JMP and Jcc blocks
 from byte snapshots:
 
 ```rust
@@ -113,6 +113,10 @@ supports these forms in default-32 operand and address mode:
 | PUSH immediate | — | 68/6A | 68/6A |
 | PUSH register/memory | — | FF /6 | FF /6 |
 | POP register/memory | — | 8F /0 | 8F /0 |
+| CALL relative | — | E8 | E8 |
+| CALL register/memory | — | FF /2 | FF /2 |
+| RET with optional imm16 cleanup | — | C3/C2 | C3/C2 |
+| JMP register/memory | — | FF /4 | FF /4 |
 | SETcc register/memory destination | 0F 90–9F | — | — |
 | XCHG register/memory and register | 86 | 87 | 87 |
 | XCHG accumulator and opcode-selected register | — | 90–97 | 90–97 |
@@ -284,11 +288,29 @@ including a short branch whose displacement remains one byte. An untaken Jcc
 retains the full 32-bit fallthrough address. Repeated `66` prefixes have the
 same effect as one.
 
-Branches preserve registers and flags and retire once before dispatching the
-chosen EIP. All required instruction fields are fetched before evaluating a
-condition. Branch execution does not fetch the destination instruction; its
-fetch faults belong to the next execution entry. Snapshot compilation stops
-at the branch and never follows its destination or decodes its fallthrough.
+Near CALL uses `E8` with a relative word/dword displacement, or `FF /2` with an
+absolute register/memory target. It reads the target using entry registers and
+memory, then pushes the fallthrough pointer at operand width. This preserves the
+original target for CALL ESP, ESP-based addresses, and source bytes overwritten
+by the push. With `66`, both the saved pointer and final target use their low word.
+Indirect JMP (`FF /4`) reads an absolute word/dword target without changing ESP.
+
+Near RET (`C3`) pops a word/dword target; `C2` also discards an unsigned imm16
+byte count after the pop. This immediate always occupies two bytes. ESP becomes
+`entry_ESP + operand_bytes + cleanup`, wrapping at 32 bits even with `66`.
+RET checks only the return-pointer cell; it does not access the discarded bytes
+or validate the resulting ESP. Word indirect and return targets are zero-extended.
+These rules follow the CALL, RET and JMP entries in the
+[Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
+Far calls, returns and jumps remain outside this flat-address subset.
+
+Jumps preserve registers and flags; CALL and RET change ESP while preserving
+the other registers and flags. Each successful transfer retires once before
+dispatching the chosen EIP. All required instruction fields are fetched before
+operand access or condition evaluation. Control transfers do not fetch the
+destination instruction; its fetch faults belong to the next execution entry.
+Snapshot compilation stops at the transfer and never follows its destination
+or decodes its fallthrough.
 
 Group `83` sign-extends its encoded byte immediate to the operand width. SETcc
 writes a byte containing 0 or 1; its ModRM.reg field is ignored.
@@ -439,6 +461,12 @@ its next ESP when preparing the destination, so the usual base, index, scale and
 displacement calculation sees that value while fault publication retains entry
 ESP. After both accesses pass their guards, POP defines ESP and writes the
 prepared target.
+
+The stack owner accepts typed push values, so PUSH reads its source and CALL
+reads its target before using the same guarded push. POP and RET share a guarded
+stack read that retains the value and next ESP without committing the pointer.
+POP checks its destination before committing; RET adds its cleanup and returns
+the popped value as the successor EIP.
 
 The register value environment tracks typed byte, word and dword locations,
 forwarding known definitions and caching reads. A location describes either a

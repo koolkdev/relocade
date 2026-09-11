@@ -39,7 +39,9 @@ fn push<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
-    execution.push::<T>(source.into_operand())
+    // The source, including ESP or an ESP-based address, observes entry ESP.
+    let value = source.read(execution)?;
+    execution.push(value)
 }
 
 fn pop<T: RegisterType>(

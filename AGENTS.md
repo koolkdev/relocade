@@ -90,9 +90,13 @@ This is a public repository. Commit messages use `component: title`.
 - Tests protect behavior, component invariants or external representations, using
   literal or independently derived expectations. Keep test names and files aligned
   with the behavior and owner they protect.
-- Prioritize generated guest execution in V8/TurboFan. Compare Wasm bytes first;
-  do not benchmark identical output. Measure changed output with meaningful workloads
-  and matching execution boundaries, and report uncertainty honestly.
+- Use the ordinary Wasmtime suite for broad correctness coverage. Use V8/TurboFan
+  for performance measurements and focused correctness checks of changed generated
+  code before timing. Run the full V8 suite only for a concrete engine or compiler
+  concern; do not repeat it by default for every instruction addition.
+- Compare Wasm bytes first; do not benchmark identical output. Measure changed
+  output with meaningful workloads and matching execution boundaries, and report
+  uncertainty honestly.
 - Preserve the measured memory-backed handling of mixed-width register aliases.
   Earlier V8 measurements favored backing reads and writes over extract/merge
   expressions; textbook SSA shape alone is not a reason to replace that design.

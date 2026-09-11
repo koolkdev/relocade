@@ -51,6 +51,7 @@ impl FieldWidth {
 #[derive(Clone, Copy)]
 pub(crate) enum ImmediateWidth {
     Byte,
+    Word,
     OperandSize,
     SignedByte,
 }
@@ -59,6 +60,7 @@ impl ImmediateWidth {
     const fn width(self, size: OperandSize) -> FieldWidth {
         match (self, size) {
             (Self::Byte | Self::SignedByte, _) => FieldWidth::Byte,
+            (Self::Word, _) => FieldWidth::Word,
             (Self::OperandSize, OperandSize::Word) => FieldWidth::Word,
             (Self::OperandSize, OperandSize::Dword) => FieldWidth::Dword,
         }

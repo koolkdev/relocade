@@ -46,6 +46,8 @@ mod memory_moves;
 mod mov_blocks;
 #[path = "suites/multiply.rs"]
 mod multiply;
+#[path = "suites/near_control.rs"]
+mod near_control;
 #[path = "suites/operand_fetch.rs"]
 mod operand_fetch;
 #[path = "suites/relative_branches.rs"]

@@ -40,6 +40,6 @@ pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form
         .chain(bit_tests::forms())
         .chain(stack::FORMS.iter())
         .chain(conditions::FORMS.iter())
-        .chain(branches::FORMS.iter())
+        .chain(branches::forms())
         .filter(move |form| form.map == map)
 }
