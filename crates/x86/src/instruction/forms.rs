@@ -1,8 +1,11 @@
 mod binding;
-mod constructors;
+pub(super) mod declarations;
 mod opcodes;
 
-pub(super) use constructors::*;
+#[cfg(test)]
+mod tests;
+
+pub(super) use declarations::instruction_families;
 pub(crate) use opcodes::forms_by_opcode;
 
 use super::{
@@ -156,7 +159,7 @@ pub(crate) struct Form {
     pub(crate) encoding: Encoding,
     /// Required ModRM.reg opcode extension; otherwise those bits belong to the encoding.
     pub(crate) extension: Option<u8>,
-    pub(super) handlers: SizedHandlers<Handler>,
+    pub(super) handlers: SizedHandlers,
     pub(super) binding: OperandBindingShape,
     pub(super) condition: Option<Condition>,
     pub(super) implicit_memory: bool,

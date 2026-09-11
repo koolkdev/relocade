@@ -1,7 +1,7 @@
-//! Adapts typed instruction bodies to concrete handlers for each operand width.
+//! Callable instruction shapes shared by decoding and lowering.
 //!
 //! Every operand shape receives the bound condition and fallthrough EIP, and returns
-//! the successor EIP. The adapters below complete ordinary bodies with fallthrough.
+//! the successor EIP. Family declaration adapters complete ordinary bodies with fallthrough.
 
 use wasm86_compiler::{BuildError, Val, I32};
 
@@ -41,30 +41,25 @@ pub(super) enum Handler {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct SizedHandlers<H> {
-    pub(super) word: H,
-    pub(super) dword: H,
+pub(super) struct SizedHandlers {
+    pub(super) word: Handler,
+    pub(super) dword: Handler,
 }
 
-impl<H: Copy> SizedHandlers<H> {
-    pub(super) const fn fixed(handler: H) -> Self {
+impl SizedHandlers {
+    pub(super) const fn fixed(handler: Handler) -> Self {
         Self {
             word: handler,
             dword: handler,
         }
     }
 
-    pub(super) fn resolve(self, size: OperandSize) -> H {
+    pub(super) fn resolve(self, size: OperandSize) -> Handler {
         match size {
             OperandSize::Word => self.word,
             OperandSize::Dword => self.dword,
         }
     }
-}
-
-pub(super) struct IntegerHandlers<H> {
-    pub(super) byte: H,
-    pub(super) sized: SizedHandlers<H>,
 }
 
 /// A concrete handler together with its decoded operand arguments.
@@ -85,111 +80,3 @@ pub(super) enum HandlerCall<V> {
         second_source: Operand<V>,
     },
 }
-
-// Widths and constant arguments select concrete Rust functions. Conditional bodies
-// receive the condition bound by their form; all bodies remain ordinary Rust code.
-macro_rules! typed_operand {
-    (Input, $width:ty, $operand:ident) => {
-        Input::<$width>::new($operand)
-    };
-    (TypedLocation, $width:ty, $operand:ident) => {
-        TypedLocation::<$width>::from_operand($operand)
-    };
-}
-
-macro_rules! binary_handlers {
-    ($handler:ident, source = $source:ty, sized $(, $argument:expr)*) => {
-        SizedHandlers {
-            word: binary_handlers!(@pair $handler, I16, Input, $source [] $(, $argument)*),
-            dword: binary_handlers!(@pair $handler, I32, Input, $source [] $(, $argument)*),
-        }
-    };
-    ($handler:ident, source = $source:ty $(, $argument:expr)*) => {
-        IntegerHandlers {
-            byte: binary_handlers!(@pair $handler, I8, Input, $source [] $(, $argument)*),
-            sized: binary_handlers!($handler, source = $source, sized $(, $argument)*),
-        }
-    };
-    ($handler:ident, right = $right:ident $(, $argument:expr)*) => {
-        binary_handlers!(@widths $handler, $right [] $(, $argument)*)
-    };
-    ($handler:ident, condition $(, $argument:expr)*) => {
-        binary_handlers!(@widths $handler, Input [condition] $(, $argument)*)
-    };
-    ($handler:ident $(, $argument:expr)*) => {
-        binary_handlers!(@widths $handler, Input [] $(, $argument)*)
-    };
-    (@widths $handler:ident, $right:ident [$($condition:ident)?] $(, $argument:expr)*) => {
-        IntegerHandlers {
-            byte: binary_handlers!(@pair $handler, I8, $right, I8 [$($condition)?] $(, $argument)*),
-            sized: SizedHandlers {
-                word: binary_handlers!(@pair $handler, I16, $right, I16 [$($condition)?] $(, $argument)*),
-                dword: binary_handlers!(@pair $handler, I32, $right, I32 [$($condition)?] $(, $argument)*),
-            },
-        }
-    };
-    (@pair $handler:ident, $left_width:ty, $right:ident, $right_width:ty [$($condition:ident)?] $(, $argument:expr)*) => {
-        Handler::Binary(|execution, left, right, _bound_condition, fallthrough| {
-            $(let $condition = _bound_condition.expect("condition-dependent forms bind a condition");)?
-            $handler(execution, TypedLocation::<$left_width>::new(left), typed_operand!($right, $right_width, right) $(, $condition)? $(, $argument)*)?;
-            Ok(fallthrough)
-        })
-    };
-}
-
-macro_rules! unary_handlers {
-    ($handler:ident, $operand:ident, width = $width:ty, condition $(, $argument:expr)*) => {
-        unary_handlers!(@width $handler, $operand, $width [condition] $(, $argument)*)
-    };
-    ($handler:ident, $operand:ident, width = $width:ty $(, $argument:expr)*) => {
-        unary_handlers!(@width $handler, $operand, $width [] $(, $argument)*)
-    };
-    ($handler:ident, $operand:ident, sized $(, $argument:expr)*) => {
-        SizedHandlers {
-            word: unary_handlers!(@width $handler, $operand, I16 [] $(, $argument)*),
-            dword: unary_handlers!(@width $handler, $operand, I32 [] $(, $argument)*),
-        }
-    };
-    ($handler:ident, $operand:ident $(, $argument:expr)*) => {
-        IntegerHandlers {
-            byte: unary_handlers!(@width $handler, $operand, I8 [] $(, $argument)*),
-            sized: unary_handlers!($handler, $operand, sized $(, $argument)*),
-        }
-    };
-    (@width $handler:ident, $operand:ident, $width:ty [$($condition:ident)?] $(, $argument:expr)*) => {
-        Handler::Unary(|execution, operand, _bound_condition, fallthrough| {
-            $(let $condition = _bound_condition.expect("condition-dependent forms bind a condition");)?
-            $handler(execution, typed_operand!($operand, $width, operand) $(, $condition)? $(, $argument)*)?;
-            Ok(fallthrough)
-        })
-    };
-}
-
-macro_rules! ternary_handlers {
-    ($handler:ident, sized $(, $argument:expr)*) => {
-        SizedHandlers {
-            word: ternary_handlers!(@width $handler, I16, I16 $(, $argument)*),
-            dword: ternary_handlers!(@width $handler, I32, I32 $(, $argument)*),
-        }
-    };
-    ($handler:ident, second_source = $second_width:ty, sized $(, $argument:expr)*) => {
-        SizedHandlers {
-            word: ternary_handlers!(@width $handler, I16, $second_width $(, $argument)*),
-            dword: ternary_handlers!(@width $handler, I32, $second_width $(, $argument)*),
-        }
-    };
-    (@width $handler:ident, $width:ty, $second_width:ty $(, $argument:expr)*) => {
-        Handler::Ternary(|execution, destination, first_source, second_source, _condition, fallthrough| {
-            $handler(
-                execution,
-                TypedLocation::<$width>::new(destination),
-                Input::<$width>::new(first_source),
-                Input::<$second_width>::new(second_source)
-                $(, $argument)*
-            )?;
-            Ok(fallthrough)
-        })
-    };
-}
-
-pub(super) use {binary_handlers, ternary_handlers, typed_operand, unary_handlers};

@@ -7,39 +7,34 @@ use crate::{
     register::{Gpr32, RegisterType},
 };
 
-const UNSIGNED: IntegerHandlers<Handler> =
-    unary_handlers!(implicit_multiply, Input, MultiplyOp::Unsigned);
-const SIGNED: IntegerHandlers<Handler> =
-    unary_handlers!(implicit_multiply, Input, MultiplyOp::Signed);
-
-pub(super) const FORMS: [Form; 7] = [
-    rm(0xf6, 4, SizedHandlers::fixed(UNSIGNED.byte)),
-    rm(0xf7, 4, UNSIGNED.sized),
-    rm(0xf6, 5, SizedHandlers::fixed(SIGNED.byte)),
-    rm(0xf7, 5, SIGNED.sized),
-    register_rm(
-        OpcodeMap::Extended,
-        0xaf,
-        binary_handlers!(multiply_destination).sized,
-        RegisterSide::Left,
-    ),
-    immediate_form(0x69, ImmediateWidth::OperandSize),
-    immediate_form(0x6b, ImmediateWidth::SignedByte),
-];
-
-const fn immediate_form(opcode: u8, immediate: ImmediateWidth) -> Form {
-    primary_form(
-        opcode,
-        Encoding::ModRm {
-            immediate: Some(immediate),
-        },
-        ternary_handlers!(multiply_sources, sized),
-        OperandBindingShape::Ternary {
-            destination: LocationBinding::Register,
-            first_source: OperandBinding::Location(LocationBinding::Rm),
-            second_source: OperandBinding::Immediate,
-        },
-    )
+instruction_families! {
+    MUL {
+        execute: implicit_multiply(MultiplyOp::Unsigned);
+        forms {
+            0xF6 /4 => byte(rm);
+            0xF7 /4 => word_or_dword(rm);
+        }
+    }
+    IMUL_IMPLICIT {
+        execute: implicit_multiply(MultiplyOp::Signed);
+        forms {
+            0xF6 /5 => byte(rm);
+            0xF7 /5 => word_or_dword(rm);
+        }
+    }
+    IMUL_DESTINATION {
+        execute: multiply_destination;
+        forms {
+            0x0F 0xAF => word_or_dword(modrm_reg, rm);
+        }
+    }
+    IMUL_IMMEDIATE {
+        execute: multiply_sources;
+        forms {
+            0x69 => word_or_dword(modrm_reg, rm, imm);
+            0x6B => word_or_dword(modrm_reg, rm, signed_imm8);
+        }
+    }
 }
 
 fn implicit_multiply<T: RegisterType + DoubleWidth>(

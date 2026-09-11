@@ -1,58 +1,35 @@
 use super::*;
 use crate::{alu::BitTestOp, instruction::Operand, register::RegisterType};
 
-const fn bit_test_forms(
-    opcode: u8,
-    extension: u8,
-    register_handlers: SizedHandlers<Handler>,
-    immediate_handlers: SizedHandlers<Handler>,
-) -> [Form; 2] {
-    [
-        register_rm(
-            OpcodeMap::Extended,
-            opcode,
-            register_handlers,
-            RegisterSide::Right,
-        ),
-        rm_immediate(
-            OpcodeMap::Extended,
-            0xba,
-            extension,
-            ImmediateWidth::Byte,
-            immediate_handlers,
-        ),
-    ]
-}
-
-const FAMILIES: [[Form; 2]; 4] = [
-    bit_test_forms(
-        0xa3,
-        4,
-        binary_handlers!(bit_test, BitTestOp::Test).sized,
-        binary_handlers!(bit_test, source = I8, sized, BitTestOp::Test),
-    ),
-    bit_test_forms(
-        0xab,
-        5,
-        binary_handlers!(bit_test, BitTestOp::Set).sized,
-        binary_handlers!(bit_test, source = I8, sized, BitTestOp::Set),
-    ),
-    bit_test_forms(
-        0xb3,
-        6,
-        binary_handlers!(bit_test, BitTestOp::Reset).sized,
-        binary_handlers!(bit_test, source = I8, sized, BitTestOp::Reset),
-    ),
-    bit_test_forms(
-        0xbb,
-        7,
-        binary_handlers!(bit_test, BitTestOp::Complement).sized,
-        binary_handlers!(bit_test, source = I8, sized, BitTestOp::Complement),
-    ),
-];
-
-pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
-    FAMILIES.iter().flat_map(|family| family.iter())
+instruction_families! {
+    BT {
+        execute: bit_test(BitTestOp::Test);
+        forms {
+            0x0F 0xA3 => word_or_dword(rm, modrm_reg);
+            0x0F 0xBA /4 => word_or_dword(rm, imm8);
+        }
+    }
+    BTS {
+        execute: bit_test(BitTestOp::Set);
+        forms {
+            0x0F 0xAB => word_or_dword(rm, modrm_reg);
+            0x0F 0xBA /5 => word_or_dword(rm, imm8);
+        }
+    }
+    BTR {
+        execute: bit_test(BitTestOp::Reset);
+        forms {
+            0x0F 0xB3 => word_or_dword(rm, modrm_reg);
+            0x0F 0xBA /6 => word_or_dword(rm, imm8);
+        }
+    }
+    BTC {
+        execute: bit_test(BitTestOp::Complement);
+        forms {
+            0x0F 0xBB => word_or_dword(rm, modrm_reg);
+            0x0F 0xBA /7 => word_or_dword(rm, imm8);
+        }
+    }
 }
 
 fn bit_test<T: RegisterType, O: RegisterType>(

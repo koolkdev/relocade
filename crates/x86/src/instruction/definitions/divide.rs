@@ -5,15 +5,22 @@ use crate::{
     state::exit,
 };
 
-const UNSIGNED: IntegerHandlers<Handler> = unary_handlers!(divide, Input, DivideOp::Unsigned);
-const SIGNED: IntegerHandlers<Handler> = unary_handlers!(divide, Input, DivideOp::Signed);
-
-pub(super) const FORMS: [Form; 4] = [
-    rm(0xf6, 6, SizedHandlers::fixed(UNSIGNED.byte)),
-    rm(0xf7, 6, UNSIGNED.sized),
-    rm(0xf6, 7, SizedHandlers::fixed(SIGNED.byte)),
-    rm(0xf7, 7, SIGNED.sized),
-];
+instruction_families! {
+    DIV {
+        execute: divide(DivideOp::Unsigned);
+        forms {
+            0xF6 /6 => byte(rm);
+            0xF7 /6 => word_or_dword(rm);
+        }
+    }
+    IDIV {
+        execute: divide(DivideOp::Signed);
+        forms {
+            0xF6 /7 => byte(rm);
+            0xF7 /7 => word_or_dword(rm);
+        }
+    }
+}
 
 fn divide<T: RegisterType + DoubleWidth>(
     execution: &mut ExecutionBuilder<'_, '_>,

@@ -4,127 +4,101 @@ use crate::{
         flags::{AnyFlagSource, FlagSource},
         DoubleShiftOp, RotateDirection, ShiftOp,
     },
-    register::{Gpr32, RegisterType},
+    register::RegisterType,
 };
 
-const fn implicit_count(
-    opcode: u8,
-    extension: u8,
-    handlers: SizedHandlers<Handler>,
-    count: OperandBinding,
-) -> Form {
-    let mut form = primary_form(
-        opcode,
-        Encoding::ModRm { immediate: None },
-        handlers,
-        OperandBindingShape::Binary {
-            left: LocationBinding::Rm,
-            right: count,
-        },
-    );
-    form.extension = Some(extension);
-    form
-}
-
-const fn shift_forms(extension: u8, handlers: IntegerHandlers<Handler>) -> [Form; 6] {
-    let byte = SizedHandlers::fixed(handlers.byte);
-    let one = OperandBinding::Constant(1);
-    let cl = OperandBinding::Location(LocationBinding::FixedRegister(Gpr32::Ecx));
-    [
-        implicit_count(0xd0, extension, byte, one),
-        implicit_count(0xd1, extension, handlers.sized, one),
-        implicit_count(0xd2, extension, byte, cl),
-        implicit_count(0xd3, extension, handlers.sized, cl),
-        rm_immediate(
-            OpcodeMap::Primary,
-            0xc0,
-            extension,
-            ImmediateWidth::Byte,
-            byte,
-        ),
-        rm_immediate(
-            OpcodeMap::Primary,
-            0xc1,
-            extension,
-            ImmediateWidth::Byte,
-            handlers.sized,
-        ),
-    ]
-}
-
-const FAMILIES: [[Form; 6]; 7] = [
-    shift_forms(
-        0,
-        binary_handlers!(rotate, source = I8, RotateDirection::Left),
-    ),
-    shift_forms(
-        1,
-        binary_handlers!(rotate, source = I8, RotateDirection::Right),
-    ),
-    shift_forms(
-        2,
-        binary_handlers!(rotate_through_carry, source = I8, RotateDirection::Left),
-    ),
-    shift_forms(
-        3,
-        binary_handlers!(rotate_through_carry, source = I8, RotateDirection::Right),
-    ),
-    shift_forms(4, binary_handlers!(shift, source = I8, ShiftOp::Left)),
-    shift_forms(
-        5,
-        binary_handlers!(shift, source = I8, ShiftOp::RightLogical),
-    ),
-    shift_forms(
-        7,
-        binary_handlers!(shift, source = I8, ShiftOp::RightArithmetic),
-    ),
-];
-
-const fn double_shift_form(opcode: u8, handlers: SizedHandlers<Handler>, immediate: bool) -> Form {
-    let mut form = primary_form(
-        opcode,
-        Encoding::ModRm {
-            immediate: if immediate {
-                Some(ImmediateWidth::Byte)
-            } else {
-                None
-            },
-        },
-        handlers,
-        OperandBindingShape::Ternary {
-            destination: LocationBinding::Rm,
-            first_source: OperandBinding::Location(LocationBinding::Register),
-            second_source: if immediate {
-                OperandBinding::Immediate
-            } else {
-                OperandBinding::Location(LocationBinding::FixedRegister(Gpr32::Ecx))
-            },
-        },
-    );
-    form.map = OpcodeMap::Extended;
-    form
-}
-
-const DOUBLE_LEFT: SizedHandlers<Handler> =
-    ternary_handlers!(double_shift, second_source = I8, sized, DoubleShiftOp::Left);
-const DOUBLE_RIGHT: SizedHandlers<Handler> = ternary_handlers!(
-    double_shift,
-    second_source = I8,
-    sized,
-    DoubleShiftOp::Right
-);
-const DOUBLE_FORMS: [Form; 4] = [
-    double_shift_form(0xa4, DOUBLE_LEFT, true),
-    double_shift_form(0xa5, DOUBLE_LEFT, false),
-    double_shift_form(0xac, DOUBLE_RIGHT, true),
-    double_shift_form(0xad, DOUBLE_RIGHT, false),
-];
-
-pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
-    FAMILIES
-        .iter()
-        .flat_map(|family| family.iter())
-        .chain(DOUBLE_FORMS.iter())
+instruction_families! {
+    ROL {
+        execute: rotate(RotateDirection::Left);
+        forms {
+            0xD0 /0 => byte(rm, constant(1));
+            0xD1 /0 => word_or_dword(rm, constant(1));
+            0xD2 /0 => byte(rm, CL);
+            0xD3 /0 => word_or_dword(rm, CL);
+            0xC0 /0 => byte(rm, imm8);
+            0xC1 /0 => word_or_dword(rm, imm8);
+        }
+    }
+    ROR {
+        execute: rotate(RotateDirection::Right);
+        forms {
+            0xD0 /1 => byte(rm, constant(1));
+            0xD1 /1 => word_or_dword(rm, constant(1));
+            0xD2 /1 => byte(rm, CL);
+            0xD3 /1 => word_or_dword(rm, CL);
+            0xC0 /1 => byte(rm, imm8);
+            0xC1 /1 => word_or_dword(rm, imm8);
+        }
+    }
+    RCL {
+        execute: rotate_through_carry(RotateDirection::Left);
+        forms {
+            0xD0 /2 => byte(rm, constant(1));
+            0xD1 /2 => word_or_dword(rm, constant(1));
+            0xD2 /2 => byte(rm, CL);
+            0xD3 /2 => word_or_dword(rm, CL);
+            0xC0 /2 => byte(rm, imm8);
+            0xC1 /2 => word_or_dword(rm, imm8);
+        }
+    }
+    RCR {
+        execute: rotate_through_carry(RotateDirection::Right);
+        forms {
+            0xD0 /3 => byte(rm, constant(1));
+            0xD1 /3 => word_or_dword(rm, constant(1));
+            0xD2 /3 => byte(rm, CL);
+            0xD3 /3 => word_or_dword(rm, CL);
+            0xC0 /3 => byte(rm, imm8);
+            0xC1 /3 => word_or_dword(rm, imm8);
+        }
+    }
+    SHL {
+        execute: shift(ShiftOp::Left);
+        forms {
+            0xD0 /4 => byte(rm, constant(1));
+            0xD1 /4 => word_or_dword(rm, constant(1));
+            0xD2 /4 => byte(rm, CL);
+            0xD3 /4 => word_or_dword(rm, CL);
+            0xC0 /4 => byte(rm, imm8);
+            0xC1 /4 => word_or_dword(rm, imm8);
+        }
+    }
+    SHR {
+        execute: shift(ShiftOp::RightLogical);
+        forms {
+            0xD0 /5 => byte(rm, constant(1));
+            0xD1 /5 => word_or_dword(rm, constant(1));
+            0xD2 /5 => byte(rm, CL);
+            0xD3 /5 => word_or_dword(rm, CL);
+            0xC0 /5 => byte(rm, imm8);
+            0xC1 /5 => word_or_dword(rm, imm8);
+        }
+    }
+    SAR {
+        execute: shift(ShiftOp::RightArithmetic);
+        forms {
+            0xD0 /7 => byte(rm, constant(1));
+            0xD1 /7 => word_or_dword(rm, constant(1));
+            0xD2 /7 => byte(rm, CL);
+            0xD3 /7 => word_or_dword(rm, CL);
+            0xC0 /7 => byte(rm, imm8);
+            0xC1 /7 => word_or_dword(rm, imm8);
+        }
+    }
+    SHLD {
+        execute: double_shift(DoubleShiftOp::Left);
+        forms {
+            0x0F 0xA4 => word_or_dword(rm, modrm_reg, imm8);
+            0x0F 0xA5 => word_or_dword(rm, modrm_reg, CL);
+        }
+    }
+    SHRD {
+        execute: double_shift(DoubleShiftOp::Right);
+        forms {
+            0x0F 0xAC => word_or_dword(rm, modrm_reg, imm8);
+            0x0F 0xAD => word_or_dword(rm, modrm_reg, CL);
+        }
+    }
 }
 
 fn rotate<T: RegisterType>(

@@ -1,51 +1,35 @@
 //! Integer extensions into a destination register or an implicit accumulator pair.
 
 use super::*;
-use crate::register::{Gpr32, RegisterType};
+use crate::register::RegisterType;
 
-const SIGNED_BYTE: SizedHandlers<Handler> = binary_handlers!(movsx, source = I8, sized);
-const SIGNED_WORD: SizedHandlers<Handler> = binary_handlers!(movsx, source = I16, sized);
-
-pub(super) const FORMS: [Form; 6] = [
-    register_rm(
-        OpcodeMap::Extended,
-        0xb6,
-        binary_handlers!(movzx, source = I8, sized),
-        RegisterSide::Left,
-    ),
-    register_rm(
-        OpcodeMap::Extended,
-        0xb7,
-        binary_handlers!(movzx, source = I16, sized),
-        RegisterSide::Left,
-    ),
-    register_rm(OpcodeMap::Extended, 0xbe, SIGNED_BYTE, RegisterSide::Left),
-    register_rm(OpcodeMap::Extended, 0xbf, SIGNED_WORD, RegisterSide::Left),
-    accumulator_form(
-        0x98,
-        Gpr32::Eax,
-        SizedHandlers {
-            word: SIGNED_BYTE.word,
-            dword: SIGNED_WORD.dword,
-        },
-    ),
-    accumulator_form(0x99, Gpr32::Edx, binary_handlers!(sign_fill).sized),
-];
-
-const fn accumulator_form(
-    opcode: u8,
-    destination: Gpr32,
-    handlers: SizedHandlers<Handler>,
-) -> Form {
-    primary_form(
-        opcode,
-        Encoding::OpcodeOnly,
-        handlers,
-        OperandBindingShape::Binary {
-            left: LocationBinding::FixedRegister(destination),
-            right: OperandBinding::Location(LocationBinding::FixedRegister(Gpr32::Eax)),
-        },
-    )
+instruction_families! {
+    MOVZX {
+        execute: movzx;
+        forms {
+            0x0F 0xB6 => word_or_dword(modrm_reg, rm8);
+            0x0F 0xB7 => word_or_dword(modrm_reg, rm16);
+        }
+    }
+    MOVSX {
+        execute: movsx;
+        forms {
+            0x0F 0xBE => word_or_dword(modrm_reg, rm8);
+            0x0F 0xBF => word_or_dword(modrm_reg, rm16);
+        }
+    }
+    CBW_CWDE {
+        execute: movsx;
+        forms {
+            0x98 => word(AX, AL) | dword(EAX, AX);
+        }
+    }
+    CWD_CDQ {
+        execute: sign_fill;
+        forms {
+            0x99 => word(DX, AX) | dword(EDX, EAX);
+        }
+    }
 }
 
 fn movzx<Destination: RegisterType + AtLeast<Source>, Source: RegisterType>(

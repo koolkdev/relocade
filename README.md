@@ -374,61 +374,104 @@ or `InstructionTooLong` as construction errors. Success uses the same instructio
 semantics, state publication and dispatch as snapshot blocks.
 
 Snapshot decoding reads supplied bytes while compiling; runtime decoding reads
-guest bytes during execution. Both use shared instruction forms for opcode
+guest bytes during execution. Both use the same instruction forms for opcode
 patterns, physical fields and operand binding. `instruction::definitions` keeps
-each instruction family's forms alongside its Rust handlers. The shared `forms`
-module owns physical layouts and binding; `handlers` owns width adapters and
-callable argument shapes. A form selects a concrete handler
-from its width table. Related operations share a handler by binding a constant
-from a family-local operation enum. Adding an operation with an existing encoding
-and argument shape requires no central instruction enum or lowering case.
-Physical immediate widths remain independent of the handler's logical widths.
-`Encoding::ModRm` describes the common reg/rm fields and an optional trailing
-immediate. Both decoders retain those fields in `DecodedFields::ModRm`; a form's
-extension and bindings decide whether the reg bits select an opcode or an operand.
-The immediate is fetched after all address fields, regardless of operand roles.
-The `register_rm` and `rm_immediate` constructors take the opcode map explicitly,
-sharing physical layouts and operand binding across primary and extended instructions.
-`RegisterSide::Left` and `Right` place the ModRM register field in a binary
-argument; the handler determines which arguments it reads or writes.
+each instruction family's encoding table alongside its ordinary Rust semantic body:
 
-Binding assigns decoded fields to unary, binary or ternary arguments without reading
-architectural state. Lowering converts snapshot literals and runtime expressions
-to the common `Val<I32>` carrier and calls the bound Rust handler. `Input<T>` and
-`TypedLocation<T>` attach logical width to values and locations while deferring
-access until the handler requests it. Their widths remain independent of that
-carrier and of 32-bit addresses.
-Fixed bindings use `Gpr32` names, and handlers use
-`TypedLocation::<T>::register(Gpr32::Eax)` to select the low part at width `T`.
-`RegisterOperand` distinguishes named parents from encoded fields. Named views
-select their parent directly; encoded views retain the width-dependent x86 mapping,
-including byte codes 4–7 selecting AH/CH/DH/BH.
-`TypedLocation::offset_memory` adds a byte displacement to a memory location and
-leaves a register location unchanged. It defers address-register reads and access
-checks, so bit-string operands reuse ordinary reads and guarded updates. The
-bit-test definitions own the distinction between signed register offsets and
-immediate offsets; the address and memory owners retain their normal policies.
-`Operand::Address` holds an address value separately from a memory location.
-The `RmAddress` binding requires a memory addressing mode in both decoders;
-reading this input resolves the full address and then applies the destination
-width. LEA uses this binding with the ordinary MOV handler, so it shares address
-arithmetic and register writes without declaring a data-memory access.
-Every call shape receives the bound condition and fallthrough EIP and
-returns the successor EIP. Ordinary typed handlers return `Result<()>`; their
-adapters return fallthrough after success. A relative branch computes its target
-and, for Jcc, selects it using the existing condition query. Condition, implicit
-memory use and block termination belong to the whole instruction, independently
-of its argument shape. Execution owns retirement and publication.
-Ternary calls name a destination and two source operands.
-`ternary_handlers!(multiply_sources, sized)` gives all three the same word or
-dword width. `ternary_handlers!(double_shift, second_source = I8, sized, operation)`
-gives the body a word/dword destination and first source, with an independent byte count.
-The `condition` adapter option forwards a form's bound `Condition` to an ordinary
-typed body. CMOV uses `binary_handlers!(cmov, condition).sized`; SETcc uses the
-fixed-width `unary_handlers!(setcc, TypedLocation, width = I8, condition)` adapter.
-`binary_handlers!(xchg, right = TypedLocation)` binds both arguments as writable
-locations. Unary and binary adapters share operand conversion; the default binary
-right argument remains an `Input<T>`.
+```rust
+instruction_families! {
+    SHL {
+        execute: shift(ShiftOp::Left);
+        forms {
+            0xD0 /4 => byte(rm, constant(1));
+            0xD1 /4 => word_or_dword(rm, constant(1));
+            0xD2 /4 => byte(rm, CL);
+            0xD3 /4 => word_or_dword(rm, CL);
+            0xC0 /4 => byte(rm, imm8);
+            0xC1 /4 => word_or_dword(rm, imm8);
+        }
+    }
+}
+```
+
+Operands appear in the body's argument order. `rm` selects ModRM.r/m,
+`modrm_reg` selects ModRM.reg, and `/4` reserves ModRM.reg as an opcode extension.
+`0x0F 0xBE` spells both bytes of an extended opcode. `+reg` covers eight opcode
+register encodings and requires `opcode_reg`; `+cc` covers sixteen condition codes
+and supplies the decoded condition to the body. These patterns expand into the
+existing shared forms, so adding a family requires no central instruction enum or
+lowering case.
+
+`byte` fixes the data width at eight bits. `word_or_dword` selects sixteen bits with
+`66` and thirty-two bits otherwise. Ordinary location tokens use that width;
+`rm8`, `rm16`, and named registers such as `CL` or `AX` give an independent width.
+`accumulator` selects AL, AX or EAX at the row's width. A row can spell out both
+operand-size alternatives when each argument changes differently:
+
+```rust
+0x98 => word(AX, AL) | dword(EAX, AX);
+```
+
+That is one encoding: CBW with `66`, CWDE without it. Both alternatives must decode
+and bind the same physical fields. The declaration helper checks that contract,
+argument arity, opcode-range boundaries and field compatibility during constant
+evaluation. Catalog tests check that opcode patterns and extensions do not overlap.
+
+Physical immediate widths stay independent of logical data widths. `imm8` and
+`imm16` consume one and two bytes respectively; `imm` follows the operand-size
+attribute. `signed_imm8` consumes one byte and sign-extends it to the row's width.
+`rel8` and `rel` describe branch displacement fields. `constant(1)` consumes no
+bytes and gets its logical type from the body. `moffs32` always encodes a 32-bit
+absolute address, regardless of data width. `address` requires memory addressing
+but passes the effective address without reading data memory; LEA uses it with
+the ordinary MOV body.
+
+A family's effects appear beside its body. For example:
+
+```rust
+RET {
+    execute: return_near;
+    effects: [stack_read, control_transfer];
+    forms {
+        0xC3 => word_or_dword(constant(0));
+        0xC2 => word_or_dword(imm16);
+    }
+}
+```
+
+The return-address cell follows the operand-size attribute while the encoded
+cleanup remains unsigned 16-bit. `stack_read` and `stack_write` declare implicit
+memory use; explicit memory operands already supply it. `control_transfer` ends
+the block and selects the existing successor-returning handler interface. That
+interface receives the bound operand, condition and fallthrough EIP, and returns
+the next EIP. Ordinary typed bodies return `Result<()>`; their adapters return
+fallthrough after success. Execution owns retirement and state publication.
+
+The `forms::declarations` helper derives an `Encoding` and operand bindings from
+each row. `Encoding::ModRm` describes reg/rm fields and an optional trailing
+immediate. Both decoders retain them in `DecodedFields::ModRm`; the immediate is
+fetched after all address fields regardless of the body's argument order. Binding
+assigns these fields to unary, binary or ternary arguments without reading guest
+state. Lowering converts snapshot literals and runtime expressions to the common
+`Val<I32>` carrier and calls the bound Rust handler. The `handlers` module owns
+these callable shapes and their word/dword selection.
+
+`Input<T>` and `TypedLocation<T>` attach logical width to values and locations
+while deferring access until the body requests it. A location converts to an
+`Input<T>` when the body's signature requests a read-only argument. XCHG and XADD
+instead take two `TypedLocation<T>` arguments; an immediate cannot satisfy that
+signature. Ternary bodies likewise state the destination and source types, so
+SHLD/SHRD take a word/dword destination and source with an independent byte count.
+
+Named bindings select a parent register directly. Semantic bodies use
+`TypedLocation::<T>::register(Gpr32::Eax)` for the low part at width `T`.
+`RegisterOperand` distinguishes named parents from encoded fields, whose
+width-dependent mapping includes byte codes 4–7 selecting AH/CH/DH/BH.
+`TypedLocation::offset_memory` adds a wrapping byte displacement to a memory
+location and leaves registers unchanged. It defers address-register reads and
+access checks, so bit-string operations reuse ordinary reads and guarded updates.
+The bit-test definitions own signed register offsets versus immediate offsets;
+the address and memory owners retain their normal policies.
 
 The runtime decoder owns its byte cursor, proven window and completion policy.
 Every opcode map uses the same form-driven switch and selects operand decoding

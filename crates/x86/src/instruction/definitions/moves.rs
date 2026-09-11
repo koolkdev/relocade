@@ -1,131 +1,30 @@
 use super::*;
-use crate::register::{Gpr32, RegisterType};
+use crate::register::RegisterType;
 
-const HANDLERS: IntegerHandlers<Handler> = binary_handlers!(mov);
-
-const fn opcode_immediate(
-    opcode: u8,
-    immediate: ImmediateWidth,
-    handlers: SizedHandlers<Handler>,
-) -> Form {
-    let mut form = primary_form(
-        opcode,
-        Encoding::OpcodeRegisterImmediate { immediate },
-        handlers,
-        OperandBindingShape::Binary {
-            left: LocationBinding::Register,
-            right: OperandBinding::Immediate,
-        },
-    );
-    form.mask = 0xf8;
-    form
-}
-
-const OPCODE_REGISTER_IMMEDIATE_FORMS: [Form; 2] = [
-    opcode_immediate(0xb8, ImmediateWidth::OperandSize, HANDLERS.sized),
-    opcode_immediate(
-        0xb0,
-        ImmediateWidth::Byte,
-        SizedHandlers::fixed(HANDLERS.byte),
-    ),
-];
-
-const MOV_MODRM_FORMS: [Form; 6] = [
-    register_rm(
-        OpcodeMap::Primary,
-        0x89,
-        HANDLERS.sized,
-        RegisterSide::Right,
-    ),
-    register_rm(OpcodeMap::Primary, 0x8b, HANDLERS.sized, RegisterSide::Left),
-    register_rm(
-        OpcodeMap::Primary,
-        0x88,
-        SizedHandlers::fixed(HANDLERS.byte),
-        RegisterSide::Right,
-    ),
-    register_rm(
-        OpcodeMap::Primary,
-        0x8a,
-        SizedHandlers::fixed(HANDLERS.byte),
-        RegisterSide::Left,
-    ),
-    rm_immediate(
-        OpcodeMap::Primary,
-        0xc6,
-        0,
-        ImmediateWidth::Byte,
-        SizedHandlers::fixed(HANDLERS.byte),
-    ),
-    rm_immediate(
-        OpcodeMap::Primary,
-        0xc7,
-        0,
-        ImmediateWidth::OperandSize,
-        HANDLERS.sized,
-    ),
-];
-
-const fn accumulator_offset(
-    opcode: u8,
-    handlers: SizedHandlers<Handler>,
-    destination: LocationBinding,
-    source: LocationBinding,
-) -> Form {
-    primary_form(
-        opcode,
-        Encoding::AccumulatorOffset,
-        handlers,
-        OperandBindingShape::Binary {
-            left: destination,
-            right: OperandBinding::Location(source),
-        },
-    )
-}
-
-const ACCUMULATOR_OFFSET_FORMS: [Form; 4] = [
-    accumulator_offset(
-        0xa0,
-        SizedHandlers::fixed(HANDLERS.byte),
-        LocationBinding::FixedRegister(Gpr32::Eax),
-        LocationBinding::AbsoluteOffset,
-    ),
-    accumulator_offset(
-        0xa1,
-        HANDLERS.sized,
-        LocationBinding::FixedRegister(Gpr32::Eax),
-        LocationBinding::AbsoluteOffset,
-    ),
-    accumulator_offset(
-        0xa2,
-        SizedHandlers::fixed(HANDLERS.byte),
-        LocationBinding::AbsoluteOffset,
-        LocationBinding::FixedRegister(Gpr32::Eax),
-    ),
-    accumulator_offset(
-        0xa3,
-        HANDLERS.sized,
-        LocationBinding::AbsoluteOffset,
-        LocationBinding::FixedRegister(Gpr32::Eax),
-    ),
-];
-
-const EFFECTIVE_ADDRESS_FORMS: [Form; 1] = [primary_form(
-    0x8d,
-    Encoding::ModRm { immediate: None },
-    HANDLERS.sized,
-    OperandBindingShape::Binary {
-        left: LocationBinding::Register,
-        right: OperandBinding::RmAddress,
-    },
-)];
-
-pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
-    OPCODE_REGISTER_IMMEDIATE_FORMS
-        .iter()
-        .chain(MOV_MODRM_FORMS.iter())
-        .chain(ACCUMULATOR_OFFSET_FORMS.iter())
-        .chain(EFFECTIVE_ADDRESS_FORMS.iter())
+instruction_families! {
+    MOV {
+        execute: mov;
+        forms {
+            0x88 => byte(rm, modrm_reg);
+            0x89 => word_or_dword(rm, modrm_reg);
+            0x8A => byte(modrm_reg, rm);
+            0x8B => word_or_dword(modrm_reg, rm);
+            0xB0 +reg => byte(opcode_reg, imm8);
+            0xB8 +reg => word_or_dword(opcode_reg, imm);
+            0xC6 /0 => byte(rm, imm8);
+            0xC7 /0 => word_or_dword(rm, imm);
+            0xA0 => byte(AL, moffs32);
+            0xA1 => word_or_dword(accumulator, moffs32);
+            0xA2 => byte(moffs32, AL);
+            0xA3 => word_or_dword(moffs32, accumulator);
+        }
+    }
+    LEA {
+        execute: mov;
+        forms {
+            0x8D => word_or_dword(modrm_reg, address);
+        }
+    }
 }
 
 fn mov<T: RegisterType>(

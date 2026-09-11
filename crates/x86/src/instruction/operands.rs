@@ -41,6 +41,12 @@ pub(crate) struct TypedLocation<T: RegisterType> {
     width: PhantomData<T>,
 }
 
+impl<T: RegisterType> From<TypedLocation<T>> for Input<T> {
+    fn from(location: TypedLocation<T>) -> Self {
+        Self::new(location.location.into())
+    }
+}
+
 impl<T: RegisterType> TypedLocation<T> {
     /// Selects the low `T`-width part of a named parent register.
     pub(crate) fn register(parent: Gpr32) -> Self {

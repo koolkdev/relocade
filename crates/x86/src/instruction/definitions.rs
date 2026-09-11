@@ -15,10 +15,7 @@ mod stack;
 
 use super::{
     forms::*,
-    handlers::{
-        binary_handlers, ternary_handlers, typed_operand, unary_handlers, Handler, IntegerHandlers,
-        SizedHandlers,
-    },
+    handlers::{Handler, SizedHandlers},
     Input, TypedLocation,
 };
 use crate::{alu::flags::Condition, execution::ExecutionBuilder};
@@ -30,16 +27,16 @@ pub(crate) fn modrm_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form>
 
 pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form> + Clone {
     moves::forms()
-        .chain(extensions::FORMS.iter())
-        .chain(exchanges::FORMS.iter())
+        .chain(extensions::forms())
+        .chain(exchanges::forms())
         .chain(alu::forms())
-        .chain(multiply::FORMS.iter())
-        .chain(divide::FORMS.iter())
+        .chain(multiply::forms())
+        .chain(divide::forms())
         .chain(shifts::forms())
-        .chain(bit_scans::FORMS.iter())
+        .chain(bit_scans::forms())
         .chain(bit_tests::forms())
-        .chain(stack::FORMS.iter())
-        .chain(conditions::FORMS.iter())
+        .chain(stack::forms())
+        .chain(conditions::forms())
         .chain(branches::forms())
         .filter(move |form| form.map == map)
 }

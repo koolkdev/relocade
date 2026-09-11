@@ -8,53 +8,30 @@ use crate::{
     register::{Gpr32, RegisterType},
 };
 
-const XCHG: IntegerHandlers<Handler> = binary_handlers!(xchg, right = TypedLocation);
-const XADD: IntegerHandlers<Handler> = binary_handlers!(xadd, right = TypedLocation);
-const CMPXCHG: IntegerHandlers<Handler> = binary_handlers!(cmpxchg);
-
-const fn accumulator_register() -> Form {
-    let mut form = primary_form(
-        0x90,
-        Encoding::OpcodeRegister,
-        XCHG.sized,
-        OperandBindingShape::Binary {
-            left: LocationBinding::FixedRegister(Gpr32::Eax),
-            right: OperandBinding::Location(LocationBinding::Register),
-        },
-    );
-    form.mask = 0xf8;
-    form
+instruction_families! {
+    XCHG {
+        execute: xchg;
+        forms {
+            0x86 => byte(rm, modrm_reg);
+            0x87 => word_or_dword(rm, modrm_reg);
+            0x90 +reg => word_or_dword(accumulator, opcode_reg);
+        }
+    }
+    XADD {
+        execute: xadd;
+        forms {
+            0x0F 0xC0 => byte(rm, modrm_reg);
+            0x0F 0xC1 => word_or_dword(rm, modrm_reg);
+        }
+    }
+    CMPXCHG {
+        execute: cmpxchg;
+        forms {
+            0x0F 0xB0 => byte(rm, modrm_reg);
+            0x0F 0xB1 => word_or_dword(rm, modrm_reg);
+        }
+    }
 }
-
-pub(super) const FORMS: [Form; 7] = [
-    register_rm(
-        OpcodeMap::Primary,
-        0x86,
-        SizedHandlers::fixed(XCHG.byte),
-        RegisterSide::Right,
-    ),
-    register_rm(OpcodeMap::Primary, 0x87, XCHG.sized, RegisterSide::Right),
-    accumulator_register(),
-    register_rm(
-        OpcodeMap::Extended,
-        0xc0,
-        SizedHandlers::fixed(XADD.byte),
-        RegisterSide::Right,
-    ),
-    register_rm(OpcodeMap::Extended, 0xc1, XADD.sized, RegisterSide::Right),
-    register_rm(
-        OpcodeMap::Extended,
-        0xb0,
-        SizedHandlers::fixed(CMPXCHG.byte),
-        RegisterSide::Right,
-    ),
-    register_rm(
-        OpcodeMap::Extended,
-        0xb1,
-        CMPXCHG.sized,
-        RegisterSide::Right,
-    ),
-];
 
 fn xchg<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,

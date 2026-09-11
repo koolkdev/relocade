@@ -18,161 +18,160 @@ enum BinaryOperation {
     Xor,
 }
 
-/// The main ALU families share operand layouts. Bits 3–5 of the first
-/// opcode also select their extension in groups 80, 81 and 83.
-struct AluFamily {
-    register_rm: [Form; 4],
-    accumulator_immediate: [Form; 2],
-    rm_immediate: [Form; 3],
-}
-
-const fn alu_family(first_opcode: u8, handlers: IntegerHandlers<Handler>) -> AluFamily {
-    let extension = first_opcode >> 3;
-    let byte = SizedHandlers::fixed(handlers.byte);
-    AluFamily {
-        register_rm: [
-            register_rm(OpcodeMap::Primary, first_opcode, byte, RegisterSide::Right),
-            register_rm(
-                OpcodeMap::Primary,
-                first_opcode + 1,
-                handlers.sized,
-                RegisterSide::Right,
-            ),
-            register_rm(
-                OpcodeMap::Primary,
-                first_opcode + 2,
-                byte,
-                RegisterSide::Left,
-            ),
-            register_rm(
-                OpcodeMap::Primary,
-                first_opcode + 3,
-                handlers.sized,
-                RegisterSide::Left,
-            ),
-        ],
-        accumulator_immediate: [
-            accumulator_immediate(first_opcode + 4, ImmediateWidth::Byte, byte),
-            accumulator_immediate(
-                first_opcode + 5,
-                ImmediateWidth::OperandSize,
-                handlers.sized,
-            ),
-        ],
-        rm_immediate: [
-            rm_immediate(
-                OpcodeMap::Primary,
-                0x80,
-                extension,
-                ImmediateWidth::Byte,
-                byte,
-            ),
-            rm_immediate(
-                OpcodeMap::Primary,
-                0x81,
-                extension,
-                ImmediateWidth::OperandSize,
-                handlers.sized,
-            ),
-            rm_immediate(
-                OpcodeMap::Primary,
-                0x83,
-                extension,
-                ImmediateWidth::SignedByte,
-                handlers.sized,
-            ),
-        ],
+instruction_families! {
+    ADD {
+        execute: update_binary(BinaryOperation::Add);
+        forms {
+            0x00 => byte(rm, modrm_reg);
+            0x01 => word_or_dword(rm, modrm_reg);
+            0x02 => byte(modrm_reg, rm);
+            0x03 => word_or_dword(modrm_reg, rm);
+            0x04 => byte(accumulator, imm8);
+            0x05 => word_or_dword(accumulator, imm);
+            0x80 /0 => byte(rm, imm8);
+            0x81 /0 => word_or_dword(rm, imm);
+            0x83 /0 => word_or_dword(rm, signed_imm8);
+        }
     }
-}
-
-const ALU_FAMILIES: [AluFamily; 8] = [
-    alu_family(0x00, binary_handlers!(update_binary, BinaryOperation::Add)),
-    alu_family(
-        0x10,
-        binary_handlers!(update_binary, BinaryOperation::AddWithCarry),
-    ),
-    alu_family(
-        0x18,
-        binary_handlers!(update_binary, BinaryOperation::SubtractWithBorrow),
-    ),
-    alu_family(0x38, binary_handlers!(compare)),
-    alu_family(
-        0x28,
-        binary_handlers!(update_binary, BinaryOperation::Subtract),
-    ),
-    alu_family(0x20, binary_handlers!(update_binary, BinaryOperation::And)),
-    alu_family(0x08, binary_handlers!(update_binary, BinaryOperation::Or)),
-    alu_family(0x30, binary_handlers!(update_binary, BinaryOperation::Xor)),
-];
-
-const TEST: IntegerHandlers<Handler> = binary_handlers!(test);
-const TEST_MODRM_FORMS: [Form; 4] = [
-    register_rm(
-        OpcodeMap::Primary,
-        0x84,
-        SizedHandlers::fixed(TEST.byte),
-        RegisterSide::Right,
-    ),
-    register_rm(OpcodeMap::Primary, 0x85, TEST.sized, RegisterSide::Right),
-    rm_immediate(
-        OpcodeMap::Primary,
-        0xf6,
-        0,
-        ImmediateWidth::Byte,
-        SizedHandlers::fixed(TEST.byte),
-    ),
-    rm_immediate(
-        OpcodeMap::Primary,
-        0xf7,
-        0,
-        ImmediateWidth::OperandSize,
-        TEST.sized,
-    ),
-];
-
-const TEST_ACCUMULATOR_FORMS: [Form; 2] = [
-    accumulator_immediate(0xa8, ImmediateWidth::Byte, SizedHandlers::fixed(TEST.byte)),
-    accumulator_immediate(0xa9, ImmediateWidth::OperandSize, TEST.sized),
-];
-
-const INCREMENT: IntegerHandlers<Handler> =
-    unary_handlers!(update_unary, TypedLocation, UnaryOp::Increment);
-const DECREMENT: IntegerHandlers<Handler> =
-    unary_handlers!(update_unary, TypedLocation, UnaryOp::Decrement);
-const NOT: IntegerHandlers<Handler> = unary_handlers!(update_unary, TypedLocation, UnaryOp::Not);
-const NEGATE: IntegerHandlers<Handler> =
-    unary_handlers!(update_unary, TypedLocation, UnaryOp::Negate);
-
-const UNARY_FORMS: [Form; 10] = [
-    opcode_register(0x40, INCREMENT.sized),
-    opcode_register(0x48, DECREMENT.sized),
-    rm(0xfe, 0, SizedHandlers::fixed(INCREMENT.byte)),
-    rm(0xff, 0, INCREMENT.sized),
-    rm(0xfe, 1, SizedHandlers::fixed(DECREMENT.byte)),
-    rm(0xff, 1, DECREMENT.sized),
-    rm(0xf6, 2, SizedHandlers::fixed(NOT.byte)),
-    rm(0xf7, 2, NOT.sized),
-    rm(0xf6, 3, SizedHandlers::fixed(NEGATE.byte)),
-    rm(0xf7, 3, NEGATE.sized),
-];
-
-pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
-    ALU_FAMILIES
-        .iter()
-        .flat_map(|family| family.register_rm.iter())
-        .chain(
-            ALU_FAMILIES
-                .iter()
-                .flat_map(|family| family.rm_immediate.iter()),
-        )
-        .chain(TEST_MODRM_FORMS.iter())
-        .chain(
-            ALU_FAMILIES
-                .iter()
-                .flat_map(|family| family.accumulator_immediate.iter()),
-        )
-        .chain(TEST_ACCUMULATOR_FORMS.iter())
-        .chain(UNARY_FORMS.iter())
+    ADC {
+        execute: update_binary(BinaryOperation::AddWithCarry);
+        forms {
+            0x10 => byte(rm, modrm_reg);
+            0x11 => word_or_dword(rm, modrm_reg);
+            0x12 => byte(modrm_reg, rm);
+            0x13 => word_or_dword(modrm_reg, rm);
+            0x14 => byte(accumulator, imm8);
+            0x15 => word_or_dword(accumulator, imm);
+            0x80 /2 => byte(rm, imm8);
+            0x81 /2 => word_or_dword(rm, imm);
+            0x83 /2 => word_or_dword(rm, signed_imm8);
+        }
+    }
+    SBB {
+        execute: update_binary(BinaryOperation::SubtractWithBorrow);
+        forms {
+            0x18 => byte(rm, modrm_reg);
+            0x19 => word_or_dword(rm, modrm_reg);
+            0x1A => byte(modrm_reg, rm);
+            0x1B => word_or_dword(modrm_reg, rm);
+            0x1C => byte(accumulator, imm8);
+            0x1D => word_or_dword(accumulator, imm);
+            0x80 /3 => byte(rm, imm8);
+            0x81 /3 => word_or_dword(rm, imm);
+            0x83 /3 => word_or_dword(rm, signed_imm8);
+        }
+    }
+    CMP {
+        execute: compare;
+        forms {
+            0x38 => byte(rm, modrm_reg);
+            0x39 => word_or_dword(rm, modrm_reg);
+            0x3A => byte(modrm_reg, rm);
+            0x3B => word_or_dword(modrm_reg, rm);
+            0x3C => byte(accumulator, imm8);
+            0x3D => word_or_dword(accumulator, imm);
+            0x80 /7 => byte(rm, imm8);
+            0x81 /7 => word_or_dword(rm, imm);
+            0x83 /7 => word_or_dword(rm, signed_imm8);
+        }
+    }
+    SUB {
+        execute: update_binary(BinaryOperation::Subtract);
+        forms {
+            0x28 => byte(rm, modrm_reg);
+            0x29 => word_or_dword(rm, modrm_reg);
+            0x2A => byte(modrm_reg, rm);
+            0x2B => word_or_dword(modrm_reg, rm);
+            0x2C => byte(accumulator, imm8);
+            0x2D => word_or_dword(accumulator, imm);
+            0x80 /5 => byte(rm, imm8);
+            0x81 /5 => word_or_dword(rm, imm);
+            0x83 /5 => word_or_dword(rm, signed_imm8);
+        }
+    }
+    AND {
+        execute: update_binary(BinaryOperation::And);
+        forms {
+            0x20 => byte(rm, modrm_reg);
+            0x21 => word_or_dword(rm, modrm_reg);
+            0x22 => byte(modrm_reg, rm);
+            0x23 => word_or_dword(modrm_reg, rm);
+            0x24 => byte(accumulator, imm8);
+            0x25 => word_or_dword(accumulator, imm);
+            0x80 /4 => byte(rm, imm8);
+            0x81 /4 => word_or_dword(rm, imm);
+            0x83 /4 => word_or_dword(rm, signed_imm8);
+        }
+    }
+    OR {
+        execute: update_binary(BinaryOperation::Or);
+        forms {
+            0x08 => byte(rm, modrm_reg);
+            0x09 => word_or_dword(rm, modrm_reg);
+            0x0A => byte(modrm_reg, rm);
+            0x0B => word_or_dword(modrm_reg, rm);
+            0x0C => byte(accumulator, imm8);
+            0x0D => word_or_dword(accumulator, imm);
+            0x80 /1 => byte(rm, imm8);
+            0x81 /1 => word_or_dword(rm, imm);
+            0x83 /1 => word_or_dword(rm, signed_imm8);
+        }
+    }
+    XOR {
+        execute: update_binary(BinaryOperation::Xor);
+        forms {
+            0x30 => byte(rm, modrm_reg);
+            0x31 => word_or_dword(rm, modrm_reg);
+            0x32 => byte(modrm_reg, rm);
+            0x33 => word_or_dword(modrm_reg, rm);
+            0x34 => byte(accumulator, imm8);
+            0x35 => word_or_dword(accumulator, imm);
+            0x80 /6 => byte(rm, imm8);
+            0x81 /6 => word_or_dword(rm, imm);
+            0x83 /6 => word_or_dword(rm, signed_imm8);
+        }
+    }
+    TEST {
+        execute: test;
+        forms {
+            0x84 => byte(rm, modrm_reg);
+            0x85 => word_or_dword(rm, modrm_reg);
+            0xF6 /0 => byte(rm, imm8);
+            0xF7 /0 => word_or_dword(rm, imm);
+            0xA8 => byte(accumulator, imm8);
+            0xA9 => word_or_dword(accumulator, imm);
+        }
+    }
+    INC {
+        execute: update_unary(UnaryOp::Increment);
+        forms {
+            0x40 +reg => word_or_dword(opcode_reg);
+            0xFE /0 => byte(rm);
+            0xFF /0 => word_or_dword(rm);
+        }
+    }
+    DEC {
+        execute: update_unary(UnaryOp::Decrement);
+        forms {
+            0x48 +reg => word_or_dword(opcode_reg);
+            0xFE /1 => byte(rm);
+            0xFF /1 => word_or_dword(rm);
+        }
+    }
+    NOT {
+        execute: update_unary(UnaryOp::Not);
+        forms {
+            0xF6 /2 => byte(rm);
+            0xF7 /2 => word_or_dword(rm);
+        }
+    }
+    NEG {
+        execute: update_unary(UnaryOp::Negate);
+        forms {
+            0xF6 /3 => byte(rm);
+            0xF7 /3 => word_or_dword(rm);
+        }
+    }
 }
 
 fn update_binary<T: RegisterType>(

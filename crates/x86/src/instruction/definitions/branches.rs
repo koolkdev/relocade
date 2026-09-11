@@ -3,121 +3,52 @@
 use super::*;
 use crate::{instruction::Operand, register::RegisterType};
 
-const fn relative_jump_form(
-    opcode: u8,
-    map: OpcodeMap,
-    immediate: ImmediateWidth,
-    condition: Option<Condition>,
-) -> Form {
-    let mut form = primary_form(
-        opcode,
-        Encoding::Immediate { immediate },
-        SizedHandlers {
-            word: Handler::Unary(jump_relative::<I16>),
-            dword: Handler::Unary(jump_relative::<I32>),
-        },
-        OperandBindingShape::Unary(OperandBinding::Immediate),
-    );
-    form.condition = condition;
-    form.ends_block = true;
-    form.map = map;
-    form
-}
-
-const fn relative_jump_forms() -> [Form; 34] {
-    let mut forms =
-        [const { relative_jump_form(0xeb, OpcodeMap::Primary, ImmediateWidth::SignedByte, None) };
-            34];
-    forms[1] = relative_jump_form(0xe9, OpcodeMap::Primary, ImmediateWidth::OperandSize, None);
-    let mut code = 0;
-    while code < 16 {
-        let condition = Some(Condition::from_code(code as u8));
-        forms[2 + code] = relative_jump_form(
-            0x70 + code as u8,
-            OpcodeMap::Primary,
-            ImmediateWidth::SignedByte,
-            condition,
-        );
-        forms[18 + code] = relative_jump_form(
-            0x80 + code as u8,
-            OpcodeMap::Extended,
-            ImmediateWidth::OperandSize,
-            condition,
-        );
-        code += 1;
+instruction_families! {
+    JMP_RELATIVE {
+        execute: jump_relative;
+        effects: [control_transfer];
+        forms {
+            0xEB => word_or_dword(rel8);
+            0xE9 => word_or_dword(rel);
+        }
     }
-    forms
-}
-
-const RELATIVE_JUMPS: [Form; 34] = relative_jump_forms();
-
-const CALL_RELATIVE: SizedHandlers<Handler> = SizedHandlers {
-    word: Handler::Unary(call_relative::<I16>),
-    dword: Handler::Unary(call_relative::<I32>),
-};
-const CALL_INDIRECT: SizedHandlers<Handler> = SizedHandlers {
-    word: Handler::Unary(call_indirect::<I16>),
-    dword: Handler::Unary(call_indirect::<I32>),
-};
-const RETURN: SizedHandlers<Handler> = SizedHandlers {
-    word: Handler::Unary(return_near::<I16>),
-    dword: Handler::Unary(return_near::<I32>),
-};
-
-const fn stack_transfer(mut form: Form) -> Form {
-    form.implicit_memory = true;
-    form.ends_block = true;
-    form
-}
-
-const CALLS: [Form; 2] = [
-    stack_transfer(primary_form(
-        0xe8,
-        Encoding::Immediate {
-            immediate: ImmediateWidth::OperandSize,
-        },
-        CALL_RELATIVE,
-        OperandBindingShape::Unary(OperandBinding::Immediate),
-    )),
-    stack_transfer(rm(0xff, 2, CALL_INDIRECT)),
-];
-
-const RETURNS: [Form; 2] = [
-    stack_transfer(primary_form(
-        0xc3,
-        Encoding::OpcodeOnly,
-        RETURN,
-        OperandBindingShape::Unary(OperandBinding::Constant(0)),
-    )),
-    stack_transfer(primary_form(
-        0xc2,
-        Encoding::Immediate {
-            immediate: ImmediateWidth::Word,
-        },
-        RETURN,
-        OperandBindingShape::Unary(OperandBinding::Immediate),
-    )),
-];
-
-const INDIRECT_JUMP: Form = {
-    let mut form = rm(
-        0xff,
-        4,
-        SizedHandlers {
-            word: Handler::Unary(jump_indirect::<I16>),
-            dword: Handler::Unary(jump_indirect::<I32>),
-        },
-    );
-    form.ends_block = true;
-    form
-};
-
-pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
-    RELATIVE_JUMPS
-        .iter()
-        .chain(CALLS.iter())
-        .chain(RETURNS.iter())
-        .chain(std::iter::once(&INDIRECT_JUMP))
+    JCC {
+        execute: jump_relative;
+        effects: [control_transfer];
+        forms {
+            0x70 +cc => word_or_dword(rel8);
+            0x0F 0x80 +cc => word_or_dword(rel);
+        }
+    }
+    CALL_RELATIVE {
+        execute: call_relative;
+        effects: [stack_write, control_transfer];
+        forms {
+            0xE8 => word_or_dword(rel);
+        }
+    }
+    CALL_INDIRECT {
+        execute: call_indirect;
+        effects: [stack_write, control_transfer];
+        forms {
+            0xFF /2 => word_or_dword(rm);
+        }
+    }
+    RET {
+        execute: return_near;
+        effects: [stack_read, control_transfer];
+        forms {
+            0xC3 => word_or_dword(constant(0));
+            0xC2 => word_or_dword(imm16);
+        }
+    }
+    JMP_INDIRECT {
+        execute: jump_indirect;
+        effects: [control_transfer];
+        forms {
+            0xFF /4 => word_or_dword(rm);
+        }
+    }
 }
 
 fn jump_relative<T: RegisterType>(

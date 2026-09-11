@@ -7,20 +7,20 @@ use crate::{
     register::RegisterType,
 };
 
-pub(super) const FORMS: [Form; 2] = [
-    register_rm(
-        OpcodeMap::Extended,
-        0xbc,
-        binary_handlers!(bit_scan, BitScanOp::Forward).sized,
-        RegisterSide::Left,
-    ),
-    register_rm(
-        OpcodeMap::Extended,
-        0xbd,
-        binary_handlers!(bit_scan, BitScanOp::Reverse).sized,
-        RegisterSide::Left,
-    ),
-];
+instruction_families! {
+    BSF {
+        execute: bit_scan(BitScanOp::Forward);
+        forms {
+            0x0F 0xBC => word_or_dword(modrm_reg, rm);
+        }
+    }
+    BSR {
+        execute: bit_scan(BitScanOp::Reverse);
+        forms {
+            0x0F 0xBD => word_or_dword(modrm_reg, rm);
+        }
+    }
+}
 
 fn bit_scan<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
