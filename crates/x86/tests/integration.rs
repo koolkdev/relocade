@@ -8,6 +8,8 @@ mod arithmetic_flags;
 mod binary_decoding;
 #[path = "suites/binary_operands.rs"]
 mod binary_operands;
+#[path = "suites/bit_tests.rs"]
+mod bit_tests;
 #[path = "suites/byte_moves.rs"]
 mod byte_moves;
 #[path = "suites/carry_arithmetic.rs"]

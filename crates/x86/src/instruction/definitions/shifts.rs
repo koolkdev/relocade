@@ -35,8 +35,20 @@ const fn shift_forms(extension: u8, handlers: IntegerHandlers<Handler>) -> [Form
         implicit_count(0xd1, extension, handlers.sized, one),
         implicit_count(0xd2, extension, byte, cl),
         implicit_count(0xd3, extension, handlers.sized, cl),
-        rm_immediate(0xc0, extension, ImmediateWidth::Byte, byte),
-        rm_immediate(0xc1, extension, ImmediateWidth::Byte, handlers.sized),
+        rm_immediate(
+            OpcodeMap::Primary,
+            0xc0,
+            extension,
+            ImmediateWidth::Byte,
+            byte,
+        ),
+        rm_immediate(
+            OpcodeMap::Primary,
+            0xc1,
+            extension,
+            ImmediateWidth::Byte,
+            handlers.sized,
+        ),
     ]
 }
 

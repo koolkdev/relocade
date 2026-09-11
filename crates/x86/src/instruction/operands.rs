@@ -60,6 +60,15 @@ impl<T: RegisterType> TypedLocation<T> {
         Self::new(location)
     }
 
+    /// Adds a wrapping byte offset to a memory location; registers are unchanged.
+    /// Address registers and access permissions are still resolved at the access.
+    pub(crate) fn offset_memory(mut self, offset: impl Into<Val<I32>>) -> Self {
+        if let Location::Memory(address) = &mut self.location {
+            address.displacement = address.displacement.add(offset);
+        }
+        self
+    }
+
     pub(crate) fn read(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<Val<T>, BuildError>
     where
         I32: AtLeast<T>,

@@ -51,12 +51,19 @@ const MOV_MODRM_FORMS: [Form; 6] = [
         RegisterSide::Left,
     ),
     rm_immediate(
+        OpcodeMap::Primary,
         0xc6,
         0,
         ImmediateWidth::Byte,
         SizedHandlers::fixed(HANDLERS.byte),
     ),
-    rm_immediate(0xc7, 0, ImmediateWidth::OperandSize, HANDLERS.sized),
+    rm_immediate(
+        OpcodeMap::Primary,
+        0xc7,
+        0,
+        ImmediateWidth::OperandSize,
+        HANDLERS.sized,
+    ),
 ];
 
 const fn accumulator_offset(

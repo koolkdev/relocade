@@ -101,6 +101,7 @@ pub(in crate::instruction) const fn accumulator_immediate(
 }
 
 pub(in crate::instruction) const fn rm_immediate(
+    map: OpcodeMap,
     opcode: u8,
     extension: u8,
     immediate: ImmediateWidth,
@@ -118,5 +119,6 @@ pub(in crate::instruction) const fn rm_immediate(
         },
     );
     form.extension = Some(extension);
+    form.map = map;
     form
 }

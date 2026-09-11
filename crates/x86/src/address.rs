@@ -1,5 +1,5 @@
-//! Address components decoded from bytes; register values are read only when
-//! shared instruction semantics computes the linear address.
+//! Effective-address components with deferred register reads. Instruction
+//! semantics can add a displacement before resolving the full linear address.
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32};
 

@@ -14,6 +14,13 @@
 //! register/memory destination while filling from a same-width register. Their
 //! third operand is imm8 or CL, masked with 31. Both sources use entry register
 //! values. Zero preserves the destination and flags with the same full write check.
+//! BT/BTS/BTR/BTC use `0F A3`/`AB`/`B3`/`BB` with a register bit offset, or
+//! `0F BA` /4–/7 with imm8, for word/dword register or memory operands. Register
+//! destinations and immediate offsets take the index modulo 16 or 32. A memory
+//! register offset is signed at that width and selects a unit of the bit string;
+//! its byte displacement wraps at 32 bits before the usual full-unit checks.
+//! BT only reads; BTS/BTR/BTC require full write access even for an unchanged bit.
+//! Both the offset and address use register values from before the instruction.
 //! Word/dword PUSH and POP use `50`–`5F`, `FF` /6 and `8F` /0. PUSH also accepts
 //! an operand-sized immediate (`68`) or a sign-extended byte (`6A`). The stack
 //! pointer is always 32-bit: PUSH reads its source before decrementing ESP;
@@ -83,6 +90,8 @@
 //! SHLD/SHRD keep CF defined through the operand width; OF at one compares the
 //! old and new sign. Word counts 17–31 leave result and all six flags undefined:
 //! wasm86 chooses a zero result, zero CF/AF/OF and PF/ZF/SF from that result.
+//! BT/BTS/BTR/BTC put the old selected bit into CF and leave ZF unchanged.
+//! OF/SF/AF/PF are undefined; wasm86 preserves their prior logical values.
 //! Valid record kinds are an internal invariant. Flag reads preserve the
 //! record, and these instructions leave non-status flag bytes untouched.
 //!

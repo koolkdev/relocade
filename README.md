@@ -4,7 +4,8 @@ Rust components for x86 execution in WebAssembly.
 
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
 SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, SHL, SHR, SAR, SHLD, SHRD,
-ROL, ROR, RCL, RCR, PUSH, POP, SETcc and relative JMP/Jcc blocks from byte snapshots:
+ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, PUSH, POP, SETcc and relative JMP/Jcc blocks
+from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
@@ -93,6 +94,10 @@ supports these forms in default-32 operand and address mode:
 | SAR register/memory by one, CL or imm8 | D0/D2/C0 /7 | D1/D3/C1 /7 | D1/D3/C1 /7 |
 | SHLD register/memory and register by imm8 or CL | — | 0F A4/A5 | 0F A4/A5 |
 | SHRD register/memory and register by imm8 or CL | — | 0F AC/AD | 0F AC/AD |
+| BT register/memory, register or imm8 | — | 0F A3; 0F BA /4 | 0F A3; 0F BA /4 |
+| BTS register/memory, register or imm8 | — | 0F AB; 0F BA /5 | 0F AB; 0F BA /5 |
+| BTR register/memory, register or imm8 | — | 0F B3; 0F BA /6 | 0F B3; 0F BA /6 |
+| BTC register/memory, register or imm8 | — | 0F BB; 0F BA /7 | 0F BB; 0F BA /7 |
 | PUSH opcode-selected register | — | 50–57 | 50–57 |
 | POP opcode-selected register | — | 58–5F | 58–5F |
 | PUSH immediate | — | 68/6A | 68/6A |
@@ -177,6 +182,23 @@ masked count is one; wasm86 chooses zero for larger masked counts, including
 complete rings and a byte RCL/RCR by ten. A zero masked count preserves the
 entire flag source. PF/AF/ZF/SF, old-CL capture and full-span memory write checks
 follow ROL/ROR. The undocumented group `/6` SHL alias is outside this subset.
+
+BT copies a bit from a word/dword operand into CF. BTS, BTR and BTC also set,
+reset or complement that bit, respectively. CF always receives the old bit.
+ZF is unchanged; OF/SF/AF/PF are undefined, and wasm86 preserves their prior
+logical values. A register destination masks either kind of offset modulo its
+width. For memory, an immediate byte also selects only within the addressed
+word/dword: high immediate bits never advance the address.
+
+A memory operand with a register offset instead addresses a bit string. The
+offset is signed at the operand width; dividing it by that width, rounding
+toward negative infinity, selects the word/dword unit. With DX equal to `FFFF`,
+`BT word [EBX],DX` reads bit 15 of the word at EBX minus two.
+The original base need not be aligned. The unit's byte offset is added with
+32-bit wrapping, then the complete selected unit follows the usual memory
+range and page checks. BT needs only read access. BTS/BTR/BTC require full write
+permission even when the bit already has the requested value. Offset and address
+registers use their old values, and a fault preserves the operand and all flags.
 
 LEA (`8D`) computes the effective address encoded by ModRM/SIB and writes it to a
 dword register. With `66`, it writes the low word and preserves the upper half of
@@ -282,8 +304,8 @@ Physical immediate widths remain independent of the handler's logical widths.
 immediate. Both decoders retain those fields in `DecodedFields::ModRm`; a form's
 extension and bindings decide whether the reg bits select an opcode or an operand.
 The immediate is fetched after all address fields, regardless of operand roles.
-The `register_rm` constructor takes the opcode map explicitly, sharing physical
-layout and operand binding across primary and extended instructions.
+The `register_rm` and `rm_immediate` constructors take the opcode map explicitly,
+sharing physical layouts and operand binding across primary and extended instructions.
 `RegisterSide::Left` and `Right` place the ModRM register field in a binary
 argument; the handler determines which arguments it reads or writes.
 
@@ -293,6 +315,11 @@ to the common `Val<I32>` carrier and calls the bound Rust handler. `Input<T>` an
 `TypedLocation<T>` attach logical width to values and locations while deferring
 access until the handler requests it. Their widths remain independent of that
 carrier and of 32-bit addresses.
+`TypedLocation::offset_memory` adds a byte displacement to a memory location and
+leaves a register location unchanged. It defers address-register reads and access
+checks, so bit-string operands reuse ordinary reads and guarded updates. The
+bit-test definitions own the distinction between signed register offsets and
+immediate offsets; the address and memory owners retain their normal policies.
 `Operand::Address` holds an address value separately from a memory location.
 The `RmAddress` binding requires a memory addressing mode in both decoders;
 reading this input resolves the full address and then applies the destination
@@ -393,6 +420,12 @@ change without reading the old carry. The same method can remove a flag from an
 already partial change. NEG uses subtraction from zero and its existing lazy
 record; CF is set exactly when the original operand is nonzero. NOT returns an
 inverted value and an empty flag change.
+
+`BitTestOp::apply` masks an offset within the logical operand, produces the
+unchanged/set/reset/complemented result, and returns a partial CF change using
+the old bit. BT consumes only that change after a read; the modifying forms
+use the existing checked update. No bit-test operation reads the old flag source;
+state composes the preserved flags when a condition or publication needs them.
 
 `ShiftOp::apply` constructs a result and six symbolic flags. Its variants name
 left, logical-right and arithmetic-right shifts. `DoubleShiftOp::apply` accepts

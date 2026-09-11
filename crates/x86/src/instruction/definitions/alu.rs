@@ -60,9 +60,27 @@ const fn alu_family(first_opcode: u8, handlers: IntegerHandlers<Handler>) -> Alu
             ),
         ],
         rm_immediate: [
-            rm_immediate(0x80, extension, ImmediateWidth::Byte, byte),
-            rm_immediate(0x81, extension, ImmediateWidth::OperandSize, handlers.sized),
-            rm_immediate(0x83, extension, ImmediateWidth::SignedByte, handlers.sized),
+            rm_immediate(
+                OpcodeMap::Primary,
+                0x80,
+                extension,
+                ImmediateWidth::Byte,
+                byte,
+            ),
+            rm_immediate(
+                OpcodeMap::Primary,
+                0x81,
+                extension,
+                ImmediateWidth::OperandSize,
+                handlers.sized,
+            ),
+            rm_immediate(
+                OpcodeMap::Primary,
+                0x83,
+                extension,
+                ImmediateWidth::SignedByte,
+                handlers.sized,
+            ),
         ],
     }
 }
@@ -97,12 +115,19 @@ const TEST_MODRM_FORMS: [Form; 4] = [
     ),
     register_rm(OpcodeMap::Primary, 0x85, TEST.sized, RegisterSide::Right),
     rm_immediate(
+        OpcodeMap::Primary,
         0xf6,
         0,
         ImmediateWidth::Byte,
         SizedHandlers::fixed(TEST.byte),
     ),
-    rm_immediate(0xf7, 0, ImmediateWidth::OperandSize, TEST.sized),
+    rm_immediate(
+        OpcodeMap::Primary,
+        0xf7,
+        0,
+        ImmediateWidth::OperandSize,
+        TEST.sized,
+    ),
 ];
 
 const TEST_ACCUMULATOR_FORMS: [Form; 2] = [
