@@ -1,7 +1,9 @@
-//! Literal and body-owned handles, with visibility preserved across folding.
+//! Literal, unbound and body-owned handles, with visibility preserved across folding.
 
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
+use std::rc::Rc;
 
 use super::Val;
 use crate::{arena::ExpressionArena, BuildError, IntType, Type};
@@ -9,10 +11,38 @@ use crate::{arena::ExpressionArena, BuildError, IntType, Type};
 #[derive(Clone)]
 pub(super) enum ValueSource {
     Literal(u64),
+    Unbound(UnboundExpression),
     Expression {
         arena: ExpressionArena,
         expression: Result<BoundExpression, BuildError>,
     },
+}
+
+// Recipes capture only unbound operands and operators, never an arena. An open
+// arena can therefore retain resolved recipe identities without an Rc cycle.
+type ExpressionRecipe = dyn Fn(&ExpressionArena) -> Result<usize, BuildError>;
+
+#[derive(Clone)]
+pub(crate) struct UnboundExpression(Rc<ExpressionRecipe>);
+
+impl UnboundExpression {
+    pub(crate) fn build(&self, arena: &ExpressionArena) -> Result<usize, BuildError> {
+        self.0(arena)
+    }
+}
+
+impl PartialEq for UnboundExpression {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for UnboundExpression {}
+
+impl Hash for UnboundExpression {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (Rc::as_ptr(&self.0) as *const ()).hash(state);
+    }
 }
 
 /// Admission retains the original scope independently of the folded runtime node.
@@ -57,6 +87,10 @@ impl ValueSource {
     ) -> Result<BoundExpression, BuildError> {
         match self {
             Self::Literal(bits) => Ok(BoundExpression::new(arena.constant(ty, *bits)?, Some(0))),
+            Self::Unbound(expression) => Ok(BoundExpression::new(
+                arena.resolve_unbound(expression)?,
+                Some(0),
+            )),
             Self::Expression {
                 arena: owner,
                 expression,
@@ -67,6 +101,27 @@ impl ValueSource {
                 arena.check_open()?;
                 expression.clone()
             }
+        }
+    }
+
+    pub(super) fn same_expression(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Literal(left), Self::Literal(right)) => left == right,
+            (Self::Unbound(left), Self::Unbound(right)) => left == right,
+            (
+                Self::Expression {
+                    arena: left_arena,
+                    expression: left,
+                },
+                Self::Expression {
+                    arena: right_arena,
+                    expression: right,
+                },
+            ) => {
+                left_arena.same_body(right_arena)
+                    && matches!((left, right), (Ok(left), Ok(right)) if left.value == right.value)
+            }
+            _ => false,
         }
     }
 }
@@ -93,6 +148,15 @@ impl<T: IntType> Val<T> {
     pub(super) fn literal(bits: u64) -> Self {
         Self {
             source: ValueSource::Literal(T::TYPE.normalize(bits)),
+            ty: PhantomData,
+        }
+    }
+
+    pub(super) fn unbound(
+        expression: impl Fn(&ExpressionArena) -> Result<usize, BuildError> + 'static,
+    ) -> Self {
+        Self {
+            source: ValueSource::Unbound(UnboundExpression(Rc::new(expression))),
             ty: PhantomData,
         }
     }

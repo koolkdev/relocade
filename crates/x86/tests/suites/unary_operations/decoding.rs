@@ -83,7 +83,7 @@ test_sequences!(mixed_group_opcode_fields, mixed_group_fields());
 
 #[test]
 fn unsupported_group_extensions_stop_before_sib_or_displacement_fetch() {
-    for (opcode, modrm) in [(0xfe, 0x14), (0xff, 0x3c), (0xf6, 0x0c), (0xf7, 0x3d)] {
+    for (opcode, modrm) in [(0xfe, 0x14), (0xff, 0x3c), (0xf6, 0x0c), (0xf7, 0x0d)] {
         for prefixes in [0, 13] {
             let code = [vec![0x66; prefixes], vec![opcode, modrm]].concat();
             let start = 0x2000 - code.len() as u32;

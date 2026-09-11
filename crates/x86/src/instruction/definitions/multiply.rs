@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     alu::{
         flags::{AnyFlagSource, FlagSource},
-        MultiplyOp, MultiplyType,
+        DoubleWidth, MultiplyOp,
     },
     instruction::Location,
     register::{RegisterCode, RegisterType},
@@ -43,7 +43,7 @@ const fn immediate_form(opcode: u8, immediate: ImmediateWidth) -> Form {
     )
 }
 
-fn implicit_multiply<T: RegisterType + MultiplyType>(
+fn implicit_multiply<T: RegisterType + DoubleWidth>(
     execution: &mut ExecutionBuilder<'_, '_>,
     source: Input<T>,
     operation: MultiplyOp,
@@ -68,7 +68,7 @@ where
     execution.set_flags(outcome.flags)
 }
 
-fn multiply_destination<T: RegisterType + MultiplyType>(
+fn multiply_destination<T: RegisterType + DoubleWidth>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<T>,
     source: Input<T>,
@@ -85,7 +85,7 @@ where
     })
 }
 
-fn multiply_sources<T: RegisterType + MultiplyType>(
+fn multiply_sources<T: RegisterType + DoubleWidth>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<T>,
     first_source: Input<T>,

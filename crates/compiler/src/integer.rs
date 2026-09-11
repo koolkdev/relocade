@@ -5,6 +5,10 @@ pub(super) enum BinaryOp {
     Add,
     Sub,
     Mul,
+    DivUnsigned,
+    DivSigned,
+    RemUnsigned,
+    RemSigned,
     And,
     Or,
     Xor,
@@ -53,15 +57,36 @@ pub(super) fn rotate_count(ty: Type, count: u32) -> u32 {
     count & u32::from(ty.bits() - 1)
 }
 
-pub(super) fn binary(operator: BinaryOp, left: u64, right: u64) -> u64 {
-    match operator {
+pub(super) fn binary(ty: Type, operator: BinaryOp, left: u64, right: u64) -> Option<u64> {
+    Some(match operator {
         BinaryOp::Add => left.wrapping_add(right),
         BinaryOp::Sub => left.wrapping_sub(right),
         BinaryOp::Mul => left.wrapping_mul(right),
+        BinaryOp::DivUnsigned => left.checked_div(right)?,
+        BinaryOp::RemUnsigned => left.checked_rem(right)?,
+        BinaryOp::DivSigned => {
+            let left = signed_value(ty, left);
+            let right = signed_value(ty, right);
+            // Leave operations without a native numeric result in the expression.
+            // Narrow inputs divide in i32, then retain their logical low bits.
+            if ty == Type::I32 && left == i64::from(i32::MIN) && right == -1 {
+                return None;
+            }
+            left.checked_div(right)? as u64
+        }
+        BinaryOp::RemSigned => {
+            let left = signed_value(ty, left);
+            let right = signed_value(ty, right);
+            if left == i64::MIN && right == -1 {
+                0
+            } else {
+                left.checked_rem(right)? as u64
+            }
+        }
         BinaryOp::And => left & right,
         BinaryOp::Or => left | right,
         BinaryOp::Xor => left ^ right,
-    }
+    })
 }
 
 pub(super) fn compare(ty: Type, operator: CompareOp, left: u64, right: u64) -> bool {
@@ -120,6 +145,8 @@ pub(super) fn unsigned_bits(value: Value, values: &[Value], inputs: &[u8]) -> u8
             // Underflow can set every carrier bit, including above a narrow type.
             BinaryOp::Sub => carrier_bits,
             BinaryOp::Mul => inputs[a].saturating_add(inputs[b]).min(carrier_bits),
+            BinaryOp::DivUnsigned | BinaryOp::RemUnsigned => value.ty.bits(),
+            BinaryOp::DivSigned | BinaryOp::RemSigned => carrier_bits,
             BinaryOp::And => inputs[a].min(inputs[b]),
             BinaryOp::Or | BinaryOp::Xor => inputs[a].max(inputs[b]),
         },

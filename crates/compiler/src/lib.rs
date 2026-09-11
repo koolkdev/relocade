@@ -428,7 +428,8 @@ impl FunctionBuilder<'_> {
 
     /// Checks and binds a typed value to this body. Bound values must already
     /// belong to this body and be visible in the active branch; they keep their
-    /// expression and sharing. Standalone literals are admitted as body constants.
+    /// expression and sharing. Standalone literals and calculations are admitted
+    /// as body expressions, sharing the body's constant and expression cache.
     /// Stores, conditions and returns also accept literals directly.
     ///
     /// ```compile_fail

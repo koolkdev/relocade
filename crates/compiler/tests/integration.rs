@@ -15,6 +15,8 @@ mod computed_memory;
 mod conditional_values;
 #[path = "suites/control_flow.rs"]
 mod control_flow;
+#[path = "suites/division.rs"]
+mod division;
 #[path = "suites/execution.rs"]
 mod execution;
 #[path = "suites/function_bodies.rs"]

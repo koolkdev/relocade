@@ -15,14 +15,31 @@ pub(crate) use arithmetic::ArithmeticOp;
 pub(crate) use bit_scans::BitScanOp;
 pub(crate) use bit_tests::BitTestOp;
 pub(crate) use logic::LogicOp;
-pub(crate) use multiply::{MultiplyOp, MultiplyType};
+pub(crate) use multiply::MultiplyOp;
 pub(crate) use rotates::RotateDirection;
 pub(crate) use shifts::{DoubleShiftOp, ShiftOp};
 pub(crate) use unary::UnaryOp;
 
-use wasm86_compiler::{MemoryInt, Val, I1};
+use wasm86_compiler::{AtLeast, MemoryInt, Val, I1, I16, I32, I64, I8};
 
 use flags::{FlagChange, StatusFlag};
+
+/// Full products and division dividends have twice the operand's logical width.
+pub(crate) trait DoubleWidth: MemoryInt {
+    type Double: MemoryInt + AtLeast<Self> + AtLeast<I16>;
+}
+
+impl DoubleWidth for I8 {
+    type Double = I16;
+}
+
+impl DoubleWidth for I16 {
+    type Double = I32;
+}
+
+impl DoubleWidth for I32 {
+    type Double = I64;
+}
 
 pub(crate) struct AluResult<T: MemoryInt> {
     pub(crate) result: Val<T>,

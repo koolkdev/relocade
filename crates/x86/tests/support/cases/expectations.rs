@@ -196,6 +196,15 @@ pub(in crate::support) fn check_checkpoint(
         execution.machine_unchanged,
         "{context}: page mappings changed"
     );
+    if matches!(
+        expected.exit,
+        ExpectedExit::DivideError | ExpectedExit::PageFault { .. }
+    ) {
+        assert!(
+            execution.dispatches.is_empty(),
+            "{context}: a fault must not dispatch"
+        );
+    }
     let exit = match expected.exit {
         ExpectedExit::Fallthrough | ExpectedExit::Dispatch(_) => {
             assert_eq!(
@@ -205,13 +214,8 @@ pub(in crate::support) fn check_checkpoint(
             );
             Exit::Dispatch(expected_eip)
         }
-        ExpectedExit::PageFault { address, error } => {
-            assert!(
-                execution.dispatches.is_empty(),
-                "{context}: a fault must not dispatch"
-            );
-            Exit::PageFault { address, error }
-        }
+        ExpectedExit::DivideError => Exit::DivideError,
+        ExpectedExit::PageFault { address, error } => Exit::PageFault { address, error },
     };
     assert_eq!(execution.exit, exit, "{context}: exit");
 }

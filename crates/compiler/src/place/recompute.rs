@@ -5,8 +5,8 @@ use super::{representation, Demand, Phase, Point, Tree};
 use crate::{control::Site, Body, Operation, ValueKind};
 
 pub(super) fn groups(body: &Body, id: usize, demand: Demand, tree: &Tree<'_>) -> Vec<Demand> {
-    // Only these derived operations are nontrapping. Their operands can include
-    // snapshots, but loads, calls and joins themselves must never be duplicated.
+    // Derived calculations can be recomputed on their consuming paths. Their
+    // operands can include snapshots; loads, calls and joins retain their sharing.
     if !matches!(
         body.values[id].kind,
         ValueKind::Binary(..)

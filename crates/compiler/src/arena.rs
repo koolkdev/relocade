@@ -6,6 +6,7 @@ use crate::{
     control::Site,
     integer::{self, BinaryOp, BitCountOp, CompareOp},
     memory::Location,
+    value::UnboundExpression,
     BuildError, Type, Value, ValueKind,
 };
 
@@ -18,6 +19,7 @@ pub(super) struct ExpressionArena(Rc<RefCell<Option<ValueArena>>>);
 struct ValueArena {
     values: Vec<Value>,
     interned: HashMap<Value, usize>,
+    unbound: HashMap<UnboundExpression, usize>,
     unsigned_bits: Vec<u8>,
     scopes: Vec<usize>,
     availability: Vec<Option<usize>>,
@@ -51,6 +53,26 @@ impl ExpressionArena {
 
     pub(super) fn constant(&self, ty: Type, bits: u64) -> Result<usize, BuildError> {
         self.with_open(|arena| arena.constant(ty, bits))
+    }
+
+    pub(crate) fn resolve_unbound(
+        &self,
+        expression: &UnboundExpression,
+    ) -> Result<usize, BuildError> {
+        {
+            let arena = self.0.borrow();
+            let arena = arena.as_ref().ok_or(BuildError::BodyClosed)?;
+            if let Some(&value) = arena.unbound.get(expression) {
+                return Ok(value);
+            }
+        }
+        // Recursive admission may need this arena again. Build outside the borrow,
+        // then retain the recipe identity so a shared DAG is traversed only once.
+        let value = expression.build(self)?;
+        let mut arena = self.0.borrow_mut();
+        let arena = arena.as_mut().ok_or(BuildError::BodyClosed)?;
+        arena.unbound.insert(expression.clone(), value);
+        Ok(value)
     }
 
     pub(super) fn load(
@@ -282,12 +304,25 @@ impl ValueArena {
         })
     }
 
+    fn sign_extend_carrier(&mut self, input: usize) -> usize {
+        // Interpret the logical sign before a signed carrier operation; narrow
+        // arithmetic can leave upper bits that do not belong to the value.
+        let carrier = if self.values[input].ty == Type::I64 {
+            Type::I64
+        } else {
+            Type::I32
+        };
+        self.sign_extend(input, carrier)
+    }
+
     fn binary(&mut self, operator: BinaryOp, left: usize, right: usize) -> usize {
         let a = self.values[left];
         let b = self.values[right];
         debug_assert_eq!(a.ty, b.ty);
         if let (ValueKind::Constant(a), ValueKind::Constant(b)) = (a.kind, b.kind) {
-            return self.constant(self.values[left].ty, integer::binary(operator, a, b));
+            if let Some(bits) = integer::binary(self.values[left].ty, operator, a, b) {
+                return self.constant(self.values[left].ty, bits);
+            }
         }
         match (operator, a.kind, b.kind) {
             (
@@ -306,10 +341,22 @@ impl ValueArena {
             | (BinaryOp::And | BinaryOp::Mul, ValueKind::Constant(0), _) => self.constant(a.ty, 0),
             (BinaryOp::Or, _, ValueKind::Constant(bits)) if bits == a.ty.mask() => right,
             (BinaryOp::Or, ValueKind::Constant(bits), _) if bits == a.ty.mask() => left,
-            _ => self.intern(Value {
-                ty: a.ty,
-                kind: ValueKind::Binary(operator, left, right),
-            }),
+            _ => {
+                let (left, right) = match operator {
+                    BinaryOp::DivUnsigned | BinaryOp::RemUnsigned => {
+                        (self.normalize(left), self.normalize(right))
+                    }
+                    BinaryOp::DivSigned | BinaryOp::RemSigned => (
+                        self.sign_extend_carrier(left),
+                        self.sign_extend_carrier(right),
+                    ),
+                    _ => (left, right),
+                };
+                self.intern(Value {
+                    ty: a.ty,
+                    kind: ValueKind::Binary(operator, left, right),
+                })
+            }
         }
     }
 
@@ -365,16 +412,9 @@ impl ValueArena {
             }
         }
         let (left, right) = if matches!(operator, CompareOp::LtSigned | CompareOp::GeSigned) {
-            // A narrow arithmetic value may have dirty upper bits. Interpret its
-            // logical sign before comparing the full Wasm carriers.
-            let carrier = if a.ty == Type::I64 {
-                Type::I64
-            } else {
-                Type::I32
-            };
             (
-                self.sign_extend(left, carrier),
-                self.sign_extend(right, carrier),
+                self.sign_extend_carrier(left),
+                self.sign_extend_carrier(right),
             )
         } else {
             (self.normalize(left), self.normalize(right))

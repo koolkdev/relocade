@@ -45,16 +45,7 @@ impl ValueArena {
         let input = match operator {
             ShiftOp::Left => input,
             ShiftOp::RightUnsigned => self.normalize(input),
-            // Interpret the logical sign before shifting the Wasm carrier;
-            // upper bits from narrow arithmetic need not be normalized.
-            ShiftOp::RightSigned => self.sign_extend(
-                input,
-                if value.ty == Type::I64 {
-                    Type::I64
-                } else {
-                    Type::I32
-                },
-            ),
+            ShiftOp::RightSigned => self.sign_extend_carrier(input),
         };
         let count = if value.ty == Type::I64 {
             self.convert(count, Type::I64)

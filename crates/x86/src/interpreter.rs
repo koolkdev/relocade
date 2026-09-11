@@ -29,6 +29,8 @@ use crate::{
 /// with a fault at its start (error 0 for a read, 2 for a write). A one-byte
 /// access at 0xffffffff does not cross that boundary. Instruction fetch wraps.
 /// All data permissions are checked before any guest store.
+/// DIV/IDIV divide error returns `1 << 48`, with no error code or address payload.
+/// It preserves the instruction's entry state and EIP without retiring or dispatching.
 ///
 /// An unsupported instruction form returns `(8 << 48) | (opcode << 32) | EIP`, an
 /// unsupported-subset exit rather than an architectural invalid-opcode exception.

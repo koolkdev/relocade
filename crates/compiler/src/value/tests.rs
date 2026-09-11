@@ -1,3 +1,4 @@
+mod unbound;
 mod visibility;
 
 use super::{Val, ValueSource};
@@ -10,6 +11,10 @@ fn assert_closed(value: &Val<I32>) {
         value.add(0),
         value.mul(0),
         value.mul(1),
+        value.unsigned().div(1),
+        value.signed().div(1),
+        value.unsigned().rem(1),
+        value.signed().rem(1),
         Val::<I32>::from(0).mul(value),
         Val::<I32>::from(1).mul(value),
         Val::<I32>::from(0).and(value),

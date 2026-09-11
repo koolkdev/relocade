@@ -1,8 +1,14 @@
 use wasm86_compiler::{Val, I32, I64, I8};
 
+const DIVIDE_ERROR: u64 = 1 << 48;
 const GENERAL_PROTECTION: u64 = 2 << 48;
 const PAGE_FAULT: u64 = 4 << 48;
 const UNSUPPORTED_INSTRUCTION: u64 = 8 << 48;
+
+/// Divide error has neither an error code nor an address payload.
+pub(crate) fn divide_error() -> u64 {
+    DIVIDE_ERROR
+}
 
 pub(crate) fn page_fault(address: &Val<I32>, error: &Val<I32>) -> Val<I64> {
     address

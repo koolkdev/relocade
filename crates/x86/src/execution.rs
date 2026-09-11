@@ -1,9 +1,11 @@
+mod division;
 mod operands;
 mod stack;
 
+pub(crate) use division::DivideOp;
 pub(crate) use operands::PairValues;
 
-use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32};
+use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32, I64};
 
 use crate::{
     alu::flags::{Condition, FlagChange},
@@ -59,6 +61,20 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     pub(super) fn condition(&mut self, condition: Condition) -> Result<Val<I1>, BuildError> {
         self.state.condition(&mut self.body, condition)
+    }
+
+    /// Ends a faulting path at the current instruction's entry boundary. Call
+    /// before defining any of that instruction's architectural results.
+    fn fault_if(
+        &mut self,
+        condition: impl Into<Val<I1>>,
+        code: impl Into<Val<I64>>,
+    ) -> Result<(), BuildError> {
+        self.body.if_(condition, |mut fault_body| {
+            self.state
+                .publish(&mut fault_body, &self.eip, self.completed)?;
+            fault_body.return_(code.into())
+        })
     }
 
     fn checked<T: MemoryInt>(

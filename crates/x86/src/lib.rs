@@ -12,6 +12,13 @@
 //! CF and OF indicate that the unsigned or signed product does not fit the input
 //! width; PF/AF/ZF/SF are undefined and use the policy 1/0/0/0. All source reads
 //! precede result writes, and memory sources require only read permission.
+//! DIV and IDIV use `F6`/`F7` /6 and /7 to divide AX, DX:AX or EDX:EAX by a byte,
+//! word or dword register/memory divisor, respectively. Quotient and remainder
+//! replace AL/AH, AX/DX or EAX/EDX. IDIV truncates toward zero; a nonzero remainder has the
+//! dividend's sign. Zero divisors and out-of-range quotients raise divide error
+//! before either result changes. All six status flags are undefined on success;
+//! wasm86 preserves their incoming record. Memory sources are read before any
+//! arithmetic fault check and need only read permission.
 //! SHL/SAL, SHR and SAR use group extensions /4, /5 and /7. Byte forms use D0/D2/C0
 //! for counts one/CL/imm8; word/dword forms use D1/D3/C1. Counts are masked with 31.
 //! Zero preserves value and flags, but memory still requires full write permission.

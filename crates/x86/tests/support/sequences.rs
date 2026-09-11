@@ -159,6 +159,10 @@ impl Checkpoint {
         self.expected.exit = ExpectedExit::PageFault { address, error };
         self
     }
+    pub(crate) fn divide_error(mut self) -> Self {
+        self.expected.exit = ExpectedExit::DivideError;
+        self
+    }
 }
 
 pub(crate) fn check_sequences(cases: &[SequenceCase]) {

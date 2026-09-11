@@ -186,18 +186,23 @@ impl InstructionCase {
         self
     }
 
+    pub(crate) fn divide_error(mut self) -> Self {
+        self.expected.exit = ExpectedExit::DivideError;
+        self
+    }
+
     pub(super) fn expected_eip(&self) -> u32 {
         match self.expected.exit {
             ExpectedExit::Fallthrough => self.initial.eip.wrapping_add(self.code.len() as u32),
             ExpectedExit::Dispatch(target) => target,
-            ExpectedExit::PageFault { .. } => self.initial.eip,
+            ExpectedExit::DivideError | ExpectedExit::PageFault { .. } => self.initial.eip,
         }
     }
 
     pub(super) fn expected_retired(&self) -> u32 {
         match self.expected.exit {
             ExpectedExit::Fallthrough | ExpectedExit::Dispatch(_) => 1,
-            ExpectedExit::PageFault { .. } => 0,
+            ExpectedExit::DivideError | ExpectedExit::PageFault { .. } => 0,
         }
     }
 }
@@ -327,6 +332,7 @@ pub(crate) enum RegisterExpectation {
 pub(super) enum ExpectedExit {
     Fallthrough,
     Dispatch(u32),
+    DivideError,
     PageFault { address: u32, error: u16 },
 }
 

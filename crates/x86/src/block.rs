@@ -31,6 +31,7 @@ use crate::{
 /// using the layout and fault words documented by [`crate::compile_interpreter_step`].
 /// Addresses are flat: segment bases are ignored. A data fault publishes earlier
 /// completed instructions, keeps EIP at the faulting instruction, and skips dispatch.
+/// DIV/IDIV divide error returns `1 << 48` with that same completion boundary.
 /// All bytes of a store are permission-checked before any of them are written.
 /// Read-modify-write operations check write permission before reading their
 /// destination or changing flags; CMP and TEST require only read permission.

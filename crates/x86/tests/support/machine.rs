@@ -59,13 +59,16 @@ impl Image {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Exit {
     Dispatch(u32),
+    DivideError,
     PageFault { address: u32, error: u16 },
     Other(u64),
 }
 
 impl Exit {
     pub(crate) fn from_word(word: u64) -> Self {
-        if word >> 48 == 4 {
+        if word == 0x0001_0000_0000_0000 {
+            Self::DivideError
+        } else if word >> 48 == 4 {
             Self::PageFault {
                 address: word as u32,
                 error: (word >> 32) as u16,
@@ -112,6 +115,7 @@ pub(crate) fn expected(image: &Image, steps: &[Step<'_>]) -> Observation {
                 });
                 Outcome::Returned(vec![Argument::I64(i64::MIN)])
             }
+            Exit::DivideError => Outcome::Returned(vec![Argument::I64(0x0001_0000_0000_0000)]),
             Exit::PageFault { address, error } => Outcome::Returned(vec![Argument::I64(
                 ((4_u64 << 48) | (u64::from(error) << 32) | u64::from(address)) as i64,
             )]),

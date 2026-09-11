@@ -3,7 +3,7 @@
 Rust components for x86 execution in WebAssembly.
 
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
-SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, MUL, IMUL, SHL, SHR, SAR, SHLD, SHRD,
+SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, MUL, IMUL, DIV, IDIV, SHL, SHR, SAR, SHLD, SHRD,
 ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, SETcc and relative JMP/Jcc blocks
 from byte snapshots:
 
@@ -89,6 +89,8 @@ supports these forms in default-32 operand and address mode:
 | IMUL implicit accumulator and register/memory | F6 /5 | F7 /5 | F7 /5 |
 | IMUL register destination and register/memory | — | 0F AF | 0F AF |
 | IMUL register destination, register/memory and immediate | — | 69/6B | 69/6B |
+| DIV implicit dividend and register/memory divisor | F6 /6 | F7 /6 | F7 /6 |
+| IDIV implicit dividend and register/memory divisor | F6 /7 | F7 /7 | F7 /7 |
 | ROL register/memory by one, CL or imm8 | D0/D2/C0 /0 | D1/D3/C1 /0 | D1/D3/C1 /0 |
 | ROR register/memory by one, CL or imm8 | D0/D2/C0 /1 | D1/D3/C1 /1 | D1/D3/C1 /1 |
 | RCL register/memory by one, CL or imm8 | D0/D2/C0 /2 | D1/D3/C1 /2 | D1/D3/C1 /2 |
@@ -162,6 +164,20 @@ wasm86 chooses 1/0/0/0. Every source and its address use the old register values
 Memory sources need only read permission, and a source fault leaves all results
 and flags unchanged. These rules follow the MUL and IMUL entries in the
 [Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
+
+DIV divides unsigned operands; IDIV divides signed operands. The dividend is all
+of AX, DX:AX or EDX:EAX, and the divisor is a byte, word or dword register/memory
+source. Quotient and remainder replace AL/AH, AX/DX or EAX/EDX. Byte and word
+results preserve the other parent-register bits. IDIV truncates toward zero and
+gives a nonzero remainder the dividend's sign. Zero divisors and quotients outside
+the destination's unsigned or signed range raise divide error before either
+result changes. All six status flags are undefined on success; wasm86 preserves
+their incoming record as its deterministic policy. Original registers supply
+the dividend, divisor and effective address, including overlapping registers.
+The source needs only read permission and is checked before arithmetic errors.
+These arithmetic and divide-error rules follow the DIV/IDIV entries and Vol. 3A
+section on #DE in the
+[Intel manual](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
 
 SHL (also named SAL), SHR and SAR take a count of one, CL or an immediate byte.
 All counts are masked to five bits, including byte and word operands. A zero
@@ -268,7 +284,7 @@ Group `83` sign-extends its encoded byte immediate to the operand width. SETcc
 writes a byte containing 0 or 1; its ModRM.reg field is ignored.
 INC, DEC, NOT and NEG have one destination and no immediate. The ModRM extension
 selects both the operation and its fields: `F6`/`F7` /0 reads a TEST immediate, while
-/2 through /5 finish after the register or address fields.
+/2 through /7 finish after the register or address fields.
 PUSH `68` reads an operand-sized immediate; `6A` sign-extends its encoded byte
 to the operand width.
 
@@ -462,11 +478,19 @@ record; CF is set exactly when the original operand is nonzero. NOT returns an
 inverted value and an empty flag change.
 
 `MultiplyOp::apply` returns the full product in the same `AluResult` shape.
-`MultiplyType` maps operand widths to double-width products: `I8` to `I16`,
+`DoubleWidth` maps operands to full products and dividends: `I8` to `I16`,
 `I16` to `I32`, and `I32` to `I64`. The operation computes signed or unsigned
 overflow and a complete flag change. Instruction handlers split that product
 across the implicit result registers or truncate it for explicit IMUL forms.
 The width mapping and product calculation perform no architectural accesses.
+
+`ExecutionBuilder::divide` consumes an original double-width dividend and divisor
+and returns named quotient and remainder values. It owns the sequencing of
+arithmetic and guest fault exits: unsigned high-half comparison rejects zero and
+overflow together; signed division checks zero and double-width MIN/-1 before
+computation, then checks the quotient's destination range. Instruction handlers
+own implicit register reads and writes. `fault_if` uses the existing state
+publication mechanism to preserve completed instructions on the error branch.
 
 `BitTestOp::apply` masks an offset within the logical operand, produces the
 unchanged/set/reset/complemented result, and returns a partial CF change using
@@ -556,6 +580,10 @@ require presence. Present frames must fit the backing RAM; this is an internal
 invariant. Unexpected host or Wasm traps from inconsistent internal state are not
 part of the guest execution contract.
 
+DIV/IDIV divide error returns `1 << 48`, with no error code or address payload.
+Earlier instructions remain published; the division preserves its entry state
+and EIP, does not retire, and does not dispatch.
+
 A missing instruction page returns the 64-bit word
 `(4 << 48) | (0x10 << 32) | first_unavailable_address`. A data fault returns
 `(4 << 48) | (error << 32) | first_denied_address`, where error bit 1 identifies a
@@ -640,6 +668,7 @@ bits. The borrowed `signed()` view provides arithmetic `shr`, `lt`/`ge` comparis
 `displacement.signed().extend::<I32>()`. Rust checks conversion direction;
 conversions to the same type are allowed. All shifts accept an I32 value or a
 literal count, for example `byte.signed().shr(count)`.
+
 Shift counts are modulo 32 for I1/I8/I16/I32 and modulo 64 for I64. Left and unsigned
 right shifts of an I8 by 8 produce zero; shifting it by 32 preserves its value. Comparisons,
 right shifts and widening read the logical low bits, including after arithmetic
@@ -649,6 +678,15 @@ it does not interpret unused carrier bits as part of the operand.
 interface, but rotate modulo the logical width: 1, 8, 16, 32 or 64 bits. For example,
 `byte.rotl(8)` preserves the byte. Wide rotations use native Wasm operations;
 narrow rotations combine shifts within the logical width.
+
+The signed and unsigned views also provide `div` and `rem`, for example
+`dividend.signed().div(divisor)`. They use the same value expressions, literal
+operands, folding and placement as other integer operations. Signed division
+truncates toward zero; signed remainder follows the dividend's sign. Native
+arithmetic reads the logical operands, and narrow results retain their low bits.
+The compiler does not add guest exception checks. The x86 execution layer checks
+zero divisors and quotient overflow, returning guest divide errors through the
+CPU ABI. An unexpected native arithmetic trap is an implementation bug.
 
 Build conditional code with the same builder methods:
 
@@ -945,9 +983,10 @@ represents them. `preserve_flag_record()` additionally requires unchanged record
 bytes for a case that reads logical flags, such as CMOV.
 
 Cases start at `0x1000` and expect one retired instruction with fallthrough
-dispatch. Use `at(origin)`, `instruction_count(count)`, `dispatch(target)` or
-`fault(address, error)` to state different boundaries. Code can cross pages or
-wrap EIP. A fault expects the entry EIP, no retirement and no dispatch.
+dispatch. Use `at(origin)`, `instruction_count(count)`, `dispatch(target)`,
+`fault(address, error)` or `divide_error()` to state different boundaries.
+Code can cross pages or wrap EIP. A fault expects the entry EIP, no retirement and
+no dispatch.
 For scattered pages and physical canaries, use `map_page(page, frame, permissions)`
 and `backing(offset, bytes)`. Every physical byte outside an expected write must
 remain unchanged, and setup cannot silently replace the instruction encoding.
