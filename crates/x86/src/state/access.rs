@@ -11,8 +11,8 @@ use crate::{
 
 use super::{CpuState, Registers};
 
-/// Registers occupy consecutive dwords in encoding order. Byte views can reach
-/// only the first four parents; word and dword views can reach all eight.
+/// Registers occupy consecutive dwords in encoding order. Indexed byte codes can
+/// reach only the first four parents; named views select their parent directly.
 pub(in crate::state) fn register_location<T: RegisterType>(register: Register<T>) -> Location<T> {
     let base = offset_of!(CpuState, registers) as u32;
     let stride = (size_of::<Registers>() / Gpr32::ALL.len()) as u32;

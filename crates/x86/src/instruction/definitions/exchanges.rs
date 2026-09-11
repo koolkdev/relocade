@@ -5,7 +5,7 @@ use crate::{
         ArithmeticOp,
     },
     execution::PairValues,
-    register::RegisterType,
+    register::{Gpr32, RegisterType},
 };
 
 const XCHG: IntegerHandlers<Handler> = binary_handlers!(xchg, right = TypedLocation);
@@ -18,7 +18,7 @@ const fn accumulator_register() -> Form {
         Encoding::OpcodeRegister,
         XCHG.sized,
         OperandBindingShape::Binary {
-            left: LocationBinding::FixedRegister(0),
+            left: LocationBinding::FixedRegister(Gpr32::Eax),
             right: OperandBinding::Location(LocationBinding::Register),
         },
     );
@@ -97,17 +97,21 @@ where
     I32: AtLeast<T>,
     FlagSource<T>: Into<AnyFlagSource>,
 {
-    destination.update_pair(execution, TypedLocation::accumulator(), |execution, old| {
-        let replacement = source.read(execution)?;
-        let equal = old.right.eq(&old.left);
-        execution.set_flags(
-            ArithmeticOp::Subtract
-                .apply(old.right.clone(), old.left.clone())
-                .flags,
-        )?;
-        Ok(PairValues {
-            left: equal.select(replacement, &old.left),
-            right: equal.select(old.right, old.left),
-        })
-    })
+    destination.update_pair(
+        execution,
+        TypedLocation::register(Gpr32::Eax),
+        |execution, old| {
+            let replacement = source.read(execution)?;
+            let equal = old.right.eq(&old.left);
+            execution.set_flags(
+                ArithmeticOp::Subtract
+                    .apply(old.right.clone(), old.left.clone())
+                    .flags,
+            )?;
+            Ok(PairValues {
+                left: equal.select(replacement, &old.left),
+                right: equal.select(old.right, old.left),
+            })
+        },
+    )
 }

@@ -46,7 +46,7 @@ impl Gpr32 {
     }
 }
 
-/// A register view interprets the low three encoding bits for its operand width.
+/// An x86 register code whose low three bits are interpreted at the operand width.
 #[derive(Clone)]
 pub(super) enum RegisterCode {
     Known(u8),
@@ -70,6 +70,34 @@ impl RegisterCode {
     }
 }
 
+/// An operand names a parent register or supplies an encoded register field.
+#[derive(Clone)]
+pub(super) enum RegisterOperand {
+    Named(Gpr32),
+    Encoded(RegisterCode),
+}
+
+impl RegisterOperand {
+    pub(super) fn view<T: RegisterType>(self) -> Register<T> {
+        match self {
+            Self::Named(parent) => Register::named(parent),
+            Self::Encoded(code) => code.view(),
+        }
+    }
+}
+
+impl From<Gpr32> for RegisterOperand {
+    fn from(parent: Gpr32) -> Self {
+        Self::Named(parent)
+    }
+}
+
+impl From<RegisterCode> for RegisterOperand {
+    fn from(code: RegisterCode) -> Self {
+        Self::Encoded(code)
+    }
+}
+
 #[derive(Clone)]
 pub(super) enum RegisterSelection {
     Named {
@@ -83,6 +111,7 @@ pub(super) enum RegisterSelection {
 }
 
 pub(super) trait RegisterType: SsaType {
+    /// Number of parent slots reachable by an indexed encoded register.
     const BACKING_SLOT_COUNT: u32;
 
     fn select(code: RegisterCode) -> RegisterSelection;
@@ -143,6 +172,14 @@ pub(super) struct Register<T: RegisterType> {
 }
 
 impl<T: RegisterType> Register<T> {
+    /// Selects the low `T`-width part of this parent without decoding register bits.
+    pub(super) fn named(parent: Gpr32) -> Self {
+        Self {
+            selection: RegisterSelection::Named { parent, byte: 0 },
+            marker: PhantomData,
+        }
+    }
+
     pub(super) fn indexed(code: Val<I32>) -> Self {
         RegisterCode::indexed(code).view()
     }
@@ -166,9 +203,6 @@ impl Register<I32> {
 
 impl From<Gpr32> for Register<I32> {
     fn from(parent: Gpr32) -> Self {
-        Self {
-            selection: RegisterSelection::Named { parent, byte: 0 },
-            marker: PhantomData,
-        }
+        Self::named(parent)
     }
 }

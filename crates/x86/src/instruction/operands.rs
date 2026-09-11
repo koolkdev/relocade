@@ -7,7 +7,7 @@ use super::{Location, Operand};
 use crate::{
     address::{Address32, IndexTerm},
     execution::{ExecutionBuilder, PairValues},
-    register::RegisterType,
+    register::{Gpr32, RegisterType},
 };
 
 pub(crate) struct Input<T: RegisterType> {
@@ -35,15 +35,16 @@ impl<T: RegisterType> Input<T> {
     }
 }
 
-/// A decoded `Location` with logical data width `T`; accesses remain deferred.
+/// A `Location` with logical data width `T`; accesses remain deferred.
 pub(crate) struct TypedLocation<T: RegisterType> {
     location: Location<Val<I32>>,
     width: PhantomData<T>,
 }
 
 impl<T: RegisterType> TypedLocation<T> {
-    pub(crate) fn accumulator() -> Self {
-        Self::new(Location::accumulator())
+    /// Selects the low `T`-width part of a named parent register.
+    pub(crate) fn register(parent: Gpr32) -> Self {
+        Self::new(Location::Register(parent.into()))
     }
 
     pub(crate) fn new(location: Location<Val<I32>>) -> Self {

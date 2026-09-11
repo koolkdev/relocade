@@ -4,8 +4,7 @@ use crate::{
         flags::{AnyFlagSource, FlagSource},
         DoubleWidth, MultiplyOp,
     },
-    instruction::Location,
-    register::{RegisterCode, RegisterType},
+    register::{Gpr32, RegisterType},
 };
 
 const UNSIGNED: IntegerHandlers<Handler> =
@@ -53,15 +52,16 @@ where
     FlagSource<T>: Into<AnyFlagSource>,
 {
     let source = source.read(execution)?;
-    let accumulator = TypedLocation::<T>::accumulator().read(execution)?;
+    let accumulator = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
     let outcome = operation.apply(accumulator, source);
     if T::BYTES == 1 {
-        TypedLocation::<I16>::accumulator().write(execution, outcome.result.truncate::<I16>())?;
+        TypedLocation::<I16>::register(Gpr32::Eax)
+            .write(execution, outcome.result.truncate::<I16>())?;
     } else {
-        TypedLocation::<T>::accumulator().write(execution, outcome.result.truncate::<T>())?;
-        // Register code two selects DX or EDX at the operand width.
-        execution.write::<T>(
-            Location::<Val<I32>>::Register(RegisterCode::from_code(2)),
+        TypedLocation::<T>::register(Gpr32::Eax)
+            .write(execution, outcome.result.truncate::<T>())?;
+        TypedLocation::<T>::register(Gpr32::Edx).write(
+            execution,
             outcome.result.unsigned().shr(T::BYTES * 8).truncate::<T>(),
         )?;
     }

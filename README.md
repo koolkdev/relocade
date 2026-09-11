@@ -376,6 +376,11 @@ to the common `Val<I32>` carrier and calls the bound Rust handler. `Input<T>` an
 `TypedLocation<T>` attach logical width to values and locations while deferring
 access until the handler requests it. Their widths remain independent of that
 carrier and of 32-bit addresses.
+Fixed bindings use `Gpr32` names, and handlers use
+`TypedLocation::<T>::register(Gpr32::Eax)` to select the low part at width `T`.
+`RegisterOperand` distinguishes named parents from encoded fields. Named views
+select their parent directly; encoded views retain the width-dependent x86 mapping,
+including byte codes 4–7 selecting AH/CH/DH/BH.
 `TypedLocation::offset_memory` adds a byte displacement to a memory location and
 leaves a register location unchanged. It defers address-register reads and access
 checks, so bit-string operands reuse ordinary reads and guarded updates. The
@@ -423,11 +428,10 @@ flags, so their memory operands require no write permission.
 values to a callback as `PairValues { left, right }`. The callback returns the same
 shape with replacements. The builder writes right before left, so the left result
 wins when both locations alias. XCHG swaps the old values; XADD returns the sum and
-old destination; CMPXCHG pairs its destination with `TypedLocation::accumulator()`
+old destination; CMPXCHG pairs its destination with `TypedLocation::register(Gpr32::Eax)`
 and selects their new values after comparison. This keeps address resolution and
 guest-fault checks ahead of all effects without exposing prepared targets to
-instruction handlers. Accumulator binding and typed construction share the same
-decoded location constructor.
+instruction handlers.
 A fault publishes completed definitions into its terminating branch without
 consuming the parent state used by the successful path.
 Address resolution accepts explicit register values for an access. POP supplies

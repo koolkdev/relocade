@@ -127,7 +127,7 @@ impl SnapshotCursor<'_> {
         modrm: u8,
     ) -> Result<DecodedFields<u32>, BlockError> {
         let rm = if modrm >> 6 == 3 {
-            Location::Register(RegisterCode::from_code(modrm))
+            Location::Register(RegisterCode::from_code(modrm).into())
         } else {
             Location::Memory(self.decode_address(modrm)?)
         };

@@ -245,12 +245,12 @@ fn synchronized_word_registers() -> crate::CompiledModule {
                 let stop = body.parameter::<I1>(1)?;
                 let mut state = State::new(&cpu);
                 let old_word =
-                    state.read_register(&mut body, RegisterCode::from_code(0).view::<I16>())?;
+                    state.read_register(&mut body, Register::<I16>::named(Gpr32::Eax))?;
                 state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
                 state.write_register(&mut body, Gpr32::Edi, 0x1357_9bdf)?;
                 state.write_register(
                     &mut body,
-                    RegisterCode::from_code(0).view::<I16>(),
+                    Register::<I16>::named(Gpr32::Eax),
                     old_word.add(1),
                 )?;
                 state.write_register(&mut body, RegisterCode::from_code(4).view::<I8>(), 0xaa)?;

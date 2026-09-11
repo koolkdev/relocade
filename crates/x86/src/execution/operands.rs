@@ -40,9 +40,9 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
                 let address = address::resolve(&mut self.body, &mut self.state, address, &[])?;
                 Ok(address.truncate::<T>())
             }
-            Operand::Location(Location::Register(code)) => {
-                self.state.read_register(&mut self.body, code.view::<T>())
-            }
+            Operand::Location(Location::Register(register)) => self
+                .state
+                .read_register(&mut self.body, register.view::<T>()),
             Operand::Location(Location::Memory(address)) => {
                 let address = address::resolve(&mut self.body, &mut self.state, address, &[])?;
                 let memory = self.memory.expect("a memory operand declares guest memory");
@@ -101,7 +101,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         bindings: &[RegisterValue],
     ) -> Result<WriteTarget<'memory, T>, BuildError> {
         Ok(match location {
-            Location::Register(code) => WriteTarget::Register(code.view::<T>()),
+            Location::Register(register) => WriteTarget::Register(register.view::<T>()),
             Location::Memory(address) => {
                 let address = address::resolve(&mut self.body, &mut self.state, address, bindings)?;
                 let memory = self.memory.expect("a memory operand declares guest memory");

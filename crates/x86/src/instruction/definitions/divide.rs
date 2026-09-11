@@ -1,8 +1,7 @@
 use super::*;
 use crate::{
     alu::{DivideOp, DoubleWidth},
-    instruction::{Location, Operand},
-    register::{RegisterCode, RegisterType},
+    register::{Gpr32, RegisterType},
     state::exit,
 };
 
@@ -28,15 +27,13 @@ where
     // Byte division uses all of original AX. Wider forms concatenate DX:AX or
     // EDX:EAX without interpreting the low half's sign independently.
     let dividend = if T::BYTES == 1 {
-        TypedLocation::<I16>::accumulator()
+        TypedLocation::<I16>::register(Gpr32::Eax)
             .read(execution)?
             .unsigned()
             .extend::<T::Double>()
     } else {
-        let low = TypedLocation::<T>::accumulator().read(execution)?;
-        let high = execution.read::<T>(Operand::<Val<I32>>::Location(Location::Register(
-            RegisterCode::from_code(2),
-        )))?;
+        let low = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
+        let high = TypedLocation::<T>::register(Gpr32::Edx).read(execution)?;
         low.unsigned()
             .extend::<T::Double>()
             .or(high.unsigned().extend::<T::Double>().shl(T::BYTES * 8))
@@ -56,13 +53,10 @@ where
             .unsigned()
             .extend::<T::Double>()
             .shl(8));
-        TypedLocation::<I16>::accumulator().write(execution, ax.truncate::<I16>())?;
+        TypedLocation::<I16>::register(Gpr32::Eax).write(execution, ax.truncate::<I16>())?;
     } else {
-        TypedLocation::<T>::accumulator().write(execution, result.quotient)?;
-        execution.write::<T>(
-            Location::<Val<I32>>::Register(RegisterCode::from_code(2)),
-            result.remainder,
-        )?;
+        TypedLocation::<T>::register(Gpr32::Eax).write(execution, result.quotient)?;
+        TypedLocation::<T>::register(Gpr32::Edx).write(execution, result.remainder)?;
     }
     // All status flags are undefined; preserve their incoming record as policy.
     Ok(())

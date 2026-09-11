@@ -11,7 +11,7 @@ pub(super) use lower::lower;
 use operands::{map_location, map_operand};
 pub(crate) use operands::{Input, TypedLocation};
 
-use crate::{address::Address32, alu::flags::Condition, register::RegisterCode};
+use crate::{address::Address32, alu::flags::Condition, register::RegisterOperand};
 
 pub(super) const MAX_INSTRUCTION_BYTES: u32 = 15;
 pub(super) const OPERAND_SIZE_PREFIX: u8 = 0x66;
@@ -34,7 +34,7 @@ pub(super) enum Operand<V> {
 
 #[derive(Clone)]
 pub(super) enum Location<V> {
-    Register(RegisterCode),
+    Register(RegisterOperand),
     Memory(Address32<V>),
 }
 
@@ -86,10 +86,6 @@ impl<V> Instruction<V> {
 }
 
 impl<V> Location<V> {
-    pub(crate) fn accumulator() -> Self {
-        Self::Register(RegisterCode::from_code(0))
-    }
-
     fn uses_memory(&self) -> bool {
         matches!(self, Self::Memory(_))
     }

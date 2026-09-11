@@ -1,7 +1,7 @@
 //! Integer extensions into a destination register or an implicit accumulator pair.
 
 use super::*;
-use crate::register::RegisterType;
+use crate::register::{Gpr32, RegisterType};
 
 const SIGNED_BYTE: SizedHandlers<Handler> = binary_handlers!(movsx, source = I8, sized);
 const SIGNED_WORD: SizedHandlers<Handler> = binary_handlers!(movsx, source = I16, sized);
@@ -23,23 +23,27 @@ pub(super) const FORMS: [Form; 6] = [
     register_rm(OpcodeMap::Extended, 0xbf, SIGNED_WORD, RegisterSide::Left),
     accumulator_form(
         0x98,
-        0,
+        Gpr32::Eax,
         SizedHandlers {
             word: SIGNED_BYTE.word,
             dword: SIGNED_WORD.dword,
         },
     ),
-    accumulator_form(0x99, 2, binary_handlers!(sign_fill).sized),
+    accumulator_form(0x99, Gpr32::Edx, binary_handlers!(sign_fill).sized),
 ];
 
-const fn accumulator_form(opcode: u8, destination: u8, handlers: SizedHandlers<Handler>) -> Form {
+const fn accumulator_form(
+    opcode: u8,
+    destination: Gpr32,
+    handlers: SizedHandlers<Handler>,
+) -> Form {
     primary_form(
         opcode,
         Encoding::OpcodeOnly,
         handlers,
         OperandBindingShape::Binary {
             left: LocationBinding::FixedRegister(destination),
-            right: OperandBinding::Location(LocationBinding::FixedRegister(0)),
+            right: OperandBinding::Location(LocationBinding::FixedRegister(Gpr32::Eax)),
         },
     )
 }

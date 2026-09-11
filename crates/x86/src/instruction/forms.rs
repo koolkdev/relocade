@@ -9,7 +9,10 @@ use super::{
     handlers::{Handler, SizedHandlers},
     Location, OperandSize,
 };
-use crate::{alu::flags::Condition, register::RegisterCode};
+use crate::{
+    alu::flags::Condition,
+    register::{Gpr32, RegisterCode},
+};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum OpcodeMap {
@@ -114,8 +117,8 @@ pub(crate) enum DecodedFields<V> {
 pub(super) enum LocationBinding {
     Register,
     Rm,
-    /// An implicit register code interpreted at the handler's operand width.
-    FixedRegister(u8),
+    /// The low part of a named parent at the handler's operand width.
+    FixedRegister(Gpr32),
     AbsoluteOffset,
 }
 

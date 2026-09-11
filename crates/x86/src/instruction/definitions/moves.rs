@@ -1,5 +1,5 @@
 use super::*;
-use crate::register::RegisterType;
+use crate::register::{Gpr32, RegisterType};
 
 const HANDLERS: IntegerHandlers<Handler> = binary_handlers!(mov);
 
@@ -87,26 +87,26 @@ const ACCUMULATOR_OFFSET_FORMS: [Form; 4] = [
     accumulator_offset(
         0xa0,
         SizedHandlers::fixed(HANDLERS.byte),
-        LocationBinding::FixedRegister(0),
+        LocationBinding::FixedRegister(Gpr32::Eax),
         LocationBinding::AbsoluteOffset,
     ),
     accumulator_offset(
         0xa1,
         HANDLERS.sized,
-        LocationBinding::FixedRegister(0),
+        LocationBinding::FixedRegister(Gpr32::Eax),
         LocationBinding::AbsoluteOffset,
     ),
     accumulator_offset(
         0xa2,
         SizedHandlers::fixed(HANDLERS.byte),
         LocationBinding::AbsoluteOffset,
-        LocationBinding::FixedRegister(0),
+        LocationBinding::FixedRegister(Gpr32::Eax),
     ),
     accumulator_offset(
         0xa3,
         HANDLERS.sized,
         LocationBinding::AbsoluteOffset,
-        LocationBinding::FixedRegister(0),
+        LocationBinding::FixedRegister(Gpr32::Eax),
     ),
 ];
 

@@ -3,7 +3,10 @@
 use super::{
     Encoding, Form, ImmediateWidth, LocationBinding, OpcodeMap, OperandBinding, OperandBindingShape,
 };
-use crate::instruction::handlers::{Handler, SizedHandlers};
+use crate::{
+    instruction::handlers::{Handler, SizedHandlers},
+    register::Gpr32,
+};
 
 /// The binary argument selected by ModRM.reg, independent of reads and writes.
 #[derive(Clone, Copy)]
@@ -94,7 +97,7 @@ pub(in crate::instruction) const fn accumulator_immediate(
         Encoding::Immediate { immediate },
         handlers,
         OperandBindingShape::Binary {
-            left: LocationBinding::FixedRegister(0),
+            left: LocationBinding::FixedRegister(Gpr32::Eax),
             right: OperandBinding::Immediate,
         },
     )

@@ -1,4 +1,5 @@
 mod flags;
+mod named_registers;
 mod synchronization;
 
 use super::{Cpu, Register, State};

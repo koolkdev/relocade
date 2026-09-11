@@ -69,7 +69,8 @@ where
             if !form.accepts_register_rm() {
                 return cursor.return_unsupported(arm, opcode);
             }
-            let rm = Location::Register(RegisterCode::indexed(modrm.unsigned().extend::<I32>()));
+            let rm =
+                Location::Register(RegisterCode::indexed(modrm.unsigned().extend::<I32>()).into());
             self.complete_modrm_instruction(arm, cursor.clone(), &modrm, form, rm)
         })
     }
