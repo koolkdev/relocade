@@ -1,7 +1,10 @@
 //! Near jumps, calls and returns select the next execution entry.
 
 use super::*;
-use crate::{instruction::Operand, register::RegisterType};
+use crate::{
+    instruction::Operand,
+    register::{Gpr32, RegisterType},
+};
 
 instruction_families! {
     JMP_RELATIVE {
@@ -18,6 +21,34 @@ instruction_families! {
         forms {
             0x70 +cc => word_or_dword(rel8);
             0x0F 0x80 +cc => word_or_dword(rel);
+        }
+    }
+    JECXZ {
+        execute: jump_if_count_zero;
+        effects: [control_transfer];
+        forms {
+            0xE3 => word_or_dword(rel8);
+        }
+    }
+    LOOP {
+        execute: loop_relative(None);
+        effects: [control_transfer];
+        forms {
+            0xE2 => word_or_dword(rel8);
+        }
+    }
+    LOOPE {
+        execute: loop_relative(Some(Condition::E));
+        effects: [control_transfer];
+        forms {
+            0xE1 => word_or_dword(rel8);
+        }
+    }
+    LOOPNE {
+        execute: loop_relative(Some(Condition::NE));
+        effects: [control_transfer];
+        forms {
+            0xE0 => word_or_dword(rel8);
         }
     }
     CALL_RELATIVE {
@@ -77,6 +108,45 @@ where
         .truncate::<T>()
         .unsigned()
         .extend::<I32>()
+}
+
+fn jump_if_count_zero<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    displacement: Operand<Val<I32>>,
+    _condition: Option<Condition>,
+    fallthrough: Val<I32>,
+) -> Result<Val<I32>, BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let displacement = Input::<I32>::new(displacement).read(execution)?;
+    let count = TypedLocation::<I32>::register(Gpr32::Ecx).read(execution)?;
+    let target = relative_target::<T>(&fallthrough, displacement);
+    Ok(count.eq(0).select(target, fallthrough))
+}
+
+fn loop_relative<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    displacement: Operand<Val<I32>>,
+    _condition: Option<Condition>,
+    fallthrough: Val<I32>,
+    loop_condition: Option<Condition>,
+) -> Result<Val<I32>, BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let displacement = Input::<I32>::new(displacement).read(execution)?;
+    // Address size selects the counter; operand size only narrows a taken target.
+    let count = TypedLocation::<I32>::register(Gpr32::Ecx)
+        .read(execution)?
+        .sub(1);
+    TypedLocation::<I32>::register(Gpr32::Ecx).write(execution, count.clone())?;
+    let mut taken = count.ne(0);
+    if let Some(condition) = loop_condition {
+        taken = taken.and(execution.condition(condition)?);
+    }
+    let target = relative_target::<T>(&fallthrough, displacement);
+    Ok(taken.select(target, fallthrough))
 }
 
 fn call_relative<T: RegisterType>(

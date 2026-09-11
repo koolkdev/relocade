@@ -21,8 +21,10 @@ macro_rules! declaration_handlers {
 // A transfer body already has the successor-returning ABI. Other bodies receive
 // typed arguments and complete with fallthrough. Effects can appear in any order.
 macro_rules! declaration_adapter {
-    ([control_transfer $(, $effect:ident)*] $pattern:tt [$handler:ident] $width:ty; $operand:ident $(($value:expr))?) => {
-        Handler::Unary($handler::<$width>)
+    ([control_transfer $(, $effect:ident)*] $pattern:tt [$handler:ident $($argument:expr),*] $width:ty; $operand:ident $(($value:expr))?) => {
+        Handler::Unary(|execution, operand, condition, fallthrough| {
+            $handler::<$width>(execution, operand, condition, fallthrough $(, $argument)*)
+        })
     };
     ([control_transfer $(, $effect:ident)*] $($unsupported:tt)*) => {
         compile_error!("control-transfer bodies use one operand and return the successor EIP")

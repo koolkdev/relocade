@@ -4,7 +4,8 @@ Rust components for x86 execution in WebAssembly.
 
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, CBW, CWDE, CWD, CDQ, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
 SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, MUL, IMUL, DIV, IDIV, SHL, SHR, SAR, SHLD, SHRD,
-ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, SETcc, CALL, RET, JMP and Jcc blocks
+ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, SETcc, CALL, RET, JMP, Jcc,
+JECXZ, LOOP, LOOPE and LOOPNE blocks
 from byte snapshots:
 
 ```rust
@@ -117,6 +118,10 @@ supports these forms in default-32 operand and address mode:
 | CALL register/memory | — | FF /2 | FF /2 |
 | RET with optional imm16 cleanup | — | C3/C2 | C3/C2 |
 | JMP register/memory | — | FF /4 | FF /4 |
+| JECXZ relative byte displacement | — | E3 | E3 |
+| LOOP relative byte displacement | — | E2 | E2 |
+| LOOPE/LOOPZ relative byte displacement | — | E1 | E1 |
+| LOOPNE/LOOPNZ relative byte displacement | — | E0 | E0 |
 | SETcc register/memory destination | 0F 90–9F | — | — |
 | XCHG register/memory and register | 86 | 87 | 87 |
 | XCHG accumulator and opcode-selected register | — | 90–97 | 90–97 |
@@ -288,6 +293,16 @@ including a short branch whose displacement remains one byte. An untaken Jcc
 retains the full 32-bit fallthrough address. Repeated `66` prefixes have the
 same effect as one.
 
+JECXZ (`E3`) branches when ECX is zero without changing it. LOOP (`E2`)
+decrements ECX with 32-bit wrapping and branches when the result is nonzero.
+LOOPE/LOOPZ (`E1`) also requires ZF set; LOOPNE/LOOPNZ (`E0`) requires ZF clear.
+Both conditional forms decrement ECX even when ZF prevents the branch, and all
+four instructions preserve every flag. Their signed displacement always occupies
+one byte. The current 32-bit address mode selects ECX even with `66`; the prefix
+only truncates a taken target to sixteen bits. An untaken branch retains the full
+fallthrough EIP. These rules follow the Jcc and LOOP/LOOPcc entries in the
+[Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
+
 Near CALL uses `E8` with a relative word/dword displacement, or `FF /2` with an
 absolute register/memory target. It reads the target using entry registers and
 memory, then pushes the fallthrough pointer at operand width. This preserves the
@@ -304,10 +319,11 @@ These rules follow the CALL, RET and JMP entries in the
 [Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
 Far calls, returns and jumps remain outside this flat-address subset.
 
-Jumps preserve registers and flags; CALL and RET change ESP while preserving
-the other registers and flags. Each successful transfer retires once before
-dispatching the chosen EIP. All required instruction fields are fetched before
-operand access or condition evaluation. Control transfers do not fetch the
+JMP, Jcc and JECXZ preserve registers and flags. LOOP/LOOPcc change ECX, while
+CALL and RET change ESP; all preserve the other registers and flags. Each
+successful transfer retires once before dispatching the chosen EIP. All required
+instruction fields are fetched before operand access or condition evaluation.
+Control transfers do not fetch the
 destination instruction; its fetch faults belong to the next execution entry.
 Snapshot compilation stops at the transfer and never follows its destination
 or decodes its fallthrough.
@@ -444,7 +460,10 @@ cleanup remains unsigned 16-bit. `stack_read` and `stack_write` declare implicit
 memory use; explicit memory operands already supply it. `control_transfer` ends
 the block and selects the existing successor-returning handler interface. That
 interface receives the bound operand, condition and fallthrough EIP, and returns
-the next EIP. Ordinary typed bodies return `Result<()>`; their adapters return
+the next EIP. Fixed arguments in `execute` follow those inputs for transfer bodies,
+just as they follow typed operands for ordinary bodies. For example,
+`execute: loop_relative(Some(Condition::E));` adds a ZF test to the shared LOOP
+body. Ordinary typed bodies return `Result<()>`; their adapters return
 fallthrough after success. Execution owns retirement and state publication.
 
 The `forms::declarations` helper derives an `Encoding` and operand bindings from

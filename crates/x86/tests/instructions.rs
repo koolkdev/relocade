@@ -20,6 +20,8 @@ mod carry_rotates;
 mod conditional_moves;
 #[path = "suites/count_publication.rs"]
 mod count_publication;
+#[path = "suites/counted_branches.rs"]
+mod counted_branches;
 #[path = "suites/division.rs"]
 mod division;
 #[path = "suites/double_shifts.rs"]

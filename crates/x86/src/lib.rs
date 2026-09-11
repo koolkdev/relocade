@@ -76,6 +76,10 @@
 //! byte count to full ESP. Only the return-pointer cell is accessed. Word targets
 //! are zero-extended, and word CALL saves the low fallthrough pointer.
 //! CALL and RET preserve all registers except ESP and preserve every flag.
+//! JECXZ (`E3`) tests full ECX for zero without changing it. LOOP (`E2`) decrements
+//! ECX and branches when nonzero; LOOPE (`E1`) also requires ZF set, LOOPNE (`E0`)
+//! requires ZF clear. All preserve flags, and all use signed byte displacements.
+//! The counter stays 32-bit with `66`; only a taken target is truncated to a word.
 //! Far transfers remain outside the subset. Transfers retire once and dispatch without
 //! fetching the destination instruction. Snapshot blocks end at the first control transfer
 //! or the requested instruction limit, whichever comes first.
