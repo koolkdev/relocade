@@ -43,6 +43,10 @@
 //! register or memory source into a dword destination, or a word with `66`.
 //! They zero-extend or sign-extend from the opcode's fixed source width. The
 //! word-to-word `66 0F B7`/`66 0F BF` forms copy the source unchanged.
+//! CBW (`66 98`) sign-extends AL into AX; CWDE (`98`) sign-extends AX into EAX.
+//! CWD (`66 99`) fills DX with the sign of AX; CDQ (`99`) fills EDX with the sign
+//! of EAX. CWD/CDQ preserve the input accumulator, and word destinations preserve
+//! their parent's upper half. These opcode-only forms preserve every flag.
 //! LEA (`8D`) writes a ModRM/SIB effective address to a dword register, or its
 //! low word with `66`. It reads full 32-bit address registers, preserves flags,
 //! and performs no data-memory access. Register-mode ModRM is unsupported.
@@ -78,7 +82,8 @@
 //! including prefixes and all required operand fields.
 //!
 //! Binary arithmetic, logic, NEG, XADD and CMPXCHG replace all six status flags. INC/DEC preserve
-//! CF and update the other five; MOV, MOVZX, MOVSX, LEA, XCHG, CMOVcc, NOT, PUSH,
+//! CF and update the other five; MOV, MOVZX, MOVSX, CBW, CWDE, CWD, CDQ,
+//! LEA, XCHG, CMOVcc, NOT, PUSH,
 //! POP, SETcc and branches preserve them all.
 //! CMP and TEST only change flags. The CPU
 //! stores flags lazily: byte 0 selects the record kind, and little-endian dwords

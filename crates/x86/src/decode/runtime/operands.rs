@@ -29,6 +29,7 @@ where
         form: &SizedForm,
     ) -> Result<(), BuildError> {
         let fields = match form.encoding() {
+            Encoding::OpcodeOnly => DecodedFields::OpcodeOnly,
             Encoding::OpcodeRegister => DecodedFields::OpcodeRegister {
                 register: RegisterCode::from_code(opcode),
             },

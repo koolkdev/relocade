@@ -64,6 +64,7 @@ impl ImmediateWidth {
 
 #[derive(Clone, Copy)]
 pub(crate) enum Encoding {
+    OpcodeOnly,
     OpcodeRegister,
     OpcodeRegisterImmediate {
         immediate: ImmediateWidth,
@@ -87,6 +88,7 @@ impl Encoding {
 
 /// Physical fields, before assignment to the operation's operand roles.
 pub(crate) enum DecodedFields<V> {
+    OpcodeOnly,
     OpcodeRegister {
         register: RegisterCode,
     },
@@ -112,8 +114,8 @@ pub(crate) enum DecodedFields<V> {
 pub(super) enum LocationBinding {
     Register,
     Rm,
-    Accumulator,
-    CountRegister,
+    /// An implicit register code interpreted at the handler's operand width.
+    FixedRegister(u8),
     AbsoluteOffset,
 }
 

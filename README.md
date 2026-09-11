@@ -2,7 +2,7 @@
 
 Rust components for x86 execution in WebAssembly.
 
-`wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
+`wasm86-x86` compiles MOV, MOVZX, MOVSX, CBW, CWDE, CWD, CDQ, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
 SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, MUL, IMUL, DIV, IDIV, SHL, SHR, SAR, SHLD, SHRD,
 ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, SETcc and relative JMP/Jcc blocks
 from byte snapshots:
@@ -52,6 +52,8 @@ supports these forms in default-32 operand and address mode:
 | MOV register and register/memory | 88/8A | 89/8B | 89/8B |
 | MOV register/memory destination and immediate | C6 /0 | C7 /0 | C7 /0 |
 | MOV accumulator and absolute memory offset | A0/A2 | A1/A3 | A1/A3 |
+| CBW/CWDE sign extension within the accumulator | — | 98 | 98 |
+| CWD/CDQ sign extension into the high accumulator | — | 99 | 99 |
 | ADD register and register/memory | 00/02 | 01/03 | 01/03 |
 | ADD accumulator and immediate | 04 | 05 | 05 |
 | ADD register/memory and immediate | 80 /0 | 81/83 /0 | 81/83 /0 |
@@ -126,6 +128,14 @@ span is read and checked, even when the destination is wider. The `66 0F B7` and
 `66 0F BF` word-to-word forms copy the source unchanged. These forms are accepted
 by [Intel XED](https://github.com/intelxed/xed/blob/main/datafiles/xed-isa.txt),
 although the SDM's ordinary MOVZX/MOVSX opcode tables omit them.
+
+CBW (`66 98`) sign-extends AL into AX; CWDE (`98`) sign-extends AX into EAX.
+CWD (`66 99`) fills DX with the sign of AX; CDQ (`99`) fills EDX with the sign
+of EAX. CWD and CDQ preserve the entire input accumulator. CBW preserves EAX's
+upper half, and CWD preserves EDX's upper half. All four preserve every flag.
+Their encodings contain only the opcode and any operand-size prefix. These
+rules follow the CBW/CWDE and CWD/CDQ entries in the
+[Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
 
 XCHG exchanges two old values and preserves flags. `86` exchanges a byte and `87`
 exchanges a dword, or a word with `66`. `90`–`97` exchange EAX with an opcode-selected

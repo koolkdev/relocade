@@ -87,53 +87,26 @@ const ACCUMULATOR_OFFSET_FORMS: [Form; 4] = [
     accumulator_offset(
         0xa0,
         SizedHandlers::fixed(HANDLERS.byte),
-        LocationBinding::Accumulator,
+        LocationBinding::FixedRegister(0),
         LocationBinding::AbsoluteOffset,
     ),
     accumulator_offset(
         0xa1,
         HANDLERS.sized,
-        LocationBinding::Accumulator,
+        LocationBinding::FixedRegister(0),
         LocationBinding::AbsoluteOffset,
     ),
     accumulator_offset(
         0xa2,
         SizedHandlers::fixed(HANDLERS.byte),
         LocationBinding::AbsoluteOffset,
-        LocationBinding::Accumulator,
+        LocationBinding::FixedRegister(0),
     ),
     accumulator_offset(
         0xa3,
         HANDLERS.sized,
         LocationBinding::AbsoluteOffset,
-        LocationBinding::Accumulator,
-    ),
-];
-
-const EXTENDING_FORMS: [Form; 4] = [
-    register_rm(
-        OpcodeMap::Extended,
-        0xb6,
-        binary_handlers!(movzx, source = I8, sized),
-        RegisterSide::Left,
-    ),
-    register_rm(
-        OpcodeMap::Extended,
-        0xb7,
-        binary_handlers!(movzx, source = I16, sized),
-        RegisterSide::Left,
-    ),
-    register_rm(
-        OpcodeMap::Extended,
-        0xbe,
-        binary_handlers!(movsx, source = I8, sized),
-        RegisterSide::Left,
-    ),
-    register_rm(
-        OpcodeMap::Extended,
-        0xbf,
-        binary_handlers!(movsx, source = I16, sized),
-        RegisterSide::Left,
+        LocationBinding::FixedRegister(0),
     ),
 ];
 
@@ -152,7 +125,6 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
         .iter()
         .chain(MOV_MODRM_FORMS.iter())
         .chain(ACCUMULATOR_OFFSET_FORMS.iter())
-        .chain(EXTENDING_FORMS.iter())
         .chain(EFFECTIVE_ADDRESS_FORMS.iter())
 }
 
@@ -166,28 +138,4 @@ where
 {
     let value = source.read(execution)?;
     destination.write(execution, value)
-}
-
-fn movzx<Destination: RegisterType + AtLeast<Source>, Source: RegisterType>(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    destination: TypedLocation<Destination>,
-    source: Input<Source>,
-) -> Result<(), BuildError>
-where
-    I32: AtLeast<Source>,
-{
-    let value = source.read(execution)?;
-    destination.write(execution, value.unsigned().extend::<Destination>())
-}
-
-fn movsx<Destination: RegisterType + AtLeast<Source>, Source: RegisterType>(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    destination: TypedLocation<Destination>,
-    source: Input<Source>,
-) -> Result<(), BuildError>
-where
-    I32: AtLeast<Source>,
-{
-    let value = source.read(execution)?;
-    destination.write(execution, value.signed().extend::<Destination>())
 }

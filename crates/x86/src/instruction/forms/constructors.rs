@@ -94,7 +94,7 @@ pub(in crate::instruction) const fn accumulator_immediate(
         Encoding::Immediate { immediate },
         handlers,
         OperandBindingShape::Binary {
-            left: LocationBinding::Accumulator,
+            left: LocationBinding::FixedRegister(0),
             right: OperandBinding::Immediate,
         },
     )

@@ -29,7 +29,7 @@ const fn implicit_count(
 const fn shift_forms(extension: u8, handlers: IntegerHandlers<Handler>) -> [Form; 6] {
     let byte = SizedHandlers::fixed(handlers.byte);
     let one = OperandBinding::Constant(1);
-    let cl = OperandBinding::Location(LocationBinding::CountRegister);
+    let cl = OperandBinding::Location(LocationBinding::FixedRegister(1));
     [
         implicit_count(0xd0, extension, byte, one),
         implicit_count(0xd1, extension, handlers.sized, one),
@@ -97,7 +97,7 @@ const fn double_shift_form(opcode: u8, handlers: SizedHandlers<Handler>, immedia
             second_source: if immediate {
                 OperandBinding::Immediate
             } else {
-                OperandBinding::Location(LocationBinding::CountRegister)
+                OperandBinding::Location(LocationBinding::FixedRegister(1))
             },
         },
     );

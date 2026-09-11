@@ -1,3 +1,5 @@
+#[path = "suites/accumulator_extensions.rs"]
+mod accumulator_extensions;
 #[path = "suites/arithmetic_flags.rs"]
 mod arithmetic_flags;
 #[path = "suites/binary_decoding.rs"]

@@ -18,7 +18,7 @@ const fn accumulator_register() -> Form {
         Encoding::OpcodeRegister,
         XCHG.sized,
         OperandBindingShape::Binary {
-            left: LocationBinding::Accumulator,
+            left: LocationBinding::FixedRegister(0),
             right: OperandBinding::Location(LocationBinding::Register),
         },
     );

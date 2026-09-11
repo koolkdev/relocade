@@ -7,6 +7,7 @@ mod branches;
 mod conditions;
 mod divide;
 mod exchanges;
+mod extensions;
 mod moves;
 mod multiply;
 mod shifts;
@@ -29,6 +30,7 @@ pub(crate) fn modrm_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form>
 
 pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form> + Clone {
     moves::forms()
+        .chain(extensions::FORMS.iter())
         .chain(exchanges::FORMS.iter())
         .chain(alu::forms())
         .chain(multiply::FORMS.iter())

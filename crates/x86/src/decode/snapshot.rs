@@ -53,6 +53,7 @@ pub(crate) fn snapshot(
         (first.with_operand_size(operand_size), None)
     };
     let fields = match form.encoding() {
+        Encoding::OpcodeOnly => DecodedFields::OpcodeOnly,
         Encoding::OpcodeRegister => DecodedFields::OpcodeRegister {
             register: RegisterCode::from_code(opcode),
         },

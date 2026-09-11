@@ -75,8 +75,9 @@ impl<V: Clone + From<u32>> DecodedFields<V> {
                 };
                 rm.clone()
             }
-            LocationBinding::Accumulator => Location::accumulator(),
-            LocationBinding::CountRegister => Location::Register(RegisterCode::from_code(1)),
+            LocationBinding::FixedRegister(code) => {
+                Location::Register(RegisterCode::from_code(code))
+            }
             LocationBinding::AbsoluteOffset => {
                 let Self::AccumulatorOffset { offset } = self else {
                     unreachable!("the form selects a decoded absolute offset")
