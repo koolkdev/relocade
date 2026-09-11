@@ -6,6 +6,12 @@
 //! `F6`/`F7` /0. Group `83` sign-extends its byte immediate to the operand width.
 //! INC/DEC use `FE`/`FF` /0 and /1, or opcode-selected word/dword registers `40`–`4F`.
 //! NOT and NEG use `F6`/`F7` /2 and /3. These unary forms have no immediate.
+//! MUL and IMUL use `F6`/`F7` /4 and /5 to multiply AL, AX or EAX by a same-width
+//! source into AX, DX:AX or EDX:EAX. IMUL also supports word/dword two-operand
+//! `0F AF` and three-operand `69`/`6B`; `6B` sign-extends its immediate byte.
+//! CF and OF indicate that the unsigned or signed product does not fit the input
+//! width; PF/AF/ZF/SF are undefined and use the policy 1/0/0/0. All source reads
+//! precede result writes, and memory sources require only read permission.
 //! SHL/SAL, SHR and SAR use group extensions /4, /5 and /7. Byte forms use D0/D2/C0
 //! for counts one/CL/imm8; word/dword forms use D1/D3/C1. Counts are masked with 31.
 //! Zero preserves value and flags, but memory still requires full write permission.

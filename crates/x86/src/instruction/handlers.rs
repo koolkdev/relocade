@@ -166,6 +166,12 @@ macro_rules! unary_handlers {
 }
 
 macro_rules! ternary_handlers {
+    ($handler:ident, sized $(, $argument:expr)*) => {
+        SizedHandlers {
+            word: ternary_handlers!(@width $handler, I16, I16 $(, $argument)*),
+            dword: ternary_handlers!(@width $handler, I32, I32 $(, $argument)*),
+        }
+    };
     ($handler:ident, second_source = $second_width:ty, sized $(, $argument:expr)*) => {
         SizedHandlers {
             word: ternary_handlers!(@width $handler, I16, $second_width $(, $argument)*),

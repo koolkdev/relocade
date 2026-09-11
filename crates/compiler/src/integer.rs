@@ -4,6 +4,7 @@ use crate::{Type, Value, ValueKind};
 pub(super) enum BinaryOp {
     Add,
     Sub,
+    Mul,
     And,
     Or,
     Xor,
@@ -56,6 +57,7 @@ pub(super) fn binary(operator: BinaryOp, left: u64, right: u64) -> u64 {
     match operator {
         BinaryOp::Add => left.wrapping_add(right),
         BinaryOp::Sub => left.wrapping_sub(right),
+        BinaryOp::Mul => left.wrapping_mul(right),
         BinaryOp::And => left & right,
         BinaryOp::Or => left | right,
         BinaryOp::Xor => left ^ right,
@@ -117,6 +119,7 @@ pub(super) fn unsigned_bits(value: Value, values: &[Value], inputs: &[u8]) -> u8
             BinaryOp::Add => inputs[a].max(inputs[b]).saturating_add(1).min(carrier_bits),
             // Underflow can set every carrier bit, including above a narrow type.
             BinaryOp::Sub => carrier_bits,
+            BinaryOp::Mul => inputs[a].saturating_add(inputs[b]).min(carrier_bits),
             BinaryOp::And => inputs[a].min(inputs[b]),
             BinaryOp::Or | BinaryOp::Xor => inputs[a].max(inputs[b]),
         },

@@ -27,6 +27,8 @@ mod integer_ops;
 mod memory;
 #[path = "suites/multi_result_functions.rs"]
 mod multi_result_functions;
+#[path = "suites/multiplication.rs"]
+mod multiplication;
 #[path = "suites/no_result_functions.rs"]
 mod no_result_functions;
 #[path = "suites/ordinary_calls.rs"]

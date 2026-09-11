@@ -8,6 +8,10 @@ use crate::{
 fn assert_closed(value: &Val<I32>) {
     for result in [
         value.add(0),
+        value.mul(0),
+        value.mul(1),
+        Val::<I32>::from(0).mul(value),
+        Val::<I32>::from(1).mul(value),
         Val::<I32>::from(0).and(value),
         value.popcnt(),
         value.clz(),
@@ -287,7 +291,17 @@ fn arithmetic_identity_folds_preserve_operand_errors() {
     drop(discarded);
     let body = program.define(function).unwrap();
     let value = body.value::<I32>(7).unwrap();
-    let failed = value.sub(foreign_zero);
+    let failed = value.sub(&foreign_zero);
+    for product in [
+        value.mul(&foreign_zero),
+        foreign_zero.mul(&value),
+        failed.mul(0),
+        failed.mul(1),
+        Val::<I32>::from(0).mul(&failed),
+        Val::<I32>::from(1).mul(&failed),
+    ] {
+        assert_eq!(body.value(product).err(), Some(BuildError::ForeignBody));
+    }
     assert_eq!(
         body.value(failed.sub(&failed)).err(),
         Some(BuildError::ForeignBody)

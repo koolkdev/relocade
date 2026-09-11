@@ -17,6 +17,8 @@ impl Scheduler<'_> {
                 (BinaryOp::Add, true) => Instruction::I64Add,
                 (BinaryOp::Sub, false) => Instruction::I32Sub,
                 (BinaryOp::Sub, true) => Instruction::I64Sub,
+                (BinaryOp::Mul, false) => Instruction::I32Mul,
+                (BinaryOp::Mul, true) => Instruction::I64Mul,
                 (BinaryOp::And, false) => Instruction::I32And,
                 (BinaryOp::And, true) => Instruction::I64And,
                 (BinaryOp::Or, false) => Instruction::I32Or,

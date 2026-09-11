@@ -50,6 +50,10 @@ fn fold_chains_keep_original_visibility_and_runtime_identity() {
             ),
             (input.and(0).clz(), 32),
             (input.and(0).ctz(), 32),
+            (input.mul(0).add(1), 1),
+            (Val::<I32>::from(0).mul(&input).add(1), 1),
+            (input.mul(1).and(0).add(1), 1),
+            (Val::<I32>::from(1).mul(&input).and(0).add(1), 1),
             (input.or(-1).clz(), 0),
             (input.or(-1).ctz(), 0),
             (Val::<I32>::from(0).shl(&input).add(1), 1),
@@ -110,6 +114,7 @@ fn folded_operands_from_siblings_have_no_shared_visible_scope() {
         let local = sibling.load::<I32>(memory, 4)?.and(0).add(1);
         for value in [
             first.add(&local),
+            first.mul(&local),
             first.rotl(&local),
             first.rotr(&local),
             first.eq(&local).unsigned().extend::<I32>(),

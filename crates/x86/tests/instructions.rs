@@ -40,6 +40,8 @@ mod logical_flags;
 mod memory_moves;
 #[path = "suites/mov_blocks.rs"]
 mod mov_blocks;
+#[path = "suites/multiply.rs"]
+mod multiply;
 #[path = "suites/operand_fetch.rs"]
 mod operand_fetch;
 #[path = "suites/relative_branches.rs"]

@@ -131,6 +131,13 @@ impl<T: IntType> Val<T> {
         self.binary(BinaryOp::Sub, other)
     }
 
+    /// Multiplies by an integer value or literal of the same type, wrapping on overflow.
+    /// Narrow results retain their logical low bits, just like addition.
+    #[allow(clippy::should_implement_trait)]
+    pub fn mul(&self, other: impl Into<Val<T>>) -> Self {
+        self.binary(BinaryOp::Mul, other)
+    }
+
     /// Keeps bits set in both operands.
     pub fn and(&self, other: impl Into<Val<T>>) -> Self {
         self.binary(BinaryOp::And, other)

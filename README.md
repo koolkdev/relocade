@@ -3,7 +3,7 @@
 Rust components for x86 execution in WebAssembly.
 
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
-SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, SHL, SHR, SAR, SHLD, SHRD,
+SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, MUL, IMUL, SHL, SHR, SAR, SHLD, SHRD,
 ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, SETcc and relative JMP/Jcc blocks
 from byte snapshots:
 
@@ -85,6 +85,10 @@ supports these forms in default-32 operand and address mode:
 | DEC register/memory | FE /1 | FF /1 | FF /1 |
 | NOT register/memory | F6 /2 | F7 /2 | F7 /2 |
 | NEG register/memory | F6 /3 | F7 /3 | F7 /3 |
+| MUL implicit accumulator and register/memory | F6 /4 | F7 /4 | F7 /4 |
+| IMUL implicit accumulator and register/memory | F6 /5 | F7 /5 | F7 /5 |
+| IMUL register destination and register/memory | — | 0F AF | 0F AF |
+| IMUL register destination, register/memory and immediate | — | 69/6B | 69/6B |
 | ROL register/memory by one, CL or imm8 | D0/D2/C0 /0 | D1/D3/C1 /0 | D1/D3/C1 /0 |
 | ROR register/memory by one, CL or imm8 | D0/D2/C0 /1 | D1/D3/C1 /1 | D1/D3/C1 /1 |
 | RCL register/memory by one, CL or imm8 | D0/D2/C0 /2 | D1/D3/C1 /2 | D1/D3/C1 /2 |
@@ -141,6 +145,23 @@ register bits. Both instructions resolve memory addresses from the old registers
 and require full write permission before changing registers, memory or flags;
 CMPXCHG requires it even when the comparison fails. CMPXCHG8B and explicit LOCK
 prefixes remain outside the supported subset.
+
+MUL multiplies unsigned operands; IMUL multiplies signed operands. Their implicit
+forms multiply AL, AX or EAX by a same-width register or memory source and write
+the full product to AX, DX:AX or EDX:EAX. A byte operation writes the whole AX;
+word operations preserve the upper halves of EAX and EDX. Two-operand IMUL (`0F AF`)
+multiplies the old destination by its source. Three-operand IMUL (`69`/`6B`)
+multiplies the source by an immediate. These explicit forms write only the low
+word or dword. `69` encodes an operand-sized
+immediate; `6B` sign-extends its immediate byte to that width.
+
+MUL sets CF and OF when the high half of the product is nonzero. IMUL sets both
+when sign-extending the low half would not reproduce the full signed product.
+Otherwise both flags are clear. Overflow does not fault. PF/AF/ZF/SF are undefined;
+wasm86 chooses 1/0/0/0. Every source and its address use the old register values.
+Memory sources need only read permission, and a source fault leaves all results
+and flags unchanged. These rules follow the MUL and IMUL entries in the
+[Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
 
 SHL (also named SAL), SHR and SAR take a count of one, CL or an immediate byte.
 All counts are masked to five bits, including byte and word operands. A zero
@@ -245,9 +266,9 @@ at the branch and never follows its destination or decodes its fallthrough.
 
 Group `83` sign-extends its encoded byte immediate to the operand width. SETcc
 writes a byte containing 0 or 1; its ModRM.reg field is ignored.
-Unary forms have one destination and no immediate. The ModRM extension selects
-both the operation and its fields: `F6`/`F7` /0 reads a TEST immediate, while
-/2 and /3 finish after the register or address fields.
+INC, DEC, NOT and NEG have one destination and no immediate. The ModRM extension
+selects both the operation and its fields: `F6`/`F7` /0 reads a TEST immediate, while
+/2 through /5 finish after the register or address fields.
 PUSH `68` reads an operand-sized immediate; `6A` sign-extends its encoded byte
 to the operand width.
 
@@ -345,9 +366,10 @@ adapters return fallthrough after success. A relative branch computes its target
 and, for Jcc, selects it using the existing condition query. Condition, implicit
 memory use and block termination belong to the whole instruction, independently
 of its argument shape. Execution owns retirement and publication.
-Ternary calls name a destination and two source operands. The sized adapter
-`ternary_handlers!(double_shift, second_source = I8, sized, operation)` gives the
-body a word/dword destination and first source, with an independent byte count.
+Ternary calls name a destination and two source operands.
+`ternary_handlers!(multiply_sources, sized)` gives all three the same word or
+dword width. `ternary_handlers!(double_shift, second_source = I8, sized, operation)`
+gives the body a word/dword destination and first source, with an independent byte count.
 The `condition` adapter option forwards a form's bound `Condition` to an ordinary
 typed body. CMOV uses `binary_handlers!(cmov, condition).sized`; SETcc uses the
 fixed-width `unary_handlers!(setcc, TypedLocation, width = I8, condition)` adapter.
@@ -399,9 +421,9 @@ write replaces superseded definitions. Computed register accesses synchronize
 overlapping definitions, then invalidate potentially written locations. These
 are completed effects; publication does not undo a partially executed instruction.
 
-The `alu` module owns pure arithmetic, logic, unary, shift and rotate semantics.
-Operations return `AluResult<T> { result, flags }`: a logical-width destination
-value and a `FlagChange`. Instruction handlers read operands, request an ALU
+The `alu` module owns pure integer results and their status-flag changes.
+Operations return `AluResult<T> { result, flags }`: a typed calculation result
+and a `FlagChange`. Instruction handlers read operands, request an ALU
 outcome, apply its flag change and write its result through checked locations.
 For example, ADD uses `ArithmeticOp::Add.apply(left, right)` and AND uses
 `LogicOp::And.apply(left, right)`. CMP and TEST use those same operations and
@@ -438,6 +460,13 @@ change without reading the old carry. The same method can remove a flag from an
 already partial change. NEG uses subtraction from zero and its existing lazy
 record; CF is set exactly when the original operand is nonzero. NOT returns an
 inverted value and an empty flag change.
+
+`MultiplyOp::apply` returns the full product in the same `AluResult` shape.
+`MultiplyType` maps operand widths to double-width products: `I8` to `I16`,
+`I16` to `I32`, and `I32` to `I64`. The operation computes signed or unsigned
+overflow and a complete flag change. Instruction handlers split that product
+across the implicit result registers or truncate it for explicit IMUL forms.
+The width mapping and product calculation perform no architectural accesses.
 
 `BitTestOp::apply` masks an offset within the logical operand, produces the
 unchanged/set/reset/complemented result, and returns a partial CF change using
@@ -599,7 +628,8 @@ handles created by a failed callback. Separate `declare` and `define` remain
 available for forward references and recursion. An open body can create a needed
 helper through `body.program()`; the active function cannot be reopened.
 
-Expressions support wrapping addition and subtraction, bitwise `and`/`or`/`xor`,
+Expressions support wrapping addition, subtraction and multiplication (`value.mul(3)`),
+bitwise `and`/`or`/`xor`,
 logical-width `popcnt`/`clz`/`ctz`, `shl`, and `eq`/`ne` predicates that return
 `Val<I1>`. Bit counts retain the input's logical type; `clz` and `ctz` count
 leading and trailing zero bits and return the logical width for zero input.

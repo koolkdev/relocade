@@ -297,11 +297,13 @@ impl ValueArena {
             ) => left,
             (BinaryOp::Sub | BinaryOp::Xor, _, _) if left == right => self.constant(a.ty, 0),
             (BinaryOp::Add | BinaryOp::Or | BinaryOp::Xor, ValueKind::Constant(0), _) => right,
+            (BinaryOp::Mul, _, ValueKind::Constant(1)) => left,
+            (BinaryOp::Mul, ValueKind::Constant(1), _) => right,
             (BinaryOp::And | BinaryOp::Or, _, _) if left == right => left,
             (BinaryOp::And, _, ValueKind::Constant(bits)) if bits == a.ty.mask() => left,
             (BinaryOp::And, ValueKind::Constant(bits), _) if bits == a.ty.mask() => right,
-            (BinaryOp::And, _, ValueKind::Constant(0))
-            | (BinaryOp::And, ValueKind::Constant(0), _) => self.constant(a.ty, 0),
+            (BinaryOp::And | BinaryOp::Mul, _, ValueKind::Constant(0))
+            | (BinaryOp::And | BinaryOp::Mul, ValueKind::Constant(0), _) => self.constant(a.ty, 0),
             (BinaryOp::Or, _, ValueKind::Constant(bits)) if bits == a.ty.mask() => right,
             (BinaryOp::Or, ValueKind::Constant(bits), _) if bits == a.ty.mask() => left,
             _ => self.intern(Value {
