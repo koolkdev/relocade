@@ -4,7 +4,7 @@ mod publication;
 mod queries;
 pub(super) mod record;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, Val, I1, I8};
+use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, I1, I8};
 
 use crate::{
     alu::{AnyStatusSource, StatusSource},
@@ -12,7 +12,7 @@ use crate::{
     ssa::Environment,
 };
 
-use super::{access::cpu_location, Cpu};
+use super::access::cpu_location;
 use queries::StoredFlagCache;
 
 pub(super) fn condition_index(canonical: Condition) -> usize {
@@ -95,30 +95,6 @@ impl FlagState {
             self.status.apply(change);
         }
         Ok(())
-    }
-
-    pub(super) fn read(
-        &mut self,
-        body: &mut FunctionBuilder<'_>,
-        cpu: &Cpu,
-        flag: Flag,
-    ) -> Result<Val<I1>, BuildError> {
-        match flag {
-            Flag::Status(flag) => self.status.read_flag(body, cpu, flag),
-            Flag::DF => self
-                .direct
-                .read(body, cpu_location!(flags.bytes.df))
-                .map(|value| value.truncate::<I1>()),
-        }
-    }
-
-    pub(super) fn condition(
-        &mut self,
-        body: &mut FunctionBuilder<'_>,
-        cpu: &Cpu,
-        condition: Condition,
-    ) -> Result<Val<I1>, BuildError> {
-        self.status.condition(body, cpu, condition)
     }
 }
 

@@ -46,6 +46,35 @@ impl Gpr32 {
     }
 }
 
+/// A named parent view or legacy high byte, independent of register encoding.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct NamedRegister {
+    parent: Gpr32,
+    byte: u32,
+}
+
+impl NamedRegister {
+    pub(super) const AH: Self = Self {
+        parent: Gpr32::Eax,
+        byte: 1,
+    };
+
+    /// The handler's logical width selects the low part of this parent.
+    pub(super) const fn low(parent: Gpr32) -> Self {
+        Self { parent, byte: 0 }
+    }
+
+    pub(super) const fn same_location(self, other: Self) -> bool {
+        self.parent as u8 == other.parent as u8 && self.byte == other.byte
+    }
+}
+
+impl From<Gpr32> for NamedRegister {
+    fn from(parent: Gpr32) -> Self {
+        Self::low(parent)
+    }
+}
+
 /// An x86 register code whose low three bits are interpreted at the operand width.
 #[derive(Clone)]
 pub(super) enum RegisterCode {
@@ -70,17 +99,17 @@ impl RegisterCode {
     }
 }
 
-/// An operand names a parent register or supplies an encoded register field.
+/// A register operand has a named view or an encoded register field.
 #[derive(Clone)]
 pub(super) enum RegisterOperand {
-    Named(Gpr32),
+    Named(NamedRegister),
     Encoded(RegisterCode),
 }
 
 impl RegisterOperand {
     pub(super) fn view<T: RegisterType>(self) -> Register<T> {
         match self {
-            Self::Named(parent) => Register::named(parent),
+            Self::Named(register) => Register::named(register),
             Self::Encoded(code) => code.view(),
         }
     }
@@ -88,7 +117,13 @@ impl RegisterOperand {
 
 impl From<Gpr32> for RegisterOperand {
     fn from(parent: Gpr32) -> Self {
-        Self::Named(parent)
+        Self::Named(parent.into())
+    }
+}
+
+impl From<NamedRegister> for RegisterOperand {
+    fn from(register: NamedRegister) -> Self {
+        Self::Named(register)
     }
 }
 
@@ -172,10 +207,15 @@ pub(super) struct Register<T: RegisterType> {
 }
 
 impl<T: RegisterType> Register<T> {
-    /// Selects the low `T`-width part of this parent without decoding register bits.
-    pub(super) fn named(parent: Gpr32) -> Self {
+    /// Selects a named view without decoding register bits. High bytes require I8.
+    pub(super) fn named(register: impl Into<NamedRegister>) -> Self {
+        let NamedRegister { parent, byte } = register.into();
+        assert!(
+            byte == 0 || T::BYTES == 1,
+            "a high-byte register has byte width"
+        );
         Self {
-            selection: RegisterSelection::Named { parent, byte: 0 },
+            selection: RegisterSelection::Named { parent, byte },
             marker: PhantomData,
         }
     }

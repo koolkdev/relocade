@@ -1,11 +1,66 @@
-//! Condition shortcuts and demand-driven composition of individual status bits.
+//! Logical flag queries, condition shortcuts and demand-driven status composition.
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1};
 
-use crate::flags::{Condition, FlagChange, FlagMask, StatusFlag};
-use crate::state::Cpu;
+use crate::flags::{Condition, Flag, FlagChange, FlagMask, StatusFlag};
+use crate::state::{access::cpu_location, Cpu};
 
-use super::{condition_index, StatusBase, StatusState};
+use super::{condition_index, FlagState, StatusBase, StatusState};
+
+impl FlagState {
+    pub(in crate::state) fn read(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        cpu: &Cpu,
+        flag: Flag,
+    ) -> Result<Val<I1>, BuildError> {
+        match flag {
+            Flag::Status(flag) => self.status.read_flag(body, cpu, flag),
+            Flag::DF => self
+                .direct
+                .read(body, cpu_location!(flags.bytes.df))
+                .map(|value| value.truncate::<I1>()),
+        }
+    }
+
+    pub(in crate::state) fn read_flags<const N: usize>(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        cpu: &Cpu,
+        requested: [Flag; N],
+    ) -> Result<[Val<I1>; N], BuildError> {
+        let needed = requested.iter().fold(FlagMask::EMPTY, |mask, flag| {
+            mask.union(FlagMask::of(*flag))
+        });
+        let mut status = resolve_flags(
+            body,
+            cpu,
+            &mut self.status.base,
+            &self.status.updates,
+            needed.intersection(FlagMask::STATUS),
+        )?;
+        for value in status.iter_mut().flatten() {
+            *value = body.value(&*value)?;
+        }
+        let direction = needed
+            .contains(Flag::DF)
+            .then(|| self.read(body, cpu, Flag::DF))
+            .transpose()?;
+        Ok(requested.map(|flag| match flag {
+            Flag::Status(flag) => status[flag as usize].as_ref().unwrap().clone(),
+            Flag::DF => direction.as_ref().unwrap().clone(),
+        }))
+    }
+
+    pub(in crate::state) fn condition(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        cpu: &Cpu,
+        condition: Condition,
+    ) -> Result<Val<I1>, BuildError> {
+        self.status.condition(body, cpu, condition)
+    }
+}
 
 #[derive(Clone)]
 pub(super) struct StoredFlagCache {

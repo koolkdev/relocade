@@ -60,6 +60,14 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.state.read_flag(&mut self.body, flag)
     }
 
+    /// Reads current logical flags in request order, resolving shared backing together.
+    pub(super) fn read_flags<const N: usize>(
+        &mut self,
+        flags: [Flag; N],
+    ) -> Result<[Val<I1>; N], BuildError> {
+        self.state.read_flags(&mut self.body, flags)
+    }
+
     pub(super) fn write_flag(
         &mut self,
         flag: Flag,

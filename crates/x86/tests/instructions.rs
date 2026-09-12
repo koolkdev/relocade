@@ -36,6 +36,8 @@ mod exchanges;
 mod extending_moves;
 #[path = "suites/flag_control.rs"]
 mod flag_control;
+#[path = "suites/flag_transfer.rs"]
+mod flag_transfer;
 #[path = "suites/immediate_and_absolute_moves.rs"]
 mod immediate_and_absolute_moves;
 #[path = "suites/instruction_prefixes.rs"]

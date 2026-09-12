@@ -9,6 +9,7 @@ mod direction;
 mod fixture;
 mod logical;
 mod partial;
+mod reads;
 mod subsets;
 
 use super::super::{Cpu, Register, State};

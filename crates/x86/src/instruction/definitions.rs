@@ -9,6 +9,7 @@ mod divide;
 mod exchanges;
 mod extensions;
 mod flag_control;
+mod flag_transfer;
 mod moves;
 mod multiply;
 mod shifts;
@@ -40,6 +41,7 @@ pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form
         .chain(stack::forms())
         .chain(conditions::forms())
         .chain(flag_control::forms())
+        .chain(flag_transfer::forms())
         .chain(branches::forms())
         .filter(move |form| form.map == map)
 }

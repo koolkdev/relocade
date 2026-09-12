@@ -5,7 +5,7 @@ Rust components for x86 execution in WebAssembly.
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, CBW, CWDE, CWD, CDQ, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
 SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, MUL, IMUL, DIV, IDIV, SHL, SHR, SAR, SHLD, SHRD,
 ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, SETcc, CALL, RET, JMP, Jcc,
-JECXZ, LOOP, LOOPE, LOOPNE, CLC, STC, CMC, CLD and STD blocks
+JECXZ, LOOP, LOOPE, LOOPNE, CLC, STC, CMC, CLD, STD, LAHF and SAHF blocks
 from byte snapshots:
 
 ```rust
@@ -155,6 +155,14 @@ CLC (`F8`) clears CF, STC (`F9`) sets CF, and CMC (`F5`) complements CF.
 They preserve the other five logical status flags. CLD (`FC`) clears DF and
 STD (`FD`) sets DF, preserving the complete status record. These five instructions
 have no operands, ignore `66`, and preserve every other register and flag.
+LAHF (`9F`) packs the logical SF/ZF/AF/PF/CF values into AH bits 7/6/4/2/0;
+bit 1 is set and bits 3 and 5 are clear. It preserves the complete flag record,
+including a stored or pending arithmetic source. SAHF (`9E`) copies those five
+bits from AH into the status flags and ignores AH bits 1, 3 and 5. It preserves
+OF, DF and the other flags. Both instructions use AH with or without `66`,
+preserve AL and EAX's upper half, and need no data-memory access. Their byte
+image follows the [Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf);
+it is independent of the raw `FlagBytes` backing layout.
 Their effects follow the corresponding entries in the
 [Intel Software Developer's Manual](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html).
 
@@ -450,7 +458,7 @@ lowering case.
 
 `byte` fixes the data width at eight bits. `word_or_dword` selects sixteen bits with
 `66` and thirty-two bits otherwise. Ordinary location tokens use that width;
-`rm8`, `rm16`, and named registers such as `CL` or `AX` give an independent width.
+`rm8`, `rm16`, and named registers such as `AH`, `CL` or `AX` give an independent width.
 `accumulator` selects AL, AX or EAX at the row's width. A row can spell out both
 operand-size alternatives when each argument changes differently:
 
@@ -526,9 +534,11 @@ instead take two `TypedLocation<T>` arguments; an immediate cannot satisfy that
 signature. Ternary bodies likewise state the destination and source types, so
 SHLD/SHRD take a word/dword destination and source with an independent byte count.
 
-Named bindings select a parent register directly. Semantic bodies use
+Named bindings select a parent view directly, including AH's high byte.
+`NamedRegister` keeps that identity separate from register encoding, and high-byte
+views require byte width. Semantic bodies use
 `TypedLocation::<T>::register(Gpr32::Eax)` for the low part at width `T`.
-`RegisterOperand` distinguishes named parents from encoded fields, whose
+`RegisterOperand` distinguishes named views from encoded fields, whose
 width-dependent mapping includes byte codes 4–7 selecting AH/CH/DH/BH.
 `TypedLocation::offset_memory` adds a wrapping byte displacement to a memory
 location and leaves registers unchanged. It defers address-register reads and
@@ -619,6 +629,19 @@ execution.write_flag(Flag::DF, false)?;
 let carry = execution.read_flag(Flag::CF)?;
 execution.write_flag(Flag::CF, carry.xor(true))?;
 ```
+
+`read_flags` accepts an array of logical flags and returns their current values
+in the same order, including repeated flags:
+
+```rust,ignore
+let [carry, zero] = execution.read_flags([Flag::CF, Flag::ZF])?;
+```
+
+State resolves pending changes and batches only missing stored status flags.
+Local values remain expressions, and DF uses its direct state. An empty request
+performs no reads. The internal mask describes the requested set while generating
+code; it is not passed to Wasm. Single-flag and condition reads retain their
+specialized comparison paths.
 
 `state::flags::FlagState` owns admission, queries, preservation and publication
 for both status flags and DF. Its status state retains a stored record or symbolic
@@ -740,6 +763,11 @@ CLC, STC and CMC use the common flag interface to replace only CF. CMC reads the
 current carry with `read_flag(Flag::CF)`; constants and computed bits use the same
 change representation as CLD/STD's DF writes. Publication resolves the other five flags
 and writes the concrete kind-0 format, preserving unused payload bytes.
+LAHF and SAHF use ordinary unary `byte(AH)` declarations in the flag-transfer
+family. A shared five-bit map describes the architectural AH image: LAHF requests
+the five logical values together through `read_flags` and packs them into AH;
+SAHF submits one masked change through `write_flags`.
+The instruction bodies do not depend on the backing flag record's representation.
 MOV, MOVZX, MOVSX, LEA, XCHG, CMOVcc and SETcc preserve flags, and these instructions
 leave control and system flag bytes untouched. A faulting operand access preserves the
 previous instruction's flags.

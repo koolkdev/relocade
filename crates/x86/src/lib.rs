@@ -70,6 +70,9 @@
 //! preserving the entire status record. These forms have no operands; `66` does
 //! not change their effects. DF is a separate byte at offset 19 and is exposed
 //! as `CpuState::flags.bytes.df` in host snapshots.
+//! LAHF (`9F`) writes AH as SF:ZF:0:AF:0:PF:1:CF without changing flags.
+//! SAHF (`9E`) copies AH bits 7/6/4/2/0 to SF/ZF/AF/PF/CF, preserving OF, DF
+//! and other flags. Both use AH with or without `66` and preserve the rest of EAX.
 //! Relative JMP uses `EB`/`E9`; Jcc uses `70`–`7F`/`0F 80`–`0F 8F`.
 //! Short displacements are signed bytes; near displacements are word/dword-sized.
 //! Targets are relative to the end of the instruction. With `66`, taken targets

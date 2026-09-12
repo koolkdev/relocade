@@ -4,7 +4,7 @@ use crate::{
     instruction::{
         handlers::HandlerCall, opcode_forms, Operand, EXTENDED_OPCODE_ESCAPE, OPERAND_SIZE_PREFIX,
     },
-    register::RegisterOperand,
+    register::{Gpr32, RegisterOperand},
 };
 
 fn catalog_form(map: OpcodeMap, opcode: u8, extension: Option<u8>) -> &'static Form {
@@ -262,11 +262,34 @@ fn width_alternatives_share_one_opcode_and_preserve_implicit_register_bindings()
         assert!(matches!(
             decoded.instruction.call,
             HandlerCall::Binary {
-                left: Location::Register(RegisterOperand::Named(Gpr32::Eax)),
-                right: Operand::Location(Location::Register(RegisterOperand::Named(Gpr32::Eax))),
+                left: Location::Register(RegisterOperand::Named(left)),
+                right: Operand::Location(Location::Register(RegisterOperand::Named(right))),
                 ..
-            }
+            } if left == NamedRegister::low(Gpr32::Eax)
+                && right == NamedRegister::low(Gpr32::Eax)
         ));
+    }
+}
+
+#[test]
+fn flag_transfer_forms_bind_ah_without_encoded_operand_fields() {
+    for opcode in [0x9e, 0x9f] {
+        let form = catalog_form(OpcodeMap::Primary, opcode, None);
+        assert!(matches!(form.encoding, Encoding::OpcodeOnly));
+        for size in [OperandSize::Word, OperandSize::Dword] {
+            let decoded =
+                form.with_operand_size(size)
+                    .bind(DecodedFields::<u32>::OpcodeOnly, 0x1000, 0x1001);
+            assert!(!decoded.instruction.ends_block());
+            assert!(!decoded.instruction.uses_memory());
+            assert!(matches!(
+                decoded.instruction.call,
+                HandlerCall::Unary {
+                    operand: Operand::Location(Location::Register(RegisterOperand::Named(register))),
+                    ..
+                } if register == NamedRegister::AH
+            ));
+        }
     }
 }
 

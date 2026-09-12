@@ -10,14 +10,14 @@ use super::{
 };
 use crate::flags::Condition;
 use crate::instruction::handlers::{Handler, SizedHandlers};
-use crate::register::Gpr32;
+use crate::register::NamedRegister;
 
 #[derive(Clone, Copy)]
 pub(in crate::instruction) enum OperandSpec {
     Rm,
     ModRmRegister,
     OpcodeRegister,
-    FixedRegister(Gpr32),
+    FixedRegister(NamedRegister),
     Offset,
     Immediate(ImmediateWidth),
     Constant(u32),
@@ -53,7 +53,7 @@ impl OperandSpec {
             | (Self::OpcodeRegister, Self::OpcodeRegister)
             | (Self::Offset, Self::Offset)
             | (Self::Address, Self::Address) => true,
-            (Self::FixedRegister(left), Self::FixedRegister(right)) => left as u8 == right as u8,
+            (Self::FixedRegister(left), Self::FixedRegister(right)) => left.same_location(right),
             (Self::Immediate(left), Self::Immediate(right)) => left as u8 == right as u8,
             (Self::Constant(left), Self::Constant(right)) => left == right,
             _ => false,

@@ -92,6 +92,7 @@ macro_rules! operand_value {
     ($width:ty, $operand:ident, rm8) => { operand_value!(@location I8, $operand) };
     ($width:ty, $operand:ident, rm16) => { operand_value!(@location I16, $operand) };
     ($width:ty, $operand:ident, AL) => { operand_value!(@location I8, $operand) };
+    ($width:ty, $operand:ident, AH) => { operand_value!(@location I8, $operand) };
     ($width:ty, $operand:ident, CL) => { operand_value!(@location I8, $operand) };
     ($width:ty, $operand:ident, AX) => { operand_value!(@location I16, $operand) };
     ($width:ty, $operand:ident, DX) => { operand_value!(@location I16, $operand) };

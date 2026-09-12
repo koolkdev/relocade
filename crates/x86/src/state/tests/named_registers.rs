@@ -1,5 +1,5 @@
 use super::super::{Cpu, State};
-use crate::register::{Register, RegisterCode, RegisterOperand, RegisterType};
+use crate::register::{NamedRegister, Register, RegisterCode, RegisterOperand, RegisterType};
 use crate::test_step::{
     Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule,
 };
@@ -79,7 +79,7 @@ fn named_views<T: RegisterType>() -> CompiledModule {
                     (Gpr32::Edi, 0xa7b7_0017),
                 ] {
                     let old = state
-                        .read_register(&mut body, RegisterOperand::Named(parent).view::<T>())?;
+                        .read_register(&mut body, RegisterOperand::from(parent).view::<T>())?;
                     state.write_register(&mut body, parent, replacement)?;
                     state.write_register(&mut body, Register::<T>::named(parent), old.add(1))?;
                 }
@@ -179,10 +179,11 @@ fn mixed_byte_views() -> CompiledModule {
                 let index = body.parameter::<I32>(0)?;
                 let stop = body.parameter::<I1>(1)?;
                 let mut state = State::new(&cpu);
-                let esp_byte = RegisterOperand::Named(Gpr32::Esp).view::<I8>();
-                let ah = RegisterOperand::Encoded(RegisterCode::from_code(4)).view::<I8>();
+                let esp_byte = RegisterOperand::from(Gpr32::Esp).view::<I8>();
+                let ah = RegisterOperand::from(NamedRegister::AH).view::<I8>();
                 let old_esp = state.read_register(&mut body, esp_byte.clone())?;
-                let old_ah = state.read_register(&mut body, ah.clone())?;
+                let old_ah =
+                    state.read_register(&mut body, RegisterCode::from_code(4).view::<I8>())?;
                 state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
                 state.write_register(&mut body, Gpr32::Esp, 0x5566_7788)?;
                 // A named ESP byte is an internal low-byte view; encoded byte 4 is AH.

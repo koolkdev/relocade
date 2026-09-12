@@ -13,7 +13,7 @@ use super::{
     Location, OperandSize,
 };
 use crate::flags::Condition;
-use crate::register::{Gpr32, RegisterCode};
+use crate::register::{NamedRegister, RegisterCode};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum OpcodeMap {
@@ -120,8 +120,8 @@ pub(crate) enum DecodedFields<V> {
 pub(super) enum LocationBinding {
     Register,
     Rm,
-    /// The low part of a named parent at the handler's operand width.
-    FixedRegister(Gpr32),
+    /// A named register view, independent of any encoded register field.
+    FixedRegister(NamedRegister),
     AbsoluteOffset,
 }
 

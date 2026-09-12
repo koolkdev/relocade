@@ -62,6 +62,15 @@ impl<'cpu> State<'cpu> {
         self.flags.read(body, self.cpu, flag)
     }
 
+    /// Reads logical flags in request order. Repeated flags share their current value.
+    pub(crate) fn read_flags<const N: usize>(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        flags: [Flag; N],
+    ) -> Result<[Val<I1>; N], BuildError> {
+        self.flags.read_flags(body, self.cpu, flags)
+    }
+
     pub(crate) fn write_flag(
         &mut self,
         body: &mut FunctionBuilder<'_>,

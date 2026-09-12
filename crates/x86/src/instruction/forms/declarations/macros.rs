@@ -123,10 +123,15 @@ macro_rules! operand_spec {
         OperandSpec::OpcodeRegister
     };
     (accumulator) => {
-        OperandSpec::FixedRegister(crate::register::Gpr32::Eax)
+        OperandSpec::FixedRegister(crate::register::NamedRegister::low(
+            crate::register::Gpr32::Eax,
+        ))
     };
     (AL) => {
         operand_spec!(accumulator)
+    };
+    (AH) => {
+        OperandSpec::FixedRegister(crate::register::NamedRegister::AH)
     };
     (AX) => {
         operand_spec!(accumulator)
@@ -135,13 +140,19 @@ macro_rules! operand_spec {
         operand_spec!(accumulator)
     };
     (CL) => {
-        OperandSpec::FixedRegister(crate::register::Gpr32::Ecx)
+        OperandSpec::FixedRegister(crate::register::NamedRegister::low(
+            crate::register::Gpr32::Ecx,
+        ))
     };
     (DX) => {
-        OperandSpec::FixedRegister(crate::register::Gpr32::Edx)
+        OperandSpec::FixedRegister(crate::register::NamedRegister::low(
+            crate::register::Gpr32::Edx,
+        ))
     };
     (EDX) => {
-        OperandSpec::FixedRegister(crate::register::Gpr32::Edx)
+        OperandSpec::FixedRegister(crate::register::NamedRegister::low(
+            crate::register::Gpr32::Edx,
+        ))
     };
     (moffs32) => {
         OperandSpec::Offset
