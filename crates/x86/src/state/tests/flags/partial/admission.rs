@@ -1,5 +1,5 @@
 use crate::alu::ArithmeticOp;
-use crate::flags::{FlagChange, StatusFlag};
+use crate::flags::{Flag, FlagChange, StatusFlag};
 use crate::state::access::cpu_load;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
@@ -43,11 +43,11 @@ fn rejected_partial_values_and_predicates_leave_pending_changes_intact() {
                     (foreign, BuildError::ForeignBody),
                     (child.unwrap(), BuildError::OutOfScope),
                 ] {
-                    for flag in StatusFlag::ALL {
+                    for flag in Flag::ALL {
                         assert_eq!(
                             state.write_flags(
                                 &mut body,
-                                FlagChange::partial([(flag.into(), invalid.clone())])
+                                FlagChange::partial([(flag, invalid.clone())])
                             ),
                             Err(error.clone())
                         );
@@ -55,12 +55,25 @@ fn rejected_partial_values_and_predicates_leave_pending_changes_intact() {
                             assert_eq!(
                                 state.write_flags(
                                     &mut body,
-                                    FlagChange::partial([(flag.into(), invalid.clone())])
-                                        .when(condition)
+                                    FlagChange::partial([(flag, invalid.clone())]).when(condition)
                                 ),
                                 Err(error.clone())
                             );
                         }
+                    }
+                    // A rejected value must not admit other valid status or direct writes.
+                    for invalid_flag in Flag::ALL {
+                        let mixed = FlagChange::partial(Flag::ALL.map(|flag| {
+                            (
+                                flag,
+                                if flag == invalid_flag {
+                                    invalid.clone()
+                                } else {
+                                    true.into()
+                                },
+                            )
+                        }));
+                        assert_eq!(state.write_flags(&mut body, mixed), Err(error.clone()));
                     }
                     assert_eq!(
                         state.write_flags(
@@ -146,7 +159,7 @@ fn empty_and_constant_false_partial_changes_preserve_the_stored_record() {
                 state.write_flags(&mut body, FlagChange::partial([]).when(predicate))?;
                 state.write_flags(
                     &mut body,
-                    FlagChange::partial([(StatusFlag::CF.into(), false.into())]).when(false),
+                    FlagChange::partial(Flag::ALL.map(|flag| (flag, false.into()))).when(false),
                 )?;
                 state.publish(&mut body, 0x1002, 1)?;
                 body.return_(0_u64)

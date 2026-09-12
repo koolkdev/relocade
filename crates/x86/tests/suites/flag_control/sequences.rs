@@ -1,4 +1,5 @@
 use super::{carry_result, flag_records};
+use crate::flags::Flag;
 use crate::support::{
     cases::{
         FlagExpectation::{Clear, Set},
@@ -124,13 +125,13 @@ fn direction_sequences() -> Vec<SequenceCase> {
             .stored_flags(CpuState::filled(0x5a).flags)
             .instruction_count(u32::MAX - 2)
             .initial_registers(&[(Eax, 0x1234_5678), (Esi, 0x6000)])
-            .step(Checkpoint::preserving_flags(&[0xfd]).expect_direction_flag(true))
-            .step(Checkpoint::preserving_flags(&[0xfc]).expect_direction_flag(false))
+            .step(Checkpoint::preserving_flags(&[0xfd]).expect_direct_flag(Flag::DF, true))
+            .step(Checkpoint::preserving_flags(&[0xfc]).expect_direct_flag(Flag::DF, false))
             .step(
                 Checkpoint::preserving_flags(&[0x66, 0x66, opcode])
-                    .expect_direction_flag(direction),
+                    .expect_direct_flag(Flag::DF, direction),
             )
-            .step(Checkpoint::preserving_flags(&[opcode]).expect_direction_flag(direction))
+            .step(Checkpoint::preserving_flags(&[opcode]).expect_direct_flag(Flag::DF, direction))
             .step(Checkpoint::preserving_flags(&[0xb0, 0x42]).register(Eax, 0x1234_5642))
             .step(Checkpoint::preserving_flags(&[0x8b, 0x06]).fault(0x6000, 0))
             .trailing_code(&[if direction { 0xfc } else { 0xfd }], 1),
@@ -156,8 +157,8 @@ fn direction_sequences() -> Vec<SequenceCase> {
             )
             .register(Eax, 0),
         )
-        .step(Checkpoint::preserving_flags(&[0xfd]).expect_direction_flag(true))
-        .step(Checkpoint::preserving_flags(&[0xfc]).expect_direction_flag(false))
+        .step(Checkpoint::preserving_flags(&[0xfd]).expect_direct_flag(Flag::DF, true))
+        .step(Checkpoint::preserving_flags(&[0xfc]).expect_direct_flag(Flag::DF, false))
         .step(
             Checkpoint::new(
                 &[0x83, 0xd1, 0],
@@ -172,9 +173,9 @@ fn direction_sequences() -> Vec<SequenceCase> {
             )
             .register(Ecx, 1),
         )
-        .step(Checkpoint::preserving_flags(&[0xfd]).expect_direction_flag(true))
+        .step(Checkpoint::preserving_flags(&[0xfd]).expect_direct_flag(Flag::DF, true))
         .step(Checkpoint::new(&[0xf9], carry_result(true)))
-        .step(Checkpoint::preserving_flags(&[0xfc]).expect_direction_flag(false)),
+        .step(Checkpoint::preserving_flags(&[0xfc]).expect_direct_flag(Flag::DF, false)),
     );
     cases
 }
@@ -191,7 +192,7 @@ fn fault_sequences() -> Vec<SequenceCase> {
                 .stored_flags(record)
                 .initial_register(Esi, 0x6000)
                 .step(Checkpoint::new(&[opcode], carry_result(carry)))
-                .step(Checkpoint::preserving_flags(&[0xfd]).expect_direction_flag(true))
+                .step(Checkpoint::preserving_flags(&[0xfd]).expect_direct_flag(Flag::DF, true))
                 .step(Checkpoint::preserving_flags(&[0x89, 0x06]).fault(0x6000, 2))
                 .trailing_code(&[0xf5, 0xfc], 2),
             );
@@ -212,7 +213,7 @@ fn fault_sequences() -> Vec<SequenceCase> {
         )
         .initial_register(Ecx, 0)
         .step(Checkpoint::new(&[0xf9], carry_result(true)))
-        .step(Checkpoint::preserving_flags(&[0xfd]).expect_direction_flag(true))
+        .step(Checkpoint::preserving_flags(&[0xfd]).expect_direct_flag(Flag::DF, true))
         .step(Checkpoint::preserving_flags(&[0xf7, 0xf1]).divide_error())
         .trailing_code(&[0xf8, 0xfc], 2),
     );

@@ -3,6 +3,7 @@
 
 mod changes;
 mod condition;
+pub(crate) mod image;
 mod mask;
 
 pub(crate) use changes::{FlagChange, FlagValues};
@@ -39,7 +40,11 @@ impl StatusFlag {
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum Flag {
     Status(StatusFlag),
+    TF,
     DF,
+    NT,
+    AC,
+    ID,
 }
 
 impl Flag {
@@ -49,20 +54,28 @@ impl Flag {
     pub(crate) const ZF: Self = Self::Status(StatusFlag::ZF);
     pub(crate) const SF: Self = Self::Status(StatusFlag::SF);
     pub(crate) const OF: Self = Self::Status(StatusFlag::OF);
-    pub(crate) const ALL: [Self; 7] = [
+    pub(crate) const ALL: [Self; 11] = [
         Self::CF,
         Self::PF,
         Self::AF,
         Self::ZF,
         Self::SF,
         Self::OF,
+        Self::TF,
         Self::DF,
+        Self::NT,
+        Self::AC,
+        Self::ID,
     ];
 
     pub(crate) const fn index(self) -> usize {
         match self {
             Self::Status(flag) => flag as usize,
-            Self::DF => StatusFlag::ALL.len(),
+            Self::TF => StatusFlag::ALL.len(),
+            Self::DF => StatusFlag::ALL.len() + 1,
+            Self::NT => StatusFlag::ALL.len() + 2,
+            Self::AC => StatusFlag::ALL.len() + 3,
+            Self::ID => StatusFlag::ALL.len() + 4,
         }
     }
 }

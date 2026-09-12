@@ -194,8 +194,8 @@ impl FinalExpectation {
         self.boundary.eip = next.eip;
         self.boundary.retired += next.retired;
         self.expected.exit = checkpoint.expected.exit;
-        if let Some(direction) = checkpoint.expected.direction_flag {
-            self.expected.direction_flag = Some(direction);
+        for &(flag, value) in &checkpoint.expected.direct_flags {
+            self.expected.expect_direct_flag(flag, value);
         }
         for &(register, value) in &checkpoint.expected.registers {
             self.expected.registers.retain(|(old, _)| *old != register);
@@ -238,5 +238,43 @@ impl FinalExpectation {
                 preserve_record: false,
             };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FinalExpectation, SequenceCase};
+    use crate::flags::Flag;
+    use crate::support::sequences::Checkpoint;
+
+    #[test]
+    fn direct_flag_composition_keeps_untouched_values_and_replaces_only_the_same_flag() {
+        let case = SequenceCase::preserving_flags("direct flag composition");
+        let mut final_state = FinalExpectation::new(&case);
+        final_state.append(
+            &Checkpoint::preserving_flags(&[0x9d])
+                .expect_direct_flag(Flag::AC, true)
+                .expect_direct_flag(Flag::ID, false),
+        );
+        final_state.append(
+            &Checkpoint::preserving_flags(&[0x66, 0x9d])
+                .expect_direct_flag(Flag::TF, false)
+                .expect_direct_flag(Flag::DF, true)
+                .expect_direct_flag(Flag::NT, true),
+        );
+        final_state
+            .append(&Checkpoint::preserving_flags(&[0xfc]).expect_direct_flag(Flag::DF, false));
+        final_state.complete_flags();
+        assert_eq!(final_state.expected.direct_flags.len(), 5);
+        for expected in [
+            (Flag::AC, true),
+            (Flag::ID, false),
+            (Flag::TF, false),
+            (Flag::DF, false),
+            (Flag::NT, true),
+        ] {
+            assert!(final_state.expected.direct_flags.contains(&expected));
+        }
+        assert!(final_state.expected.flags.preserves_record());
     }
 }

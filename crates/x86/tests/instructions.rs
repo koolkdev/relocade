@@ -62,6 +62,8 @@ mod relative_branches;
 mod rotates;
 #[path = "suites/shifts.rs"]
 mod shifts;
+#[path = "suites/stack_flags.rs"]
+mod stack_flags;
 #[path = "suites/stack_operations.rs"]
 mod stack_operations;
 #[path = "suites/unary_operations.rs"]

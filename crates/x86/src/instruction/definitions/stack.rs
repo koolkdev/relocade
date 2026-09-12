@@ -1,4 +1,5 @@
 use super::*;
+use crate::flags::image;
 use crate::register::RegisterType;
 
 instruction_families! {
@@ -20,6 +21,20 @@ instruction_families! {
             0x8F /0 => word_or_dword(rm);
         }
     }
+    PUSHF {
+        execute: push_flags;
+        effects: [stack_write];
+        forms {
+            0x9C => word_or_dword();
+        }
+    }
+    POPF {
+        execute: pop_flags;
+        effects: [stack_read];
+        forms {
+            0x9D => word_or_dword();
+        }
+    }
 }
 
 fn push<T: RegisterType>(
@@ -39,4 +54,29 @@ fn pop<T: RegisterType>(
     destination: TypedLocation<T>,
 ) -> Result<(), BuildError> {
     execution.pop::<T>(destination.into_location())
+}
+
+fn push_flags<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let image = match T::BYTES {
+        2 => image::WORD.pack(execution.read_flags(image::WORD.flags())?),
+        4 => image::DWORD.pack(execution.read_flags(image::DWORD.flags())?),
+        _ => unreachable!("stack flag images use word or dword operands"),
+    };
+    execution.push(image.truncate::<T>())
+}
+
+fn pop_flags<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let image = execution.pop_value::<T>(0)?.unsigned().extend::<I32>();
+    let change = match T::BYTES {
+        2 => image::WORD.change(&image),
+        4 => image::DWORD.change(&image),
+        _ => unreachable!("stack flag images use word or dword operands"),
+    };
+    execution.write_flags(change)
 }

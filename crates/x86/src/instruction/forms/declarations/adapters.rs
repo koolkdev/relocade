@@ -35,15 +35,15 @@ macro_rules! declaration_adapter {
     ([$effect:ident $(, $rest:ident)*] $pattern:tt $call:tt $width:tt; $($operands:tt)*) => {
         declaration_adapter!([$($rest),*] $pattern $call $width; $($operands)*)
     };
-    ([] $pattern:tt $call:tt [];) => {
+    ([] $pattern:tt $call:tt [$($width:ty)?];) => {
         Handler::Nullary(|execution, _condition, fallthrough| {
-            declaration_call!($pattern $call execution, _condition;)?;
+            declaration_call!($pattern $call [$($width)?] execution, _condition;)?;
             Ok(fallthrough)
         })
     };
     ([] $pattern:tt $call:tt [$width:ty]; $operand:ident $(($value:expr))?) => {
         Handler::Unary(|execution, operand, _condition, fallthrough| {
-            declaration_call!($pattern $call execution, _condition;
+            declaration_call!($pattern $call [] execution, _condition;
                 operand_value!($width, operand, $operand $(($value))?))?;
             Ok(fallthrough)
         })
@@ -51,7 +51,7 @@ macro_rules! declaration_adapter {
     ([] $pattern:tt $call:tt [$width:ty]; $left:ident $(($left_value:expr))?, $right:ident $(($right_value:expr))?) => {
         Handler::Binary(|execution, left, right, _condition, fallthrough| {
             let left = left.into();
-            declaration_call!($pattern $call execution, _condition;
+            declaration_call!($pattern $call [] execution, _condition;
                 operand_value!($width, left, $left $(($left_value))?),
                 operand_value!($width, right, $right $(($right_value))?))?;
             Ok(fallthrough)
@@ -64,7 +64,7 @@ macro_rules! declaration_adapter {
     ) => {
         Handler::Ternary(|execution, destination, first, second, _condition, fallthrough| {
             let destination = destination.into();
-            declaration_call!($pattern $call execution, _condition;
+            declaration_call!($pattern $call [] execution, _condition;
                 operand_value!($width, destination, $destination $(($destination_value))?),
                 operand_value!($width, first, $first $(($first_value))?),
                 operand_value!($width, second, $second $(($second_value))?))?;
@@ -74,11 +74,11 @@ macro_rules! declaration_adapter {
 }
 
 macro_rules! declaration_call {
-    ([cc] [$handler:ident $($argument:expr),*] $execution:ident, $condition:ident; $($operand:expr),*) => {
-        $handler($execution $(, $operand)*, $condition.expect("+cc binds a condition") $(, $argument)*)
+    ([cc] [$handler:ident $($argument:expr),*] [$($($type:ty),+)?] $execution:ident, $condition:ident; $($operand:expr),*) => {
+        $handler $(::<$($type),+>)? ($execution $(, $operand)*, $condition.expect("+cc binds a condition") $(, $argument)*)
     };
-    ([$($pattern:ident)?] [$handler:ident $($argument:expr),*] $execution:ident, $condition:ident; $($operand:expr),*) => {
-        $handler($execution $(, $operand)* $(, $argument)*)
+    ([$($pattern:ident)?] [$handler:ident $($argument:expr),*] [$($($type:ty),+)?] $execution:ident, $condition:ident; $($operand:expr),*) => {
+        $handler $(::<$($type),+>)? ($execution $(, $operand)* $(, $argument)*)
     };
 }
 

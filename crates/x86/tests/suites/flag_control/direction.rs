@@ -1,4 +1,5 @@
 use super::{flag_records, logical_flags};
+use crate::flags::Flag;
 use crate::support::cases::{
     test_cases, FlagExpectation::Preserved, Flags, InstructionCase as Case,
 };
@@ -16,7 +17,7 @@ fn direction_cases() -> Vec<Case> {
                     Flags::all(Preserved),
                 )
                 .preserve_flag_record()
-                .expect_direction_flag(result),
+                .expect_direct_flag(Flag::DF, result),
             );
         }
     }
@@ -36,7 +37,7 @@ fn direction_cases() -> Vec<Case> {
                         )
                         .stored_flags(record)
                         .preserve_flag_record()
-                        .expect_direction_flag(result),
+                        .expect_direct_flag(Flag::DF, result),
                     );
                 }
             }
@@ -50,7 +51,7 @@ fn direction_cases() -> Vec<Case> {
                     &[opcode],
                 )
                 .stored_flags(CpuState::filled(fill).flags)
-                .expect_direction_flag(result),
+                .expect_direct_flag(Flag::DF, result),
             );
         }
     }

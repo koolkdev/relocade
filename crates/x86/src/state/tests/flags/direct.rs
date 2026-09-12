@@ -13,61 +13,87 @@ fn initial_cpu() -> CpuState {
     cpu.flags.status_source.kind = 9;
     cpu.flags.status_source.left = 7;
     cpu.flags.status_source.right = 8;
+    cpu.flags.bytes.tf = 0x81;
     cpu.flags.bytes.df = 0xfe;
+    cpu.flags.bytes.nt = 0x7f;
+    cpu.flags.bytes.ac = 0x80;
+    cpu.flags.bytes.id = 0xa5;
     cpu.eip = 0x1000;
     cpu.instruction_count = u32::MAX;
     cpu
 }
 
 #[test]
-fn computed_direction_values_publish_canonical_bytes() {
-    let mut program = Program::new();
-    let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I32],
-                results: vec![Type::I64],
-            },
-            |mut body| {
-                let value = body.parameter::<I32>(0)?;
-                let mut state = State::new(&cpu);
-                state.write_flag(&mut body, Flag::DF, value.truncate::<I1>())?;
-                state.publish(&mut body, 0x1001, 1)?;
-                body.return_(0_u64)
-            },
-        )
-        .unwrap();
-    program.export("run", function).unwrap();
-    let module = TestModule::new(&CompiledModule {
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    });
-    let initial = initial_cpu();
-    for (input, direction) in [(0, 0), (1, 1), (0x80, 0), (0x81, 1), (-1, 1)] {
-        let mut expected = initial;
-        expected.flags.bytes.df = direction;
-        expected.eip = 0x1001;
-        expected.instruction_count = 0;
-        assert_result(&module, &initial, &[input], &expected, 0);
+fn computed_direct_values_publish_only_their_canonical_byte() {
+    for (index, flag) in [Flag::TF, Flag::DF, Flag::NT, Flag::AC, Flag::ID]
+        .into_iter()
+        .enumerate()
+    {
+        let mut program = Program::new();
+        let cpu = Cpu::declare(&mut program);
+        let function = program
+            .function(
+                Signature {
+                    parameters: vec![Type::I32],
+                    results: vec![Type::I64],
+                },
+                |mut body| {
+                    let value = body.parameter::<I32>(0)?;
+                    let mut state = State::new(&cpu);
+                    state.write_flag(&mut body, flag, value.truncate::<I1>())?;
+                    state.publish(&mut body, 0x1001, 1)?;
+                    body.return_(0_u64)
+                },
+            )
+            .unwrap();
+        program.export("run", function).unwrap();
+        let module = TestModule::new(&CompiledModule {
+            bytes: program.compile().unwrap(),
+            entry: "run".into(),
+        });
+        let initial = initial_cpu();
+        for (input, bit) in [(0, 0), (1, 1), (0x80, 0), (0x81, 1), (-1, 1)] {
+            let mut expected = initial;
+            *[
+                &mut expected.flags.bytes.tf,
+                &mut expected.flags.bytes.df,
+                &mut expected.flags.bytes.nt,
+                &mut expected.flags.bytes.ac,
+                &mut expected.flags.bytes.id,
+            ][index] = bit;
+            expected.eip = 0x1001;
+            expected.instruction_count = 0;
+            assert_result(&module, &initial, &[input], &expected, 0);
+        }
     }
 }
 
 #[test]
-fn direction_publication_keeps_earlier_exits_and_later_definitions_independent() {
+fn conditional_direct_publication_keeps_earlier_exits_and_raw_false_values() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
         .function(
             Signature {
-                parameters: vec![Type::I1, Type::I32],
+                parameters: vec![Type::I1, Type::I32, Type::I1],
                 results: vec![Type::I64],
             },
             |mut body| {
                 let direction = body.parameter::<I1>(0)?;
                 let stop = body.parameter::<I32>(1)?;
                 let mut state = State::new(&cpu);
-                state.write_flag(&mut body, Flag::DF, &direction)?;
+                let active = body.parameter::<I1>(2)?;
+                let flags = [
+                    (Flag::TF, direction.xor(true)),
+                    (Flag::DF, direction.clone()),
+                    (Flag::NT, direction.xor(true)),
+                    (Flag::AC, direction.clone()),
+                    (Flag::ID, direction.xor(true)),
+                ];
+                state.write_flags(
+                    &mut body,
+                    FlagChange::partial(flags.clone()).when(active.clone()),
+                )?;
                 body.if_(stop.eq(1), |mut arm| {
                     state.publish(&mut arm, 0x1001, 1)?;
                     arm.return_(7_u64)
@@ -76,7 +102,11 @@ fn direction_publication_keeps_earlier_exits_and_later_definitions_independent()
                     state.publish(&mut arm, 0x1001, 1)?;
                     arm.return_(8_u64)
                 })?;
-                state.write_flag(&mut body, Flag::DF, direction.xor(true))?;
+                state.write_flags(
+                    &mut body,
+                    FlagChange::partial(flags.map(|(flag, value)| (flag, value.xor(true))))
+                        .when(active),
+                )?;
                 state.publish(&mut body, 0x1002, 2)?;
                 body.return_(0_u64)
             },
@@ -89,28 +119,37 @@ fn direction_publication_keeps_earlier_exits_and_later_definitions_independent()
     });
     let initial = initial_cpu();
     for direction in [0, 1] {
-        for stop in [0, 1, 2] {
-            let mut expected = initial;
-            expected.flags.bytes.df = if stop != 0 { direction } else { direction ^ 1 };
-            expected.eip = if stop != 0 { 0x1001 } else { 0x1002 };
-            expected.instruction_count = if stop != 0 { 0 } else { 1 };
-            assert_result(
-                &module,
-                &initial,
-                &[i32::from(direction), stop],
-                &expected,
-                match stop {
-                    1 => 7,
-                    2 => 8,
-                    _ => 0,
-                },
-            );
+        for active in [0, 1] {
+            for stop in [0, 1, 2] {
+                let mut expected = initial;
+                if active == 1 {
+                    let bit = if stop != 0 { direction } else { direction ^ 1 };
+                    expected.flags.bytes.tf = bit ^ 1;
+                    expected.flags.bytes.df = bit;
+                    expected.flags.bytes.nt = bit ^ 1;
+                    expected.flags.bytes.ac = bit;
+                    expected.flags.bytes.id = bit ^ 1;
+                }
+                expected.eip = if stop != 0 { 0x1001 } else { 0x1002 };
+                expected.instruction_count = if stop != 0 { 0 } else { 1 };
+                assert_result(
+                    &module,
+                    &initial,
+                    &[i32::from(direction), stop, active],
+                    &expected,
+                    match stop {
+                        1 => 7,
+                        2 => 8,
+                        _ => 0,
+                    },
+                );
+            }
         }
     }
 }
 
 #[test]
-fn direction_publication_survives_register_aliases_and_status_changes() {
+fn direct_publication_survives_register_aliases_and_status_changes() {
     for concrete in [false, true] {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
@@ -123,7 +162,16 @@ fn direction_publication_survives_register_aliases_and_status_changes() {
                 |mut body| {
                     let index = body.parameter::<I32>(0)?;
                     let mut state = State::new(&cpu);
-                    state.write_flag(&mut body, Flag::DF, true)?;
+                    state.write_flags(
+                        &mut body,
+                        FlagChange::partial([
+                            (Flag::TF, true.into()),
+                            (Flag::DF, true.into()),
+                            (Flag::NT, true.into()),
+                            (Flag::AC, true.into()),
+                            (Flag::ID, true.into()),
+                        ]),
+                    )?;
                     state
                         .write_flags(&mut body, ArithmeticOp::Subtract.apply::<I32>(4, 5).flags)?;
                     state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
@@ -157,7 +205,11 @@ fn direction_publication_survives_register_aliases_and_status_changes() {
             (7, Gpr32::Ebx, 0x2726_da24, 0x25),
         ] {
             let mut expected = initial;
+            expected.flags.bytes.tf = 1;
             expected.flags.bytes.df = 1;
+            expected.flags.bytes.nt = 1;
+            expected.flags.bytes.ac = 1;
+            expected.flags.bytes.id = 1;
             expected.registers.eax = 0x1122_3344;
             expected.registers[parent] = value;
             if concrete {

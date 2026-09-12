@@ -5,6 +5,7 @@ mod tests;
 
 use std::ops::Range;
 
+use crate::flags::Flag;
 use wasm86_x86::Gpr32;
 
 use super::{
@@ -166,8 +167,16 @@ pub(in crate::support) fn check_checkpoint(
         "{context}: reserved CPU tail"
     );
     let mut expected_record = initial.cpu.flags;
-    if let Some(direction) = expected.direction_flag {
-        expected_record.bytes.df = u8::from(direction);
+    for &(flag, value) in &expected.direct_flags {
+        let byte = match flag {
+            Flag::TF => &mut expected_record.bytes.tf,
+            Flag::DF => &mut expected_record.bytes.df,
+            Flag::NT => &mut expected_record.bytes.nt,
+            Flag::AC => &mut expected_record.bytes.ac,
+            Flag::ID => &mut expected_record.bytes.id,
+            _ => unreachable!("only direct flags enter this expectation list"),
+        };
+        *byte = u8::from(value);
     }
     assert_eq!(
         [

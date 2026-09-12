@@ -1,3 +1,4 @@
+use crate::flags::Flag;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use wasm86_x86::Gpr32::{Eax, Ecx};
@@ -186,38 +187,73 @@ fn opaque_flag_replacement_cannot_claim_unspecified_bits_are_preserved() {
 }
 
 #[test]
-fn direction_expectations_allow_only_the_authored_flag_byte_to_change() {
-    let mut fixture = Fixture::new();
-    fixture.case = InstructionCase::preserving_flags("comparison contract", &[0xfc])
-        .expect_direction_flag(false);
-    fixture.actual.cpu.flags.bytes.df = 0;
-    fixture.check();
-    fixture.actual.cpu.flags.bytes.df = 1;
-    rejects(
-        || fixture.check(),
-        "control and system flags and reserved byte",
-    );
-    fixture.actual.cpu.flags.bytes.df = 0;
-    fixture.actual.cpu.flags.bytes.tf ^= 1;
-    rejects(
-        || fixture.check(),
-        "control and system flags and reserved byte",
-    );
-    fixture.actual.cpu.flags.bytes.tf ^= 1;
-    fixture.actual.cpu.flags.bytes.cf ^= 1;
-    rejects(|| fixture.check(), "stored flag record");
-    fixture.actual.cpu.flags.bytes.cf ^= 1;
-    fixture.actual.cpu.flags.status_source.left ^= 1;
-    rejects(|| fixture.check(), "stored flag record");
+fn direct_expectations_allow_only_authored_flag_bytes_to_change() {
+    for (flag, offset) in [
+        (Flag::TF, 18),
+        (Flag::DF, 19),
+        (Flag::NT, 20),
+        (Flag::AC, 21),
+        (Flag::ID, 22),
+    ] {
+        let mut fixture = Fixture::new();
+        fixture.case = InstructionCase::preserving_flags("comparison contract", &[0x9d])
+            .expect_direct_flag(flag, false);
+        let mut bytes = fixture.actual.cpu.to_bytes();
+        bytes[offset] = 0;
+        fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+        fixture.check();
+        bytes[offset] = 1;
+        fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+        rejects(
+            || fixture.check(),
+            "control and system flags and reserved byte",
+        );
+        bytes[offset] = 0;
+        for other in (18..24).filter(|other| *other != offset) {
+            bytes[other] ^= 0x80;
+            fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+            rejects(
+                || fixture.check(),
+                "control and system flags and reserved byte",
+            );
+            bytes[other] ^= 0x80;
+        }
+        for other in [12, 4] {
+            bytes[other] ^= 1;
+            fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+            rejects(|| fixture.check(), "stored flag record");
+            bytes[other] ^= 1;
+        }
+        bytes[1] ^= 1;
+        fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+        rejects(|| fixture.check(), "reserved flag bytes");
+    }
 }
 
 #[test]
-fn an_unspecified_direction_flag_must_preserve_its_entire_byte() {
-    let mut fixture = Fixture::new();
-    fixture.check();
-    fixture.actual.cpu.flags.bytes.df ^= 0x80;
-    rejects(
-        || fixture.check(),
-        "control and system flags and reserved byte",
-    );
+fn unspecified_direct_flags_must_preserve_their_entire_bytes() {
+    for offset in 18..23 {
+        let mut fixture = Fixture::new();
+        fixture.check();
+        let mut bytes = fixture.actual.cpu.to_bytes();
+        bytes[offset] ^= 0x80;
+        fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+        rejects(
+            || fixture.check(),
+            "control and system flags and reserved byte",
+        );
+    }
+}
+
+#[test]
+fn direct_flag_expectations_replace_prior_values_and_reject_status_identities() {
+    let case = InstructionCase::preserving_flags("comparison contract", &[0x9d])
+        .expect_direct_flag(Flag::DF, false)
+        .expect_direct_flag(Flag::DF, true);
+    assert!(case.expected.direct_flags.as_slice() == [(Flag::DF, true)]);
+    assert!(catch_unwind(|| {
+        InstructionCase::preserving_flags("comparison contract", &[0x9d])
+            .expect_direct_flag(Flag::CF, true)
+    })
+    .is_err());
 }

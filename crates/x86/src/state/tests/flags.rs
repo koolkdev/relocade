@@ -5,7 +5,7 @@ use crate::{CpuState, Gpr32};
 
 mod conditional;
 mod conditions;
-mod direction;
+mod direct;
 mod fixture;
 mod logical;
 mod partial;

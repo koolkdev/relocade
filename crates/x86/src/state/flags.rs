@@ -9,7 +9,7 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, I1, I8};
 use crate::{
     alu::{AnyStatusSource, StatusSource},
     flags::{Condition, Flag, FlagChange, FlagMask, FlagValues},
-    ssa::Environment,
+    ssa::{Environment, Location},
 };
 
 use super::access::cpu_location;
@@ -25,6 +25,17 @@ pub(super) fn condition_index(canonical: Condition) -> usize {
 pub(super) struct FlagState {
     status: StatusState,
     direct: Environment,
+}
+
+fn direct_location(flag: Flag) -> Option<Location<I8>> {
+    Some(match flag {
+        Flag::Status(_) => return None,
+        Flag::TF => cpu_location!(flags.bytes.tf),
+        Flag::DF => cpu_location!(flags.bytes.df),
+        Flag::NT => cpu_location!(flags.bytes.nt),
+        Flag::AC => cpu_location!(flags.bytes.ac),
+        Flag::ID => cpu_location!(flags.bytes.id),
+    })
 }
 
 /// Status changes follow one complete status source in program order.
@@ -78,19 +89,21 @@ impl FlagState {
                 change.condition = None;
             }
         }
-        if change.writes().contains(Flag::DF) {
-            let value = change.flag(Flag::DF).unsigned().extend::<I8>();
+        for flag in change.writes().flags() {
+            let Some(location) = direct_location(flag) else {
+                continue;
+            };
+            let value = change.flag(flag).unsigned().extend::<I8>();
             let value = match &change.condition {
                 Some(condition) => {
-                    let old = self.direct.read(body, cpu_location!(flags.bytes.df))?;
+                    let old = self.direct.read(body, location.clone())?;
                     condition.select(value, old)
                 }
                 None => value,
             };
-            self.direct
-                .define(body, cpu_location!(flags.bytes.df), value)?;
-            change = change.retaining(FlagMask::STATUS);
+            self.direct.define(body, location, value)?;
         }
+        change = change.retaining(FlagMask::STATUS);
         if change.writes() != FlagMask::EMPTY {
             self.status.apply(change);
         }

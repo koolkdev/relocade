@@ -1,3 +1,4 @@
+use crate::flags::Flag;
 use wasm86_x86::{FlagBytes, StoredStatusSource};
 #[path = "flag_control/carry.rs"]
 mod carry;
@@ -43,7 +44,9 @@ fn carry_result(value: bool) -> Flags<FlagExpectation> {
 
 fn operation_case(name: String, code: &[u8], opcode: u8) -> Case {
     match opcode {
-        0xfc | 0xfd => Case::preserving_flags(name, code).expect_direction_flag(opcode == 0xfd),
+        0xfc | 0xfd => {
+            Case::preserving_flags(name, code).expect_direct_flag(Flag::DF, opcode == 0xfd)
+        }
         0xf8 => Case::new(name, code, Flags::all(true), carry_result(false)),
         0xf9 | 0xf5 => Case::new(name, code, Flags::all(false), carry_result(true)),
         _ => unreachable!(),

@@ -4,8 +4,8 @@ Rust components for x86 execution in WebAssembly.
 
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, CBW, CWDE, CWD, CDQ, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
 SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, MUL, IMUL, DIV, IDIV, SHL, SHR, SAR, SHLD, SHRD,
-ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, SETcc, CALL, RET, JMP, Jcc,
-JECXZ, LOOP, LOOPE, LOOPNE, CLC, STC, CMC, CLD, STD, LAHF and SAHF blocks
+ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, PUSHF/PUSHFD, POPF/POPFD,
+SETcc, CALL, RET, JMP, Jcc, JECXZ, LOOP, LOOPE, LOOPNE, CLC, STC, CMC, CLD, STD, LAHF and SAHF blocks
 from byte snapshots:
 
 ```rust
@@ -137,6 +137,8 @@ supports these forms in default-32 operand and address mode:
 | PUSH immediate | — | 68/6A | 68/6A |
 | PUSH register/memory | — | FF /6 | FF /6 |
 | POP register/memory | — | 8F /0 | 8F /0 |
+| PUSHF/PUSHFD architectural flag image | — | 9C | 9C |
+| POPF/POPFD architectural flag image | — | 9D | 9D |
 | CALL relative | — | E8 | E8 |
 | CALL register/memory | — | FF /2 | FF /2 |
 | RET with optional imm16 cleanup | — | C3/C2 | C3/C2 |
@@ -398,6 +400,21 @@ the incremented pointer with the popped dword. POP SP replaces its low word,
 preserving the high word of the incremented ESP. These instructions preserve
 the entire flag source and always require guest-memory imports.
 
+PUSHF/PUSHFD (`9C`) and POPF/POPFD (`9D`) use the same stack accesses. `66`
+selects a two-byte FLAGS image; the default is a four-byte EFLAGS image.
+The flat execution subset uses a fixed user-mode flags-transfer contract:
+CPL 3, IOPL 0, IF set, and VM/RF/VIF/VIP clear. PUSH sets reserved bit 1 and IF,
+and copies CF/PF/AF/ZF/SF/TF/DF/OF/NT to bits 0/2/4/6/7/8/10/11/14. PUSHFD
+also copies AC/ID to bits 18/21. All remaining image bits are zero.
+POPF restores those nine modeled low flags and preserves AC/ID; POPFD restores
+all eleven. Both ignore incoming IF, IOPL and other unmodeled image bits. These
+rules follow the CPL > IOPL rows of Intel's POPF Table 4-16 and its PUSHF entry in
+the [instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
+TF, NT, AC and ID can be transferred and queried; debug exceptions, task switching,
+alignment checking, interrupt delivery and changing privilege modes are outside
+the current execution subset. PUSHF/PUSHFD preserve the complete flag backing record.
+A faulting POP preserves both ESP and the incoming flags.
+
 Stack operations check each complete source and destination access before
 changing registers or memory. Faults preserve the faulting instruction's entry
 state while publishing any earlier completed instructions. When both accesses
@@ -615,11 +632,12 @@ The stored-record decoder reuses `ArithmeticOp::result` to reconstruct an
 arithmetic source from its original operands. A same-block CMP or SUB condition
 can compare those operands directly without calculating unused flags.
 
-The `flags` modules own architectural flag identity, write masks, changes and
-condition rules. `Flag` covers the six status flags and DF; `StatusFlag` identifies
-only the bits that an ALU source can supply. `FlagMask::STATUS` names that subset,
-while `FlagMask::ALL` also includes DF. Flag-bit extraction uses typed truncation,
-so raw intermediates can remain unnormalized until their logical low bit is needed.
+The `flags` modules own architectural flag identity, image encoding, write masks,
+changes and condition rules. `Flag` covers the six status flags and TF/DF/NT/AC/ID;
+`StatusFlag` identifies only the bits that an ALU source can supply. `FlagMask::STATUS` names that subset,
+while `FlagMask::ALL` contains all eleven flags. The mask uses dense logical
+indices, independent of image bit positions or backing offsets. Flag-bit extraction
+uses typed truncation, so raw intermediates can remain unnormalized until their logical low bit is needed.
 
 `ExecutionBuilder::read_flag` and `write_flag` expose the same logical interface
 for every modeled flag. A write accepts a `Val<I1>` or boolean:
@@ -638,18 +656,19 @@ let [carry, zero] = execution.read_flags([Flag::CF, Flag::ZF])?;
 ```
 
 State resolves pending changes and batches only missing stored status flags.
-Local values remain expressions, and DF uses its direct state. An empty request
+Local values remain expressions, and TF/DF/NT/AC/ID use their direct state. An empty request
 performs no reads. The internal mask describes the requested set while generating
 code; it is not passed to Wasm. Single-flag and condition reads retain their
 specialized comparison paths.
 
 `state::flags::FlagState` owns admission, queries, preservation and publication
-for both status flags and DF. Its status state retains a stored record or symbolic
+for all eleven flags. Its status state retains a stored record or symbolic
 source followed by changes in instruction order. Direct flag storage uses the
 same typed environment mechanism as registers, with disjoint locations owned by
-the flag state. DF reads use its current symbolic byte without inspecting the
-arithmetic record. Actual writes canonicalize that byte; an inactive conditional
-write preserves its original raw byte. Storage offsets and widths remain inside state.
+the flag state. One location mapping owns the five direct flag fields. Their reads
+use current symbolic bytes without inspecting the arithmetic record. Actual writes
+canonicalize each changed byte; an inactive conditional write preserves its original
+raw byte. Storage offsets and widths remain inside state.
 
 `write_flags` accepts a `FlagChange` with an explicit write mask, optional predicate
 and `FlagValues`: a status source or individual architectural flag values.
@@ -658,8 +677,8 @@ Omitted flags are preserved. `change.when(predicate)` restricts when the change
 applies; repeated calls combine predicates with AND. `preserving(flag)` removes
 one write, while `retaining(mask)` restricts the write set. Both keep any status
 recipe intact. These methods construct descriptions; state admits all supplied
-values before changing either status or DF state. An unconditional complete
-status source replaces only the earlier status history and preserves DF.
+values before changing either status or direct flag state. An unconditional complete
+status source replaces only the earlier status history and preserves the five direct flags.
 
 `UnaryOp::apply` defines INC, DEC, NEG and NOT. INC and DEC reuse the arithmetic
 operation and `outcome.flags.preserving(StatusFlag::CF)`, which removes the CF
@@ -763,10 +782,16 @@ CLC, STC and CMC use the common flag interface to replace only CF. CMC reads the
 current carry with `read_flag(Flag::CF)`; constants and computed bits use the same
 change representation as CLD/STD's DF writes. Publication resolves the other five flags
 and writes the concrete kind-0 format, preserving unused payload bytes.
-LAHF and SAHF use ordinary unary `byte(AH)` declarations in the flag-transfer
-family. A shared five-bit map describes the architectural AH image: LAHF requests
-the five logical values together through `read_flags` and packs them into AH;
-SAHF submits one masked change through `write_flags`.
+`flags::image::FlagImage<N>` describes an architectural image with an ordered flag
+roster, bit positions and fixed bits. AH, FLAGS and EFLAGS images share pure packing
+and extraction. Packing accepts the results of `read_flags`; extraction produces
+one `FlagChange` for `write_flags`. The word roster omits AC/ID entirely, so those
+flags require no read or write for a word transfer.
+LAHF and SAHF retain ordinary unary `byte(AH)` declarations. PUSHF/POPF use
+`word_or_dword()` declarations with no operands; the declaration adapter supplies
+the semantic body's type argument from the selected width. The existing nullary
+handlers and both decoders already carry that width selection. Their bodies reuse
+the guarded stack `push` and `pop_value` operations.
 The instruction bodies do not depend on the backing flag record's representation.
 MOV, MOVZX, MOVSX, LEA, XCHG, CMOVcc and SETcc preserve flags, and these instructions
 leave control and system flag bytes untouched. A faulting operand access preserves the
@@ -1182,9 +1207,10 @@ claim `Preserved`. Use `stored_flags(record)` to choose an incoming representati
 When logical initial flags are supplied, the runner verifies that the record
 represents them. `preserve_flag_record()` additionally requires unchanged record
 bytes for a case that reads logical flags, such as CMOV.
-`expect_direction_flag(bool)` changes the expected DF byte on an instruction case
-or sequence checkpoint. System flag bytes and reserved bytes stay unchanged; record-preserving
-checks allow only that explicitly stated DF change.
+`expect_direct_flag(flag, bool)` changes the expected TF, DF, NT, AC or ID byte
+on an instruction case or sequence checkpoint. Omitted direct flags and reserved
+bytes stay unchanged; record-preserving checks allow only the explicitly stated
+direct flag changes. Status flags use the case's logical flag expectations.
 
 Cases start at `0x1000` and expect one retired instruction with fallthrough
 dispatch. Use `at(origin)`, `instruction_count(count)`, `dispatch(target)`,

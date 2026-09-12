@@ -3,9 +3,9 @@
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1};
 
 use crate::flags::{Condition, Flag, FlagChange, FlagMask, StatusFlag};
-use crate::state::{access::cpu_location, Cpu};
+use crate::state::Cpu;
 
-use super::{condition_index, FlagState, StatusBase, StatusState};
+use super::{condition_index, direct_location, FlagState, StatusBase, StatusState};
 
 impl FlagState {
     pub(in crate::state) fn read(
@@ -16,9 +16,12 @@ impl FlagState {
     ) -> Result<Val<I1>, BuildError> {
         match flag {
             Flag::Status(flag) => self.status.read_flag(body, cpu, flag),
-            Flag::DF => self
+            _ => self
                 .direct
-                .read(body, cpu_location!(flags.bytes.df))
+                .read(
+                    body,
+                    direct_location(flag).expect("non-status flags have direct backing"),
+                )
                 .map(|value| value.truncate::<I1>()),
         }
     }
@@ -42,14 +45,14 @@ impl FlagState {
         for value in status.iter_mut().flatten() {
             *value = body.value(&*value)?;
         }
-        let direction = needed
-            .contains(Flag::DF)
-            .then(|| self.read(body, cpu, Flag::DF))
-            .transpose()?;
-        Ok(requested.map(|flag| match flag {
-            Flag::Status(flag) => status[flag as usize].as_ref().unwrap().clone(),
-            Flag::DF => direction.as_ref().unwrap().clone(),
-        }))
+        let mut values = Flag::ALL.map(|_| None);
+        for flag in needed.flags() {
+            values[flag.index()] = Some(match flag {
+                Flag::Status(flag) => status[flag as usize].take().unwrap(),
+                _ => self.read(body, cpu, flag)?,
+            });
+        }
+        Ok(requested.map(|flag| values[flag.index()].as_ref().unwrap().clone()))
     }
 
     pub(in crate::state) fn condition(

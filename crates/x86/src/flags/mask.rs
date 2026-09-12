@@ -2,7 +2,7 @@ use super::{Flag, StatusFlag};
 
 /// A set of logical flags. These bits are unrelated to CPU backing offsets.
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub(crate) struct FlagMask(u8);
+pub(crate) struct FlagMask(u16);
 
 impl FlagMask {
     pub(crate) const EMPTY: Self = Self(0);
@@ -13,7 +13,7 @@ impl FlagMask {
         Self(1 << flag.into().index())
     }
 
-    pub(crate) const fn bits(self) -> u8 {
+    pub(crate) const fn bits(self) -> u16 {
         self.0
     }
 

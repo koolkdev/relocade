@@ -9,6 +9,7 @@ pub(super) mod observation;
 mod tests;
 
 use super::guest::Mapping;
+use crate::flags::Flag;
 use wasm86_x86::{Gpr32, StoredFlags};
 
 pub(crate) use super::guest::Permissions;
@@ -43,7 +44,7 @@ impl InstructionCase {
         )
     }
 
-    /// Preserve an opaque flag record except an explicitly expected DF change.
+    /// Preserve an opaque flag record except explicitly expected direct-flag changes.
     /// Instructions that inspect flags should state logical values with `new`.
     pub(crate) fn preserving_flags(name: impl Into<String>, code: &[u8]) -> Self {
         Self::with_flags(
@@ -113,7 +114,7 @@ impl InstructionCase {
         self
     }
 
-    /// Preserve the incoming flag record except an explicitly expected DF change.
+    /// Preserve the incoming flag record except explicitly expected direct-flag changes.
     pub(crate) fn preserve_flag_record(mut self) -> Self {
         if let ExpectedFlags::Logical {
             preserve_record, ..
@@ -124,8 +125,8 @@ impl InstructionCase {
         self
     }
 
-    pub(crate) fn expect_direction_flag(mut self, value: bool) -> Self {
-        self.expected.direction_flag = Some(value);
+    pub(crate) fn expect_direct_flag(mut self, flag: Flag, value: bool) -> Self {
+        self.expected.expect_direct_flag(flag, value);
         self
     }
 
@@ -225,20 +226,32 @@ pub(super) struct InitialState {
 #[derive(Clone)]
 pub(super) struct ExpectedState {
     pub(super) flags: ExpectedFlags,
-    pub(super) direction_flag: Option<bool>,
+    pub(super) direct_flags: Vec<(Flag, bool)>,
     pub(super) registers: Vec<(Gpr32, RegisterExpectation)>,
     pub(super) memory: Vec<MemoryExpectation>,
     pub(super) exit: ExpectedExit,
 }
 
 impl ExpectedState {
+    pub(super) fn expect_direct_flag(&mut self, flag: Flag, value: bool) {
+        assert!(
+            matches!(flag, Flag::TF | Flag::DF | Flag::NT | Flag::AC | Flag::ID),
+            "direct flag expectations require TF, DF, NT, AC or ID; use logical expectations for status flags"
+        );
+        if let Some((_, expected)) = self.direct_flags.iter_mut().find(|(name, _)| *name == flag) {
+            *expected = value;
+        } else {
+            self.direct_flags.push((flag, value));
+        }
+    }
+
     pub(super) fn new(flags: ExpectedFlags) -> Self {
         Self {
             registers: Vec::new(),
             memory: Vec::new(),
             exit: ExpectedExit::Fallthrough,
             flags,
-            direction_flag: None,
+            direct_flags: Vec::new(),
         }
     }
 }
