@@ -14,6 +14,7 @@ mod moves;
 mod multiply;
 mod shifts;
 mod stack;
+mod strings;
 
 use super::{
     forms::*,
@@ -39,6 +40,7 @@ pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form
         .chain(bit_scans::forms())
         .chain(bit_tests::forms())
         .chain(stack::forms())
+        .chain(strings::forms())
         .chain(conditions::forms())
         .chain(flag_control::forms())
         .chain(flag_transfer::forms())

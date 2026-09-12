@@ -66,6 +66,8 @@ mod shifts;
 mod stack_flags;
 #[path = "suites/stack_operations.rs"]
 mod stack_operations;
+#[path = "suites/strings.rs"]
+mod strings;
 #[path = "suites/unary_operations.rs"]
 mod unary_operations;
 #[path = "suites/word_moves.rs"]

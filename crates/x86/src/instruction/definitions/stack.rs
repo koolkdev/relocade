@@ -5,7 +5,7 @@ use crate::register::RegisterType;
 instruction_families! {
     PUSH {
         execute: push;
-        effects: [stack_write];
+        effects: [memory_write];
         forms {
             0x50 +reg => word_or_dword(opcode_reg);
             0x68 => word_or_dword(imm);
@@ -15,7 +15,7 @@ instruction_families! {
     }
     POP {
         execute: pop;
-        effects: [stack_read];
+        effects: [memory_read];
         forms {
             0x58 +reg => word_or_dword(opcode_reg);
             0x8F /0 => word_or_dword(rm);
@@ -23,14 +23,14 @@ instruction_families! {
     }
     PUSHF {
         execute: push_flags;
-        effects: [stack_write];
+        effects: [memory_write];
         forms {
             0x9C => word_or_dword();
         }
     }
     POPF {
         execute: pop_flags;
-        effects: [stack_read];
+        effects: [memory_read];
         forms {
             0x9D => word_or_dword();
         }

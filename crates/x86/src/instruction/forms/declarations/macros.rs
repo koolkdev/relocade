@@ -95,11 +95,11 @@ macro_rules! declaration_opcode {
 }
 
 macro_rules! declaration_effect {
-    (stack_read) => {
-        Effect::StackRead
+    (memory_read) => {
+        Effect::MemoryRead
     };
-    (stack_write) => {
-        Effect::StackWrite
+    (memory_write) => {
+        Effect::MemoryWrite
     };
     (control_transfer) => {
         Effect::ControlTransfer

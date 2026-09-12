@@ -63,8 +63,8 @@ impl OperandSpec {
 
 #[derive(Clone, Copy)]
 pub(in crate::instruction) enum Effect {
-    StackRead,
-    StackWrite,
+    MemoryRead,
+    MemoryWrite,
     ControlTransfer,
 }
 
@@ -191,7 +191,7 @@ impl Declaration<'_> {
         index = 0;
         while index < self.effects.len() {
             match self.effects[index] {
-                Effect::StackRead | Effect::StackWrite => implicit_memory = true,
+                Effect::MemoryRead | Effect::MemoryWrite => implicit_memory = true,
                 Effect::ControlTransfer => ends_block = true,
             }
             index += 1;

@@ -5,7 +5,8 @@ Rust components for x86 execution in WebAssembly.
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, CBW, CWDE, CWD, CDQ, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
 SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, MUL, IMUL, DIV, IDIV, SHL, SHR, SAR, SHLD, SHRD,
 ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, PUSHF/PUSHFD, POPF/POPFD,
-SETcc, CALL, RET, JMP, Jcc, JECXZ, LOOP, LOOPE, LOOPNE, CLC, STC, CMC, CLD, STD, LAHF and SAHF blocks
+SETcc, CALL, RET, JMP, Jcc, JECXZ, LOOP, LOOPE, LOOPNE, CLC, STC, CMC, CLD, STD, LAHF, SAHF,
+MOVS, STOS, LODS, CMPS and SCAS blocks
 from byte snapshots:
 
 ```rust
@@ -139,6 +140,11 @@ supports these forms in default-32 operand and address mode:
 | POP register/memory | — | 8F /0 | 8F /0 |
 | PUSHF/PUSHFD architectural flag image | — | 9C | 9C |
 | POPF/POPFD architectural flag image | — | 9D | 9D |
+| MOVS memory at ESI to memory at EDI | A4 | A5 | A5 |
+| CMPS memory at ESI minus memory at EDI | A6 | A7 | A7 |
+| STOS accumulator to memory at EDI | AA | AB | AB |
+| LODS memory at ESI to accumulator | AC | AD | AD |
+| SCAS accumulator minus memory at EDI | AE | AF | AF |
 | CALL relative | — | E8 | E8 |
 | CALL register/memory | — | FF /2 | FF /2 |
 | RET with optional imm16 cleanup | — | C3/C2 | C3/C2 |
@@ -391,6 +397,25 @@ Effective-address sums wrap at 32 bits; both frontends use flat addresses and
 ignore segment bases. Blocks without explicit or implicit guest-memory access
 retain just the CPU and dispatch imports.
 
+MOVS, STOS, LODS, CMPS and SCAS process one byte, word or dword per instruction.
+MOVS copies memory at ESI to memory at EDI; STOS stores AL/AX/EAX to memory at
+EDI; LODS loads memory at ESI into AL/AX/EAX, preserving the unused upper bits.
+These three transfers preserve the complete flag record. CMPS compares memory
+at ESI against memory at EDI; SCAS compares AL/AX/EAX against memory at EDI.
+Both set CF/PF/AF/ZF/SF/OF from the first value minus the second and preserve
+the other flags.
+
+After the element succeeds, each used index increases by the element width when
+DF is clear and decreases when DF is set. MOVS and CMPS update both ESI and EDI;
+LODS updates ESI; STOS and SCAS update EDI. Index arithmetic wraps at 32 bits,
+including word operations. ECX is unchanged and each instruction retires once.
+MOVS and CMPS check the ESI source before the EDI access. A faulting access leaves
+the instruction's registers, flags and destination memory unchanged; earlier
+completed instructions remain visible. Overlapping MOVS operands copy the complete
+source element before storing it. These rules follow the string instruction
+entries in the [Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
+REP/REPE/REPNE, address-size overrides and segment overrides remain unsupported.
+
 PUSH and POP transfer a word or dword through a 32-bit stack pointer. PUSH reads
 its source using the entry register values, then subtracts the operand size from
 ESP and stores on the stack. Thus PUSH ESP stores the original ESP. POP reads the
@@ -501,6 +526,9 @@ CLC {
 
 Its body receives the execution builder and any fixed `execute` arguments.
 The form uses the ordinary opcode-only fetch path with an empty operand binding.
+Sized forms can also have no operands: `byte()` supplies `I8` to a generic body,
+and `word_or_dword()` supplies `I16` or `I32`. String and stack-flag instructions
+use this existing path for their implicit operands.
 
 Physical immediate widths stay independent of logical data widths. `imm8` and
 `imm16` consume one and two bytes respectively; `imm` follows the operand-size
@@ -516,7 +544,7 @@ A family's effects appear beside its body. For example:
 ```rust
 RET {
     execute: return_near;
-    effects: [stack_read, control_transfer];
+    effects: [memory_read, control_transfer];
     forms {
         0xC3 => word_or_dword(constant(0));
         0xC2 => word_or_dword(imm16);
@@ -525,8 +553,9 @@ RET {
 ```
 
 The return-address cell follows the operand-size attribute while the encoded
-cleanup remains unsigned 16-bit. `stack_read` and `stack_write` declare implicit
-memory use; explicit memory operands already supply it. `control_transfer` ends
+cleanup remains unsigned 16-bit. `memory_read` and `memory_write` declare implicit
+memory use for stack and string accesses; explicit memory operands already supply
+it. Permissions are checked by the actual accesses. `control_transfer` ends
 the block and selects the existing successor-returning handler interface. That
 interface receives the bound operand, condition and fallthrough EIP, and returns
 the next EIP. Fixed arguments in `execute` follow those inputs for transfer bodies,
