@@ -113,9 +113,9 @@ fn discarded_arithmetic_operands_remain_unpublished_after_logic() {
     let mut expected_cpu = image.cpu;
     let mut steps = Vec::new();
 
-    expected_cpu.flags.kind = 10;
-    expected_cpu.flags.left = 0xffff_ffff;
-    expected_cpu.flags.right = 1;
+    expected_cpu.flags.status_source.kind = 10;
+    expected_cpu.flags.status_source.left = 0xffff_ffff;
+    expected_cpu.flags.status_source.right = 1;
     expected_cpu.registers.eax = 0;
     expected_cpu.eip = 0x1005;
     expected_cpu.instruction_count = 0;
@@ -125,8 +125,8 @@ fn discarded_arithmetic_operands_remain_unpublished_after_logic() {
         exit: Exit::Dispatch(0x1005),
     });
 
-    expected_cpu.flags.kind = 11;
-    expected_cpu.flags.left = 0;
+    expected_cpu.flags.status_source.kind = 11;
+    expected_cpu.flags.status_source.left = 0;
     expected_cpu.eip = 0x1007;
     expected_cpu.instruction_count = 1;
     steps.push(Step {
@@ -173,7 +173,7 @@ fn discarded_arithmetic_operands_remain_unpublished_after_logic() {
     Validator::new().validate_all(&snapshot.bytes).unwrap();
     // One snapshot never publishes the replaced ADD record: its unused B stays
     // at the original backing value. Both paths expose the same logical flags.
-    expected_cpu.flags.right = image.cpu.flags.right;
+    expected_cpu.flags.status_source.right = image.cpu.flags.status_source.right;
 
     check(
         &TestModule::new(&snapshot),

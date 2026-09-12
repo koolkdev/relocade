@@ -1,11 +1,11 @@
 //! Varies concrete and lazy source records against the independent bit model.
 
-use wasm86_x86::StatusFlags;
-
+use crate::support::cases::Flags;
 use crate::support::{
     machine::{both, Exit, Step},
     step::TestModule,
 };
+use wasm86_x86::FlagBytes;
 
 use super::{bit_at_a_time_model, image, Operation, OPERATIONS, PRIOR_FLAGS};
 
@@ -16,7 +16,7 @@ fn rotates_preserve_logical_status_from_concrete_and_lazy_records() {
         kind: u8,
         left: u32,
         right: u32,
-        logical: StatusFlags,
+        logical: Flags<u8>,
     }
     for source in [
         Source {
@@ -24,7 +24,7 @@ fn rotates_preserve_logical_status_from_concrete_and_lazy_records() {
             kind: 0,
             left: 0x1234_5678,
             right: 0x8765_4321,
-            logical: StatusFlags {
+            logical: Flags {
                 cf: 0,
                 pf: 0,
                 af: 1,
@@ -38,7 +38,7 @@ fn rotates_preserve_logical_status_from_concrete_and_lazy_records() {
             kind: 2,
             left: 0xff,
             right: 1,
-            logical: StatusFlags {
+            logical: Flags {
                 cf: 1,
                 pf: 1,
                 af: 1,
@@ -52,7 +52,7 @@ fn rotates_preserve_logical_status_from_concrete_and_lazy_records() {
             kind: 10,
             left: 0xffff_ffff,
             right: 1,
-            logical: StatusFlags {
+            logical: Flags {
                 cf: 1,
                 pf: 1,
                 af: 1,
@@ -73,7 +73,7 @@ fn rotates_preserve_logical_status_from_concrete_and_lazy_records() {
             kind: 11,
             left: 1,
             right: 0x8765_4321,
-            logical: StatusFlags {
+            logical: Flags {
                 cf: 0,
                 pf: 0,
                 af: 0,
@@ -94,16 +94,17 @@ fn rotates_preserve_logical_status_from_concrete_and_lazy_records() {
                         code.push(count);
                     }
                     let mut image = image(&code);
-                    image.cpu.flags.kind = source.kind;
-                    image.cpu.flags.left = source.left;
-                    image.cpu.flags.right = source.right;
-                    image.cpu.flags.status = StatusFlags {
+                    image.cpu.flags.status_source.kind = source.kind;
+                    image.cpu.flags.status_source.left = source.left;
+                    image.cpu.flags.status_source.right = source.right;
+                    image.cpu.flags.bytes = FlagBytes {
                         cf: 0xfe,
                         pf: 0xfe,
                         af: 0xff,
                         zf: 0xff,
                         sf: 0x80,
                         of: 0x7f,
+                        ..image.cpu.flags.bytes
                     };
                     image.cpu.registers.ecx = 0x8877_6600 | u32::from(count);
                     let input = if operation == Operation::Rol { 0x80 } else { 1 };

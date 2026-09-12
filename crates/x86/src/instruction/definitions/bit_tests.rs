@@ -56,11 +56,11 @@ where
     };
     if operation == BitTestOp::Test {
         let input = destination.read(execution)?;
-        execution.set_flags(operation.apply(input, offset).flags)
+        execution.write_flags(operation.apply(input, offset).flags)
     } else {
         destination.update(execution, |execution, input| {
             let outcome = operation.apply(input, offset);
-            execution.set_flags(outcome.flags)?;
+            execution.write_flags(outcome.flags)?;
             Ok(outcome.result)
         })
     }

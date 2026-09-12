@@ -3,6 +3,7 @@ use wasm86_x86::{
     Gpr32::{Ebx, Ecx},
     StoredFlags,
 };
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 
 use crate::support::{
     cases::{
@@ -15,19 +16,26 @@ use crate::support::{
 };
 
 const SAVED_CARRY: StoredFlags = StoredFlags {
-    kind: 2,
-    left: 0xff,
-    right: 1,
-    reserved: [0xa5; 3],
-    status: wasm86_x86::StatusFlags {
+    status_source: StoredStatusSource {
+        kind: 2,
+        reserved: [0xa5; 3],
+        left: 0xff,
+        right: 1,
+    },
+    bytes: FlagBytes {
         cf: 0,
         pf: 0xa5,
         af: 0xa5,
         zf: 0xa5,
         sf: 0xa5,
         of: 0xa5,
+        tf: 0xa5,
+        df: 0xa5,
+        nt: 0xa5,
+        ac: 0xa5,
+        id: 0xa5,
+        reserved: 0xa5,
     },
-    non_status: [0xa5; 6],
 };
 const INITIAL: Flags<bool> = Flags {
     cf: true,
@@ -38,7 +46,10 @@ const INITIAL: Flags<bool> = Flags {
     of: false,
 };
 const INVALID: StoredFlags = StoredFlags {
-    kind: 0xff,
+    status_source: StoredStatusSource {
+        kind: 0xff,
+        ..SAVED_CARRY.status_source
+    },
     ..SAVED_CARRY
 };
 
@@ -106,7 +117,13 @@ fn access_faults() -> Vec<Case> {
             if matches!(code[0], 0xfe | 0xf6) && address == 0x5000 { continue; }
             let mut case = Case::new(format!("unary {code:02x?}, fault {address:#x}/{error}"), code,
                 Flags::all(true), Flags::all(Preserved))
-                .stored_flags(StoredFlags { kind: 0, ..CpuState::filled(0xa5).flags }).preserve_flag_record()
+                .stored_flags(StoredFlags {
+                    status_source: StoredStatusSource {
+                        kind: 0,
+                        ..(CpuState::filled(0xa5).flags).status_source
+                    },
+                    ..CpuState::filled(0xa5).flags
+                }).preserve_flag_record()
                 .initial_register(Ebx, 0x4fff)
                 .backing(0x8ffe, &[0xa5, 0xff]).backing(0xa000, &[0xff, 0xff, 0xff, 0x5a])
                 .fault(address, error);
@@ -130,7 +147,13 @@ fn wrapping_ranges() -> Vec<Case> {
         for first in [ReadWrite, ReadOnly] {
             cases.push(Case::new(format!("unary {code:02x?} wrapping range, first page {first:?}"), code,
                 Flags::all(true), Flags::all(Preserved))
-                .stored_flags(StoredFlags { kind: 0, ..CpuState::filled(0xa5).flags }).preserve_flag_record()
+                .stored_flags(StoredFlags {
+                    status_source: StoredStatusSource {
+                        kind: 0,
+                        ..(CpuState::filled(0xa5).flags).status_source
+                    },
+                    ..CpuState::filled(0xa5).flags
+                }).preserve_flag_record()
                 .initial_register(Ebx, address)
                 .map_page(0xfffff, 0x8000, first).map_page(0, 0xa000, ReadWrite)
                 .backing(0x8ffe, &[0x11, 0x22]).backing(0xa000, &[0x33, 0x44])

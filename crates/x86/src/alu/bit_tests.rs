@@ -2,10 +2,8 @@
 
 use wasm86_compiler::{MemoryInt, Val, I1, I32};
 
-use super::{
-    flags::{FlagChange, StatusFlag},
-    AluResult,
-};
+use super::AluResult;
+use crate::flags::{FlagChange, StatusFlag};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum BitTestOp {
@@ -29,7 +27,7 @@ impl BitTestOp {
             Self::Complement => input.xor(mask),
         };
         // ZF is unchanged; OF/SF/AF/PF are undefined. Preserve all five.
-        let flags = FlagChange::partial([(StatusFlag::CF, carry)]);
+        let flags = FlagChange::partial([(StatusFlag::CF.into(), carry)]);
         AluResult { result, flags }
     }
 }

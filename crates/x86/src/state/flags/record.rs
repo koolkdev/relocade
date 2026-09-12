@@ -2,7 +2,7 @@
 
 use wasm86_compiler::{AtLeast, BuildError, FunctionBuilder, Mem, MemoryInt, Val, I1, I32, I8};
 
-use crate::alu::{flags::FlagSource, ArithmeticOp};
+use crate::alu::{ArithmeticOp, StatusSource};
 use crate::state::access::cpu_store;
 
 pub(in crate::state) const CONCRETE_KIND: u8 = 0;
@@ -45,9 +45,9 @@ pub(super) enum FlagRecord<T: MemoryInt> {
 }
 
 impl<T: MemoryInt> FlagRecord<T> {
-    pub(super) fn from_source(source: &FlagSource<T>) -> Self {
+    pub(super) fn from_source(source: &StatusSource<T>) -> Self {
         match source {
-            FlagSource::Arithmetic {
+            StatusSource::Arithmetic {
                 operation,
                 left,
                 right,
@@ -57,10 +57,10 @@ impl<T: MemoryInt> FlagRecord<T> {
                 left: left.clone(),
                 right: right.clone(),
             },
-            FlagSource::Logic { result } => Self::Logic {
+            StatusSource::Logic { result } => Self::Logic {
                 result: result.clone(),
             },
-            FlagSource::Explicit { flags } => Self::Concrete {
+            StatusSource::Explicit { flags } => Self::Concrete {
                 status: flags.clone(),
             },
         }
@@ -76,19 +76,34 @@ impl<T: MemoryInt> FlagRecord<T> {
                 left,
                 right,
             } => {
-                cpu_store!(body, memory, flags.left, left.unsigned().extend::<I32>())?;
-                cpu_store!(body, memory, flags.right, right.unsigned().extend::<I32>())?;
+                cpu_store!(
+                    body,
+                    memory,
+                    flags.status_source.left,
+                    left.unsigned().extend::<I32>()
+                )?;
+                cpu_store!(
+                    body,
+                    memory,
+                    flags.status_source.right,
+                    right.unsigned().extend::<I32>()
+                )?;
                 encode_kind::<T>(operation)
             }
             Self::Logic { result } => {
-                cpu_store!(body, memory, flags.left, result.unsigned().extend::<I32>())?;
+                cpu_store!(
+                    body,
+                    memory,
+                    flags.status_source.left,
+                    result.unsigned().extend::<I32>()
+                )?;
                 encode_logic::<T>()
             }
             Self::Concrete { status } => return write_concrete(body, memory, status),
         };
         // Publish the tag after every field it describes. Unused fields retain
         // their backing bytes; only the chosen payload is written.
-        cpu_store!(body, memory, flags.kind, u32::from(kind))
+        cpu_store!(body, memory, flags.status_source.kind, u32::from(kind))
     }
 }
 
@@ -98,11 +113,16 @@ pub(super) fn write_concrete(
     status: [Val<I1>; 6],
 ) -> Result<(), BuildError> {
     let [cf, pf, af, zf, sf, of] = status;
-    cpu_store!(body, memory, flags.status.cf, cf.unsigned().extend::<I8>())?;
-    cpu_store!(body, memory, flags.status.pf, pf.unsigned().extend::<I8>())?;
-    cpu_store!(body, memory, flags.status.af, af.unsigned().extend::<I8>())?;
-    cpu_store!(body, memory, flags.status.zf, zf.unsigned().extend::<I8>())?;
-    cpu_store!(body, memory, flags.status.sf, sf.unsigned().extend::<I8>())?;
-    cpu_store!(body, memory, flags.status.of, of.unsigned().extend::<I8>())?;
-    cpu_store!(body, memory, flags.kind, u32::from(CONCRETE_KIND))
+    cpu_store!(body, memory, flags.bytes.cf, cf.unsigned().extend::<I8>())?;
+    cpu_store!(body, memory, flags.bytes.pf, pf.unsigned().extend::<I8>())?;
+    cpu_store!(body, memory, flags.bytes.af, af.unsigned().extend::<I8>())?;
+    cpu_store!(body, memory, flags.bytes.zf, zf.unsigned().extend::<I8>())?;
+    cpu_store!(body, memory, flags.bytes.sf, sf.unsigned().extend::<I8>())?;
+    cpu_store!(body, memory, flags.bytes.of, of.unsigned().extend::<I8>())?;
+    cpu_store!(
+        body,
+        memory,
+        flags.status_source.kind,
+        u32::from(CONCRETE_KIND)
+    )
 }

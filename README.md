@@ -5,7 +5,7 @@ Rust components for x86 execution in WebAssembly.
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, CBW, CWDE, CWD, CDQ, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
 SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, MUL, IMUL, DIV, IDIV, SHL, SHR, SAR, SHLD, SHRD,
 ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, SETcc, CALL, RET, JMP, Jcc,
-JECXZ, LOOP, LOOPE and LOOPNE blocks
+JECXZ, LOOP, LOOPE, LOOPNE, CLC, STC, CMC, CLD and STD blocks
 from byte snapshots:
 
 ```rust
@@ -20,12 +20,13 @@ module exports `block_1000` and imports `wasm86.cpuState` memory (minimum one
 64-KiB page) and `wasm86.dispatch(i32) -> i64`.
 
 `CpuState` exposes the backing state as plain Rust fields. `Registers`,
-`StoredFlags` and `StatusFlags` retain every field, including reserved bytes and
-inactive flag data. The types support copying and full equality comparisons:
+`StoredFlags`, `StoredStatusSource` and `FlagBytes` retain every field, including
+reserved bytes and inactive flag data. The types support copying and full equality comparisons:
 
 ```rust
 let mut cpu = wasm86_x86::CpuState::default();
 cpu.registers.ebx = 0x1234_5678;
+cpu.flags.bytes.df = 1;
 cpu.eip = 0x1000;
 let bytes = cpu.to_bytes();
 assert_eq!(wasm86_x86::CpuState::from_bytes(bytes), cpu);
@@ -39,8 +40,30 @@ EAX through EDI are dwords in encoding order at offsets 24–52, EIP is at 56, a
 completed-instruction count is at 144. `Registers` also supports indexing by
 `Gpr32` for cases that select a register dynamically.
 
-An exit publishes its current flag source, then
-dirty registers in first-write order. EIP and count use 32-bit wrapping arithmetic.
+The flag backing record separates the source of status values from the individual
+stored flag bytes:
+
+```rust,ignore
+struct StoredFlags {
+    status_source: StoredStatusSource, // kind, reserved bytes and source payload
+    bytes: FlagBytes,                  // cf, pf, af, zf, sf, of, tf, df, nt, ac, id, reserved
+}
+```
+
+`status_source` occupies bytes 0–11. Kind zero uses the low bits of the stored
+CF/PF/AF/ZF/SF/OF bytes; other supported kinds derive those six status values from
+arithmetic operands or a logical result. Their stored bytes can therefore be stale. `bytes` occupies
+bytes 12–23: the six status flags, then TF, DF, NT, AC, ID and a reserved byte.
+DF is x86's control flag; TF, NT, AC and ID belong to the system flags. Their values
+always use their stored bytes, independently of `status_source`.
+This is wasm86's backing format, not the architectural EFLAGS bit encoding.
+Host field access inspects raw storage; generated `read_flag` operations resolve
+the current logical values. The logical `StatusFlag` subset describes the flags
+that arithmetic can produce without dividing the stored bytes into separate groups.
+
+An exit publishes its current status source and direct flag definitions, then
+dirty register definitions in first-write order.
+EIP and count use 32-bit wrapping arithmetic.
 The number of completed instructions is fixed during compilation for each exit.
 An exit with progress reads the runtime counter and adds that number; an exit
 with no progress leaves it unchanged. The block
@@ -127,6 +150,13 @@ supports these forms in default-32 operand and address mode:
 | XCHG accumulator and opcode-selected register | — | 90–97 | 90–97 |
 | XADD register/memory destination and register | 0F C0 | 0F C1 | 0F C1 |
 | CMPXCHG register/memory destination and register | 0F B0 | 0F B1 | 0F B1 |
+
+CLC (`F8`) clears CF, STC (`F9`) sets CF, and CMC (`F5`) complements CF.
+They preserve the other five logical status flags. CLD (`FC`) clears DF and
+STD (`FD`) sets DF, preserving the complete status record. These five instructions
+have no operands, ignore `66`, and preserve every other register and flag.
+Their effects follow the corresponding entries in the
+[Intel Software Developer's Manual](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html).
 
 MOVZX (`0F B6`/`0F B7`) and MOVSX (`0F BE`/`0F BF`) read a byte or word
 register/memory source into a register destination. MOVZX fills the added bits
@@ -433,6 +463,20 @@ and bind the same physical fields. The declaration helper checks that contract,
 argument arity, opcode-range boundaries and field compatibility during constant
 evaluation. Catalog tests check that opcode patterns and extensions do not overlap.
 
+`no_operands()` selects one handler regardless of the operand-size prefix:
+
+```rust
+CLC {
+    execute: set(Flag::CF, false);
+    forms {
+        0xF8 => no_operands();
+    }
+}
+```
+
+Its body receives the execution builder and any fixed `execute` arguments.
+The form uses the ordinary opcode-only fetch path with an empty operand binding.
+
 Physical immediate widths stay independent of logical data widths. `imm8` and
 `imm16` consume one and two bytes respectively; `imm` follows the operand-size
 attribute. `signed_imm8` consumes one byte and sign-extends it to the row's width.
@@ -470,7 +514,7 @@ The `forms::declarations` helper derives an `Encoding` and operand bindings from
 each row. `Encoding::ModRm` describes reg/rm fields and an optional trailing
 immediate. Both decoders retain them in `DecodedFields::ModRm`; the immediate is
 fetched after all address fields regardless of the body's argument order. Binding
-assigns these fields to unary, binary or ternary arguments without reading guest
+assigns these fields to zero, one, two or three arguments without reading guest
 state. Lowering converts snapshot literals and runtime expressions to the common
 `Val<I32>` carrier and calls the bound Rust handler. The `handlers` module owns
 these callable shapes and their word/dword selection.
@@ -530,7 +574,7 @@ stack read that retains the value and next ESP without committing the pointer.
 POP checks its destination before committing; RET adds its cleanup and returns
 the popped value as the successor EIP.
 
-The register value environment tracks typed byte, word and dword locations,
+The state value environment tracks typed byte, word and dword locations,
 forwarding known definitions and caching reads. A location describes either a
 fixed offset or a computed address together with its possible backing range;
 reads and definitions use the same interface for both. State derives register
@@ -551,8 +595,8 @@ discard the destination result. ALU construction and flag queries build symbolic
 expressions without a builder; they perform no CPU reads or writes.
 
 ADD, XADD, SUB, CMP and CMPXCHG retain their arithmetic operands and result in a
-typed `FlagSource` for later flag queries. Logic sources retain their result;
-explicit sources retain only six symbolic flag values. `AnyFlagSource` holds a
+typed `StatusSource` for later flag queries. Logic sources retain their result;
+explicit sources retain only six symbolic flag values. `AnyStatusSource` holds a
 byte, word or dword source without erasing the compiler values' logical types.
 ADC and SBB use `ArithmeticOp::apply_with_carry`, with the incoming CF read after all
 operand guards. They share ADD/SUB's arithmetic equations, adding CF or subtracting
@@ -561,23 +605,43 @@ The stored-record decoder reuses `ArithmeticOp::result` to reconstruct an
 arithmetic source from its original operands. A same-block CMP or SUB condition
 can compare those operands directly without calculating unused flags.
 
-The `alu::flags` modules own flag descriptions, masks, partial changes and
-condition rules. Flag-bit extraction uses typed truncation, so raw intermediates
-can remain unnormalized until an operation needs their logical low bit.
-`state::flags` owns admission, pending history and publication. Its `FlagState`
-holds a stored CPU record or symbolic source as its base, followed by complete or
-partial changes in instruction order. `set_flags` accepts a `FlagChange` containing
-an optional condition and `FlagValues`: either a complete source or individual
-flag values, with omitted flags preserved. `change.when(predicate)` restricts when
-the change applies; repeated calls combine predicates with AND. `preserving(flag)`
-retains the condition while removing that flag's update. These methods construct
-symbolic descriptions; state validates and normalizes them during admission.
-An unconditional complete replacement discards the earlier history.
+The `flags` modules own architectural flag identity, write masks, changes and
+condition rules. `Flag` covers the six status flags and DF; `StatusFlag` identifies
+only the bits that an ALU source can supply. `FlagMask::STATUS` names that subset,
+while `FlagMask::ALL` also includes DF. Flag-bit extraction uses typed truncation,
+so raw intermediates can remain unnormalized until their logical low bit is needed.
+
+`ExecutionBuilder::read_flag` and `write_flag` expose the same logical interface
+for every modeled flag. A write accepts a `Val<I1>` or boolean:
+
+```rust,ignore
+execution.write_flag(Flag::DF, false)?;
+let carry = execution.read_flag(Flag::CF)?;
+execution.write_flag(Flag::CF, carry.xor(true))?;
+```
+
+`state::flags::FlagState` owns admission, queries, preservation and publication
+for both status flags and DF. Its status state retains a stored record or symbolic
+source followed by changes in instruction order. Direct flag storage uses the
+same typed environment mechanism as registers, with disjoint locations owned by
+the flag state. DF reads use its current symbolic byte without inspecting the
+arithmetic record. Actual writes canonicalize that byte; an inactive conditional
+write preserves its original raw byte. Storage offsets and widths remain inside state.
+
+`write_flags` accepts a `FlagChange` with an explicit write mask, optional predicate
+and `FlagValues`: a status source or individual architectural flag values.
+Like `write_flag`, it defines symbolic state; publication writes the backing image.
+Omitted flags are preserved. `change.when(predicate)` restricts when the change
+applies; repeated calls combine predicates with AND. `preserving(flag)` removes
+one write, while `retaining(mask)` restricts the write set. Both keep any status
+recipe intact. These methods construct descriptions; state admits all supplied
+values before changing either status or DF state. An unconditional complete
+status source replaces only the earlier status history and preserves DF.
 
 `UnaryOp::apply` defines INC, DEC, NEG and NOT. INC and DEC reuse the arithmetic
 operation and `outcome.flags.preserving(StatusFlag::CF)`, which removes the CF
-change without reading the old carry. The same method can remove a flag from an
-already partial change. NEG uses subtraction from zero and its existing lazy
+change without reading the old carry or expanding the remaining arithmetic recipe.
+The same method can remove a flag from an already partial change. NEG uses subtraction from zero and its existing lazy
 record; CF is set exactly when the original operand is nonzero. NOT returns an
 inverted value and an empty flag change.
 
@@ -615,13 +679,14 @@ double shifts keep CF defined at a count equal to the operand width.
 `RotateDirection::rotate` and `rotate_through_carry` describe a partial CF/OF
 change. Each semantic operation attaches its own flag condition with `when`:
 RCL/RCR use the effective count after carry-ring reduction, while shifts and
-ROL/ROR use the masked count. Every handler passes `outcome.flags` to `set_flags`.
+ROL/ROR use the masked count. Every handler passes `outcome.flags` to `write_flags`.
 Admission validates the predicate and every supplied flag value before changing
 state, even for false conditions or empty changes. Constant true conditions become
 unconditional changes; false conditions preserve the previous source. Runtime
 conditions stay with their changes in the history. A condition query composes the
-bits it needs when a partial change affects them; complete sources retain their
-comparison shortcuts. Conditional values use pure selections. Stored reads stay on the owning
+bits it needs when no one source supplies them all. A retained source can use its
+comparison shortcut whenever its write mask covers every condition dependency,
+including after preserving unrelated flags. Conditional values use pure selections. Stored reads stay on the owning
 path so cached values remain available to later queries. Reading flags never
 modifies the stored record.
 
@@ -671,8 +736,12 @@ Other queries use shared readonly readers. Inverse conditions share a reader and
 cached result. Partial changes request missing inherited flags together as separate
 I1 results, sharing one record decoder and invocation. Readers are created only when needed;
 queries preserve the stored representation.
+CLC, STC and CMC use the common flag interface to replace only CF. CMC reads the
+current carry with `read_flag(Flag::CF)`; constants and computed bits use the same
+change representation as CLD/STD's DF writes. Publication resolves the other five flags
+and writes the concrete kind-0 format, preserving unused payload bytes.
 MOV, MOVZX, MOVSX, LEA, XCHG, CMOVcc and SETcc preserve flags, and these instructions
-leave non-status flag bytes untouched. A faulting operand access preserves the
+leave control and system flag bytes untouched. A faulting operand access preserves the
 previous instruction's flags.
 
 The step and snapshot blocks with memory operands also import `wasm86.guest`
@@ -1085,6 +1154,9 @@ claim `Preserved`. Use `stored_flags(record)` to choose an incoming representati
 When logical initial flags are supplied, the runner verifies that the record
 represents them. `preserve_flag_record()` additionally requires unchanged record
 bytes for a case that reads logical flags, such as CMOV.
+`expect_direction_flag(bool)` changes the expected DF byte on an instruction case
+or sequence checkpoint. System flag bytes and reserved bytes stay unchanged; record-preserving
+checks allow only that explicitly stated DF change.
 
 Cases start at `0x1000` and expect one retired instruction with fallthrough
 dispatch. Use `at(origin)`, `instruction_count(count)`, `dispatch(target)`,

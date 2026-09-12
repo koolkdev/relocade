@@ -1,8 +1,9 @@
 use wasm86_x86::{
     CpuState,
     Gpr32::{Eax, Ebx, Ecx},
-    StatusFlags, StoredFlags,
+    StoredFlags,
 };
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 
 use crate::support::cases::{
     test_cases,
@@ -29,10 +30,26 @@ fn write_faults() -> Vec<Case> {
             let mut case = Case::new(format!("{operation}: {name}"), &code,
                 Flags { cf: true, pf: true, af: false, zf: false, sf: true, of: true }, Flags::all(Preserved))
                 .stored_flags(StoredFlags {
-                    kind: 9, left: 0x7fff_fffe, right: 0xffff_fffe,
-                    status: StatusFlags { cf: 1, pf: 1, af: 1, zf: 1, sf: 1, of: 1 },
-                    non_status: [0, 1, 0, 0, 0, 0xa5],
-                    ..CpuState::filled(0xa5).flags
+                    status_source: StoredStatusSource {
+                        kind: 9,
+                        left: 0x7fff_fffe,
+                        right: 0xffff_fffe,
+                        ..(CpuState::filled(0xa5).flags).status_source
+                    },
+                    bytes: FlagBytes {
+                        cf: 1,
+                        pf: 1,
+                        af: 1,
+                        zf: 1,
+                        sf: 1,
+                        of: 1,
+                        tf: 0,
+                        df: 1,
+                        nt: 0,
+                        ac: 0,
+                        id: 0,
+                        reserved: 0xa5,
+                    },
                 }).preserve_flag_record()
                 .initial_register(Eax, 0x4433_2211).initial_register(Ebx, address)
                 .backing(0x801f, &[0x5a, 0x80, 0xfe, 0xdc, 0xba, 0x5a])

@@ -2,11 +2,9 @@
 
 use wasm86_compiler::{MemoryInt, Val, I1};
 
-use super::{
-    bit,
-    flags::{AnyFlagSource, FlagChange, FlagSource, StatusFlag},
-    result_flag, AluResult,
-};
+use super::{bit, result_flag, AluResult};
+use crate::alu::{AnyStatusSource, StatusSource};
+use crate::flags::{FlagChange, StatusFlag};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum ArithmeticOp {
@@ -29,12 +27,12 @@ impl ArithmeticOp {
         right: impl Into<Val<T>>,
     ) -> AluResult<T>
     where
-        FlagSource<T>: Into<AnyFlagSource>,
+        StatusSource<T>: Into<AnyStatusSource>,
     {
         let left = left.into();
         let right = right.into();
         let result = self.result(&left, &right);
-        let flags = FlagSource::Arithmetic {
+        let flags = StatusSource::Arithmetic {
             operation: self,
             left,
             right,
@@ -53,7 +51,7 @@ impl ArithmeticOp {
         carry_in: Val<I1>,
     ) -> AluResult<T>
     where
-        FlagSource<T>: Into<AnyFlagSource>,
+        StatusSource<T>: Into<AnyStatusSource>,
     {
         let left = left.into();
         let right = right.into();
@@ -63,7 +61,7 @@ impl ArithmeticOp {
         let flags = StatusFlag::ALL.map(|flag| self.flag(&left, &right, &result, &carry_in, flag));
         AluResult {
             result,
-            flags: FlagChange::from(FlagSource::<T>::Explicit { flags }),
+            flags: FlagChange::from(StatusSource::<T>::Explicit { flags }),
         }
     }
 

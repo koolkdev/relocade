@@ -5,12 +5,10 @@ pub(crate) use operands::PairValues;
 
 use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32, I64};
 
-use crate::{
-    alu::flags::{Condition, FlagChange},
-    instruction::{self, DecodedInstruction},
-    memory::{Access, Intent, Memory},
-    state::{exit, Cpu, State},
-};
+use crate::flags::{Condition, Flag, FlagChange};
+use crate::instruction::{self, DecodedInstruction};
+use crate::memory::{Access, Intent, Memory};
+use crate::state::{exit, Cpu, State};
 
 /// Builds one execution path. State definitions and progress describe completed
 /// instructions; a fault publishes that boundary before the current effects.
@@ -53,8 +51,21 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         Ok(())
     }
 
-    pub(super) fn set_flags(&mut self, change: impl Into<FlagChange>) -> Result<(), BuildError> {
-        self.state.set_flags(&mut self.body, change)
+    /// Defines a flag change while preserving flags omitted from its write mask.
+    pub(super) fn write_flags(&mut self, change: impl Into<FlagChange>) -> Result<(), BuildError> {
+        self.state.write_flags(&mut self.body, change)
+    }
+
+    pub(super) fn read_flag(&mut self, flag: Flag) -> Result<Val<I1>, BuildError> {
+        self.state.read_flag(&mut self.body, flag)
+    }
+
+    pub(super) fn write_flag(
+        &mut self,
+        flag: Flag,
+        value: impl Into<Val<I1>>,
+    ) -> Result<(), BuildError> {
+        self.state.write_flag(&mut self.body, flag, value)
     }
 
     pub(super) fn condition(&mut self, condition: Condition) -> Result<Val<I1>, BuildError> {

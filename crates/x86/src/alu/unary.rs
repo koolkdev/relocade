@@ -2,10 +2,9 @@
 
 use wasm86_compiler::{MemoryInt, Val};
 
-use super::{
-    flags::{AnyFlagSource, FlagChange, FlagSource, StatusFlag},
-    AluResult, ArithmeticOp,
-};
+use super::{AluResult, ArithmeticOp};
+use crate::alu::{AnyStatusSource, StatusSource};
+use crate::flags::{FlagChange, StatusFlag};
 
 #[derive(Clone, Copy)]
 pub(crate) enum UnaryOp {
@@ -18,7 +17,7 @@ pub(crate) enum UnaryOp {
 impl UnaryOp {
     pub(crate) fn apply<T: MemoryInt>(self, input: Val<T>) -> AluResult<T>
     where
-        FlagSource<T>: Into<AnyFlagSource>,
+        StatusSource<T>: Into<AnyStatusSource>,
     {
         let arithmetic = match self {
             Self::Increment => ArithmeticOp::Add,

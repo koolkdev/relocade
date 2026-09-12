@@ -1,6 +1,7 @@
 use super::{EVEN, ODD, ZERO};
 use crate::support::cases::{test_cases, InstructionCase as Case, RegisterExpectation::Exact};
-use wasm86_x86::{CpuState, Gpr32, StatusFlags, StoredFlags};
+use wasm86_x86::{CpuState, Gpr32, StoredFlags};
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 
 fn parity_cases() -> Vec<Case> {
     let mut cases = Vec::new();
@@ -110,8 +111,23 @@ fn flag_replacement_cases() -> Vec<Case> {
             for (opcode, result) in [(0xbc, first), (0xbd, last)] {
                 cases.push(Case::replacing_flags(format!("opcode {opcode:x}, prefix {prefix:02x?}, source {source:x} replaces kind {kind}"),
                     &[prefix, &[0x0f, opcode, 0xc2]].concat(), flags)
-                    .stored_flags(StoredFlags { kind, left: 0x1234_5678, right: 0x8765_4321,
-                        status: StatusFlags { cf: 1, pf: 1, af: 1, zf: 1, sf: 1, of: 1 }, ..CpuState::filled(0xa5).flags })
+                    .stored_flags(StoredFlags {
+                        status_source: StoredStatusSource {
+                            kind,
+                            left: 0x1234_5678,
+                            right: 0x8765_4321,
+                            ..(CpuState::filled(0xa5).flags).status_source
+                        },
+                        bytes: FlagBytes {
+                            cf: 1,
+                            pf: 1,
+                            af: 1,
+                            zf: 1,
+                            sf: 1,
+                            of: 1,
+                            ..(CpuState::filled(0xa5).flags).bytes
+                        },
+                    })
                     .register(Gpr32::Eax, 0x4433_a55b, result).initial_register(Gpr32::Edx, source));
             }
         }

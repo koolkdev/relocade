@@ -1,6 +1,5 @@
-use wasm86_x86::{
-    compile_block_from_bytes, BlockError, CpuState, Gpr32::Eax, StatusFlags, StoredFlags,
-};
+use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32::Eax, StoredFlags};
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 use wasmparser::Validator;
 
 use crate::support::cases::{
@@ -305,7 +304,7 @@ fn binary_fetch_faults_follow_decode_precedence() {
         ),
     ] {
         let mut image = Image::new(&[]);
-        image.cpu.flags.kind = 0;
+        image.cpu.flags.status_source.kind = 0;
         image.cpu.eip = start;
         image.cpu.registers.ebx = 0x4000;
         image.data(0x3000 + (start & 0xfff), &code);
@@ -327,9 +326,15 @@ fn binary_fetch_faults_follow_decode_precedence() {
 fn code_page_boundaries() -> Vec<Case> {
     vec![
         Case::new("extended opcode spans scattered code pages", &[0x0f, 0x94, 0xc4], Flags::all(true), Flags::all(Preserved))
-            .stored_flags(StoredFlags { kind: 0,
-                status: StatusFlags { zf: 1, ..CpuState::filled(0xa5).flags.status },
-                ..CpuState::filled(0xa5).flags
+            .stored_flags(StoredFlags {
+                status_source: StoredStatusSource {
+                    kind: 0,
+                    ..(CpuState::filled(0xa5).flags).status_source
+                },
+                bytes: FlagBytes {
+                    zf: 1,
+                    ..(CpuState::filled(0xa5).flags).bytes
+                },
             }).preserve_flag_record()
             .at(0x1fff).map_page(1, 0x3000, ReadOnly).map_page(2, 0xa000, ReadOnly)
             .register(Eax, 0x4433_2211, 0x4433_0111),

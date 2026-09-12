@@ -5,6 +5,7 @@ use crate::support::machine;
 use crate::support::step;
 use machine::{check, Exit, Image, Step};
 use step::TestModule;
+use wasm86_x86::StoredStatusSource;
 use wasm86_x86::{CpuState, Gpr32, StoredFlags};
 
 fn image(start: u32, code: &[u8]) -> Image {
@@ -98,8 +99,11 @@ fn complete_operand_cases() -> Vec<Case> {
                 Flags::all(Preserved),
             )
             .stored_flags(StoredFlags {
-                kind: 11,
-                left: 0,
+                status_source: StoredStatusSource {
+                    kind: 11,
+                    left: 0,
+                    ..(CpuState::filled(0xa5).flags).status_source
+                },
                 ..CpuState::filled(0xa5).flags
             })
             .preserve_flag_record()

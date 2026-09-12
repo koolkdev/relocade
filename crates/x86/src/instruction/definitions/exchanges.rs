@@ -1,12 +1,7 @@
 use super::*;
-use crate::{
-    alu::{
-        flags::{AnyFlagSource, FlagSource},
-        ArithmeticOp,
-    },
-    execution::PairValues,
-    register::{Gpr32, RegisterType},
-};
+use crate::alu::{AnyStatusSource, ArithmeticOp, StatusSource};
+use crate::execution::PairValues;
+use crate::register::{Gpr32, RegisterType};
 
 instruction_families! {
     XCHG {
@@ -52,12 +47,12 @@ fn xadd<T: RegisterType>(
     source: TypedLocation<T>,
 ) -> Result<(), BuildError>
 where
-    FlagSource<T>: Into<AnyFlagSource>,
+    StatusSource<T>: Into<AnyStatusSource>,
 {
     destination.update_pair(execution, source, |execution, old| {
         let outcome = ArithmeticOp::Add.apply(old.left.clone(), old.right);
         let sum = outcome.result;
-        execution.set_flags(outcome.flags)?;
+        execution.write_flags(outcome.flags)?;
         Ok(PairValues {
             left: sum,
             right: old.left,
@@ -72,7 +67,7 @@ fn cmpxchg<T: RegisterType>(
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
-    FlagSource<T>: Into<AnyFlagSource>,
+    StatusSource<T>: Into<AnyStatusSource>,
 {
     destination.update_pair(
         execution,
@@ -80,7 +75,7 @@ where
         |execution, old| {
             let replacement = source.read(execution)?;
             let equal = old.right.eq(&old.left);
-            execution.set_flags(
+            execution.write_flags(
                 ArithmeticOp::Subtract
                     .apply(old.right.clone(), old.left.clone())
                     .flags,

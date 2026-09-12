@@ -1,3 +1,4 @@
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 #[path = "accumulator_extensions/decoding.rs"]
 mod decoding;
 #[path = "accumulator_extensions/sequences.rs"]
@@ -9,7 +10,7 @@ use crate::support::cases::{
 use wasm86_x86::{
     CpuState,
     Gpr32::{Eax, Edx},
-    StatusFlags, StoredFlags,
+    StoredFlags,
 };
 
 const ENCODINGS: [(&str, &[u8]); 4] = [
@@ -46,32 +47,38 @@ fn boundary_cases() -> Vec<Case> {
 
 fn stored_flag_cases() -> Vec<Case> {
     let concrete = StoredFlags {
-        kind: 0,
-        left: 0x1234_5678,
-        right: 0x8765_4321,
-        status: StatusFlags {
+        status_source: StoredStatusSource {
+            kind: 0,
+            left: 0x1234_5678,
+            right: 0x8765_4321,
+            ..(CpuState::filled(0xa5).flags).status_source
+        },
+        bytes: FlagBytes {
             cf: 1,
             pf: 0,
             af: 1,
             zf: 0,
             sf: 1,
             of: 0,
+            ..(CpuState::filled(0xa5).flags).bytes
         },
-        ..CpuState::filled(0xa5).flags
     };
     let pending_add = StoredFlags {
-        kind: 10,
-        left: 0x7fff_ffff,
-        right: 1,
-        status: StatusFlags {
+        status_source: StoredStatusSource {
+            kind: 10,
+            left: 0x7fff_ffff,
+            right: 1,
+            ..(CpuState::filled(0x5a).flags).status_source
+        },
+        bytes: FlagBytes {
             cf: 1,
             pf: 0,
             af: 0,
             zf: 1,
             sf: 0,
             of: 0,
+            ..(CpuState::filled(0x5a).flags).bytes
         },
-        ..CpuState::filled(0x5a).flags
     };
     let mut cases = Vec::new();
     for (name, stored, flags) in [

@@ -1,4 +1,5 @@
-use wasm86_x86::{compile_block_from_bytes, CpuState, Gpr32::Eax, StatusFlags, StoredFlags};
+use wasm86_x86::{compile_block_from_bytes, CpuState, Gpr32::Eax, StoredFlags};
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 
 use crate::support::{
     cases::{
@@ -23,9 +24,16 @@ fn saved_carry() -> Vec<Case> {
         (11, 0x8000_0000, 0xffff_ffff, 1, Flags { cf: false, pf: true, af: false, zf: false, sf: true, of: false }),
     ] {
         let record = StoredFlags {
-            kind, left, right,
-            status: StatusFlags { cf: stored_carry, ..CpuState::filled(0xa5).flags.status },
-            ..CpuState::filled(0xa5).flags
+            status_source: StoredStatusSource {
+                kind,
+                left,
+                right,
+                ..(CpuState::filled(0xa5).flags).status_source
+            },
+            bytes: FlagBytes {
+                cf: stored_carry,
+                ..(CpuState::filled(0xa5).flags).bytes
+            },
         };
         cases.push(Case::new(format!("INC EAX consumes saved kind {kind}, CF byte {stored_carry:#x}"), &[0x40], flags,
             Flags { cf: Preserved, pf: Set, af: Set, zf: Clear, sf: Set, of: Set })
@@ -51,7 +59,7 @@ fn discarded_local_carry_operands_remain_unpublished_through_partial_updates() {
         kind: u8,
         left: u32,
         right: u32,
-        status: Option<StatusFlags>,
+        status: Option<Flags<u8>>,
         carry: u8,
     }
     for producer in [
@@ -104,7 +112,7 @@ fn discarded_local_carry_operands_remain_unpublished_through_partial_updates() {
             kind: 0,
             left: 0xa5a5_a5a5,
             right: 0xa5a5_a5a5,
-            status: Some(StatusFlags {
+            status: Some(Flags {
                 cf: 1,
                 pf: 1,
                 af: 1,
@@ -128,8 +136,8 @@ fn discarded_local_carry_operands_remain_unpublished_through_partial_updates() {
         ]
         .concat();
         let mut image = Image::new(&code);
-        image.cpu.flags.kind = 0;
-        image.cpu.flags.status.cf = producer.initial_carry;
+        image.cpu.flags.status_source.kind = 0;
+        image.cpu.flags.bytes.cf = producer.initial_carry;
         image.cpu.registers.eax = 0xffff_ffff;
         image.cpu.registers.ebx = 0;
         image.cpu.registers.ecx = producer.ecx;
@@ -140,11 +148,19 @@ fn discarded_local_carry_operands_remain_unpublished_through_partial_updates() {
         let mut steps = Vec::new();
 
         expected_cpu.registers.ecx = producer.result;
-        expected_cpu.flags.kind = producer.kind;
-        expected_cpu.flags.left = producer.left;
-        expected_cpu.flags.right = producer.right;
+        expected_cpu.flags.status_source.kind = producer.kind;
+        expected_cpu.flags.status_source.left = producer.left;
+        expected_cpu.flags.status_source.right = producer.right;
         if let Some(status) = producer.status {
-            expected_cpu.flags.status = status;
+            expected_cpu.flags.bytes = FlagBytes {
+                cf: status.cf,
+                pf: status.pf,
+                af: status.af,
+                zf: status.zf,
+                sf: status.sf,
+                of: status.of,
+                ..expected_cpu.flags.bytes
+            };
         }
         expected_cpu.eip = 0x1002;
         expected_cpu.instruction_count = 0;
@@ -155,14 +171,15 @@ fn discarded_local_carry_operands_remain_unpublished_through_partial_updates() {
         });
 
         expected_cpu.registers.eax = 0;
-        expected_cpu.flags.kind = 0;
-        expected_cpu.flags.status = StatusFlags {
+        expected_cpu.flags.status_source.kind = 0;
+        expected_cpu.flags.bytes = FlagBytes {
             cf: producer.carry,
             pf: 1,
             af: 1,
             zf: 1,
             sf: 0,
             of: 0,
+            ..expected_cpu.flags.bytes
         };
         expected_cpu.eip = 0x1003;
         expected_cpu.instruction_count = 1;
@@ -173,13 +190,14 @@ fn discarded_local_carry_operands_remain_unpublished_through_partial_updates() {
         });
 
         expected_cpu.registers.ebx = 0xffff_ffff;
-        expected_cpu.flags.status = StatusFlags {
+        expected_cpu.flags.bytes = FlagBytes {
             cf: producer.carry,
             pf: 1,
             af: 1,
             zf: 0,
             sf: 1,
             of: 0,
+            ..expected_cpu.flags.bytes
         };
         expected_cpu.eip = 0x1004;
         expected_cpu.instruction_count = 2;
@@ -190,13 +208,14 @@ fn discarded_local_carry_operands_remain_unpublished_through_partial_updates() {
         });
 
         expected_cpu.registers.esi = if producer.carry == 1 { 0 } else { 0xffff_ffff };
-        expected_cpu.flags.status = StatusFlags {
+        expected_cpu.flags.bytes = FlagBytes {
             cf: producer.carry,
             pf: 1,
             af: producer.carry,
             zf: producer.carry,
             sf: 1 - producer.carry,
             of: 0,
+            ..expected_cpu.flags.bytes
         };
         expected_cpu.eip = 0x1007;
         expected_cpu.instruction_count = 3;
@@ -207,13 +226,14 @@ fn discarded_local_carry_operands_remain_unpublished_through_partial_updates() {
         });
 
         expected_cpu.registers.edi = if producer.carry == 1 { 0xffff_ffff } else { 0 };
-        expected_cpu.flags.status = StatusFlags {
+        expected_cpu.flags.bytes = FlagBytes {
             cf: producer.carry,
             pf: 1,
             af: producer.carry,
             zf: 1 - producer.carry,
             sf: producer.carry,
             of: 0,
+            ..expected_cpu.flags.bytes
         };
         expected_cpu.eip = 0x100a;
         expected_cpu.instruction_count = 4;
@@ -244,8 +264,8 @@ fn discarded_local_carry_operands_remain_unpublished_through_partial_updates() {
         check(TestModule::interpreter(), producer.name, &image, &steps);
         // A block publishes only the final explicit source, not the producer's
         // discarded lazy operands. The interpreter already published those operands.
-        expected_cpu.flags.left = image.cpu.flags.left;
-        expected_cpu.flags.right = image.cpu.flags.right;
+        expected_cpu.flags.status_source.left = image.cpu.flags.status_source.left;
+        expected_cpu.flags.status_source.right = image.cpu.flags.status_source.right;
         let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 7).unwrap());
         check(
             &block,

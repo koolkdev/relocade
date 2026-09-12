@@ -1,9 +1,11 @@
-use crate::alu::flags::{Condition, FlagChange, FlagSource, StatusFlag};
 use crate::alu::ArithmeticOp;
+use crate::alu::StatusSource;
+use crate::flags::{Condition, FlagChange, StatusFlag};
 use crate::state::access::cpu_load;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
-use crate::{CompiledModule, StatusFlags};
+use crate::CompiledModule;
+use crate::FlagBytes;
 use wasm86_compiler::{BuildError, Program, Signature, Type, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -23,11 +25,12 @@ fn conditional_publication(local_base: bool) -> CompiledModule {
             |mut body| {
                 let mut state = State::new(&cpu);
                 if local_base {
-                    state.set_flags(&mut body, ArithmeticOp::Subtract.apply::<I32>(4, 5).flags)?;
+                    state
+                        .write_flags(&mut body, ArithmeticOp::Subtract.apply::<I32>(4, 5).flags)?;
                 }
                 let initial_equal = state.condition(&mut body, Condition::E)?;
                 let first = body.parameter::<I1>(0)?;
-                state.set_flags(
+                state.write_flags(
                     &mut body,
                     ArithmeticOp::Add.apply::<I8>(255, 1).flags.when(first),
                 )?;
@@ -44,9 +47,9 @@ fn conditional_publication(local_base: bool) -> CompiledModule {
                     )
                 })?;
                 let second = body.parameter::<I1>(1)?;
-                state.set_flags(
+                state.write_flags(
                     &mut body,
-                    FlagChange::from(FlagSource::<I16>::Logic {
+                    FlagChange::from(StatusSource::<I16>::Logic {
                         result: 0x8000.into(),
                     })
                     .when(second),
@@ -94,17 +97,17 @@ fn conditional_flags_keep_earlier_exits_and_publish_only_the_last_active_source(
                         14 // ZF=0, !ZF=1, SF^OF=1, CF=1.
                     };
                     if active_second {
-                        expected.flags.kind = 7;
-                        expected.flags.left = 0x8000;
+                        expected.flags.status_source.kind = 7;
+                        expected.flags.status_source.left = 0x8000;
                         // Earlier symbolic sources never write their unused
                         // payloads into backing, even when both predicates hold.
                     } else if first == 1 {
-                        expected.flags.kind = 2;
-                        expected.flags.left = 255;
-                        expected.flags.right = 1;
+                        expected.flags.status_source.kind = 2;
+                        expected.flags.status_source.left = 255;
+                        expected.flags.status_source.right = 1;
                     } else if local_base {
-                        expected.flags.left = 4;
-                        expected.flags.right = 5;
+                        expected.flags.status_source.left = 4;
+                        expected.flags.status_source.right = 5;
                     }
                     expected.eip = if stop == 1 { 0x1002 } else { 0x1004 };
                     expected.instruction_count = if stop == 1 { 0 } else { 1 };
@@ -129,21 +132,21 @@ fn preserving_or_consuming_carry_uses_the_selected_conditional_source() {
                 |mut body| {
                     let mut state = State::new(&cpu);
                     let replace = body.parameter::<I1>(0)?;
-                    state.set_flags(
+                    state.write_flags(
                         &mut body,
-                        FlagChange::from(FlagSource::<I8>::Logic { result: 0.into() })
+                        FlagChange::from(StatusSource::<I8>::Logic { result: 0.into() })
                             .when(replace),
                     )?;
                     let result = if preserve_carry {
                         let addition = ArithmeticOp::Add.apply::<I8>(255, 1);
                         let result = addition.result.unsigned().extend::<I64>();
-                        state.set_flags(&mut body, addition.flags.preserving(StatusFlag::CF))?;
+                        state.write_flags(&mut body, addition.flags.preserving(StatusFlag::CF))?;
                         result
                     } else {
                         let carry = state.condition(&mut body, Condition::B)?;
                         let addition = ArithmeticOp::Add.apply_with_carry::<I8>(255, 0, carry);
                         let result = addition.result.unsigned().extend::<I64>();
-                        state.set_flags(&mut body, addition.flags)?;
+                        state.write_flags(&mut body, addition.flags)?;
                         result
                     };
                     state.publish(&mut body, 0x1004, 2)?;
@@ -160,14 +163,15 @@ fn preserving_or_consuming_carry_uses_the_selected_conditional_source() {
         for replace in [0, 1] {
             let zero_result = preserve_carry || replace == 0;
             let mut expected = initial;
-            expected.flags.kind = 0;
-            expected.flags.status = StatusFlags {
+            expected.flags.status_source.kind = 0;
+            expected.flags.bytes = FlagBytes {
                 cf: u8::from(replace == 0),
                 pf: 1,
                 af: u8::from(zero_result),
                 zf: u8::from(zero_result),
                 sf: u8::from(!zero_result),
                 of: 0,
+                ..expected.flags.bytes
             };
             expected.eip = 0x1004;
             expected.instruction_count = 1;
@@ -197,7 +201,7 @@ fn constant_predicates_omit_false_updates_and_discard_history_on_true() {
                     let mut state = State::new(&cpu);
                     if pending_history {
                         let pending = body.parameter::<I1>(0)?;
-                        state.set_flags(
+                        state.write_flags(
                             &mut body,
                             ArithmeticOp::Add.apply::<I16>(2, 3).flags.when(pending),
                         )?;
@@ -206,9 +210,10 @@ fn constant_predicates_omit_false_updates_and_discard_history_on_true() {
                         .value::<I32>(7)?
                         .add(9)
                         .eq(if replace { 16 } else { 17 });
-                    state.set_flags(
+                    state.write_flags(
                         &mut body,
-                        FlagChange::from(FlagSource::<I8>::Logic { result: 0.into() }).when(folded),
+                        FlagChange::from(StatusSource::<I8>::Logic { result: 0.into() })
+                            .when(folded),
                     )?;
                     state.publish(&mut body, 0x1002, 1)?;
                     body.return_(0_u64)
@@ -237,12 +242,12 @@ fn constant_predicates_omit_false_updates_and_discard_history_on_true() {
         for pending in [0, 1] {
             let mut expected = initial;
             if replace {
-                expected.flags.kind = 3;
-                expected.flags.left = 0;
+                expected.flags.status_source.kind = 3;
+                expected.flags.status_source.left = 0;
             } else if pending_history && pending == 1 {
-                expected.flags.kind = 6;
-                expected.flags.left = 2;
-                expected.flags.right = 3;
+                expected.flags.status_source.kind = 6;
+                expected.flags.status_source.left = 2;
+                expected.flags.status_source.right = 3;
             }
             expected.eip = 0x1002;
             expected.instruction_count = 0;
@@ -271,8 +276,8 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
             |mut body| {
                 let mut state = State::new(&cpu);
                 let pending = body.parameter::<I1>(0)?;
-                let current = FlagSource::<I8>::Logic { result: 42.into() };
-                state.set_flags(&mut body, FlagChange::from(current).when(pending))?;
+                let current = StatusSource::<I8>::Logic { result: 42.into() };
+                state.write_flags(&mut body, FlagChange::from(current).when(pending))?;
                 let mut child = None;
                 body.if_(false, |mut arm| {
                     child = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?);
@@ -282,24 +287,24 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
                     (foreign, BuildError::ForeignBody),
                     (child.unwrap(), BuildError::OutOfScope),
                 ] {
-                    let valid = FlagSource::<I32>::Logic { result: 3.into() };
+                    let valid = StatusSource::<I32>::Logic { result: 3.into() };
                     assert_eq!(
-                        state.set_flags(&mut body, FlagChange::from(valid).when(invalid.eq(0))),
+                        state.write_flags(&mut body, FlagChange::from(valid).when(invalid.eq(0))),
                         Err(error.clone())
                     );
                     for false_first in [false, true] {
                         let change =
-                            FlagChange::from(FlagSource::<I32>::Logic { result: 3.into() });
+                            FlagChange::from(StatusSource::<I32>::Logic { result: 3.into() });
                         let change = if false_first {
                             change.when(false).when(invalid.eq(0))
                         } else {
                             change.when(invalid.eq(0)).when(false)
                         };
-                        assert_eq!(state.set_flags(&mut body, change), Err(error.clone()));
+                        assert_eq!(state.write_flags(&mut body, change), Err(error.clone()));
                     }
                     for condition in [false, true] {
                         for flag in StatusFlag::ALL {
-                            let invalid_source = FlagSource::<I32>::Explicit {
+                            let invalid_source = StatusSource::<I32>::Explicit {
                                 flags: StatusFlag::ALL.map(|candidate| {
                                     if candidate == flag {
                                         invalid.eq(0)
@@ -309,7 +314,7 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
                                 }),
                             };
                             assert_eq!(
-                                state.set_flags(
+                                state.write_flags(
                                     &mut body,
                                     FlagChange::from(invalid_source).when(condition)
                                 ),
@@ -317,9 +322,9 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
                             );
                         }
                         assert_eq!(
-                            state.set_flags(
+                            state.write_flags(
                                 &mut body,
-                                FlagChange::from(FlagSource::Logic {
+                                FlagChange::from(StatusSource::Logic {
                                     result: invalid.clone()
                                 })
                                 .when(condition),
@@ -353,9 +358,9 @@ fn conditional_publication_keeps_constant_control_depth_as_history_grows() {
                 let mut state = State::new(&cpu);
                 let selector = body.parameter::<I32>(0)?;
                 for index in 0..256 {
-                    state.set_flags(
+                    state.write_flags(
                         &mut body,
-                        FlagChange::from(FlagSource::<I32>::Logic {
+                        FlagChange::from(StatusSource::<I32>::Logic {
                             result: index.into(),
                         })
                         .when(selector.eq(index)),

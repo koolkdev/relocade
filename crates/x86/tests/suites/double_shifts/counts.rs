@@ -75,9 +75,9 @@ fn zero_counts_retain_every_byte_of_incoming_lazy_and_concrete_flags() {
                         code.push(count);
                     }
                     let mut image = image(&code);
-                    image.cpu.flags.kind = kind;
-                    image.cpu.flags.left = 0x1234_80ff;
-                    image.cpu.flags.right = 0x8765_0101;
+                    image.cpu.flags.status_source.kind = kind;
+                    image.cpu.flags.status_source.left = 0x1234_80ff;
+                    image.cpu.flags.status_source.right = 0x8765_0101;
                     image.cpu.registers.ecx = 0x8877_6600 | u32::from(count);
                     let mut cpu = image.cpu;
                     cpu.eip += code.len() as u32;

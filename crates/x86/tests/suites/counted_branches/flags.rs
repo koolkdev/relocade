@@ -2,22 +2,30 @@ use super::input_flags;
 use crate::support::cases::{
     test_cases, FlagExpectation::Preserved, Flags, InstructionCase as Case,
 };
-use wasm86_x86::{Gpr32::Ecx, StatusFlags, StoredFlags};
+use wasm86_x86::{FlagBytes, StoredStatusSource};
+use wasm86_x86::{Gpr32::Ecx, StoredFlags};
 
 const CANARY: StoredFlags = StoredFlags {
-    kind: 0,
-    reserved: [0xa5; 3],
-    left: 0x1234_5678,
-    right: 0x8765_4321,
-    status: StatusFlags {
+    status_source: StoredStatusSource {
+        kind: 0,
+        reserved: [0xa5; 3],
+        left: 0x1234_5678,
+        right: 0x8765_4321,
+    },
+    bytes: FlagBytes {
         cf: 1,
         pf: 1,
         af: 1,
         zf: 1,
         sf: 1,
         of: 1,
+        tf: 0,
+        df: 1,
+        nt: 0,
+        ac: 0,
+        id: 0,
+        reserved: 0x5a,
     },
-    non_status: [0, 1, 0, 0, 0, 0x5a],
 };
 
 #[rustfmt::skip]
@@ -49,9 +57,16 @@ fn pending_flag_cases() -> Vec<Case> {
     let mut cases = Vec::new();
     for (kind, left, right, flags) in records {
         let record = StoredFlags {
-            kind, left, right,
-            status: StatusFlags { zf: u8::from(!flags.zf), ..CANARY.status },
-            ..CANARY
+            status_source: StoredStatusSource {
+                kind,
+                left,
+                right,
+                ..CANARY.status_source
+            },
+            bytes: FlagBytes {
+                zf: u8::from(!flags.zf),
+                ..CANARY.bytes
+            },
         };
         for (opcode, condition_met) in [(0xe1, flags.zf), (0xe0, !flags.zf)] {
             for (count, after, target) in [
@@ -85,10 +100,8 @@ fn flag_independent_cases() -> Vec<Case> {
     }
     for zero in [false, true] {
         let record = StoredFlags {
-            // Concrete status bytes expose logical low bits and preserve spare bits.
-            status: StatusFlags { cf: 0xff, pf: 0x7f, af: 0x81, zf: if zero { 0x55 } else { 0xaa }, sf: 3, of: 0x5b },
-            ..CANARY
-        };
+// Concrete status bytes expose logical low bits and preserve spare bits.
+bytes: FlagBytes { cf: 0xff, pf: 0x7f, af: 0x81, zf: if zero { 0x55 } else { 0xaa }, sf: 3, of: 0x5b, ..CANARY.bytes }, ..CANARY };
         for (opcode, target) in [
             (0xe1, if zero { 0x1081 } else { 0x1002 }),
             (0xe0, if zero { 0x1002 } else { 0x1081 }),

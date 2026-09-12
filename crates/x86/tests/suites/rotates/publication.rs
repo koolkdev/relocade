@@ -1,4 +1,5 @@
-use wasm86_x86::{compile_block_from_bytes, StatusFlags};
+use wasm86_x86::compile_block_from_bytes;
+use wasm86_x86::FlagBytes;
 
 use crate::support::{
     machine::{check, expected as observe_expected, Exit, Image, Step},
@@ -37,18 +38,19 @@ fn flags_then_fault() -> (Image, Vec<Step<'static>>) {
     image.data(0x9fff, &[0x5a, 0x80, 0x5a]);
     let mut cpu = image.cpu;
     cpu.registers.eax = 0x4433_8000;
-    cpu.flags.kind = 2;
-    cpu.flags.left = 0xff;
-    cpu.flags.right = 1;
+    cpu.flags.status_source.kind = 2;
+    cpu.flags.status_source.left = 0xff;
+    cpu.flags.status_source.right = 1;
     let mut steps = vec![retire(&mut cpu, 2, &[])];
-    cpu.flags.kind = 0;
-    cpu.flags.status = StatusFlags {
+    cpu.flags.status_source.kind = 0;
+    cpu.flags.bytes = FlagBytes {
         cf: 0,
         pf: 1,
         af: 1,
         zf: 1,
         sf: 0,
         of: 0,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 2, &[]));
     cpu.registers.edx = 0xccbb_0101;
@@ -58,21 +60,22 @@ fn flags_then_fault() -> (Image, Vec<Step<'static>>) {
     cpu.registers.ecx = 0x8877_6601;
     steps.push(retire(&mut cpu, 2, &[]));
     cpu.registers.ecx = 0x8877_b300;
-    cpu.flags.status.cf = 1;
-    cpu.flags.status.of = 1;
+    cpu.flags.bytes.cf = 1;
+    cpu.flags.bytes.of = 1;
     steps.push(retire(&mut cpu, 3, &[]));
     steps.push(retire(&mut cpu, 2, &[]));
     cpu.registers.edi = 0xdead_0001;
-    cpu.flags.status = StatusFlags {
+    cpu.flags.bytes = FlagBytes {
         cf: 0,
         pf: 0,
         af: 0,
         zf: 0,
         sf: 0,
         of: 0,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 4, &[]));
-    cpu.flags.status.cf = 1;
+    cpu.flags.bytes.cf = 1;
     steps.push(retire(&mut cpu, 3, ROTATE_WRITE));
     steps.push(Step {
         cpu,
@@ -90,8 +93,8 @@ fn fault_boundary(image: &Image, steps: &[Step<'_>]) -> Step<'static> {
     let mut cpu = last.cpu;
     // Intermediate ADD operands reached interpreter boundaries only. The block
     // publishes the final concrete status while handling the write fault.
-    cpu.flags.left = image.cpu.flags.left;
-    cpu.flags.right = image.cpu.flags.right;
+    cpu.flags.status_source.left = image.cpu.flags.status_source.left;
+    cpu.flags.status_source.right = image.cpu.flags.status_source.right;
     Step {
         cpu,
         ram: ROTATE_WRITE,

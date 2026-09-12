@@ -2,10 +2,9 @@
 
 use wasm86_compiler::{MemoryInt, Val};
 
-use super::{
-    flags::{AnyFlagSource, FlagChange, FlagSource},
-    AluResult,
-};
+use super::AluResult;
+use crate::alu::{AnyStatusSource, StatusSource};
+use crate::flags::FlagChange;
 
 #[derive(Clone, Copy)]
 pub(crate) enum BitScanOp {
@@ -16,7 +15,7 @@ pub(crate) enum BitScanOp {
 impl BitScanOp {
     pub(crate) fn apply<T: MemoryInt>(self, source: Val<T>, previous: Val<T>) -> AluResult<T>
     where
-        FlagSource<T>: Into<AnyFlagSource>,
+        StatusSource<T>: Into<AnyStatusSource>,
     {
         let zero = source.eq(0);
         let index = match self {
@@ -25,7 +24,7 @@ impl BitScanOp {
         };
         // Scan parity covers the full logical source, unlike ordinary ALU
         // result parity, which observes only the low byte.
-        let flags = FlagSource::<T>::Explicit {
+        let flags = StatusSource::<T>::Explicit {
             flags: [
                 false.into(),
                 source.popcnt().and(1).eq(0),

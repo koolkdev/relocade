@@ -2,10 +2,10 @@
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1};
 
-use crate::alu::flags::{Condition, FlagChange, FlagMask, FlagValues, StatusFlag};
-use crate::state::{Cpu, State};
+use crate::flags::{Condition, FlagChange, FlagMask, StatusFlag};
+use crate::state::Cpu;
 
-use super::{condition_index, FlagBase};
+use super::{condition_index, StatusBase, StatusState};
 
 #[derive(Clone)]
 pub(super) struct StoredFlagCache {
@@ -25,55 +25,73 @@ impl Default for StoredFlagCache {
 impl StoredFlagCache {
     // Single-flag conditions and subset reads share a slot. AF has no condition.
     fn flag_slot(&mut self, flag: StatusFlag) -> &mut Option<Val<I1>> {
-        let condition = match flag {
-            StatusFlag::CF => Condition::B,
-            StatusFlag::PF => Condition::P,
-            StatusFlag::AF => return &mut self.auxiliary,
-            StatusFlag::ZF => Condition::E,
-            StatusFlag::SF => Condition::S,
-            StatusFlag::OF => Condition::O,
+        let Some(condition) = flag.condition() else {
+            return &mut self.auxiliary;
         };
         &mut self.conditions[condition_index(condition)]
     }
 }
 
-impl State<'_> {
-    pub(crate) fn condition(
+impl StatusState {
+    pub(super) fn read_flag(
         &mut self,
         body: &mut FunctionBuilder<'_>,
+        cpu: &Cpu,
+        flag: StatusFlag,
+    ) -> Result<Val<I1>, BuildError> {
+        if let Some(condition) = flag.condition() {
+            return self.condition(body, cpu, condition);
+        }
+        let flags = resolve_flags(body, cpu, &mut self.base, &self.updates, FlagMask::of(flag))?;
+        body.value(flags[flag as usize].as_ref().unwrap())
+    }
+
+    pub(super) fn condition(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        cpu: &Cpu,
         condition: Condition,
     ) -> Result<Val<I1>, BuildError> {
         let needed = condition.flags();
-        let partial = self.flags.updates.iter().rposition(|update| {
-            matches!(update.values, FlagValues::Partial(_)) && update.writes().intersects(needed)
+        let replacement = self.updates.iter().rposition(|update| {
+            update.condition.is_none() && update.status_source(needed).is_some()
         });
+        let partial = self
+            .updates
+            .iter()
+            .rposition(|update| {
+                update.writes().intersects(needed) && update.status_source(needed).is_none()
+            })
+            .filter(|index| replacement.is_none_or(|replacement| *index > replacement));
         let (mut value, following) = if let Some(index) = partial {
-            let flags = resolve_flags(
-                body,
-                self.cpu,
-                &mut self.flags.base,
-                &self.flags.updates[..=index],
-                needed,
-            )?;
+            let flags = resolve_flags(body, cpu, &mut self.base, &self.updates[..=index], needed)?;
             let value = condition.evaluate(|flag| {
                 Ok::<_, BuildError>(flags[flag as usize].as_ref().unwrap().clone())
             })?;
-            (value, &self.flags.updates[index + 1..])
+            (value, &self.updates[index + 1..])
+        } else if let Some(index) = replacement {
+            (
+                self.updates[index]
+                    .status_source(needed)
+                    .unwrap()
+                    .condition(condition),
+                &self.updates[index + 1..],
+            )
         } else {
             (
-                self.flags.base.condition(body, self.cpu, condition)?,
-                self.flags.updates.as_slice(),
+                self.base.condition(body, cpu, condition)?,
+                self.updates.as_slice(),
             )
         };
-        // All relevant partial changes are already composed. Newer complete
-        // sources retain their subtraction and logical-result shortcuts.
+        // Remaining relevant sources cover every condition dependency, even
+        // when they preserve other flags. Their comparison shortcuts remain valid.
         for update in following {
-            if let FlagValues::Complete(source) = &update.values {
-                value = update
-                    .condition
-                    .as_ref()
-                    .unwrap()
-                    .select(source.condition(condition), value);
+            if let Some(source) = update.status_source(needed) {
+                let changed = source.condition(condition);
+                value = match &update.condition {
+                    Some(predicate) => predicate.select(changed, value),
+                    None => changed,
+                };
             }
         }
         body.value(value)
@@ -83,7 +101,7 @@ impl State<'_> {
 pub(super) fn resolve_flags(
     body: &mut FunctionBuilder<'_>,
     cpu: &Cpu,
-    base: &mut FlagBase,
+    base: &mut StatusBase,
     updates: &[FlagChange],
     needed: FlagMask,
 ) -> Result<[Option<Val<I1>>; 6], BuildError> {
@@ -126,7 +144,7 @@ pub(super) fn resolve_flags(
     Ok(flags)
 }
 
-impl FlagBase {
+impl StatusBase {
     fn condition(
         &mut self,
         body: &mut FunctionBuilder<'_>,

@@ -121,9 +121,9 @@ fn completed_addition_survives_a_later_modrm_fetch_fault() {
     image.data(0x3ffb, &[0x0f, 0xc0, 0xe0, 0x0f, 0xb0]);
     let mut cpu = image.cpu;
     cpu.registers.eax = 0x4433_1133;
-    cpu.flags.kind = 2;
-    cpu.flags.left = 0x11;
-    cpu.flags.right = 0x22;
+    cpu.flags.status_source.kind = 2;
+    cpu.flags.status_source.left = 0x11;
+    cpu.flags.status_source.right = 0x22;
     cpu.eip = 0x1ffe;
     cpu.instruction_count = 0;
     check(

@@ -1,11 +1,6 @@
 use super::*;
-use crate::{
-    alu::{
-        flags::{AnyFlagSource, FlagSource},
-        DoubleWidth, MultiplyOp,
-    },
-    register::{Gpr32, RegisterType},
-};
+use crate::alu::{AnyStatusSource, DoubleWidth, MultiplyOp, StatusSource};
+use crate::register::{Gpr32, RegisterType};
 
 instruction_families! {
     MUL {
@@ -44,7 +39,7 @@ fn implicit_multiply<T: RegisterType + DoubleWidth>(
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
-    FlagSource<T>: Into<AnyFlagSource>,
+    StatusSource<T>: Into<AnyStatusSource>,
 {
     let source = source.read(execution)?;
     let accumulator = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
@@ -60,7 +55,7 @@ where
             outcome.result.unsigned().shr(T::BYTES * 8).truncate::<T>(),
         )?;
     }
-    execution.set_flags(outcome.flags)
+    execution.write_flags(outcome.flags)
 }
 
 fn multiply_destination<T: RegisterType + DoubleWidth>(
@@ -70,12 +65,12 @@ fn multiply_destination<T: RegisterType + DoubleWidth>(
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
-    FlagSource<T>: Into<AnyFlagSource>,
+    StatusSource<T>: Into<AnyStatusSource>,
 {
     let source = source.read(execution)?;
     destination.update(execution, |execution, previous| {
         let outcome = MultiplyOp::Signed.apply(previous, source);
-        execution.set_flags(outcome.flags)?;
+        execution.write_flags(outcome.flags)?;
         Ok(outcome.result.truncate::<T>())
     })
 }
@@ -88,11 +83,11 @@ fn multiply_sources<T: RegisterType + DoubleWidth>(
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
-    FlagSource<T>: Into<AnyFlagSource>,
+    StatusSource<T>: Into<AnyStatusSource>,
 {
     let left = first_source.read(execution)?;
     let right = second_source.read(execution)?;
     let outcome = MultiplyOp::Signed.apply(left, right);
     destination.write(execution, outcome.result.truncate::<T>())?;
-    execution.set_flags(outcome.flags)
+    execution.write_flags(outcome.flags)
 }

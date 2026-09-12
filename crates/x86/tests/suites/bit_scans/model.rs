@@ -1,20 +1,30 @@
 use super::{image, Operation, OPERATIONS};
+use crate::support::cases::Flags;
 use crate::support::{
     machine::{both, Exit, Step},
     step::TestModule,
 };
-use wasm86_x86::{CpuState, Gpr32, StatusFlags};
+use wasm86_x86::FlagBytes;
+use wasm86_x86::{CpuState, Gpr32};
 
 struct Expected {
     destination: u32,
-    flags: StatusFlags,
+    flags: Flags<u8>,
 }
 
 impl Expected {
     fn apply(&self, cpu: &mut CpuState, destination: Gpr32) {
         cpu.registers[destination] = self.destination;
-        cpu.flags.kind = 0;
-        cpu.flags.status = self.flags;
+        cpu.flags.status_source.kind = 0;
+        cpu.flags.bytes = FlagBytes {
+            cf: self.flags.cf,
+            pf: self.flags.pf,
+            af: self.flags.af,
+            zf: self.flags.zf,
+            sf: self.flags.sf,
+            of: self.flags.of,
+            ..cpu.flags.bytes
+        };
     }
 }
 
@@ -38,7 +48,7 @@ fn expected(operation: Operation, bits: u32, source: u32, previous: u32) -> Expe
         % 2;
     Expected {
         destination,
-        flags: StatusFlags {
+        flags: Flags {
             cf: 0,
             pf: (1 - odd_bits) as u8,
             af: 0,

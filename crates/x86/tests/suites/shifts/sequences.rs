@@ -1,6 +1,7 @@
 //! Checks exact stored flag records at interpreter and block publication boundaries.
 
-use wasm86_x86::{compile_block_from_bytes, CpuState, StatusFlags};
+use wasm86_x86::FlagBytes;
+use wasm86_x86::{compile_block_from_bytes, CpuState};
 
 use crate::support::{
     machine::{both, check, expected, Exit, Image, Step},
@@ -36,28 +37,29 @@ fn later_arithmetic_overwrites_either_side_of_conditional_flags() {
         image.cpu.registers.edx = 0xccbb_aa01;
         let mut cpu = image.cpu;
         cpu.registers.eax = 0x4433_0180;
-        cpu.flags.kind = 2;
-        cpu.flags.left = 0x7f;
-        cpu.flags.right = 1;
+        cpu.flags.status_source.kind = 2;
+        cpu.flags.status_source.left = 0x7f;
+        cpu.flags.status_source.right = 1;
         let mut steps = vec![retire(&mut cpu, 2, &[])];
         if count == 1 {
             cpu.registers.eax = 0x4433_0280;
-            cpu.flags.kind = 0;
-            cpu.flags.status = StatusFlags {
+            cpu.flags.status_source.kind = 0;
+            cpu.flags.bytes = FlagBytes {
                 cf: 0,
                 pf: 0,
                 af: 0,
                 zf: 0,
                 sf: 0,
                 of: 0,
+                ..cpu.flags.bytes
             };
         }
         steps.push(retire(&mut cpu, 2, &[]));
         cpu.registers.ebx = if count == 0 { 0x10ff_ee01 } else { 0x10ff_ee00 };
         steps.push(retire(&mut cpu, 3, &[]));
         cpu.registers.edx = 0;
-        cpu.flags.kind = 11;
-        cpu.flags.left = 0;
+        cpu.flags.status_source.kind = 11;
+        cpu.flags.status_source.left = 0;
         steps.push(retire(&mut cpu, 2, &[]));
         cpu.registers.ebx = if count == 0 { 0x10ff_0101 } else { 0x10ff_0100 };
         steps.push(retire(&mut cpu, 3, &[]));
@@ -69,8 +71,16 @@ fn later_arithmetic_overwrites_either_side_of_conditional_flags() {
         );
         // The block only publishes XOR's final record. The interpreter already
         // published ADD's right operand and, for count one, SHL's status bytes.
-        cpu.flags.right = image.cpu.flags.right;
-        cpu.flags.status = image.cpu.flags.status;
+        cpu.flags.status_source.right = image.cpu.flags.status_source.right;
+        cpu.flags.bytes = FlagBytes {
+            cf: image.cpu.flags.bytes.cf,
+            pf: image.cpu.flags.bytes.pf,
+            af: image.cpu.flags.bytes.af,
+            zf: image.cpu.flags.bytes.zf,
+            sf: image.cpu.flags.bytes.sf,
+            of: image.cpu.flags.bytes.of,
+            ..cpu.flags.bytes
+        };
         let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 5).unwrap());
         check(
             &block,
@@ -113,46 +123,50 @@ fn flags_then_fault() -> (Image, Vec<Step<'static>>) {
     cpu.registers.eax = 0x4433_0111;
     steps.push(retire(&mut cpu, 3, &[]));
     cpu.registers.edx = 0xccbb_aa9a;
-    cpu.flags.kind = 0;
-    cpu.flags.status = StatusFlags {
+    cpu.flags.status_source.kind = 0;
+    cpu.flags.bytes = FlagBytes {
         cf: 0,
         pf: 1,
         af: 0,
         zf: 0,
         sf: 1,
         of: 0,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 4, &[]));
     cpu.registers.eax = 0x4433_0211;
-    cpu.flags.status = StatusFlags {
+    cpu.flags.bytes = FlagBytes {
         cf: 0,
         pf: 0,
         af: 0,
         zf: 0,
         sf: 0,
         of: 0,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 2, &[]));
     cpu.registers.ecx = 0x8877_6601;
     steps.push(retire(&mut cpu, 2, &[]));
     cpu.registers.ecx = 0x8877_3300;
-    cpu.flags.status = StatusFlags {
+    cpu.flags.bytes = FlagBytes {
         cf: 1,
         pf: 1,
         af: 0,
         zf: 0,
         sf: 0,
         of: 0,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 3, &[]));
     steps.push(retire(&mut cpu, 2, &[]));
-    cpu.flags.status = StatusFlags {
+    cpu.flags.bytes = FlagBytes {
         cf: 1,
         pf: 1,
         af: 0,
         zf: 0,
         sf: 0,
         of: 1,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 3, SHIFT_WRITE));
     steps.push(Step {

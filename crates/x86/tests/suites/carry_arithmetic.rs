@@ -1,4 +1,6 @@
-use wasm86_x86::{compile_block_from_bytes, CpuState, StatusFlags};
+use crate::support::cases::Flags;
+use wasm86_x86::FlagBytes;
+use wasm86_x86::{compile_block_from_bytes, CpuState};
 use wasmparser::Validator;
 
 use crate::support::arithmetic;
@@ -43,7 +45,7 @@ const WIDTHS: [u32; 3] = [8, 16, 32];
 
 struct Expected {
     result: u32,
-    status: StatusFlags,
+    status: Flags<u8>,
     conditions: u16,
 }
 
@@ -90,7 +92,7 @@ fn expected(op: Operation, bits: u32, left: u32, right: u32, carry: bool) -> Exp
     }
     Expected {
         result,
-        status: StatusFlags {
+        status: Flags {
             cf: u8::from(cf),
             pf: u8::from(pf),
             af: u8::from(af),
@@ -121,8 +123,16 @@ fn code_with_width(bits: u32, opcode: u8, tail: &[u8]) -> Vec<u8> {
 }
 
 fn concrete_cpu(mut cpu: CpuState, expected: &Expected) -> CpuState {
-    cpu.flags.kind = 0;
-    cpu.flags.status = expected.status;
+    cpu.flags.status_source.kind = 0;
+    cpu.flags.bytes = FlagBytes {
+        cf: expected.status.cf,
+        pf: expected.status.pf,
+        af: expected.status.af,
+        zf: expected.status.zf,
+        sf: expected.status.sf,
+        of: expected.status.of,
+        ..cpu.flags.bytes
+    };
     cpu
 }
 
@@ -151,7 +161,7 @@ fn widened_arithmetic_model_checks_edge_results_and_conditions() {
                     let eax = register_result(0x4433_2200, bits, left);
                     let expected = expected(op, bits, left, right, carry);
                     let mut image = image(&code);
-                    image.cpu.flags.status.cf = u8::from(carry);
+                    image.cpu.flags.bytes.cf = u8::from(carry);
                     image.cpu.registers.eax = eax;
                     image.cpu.registers.ebx = right;
                     let mut cpu = concrete_cpu(image.cpu, &expected);
@@ -185,7 +195,7 @@ fn discarded_local_carry_operands_remain_unpublished() {
                 let consumer = [op.opcode() + 1, 0xd8];
                 let code = [producer.as_slice(), &consumer].concat();
                 let mut image = image(&code);
-                image.cpu.flags.status.cf = u8::from(!carry);
+                image.cpu.flags.bytes.cf = u8::from(!carry);
                 image.cpu.registers.eax = 0xffff_ffff;
                 image.cpu.registers.ecx = register_result(0x4433_2200, source_bits, left);
                 image.cpu.registers.edx = right;
@@ -201,12 +211,12 @@ fn discarded_local_carry_operands_remain_unpublished() {
                 let mut steps = Vec::new();
 
                 if kind == 3 {
-                    expected_cpu.flags.kind = tag;
-                    expected_cpu.flags.left = source_result;
+                    expected_cpu.flags.status_source.kind = tag;
+                    expected_cpu.flags.status_source.left = source_result;
                 } else {
-                    expected_cpu.flags.kind = tag;
-                    expected_cpu.flags.left = left;
-                    expected_cpu.flags.right = right;
+                    expected_cpu.flags.status_source.kind = tag;
+                    expected_cpu.flags.status_source.left = left;
+                    expected_cpu.flags.status_source.right = right;
                 }
                 expected_cpu.registers.ecx = ecx;
                 expected_cpu.eip = 0x1000 + producer.len() as u32;
@@ -219,8 +229,16 @@ fn discarded_local_carry_operands_remain_unpublished() {
 
                 let expected = expected(op, 32, 0xffff_ffff, 0, carry);
                 let next = 0x1000 + code.len() as u32;
-                expected_cpu.flags.kind = 0;
-                expected_cpu.flags.status = expected.status;
+                expected_cpu.flags.status_source.kind = 0;
+                expected_cpu.flags.bytes = FlagBytes {
+                    cf: expected.status.cf,
+                    pf: expected.status.pf,
+                    af: expected.status.af,
+                    zf: expected.status.zf,
+                    sf: expected.status.sf,
+                    of: expected.status.of,
+                    ..expected_cpu.flags.bytes
+                };
                 expected_cpu.registers.eax = expected.result;
                 expected_cpu.eip = next;
                 expected_cpu.instruction_count = 1;
@@ -241,8 +259,8 @@ fn discarded_local_carry_operands_remain_unpublished() {
                 // source's unused payload must retain its original backing bytes.
                 let snapshot = compile_block_from_bytes(0x1000, &code, 2).unwrap();
                 Validator::new().validate_all(&snapshot.bytes).unwrap();
-                expected_cpu.flags.left = image.cpu.flags.left;
-                expected_cpu.flags.right = image.cpu.flags.right;
+                expected_cpu.flags.status_source.left = image.cpu.flags.status_source.left;
+                expected_cpu.flags.status_source.right = image.cpu.flags.status_source.right;
 
                 check(
                     &TestModule::new(&snapshot),

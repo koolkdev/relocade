@@ -1,8 +1,9 @@
-use crate::alu::flags::{Condition, FlagChange, StatusFlag};
 use crate::alu::ArithmeticOp;
+use crate::flags::{Condition, FlagChange, StatusFlag};
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
-use crate::{CompiledModule, StatusFlags};
+use crate::CompiledModule;
+use crate::FlagBytes;
 use wasm86_compiler::{Program, Signature, Type, I1, I32, I64, I8};
 
 use super::super::fixture::{assert_result, initial_cpu};
@@ -22,7 +23,7 @@ fn every_predicate_must_hold_for_complete_and_partial_changes() {
                     |mut body| {
                         let mut state = State::new(&cpu);
                         if pending_base {
-                            state.set_flags(
+                            state.write_flags(
                                 &mut body,
                                 ArithmeticOp::Subtract.apply::<I32>(4, 5).flags,
                             )?;
@@ -31,13 +32,13 @@ fn every_predicate_must_hold_for_complete_and_partial_changes() {
                         let second = body.parameter::<I1>(1)?;
                         let change = if partial {
                             FlagChange::partial([
-                                (StatusFlag::CF, false.into()),
-                                (StatusFlag::OF, true.into()),
+                                (StatusFlag::CF.into(), false.into()),
+                                (StatusFlag::OF.into(), true.into()),
                             ])
                         } else {
                             ArithmeticOp::Add.apply::<I8>(127, 1).flags
                         };
-                        state.set_flags(&mut body, change.when(first).when(second))?;
+                        state.write_flags(&mut body, change.when(first).when(second))?;
                         let carry = state.condition(&mut body, Condition::B)?;
                         let overflow = state.condition(&mut body, Condition::O)?;
                         state.publish(&mut body, 0x1002, 1)?;
@@ -58,29 +59,30 @@ fn every_predicate_must_hold_for_complete_and_partial_changes() {
             });
             for kind in [0, 9] {
                 let mut initial = initial_cpu();
-                initial.flags.kind = kind;
+                initial.flags.status_source.kind = kind;
                 for (first, second, active) in
                     [(0, 0, false), (0, 1, false), (1, 0, false), (1, 1, true)]
                 {
                     let mut expected = initial;
                     if active && partial {
-                        expected.flags.kind = 0;
-                        expected.flags.status = StatusFlags {
+                        expected.flags.status_source.kind = 0;
+                        expected.flags.bytes = FlagBytes {
                             cf: 0,
                             pf: 1,
                             af: 1,
                             zf: u8::from(kind == 0 && !pending_base),
                             sf: 1,
                             of: 1,
+                            ..expected.flags.bytes
                         };
                     } else if active {
-                        expected.flags.kind = 2;
-                        expected.flags.left = 127;
-                        expected.flags.right = 1;
+                        expected.flags.status_source.kind = 2;
+                        expected.flags.status_source.left = 127;
+                        expected.flags.status_source.right = 1;
                     } else if pending_base {
-                        expected.flags.kind = 9;
-                        expected.flags.left = 4;
-                        expected.flags.right = 5;
+                        expected.flags.status_source.kind = 9;
+                        expected.flags.status_source.left = 4;
+                        expected.flags.status_source.right = 5;
                     }
                     expected.eip = 0x1002;
                     expected.instruction_count = 0;
@@ -118,7 +120,7 @@ fn preserving_carry_keeps_the_predicate_in_either_order() {
                                     // 127+1 and 128+128 both overflow, with opposite CF.
                                     let (left, right) =
                                         if carry == 0 { (127, 1) } else { (128, 128) };
-                                    state.set_flags(
+                                    state.write_flags(
                                         &mut body,
                                         ArithmeticOp::Add.apply::<I8>(left, right).flags,
                                     )?;
@@ -126,8 +128,8 @@ fn preserving_carry_keeps_the_predicate_in_either_order() {
                                 let predicate = body.parameter::<I1>(0)?;
                                 let change = if partial {
                                     FlagChange::partial([
-                                        (StatusFlag::CF, false.into()),
-                                        (StatusFlag::OF, false.into()),
+                                        (StatusFlag::CF.into(), false.into()),
+                                        (StatusFlag::OF.into(), false.into()),
                                     ])
                                 } else {
                                     ArithmeticOp::Add.apply::<I8>(255, 1).flags
@@ -137,7 +139,7 @@ fn preserving_carry_keeps_the_predicate_in_either_order() {
                                 } else {
                                     change.preserving(StatusFlag::CF).when(predicate)
                                 };
-                                state.set_flags(&mut body, change)?;
+                                state.write_flags(&mut body, change)?;
                                 let carry = state.condition(&mut body, Condition::B)?;
                                 let overflow = state.condition(&mut body, Condition::O)?;
                                 state.publish(&mut body, 0x1002, 1)?;
@@ -157,50 +159,37 @@ fn preserving_carry_keeps_the_predicate_in_either_order() {
                         entry: "run".into(),
                     });
                     let mut initial = initial_cpu();
-                    initial.flags.kind = 0;
-                    initial.flags.status = StatusFlags {
+                    initial.flags.status_source.kind = 0;
+                    initial.flags.bytes = FlagBytes {
                         cf: 0xfe | if pending_base { 1 - carry } else { carry },
                         pf: 0x7f,
                         af: 0x80,
                         zf: 0xff,
                         sf: 0x5a,
                         of: 0x5b,
+                        ..initial.flags.bytes
                     };
                     for predicate in [0, 1] {
                         let mut expected = initial;
                         if predicate == 1 {
-                            expected.flags.status = if !partial {
-                                StatusFlags {
-                                    cf: carry,
-                                    pf: 1,
-                                    af: 1,
-                                    zf: 1,
-                                    sf: 0,
-                                    of: 0,
-                                }
+                            [
+                                expected.flags.bytes.cf,
+                                expected.flags.bytes.pf,
+                                expected.flags.bytes.af,
+                                expected.flags.bytes.zf,
+                                expected.flags.bytes.sf,
+                                expected.flags.bytes.of,
+                            ] = if !partial {
+                                [carry, 1, 1, 1, 0, 0]
                             } else if pending_base {
-                                StatusFlags {
-                                    cf: carry,
-                                    pf: carry,
-                                    af: 1 - carry,
-                                    zf: carry,
-                                    sf: 1 - carry,
-                                    of: 0,
-                                }
+                                [carry, carry, 1 - carry, carry, 1 - carry, 0]
                             } else {
-                                StatusFlags {
-                                    cf: carry,
-                                    pf: 1,
-                                    af: 0,
-                                    zf: 1,
-                                    sf: 0,
-                                    of: 0,
-                                }
+                                [carry, 1, 0, 1, 0, 0]
                             };
                         } else if pending_base {
-                            expected.flags.kind = 2;
-                            expected.flags.left = if carry == 0 { 127 } else { 128 };
-                            expected.flags.right = if carry == 0 { 1 } else { 128 };
+                            expected.flags.status_source.kind = 2;
+                            expected.flags.status_source.left = if carry == 0 { 127 } else { 128 };
+                            expected.flags.status_source.right = if carry == 0 { 1 } else { 128 };
                         }
                         expected.eip = 0x1002;
                         expected.instruction_count = 0;

@@ -1,4 +1,5 @@
 use wasm86_x86::Gpr32::{Eax, Ebx, Ecx, Esp};
+use wasm86_x86::StoredStatusSource;
 
 use crate::support::cases::{
     FlagExpectation::{Clear, Set},
@@ -80,7 +81,13 @@ pub(super) fn alias_cases() -> Vec<Case> {
 
 #[rustfmt::skip]
 pub(super) fn zero_count_records() -> Vec<Case> {
-    let concrete = wasm86_x86::StoredFlags { kind: 0, ..super::super::STORED_FLAGS };
+    let concrete = wasm86_x86::StoredFlags {
+        status_source: StoredStatusSource {
+            kind: 0,
+            ..(super::super::STORED_FLAGS).status_source
+        },
+        ..super::super::STORED_FLAGS
+    };
     vec![
         Case::preserving_flags("SHL ECX,CL preserves concrete backing", &[0xd3, 0xe1])
             .stored_flags(concrete).initial_register(Ecx, 0x8877_6620),

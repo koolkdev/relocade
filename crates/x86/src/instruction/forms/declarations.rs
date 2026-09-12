@@ -8,11 +8,9 @@ pub(in crate::instruction) use {adapters::*, macros::*};
 use super::{
     Encoding, Form, ImmediateWidth, LocationBinding, OpcodeMap, OperandBinding, OperandBindingShape,
 };
-use crate::{
-    alu::flags::Condition,
-    instruction::handlers::{Handler, SizedHandlers},
-    register::Gpr32,
-};
+use crate::flags::Condition;
+use crate::instruction::handlers::{Handler, SizedHandlers};
+use crate::register::Gpr32;
 
 #[derive(Clone, Copy)]
 pub(in crate::instruction) enum OperandSpec {
@@ -151,6 +149,13 @@ impl Declaration<'_> {
             Encoding::OpcodeOnly
         };
         let binding = match self.operands {
+            [] => {
+                assert!(matches!(
+                    (self.handlers.word, self.handlers.dword),
+                    (Handler::Nullary(_), Handler::Nullary(_))
+                ));
+                OperandBindingShape::Nullary
+            }
             [operand] => {
                 assert!(matches!(
                     (self.handlers.word, self.handlers.dword),
@@ -179,7 +184,7 @@ impl Declaration<'_> {
                     second_source: second_source.binding(),
                 }
             }
-            _ => panic!("instruction bodies take one, two or three operands"),
+            _ => panic!("instruction bodies take at most three operands"),
         };
         let mut implicit_memory = false;
         let mut ends_block = false;

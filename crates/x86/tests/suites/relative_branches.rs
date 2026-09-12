@@ -32,8 +32,8 @@ fn snapshot_limits_stop_at_the_first_branch_and_preserve_earlier_progress() {
                 branch_end
             };
             let mut image = Image::new(&code);
-            image.cpu.flags.kind = 0;
-            image.cpu.flags.status.zf = zero;
+            image.cpu.flags.status_source.kind = 0;
+            image.cpu.flags.bytes.zf = zero;
             image.cpu.instruction_count = 0xffff_fffe;
             let mut cpu = image.cpu;
             cpu.registers.eax = 0x1234_5678;

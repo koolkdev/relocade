@@ -45,8 +45,8 @@ macro_rules! declaration_family {
 }
 
 macro_rules! declaration_operands {
-    (($($operand:ident $(($value:expr))?),+)) => {
-        &[$(operand_spec!($operand $(($value))?)),+]
+    (($($operand:ident $(($value:expr))?),*)) => {
+        &[$(operand_spec!($operand $(($value))?)),*]
     };
 }
 

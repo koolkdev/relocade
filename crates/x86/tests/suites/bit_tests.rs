@@ -1,4 +1,5 @@
-use wasm86_x86::{Gpr32, StatusFlags, StoredFlags};
+use wasm86_x86::{FlagBytes, StoredStatusSource};
+use wasm86_x86::{Gpr32, StoredFlags};
 
 use crate::support::cases::{FlagExpectation, Flags};
 
@@ -60,8 +61,8 @@ const OPERATIONS: [Operation; 4] = [
     Operation::Btc,
 ];
 
-fn prior_flags() -> StatusFlags {
-    StatusFlags {
+fn prior_flags() -> Flags<u8> {
+    Flags {
         cf: 0,
         pf: 0,
         af: 1,
@@ -96,19 +97,26 @@ const INITIAL_FLAGS: Flags<bool> = Flags {
 };
 
 const STORED_FLAGS: StoredFlags = StoredFlags {
-    kind: 0,
-    reserved: [0xa5; 3],
-    left: 0x1234_5678,
-    right: 0x8765_4321,
-    status: StatusFlags {
+    status_source: StoredStatusSource {
+        kind: 0,
+        reserved: [0xa5; 3],
+        left: 0x1234_5678,
+        right: 0x8765_4321,
+    },
+    bytes: FlagBytes {
         cf: 0xfe,
         pf: 0xfe,
         af: 0xff,
         zf: 0x7f,
         sf: 0x80,
         of: 0x5b,
+        tf: 0,
+        df: 1,
+        nt: 0,
+        ac: 0,
+        id: 0,
+        reserved: 0xa5,
     },
-    non_status: [0, 1, 0, 0, 0, 0xa5],
 };
 
 // All four instructions preserve ZF; Intel leaves PF, AF, SF and OF undefined.

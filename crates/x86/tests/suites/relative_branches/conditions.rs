@@ -6,9 +6,10 @@ use crate::support::{
     },
     sequences::{test_sequences, Checkpoint, SequenceCase},
 };
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 use wasm86_x86::{
     Gpr32::{self, Eax, Ebx},
-    StatusFlags, StoredFlags,
+    StoredFlags,
 };
 
 // Outcome order: O, NO, B, AE, E, NE, BE, A, S, NS, P, NP, L, GE, LE, G.
@@ -55,19 +56,26 @@ const AFTER_THREE_BYTES: [Targets; 3] = [
 ];
 
 const STORED_CANARY: StoredFlags = StoredFlags {
-    kind: 0,
-    reserved: [0xa5; 3],
-    left: 0xa5a5_a5a5,
-    right: 0xa5a5_a5a5,
-    status: StatusFlags {
+    status_source: StoredStatusSource {
+        kind: 0,
+        reserved: [0xa5; 3],
+        left: 0xa5a5_a5a5,
+        right: 0xa5a5_a5a5,
+    },
+    bytes: FlagBytes {
         cf: 1,
         pf: 1,
         af: 1,
         zf: 1,
         sf: 1,
         of: 1,
+        tf: 0,
+        df: 1,
+        nt: 0,
+        ac: 0,
+        id: 0,
+        reserved: 0xa5,
     },
-    non_status: [0, 1, 0, 0, 0, 0xa5],
 };
 
 #[rustfmt::skip]
@@ -79,13 +87,45 @@ fn input_cases() -> Vec<InstructionCase> {
         Input { name: "carry and overflow", flags: Flags { cf: true, pf: true, af: true, zf: true, sf: false, of: true }, stored: None, taken: CARRY_OVERFLOW },
         Input { name: "negative without overflow", flags: Flags { cf: false, pf: false, af: true, zf: false, sf: true, of: false }, stored: None, taken: NEGATIVE },
         Input { name: "stored ADD carry and overflow", flags: Flags { cf: true, pf: true, af: false, zf: true, sf: false, of: true },
-            stored: Some(StoredFlags { kind: 10, left: 0x8000_0000, right: 0x8000_0000, ..STORED_CANARY }), taken: CARRY_OVERFLOW },
+            stored: Some(StoredFlags {
+                status_source: StoredStatusSource {
+                    kind: 10,
+                    left: 0x8000_0000,
+                    right: 0x8000_0000,
+                    ..STORED_CANARY.status_source
+                },
+                ..STORED_CANARY
+            }), taken: CARRY_OVERFLOW },
         Input { name: "stored SUB signed and unsigned disagreement", flags: Flags { cf: true, pf: true, af: false, zf: false, sf: true, of: true },
-            stored: Some(StoredFlags { kind: 9, left: 0x7fff_fffe, right: 0xffff_fffe, ..STORED_CANARY }), taken: SIGNED_UNSIGNED_DISAGREE },
+            stored: Some(StoredFlags {
+                status_source: StoredStatusSource {
+                    kind: 9,
+                    left: 0x7fff_fffe,
+                    right: 0xffff_fffe,
+                    ..STORED_CANARY.status_source
+                },
+                ..STORED_CANARY
+            }), taken: SIGNED_UNSIGNED_DISAGREE },
         Input { name: "stored logical odd result", flags: Flags { cf: false, pf: false, af: false, zf: false, sf: false, of: false },
-            stored: Some(StoredFlags { kind: 11, left: 1, right: 0x1234_5678, ..STORED_CANARY }), taken: CLEAR_INPUTS },
+            stored: Some(StoredFlags {
+                status_source: StoredStatusSource {
+                    kind: 11,
+                    left: 1,
+                    right: 0x1234_5678,
+                    ..STORED_CANARY.status_source
+                },
+                ..STORED_CANARY
+            }), taken: CLEAR_INPUTS },
         Input { name: "stored logical zero result", flags: Flags { cf: false, pf: true, af: false, zf: true, sf: false, of: false },
-            stored: Some(StoredFlags { kind: 11, left: 0, right: 0x1234_5678, ..STORED_CANARY }), taken: EQUAL },
+            stored: Some(StoredFlags {
+                status_source: StoredStatusSource {
+                    kind: 11,
+                    left: 0,
+                    right: 0x1234_5678,
+                    ..STORED_CANARY.status_source
+                },
+                ..STORED_CANARY
+            }), taken: EQUAL },
     ];
     let mut cases = Vec::new();
     for input in inputs {

@@ -70,8 +70,8 @@ fn runtime_fetches_all_branch_fields_for_both_condition_outcomes() {
             // The untaken condition still requires the displacement.
             for zero in [0, 1] {
                 let mut image = image_at(start, &code[..available]);
-                image.cpu.flags.kind = 0;
-                image.cpu.flags.status.zf = zero;
+                image.cpu.flags.status_source.kind = 0;
+                image.cpu.flags.bytes.zf = zero;
                 check(
                     TestModule::interpreter(),
                     &format!("incomplete branch {code:02x?}, {available} bytes, ZF={zero}"),
@@ -106,8 +106,8 @@ fn prefix_bytes_count_toward_the_branch_length_limit() {
         ));
         for zero in [0, 1] {
             let mut image = image_at(0x1ff1, &overlong[..15]);
-            image.cpu.flags.kind = 0;
-            image.cpu.flags.status.zf = zero;
+            image.cpu.flags.status_source.kind = 0;
+            image.cpu.flags.bytes.zf = zero;
             check(
                 TestModule::interpreter(),
                 "overlong branch faults before next-page fetch",

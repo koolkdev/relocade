@@ -2,11 +2,8 @@
 
 use wasm86_compiler::{AtLeast, MemoryInt, Val, I1, I32, I64};
 
-use super::{
-    bit,
-    flags::{FlagChange, StatusFlag},
-    AluResult,
-};
+use super::{bit, AluResult};
+use crate::flags::{FlagChange, StatusFlag};
 
 #[derive(Clone, Copy)]
 pub(crate) enum RotateDirection {
@@ -88,7 +85,10 @@ impl RotateDirection {
         }
         .and(count.eq(1));
         // When flags change, OF is undefined above masked count one; choose zero.
-        FlagChange::partial([(StatusFlag::CF, carry), (StatusFlag::OF, overflow)])
+        FlagChange::partial([
+            (StatusFlag::CF.into(), carry),
+            (StatusFlag::OF.into(), overflow),
+        ])
     }
 }
 

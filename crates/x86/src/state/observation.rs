@@ -1,8 +1,9 @@
 //! Read-only logical flag observations for instruction test cases.
 
+use crate::FlagBytes;
 use wasm86_compiler::{BuildError, Program, Signature, Type};
 
-use crate::alu::flags::FlagMask;
+use crate::flags::FlagMask;
 use crate::CompiledModule;
 
 use super::Cpu;
@@ -18,7 +19,7 @@ pub(crate) fn compile_flag_observer() -> Result<CompiledModule, BuildError> {
             results: vec![Type::I1; 6],
         },
         |mut body| {
-            let flags = cpu.read_flags(&mut body, FlagMask::ALL)?;
+            let flags = cpu.read_flags(&mut body, FlagMask::STATUS)?;
             body.return_(
                 flags
                     .into_iter()
@@ -37,7 +38,7 @@ pub(crate) fn compile_flag_observer() -> Result<CompiledModule, BuildError> {
 #[test]
 fn observer_returns_all_six_logical_flags_without_changing_backing_bytes() {
     use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
-    use crate::{CpuState, StatusFlags};
+    use crate::CpuState;
 
     struct Case {
         name: &'static str,
@@ -83,17 +84,18 @@ fn observer_returns_all_six_logical_flags_without_changing_backing_bytes() {
         },
     ] {
         let mut cpu = CpuState::filled(0xa5);
-        cpu.flags.kind = case.kind;
-        cpu.flags.left = case.left;
-        cpu.flags.right = case.right;
+        cpu.flags.status_source.kind = case.kind;
+        cpu.flags.status_source.left = case.left;
+        cpu.flags.status_source.right = case.right;
         let [cf, pf, af, zf, sf, of] = case.stored_status;
-        cpu.flags.status = StatusFlags {
+        cpu.flags.bytes = FlagBytes {
             cf,
             pf,
             af,
             zf,
             sf,
             of,
+            ..cpu.flags.bytes
         };
         let bytes = cpu.to_bytes();
         assert_eq!(

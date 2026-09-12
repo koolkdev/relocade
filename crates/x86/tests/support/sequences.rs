@@ -35,6 +35,7 @@ impl SequenceCase {
         )
     }
 
+    /// Preserve an opaque flag record except an explicitly expected DF change.
     pub(crate) fn preserving_flags(name: impl Into<String>) -> Self {
         Self::with_flags(name, InitialFlags::Opaque { stored: None }, true)
     }
@@ -121,6 +122,7 @@ impl Checkpoint {
             }),
         }
     }
+    /// Preserve the prior flag record except an explicitly expected DF change.
     pub(crate) fn preserving_flags(code: &[u8]) -> Self {
         Self {
             code: code.to_vec(),
@@ -129,6 +131,10 @@ impl Checkpoint {
     }
     pub(crate) fn register(self, register: Gpr32, value: u32) -> Self {
         self.expect_register(register, RegisterExpectation::Exact(value))
+    }
+    pub(crate) fn expect_direction_flag(mut self, value: bool) -> Self {
+        self.expected.direction_flag = Some(value);
+        self
     }
     pub(crate) fn expect_register(
         mut self,

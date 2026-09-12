@@ -74,7 +74,7 @@ fn unsupported_stack_group_extensions_stop_before_address_fetch() {
                 }),
             );
             let mut image = Image::new(&[]);
-            image.cpu.flags.kind = 0xff;
+            image.cpu.flags.status_source.kind = 0xff;
             image.cpu.eip = start;
             image.data(0x3000 + (start & 0xfff), &code);
             check(
@@ -108,7 +108,7 @@ fn missing_stack_instruction_fields_fault_before_any_stack_access() {
     ] {
         let start = 0x2000 - code.len() as u32;
         let mut image = Image::new(&[]);
-        image.cpu.flags.kind = 0xff;
+        image.cpu.flags.status_source.kind = 0xff;
         image.cpu.registers.esp = 0x4000;
         image.cpu.eip = start;
         image.data(0x3000 + (start & 0xfff), code);
@@ -143,7 +143,7 @@ fn stack_encodings_reject_a_required_sixteenth_byte_before_fetching_it() {
             Some(BlockError::InstructionTooLong { address: 0x1ff1 }),
         );
         let mut image = Image::new(&[]);
-        image.cpu.flags.kind = 0xff;
+        image.cpu.flags.status_source.kind = 0xff;
         image.cpu.eip = 0x1ff1;
         image.data(0x3ff1, &code);
         check(

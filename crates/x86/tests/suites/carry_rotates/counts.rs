@@ -1,4 +1,4 @@
-use wasm86_x86::StatusFlags;
+use wasm86_x86::FlagBytes;
 
 use crate::support::{
     cases::test_cases,
@@ -112,13 +112,14 @@ fn a_full_ring_plus_one_bit_still_uses_zero_for_undefined_overflow() {
                         image.cpu.registers.ecx = 0x8877_6600 | u32::from(count);
                         let mut cpu = image.cpu;
                         cpu.registers.eax = upper | value;
-                        cpu.flags.status = StatusFlags {
+                        cpu.flags.bytes = FlagBytes {
                             cf: 1,
                             pf: 0,
                             af: 1,
                             zf: 1,
                             sf: 0,
                             of: 0,
+                            ..cpu.flags.bytes
                         };
                         cpu.eip += code.len() as u32;
                         cpu.instruction_count = 0;

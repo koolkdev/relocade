@@ -1,9 +1,10 @@
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 #[path = "exchanges/sequences.rs"]
 mod sequences;
 
 use crate::support::cases::{test_cases, InstructionCase as Case, RegisterExpectation::Exact};
 
-use wasm86_x86::{Gpr32, StatusFlags, StoredFlags};
+use wasm86_x86::{Gpr32, StoredFlags};
 
 use crate::support::machine::{byte_register_image, Image};
 
@@ -13,19 +14,26 @@ mod decoding;
 mod memory;
 
 const LAZY_FLAGS: StoredFlags = StoredFlags {
-    kind: 9,
-    reserved: [0xa5; 3],
-    left: 0x7fff_fffe,
-    right: 0xffff_fffe,
-    status: StatusFlags {
+    status_source: StoredStatusSource {
+        kind: 9,
+        reserved: [0xa5; 3],
+        left: 0x7fff_fffe,
+        right: 0xffff_fffe,
+    },
+    bytes: FlagBytes {
         cf: 0xa5,
         pf: 0xa5,
         af: 0xa5,
         zf: 0xa5,
         sf: 0xa5,
         of: 0xa5,
+        tf: 0xa5,
+        df: 0xa5,
+        nt: 0xa5,
+        ac: 0xa5,
+        id: 0xa5,
+        reserved: 0xa5,
     },
-    non_status: [0xa5; 6],
 };
 
 fn image(code: &[u8]) -> Image {

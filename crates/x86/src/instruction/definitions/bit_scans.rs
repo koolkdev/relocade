@@ -1,11 +1,6 @@
 use super::*;
-use crate::{
-    alu::{
-        flags::{AnyFlagSource, FlagSource},
-        BitScanOp,
-    },
-    register::RegisterType,
-};
+use crate::alu::{AnyStatusSource, BitScanOp, StatusSource};
+use crate::register::RegisterType;
 
 instruction_families! {
     BSF {
@@ -30,12 +25,12 @@ fn bit_scan<T: RegisterType>(
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
-    FlagSource<T>: Into<AnyFlagSource>,
+    StatusSource<T>: Into<AnyStatusSource>,
 {
     let source = source.read(execution)?;
     destination.update(execution, |execution, previous| {
         let outcome = operation.apply(source, previous);
-        execution.set_flags(outcome.flags)?;
+        execution.write_flags(outcome.flags)?;
         Ok(outcome.result)
     })
 }

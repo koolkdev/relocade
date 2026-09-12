@@ -1,27 +1,35 @@
 use std::mem::{offset_of, size_of};
 
-use super::{CpuState, Registers, StatusFlags, StoredFlags};
+use super::{CpuState, FlagBytes, Registers, StoredFlags, StoredStatusSource};
 use crate::Gpr32;
 
 #[test]
 fn cpu_layout_matches_the_external_byte_contract() {
     assert_eq!(CpuState::BYTE_LEN, 152);
     assert_eq!(size_of::<StoredFlags>(), 24);
-    assert_eq!(size_of::<StatusFlags>(), 6);
+    assert_eq!(size_of::<StoredStatusSource>(), 12);
+    assert_eq!(size_of::<FlagBytes>(), 12);
+    assert_eq!(offset_of!(StoredFlags, status_source), 0);
+    assert_eq!(offset_of!(StoredFlags, bytes), 12);
     assert_eq!(size_of::<Registers>(), 32);
     assert_eq!(
         [
-            offset_of!(CpuState, flags.kind),
-            offset_of!(CpuState, flags.reserved),
-            offset_of!(CpuState, flags.left),
-            offset_of!(CpuState, flags.right),
-            offset_of!(CpuState, flags.status.cf),
-            offset_of!(CpuState, flags.status.pf),
-            offset_of!(CpuState, flags.status.af),
-            offset_of!(CpuState, flags.status.zf),
-            offset_of!(CpuState, flags.status.sf),
-            offset_of!(CpuState, flags.status.of),
-            offset_of!(CpuState, flags.non_status),
+            offset_of!(CpuState, flags.status_source.kind),
+            offset_of!(CpuState, flags.status_source.reserved),
+            offset_of!(CpuState, flags.status_source.left),
+            offset_of!(CpuState, flags.status_source.right),
+            offset_of!(CpuState, flags.bytes.cf),
+            offset_of!(CpuState, flags.bytes.pf),
+            offset_of!(CpuState, flags.bytes.af),
+            offset_of!(CpuState, flags.bytes.zf),
+            offset_of!(CpuState, flags.bytes.sf),
+            offset_of!(CpuState, flags.bytes.of),
+            offset_of!(CpuState, flags.bytes.tf),
+            offset_of!(CpuState, flags.bytes.df),
+            offset_of!(CpuState, flags.bytes.nt),
+            offset_of!(CpuState, flags.bytes.ac),
+            offset_of!(CpuState, flags.bytes.id),
+            offset_of!(CpuState, flags.bytes.reserved),
             offset_of!(CpuState, registers.eax),
             offset_of!(CpuState, registers.ecx),
             offset_of!(CpuState, registers.edx),
@@ -36,8 +44,8 @@ fn cpu_layout_matches_the_external_byte_contract() {
             offset_of!(CpuState, reserved_tail),
         ],
         [
-            0, 1, 4, 8, 12, 13, 14, 15, 16, 17, 18, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 144,
-            148
+            0, 1, 4, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 28, 32, 36, 40, 44, 48,
+            52, 56, 60, 144, 148
         ],
     );
 }
@@ -46,22 +54,32 @@ fn cpu_layout_matches_the_external_byte_contract() {
 fn decoding_preserves_little_endian_values_and_every_reserved_byte() {
     let bytes = std::array::from_fn(|index| index as u8);
     let cpu = CpuState::from_bytes(bytes);
-    assert_eq!(cpu.flags.kind, 0);
-    assert_eq!(cpu.flags.reserved, [1, 2, 3]);
-    assert_eq!(cpu.flags.left, 0x0706_0504);
-    assert_eq!(cpu.flags.right, 0x0b0a_0908);
+    assert_eq!(cpu.flags.status_source.kind, 0);
+    assert_eq!(cpu.flags.status_source.reserved, [1, 2, 3]);
+    assert_eq!(cpu.flags.status_source.left, 0x0706_0504);
+    assert_eq!(cpu.flags.status_source.right, 0x0b0a_0908);
     assert_eq!(
-        cpu.flags.status,
-        StatusFlags {
-            cf: 12,
-            pf: 13,
-            af: 14,
-            zf: 15,
-            sf: 16,
-            of: 17
-        }
+        [
+            cpu.flags.bytes.cf,
+            cpu.flags.bytes.pf,
+            cpu.flags.bytes.af,
+            cpu.flags.bytes.zf,
+            cpu.flags.bytes.sf,
+            cpu.flags.bytes.of
+        ],
+        [12, 13, 14, 15, 16, 17]
     );
-    assert_eq!(cpu.flags.non_status, [18, 19, 20, 21, 22, 23]);
+    assert_eq!(
+        [
+            cpu.flags.bytes.tf,
+            cpu.flags.bytes.df,
+            cpu.flags.bytes.nt,
+            cpu.flags.bytes.ac,
+            cpu.flags.bytes.id,
+            cpu.flags.bytes.reserved
+        ],
+        [18, 19, 20, 21, 22, 23]
+    );
     assert_eq!(
         cpu.registers,
         Registers {
@@ -91,11 +109,13 @@ fn encoding_changes_only_the_named_fields_including_noncanonical_flags() {
     cpu.registers.ebx = 0x9234_5678;
     cpu.eip = 0x1002;
     cpu.instruction_count = 0;
-    cpu.flags.kind = 0xff;
-    cpu.flags.status.cf = 0x80;
+    cpu.flags.status_source.kind = 0xff;
+    cpu.flags.bytes.cf = 0x80;
+    cpu.flags.bytes.df = 0xfe;
     let mut expected = [0xa5; 152];
     expected[0] = 0xff;
     expected[12] = 0x80;
+    expected[19] = 0xfe;
     expected[36..40].copy_from_slice(&[0x78, 0x56, 0x34, 0x92]);
     expected[56..60].copy_from_slice(&[2, 0x10, 0, 0]);
     expected[144..148].fill(0);

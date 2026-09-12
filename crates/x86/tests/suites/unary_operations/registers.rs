@@ -1,4 +1,5 @@
-use wasm86_x86::{Gpr32, StatusFlags, StoredFlags};
+use wasm86_x86::{FlagBytes, StoredStatusSource};
+use wasm86_x86::{Gpr32, StoredFlags};
 
 use crate::support::cases::{
     test_cases,
@@ -8,19 +9,26 @@ use crate::support::cases::{
 
 const INITIAL: Flags<bool> = Flags::all(true);
 const INVALID: StoredFlags = StoredFlags {
-    kind: 0xff,
-    reserved: [0xa5; 3],
-    left: 0xa5a5_a5a5,
-    right: 0xa5a5_a5a5,
-    status: StatusFlags {
+    status_source: StoredStatusSource {
+        kind: 0xff,
+        reserved: [0xa5; 3],
+        left: 0xa5a5_a5a5,
+        right: 0xa5a5_a5a5,
+    },
+    bytes: FlagBytes {
         cf: 1,
         pf: 0xa5,
         af: 0xa5,
         zf: 0xa5,
         sf: 0xa5,
         of: 0xa5,
+        tf: 0xa5,
+        df: 0xa5,
+        nt: 0xa5,
+        ac: 0xa5,
+        id: 0xa5,
+        reserved: 0xa5,
     },
-    non_status: [0xa5; 6],
 };
 
 // Register enumeration selects an encoding; all expected values remain literal.

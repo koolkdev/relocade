@@ -1,8 +1,9 @@
-use crate::alu::flags::{FlagMask, StatusFlag};
+use crate::flags::{FlagMask, StatusFlag};
 use crate::state::access::cpu_load;
 use crate::state::Cpu;
 use crate::test_step::{Argument, Event, Input, Outcome, TestModule};
-use crate::{CompiledModule, CpuState, StatusFlags};
+use crate::FlagBytes;
+use crate::{CompiledModule, CpuState};
 use wasm86_compiler::{Program, Signature, Type, Val, I1, I64};
 use wasmparser::{Operator, Parser, Payload, ValType, Validator};
 
@@ -77,16 +78,17 @@ fn arithmetic_flags(width: u32, add: bool, left: u32, right: u32) -> u8 {
 
 fn initial_cpu(kind: u8, left: u32, right: u32, expected: u8) -> CpuState {
     let mut cpu = CpuState::filled(0xa5);
-    cpu.flags.kind = kind;
-    cpu.flags.left = left;
-    cpu.flags.right = right;
-    cpu.flags.status = StatusFlags {
+    cpu.flags.status_source.kind = kind;
+    cpu.flags.status_source.left = left;
+    cpu.flags.status_source.right = right;
+    cpu.flags.bytes = FlagBytes {
         cf: 0xfe,
         pf: 0x7f,
         af: 0x5a,
         zf: 0x80,
         sf: 0xff,
         of: 1,
+        ..cpu.flags.bytes
     };
     // The host supplies the independently derived image for the test consumer.
     cpu.registers.eax = u32::from(expected);
@@ -97,13 +99,14 @@ fn record_cases() -> Vec<CpuState> {
     let mut cases = Vec::new();
     for bits in 0_u8..64 {
         let mut cpu = initial_cpu(0, 0x1234_5678, 0x8765_4321, bits);
-        cpu.flags.status = StatusFlags {
+        cpu.flags.bytes = FlagBytes {
             cf: if bits & 1 != 0 { 0xff } else { 0xfe },
             pf: if bits & 2 != 0 { 0x7f } else { 0x80 },
             af: if bits & 4 != 0 { 0x81 } else { 0x5a },
             zf: if bits & 8 != 0 { 1 } else { 0 },
             sf: if bits & 16 != 0 { 0x55 } else { 0xaa },
             of: if bits & 32 != 0 { 3 } else { 2 },
+            ..cpu.flags.bytes
         };
         cases.push(cpu);
     }
@@ -212,9 +215,9 @@ fn every_mask_reads_every_record_kind_without_changing_cpu_bytes() {
             outcome,
             &Outcome::Returned(vec![Argument::I64(0)]),
             "kind {}, operands {:08x}/{:08x}, expected {:02x}",
-            cpu.flags.kind,
-            cpu.flags.left,
-            cpu.flags.right,
+            cpu.flags.status_source.kind,
+            cpu.flags.status_source.left,
+            cpu.flags.status_source.right,
             cpu.registers.eax,
         );
         assert_eq!(&snapshot.cpu, &cpu.to_bytes().to_vec());

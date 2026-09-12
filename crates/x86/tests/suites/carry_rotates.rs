@@ -1,4 +1,6 @@
-use wasm86_x86::{CpuState, StatusFlags, StoredFlags};
+use crate::support::cases::Flags;
+use wasm86_x86::{CpuState, StoredFlags};
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 
 use crate::support::machine::{byte_register_image, Exit, Image, Step};
 
@@ -32,8 +34,8 @@ impl Operation {
 
 const OPERATIONS: [Operation; 2] = [Operation::Rcl, Operation::Rcr];
 
-fn prior_flags(carry: u8) -> StatusFlags {
-    StatusFlags {
+fn prior_flags(carry: u8) -> Flags<u8> {
+    Flags {
         cf: carry,
         pf: 0,
         af: 1,
@@ -45,19 +47,26 @@ fn prior_flags(carry: u8) -> StatusFlags {
 
 fn stored_flags(carry: u8) -> StoredFlags {
     StoredFlags {
-        kind: 0,
-        reserved: [0xa5; 3],
-        left: 0x1234_5678,
-        right: 0x8765_4321,
-        status: StatusFlags {
+        status_source: StoredStatusSource {
+            kind: 0,
+            reserved: [0xa5; 3],
+            left: 0x1234_5678,
+            right: 0x8765_4321,
+        },
+        bytes: FlagBytes {
             cf: 0xfe | carry,
             pf: 0xfe,
             af: 0xff,
             zf: 0x7f,
             sf: 0x80,
             of: 0x5b,
+            tf: 0,
+            df: 1,
+            nt: 0,
+            ac: 0,
+            id: 0,
+            reserved: 0xa5,
         },
-        non_status: [0, 1, 0, 0, 0, 0xa5],
     }
 }
 
@@ -69,14 +78,22 @@ fn image(code: &[u8], carry: u8) -> Image {
 
 struct ModelResult {
     value: u32,
-    status: Option<StatusFlags>,
+    status: Option<Flags<u8>>,
 }
 
 impl ModelResult {
     fn apply_flags(&self, cpu: &mut CpuState) {
         if let Some(status) = self.status {
-            cpu.flags.kind = 0;
-            cpu.flags.status = status;
+            cpu.flags.status_source.kind = 0;
+            cpu.flags.bytes = FlagBytes {
+                cf: status.cf,
+                pf: status.pf,
+                af: status.af,
+                zf: status.zf,
+                sf: status.sf,
+                of: status.of,
+                ..cpu.flags.bytes
+            };
         }
     }
 }
@@ -89,7 +106,7 @@ fn bit_at_a_time_model(
     bits: u32,
     value: u32,
     count: u8,
-    prior: StatusFlags,
+    prior: Flags<u8>,
 ) -> ModelResult {
     let modulus = 2_u64.pow(bits);
     let sign = modulus / 2;
@@ -116,7 +133,7 @@ fn bit_at_a_time_model(
         };
     ModelResult {
         value: result as u32,
-        status: (u32::from(count) % (bits + 1) != 0).then_some(StatusFlags {
+        status: (u32::from(count) % (bits + 1) != 0).then_some(Flags {
             cf: u8::from(carry),
             of: u8::from(overflow),
             ..prior

@@ -1,8 +1,9 @@
-use crate::alu::flags::{Condition, FlagChange, FlagSource, StatusFlag};
 use crate::alu::ArithmeticOp;
+use crate::alu::StatusSource;
+use crate::flags::{Condition, FlagChange, StatusFlag};
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
-use crate::{CompiledModule, StatusFlags};
+use crate::{CompiledModule, FlagBytes};
 use wasm86_compiler::{
     BuildError, FunctionBuilder, Program, Signature, Type, Val, I1, I32, I64, I8,
 };
@@ -10,22 +11,8 @@ use wasmparser::{Operator, Parser, Payload, Validator};
 
 use super::super::fixture::{assert_result, initial_cpu};
 
-const SUB_FLAGS: StatusFlags = StatusFlags {
-    cf: 1,
-    pf: 1,
-    af: 1,
-    zf: 0,
-    sf: 1,
-    of: 0,
-};
-const ZERO_FLAGS: StatusFlags = StatusFlags {
-    cf: 0,
-    pf: 1,
-    af: 0,
-    zf: 1,
-    sf: 0,
-    of: 0,
-};
+const SUB_FLAGS: [u8; 6] = [1, 1, 1, 0, 1, 0];
+const ZERO_FLAGS: [u8; 6] = [0, 1, 0, 1, 0, 0];
 
 fn query_all(
     body: &mut FunctionBuilder<'_>,
@@ -39,12 +26,8 @@ fn query_all(
     Ok(packed)
 }
 
-fn condition_bits(flags: StatusFlags) -> i64 {
-    let cf = flags.cf != 0;
-    let pf = flags.pf != 0;
-    let zf = flags.zf != 0;
-    let sf = flags.sf != 0;
-    let of = flags.of != 0;
+fn condition_bits(flags: [u8; 6]) -> i64 {
+    let [cf, pf, _, zf, sf, of] = flags.map(|flag| flag != 0);
     let mut packed = 0_i64;
     for (index, condition) in [of, cf, zf, cf || zf, sf, pf, sf != of, zf || sf != of]
         .into_iter()
@@ -90,17 +73,17 @@ fn mixed_histories_preserve_all_conditions_records_and_earlier_publications() {
                 |mut body| {
                     let mut state = State::new(&cpu);
                     if local_base {
-                        state.set_flags(
+                        state.write_flags(
                             &mut body,
                             ArithmeticOp::Subtract.apply::<I32>(4, 5).flags,
                         )?;
                     }
                     let first = body.parameter::<I1>(0)?;
-                    state.set_flags(
+                    state.write_flags(
                         &mut body,
                         FlagChange::partial([
-                            (StatusFlag::CF, false.into()),
-                            (StatusFlag::OF, true.into()),
+                            (StatusFlag::CF.into(), false.into()),
+                            (StatusFlag::OF.into(), true.into()),
                         ])
                         .when(first),
                     )?;
@@ -112,25 +95,26 @@ fn mixed_histories_preserve_all_conditions_records_and_earlier_publications() {
                         arm.return_(0_u64)
                     })?;
                     let second = body.parameter::<I1>(1)?;
-                    state.set_flags(
+                    state.write_flags(
                         &mut body,
-                        FlagChange::from(FlagSource::<I8>::Logic { result: 0.into() }).when(second),
+                        FlagChange::from(StatusSource::<I8>::Logic { result: 0.into() })
+                            .when(second),
                     )?;
                     let third = body.parameter::<I1>(2)?;
-                    state.set_flags(
+                    state.write_flags(
                         &mut body,
                         FlagChange::partial([
-                            (StatusFlag::ZF, false.into()),
-                            (StatusFlag::PF, false.into()),
+                            (StatusFlag::ZF.into(), false.into()),
+                            (StatusFlag::PF.into(), false.into()),
                         ])
                         .when(third),
                     )?;
                     let fourth = body.parameter::<I1>(3)?;
-                    state.set_flags(
+                    state.write_flags(
                         &mut body,
                         FlagChange::partial([
-                            (StatusFlag::AF, false.into()),
-                            (StatusFlag::SF, true.into()),
+                            (StatusFlag::AF.into(), false.into()),
+                            (StatusFlag::SF.into(), true.into()),
                         ])
                         .when(fourth),
                     )?;
@@ -147,54 +131,56 @@ fn mixed_histories_preserve_all_conditions_records_and_earlier_publications() {
         });
         for kind in [0, 9] {
             let mut initial = initial_cpu();
-            initial.flags.kind = kind;
+            initial.flags.status_source.kind = kind;
             for mask in 0..16 {
                 let arguments = std::array::from_fn::<_, 4, _>(|index| (mask >> index) & 1);
                 let [first, second, third, fourth] = arguments;
                 for stop in [0, 1] {
                     let mut expected = initial;
-                    let mut status = if local_base || kind == 9 {
-                        SUB_FLAGS
-                    } else {
-                        StatusFlags {
-                            cf: 1,
-                            pf: 1,
-                            af: 1,
-                            zf: 1,
-                            sf: 1,
-                            of: 1,
-                        }
-                    };
+                    let [mut cf, mut pf, mut af, mut zf, mut sf, mut of] =
+                        if local_base || kind == 9 {
+                            SUB_FLAGS
+                        } else {
+                            [1, 1, 1, 1, 1, 1]
+                        };
                     let mut concrete = first == 1;
                     if first == 1 {
-                        status.cf = 0;
-                        status.of = 1;
+                        cf = 0;
+                        of = 1;
                     }
                     let active_second = second == 1 && stop == 0;
                     if active_second {
-                        status = ZERO_FLAGS;
+                        [cf, pf, af, zf, sf, of] = ZERO_FLAGS;
                         concrete = false;
                     }
                     if third == 1 && stop == 0 {
-                        status.zf = 0;
-                        status.pf = 0;
+                        zf = 0;
+                        pf = 0;
                         concrete = true;
                     }
                     if fourth == 1 && stop == 0 {
-                        status.af = 0;
-                        status.sf = 1;
+                        af = 0;
+                        sf = 1;
                         concrete = true;
                     }
                     if concrete {
-                        expected.flags.kind = 0;
-                        expected.flags.status = status;
+                        expected.flags.status_source.kind = 0;
+                        expected.flags.bytes = FlagBytes {
+                            cf,
+                            pf,
+                            af,
+                            zf,
+                            sf,
+                            of,
+                            ..expected.flags.bytes
+                        };
                     } else if active_second {
-                        expected.flags.kind = 3;
-                        expected.flags.left = 0;
+                        expected.flags.status_source.kind = 3;
+                        expected.flags.status_source.left = 0;
                     } else if local_base {
-                        expected.flags.kind = 9;
-                        expected.flags.left = 4;
-                        expected.flags.right = 5;
+                        expected.flags.status_source.kind = 9;
+                        expected.flags.status_source.left = 4;
+                        expected.flags.status_source.right = 5;
                     }
                     expected.eip = if stop == 1 { 0x1002 } else { 0x1008 };
                     expected.instruction_count = if stop == 1 { 0 } else { 3 };
@@ -203,7 +189,11 @@ fn mixed_histories_preserve_all_conditions_records_and_earlier_publications() {
                         &initial,
                         &[first, second, third, fourth, stop],
                         &expected,
-                        if stop == 1 { 0 } else { condition_bits(status) },
+                        if stop == 1 {
+                            0
+                        } else {
+                            condition_bits([cf, pf, af, zf, sf, of])
+                        },
                     );
                 }
             }
@@ -225,12 +215,15 @@ fn overwritten_partial_changes_do_not_generate_obsolete_stored_reader_calls() {
                 |mut body| {
                     let mut state = State::new(&cpu);
                     let pending = body.parameter::<I1>(0)?;
-                    state.set_flags(
+                    state.write_flags(
                         &mut body,
-                        FlagChange::partial([(StatusFlag::CF, true.into())]).when(pending),
+                        FlagChange::partial([(StatusFlag::CF.into(), true.into())]).when(pending),
                     )?;
                     if complete {
-                        state.set_flags(&mut body, FlagSource::<I8>::Logic { result: 0.into() })?;
+                        state.write_flags(
+                            &mut body,
+                            StatusSource::<I8>::Logic { result: 0.into() },
+                        )?;
                     } else {
                         // Independent unconditional writes define every bit without
                         // requiring any part of the stored or conditional old source.
@@ -238,9 +231,9 @@ fn overwritten_partial_changes_do_not_generate_obsolete_stored_reader_calls() {
                             .into_iter()
                             .zip([false, true, false, true, false, false])
                         {
-                            state.set_flags(
+                            state.write_flags(
                                 &mut body,
-                                FlagChange::partial([(flag, value.into())]),
+                                FlagChange::partial([(flag.into(), value.into())]),
                             )?;
                         }
                     }
@@ -262,11 +255,18 @@ fn overwritten_partial_changes_do_not_generate_obsolete_stored_reader_calls() {
         let initial = initial_cpu();
         let mut expected = initial;
         if complete {
-            expected.flags.kind = 3;
-            expected.flags.left = 0;
+            expected.flags.status_source.kind = 3;
+            expected.flags.status_source.left = 0;
         } else {
-            expected.flags.kind = 0;
-            expected.flags.status = ZERO_FLAGS;
+            expected.flags.status_source.kind = 0;
+            [
+                expected.flags.bytes.cf,
+                expected.flags.bytes.pf,
+                expected.flags.bytes.af,
+                expected.flags.bytes.zf,
+                expected.flags.bytes.sf,
+                expected.flags.bytes.of,
+            ] = ZERO_FLAGS;
         }
         expected.eip = 0x1002;
         expected.instruction_count = 0;
@@ -295,24 +295,24 @@ fn mixed_partial_and_complete_history_keeps_constant_publication_depth() {
                 },
                 |mut body| {
                     let mut state = State::new(&cpu);
-                    state.set_flags(&mut body, FlagSource::<I8>::Logic { result: 0.into() })?;
+                    state.write_flags(&mut body, StatusSource::<I8>::Logic { result: 0.into() })?;
                     let selector = body.parameter::<I32>(0)?;
                     for index in 0..length {
                         let predicate = selector.eq(index);
                         if index % 2 == 0 {
-                            state.set_flags(
+                            state.write_flags(
                                 &mut body,
-                                FlagChange::from(FlagSource::<I32>::Logic {
+                                FlagChange::from(StatusSource::<I32>::Logic {
                                     result: index.into(),
                                 })
                                 .when(predicate),
                             )?;
                         } else {
-                            state.set_flags(
+                            state.write_flags(
                                 &mut body,
                                 FlagChange::partial([
-                                    (StatusFlag::CF, (index & 2 != 0).into()),
-                                    (StatusFlag::OF, (index & 4 != 0).into()),
+                                    (StatusFlag::CF.into(), (index & 2 != 0).into()),
+                                    (StatusFlag::OF.into(), (index & 4 != 0).into()),
                                 ])
                                 .when(predicate),
                             )?;
@@ -347,20 +347,28 @@ fn mixed_partial_and_complete_history_keeps_constant_publication_depth() {
         let initial = initial_cpu();
         for selector in [-1, 0, 1, length as i32 - 2, length as i32 - 1] {
             let mut expected = initial;
-            let mut status = ZERO_FLAGS;
+            let [mut cf, mut pf, af, mut zf, sf, mut of] = ZERO_FLAGS;
             if selector < 0 {
-                expected.flags.kind = 3;
-                expected.flags.left = 0;
+                expected.flags.status_source.kind = 3;
+                expected.flags.status_source.left = 0;
             } else if selector % 2 == 0 {
-                expected.flags.kind = 11;
-                expected.flags.left = selector as u32;
-                status.pf = u8::from((selector as u8).count_ones() % 2 == 0);
-                status.zf = u8::from(selector == 0);
+                expected.flags.status_source.kind = 11;
+                expected.flags.status_source.left = selector as u32;
+                pf = u8::from((selector as u8).count_ones() % 2 == 0);
+                zf = u8::from(selector == 0);
             } else {
-                status.cf = u8::from(selector & 2 != 0);
-                status.of = u8::from(selector & 4 != 0);
-                expected.flags.kind = 0;
-                expected.flags.status = status;
+                cf = u8::from(selector & 2 != 0);
+                of = u8::from(selector & 4 != 0);
+                expected.flags.status_source.kind = 0;
+                expected.flags.bytes = FlagBytes {
+                    cf,
+                    pf,
+                    af,
+                    zf,
+                    sf,
+                    of,
+                    ..expected.flags.bytes
+                };
             }
             expected.eip = 0x1200;
             expected.instruction_count = length - 1;
@@ -369,7 +377,7 @@ fn mixed_partial_and_complete_history_keeps_constant_publication_depth() {
                 &initial,
                 &[selector],
                 &expected,
-                condition_bits(status),
+                condition_bits([cf, pf, af, zf, sf, of]),
             );
         }
     }

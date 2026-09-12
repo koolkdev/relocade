@@ -17,6 +17,9 @@ impl SizedForm {
         fallthrough_eip: P,
     ) -> DecodedInstruction<V, P> {
         let call = match (self.handler, self.form.binding) {
+            (Handler::Nullary(handler), OperandBindingShape::Nullary) => {
+                HandlerCall::Nullary { handler }
+            }
             (Handler::Binary(handler), OperandBindingShape::Binary { left, right }) => {
                 HandlerCall::Binary {
                     handler,

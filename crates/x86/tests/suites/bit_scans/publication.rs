@@ -1,7 +1,8 @@
 //! Scan publication leaves discarded arithmetic operands in their existing backing.
 //! Architectural scan results and flags are checked by the ordinary sequences.
 
-use wasm86_x86::{compile_block_from_bytes, CpuState, StatusFlags, StoredFlags};
+use wasm86_x86::{compile_block_from_bytes, CpuState, StoredFlags};
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 
 use super::image;
 use crate::support::{
@@ -24,9 +25,12 @@ fn check_discarded_payload(engine: Engine) {
             eip: 0x1003,
             instruction_count: 0,
             flags: StoredFlags {
-                kind: 2,
-                left: 0xff,
-                right: 1,
+                status_source: StoredStatusSource {
+                    kind: 2,
+                    left: 0xff,
+                    right: 1,
+                    ..image.cpu.flags.status_source
+                },
                 ..image.cpu.flags
             },
             ..image.cpu
@@ -36,16 +40,19 @@ fn check_discarded_payload(engine: Engine) {
             eip: 0x1007,
             instruction_count: 1,
             flags: StoredFlags {
-                kind: 0,
-                status: StatusFlags {
+                status_source: StoredStatusSource {
+                    kind: 0,
+                    ..after_add.flags.status_source
+                },
+                bytes: FlagBytes {
                     cf: 0,
                     pf: 1,
                     af: 0,
                     zf: 1,
                     sf: 0,
                     of: 0,
+                    ..after_add.flags.bytes
                 },
-                ..after_add.flags
             },
             ..after_add
         };
@@ -78,8 +85,11 @@ fn check_discarded_payload(engine: Engine) {
         let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 3).unwrap());
         let block_cpu = CpuState {
             flags: StoredFlags {
-                left: 0x1234_5678,
-                right: 0x8765_4321,
+                status_source: StoredStatusSource {
+                    left: 0x1234_5678,
+                    right: 0x8765_4321,
+                    ..after_scan.flags.status_source
+                },
                 ..after_scan.flags
             },
             ..after_scan

@@ -165,17 +165,36 @@ pub(in crate::support) fn check_checkpoint(
         actual.cpu.reserved_tail, initial.cpu.reserved_tail,
         "{context}: reserved CPU tail"
     );
+    let mut expected_record = initial.cpu.flags;
+    if let Some(direction) = expected.direction_flag {
+        expected_record.bytes.df = u8::from(direction);
+    }
     assert_eq!(
-        actual.cpu.flags.non_status, initial.cpu.flags.non_status,
-        "{context}: non-status flags"
+        [
+            actual.cpu.flags.bytes.tf,
+            actual.cpu.flags.bytes.df,
+            actual.cpu.flags.bytes.nt,
+            actual.cpu.flags.bytes.ac,
+            actual.cpu.flags.bytes.id,
+            actual.cpu.flags.bytes.reserved
+        ],
+        [
+            expected_record.bytes.tf,
+            expected_record.bytes.df,
+            expected_record.bytes.nt,
+            expected_record.bytes.ac,
+            expected_record.bytes.id,
+            expected_record.bytes.reserved
+        ],
+        "{context}: control and system flags and reserved byte"
     );
     assert_eq!(
-        actual.cpu.flags.reserved, initial.cpu.flags.reserved,
+        actual.cpu.flags.status_source.reserved, initial.cpu.flags.status_source.reserved,
         "{context}: reserved flag bytes"
     );
     if expected.flags.preserves_record() {
         assert_eq!(
-            actual.cpu.flags, initial.cpu.flags,
+            actual.cpu.flags, expected_record,
             "{context}: stored flag record"
         );
     }

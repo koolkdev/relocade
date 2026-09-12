@@ -1,14 +1,18 @@
-//! Admission and history of complete and partial symbolic flag changes.
+//! Architectural flag state owns admission, queries and terminal publication.
 
 mod publication;
 mod queries;
 pub(super) mod record;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, MemoryInt, I1};
+use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, Val, I1, I8};
 
-use crate::alu::flags::{AnyFlagSource, Condition, FlagChange, FlagMask, FlagSource, FlagValues};
+use crate::{
+    alu::{AnyStatusSource, StatusSource},
+    flags::{Condition, Flag, FlagChange, FlagMask, FlagValues},
+    ssa::Environment,
+};
 
-use super::State;
+use super::{access::cpu_location, Cpu};
 use queries::StoredFlagCache;
 
 pub(super) fn condition_index(canonical: Condition) -> usize {
@@ -18,58 +22,51 @@ pub(super) fn condition_index(canonical: Condition) -> usize {
         .expect("a canonical condition has a cache slot")
 }
 
-/// Changes follow one complete source in program order. Publication may use
-/// descendant arms without changing this history or its query caches.
-/// History contains only nonempty changes; any predicate is admitted and nonconstant.
-/// An unconditional complete change replaces the base instead of entering history.
-#[derive(Default)]
 pub(super) struct FlagState {
-    base: FlagBase,
+    status: StatusState,
+    direct: Environment,
+}
+
+/// Status changes follow one complete status source in program order.
+/// Unconditional replacements discard only the older status history.
+#[derive(Default)]
+struct StatusState {
+    base: StatusBase,
     updates: Vec<FlagChange>,
 }
 
 #[derive(Clone)]
-enum FlagBase {
+enum StatusBase {
     Stored(StoredFlagCache),
-    Local(AnyFlagSource),
+    Local(AnyStatusSource),
 }
 
-impl Default for FlagBase {
+impl Default for StatusBase {
     fn default() -> Self {
         Self::Stored(StoredFlagCache::default())
     }
 }
 
 impl FlagState {
-    fn apply(&mut self, change: FlagChange) {
-        match change {
-            FlagChange {
-                condition: None,
-                values: FlagValues::Complete(source),
-            } => {
-                self.base = FlagBase::Local(source);
-                self.updates.clear();
-            }
-            change => self.updates.push(change),
+    pub(super) fn new(memory: Mem) -> Self {
+        Self {
+            status: StatusState::default(),
+            direct: Environment::new(memory),
         }
     }
-}
 
-impl State<'_> {
-    /// Applies a symbolic flag change after the instruction's fault guards pass.
-    /// A false condition retains the entire previous source and stored record.
-    pub(crate) fn set_flags(
+    /// Admit the whole change before modifying either status or direct flag state.
+    /// A false change preserves every backing byte, including noncanonical flags.
+    pub(super) fn apply(
         &mut self,
         body: &mut FunctionBuilder<'_>,
-        change: impl Into<FlagChange>,
+        mut change: FlagChange,
     ) -> Result<(), BuildError> {
-        let mut change = change.into();
         change.condition = change
             .condition
             .map(|condition| body.value(condition))
             .transpose()?;
         admit_values(body, &change.values)?;
-        // Admit every provided value before omitting an empty or false change.
         if change.writes() == FlagMask::EMPTY {
             return Ok(());
         }
@@ -81,19 +78,71 @@ impl State<'_> {
                 change.condition = None;
             }
         }
-        self.flags.apply(change);
+        if change.writes().contains(Flag::DF) {
+            let value = change.flag(Flag::DF).unsigned().extend::<I8>();
+            let value = match &change.condition {
+                Some(condition) => {
+                    let old = self.direct.read(body, cpu_location!(flags.bytes.df))?;
+                    condition.select(value, old)
+                }
+                None => value,
+            };
+            self.direct
+                .define(body, cpu_location!(flags.bytes.df), value)?;
+            change = change.retaining(FlagMask::STATUS);
+        }
+        if change.writes() != FlagMask::EMPTY {
+            self.status.apply(change);
+        }
         Ok(())
+    }
+
+    pub(super) fn read(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        cpu: &Cpu,
+        flag: Flag,
+    ) -> Result<Val<I1>, BuildError> {
+        match flag {
+            Flag::Status(flag) => self.status.read_flag(body, cpu, flag),
+            Flag::DF => self
+                .direct
+                .read(body, cpu_location!(flags.bytes.df))
+                .map(|value| value.truncate::<I1>()),
+        }
+    }
+
+    pub(super) fn condition(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        cpu: &Cpu,
+        condition: Condition,
+    ) -> Result<Val<I1>, BuildError> {
+        self.status.condition(body, cpu, condition)
+    }
+}
+
+impl StatusState {
+    fn apply(&mut self, change: FlagChange) {
+        if change.condition.is_none() && change.writes() == FlagMask::STATUS {
+            if let FlagValues::Status(source) = change.values {
+                self.base = StatusBase::Local(source);
+                self.updates.clear();
+                return;
+            }
+        }
+        self.updates.push(change);
     }
 }
 
 fn admit_values(body: &FunctionBuilder<'_>, values: &FlagValues) -> Result<(), BuildError> {
     match values {
-        FlagValues::Complete(source) => match source {
-            AnyFlagSource::Byte(source) => admit_source(body, source),
-            AnyFlagSource::Word(source) => admit_source(body, source),
-            AnyFlagSource::Dword(source) => admit_source(body, source),
+        FlagValues::Status(source) => match source {
+            AnyStatusSource::Byte(source) => admit_source(body, source),
+            AnyStatusSource::Word(source) => admit_source(body, source),
+            AnyStatusSource::Dword(source) => admit_source(body, source),
         },
-        FlagValues::Partial(flags) => {
+        FlagValues::Explicit(flags) => {
             for value in flags.iter().flatten() {
                 body.value(value)?;
             }
@@ -104,10 +153,10 @@ fn admit_values(body: &FunctionBuilder<'_>, values: &FlagValues) -> Result<(), B
 
 fn admit_source<T: MemoryInt>(
     body: &FunctionBuilder<'_>,
-    source: &FlagSource<T>,
+    source: &StatusSource<T>,
 ) -> Result<(), BuildError> {
     match source {
-        FlagSource::Arithmetic {
+        StatusSource::Arithmetic {
             left,
             right,
             result,
@@ -117,12 +166,12 @@ fn admit_source<T: MemoryInt>(
             body.value(right)?;
             body.value(result)?;
         }
-        FlagSource::Explicit { flags } => {
+        StatusSource::Explicit { flags } => {
             for flag in flags {
                 body.value(flag)?;
             }
         }
-        FlagSource::Logic { result } => {
+        StatusSource::Logic { result } => {
             body.value(result)?;
         }
     }

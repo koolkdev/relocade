@@ -1,6 +1,5 @@
-use wasm86_x86::{
-    compile_block_from_bytes, BlockError, CpuState, Gpr32::Eax, StatusFlags, StoredFlags,
-};
+use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32::Eax, StoredFlags};
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 
 use crate::support::{
     cases::{
@@ -63,7 +62,13 @@ fn unary_lengths_stop_after_the_selected_register_or_address() {
 #[rustfmt::skip]
 fn mixed_group_fields() -> Vec<SequenceCase> {
     vec![SequenceCase::from_opaque_flags("mixed F6/F7 forms consume their own fields")
-        .stored_flags(StoredFlags { kind: 0xff, ..CpuState::filled(0xa5).flags })
+        .stored_flags(StoredFlags {
+            status_source: StoredStatusSource {
+                kind: 0xff,
+                ..(CpuState::filled(0xa5).flags).status_source
+            },
+            ..CpuState::filled(0xa5).flags
+        })
         .initial_register(Eax, 0x1234_5678)
         .step(Checkpoint::new(&[0xf6, 0xc0, 0xf7],
             Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Clear, of: Clear }))
@@ -95,7 +100,7 @@ fn unsupported_group_extensions_stop_before_sib_or_displacement_fetch() {
                 }),
             );
             let mut image = Image::new(&[]);
-            image.cpu.flags.kind = 0xff;
+            image.cpu.flags.status_source.kind = 0xff;
             image.cpu.eip = start;
             image.data(0x3000 + (start & 0xfff), &code);
             check(
@@ -124,7 +129,7 @@ fn required_unary_fields_fault_before_data_access() {
     ] {
         let start = 0x2000 - code.len() as u32;
         let mut image = Image::new(&[]);
-        image.cpu.flags.kind = 0;
+        image.cpu.flags.status_source.kind = 0;
         image.cpu.registers.ebx = 0x4000;
         image.cpu.eip = start;
         image.data(0x3000 + (start & 0xfff), code);
@@ -154,7 +159,7 @@ fn required_unary_fields_fault_before_data_access() {
             Some(BlockError::InstructionTooLong { address: 0x1ff1 }),
         );
         let mut image = Image::new(&[]);
-        image.cpu.flags.kind = 0;
+        image.cpu.flags.status_source.kind = 0;
         image.cpu.eip = 0x1ff1;
         image.data(0x3ff1, &code);
         check(
@@ -180,8 +185,14 @@ fn maximum_length() -> Vec<Case> {
             .at(0x1ff1).register(Eax, 0x1234_ffff, output));
     }
     let invalid = StoredFlags {
-        kind: 0xff, status: StatusFlags { cf: 1, ..CpuState::filled(0xa5).flags.status },
-        ..CpuState::filled(0xa5).flags
+        status_source: StoredStatusSource {
+            kind: 0xff,
+            ..(CpuState::filled(0xa5).flags).status_source
+        },
+        bytes: FlagBytes {
+            cf: 1,
+            ..(CpuState::filled(0xa5).flags).bytes
+        },
     };
     cases.push(Case::preserving_flags("fifteen-byte NOT AL has no immediate",
         &[vec![0x66; 13], vec![0xf6, 0xd0]].concat())

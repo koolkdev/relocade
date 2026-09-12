@@ -194,6 +194,9 @@ impl FinalExpectation {
         self.boundary.eip = next.eip;
         self.boundary.retired += next.retired;
         self.expected.exit = checkpoint.expected.exit;
+        if let Some(direction) = checkpoint.expected.direction_flag {
+            self.expected.direction_flag = Some(direction);
+        }
         for &(register, value) in &checkpoint.expected.registers {
             self.expected.registers.retain(|(old, _)| *old != register);
             self.expected.registers.push((register, value));

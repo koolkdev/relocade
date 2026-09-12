@@ -1,7 +1,5 @@
-use wasm86_x86::{
-    Gpr32::{Eax, Ebp, Ebx, Ecx, Edi, Edx, Esi},
-    StatusFlags,
-};
+use wasm86_x86::FlagBytes;
+use wasm86_x86::Gpr32::{Eax, Ebp, Ebx, Ecx, Edi, Edx, Esi};
 
 use crate::support::{
     cases::{
@@ -24,16 +22,25 @@ mod xadd;
 
 fn image(code: &[u8]) -> Image {
     let mut image = byte_register_image(code);
-    image.cpu.flags.kind = 0;
-    image.cpu.flags.status = StatusFlags {
+    image.cpu.flags.status_source.kind = 0;
+    image.cpu.flags.bytes = FlagBytes {
         cf: 1,
         pf: 1,
         af: 1,
         zf: 1,
         sf: 1,
         of: 1,
+        ..image.cpu.flags.bytes
     };
-    image.cpu.flags.non_status = [0, 1, 0, 0, 0, 0xa5];
+    image.cpu.flags.bytes = FlagBytes {
+        tf: 0,
+        df: 1,
+        nt: 0,
+        ac: 0,
+        id: 0,
+        reserved: 0xa5,
+        ..image.cpu.flags.bytes
+    };
     image
 }
 

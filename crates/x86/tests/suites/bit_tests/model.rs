@@ -1,4 +1,6 @@
-use wasm86_x86::{CpuState, StatusFlags};
+use crate::support::cases::Flags;
+use wasm86_x86::CpuState;
+use wasm86_x86::FlagBytes;
 
 use crate::support::{
     machine::{both, Exit, Step},
@@ -86,11 +88,16 @@ struct Expected {
 }
 
 impl Expected {
-    fn apply_flags(&self, cpu: &mut CpuState, prior: StatusFlags) {
-        cpu.flags.kind = 0;
-        cpu.flags.status = StatusFlags {
+    fn apply_flags(&self, cpu: &mut CpuState, prior: Flags<u8>) {
+        cpu.flags.status_source.kind = 0;
+        cpu.flags.bytes = FlagBytes {
             cf: self.carry,
-            ..prior
+            pf: prior.pf,
+            af: prior.af,
+            zf: prior.zf,
+            sf: prior.sf,
+            of: prior.of,
+            ..cpu.flags.bytes
         };
     }
 }

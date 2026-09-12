@@ -12,28 +12,51 @@ use std::{
 
 use crate::register::Gpr32;
 
-/// Stored status bytes, including noncanonical or stale values.
+/// Backing descriptor for the six arithmetic status flags.
+/// Kind zero reads their stored bytes. Other supported kinds derive their values
+/// from the payload; control and system flags always use their stored bytes.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct StatusFlags {
+pub struct StoredStatusSource {
+    /// Zero selects stored bits. Subtraction uses 1/5/9, addition 2/6/10,
+    /// and logic 3/7/11 for byte/word/dword values, respectively.
+    pub kind: u8,
+    /// Snapshot padding, retained without interpretation.
+    pub reserved: [u8; 3],
+    /// Left arithmetic operand or logical result; unused for kind zero.
+    pub left: u32,
+    /// Right arithmetic operand; unused for kind zero and logic.
+    pub right: u32,
+}
+
+/// Named backing bytes for the represented x86 flags, in snapshot order.
+/// Each flag uses its low bit. Status bytes can be stale while a status source
+/// is active; snapshots retain every byte without interpreting or normalizing it.
+/// This byte record is not the architectural EFLAGS bit encoding.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FlagBytes {
     pub cf: u8,
     pub pf: u8,
     pub af: u8,
     pub zf: u8,
     pub sf: u8,
     pub of: u8,
+    pub tf: u8,
+    pub df: u8,
+    pub nt: u8,
+    pub ac: u8,
+    pub id: u8,
+    /// Snapshot padding, not an architectural flag.
+    pub reserved: u8,
 }
 
-/// The stored flag record retains bytes that its current kind does not use.
+/// Flag backing state, including inactive source operands and stale flag bytes.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct StoredFlags {
-    pub kind: u8,
-    pub reserved: [u8; 3],
-    pub left: u32,
-    pub right: u32,
-    pub status: StatusFlags,
-    pub non_status: [u8; 6],
+    pub status_source: StoredStatusSource,
+    pub bytes: FlagBytes,
 }
 
 #[repr(C)]

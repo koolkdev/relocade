@@ -2,33 +2,41 @@
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Mem, Val, I1};
 
-use crate::alu::flags::{AnyFlagSource, FlagMask, FlagValues};
-use crate::state::State;
+use crate::alu::AnyStatusSource;
+use crate::flags::FlagMask;
+use crate::state::Cpu;
 
 use super::{
     queries::resolve_flags,
     record::{self, FlagRecord},
-    FlagBase,
+    FlagState, StatusBase, StatusState,
 };
 
-impl State<'_> {
-    pub(in crate::state) fn publish_flags(
+impl FlagState {
+    pub(in crate::state) fn publish(
         &self,
         body: &mut FunctionBuilder<'_>,
+        cpu: &Cpu,
     ) -> Result<(), BuildError> {
-        let memory = self.cpu.memory();
-        if self.flags.updates.is_empty() {
-            return self.flags.base.publish(body, memory);
+        self.status.publish(body, cpu)?;
+        self.direct.publish(body)
+    }
+}
+
+impl StatusState {
+    fn publish(&self, body: &mut FunctionBuilder<'_>, cpu: &Cpu) -> Result<(), BuildError> {
+        let memory = cpu.memory();
+        if self.updates.is_empty() {
+            return self.base.publish(body, memory);
         }
         let has_partial = self
-            .flags
             .updates
             .iter()
-            .any(|update| matches!(update.values, FlagValues::Partial(_)));
+            .any(|update| update.status_source(FlagMask::STATUS).is_none());
         let partial_condition = if has_partial {
             let mut needs_concrete: Val<I1> = false.into();
-            for update in &self.flags.updates {
-                let partial = matches!(update.values, FlagValues::Partial(_));
+            for update in &self.updates {
+                let partial = update.status_source(FlagMask::STATUS).is_none();
                 needs_concrete = match &update.condition {
                     Some(condition) => condition.select(partial, needs_concrete),
                     None => partial.into(),
@@ -36,7 +44,7 @@ impl State<'_> {
             }
             let needs_concrete = body.value(needs_concrete)?;
             if needs_concrete.same_expression(&body.value::<I1>(true)?) {
-                return self.publish_concrete_flags(body);
+                return self.publish_concrete(body, cpu);
             }
             if needs_concrete.same_expression(&body.value::<I1>(false)?) {
                 None
@@ -51,39 +59,37 @@ impl State<'_> {
         body.block::<()>(|mut block, done| {
             if let Some(needs_concrete) = partial_condition {
                 block.if_(needs_concrete, |mut arm| {
-                    self.publish_concrete_flags(&mut arm)?;
+                    self.publish_concrete(&mut arm, cpu)?;
                     arm.branch(&done, ())
                 })?;
             }
-            for update in self.flags.updates.iter().rev() {
-                if let FlagValues::Complete(source) = &update.values {
+            for update in self.updates.iter().rev() {
+                if let Some(source) = update.status_source(FlagMask::STATUS) {
                     block.if_(update.condition.as_ref().unwrap(), |mut arm| {
                         publish_source(&mut arm, memory, source)?;
                         arm.branch(&done, ())
                     })?;
                 }
             }
-            self.flags.base.publish(&mut block, memory)
+            self.base.publish(&mut block, memory)
         })
     }
 
-    fn publish_concrete_flags(&self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+    fn publish_concrete(
+        &self,
+        body: &mut FunctionBuilder<'_>,
+        cpu: &Cpu,
+    ) -> Result<(), BuildError> {
         // A publication arm must not put descendant-scoped reads into the live
         // state used by later instructions or exits.
-        let mut base = self.flags.base.clone();
-        let flags = resolve_flags(
-            body,
-            self.cpu,
-            &mut base,
-            &self.flags.updates,
-            FlagMask::ALL,
-        )?;
+        let mut base = self.base.clone();
+        let flags = resolve_flags(body, cpu, &mut base, &self.updates, FlagMask::STATUS)?;
         let status = flags.map(|flag| flag.expect("publication resolves all six status flags"));
-        record::write_concrete(body, self.cpu.memory(), status)
+        record::write_concrete(body, cpu.memory(), status)
     }
 }
 
-impl FlagBase {
+impl StatusBase {
     fn publish(&self, body: &mut FunctionBuilder<'_>, memory: Mem) -> Result<(), BuildError> {
         match self {
             Self::Stored(_) => Ok(()),
@@ -95,11 +101,11 @@ impl FlagBase {
 fn publish_source(
     body: &mut FunctionBuilder<'_>,
     memory: Mem,
-    source: &AnyFlagSource,
+    source: &AnyStatusSource,
 ) -> Result<(), BuildError> {
     match source {
-        AnyFlagSource::Byte(source) => FlagRecord::from_source(source).write(body, memory),
-        AnyFlagSource::Word(source) => FlagRecord::from_source(source).write(body, memory),
-        AnyFlagSource::Dword(source) => FlagRecord::from_source(source).write(body, memory),
+        AnyStatusSource::Byte(source) => FlagRecord::from_source(source).write(body, memory),
+        AnyStatusSource::Word(source) => FlagRecord::from_source(source).write(body, memory),
+        AnyStatusSource::Dword(source) => FlagRecord::from_source(source).write(body, memory),
     }
 }

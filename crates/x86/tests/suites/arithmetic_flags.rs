@@ -6,8 +6,9 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint, SequenceCase},
 };
 use wasm86_x86::Gpr32::{Eax, Ebx};
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 
-use wasm86_x86::{CpuState, StatusFlags, StoredFlags};
+use wasm86_x86::{CpuState, StoredFlags};
 
 #[path = "arithmetic_flags/cases.rs"]
 mod cases;
@@ -164,20 +165,50 @@ fn saved_conditions() -> Vec<SequenceCase> {
             [0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0]),
     ] {
         let record = StoredFlags {
-            kind, left, right,
-            status: StatusFlags { cf: 1, pf: 1, af: 1, zf: 1, sf: 1, of: 1 },
-            non_status: [0, 1, 0, 0, 0, 0xa5],
-            ..CpuState::filled(0xa5).flags
+            status_source: StoredStatusSource {
+                kind,
+                left,
+                right,
+                ..(CpuState::filled(0xa5).flags).status_source
+            },
+            bytes: FlagBytes {
+                cf: 1,
+                pf: 1,
+                af: 1,
+                zf: 1,
+                sf: 1,
+                of: 1,
+                tf: 0,
+                df: 1,
+                nt: 0,
+                ac: 0,
+                id: 0,
+                reserved: 0xa5,
+            },
         };
         cases.push(SequenceCase::new(name, flags).stored_flags(record).conditions(conditions));
     }
     cases.push(SequenceCase::new("concrete equal flags ignore stale recipe operands",
         Flags { cf: false, pf: true, af: false, zf: true, sf: false, of: false })
         .stored_flags(StoredFlags {
-            kind: 0,
-            status: StatusFlags { cf: 0, pf: 1, af: 0, zf: 1, sf: 0, of: 0 },
-            non_status: [0, 1, 0, 0, 0, 0xa5],
-            ..CpuState::filled(0xa5).flags
+            status_source: StoredStatusSource {
+                kind: 0,
+                ..(CpuState::filled(0xa5).flags).status_source
+            },
+            bytes: FlagBytes {
+                cf: 0,
+                pf: 1,
+                af: 0,
+                zf: 1,
+                sf: 0,
+                of: 0,
+                tf: 0,
+                df: 1,
+                nt: 0,
+                ac: 0,
+                id: 0,
+                reserved: 0xa5,
+            },
         })
         .conditions([0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0]));
     cases

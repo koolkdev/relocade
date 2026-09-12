@@ -1,4 +1,5 @@
-use wasm86_x86::{compile_block_from_bytes, StatusFlags};
+use wasm86_x86::compile_block_from_bytes;
+use wasm86_x86::FlagBytes;
 
 use crate::support::{
     machine::{both, check, expected as observe_expected, Image, Step},
@@ -26,15 +27,17 @@ fn full_carry_rings_preserve_every_byte_of_concrete_and_lazy_flag_records() {
                             let mut image = image(&code, carry);
                             image.cpu.registers.eax = 0x4433_8081;
                             image.cpu.registers.ecx = 0x8877_6600 | u32::from(count);
-                            image.cpu.flags.reserved = [0x12, 0x34, 0x56];
+                            image.cpu.flags.status_source.reserved = [0x12, 0x34, 0x56];
                             if lazy {
                                 // Both byte additions have OF=1: 127+1 has CF=0,
                                 // and 128+128 has CF=1. The stale bytes disagree.
-                                image.cpu.flags.kind = 2;
-                                image.cpu.flags.left = if carry == 0 { 0x7f } else { 0x80 };
-                                image.cpu.flags.right = if carry == 0 { 1 } else { 0x80 };
-                                image.cpu.flags.status.cf = 0xfe | (1 - carry);
-                                image.cpu.flags.status.of = 0x5a;
+                                image.cpu.flags.status_source.kind = 2;
+                                image.cpu.flags.status_source.left =
+                                    if carry == 0 { 0x7f } else { 0x80 };
+                                image.cpu.flags.status_source.right =
+                                    if carry == 0 { 1 } else { 0x80 };
+                                image.cpu.flags.bytes.cf = 0xfe | (1 - carry);
+                                image.cpu.flags.bytes.of = 0x5a;
                             }
                             // The complete raw record and destination are literal
                             // no-ops; this expectation does not use the rotate oracle.
@@ -79,28 +82,29 @@ fn pending_sequence(rotate: &[u8], count: u8, carry: u8, increment: bool) -> Seq
         0x0f, 0x92, 0xc7, // SETC BH
     ]);
     let mut image = image(&code, 1 - carry);
-    image.cpu.flags.status.of = 0x5a;
-    image.cpu.flags.reserved = [0x12, 0x34, 0x56];
+    image.cpu.flags.bytes.of = 0x5a;
+    image.cpu.flags.status_source.reserved = [0x12, 0x34, 0x56];
     image.cpu.registers.eax = 0x4433_8081;
     image.cpu.registers.ecx = 0x8877_6600 | u32::from(count);
     image.cpu.registers.edx = if carry == 0 { 0xccbb_017f } else { 0xccbb_8080 };
     image.cpu.registers.esi = 0x7fff_ffff;
     let mut cpu = image.cpu;
     cpu.registers.edx = if carry == 0 { 0xccbb_0180 } else { 0xccbb_8000 };
-    cpu.flags.kind = 2;
-    cpu.flags.left = if carry == 0 { 0x7f } else { 0x80 };
-    cpu.flags.right = if carry == 0 { 1 } else { 0x80 };
+    cpu.flags.status_source.kind = 2;
+    cpu.flags.status_source.left = if carry == 0 { 0x7f } else { 0x80 };
+    cpu.flags.status_source.right = if carry == 0 { 1 } else { 0x80 };
     let mut steps = vec![retire(&mut cpu, 2, &[])];
     if increment {
         cpu.registers.esi = 0x8000_0000;
-        cpu.flags.kind = 0;
-        cpu.flags.status = StatusFlags {
+        cpu.flags.status_source.kind = 0;
+        cpu.flags.bytes = FlagBytes {
             cf: carry,
             pf: 1,
             af: 1,
             zf: 0,
             sf: 1,
             of: 1,
+            ..cpu.flags.bytes
         };
         steps.push(retire(&mut cpu, 1, &[]));
     }
@@ -112,8 +116,8 @@ fn pending_sequence(rotate: &[u8], count: u8, carry: u8, increment: bool) -> Seq
     if increment {
         // Only interpreter boundaries published ADD's lazy operands. The
         // block's concrete partial result retains the old unused payload.
-        cpu.flags.left = image.cpu.flags.left;
-        cpu.flags.right = image.cpu.flags.right;
+        cpu.flags.status_source.left = image.cpu.flags.status_source.left;
+        cpu.flags.status_source.right = image.cpu.flags.status_source.right;
     }
     let block_step = Step {
         cpu,

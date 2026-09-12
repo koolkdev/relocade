@@ -65,6 +65,11 @@
 //! source into a register. Its source is read even when the condition is false.
 //! A false condition preserves the destination; a taken word move preserves its
 //! upper half. Both outcomes retire once and preserve flags.
+//! CLC (`F8`), STC (`F9`) and CMC (`F5`) clear, set or complement CF while
+//! preserving the other status flags. CLD (`FC`) and STD (`FD`) clear or set DF,
+//! preserving the entire status record. These forms have no operands; `66` does
+//! not change their effects. DF is a separate byte at offset 19 and is exposed
+//! as `CpuState::flags.bytes.df` in host snapshots.
 //! Relative JMP uses `EB`/`E9`; Jcc uses `70`–`7F`/`0F 80`–`0F 8F`.
 //! Short displacements are signed bytes; near displacements are word/dword-sized.
 //! Targets are relative to the end of the instruction. With `66`, taken targets
@@ -109,7 +114,8 @@
 //! ADC adds the incoming CF; SBB subtracts it as a borrow. Their ALU outcomes
 //! contain the result and six explicit symbolic flag values. At publication,
 //! they write all six concrete flags before kind 0, leaving unused payloads intact.
-//! INC/DEC publish through the same concrete format; NEG uses SUB with a zero left operand.
+//! INC/DEC and CLC/STC/CMC publish through the same concrete format;
+//! NEG uses SUB with a zero left operand.
 //! Nonzero shifts publish concrete flags through that format too. PF/ZF/SF describe
 //! the result and CF the last shifted-out bit, except SHL/SHR CF is undefined at
 //! counts at or above the operand width. OF is defined only at count one: result
@@ -122,7 +128,8 @@
 //! BT/BTS/BTR/BTC put the old selected bit into CF and leave ZF unchanged.
 //! OF/SF/AF/PF are undefined; wasm86 preserves their prior logical values.
 //! Valid record kinds are an internal invariant. Flag reads preserve the
-//! record, and these instructions leave non-status flag bytes untouched.
+//! record. Only CLD/STD change the direction flag byte, storing canonical 0 or 1
+//! to DF while preserving its neighboring bytes.
 //!
 //! ```
 //! use wasm86_x86::compile_block_from_bytes;
@@ -143,6 +150,7 @@ mod alu;
 mod block;
 mod decode;
 mod execution;
+mod flags;
 mod instruction;
 mod interpreter;
 mod memory;
@@ -171,7 +179,7 @@ use wasm86_compiler::{Func, FunctionImport, Program, Signature, Type};
 pub use block::compile_block_from_bytes;
 pub use interpreter::compile_interpreter_step;
 pub use register::Gpr32;
-pub use state::{CpuState, Registers, StatusFlags, StoredFlags};
+pub use state::{CpuState, FlagBytes, Registers, StoredFlags, StoredStatusSource};
 
 /// A WebAssembly module and the exported function that enters it.
 pub struct CompiledModule {

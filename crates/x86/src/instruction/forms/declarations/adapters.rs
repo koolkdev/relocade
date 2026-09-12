@@ -1,19 +1,22 @@
 //! Adapts a row's operands to the ordinary Rust semantic body's argument types.
 
 macro_rules! declaration_handlers {
+    ($effects:tt $pattern:tt $call:tt no_operands()) => {
+        SizedHandlers::fixed(declaration_adapter!($effects $pattern $call [];))
+    };
     ($effects:tt $pattern:tt $call:tt byte($($operands:tt)*)) => {
-        SizedHandlers::fixed(declaration_adapter!($effects $pattern $call I8; $($operands)*))
+        SizedHandlers::fixed(declaration_adapter!($effects $pattern $call [I8]; $($operands)*))
     };
     ($effects:tt $pattern:tt $call:tt word_or_dword($($operands:tt)*)) => {
         SizedHandlers {
-            word: declaration_adapter!($effects $pattern $call I16; $($operands)*),
-            dword: declaration_adapter!($effects $pattern $call I32; $($operands)*),
+            word: declaration_adapter!($effects $pattern $call [I16]; $($operands)*),
+            dword: declaration_adapter!($effects $pattern $call [I32]; $($operands)*),
         }
     };
     ($effects:tt $pattern:tt $call:tt word($($word:tt)*) | dword($($dword:tt)*)) => {
         SizedHandlers {
-            word: declaration_adapter!($effects $pattern $call I16; $($word)*),
-            dword: declaration_adapter!($effects $pattern $call I32; $($dword)*),
+            word: declaration_adapter!($effects $pattern $call [I16]; $($word)*),
+            dword: declaration_adapter!($effects $pattern $call [I32]; $($dword)*),
         }
     };
 }
@@ -21,7 +24,7 @@ macro_rules! declaration_handlers {
 // A transfer body already has the successor-returning ABI. Other bodies receive
 // typed arguments and complete with fallthrough. Effects can appear in any order.
 macro_rules! declaration_adapter {
-    ([control_transfer $(, $effect:ident)*] $pattern:tt [$handler:ident $($argument:expr),*] $width:ty; $operand:ident $(($value:expr))?) => {
+    ([control_transfer $(, $effect:ident)*] $pattern:tt [$handler:ident $($argument:expr),*] [$width:ty]; $operand:ident $(($value:expr))?) => {
         Handler::Unary(|execution, operand, condition, fallthrough| {
             $handler::<$width>(execution, operand, condition, fallthrough $(, $argument)*)
         })
@@ -29,17 +32,23 @@ macro_rules! declaration_adapter {
     ([control_transfer $(, $effect:ident)*] $($unsupported:tt)*) => {
         compile_error!("control-transfer bodies use one operand and return the successor EIP")
     };
-    ([$effect:ident $(, $rest:ident)*] $pattern:tt $call:tt $width:ty; $($operands:tt)*) => {
+    ([$effect:ident $(, $rest:ident)*] $pattern:tt $call:tt $width:tt; $($operands:tt)*) => {
         declaration_adapter!([$($rest),*] $pattern $call $width; $($operands)*)
     };
-    ([] $pattern:tt $call:tt $width:ty; $operand:ident $(($value:expr))?) => {
+    ([] $pattern:tt $call:tt [];) => {
+        Handler::Nullary(|execution, _condition, fallthrough| {
+            declaration_call!($pattern $call execution, _condition;)?;
+            Ok(fallthrough)
+        })
+    };
+    ([] $pattern:tt $call:tt [$width:ty]; $operand:ident $(($value:expr))?) => {
         Handler::Unary(|execution, operand, _condition, fallthrough| {
             declaration_call!($pattern $call execution, _condition;
                 operand_value!($width, operand, $operand $(($value))?))?;
             Ok(fallthrough)
         })
     };
-    ([] $pattern:tt $call:tt $width:ty; $left:ident $(($left_value:expr))?, $right:ident $(($right_value:expr))?) => {
+    ([] $pattern:tt $call:tt [$width:ty]; $left:ident $(($left_value:expr))?, $right:ident $(($right_value:expr))?) => {
         Handler::Binary(|execution, left, right, _condition, fallthrough| {
             let left = left.into();
             declaration_call!($pattern $call execution, _condition;
@@ -48,7 +57,7 @@ macro_rules! declaration_adapter {
             Ok(fallthrough)
         })
     };
-    ([] $pattern:tt $call:tt $width:ty;
+    ([] $pattern:tt $call:tt [$width:ty];
         $destination:ident $(($destination_value:expr))?,
         $first:ident $(($first_value:expr))?,
         $second:ident $(($second_value:expr))?
@@ -65,11 +74,11 @@ macro_rules! declaration_adapter {
 }
 
 macro_rules! declaration_call {
-    ([cc] [$handler:ident $($argument:expr),*] $execution:ident, $condition:ident; $($operand:expr),+) => {
-        $handler($execution, $($operand),+, $condition.expect("+cc binds a condition") $(, $argument)*)
+    ([cc] [$handler:ident $($argument:expr),*] $execution:ident, $condition:ident; $($operand:expr),*) => {
+        $handler($execution $(, $operand)*, $condition.expect("+cc binds a condition") $(, $argument)*)
     };
-    ([$($pattern:ident)?] [$handler:ident $($argument:expr),*] $execution:ident, $condition:ident; $($operand:expr),+) => {
-        $handler($execution, $($operand),+ $(, $argument)*)
+    ([$($pattern:ident)?] [$handler:ident $($argument:expr),*] $execution:ident, $condition:ident; $($operand:expr),*) => {
+        $handler($execution $(, $operand)* $(, $argument)*)
     };
 }
 

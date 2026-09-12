@@ -11,7 +11,9 @@ pub(super) use lower::lower;
 use operands::{map_location, map_operand};
 pub(crate) use operands::{Input, TypedLocation};
 
-use crate::{address::Address32, alu::flags::Condition, register::RegisterOperand};
+use crate::address::Address32;
+use crate::flags::Condition;
+use crate::register::RegisterOperand;
 
 pub(super) const MAX_INSTRUCTION_BYTES: u32 = 15;
 pub(super) const OPERAND_SIZE_PREFIX: u8 = 0x66;
@@ -67,6 +69,7 @@ impl<V> Instruction<V> {
     pub(super) fn uses_memory(&self) -> bool {
         self.implicit_memory
             || match &self.call {
+                HandlerCall::Nullary { .. } => false,
                 HandlerCall::Binary { left, right, .. } => {
                     left.uses_memory() || right.uses_memory()
                 }

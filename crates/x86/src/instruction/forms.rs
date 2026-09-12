@@ -12,10 +12,8 @@ use super::{
     handlers::{Handler, SizedHandlers},
     Location, OperandSize,
 };
-use crate::{
-    alu::flags::Condition,
-    register::{Gpr32, RegisterCode},
-};
+use crate::flags::Condition;
+use crate::register::{Gpr32, RegisterCode};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum OpcodeMap {
@@ -139,6 +137,7 @@ pub(super) enum OperandBinding {
 
 #[derive(Clone, Copy)]
 pub(super) enum OperandBindingShape {
+    Nullary,
     Unary(OperandBinding),
     Binary {
         left: LocationBinding,
@@ -189,6 +188,7 @@ impl Form {
     pub(crate) fn accepts_register_rm(&self) -> bool {
         let requires_address = |operand| matches!(operand, OperandBinding::RmAddress);
         !match self.binding {
+            OperandBindingShape::Nullary => false,
             OperandBindingShape::Unary(operand) => requires_address(operand),
             OperandBindingShape::Binary { right, .. } => requires_address(right),
             OperandBindingShape::Ternary {

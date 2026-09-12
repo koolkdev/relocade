@@ -1,6 +1,8 @@
 //! Checks the bit model across pending carry chains and exact fault publication records.
 
-use wasm86_x86::{compile_block_from_bytes, StatusFlags};
+use crate::support::cases::Flags;
+use wasm86_x86::compile_block_from_bytes;
+use wasm86_x86::FlagBytes;
 
 use crate::support::{
     machine::{check, expected as observe_expected, Exit, Image, Step},
@@ -68,11 +70,11 @@ fn flags_then_fault(operation: Operation, count: u8) -> (Vec<u8>, Image, Vec<Ste
     image.data(0x9fff, &[0x5a, 0, 0, 0, 0x80, 0x5a]);
     let mut cpu = image.cpu;
     cpu.registers.eax = 0x4433_8000;
-    cpu.flags.kind = 2;
-    cpu.flags.left = 0xff;
-    cpu.flags.right = 1;
+    cpu.flags.status_source.kind = 2;
+    cpu.flags.status_source.left = 0xff;
+    cpu.flags.status_source.right = 1;
     let mut steps = vec![retire(&mut cpu, 2, &[])];
-    let add_flags = StatusFlags {
+    let add_flags = Flags {
         cf: 1,
         pf: 1,
         af: 1,
@@ -92,10 +94,15 @@ fn flags_then_fault(operation: Operation, count: u8) -> (Vec<u8>, Image, Vec<Ste
     cpu.registers.edx = 0xccbb_0000 | (u32::from(flags.of) << 8) | u32::from(flags.cf);
     steps.push(retire(&mut cpu, 3, &[]));
     cpu.registers.esi = 0;
-    cpu.flags.kind = 0;
-    cpu.flags.status = StatusFlags {
+    cpu.flags.status_source.kind = 0;
+    cpu.flags.bytes = FlagBytes {
         cf: flags.cf,
-        ..add_flags
+        pf: add_flags.pf,
+        af: add_flags.af,
+        zf: add_flags.zf,
+        sf: add_flags.sf,
+        of: add_flags.of,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 1, &[]));
     cpu.registers.edi = if flags.cf == 1 {
@@ -103,42 +110,46 @@ fn flags_then_fault(operation: Operation, count: u8) -> (Vec<u8>, Image, Vec<Ste
     } else {
         0xdead_ffff
     };
-    cpu.flags.status = StatusFlags {
+    cpu.flags.bytes = FlagBytes {
         cf: flags.cf,
         pf: 1,
         af: flags.cf,
         zf: flags.cf,
         sf: 1 - flags.cf,
         of: 0,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 4, &[]));
     cpu.registers.ebp = 1 - u32::from(flags.cf);
-    cpu.flags.status = StatusFlags {
+    cpu.flags.bytes = FlagBytes {
         cf: 0,
         pf: flags.cf,
         af: 0,
         zf: flags.cf,
         sf: 0,
         of: 0,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 3, &[]));
     cpu.registers.ecx = 0x8877_0000 | (cpu.registers.edx & 0xffff);
-    cpu.flags.status = StatusFlags {
+    cpu.flags.bytes = FlagBytes {
         cf: 0,
         pf: 1 - flags.cf,
         af: 0,
         zf: u8::from(flags.cf == 0 && flags.of == 0),
         sf: 0,
         of: 0,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 5, &[]));
-    cpu.flags.status = StatusFlags {
+    cpu.flags.bytes = FlagBytes {
         cf: 1,
         pf: 0,
         af: 0,
         zf: 0,
         sf: 0,
         of: 1,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 5, MEMORY_WRITE));
     steps.push(Step {
@@ -157,8 +168,8 @@ fn fault_boundary(image: &Image, steps: &[Step<'_>]) -> Step<'static> {
     let mut cpu = last.cpu;
     // Intermediate ADD operands reached interpreter boundaries only. The block
     // publishes the final concrete status when the last instruction faults.
-    cpu.flags.left = image.cpu.flags.left;
-    cpu.flags.right = image.cpu.flags.right;
+    cpu.flags.status_source.left = image.cpu.flags.status_source.left;
+    cpu.flags.status_source.right = image.cpu.flags.status_source.right;
     Step {
         cpu,
         ram: MEMORY_WRITE,

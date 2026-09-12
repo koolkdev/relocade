@@ -35,8 +35,8 @@ const OPERATIONS: [Operation; 2] = [Operation::Bsf, Operation::Bsr];
 fn image(code: &[u8]) -> Image {
     let mut image = arithmetic::image(code);
     image.cpu.registers.eax = 0x4433_a55b;
-    image.cpu.flags.left = 0x1234_5678;
-    image.cpu.flags.right = 0x8765_4321;
+    image.cpu.flags.status_source.left = 0x1234_5678;
+    image.cpu.flags.status_source.right = 0x8765_4321;
     image
 }
 

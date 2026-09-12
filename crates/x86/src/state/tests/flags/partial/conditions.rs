@@ -1,5 +1,6 @@
-use crate::alu::flags::{AnyFlagSource, Condition, FlagChange, FlagSource, StatusFlag};
 use crate::alu::ArithmeticOp;
+use crate::alu::{AnyStatusSource, StatusSource};
+use crate::flags::{Condition, FlagChange, StatusFlag};
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::CompiledModule;
@@ -23,7 +24,7 @@ fn partial_carry_changes_unsigned_conditions_and_retains_subtraction_results() {
     where
         I32: AtLeast<T>,
         I64: AtLeast<T>,
-        FlagSource<T>: Into<AnyFlagSource>,
+        StatusSource<T>: Into<AnyStatusSource>,
     {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
@@ -41,9 +42,11 @@ fn partial_carry_changes_unsigned_conditions_and_retains_subtraction_results() {
                         let carry = body.parameter::<I1>(2)?;
                         let subtraction = ArithmeticOp::Subtract.apply(left, right);
                         let arithmetic_result = subtraction.result.unsigned().extend::<I32>();
-                        state.set_flags(&mut body, subtraction.flags)?;
-                        state
-                            .set_flags(&mut body, FlagChange::partial([(StatusFlag::CF, carry)]))?;
+                        state.write_flags(&mut body, subtraction.flags)?;
+                        state.write_flags(
+                            &mut body,
+                            FlagChange::partial([(StatusFlag::CF.into(), carry)]),
+                        )?;
                         let result = match condition {
                             Some(condition) => state
                                 .condition(&mut body, condition)?
@@ -102,17 +105,17 @@ fn changing_another_flag_retains_an_earlier_partial_change() {
             },
             |mut body| {
                 let mut state = State::new(&cpu);
-                let source = FlagSource::Logic {
+                let source = StatusSource::Logic {
                     result: body.parameter::<I8>(0)?.add(1),
                 };
-                state.set_flags(&mut body, source)?;
-                state.set_flags(
+                state.write_flags(&mut body, source)?;
+                state.write_flags(
                     &mut body,
-                    FlagChange::partial([(StatusFlag::ZF, true.into())]),
+                    FlagChange::partial([(StatusFlag::ZF.into(), true.into())]),
                 )?;
-                state.set_flags(
+                state.write_flags(
                     &mut body,
-                    FlagChange::partial([(StatusFlag::CF, false.into())]),
+                    FlagChange::partial([(StatusFlag::CF.into(), false.into())]),
                 )?;
                 let below_equal = state.condition(&mut body, Condition::BE)?;
                 body.return_(below_equal.unsigned().extend::<I64>())

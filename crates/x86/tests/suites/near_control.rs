@@ -1,3 +1,4 @@
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 #[path = "near_control/decoding.rs"]
 mod decoding;
 #[path = "near_control/faults.rs"]
@@ -18,7 +19,7 @@ use crate::support::cases::{
 use wasm86_x86::{
     CpuState,
     Gpr32::{self, *},
-    StatusFlags, StoredFlags,
+    StoredFlags,
 };
 
 #[rustfmt::skip]
@@ -116,18 +117,21 @@ fn flag_cases() -> Vec<Case> {
         of: false,
     };
     let pending = StoredFlags {
-        kind: 9,
-        left: 7,
-        right: 8,
-        status: StatusFlags {
+        status_source: StoredStatusSource {
+            kind: 9,
+            left: 7,
+            right: 8,
+            ..(CpuState::filled(0x5a).flags).status_source
+        },
+        bytes: FlagBytes {
             cf: 0,
             pf: 0,
             af: 0,
             zf: 1,
             sf: 0,
             of: 1,
+            ..(CpuState::filled(0x5a).flags).bytes
         },
-        ..CpuState::filled(0x5a).flags
     };
     let mut cases = Vec::new();
     for stored in [None, Some(pending)] {

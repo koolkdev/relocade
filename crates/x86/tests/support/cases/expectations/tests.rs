@@ -184,3 +184,40 @@ fn opaque_flag_replacement_cannot_claim_unspecified_bits_are_preserved() {
         "replacing opaque flags requires explicit results",
     );
 }
+
+#[test]
+fn direction_expectations_allow_only_the_authored_flag_byte_to_change() {
+    let mut fixture = Fixture::new();
+    fixture.case = InstructionCase::preserving_flags("comparison contract", &[0xfc])
+        .expect_direction_flag(false);
+    fixture.actual.cpu.flags.bytes.df = 0;
+    fixture.check();
+    fixture.actual.cpu.flags.bytes.df = 1;
+    rejects(
+        || fixture.check(),
+        "control and system flags and reserved byte",
+    );
+    fixture.actual.cpu.flags.bytes.df = 0;
+    fixture.actual.cpu.flags.bytes.tf ^= 1;
+    rejects(
+        || fixture.check(),
+        "control and system flags and reserved byte",
+    );
+    fixture.actual.cpu.flags.bytes.tf ^= 1;
+    fixture.actual.cpu.flags.bytes.cf ^= 1;
+    rejects(|| fixture.check(), "stored flag record");
+    fixture.actual.cpu.flags.bytes.cf ^= 1;
+    fixture.actual.cpu.flags.status_source.left ^= 1;
+    rejects(|| fixture.check(), "stored flag record");
+}
+
+#[test]
+fn an_unspecified_direction_flag_must_preserve_its_entire_byte() {
+    let mut fixture = Fixture::new();
+    fixture.check();
+    fixture.actual.cpu.flags.bytes.df ^= 0x80;
+    rejects(
+        || fixture.check(),
+        "control and system flags and reserved byte",
+    );
+}

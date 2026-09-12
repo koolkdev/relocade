@@ -2,10 +2,9 @@
 
 use wasm86_compiler::{MemoryInt, Val, I1};
 
-use super::{
-    flags::{AnyFlagSource, FlagChange, FlagSource, StatusFlag},
-    result_flag, AluResult,
-};
+use super::{result_flag, AluResult};
+use crate::alu::{AnyStatusSource, StatusSource};
+use crate::flags::{FlagChange, StatusFlag};
 
 #[derive(Clone, Copy)]
 pub(crate) enum LogicOp {
@@ -17,14 +16,14 @@ pub(crate) enum LogicOp {
 impl LogicOp {
     pub(crate) fn apply<T: MemoryInt>(self, left: Val<T>, right: Val<T>) -> AluResult<T>
     where
-        FlagSource<T>: Into<AnyFlagSource>,
+        StatusSource<T>: Into<AnyStatusSource>,
     {
         let result = match self {
             Self::And => left.and(right),
             Self::Or => left.or(right),
             Self::Xor => left.xor(right),
         };
-        let flags = FlagSource::Logic {
+        let flags = StatusSource::Logic {
             result: result.clone(),
         };
         AluResult {

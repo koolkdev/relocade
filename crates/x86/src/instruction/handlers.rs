@@ -6,7 +6,14 @@
 use wasm86_compiler::{BuildError, Val, I32};
 
 use super::{Location, Operand, OperandSize};
-use crate::{alu::flags::Condition, execution::ExecutionBuilder};
+use crate::execution::ExecutionBuilder;
+use crate::flags::Condition;
+
+pub(super) type NullaryHandler = for<'body, 'module> fn(
+    execution: &mut ExecutionBuilder<'body, 'module>,
+    condition: Option<Condition>,
+    fallthrough_eip: Val<I32>,
+) -> Result<Val<I32>, BuildError>;
 
 pub(super) type BinaryHandler = for<'body, 'module> fn(
     execution: &mut ExecutionBuilder<'body, 'module>,
@@ -35,6 +42,7 @@ pub(super) type TernaryHandler = for<'body, 'module> fn(
 /// These are Rust code-generation functions, selected while decoding a form.
 #[derive(Clone, Copy)]
 pub(super) enum Handler {
+    Nullary(NullaryHandler),
     Binary(BinaryHandler),
     Unary(UnaryHandler),
     Ternary(TernaryHandler),
@@ -64,6 +72,9 @@ impl SizedHandlers {
 
 /// A concrete handler together with its decoded operand arguments.
 pub(super) enum HandlerCall<V> {
+    Nullary {
+        handler: NullaryHandler,
+    },
     Binary {
         handler: BinaryHandler,
         left: Location<V>,

@@ -65,8 +65,8 @@ fn at_page_end(code: &[u8], count: u32, zero: bool) -> Image {
     let mut image = Image::new(&[]);
     image.cpu.eip = 0x2000 - code.len() as u32;
     image.cpu.registers.ecx = count;
-    image.cpu.flags.kind = 0;
-    image.cpu.flags.status.zf = u8::from(zero);
+    image.cpu.flags.status_source.kind = 0;
+    image.cpu.flags.bytes.zf = u8::from(zero);
     image.data(0x4000 - code.len() as u32, code);
     image
 }

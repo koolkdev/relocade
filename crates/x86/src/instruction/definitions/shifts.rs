@@ -1,11 +1,6 @@
 use super::*;
-use crate::{
-    alu::{
-        flags::{AnyFlagSource, FlagSource},
-        DoubleShiftOp, RotateDirection, ShiftOp,
-    },
-    register::RegisterType,
-};
+use crate::alu::{AnyStatusSource, DoubleShiftOp, RotateDirection, ShiftOp, StatusSource};
+use crate::register::RegisterType;
 
 instruction_families! {
     ROL {
@@ -110,7 +105,7 @@ fn rotate<T: RegisterType>(
     destination.update(execution, |execution, input| {
         let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
         let outcome = direction.rotate(input, count);
-        execution.set_flags(outcome.flags)?;
+        execution.write_flags(outcome.flags)?;
         Ok(outcome.result)
     })
 }
@@ -126,9 +121,9 @@ where
 {
     destination.update(execution, |execution, input| {
         let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
-        let carry = execution.condition(Condition::B)?;
+        let carry = execution.read_flag(crate::flags::Flag::CF)?;
         let outcome = direction.rotate_through_carry(input, count, carry);
-        execution.set_flags(outcome.flags)?;
+        execution.write_flags(outcome.flags)?;
         Ok(outcome.result)
     })
 }
@@ -140,12 +135,12 @@ fn shift<T: RegisterType>(
     operation: ShiftOp,
 ) -> Result<(), BuildError>
 where
-    FlagSource<T>: Into<AnyFlagSource>,
+    StatusSource<T>: Into<AnyStatusSource>,
 {
     destination.update(execution, |execution, input| {
         let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
         let outcome = operation.apply(input, count);
-        execution.set_flags(outcome.flags)?;
+        execution.write_flags(outcome.flags)?;
         Ok(outcome.result)
     })
 }
@@ -159,13 +154,13 @@ fn double_shift<T: RegisterType>(
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
-    FlagSource<T>: Into<AnyFlagSource>,
+    StatusSource<T>: Into<AnyStatusSource>,
 {
     destination.update(execution, |execution, input| {
         let source = source.read(execution)?;
         let count = count.read(execution)?.and(31).unsigned().extend::<I32>();
         let outcome = operation.apply(input, source, count);
-        execution.set_flags(outcome.flags)?;
+        execution.write_flags(outcome.flags)?;
         Ok(outcome.result)
     })
 }

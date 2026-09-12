@@ -1,3 +1,4 @@
+use wasm86_x86::StoredStatusSource;
 use wasm86_x86::{CpuState, Gpr32, StoredFlags};
 
 use crate::support::{
@@ -165,9 +166,12 @@ fn stored_flag_cases() -> Vec<Case> {
     .map(|(name, kind, left, right, opcode, eax, flags)| {
         Case::new(name, &[0x0f, opcode, 0xc1], flags, PRESERVED_FLAGS)
             .stored_flags(StoredFlags {
-                kind,
-                left,
-                right,
+                status_source: StoredStatusSource {
+                    kind,
+                    left,
+                    right,
+                    ..(CpuState::filled(0xa5).flags).status_source
+                },
                 ..CpuState::filled(0xa5).flags
             })
             .preserve_flag_record()

@@ -5,10 +5,8 @@ use wasm86_compiler::{
     I32, I8,
 };
 
-use crate::alu::{
-    flags::{AnyFlagSource, Condition, FlagMask, FlagSource, StatusFlag},
-    ArithmeticOp,
-};
+use crate::alu::{AnyStatusSource, ArithmeticOp, StatusSource};
+use crate::flags::{Condition, FlagMask, StatusFlag};
 
 use super::{
     super::{
@@ -31,7 +29,7 @@ impl StoredQuery {
     fn result_types(self) -> Vec<Type> {
         match self {
             Self::Condition(_) => vec![Type::I1],
-            Self::Flags(mask) => mask.flags().map(|_| Type::I1).collect(),
+            Self::Flags(mask) => mask.status_flags().map(|_| Type::I1).collect(),
         }
     }
 
@@ -43,7 +41,7 @@ impl StoredQuery {
             }
             Self::Flags(mask) => {
                 let results = mask
-                    .flags()
+                    .status_flags()
                     .map(|flag| cpu.read_concrete_flag(&mut body, flag))
                     .collect::<Result<Vec<_>, _>>()?;
                 body.return_(results)
@@ -54,12 +52,12 @@ impl StoredQuery {
     fn return_from_source(
         self,
         body: FunctionBuilder<'_>,
-        source: &AnyFlagSource,
+        source: &AnyStatusSource,
     ) -> Result<(), BuildError> {
         match self {
             Self::Condition(condition) => body.return_(source.condition(condition)),
             Self::Flags(mask) => body.return_(
-                mask.flags()
+                mask.status_flags()
                     .map(|flag| source.flag(flag))
                     .collect::<Vec<_>>(),
             ),
@@ -127,7 +125,7 @@ impl Cpu {
         }
         queries.sort_unstable_by_key(|(kind, _)| *kind);
         let kinds: Vec<_> = queries.iter().map(|(kind, _)| *kind).collect();
-        let kind = cpu_load!(body, self.memory, flags.kind)?;
+        let kind = cpu_load!(body, self.memory, flags.status_source.kind)?;
         body.switch_value::<I1, _>(&kind, &kinds, |mut arm, kind| {
             let result = match kind {
                 Some(kind) => {
@@ -150,13 +148,14 @@ impl Cpu {
         body: &mut FunctionBuilder<'_>,
         mask: FlagMask,
     ) -> Result<[Option<Val<I1>>; 6], BuildError> {
+        debug_assert!(FlagMask::STATUS.covers(mask));
         let mut flags = StatusFlag::ALL.map(|_| None);
         if mask.bits() == 0 {
             return Ok(flags);
         }
         let resolver = self.flag_resolver(body.program(), StoredQuery::Flags(mask))?;
-        let values = call_flags(body, resolver, mask.flags().count())?;
-        for (flag, value) in mask.flags().zip(values) {
+        let values = call_flags(body, resolver, mask.status_flags().count())?;
+        for (flag, value) in mask.status_flags().zip(values) {
             flags[flag as usize] = Some(value);
         }
         Ok(flags)
@@ -207,12 +206,12 @@ impl Cpu {
         mut body: FunctionBuilder<'_>,
         query: StoredQuery,
     ) -> Result<(), BuildError> {
-        let kind = cpu_load!(&mut body, self.memory, flags.kind)?;
+        let kind = cpu_load!(&mut body, self.memory, flags.status_source.kind)?;
         body.if_(kind.eq(u32::from(record::CONCRETE_KIND)), |arm| {
             query.return_concrete(self, arm)
         })?;
-        let left = cpu_load!(&mut body, self.memory, flags.left)?;
-        let right = cpu_load!(&mut body, self.memory, flags.right)?;
+        let left = cpu_load!(&mut body, self.memory, flags.status_source.left)?;
+        let right = cpu_load!(&mut body, self.memory, flags.status_source.right)?;
         // The kind groups records by operand width; dispatch that region before
         // testing its operation so later widths do not scan earlier operations.
         body.if_(
@@ -232,12 +231,12 @@ impl Cpu {
         flag: StatusFlag,
     ) -> Result<Val<I1>, BuildError> {
         let value = match flag {
-            StatusFlag::CF => cpu_load!(body, self.memory, flags.status.cf)?,
-            StatusFlag::PF => cpu_load!(body, self.memory, flags.status.pf)?,
-            StatusFlag::AF => cpu_load!(body, self.memory, flags.status.af)?,
-            StatusFlag::ZF => cpu_load!(body, self.memory, flags.status.zf)?,
-            StatusFlag::SF => cpu_load!(body, self.memory, flags.status.sf)?,
-            StatusFlag::OF => cpu_load!(body, self.memory, flags.status.of)?,
+            StatusFlag::CF => cpu_load!(body, self.memory, flags.bytes.cf)?,
+            StatusFlag::PF => cpu_load!(body, self.memory, flags.bytes.pf)?,
+            StatusFlag::AF => cpu_load!(body, self.memory, flags.bytes.af)?,
+            StatusFlag::ZF => cpu_load!(body, self.memory, flags.bytes.zf)?,
+            StatusFlag::SF => cpu_load!(body, self.memory, flags.bytes.sf)?,
+            StatusFlag::OF => cpu_load!(body, self.memory, flags.bytes.of)?,
         };
         Ok(value.truncate::<I1>())
     }
@@ -252,12 +251,12 @@ fn return_query<T: MemoryInt>(
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
-    FlagSource<T>: Into<AnyFlagSource>,
+    StatusSource<T>: Into<AnyStatusSource>,
 {
     let left = left.truncate::<T>();
     let right = right.truncate::<T>();
     for operation in [ArithmeticOp::Subtract, ArithmeticOp::Add] {
-        let source = FlagSource::Arithmetic {
+        let source = StatusSource::Arithmetic {
             operation,
             left: left.clone(),
             right: right.clone(),
@@ -271,7 +270,7 @@ where
     }
     body.if_(
         stored_kind.eq(u32::from(record::encode_logic::<T>())),
-        |arm| query.return_from_source(arm, &FlagSource::Logic { result: left }.into()),
+        |arm| query.return_from_source(arm, &StatusSource::Logic { result: left }.into()),
     )?;
     // The selected width accepts only its SUB, ADD and logic source tags.
     body.trap()
@@ -288,8 +287,8 @@ where
     let compare = condition
         .operand_comparison::<T>()
         .expect("the condition has an operand comparison");
-    let left = cpu_load!(body, cpu.memory, flags.left)?;
-    let right = cpu_load!(body, cpu.memory, flags.right)?;
+    let left = cpu_load!(body, cpu.memory, flags.status_source.left)?;
+    let right = cpu_load!(body, cpu.memory, flags.status_source.right)?;
     Ok(compare(&left.truncate::<T>(), &right.truncate::<T>()))
 }
 
@@ -304,6 +303,6 @@ where
     let compare = condition
         .logic_result_comparison::<T>()
         .expect("the condition has a logical result comparison");
-    let result = cpu_load!(body, cpu.memory, flags.left)?;
+    let result = cpu_load!(body, cpu.memory, flags.status_source.left)?;
     Ok(compare(&result.truncate::<T>()))
 }

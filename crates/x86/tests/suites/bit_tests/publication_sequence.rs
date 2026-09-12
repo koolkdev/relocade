@@ -1,7 +1,9 @@
 //! Exact flag-record publication across interpreter checkpoints and a faulting block.
 //! Architectural results and flag guarantees are covered by `sequences`.
 
-use wasm86_x86::{compile_block_from_bytes, CpuState, StatusFlags};
+use crate::support::cases::Flags;
+use wasm86_x86::FlagBytes;
+use wasm86_x86::{compile_block_from_bytes, CpuState};
 
 use crate::support::{
     machine::{check, expected as observe_expected, Exit, Image, Step},
@@ -44,11 +46,11 @@ fn flags_then_fault(index: u32) -> (Vec<u8>, Image, Vec<Step<'static>>) {
     image.data(0x9fff, &[0x5a, 0, 0x80, 1, 0, 0x5a]);
     let mut cpu = image.cpu;
     cpu.registers.eax = 0x4433_8000;
-    cpu.flags.kind = 2;
-    cpu.flags.left = 0xff;
-    cpu.flags.right = 1;
+    cpu.flags.status_source.kind = 2;
+    cpu.flags.status_source.left = 0xff;
+    cpu.flags.status_source.right = 1;
     let mut steps = vec![retire(&mut cpu, 2, &[])];
-    let add_flags = StatusFlags {
+    let add_flags = Flags {
         cf: 1,
         pf: 1,
         af: 1,
@@ -68,10 +70,15 @@ fn flags_then_fault(index: u32) -> (Vec<u8>, Image, Vec<Step<'static>>) {
         u32::MAX => (1, 0xffff_7fff, 1),
         _ => panic!("missing literal bit-test sequence"),
     };
-    cpu.flags.kind = 0;
-    cpu.flags.status = StatusFlags {
+    cpu.flags.status_source.kind = 0;
+    cpu.flags.bytes = FlagBytes {
         cf: carry,
-        ..add_flags
+        pf: add_flags.pf,
+        af: add_flags.af,
+        zf: add_flags.zf,
+        sf: add_flags.sf,
+        of: add_flags.of,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 3, &[]));
     cpu.registers.eax = 0x4433_8001;
@@ -81,37 +88,39 @@ fn flags_then_fault(index: u32) -> (Vec<u8>, Image, Vec<Step<'static>>) {
     cpu.registers.esi = 0;
     steps.push(retire(&mut cpu, 1, &[]));
     cpu.registers.edi = if carry == 1 { 0xdead_0000 } else { 0xdead_ffff };
-    cpu.flags.status = StatusFlags {
+    cpu.flags.bytes = FlagBytes {
         cf: carry,
         pf: 1,
         af: carry,
         zf: carry,
         sf: 1 - carry,
         of: 0,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 4, &[]));
     cpu.registers.eax = 0x4433_8001 | (u32::from(carry) << 1);
-    cpu.flags.status.cf = 1 - carry;
+    cpu.flags.bytes.cf = 1 - carry;
     steps.push(retire(&mut cpu, 4, &[]));
-    cpu.flags.status.cf = 1;
+    cpu.flags.bytes.cf = 1;
     steps.push(retire(&mut cpu, 5, MEMORY_WRITE));
     cpu.registers.ecx = complemented_ecx;
-    cpu.flags.status.cf = complemented_carry;
+    cpu.flags.bytes.cf = complemented_carry;
     steps.push(retire(&mut cpu, 4, &[]));
     cpu.registers.edx = 0xccbb_0000 | (u32::from(complemented_carry) << 8) | u32::from(carry);
     steps.push(retire(&mut cpu, 3, &[]));
     cpu.registers.ebp = 0x8000_0001 + u32::from(complemented_carry);
-    cpu.flags.status = StatusFlags {
+    cpu.flags.bytes = FlagBytes {
         cf: 0,
         pf: 0,
         af: 0,
         zf: 0,
         sf: 1,
         of: 0,
+        ..cpu.flags.bytes
     };
     steps.push(retire(&mut cpu, 3, &[]));
     // DI is either -1 or zero. Both selected words contain a set tested bit.
-    cpu.flags.status.cf = 1;
+    cpu.flags.bytes.cf = 1;
     steps.push(retire(&mut cpu, 4, &[]));
     steps.push(Step {
         cpu,
@@ -129,8 +138,8 @@ fn fault_boundary(image: &Image, steps: &[Step<'_>]) -> Step<'static> {
     let mut cpu = last.cpu;
     // Intermediate ADD operands reached interpreter boundaries only. The block
     // publishes concrete flags and leaves the previous lazy payload untouched.
-    cpu.flags.left = image.cpu.flags.left;
-    cpu.flags.right = image.cpu.flags.right;
+    cpu.flags.status_source.left = image.cpu.flags.status_source.left;
+    cpu.flags.status_source.right = image.cpu.flags.status_source.right;
     Step {
         cpu,
         ram: MEMORY_WRITE,

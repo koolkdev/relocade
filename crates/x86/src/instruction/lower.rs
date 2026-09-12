@@ -9,6 +9,9 @@ pub(crate) fn lower(
     fallthrough_eip: Val<I32>,
 ) -> Result<Val<I32>, BuildError> {
     match instruction.call {
+        HandlerCall::Nullary { handler } => {
+            handler(execution, instruction.condition, fallthrough_eip)
+        }
         HandlerCall::Binary {
             handler,
             left,

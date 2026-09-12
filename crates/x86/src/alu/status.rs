@@ -4,11 +4,11 @@ use std::convert::Infallible;
 
 use wasm86_compiler::{MemoryInt, Val, I1, I16, I32, I8};
 
-use super::{Condition, StatusFlag};
 use crate::alu::{logic, ArithmeticOp};
+use crate::flags::{Condition, StatusFlag};
 
 #[derive(Clone)]
-pub(crate) enum FlagSource<T: MemoryInt> {
+pub(crate) enum StatusSource<T: MemoryInt> {
     Arithmetic {
         operation: ArithmeticOp,
         left: Val<T>,
@@ -24,7 +24,7 @@ pub(crate) enum FlagSource<T: MemoryInt> {
     },
 }
 
-impl<T: MemoryInt> FlagSource<T> {
+impl<T: MemoryInt> StatusSource<T> {
     pub(crate) fn flag(&self, flag: StatusFlag) -> Val<I1> {
         match self {
             Self::Arithmetic {
@@ -68,13 +68,13 @@ impl<T: MemoryInt> FlagSource<T> {
 
 /// A source of any x86 operand width, retaining each compiler value's type.
 #[derive(Clone)]
-pub(crate) enum AnyFlagSource {
-    Byte(FlagSource<I8>),
-    Word(FlagSource<I16>),
-    Dword(FlagSource<I32>),
+pub(crate) enum AnyStatusSource {
+    Byte(StatusSource<I8>),
+    Word(StatusSource<I16>),
+    Dword(StatusSource<I32>),
 }
 
-impl AnyFlagSource {
+impl AnyStatusSource {
     pub(crate) fn flag(&self, flag: StatusFlag) -> Val<I1> {
         match self {
             Self::Byte(source) => source.flag(flag),
@@ -92,18 +92,21 @@ impl AnyFlagSource {
     }
 }
 
-impl From<FlagSource<I8>> for AnyFlagSource {
-    fn from(source: FlagSource<I8>) -> Self {
+impl From<StatusSource<I8>> for AnyStatusSource {
+    fn from(source: StatusSource<I8>) -> Self {
         Self::Byte(source)
     }
 }
-impl From<FlagSource<I16>> for AnyFlagSource {
-    fn from(source: FlagSource<I16>) -> Self {
+impl From<StatusSource<I16>> for AnyStatusSource {
+    fn from(source: StatusSource<I16>) -> Self {
         Self::Word(source)
     }
 }
-impl From<FlagSource<I32>> for AnyFlagSource {
-    fn from(source: FlagSource<I32>) -> Self {
+impl From<StatusSource<I32>> for AnyStatusSource {
+    fn from(source: StatusSource<I32>) -> Self {
         Self::Dword(source)
     }
 }
+
+#[cfg(test)]
+mod tests;

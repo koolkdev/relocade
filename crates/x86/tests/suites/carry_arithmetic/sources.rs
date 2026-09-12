@@ -1,4 +1,5 @@
-use wasm86_x86::{CpuState, Gpr32::Eax, StatusFlags, StoredFlags};
+use wasm86_x86::{CpuState, Gpr32::Eax, StoredFlags};
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 
 use crate::support::cases::{
     test_cases,
@@ -22,10 +23,26 @@ fn stored_carry_sources() -> Vec<Case> {
             (3, maximum, 0xdead_beef, Flags { cf: false, pf: true, af: false, zf: false, sf: true, of: false }, false),
         ] {
             let record = StoredFlags {
-                kind: tag | kind, left: left | high, right: right | high,
-                status: StatusFlags { cf: u8::from(!carry), pf: 1, af: 1, zf: 1, sf: 1, of: 1 },
-                non_status: [0, 1, 0, 0, 0, 0xa5],
-                ..CpuState::filled(0xa5).flags
+                status_source: StoredStatusSource {
+                    kind: tag | kind,
+                    left: left | high,
+                    right: right | high,
+                    ..(CpuState::filled(0xa5).flags).status_source
+                },
+                bytes: FlagBytes {
+                    cf: u8::from(!carry),
+                    pf: 1,
+                    af: 1,
+                    zf: 1,
+                    sf: 1,
+                    of: 1,
+                    tf: 0,
+                    df: 1,
+                    nt: 0,
+                    ac: 0,
+                    id: 0,
+                    reserved: 0xa5,
+                },
             };
             for (name, code, input, outputs, flags) in [
                 ("ADC AL,0", &[0x14, 0][..], 0x4433_2200, [0x4433_2200, 0x4433_2201],

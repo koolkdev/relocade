@@ -1,25 +1,32 @@
 use std::mem::offset_of;
 
-use super::{CpuState, Registers, StatusFlags, StoredFlags};
+use super::{CpuState, FlagBytes, Registers, StoredFlags, StoredStatusSource};
 
 impl CpuState {
     /// Reads the backing bytes without interpreting or normalizing stored flags.
     pub fn from_bytes(bytes: [u8; Self::BYTE_LEN]) -> Self {
         Self {
             flags: StoredFlags {
-                kind: bytes[offset_of!(CpuState, flags.kind)],
-                reserved: read(&bytes, offset_of!(CpuState, flags.reserved)),
-                left: read_u32(&bytes, offset_of!(CpuState, flags.left)),
-                right: read_u32(&bytes, offset_of!(CpuState, flags.right)),
-                status: StatusFlags {
-                    cf: bytes[offset_of!(CpuState, flags.status.cf)],
-                    pf: bytes[offset_of!(CpuState, flags.status.pf)],
-                    af: bytes[offset_of!(CpuState, flags.status.af)],
-                    zf: bytes[offset_of!(CpuState, flags.status.zf)],
-                    sf: bytes[offset_of!(CpuState, flags.status.sf)],
-                    of: bytes[offset_of!(CpuState, flags.status.of)],
+                status_source: StoredStatusSource {
+                    kind: bytes[offset_of!(CpuState, flags.status_source.kind)],
+                    reserved: read(&bytes, offset_of!(CpuState, flags.status_source.reserved)),
+                    left: read_u32(&bytes, offset_of!(CpuState, flags.status_source.left)),
+                    right: read_u32(&bytes, offset_of!(CpuState, flags.status_source.right)),
                 },
-                non_status: read(&bytes, offset_of!(CpuState, flags.non_status)),
+                bytes: FlagBytes {
+                    cf: bytes[offset_of!(CpuState, flags.bytes.cf)],
+                    pf: bytes[offset_of!(CpuState, flags.bytes.pf)],
+                    af: bytes[offset_of!(CpuState, flags.bytes.af)],
+                    zf: bytes[offset_of!(CpuState, flags.bytes.zf)],
+                    sf: bytes[offset_of!(CpuState, flags.bytes.sf)],
+                    of: bytes[offset_of!(CpuState, flags.bytes.of)],
+                    tf: bytes[offset_of!(CpuState, flags.bytes.tf)],
+                    df: bytes[offset_of!(CpuState, flags.bytes.df)],
+                    nt: bytes[offset_of!(CpuState, flags.bytes.nt)],
+                    ac: bytes[offset_of!(CpuState, flags.bytes.ac)],
+                    id: bytes[offset_of!(CpuState, flags.bytes.id)],
+                    reserved: bytes[offset_of!(CpuState, flags.bytes.reserved)],
+                },
             },
             registers: Registers {
                 eax: read_u32(&bytes, offset_of!(CpuState, registers.eax)),
@@ -41,33 +48,34 @@ impl CpuState {
     /// Writes every stored field, including reserved bytes and inactive flag data.
     pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
         let mut bytes = [0; Self::BYTE_LEN];
-        bytes[offset_of!(CpuState, flags.kind)] = self.flags.kind;
+        bytes[offset_of!(CpuState, flags.status_source.kind)] = self.flags.status_source.kind;
         write(
             &mut bytes,
-            offset_of!(CpuState, flags.reserved),
-            &self.flags.reserved,
+            offset_of!(CpuState, flags.status_source.reserved),
+            &self.flags.status_source.reserved,
         );
         write(
             &mut bytes,
-            offset_of!(CpuState, flags.left),
-            &self.flags.left.to_le_bytes(),
+            offset_of!(CpuState, flags.status_source.left),
+            &self.flags.status_source.left.to_le_bytes(),
         );
         write(
             &mut bytes,
-            offset_of!(CpuState, flags.right),
-            &self.flags.right.to_le_bytes(),
+            offset_of!(CpuState, flags.status_source.right),
+            &self.flags.status_source.right.to_le_bytes(),
         );
-        bytes[offset_of!(CpuState, flags.status.cf)] = self.flags.status.cf;
-        bytes[offset_of!(CpuState, flags.status.pf)] = self.flags.status.pf;
-        bytes[offset_of!(CpuState, flags.status.af)] = self.flags.status.af;
-        bytes[offset_of!(CpuState, flags.status.zf)] = self.flags.status.zf;
-        bytes[offset_of!(CpuState, flags.status.sf)] = self.flags.status.sf;
-        bytes[offset_of!(CpuState, flags.status.of)] = self.flags.status.of;
-        write(
-            &mut bytes,
-            offset_of!(CpuState, flags.non_status),
-            &self.flags.non_status,
-        );
+        bytes[offset_of!(CpuState, flags.bytes.cf)] = self.flags.bytes.cf;
+        bytes[offset_of!(CpuState, flags.bytes.pf)] = self.flags.bytes.pf;
+        bytes[offset_of!(CpuState, flags.bytes.af)] = self.flags.bytes.af;
+        bytes[offset_of!(CpuState, flags.bytes.zf)] = self.flags.bytes.zf;
+        bytes[offset_of!(CpuState, flags.bytes.sf)] = self.flags.bytes.sf;
+        bytes[offset_of!(CpuState, flags.bytes.of)] = self.flags.bytes.of;
+        bytes[offset_of!(CpuState, flags.bytes.tf)] = self.flags.bytes.tf;
+        bytes[offset_of!(CpuState, flags.bytes.df)] = self.flags.bytes.df;
+        bytes[offset_of!(CpuState, flags.bytes.nt)] = self.flags.bytes.nt;
+        bytes[offset_of!(CpuState, flags.bytes.ac)] = self.flags.bytes.ac;
+        bytes[offset_of!(CpuState, flags.bytes.id)] = self.flags.bytes.id;
+        bytes[offset_of!(CpuState, flags.bytes.reserved)] = self.flags.bytes.reserved;
         for (offset, value) in [
             (offset_of!(CpuState, registers.eax), self.registers.eax),
             (offset_of!(CpuState, registers.ecx), self.registers.ecx),

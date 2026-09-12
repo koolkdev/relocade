@@ -6,7 +6,7 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, Val, I32, I8}
 
 use crate::{
     register::{Gpr32, Register, RegisterSelection, RegisterType},
-    ssa::Location,
+    ssa::{Location, SsaType},
 };
 
 use super::{CpuState, Registers};
@@ -62,6 +62,25 @@ pub(in crate::state) fn store<T: CpuField>(
     body.store::<T::Int>(memory, offset, value)
 }
 
+pub(in crate::state) fn location<T: CpuField>(
+    offset: u32,
+    _field: fn(&CpuState) -> &T,
+) -> Location<T::Int>
+where
+    T::Int: SsaType,
+{
+    Location::new(offset)
+}
+
+macro_rules! cpu_location {
+    ($($field:ident).+ $(,)?) => {
+        $crate::state::access::location(
+            ::std::mem::offset_of!($crate::state::CpuState, $($field).+) as u32,
+            |state: &$crate::state::CpuState| &state.$($field).+,
+        )
+    };
+}
+
 macro_rules! cpu_load {
     ($body:expr, $memory:expr, $($field:ident).+ $(,)?) => {
         $crate::state::access::load(
@@ -85,4 +104,4 @@ macro_rules! cpu_store {
     };
 }
 
-pub(in crate::state) use {cpu_load, cpu_store};
+pub(in crate::state) use {cpu_load, cpu_location, cpu_store};

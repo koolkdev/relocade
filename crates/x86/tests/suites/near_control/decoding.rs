@@ -97,7 +97,7 @@ fn a_near_transfer_ends_a_snapshot_after_an_earlier_instruction() {
 fn image_at_page_end(code: &[u8]) -> Image {
     let mut image = Image::new(&[]);
     image.cpu.eip = 0x2000 - code.len() as u32;
-    image.cpu.flags.kind = 0xff;
+    image.cpu.flags.status_source.kind = 0xff;
     image.cpu.registers.esp = 0x4000;
     image.data(0x4000 - code.len() as u32, code);
     image

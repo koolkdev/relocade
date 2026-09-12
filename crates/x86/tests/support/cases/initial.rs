@@ -1,4 +1,4 @@
-use wasm86_x86::StatusFlags;
+use wasm86_x86::FlagBytes;
 
 use super::{InitialFlags, InitialState};
 use crate::support::guest::Machine;
@@ -23,14 +23,15 @@ impl InitialState {
             machine.cpu.registers[register] = value;
         }
         if let Some(flags) = self.flags.logical() {
-            machine.cpu.flags.kind = 0;
-            machine.cpu.flags.status = StatusFlags {
+            machine.cpu.flags.status_source.kind = 0;
+            machine.cpu.flags.bytes = FlagBytes {
                 cf: u8::from(flags.cf),
                 pf: u8::from(flags.pf),
                 af: u8::from(flags.af),
                 zf: u8::from(flags.zf),
                 sf: u8::from(flags.sf),
                 of: u8::from(flags.of),
+                ..machine.cpu.flags.bytes
             };
         }
         if let Some(record) = self.flags.record() {

@@ -1,4 +1,6 @@
-use wasm86_x86::{CpuState, StatusFlags, StoredFlags};
+use crate::support::cases::Flags;
+use wasm86_x86::{CpuState, StoredFlags};
+use wasm86_x86::{FlagBytes, StoredStatusSource};
 
 use crate::support::machine::{byte_register_image, Exit, Image, Step};
 
@@ -32,19 +34,26 @@ impl Operation {
 const OPERATIONS: [Operation; 2] = [Operation::Shld, Operation::Shrd];
 
 const STORED_FLAGS: StoredFlags = StoredFlags {
-    kind: 6,
-    reserved: [0xa5; 3],
-    left: 0x7fff,
-    right: 1,
-    status: StatusFlags {
+    status_source: StoredStatusSource {
+        kind: 6,
+        reserved: [0xa5; 3],
+        left: 0x7fff,
+        right: 1,
+    },
+    bytes: FlagBytes {
         cf: 0xfe,
         pf: 0x7f,
         af: 0x5a,
         zf: 0x80,
         sf: 0xff,
         of: 1,
+        tf: 0,
+        df: 1,
+        nt: 0,
+        ac: 0,
+        id: 0,
+        reserved: 0xa5,
     },
-    non_status: [0, 1, 0, 0, 0, 0xa5],
 };
 
 fn image(code: &[u8]) -> Image {
@@ -55,14 +64,22 @@ fn image(code: &[u8]) -> Image {
 
 struct ModelResult {
     value: u32,
-    status: Option<StatusFlags>,
+    status: Option<Flags<u8>>,
 }
 
 impl ModelResult {
     fn apply_flags(&self, cpu: &mut CpuState) {
         if let Some(status) = self.status {
-            cpu.flags.kind = 0;
-            cpu.flags.status = status;
+            cpu.flags.status_source.kind = 0;
+            cpu.flags.bytes = FlagBytes {
+                cf: status.cf,
+                pf: status.pf,
+                af: status.af,
+                zf: status.zf,
+                sf: status.sf,
+                of: status.of,
+                ..cpu.flags.bytes
+            };
         }
     }
 }
@@ -82,7 +99,7 @@ fn bit_at_a_time_model(
     if count > bits {
         return ModelResult {
             value: 0,
-            status: Some(StatusFlags {
+            status: Some(Flags {
                 cf: 0,
                 pf: 1,
                 af: 0,
@@ -114,7 +131,7 @@ fn bit_at_a_time_model(
     }
     ModelResult {
         value: result as u32,
-        status: (count != 0).then_some(StatusFlags {
+        status: (count != 0).then_some(Flags {
             cf: u8::from(carry),
             pf: u8::from((result as u8).count_ones() % 2 == 0),
             af: 0,

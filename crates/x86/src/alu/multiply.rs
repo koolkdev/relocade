@@ -2,10 +2,9 @@
 
 use wasm86_compiler::Val;
 
-use super::{
-    flags::{AnyFlagSource, FlagChange, FlagSource},
-    AluResult, DoubleWidth,
-};
+use super::{AluResult, DoubleWidth};
+use crate::alu::{AnyStatusSource, StatusSource};
+use crate::flags::FlagChange;
 
 #[derive(Clone, Copy)]
 pub(crate) enum MultiplyOp {
@@ -16,7 +15,7 @@ pub(crate) enum MultiplyOp {
 impl MultiplyOp {
     pub(crate) fn apply<T: DoubleWidth>(self, left: Val<T>, right: Val<T>) -> AluResult<T::Double>
     where
-        FlagSource<T>: Into<AnyFlagSource>,
+        StatusSource<T>: Into<AnyStatusSource>,
     {
         let result = match self {
             Self::Signed => left
@@ -33,7 +32,7 @@ impl MultiplyOp {
             Self::Unsigned => result.unsigned().shr(T::BYTES * 8).ne(0),
         };
         // PF/AF/ZF/SF are undefined. Choose 1/0/0/0 without reading old flags.
-        let flags = FlagSource::<T>::Explicit {
+        let flags = StatusSource::<T>::Explicit {
             flags: [
                 overflow.clone(),
                 true.into(),

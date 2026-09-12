@@ -43,7 +43,7 @@ impl InstructionCase {
         )
     }
 
-    /// Require every byte of an opaque incoming flag record to remain unchanged.
+    /// Preserve an opaque flag record except an explicitly expected DF change.
     /// Instructions that inspect flags should state logical values with `new`.
     pub(crate) fn preserving_flags(name: impl Into<String>, code: &[u8]) -> Self {
         Self::with_flags(
@@ -113,7 +113,7 @@ impl InstructionCase {
         self
     }
 
-    /// Also require byte-for-byte preservation of the incoming flag record.
+    /// Preserve the incoming flag record except an explicitly expected DF change.
     pub(crate) fn preserve_flag_record(mut self) -> Self {
         if let ExpectedFlags::Logical {
             preserve_record, ..
@@ -121,6 +121,11 @@ impl InstructionCase {
         {
             *preserve_record = true;
         }
+        self
+    }
+
+    pub(crate) fn expect_direction_flag(mut self, value: bool) -> Self {
+        self.expected.direction_flag = Some(value);
         self
     }
 
@@ -220,6 +225,7 @@ pub(super) struct InitialState {
 #[derive(Clone)]
 pub(super) struct ExpectedState {
     pub(super) flags: ExpectedFlags,
+    pub(super) direction_flag: Option<bool>,
     pub(super) registers: Vec<(Gpr32, RegisterExpectation)>,
     pub(super) memory: Vec<MemoryExpectation>,
     pub(super) exit: ExpectedExit,
@@ -232,6 +238,7 @@ impl ExpectedState {
             memory: Vec::new(),
             exit: ExpectedExit::Fallthrough,
             flags,
+            direction_flag: None,
         }
     }
 }

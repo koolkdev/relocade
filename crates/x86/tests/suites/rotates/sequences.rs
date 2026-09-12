@@ -1,6 +1,8 @@
 //! Checks different raw flag payloads at interpreter and block publication boundaries.
 
-use wasm86_x86::{compile_block_from_bytes, StatusFlags};
+use crate::support::cases::Flags;
+use wasm86_x86::compile_block_from_bytes;
+use wasm86_x86::FlagBytes;
 
 use crate::support::{
     machine::{check, Exit, Step},
@@ -28,11 +30,11 @@ fn add_rotate_and_increment_feed_conditions_and_adc() {
         image.cpu.registers.esi = 0x7fff_ffff;
         let mut cpu = image.cpu;
         cpu.registers.eax = 0x4433_8000;
-        cpu.flags.kind = 2;
-        cpu.flags.left = 0xff;
-        cpu.flags.right = 1;
+        cpu.flags.status_source.kind = 2;
+        cpu.flags.status_source.left = 0xff;
+        cpu.flags.status_source.right = 1;
         let mut steps = vec![retire(&mut cpu, 2, &[])];
-        let add_flags = StatusFlags {
+        let add_flags = Flags {
             cf: 1,
             pf: 1,
             af: 1,
@@ -50,24 +52,26 @@ fn add_rotate_and_increment_feed_conditions_and_adc() {
         cpu.registers.ebx = 0x10ff_0001 | (u32::from(flags.of) << 8);
         steps.push(retire(&mut cpu, 3, &[]));
         cpu.registers.esi = 0x8000_0000;
-        cpu.flags.kind = 0;
-        cpu.flags.status = StatusFlags {
+        cpu.flags.status_source.kind = 0;
+        cpu.flags.bytes = FlagBytes {
             cf: flags.cf,
             pf: 1,
             af: 1,
             zf: 0,
             sf: 1,
             of: 1,
+            ..cpu.flags.bytes
         };
         steps.push(retire(&mut cpu, 1, &[]));
         cpu.registers.edx = 0xccbb_aa01 + u32::from(flags.cf);
-        cpu.flags.status = StatusFlags {
+        cpu.flags.bytes = FlagBytes {
             cf: 0,
             pf: 0,
             af: 0,
             zf: 0,
             sf: 1,
             of: 0,
+            ..cpu.flags.bytes
         };
         steps.push(retire(&mut cpu, 3, &[]));
         check(
@@ -78,8 +82,8 @@ fn add_rotate_and_increment_feed_conditions_and_adc() {
         );
         // The interpreter published ADD's lazy operands at its first boundary.
         // The block's final concrete ADC record leaves its incoming payload intact.
-        cpu.flags.left = image.cpu.flags.left;
-        cpu.flags.right = image.cpu.flags.right;
+        cpu.flags.status_source.left = image.cpu.flags.status_source.left;
+        cpu.flags.status_source.right = image.cpu.flags.status_source.right;
         let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 6).unwrap());
         check(
             &block,
@@ -122,16 +126,24 @@ fn conditional_shift_and_rotate_flags_are_observed_before_a_full_replacement() {
                 PRIOR_FLAGS
             } else {
                 cpu.registers.eax = 0x4433_0001;
-                cpu.flags.kind = 0;
-                cpu.flags.status = StatusFlags {
+                cpu.flags.status_source.kind = 0;
+                cpu.flags.bytes = FlagBytes {
                     cf: 1,
                     pf: 1,
                     af: 0,
                     zf: 1,
                     sf: 0,
                     of: 1,
+                    ..cpu.flags.bytes
                 };
-                cpu.flags.status
+                Flags {
+                    cf: cpu.flags.bytes.cf,
+                    pf: cpu.flags.bytes.pf,
+                    af: cpu.flags.bytes.af,
+                    zf: cpu.flags.bytes.zf,
+                    sf: cpu.flags.bytes.sf,
+                    of: cpu.flags.bytes.of,
+                }
             };
             let mut steps = vec![retire(&mut cpu, 2, &[])];
             cpu.registers.ecx = 0x8877_6600 | u32::from(rotate_count);
@@ -146,8 +158,8 @@ fn conditional_shift_and_rotate_flags_are_observed_before_a_full_replacement() {
             cpu.registers.ebx = 0x10ff_0000 | (u32::from(flags.cf) << 8) | u32::from(flags.zf);
             steps.push(retire(&mut cpu, 3, &[]));
             cpu.registers.edx = 0;
-            cpu.flags.kind = 11;
-            cpu.flags.left = 0;
+            cpu.flags.status_source.kind = 11;
+            cpu.flags.status_source.left = 0;
             steps.push(retire(&mut cpu, 2, &[]));
             check(
                 TestModule::interpreter(),
@@ -156,7 +168,15 @@ fn conditional_shift_and_rotate_flags_are_observed_before_a_full_replacement() {
                 &steps,
             );
             // Only XOR's final lazy record reaches the snapshot boundary.
-            cpu.flags.status = image.cpu.flags.status;
+            cpu.flags.bytes = FlagBytes {
+                cf: image.cpu.flags.bytes.cf,
+                pf: image.cpu.flags.bytes.pf,
+                af: image.cpu.flags.bytes.af,
+                zf: image.cpu.flags.bytes.zf,
+                sf: image.cpu.flags.bytes.sf,
+                of: image.cpu.flags.bytes.of,
+                ..cpu.flags.bytes
+            };
             let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 6).unwrap());
             check(
                 &block,

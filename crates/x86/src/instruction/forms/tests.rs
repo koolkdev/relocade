@@ -57,6 +57,7 @@ fn catalog_bindings_use_available_fields_and_match_both_handler_arities() {
     for map in [OpcodeMap::Primary, OpcodeMap::Extended] {
         for form in opcode_forms(map) {
             let bindings = match form.binding {
+                OperandBindingShape::Nullary => vec![],
                 OperandBindingShape::Unary(operand) => vec![operand],
                 OperandBindingShape::Binary { left, right } => {
                     vec![OperandBinding::Location(left), right]
@@ -73,6 +74,7 @@ fn catalog_bindings_use_available_fields_and_match_both_handler_arities() {
             };
             for size in [OperandSize::Word, OperandSize::Dword] {
                 let arity = match form.with_operand_size(size).handler {
+                    Handler::Nullary(_) => 0,
                     Handler::Unary(_) => 1,
                     Handler::Binary(_) => 2,
                     Handler::Ternary(_) => 3,

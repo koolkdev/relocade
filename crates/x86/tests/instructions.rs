@@ -34,6 +34,8 @@ mod exchange_arithmetic;
 mod exchanges;
 #[path = "suites/extending_moves.rs"]
 mod extending_moves;
+#[path = "suites/flag_control.rs"]
+mod flag_control;
 #[path = "suites/immediate_and_absolute_moves.rs"]
 mod immediate_and_absolute_moves;
 #[path = "suites/instruction_prefixes.rs"]

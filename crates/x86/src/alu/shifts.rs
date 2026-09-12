@@ -2,11 +2,9 @@
 
 use wasm86_compiler::{AtLeast, MemoryInt, Val, I1, I32};
 
-use super::{
-    bit,
-    flags::{AnyFlagSource, FlagChange, FlagSource, StatusFlag},
-    result_flag, AluResult,
-};
+use super::{bit, result_flag, AluResult};
+use crate::alu::{AnyStatusSource, StatusSource};
+use crate::flags::{FlagChange, StatusFlag};
 
 #[derive(Clone, Copy)]
 pub(crate) enum ShiftOp {
@@ -25,7 +23,7 @@ impl ShiftOp {
     /// The caller masks the x86 count to five bits. Zero preserves value and flags.
     pub(crate) fn apply<T: MemoryInt>(self, input: Val<T>, count: Val<I32>) -> AluResult<T>
     where
-        FlagSource<T>: Into<AnyFlagSource>,
+        StatusSource<T>: Into<AnyStatusSource>,
     {
         let width = T::BYTES * 8;
         let result = match self {
@@ -70,7 +68,7 @@ impl DoubleShiftOp {
     ) -> AluResult<T>
     where
         I32: AtLeast<T>,
-        FlagSource<T>: Into<AnyFlagSource>,
+        StatusSource<T>: Into<AnyStatusSource>,
     {
         let width = T::BYTES * 8;
         let wrap_count = Val::<I32>::from(width).sub(&count);
@@ -100,7 +98,7 @@ fn result_with_flags<T: MemoryInt>(
     count: &Val<I32>,
 ) -> AluResult<T>
 where
-    FlagSource<T>: Into<AnyFlagSource>,
+    StatusSource<T>: Into<AnyStatusSource>,
 {
     let overflow = overflow.and(count.eq(1));
     let flags = StatusFlag::ALL.map(|flag| match flag {
@@ -111,6 +109,6 @@ where
     });
     AluResult {
         result,
-        flags: FlagChange::from(FlagSource::<T>::Explicit { flags }).when(count.ne(0)),
+        flags: FlagChange::from(StatusSource::<T>::Explicit { flags }).when(count.ne(0)),
     }
 }
