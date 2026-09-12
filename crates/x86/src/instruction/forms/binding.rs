@@ -51,7 +51,7 @@ impl SizedForm {
                 call,
                 condition: self.form.condition,
                 implicit_memory: self.form.implicit_memory,
-                ends_block: self.form.ends_block,
+                ends_block: self.ends_block,
             },
             eip,
             fallthrough_eip,

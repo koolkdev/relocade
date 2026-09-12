@@ -12,7 +12,7 @@ mod sealed {
     }
 }
 
-/// The logical result shape of a call, block, conditional or switch.
+/// The logical shape of call and control results, and of loop inputs.
 ///
 /// An integer marker such as `I32` produces `Val<I32>`. `()` produces no values.
 /// Tuples of up to eight shapes produce corresponding tuples of typed values;
@@ -72,9 +72,9 @@ impl<V: sealed::Values, const N: usize> sealed::Values for [V; N] {
     }
 }
 
-/// Values or native literals supplied to a function return, block result or branch label.
+/// Values or native literals supplied to a return, control result, loop entry or branch label.
 ///
-/// A scalar argument supplies one result, `()` supplies none, and a tuple
+/// A scalar argument supplies one component, `()` supplies none, and a tuple
 /// or array supplies its components in order. A vector supplies a runtime-sized
 /// list of scalar arguments. The logical signature validates their number,
 /// types, body ownership and visibility.

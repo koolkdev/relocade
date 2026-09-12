@@ -71,6 +71,7 @@ impl Span {
 }
 
 /// Values retain their logical type; stores discard bits beyond the location width.
+#[derive(Clone)]
 pub(super) enum DefinitionValue {
     Byte(Val<I8>),
     Word(Val<I16>),
@@ -118,6 +119,7 @@ ssa_type!(I8, Byte);
 ssa_type!(I16, Word);
 ssa_type!(I32, Dword);
 
+#[derive(Clone)]
 struct Definition {
     location: LocationKey,
     value: DefinitionValue,
@@ -129,6 +131,8 @@ struct Definition {
 /// straight-line build path; terminal publication can target its descendant arms.
 /// Direct writes represent completed effects, not speculative changes to undo.
 /// Every backing write overlapping managed locations must pass through this owner.
+/// Cloning forks the retained definitions for a descendant path; it copies no memory.
+#[derive(Clone)]
 pub(super) struct Environment {
     memory: Mem,
     definitions: Vec<Definition>,

@@ -1,7 +1,9 @@
 mod operands;
+mod repetition;
 mod stack;
 
 pub(crate) use operands::PairValues;
+pub(crate) use repetition::Repetition;
 
 use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32, I64};
 
@@ -11,7 +13,8 @@ use crate::memory::{Access, Intent, Memory};
 use crate::state::{exit, Cpu, State};
 
 /// Builds one execution path. State definitions and progress describe completed
-/// instructions; a fault publishes that boundary before the current effects.
+/// instructions. Within a repeated string instruction, the current state also
+/// includes successful elements, while EIP and the instruction count stay at entry.
 pub(super) struct ExecutionBuilder<'body, 'module> {
     body: FunctionBuilder<'body>,
     state: State<'module>,
@@ -80,8 +83,8 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.state.condition(&mut self.body, condition)
     }
 
-    /// Ends a faulting path at the current instruction's entry boundary. Call
-    /// before defining any of that instruction's architectural results.
+    /// Ends a faulting path at the current restart boundary. Call before defining
+    /// results of the faulting instruction or its current string element.
     pub(crate) fn fault_if(
         &mut self,
         condition: impl Into<Val<I1>>,

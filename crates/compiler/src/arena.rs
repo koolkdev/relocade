@@ -511,6 +511,7 @@ impl ValueArena {
     fn availability(&self, value: Value) -> Option<usize> {
         match value.kind {
             ValueKind::Constant(_) | ValueKind::Parameter(_) => Some(0),
+            ValueKind::LoopInput { region, .. } => Some(region),
             ValueKind::Load { site, .. }
             | ValueKind::CallResult { site, .. }
             | ValueKind::JoinResult { site, .. } => Some(site.region),

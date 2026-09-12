@@ -80,6 +80,7 @@ pub(in crate::instruction) struct Declaration<'a> {
     pub(in crate::instruction) operands: &'a [OperandSpec],
     pub(in crate::instruction) handlers: SizedHandlers,
     pub(in crate::instruction) effects: &'a [Effect],
+    pub(in crate::instruction) repeat_handlers: Option<SizedHandlers>,
 }
 
 impl Declaration<'_> {
@@ -186,6 +187,19 @@ impl Declaration<'_> {
             }
             _ => panic!("instruction bodies take at most three operands"),
         };
+        if let Some(handlers) = self.repeat_handlers {
+            assert!(
+                matches!(
+                    (self.opcode.map, binding),
+                    (OpcodeMap::Primary, OperandBindingShape::Nullary)
+                ),
+                "repeat handlers require a primary opcode with implicit operands"
+            );
+            assert!(matches!(
+                (handlers.word, handlers.dword),
+                (Handler::Nullary(_), Handler::Nullary(_))
+            ));
+        }
         let mut implicit_memory = false;
         let mut ends_block = false;
         index = 0;
@@ -207,6 +221,7 @@ impl Declaration<'_> {
             condition: None,
             implicit_memory,
             ends_block,
+            repeat_handlers: self.repeat_handlers,
         }
     }
 }

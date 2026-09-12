@@ -44,6 +44,7 @@ pub(super) struct DecodeHandlers {
     direct: Func,
     checked: Func,
     prefixed: Func,
+    repeated: Option<[Func; 2]>,
 }
 
 impl DecodeHandlers {
@@ -63,8 +64,18 @@ impl DecodeHandlers {
                 results: vec![Type::I64],
             }),
             prefixed: program.declare(Signature {
-                parameters,
+                parameters: parameters.clone(),
                 results: vec![Type::I64],
+            }),
+            // Repeat forms have implicit operands, so only opcode entries need
+            // these restricted selectors. Ordinary operand decoders stay shared.
+            repeated: matches!(point, DecodePoint::Opcode).then(|| {
+                std::array::from_fn(|_| {
+                    program.declare(Signature {
+                        parameters: parameters.clone(),
+                        results: vec![Type::I64],
+                    })
+                })
             }),
         }
     }
@@ -78,24 +89,33 @@ impl DecodeHandlers {
         enum Entry {
             Checked,
             Direct,
-            Prefixed,
+            Prefixed(OperandSize, bool),
         }
-        for (function, entry) in [
+        let mut entries = vec![
             (self.checked, Entry::Checked),
             (self.direct, Entry::Direct),
-            (self.prefixed, Entry::Prefixed),
-        ] {
+            (self.prefixed, Entry::Prefixed(OperandSize::Word, false)),
+        ];
+        if let Some([dword, word]) = self.repeated {
+            entries.push((dword, Entry::Prefixed(OperandSize::Dword, true)));
+            entries.push((word, Entry::Prefixed(OperandSize::Word, true)));
+        }
+        for (function, entry) in entries {
             let body = program.define(function)?;
             let instruction_eip = body.parameter::<I32>(0)?;
             let opcode = body.parameter::<I8>(1)?;
             let position_parameter = self.point.field_count() as u32 + 1;
-            let mut cursor = if matches!(entry, Entry::Prefixed) {
-                RuntimeCursor::resume(
+            let mut cursor = if let Entry::Prefixed(size, repeat) = entry {
+                let mut cursor = RuntimeCursor::resume(
                     memory,
                     &instruction_eip,
                     &body.parameter::<I32>(position_parameter)?,
-                    OperandSize::Word,
-                )
+                    size,
+                );
+                if repeat {
+                    cursor.select_repeat();
+                }
+                cursor
             } else {
                 let physical_start = if matches!(entry, Entry::Direct) {
                     Some(body.parameter::<I32>(position_parameter)?)
@@ -127,18 +147,27 @@ impl DecodeHandlers {
     ) -> Result<(), BuildError> {
         let mut arguments = vec![cursor.instruction_eip().into()];
         arguments.extend_from_slice(fields);
-        let target = match cursor.operand_size() {
-            OperandSize::Word => {
-                arguments.push(cursor.consumed().into());
-                self.prefixed
+        let target = if cursor.repeat_prefix() {
+            arguments.push(cursor.consumed().into());
+            let [dword, word] = self.repeated.expect("repeat forms use the opcode entry");
+            match cursor.operand_size() {
+                OperandSize::Word => word,
+                OperandSize::Dword => dword,
             }
-            OperandSize::Dword => match cursor.physical_start() {
-                Some(physical_start) => {
-                    arguments.push(physical_start.into());
-                    self.direct
+        } else {
+            match cursor.operand_size() {
+                OperandSize::Word => {
+                    arguments.push(cursor.consumed().into());
+                    self.prefixed
                 }
-                None => self.checked,
-            },
+                OperandSize::Dword => match cursor.physical_start() {
+                    Some(physical_start) => {
+                        arguments.push(physical_start.into());
+                        self.direct
+                    }
+                    None => self.checked,
+                },
+            }
         };
         body.tail_call(target, &arguments)
     }

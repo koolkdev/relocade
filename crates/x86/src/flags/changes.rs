@@ -5,6 +5,7 @@ use wasm86_compiler::{MemoryInt, Val, I1};
 use super::{Flag, FlagMask};
 use crate::alu::{AnyStatusSource, StatusSource};
 
+#[derive(Clone)]
 pub(crate) struct FlagChange {
     /// None denotes an unconditional change.
     pub(crate) condition: Option<Val<I1>>,
@@ -12,6 +13,7 @@ pub(crate) struct FlagChange {
     writes: FlagMask,
 }
 
+#[derive(Clone)]
 pub(crate) enum FlagValues {
     Status(AnyStatusSource),
     Explicit([Option<Val<I1>>; Flag::ALL.len()]),

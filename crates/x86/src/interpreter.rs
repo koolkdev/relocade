@@ -34,17 +34,23 @@ use crate::{
 ///
 /// An unsupported instruction form returns `(8 << 48) | (opcode << 32) | EIP`, an
 /// unsupported-subset exit rather than an architectural invalid-opcode exception.
-/// `opcode` is the first byte after any `66` prefixes; EIP is the instruction start.
+/// `opcode` is the first byte after any `66` prefixes; an unsupported form following
+/// `F3` reports `F3`. EIP is the instruction start, including its prefixes.
 /// Group instructions reject an unsupported ModRM.reg extension before reading
 /// their remaining fields. The diagnostic byte for an extended opcode is `0F`.
 /// Supported forms fetch every
 /// field before checking data access.
-/// Faults and unsupported forms preserve this instruction's CPU state and
-/// count and do not dispatch. EIP and count wrap at 32 bits; taken branches with `66`
+/// Faults and unsupported forms do not retire or dispatch. Ordinary instruction
+/// faults preserve entry CPU state. REP faults preserve successful elements and their
+/// remaining ECX and current indices, without retiring the repeated instruction.
+/// EIP and count wrap at 32 bits; taken branches with `66`
 /// truncate their targets to sixteen bits. Untaken branches keep full fallthrough EIP.
 ///
 /// The `66` operand-size prefix selects word operands and leaves byte operands
-/// unchanged. Repeating it does not toggle the width. Other prefixes are outside
+/// unchanged. Repeating it does not toggle the width. `F3` repeats MOVS/STOS using
+/// full ECX, in either order with `66`. Repeated copies of either prefix retain
+/// their effect. Zero ECX skips data accesses; success retires the REP once and
+/// dispatches after the entire instruction. `F2` and other prefixes are outside
 /// the supported subset. All required instruction bytes count toward the 15-byte
 /// limit. Attempting to read byte 16 returns general protection with error zero,
 /// encoded as `2 << 48`. A missing required byte within the limit faults first.

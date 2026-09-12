@@ -3,6 +3,7 @@ use crate::{
     address::Address32,
     instruction::{
         handlers::HandlerCall, opcode_forms, Operand, EXTENDED_OPCODE_ESCAPE, OPERAND_SIZE_PREFIX,
+        REPEAT_PREFIX,
     },
     register::{Gpr32, RegisterOperand},
 };
@@ -128,7 +129,7 @@ fn catalog_bindings_use_available_fields_and_match_both_handler_arities() {
 #[test]
 fn instruction_forms_cannot_shadow_decoder_prefix_and_escape_actions() {
     let primary = forms_by_opcode(opcode_forms(OpcodeMap::Primary));
-    for opcode in [OPERAND_SIZE_PREFIX, EXTENDED_OPCODE_ESCAPE] {
+    for opcode in [OPERAND_SIZE_PREFIX, REPEAT_PREFIX, EXTENDED_OPCODE_ESCAPE] {
         assert!(!primary.contains_key(&u32::from(opcode)));
     }
 }

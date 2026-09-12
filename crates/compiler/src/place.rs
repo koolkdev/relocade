@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use wasm_encoder::ValType;
 
 use crate::{
-    control::{Region, Site},
+    control::{Region, Site, Target},
     effects::Effects,
     emit::wasm_type,
     memory::Location,
@@ -107,6 +107,35 @@ impl<'a> Tree<'a> {
         }
     }
 
+    fn snapshot_anchor(
+        &self,
+        origin: Site,
+        use_: Point,
+        store: impl Fn(Location) -> bool,
+        call: impl Fn(Func) -> bool,
+    ) -> Point {
+        if self.clobbers(origin, use_.site, store, call) {
+            return Point::main(origin);
+        }
+        let mut anchor = use_;
+        let mut region = use_.site.region;
+        while region != origin.region {
+            let parent = self.0[&region]
+                .parent
+                .expect("a snapshot is visible at its demand");
+            if matches!(
+                self.0[&parent.region].region.operations[parent.index],
+                Operation::Loop { .. }
+            ) {
+                // Preserve an authored snapshot once before the first crossed
+                // loop. Its enclosing guards and input scope remain intact.
+                anchor = Point::main(parent);
+            }
+            region = parent.region;
+        }
+        anchor
+    }
+
     fn clobbers(
         &self,
         origin: Site,
@@ -128,6 +157,20 @@ impl<'a> Tree<'a> {
         for child in path.into_iter().rev() {
             let parent = self.0[&child].parent.unwrap();
             if self.writes(region, start, parent.index, &store, &call) {
+                return true;
+            }
+            // An outer snapshot used in a loop must also survive writes after
+            // that use: a backedge reaches the use again on the next iteration.
+            if matches!(
+                self.0[&region].region.operations[parent.index],
+                Operation::Loop { .. }
+            ) && self.writes(
+                child,
+                0,
+                self.0[&child].region.operations.len(),
+                &store,
+                &call,
+            ) {
                 return true;
             }
             region = child;
@@ -261,6 +304,19 @@ impl Planner<'_> {
                     index,
                 });
                 match operation {
+                    Operation::Loop {
+                        initial, inputs, ..
+                    } => {
+                        // Keep every carried channel. Seeds and backedges are
+                        // rooted before the reverse value walk, which otherwise
+                        // assumes an acyclic expression graph.
+                        for &value in initial {
+                            demand(body, tree, demands, value, point);
+                        }
+                        for &input in inputs {
+                            self.saved[input] = true;
+                        }
+                    }
                     Operation::Store { location, value } => {
                         demand(body, tree, demands, location.base, point);
                         demand(body, tree, demands, *value, point);
@@ -286,7 +342,7 @@ impl Planner<'_> {
                 }
             }
             if let Some(terminal) = &region.terminal {
-                if matches!(terminal, Terminal::Branch { .. }) {
+                if matches!(terminal, Terminal::Branch { target, .. } if !target.entry) {
                     continue;
                 }
                 for &value in terminal.inputs() {
@@ -312,6 +368,9 @@ impl Planner<'_> {
         // Recomputed expressions pass their actual placements to their inputs;
         // snapshot producers retain their own sharing and clobber rules.
         for id in (0..body.values.len()).rev() {
+            if matches!(body.values[id].kind, ValueKind::LoopInput { .. }) {
+                continue;
+            }
             if let ValueKind::CallResult { site, component } = body.values[id].kind {
                 // Failed branch construction can leave values from a discarded region.
                 if !self.tree.0.contains_key(&site.region) {
@@ -339,7 +398,7 @@ impl Planner<'_> {
                 // each incoming component only at its actual branch site, including
                 // exits nested within other control operations.
                 for arm in operation.children() {
-                    for (exit, arguments) in arm.exits_to(site) {
+                    for (exit, arguments) in arm.exits_to(Target::exit(site)) {
                         demand(body, tree, demands, arguments[component], Point::main(exit));
                     }
                 }
@@ -349,14 +408,12 @@ impl Planner<'_> {
                 saved[id] |= use_.points.len() > 1;
                 let mut anchor = use_.first;
                 if let ValueKind::Load { location, site } = body.values[id].kind {
-                    if tree.clobbers(
+                    anchor = tree.snapshot_anchor(
                         site,
-                        anchor.site,
+                        anchor,
                         |other| location.may_overlap(other, body),
                         |target| effects[target.0].writes_location(location, body),
-                    ) {
-                        anchor = Point::main(site);
-                    }
+                    );
                 }
                 if (!use_.at_first || anchor != use_.first)
                     && !matches!(
@@ -400,6 +457,7 @@ impl Planner<'_> {
                         demand(body, tree, demands, location.base, anchor)
                     }
                     ValueKind::Constant(_) | ValueKind::Parameter(_) => {}
+                    ValueKind::LoopInput { .. } => unreachable!("loop inputs are fixed at entry"),
                     ValueKind::CallResult { .. } => {
                         unreachable!("call outputs share one placement")
                     }

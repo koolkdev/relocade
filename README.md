@@ -6,14 +6,14 @@ Rust components for x86 execution in WebAssembly.
 SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, MUL, IMUL, DIV, IDIV, SHL, SHR, SAR, SHLD, SHRD,
 ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, PUSHF/PUSHFD, POPF/POPFD,
 SETcc, CALL, RET, JMP, Jcc, JECXZ, LOOP, LOOPE, LOOPNE, CLC, STC, CMC, CLD, STD, LAHF, SAHF,
-MOVS, STOS, LODS, CMPS and SCAS blocks
+MOVS, STOS, LODS, CMPS and SCAS blocks, including REP MOVS/STOS,
 from byte snapshots:
 
 ```rust
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
 ```
 
-Compilation stops at the first branch or the requested instruction limit,
+Compilation stops at the first branch, REP or the requested instruction limit,
 whichever comes first. A conditional branch ends the block whether taken or not.
 Missing, overlong or unsupported instructions before that boundary are construction
 errors; bytes after it are ignored. The returned
@@ -383,7 +383,8 @@ PUSH `68` reads an operand-sized immediate; `6A` sign-extends its encoded byte
 to the operand width.
 
 The `66` operand-size prefix selects word data; repeating it keeps that size.
-Byte forms remain byte-sized with `66`. Other prefixes, including address-size
+Byte forms remain byte-sized with `66`. `F3` repeats MOVS/STOS; it can appear before
+or after `66`, and repeated copies retain their effect. Other prefixes, including address-size
 `67`, are outside the supported subset. The fifteen-byte instruction limit
 includes every prefix, opcode and required operand field.
 
@@ -397,7 +398,7 @@ Effective-address sums wrap at 32 bits; both frontends use flat addresses and
 ignore segment bases. Blocks without explicit or implicit guest-memory access
 retain just the CPU and dispatch imports.
 
-MOVS, STOS, LODS, CMPS and SCAS process one byte, word or dword per instruction.
+Unprefixed MOVS, STOS, LODS, CMPS and SCAS process one byte, word or dword per instruction.
 MOVS copies memory at ESI to memory at EDI; STOS stores AL/AX/EAX to memory at
 EDI; LODS loads memory at ESI into AL/AX/EAX, preserving the unused upper bits.
 These three transfers preserve the complete flag record. CMPS compares memory
@@ -414,7 +415,22 @@ the instruction's registers, flags and destination memory unchanged; earlier
 completed instructions remain visible. Overlapping MOVS operands copy the complete
 source element before storing it. These rules follow the string instruction
 entries in the [Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
-REP/REPE/REPNE, address-size overrides and segment overrides remain unsupported.
+
+`F3` repeats MOVS/STOS until the full 32-bit ECX reaches zero. Zero ECX skips
+data access. Each successful element advances its indices and decrements ECX;
+an access fault retains the successful elements, current indices and remaining
+ECX. EIP stays at the instruction's first prefix so execution can resume after
+repairing the mapping. Word operand size changes the element width, while ECX,
+ESI and EDI remain 32-bit. Overlap follows sequential element order, including
+aliases through different virtual pages. These restart rules follow the
+[Intel REP instruction entry](https://cdrdv2-public.intel.com/782151/253667-sdm-vol-2b.pdf).
+
+A complete REP retires once, including zero-count execution; a faulting REP
+does not retire. Both frontends execute all remaining elements before dispatching
+the successor. REP ends a snapshot block and consumes one instruction from its
+compilation limit. This scalar implementation checks each element separately.
+Repeated LODS/CMPS/SCAS, `F2`, address-size overrides and segment overrides remain
+unsupported. In particular, `F3` does not repeat arbitrary instructions.
 
 PUSH and POP transfer a word or dword through a 32-bit stack pointer. PUSH reads
 its source using the entry register values, then subtracts the operand size from
@@ -530,6 +546,25 @@ Sized forms can also have no operands: `byte()` supplies `I8` to a generic body,
 and `word_or_dword()` supplies `I16` or `I32`. String and stack-flag instructions
 use this existing path for their implicit operands.
 
+A family can supply a `repeat` body with the same argument and width adapters:
+
+```rust
+MOVS {
+    execute: move_elements(Repetition::Once);
+    effects: [memory_read, memory_write];
+    repeat: move_elements(Repetition::Count);
+    forms {
+        0xA4 => byte();
+        0xA5 => word_or_dword();
+    }
+}
+```
+
+Both decoders check this capability and bind the repeated handler when `F3` is
+present. The bound instruction already names its behavior; lowering needs no
+prefix switch. Repeated forms currently require implicit operands in the primary
+opcode map. The selected form marks the snapshot block boundary.
+
 Physical immediate widths stay independent of logical data widths. `imm8` and
 `imm16` consume one and two bytes respectively; `imm` follows the operand-size
 attribute. `signed_imm8` consumes one byte and sign-extends it to the row's width.
@@ -596,6 +631,10 @@ The runtime decoder owns its byte cursor, proven window and completion policy.
 Every opcode map uses the same form-driven switch and selects operand decoding
 by encoding. Only the chosen opcode checks
 its ModRM extension. Direct, checked and prefixed entries share field handling.
+Prefix entries retain the original instruction start and total consumed byte
+count. The repeated entries select only forms with repeated handlers, using the
+same opcode table and operand-size rules. Prefix dispatch finishes before the
+execution loop starts; element iterations never re-enter decoding.
 An exact opcode case retains its register selection, so compact MOV, unary and
 stack forms use fixed register views. ModRM and SIB fields select runtime views.
 Memory decoding selects the SIB or ordinary layout
@@ -618,6 +657,14 @@ guest-fault checks ahead of all effects without exposing prepared targets to
 instruction handlers.
 A fault publishes completed definitions into its terminating branch without
 consuming the parent state used by the successful path.
+MOVS/STOS use `string_elements` to choose one element or a native counted loop.
+The family supplies its used indices and element operation; execution carries
+ECX and those indices through the compiler's typed loop. Each iteration forks
+the incoming state definitions and installs its current tuple before any access.
+Faults publish that state, while successful loop exits join their final register
+values into the enclosing state. Forking copies construction-time definitions,
+without copying CPU or guest memory. Direction-derived stride and the STOS value
+are instruction invariants; element reads and stores remain inside the loop.
 Address resolution accepts explicit register values for an access. POP supplies
 its next ESP when preparing the destination, so the usual base, index, scale and
 displacement calculation sees that value while fault publication retains entry
@@ -866,7 +913,7 @@ control owns the successful and faulting paths.
 
 An unsupported instruction form returns `(8 << 48) | (opcode << 32) | instruction_eip`.
 The opcode field contains the first byte after any `66` prefixes, including `0F`
-for an extended opcode. This reports
+for an extended opcode. An unsupported form following `F3` reports `F3`. This reports
 the implementation's unsupported subset, not an architectural invalid-opcode
 fault. An instruction requiring more than fifteen bytes returns `2 << 48`, the
 zero-error general-protection word, without retiring or dispatching. The step
@@ -1045,6 +1092,32 @@ only in their block and its descendants; keeping a clone cannot extend that
 scope or revive a discarded block. Nonempty blocks require complete paths and
 at least one incoming result. Wasm multi-value signatures and branch depths stay
 inside the compiler.
+
+`loop_::<P, R>` gives a loop separate input and result shapes. Initial values
+supply its first iteration; branching to `labels.again` supplies the next one.
+`labels.exit` supplies the result, including from nested branches:
+
+```rust
+let sum = body.loop_::<(I32, I32), I32>(
+    (5, 0),
+    |mut iteration, labels, (remaining, sum)| {
+        iteration.if_(remaining.eq(0), |done| done.branch(&labels.exit, &sum))?;
+        iteration.branch(&labels.again, (remaining.sub(1), sum.add(remaining)))
+    },
+)?;
+```
+
+Direct `yield_` also completes the loop, and a unit result may fall through.
+Each backedge evaluates the complete replacement tuple before binding the next
+iteration's inputs, so swaps preserve both old values. Inputs and labels stay
+within the loop and its descendants; outputs follow the ordinary result-join
+rules. Initial and backedge arguments retain logical types without implicitly
+clearing upper carrier bits. Loop inputs use conservative bounds, so later logical
+observers still normalize narrow values correctly. All carried components are
+retained initially. Pre-loop load and read-only call snapshots survive later
+iteration writes; reads authored inside the loop observe each iteration's state.
+Native Wasm parameters and results carry these edges, and local allocation keeps
+outer values alive across backedges.
 
 `body.trap()` consumes its builder and ends that execution path with a WebAssembly
 trap, regardless of the function result type.

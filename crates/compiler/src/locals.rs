@@ -12,11 +12,22 @@ pub(super) struct AllocatedLocals {
 pub(super) fn allocate(
     accesses: impl IntoIterator<Item = usize>,
     slot_types: &[ValType],
+    loop_ranges: &[(usize, usize)],
 ) -> AllocatedLocals {
     let mut lifetimes = vec![None; slot_types.len()];
     for (position, slot) in accesses.into_iter().enumerate() {
         let lifetime = lifetimes[slot].get_or_insert((position, position));
         lifetime.1 = position;
+    }
+    // Values entering a loop stay live across its backedge, even when their
+    // final lexical use is near its beginning. Values defined within the loop
+    // still reuse storage after their last use in each iteration.
+    for lifetime in lifetimes.iter_mut().flatten() {
+        for &(start, end) in loop_ranges {
+            if lifetime.0 < start && lifetime.1 >= start {
+                lifetime.1 = lifetime.1.max(end);
+            }
+        }
     }
     let mut intervals: Vec<_> = lifetimes
         .into_iter()
@@ -70,7 +81,7 @@ mod tests {
     #[test]
     fn disjoint_lifetimes_reuse_a_local_of_the_same_type() {
         for ty in [ValType::I32, ValType::I64] {
-            let allocated = allocate([0, 0, 1, 1], &[ty, ty]);
+            let allocated = allocate([0, 0, 1, 1], &[ty, ty], &[]);
             assert_eq!(allocated.indices[0], allocated.indices[1]);
             assert_eq!(allocated.types.len(), 1);
             for local in allocated.indices {
@@ -84,7 +95,7 @@ mod tests {
         use crate::{emit::wasm_type, Type};
 
         let types = [Type::I1, Type::I8, Type::I16, Type::I32].map(wasm_type);
-        let allocated = allocate([0, 0, 1, 1, 2, 2, 3, 3], &types);
+        let allocated = allocate([0, 0, 1, 1, 2, 2, 3, 3], &types, &[]);
         assert_eq!(allocated.types, [ValType::I32]);
         for local in &allocated.indices {
             assert_eq!(*local, allocated.indices[0]);
@@ -94,7 +105,7 @@ mod tests {
     #[test]
     fn overlapping_or_different_types_need_distinct_locals() {
         let types = [ValType::I32, ValType::I32, ValType::I64];
-        let allocated = allocate([0, 1, 0, 1, 2, 2], &types);
+        let allocated = allocate([0, 1, 0, 1, 2, 2], &types, &[]);
         assert_ne!(allocated.indices[0], allocated.indices[1]);
         assert_ne!(allocated.indices[0], allocated.indices[2]);
         assert_ne!(allocated.indices[1], allocated.indices[2]);
@@ -105,5 +116,26 @@ mod tests {
                 ty
             );
         }
+    }
+
+    #[test]
+    fn loop_invariants_outlive_later_body_temporaries() {
+        let allocated = allocate([0, 0, 1, 1, 2, 2], &[ValType::I32; 3], &[(1, 3)]);
+        assert_ne!(allocated.indices[0], allocated.indices[1]);
+        assert_eq!(allocated.indices[0], allocated.indices[2]);
+    }
+
+    #[test]
+    fn inner_loop_preserves_outer_iteration_values_without_extending_them_past_outer_exit() {
+        let allocated = allocate(
+            [0, 0, 1, 1, 2, 2, 3, 3, 4, 4],
+            &[ValType::I32; 5],
+            &[(1, 7), (3, 5)],
+        );
+        assert_ne!(allocated.indices[0], allocated.indices[1]);
+        assert_ne!(allocated.indices[0], allocated.indices[2]);
+        assert_ne!(allocated.indices[1], allocated.indices[2]);
+        assert_eq!(allocated.indices[1], allocated.indices[3]);
+        assert_eq!(allocated.indices[0], allocated.indices[4]);
     }
 }

@@ -22,6 +22,7 @@ pub(super) fn condition_index(canonical: Condition) -> usize {
         .expect("a canonical condition has a cache slot")
 }
 
+#[derive(Clone)]
 pub(super) struct FlagState {
     status: StatusState,
     direct: Environment,
@@ -40,7 +41,7 @@ fn direct_location(flag: Flag) -> Option<Location<I8>> {
 
 /// Status changes follow one complete status source in program order.
 /// Unconditional replacements discard only the older status history.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct StatusState {
     base: StatusBase,
     updates: Vec<FlagChange>,

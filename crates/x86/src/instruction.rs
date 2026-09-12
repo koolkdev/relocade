@@ -18,6 +18,7 @@ use crate::register::RegisterOperand;
 pub(super) const MAX_INSTRUCTION_BYTES: u32 = 15;
 pub(super) const OPERAND_SIZE_PREFIX: u8 = 0x66;
 pub(super) const EXTENDED_OPCODE_ESCAPE: u8 = 0x0f;
+pub(super) const REPEAT_PREFIX: u8 = 0xf3;
 
 /// The effective operand-size attribute in the supported default-32 mode.
 #[derive(Clone, Copy)]

@@ -2,13 +2,14 @@
 use wasm_encoder::{Encode, Function, Instruction, ValType};
 
 use crate::{
-    control::Site, effects::Effects, locals, memory::Location, module::Types, place, Body, Type,
+    control::Target, effects::Effects, locals, memory::Location, module::Types, place, Body, Type,
     ValueKind,
 };
 
 mod calls;
 mod control;
 mod integer;
+mod loops;
 mod memory;
 mod switch;
 
@@ -45,7 +46,7 @@ enum Walk {
 }
 
 struct ControlLabel {
-    target: Option<Site>,
+    target: Option<Target>,
     outputs: Vec<usize>,
 }
 
@@ -60,6 +61,7 @@ struct Scheduler<'a> {
     emitted: Vec<bool>,
     bytes: Vec<u8>,
     events: Vec<LocalEvent>,
+    loop_ranges: Vec<(usize, usize)>,
 }
 
 pub(super) fn encode(
@@ -81,6 +83,7 @@ pub(super) fn encode(
         emitted: vec![false; body.values.len()],
         bytes: Vec::new(),
         events: Vec::new(),
+        loop_ranges: Vec::new(),
     };
     scheduler.region(&body.region, None);
     Instruction::End.encode(&mut scheduler.bytes);
@@ -185,6 +188,9 @@ impl Scheduler<'_> {
                 ValueKind::JoinResult { .. } => {
                     unreachable!("a used join was saved after its branch operation")
                 }
+                ValueKind::LoopInput { .. } => {
+                    unreachable!("loop inputs are saved at the header")
+                }
                 ValueKind::Binary(_, a, b)
                 | ValueKind::Compare(_, a, b)
                 | ValueKind::Shift {
@@ -273,6 +279,7 @@ impl Scheduler<'_> {
         let allocated = locals::allocate(
             self.events.iter().map(|event| event.slot),
             &self.placement.slot_types,
+            &self.loop_ranges,
         );
         let mut function = Function::new_with_locals_types(allocated.types);
         let mut previous = 0;

@@ -4,7 +4,7 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
 
 use crate::instruction::{
     forms_by_opcode, opcode_forms, DecodedInstruction, Form, OpcodeMap, EXTENDED_OPCODE_ESCAPE,
-    OPERAND_SIZE_PREFIX,
+    OPERAND_SIZE_PREFIX, REPEAT_PREFIX,
 };
 
 use super::{cursor::RuntimeCursor, RuntimeDecoder};
@@ -13,6 +13,7 @@ enum OpcodeAction {
     Instruction(Vec<&'static Form>),
     ExtendedMap,
     OperandSizePrefix,
+    RepeatPrefix,
 }
 
 impl<C> RuntimeDecoder<'_, C>
@@ -25,16 +26,21 @@ where
         cursor: RuntimeCursor<'_>,
         opcode: &Val<I8>,
     ) -> Result<(), BuildError> {
-        let mut actions: BTreeMap<_, _> = forms_by_opcode(opcode_forms(cursor.opcode_map()))
+        let forms = opcode_forms(cursor.opcode_map())
+            .filter(|form| !cursor.repeat_prefix() || form.supports_repeat());
+        let mut actions: BTreeMap<_, _> = forms_by_opcode(forms)
             .into_iter()
             .map(|(opcode, forms)| (opcode, OpcodeAction::Instruction(forms)))
             .collect();
         if cursor.opcode_map() == OpcodeMap::Primary {
-            actions.insert(u32::from(EXTENDED_OPCODE_ESCAPE), OpcodeAction::ExtendedMap);
+            if !cursor.repeat_prefix() {
+                actions.insert(u32::from(EXTENDED_OPCODE_ESCAPE), OpcodeAction::ExtendedMap);
+            }
             actions.insert(
                 u32::from(OPERAND_SIZE_PREFIX),
                 OpcodeAction::OperandSizePrefix,
             );
+            actions.insert(u32::from(REPEAT_PREFIX), OpcodeAction::RepeatPrefix);
         }
         let opcodes: Vec<_> = actions.keys().copied().collect();
         body.switch(opcode, &opcodes, |mut arm, key| {
@@ -47,12 +53,11 @@ where
                     if form.encoding.has_modrm() {
                         self.decode_modrm_operands(arm, cursor.clone(), opcode, forms)
                     } else {
-                        self.decode_opcode_operands(
-                            arm,
-                            cursor.clone(),
-                            opcode_case as u8,
-                            &form.with_operand_size(cursor.operand_size()),
-                        )
+                        let mut sized = form.with_operand_size(cursor.operand_size());
+                        if cursor.repeat_prefix() {
+                            sized = sized.with_repeat();
+                        }
+                        self.decode_opcode_operands(arm, cursor.clone(), opcode_case as u8, &sized)
                     }
                 }
                 OpcodeAction::ExtendedMap => {
@@ -64,6 +69,13 @@ where
                 OpcodeAction::OperandSizePrefix => {
                     let mut prefixed = cursor.clone();
                     prefixed.select_word_operands();
+                    let opcode = prefixed.byte(&mut arm)?;
+                    self.opcode_handlers
+                        .tail_call(arm, &prefixed, &[(&opcode).into()])
+                }
+                OpcodeAction::RepeatPrefix => {
+                    let mut prefixed = cursor.clone();
+                    prefixed.select_repeat();
                     let opcode = prefixed.byte(&mut arm)?;
                     self.opcode_handlers
                         .tail_call(arm, &prefixed, &[(&opcode).into()])

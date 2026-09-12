@@ -25,6 +25,8 @@ mod function_bodies;
 mod generated_code;
 #[path = "suites/integer_ops.rs"]
 mod integer_ops;
+#[path = "suites/loops.rs"]
+mod loops;
 #[path = "suites/memory.rs"]
 mod memory;
 #[path = "suites/multi_result_functions.rs"]

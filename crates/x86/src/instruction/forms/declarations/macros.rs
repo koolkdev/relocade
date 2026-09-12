@@ -4,12 +4,13 @@ macro_rules! instruction_families {
     ($($family:ident {
         execute: $handler:ident $(($($argument:expr),* $(,)?))?;
         $(effects: [$($effect:ident),* $(,)?];)?
+        $(repeat: $repeat:ident $(($($repeat_argument:expr),* $(,)?))?;)?
         forms $rows:tt
     })+) => {
         pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
             use crate::instruction::forms::declarations::*;
             const FAMILIES: &[&[&[Form]]] = &[$(
-                declaration_family!([$handler $($($argument),*)?] [$($($effect),*)?] $rows)
+                declaration_family!([$handler $($($argument),*)?] [$($($effect),*)?] [$($repeat $($($repeat_argument),*)?)?] $rows)
             ),+];
             FAMILIES.iter().flat_map(|rows| rows.iter().flat_map(|forms| forms.iter()))
         }
@@ -17,7 +18,7 @@ macro_rules! instruction_families {
 }
 
 macro_rules! declaration_family {
-    ($call:tt $effects:tt {
+    ($call:tt $effects:tt $repeat:tt {
         $($opcode:literal $($extended:literal)? $(+ $pattern:ident)? $(/ $extension:literal)? =>
             $width:ident $operands:tt $(| $other_width:ident $other_operands:tt)?;
         )+
@@ -37,10 +38,22 @@ macro_rules! declaration_family {
                         $effects [$($pattern)?] $call $width $operands $(| $other_width $other_operands)?
                     ),
                     effects: declaration_effects!($effects),
+                    repeat_handlers: declaration_repeat!(
+                        $repeat $effects [$($pattern)?] $width $operands $(| $other_width $other_operands)?
+                    ),
                 }.form()
             };
             declaration_opcode!(@rows FORM; $($pattern)?)
         }),+]
+    };
+}
+
+macro_rules! declaration_repeat {
+    ([] $($row:tt)*) => {
+        None
+    };
+    ([$handler:ident $($argument:expr),*] $effects:tt $pattern:tt $($row:tt)*) => {
+        Some(declaration_handlers!($effects $pattern [$handler $($argument),*] $($row)*))
     };
 }
 
@@ -185,5 +198,5 @@ macro_rules! operand_spec {
 
 pub(in crate::instruction) use {
     declaration_effect, declaration_effects, declaration_family, declaration_opcode,
-    declaration_operands, instruction_families, operand_spec,
+    declaration_operands, declaration_repeat, instruction_families, operand_spec,
 };

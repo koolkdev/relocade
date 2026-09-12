@@ -5,7 +5,7 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32, I8};
 use crate::{
     instruction::{
         FieldWidth, OpcodeMap, OperandSize, SizedForm, EXTENDED_OPCODE_ESCAPE,
-        MAX_INSTRUCTION_BYTES,
+        MAX_INSTRUCTION_BYTES, REPEAT_PREFIX,
     },
     memory::Memory,
     state::exit,
@@ -26,6 +26,7 @@ pub(super) struct RuntimeCursor<'memory> {
     offset: Val<I32>,
     maximum_offset: u32,
     operand_size: OperandSize,
+    repeat_prefix: bool,
     opcode_map: OpcodeMap,
     window: Option<Window>,
 }
@@ -57,6 +58,7 @@ impl<'memory> RuntimeCursor<'memory> {
             offset: body.value(consumed)?,
             maximum_offset: consumed,
             operand_size: OperandSize::Dword,
+            repeat_prefix: false,
             opcode_map: OpcodeMap::Primary,
             window: physical_start.map(|physical_start| Window {
                 physical_start: physical_start.clone(),
@@ -80,6 +82,7 @@ impl<'memory> RuntimeCursor<'memory> {
             offset: consumed.clone(),
             maximum_offset: MAX_INSTRUCTION_BYTES,
             operand_size,
+            repeat_prefix: false,
             opcode_map: OpcodeMap::Primary,
             window: None,
         }
@@ -87,6 +90,12 @@ impl<'memory> RuntimeCursor<'memory> {
 
     pub(super) fn select_word_operands(&mut self) {
         self.operand_size = OperandSize::Word;
+    }
+    pub(super) fn select_repeat(&mut self) {
+        self.repeat_prefix = true;
+    }
+    pub(super) fn repeat_prefix(&self) -> bool {
+        self.repeat_prefix
     }
     pub(super) fn enter_extended_map(&mut self) {
         self.opcode_map = OpcodeMap::Extended;
@@ -100,9 +109,13 @@ impl<'memory> RuntimeCursor<'memory> {
         body: FunctionBuilder<'_>,
         selector: &Val<I8>,
     ) -> Result<(), BuildError> {
-        let opcode = match self.opcode_map {
-            OpcodeMap::Primary => selector.clone(),
-            OpcodeMap::Extended => body.value::<I8>(u32::from(EXTENDED_OPCODE_ESCAPE))?,
+        let opcode = if self.repeat_prefix {
+            body.value::<I8>(u32::from(REPEAT_PREFIX))?
+        } else {
+            match self.opcode_map {
+                OpcodeMap::Primary => selector.clone(),
+                OpcodeMap::Extended => body.value::<I8>(u32::from(EXTENDED_OPCODE_ESCAPE))?,
+            }
         };
         body.return_(exit::unsupported(&self.instruction_eip, &opcode))
     }

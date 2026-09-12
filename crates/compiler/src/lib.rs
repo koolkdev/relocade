@@ -38,8 +38,8 @@ use std::fmt;
 use arena::ExpressionArena;
 pub use call::FunctionImport;
 use call::Invocation;
-pub use control::Label;
 use control::{Destination, Region, Site};
+pub use control::{Label, LoopLabels};
 use integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp};
 use memory::Location;
 pub use memory::{Mem, MemoryImport, MemoryInt};
@@ -158,7 +158,10 @@ struct Body {
 
 enum Terminal {
     Trap,
-    Branch { target: Site, arguments: Vec<usize> },
+    Branch {
+        target: control::Target,
+        arguments: Vec<usize>,
+    },
     Return(Vec<usize>),
     TailCall(Invocation),
 }
@@ -180,6 +183,12 @@ enum Operation {
         value: usize,
     },
     Block {
+        region: Region,
+        outputs: Vec<usize>,
+    },
+    Loop {
+        initial: Vec<usize>,
+        inputs: Vec<usize>,
         region: Region,
         outputs: Vec<usize>,
     },
@@ -211,6 +220,10 @@ struct Value {
 enum ValueKind {
     Constant(u64),
     Parameter(u32),
+    LoopInput {
+        region: usize,
+        component: usize,
+    },
     Binary(BinaryOp, usize, usize),
     Shift {
         operator: ShiftOp,
@@ -250,14 +263,14 @@ enum ValueKind {
     },
 }
 
-/// Builds a function body, block or branch. A yield, branch, return, tail call or trap
+/// Builds a function body, block, loop or branch. A yield, branch, return, tail call or trap
 /// consumes the active builder; completing the outer builder saves the function
 /// body.
 ///
 /// Dropping the outer builder without completing it leaves the function undefined.
 /// Dropping a child of `if_`, `if_else` or `switch` completes a branch that falls through.
-/// A nonempty result arm must instead yield, branch outward, return, tail-call or trap.
-/// Blocks and result arms with the unit shape may also fall through.
+/// A nonempty result body must instead yield, branch to a control label, return,
+/// tail-call or trap. Blocks, loops and result arms with the unit shape may fall through.
 /// A builder cannot be used after its program is consumed:
 /// ```compile_fail
 /// use wasm86_compiler::{Program, Signature, Type, I32};

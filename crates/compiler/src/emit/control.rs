@@ -3,12 +3,12 @@ use wasm_encoder::{Encode, Instruction};
 
 use super::{wasm_type, ControlLabel, Scheduler};
 use crate::{
-    control::{Region, Site},
+    control::{Region, Site, Target},
     place, Operation, Terminal, ValueKind,
 };
 
 impl Scheduler<'_> {
-    pub(super) fn region(&mut self, region: &Region, fallthrough: Option<Site>) {
+    pub(super) fn region(&mut self, region: &Region, fallthrough: Option<Target>) {
         let forwarding = match (&region.terminal, region.operations.last()) {
             (Some(Terminal::Branch { target, arguments }), Some(operation)) => {
                 let arguments = self.branch_arguments(*target, arguments);
@@ -69,26 +69,42 @@ impl Scheduler<'_> {
                     .encode(&mut self.bytes);
                 }
                 Operation::Block { region, .. } => {
-                    self.begin_control(Instruction::Block(block_type), Some(site), &outputs);
+                    self.begin_control(
+                        Instruction::Block(block_type),
+                        Some(Target::exit(site)),
+                        &outputs,
+                    );
                     let before = self.emitted.clone();
-                    self.region(region, Some(site));
+                    self.region(region, Some(Target::exit(site)));
                     self.end_control();
                     // An outward exit can skip any capture in this child. Only
                     // the joined outputs are available after the block.
                     self.emitted = before;
+                }
+                Operation::Loop {
+                    initial,
+                    inputs,
+                    region,
+                    ..
+                } => {
+                    self.loop_region(initial, inputs, region, site, &outputs);
                 }
                 Operation::If {
                     branch,
                     else_branch,
                     ..
                 } => {
-                    self.begin_control(Instruction::If(block_type), Some(site), &outputs);
+                    self.begin_control(
+                        Instruction::If(block_type),
+                        Some(Target::exit(site)),
+                        &outputs,
+                    );
                     let before_arm = self.emitted.clone();
-                    self.region(branch, Some(site));
+                    self.region(branch, Some(Target::exit(site)));
                     self.emitted.clone_from(&before_arm);
                     if let Some(other) = else_branch {
                         Instruction::Else.encode(&mut self.bytes);
-                        self.region(other, Some(site));
+                        self.region(other, Some(Target::exit(site)));
                     }
                     self.end_control();
                     self.emitted = before_arm;
@@ -143,7 +159,7 @@ impl Scheduler<'_> {
             .collect()
     }
 
-    fn branch_arguments(&self, target: Site, arguments: &[usize]) -> Vec<usize> {
+    fn branch_arguments(&self, target: Target, arguments: &[usize]) -> Vec<usize> {
         let label = self
             .labels
             .iter()
@@ -154,8 +170,10 @@ impl Scheduler<'_> {
             .outputs
             .iter()
             .map(|&output| {
-                let ValueKind::JoinResult { component, .. } = self.body.values[output].kind else {
-                    unreachable!("control outputs name joined values")
+                let component = match self.body.values[output].kind {
+                    ValueKind::JoinResult { component, .. }
+                    | ValueKind::LoopInput { component, .. } => component,
+                    _ => unreachable!("control edges name joined values"),
                 };
                 arguments[component]
             })
@@ -165,7 +183,7 @@ impl Scheduler<'_> {
     pub(super) fn begin_control(
         &mut self,
         instruction: Instruction<'_>,
-        target: Option<Site>,
+        target: Option<Target>,
         outputs: &[usize],
     ) {
         instruction.encode(&mut self.bytes);
@@ -182,7 +200,7 @@ impl Scheduler<'_> {
         Instruction::End.encode(&mut self.bytes);
     }
 
-    pub(super) fn branch_to(&mut self, target: Site) {
+    pub(super) fn branch_to(&mut self, target: Target) {
         let depth = self
             .labels
             .iter()

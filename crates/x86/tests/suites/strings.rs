@@ -1,9 +1,15 @@
-//! Single-iteration string operations use flat, 32-bit indices and the stored DF bit.
+//! String operations use flat, 32-bit indices and the stored DF bit.
 
 #[path = "strings/decoding.rs"]
 mod decoding;
 #[path = "strings/memory.rs"]
 mod memory;
+#[path = "strings/repeated_decoding.rs"]
+mod repeated_decoding;
+#[path = "strings/repeated_restart.rs"]
+mod repeated_restart;
+#[path = "strings/repetition.rs"]
+mod repetition;
 #[path = "strings/sequences.rs"]
 mod sequences;
 #[path = "strings/values.rs"]

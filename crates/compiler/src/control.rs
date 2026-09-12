@@ -3,9 +3,11 @@ use crate::{results, Arguments, BuildError, FunctionBuilder, Operation, Results,
 
 mod block;
 mod conditional;
+mod loops;
 mod switch;
 
 pub use block::Label;
+pub use loops::LoopLabels;
 
 pub(super) struct SwitchCase {
     pub(super) key: u32,
@@ -15,7 +17,7 @@ pub(super) struct SwitchCase {
 impl Operation {
     pub(super) fn children(&self) -> impl DoubleEndedIterator<Item = &Region> {
         let (first, second, cases): (_, _, &[SwitchCase]) = match self {
-            Self::Block { region, .. } => (Some(region), None, &[]),
+            Self::Block { region, .. } | Self::Loop { region, .. } => (Some(region), None, &[]),
             Self::If {
                 branch,
                 else_branch,
@@ -34,6 +36,7 @@ impl Operation {
     pub(super) fn branch_outputs(&self) -> &[usize] {
         match self {
             Self::Block { outputs, .. }
+            | Self::Loop { outputs, .. }
             | Self::If { outputs, .. }
             | Self::Switch { outputs, .. } => outputs,
             _ => &[],
@@ -45,6 +48,23 @@ impl Operation {
 pub(super) struct Site {
     pub(super) region: usize,
     pub(super) index: usize,
+}
+
+/// A loop's header and result join occupy the same authored control site.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+pub(super) struct Target {
+    pub(super) site: Site,
+    pub(super) entry: bool,
+}
+
+impl Target {
+    pub(super) fn exit(site: Site) -> Self {
+        Self { site, entry: false }
+    }
+
+    pub(super) fn entry(site: Site) -> Self {
+        Self { site, entry: true }
+    }
 }
 
 pub(super) struct Region {
@@ -66,7 +86,7 @@ impl Region {
         Regions(vec![self])
     }
 
-    pub(super) fn exits_to(&self, target: Site) -> impl Iterator<Item = (Site, &[usize])> {
+    pub(super) fn exits_to(&self, target: Target) -> impl Iterator<Item = (Site, &[usize])> {
         self.walk()
             .filter_map(move |region| match &region.terminal {
                 Some(Terminal::Branch {
@@ -99,7 +119,7 @@ impl<'a> Iterator for Regions<'a> {
 
 #[derive(Clone)]
 pub(super) struct JoinTarget {
-    site: Site,
+    target: Target,
     pub(super) types: Vec<Type>,
 }
 
@@ -112,14 +132,14 @@ pub(super) enum Destination<'a> {
 }
 
 impl FunctionBuilder<'_> {
-    /// Supplies the enclosing result arm or block's values, consuming its builder.
+    /// Supplies the direct result arm, block or loop's result, consuming its builder.
     /// The declared result shape determines native literals' logical types; typed
     /// values must match it. Scalar arguments stay scalar, and tuples follow the
     /// corresponding tuple of result types. A unit result accepts `()`.
     ///
     /// Execution continues after this control operation. Only a direct result
-    /// arm or block may yield; use [`Self::branch`] to leave an enclosing block
-    /// from a nested branch.
+    /// arm, block or loop body may yield. From a nested branch, use [`Self::branch`]
+    /// with the enclosing block's label or the loop's `exit` label.
     pub fn yield_(mut self, arguments: impl Into<Arguments>) -> Result<(), BuildError> {
         self.fallthrough = false;
         let Destination::Branch {
@@ -132,14 +152,14 @@ impl FunctionBuilder<'_> {
         let target = target.clone();
         let arguments = self.result_arguments(arguments, &target.types)?;
         self.complete(Terminal::Branch {
-            target: target.site,
+            target: target.target,
             arguments,
         })
     }
 
     fn result_target<R: Results>(&self) -> JoinTarget {
         JoinTarget {
-            site: self.site(),
+            target: Target::exit(self.site()),
             types: results::types::<R>(),
         }
     }
@@ -181,7 +201,7 @@ impl FunctionBuilder<'_> {
     ) -> Result<Vec<usize>, BuildError> {
         let incoming: Vec<_> = branches
             .into_iter()
-            .flat_map(|branch| branch.exits_to(target.site))
+            .flat_map(|branch| branch.exits_to(target.target))
             .collect();
         if incoming.is_empty() && !target.types.is_empty() {
             return Err(BuildError::MissingBranchValue);
@@ -195,7 +215,8 @@ impl FunctionBuilder<'_> {
                     .iter()
                     .map(|(_, arguments)| arguments[component])
                     .collect();
-                self.arena.join_result(ty, target.site, component, &inputs)
+                self.arena
+                    .join_result(ty, target.target.site, component, &inputs)
             })
             .collect()
     }

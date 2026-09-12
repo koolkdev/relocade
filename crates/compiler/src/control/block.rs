@@ -1,19 +1,19 @@
-//! Typed outward exits from structured blocks.
+//! Scoped typed labels and outward exits from structured blocks.
 use std::marker::PhantomData;
 
-use super::Site;
+use super::Target;
 use crate::{
     arena::ExpressionArena, Arguments, BuildError, FunctionBuilder, Operation, Results, Terminal,
 };
 
-/// The typed exit of a block, usable only within that block and its descendants.
-/// A label belongs to one function body. Leaving or discarding its block makes
-/// it unavailable; cloning a label does not extend that scope.
+/// A typed block exit, loop header or loop exit, usable within its control region
+/// and descendants. A label belongs to one function body. Leaving or discarding
+/// its region makes it unavailable; cloning a label does not extend that scope.
 pub struct Label<R: Results> {
-    arena: ExpressionArena,
-    scope: usize,
-    target: Site,
-    shape: PhantomData<fn() -> R>,
+    pub(super) arena: ExpressionArena,
+    pub(super) scope: usize,
+    pub(super) target: Target,
+    pub(super) shape: PhantomData<fn() -> R>,
 }
 
 impl<R: Results> Clone for Label<R> {
@@ -32,7 +32,7 @@ impl FunctionBuilder<'_> {
     /// Descendants may pass values to the label with [`Self::branch`], skipping
     /// the remainder of the block. Its direct body may instead use [`Self::yield_`].
     /// Each reachable completion must supply the result, branch to an enclosing
-    /// block, or exit the function; a unit block may fall through. A nonempty result
+    /// control label, or exit the function; a unit block may fall through. A nonempty result
     /// requires at least one incoming result. Construction errors discard the block
     /// and keep its parent usable.
     ///
@@ -62,7 +62,7 @@ impl FunctionBuilder<'_> {
         let label = Label {
             arena: self.arena.clone(),
             scope,
-            target: target.site,
+            target: target.target,
             shape: PhantomData,
         };
         let region = self.build_region(scope, Some(&target), |body| build(body, label))?;
@@ -74,9 +74,11 @@ impl FunctionBuilder<'_> {
         Ok(values)
     }
 
-    /// Leaves the named enclosing block with its declared result, consuming the
-    /// active builder. The result shape validates literals and typed values as
-    /// with [`Self::yield_`]. A parent, sibling or another body cannot use the label.
+    /// Passes values to an enclosing control label, consuming the active builder.
+    /// A block or loop exit supplies its result; a loop header starts the next
+    /// iteration with the complete new input tuple. The label's shape validates
+    /// literals and typed values as with [`Self::yield_`]. A parent, sibling or
+    /// another body cannot use the label.
     pub fn branch<R: Results>(
         mut self,
         label: &Label<R>,

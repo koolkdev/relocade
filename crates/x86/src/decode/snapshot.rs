@@ -3,6 +3,7 @@ use crate::{
     instruction::{
         opcode_forms, DecodedFields, DecodedInstruction, Encoding, FieldWidth, Location, OpcodeMap,
         OperandSize, SizedForm, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES, OPERAND_SIZE_PREFIX,
+        REPEAT_PREFIX,
     },
     register::{Gpr32, RegisterCode},
     BlockError,
@@ -18,21 +19,32 @@ pub(crate) fn snapshot(
         offset: 0,
     };
     let mut operand_size = OperandSize::Dword;
+    let mut repeat_prefix = false;
     let opcode = loop {
         let byte = cursor.byte()?;
-        if byte != OPERAND_SIZE_PREFIX {
+        if byte == OPERAND_SIZE_PREFIX {
+            // Repeating the override preserves the selected size; it does not toggle it.
+            operand_size = OperandSize::Word;
+        } else if byte == REPEAT_PREFIX {
+            repeat_prefix = true;
+        } else {
             break byte;
         }
-        // Repeating the override preserves the selected size; it does not toggle it.
-        operand_size = OperandSize::Word;
     };
-    let reported_opcode = opcode;
+    let reported_opcode = if repeat_prefix { REPEAT_PREFIX } else { opcode };
+    if repeat_prefix && opcode == EXTENDED_OPCODE_ESCAPE {
+        return Err(BlockError::UnsupportedInstruction {
+            address: instruction_eip,
+            opcode: reported_opcode,
+        });
+    }
     let (opcode, map) = if opcode == EXTENDED_OPCODE_ESCAPE {
         (cursor.byte()?, OpcodeMap::Extended)
     } else {
         (opcode, OpcodeMap::Primary)
     };
-    let mut candidates = opcode_forms(map).filter(|form| form.matches(opcode));
+    let mut candidates = opcode_forms(map)
+        .filter(|form| form.matches(opcode) && (!repeat_prefix || form.supports_repeat()));
     let first = candidates
         .next()
         .ok_or(BlockError::UnsupportedInstruction {
@@ -51,6 +63,11 @@ pub(crate) fn snapshot(
         (form.with_operand_size(operand_size), Some(modrm))
     } else {
         (first.with_operand_size(operand_size), None)
+    };
+    let form = if repeat_prefix {
+        form.with_repeat()
+    } else {
+        form
     };
     let fields = match form.encoding() {
         Encoding::OpcodeOnly => DecodedFields::OpcodeOnly,

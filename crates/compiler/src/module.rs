@@ -30,6 +30,13 @@ impl Types {
     }
 
     pub(super) fn block(&mut self, results: &[ValType]) -> BlockType {
+        self.control(&[], results)
+    }
+
+    pub(super) fn control(&mut self, parameters: &[ValType], results: &[ValType]) -> BlockType {
+        if !parameters.is_empty() {
+            return BlockType::FunctionType(self.function(parameters.to_vec(), results.to_vec()));
+        }
         match results {
             [] => BlockType::Empty,
             [result] => BlockType::Result(*result),
@@ -64,9 +71,10 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
             // Imports follow authored operations, including unused loads.
             for operation in &region.operations {
                 let location = match operation {
-                    Operation::Block { .. } | Operation::If { .. } | Operation::Switch { .. } => {
-                        continue
-                    }
+                    Operation::Block { .. }
+                    | Operation::Loop { .. }
+                    | Operation::If { .. }
+                    | Operation::Switch { .. } => continue,
                     Operation::Call { invocation, .. } => {
                         used_functions[invocation.target.0] = true;
                         continue;

@@ -31,17 +31,17 @@ impl Planner<'_> {
         if summary.must_execute() {
             anchor = Point::main(site);
         } else if let Effects::Known { reads, .. } = summary {
-            if tree.clobbers(
-                site,
-                anchor.site,
-                |location| {
-                    reads
-                        .iter()
-                        .any(|read| read.overlaps_location(location, body))
-                },
-                |target| effects[target.0].writes_reads(reads),
-            ) {
-                anchor = Point::main(site);
+            if !reads.is_empty() {
+                anchor = tree.snapshot_anchor(
+                    site,
+                    anchor,
+                    |location| {
+                        reads
+                            .iter()
+                            .any(|read| read.overlaps_location(location, body))
+                    },
+                    |target| effects[target.0].writes_reads(reads),
+                );
             }
         }
         let capture = !use_.at_first || anchor != use_.first;

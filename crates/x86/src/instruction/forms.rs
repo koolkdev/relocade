@@ -163,6 +163,7 @@ pub(crate) struct Form {
     pub(super) condition: Option<Condition>,
     pub(super) implicit_memory: bool,
     pub(super) ends_block: bool,
+    pub(super) repeat_handlers: Option<SizedHandlers>,
 }
 
 impl Form {
@@ -171,7 +172,12 @@ impl Form {
             form: *self,
             operand_size: size,
             handler: self.handlers.resolve(size),
+            ends_block: self.ends_block,
         }
+    }
+
+    pub(crate) fn supports_repeat(&self) -> bool {
+        self.repeat_handlers.is_some()
     }
 
     /// The caller has already selected this form's opcode map.
@@ -206,9 +212,21 @@ pub(crate) struct SizedForm {
     form: Form,
     operand_size: OperandSize,
     handler: Handler,
+    ends_block: bool,
 }
 
 impl SizedForm {
+    /// Both decoders select repetition only from forms that advertise it.
+    pub(crate) fn with_repeat(mut self) -> Self {
+        self.handler = self
+            .form
+            .repeat_handlers
+            .expect("the prefix selected a repeat form")
+            .resolve(self.operand_size);
+        self.ends_block = true;
+        self
+    }
+
     pub(crate) fn encoding(&self) -> Encoding {
         self.form.encoding
     }

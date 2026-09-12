@@ -20,6 +20,7 @@ use crate::{
     ssa::Environment,
 };
 
+#[derive(Clone)]
 pub(super) struct State<'cpu> {
     cpu: &'cpu Cpu,
     registers: Environment,
@@ -98,8 +99,9 @@ impl<'cpu> State<'cpu> {
         self.flags.condition(body, self.cpu, condition)
     }
 
-    /// Publishes current completed instructions on a terminating path. Indexed
-    /// accesses may already have synchronized register definitions to backing.
+    /// Publishes the current restart boundary on a terminating path, including
+    /// completed instructions and successful elements of an unretired REP.
+    /// Indexed accesses may already have synchronized register definitions to backing.
     /// Later definitions do not change an earlier authored exit; this does not
     /// restore an older state after partially executing a new instruction.
     pub(super) fn publish(

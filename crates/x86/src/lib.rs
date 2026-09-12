@@ -73,6 +73,13 @@
 //! LAHF (`9F`) writes AH as SF:ZF:0:AF:0:PF:1:CF without changing flags.
 //! SAHF (`9E`) copies AH bits 7/6/4/2/0 to SF/ZF/AF/PF/CF, preserving OF, DF
 //! and other flags. Both use AH with or without `66` and preserve the rest of EAX.
+//! MOVS, STOS, LODS, CMPS and SCAS process byte, word or dword elements with
+//! 32-bit ESI/EDI indices. DF selects increasing or decreasing indices.
+//! `F3` repeats MOVS/STOS until full ECX reaches zero, decrementing it only after
+//! each successful element. Zero ECX skips data access. A fault retains successful
+//! elements, current indices and remaining ECX, with EIP at the first prefix.
+//! The complete REP instruction retires once, including zero-count execution;
+//! it ends a snapshot block. Repeated LODS/CMPS/SCAS and `F2` remain unsupported.
 //! Relative JMP uses `EB`/`E9`; Jcc uses `70`–`7F`/`0F 80`–`0F 8F`.
 //! Short displacements are signed bytes; near displacements are word/dword-sized.
 //! Targets are relative to the end of the instruction. With `66`, taken targets
@@ -89,14 +96,15 @@
 //! requires ZF clear. All preserve flags, and all use signed byte displacements.
 //! The counter stays 32-bit with `66`; only a taken target is truncated to a word.
 //! Far transfers remain outside the subset. Transfers retire once and dispatch without
-//! fetching the destination instruction. Snapshot blocks end at the first control transfer
+//! fetching the destination instruction. Snapshot blocks end at the first control transfer or REP
 //! or the requested instruction limit, whichever comes first.
 //! Each full memory access is checked before instruction effects. A fault
-//! preserves the current instruction's entry state and publishes earlier progress.
+//! preserves the current instruction or string element's entry state and publishes earlier progress.
 //! ModRM/SIB effective addresses and absolute offsets are 32-bit, independent
 //! of the data width.
 //! In this default-32 mode, `66` selects word operands; repetition has the same
-//! effect and byte forms remain byte-sized. Other prefixes, including address-size
+//! effect and byte forms remain byte-sized. `66` and `F3` may occur in either order;
+//! repeated copies retain their effect. Other prefixes, including address-size
 //! `67`, are outside the subset. Instructions contain at most fifteen bytes,
 //! including prefixes and all required operand fields.
 //!
@@ -207,7 +215,8 @@ pub enum BlockError {
     },
     /// The selected encoding is outside the supported instruction subset.
     /// `opcode` is the first byte after any `66` prefixes; other fields may
-    /// select an unsupported form. Extended opcodes report `0F` here.
+    /// select an unsupported form. Extended opcodes report `0F`; an unsupported
+    /// form after `F3` reports `F3`.
     UnsupportedInstruction {
         address: u32,
         opcode: u8,

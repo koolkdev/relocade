@@ -137,6 +137,7 @@ impl Scheduler<'_> {
             }
             ValueKind::Constant(_)
             | ValueKind::Parameter(_)
+            | ValueKind::LoopInput { .. }
             | ValueKind::Load { .. }
             | ValueKind::CallResult { .. }
             | ValueKind::JoinResult { .. } => {

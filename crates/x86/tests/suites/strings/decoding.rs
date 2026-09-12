@@ -115,7 +115,7 @@ fn each_string_opcode_completes_without_an_operand_or_following_byte() {
 
 #[test]
 fn unsupported_prefixes_stop_before_any_string_access() {
-    for prefix in [0xf0, 0xf2, 0xf3, 0x67, 0x26, 0x2e, 0x36, 0x3e, 0x64, 0x65] {
+    for prefix in [0xf0, 0xf2, 0x67, 0x26, 0x2e, 0x36, 0x3e, 0x64, 0x65] {
         for opcode in [0xa4, 0xa5, 0xa6, 0xa7, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf] {
             for code in [vec![prefix, opcode], vec![0x66, prefix, opcode]] {
                 assert_eq!(
@@ -140,6 +140,35 @@ fn unsupported_prefixes_stop_before_any_string_access() {
                 exit: Exit::Other(0x0008_0000_0000_1000 | (u64::from(prefix) << 32)),
             }],
         );
+    }
+}
+
+#[test]
+fn rep_loads_and_comparisons_remain_unsupported() {
+    for opcode in [0xa6, 0xa7, 0xac, 0xad, 0xae, 0xaf] {
+        for code in [vec![0xf3, opcode], vec![0x66, 0xf3, opcode]] {
+            assert_eq!(
+                compile_block_from_bytes(0x1000, &code, 1).err(),
+                Some(BlockError::UnsupportedInstruction {
+                    address: 0x1000,
+                    opcode: 0xf3
+                })
+            );
+            let mut image = Image::new(&code);
+            image.cpu.registers.ecx = 0;
+            image.cpu.registers.esi = 0x9000;
+            image.cpu.registers.edi = 0xa000;
+            check(
+                TestModule::interpreter(),
+                "unsupported REP family rejects even with zero count",
+                &image,
+                &[Step {
+                    cpu: image.cpu,
+                    ram: &[],
+                    exit: Exit::Other(0x0008_0000_0000_1000 | (0xf3u64 << 32)),
+                }],
+            );
+        }
     }
 }
 

@@ -1,9 +1,10 @@
-//! Single string elements complete their accesses before advancing the indices.
+//! String elements complete their accesses before advancing the indices.
 
 use super::*;
 use crate::{
     address::{Address32, RegisterTerm},
     alu::{AnyStatusSource, ArithmeticOp, StatusSource},
+    execution::Repetition,
     flags::Flag,
     instruction::Location,
     register::{Gpr32, RegisterType},
@@ -11,8 +12,9 @@ use crate::{
 
 instruction_families! {
     MOVS {
-        execute: move_element;
+        execute: move_elements(Repetition::Once);
         effects: [memory_read, memory_write];
+        repeat: move_elements(Repetition::Count);
         forms {
             0xA4 => byte();
             0xA5 => word_or_dword();
@@ -27,8 +29,9 @@ instruction_families! {
         }
     }
     STOS {
-        execute: store_element;
+        execute: store_elements(Repetition::Once);
         effects: [memory_write];
+        repeat: store_elements(Repetition::Count);
         forms {
             0xAA => byte();
             0xAB => word_or_dword();
@@ -52,13 +55,20 @@ instruction_families! {
     }
 }
 
-fn move_element<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
+fn move_elements<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    repetition: Repetition,
+) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
 {
-    let value = memory_at_index::<T>(Gpr32::Esi).read(execution)?;
-    memory_at_index::<T>(Gpr32::Edi).write(execution, value)?;
-    advance_indices::<T>(execution, &[Gpr32::Esi, Gpr32::Edi])
+    let indices = [Gpr32::Esi, Gpr32::Edi];
+    let stride = element_stride::<T>(execution)?;
+    execution.string_elements(repetition, indices, |execution| {
+        let value = memory_at_index::<T>(Gpr32::Esi).read(execution)?;
+        memory_at_index::<T>(Gpr32::Edi).write(execution, value)?;
+        advance_indices(execution, &indices, &stride)
+    })
 }
 
 fn compare_elements<T: RegisterType>(
@@ -68,30 +78,37 @@ where
     I32: AtLeast<T>,
     StatusSource<T>: Into<AnyStatusSource>,
 {
+    let stride = element_stride::<T>(execution)?;
     let left = memory_at_index::<T>(Gpr32::Esi).read(execution)?;
     let right = memory_at_index::<T>(Gpr32::Edi).read(execution)?;
     execution.write_flags(ArithmeticOp::Subtract.apply(left, right).flags)?;
-    advance_indices::<T>(execution, &[Gpr32::Esi, Gpr32::Edi])
+    advance_indices(execution, &[Gpr32::Esi, Gpr32::Edi], &stride)
 }
 
-fn store_element<T: RegisterType>(
+fn store_elements<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
+    repetition: Repetition,
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
 {
+    let indices = [Gpr32::Edi];
+    let stride = element_stride::<T>(execution)?;
     let value = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
-    memory_at_index::<T>(Gpr32::Edi).write(execution, value)?;
-    advance_indices::<T>(execution, &[Gpr32::Edi])
+    execution.string_elements(repetition, indices, |execution| {
+        memory_at_index::<T>(Gpr32::Edi).write(execution, &value)?;
+        advance_indices(execution, &indices, &stride)
+    })
 }
 
 fn load_element<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
 {
+    let stride = element_stride::<T>(execution)?;
     let value = memory_at_index::<T>(Gpr32::Esi).read(execution)?;
     TypedLocation::<T>::register(Gpr32::Eax).write(execution, value)?;
-    advance_indices::<T>(execution, &[Gpr32::Esi])
+    advance_indices(execution, &[Gpr32::Esi], &stride)
 }
 
 fn scan_element<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
@@ -99,10 +116,11 @@ where
     I32: AtLeast<T>,
     StatusSource<T>: Into<AnyStatusSource>,
 {
+    let stride = element_stride::<T>(execution)?;
     let left = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
     let right = memory_at_index::<T>(Gpr32::Edi).read(execution)?;
     execution.write_flags(ArithmeticOp::Subtract.apply(left, right).flags)?;
-    advance_indices::<T>(execution, &[Gpr32::Edi])
+    advance_indices(execution, &[Gpr32::Edi], &stride)
 }
 
 fn memory_at_index<T: RegisterType>(index: Gpr32) -> TypedLocation<T> {
@@ -116,17 +134,23 @@ fn memory_at_index<T: RegisterType>(index: Gpr32) -> TypedLocation<T> {
     }))
 }
 
-fn advance_indices<T: RegisterType>(
+fn element_stride<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+) -> Result<Val<I32>, BuildError> {
+    Ok(execution
+        .read_flag(Flag::DF)?
+        .select(0u32.wrapping_sub(T::BYTES), T::BYTES))
+}
+
+fn advance_indices(
     execution: &mut ExecutionBuilder<'_, '_>,
     indices: &[Gpr32],
+    stride: &Val<I32>,
 ) -> Result<(), BuildError> {
-    let delta = execution
-        .read_flag(Flag::DF)?
-        .select(0u32.wrapping_sub(T::BYTES), T::BYTES);
     // Operand size changes the stride; indices retain the 32-bit address size.
     for &index in indices {
         let value = TypedLocation::<I32>::register(index).read(execution)?;
-        TypedLocation::<I32>::register(index).write(execution, value.add(&delta))?;
+        TypedLocation::<I32>::register(index).write(execution, value.add(stride))?;
     }
     Ok(())
 }
