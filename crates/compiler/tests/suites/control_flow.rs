@@ -333,7 +333,8 @@ fn overlapping_stores_preserve_a_snapshot_across_the_guard() {
             Event::Return
         ]
     );
-    assert_eq!(shared.additions, 1);
+    // Both returns compute the cheap addition from the same captured load.
+    assert_eq!(shared.additions, 2);
 }
 
 #[test]
@@ -415,7 +416,8 @@ fn falling_through_a_branch_preserves_snapshots_and_shared_values() {
         shared.events,
         [Event::If, Event::Store(0), Event::End, Event::Return]
     );
-    assert_eq!((shared.additions, shared.writes), (1, 1));
+    // The child store and parent return each compute the addition without a local.
+    assert_eq!((shared.additions, shared.writes), (2, 0));
 }
 
 #[test]

@@ -6,6 +6,8 @@ use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
 #[path = "branch_placement/guarded.rs"]
 mod guarded;
+#[path = "branch_placement/recomputation.rs"]
+mod recomputation;
 
 fn exclusive_switch_arms() -> TestModule {
     let mut fixture = Fixture::new();
@@ -198,7 +200,10 @@ enum Event {
     Table,
     BlockEnd,
     Add,
+    And,
+    Mul,
     Xor,
+    Constant(i32),
     Compare,
     ZeroTest,
     LocalWrite,
@@ -254,6 +259,9 @@ fn inspect(bytes: &[u8]) -> Vec<Event> {
                         },
                         Operator::BrTable { .. } => Event::Table,
                         Operator::I32Add => Event::Add,
+                        Operator::I32And => Event::And,
+                        Operator::I32Mul => Event::Mul,
+                        Operator::I32Const { value } => Event::Constant(value),
                         Operator::I32Xor => Event::Xor,
                         Operator::I32GeU => Event::Compare,
                         Operator::I32Eqz => Event::ZeroTest,
@@ -357,15 +365,15 @@ fn a_shared_dependency_needed_after_the_join_keeps_its_capture() {
 }
 
 #[test]
-fn sequential_controls_do_not_recompute_a_shared_value_on_the_same_path() {
-    for bytes in [
-        sequential_controls(),
-        sequential_controls_inside_an_exclusive_arm(),
-    ] {
-        let events = inspect(bytes.bytes());
-        let counts = xor_counts_on_paths(&events, &mut 0);
-        assert_eq!(counts.iter().max(), Some(&1), "{events:?}");
-    }
+fn two_sequential_controls_each_compute_their_shared_cheap_value() {
+    let events = inspect(sequential_controls().bytes());
+    let branch = events.iter().position(|event| *event == Event::If).unwrap();
+    assert!(!events[..branch].contains(&Event::Xor));
+    assert_eq!(
+        events.iter().filter(|&&event| event == Event::Xor).count(),
+        2
+    );
+    assert_eq!(xor_counts_on_paths(&events, &mut 0), [2, 1, 1, 0]);
 }
 
 #[test]

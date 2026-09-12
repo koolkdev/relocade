@@ -1,6 +1,9 @@
 use super::*;
 use crate::wasm::{Callback, Input, Observation};
 
+#[path = "guarded/continuations.rs"]
+mod continuations;
+
 const INITIAL: [u8; 12] = [7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 #[derive(Clone, Copy)]
@@ -158,8 +161,8 @@ fn repeated_tests(count: usize, guarded: bool, returned: bool) -> TestModule {
 }
 
 #[test]
-fn additional_guards_transparent_blocks_and_ordinary_uses_keep_a_shared_test() {
-    for (count, guarded, returned) in [(3, true, false), (2, false, false), (2, true, true)] {
+fn three_control_regions_keep_a_shared_test() {
+    for (count, guarded, returned) in [(3, true, false), (2, true, true)] {
         let module = repeated_tests(count, guarded, returned);
         assert_eq!(comparisons(&module), [0]);
         for input in [4, 7] {
@@ -178,7 +181,18 @@ fn additional_guards_transparent_blocks_and_ordinary_uses_keep_a_shared_test() {
 }
 
 #[test]
-fn a_capture_needed_by_shared_arithmetic_keeps_its_test_available() {
+fn two_transparent_blocks_each_compute_their_test() {
+    let module = repeated_tests(2, false, false);
+    assert_eq!(comparisons(&module), [0, 0]);
+    for (input, expected) in [(4, [0; 12]), (7, [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0])] {
+        let mut instance = module.instantiate();
+        assert_eq!(instance.call::<i32>((1, input)), Ok(17));
+        assert_eq!(&instance.memory("state")[..12], expected);
+    }
+}
+
+#[test]
+fn each_of_two_regions_shares_its_test_with_its_arithmetic() {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0; 12]);
     let module = fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
@@ -195,7 +209,7 @@ fn a_capture_needed_by_shared_arithmetic_keeps_its_test_available() {
         }
         body.return_(17)
     });
-    assert_eq!(comparisons(&module), [0]);
+    assert_eq!(comparisons(&module), [1, 1]);
     for (input, value, marked) in [(4, 10, 0), (7, 11, 1)] {
         let mut instance = module.instantiate();
         assert_eq!(instance.call::<i32>((1, input)), Ok(17));

@@ -1,8 +1,8 @@
-//! Bounded recomputation of calculations inside conditional paths.
+//! Bounded recomputation of calculations across structured control regions.
 use std::collections::BTreeMap;
 
 use super::{representation, Demand, Phase, Point, Tree};
-use crate::{control::Site, Body, Operation, ValueKind};
+use crate::{control::Site, integer::BinaryOp, Body, ValueKind};
 
 pub(super) fn groups(body: &Body, id: usize, demand: Demand, tree: &Tree<'_>) -> Vec<Demand> {
     // Derived calculations can be recomputed on their consuming paths. Their
@@ -25,26 +25,38 @@ pub(super) fn groups(body: &Body, id: usize, demand: Demand, tree: &Tree<'_>) ->
     demand
         .exclusive_arms(tree)
         .or_else(|| {
-            // Sequential guards can both run. Limit extra work to one additional
-            // primitive test, consumed directly by If at every physical demand.
-            // Operand calculations keep their ordinary sharing policy.
-            let primitive = matches!(
-                body.values[id].kind,
-                ValueKind::Compare(..) | ValueKind::ZeroTest { .. }
-            );
-            let selectors_only = demand.points.iter().all(|point| {
-                point.phase == Phase::Main
-                    && matches!(
-                        tree.0[&point.site.region].region.operations.get(point.site.index),
-                        Some(Operation::If { condition, .. })
-                            if representation(body, *condition) == id
-                    )
-            });
-            (primitive && selectors_only)
-                .then(|| demand.guarded_regions(tree))
+            // These regions can run on the same path. Permit at most two
+            // placements of each cheap value, not recursive copies of its DAG.
+            // Operand demands retain their own sharing and snapshot policies.
+            cheap_to_repeat(body, id)
+                .then(|| demand.control_regions(tree))
                 .flatten()
         })
         .unwrap_or_else(|| vec![demand])
+}
+
+fn cheap_to_repeat(body: &Body, id: usize) -> bool {
+    match body.values[id].kind {
+        ValueKind::Binary(
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::And | BinaryOp::Or | BinaryOp::Xor,
+            ..,
+        )
+        | ValueKind::Compare(..)
+        | ValueKind::ZeroTest { .. }
+        | ValueKind::Normalize(_)
+        | ValueKind::Convert(_) => true,
+        ValueKind::Shift { count, .. } => matches!(
+            body.values[representation(body, count)].kind,
+            ValueKind::Constant(_)
+        ),
+        _ => false,
+    }
+}
+
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+enum DemandRegion {
+    Main,
+    Child(usize),
 }
 
 impl Demand {
@@ -62,11 +74,11 @@ impl Demand {
         Some(arms.into_values().collect())
     }
 
-    fn guarded_regions(&self, tree: &Tree<'_>) -> Option<Vec<Self>> {
-        let mut regions = BTreeMap::<usize, Self>::new();
+    fn control_regions(&self, tree: &Tree<'_>) -> Option<Vec<Self>> {
+        let mut regions = BTreeMap::<DemandRegion, Self>::new();
         for &point in &self.points {
-            let guard = tree.guarded_child(point, self.first.site.region)?;
-            include(&mut regions, guard, point, tree);
+            let region = tree.demand_region(point, self.first.site.region);
+            include(&mut regions, region, point, tree);
             if regions.len() > 2 {
                 return None;
             }
@@ -75,7 +87,7 @@ impl Demand {
     }
 }
 
-fn include(groups: &mut BTreeMap<usize, Demand>, region: usize, point: Point, tree: &Tree<'_>) {
+fn include<K: Ord>(groups: &mut BTreeMap<K, Demand>, region: K, point: Point, tree: &Tree<'_>) {
     if let Some(demand) = groups.get_mut(&region) {
         demand.include(point, tree);
     } else {
@@ -95,21 +107,19 @@ impl Tree<'_> {
         }
     }
 
-    fn guarded_child(&self, point: Point, ancestor: usize) -> Option<usize> {
+    fn demand_region(&self, point: Point, ancestor: usize) -> DemandRegion {
         let mut region = point.site.region;
-        let mut guard = None;
         while region != ancestor {
-            let parent = self.0[&region].parent?;
-            if matches!(
-                self.0[&parent.region].region.operations[parent.index],
-                Operation::If { .. } | Operation::Switch { .. }
-            ) {
-                guard = Some(region);
+            let parent = self.0[&region]
+                .parent
+                .expect("a demand descends from its common region");
+            if parent.region == ancestor {
+                // Blocks count too: an outward exit can skip a use in their
+                // suffix. Repeated uses within this child still share normally.
+                return DemandRegion::Child(region);
             }
             region = parent.region;
         }
-        // Transparent blocks do not make a calculation conditional. Choose the
-        // first actual guarded child below the demands' common ancestor.
-        guard
+        DemandRegion::Main
     }
 }
