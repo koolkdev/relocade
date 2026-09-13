@@ -1,6 +1,8 @@
 use wasm86_compiler::{AtLeast, BuildError, FunctionBuilder, MemoryInt, Val, I32, I8};
 
-use crate::{instruction::MAX_INSTRUCTION_BYTES, memory::Intent, state::exit};
+use crate::{
+    exception::Exception, instruction::MAX_INSTRUCTION_BYTES, memory::Intent, state::exit,
+};
 
 use super::{RuntimeCursor, Window};
 
@@ -25,7 +27,14 @@ impl RuntimeCursor<'_> {
         if self.maximum_offset >= MAX_INSTRUCTION_BYTES {
             body.if_(
                 self.offset.unsigned().ge(MAX_INSTRUCTION_BYTES),
-                |limit_body| limit_body.return_(exit::general_protection()),
+                |limit_body| {
+                    exit::exception(
+                        limit_body,
+                        Exception::GeneralProtection {
+                            error_code: 0.into(),
+                        },
+                    )
+                },
             )?;
         }
         let value = match &self.window {
@@ -37,9 +46,7 @@ impl RuntimeCursor<'_> {
                     body,
                     &self.next_eip(),
                     Intent::Fetch,
-                    |fault_body, fault| {
-                        fault_body.return_(exit::page_fault(&fault.address, &fault.error))
-                    },
+                    exit::exception,
                 )?;
                 self.memory.read(body, &access)?
             }

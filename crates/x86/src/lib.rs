@@ -160,6 +160,7 @@ mod address;
 mod alu;
 mod block;
 mod decode;
+mod exception;
 mod execution;
 mod flags;
 mod instruction;

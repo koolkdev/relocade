@@ -1,3 +1,4 @@
+mod faults;
 mod flags;
 mod named_registers;
 mod synchronization;

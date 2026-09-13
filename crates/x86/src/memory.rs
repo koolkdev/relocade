@@ -3,6 +3,8 @@ mod scattered;
 
 use std::{cell::Cell, marker::PhantomData};
 
+use crate::exception::Exception;
+
 use wasm86_compiler::{
     BuildError, Func, FunctionBuilder, Mem, MemoryImport, MemoryInt, Program, Signature, Type, Val,
     I1, I32,
@@ -45,12 +47,6 @@ impl Intent {
             Self::Write => 2,
         }
     }
-}
-
-/// Fault details supplied only inside the denied access path.
-pub(super) struct AccessFault {
-    pub(super) address: Val<I32>,
-    pub(super) error: Val<I32>,
 }
 
 pub(super) struct DirectRange {
@@ -130,6 +126,8 @@ impl Memory {
 
     /// Checks exactly `T::BYTES` bytes (1, 2, 4 or 8), rejecting address-space wrap.
     /// Instruction fetch handles EIP wrap through separate byte reads.
+    /// This flat memory policy reports denied spans as page faults, including
+    /// address-space wrap; it does not model architectural segmentation checks.
     /// The callback must exit the fault path; successful paths yield an `Access`
     /// for the caller's read or write.
     pub(super) fn resolve_access<T: MemoryInt>(
@@ -137,14 +135,14 @@ impl Memory {
         body: &mut FunctionBuilder<'_>,
         start: &Val<I32>,
         intent: Intent,
-        on_fault: impl FnOnce(FunctionBuilder<'_>, AccessFault) -> Result<(), BuildError>,
+        on_fault: impl FnOnce(FunctionBuilder<'_>, Exception) -> Result<(), BuildError>,
     ) -> Result<Access<T>, BuildError> {
         let first_entry = self.table.entry(body, start)?;
         let required = intent.required_permissions();
         let first_denied = first_entry.and(required).ne(required);
         let report_fault =
             |fault_body: FunctionBuilder<'_>, address: Val<I32>, present: Val<I1>| {
-                let error = match intent {
+                let error_code = match intent {
                     Intent::Write => present
                         .unsigned()
                         .extend::<I32>()
@@ -152,7 +150,13 @@ impl Memory {
                     // Presence is the only read/fetch permission, so denial is non-present.
                     Intent::Read | Intent::Fetch => fault_body.value(intent.base_error_code())?,
                 };
-                on_fault(fault_body, AccessFault { address, error })
+                on_fault(
+                    fault_body,
+                    Exception::PageFault {
+                        linear_address: address,
+                        error_code,
+                    },
+                )
             };
         let (scattered, physical) = if T::BYTES == 1 {
             // A byte needs only the first page check.

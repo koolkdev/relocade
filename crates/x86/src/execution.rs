@@ -5,12 +5,13 @@ mod stack;
 pub(crate) use operands::PairValues;
 pub(crate) use repetition::Repetition;
 
-use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32, I64};
+use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32};
 
+use crate::exception::Exception;
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction};
 use crate::memory::{Access, Intent, Memory};
-use crate::state::{exit, Cpu, State};
+use crate::state::{Cpu, State};
 
 /// Builds one execution path. State definitions and progress describe completed
 /// instructions. Within a repeated string instruction, the current state also
@@ -88,12 +89,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     pub(crate) fn fault_if(
         &mut self,
         condition: impl Into<Val<I1>>,
-        code: impl Into<Val<I64>>,
+        exception: Exception,
     ) -> Result<(), BuildError> {
-        self.body.if_(condition, |mut fault_body| {
+        self.body.if_(condition, |fault_body| {
             self.state
-                .publish(&mut fault_body, &self.eip, self.completed)?;
-            fault_body.return_(code.into())
+                .fault(fault_body, &self.eip, self.completed, exception)
         })
     }
 
@@ -103,10 +103,9 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         address: &Val<I32>,
         intent: Intent,
     ) -> Result<Access<T>, BuildError> {
-        memory.resolve_access::<T>(&mut self.body, address, intent, |mut fault_body, fault| {
+        memory.resolve_access::<T>(&mut self.body, address, intent, |fault_body, exception| {
             self.state
-                .publish(&mut fault_body, &self.eip, self.completed)?;
-            fault_body.return_(exit::page_fault(&fault.address, &fault.error))
+                .fault(fault_body, &self.eip, self.completed, exception)
         })
     }
 

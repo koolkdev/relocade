@@ -109,6 +109,6 @@ impl DecodeState {
             Some(opcode) => body.value::<I8>(u32::from(opcode))?,
             None => selector.clone(),
         };
-        body.return_(exit::unsupported(cursor.instruction_eip(), &opcode))
+        exit::unsupported(body, cursor.instruction_eip(), &opcode)
     }
 }

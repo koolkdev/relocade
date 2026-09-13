@@ -890,6 +890,24 @@ require presence. Present frames must fit the backing RAM; this is an internal
 invariant. Unexpected host or Wasm traps from inconsistent internal state are not
 part of the guest execution contract.
 
+The internal `Exception` model represents divide error (vector 0), general
+protection (vector 13) and page fault (vector 14). General protection and page
+fault require an error code, including when it is zero; divide error has none.
+Page fault also requires the faulting linear address, separate from the restart
+EIP. Instruction and memory code supply these typed faults. `State::fault`
+publishes the supplied restart boundary and terminates through `state::exit`,
+which owns the packed host return format. Runtime fetch uses the same exit adapter
+with CPU state already at instruction entry. The host tags below are independent
+of architectural vector numbers.
+
+`ExecutionBuilder::fault_if(condition, exception)` uses the current instruction's
+restart EIP and completed count. Callers check faults before defining results of
+the faulting instruction or its current REP element. Publication retains earlier
+instructions and completed REP elements; it does not undo effects already authored.
+This model currently reports faults to the host. It does not deliver exceptions
+through a guest IDT or model traps and aborts. Snapshot construction errors remain
+`BlockError` values: truncated input alone cannot establish a guest fetch fault.
+
 DIV/IDIV divide error returns `1 << 48`, with no error code or address payload.
 Earlier instructions remain published; the division preserves its entry state
 and EIP, does not retire, and does not dispatch.
@@ -899,7 +917,9 @@ A missing instruction page returns the 64-bit word
 `(4 << 48) | (error << 32) | first_denied_address`, where error bit 1 identifies a
 write and bit 0 identifies a present but denied page. A word or dword data range
 that crosses `0xffffffff` is rejected at its start with read error 0 or write error 2;
-this is the current address-space policy. A one-byte access at that address fits
+memory translates this range-limit denial into a reported page fault as part of
+the current flat address-space policy, without architectural segmentation checks.
+A one-byte access at that address fits
 without consulting another page. Instruction fetch instead wraps.
 All pages are checked before a data store writes any byte, including scattered
 physical backing. A fault publishes earlier completed instructions and leaves EIP
@@ -915,7 +935,8 @@ accesses and unaligned spans within one page share the ordinary permission check
 only a crossing span calls the range resolver. Successful resolution returns a
 physical address and a separate logical bit for scattered backing. Denials join
 one fault callback, which must terminate before a checked access can be returned.
-The execution builder uses that callback to publish state once per access fault.
+The callback receives a typed `Exception::PageFault`. The execution builder uses
+`State::fault` to publish state and terminate that path.
 Page-table translation owns page facts and range-wrap priority; memory access
 control owns the successful and faulting paths.
 

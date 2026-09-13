@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
     alu::{DivideOp, DoubleWidth},
+    exception::Exception,
     register::{Gpr32, RegisterType},
-    state::exit,
 };
 
 instruction_families! {
@@ -47,11 +47,11 @@ where
     };
     execution.fault_if(
         operation.input_fault(&dividend, &divisor),
-        exit::divide_error(),
+        Exception::DivideError,
     )?;
     let result = operation.apply(dividend, divisor);
     if let Some(overflow) = result.overflow {
-        execution.fault_if(overflow, exit::divide_error())?;
+        execution.fault_if(overflow, Exception::DivideError)?;
     }
     if T::BYTES == 1 {
         // Both byte results share AX, preserving the rest of EAX in one write.

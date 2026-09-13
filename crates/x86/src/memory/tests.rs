@@ -1,17 +1,13 @@
-use super::{AccessFault, Intent, Memory};
+use super::{Intent, Memory};
 use wasm86_compiler::{
-    AtLeast, BuildError, FunctionBuilder, MemoryInt, Program, Signature, Type, I16, I32, I64, I8,
+    AtLeast, BuildError, MemoryInt, Program, Signature, Type, I16, I32, I64, I8,
 };
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
-use crate::CpuState;
+use crate::{state::exit, CpuState};
 
 mod helpers;
-
-fn return_fault(body: FunctionBuilder<'_>, fault: AccessFault) -> Result<(), BuildError> {
-    body.return_(crate::state::exit::page_fault(&fault.address, &fault.error))
-}
 
 fn define_read<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str)
 where
@@ -25,8 +21,12 @@ where
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
-                let access =
-                    memory.resolve_access::<T>(&mut body, &address, Intent::Read, return_fault)?;
+                let access = memory.resolve_access::<T>(
+                    &mut body,
+                    &address,
+                    Intent::Read,
+                    exit::exception,
+                )?;
                 let value = memory.read(&mut body, &access)?;
                 body.return_(value.unsigned().extend::<I64>())
             },
@@ -45,8 +45,12 @@ fn define_write<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
                 let value = body.parameter::<T>(1)?;
-                let access =
-                    memory.resolve_access::<T>(&mut body, &address, Intent::Write, return_fault)?;
+                let access = memory.resolve_access::<T>(
+                    &mut body,
+                    &address,
+                    Intent::Write,
+                    exit::exception,
+                )?;
                 memory.write(&mut body, &access, &value)?;
                 body.return_(7)
             },

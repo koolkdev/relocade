@@ -15,6 +15,7 @@ use access::{cpu_load, cpu_store, register_location};
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32};
 
 use crate::{
+    exception::Exception,
     flags::{Condition, Flag, FlagChange},
     register::{Register, RegisterType},
     ssa::Environment,
@@ -97,6 +98,19 @@ impl<'cpu> State<'cpu> {
         condition: Condition,
     ) -> Result<Val<I1>, BuildError> {
         self.flags.condition(body, self.cpu, condition)
+    }
+
+    /// Publishes and terminates at the supplied restart boundary. Call before
+    /// defining effects of the faulting instruction or its current REP element.
+    pub(super) fn fault(
+        &self,
+        mut body: FunctionBuilder<'_>,
+        restart_eip: impl Into<Val<I32>>,
+        completed: u32,
+        exception: Exception,
+    ) -> Result<(), BuildError> {
+        self.publish(&mut body, restart_eip, completed)?;
+        exit::exception(body, exception)
     }
 
     /// Publishes the current restart boundary on a terminating path, including
