@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{
-    address::{Address32, MemoryAddress, RegisterTerm},
+    address::{EffectiveAddress, MemoryAddress, RegisterTerm},
     alu::{AnyStatusSource, ArithmeticOp, StatusSource},
     execution::Repetition,
     flags::Flag,
@@ -66,9 +66,9 @@ where
     let indices = [Gpr32::Esi, Gpr32::Edi];
     let stride = element_stride::<T>(execution)?;
     execution.string_elements(repetition, indices, |execution| {
-        let value =
-            memory_at_index::<T>(Gpr32::Esi, execution.string_source_segment()).read(execution)?;
-        memory_at_index::<T>(Gpr32::Edi, Segment::Es.into()).write(execution, value)?;
+        let value = memory_at_index::<T>(execution, Gpr32::Esi, execution.string_source_segment())
+            .read(execution)?;
+        memory_at_index::<T>(execution, Gpr32::Edi, Segment::Es.into()).write(execution, value)?;
         advance_indices(execution, &indices, &stride)
     })
 }
@@ -81,9 +81,9 @@ where
     StatusSource<T>: Into<AnyStatusSource>,
 {
     let stride = element_stride::<T>(execution)?;
-    let left =
-        memory_at_index::<T>(Gpr32::Esi, execution.string_source_segment()).read(execution)?;
-    let right = memory_at_index::<T>(Gpr32::Edi, Segment::Es.into()).read(execution)?;
+    let left = memory_at_index::<T>(execution, Gpr32::Esi, execution.string_source_segment())
+        .read(execution)?;
+    let right = memory_at_index::<T>(execution, Gpr32::Edi, Segment::Es.into()).read(execution)?;
     execution.write_flags(ArithmeticOp::Subtract.apply(left, right).flags)?;
     advance_indices(execution, &[Gpr32::Esi, Gpr32::Edi], &stride)
 }
@@ -99,7 +99,7 @@ where
     let stride = element_stride::<T>(execution)?;
     let value = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
     execution.string_elements(repetition, indices, |execution| {
-        memory_at_index::<T>(Gpr32::Edi, Segment::Es.into()).write(execution, &value)?;
+        memory_at_index::<T>(execution, Gpr32::Edi, Segment::Es.into()).write(execution, &value)?;
         advance_indices(execution, &indices, &stride)
     })
 }
@@ -109,8 +109,8 @@ where
     I32: AtLeast<T>,
 {
     let stride = element_stride::<T>(execution)?;
-    let value =
-        memory_at_index::<T>(Gpr32::Esi, execution.string_source_segment()).read(execution)?;
+    let value = memory_at_index::<T>(execution, Gpr32::Esi, execution.string_source_segment())
+        .read(execution)?;
     TypedLocation::<T>::register(Gpr32::Eax).write(execution, value)?;
     advance_indices(execution, &[Gpr32::Esi], &stride)
 }
@@ -122,16 +122,21 @@ where
 {
     let stride = element_stride::<T>(execution)?;
     let left = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
-    let right = memory_at_index::<T>(Gpr32::Edi, Segment::Es.into()).read(execution)?;
+    let right = memory_at_index::<T>(execution, Gpr32::Edi, Segment::Es.into()).read(execution)?;
     execution.write_flags(ArithmeticOp::Subtract.apply(left, right).flags)?;
     advance_indices(execution, &[Gpr32::Edi], &stride)
 }
 
-fn memory_at_index<T: RegisterType>(index: Gpr32, segment: SegmentSelection) -> TypedLocation<T> {
+fn memory_at_index<T: RegisterType>(
+    execution: &ExecutionBuilder<'_, '_>,
+    index: Gpr32,
+    segment: SegmentSelection,
+) -> TypedLocation<T> {
     TypedLocation::new(Location::Memory(
         MemoryAddress {
             segment,
-            offset: Address32 {
+            offset: EffectiveAddress {
+                size: execution.address_size(),
                 base: Some(RegisterTerm {
                     register: index.into(),
                     present: None,
@@ -157,10 +162,10 @@ fn advance_indices(
     indices: &[Gpr32],
     stride: &Val<I32>,
 ) -> Result<(), BuildError> {
-    // Operand size changes the stride; indices retain the 32-bit address size.
+    // Operand size changes the stride; address size selects the register alias.
     for &index in indices {
-        let value = TypedLocation::<I32>::register(index).read(execution)?;
-        TypedLocation::<I32>::register(index).write(execution, value.add(stride))?;
+        let value = execution.read_address_register(index)?;
+        execution.write_address_register(index, value.add(stride))?;
     }
     Ok(())
 }

@@ -23,7 +23,7 @@ instruction_families! {
             0x0F 0x80 +cc => word_or_dword(rel);
         }
     }
-    JECXZ {
+    JCXZ {
         execute: jump_if_count_zero;
         effects: [control_transfer];
         forms {
@@ -123,7 +123,7 @@ where
     I32: AtLeast<T>,
 {
     let displacement = Input::<I32>::new(displacement).read(execution)?;
-    let count = TypedLocation::<I32>::register(Gpr32::Ecx).read(execution)?;
+    let count = execution.read_address_register(Gpr32::Ecx)?;
     let target = relative_target::<T>(&fallthrough, displacement);
     execution.branch(count.eq(0), target, fallthrough)
 }
@@ -140,16 +140,15 @@ where
 {
     let displacement = Input::<I32>::new(displacement).read(execution)?;
     // Address size selects the counter; operand size only narrows a taken target.
-    let count = TypedLocation::<I32>::register(Gpr32::Ecx)
-        .read(execution)?
-        .sub(1);
+    let count = execution.read_address_register(Gpr32::Ecx)?;
+    let count = execution.address_size().wrap(count.sub(1));
     let mut taken = count.ne(0);
     if let Some(condition) = loop_condition {
         taken = taken.and(execution.condition(condition)?);
     }
     let target = relative_target::<T>(&fallthrough, displacement);
     let next_eip = execution.branch(taken, target, fallthrough)?;
-    TypedLocation::<I32>::register(Gpr32::Ecx).write(execution, count)?;
+    execution.write_address_register(Gpr32::Ecx, count)?;
     Ok(next_eip)
 }
 

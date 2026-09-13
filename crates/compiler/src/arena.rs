@@ -10,6 +10,7 @@ use crate::{
     BuildError, Type, Value, ValueKind,
 };
 
+mod arithmetic;
 mod shifts;
 
 #[derive(Clone)]
@@ -337,51 +338,6 @@ impl ValueArena {
             Type::I32
         };
         self.sign_extend(input, carrier)
-    }
-
-    fn binary(&mut self, operator: BinaryOp, left: usize, right: usize) -> usize {
-        let a = self.values[left];
-        let b = self.values[right];
-        debug_assert_eq!(a.ty, b.ty);
-        if let (ValueKind::Constant(a), ValueKind::Constant(b)) = (a.kind, b.kind) {
-            if let Some(bits) = integer::binary(self.values[left].ty, operator, a, b) {
-                return self.constant(self.values[left].ty, bits);
-            }
-        }
-        match (operator, a.kind, b.kind) {
-            (
-                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Or | BinaryOp::Xor,
-                _,
-                ValueKind::Constant(0),
-            ) => left,
-            (BinaryOp::Sub | BinaryOp::Xor, _, _) if left == right => self.constant(a.ty, 0),
-            (BinaryOp::Add | BinaryOp::Or | BinaryOp::Xor, ValueKind::Constant(0), _) => right,
-            (BinaryOp::Mul, _, ValueKind::Constant(1)) => left,
-            (BinaryOp::Mul, ValueKind::Constant(1), _) => right,
-            (BinaryOp::And | BinaryOp::Or, _, _) if left == right => left,
-            (BinaryOp::And, _, ValueKind::Constant(bits)) if bits == a.ty.mask() => left,
-            (BinaryOp::And, ValueKind::Constant(bits), _) if bits == a.ty.mask() => right,
-            (BinaryOp::And | BinaryOp::Mul, _, ValueKind::Constant(0))
-            | (BinaryOp::And | BinaryOp::Mul, ValueKind::Constant(0), _) => self.constant(a.ty, 0),
-            (BinaryOp::Or, _, ValueKind::Constant(bits)) if bits == a.ty.mask() => right,
-            (BinaryOp::Or, ValueKind::Constant(bits), _) if bits == a.ty.mask() => left,
-            _ => {
-                let (left, right) = match operator {
-                    BinaryOp::DivUnsigned | BinaryOp::RemUnsigned => {
-                        (self.normalize(left), self.normalize(right))
-                    }
-                    BinaryOp::DivSigned | BinaryOp::RemSigned => (
-                        self.sign_extend_carrier(left),
-                        self.sign_extend_carrier(right),
-                    ),
-                    _ => (left, right),
-                };
-                self.intern(Value {
-                    ty: a.ty,
-                    kind: ValueKind::Binary(operator, left, right),
-                })
-            }
-        }
     }
 
     fn compare(&mut self, operator: CompareOp, left: usize, right: usize) -> usize {

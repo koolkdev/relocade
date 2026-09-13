@@ -6,6 +6,7 @@ use wasm86_compiler::{
 use crate::{
     decode::DecodeState,
     instruction::{OpcodeMap, PrefixState, SegmentOverride},
+    segment::SegmentDefaultSize,
 };
 
 use super::{cursor::RuntimeCursor, InstructionFetch};
@@ -54,6 +55,7 @@ impl DecodePoint {
 /// Semantic specialization is independent of the direct fetch-window proof.
 pub(super) struct DecodeHandlers {
     point: DecodePoint,
+    default_prefixes: PrefixState,
     direct: Func,
     checked: Func,
     resumed: Vec<ResumedEntry>,
@@ -66,7 +68,12 @@ struct ResumedEntry {
 }
 
 impl DecodeHandlers {
-    pub(super) fn declare(program: &mut Program, point: DecodePoint) -> Self {
+    pub(super) fn declare(
+        program: &mut Program,
+        point: DecodePoint,
+        default_size: SegmentDefaultSize,
+    ) -> Self {
+        let default_prefixes = PrefixState::new(default_size);
         let mut parameters = vec![Type::I32];
         parameters.resize(point.field_count() + 1, Type::I8);
         let checked = program.declare(Signature {
@@ -86,14 +93,10 @@ impl DecodeHandlers {
             if has_segment_override {
                 parameters.push(Type::I32);
             }
-            for prefixes in std::iter::once(PrefixState::default())
-                .chain(PrefixState::PREFIXED)
-                .filter(|prefixes| {
-                    point.accepts(prefixes)
-                        && (has_segment_override
-                            || !prefixes.same_form_selection(&PrefixState::default()))
-                })
-            {
+            for prefixes in PrefixState::combinations(default_size).filter(|prefixes| {
+                point.accepts(prefixes)
+                    && (has_segment_override || !prefixes.same_form_selection(&default_prefixes))
+            }) {
                 let function = program.declare(Signature {
                     parameters: parameters.clone(),
                     results: vec![Type::I64],
@@ -107,6 +110,7 @@ impl DecodeHandlers {
         }
         Self {
             point,
+            default_prefixes,
             direct,
             checked,
             resumed,
@@ -169,7 +173,7 @@ impl DecodeHandlers {
                         physical_start.as_ref(),
                         self.point.consumed(),
                     )?;
-                    (cursor, PrefixState::default())
+                    (cursor, self.default_prefixes.clone())
                 }
             };
             decode(body, cursor, self.point.state(prefixes), &opcode)?;

@@ -42,7 +42,7 @@ where
                 immediate: cursor.immediate(&mut body, form)?,
             },
             Encoding::AccumulatorOffset => DecodedFields::AccumulatorOffset {
-                offset: cursor.dword(&mut body)?,
+                offset: cursor.integer(&mut body, form.address_width())?,
             },
             _ => unreachable!("the selected form has no ModRM"),
         };
@@ -130,29 +130,35 @@ where
     ) -> Result<(), BuildError> {
         let forms = forms_by_opcode(state.forms().filter(|form| form.encoding.has_modrm()));
         let opcodes: Vec<_> = forms.keys().copied().collect();
-        super::address::decode(body, cursor, modrm, |mut body, cursor, address| {
-            body.switch(opcode, &opcodes, |arm, key| {
-                let Some(forms) = key.and_then(|key| forms.get(&key)) else {
-                    return state.return_unsupported(arm, &cursor, opcode);
-                };
-                dispatch_form_by_extension(arm, modrm, forms, &|arm, form| {
-                    let Some(form) = form else {
+        super::address::decode(
+            body,
+            cursor,
+            modrm,
+            state.prefixes.address_size(),
+            |mut body, cursor, address| {
+                body.switch(opcode, &opcodes, |arm, key| {
+                    let Some(forms) = key.and_then(|key| forms.get(&key)) else {
                         return state.return_unsupported(arm, &cursor, opcode);
                     };
-                    let form = form
-                        .resolve(&state.prefixes)
-                        .expect("opcode selection accepted the prefix state");
-                    self.complete_modrm_instruction(
-                        arm,
-                        cursor.clone(),
-                        modrm,
-                        &form,
-                        Location::Memory(address.clone().memory().into()),
-                    )
-                })
-            })?;
-            body.trap()
-        })
+                    dispatch_form_by_extension(arm, modrm, forms, &|arm, form| {
+                        let Some(form) = form else {
+                            return state.return_unsupported(arm, &cursor, opcode);
+                        };
+                        let form = form
+                            .resolve(&state.prefixes)
+                            .expect("opcode selection accepted the prefix state");
+                        self.complete_modrm_instruction(
+                            arm,
+                            cursor.clone(),
+                            modrm,
+                            &form,
+                            Location::Memory(address.clone().memory().into()),
+                        )
+                    })
+                })?;
+                body.trap()
+            },
+        )
     }
 }
 

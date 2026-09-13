@@ -5,7 +5,7 @@ use wasm86_compiler::{AtLeast, BuildError, Val, I32};
 
 use super::{Location, Operand};
 use crate::{
-    address::{Address32, IndexTerm, MemoryAddress},
+    address::{EffectiveAddress, IndexTerm, MemoryAddress},
     execution::{ExecutionBuilder, PairValues},
     register::{Gpr32, RegisterType},
 };
@@ -137,8 +137,9 @@ pub(super) fn map_location<V: Into<Val<I32>>>(location: Location<V>) -> Location
     }
 }
 
-fn map_address<V: Into<Val<I32>>>(address: Address32<V>) -> Address32<Val<I32>> {
-    Address32 {
+fn map_address<V: Into<Val<I32>>>(address: EffectiveAddress<V>) -> EffectiveAddress<Val<I32>> {
+    EffectiveAddress {
+        size: address.size,
         base: address.base,
         index: address.index.map(|index| IndexTerm {
             register: index.register,

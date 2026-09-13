@@ -12,8 +12,8 @@ use super::{
     handlers::{Handler, SizedHandlers},
     Location, OperandSize, PrefixState, SegmentOverride,
 };
-use crate::flags::Condition;
 use crate::register::{NamedRegister, RegisterCode};
+use crate::{address::AddressSize, flags::Condition};
 
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
 pub(crate) enum OpcodeMap {
@@ -83,7 +83,7 @@ pub(crate) enum Encoding {
     ModRm {
         immediate: Option<ImmediateWidth>,
     },
-    /// The address field remains 32-bit regardless of the data width.
+    /// Address size selects the offset field width independently of data width.
     AccumulatorOffset,
 }
 
@@ -179,6 +179,7 @@ impl Form {
         Some(ResolvedForm {
             form: *self,
             operand_size,
+            address_size: prefixes.address_size(),
             handler: handlers.resolve(operand_size),
             ends_block,
             segment_override: prefixes.segment_override().clone(),
@@ -216,12 +217,24 @@ impl Form {
 pub(crate) struct ResolvedForm {
     form: Form,
     operand_size: OperandSize,
+    address_size: AddressSize,
     handler: Handler,
     ends_block: bool,
     segment_override: SegmentOverride,
 }
 
 impl ResolvedForm {
+    pub(crate) fn address_size(&self) -> AddressSize {
+        self.address_size
+    }
+
+    pub(crate) fn address_width(&self) -> FieldWidth {
+        match self.address_size {
+            AddressSize::Bits16 => FieldWidth::Word,
+            AddressSize::Bits32 => FieldWidth::Dword,
+        }
+    }
+
     pub(crate) fn encoding(&self) -> Encoding {
         self.form.encoding
     }

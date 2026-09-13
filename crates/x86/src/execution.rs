@@ -1,3 +1,4 @@
+mod address;
 mod control;
 mod operands;
 mod repetition;
@@ -8,12 +9,12 @@ pub(crate) use repetition::Repetition;
 
 use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32};
 
-use crate::exception::Exception;
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
 use crate::memory::{Access, Intent, Memory};
 use crate::segment::{Segment, SegmentAccess, SegmentProfile, SegmentSelection};
 use crate::state::{Cpu, State};
+use crate::{address::AddressSize, exception::Exception};
 
 /// Builds one execution path. State definitions and progress describe completed
 /// instructions. Within a repeated string instruction, the current state also
@@ -24,6 +25,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     memory: Option<&'module Memory>,
     segments: SegmentAccess<'module>,
     segment_override: SegmentOverride,
+    address_size: AddressSize,
     dispatch: Func,
     eip: Val<I32>,
     completed: u32,
@@ -45,6 +47,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             memory,
             segments: SegmentAccess::new(cpu, profile),
             segment_override: SegmentOverride::None,
+            address_size: AddressSize::Bits32,
             dispatch,
             eip,
             completed: 0,
@@ -57,6 +60,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     ) -> Result<(), BuildError> {
         self.eip = self.body.value(decoded.eip)?;
         let fallthrough_eip = self.body.value(decoded.fallthrough_eip)?;
+        self.address_size = decoded.instruction.address_size;
         self.segment_override = decoded.instruction.segment_override.clone();
         self.eip = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
         self.completed += 1;

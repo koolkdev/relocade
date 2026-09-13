@@ -90,7 +90,7 @@ fn instruction_length_counts_prefixes_and_each_required_field_byte() {
     for (prefixes, suffix, opcode) in [
         (14, &[0x62][..], 0x62),
         (13, &[0xc7, 0x0d][..], 0xc7),
-        (1, &[0x67, 0x8b, 0][..], 0x67),
+        (1, &[0xf0, 0x8b, 0][..], 0xf0),
     ] {
         let mut code = vec![0x66; prefixes];
         code.extend_from_slice(suffix);
@@ -240,11 +240,14 @@ fn prefix_length_limits_precede_fetch_and_unsupported_checks() {
             Exit::Other(0x0008_00c7_0000_1ff1),
         ),
         (
-            "unhandled prefix ends scanning",
+            "address prefix continues scanning",
             1,
             &[0x67][..],
             0x1ffe,
-            Exit::Other(0x0008_0067_0000_1ffe),
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
         ),
     ] {
         let mut code = vec![0x66; prefixes];

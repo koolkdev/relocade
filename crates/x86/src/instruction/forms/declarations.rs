@@ -127,7 +127,7 @@ impl Declaration<'_> {
         );
         assert!(
             !(offset && (modrm || opcode_register || immediate.is_some())),
-            "moffs32 is a separate address layout"
+            "moffs is a separate address layout"
         );
         if let Some(extension) = self.opcode.extension {
             assert!(

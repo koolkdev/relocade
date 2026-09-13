@@ -9,8 +9,8 @@ use crate::{
 /// instructions, whichever comes first. A conditional branch ends the block
 /// on both outcomes. Bytes after that boundary are ignored.
 /// Supports the instruction forms described in the
-/// [crate documentation](crate). ModRM/SIB addressing and absolute offsets are
-/// 32-bit. The `66` operand-size prefix selects word operands; `F3` repeats MOVS/STOS.
+/// [crate documentation](crate). Operand and address sizes default to 32 bits;
+/// `66` and `67` independently select 16 bits. `F3` repeats MOVS/STOS.
 /// Incomplete, unsupported or overlong instructions are construction errors. This byte-only
 /// input carries no guest-fault information.
 /// EIP and the completed-instruction count use 32-bit wrapping arithmetic;
@@ -35,8 +35,8 @@ use crate::{
 /// guards, as do CS reads; FS/GS accesses and CS writes check their loaded caches.
 /// A data fault publishes earlier completed instructions, keeps EIP at the faulting
 /// instruction, and skips dispatch.
-/// REP also preserves successful elements and their ECX/ESI/EDI progress. It retires
-/// once after all elements succeed, including when ECX starts at zero.
+/// REP also preserves successful elements and their address-sized count and index
+/// progress. It retires once after all elements succeed, including a zero count.
 /// DIV/IDIV divide error returns `1 << 48` with that same completion boundary.
 /// All bytes of a store are permission-checked before any of them are written.
 /// Read-modify-write operations check write permission before reading their

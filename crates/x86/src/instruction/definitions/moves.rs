@@ -13,10 +13,10 @@ instruction_families! {
             0xB8 +reg => word_or_dword(opcode_reg, imm);
             0xC6 /0 => byte(rm, imm8);
             0xC7 /0 => word_or_dword(rm, imm);
-            0xA0 => byte(AL, moffs32);
-            0xA1 => word_or_dword(accumulator, moffs32);
-            0xA2 => byte(moffs32, AL);
-            0xA3 => word_or_dword(moffs32, accumulator);
+            0xA0 => byte(AL, moffs);
+            0xA1 => word_or_dword(accumulator, moffs);
+            0xA2 => byte(moffs, AL);
+            0xA3 => word_or_dword(moffs, accumulator);
         }
     }
     LEA {

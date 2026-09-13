@@ -114,7 +114,15 @@ impl<'memory> RuntimeCursor<'memory> {
         if form.sign_extends_immediate() {
             return Ok(self.byte(body)?.signed().extend::<I32>());
         }
-        match form.immediate_width() {
+        self.integer(body, form.immediate_width())
+    }
+
+    pub(super) fn integer(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        width: FieldWidth,
+    ) -> Result<Val<I32>, BuildError> {
+        match width {
             FieldWidth::Byte => Ok(self.byte(body)?.unsigned().extend::<I32>()),
             FieldWidth::Word => Ok(self.read::<I16>(body)?.unsigned().extend::<I32>()),
             FieldWidth::Dword => self.dword(body),
@@ -126,15 +134,16 @@ impl<'memory> RuntimeCursor<'memory> {
         body: &mut FunctionBuilder<'_>,
         mode: &Val<I8>,
         no_base: &Val<I1>,
+        width: FieldWidth,
     ) -> Result<Val<I32>, BuildError> {
-        let has_dword_displacement = mode.eq(2).or(no_base);
+        let has_full_displacement = mode.eq(2).or(no_base);
         let has_byte_displacement = mode.eq(1);
         let (value, next_offset) = body.if_value::<(I32, I32)>(
-            &has_dword_displacement,
-            |mut dword_body| {
+            &has_full_displacement,
+            |mut full_body| {
                 let mut cursor = self.clone();
-                let value = cursor.dword(&mut dword_body)?;
-                dword_body.yield_((value, cursor.offset))
+                let value = cursor.integer(&mut full_body, width)?;
+                full_body.yield_((value, cursor.offset))
             },
             |mut short_displacement_body| {
                 let result = short_displacement_body.if_value::<(I32, I32)>(
@@ -150,7 +159,7 @@ impl<'memory> RuntimeCursor<'memory> {
             },
         )?;
         self.mark_conditional_offset();
-        self.maximum_offset += 4;
+        self.maximum_offset += width.bytes();
         self.offset = next_offset;
         Ok(value)
     }

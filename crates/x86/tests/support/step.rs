@@ -110,9 +110,11 @@ impl TestModule {
     pub(crate) fn interpreter_with_profile(profile: SegmentProfile) -> &'static Self {
         static FLAT: OnceLock<TestModule> = OnceLock::new();
         static SEGMENTED: OnceLock<TestModule> = OnceLock::new();
+        static SEGMENTED16: OnceLock<TestModule> = OnceLock::new();
         let module = match profile {
             SegmentProfile::Flat32 => &FLAT,
             SegmentProfile::Segmented32 => &SEGMENTED,
+            SegmentProfile::Segmented16 => &SEGMENTED16,
         };
         module.get_or_init(|| Self::new(&crate::compile_interpreter_step(profile).unwrap()))
     }

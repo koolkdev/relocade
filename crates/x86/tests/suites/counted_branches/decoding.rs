@@ -134,20 +134,8 @@ fn check_rejected_encodings(engine: Engine) {
             let image = at_page_end(&overlong, count, zero);
             unchanged_exit(engine, &image, name, Exit::Other(0x0002_0000_0000_0000));
         }
-        for code in [vec![0x67, opcode, 0x7f], vec![0x66, 0x67, opcode, 0x7f]] {
-            assert_eq!(
-                compile_block_from_bytes(0x1000, &code, 1).err(),
-                Some(BlockError::UnsupportedInstruction {
-                    address: 0x1000,
-                    opcode: 0x67
-                }),
-                "{code:02x?}",
-            );
-            let mut image = Image::new(&code);
-            image.cpu.registers.ecx = 0x0001_0000;
-            unchanged_exit(engine, &image, name, Exit::Other(0x0008_0067_0000_1000));
-        }
     }
+
     for code in [
         vec![0x67],
         vec![0x66, 0x67],
@@ -156,28 +144,41 @@ fn check_rejected_encodings(engine: Engine) {
         let image = at_page_end(&code, 0x0001_0000, true);
         assert_eq!(
             compile_block_from_bytes(image.cpu.eip, &code, 1).err(),
-            Some(BlockError::UnsupportedInstruction {
-                address: image.cpu.eip,
-                opcode: 0x67
+            Some(if code.len() == 15 {
+                BlockError::InstructionTooLong {
+                    address: image.cpu.eip,
+                }
+            } else {
+                BlockError::TruncatedInstruction {
+                    address: image.cpu.eip,
+                    available: code.len(),
+                }
             }),
         );
         unchanged_exit(
             engine,
             &image,
-            "unsupported address size needs no later bytes",
-            Exit::Other(0x0008_0067_0000_0000 | u64::from(image.cpu.eip)),
+            "address-size prefix still requires an opcode",
+            if code.len() == 15 {
+                Exit::Other(0x0002_0000_0000_0000)
+            } else {
+                Exit::PageFault {
+                    address: 0x2000,
+                    error: 0x10,
+                }
+            },
         );
     }
 }
 
 #[test]
-fn overlong_and_unsupported_encodings_preserve_state_in_wasmtime() {
+fn overlong_and_incomplete_encodings_preserve_state_in_wasmtime() {
     check_rejected_encodings(Engine::Wasmtime);
 }
 
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
-fn overlong_and_unsupported_encodings_preserve_state_in_v8() {
+fn overlong_and_incomplete_encodings_preserve_state_in_v8() {
     check_rejected_encodings(Engine::V8);
 }
 

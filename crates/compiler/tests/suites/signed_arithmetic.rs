@@ -306,7 +306,7 @@ fn underflow_shares_raw_store_bits_with_signed_and_unsigned_observers() {
             .iter()
             .filter_map(|operator| match operator {
                 Operator::I32Load8U { .. } => Some("read"),
-                Operator::I32Sub => Some("subtract"),
+                Operator::I32Add | Operator::I32Sub => Some("arithmetic"),
                 Operator::I32Store8 { .. } => Some("store"),
                 Operator::I32And => Some("unsigned low bits"),
                 Operator::I32Extend8S => Some("signed low bits"),
@@ -317,10 +317,11 @@ fn underflow_shares_raw_store_bits_with_signed_and_unsigned_observers() {
             relevant,
             [
                 "read",
-                "subtract",
+                "arithmetic",
                 "store",
                 "unsigned low bits",
-                "signed low bits"
+                "signed low bits",
+                "arithmetic"
             ]
         );
     }

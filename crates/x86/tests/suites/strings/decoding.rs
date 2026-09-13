@@ -115,7 +115,7 @@ fn each_string_opcode_completes_without_an_operand_or_following_byte() {
 
 #[test]
 fn unsupported_prefixes_stop_before_any_string_access() {
-    for prefix in [0xf0, 0xf2, 0x67] {
+    for prefix in [0xf0, 0xf2] {
         for opcode in [0xa4, 0xa5, 0xa6, 0xa7, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf] {
             for code in [vec![prefix, opcode], vec![0x66, prefix, opcode]] {
                 assert_eq!(

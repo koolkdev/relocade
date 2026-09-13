@@ -74,3 +74,6 @@ mod strings;
 mod unary_operations;
 #[path = "suites/word_moves.rs"]
 mod word_moves;
+
+#[path = "suites/execution_sizes.rs"]
+mod execution_sizes;

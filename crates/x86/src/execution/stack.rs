@@ -15,7 +15,7 @@ use super::ExecutionBuilder;
 /// A guarded stack read whose pointer change has not been committed.
 pub(crate) struct StackPop<T: RegisterType> {
     value: Val<T>,
-    next_esp: Val<I32>,
+    pointer: StackPointer,
 }
 
 impl<T: RegisterType> StackPop<T> {
@@ -33,27 +33,64 @@ impl<T: RegisterType> StackPop<T> {
         execution.state.write_register(
             &mut execution.body,
             Gpr32::Esp,
-            self.next_esp.add(discard_bytes),
+            self.pointer.advance(discard_bytes.into().add(T::BYTES)).esp,
         )?;
         Ok(self.value)
     }
 }
 
+/// SS.B wraps pointer arithmetic independently of the transferred value width.
+/// The full ESP value is retained for POP destinations with 32-bit addressing.
+struct StackPointer {
+    esp: Val<I32>,
+    mask: Val<I32>,
+}
+
+impl StackPointer {
+    fn offset(&self) -> Val<I32> {
+        self.esp.and(&self.mask)
+    }
+
+    fn advance(&self, bytes: impl Into<Val<I32>>) -> Self {
+        let esp = self
+            .esp
+            .and(self.mask.xor(u32::MAX))
+            .or(self.esp.add(bytes).and(&self.mask));
+        Self {
+            esp,
+            mask: self.mask.clone(),
+        }
+    }
+}
+
 impl ExecutionBuilder<'_, '_> {
+    fn stack_pointer(&mut self) -> Result<StackPointer, BuildError> {
+        let esp = self.state.read_register(&mut self.body, Gpr32::Esp)?;
+        let mask = self
+            .segments
+            .is_segment_big(&mut self.body, Segment::Ss)?
+            .select(u32::MAX, 0xffffu32);
+        Ok(StackPointer { esp, mask })
+    }
+
     pub(crate) fn push<T: RegisterType>(
         &mut self,
         value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
         let value = self.body.value(value)?;
-        let esp = self.state.read_register(&mut self.body, Gpr32::Esp)?;
-        let next_esp = esp.sub(T::BYTES);
+        let pointer = self.stack_pointer()?.advance(-(T::BYTES as i32));
         let memory = self
             .memory
             .expect("a stack instruction declares guest memory");
-        let access = self.checked::<T>(memory, &Segment::Ss.into(), &next_esp, Intent::Write)?;
+        let access = self.checked::<T>(
+            memory,
+            &Segment::Ss.into(),
+            &pointer.offset(),
+            Intent::Write,
+        )?;
         memory.write(&mut self.body, &access, &value)?;
         self.state
-            .write_register(&mut self.body, Gpr32::Esp, next_esp)
+            .write_register(&mut self.body, Gpr32::Esp, pointer.esp)
     }
 
     pub(crate) fn pop<T: RegisterType>(
@@ -66,7 +103,7 @@ impl ExecutionBuilder<'_, '_> {
             destination,
             &[RegisterValue {
                 register: Gpr32::Esp,
-                value: popped.next_esp.clone(),
+                value: popped.pointer.advance(T::BYTES).esp,
             }],
         )?;
         // POP ESP overwrites the increment; POP SP preserves its upper word.
@@ -75,15 +112,13 @@ impl ExecutionBuilder<'_, '_> {
     }
 
     pub(crate) fn read_stack<T: RegisterType>(&mut self) -> Result<StackPop<T>, BuildError> {
-        let esp = self.state.read_register(&mut self.body, Gpr32::Esp)?;
+        let pointer = self.stack_pointer()?;
         let memory = self
             .memory
             .expect("a stack instruction declares guest memory");
-        let access = self.checked::<T>(memory, &Segment::Ss.into(), &esp, Intent::Read)?;
+        let access =
+            self.checked::<T>(memory, &Segment::Ss.into(), &pointer.offset(), Intent::Read)?;
         let value = memory.read(&mut self.body, &access)?;
-        Ok(StackPop {
-            value,
-            next_esp: esp.add(T::BYTES),
-        })
+        Ok(StackPop { value, pointer })
     }
 }

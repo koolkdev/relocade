@@ -50,12 +50,12 @@ fn shape<T: IntType>(
 fn shared_additions_are_evaluated_once() {
     fn check<T: IntType>() {
         let ty = T::TYPE;
-        let actual = shape(&[ty], |body| {
+        let actual = shape(&[ty, ty], |body| {
             let parameter = body.parameter::<T>(0).unwrap();
             let a = parameter.add(1);
             let _dead = a.add(9);
-            let b = a.add(2);
-            let b_again = a.add(2);
+            let b = a.add(body.parameter::<T>(1).unwrap());
+            let b_again = a.add(body.parameter::<T>(1).unwrap());
             b.add(&b_again)
         });
         assert_eq!(
@@ -117,11 +117,11 @@ fn constant_sums_emit_no_add_instructions() {
 #[test]
 fn narrow_additions_are_masked_once_at_the_return() {
     fn check<T: IntType>() {
-        let actual = shape(&[T::TYPE], |body| {
+        let actual = shape(&[T::TYPE, T::TYPE], |body| {
             let a = body.parameter::<T>(0).unwrap().add(1);
             let _dead = a.add(9);
-            let b = a.add(1);
-            let b_again = a.add(1);
+            let b = a.add(body.parameter::<T>(1).unwrap());
+            let b_again = a.add(body.parameter::<T>(1).unwrap());
             b.add(&b_again)
         });
         assert_eq!(

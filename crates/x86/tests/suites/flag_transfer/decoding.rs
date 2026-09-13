@@ -75,7 +75,7 @@ fn the_opcode_completes_each_transfer_without_an_operand_or_next_byte() {
 
 #[test]
 fn unsupported_prefixes_leave_the_transfer_unexecuted() {
-    for prefix in [0xf0, 0xf2, 0xf3, 0x67] {
+    for prefix in [0xf0, 0xf2, 0xf3] {
         for opcode in OPCODES {
             for code in [vec![prefix, opcode], vec![0x66, prefix, opcode]] {
                 assert!(matches!(

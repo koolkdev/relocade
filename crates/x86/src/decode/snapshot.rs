@@ -1,12 +1,13 @@
+mod address;
+
 use super::DecodeState;
 
 use crate::{
-    address::{Address32, IndexTerm, RegisterTerm},
     instruction::{
         DecodedFields, DecodedInstruction, Encoding, FieldWidth, Location, Prefix, ResolvedForm,
         EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
     },
-    register::{Gpr32, RegisterCode},
+    register::RegisterCode,
     BlockError,
 };
 
@@ -75,7 +76,7 @@ pub(crate) fn snapshot(
             cursor.modrm_fields(&form, modrm.expect("the selected encoding has ModRM"))?
         }
         Encoding::AccumulatorOffset => DecodedFields::AccumulatorOffset {
-            offset: cursor.integer(FieldWidth::Dword)?,
+            offset: cursor.integer(form.address_width())?,
         },
     };
     let next_eip = instruction_eip.wrapping_add(cursor.offset as u32);
@@ -136,7 +137,11 @@ impl SnapshotCursor<'_> {
         let rm = if modrm >> 6 == 3 {
             Location::Register(RegisterCode::from_code(modrm).into())
         } else {
-            Location::Memory(self.decode_address(modrm)?.memory().into())
+            Location::Memory(
+                self.decode_address(modrm, form.address_size())?
+                    .memory()
+                    .into(),
+            )
         };
         let Encoding::ModRm { immediate } = form.encoding() else {
             unreachable!("the selected form has a ModRM field");
@@ -147,44 +152,5 @@ impl SnapshotCursor<'_> {
             rm,
             immediate,
         })
-    }
-
-    fn decode_address(&mut self, modrm: u8) -> Result<Address32<u32>, BlockError> {
-        let mode = modrm >> 6;
-        let rm = modrm & 7;
-        let (base, index) = if rm == 4 {
-            let sib = self.byte()?;
-            let index = if (sib >> 3) & 7 == 4 {
-                None
-            } else {
-                Some(IndexTerm {
-                    register: named(sib >> 3),
-                    shift: u32::from(sib >> 6),
-                })
-            };
-            (sib & 7, index)
-        } else {
-            (rm, None)
-        };
-        let no_base = mode == 0 && base == 5;
-        let displacement = if mode == 2 || no_base {
-            self.integer(FieldWidth::Dword)?
-        } else if mode == 1 {
-            self.byte()? as i8 as i32 as u32
-        } else {
-            0
-        };
-        Ok(Address32 {
-            base: (!no_base).then(|| named(base)),
-            index,
-            displacement,
-        })
-    }
-}
-
-fn named(code: u8) -> RegisterTerm {
-    RegisterTerm {
-        register: Gpr32::from_code(code).into(),
-        present: None,
     }
 }

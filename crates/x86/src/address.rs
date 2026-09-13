@@ -1,13 +1,29 @@
 //! Effective-address components with deferred register reads. Instruction
 //! semantics can add a displacement before resolving the effective offset.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32};
+use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32};
 
 use crate::{
     register::{Gpr32, Register},
     segment::{Segment, SegmentSelection},
     state::State,
 };
+
+/// Width of effective offsets and implicit string/count registers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AddressSize {
+    Bits16,
+    Bits32,
+}
+
+impl AddressSize {
+    pub(crate) fn wrap(self, value: Val<I32>) -> Val<I32> {
+        match self {
+            Self::Bits16 => value.truncate::<I16>().unsigned().extend::<I32>(),
+            Self::Bits32 => value,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub(super) struct RegisterTerm {
@@ -22,7 +38,8 @@ pub(super) struct IndexTerm<V> {
 }
 
 #[derive(Clone)]
-pub(super) struct Address32<V> {
+pub(super) struct EffectiveAddress<V> {
+    pub(super) size: AddressSize,
     pub(super) base: Option<RegisterTerm>,
     pub(super) index: Option<IndexTerm<V>>,
     pub(super) displacement: V,
@@ -32,11 +49,12 @@ pub(super) struct Address32<V> {
 #[derive(Clone)]
 pub(super) struct MemoryAddress<V> {
     pub(super) segment: SegmentSelection,
-    pub(super) offset: Address32<V>,
+    pub(super) offset: EffectiveAddress<V>,
 }
 
-impl<V> Address32<V> {
+impl<V> EffectiveAddress<V> {
     /// Default selection depends on the encoded base, never on an index register.
+    /// The 16-bit decoder represents BP as the base whenever it participates.
     pub(super) fn memory(self) -> MemoryAddress<V> {
         let segment = match &self.base {
             None => Segment::Ds.into(),
@@ -110,7 +128,7 @@ impl RegisterTerm {
 pub(super) fn resolve<V: Into<Val<I32>>>(
     body: &mut FunctionBuilder<'_>,
     state: &mut State<'_>,
-    address: Address32<V>,
+    address: EffectiveAddress<V>,
     bindings: &[RegisterValue],
 ) -> Result<Val<I32>, BuildError> {
     let mut value = match address.base {
@@ -121,5 +139,5 @@ pub(super) fn resolve<V: Into<Val<I32>>>(
         let register = index.register.read(body, state, bindings)?;
         value = value.add(register.shl(index.shift));
     }
-    Ok(value.add(address.displacement))
+    Ok(address.size.wrap(value.add(address.displacement)))
 }

@@ -10,36 +10,32 @@ use crate::support::{
 use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32};
 
 #[test]
-fn unsupported_prefix_order_stops_before_an_unavailable_fetch() {
-    for (code, reported) in [
-        (&[0xf3, 0x67][..], 0xf3),
-        (&[0x67, 0xf3][..], 0x67),
-        (&[0x67][..], 0x67),
-    ] {
+fn prefix_order_preserves_the_next_required_fetch() {
+    for code in [&[0xf3, 0x67][..], &[0x67, 0xf3][..], &[0x67][..]] {
         let origin = 0x2000 - code.len() as u32;
         assert_eq!(
             compile_block_from_bytes(origin, code, 1).err(),
-            Some(BlockError::UnsupportedInstruction {
+            Some(BlockError::TruncatedInstruction {
                 address: origin,
-                opcode: reported,
+                available: code.len(),
             })
         );
-        // The unsupported subset is diagnosed at its first rejecting byte.
-        // In particular, 67 does not require a following byte to reject.
+        // Both prefixes are accepted; decoding still needs an opcode.
         let mut image = Image::new(&[]);
         image.cpu.eip = origin;
         image.cpu.registers.ecx = 0;
         image.data(0x3000 + (origin & 0xfff), code);
         check(
             TestModule::interpreter(),
-            &format!("unsupported prefix order {code:02x?}"),
+            &format!("incomplete prefix order {code:02x?}"),
             &image,
             &[Step {
                 cpu: image.cpu,
                 ram: &[],
-                exit: Exit::Other(
-                    0x0008_0000_0000_0000 | (u64::from(reported) << 32) | u64::from(origin),
-                ),
+                exit: Exit::PageFault {
+                    address: 0x2000,
+                    error: 0x10,
+                },
             }],
         );
     }

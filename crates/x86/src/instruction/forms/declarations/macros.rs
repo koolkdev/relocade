@@ -167,7 +167,7 @@ macro_rules! operand_spec {
             crate::register::Gpr32::Edx,
         ))
     };
-    (moffs32) => {
+    (moffs) => {
         OperandSpec::Offset
     };
     (address) => {

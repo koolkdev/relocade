@@ -8,8 +8,9 @@ mod selectors;
 use wasm86_compiler::{BuildError, FunctionBuilder, Program, Val, I32, I8};
 
 use crate::{
-    instruction::{DecodedInstruction, OpcodeMap},
+    instruction::{DecodedInstruction, OpcodeMap, PrefixState},
     memory::DirectRange,
+    segment::SegmentDefaultSize,
     state::exit,
 };
 
@@ -28,6 +29,7 @@ use self::{
 /// opcode and ModRM validation.
 pub(crate) struct RuntimeDecoder<'memory, C> {
     fetch: InstructionFetch<'memory>,
+    default_size: SegmentDefaultSize,
     opcode_handlers: DecodeHandlers,
     primary_modrm_memory_handlers: DecodeHandlers,
     extended_modrm_memory_handlers: DecodeHandlers,
@@ -41,18 +43,22 @@ where
     pub(crate) fn new(
         program: &mut Program,
         fetch: InstructionFetch<'memory>,
+        default_size: SegmentDefaultSize,
         complete_instruction: C,
     ) -> Result<Self, BuildError> {
         let decoder = Self {
             fetch,
-            opcode_handlers: DecodeHandlers::declare(program, DecodePoint::Opcode),
+            default_size,
+            opcode_handlers: DecodeHandlers::declare(program, DecodePoint::Opcode, default_size),
             primary_modrm_memory_handlers: DecodeHandlers::declare(
                 program,
                 DecodePoint::MemoryOperand(OpcodeMap::Primary),
+                default_size,
             ),
             extended_modrm_memory_handlers: DecodeHandlers::declare(
                 program,
                 DecodePoint::MemoryOperand(OpcodeMap::Extended),
+                default_size,
             ),
             complete_instruction,
         };
@@ -95,8 +101,15 @@ where
     ) -> Result<(), BuildError> {
         let mut cursor = RuntimeCursor::new(&body, self.fetch, instruction_eip, physical_start, 0)?;
         let opcode = cursor.byte(&mut body)?;
-        self.opcode_handlers
-            .tail_call(body, &cursor, DecodeState::default(), &[(&opcode).into()])
+        self.opcode_handlers.tail_call(
+            body,
+            &cursor,
+            DecodeState {
+                prefixes: PrefixState::new(self.default_size),
+                ..DecodeState::default()
+            },
+            &[(&opcode).into()],
+        )
     }
 }
 

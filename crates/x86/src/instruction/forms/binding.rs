@@ -2,7 +2,7 @@
 
 use super::{DecodedFields, LocationBinding, OperandBinding, OperandBindingShape, ResolvedForm};
 use crate::{
-    address::Address32,
+    address::EffectiveAddress,
     instruction::{
         handlers::{Handler, HandlerCall},
         DecodedInstruction, Instruction, Location, Operand,
@@ -49,6 +49,7 @@ impl ResolvedForm {
         DecodedInstruction {
             instruction: Instruction {
                 call,
+                address_size: self.address_size,
                 condition: self.form.condition,
                 implicit_memory: self.form.implicit_memory,
                 ends_block: self.ends_block,
@@ -86,7 +87,8 @@ impl ResolvedForm {
                     unreachable!("the form selects a decoded absolute offset")
                 };
                 Location::Memory(
-                    Address32 {
+                    EffectiveAddress {
+                        size: self.address_size,
                         base: None,
                         index: None,
                         displacement: offset.clone(),

@@ -13,15 +13,15 @@ use operands::{map_location, map_operand};
 pub(crate) use operands::{Input, TypedLocation};
 pub(crate) use prefixes::{Prefix, PrefixState, SegmentOverride};
 
-use crate::address::{Address32, MemoryAddress};
+use crate::address::{AddressSize, EffectiveAddress, MemoryAddress};
 use crate::flags::Condition;
 use crate::register::RegisterOperand;
 
 pub(super) const MAX_INSTRUCTION_BYTES: u32 = 15;
 pub(super) const EXTENDED_OPCODE_ESCAPE: u8 = 0x0f;
 
-/// The effective operand-size attribute in the supported default-32 mode.
-#[derive(Clone, Copy)]
+/// The effective operand-size attribute after applying CS.D and prefixes.
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum OperandSize {
     Word,
     Dword,
@@ -31,7 +31,7 @@ pub(super) enum OperandSize {
 pub(super) enum Operand<V> {
     Immediate(V),
     /// The address value itself, without accessing the addressed memory.
-    Address(Address32<V>),
+    Address(EffectiveAddress<V>),
     Location(Location<V>),
 }
 
@@ -54,6 +54,7 @@ pub(super) struct Instruction<V> {
     condition: Option<Condition>,
     implicit_memory: bool,
     ends_block: bool,
+    pub(super) address_size: AddressSize,
     pub(super) segment_override: SegmentOverride,
 }
 

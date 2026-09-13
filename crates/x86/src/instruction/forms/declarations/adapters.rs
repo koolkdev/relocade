@@ -102,7 +102,7 @@ macro_rules! operand_value {
     ($width:ty, $operand:ident, modrm_reg) => { operand_value!(@location $width, $operand) };
     ($width:ty, $operand:ident, opcode_reg) => { operand_value!(@location $width, $operand) };
     ($width:ty, $operand:ident, accumulator) => { operand_value!(@location $width, $operand) };
-    ($width:ty, $operand:ident, moffs32) => { operand_value!(@location $width, $operand) };
+    ($width:ty, $operand:ident, moffs) => { operand_value!(@location $width, $operand) };
     (@location $width:ty, $operand:ident) => { TypedLocation::<$width>::from_operand($operand).into() };
 }
 

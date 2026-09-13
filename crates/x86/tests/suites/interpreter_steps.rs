@@ -297,11 +297,14 @@ fn missing_instruction_bytes_and_unsupported_opcodes_preserve_entry_state() {
             Exit::Other(0x0008_0062_0000_1fff),
         ),
         (
-            "unsupported address prefix at page end",
+            "address prefix needs the next code page",
             0x1fff,
             vec![(0x3fff, vec![0x67])],
             vec![(4, vec![1, 0x30, 0, 0])],
-            Exit::Other(0x0008_0067_0000_1fff),
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
         ),
         (
             "missing page after EIP wrap",

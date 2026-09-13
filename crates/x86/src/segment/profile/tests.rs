@@ -123,31 +123,18 @@ fn runtime_checks_allow_nonflat_or_unusable_caches_with_supported_defaults() {
 }
 
 #[test]
-fn both_profiles_require_default32_code_and_a_big_stack() {
-    for profile in [SegmentProfile::Flat32, SegmentProfile::Segmented32] {
-        for (segment, cache) in [
-            (
-                Segment::Cs,
-                StoredSegment {
-                    attributes: SegmentAttributes::from_bits(0x07),
-                    ..StoredSegment::flat_code32(0)
-                },
-            ),
-            (Segment::Cs, StoredSegment::unusable(0x1b)),
-            (
-                Segment::Ss,
-                StoredSegment {
-                    attributes: SegmentAttributes::from_bits(0x05),
-                    ..StoredSegment::flat_data32(0)
-                },
-            ),
-        ] {
+fn segmented_profiles_assume_only_their_code_default_size() {
+    for (profile, code_bits) in [
+        (SegmentProfile::Segmented16, 0x07),
+        (SegmentProfile::Segmented32, 0x17),
+    ] {
+        for stack_bits in [0, 0x05, 0x15, 0xffff] {
             let mut segments = Segments::flat32();
-            segments[segment] = cache;
-            assert!(
-                !profile.is_compatible_with(&segments),
-                "{profile:?}, {segment:?}, {cache:?}"
-            );
+            segments.cs.attributes = SegmentAttributes::from_bits(code_bits);
+            segments.ss.attributes = SegmentAttributes::from_bits(stack_bits);
+            assert!(profile.is_compatible_with(&segments));
+            segments.cs.attributes = SegmentAttributes::from_bits(code_bits ^ 0x10);
+            assert!(!profile.is_compatible_with(&segments));
         }
     }
 }

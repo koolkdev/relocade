@@ -13,7 +13,7 @@ pub(crate) enum Repetition {
 }
 
 impl ExecutionBuilder<'_, '_> {
-    /// Executes elements that change only the supplied full-width indices and
+    /// Executes elements that change only the supplied address-sized indices and
     /// guest memory. Each element must finish its faulting accesses before changing
     /// its indices. Fault publication then retains precisely the successful prefix
     /// of this instruction, without retiring the instruction itself.
@@ -26,13 +26,12 @@ impl ExecutionBuilder<'_, '_> {
         if matches!(repetition, Repetition::Once) {
             return element(self);
         }
-        let count = self
-            .state
-            .read_register::<I32>(&mut self.body, Gpr32::Ecx)?;
+        let count = self.read_address_register(Gpr32::Ecx)?;
         let initial_indices = self.read_indices(indices)?;
         let state = &self.state;
         let memory = self.memory;
         let segments = self.segments;
+        let address_size = self.address_size;
         let segment_override = self.segment_override.clone();
         let dispatch = self.dispatch;
         let eip = &self.eip;
@@ -51,13 +50,12 @@ impl ExecutionBuilder<'_, '_> {
                     memory,
                     segments,
                     segment_override,
+                    address_size,
                     dispatch,
                     eip: eip.clone(),
                     completed,
                 };
-                iteration
-                    .state
-                    .write_register(&mut iteration.body, Gpr32::Ecx, &remaining)?;
+                iteration.write_address_register(Gpr32::Ecx, remaining.clone())?;
                 iteration.write_indices(indices, positions)?;
                 element(&mut iteration)?;
                 let next_indices = iteration.read_indices(indices)?;
@@ -66,8 +64,7 @@ impl ExecutionBuilder<'_, '_> {
                     .branch(&labels.again, (remaining.sub(1), next_indices))
             },
         )?;
-        self.state
-            .write_register(&mut self.body, Gpr32::Ecx, remaining)?;
+        self.write_address_register(Gpr32::Ecx, remaining)?;
         self.write_indices(indices, final_indices)
     }
 
@@ -77,7 +74,7 @@ impl ExecutionBuilder<'_, '_> {
     ) -> Result<[Val<I32>; N], BuildError> {
         let values = indices
             .into_iter()
-            .map(|index| self.state.read_register::<I32>(&mut self.body, index))
+            .map(|index| self.read_address_register(index))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(values
             .try_into()
@@ -90,7 +87,7 @@ impl ExecutionBuilder<'_, '_> {
         values: [Val<I32>; N],
     ) -> Result<(), BuildError> {
         for (index, value) in indices.into_iter().zip(values) {
-            self.state.write_register(&mut self.body, index, value)?;
+            self.write_address_register(index, value)?;
         }
         Ok(())
     }

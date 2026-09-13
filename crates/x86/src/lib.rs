@@ -1,5 +1,7 @@
 //! Builds WebAssembly execution entries for a small x86 instruction subset.
 //!
+//! Encoding examples assume 32-bit code defaults unless stated otherwise.
+//!
 //! Supports byte, word and dword MOV, ADD, ADC, SUB, SBB, CMP, AND, OR, XOR, TEST,
 //! INC, DEC, NEG and NOT, plus byte SETcc (`0F 90`–`0F 9F`). Binary families include register,
 //! register/memory and immediate forms. TEST supports `84`/`85`, `A8`/`A9` and
@@ -31,12 +33,12 @@
 //! `0F BA` /4–/7 with imm8, for word/dword register or memory operands. Register
 //! destinations and immediate offsets take the index modulo 16 or 32. A memory
 //! register offset is signed at that width and selects a unit of the bit string;
-//! its byte displacement wraps at 32 bits before the usual full-unit checks.
+//! its byte displacement wraps at address size before the usual full-unit checks.
 //! BT only reads; BTS/BTR/BTC require full write access even for an unchanged bit.
 //! Both the offset and address use register values from before the instruction.
 //! Word/dword PUSH and POP use `50`–`5F`, `FF` /6 and `8F` /0. PUSH also accepts
 //! an operand-sized immediate (`68`) or a sign-extended byte (`6A`). The stack
-//! pointer is always 32-bit: PUSH reads its source before decrementing ESP;
+//! pointer uses SP or ESP according to SS.B; PUSH reads its source before decrementing it;
 //! POP uses the incremented ESP to address a memory destination. POP ESP replaces
 //! the pointer with the popped dword; POP SP preserves the incremented high word.
 //! MOVZX (`0F B6`/`0F B7`) and MOVSX (`0F BE`/`0F BF`) read a byte/word
@@ -48,7 +50,7 @@
 //! of EAX. CWD/CDQ preserve the input accumulator, and word destinations preserve
 //! their parent's upper half. These opcode-only forms preserve every flag.
 //! LEA (`8D`) writes a ModRM/SIB effective address to a dword register, or its
-//! low word with `66`. It reads full 32-bit address registers, preserves flags,
+//! low word with `66`. Address size independently controls offset calculation. It preserves flags,
 //! and performs no data-memory access. Register-mode ModRM is unsupported.
 //! XCHG (`86`/`87`) exchanges a byte/word/dword register with a register or memory
 //! operand. `90`–`97` exchange AX/EAX with an opcode-selected register; `90` and
@@ -74,10 +76,10 @@
 //! SAHF (`9E`) copies AH bits 7/6/4/2/0 to SF/ZF/AF/PF/CF, preserving OF, DF
 //! and other flags. Both use AH with or without `66` and preserve the rest of EAX.
 //! MOVS, STOS, LODS, CMPS and SCAS process byte, word or dword elements with
-//! 32-bit ESI/EDI indices. DF selects increasing or decreasing indices.
-//! `F3` repeats MOVS/STOS until full ECX reaches zero, decrementing it only after
-//! each successful element. Zero ECX skips data access. A fault retains successful
-//! elements, current indices and remaining ECX, with EIP at the first prefix.
+//! address-sized SI/DI or ESI/EDI indices. DF selects increasing or decreasing indices.
+//! `F3` repeats MOVS/STOS until address-sized CX/ECX reaches zero, decrementing it only after
+//! each successful element. Zero count skips data access. A fault retains successful
+//! elements, current indices and remaining count, with EIP at the first prefix.
 //! The complete REP instruction retires once, including zero-count execution;
 //! it ends a snapshot block. Repeated LODS/CMPS/SCAS and `F2` remain unsupported.
 //! Relative JMP uses `EB`/`E9`; Jcc uses `70`–`7F`/`0F 80`–`0F 8F`.
@@ -88,22 +90,23 @@
 //! reads its target before pushing the fallthrough pointer at operand width.
 //! Indirect JMP (`FF` /4) reads an absolute target without changing ESP.
 //! Near RET (`C3`) pops its target; `C2` then adds an unsigned imm16 cleanup
-//! byte count to full ESP. Only the return-pointer cell is accessed. Word targets
+//! byte count to the SS.B-sized stack pointer. Only the return-pointer cell is accessed. Word targets
 //! are zero-extended, and word CALL saves the low fallthrough pointer.
 //! CALL and RET preserve all registers except ESP and preserve every flag.
-//! JECXZ (`E3`) tests full ECX for zero without changing it. LOOP (`E2`) decrements
-//! ECX and branches when nonzero; LOOPE (`E1`) also requires ZF set, LOOPNE (`E0`)
+//! JCXZ/JECXZ (`E3`) tests address-sized CX/ECX for zero without changing it. LOOP (`E2`)
+//! decrements that counter and branches when nonzero; LOOPE (`E1`) also requires ZF set, LOOPNE (`E0`)
 //! requires ZF clear. All preserve flags, and all use signed byte displacements.
-//! The counter stays 32-bit with `66`; only a taken target is truncated to a word.
+//! Address size selects the counter independently of the operand-sized taken target.
 //! Far transfers remain outside the subset. Transfers retire once and dispatch without
 //! fetching the destination instruction. Snapshot blocks end at the first control transfer or REP
 //! or the requested instruction limit, whichever comes first.
 //! Each full memory access is checked before instruction effects. A fault
 //! preserves the current instruction or string element's entry state and publishes earlier progress.
-//! ModRM/SIB effective addresses and absolute offsets are 32-bit, independent
-//! of the data width.
+//! Address size selects 16-bit BX/BP/SI/DI or 32-bit ModRM/SIB effective addresses
+//! and the width of absolute offsets, independently of data width. Offsets wrap
+//! before segment translation; each access checks the complete consecutive byte span.
 //! Ordinary memory operands select SS for an encoded EBP/ESP base and DS otherwise;
-//! an EBP index alone does not select SS. `26`/`2E`/`36`/`3E`/`64`/`65` override
+//! 16-bit BP addressing also selects SS; an EBP index alone does not. `26`/`2E`/`36`/`3E`/`64`/`65` override
 //! that choice with ES/CS/SS/DS/FS/GS. LEA computes only an offset. String sources
 //! accept overrides; destinations always use ES. Implicit stack accesses always
 //! use SS. Segment permissions and the entire offset span are checked before paging.
@@ -113,21 +116,21 @@
 //! wasm86 permits offset-span wrap; finite limits and expand-down segments reject it.
 //! The returned [`CompiledModule::segment_profile`] records the entry assumptions:
 //! snapshot blocks require [`SegmentProfile::Flat32`], while the interpreter accepts
-//! either profile as a compilation input. Flat entries omit segment checks and base
+//! a segment profile as a compilation input. Flat entries omit segment checks and base
 //! reads for address defaults, statically known DS/ES/SS accesses, and CS reads.
 //! Interpreter operands with an explicit segment override use complete checked
 //! translation. Segmented entries check data accesses and CS instruction fetches
 //! through the same cache path. EIP is an offset; fetching adds CS.base before paging.
 //! Taken near transfers check CS before publishing instruction effects; destination
-//! paging belongs to the next fetch. Both profiles require CS.D=1 and SS.B=1; Flat32
-//! additionally requires flat readable CS. The host must preserve compatibility and
+//! paging belongs to the next fetch. Segmented32 requires CS.D=1, Segmented16
+//! requires CS.D=0, and both handle SS.B at runtime. Flat32 requires CS.D=1, SS.B=1
+//! and flat readable CS. The host must preserve compatibility and
 //! invalidate dependent entries and links when assumptions break. Segment loading,
-//! descriptor validation and 16-bit execution defaults are outside the subset.
-//! In this default-32 mode, `66` selects word operands; repetition has the same
-//! effect and byte forms remain byte-sized. `66`, `F3` and segment overrides may
-//! occur in any order. Repeated `66` and `F3` retain their effect; wasm86 chooses
-//! the last segment override when there are several. Address-size `67`, `F2`
-//! and LOCK prefixes are outside the subset. Instructions contain at most fifteen bytes,
+//! descriptor validation and far transfers are outside the subset.
+//! CS.D sets the operand/address defaults; `66` and `67` independently select the
+//! other size. Byte operands stay byte-sized. Prefixes may occur in any order.
+//! Repeated `66`, `67` and `F3` preserve presence; wasm86 uses the last segment
+//! override when there are several. `F2` and LOCK are outside the subset. Instructions contain at most fifteen bytes,
 //! including prefixes and all required operand fields.
 //!
 //! Binary arithmetic, logic, NEG, XADD and CMPXCHG replace all six status flags. INC/DEC preserve
@@ -246,7 +249,7 @@ pub enum BlockError {
         address: u32,
     },
     /// The selected encoding is outside the supported instruction subset.
-    /// `opcode` is the first byte after operand-size and segment prefixes; other fields may
+    /// `opcode` is the first byte after size and segment prefixes; other fields may
     /// select an unsupported form. Extended opcodes report `0F`; an unsupported
     /// form after `F3` reports `F3`.
     UnsupportedInstruction {

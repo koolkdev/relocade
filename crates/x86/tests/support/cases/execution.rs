@@ -1,7 +1,7 @@
 //! Executes one-instruction cases through the applicable entry profiles.
 
 use std::collections::HashMap;
-use wasm86_x86::{compile_block_from_bytes, SegmentProfile};
+use wasm86_x86::{compile_block_from_bytes, SegmentDefaultSize, SegmentProfile};
 use wasmparser::Validator;
 
 use super::{expectations, observation::FlagObservations, Frontends, InstructionCase};
@@ -48,7 +48,12 @@ pub(super) fn check(cases: &[InstructionCase], engine: Engine) {
             .then(|| ("flat interpreter", TestModule::interpreter()));
         for (frontend, module) in std::iter::once((
             "segmented interpreter",
-            TestModule::interpreter_with_profile(SegmentProfile::Segmented32),
+            TestModule::interpreter_with_profile(
+                match initial.cpu.segments.cs.attributes.default_size() {
+                    SegmentDefaultSize::Bits16 => SegmentProfile::Segmented16,
+                    SegmentDefaultSize::Bits32 => SegmentProfile::Segmented32,
+                },
+            ),
         ))
         .chain(flat_interpreter)
         .chain(block.map(|module| ("block", &*module)))

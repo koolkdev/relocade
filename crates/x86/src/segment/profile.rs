@@ -14,24 +14,31 @@ pub enum SegmentProfile {
     /// a 32-bit stack pointer. FS and GS have no assumptions in this profile;
     /// accesses through them use runtime segment handling.
     Flat32,
-    /// 32-bit instruction defaults and a 32-bit stack pointer. All segment
-    /// ranges and access rights, including CS fetches, are checked at runtime.
+    /// 32-bit instruction defaults. Segment access and SS.B are runtime inputs.
     Segmented32,
+    /// 16-bit instruction defaults. Segment access and SS.B are runtime inputs.
+    Segmented16,
 }
 
 impl SegmentProfile {
+    pub(crate) fn code_default_size(self) -> SegmentDefaultSize {
+        match self {
+            Self::Flat32 | Self::Segmented32 => SegmentDefaultSize::Bits32,
+            Self::Segmented16 => SegmentDefaultSize::Bits16,
+        }
+    }
+
     /// Tests the properties assumed by this profile, rather than comparing
     /// selectors or requiring every byte of a segment cache to remain unchanged.
     pub fn is_compatible_with(self, segments: &Segments) -> bool {
         let cs = &segments.cs;
-        if cs.attributes.default_size() != SegmentDefaultSize::Bits32
-            || segments.ss.attributes.default_size() != SegmentDefaultSize::Bits32
-        {
+        if cs.attributes.default_size() != self.code_default_size() {
             return false;
         }
         match self {
             Self::Flat32 => {
-                flat_range(cs)
+                segments.ss.attributes.default_size() == SegmentDefaultSize::Bits32
+                    && flat_range(cs)
                     && cs.attributes.kind() == Some(SegmentKind::Code { readable: true })
                     && [&segments.ds, &segments.es, &segments.ss]
                         .into_iter()
@@ -44,7 +51,7 @@ impl SegmentProfile {
                                     })
                         })
             }
-            Self::Segmented32 => true,
+            Self::Segmented32 | Self::Segmented16 => true,
         }
     }
 }

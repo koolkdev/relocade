@@ -4,7 +4,7 @@ use wasm86_compiler::{BuildError, FunctionBuilder, MemoryInt, Val, I1, I16, I32}
 
 use crate::{exception::Exception, memory::Intent, state::Cpu};
 
-use super::{Segment, SegmentAttributes, SegmentProfile, SegmentSelection};
+use super::{Segment, SegmentAttributes, SegmentDefaultSize, SegmentProfile, SegmentSelection};
 
 #[cfg(test)]
 mod tests;
@@ -31,6 +31,24 @@ pub(crate) struct SegmentAccess<'cpu> {
 impl<'cpu> SegmentAccess<'cpu> {
     pub(crate) fn new(cpu: &'cpu Cpu, profile: SegmentProfile) -> Self {
         Self { cpu, profile }
+    }
+
+    /// Returns the D/B bit, using the profile when it proves the attribute.
+    pub(crate) fn is_segment_big(
+        &self,
+        body: &mut FunctionBuilder<'_>,
+        segment: Segment,
+    ) -> Result<Val<I1>, BuildError> {
+        match segment {
+            Segment::Cs => body.value(u32::from(
+                self.profile.code_default_size() == SegmentDefaultSize::Bits32,
+            )),
+            Segment::Ss if self.profile == SegmentProfile::Flat32 => body.value(1),
+            _ => Ok(self
+                .cpu
+                .read_segment(body, &segment.into())?
+                .bit(SegmentAttributes::DEFAULT_BIG)),
+        }
     }
 
     /// The entry's profile must remain compatible for its entire invocation.

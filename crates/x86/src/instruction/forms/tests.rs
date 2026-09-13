@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    address::Address32,
+    address::EffectiveAddress,
     instruction::{
         handlers::HandlerCall, opcode_forms, Operand, Prefix, PrefixState, EXTENDED_OPCODE_ESCAPE,
     },
@@ -76,8 +76,7 @@ fn catalog_bindings_use_available_fields_and_match_resolved_handler_arities() {
                     second_source,
                 ],
             };
-            for resolved in std::iter::once(PrefixState::default())
-                .chain(PrefixState::PREFIXED)
+            for resolved in PrefixState::combinations(crate::SegmentDefaultSize::Bits32)
                 .filter_map(|prefixes| form.resolve(&prefixes))
             {
                 let arity = match resolved.handler {
@@ -318,7 +317,8 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
         let fields = || DecodedFields::ModRm {
             register: RegisterCode::from_code(2),
             rm: Location::Memory(
-                Address32 {
+                EffectiveAddress {
+                    size: crate::address::AddressSize::Bits32,
                     base: None,
                     index: None,
                     displacement: 0x12345678u32,
@@ -336,7 +336,7 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
         assert!(matches!(
             address.instruction.call,
             HandlerCall::Binary {
-                right: Operand::Address(Address32 {
+                right: Operand::Address(EffectiveAddress {
                     displacement: 0x12345678,
                     ..
                 }),

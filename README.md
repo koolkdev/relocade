@@ -2,10 +2,12 @@
 
 Rust components for x86 execution in WebAssembly.
 
+Encoding examples assume 32-bit code defaults unless stated otherwise.
+
 `wasm86-x86` compiles MOV, MOVZX, MOVSX, CBW, CWDE, CWD, CDQ, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
 SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, MUL, IMUL, DIV, IDIV, SHL, SHR, SAR, SHLD, SHRD,
 ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, PUSHF/PUSHFD, POPF/POPFD,
-SETcc, CALL, RET, JMP, Jcc, JECXZ, LOOP, LOOPE, LOOPNE, CLC, STC, CMC, CLD, STD, LAHF, SAHF,
+SETcc, CALL, RET, JMP, Jcc, JCXZ/JECXZ, LOOP, LOOPE, LOOPNE, CLC, STC, CMC, CLD, STD, LAHF, SAHF,
 MOVS, STOS, LODS, CMPS and SCAS blocks, including REP MOVS/STOS,
 from byte snapshots:
 
@@ -83,16 +85,17 @@ assert!(!profile.is_compatible_with(&cpu.segments));
 `CompiledModule::segment_profile` records each x86 entry's required assumptions.
 Snapshot blocks return `Some(SegmentProfile::Flat32)` and omit segment guards
 for DS/ES/SS and CS reads. FS/GS accesses and CS writes check their caches at runtime.
-The interpreter accepts either profile when compiled and records it in the result.
+The interpreter accepts a segment profile when compiled and records it in the result.
 `Flat32` omits segment checks and base reads for address defaults and statically
 known DS/ES/SS accesses, as well as statically known CS reads and fetches.
 Interpreter handlers distinguish segment-override presence:
-ordinary accesses without an override use that shortcut, including after `66` or
+ordinary accesses without an override use that shortcut, including after `66`, `67` or
 `F3`; operands with explicit runtime overrides use complete checked translation.
-`Segmented32` checks data accesses and CS instruction fetches through the same cache
-path. It permits nonzero bases, finite limits and invalid access attributes: runtime
-checks report the corresponding guest fault. Both profiles require CS.D=1 and SS.B=1.
-`Flat32` additionally requires flat readable CS; execute-only CS requires `Segmented32`.
+`Segmented32` and `Segmented16` check data accesses and CS fetches through the same
+cache path. They permit nonzero bases, finite limits and invalid access attributes:
+runtime checks report the corresponding guest fault. Their code defaults require
+CS.D=1 and CS.D=0, respectively; both read SS.B for stack addressing at runtime.
+`Flat32` requires CS.D=1, SS.B=1 and flat readable CS. Execute-only CS uses a segmented profile.
 CS writes always fault.
 Modules that do not execute x86 instructions carry `None`.
 The host must establish compatibility before entering a module and preserve it
@@ -100,7 +103,7 @@ through its invocation. The execution owner must invalidate dependent entries
 and dispatch links when assumptions break, and separately maintain code-byte
 and mapping validity. This library exposes the assumptions; it has no code cache
 or automatic invalidation. Segment loading, descriptor and privilege validation,
-and 16-bit execution defaults remain outside the subset.
+and far transfers remain outside the subset.
 
 The flag backing record separates the source of status values from the individual
 stored flag bytes:
@@ -210,7 +213,7 @@ supports these forms in default-32 operand and address mode:
 | CALL register/memory | — | FF /2 | FF /2 |
 | RET with optional imm16 cleanup | — | C3/C2 | C3/C2 |
 | JMP register/memory | — | FF /4 | FF /4 |
-| JECXZ relative byte displacement | — | E3 | E3 |
+| JCXZ/JECXZ relative byte displacement | — | E3 | E3 |
 | LOOP relative byte displacement | — | E2 | E2 |
 | LOOPE/LOOPZ relative byte displacement | — | E1 | E1 |
 | LOOPNE/LOOPNZ relative byte displacement | — | E0 | E0 |
@@ -361,7 +364,7 @@ offset is signed at the operand width; dividing it by that width, rounding
 toward negative infinity, selects the word/dword unit. With DX equal to `FFFF`,
 `BT word [EBX],DX` reads bit 15 of the word at EBX minus two.
 The original base need not be aligned. The unit's byte offset is added with
-32-bit wrapping, then the complete selected unit follows the usual memory
+address-size wrapping, then the complete selected unit follows the usual memory
 range and page checks. BT needs only read access. BTS/BTR/BTC require full write
 permission even when the bit already has the requested value. Offset and address
 registers use their old values, and a fault preserves the operand and all flags.
@@ -377,10 +380,10 @@ Memory sources require read access to the complete
 operand before any destination or flag change. Source and address registers
 use their old values even when they also name the destination.
 
-LEA (`8D`) computes the effective address encoded by ModRM/SIB and writes it to a
-dword register. With `66`, it writes the low word and preserves the upper half of
-the destination. Address calculation always uses full 32-bit base and index
-registers and wraps at 32 bits before destination truncation. LEA preserves flags
+LEA (`8D`) computes the ModRM effective offset and writes an operand-sized register.
+Address size chooses the 16-bit layout or 32-bit ModRM/SIB layout and wraps the
+offset before destination truncation. A word destination preserves its upper half;
+a dword destination zero-extends a 16-bit address. LEA preserves flags
 and performs no data-memory access or page-permission checks. Its source requires
 a memory addressing mode; register-mode ModRM is unsupported. LEA-only snapshots
 need no guest or page-table memory imports.
@@ -400,13 +403,13 @@ including a short branch whose displacement remains one byte. An untaken Jcc
 retains the full 32-bit fallthrough address. Repeated `66` prefixes have the
 same effect as one.
 
-JECXZ (`E3`) branches when ECX is zero without changing it. LOOP (`E2`)
-decrements ECX with 32-bit wrapping and branches when the result is nonzero.
+JCXZ/JECXZ (`E3`) branches when CX/ECX is zero without changing it. LOOP (`E2`)
+decrements that counter with address-size wrapping and branches when it is nonzero.
 LOOPE/LOOPZ (`E1`) also requires ZF set; LOOPNE/LOOPNZ (`E0`) requires ZF clear.
-Both conditional forms decrement ECX even when ZF prevents the branch, and all
+Both conditional forms decrement the counter even when ZF prevents the branch, and all
 four instructions preserve every flag. Their signed displacement always occupies
-one byte. The current 32-bit address mode selects ECX even with `66`; the prefix
-only truncates a taken target to sixteen bits. An untaken branch retains the full
+one byte. Address size selects CX or ECX; operand size independently selects the
+width of a taken target. CX updates preserve the upper half of ECX. An untaken branch retains the full
 fallthrough EIP. These rules follow the Jcc and LOOP/LOOPcc entries in the
 [Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
 
@@ -418,8 +421,9 @@ by the push. With `66`, both the saved pointer and final target use their low wo
 Indirect JMP (`FF /4`) reads an absolute word/dword target without changing ESP.
 
 Near RET (`C3`) pops a word/dword target; `C2` also discards an unsigned imm16
-byte count after the pop. This immediate always occupies two bytes. ESP becomes
-`entry_ESP + operand_bytes + cleanup`, wrapping at 32 bits even with `66`.
+byte count after the pop. This immediate always occupies two bytes. The stack
+pointer becomes `entry_pointer + operand_bytes + cleanup`, wrapping at the width
+selected by SS.B. A 16-bit stack preserves the upper half of ESP.
 RET checks only the return-pointer cell; it does not access the discarded bytes
 or validate the resulting ESP. Word indirect and return targets are zero-extended.
 These rules follow the CALL, RET and JMP entries in the
@@ -451,22 +455,24 @@ selects both the operation and its fields: `F6`/`F7` /0 reads a TEST immediate, 
 PUSH `68` reads an operand-sized immediate; `6A` sign-extends its encoded byte
 to the operand width.
 
-The `66` operand-size prefix selects word data; repeating it keeps that size.
-Byte forms remain byte-sized with `66`. `F3` repeats MOVS/STOS; it can appear before
-or after `66`, and repeated copies retain their effect. Segment prefixes
+CS.D selects the default operand and address sizes. `66` overrides operand size;
+`67` independently overrides address size. Each selects the other size from the
+code default, and repeated copies preserve presence instead of toggling again.
+Byte forms stay byte-sized. `F3` repeats MOVS/STOS. Segment prefixes
 `26`/`2E`/`36`/`3E`/`64`/`65` select ES/CS/SS/DS/FS/GS and can appear in any
-order with `66` and `F3`. When several segment prefixes occur, wasm86 uses the
-last one as a deterministic policy. Address-size `67`, `F2` and LOCK prefixes
-are outside the supported subset. The fifteen-byte instruction limit
+order with `66`, `67` and `F3`. When several segment prefixes occur, wasm86 uses
+the last one as a deterministic policy. `F2` and LOCK remain outside the subset. The fifteen-byte instruction limit
 includes every prefix, opcode and required operand field.
 
 Byte register codes select AL/CL/DL/BL/AH/CH/DH/BH. Word codes select the low
 sixteen bits of EAX through EDI. Byte and word writes preserve the other bits
-of the parent register. Memory addresses use 32-bit ModRM/SIB base, index,
-scale and displacement fields, or a 32-bit absolute offset. A0/A2 use AL;
-A1/A3 use AX with `66` and EAX otherwise. Their encoded address is always four
-bytes, independent of the data width.
-Effective offsets wrap at 32 bits. An encoded EBP or ESP base selects SS;
+of the parent register. Address size selects 32-bit ModRM/SIB or the 16-bit
+BX/BP/SI/DI combinations. The latter have no SIB byte and use disp8 or disp16;
+mod=00/rm=110 is absolute disp16. A0/A2 use AL, while A1/A3 use AX or EAX at
+operand width. Their absolute offset occupies two or four bytes at address width.
+Effective offsets wrap at address size before segment translation; bytes within
+a memory operand continue consecutively and must fit the segment limit.
+In 16-bit addressing, any BP base selects SS. In 32-bit addressing, EBP or ESP selects SS;
 all other bases and baseless addresses select DS. An EBP index alone does not
 select SS. A segment override replaces this default. LEA returns the effective
 offset without checking or adding a segment base. Implicit stack accesses always
@@ -498,20 +504,21 @@ the other flags.
 
 After the element succeeds, each used index increases by the element width when
 DF is clear and decreases when DF is set. MOVS and CMPS update both ESI and EDI;
-LODS updates ESI; STOS and SCAS update EDI. Index arithmetic wraps at 32 bits,
-including word operations. ECX is unchanged and each instruction retires once.
+LODS updates ESI; STOS and SCAS update EDI. Address size chooses ESI/EDI or SI/DI
+and their arithmetic width. SI/DI writes preserve the upper register halves.
+The counter is unchanged and each instruction retires once.
 MOVS and CMPS check the ESI source before the EDI access. A faulting access leaves
 the instruction's registers, flags and destination memory unchanged; earlier
 completed instructions remain visible. Overlapping MOVS operands copy the complete
 source element before storing it. These rules follow the string instruction
 entries in the [Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
 
-`F3` repeats MOVS/STOS until the full 32-bit ECX reaches zero. Zero ECX skips
-data access. Each successful element advances its indices and decrements ECX;
+`F3` repeats MOVS/STOS until the address-sized CX/ECX reaches zero. A zero count
+skips data access. Each successful element advances its indices and decrements the counter;
 an access fault retains the successful elements, current indices and remaining
-ECX. EIP stays at the instruction's first prefix so execution can resume after
-repairing the segment cache or mapping. Word operand size changes the element width, while ECX,
-ESI and EDI remain 32-bit. Overlap follows sequential element order, including
+count. EIP stays at the instruction's first prefix so execution can resume after
+repairing the segment cache or mapping. Operand size selects element width;
+address size independently selects counter and index widths. Overlap follows sequential element order, including
 aliases through different virtual pages. These restart rules follow the
 [Intel REP instruction entry](https://cdrdv2-public.intel.com/782151/253667-sdm-vol-2b.pdf).
 
@@ -519,15 +526,18 @@ A complete REP retires once, including zero-count execution; a faulting REP
 does not retire. Both frontends execute all remaining elements before dispatching
 the successor. REP ends a snapshot block and consumes one instruction from its
 compilation limit. This scalar implementation checks each element separately.
-Repeated LODS/CMPS/SCAS, `F2` and address-size overrides remain unsupported. In particular, `F3` does not repeat arbitrary instructions.
+Repeated LODS/CMPS/SCAS and `F2` remain unsupported. In particular, `F3` does not repeat arbitrary instructions.
 
-PUSH and POP transfer a word or dword through a 32-bit stack pointer. PUSH reads
+PUSH and POP transfer a word or dword through SP when SS.B=0 or ESP when SS.B=1.
+This stack width is independent of CS.D, `66` and `67`. PUSH reads
 its source using the entry register values, then subtracts the operand size from
-ESP and stores on the stack. Thus PUSH ESP stores the original ESP. POP reads the
-stack, then adds the operand size to ESP; a memory destination using ESP is
+the stack pointer and stores on the stack. Thus PUSH ESP stores the original ESP.
+POP reads the stack, then adds the operand size to the pointer. A destination using ESP is
 addressed with that incremented value. A POP ESP register destination replaces
 the incremented pointer with the popped dword. POP SP replaces its low word,
-preserving the high word of the incremented ESP. These instructions preserve
+preserving the high word of the incremented ESP. When a 16-bit stack wraps during
+POP to memory, Intel leaves the destination processor-family-specific; wasm86
+uses the incremented ESP with its upper word preserved. These instructions preserve
 the entire flag source and always require guest-memory imports.
 
 PUSHF/PUSHFD (`9C`) and POPF/POPFD (`9D`) use the same stack accesses. `66`
@@ -550,7 +560,7 @@ changing registers or memory. Faults preserve the faulting instruction's entry
 state while publishing any earlier completed instructions. When both accesses
 would fault, wasm86 checks the source first; this is its deterministic access
 policy. Operand size controls the two- or four-byte transfer and pointer change;
-stack offsets remain 32-bit under both supported segment profiles.
+SS.B independently controls pointer wrapping and the offset used for stack access.
 
 `compile_interpreter_step(profile)` builds a generated `step() -> i64` entry for the
 same instruction subset. Both compiler functions return a `CompiledModule`
@@ -561,10 +571,11 @@ use wasm86_x86::{compile_interpreter_step, SegmentProfile};
 
 let flat = compile_interpreter_step(SegmentProfile::Flat32)?;
 let segmented = compile_interpreter_step(SegmentProfile::Segmented32)?;
+let code16 = compile_interpreter_step(SegmentProfile::Segmented16)?;
 ```
 
-The profile specializes the generated module. Both variants have the same imports
-and exported entry signature. A host can instantiate both against the same CPU,
+The profile specializes the generated module, including the CS.D default. All
+variants have the same imports and entry signature. A host can instantiate them against the same CPU,
 guest and machine memories, then call the entry whose profile is compatible with
 the current segment state. Changing the active entry requires no CPU-state conversion.
 
@@ -616,8 +627,8 @@ and supplies the decoded condition to the body. These patterns expand into the
 existing shared forms, so adding a family requires no central instruction enum or
 lowering case.
 
-`byte` fixes the data width at eight bits. `word_or_dword` selects sixteen bits with
-`66` and thirty-two bits otherwise. Ordinary location tokens use that width;
+`byte` fixes data width at eight bits. `word_or_dword` uses the effective operand
+size after CS.D and `66`. Ordinary location tokens use that width;
 `rm8`, `rm16`, and named registers such as `AH`, `CL` or `AX` give an independent width.
 `accumulator` selects AL, AX or EAX at the row's width. A row can spell out both
 operand-size alternatives when each argument changes differently:
@@ -668,15 +679,15 @@ widths and block boundary. For the current forms, `F3` requires the declared `re
 body; it is interpreted here rather than recorded as repetition by the byte cursor.
 The resulting `ResolvedForm` owns operand binding and applies the segment override
 to explicit memory operands. The bound instruction retains the override for implicit
-string sources, so lowering needs no prefix switch. Repeated forms currently require implicit operands
+string sources and the address size for indices and counters, so lowering needs no prefix switch. Repeated forms currently require implicit operands
 in the primary opcode map.
 
 Physical immediate widths stay independent of logical data widths. `imm8` and
 `imm16` consume one and two bytes respectively; `imm` follows the operand-size
 attribute. `signed_imm8` consumes one byte and sign-extends it to the row's width.
 `rel8` and `rel` describe branch displacement fields. `constant(1)` consumes no
-bytes and gets its logical type from the body. `moffs32` always encodes a 32-bit
-absolute address, regardless of data width. `address` requires memory addressing
+bytes and gets its logical type from the body. `moffs` encodes an absolute offset
+at address width, independently of data width. `address` requires memory addressing
 but passes the effective address without reading data memory; LEA uses it with
 the ordinary MOV body.
 
@@ -772,7 +783,7 @@ A fault publishes completed definitions into its terminating branch without
 consuming the parent state used by the successful path.
 MOVS/STOS use `string_elements` to choose one element or a native counted loop.
 The family supplies its used indices and element operation; execution carries
-ECX and those indices through the compiler's typed loop. Each iteration forks
+the address-sized counter and indices through the compiler's typed loop. Each iteration forks
 the incoming state definitions and installs its current tuple before any access.
 Faults publish that state, while successful loop exits join their final register
 values into the enclosing state. Forking copies construction-time definitions,
@@ -1330,6 +1341,9 @@ A one-bit argument or result is therefore `0` or `1`. The compiler normalizes
 narrow call arguments once per shared value without masking intermediate
 arithmetic. Imported functions must return narrow results with their unused
 upper bits clear too, including when the import is exported directly.
+Constant additions and subtractions share one offset expression before placement.
+Successive offsets combine with wrapping at the logical integer width; conversions
+and other operations keep their own boundaries.
 When bit bounds prove that a value is already zero or one, testing it for nonzero
 reuses that value as a logical bit without another Boolean calculation.
 An unshared nonzero test used only by `if_`, `if_else`, `if_value` or `select`

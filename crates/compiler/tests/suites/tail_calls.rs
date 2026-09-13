@@ -205,7 +205,7 @@ fn stores_share_raw_values_with_normalized_arguments() {
     let code = inspect(shared_arguments(true, true, 0).bytes());
     assert_eq!(
         (code.adds, code.masks, code.locals, code.writes),
-        (2, 2, 2, 2)
+        (2, 2, 1, 2)
     );
 }
 

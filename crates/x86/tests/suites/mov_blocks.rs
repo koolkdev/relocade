@@ -54,19 +54,19 @@ fn selected_mov_requires_all_five_bytes() {
 
 #[test]
 fn unsupported_selected_opcodes_report_their_instruction_address() {
-    for bytes in [&[0x62][..], &[0x67, 0xb8, 0, 0, 0, 0][..]] {
+    for bytes in [&[0x62][..], &[0xf0, 0xb8, 0, 0, 0, 0][..]] {
         assert!(matches!(
             compile_block_from_bytes(0x1000, bytes, 1),
             Err(BlockError::UnsupportedInstruction { address: 0x1000, opcode }) if opcode == bytes[0]
         ));
     }
     let mut bytes = SINGLE_MOVES[0].0.to_vec();
-    bytes.push(0x67);
+    bytes.push(0xf0);
     assert!(matches!(
         compile_block_from_bytes(0x1000, &bytes, 2),
         Err(BlockError::UnsupportedInstruction {
             address: 0x1005,
-            opcode: 0x67
+            opcode: 0xf0
         })
     ));
 }

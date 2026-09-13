@@ -205,7 +205,7 @@ fn the_length_limit_precedes_the_absent_code_page_in_v8() {
     check_length_limit(Engine::V8);
 }
 
-// Far forms remain outside the subset, as does the address-size prefix.
+// Far forms remain outside the subset.
 const UNSUPPORTED: &[&[u8]] = &[
     &[0x9a],
     &[0xea],
@@ -213,7 +213,6 @@ const UNSUPPORTED: &[&[u8]] = &[
     &[0xcb],
     &[0xff, 0x1c],
     &[0xff, 0x2c],
-    &[0x67],
 ];
 
 #[test]
