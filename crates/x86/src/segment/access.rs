@@ -16,6 +16,12 @@ pub(crate) struct SegmentValues {
     pub(crate) attributes: Val<I16>,
 }
 
+/// A non-faulting segment probe. A profile-proven span needs no runtime guard.
+pub(crate) struct SegmentCheck {
+    pub(crate) linear: Val<I32>,
+    pub(crate) denied: Option<Val<I1>>,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct SegmentAccess<'cpu> {
     cpu: &'cpu Cpu,
@@ -38,54 +44,71 @@ impl<'cpu> SegmentAccess<'cpu> {
         intent: Intent,
         on_fault: impl Fn(FunctionBuilder<'_>, Exception) -> Result<(), BuildError>,
     ) -> Result<Val<I32>, BuildError> {
+        let check = self.check(body, segment, offset, T::BYTES, intent)?;
+        if let Some(denied) = check.denied {
+            body.if_(denied, |mut fault| {
+                fault.if_else(
+                    segment.index().eq(Segment::Ss as u32),
+                    |arm| {
+                        on_fault(
+                            arm,
+                            Exception::StackFault {
+                                error_code: 0.into(),
+                            },
+                        )
+                    },
+                    |arm| {
+                        on_fault(
+                            arm,
+                            Exception::GeneralProtection {
+                                error_code: 0.into(),
+                            },
+                        )
+                    },
+                )
+            })?;
+        }
+        Ok(check.linear)
+    }
+
+    /// Probes permissions and an offset span without raising an exception.
+    /// Fetch windows may fall back to smaller reads; transfers only need the
+    /// target predicate, without checking its page or using its linear address.
+    pub(crate) fn check(
+        &self,
+        body: &mut FunctionBuilder<'_>,
+        segment: &SegmentSelection,
+        offset: &Val<I32>,
+        bytes: u32,
+        intent: Intent,
+    ) -> Result<SegmentCheck, BuildError> {
+        assert!(bytes > 0);
         match (self.profile, segment, intent) {
             (
                 SegmentProfile::Flat32,
                 SegmentSelection::Named(Segment::Cs),
                 Intent::Read | Intent::Fetch,
-            ) => Ok(offset.clone()),
+            ) => Ok(SegmentCheck {
+                linear: offset.clone(),
+                denied: None,
+            }),
             (
                 SegmentProfile::Flat32,
                 SegmentSelection::Named(Segment::Ds | Segment::Es | Segment::Ss)
                 | SegmentSelection::AddressDefault(_),
                 Intent::Read | Intent::Write,
-            ) => Ok(offset.clone()),
-            _ => self.translate_checked::<T>(body, segment, offset, intent, &on_fault),
+            ) => Ok(SegmentCheck {
+                linear: offset.clone(),
+                denied: None,
+            }),
+            _ => {
+                let cache = self.cpu.read_segment(body, segment)?;
+                Ok(SegmentCheck {
+                    linear: cache.base.add(offset),
+                    denied: Some(cache.access_denied(offset, bytes, intent)),
+                })
+            }
         }
-    }
-
-    fn translate_checked<T: MemoryInt>(
-        &self,
-        body: &mut FunctionBuilder<'_>,
-        segment: &SegmentSelection,
-        offset: &Val<I32>,
-        intent: Intent,
-        on_fault: &impl Fn(FunctionBuilder<'_>, Exception) -> Result<(), BuildError>,
-    ) -> Result<Val<I32>, BuildError> {
-        let cache = self.cpu.read_segment(body, segment)?;
-        let denied = cache.access_denied::<T>(offset, intent);
-        body.if_(denied, |mut fault| {
-            fault.if_else(
-                segment.index().eq(Segment::Ss as u32),
-                |arm| {
-                    on_fault(
-                        arm,
-                        Exception::StackFault {
-                            error_code: 0.into(),
-                        },
-                    )
-                },
-                |arm| {
-                    on_fault(
-                        arm,
-                        Exception::GeneralProtection {
-                            error_code: 0.into(),
-                        },
-                    )
-                },
-            )
-        })?;
-        Ok(cache.base.add(offset))
     }
 }
 
@@ -94,7 +117,7 @@ impl SegmentValues {
         self.attributes.and(u32::from(mask)).ne(0)
     }
 
-    fn access_denied<T: MemoryInt>(&self, offset: &Val<I32>, intent: Intent) -> Val<I1> {
+    fn access_denied(&self, offset: &Val<I32>, bytes: u32, intent: Intent) -> Val<I1> {
         let usable = self.bit(SegmentAttributes::USABLE);
         let code = self.bit(SegmentAttributes::CODE);
         let readable_or_writable = self.bit(SegmentAttributes::READ_WRITE);
@@ -104,7 +127,7 @@ impl SegmentValues {
             Intent::Write => code.eq(0).and(&readable_or_writable),
             Intent::Fetch => code.clone(),
         };
-        let last = offset.add(T::BYTES - 1);
+        let last = offset.add(bytes - 1);
         let no_wrap = last.unsigned().ge(offset);
         // Full-size expand-up segments permit wrapping offsets in this emulator.
         // Finite limits must cover every byte without offset arithmetic wrapping.

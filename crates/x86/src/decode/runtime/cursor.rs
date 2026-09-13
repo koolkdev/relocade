@@ -2,10 +2,9 @@ mod read;
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32, I8};
 
-use crate::{
-    instruction::{FieldWidth, ResolvedForm, MAX_INSTRUCTION_BYTES},
-    memory::Memory,
-};
+use crate::instruction::{FieldWidth, ResolvedForm, MAX_INSTRUCTION_BYTES};
+
+use super::InstructionFetch;
 
 // One primary opcode and the widest scalar field fit this shared fetch window.
 // Longer forms retain the same proof and check fields beyond its extent.
@@ -17,7 +16,7 @@ pub(super) const DIRECT_FETCH_BYTES: u32 = 1 + FieldWidth::Dword.bytes();
 /// wrapping instruction address space.
 #[derive(Clone)]
 pub(super) struct RuntimeCursor<'memory> {
-    memory: &'memory Memory,
+    fetch: InstructionFetch<'memory>,
     instruction_eip: Val<I32>,
     offset: Val<I32>,
     maximum_offset: u32,
@@ -40,13 +39,13 @@ impl Window {
 impl<'memory> RuntimeCursor<'memory> {
     pub(super) fn new(
         body: &FunctionBuilder<'_>,
-        memory: &'memory Memory,
+        fetch: InstructionFetch<'memory>,
         instruction_eip: &Val<I32>,
         physical_start: Option<&Val<I32>>,
         consumed: u32,
     ) -> Result<Self, BuildError> {
         Ok(Self {
-            memory,
+            fetch,
             instruction_eip: instruction_eip.clone(),
             offset: body.value(consumed)?,
             maximum_offset: consumed,
@@ -61,12 +60,12 @@ impl<'memory> RuntimeCursor<'memory> {
     /// Resumes checked reads at the instruction's total consumed byte count.
     /// Prefixes and opcode escapes never start a new instruction-length budget.
     pub(super) fn resume(
-        memory: &'memory Memory,
+        fetch: InstructionFetch<'memory>,
         instruction_eip: &Val<I32>,
         consumed: &Val<I32>,
     ) -> Self {
         Self {
-            memory,
+            fetch,
             instruction_eip: instruction_eip.clone(),
             offset: consumed.clone(),
             maximum_offset: MAX_INSTRUCTION_BYTES,

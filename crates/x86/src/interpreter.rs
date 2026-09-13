@@ -1,8 +1,12 @@
 use wasm86_compiler::{BuildError, Program, Signature, Type};
 
 use crate::{
-    declare_dispatch, decode::RuntimeDecoder, execution::ExecutionBuilder, memory::Memory,
-    state::Cpu, CompiledModule, SegmentProfile,
+    declare_dispatch,
+    decode::{InstructionFetch, RuntimeDecoder},
+    execution::ExecutionBuilder,
+    memory::Memory,
+    state::Cpu,
+    CompiledModule, SegmentProfile,
 };
 
 /// Builds `step() -> i64`, which fetches and executes one supported instruction
@@ -19,15 +23,17 @@ use crate::{
 /// presence, bit 1 permits data writes, and bits 12 through 31 identify a 4-KiB
 /// frame in guest memory. Reads require presence. Valid backing for present frames
 /// is an internal invariant. The selected `profile` is a compilation assumption,
-/// recorded in [`CompiledModule::segment_profile`]. Both profiles require flat
-/// executable CS with 32-bit instruction defaults and SS.B=1. The host establishes
+/// recorded in [`CompiledModule::segment_profile`]. Both profiles require
+/// 32-bit instruction defaults and SS.B=1. The host establishes
 /// compatibility before entry and preserves it throughout the invocation.
 /// [`SegmentProfile::Flat32`] omits segment checks and base reads for address
 /// defaults and statically known DS/ES/SS accesses. It additionally requires
-/// readable CS. Operands with an explicit segment override use complete checked
+/// flat readable CS. Operands with an explicit segment override use complete checked
 /// translation, while `66` and `F3` alone preserve the default-segment shortcut.
-/// [`SegmentProfile::Segmented32`] permits execute-only CS and checks all data
-/// accesses, including CS, through the same cache path. Checked accesses validate
+/// [`SegmentProfile::Segmented32`] checks all segments at runtime, including CS
+/// for instruction fetch. EIP and dispatch targets are CS-relative offsets;
+/// fetching adds CS.base before paging. Execute-only CS permits instruction fetch.
+/// Checked accesses validate
 /// permissions and complete offset spans, then add the segment base at 32 bits.
 /// Both variants have the same imports and entry signature, so
 /// the host can instantiate them with shared memories and choose a compatible entry.
@@ -54,6 +60,10 @@ use crate::{
 /// Faults and unsupported forms do not retire or dispatch. Ordinary instruction
 /// faults preserve entry CPU state. REP faults preserve successful elements and their
 /// remaining ECX and current indices, without retiring the repeated instruction.
+/// Taken near transfers validate their target against CS before changing ESP or
+/// ECX. CALL checks the target before pushing; RET reads the stack before checking
+/// its target and committing ESP. Target paging belongs to the next fetch.
+/// An untaken branch does not check its unused target or its fallthrough offset.
 /// EIP and count wrap at 32 bits; taken branches with `66`
 /// truncate their targets to sixteen bits. Untaken branches keep full fallthrough EIP.
 ///
@@ -64,7 +74,9 @@ use crate::{
 /// data accesses; success retires the REP once and dispatches after the entire
 /// instruction. `F2`, `67` and LOCK prefixes are outside
 /// the supported subset. All required instruction bytes count toward the 15-byte
-/// limit. Attempting to read byte 16 returns general protection with error zero,
+/// limit. A direct fetch window must satisfy both CS and paging. If it does not,
+/// required bytes are checked in order, with CS checked before paging for each byte.
+/// Attempting to read byte 16 returns general protection with error zero,
 /// encoded as `2 << 48`. A missing required byte within the limit faults first.
 /// This entry has no instruction budget. Segment loads and 16-bit execution defaults
 /// remain outside the subset.
@@ -86,7 +98,8 @@ pub fn compile_interpreter_step(profile: SegmentProfile) -> Result<CompiledModul
     };
     let step = program.declare(signature.clone());
     let exact = program.declare(signature);
-    let decoder = RuntimeDecoder::new(&mut program, &memory, |body, decoded| {
+    let fetch = InstructionFetch::new(&cpu, &memory, profile);
+    let decoder = RuntimeDecoder::new(&mut program, fetch, |body, decoded| {
         let mut execution =
             ExecutionBuilder::new(body, &cpu, Some(&memory), dispatch, &decoded.eip, profile)?;
         execution.execute(decoded)?;

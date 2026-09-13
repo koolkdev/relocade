@@ -116,9 +116,11 @@
 //! either profile as a compilation input. Flat entries omit segment checks and base
 //! reads for address defaults, statically known DS/ES/SS accesses, and CS reads.
 //! Interpreter operands with an explicit segment override use complete checked
-//! translation. Segmented entries check all data accesses, including CS, through
-//! the same cache path. Both require flat executable CS, CS.D=1 and SS.B=1; Flat32
-//! additionally requires readable CS. The host must preserve compatibility and
+//! translation. Segmented entries check data accesses and CS instruction fetches
+//! through the same cache path. EIP is an offset; fetching adds CS.base before paging.
+//! Taken near transfers check CS before publishing instruction effects; destination
+//! paging belongs to the next fetch. Both profiles require CS.D=1 and SS.B=1; Flat32
+//! additionally requires flat readable CS. The host must preserve compatibility and
 //! invalidate dependent entries and links when assumptions break. Segment loading,
 //! descriptor validation and 16-bit execution defaults are outside the subset.
 //! In this default-32 mode, `66` selects word operands; repetition has the same

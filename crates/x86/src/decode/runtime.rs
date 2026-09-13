@@ -1,5 +1,6 @@
 mod address;
 mod cursor;
+mod fetch;
 mod handlers;
 mod operands;
 mod selectors;
@@ -8,11 +9,13 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Program, Val, I32, I8};
 
 use crate::{
     instruction::{DecodedInstruction, OpcodeMap},
-    memory::{DirectRange, Intent, Memory},
+    memory::DirectRange,
     state::exit,
 };
 
 use super::DecodeState;
+
+pub(crate) use fetch::InstructionFetch;
 
 use self::{
     cursor::{RuntimeCursor, DIRECT_FETCH_BYTES},
@@ -24,7 +27,7 @@ use self::{
 /// entries carry the cursor's fetch guarantees; memory entries resume after
 /// opcode and ModRM validation.
 pub(crate) struct RuntimeDecoder<'memory, C> {
-    memory: &'memory Memory,
+    fetch: InstructionFetch<'memory>,
     opcode_handlers: DecodeHandlers,
     primary_modrm_memory_handlers: DecodeHandlers,
     extended_modrm_memory_handlers: DecodeHandlers,
@@ -37,11 +40,11 @@ where
 {
     pub(crate) fn new(
         program: &mut Program,
-        memory: &'memory Memory,
+        fetch: InstructionFetch<'memory>,
         complete_instruction: C,
     ) -> Result<Self, BuildError> {
         let decoder = Self {
-            memory,
+            fetch,
             opcode_handlers: DecodeHandlers::declare(program, DecodePoint::Opcode),
             primary_modrm_memory_handlers: DecodeHandlers::declare(
                 program,
@@ -57,7 +60,7 @@ where
             &decoder.primary_modrm_memory_handlers,
             &decoder.extended_modrm_memory_handlers,
         ] {
-            handlers.define(program, memory, |body, cursor, state, opcode| {
+            handlers.define(program, fetch, |body, cursor, state, opcode| {
                 let modrm = body.parameter::<I8>(2)?;
                 decoder.decode_memory_operands(body, cursor, state, opcode, &modrm)
             })?;
@@ -65,7 +68,7 @@ where
 
         decoder
             .opcode_handlers
-            .define(program, memory, |body, cursor, state, opcode| {
+            .define(program, fetch, |body, cursor, state, opcode| {
                 decoder.decode_opcode(body, cursor, state, opcode)
             })?;
         Ok(decoder)
@@ -78,8 +81,8 @@ where
     ) -> Result<DirectRange, BuildError> {
         // Fields beyond this window use checked fetch. Extending the common
         // proof for longer forms would burden shorter instructions.
-        self.memory
-            .check_direct_access(body, instruction_eip, DIRECT_FETCH_BYTES, Intent::Fetch)
+        self.fetch
+            .check_direct_access(body, instruction_eip, DIRECT_FETCH_BYTES)
     }
 
     /// `physical_start` supplies the proven contiguous instruction window. The stored
@@ -90,8 +93,7 @@ where
         instruction_eip: &Val<I32>,
         physical_start: Option<&Val<I32>>,
     ) -> Result<(), BuildError> {
-        let mut cursor =
-            RuntimeCursor::new(&body, self.memory, instruction_eip, physical_start, 0)?;
+        let mut cursor = RuntimeCursor::new(&body, self.fetch, instruction_eip, physical_start, 0)?;
         let opcode = cursor.byte(&mut body)?;
         self.opcode_handlers
             .tail_call(body, &cursor, DecodeState::default(), &[(&opcode).into()])

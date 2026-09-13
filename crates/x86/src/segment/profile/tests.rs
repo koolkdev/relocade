@@ -54,7 +54,7 @@ fn code_defaults_and_stack_width_are_separate_requirements() {
 }
 
 #[test]
-fn execute_only_code_requires_the_segmented_profile() {
+fn code_permissions_are_runtime_checks_in_the_segmented_profile() {
     let mut segments = Segments::flat32();
     segments.cs.attributes = SegmentAttributes::from_bits(0x13);
     assert!(!compatible(&segments));
@@ -62,7 +62,7 @@ fn execute_only_code_requires_the_segmented_profile() {
     for bits in [0x15, 0x1b, 0xffff] {
         segments.cs.attributes = SegmentAttributes::from_bits(bits);
         assert!(!compatible(&segments), "CS attributes {bits:04x}");
-        assert!(!SegmentProfile::Segmented32.is_compatible_with(&segments));
+        assert!(SegmentProfile::Segmented32.is_compatible_with(&segments));
     }
 }
 
@@ -104,14 +104,8 @@ fn fs_and_gs_changes_do_not_break_the_flat_profile() {
 }
 
 #[test]
-fn runtime_data_checks_allow_nonflat_or_unusable_data_caches() {
-    for segment in [
-        Segment::Ds,
-        Segment::Es,
-        Segment::Ss,
-        Segment::Fs,
-        Segment::Gs,
-    ] {
+fn runtime_checks_allow_nonflat_or_unusable_caches_with_supported_defaults() {
+    for segment in Segment::ALL {
         for attributes in [0x10, 0x11, 0x13, 0x17, 0x1d] {
             let mut segments = Segments::flat32();
             segments[segment] = StoredSegment {
@@ -129,23 +123,9 @@ fn runtime_data_checks_allow_nonflat_or_unusable_data_caches() {
 }
 
 #[test]
-fn both_frontends_require_flat_default32_code_and_a_big_stack() {
+fn both_profiles_require_default32_code_and_a_big_stack() {
     for profile in [SegmentProfile::Flat32, SegmentProfile::Segmented32] {
         for (segment, cache) in [
-            (
-                Segment::Cs,
-                StoredSegment {
-                    base: 1,
-                    ..StoredSegment::flat_code32(0)
-                },
-            ),
-            (
-                Segment::Cs,
-                StoredSegment {
-                    limit: 0xffff,
-                    ..StoredSegment::flat_code32(0)
-                },
-            ),
             (
                 Segment::Cs,
                 StoredSegment {

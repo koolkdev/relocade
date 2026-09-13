@@ -1,4 +1,4 @@
-use wasm86_x86::FlagBytes;
+use wasm86_x86::{FlagBytes, Segments};
 
 use super::{InitialFlags, InitialState};
 use crate::support::guest::Machine;
@@ -18,13 +18,17 @@ impl InitialState {
     }
 
     pub(in crate::support) fn machine(&self, code: &[u8]) -> Machine {
-        let mut machine = Machine::with_mappings(self.eip, code, &self.mappings);
+        let mut segments = Segments::flat32();
+        for &(segment, cache) in &self.segments {
+            segments[segment] = cache;
+        }
+        let linear = segments.cs.base.wrapping_add(self.eip);
+        let mut machine = Machine::with_mappings(linear, code, &self.mappings);
+        machine.cpu.eip = self.eip;
+        machine.cpu.segments = segments;
         machine.cpu.instruction_count = self.instruction_count;
         for &(register, value) in &self.registers {
             machine.cpu.registers[register] = value;
-        }
-        for &(segment, cache) in &self.segments {
-            machine.cpu.segments[segment] = cache;
         }
         if let Some(flags) = self.flags.logical() {
             machine.cpu.flags.status_source.kind = 0;

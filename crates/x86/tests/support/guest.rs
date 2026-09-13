@@ -173,9 +173,13 @@ impl Machine {
     }
 
     fn code_at_eip(&self) -> &[u8] {
-        let offset = self.cpu.eip.wrapping_sub(self.code_start) as usize;
+        let offset = self.linear_eip().wrapping_sub(self.code_start) as usize;
         assert!(offset < self.code.len(), "EIP must select the fixture code");
         &self.code[offset..]
+    }
+
+    fn linear_eip(&self) -> u32 {
+        self.cpu.segments.cs.base.wrapping_add(self.cpu.eip)
     }
 
     pub(crate) fn state(&self) -> State {
@@ -205,7 +209,7 @@ impl Machine {
         assert!(invocations > 0, "execution needs at least one invocation");
         let code = self.code_at_eip();
         assert_eq!(
-            self.state().memory.read(self.cpu.eip, code.len()),
+            self.state().memory.read(self.linear_eip(), code.len()),
             code,
             "fixture setup changed the instruction bytes"
         );

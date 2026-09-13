@@ -1,8 +1,6 @@
 use wasm86_compiler::{AtLeast, BuildError, FunctionBuilder, MemoryInt, Val, I32, I8};
 
-use crate::{
-    exception::Exception, instruction::MAX_INSTRUCTION_BYTES, memory::Intent, state::exit,
-};
+use crate::{exception::Exception, instruction::MAX_INSTRUCTION_BYTES, state::exit};
 
 use super::{RuntimeCursor, Window};
 
@@ -13,8 +11,9 @@ impl RuntimeCursor<'_> {
         window: &Window,
     ) -> Result<Val<T>, BuildError> {
         match self.fixed_offset {
-            Some(offset) => self.memory.load(body, &window.physical_start, offset),
+            Some(offset) => self.fetch.memory.load(body, &window.physical_start, offset),
             None => self
+                .fetch
                 .memory
                 .load(body, &window.physical_start.add(&self.offset), 0),
         }
@@ -41,15 +40,7 @@ impl RuntimeCursor<'_> {
             Some(window) if window.covers(self.maximum_offset, 1) => {
                 self.read_window(body, window)?
             }
-            _ => {
-                let access = self.memory.resolve_access::<I8>(
-                    body,
-                    &self.next_eip(),
-                    Intent::Fetch,
-                    exit::exception,
-                )?;
-                self.memory.read(body, &access)?
-            }
+            _ => self.fetch.byte(body, &self.next_eip())?,
         };
         self.advance(1);
         Ok(value)
@@ -76,9 +67,9 @@ impl RuntimeCursor<'_> {
                 return Ok(value);
             }
         }
-        let direct =
-            self.memory
-                .check_direct_access(body, &self.next_eip(), T::BYTES, Intent::Fetch)?;
+        let direct = self
+            .fetch
+            .check_direct_access(body, &self.next_eip(), T::BYTES)?;
         let needs_byte_reads = if self.maximum_offset + T::BYTES > MAX_INSTRUCTION_BYTES {
             direct.unavailable.or(self
                 .offset
@@ -90,8 +81,8 @@ impl RuntimeCursor<'_> {
         let value = body.if_value::<T>(
             needs_byte_reads,
             |mut field_body| {
-                // Retry in byte order: a missing byte below the length limit
-                // faults before a later read could exceed it. EIP may wrap.
+                // Retry required bytes in order. An earlier missing page faults
+                // before a later CS or instruction-length violation. EIP may wrap.
                 let mut field_cursor = self.clone();
                 let mut value = field_cursor
                     .byte(&mut field_body)?
@@ -105,6 +96,7 @@ impl RuntimeCursor<'_> {
             },
             |mut field_body| {
                 let value = self
+                    .fetch
                     .memory
                     .load::<T>(&mut field_body, &direct.physical, 0)?;
                 field_body.yield_(value)

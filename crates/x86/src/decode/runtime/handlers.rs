@@ -6,10 +6,9 @@ use wasm86_compiler::{
 use crate::{
     decode::DecodeState,
     instruction::{OpcodeMap, PrefixState, SegmentOverride},
-    memory::Memory,
 };
 
-use super::cursor::RuntimeCursor;
+use super::{cursor::RuntimeCursor, InstructionFetch};
 
 /// Identifies the already-decoded fields supplied to a generated decoder entry.
 #[derive(Clone, Copy)]
@@ -117,7 +116,7 @@ impl DecodeHandlers {
     pub(super) fn define<'memory>(
         &self,
         program: &mut Program,
-        memory: &'memory Memory,
+        fetch: InstructionFetch<'memory>,
         decode: impl Fn(
             FunctionBuilder<'_>,
             RuntimeCursor<'memory>,
@@ -145,7 +144,7 @@ impl DecodeHandlers {
             let (cursor, prefixes) = match entry {
                 Entry::Resumed(entry) => {
                     let cursor = RuntimeCursor::resume(
-                        memory,
+                        fetch,
                         &instruction_eip,
                         &body.parameter::<I32>(position_parameter)?,
                     );
@@ -165,7 +164,7 @@ impl DecodeHandlers {
                     };
                     let cursor = RuntimeCursor::new(
                         &body,
-                        memory,
+                        fetch,
                         &instruction_eip,
                         physical_start.as_ref(),
                         self.point.consumed(),

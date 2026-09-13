@@ -89,16 +89,18 @@ known DS/ES/SS accesses, as well as statically known CS reads and fetches.
 Interpreter handlers distinguish segment-override presence:
 ordinary accesses without an override use that shortcut, including after `66` or
 `F3`; operands with explicit runtime overrides use complete checked translation.
-`Segmented32` checks every data access, including CS, through the same cache path.
-Both profiles require flat executable CS, CS.D=1 and SS.B=1. `Flat32` additionally
-requires readable CS; execute-only CS requires `Segmented32`. CS writes always fault.
+`Segmented32` checks data accesses and CS instruction fetches through the same cache
+path. It permits nonzero bases, finite limits and invalid access attributes: runtime
+checks report the corresponding guest fault. Both profiles require CS.D=1 and SS.B=1.
+`Flat32` additionally requires flat readable CS; execute-only CS requires `Segmented32`.
+CS writes always fault.
 Modules that do not execute x86 instructions carry `None`.
 The host must establish compatibility before entering a module and preserve it
 through its invocation. The execution owner must invalidate dependent entries
 and dispatch links when assumptions break, and separately maintain code-byte
 and mapping validity. This library exposes the assumptions; it has no code cache
 or automatic invalidation. Segment loading, descriptor and privilege validation,
-nonflat CS execution and 16-bit execution defaults remain outside the subset.
+and 16-bit execution defaults remain outside the subset.
 
 The flag backing record separates the source of status values from the individual
 stored flag bytes:
@@ -428,8 +430,16 @@ JMP, Jcc and JECXZ preserve registers and flags. LOOP/LOOPcc change ECX, while
 CALL and RET change ESP; all preserve the other registers and flags. Each
 successful transfer retires once before dispatching the chosen EIP. All required
 instruction fields are fetched before operand access or condition evaluation.
-Control transfers do not fetch the
-destination instruction; its fetch faults belong to the next execution entry.
+Taken near transfers validate the target offset against CS before publishing any
+instruction effects. CALL checks the target before its return-address push; RET
+reads the stack first, then validates the target before changing ESP or discarding
+parameters. A faulting LOOP preserves ECX. Untaken branches do not check the unused
+target or fallthrough offset. Operand-size truncation precedes target validation.
+Control transfers do not fetch the destination instruction; its page faults belong
+to the next execution entry. Flat profiles need no runtime target guard.
+See the CALL, Jcc, JMP and LOOP operations in
+[Intel SDM Volume 2A](https://cdrdv2-public.intel.com/812383/253666-sdm-vol-2a.pdf)
+and RET in [Volume 2B](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2b-manual.pdf#page=555).
 Snapshot compilation stops at the transfer and never follows its destination
 or decodes its fallthrough.
 
@@ -558,11 +568,16 @@ and exported entry signature. A host can instantiate both against the same CPU,
 guest and machine memories, then call the entry whose profile is compatible with
 the current segment state. Changing the active entry requires no CPU-state conversion.
 
-The step reads EIP from CPU state and fetches the instruction from paged guest
-memory. A successful five-byte contiguous-range check permits direct reads of
+The step reads the CS-relative EIP from CPU state. Fetch validates the CS offset
+and executable cache, then adds CS.base at 32 bits before paging. CPU EIP, relative
+targets, saved return addresses and dispatch arguments remain offsets.
+A successful five-byte CS-span and contiguous-page check permits direct reads of
 fields within that window; later fields use checked fetch. Otherwise the exact
 path checks the opcode first and reads only required fields, checking bytes in
-order when a word or dword cannot be read directly. Group instructions read ModRM
+order when a word or dword cannot be read directly. Each required byte checks CS
+before paging; an earlier missing page faults before a later CS-limit violation.
+A short instruction at the CS limit succeeds without fetching the next byte.
+Group instructions read ModRM
 and reject unsupported extensions before fetching any SIB, displacement or immediate.
 For supported forms, all instruction fields are fetched before data access is checked.
 No read requests byte sixteen. A wide field crossing the limit is read byte
@@ -965,7 +980,8 @@ LAHF and SAHF retain ordinary unary `byte(AH)` declarations. PUSHF/POPF use
 `word_or_dword()` declarations with no operands; the declaration adapter supplies
 the semantic body's type argument from the selected width. The existing nullary
 handlers and both decoders already carry that width selection. Their bodies reuse
-the guarded stack `push` and `pop_value` operations.
+the guarded stack `push` and `read_stack` operations. A pending `StackPop` exposes
+its value and commits the ESP change only after the consumer's remaining checks.
 The instruction bodies do not depend on the backing flag record's representation.
 MOV, MOVZX, MOVSX, LEA, XCHG, CMOVcc and SETcc preserve flags, and these instructions
 leave control and system flag bytes untouched. A faulting operand access preserves the

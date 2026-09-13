@@ -1,3 +1,4 @@
+mod control;
 mod operands;
 mod repetition;
 mod stack;
