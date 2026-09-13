@@ -47,6 +47,7 @@ fn conditional_direction_writes_preserve_the_original_byte_when_inactive() {
         .unwrap();
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
+        segment_profile: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     });
@@ -115,6 +116,7 @@ fn independent_conditional_carry_and_direction_changes_preserve_each_other() {
         .unwrap();
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
+        segment_profile: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     });
@@ -197,6 +199,7 @@ fn full_and_masked_arithmetic_sources_preserve_conditional_direction() {
                 .unwrap();
             program.export("run", function).unwrap();
             let module = TestModule::new(&CompiledModule {
+                segment_profile: None,
                 bytes: program.compile().unwrap(),
                 entry: "run".into(),
             });

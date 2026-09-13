@@ -48,6 +48,7 @@ fn computed_direct_values_publish_only_their_canonical_byte() {
             .unwrap();
         program.export("run", function).unwrap();
         let module = TestModule::new(&CompiledModule {
+            segment_profile: None,
             bytes: program.compile().unwrap(),
             entry: "run".into(),
         });
@@ -114,6 +115,7 @@ fn conditional_direct_publication_keeps_earlier_exits_and_raw_false_values() {
         .unwrap();
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
+        segment_profile: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     });
@@ -195,6 +197,7 @@ fn direct_publication_survives_register_aliases_and_status_changes() {
             .unwrap();
         program.export("run", function).unwrap();
         let module = TestModule::new(&CompiledModule {
+            segment_profile: None,
             bytes: program.compile().unwrap(),
             entry: "run".into(),
         });

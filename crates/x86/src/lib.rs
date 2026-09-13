@@ -102,10 +102,26 @@
 //! preserves the current instruction or string element's entry state and publishes earlier progress.
 //! ModRM/SIB effective addresses and absolute offsets are 32-bit, independent
 //! of the data width.
+//! Ordinary memory operands select SS for an encoded EBP/ESP base and DS otherwise;
+//! an EBP index alone does not select SS. `26`/`2E`/`36`/`3E`/`64`/`65` override
+//! that choice with ES/CS/SS/DS/FS/GS. LEA computes only an offset. String sources
+//! accept overrides; destinations always use ES. Implicit stack accesses always
+//! use SS. Segment permissions and the entire offset span are checked before paging.
+//! A failed SS access raises stack fault with error zero; other segment failures
+//! raise general protection with error zero. Linear base addition wraps at 32 bits,
+//! and a valid span can cross linear zero. For a full-size expand-up segment,
+//! wasm86 permits offset-span wrap; finite limits and expand-down segments reject it.
+//! The returned [`CompiledModule::segment_profile`] records the entry assumptions:
+//! snapshot blocks require [`SegmentProfile::Flat32`], while the interpreter uses
+//! [`SegmentProfile::Segmented32`] and checks data segments at runtime. Both require
+//! flat executable CS, CS.D=1 and SS.B=1. The host must preserve compatibility and
+//! invalidate dependent entries and links when assumptions break. Segment loading,
+//! descriptor validation and 16-bit execution defaults are outside the subset.
 //! In this default-32 mode, `66` selects word operands; repetition has the same
-//! effect and byte forms remain byte-sized. `66` and `F3` may occur in either order;
-//! repeated copies retain their effect. Other prefixes, including address-size
-//! `67`, are outside the subset. Instructions contain at most fifteen bytes,
+//! effect and byte forms remain byte-sized. `66`, `F3` and segment overrides may
+//! occur in any order. Repeated `66` and `F3` retain their effect; wasm86 chooses
+//! the last segment override when there are several. Address-size `67`, `F2`
+//! and LOCK prefixes are outside the subset. Instructions contain at most fifteen bytes,
 //! including prefixes and all required operand fields.
 //!
 //! Binary arithmetic, logic, NEG, XADD and CMPXCHG replace all six status flags. INC/DEC preserve
@@ -201,6 +217,11 @@ pub use state::{
 pub struct CompiledModule {
     pub bytes: Vec<u8>,
     pub entry: String,
+    /// Required segment assumptions for x86 execution entries. The host must
+    /// establish compatibility before entry and invalidate dependent code and
+    /// links when assumptions break. Code-byte and mapping validity are separate.
+    /// Modules that do not execute x86 instructions have no segment profile.
+    pub segment_profile: Option<SegmentProfile>,
 }
 
 /// A failure to construct a block, not an exception raised by guest execution.
@@ -219,7 +240,7 @@ pub enum BlockError {
         address: u32,
     },
     /// The selected encoding is outside the supported instruction subset.
-    /// `opcode` is the first byte after any `66` prefixes; other fields may
+    /// `opcode` is the first byte after operand-size and segment prefixes; other fields may
     /// select an unsupported form. Extended opcodes report `0F`; an unsupported
     /// form after `F3` reports `F3`.
     UnsupportedInstruction {

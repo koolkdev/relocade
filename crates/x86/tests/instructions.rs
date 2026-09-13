@@ -60,6 +60,8 @@ mod operand_fetch;
 mod relative_branches;
 #[path = "suites/rotates.rs"]
 mod rotates;
+#[path = "suites/segments.rs"]
+mod segments;
 #[path = "suites/shifts.rs"]
 mod shifts;
 #[path = "suites/stack_flags.rs"]

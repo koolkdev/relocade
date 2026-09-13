@@ -78,10 +78,10 @@ fn fault_cases() -> Vec<Case> {
             .initial_register(Eax, 0x4433_2211).memory(0x4ffd, &[0xa5, 1, 2], ReadWrite).memory(0x5000, &[3, 4, 0x5a], ReadOnly).fault(0x5000, 3),
         Case::preserving_flags("MOV dword [EBX],imm32: second page denial leaves dword unchanged", &[0xc7, 0x03, 0xa0, 0x66, 0xc7, 0x88])
             .initial_register(Ebx, 0x4ffe).memory(0x4ffd, &[0xa5, 1, 2], ReadWrite).memory(0x5000, &[3, 4, 0x5a], ReadOnly).fault(0x5000, 3),
-        Case::preserving_flags("MOV EAX,moffs32: dword range cannot wrap", &[0xa1, 0xfe, 0xff, 0xff, 0xff])
-            .initial_register(Eax, 0x4433_2211).memory(0xffff_fffe, &[1, 2], ReadWrite).memory(0, &[3, 4], ReadWrite).fault(0xffff_fffe, 0),
-        Case::preserving_flags("MOV moffs32,EAX: dword range cannot wrap", &[0xa3, 0xfe, 0xff, 0xff, 0xff])
-            .initial_register(Eax, 0x4433_2211).memory(0xffff_fffe, &[1, 2], ReadWrite).memory(0, &[3, 4], ReadWrite).fault(0xffff_fffe, 2),
+        Case::preserving_flags("MOV EAX,moffs32: dword wrap reaches an absent page zero", &[0xa1, 0xfe, 0xff, 0xff, 0xff])
+            .initial_register(Eax, 0x4433_2211).memory(0xffff_fffe, &[1, 2], ReadWrite).fault(0, 0),
+        Case::preserving_flags("MOV moffs32,EAX: dword wrap reaches an absent page zero", &[0xa3, 0xfe, 0xff, 0xff, 0xff])
+            .initial_register(Eax, 0x4433_2211).memory(0xffff_fffe, &[1, 2], ReadWrite).fault(0, 2),
     ]
 }
 

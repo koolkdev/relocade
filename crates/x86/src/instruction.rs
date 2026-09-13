@@ -11,9 +11,9 @@ use handlers::HandlerCall;
 pub(super) use lower::lower;
 use operands::{map_location, map_operand};
 pub(crate) use operands::{Input, TypedLocation};
-pub(crate) use prefixes::{Prefix, PrefixState};
+pub(crate) use prefixes::{Prefix, PrefixState, SegmentOverride};
 
-use crate::address::Address32;
+use crate::address::{Address32, MemoryAddress};
 use crate::flags::Condition;
 use crate::register::RegisterOperand;
 
@@ -38,7 +38,8 @@ pub(super) enum Operand<V> {
 #[derive(Clone)]
 pub(super) enum Location<V> {
     Register(RegisterOperand),
-    Memory(Address32<V>),
+    // Keep register operands compact while memory retains its full address terms.
+    Memory(Box<MemoryAddress<V>>),
 }
 
 impl<V> From<Location<V>> for Operand<V> {
@@ -53,6 +54,7 @@ pub(super) struct Instruction<V> {
     condition: Option<Condition>,
     implicit_memory: bool,
     ends_block: bool,
+    pub(super) segment_override: SegmentOverride,
 }
 
 pub(super) struct DecodedInstruction<V, P> {

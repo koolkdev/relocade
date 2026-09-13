@@ -1,10 +1,11 @@
 //! Effective-address components with deferred register reads. Instruction
-//! semantics can add a displacement before resolving the full linear address.
+//! semantics can add a displacement before resolving the effective offset.
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32};
 
 use crate::{
     register::{Gpr32, Register},
+    segment::{Segment, SegmentSelection},
     state::State,
 };
 
@@ -25,6 +26,43 @@ pub(super) struct Address32<V> {
     pub(super) base: Option<RegisterTerm>,
     pub(super) index: Option<IndexTerm<V>>,
     pub(super) displacement: V,
+}
+
+/// A segment reference and its effective offset, before linear translation.
+#[derive(Clone)]
+pub(super) struct MemoryAddress<V> {
+    pub(super) segment: SegmentSelection,
+    pub(super) offset: Address32<V>,
+}
+
+impl<V> Address32<V> {
+    /// Default selection depends on the encoded base, never on an index register.
+    pub(super) fn memory(self) -> MemoryAddress<V> {
+        let segment = match &self.base {
+            None => Segment::Ds.into(),
+            Some(base) => match (base.register.known(), &base.present) {
+                (Some(Gpr32::Esp | Gpr32::Ebp), None) => Segment::Ss.into(),
+                (Some(_), None) => Segment::Ds.into(),
+                _ => {
+                    let stack_base = base
+                        .register
+                        .is(Gpr32::Esp)
+                        .or(base.register.is(Gpr32::Ebp));
+                    let stack_base = match &base.present {
+                        Some(present) => stack_base.and(present),
+                        None => stack_base,
+                    };
+                    SegmentSelection::Indexed(
+                        stack_base.select(Segment::Ss as u32, Segment::Ds as u32),
+                    )
+                }
+            },
+        };
+        MemoryAddress {
+            segment,
+            offset: self,
+        }
+    }
 }
 
 /// A full register value used while evaluating an address, without defining

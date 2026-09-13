@@ -7,6 +7,7 @@ use crate::{
     instruction::Location,
     memory::Intent,
     register::{Gpr32, RegisterType},
+    segment::Segment,
 };
 
 use super::ExecutionBuilder;
@@ -28,7 +29,7 @@ impl ExecutionBuilder<'_, '_> {
         let memory = self
             .memory
             .expect("a stack instruction declares guest memory");
-        let access = self.checked::<T>(memory, &next_esp, Intent::Write)?;
+        let access = self.checked::<T>(memory, &Segment::Ss.into(), &next_esp, Intent::Write)?;
         memory.write(&mut self.body, &access, &value)?;
         self.state
             .write_register(&mut self.body, Gpr32::Esp, next_esp)
@@ -72,7 +73,7 @@ impl ExecutionBuilder<'_, '_> {
         let memory = self
             .memory
             .expect("a stack instruction declares guest memory");
-        let access = self.checked::<T>(memory, &esp, Intent::Read)?;
+        let access = self.checked::<T>(memory, &Segment::Ss.into(), &esp, Intent::Read)?;
         let value = memory.read(&mut self.body, &access)?;
         Ok(StackPop {
             value,

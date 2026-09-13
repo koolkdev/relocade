@@ -36,10 +36,10 @@ fn boundary_cases() -> Vec<Case> {
             .initial_register(Eax, 0x4433_2211).memory(0x4ffe, &[0xa5, 0xa1], ReadWrite).fault(0x5000, 0),
         Case::preserving_flags("MOV moffs,AX: read-only second write page", &[0x66, 0xa3, 0xff, 0x4f, 0, 0])
             .initial_register(Eax, 0x4433_2211).memory(0x4ffe, &[0xa5, 0xa1], ReadWrite).memory(0x5000, &[0x88, 0x5a], ReadOnly).fault(0x5000, 3),
-        Case::preserving_flags("MOV AX,moffs: word range cannot wrap", &[0x66, 0xa1, 0xff, 0xff, 0xff, 0xff])
-            .initial_register(Eax, 0x4433_2211).memory(0xffff_ffff, &[0xa1], ReadWrite).memory(0, &[0x88], ReadWrite).fault(0xffff_ffff, 0),
-        Case::preserving_flags("MOV moffs,AX: word range cannot wrap", &[0x66, 0xa3, 0xff, 0xff, 0xff, 0xff])
-            .initial_register(Eax, 0x4433_2211).memory(0xffff_ffff, &[0xa1], ReadWrite).memory(0, &[0x88], ReadWrite).fault(0xffff_ffff, 2),
+        Case::preserving_flags("MOV AX,moffs: word wrap reaches an absent page zero", &[0x66, 0xa1, 0xff, 0xff, 0xff, 0xff])
+            .initial_register(Eax, 0x4433_2211).memory(0xffff_ffff, &[0xa1], ReadWrite).fault(0, 0),
+        Case::preserving_flags("MOV moffs,AX: word wrap reaches an absent page zero", &[0x66, 0xa3, 0xff, 0xff, 0xff, 0xff])
+            .initial_register(Eax, 0x4433_2211).memory(0xffff_ffff, &[0xa1], ReadWrite).fault(0, 2),
         Case::preserving_flags("MOV AX,moffs: final two linear bytes", &[0x66, 0xa1, 0xfe, 0xff, 0xff, 0xff])
             .register(Eax, 0x4433_2211, 0x4433_88a1).memory(0xffff_fffe, &[0xa1, 0x88], ReadOnly),
     ]

@@ -32,6 +32,8 @@ impl ExecutionBuilder<'_, '_> {
         let initial_indices = self.read_indices(indices)?;
         let state = &self.state;
         let memory = self.memory;
+        let segments = self.segments;
+        let segment_override = self.segment_override.clone();
         let dispatch = self.dispatch;
         let eip = &self.eip;
         let completed = self.completed;
@@ -47,6 +49,8 @@ impl ExecutionBuilder<'_, '_> {
                     body,
                     state: state.clone(),
                     memory,
+                    segments,
+                    segment_override,
                     dispatch,
                     eip: eip.clone(),
                     completed,

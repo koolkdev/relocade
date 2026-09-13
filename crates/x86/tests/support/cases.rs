@@ -10,7 +10,7 @@ mod tests;
 
 use super::guest::Mapping;
 use crate::flags::Flag;
-use wasm86_x86::{Gpr32, StoredFlags};
+use wasm86_x86::{Gpr32, Segment, StoredFlags, StoredSegment};
 
 pub(crate) use super::guest::Permissions;
 
@@ -19,6 +19,12 @@ pub(crate) struct InstructionCase {
     pub(super) code: Vec<u8>,
     pub(super) initial: InitialState,
     pub(super) expected: ExpectedState,
+    pub(super) frontends: Frontends,
+}
+
+pub(super) enum Frontends {
+    Both,
+    Interpreter,
 }
 
 impl InstructionCase {
@@ -84,7 +90,18 @@ impl InstructionCase {
             code: code.to_vec(),
             initial: InitialState::new(initial),
             expected: ExpectedState::new(expected),
+            frontends: Frontends::Both,
         }
+    }
+
+    pub(crate) fn interpreter_only(mut self) -> Self {
+        self.frontends = Frontends::Interpreter;
+        self
+    }
+
+    pub(crate) fn segment(mut self, segment: Segment, cache: StoredSegment) -> Self {
+        self.initial.segments.push((segment, cache));
+        self
     }
 
     pub(crate) fn register(self, register: Gpr32, input: u32, output: u32) -> Self {
@@ -197,18 +214,34 @@ impl InstructionCase {
         self
     }
 
+    pub(crate) fn general_protection(mut self, error: u16) -> Self {
+        self.expected.exit = ExpectedExit::GeneralProtection { error };
+        self
+    }
+
+    pub(crate) fn stack_fault(mut self, error: u16) -> Self {
+        self.expected.exit = ExpectedExit::StackFault { error };
+        self
+    }
+
     pub(super) fn expected_eip(&self) -> u32 {
         match self.expected.exit {
             ExpectedExit::Fallthrough => self.initial.eip.wrapping_add(self.code.len() as u32),
             ExpectedExit::Dispatch(target) => target,
-            ExpectedExit::DivideError | ExpectedExit::PageFault { .. } => self.initial.eip,
+            ExpectedExit::DivideError
+            | ExpectedExit::GeneralProtection { .. }
+            | ExpectedExit::StackFault { .. }
+            | ExpectedExit::PageFault { .. } => self.initial.eip,
         }
     }
 
     pub(super) fn expected_retired(&self) -> u32 {
         match self.expected.exit {
             ExpectedExit::Fallthrough | ExpectedExit::Dispatch(_) => 1,
-            ExpectedExit::DivideError | ExpectedExit::PageFault { .. } => 0,
+            ExpectedExit::DivideError
+            | ExpectedExit::GeneralProtection { .. }
+            | ExpectedExit::StackFault { .. }
+            | ExpectedExit::PageFault { .. } => 0,
         }
     }
 }
@@ -218,6 +251,7 @@ pub(super) struct InitialState {
     pub(super) eip: u32,
     pub(super) instruction_count: u32,
     pub(super) registers: Vec<(Gpr32, u32)>,
+    pub(super) segments: Vec<(Segment, StoredSegment)>,
     pub(super) memory: Vec<MemoryRegion>,
     pub(super) mappings: Vec<Mapping>,
     pub(super) backing: Vec<(u32, Vec<u8>)>,
@@ -353,6 +387,8 @@ pub(super) enum ExpectedExit {
     Fallthrough,
     Dispatch(u32),
     DivideError,
+    GeneralProtection { error: u16 },
+    StackFault { error: u16 },
     PageFault { address: u32, error: u16 },
 }
 

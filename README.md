@@ -80,11 +80,18 @@ cpu.segments.ds.base = 0x1000;
 assert!(!profile.is_compatible_with(&cpu.segments));
 ```
 
-This state API and compatibility test do not apply segmentation to memory
-accesses or invalidate compiled entries automatically. Execution entries still
-use the flat addressing contract below. An execution owner must invalidate
-dependent compiled entries and dispatch links when their segment assumptions
-break, and separately maintain code-byte and mapping validity.
+`CompiledModule::segment_profile` records each x86 entry's required assumptions.
+Snapshot blocks return `Some(SegmentProfile::Flat32)` and omit segment guards
+for DS/ES/SS. FS/GS and CS data overrides check their caches at runtime.
+The interpreter returns `Some(SegmentProfile::Segmented32)`: it requires flat
+executable CS, CS.D=1 and SS.B=1, and checks all data accesses at runtime.
+Modules that do not execute x86 instructions carry `None`.
+The host must establish compatibility before entering a module and preserve it
+through its invocation. The execution owner must invalidate dependent entries
+and dispatch links when assumptions break, and separately maintain code-byte
+and mapping validity. This library exposes the assumptions; it has no code cache
+or automatic invalidation. Segment loading, descriptor and privilege validation,
+nonflat CS execution and 16-bit execution defaults remain outside the subset.
 
 The flag backing record separates the source of status values from the individual
 stored flag bytes:
@@ -408,7 +415,7 @@ RET checks only the return-pointer cell; it does not access the discarded bytes
 or validate the resulting ESP. Word indirect and return targets are zero-extended.
 These rules follow the CALL, RET and JMP entries in the
 [Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
-Far calls, returns and jumps remain outside this flat-address subset.
+Far calls, returns and jumps remain outside the supported subset.
 
 JMP, Jcc and JECXZ preserve registers and flags. LOOP/LOOPcc change ECX, while
 CALL and RET change ESP; all preserve the other registers and flags. Each
@@ -429,8 +436,11 @@ to the operand width.
 
 The `66` operand-size prefix selects word data; repeating it keeps that size.
 Byte forms remain byte-sized with `66`. `F3` repeats MOVS/STOS; it can appear before
-or after `66`, and repeated copies retain their effect. Other prefixes, including address-size
-`67`, are outside the supported subset. The fifteen-byte instruction limit
+or after `66`, and repeated copies retain their effect. Segment prefixes
+`26`/`2E`/`36`/`3E`/`64`/`65` select ES/CS/SS/DS/FS/GS and can appear in any
+order with `66` and `F3`. When several segment prefixes occur, wasm86 uses the
+last one as a deterministic policy. Address-size `67`, `F2` and LOCK prefixes
+are outside the supported subset. The fifteen-byte instruction limit
 includes every prefix, opcode and required operand field.
 
 Byte register codes select AL/CL/DL/BL/AH/CH/DH/BH. Word codes select the low
@@ -439,9 +449,27 @@ of the parent register. Memory addresses use 32-bit ModRM/SIB base, index,
 scale and displacement fields, or a 32-bit absolute offset. A0/A2 use AL;
 A1/A3 use AX with `66` and EAX otherwise. Their encoded address is always four
 bytes, independent of the data width.
-Effective-address sums wrap at 32 bits; both frontends use flat addresses and
-ignore segment bases. Blocks without explicit or implicit guest-memory access
-retain just the CPU and dispatch imports.
+Effective offsets wrap at 32 bits. An encoded EBP or ESP base selects SS;
+all other bases and baseless addresses select DS. An EBP index alone does not
+select SS. A segment override replaces this default. LEA returns the effective
+offset without checking or adding a segment base. Implicit stack accesses always
+use SS. String sources default to DS and accept overrides; destinations always
+use ES. These selection rules follow
+[Intel SDM Volume 1, section 3.7](https://cdrdv2-public.intel.com/874241/253665-090-sdm-vol-1.pdf).
+Blocks without explicit or implicit guest-memory access retain just the CPU and
+dispatch imports.
+
+Each data access checks its loaded cache's usability, access rights and complete
+offset span before paging. Data segments permit reads and require the writable
+attribute for writes; code segments require the readable attribute for data reads
+and never allow writes. Expand-up offsets must fit the inclusive limit.
+Expand-down offsets must exceed the limit and end at or below `0xffff` when B=0,
+or `0xffffffff` when B=1. This follows
+[Intel SDM Volume 3A, section 6.3.1](https://cdrdv2-public.intel.com/874249/253668-090-sdm-vol-3a.pdf).
+For the implementation-specific full-size expand-up boundary, wasm86 permits an
+offset span to wrap at 32 bits. Finite limits and expand-down segments reject
+offset-span wrap. A valid offset then adds the base modulo 2^32; the resulting
+linear span may cross zero and uses the real page mappings on both sides.
 
 Unprefixed MOVS, STOS, LODS, CMPS and SCAS process one byte, word or dword per instruction.
 MOVS copies memory at ESI to memory at EDI; STOS stores AL/AX/EAX to memory at
@@ -465,7 +493,7 @@ entries in the [Intel instruction reference](https://cdrdv2-public.intel.com/868
 data access. Each successful element advances its indices and decrements ECX;
 an access fault retains the successful elements, current indices and remaining
 ECX. EIP stays at the instruction's first prefix so execution can resume after
-repairing the mapping. Word operand size changes the element width, while ECX,
+repairing the segment cache or mapping. Word operand size changes the element width, while ECX,
 ESI and EDI remain 32-bit. Overlap follows sequential element order, including
 aliases through different virtual pages. These restart rules follow the
 [Intel REP instruction entry](https://cdrdv2-public.intel.com/782151/253667-sdm-vol-2b.pdf).
@@ -474,8 +502,7 @@ A complete REP retires once, including zero-count execution; a faulting REP
 does not retire. Both frontends execute all remaining elements before dispatching
 the successor. REP ends a snapshot block and consumes one instruction from its
 compilation limit. This scalar implementation checks each element separately.
-Repeated LODS/CMPS/SCAS, `F2`, address-size overrides and segment overrides remain
-unsupported. In particular, `F3` does not repeat arbitrary instructions.
+Repeated LODS/CMPS/SCAS, `F2` and address-size overrides remain unsupported. In particular, `F3` does not repeat arbitrary instructions.
 
 PUSH and POP transfer a word or dword through a 32-bit stack pointer. PUSH reads
 its source using the entry register values, then subtracts the operand size from
@@ -488,7 +515,7 @@ the entire flag source and always require guest-memory imports.
 
 PUSHF/PUSHFD (`9C`) and POPF/POPFD (`9D`) use the same stack accesses. `66`
 selects a two-byte FLAGS image; the default is a four-byte EFLAGS image.
-The flat execution subset uses a fixed user-mode flags-transfer contract:
+The execution subset uses a fixed user-mode flags-transfer contract:
 CPL 3, IOPL 0, IF set, and VM/RF/VIF/VIP clear. PUSH sets reserved bit 1 and IF,
 and copies CF/PF/AF/ZF/SF/TF/DF/OF/NT to bits 0/2/4/6/7/8/10/11/14. PUSHFD
 also copies AC/ID to bits 18/21. All remaining image bits are zero.
@@ -506,11 +533,11 @@ changing registers or memory. Faults preserve the faulting instruction's entry
 state while publishing any earlier completed instructions. When both accesses
 would fault, wasm86 checks the source first; this is its deterministic access
 policy. Operand size controls the two- or four-byte transfer and pointer change;
-stack addresses remain 32-bit in this flat-address subset.
+stack offsets remain 32-bit under both supported segment profiles.
 
 `compile_interpreter_step()` builds a generated `step() -> i64` entry for the
 same instruction subset. Both compiler functions return a `CompiledModule`
-containing WebAssembly bytes and its exported entry name.
+containing WebAssembly bytes, its exported entry name and the required segment profile.
 
 ```rust
 let module = wasm86_x86::compile_interpreter_step()?;
@@ -609,8 +636,9 @@ MOVS {
 use `Form::resolve(prefixes)` to accept a form and select its handler, physical fetch
 widths and block boundary. For the current forms, `F3` requires the declared `repeat`
 body; it is interpreted here rather than recorded as repetition by the byte cursor.
-The resulting `ResolvedForm` binds the decoded fields through the existing binding API,
-so lowering needs no prefix switch. Repeated forms currently require implicit operands
+The resulting `ResolvedForm` owns operand binding and applies the segment override
+to explicit memory operands. The bound instruction retains the override for implicit
+string sources, so lowering needs no prefix switch. Repeated forms currently require implicit operands
 in the primary opcode map.
 
 Physical immediate widths stay independent of logical data widths. `imm8` and
@@ -670,8 +698,8 @@ views require byte width. Semantic bodies use
 `RegisterOperand` distinguishes named views from encoded fields, whose
 width-dependent mapping includes byte codes 4–7 selecting AH/CH/DH/BH.
 `TypedLocation::offset_memory` adds a wrapping byte displacement to a memory
-location and leaves registers unchanged. It defers address-register reads and
-access checks, so bit-string operations reuse ordinary reads and guarded updates.
+location while preserving its segment, and leaves registers unchanged. It defers
+address-register reads and access checks, so bit-string operations reuse ordinary reads and guarded updates.
 The bit-test definitions own signed register offsets versus immediate offsets;
 the address and memory owners retain their normal policies.
 
@@ -683,9 +711,11 @@ preserves the early rejection of `F3 0F`.
 The runtime decoder owns its byte cursor, proven window and completion policy.
 The cursor tracks byte position and fetch guarantees independently of prefix meaning.
 Direct and checked entries start at a known position; resumed entries receive the
-instruction's total consumed byte count. This choice follows the cursor's position.
-Resumed entries specialize only the prefix states admitted at their decode point,
-using the same form-driven opcode switch and operand handling. Only the chosen opcode
+instruction's total consumed byte count and optional segment override. This
+choice follows the cursor's position.
+Resumed entries specialize only form-selection properties admitted at their decode point;
+the segment override is a runtime value, avoiding a decoder copy per segment.
+They continue using the same form-driven opcode switch and operand handling. Only the chosen opcode
 checks its ModRM extension. Prefix dispatch finishes before the execution loop starts;
 element iterations never re-enter decoding.
 An exact opcode case retains its register selection, so compact MOV, unary and
@@ -935,9 +965,10 @@ require presence. Present frames must fit the backing RAM; this is an internal
 invariant. Unexpected host or Wasm traps from inconsistent internal state are not
 part of the guest execution contract.
 
-The internal `Exception` model represents divide error (vector 0), general
-protection (vector 13) and page fault (vector 14). General protection and page
-fault require an error code, including when it is zero; divide error has none.
+The internal `Exception` model represents divide error (vector 0), stack fault
+(vector 12), general protection (vector 13) and page fault (vector 14). Stack
+fault, general protection and page fault require an error code, including when
+it is zero; divide error has none.
 Page fault also requires the faulting linear address, separate from the restart
 EIP. Instruction and memory code supply these typed faults. `State::fault`
 publishes the supplied restart boundary and terminates through `state::exit`,
@@ -960,12 +991,12 @@ and EIP, does not retire, and does not dispatch.
 A missing instruction page returns the 64-bit word
 `(4 << 48) | (0x10 << 32) | first_unavailable_address`. A data fault returns
 `(4 << 48) | (error << 32) | first_denied_address`, where error bit 1 identifies a
-write and bit 0 identifies a present but denied page. A word or dword data range
-that crosses `0xffffffff` is rejected at its start with read error 0 or write error 2;
-memory translates this range-limit denial into a reported page fault as part of
-the current flat address-space policy, without architectural segmentation checks.
-A one-byte access at that address fits
-without consulting another page. Instruction fetch instead wraps.
+write and bit 0 identifies a present but denied page. A wrapped linear span checks
+the final page and then page zero; a denied second page reports linear address
+zero. Instruction fetch also wraps. Segment faults occur before page translation:
+SS violations return `16 << 48` (#SS(0)), and violations through other segments
+return `2 << 48` (#GP(0)). The host codec reserves bits 32–47 for an error payload
+on both fault kinds.
 All pages are checked before a data store writes any byte, including scattered
 physical backing. A fault publishes earlier completed instructions and leaves EIP
 at the faulting instruction; the failed instruction does not retire or dispatch.
@@ -982,17 +1013,17 @@ physical address and a separate logical bit for scattered backing. Denials join
 one fault callback, which must terminate before a checked access can be returned.
 The callback receives a typed `Exception::PageFault`. The execution builder uses
 `State::fault` to publish state and terminate that path.
-Page-table translation owns page facts and range-wrap priority; memory access
-control owns the successful and faulting paths.
+Segment access owns segment permissions, offset bounds and base addition.
+Page-table translation owns page facts and the order of page checks; memory
+access control owns the successful and faulting paging paths.
 
 An unsupported instruction form returns `(8 << 48) | (opcode << 32) | instruction_eip`.
-The opcode field contains the first byte after any `66` prefixes, including `0F`
+The opcode field contains the first byte after operand-size and segment prefixes, including `0F`
 for an extended opcode. An unsupported form following `F3` reports `F3`. This reports
 the implementation's unsupported subset, not an architectural invalid-opcode
 fault. An instruction requiring more than fifteen bytes returns `2 << 48`, the
 zero-error general-protection word, without retiring or dispatching. The step
-executes one instruction and has no instruction-budget, segment or run-loop
-behavior.
+executes one instruction and has no instruction budget or run loop.
 
 `wasm86-compiler` builds WebAssembly functions from integer constants,
 parameters and typed integer expressions. `Val<T>` represents either a standalone
@@ -1384,8 +1415,11 @@ case group when several cases have the same rules. Expected instruction results
 are literals or independently derived data, never calculated by the runner.
 
 The registration creates ordinary Cargo tests for Wasmtime and the explicit V8
-lane. Both run every case through the interpreter and a snapshot block, starting
-from fresh state, and check registers, memory, logical flags, retirement and exit.
+lane. Both normally run every case through the interpreter and a snapshot block,
+starting from fresh state, and check registers, memory, logical flags, retirement
+and exit. Use `segment(name, cache)` to set a loaded cache and `interpreter_only()`
+for cases outside the snapshot's flat profile. The runner checks each actual
+entry's profile after applying any host state patches.
 Failure messages identify the case, engine, frontend and mismatched field.
 Logical flags are read from a copy through the existing state reader; observing
 them must leave every CPU byte unchanged. Raw flag-record layout and undefined
@@ -1405,7 +1439,8 @@ direct flag changes. Status flags use the case's logical flag expectations.
 
 Cases start at `0x1000` and expect one retired instruction with fallthrough
 dispatch. Use `at(origin)`, `instruction_count(count)`, `dispatch(target)`,
-`fault(address, error)` or `divide_error()` to state different boundaries.
+`fault(address, error)`, `divide_error()`, `general_protection(error)` or
+`stack_fault(error)` to state different boundaries.
 Code can cross pages or wrap EIP. A fault expects the entry EIP, no retirement and
 no dispatch.
 For scattered pages and physical canaries, use `map_page(page, frame, permissions)`

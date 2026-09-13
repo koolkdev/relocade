@@ -113,20 +113,20 @@ fn fault_cases() -> Vec<Case> {
             .backing(0x8020, &[0x81, 0x80, 0xff, 0xff])
             .backing(0x8ffc, &[0x5a, 0x78, 0x56, 0x34]).backing(0xa000, &[0x12, 0x5a])
             .fault(0x5000, 3),
-        Case::preserving_flags("word range cannot wrap", &[0x66, 0xc1, 0x0b, 0x01])
+        Case::preserving_flags("word wrap reaches an absent page zero", &[0x66, 0xc1, 0x0b, 0x01])
             .stored_flags(STORED_FLAGS)
             .initial_registers(&[(Ebx, 0xffff_ffff), (Ecx, 0x8877_6601)])
             .map_page(0x000f_ffff, 0x8000, ReadWrite)
             .backing(0x8020, &[0x81, 0x80, 0xff, 0xff])
             .backing(0x8ffc, &[0x5a, 0x78, 0x56, 0x34]).backing(0xa000, &[0x12, 0x5a])
-            .fault(0xffff_ffff, 2),
-        Case::preserving_flags("dword range cannot wrap", &[0xd3, 0x0b])
+            .fault(0, 2),
+        Case::preserving_flags("dword wrap reaches an absent page zero", &[0xd3, 0x0b])
             .stored_flags(STORED_FLAGS)
             .initial_registers(&[(Ebx, 0xffff_fffd), (Ecx, 0x8877_66ff)])
             .map_page(0x000f_ffff, 0x8000, ReadWrite)
             .backing(0x8020, &[0x81, 0x80, 0xff, 0xff])
             .backing(0x8ffc, &[0x5a, 0x78, 0x56, 0x34]).backing(0xa000, &[0x12, 0x5a])
-            .fault(0xffff_fffd, 2),
+            .fault(0, 2),
     ]
 }
 

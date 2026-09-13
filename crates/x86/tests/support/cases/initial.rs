@@ -10,6 +10,7 @@ impl InitialState {
             instruction_count: u32::MAX,
             flags,
             registers: Vec::new(),
+            segments: Vec::new(),
             memory: Vec::new(),
             mappings: Vec::new(),
             backing: Vec::new(),
@@ -21,6 +22,9 @@ impl InitialState {
         machine.cpu.instruction_count = self.instruction_count;
         for &(register, value) in &self.registers {
             machine.cpu.registers[register] = value;
+        }
+        for &(segment, cache) in &self.segments {
+            machine.cpu.segments[segment] = cache;
         }
         if let Some(flags) = self.flags.logical() {
             machine.cpu.flags.status_source.kind = 0;

@@ -44,9 +44,10 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
                 .state
                 .read_register(&mut self.body, register.view::<T>()),
             Operand::Location(Location::Memory(address)) => {
-                let address = address::resolve(&mut self.body, &mut self.state, address, &[])?;
+                let offset =
+                    address::resolve(&mut self.body, &mut self.state, address.offset, &[])?;
                 let memory = self.memory.expect("a memory operand declares guest memory");
-                let access = self.checked::<T>(memory, &address, Intent::Read)?;
+                let access = self.checked::<T>(memory, &address.segment, &offset, Intent::Read)?;
                 memory.read(&mut self.body, &access)
             }
         }
@@ -103,9 +104,10 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         Ok(match location {
             Location::Register(register) => WriteTarget::Register(register.view::<T>()),
             Location::Memory(address) => {
-                let address = address::resolve(&mut self.body, &mut self.state, address, bindings)?;
+                let offset =
+                    address::resolve(&mut self.body, &mut self.state, address.offset, bindings)?;
                 let memory = self.memory.expect("a memory operand declares guest memory");
-                let access = self.checked::<T>(memory, &address, Intent::Write)?;
+                let access = self.checked::<T>(memory, &address.segment, &offset, Intent::Write)?;
                 WriteTarget::Memory { memory, access }
             }
         })

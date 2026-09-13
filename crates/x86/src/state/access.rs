@@ -2,10 +2,11 @@
 
 use std::mem::{offset_of, size_of};
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, Val, I32, I8};
+use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, Val, I16, I32, I8};
 
 use crate::{
     register::{Gpr32, Register, RegisterSelection, RegisterType},
+    segment::SegmentAttributes,
     ssa::{Location, SsaType},
 };
 
@@ -43,13 +44,18 @@ impl CpuField for u32 {
     type Int = I32;
 }
 
+impl CpuField for SegmentAttributes {
+    type Int = I16;
+}
+
 pub(in crate::state) fn load<T: CpuField>(
     body: &mut FunctionBuilder<'_>,
     memory: Mem,
+    displacement: impl Into<Val<I32>>,
     offset: u32,
     _field: fn(&CpuState) -> &T,
 ) -> Result<Val<T::Int>, BuildError> {
-    body.load::<T::Int>(memory, offset)
+    body.load_at::<T::Int>(memory, displacement, offset)
 }
 
 pub(in crate::state) fn store<T: CpuField>(
@@ -83,9 +89,13 @@ macro_rules! cpu_location {
 
 macro_rules! cpu_load {
     ($body:expr, $memory:expr, $($field:ident).+ $(,)?) => {
+        $crate::state::access::cpu_load!($body, $memory, $($field).+, at: 0u32)
+    };
+    ($body:expr, $memory:expr, $($field:ident).+, at: $displacement:expr $(,)?) => {
         $crate::state::access::load(
             $body,
             $memory,
+            $displacement,
             ::std::mem::offset_of!($crate::state::CpuState, $($field).+) as u32,
             |state: &$crate::state::CpuState| &state.$($field).+,
         )

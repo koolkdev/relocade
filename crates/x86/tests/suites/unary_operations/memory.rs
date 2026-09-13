@@ -155,9 +155,9 @@ fn wrapping_ranges() -> Vec<Case> {
                     ..CpuState::filled(0xa5).flags
                 }).preserve_flag_record()
                 .initial_register(Ebx, address)
-                .map_page(0xfffff, 0x8000, first).map_page(0, 0xa000, ReadWrite)
+                .map_page(0xfffff, 0x8000, first)
                 .backing(0x8ffe, &[0x11, 0x22]).backing(0xa000, &[0x33, 0x44])
-                .fault(address, 2));
+                .fault(if first == ReadOnly { address } else { 0 }, if first == ReadOnly { 3 } else { 2 }));
         }
     }
     cases
@@ -190,7 +190,7 @@ fn completed_stores_before_faults() -> Vec<SequenceCase> {
 test_cases!(operand_widths_and_page_layouts, memory_updates());
 test_cases!(faults_preserve_flags_and_memory, access_faults());
 test_cases!(
-    wrap_fault_has_priority_over_page_permissions,
+    wrapped_operands_check_real_page_permissions,
     wrapping_ranges()
 );
 test_sequences!(

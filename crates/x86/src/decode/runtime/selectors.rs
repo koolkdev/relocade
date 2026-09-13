@@ -53,10 +53,16 @@ where
                 OpcodeAction::Instruction(forms) => {
                     let form = forms[0];
                     if form.encoding.has_modrm() {
-                        self.decode_modrm_operands(arm, cursor.clone(), state, opcode, forms)
+                        self.decode_modrm_operands(
+                            arm,
+                            cursor.clone(),
+                            state.clone(),
+                            opcode,
+                            forms,
+                        )
                     } else {
                         let form = form
-                            .resolve(state.prefixes)
+                            .resolve(&state.prefixes)
                             .expect("opcode selection accepted the prefix state");
                         self.decode_opcode_operands(arm, cursor.clone(), opcode_case as u8, &form)
                     }
@@ -64,7 +70,7 @@ where
                 OpcodeAction::ExtendedMap(extended) => {
                     let mut cursor = cursor.clone();
                     let selector = cursor.byte(&mut arm)?;
-                    self.decode_opcode(arm, cursor, *extended, &selector)
+                    self.decode_opcode(arm, cursor, extended.clone(), &selector)
                 }
                 OpcodeAction::Prefix(prefix) => {
                     let mut cursor = cursor.clone();

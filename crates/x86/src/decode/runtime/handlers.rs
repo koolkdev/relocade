@@ -5,7 +5,7 @@ use wasm86_compiler::{
 
 use crate::{
     decode::DecodeState,
-    instruction::{OpcodeMap, PrefixState},
+    instruction::{OpcodeMap, PrefixState, SegmentOverride},
     memory::Memory,
 };
 
@@ -43,8 +43,8 @@ impl DecodePoint {
         }
     }
 
-    fn accepts(self, prefixes: PrefixState) -> bool {
-        self.state(prefixes).forms().any(|form| match self {
+    fn accepts(self, prefixes: &PrefixState) -> bool {
+        self.state(prefixes.clone()).forms().any(|form| match self {
             Self::Opcode => true,
             Self::MemoryOperand(_) => form.encoding.has_modrm(),
         })
@@ -73,9 +73,12 @@ impl DecodeHandlers {
             parameters: parameters.clone(),
             results: vec![Type::I64],
         });
-        let resumed = PrefixState::PREFIXED
-            .into_iter()
-            .filter(|&prefixes| point.accepts(prefixes))
+        // Resumed entries carry both progress and a segment override. A segment
+        // prefix alone can resume with the default form-selection facts.
+        parameters.push(Type::I32);
+        let resumed = std::iter::once(PrefixState::default())
+            .chain(PrefixState::PREFIXED)
+            .filter(|prefixes| point.accepts(prefixes))
             .map(|prefixes| {
                 let function = program.declare(Signature {
                     parameters: parameters.clone(),
@@ -113,7 +116,7 @@ impl DecodeHandlers {
             .chain(
                 self.resumed
                     .iter()
-                    .map(|&(prefixes, function)| (function, Entry::Resumed(prefixes))),
+                    .map(|(prefixes, function)| (*function, Entry::Resumed(prefixes.clone()))),
             );
         for (function, entry) in entries {
             let body = program.define(function)?;
@@ -127,7 +130,9 @@ impl DecodeHandlers {
                         &instruction_eip,
                         &body.parameter::<I32>(position_parameter)?,
                     ),
-                    prefixes,
+                    prefixes.with_segment_override(SegmentOverride::Runtime(
+                        body.parameter::<I32>(position_parameter + 1)?,
+                    )),
                 ),
                 Entry::Checked | Entry::Direct => {
                     let physical_start = if matches!(entry, Entry::Direct) {
@@ -170,9 +175,10 @@ impl DecodeHandlers {
             }
         } else {
             arguments.push(cursor.consumed().into());
+            arguments.push(state.prefixes.segment_override().encoded().into());
             self.resumed
                 .iter()
-                .find(|(prefixes, _)| *prefixes == state.prefixes)
+                .find(|(prefixes, _)| prefixes.same_form_selection(&state.prefixes))
                 .map(|(_, function)| *function)
                 .expect("the prefix state has a viable decoder entry")
         };

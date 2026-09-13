@@ -259,10 +259,12 @@ fn memory_widths_execute_in_wasmtime() {
     let bytes = accesses();
     for case in WIDTHS {
         let read = TestModule::new(&crate::CompiledModule {
+            segment_profile: None,
             bytes: bytes.clone(),
             entry: format!("read{}", case.name),
         });
         let write = TestModule::new(&crate::CompiledModule {
+            segment_profile: None,
             bytes: bytes.clone(),
             entry: format!("write{}", case.name),
         });
@@ -332,10 +334,12 @@ fn aligned_and_unaligned_single_page_transfers_ignore_unrelated_pte_bits() {
     let bytes = accesses();
     for case in WIDTHS.iter().filter(|case| !case.second.is_empty()) {
         let read = TestModule::new(&crate::CompiledModule {
+            segment_profile: None,
             bytes: bytes.clone(),
             entry: format!("read{}", case.name),
         });
         let write = TestModule::new(&crate::CompiledModule {
+            segment_profile: None,
             bytes: bytes.clone(),
             entry: format!("write{}", case.name),
         });
@@ -366,36 +370,37 @@ fn aligned_and_unaligned_single_page_transfers_ignore_unrelated_pte_bits() {
 }
 
 #[test]
-fn wrapping_writes_report_range_faults_before_read_only_page_faults() {
+fn wrapping_writes_report_read_only_first_page_faults() {
     let bytes = accesses();
     for (entry, address, value, fault) in [
         (
             "write16",
             0xffff_ffffu32,
             Argument::I32(0x1234),
-            0x0004_0002_ffff_ffffi64,
+            0x0004_0003_ffff_ffffi64,
         ),
         (
             "write32",
             0xffff_fffe,
             Argument::I32(0x1234_5678),
-            0x0004_0002_ffff_fffe,
+            0x0004_0003_ffff_fffe,
         ),
         (
             "write64",
             0xffff_fffc,
             Argument::I64(0x0102_0304_0506_0708),
-            0x0004_0002_ffff_fffc,
+            0x0004_0003_ffff_fffc,
         ),
     ] {
         let write = TestModule::new(&crate::CompiledModule {
+            segment_profile: None,
             bytes: bytes.clone(),
             entry: entry.into(),
         });
         let input = Input {
             guest: vec![(0x8ff8, vec![0xa5; 8]), (0xa000, vec![0x5a; 8])],
             // The final page is present and read-only, page zero is writable,
-            // and unrelated PTE bits cannot override the range-wrap fault.
+            // and unrelated PTE bits cannot grant write permission.
             machine: vec![
                 (0x003f_fffc, 0x8ffdu32.to_le_bytes().to_vec()),
                 (0, 0xafffu32.to_le_bytes().to_vec()),
@@ -405,5 +410,50 @@ fn wrapping_writes_report_range_faults_before_read_only_page_faults() {
             ..Input::new(&CpuState::filled(0xa5).to_bytes())
         };
         check(&write, &input, fault, &[]);
+    }
+}
+
+#[test]
+fn multi_byte_accesses_wrap_between_real_page_mappings() {
+    let bytes = accesses();
+    for case in WIDTHS.iter().filter(|case| !case.second.is_empty()) {
+        let read = TestModule::new(&crate::CompiledModule {
+            bytes: bytes.clone(),
+            entry: format!("read{}", case.name),
+            segment_profile: None,
+        });
+        let write = TestModule::new(&crate::CompiledModule {
+            bytes: bytes.clone(),
+            entry: format!("write{}", case.name),
+            segment_profile: None,
+        });
+        let payload = [case.first, case.second].concat();
+        let mut input = Input {
+            guest: vec![
+                (0x8fff, payload[..1].to_vec()),
+                (0xa000, payload[1..].to_vec()),
+            ],
+            machine: vec![
+                (0x3f_fffc, 0x8003u32.to_le_bytes().to_vec()),
+                (0, 0xa003u32.to_le_bytes().to_vec()),
+            ],
+            arguments: vec![Argument::I32(-1)],
+            observe_guest: true,
+            ..Input::new(&CpuState::filled(0xa5).to_bytes())
+        };
+        check(&read, &input, case.result, &[]);
+        for (_, data) in &mut input.guest {
+            data.fill(0xff);
+        }
+        input.arguments.push(case.argument);
+        let changes = std::iter::once((0x8fff, payload[0]))
+            .chain(
+                payload[1..]
+                    .iter()
+                    .enumerate()
+                    .map(|(index, &byte)| (0xa000 + index as u32, byte)),
+            )
+            .collect::<Vec<_>>();
+        check(&write, &input, 7, &changes);
     }
 }

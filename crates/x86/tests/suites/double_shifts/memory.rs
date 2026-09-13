@@ -305,34 +305,34 @@ fn fault_cases() -> Vec<Case> {
             .backing(0x8020, &[0x81, 0x80, 0xff, 0xff])
             .backing(0x8ffc, &[0x5a, 0x78, 0x56, 0x34]).backing(0xa000, &[0x12, 0x5a])
             .fault(0x4fff, 3),
-        Case::preserving_flags("SHLD word operand range cannot wrap", &[0x66, 0x0f, 0xa4, 0x13, 0x11])
+        Case::preserving_flags("SHLD word operand wrap reaches an absent page zero", &[0x66, 0x0f, 0xa4, 0x13, 0x11])
             .stored_flags(STORED_FLAGS)
             .initial_registers(&[(Ebx, 0xffff_ffff), (Ecx, 0x8877_6611)])
             .map_page(0x000f_ffff, 0x8000, ReadWrite)
             .backing(0x8020, &[0x81, 0x80, 0xff, 0xff])
             .backing(0x8ffc, &[0x5a, 0x78, 0x56, 0x34]).backing(0xa000, &[0x12, 0x5a])
-            .fault(0xffff_ffff, 2),
-        Case::preserving_flags("SHRD word operand range cannot wrap", &[0x66, 0x0f, 0xac, 0x13, 0x11])
+            .fault(0, 2),
+        Case::preserving_flags("SHRD word operand wrap reaches an absent page zero", &[0x66, 0x0f, 0xac, 0x13, 0x11])
             .stored_flags(STORED_FLAGS)
             .initial_registers(&[(Ebx, 0xffff_ffff), (Ecx, 0x8877_6611)])
             .map_page(0x000f_ffff, 0x8000, ReadWrite)
             .backing(0x8020, &[0x81, 0x80, 0xff, 0xff])
             .backing(0x8ffc, &[0x5a, 0x78, 0x56, 0x34]).backing(0xa000, &[0x12, 0x5a])
-            .fault(0xffff_ffff, 2),
-        Case::preserving_flags("SHLD dword operand range cannot wrap", &[0x0f, 0xa5, 0x13])
+            .fault(0, 2),
+        Case::preserving_flags("SHLD dword operand wrap reaches an absent page zero", &[0x0f, 0xa5, 0x13])
             .stored_flags(STORED_FLAGS)
             .initial_registers(&[(Ebx, 0xffff_fffd), (Ecx, 0x8877_66ff)])
             .map_page(0x000f_ffff, 0x8000, ReadWrite)
             .backing(0x8020, &[0x81, 0x80, 0xff, 0xff])
             .backing(0x8ffc, &[0x5a, 0x78, 0x56, 0x34]).backing(0xa000, &[0x12, 0x5a])
-            .fault(0xffff_fffd, 2),
-        Case::preserving_flags("SHRD dword operand range cannot wrap", &[0x0f, 0xad, 0x13])
+            .fault(0, 2),
+        Case::preserving_flags("SHRD dword operand wrap reaches an absent page zero", &[0x0f, 0xad, 0x13])
             .stored_flags(STORED_FLAGS)
             .initial_registers(&[(Ebx, 0xffff_fffd), (Ecx, 0x8877_66ff)])
             .map_page(0x000f_ffff, 0x8000, ReadWrite)
             .backing(0x8020, &[0x81, 0x80, 0xff, 0xff])
             .backing(0x8ffc, &[0x5a, 0x78, 0x56, 0x34]).backing(0xa000, &[0x12, 0x5a])
-            .fault(0xffff_fffd, 2),
+            .fault(0, 2),
     ]
 }
 

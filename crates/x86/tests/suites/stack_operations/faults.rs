@@ -105,13 +105,13 @@ fn ordering_and_wrap_faults() -> Vec<Case> {
         cases.push(Case::preserving_flags(format!("stack transfer {code:02x?}: source fault precedes destination fault"), code)
             .initial_register(Esp, stack).initial_register(Ebx, 0x6fff).fault(fault_address, 0));
     }
-    for (code, stack, address, error) in [
-        (&[0x50][..], 2, 0xffff_fffe, 2), (&[0x66, 0x50], 1, 0xffff_ffff, 2),
-        (&[0x58], 0xffff_fffe, 0xffff_fffe, 0), (&[0x66, 0x58], 0xffff_ffff, 0xffff_ffff, 0),
+    for (code, stack, error) in [
+        (&[0x50][..], 2, 2), (&[0x66, 0x50], 1, 2),
+        (&[0x58], 0xffff_fffe, 0), (&[0x66, 0x58], 0xffff_ffff, 0),
     ] {
-        cases.push(Case::preserving_flags(format!("stack pointer wrap cannot make an operand span wrap: {code:02x?}"), code)
-            .initial_register(Esp, stack).map_page(0xfffff, 0x8000, ReadWrite).map_page(0, 0xa000, ReadWrite)
-            .backing(0x8ffe, &[0x11, 0x22]).backing(0xa000, &[0x33, 0x44]).fault(address, error));
+        cases.push(Case::preserving_flags(format!("wrapped stack operand reaches an absent page zero: {code:02x?}"), code)
+            .initial_register(Esp, stack).map_page(0xfffff, 0x8000, ReadWrite)
+            .backing(0x8ffe, &[0x11, 0x22]).backing(0xa000, &[0x33, 0x44]).fault(0, error));
     }
     cases
 }
@@ -121,6 +121,6 @@ test_cases!(source_read_atomicity, read_faults());
 test_cases!(pop_write_atomicity, pop_write_faults());
 test_cases!(pop_esp_address_atomicity, prospective_esp_faults());
 test_cases!(
-    source_fault_priority_and_nonwrapping_spans,
+    source_fault_priority_and_wrapped_page_faults,
     ordering_and_wrap_faults()
 );

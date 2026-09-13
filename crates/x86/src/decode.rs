@@ -9,34 +9,35 @@ use crate::instruction::{
 };
 
 /// Form selection and opcode-map routing, independent of byte-fetch state.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct DecodeState {
     prefixes: PrefixState,
     map: OpcodeMap,
 }
 
 impl DecodeState {
-    fn with_prefix(self, prefix: Prefix) -> Self {
+    fn with_prefix(&self, prefix: Prefix) -> Self {
         Self {
-            prefixes: self.prefixes.with_prefix(prefix),
-            ..self
+            prefixes: self.prefixes.clone().with_prefix(prefix),
+            map: self.map,
         }
     }
 
-    fn forms(self) -> impl Iterator<Item = &'static Form> + Clone {
-        opcode_forms(self.map).filter(move |form| form.resolve(self.prefixes).is_some())
+    fn forms(&self) -> impl Iterator<Item = &'static Form> + Clone {
+        let prefixes = self.prefixes.clone();
+        opcode_forms(self.map).filter(move |form| form.resolve(&prefixes).is_some())
     }
 
     /// Reject an unsupported map before requesting its selector byte.
-    fn extended(self) -> Option<Self> {
+    fn extended(&self) -> Option<Self> {
         let extended = Self {
             map: OpcodeMap::Extended,
-            ..self
+            ..self.clone()
         };
         extended.forms().next().map(|_| extended)
     }
 
-    fn unsupported_opcode_override(self) -> Option<u8> {
+    fn unsupported_opcode_override(&self) -> Option<u8> {
         if self.prefixes.has_f3() {
             Some(Prefix::F3.byte())
         } else if self.map == OpcodeMap::Extended {

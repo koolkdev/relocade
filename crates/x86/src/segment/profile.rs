@@ -12,32 +12,37 @@ use super::{SegmentDefaultSize, SegmentKind};
 pub enum SegmentProfile {
     /// Flat executable CS, writable expand-up DS/ES/SS, 32-bit CS defaults and
     /// a 32-bit stack pointer. FS and GS have no assumptions in this profile;
-    /// any future accesses through them must use runtime segment handling.
+    /// accesses through them use runtime segment handling.
     Flat32,
+    /// Flat executable CS with 32-bit instruction defaults and a 32-bit stack
+    /// pointer. Data-segment ranges and access rights are checked at runtime.
+    Segmented32,
 }
 
 impl SegmentProfile {
     /// Tests the properties assumed by this profile, rather than comparing
     /// selectors or requiring every byte of a segment cache to remain unchanged.
     pub fn is_compatible_with(self, segments: &Segments) -> bool {
+        let cs = &segments.cs;
+        if !flat_range(cs)
+            || !matches!(cs.attributes.kind(), Some(SegmentKind::Code { .. }))
+            || cs.attributes.default_size() != SegmentDefaultSize::Bits32
+            || segments.ss.attributes.default_size() != SegmentDefaultSize::Bits32
+        {
+            return false;
+        }
         match self {
-            Self::Flat32 => {
-                let cs = &segments.cs;
-                flat_range(cs)
-                    && matches!(cs.attributes.kind(), Some(SegmentKind::Code { .. }))
-                    && cs.attributes.default_size() == SegmentDefaultSize::Bits32
-                    && [&segments.ds, &segments.es, &segments.ss]
-                        .into_iter()
-                        .all(|segment| {
-                            flat_range(segment)
-                                && segment.attributes.kind()
-                                    == Some(SegmentKind::Data {
-                                        writable: true,
-                                        expand_down: false,
-                                    })
-                        })
-                    && segments.ss.attributes.default_size() == SegmentDefaultSize::Bits32
-            }
+            Self::Flat32 => [&segments.ds, &segments.es, &segments.ss]
+                .into_iter()
+                .all(|segment| {
+                    flat_range(segment)
+                        && segment.attributes.kind()
+                            == Some(SegmentKind::Data {
+                                writable: true,
+                                expand_down: false,
+                            })
+                }),
+            Self::Segmented32 => true,
         }
     }
 }

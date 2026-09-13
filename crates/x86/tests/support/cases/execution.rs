@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use wasm86_x86::compile_block_from_bytes;
 use wasmparser::Validator;
 
-use super::{expectations, observation::FlagObservations, InstructionCase};
+use super::{expectations, observation::FlagObservations, Frontends, InstructionCase};
 pub(super) use crate::support::step::Engine;
 use crate::support::step::TestModule;
 
@@ -28,20 +28,25 @@ pub(super) fn check(cases: &[InstructionCase], engine: Engine) {
                 );
             }
         }
-        let block = blocks
-            .entry((case.initial.eip, case.code.to_vec()))
-            .or_insert_with(|| {
-                let module = compile_block_from_bytes(case.initial.eip, &case.code, 1)
-                    .unwrap_or_else(|error| panic!("{}: compiling the case: {error:?}", case.name));
-                Validator::new()
-                    .validate_all(&module.bytes)
-                    .unwrap_or_else(|error| panic!("{}: validating the block: {error}", case.name));
-                TestModule::new(&module)
-            });
-        for (frontend, module) in [
-            ("interpreter", TestModule::interpreter()),
-            ("block", &*block),
-        ] {
+        let block = matches!(case.frontends, Frontends::Both).then(|| {
+            blocks
+                .entry((case.initial.eip, case.code.to_vec()))
+                .or_insert_with(|| {
+                    let module = compile_block_from_bytes(case.initial.eip, &case.code, 1)
+                        .unwrap_or_else(|error| {
+                            panic!("{}: compiling the case: {error:?}", case.name)
+                        });
+                    Validator::new()
+                        .validate_all(&module.bytes)
+                        .unwrap_or_else(|error| {
+                            panic!("{}: validating the block: {error}", case.name)
+                        });
+                    TestModule::new(&module)
+                })
+        });
+        for (frontend, module) in std::iter::once(("interpreter", TestModule::interpreter()))
+            .chain(block.map(|module| ("block", &*module)))
+        {
             let context = format!("{} [{engine:?}, {frontend}]", case.name);
             let execution = machine.run(module, engine);
             expectations::check_state(case, &initial, &execution, &context);

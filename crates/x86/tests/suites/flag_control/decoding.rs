@@ -55,7 +55,7 @@ fn boundary_cases() -> Vec<Case> {
 
 #[test]
 fn unsupported_prefixes_stop_before_the_flag_control_opcode() {
-    for prefix in [0xf0, 0xf2, 0xf3, 0x67, 0x26, 0x2e, 0x36, 0x3e, 0x64, 0x65] {
+    for prefix in [0xf0, 0xf2, 0xf3, 0x67] {
         for (_, opcode) in ENCODINGS {
             for code in [vec![prefix, opcode], vec![0x66, prefix, opcode]] {
                 assert!(matches!(

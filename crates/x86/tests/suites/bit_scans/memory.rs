@@ -160,8 +160,8 @@ fn fault_cases() -> Vec<Case> {
         (&[][..], 0x4ffd, true, 0x5000),
         (&[][..], 0x4ffe, true, 0x5000),
         (&[][..], 0x4fff, true, 0x5000),
-        (&[0x66][..], 0xffff_ffff, true, 0xffff_ffff),
-        (&[][..], 0xffff_fffe, true, 0xffff_fffe),
+        (&[0x66][..], 0xffff_ffff, true, 0),
+        (&[][..], 0xffff_fffe, true, 0),
     ] {
         for opcode in [0xbc, 0xbd] {
             // A set bit in the first byte cannot suppress the remaining read checks.

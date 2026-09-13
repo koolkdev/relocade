@@ -156,7 +156,10 @@ fn boundary(checkpoint: &Checkpoint, entry: u32) -> Boundary {
             eip: target,
             retired: 1,
         },
-        ExpectedExit::DivideError | ExpectedExit::PageFault { .. } => Boundary {
+        ExpectedExit::DivideError
+        | ExpectedExit::GeneralProtection { .. }
+        | ExpectedExit::StackFault { .. }
+        | ExpectedExit::PageFault { .. } => Boundary {
             eip: entry,
             retired: 0,
         },

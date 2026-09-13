@@ -20,8 +20,8 @@ fn write_faults() -> Vec<Case> {
         ("read-only unequal dword", 32, 0x4020, Some(ReadOnly), None, 0x4020, 3),
         ("read-only second word page", 16, 0x4fff, Some(ReadWrite), Some(ReadOnly), 0x5000, 3),
         ("missing second dword page", 32, 0x4ffe, Some(ReadWrite), None, 0x5000, 2),
-        ("word range cannot wrap", 16, 0xffff_ffff, Some(ReadWrite), None, 0xffff_ffff, 2),
-        ("dword range cannot wrap", 32, 0xffff_fffd, Some(ReadWrite), None, 0xffff_fffd, 2),
+        ("word wrap reaches an absent page zero", 16, 0xffff_ffff, Some(ReadWrite), None, 0, 2),
+        ("dword wrap reaches an absent page zero", 32, 0xffff_fffd, Some(ReadWrite), None, 0, 2),
     ] {
         for (operation, opcode) in [("XADD", 0xc0), ("CMPXCHG", 0xb0)] {
             let mut code = Vec::new();

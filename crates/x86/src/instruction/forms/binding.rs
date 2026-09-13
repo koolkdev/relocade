@@ -23,13 +23,13 @@ impl ResolvedForm {
             (Handler::Binary(handler), OperandBindingShape::Binary { left, right }) => {
                 HandlerCall::Binary {
                     handler,
-                    left: fields.bind_location(left),
-                    right: fields.bind_operand(right),
+                    left: self.bind_location(&fields, left),
+                    right: self.bind_operand(&fields, right),
                 }
             }
             (Handler::Unary(handler), OperandBindingShape::Unary(operand)) => HandlerCall::Unary {
                 handler,
-                operand: fields.bind_operand(operand),
+                operand: self.bind_operand(&fields, operand),
             },
             (
                 Handler::Ternary(handler),
@@ -40,9 +40,9 @@ impl ResolvedForm {
                 },
             ) => HandlerCall::Ternary {
                 handler,
-                destination: fields.bind_location(destination),
-                first_source: fields.bind_operand(first_source),
-                second_source: fields.bind_operand(second_source),
+                destination: self.bind_location(&fields, destination),
+                first_source: self.bind_operand(&fields, first_source),
+                second_source: self.bind_operand(&fields, second_source),
             },
             _ => unreachable!("the form binds the handler's argument shape"),
         };
@@ -52,62 +52,78 @@ impl ResolvedForm {
                 condition: self.form.condition,
                 implicit_memory: self.form.implicit_memory,
                 ends_block: self.ends_block,
+                segment_override: self.segment_override.clone(),
             },
             eip,
             fallthrough_eip,
         }
     }
-}
 
-impl<V: Clone + From<u32>> DecodedFields<V> {
-    fn bind_location(&self, binding: LocationBinding) -> Location<V> {
-        match binding {
+    fn bind_location<V: Clone + From<u32>>(
+        &self,
+        fields: &DecodedFields<V>,
+        binding: LocationBinding,
+    ) -> Location<V> {
+        let mut location = match binding {
             LocationBinding::Register => {
-                let (Self::OpcodeRegisterImmediate { register, .. }
-                | Self::ModRm { register, .. }
-                | Self::OpcodeRegister { register }) = self
+                let (DecodedFields::OpcodeRegisterImmediate { register, .. }
+                | DecodedFields::ModRm { register, .. }
+                | DecodedFields::OpcodeRegister { register }) = fields
                 else {
                     unreachable!("the form selects a decoded register field")
                 };
                 Location::Register(register.clone().into())
             }
             LocationBinding::Rm => {
-                let Self::ModRm { rm, .. } = self else {
+                let DecodedFields::ModRm { rm, .. } = fields else {
                     unreachable!("the form selects a decoded r/m field")
                 };
                 rm.clone()
             }
             LocationBinding::FixedRegister(register) => Location::Register(register.into()),
             LocationBinding::AbsoluteOffset => {
-                let Self::AccumulatorOffset { offset } = self else {
+                let DecodedFields::AccumulatorOffset { offset } = fields else {
                     unreachable!("the form selects a decoded absolute offset")
                 };
-                Location::Memory(Address32 {
-                    base: None,
-                    index: None,
-                    displacement: offset.clone(),
-                })
+                Location::Memory(
+                    Address32 {
+                        base: None,
+                        index: None,
+                        displacement: offset.clone(),
+                    }
+                    .memory()
+                    .into(),
+                )
             }
+        };
+        if let Location::Memory(address) = &mut location {
+            address.segment = self.segment_override.apply(&address.segment);
         }
+        location
     }
 
-    fn bind_operand(&self, binding: OperandBinding) -> Operand<V> {
+    fn bind_operand<V: Clone + From<u32>>(
+        &self,
+        fields: &DecodedFields<V>,
+        binding: OperandBinding,
+    ) -> Operand<V> {
         match binding {
             OperandBinding::Constant(bits) => Operand::Immediate(bits.into()),
-            OperandBinding::Location(location) => self.bind_location(location).into(),
+            OperandBinding::Location(location) => self.bind_location(fields, location).into(),
             OperandBinding::RmAddress => {
-                let Location::Memory(address) = self.bind_location(LocationBinding::Rm) else {
+                let Location::Memory(address) = self.bind_location(fields, LocationBinding::Rm)
+                else {
                     unreachable!("address bindings require a memory addressing mode");
                 };
-                Operand::Address(address)
+                Operand::Address(address.offset)
             }
             OperandBinding::Immediate => {
-                let (Self::OpcodeRegisterImmediate { immediate, .. }
-                | Self::Immediate { immediate }
-                | Self::ModRm {
+                let (DecodedFields::OpcodeRegisterImmediate { immediate, .. }
+                | DecodedFields::Immediate { immediate }
+                | DecodedFields::ModRm {
                     immediate: Some(immediate),
                     ..
-                }) = self
+                }) = fields
                 else {
                     unreachable!("the form selects a decoded immediate")
                 };

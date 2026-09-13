@@ -124,10 +124,8 @@ impl Memory {
         })
     }
 
-    /// Checks exactly `T::BYTES` bytes (1, 2, 4 or 8), rejecting address-space wrap.
-    /// Instruction fetch handles EIP wrap through separate byte reads.
-    /// This flat memory policy reports denied spans as page faults, including
-    /// address-space wrap; it does not model architectural segmentation checks.
+    /// Checks exactly `T::BYTES` linear bytes (1, 2, 4 or 8), including ranges
+    /// wrapping at 2^32. Segment checks must already have validated the offset span.
     /// The callback must exit the fault path; successful paths yield an `Access`
     /// for the caller's read or write.
     pub(super) fn resolve_access<T: MemoryInt>(

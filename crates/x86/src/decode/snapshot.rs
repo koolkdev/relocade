@@ -57,7 +57,7 @@ pub(crate) fn snapshot(
         (first, None)
     };
     let form = form
-        .resolve(state.prefixes)
+        .resolve(&state.prefixes)
         .expect("the prefix state admits this form");
     let fields = match form.encoding() {
         Encoding::OpcodeOnly => DecodedFields::OpcodeOnly,
@@ -136,7 +136,7 @@ impl SnapshotCursor<'_> {
         let rm = if modrm >> 6 == 3 {
             Location::Register(RegisterCode::from_code(modrm).into())
         } else {
-            Location::Memory(self.decode_address(modrm)?)
+            Location::Memory(self.decode_address(modrm)?.memory().into())
         };
         let Encoding::ModRm { immediate } = form.encoding() else {
             unreachable!("the selected form has a ModRM field");

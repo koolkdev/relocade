@@ -2,7 +2,7 @@ use wasm86_compiler::{Program, Signature, Type};
 
 use crate::{
     declare_dispatch, decode, execution::ExecutionBuilder, memory::Memory, state::Cpu, BlockError,
-    CompiledModule,
+    CompiledModule, SegmentProfile,
 };
 
 /// Compiles from `start_eip` through the first branch, REP or `instruction_limit`
@@ -29,7 +29,10 @@ use crate::{
 ///
 /// Blocks with data-memory operands also import guest RAM and the page table,
 /// using the layout and fault words documented by [`crate::compile_interpreter_step`].
-/// Addresses are flat: segment bases are ignored. A data fault publishes earlier
+/// The returned module requires [`SegmentProfile::Flat32`]. The host establishes
+/// compatibility before entry and keeps it valid through execution and dispatch
+/// links. DS/ES/SS accesses use those flat assumptions without runtime segment
+/// guards; FS/GS and CS data overrides check their loaded caches. A data fault publishes earlier
 /// completed instructions, keeps EIP at the faulting instruction, and skips dispatch.
 /// REP also preserves successful elements and their ECX/ESI/EDI progress. It retires
 /// once after all elements succeed, including when ECX starts at zero.
@@ -70,6 +73,7 @@ pub fn compile_block_from_bytes(
         .then(|| Memory::declare(&mut program))
         .transpose()?;
     let dispatch = declare_dispatch(&mut program);
+    let profile = SegmentProfile::Flat32;
     let function = program.function(
         Signature {
             parameters: vec![],
@@ -77,7 +81,7 @@ pub fn compile_block_from_bytes(
         },
         |body| {
             let mut execution =
-                ExecutionBuilder::new(body, &cpu, memory.as_ref(), dispatch, start_eip)?;
+                ExecutionBuilder::new(body, &cpu, memory.as_ref(), dispatch, start_eip, profile)?;
             for decoded_instruction in decoded_instructions {
                 execution.execute(decoded_instruction)?;
             }
@@ -89,5 +93,6 @@ pub fn compile_block_from_bytes(
     Ok(CompiledModule {
         bytes: program.compile()?,
         entry,
+        segment_profile: Some(profile),
     })
 }

@@ -140,6 +140,7 @@ fn instruction_counts_reread_host_changes_between_invocations() {
     let module =
         compile_block_from_bytes(0x1000, &[0xb8, 7, 0, 0, 0, 0xb9, 9, 0, 0, 0], 2).unwrap();
     let mut initial = CpuState::filled(0xa5);
+    initial.segments = wasm86_x86::Segments::flat32();
     initial.eip = 0x1000;
     initial.instruction_count = 37;
     let mut expected_cpu = initial;

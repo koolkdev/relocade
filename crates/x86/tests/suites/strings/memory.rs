@@ -180,7 +180,7 @@ fn guest_faults() -> Vec<Case> {
     cases
 }
 
-fn index_wrap_and_span_limits() -> Vec<Case> {
+fn index_wrap_and_page_faults() -> Vec<Case> {
     let mut cases = Vec::new();
     for operation in OPERATIONS {
         for width in [1, 2, 4] {
@@ -206,16 +206,17 @@ fn index_wrap_and_span_limits() -> Vec<Case> {
             let address = u32::MAX;
             cases.push(
                 Case::preserving_flags(
-                    format!("{operation:?} {width} byte operand span cannot wrap"),
+                    format!(
+                        "{operation:?} {width} byte wrapped operand reaches an absent page zero"
+                    ),
                     &operation.code(width),
                 )
                 .stored_flags(record(0x81))
                 .initial_registers(&[(Esi, address), (Edi, address)])
                 .map_page(0xfffff, 0x8000, ReadWrite)
-                .map_page(0, 0xa000, ReadWrite)
                 .backing(0x8fff, &[0x12])
                 .backing(0xa000, &[0x34, 0x56, 0x78])
-                .fault(address, if operation == Operation::Stos { 2 } else { 0 }),
+                .fault(0, if operation == Operation::Stos { 2 } else { 0 }),
             );
         }
     }
@@ -285,8 +286,8 @@ fn overlapping_and_aliased_operands() -> Vec<Case> {
 test_cases!(scattered_pages, scattered_accesses());
 test_cases!(atomic_guest_faults_and_access_order, guest_faults());
 test_cases!(
-    full_width_indices_and_nonwrapping_operands,
-    index_wrap_and_span_limits()
+    full_width_indices_and_wrapped_page_faults,
+    index_wrap_and_page_faults()
 );
 test_cases!(
     overlap_and_physical_aliases,

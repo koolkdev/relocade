@@ -107,7 +107,7 @@ fn stack_faults() -> Vec<Case> {
     cases
 }
 
-fn stack_arithmetic_and_span_limits() -> Vec<Case> {
+fn stack_arithmetic_and_wrapped_faults() -> Vec<Case> {
     let mut cases = Vec::new();
     let image = IMAGES[12];
     for (word, width) in [(false, 4), (true, 2)] {
@@ -138,7 +138,7 @@ fn stack_arithmetic_and_span_limits() -> Vec<Case> {
         for is_push in [false, true] {
             cases.push(
                 Case::preserving_flags(
-                    format!("flag stack operand span cannot wrap: {width} bytes, push {is_push}"),
+                    format!("wrapped flag stack operand reaches an absent page zero: {width} bytes, push {is_push}"),
                     if is_push { push } else { pop },
                 )
                 .stored_flags(stored_flags(63, 31))
@@ -151,10 +151,9 @@ fn stack_arithmetic_and_span_limits() -> Vec<Case> {
                     },
                 )
                 .map_page(0xfffff, 0x8000, ReadWrite)
-                .map_page(0, 0xa000, ReadWrite)
                 .backing(0x8ffe, &[0x11, 0x22])
                 .backing(0xa000, &[0x33, 0x44])
-                .fault(address, if is_push { 2 } else { 0 }),
+                .fault(0, if is_push { 2 } else { 0 }),
             );
         }
     }
@@ -184,6 +183,6 @@ fn stack_arithmetic_and_span_limits() -> Vec<Case> {
 test_cases!(scattered_stack_pages, scattered_pages());
 test_cases!(failed_stack_transfers_preserve_all_state, stack_faults());
 test_cases!(
-    default32_stack_arithmetic_and_nonwrapping_operands,
-    stack_arithmetic_and_span_limits()
+    default32_stack_arithmetic_and_wrapped_page_faults,
+    stack_arithmetic_and_wrapped_faults()
 );

@@ -9,8 +9,9 @@ use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32
 
 use crate::exception::Exception;
 use crate::flags::{Condition, Flag, FlagChange};
-use crate::instruction::{self, DecodedInstruction};
+use crate::instruction::{self, DecodedInstruction, SegmentOverride};
 use crate::memory::{Access, Intent, Memory};
+use crate::segment::{Segment, SegmentAccess, SegmentProfile, SegmentSelection};
 use crate::state::{Cpu, State};
 
 /// Builds one execution path. State definitions and progress describe completed
@@ -20,6 +21,8 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     body: FunctionBuilder<'body>,
     state: State<'module>,
     memory: Option<&'module Memory>,
+    segments: SegmentAccess<'module>,
+    segment_override: SegmentOverride,
     dispatch: Func,
     eip: Val<I32>,
     completed: u32,
@@ -32,12 +35,15 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         memory: Option<&'module Memory>,
         dispatch: Func,
         start: impl Into<Val<I32>>,
+        profile: SegmentProfile,
     ) -> Result<Self, BuildError> {
         let eip = body.value(start)?;
         Ok(Self {
             body,
             state: State::new(cpu),
             memory,
+            segments: SegmentAccess::new(cpu, profile),
+            segment_override: SegmentOverride::None,
             dispatch,
             eip,
             completed: 0,
@@ -50,9 +56,15 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     ) -> Result<(), BuildError> {
         self.eip = self.body.value(decoded.eip)?;
         let fallthrough_eip = self.body.value(decoded.fallthrough_eip)?;
+        self.segment_override = decoded.instruction.segment_override.clone();
         self.eip = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
         self.completed += 1;
         Ok(())
+    }
+
+    /// String sources use DS unless the current instruction overrides it.
+    pub(crate) fn string_source_segment(&self) -> SegmentSelection {
+        self.segment_override.apply(&Segment::Ds.into())
     }
 
     /// Defines a flag change while preserving flags omitted from its write mask.
@@ -100,13 +112,18 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     fn checked<T: MemoryInt>(
         &mut self,
         memory: &'module Memory,
-        address: &Val<I32>,
+        segment: &SegmentSelection,
+        offset: &Val<I32>,
         intent: Intent,
     ) -> Result<Access<T>, BuildError> {
-        memory.resolve_access::<T>(&mut self.body, address, intent, |fault_body, exception| {
+        let on_fault = |fault_body: FunctionBuilder<'_>, exception: Exception| {
             self.state
                 .fault(fault_body, &self.eip, self.completed, exception)
-        })
+        };
+        let linear =
+            self.segments
+                .translate::<T>(&mut self.body, segment, offset, intent, on_fault)?;
+        memory.resolve_access::<T>(&mut self.body, &linear, intent, on_fault)
     }
 
     pub(super) fn complete(mut self) -> Result<(), BuildError> {

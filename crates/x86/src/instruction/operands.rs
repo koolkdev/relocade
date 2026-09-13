@@ -5,7 +5,7 @@ use wasm86_compiler::{AtLeast, BuildError, Val, I32};
 
 use super::{Location, Operand};
 use crate::{
-    address::{Address32, IndexTerm},
+    address::{Address32, IndexTerm, MemoryAddress},
     execution::{ExecutionBuilder, PairValues},
     register::{Gpr32, RegisterType},
 };
@@ -71,7 +71,7 @@ impl<T: RegisterType> TypedLocation<T> {
     /// Address registers and access permissions are still resolved at the access.
     pub(crate) fn offset_memory(mut self, offset: impl Into<Val<I32>>) -> Self {
         if let Location::Memory(address) = &mut self.location {
-            address.displacement = address.displacement.add(offset);
+            address.offset.displacement = address.offset.displacement.add(offset);
         }
         self
     }
@@ -127,7 +127,13 @@ pub(super) fn map_operand<V: Into<Val<I32>>>(operand: Operand<V>) -> Operand<Val
 pub(super) fn map_location<V: Into<Val<I32>>>(location: Location<V>) -> Location<Val<I32>> {
     match location {
         Location::Register(register) => Location::Register(register),
-        Location::Memory(address) => Location::Memory(map_address(address)),
+        Location::Memory(address) => Location::Memory(
+            MemoryAddress {
+                segment: address.segment,
+                offset: map_address(address.offset),
+            }
+            .into(),
+        ),
     }
 }
 

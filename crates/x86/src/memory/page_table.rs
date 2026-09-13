@@ -53,7 +53,6 @@ impl PageTable {
         // Looking up either entry is safe before classifying the range.
         let second_entry = self.entry(body, &last_address)?;
         Ok(TwoPageSpan {
-            start: start.clone(),
             last_address,
             first_entry: first_entry.clone(),
             second_entry,
@@ -87,14 +86,13 @@ impl PageTable {
 /// Page-table facts for a range crossing one page boundary. Shared by the
 /// contiguous-access check and detailed resolution; only resolution encodes denials.
 pub(super) struct TwoPageSpan {
-    start: Val<I32>,
     last_address: Val<I32>,
     first_entry: Val<I32>,
     second_entry: Val<I32>,
 }
 
 impl TwoPageSpan {
-    /// Rejects missing permissions or an address-space wrap.
+    /// Linear addresses wrap; each translated page supplies its own permissions.
     pub(super) fn access_denied(
         &self,
         required_permissions: impl Into<Val<I32>> + Copy,
@@ -103,7 +101,6 @@ impl TwoPageSpan {
             .and(&self.second_entry)
             .and(required_permissions)
             .ne(required_permissions)
-            .or(self.last_address.unsigned().lt(&self.start))
     }
 
     pub(super) fn has_scattered_backing(&self) -> Val<I1> {
@@ -122,17 +119,10 @@ impl TwoPageSpan {
             .or(self.second_entry.and(PRESENT))
             .or(LATER_DENIAL);
         let first_denial = self.first_entry.and(FRAME_MASK | PRESENT | WRITABLE);
-        let denial = self
-            .first_entry
+        self.first_entry
             .and(required_permissions)
             .ne(required_permissions)
-            .select(first_denial, second_denial);
-        // Range wrap has priority over page permissions and reports a non-present
-        // fault at the start. Otherwise the first denied page supplies the error.
-        self.last_address
-            .unsigned()
-            .lt(&self.start)
-            .select(0, denial)
+            .select(first_denial, second_denial)
     }
 }
 

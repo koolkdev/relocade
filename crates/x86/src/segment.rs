@@ -1,8 +1,12 @@
 //! Segment identities and normalized attributes of loaded segment caches.
 
+mod access;
 mod profile;
+mod selection;
 
+pub(crate) use access::{SegmentAccess, SegmentValues};
 pub use profile::SegmentProfile;
+pub(crate) use selection::SegmentSelection;
 
 #[cfg(test)]
 mod tests;

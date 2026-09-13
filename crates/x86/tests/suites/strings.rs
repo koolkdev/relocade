@@ -1,4 +1,4 @@
-//! String operations use flat, 32-bit indices and the stored DF bit.
+//! String operations use 32-bit indices and the stored DF bit.
 
 #[path = "strings/decoding.rs"]
 mod decoding;

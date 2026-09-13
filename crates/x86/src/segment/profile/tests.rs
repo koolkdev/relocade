@@ -100,3 +100,72 @@ fn fs_and_gs_changes_do_not_break_the_flat_profile() {
     segments.gs = StoredSegment::unusable(0x63);
     assert!(compatible(&segments));
 }
+
+#[test]
+fn runtime_data_checks_allow_nonflat_or_unusable_data_caches() {
+    for segment in [
+        Segment::Ds,
+        Segment::Es,
+        Segment::Ss,
+        Segment::Fs,
+        Segment::Gs,
+    ] {
+        for attributes in [0x10, 0x11, 0x13, 0x17, 0x1d] {
+            let mut segments = Segments::flat32();
+            segments[segment] = StoredSegment {
+                base: 0x8123_4000,
+                limit: 0x4321,
+                selector: 0x23,
+                attributes: SegmentAttributes::from_bits(attributes),
+            };
+            assert!(
+                SegmentProfile::Segmented32.is_compatible_with(&segments),
+                "{segment:?}, {attributes:02x}"
+            );
+        }
+    }
+}
+
+#[test]
+fn both_frontends_require_flat_default32_code_and_a_big_stack() {
+    for profile in [SegmentProfile::Flat32, SegmentProfile::Segmented32] {
+        for (segment, cache) in [
+            (
+                Segment::Cs,
+                StoredSegment {
+                    base: 1,
+                    ..StoredSegment::flat_code32(0)
+                },
+            ),
+            (
+                Segment::Cs,
+                StoredSegment {
+                    limit: 0xffff,
+                    ..StoredSegment::flat_code32(0)
+                },
+            ),
+            (
+                Segment::Cs,
+                StoredSegment {
+                    attributes: SegmentAttributes::from_bits(0x07),
+                    ..StoredSegment::flat_code32(0)
+                },
+            ),
+            (Segment::Cs, StoredSegment::unusable(0x1b)),
+            (
+                Segment::Ss,
+                StoredSegment {
+                    attributes: SegmentAttributes::from_bits(0x05),
+                    ..StoredSegment::flat_data32(0)
+                },
+            ),
+        ] {
+            let mut segments = Segments::flat32();
+            segments[segment] = cache;
+            assert!(
+                !profile.is_compatible_with(&segments),
+                "{profile:?}, {segment:?}, {cache:?}"
+            );
+        }
+    }
+}

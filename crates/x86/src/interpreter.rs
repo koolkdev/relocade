@@ -1,8 +1,8 @@
-use wasm86_compiler::{BuildError, Func, FunctionBuilder, Program, Signature, Type, Val, I32};
+use wasm86_compiler::{BuildError, Program, Signature, Type};
 
 use crate::{
-    declare_dispatch, decode::RuntimeDecoder, execution::ExecutionBuilder,
-    instruction::DecodedInstruction, memory::Memory, state::Cpu, CompiledModule,
+    declare_dispatch, decode::RuntimeDecoder, execution::ExecutionBuilder, memory::Memory,
+    state::Cpu, CompiledModule, SegmentProfile,
 };
 
 /// Builds `step() -> i64`, which fetches and executes one supported instruction
@@ -18,23 +18,25 @@ use crate::{
 /// 2^20 little-endian 32-bit page-table entries starting at byte zero. Bit 0 marks
 /// presence, bit 1 permits data writes, and bits 12 through 31 identify a 4-KiB
 /// frame in guest memory. Reads require presence. Valid backing for present frames
-/// is an internal invariant. Addresses are flat 32-bit sums:
-/// segment bases are ignored, and effective-address arithmetic wraps at 32 bits.
+/// is an internal invariant. The returned module requires [`SegmentProfile::Segmented32`]:
+/// flat executable CS with 32-bit instruction defaults and SS.B=1. The host
+/// establishes compatibility before entry. Data accesses check loaded segment
+/// permissions and complete offset spans, then add the segment base at 32 bits.
 ///
 /// A missing instruction page returns `(4 << 48) | (0x10 << 32) | address`, using
 /// the first unavailable byte's 32-bit linear address. Data faults return
 /// `(4 << 48) | (error << 32) | address`: error bit 1 identifies a write and bit 0
 /// identifies a present but denied page. The address is the first denied byte.
-/// This address-space policy rejects a data range crossing 0xffffffff
-/// with a fault at its start (error 0 for a read, 2 for a write). A one-byte
-/// access at 0xffffffff does not cross that boundary. Instruction fetch wraps.
+/// Linear spans may wrap across zero and use the page mappings on both sides.
+/// Segment violations return `16 << 48` for SS and `2 << 48` for other segments,
+/// representing stack fault and general protection, both with error code zero.
 /// All data permissions are checked before any guest store.
 /// DIV/IDIV divide error returns `1 << 48`, with no error code or address payload.
 /// It preserves the instruction's entry state and EIP without retiring or dispatching.
 ///
 /// An unsupported instruction form returns `(8 << 48) | (opcode << 32) | EIP`, an
 /// unsupported-subset exit rather than an architectural invalid-opcode exception.
-/// `opcode` is the first byte after any `66` prefixes; an unsupported form following
+/// `opcode` is the first byte after operand-size and segment prefixes; an unsupported form following
 /// `F3` reports `F3`. EIP is the instruction start, including its prefixes.
 /// Group instructions reject an unsupported ModRM.reg extension before reading
 /// their remaining fields. The diagnostic byte for an extended opcode is `0F`.
@@ -48,13 +50,15 @@ use crate::{
 ///
 /// The `66` operand-size prefix selects word operands and leaves byte operands
 /// unchanged. Repeating it does not toggle the width. `F3` repeats MOVS/STOS using
-/// full ECX, in either order with `66`. Repeated copies of either prefix retain
-/// their effect. Zero ECX skips data accesses; success retires the REP once and
-/// dispatches after the entire instruction. `F2` and other prefixes are outside
+/// full ECX, in either order with `66` and segment overrides. Repeated copies of
+/// `66` or `F3` retain their effect; the last segment override wins. Zero ECX skips
+/// data accesses; success retires the REP once and dispatches after the entire
+/// instruction. `F2`, `67` and LOCK prefixes are outside
 /// the supported subset. All required instruction bytes count toward the 15-byte
 /// limit. Attempting to read byte 16 returns general protection with error zero,
 /// encoded as `2 << 48`. A missing required byte within the limit faults first.
-/// This entry has no instruction budget or segment handling.
+/// This entry has no instruction budget. Segment loads and 16-bit execution defaults
+/// remain outside the subset.
 ///
 /// ```
 /// let module = wasm86_x86::compile_interpreter_step()?;
@@ -66,6 +70,7 @@ pub fn compile_interpreter_step() -> Result<CompiledModule, BuildError> {
     let cpu = Cpu::declare(&mut program);
     let memory = Memory::declare(&mut program)?;
     let dispatch = declare_dispatch(&mut program);
+    let profile = SegmentProfile::Segmented32;
     let signature = Signature {
         parameters: vec![],
         results: vec![Type::I64],
@@ -73,7 +78,10 @@ pub fn compile_interpreter_step() -> Result<CompiledModule, BuildError> {
     let step = program.declare(signature.clone());
     let exact = program.declare(signature);
     let decoder = RuntimeDecoder::new(&mut program, &memory, |body, decoded| {
-        complete(body, &cpu, &memory, dispatch, decoded)
+        let mut execution =
+            ExecutionBuilder::new(body, &cpu, Some(&memory), dispatch, &decoded.eip, profile)?;
+        execution.execute(decoded)?;
+        execution.complete()
     })?;
 
     let mut body = program.define(step)?;
@@ -90,17 +98,6 @@ pub fn compile_interpreter_step() -> Result<CompiledModule, BuildError> {
     Ok(CompiledModule {
         bytes: program.compile()?,
         entry: "step".into(),
+        segment_profile: Some(profile),
     })
-}
-
-fn complete(
-    body: FunctionBuilder<'_>,
-    cpu: &Cpu,
-    memory: &Memory,
-    dispatch: Func,
-    decoded: DecodedInstruction<Val<I32>, Val<I32>>,
-) -> Result<(), BuildError> {
-    let mut execution = ExecutionBuilder::new(body, cpu, Some(memory), dispatch, &decoded.eip)?;
-    execution.execute(decoded)?;
-    execution.complete()
 }

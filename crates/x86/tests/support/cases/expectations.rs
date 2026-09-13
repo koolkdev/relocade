@@ -230,7 +230,10 @@ pub(in crate::support) fn check_checkpoint(
     );
     if matches!(
         expected.exit,
-        ExpectedExit::DivideError | ExpectedExit::PageFault { .. }
+        ExpectedExit::DivideError
+            | ExpectedExit::GeneralProtection { .. }
+            | ExpectedExit::StackFault { .. }
+            | ExpectedExit::PageFault { .. }
     ) {
         assert!(
             execution.dispatches.is_empty(),
@@ -247,6 +250,8 @@ pub(in crate::support) fn check_checkpoint(
             Exit::Dispatch(expected_eip)
         }
         ExpectedExit::DivideError => Exit::DivideError,
+        ExpectedExit::GeneralProtection { error } => Exit::GeneralProtection { error },
+        ExpectedExit::StackFault { error } => Exit::StackFault { error },
         ExpectedExit::PageFault { address, error } => Exit::PageFault { address, error },
     };
     assert_eq!(execution.exit, exit, "{context}: exit");

@@ -67,9 +67,9 @@ fn fault_cases() -> Vec<Case> {
         Case::preserving_flags("MOVSX EAX,word [EBX]: missing second page", &[0x0f, 0xbf, 0x03])
             .initial_register(Gpr32::Ebx, 0x4fff).initial_register(Gpr32::Eax, 0x4433_2211)
             .memory(0x4fff, &[0x80], ReadOnly).fault(0x5000, 0),
-        Case::preserving_flags("MOVZX EAX,word [EBX]: linear range cannot wrap", &[0x0f, 0xb7, 0x03])
+        Case::preserving_flags("MOVZX EAX,word [EBX]: wrapped read reaches an absent page zero", &[0x0f, 0xb7, 0x03])
             .initial_register(Gpr32::Ebx, 0xffff_ffff).initial_register(Gpr32::Eax, 0x4433_2211)
-            .memory(0xffff_ffff, &[0x80], ReadOnly).fault(0xffff_ffff, 0),
+            .memory(0xffff_ffff, &[0x80], ReadOnly).fault(0, 0),
     ]
 }
 test_cases!(

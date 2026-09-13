@@ -174,7 +174,7 @@ fn source_faults() -> Vec<Case> {
             for (layout, address, fault) in [
                 ("absent source page", 0x4020, 0x4020),
                 ("absent second source page", 0x4fff, 0x5000),
-                ("source span cannot wrap", 0xffff_ffff, 0xffff_ffff),
+                ("wrapped source reaches an absent page zero", 0xffff_ffff, 0),
             ] {
                 if width == 1 && layout != "absent source page" {
                     continue;
@@ -188,10 +188,8 @@ fn source_faults() -> Vec<Case> {
                         .fault(fault, 0);
                 if layout == "absent second source page" {
                     case = case.map_page(4, 0x8000, ReadOnly);
-                } else if layout == "source span cannot wrap" {
-                    case = case
-                        .map_page(0xfffff, 0x8000, ReadOnly)
-                        .map_page(0, 0xa000, ReadOnly);
+                } else if layout == "wrapped source reaches an absent page zero" {
+                    case = case.map_page(0xfffff, 0x8000, ReadOnly);
                 }
                 cases.push(case);
             }

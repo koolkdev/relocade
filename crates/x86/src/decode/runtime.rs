@@ -100,7 +100,7 @@ where
 
 impl DecodeState {
     fn return_unsupported(
-        self,
+        &self,
         body: FunctionBuilder<'_>,
         cursor: &RuntimeCursor<'_>,
         selector: &Val<I8>,

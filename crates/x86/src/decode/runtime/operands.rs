@@ -66,7 +66,7 @@ where
                 return state.return_unsupported(arm, &cursor, opcode);
             };
             arm.if_(modrm.unsigned().shr(6).ne(3), |memory_body| {
-                self.tail_call_memory_decoder(memory_body, &cursor, state, opcode, &modrm)
+                self.tail_call_memory_decoder(memory_body, &cursor, state.clone(), opcode, &modrm)
             })?;
             if !form.accepts_register_rm() {
                 return state.return_unsupported(arm, &cursor, opcode);
@@ -74,7 +74,7 @@ where
             let rm =
                 Location::Register(RegisterCode::indexed(modrm.unsigned().extend::<I32>()).into());
             let form = form
-                .resolve(state.prefixes)
+                .resolve(&state.prefixes)
                 .expect("opcode selection accepted the prefix state");
             self.complete_modrm_instruction(arm, cursor.clone(), &modrm, &form, rm)
         })
@@ -140,14 +140,14 @@ where
                         return state.return_unsupported(arm, &cursor, opcode);
                     };
                     let form = form
-                        .resolve(state.prefixes)
+                        .resolve(&state.prefixes)
                         .expect("opcode selection accepted the prefix state");
                     self.complete_modrm_instruction(
                         arm,
                         cursor.clone(),
                         modrm,
                         &form,
-                        Location::Memory(address.clone()),
+                        Location::Memory(address.clone().memory().into()),
                     )
                 })
             })?;

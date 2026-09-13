@@ -166,6 +166,7 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
 
 fn abi_state(count: u32) -> CpuState {
     let mut cpu = CpuState::filled(0xa5);
+    cpu.segments = wasm86_x86::Segments::flat32();
     cpu.registers = Registers {
         eax: 0x1111_1111,
         ecx: 0x2222_2222,

@@ -89,6 +89,7 @@ pub(crate) struct TestModule {
     bytes: Vec<u8>,
     compiled: OnceLock<Module>,
     pub(crate) entry: String,
+    profile: Option<crate::SegmentProfile>,
 }
 
 impl TestModule {
@@ -97,6 +98,7 @@ impl TestModule {
             bytes: module.bytes.clone(),
             compiled: OnceLock::new(),
             entry: module.entry.clone(),
+            profile: module.segment_profile,
         }
     }
 
@@ -106,6 +108,7 @@ impl TestModule {
     }
 
     pub(crate) fn observe(&self, input: &Input, invocations: usize) -> Observation {
+        self.check_profile(input, invocations);
         let engine = wasm86_test_support::engine();
         let module = self
             .compiled
@@ -204,6 +207,7 @@ impl TestModule {
     }
 
     pub(crate) fn observe_v8(&self, input: &Input, invocations: usize) -> Observation {
+        self.check_profile(input, invocations);
         #[derive(Serialize)]
         struct Request<'a> {
             entry: &'a str,
@@ -219,6 +223,37 @@ impl TestModule {
                 input,
             },
         )
+    }
+
+    fn check_profile(&self, input: &Input, invocations: usize) {
+        let Some(profile) = self.profile else {
+            return;
+        };
+        let mut bytes: [u8; crate::CpuState::BYTE_LEN] = input.cpu[..crate::CpuState::BYTE_LEN]
+            .try_into()
+            .expect("execution inputs contain the CPU image");
+        let check = |bytes| {
+            let cpu = crate::CpuState::from_bytes(bytes);
+            assert!(
+                profile.is_compatible_with(&cpu.segments),
+                "{} requires compatible {profile:?} segment state",
+                self.entry
+            );
+        };
+        // Current instructions preserve segment caches. Explicit patches are the
+        // only way these fixtures can change the profile between invocations.
+        for call in 0..invocations {
+            if let Some(patches) = input.cpu_patches_before_calls.get(call) {
+                for (offset, patch) in patches {
+                    let start = *offset as usize;
+                    if start < bytes.len() {
+                        let count = patch.len().min(bytes.len() - start);
+                        bytes[start..start + count].copy_from_slice(&patch[..count]);
+                    }
+                }
+            }
+            check(bytes);
+        }
     }
 }
 

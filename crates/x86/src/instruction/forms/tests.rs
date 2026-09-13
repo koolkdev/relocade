@@ -78,7 +78,7 @@ fn catalog_bindings_use_available_fields_and_match_resolved_handler_arities() {
             };
             for resolved in std::iter::once(PrefixState::default())
                 .chain(PrefixState::PREFIXED)
-                .filter_map(|prefixes| form.resolve(prefixes))
+                .filter_map(|prefixes| form.resolve(&prefixes))
             {
                 let arity = match resolved.handler {
                     Handler::Nullary(_) => 0,
@@ -156,7 +156,7 @@ fn immediate_encoding_keeps_fixed_widths_and_signed_bytes_distinct() {
             (word_prefixes(), word_bytes),
             (PrefixState::default(), dword_bytes),
         ] {
-            let resolved = form.resolve(prefixes).unwrap();
+            let resolved = form.resolve(&prefixes).unwrap();
             assert_eq!(resolved.immediate_width().bytes(), bytes);
             assert_eq!(resolved.sign_extends_immediate(), signed);
         }
@@ -235,7 +235,7 @@ fn opcode_register_ranges_cover_exactly_eight_codes_and_bind_each_register() {
         ));
         for code in 0..8 {
             for prefixes in [word_prefixes(), PrefixState::default()] {
-                let decoded = form.resolve(prefixes).unwrap().bind(
+                let decoded = form.resolve(&prefixes).unwrap().bind(
                     DecodedFields::OpcodeRegisterImmediate {
                         register: RegisterCode::from_code(code),
                         immediate: 0x7au32,
@@ -288,7 +288,7 @@ fn flag_transfer_forms_bind_ah_without_encoded_operand_fields() {
         let form = catalog_form(OpcodeMap::Primary, opcode, None);
         assert!(matches!(form.encoding, Encoding::OpcodeOnly));
         for prefixes in [word_prefixes(), PrefixState::default()] {
-            let decoded = form.resolve(prefixes).unwrap().bind(
+            let decoded = form.resolve(&prefixes).unwrap().bind(
                 DecodedFields::<u32>::OpcodeOnly,
                 0x1000,
                 0x1001,
@@ -317,15 +317,19 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
     for prefixes in [word_prefixes(), PrefixState::default()] {
         let fields = || DecodedFields::ModRm {
             register: RegisterCode::from_code(2),
-            rm: Location::Memory(Address32 {
-                base: None,
-                index: None,
-                displacement: 0x12345678u32,
-            }),
+            rm: Location::Memory(
+                Address32 {
+                    base: None,
+                    index: None,
+                    displacement: 0x12345678u32,
+                }
+                .memory()
+                .into(),
+            ),
             immediate: None,
         };
         let address = lea
-            .resolve(prefixes)
+            .resolve(&prefixes)
             .unwrap()
             .bind(fields(), 0x1000, 0x1006);
         assert!(!address.instruction.uses_memory());
@@ -340,19 +344,16 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
             }
         ));
         let load = mov
-            .resolve(prefixes)
+            .resolve(&prefixes)
             .unwrap()
             .bind(fields(), 0x1000, 0x1006);
         assert!(load.instruction.uses_memory());
         assert!(matches!(
             load.instruction.call,
             HandlerCall::Binary {
-                right: Operand::Location(Location::Memory(Address32 {
-                    displacement: 0x12345678,
-                    ..
-                })),
+                right: Operand::Location(Location::Memory(address)),
                 ..
-            }
+            } if address.offset.displacement == 0x12345678
         ));
     }
 }

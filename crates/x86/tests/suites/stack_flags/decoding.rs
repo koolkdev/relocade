@@ -65,7 +65,7 @@ fn complete_stack_flag_opcodes_need_no_operand_or_next_byte() {
 
 #[test]
 fn unsupported_prefixes_precede_flag_and_stack_access() {
-    for prefix in [0xf0, 0xf2, 0xf3, 0x67, 0x26, 0x2e, 0x36, 0x3e, 0x64, 0x65] {
+    for prefix in [0xf0, 0xf2, 0xf3, 0x67] {
         for opcode in [0x9c, 0x9d] {
             for code in [vec![prefix, opcode], vec![0x66, prefix, opcode]] {
                 assert_eq!(

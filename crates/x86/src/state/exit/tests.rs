@@ -10,6 +10,7 @@ fn exit_module() -> Vec<u8> {
     let mut program = Program::new();
     for name in [
         "divide_error",
+        "stack_fault",
         "general_protection",
         "page_fault",
         "unsupported",
@@ -25,6 +26,7 @@ fn exit_module() -> Vec<u8> {
                     let address = body.parameter::<I32>(1)?;
                     let fault = match name {
                         "divide_error" => Exception::DivideError,
+                        "stack_fault" => Exception::StackFault { error_code: detail },
                         "general_protection" => Exception::GeneralProtection { error_code: detail },
                         "page_fault" => Exception::PageFault {
                             linear_address: address,
@@ -55,6 +57,8 @@ fn check_host_exit_words(engine: Engine) {
             0x0001_0000_0000_0000_i64,
         ),
         ("general_protection", 0, 0x89ab_cdef, 0x0002_0000_0000_0000),
+        ("stack_fault", 0, 0x89ab_cdef, 0x0010_0000_0000_0000),
+        ("stack_fault", 0xabcd, 0x89ab_cdef, 0x0010_abcd_0000_0000),
         (
             "general_protection",
             0xabcd,
@@ -66,6 +70,7 @@ fn check_host_exit_words(engine: Engine) {
         ("unsupported", 0xf3, 0x89ab_cdef, 0x0008_00f3_89ab_cdef),
     ] {
         let module = TestModule::new(&CompiledModule {
+            segment_profile: None,
             bytes: bytes.clone(),
             entry: name.into(),
         });

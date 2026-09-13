@@ -85,20 +85,20 @@ fn ordering_and_wrap_faults() -> Vec<Case> {
             cases.push(case);
         }
     }
-    for (code, stack, address) in [(&[0xe8, 0, 0, 0, 0][..], 2, 0xffff_fffe), (&[0x66, 0xe8, 0, 0], 1, 0xffff_ffff)] {
-        cases.push(Case::preserving_flags(format!("CALL push range cannot cross the address-space end: {code:02x?}"), code)
-            .initial_register(Esp, stack).map_page(0xfffff, 0x8000, ReadWrite).map_page(0, 0xa000, ReadWrite)
-            .backing(0x8ffe, &[0x11, 0x22]).backing(0xa000, &[0x33, 0x44]).fault(address, 2));
+    for (code, stack) in [(&[0xe8, 0, 0, 0, 0][..], 2), (&[0x66, 0xe8, 0, 0], 1)] {
+        cases.push(Case::preserving_flags(format!("CALL wrapped push reaches an absent page zero: {code:02x?}"), code)
+            .initial_register(Esp, stack).map_page(0xfffff, 0x8000, ReadWrite)
+            .backing(0x8ffe, &[0x11, 0x22]).backing(0xa000, &[0x33, 0x44]).fault(0, 2));
     }
     for (code, source, stack) in [
         (&[0xff, 0x13][..], 0xffff_fffe, 0x9004), (&[0x66, 0xff, 0x13], 0xffff_ffff, 0x9004),
         (&[0xff, 0x23], 0xffff_fffe, 0x9004), (&[0x66, 0xff, 0x23], 0xffff_ffff, 0x9004),
         (&[0xc3], 0xffff_fffe, 0xffff_fffe), (&[0x66, 0xc2, 0xff, 0xff], 0xffff_ffff, 0xffff_ffff),
     ] {
-        cases.push(Case::preserving_flags(format!("near target read range cannot cross the address-space end: {code:02x?}"), code)
+        cases.push(Case::preserving_flags(format!("near target wrapped read reaches an absent page zero: {code:02x?}"), code)
             .initial_register(Ebx, source).initial_register(Esp, stack)
-            .map_page(0xfffff, 0x8000, ReadOnly).map_page(0, 0xa000, ReadOnly).map_page(9, 0xb000, ReadWrite)
-            .backing(0x8ffe, &[0x11, 0x22]).backing(0xa000, &[0x33, 0x44]).backing(0xb000, &[0x5a; 8]).fault(source, 0));
+            .map_page(0xfffff, 0x8000, ReadOnly).map_page(9, 0xb000, ReadWrite)
+            .backing(0x8ffe, &[0x11, 0x22]).backing(0xa000, &[0x33, 0x44]).backing(0xb000, &[0x5a; 8]).fault(0, 0));
     }
     cases
 }
@@ -109,6 +109,6 @@ test_cases!(
     target_read_faults()
 );
 test_cases!(
-    source_fault_priority_and_nonwrapping_ranges,
+    source_fault_priority_and_wrapped_page_faults,
     ordering_and_wrap_faults()
 );

@@ -10,7 +10,7 @@ pub(crate) use opcodes::forms_by_opcode;
 
 use super::{
     handlers::{Handler, SizedHandlers},
-    Location, OperandSize, PrefixState,
+    Location, OperandSize, PrefixState, SegmentOverride,
 };
 use crate::flags::Condition;
 use crate::register::{NamedRegister, RegisterCode};
@@ -169,7 +169,7 @@ pub(crate) struct Form {
 
 impl Form {
     /// Resolve prefix meaning before either decoder reads operand fields.
-    pub(crate) fn resolve(&self, prefixes: PrefixState) -> Option<ResolvedForm> {
+    pub(crate) fn resolve(&self, prefixes: &PrefixState) -> Option<ResolvedForm> {
         let operand_size = prefixes.operand_size();
         let (handlers, ends_block) = if prefixes.has_f3() {
             (self.repeat_handlers?, true)
@@ -181,6 +181,7 @@ impl Form {
             operand_size,
             handler: handlers.resolve(operand_size),
             ends_block,
+            segment_override: prefixes.segment_override().clone(),
         })
     }
 
@@ -211,12 +212,13 @@ impl Form {
 }
 
 /// Physical fetch widths and the concrete handler are selected from the prefix state.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct ResolvedForm {
     form: Form,
     operand_size: OperandSize,
     handler: Handler,
     ends_block: bool,
+    segment_override: SegmentOverride,
 }
 
 impl ResolvedForm {

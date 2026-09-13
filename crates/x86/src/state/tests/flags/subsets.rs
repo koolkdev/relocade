@@ -185,6 +185,7 @@ fn all_masks_reader() -> CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     CompiledModule {
+        segment_profile: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }
