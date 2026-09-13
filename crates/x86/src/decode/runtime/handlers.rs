@@ -1,9 +1,11 @@
+//! Decoder entry signatures and transport of cursor progress and semantic state.
 use wasm86_compiler::{
     Argument, BuildError, Func, FunctionBuilder, Program, Signature, Type, Val, I32, I8,
 };
 
 use crate::{
-    instruction::{OpcodeMap, OperandSize},
+    decode::DecodeState,
+    instruction::{OpcodeMap, PrefixState},
     memory::Memory,
 };
 
@@ -17,10 +19,13 @@ pub(super) enum DecodePoint {
 }
 
 impl DecodePoint {
-    fn opcode_map(self) -> OpcodeMap {
-        match self {
-            Self::Opcode => OpcodeMap::Primary,
-            Self::MemoryOperand(map) => map,
+    fn state(self, prefixes: PrefixState) -> DecodeState {
+        DecodeState {
+            prefixes,
+            map: match self {
+                Self::Opcode => OpcodeMap::Primary,
+                Self::MemoryOperand(map) => map,
+            },
         }
     }
 
@@ -32,19 +37,27 @@ impl DecodePoint {
     }
 
     fn consumed(self) -> u32 {
-        self.opcode_map().bytes() + u32::from(matches!(self, Self::MemoryOperand(_)))
+        match self {
+            Self::Opcode => OpcodeMap::Primary.bytes(),
+            Self::MemoryOperand(map) => map.bytes() + 1,
+        }
+    }
+
+    fn accepts(self, prefixes: PrefixState) -> bool {
+        self.state(prefixes).forms().any(|form| match self {
+            Self::Opcode => true,
+            Self::MemoryOperand(_) => form.encoding.has_modrm(),
+        })
     }
 }
 
-/// Direct and checked entries share field decoding. A prefixed entry resumes
-/// from the instruction's total byte count. Passing the proven physical window
-/// through a direct entry lets later operand fields reuse the original check.
+/// Fixed entries know the consumed field count; resumed entries receive it.
+/// Semantic specialization is independent of the direct fetch-window proof.
 pub(super) struct DecodeHandlers {
     point: DecodePoint,
     direct: Func,
     checked: Func,
-    prefixed: Func,
-    repeated: Option<[Func; 2]>,
+    resumed: Vec<(PrefixState, Func)>,
 }
 
 impl DecodeHandlers {
@@ -56,27 +69,26 @@ impl DecodeHandlers {
             results: vec![Type::I64],
         });
         parameters.push(Type::I32);
+        let direct = program.declare(Signature {
+            parameters: parameters.clone(),
+            results: vec![Type::I64],
+        });
+        let resumed = PrefixState::PREFIXED
+            .into_iter()
+            .filter(|&prefixes| point.accepts(prefixes))
+            .map(|prefixes| {
+                let function = program.declare(Signature {
+                    parameters: parameters.clone(),
+                    results: vec![Type::I64],
+                });
+                (prefixes, function)
+            })
+            .collect();
         Self {
             point,
+            direct,
             checked,
-            direct: program.declare(Signature {
-                parameters: parameters.clone(),
-                results: vec![Type::I64],
-            }),
-            prefixed: program.declare(Signature {
-                parameters: parameters.clone(),
-                results: vec![Type::I64],
-            }),
-            // Repeat forms have implicit operands, so only opcode entries need
-            // these restricted selectors. Ordinary operand decoders stay shared.
-            repeated: matches!(point, DecodePoint::Opcode).then(|| {
-                std::array::from_fn(|_| {
-                    program.declare(Signature {
-                        parameters: parameters.clone(),
-                        results: vec![Type::I64],
-                    })
-                })
-            }),
+            resumed,
         }
     }
 
@@ -84,56 +96,56 @@ impl DecodeHandlers {
         &self,
         program: &mut Program,
         memory: &'memory Memory,
-        decode: impl Fn(FunctionBuilder<'_>, RuntimeCursor<'memory>, &Val<I8>) -> Result<(), BuildError>,
+        decode: impl Fn(
+            FunctionBuilder<'_>,
+            RuntimeCursor<'memory>,
+            DecodeState,
+            &Val<I8>,
+        ) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         enum Entry {
             Checked,
             Direct,
-            Prefixed(OperandSize, bool),
+            Resumed(PrefixState),
         }
-        let mut entries = vec![
-            (self.checked, Entry::Checked),
-            (self.direct, Entry::Direct),
-            (self.prefixed, Entry::Prefixed(OperandSize::Word, false)),
-        ];
-        if let Some([dword, word]) = self.repeated {
-            entries.push((dword, Entry::Prefixed(OperandSize::Dword, true)));
-            entries.push((word, Entry::Prefixed(OperandSize::Word, true)));
-        }
+        let entries = [(self.checked, Entry::Checked), (self.direct, Entry::Direct)]
+            .into_iter()
+            .chain(
+                self.resumed
+                    .iter()
+                    .map(|&(prefixes, function)| (function, Entry::Resumed(prefixes))),
+            );
         for (function, entry) in entries {
             let body = program.define(function)?;
             let instruction_eip = body.parameter::<I32>(0)?;
             let opcode = body.parameter::<I8>(1)?;
             let position_parameter = self.point.field_count() as u32 + 1;
-            let mut cursor = if let Entry::Prefixed(size, repeat) = entry {
-                let mut cursor = RuntimeCursor::resume(
-                    memory,
-                    &instruction_eip,
-                    &body.parameter::<I32>(position_parameter)?,
-                    size,
-                );
-                if repeat {
-                    cursor.select_repeat();
+            let (cursor, prefixes) = match entry {
+                Entry::Resumed(prefixes) => (
+                    RuntimeCursor::resume(
+                        memory,
+                        &instruction_eip,
+                        &body.parameter::<I32>(position_parameter)?,
+                    ),
+                    prefixes,
+                ),
+                Entry::Checked | Entry::Direct => {
+                    let physical_start = if matches!(entry, Entry::Direct) {
+                        Some(body.parameter::<I32>(position_parameter)?)
+                    } else {
+                        None
+                    };
+                    let cursor = RuntimeCursor::new(
+                        &body,
+                        memory,
+                        &instruction_eip,
+                        physical_start.as_ref(),
+                        self.point.consumed(),
+                    )?;
+                    (cursor, PrefixState::default())
                 }
-                cursor
-            } else {
-                let physical_start = if matches!(entry, Entry::Direct) {
-                    Some(body.parameter::<I32>(position_parameter)?)
-                } else {
-                    None
-                };
-                RuntimeCursor::new(
-                    &body,
-                    memory,
-                    &instruction_eip,
-                    physical_start.as_ref(),
-                    self.point.consumed(),
-                )?
             };
-            if self.point.opcode_map() == OpcodeMap::Extended {
-                cursor.enter_extended_map();
-            }
-            decode(body, cursor, &opcode)?;
+            decode(body, cursor, self.point.state(prefixes), &opcode)?;
         }
         Ok(())
     }
@@ -143,31 +155,26 @@ impl DecodeHandlers {
         &self,
         body: FunctionBuilder<'_>,
         cursor: &RuntimeCursor<'_>,
+        state: DecodeState,
         fields: &[Argument],
     ) -> Result<(), BuildError> {
         let mut arguments = vec![cursor.instruction_eip().into()];
         arguments.extend_from_slice(fields);
-        let target = if cursor.repeat_prefix() {
-            arguments.push(cursor.consumed().into());
-            let [dword, word] = self.repeated.expect("repeat forms use the opcode entry");
-            match cursor.operand_size() {
-                OperandSize::Word => word,
-                OperandSize::Dword => dword,
+        let target = if cursor.fixed_offset() == Some(self.point.consumed()) {
+            match cursor.physical_start() {
+                Some(physical_start) => {
+                    arguments.push(physical_start.into());
+                    self.direct
+                }
+                None => self.checked,
             }
         } else {
-            match cursor.operand_size() {
-                OperandSize::Word => {
-                    arguments.push(cursor.consumed().into());
-                    self.prefixed
-                }
-                OperandSize::Dword => match cursor.physical_start() {
-                    Some(physical_start) => {
-                        arguments.push(physical_start.into());
-                        self.direct
-                    }
-                    None => self.checked,
-                },
-            }
+            arguments.push(cursor.consumed().into());
+            self.resumed
+                .iter()
+                .find(|(prefixes, _)| *prefixes == state.prefixes)
+                .map(|(_, function)| *function)
+                .expect("the prefix state has a viable decoder entry")
         };
         body.tail_call(target, &arguments)
     }

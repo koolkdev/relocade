@@ -10,13 +10,14 @@ pub(crate) use opcodes::forms_by_opcode;
 
 use super::{
     handlers::{Handler, SizedHandlers},
-    Location, OperandSize,
+    Location, OperandSize, PrefixState,
 };
 use crate::flags::Condition;
 use crate::register::{NamedRegister, RegisterCode};
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
 pub(crate) enum OpcodeMap {
+    #[default]
     Primary,
     Extended,
 }
@@ -167,17 +168,20 @@ pub(crate) struct Form {
 }
 
 impl Form {
-    pub(crate) fn with_operand_size(&self, size: OperandSize) -> SizedForm {
-        SizedForm {
+    /// Resolve prefix meaning before either decoder reads operand fields.
+    pub(crate) fn resolve(&self, prefixes: PrefixState) -> Option<ResolvedForm> {
+        let operand_size = prefixes.operand_size();
+        let (handlers, ends_block) = if prefixes.has_f3() {
+            (self.repeat_handlers?, true)
+        } else {
+            (self.handlers, self.ends_block)
+        };
+        Some(ResolvedForm {
             form: *self,
-            operand_size: size,
-            handler: self.handlers.resolve(size),
-            ends_block: self.ends_block,
-        }
-    }
-
-    pub(crate) fn supports_repeat(&self) -> bool {
-        self.repeat_handlers.is_some()
+            operand_size,
+            handler: handlers.resolve(operand_size),
+            ends_block,
+        })
     }
 
     /// The caller has already selected this form's opcode map.
@@ -208,25 +212,14 @@ impl Form {
 
 /// Physical fetch widths and the concrete handler are selected from the prefix state.
 #[derive(Clone, Copy)]
-pub(crate) struct SizedForm {
+pub(crate) struct ResolvedForm {
     form: Form,
     operand_size: OperandSize,
     handler: Handler,
     ends_block: bool,
 }
 
-impl SizedForm {
-    /// Both decoders select repetition only from forms that advertise it.
-    pub(crate) fn with_repeat(mut self) -> Self {
-        self.handler = self
-            .form
-            .repeat_handlers
-            .expect("the prefix selected a repeat form")
-            .resolve(self.operand_size);
-        self.ends_block = true;
-        self
-    }
-
+impl ResolvedForm {
     pub(crate) fn encoding(&self) -> Encoding {
         self.form.encoding
     }

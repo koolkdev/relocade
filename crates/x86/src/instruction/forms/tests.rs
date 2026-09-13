@@ -2,11 +2,14 @@ use super::*;
 use crate::{
     address::Address32,
     instruction::{
-        handlers::HandlerCall, opcode_forms, Operand, EXTENDED_OPCODE_ESCAPE, OPERAND_SIZE_PREFIX,
-        REPEAT_PREFIX,
+        handlers::HandlerCall, opcode_forms, Operand, Prefix, PrefixState, EXTENDED_OPCODE_ESCAPE,
     },
     register::{Gpr32, RegisterOperand},
 };
+
+fn word_prefixes() -> PrefixState {
+    PrefixState::default().with_prefix(Prefix::OperandSize)
+}
 
 fn catalog_form(map: OpcodeMap, opcode: u8, extension: Option<u8>) -> &'static Form {
     let mut candidates =
@@ -54,7 +57,7 @@ fn opcode_candidates_share_a_decode_layout_and_never_overlap() {
 }
 
 #[test]
-fn catalog_bindings_use_available_fields_and_match_both_handler_arities() {
+fn catalog_bindings_use_available_fields_and_match_resolved_handler_arities() {
     for map in [OpcodeMap::Primary, OpcodeMap::Extended] {
         for form in opcode_forms(map) {
             let bindings = match form.binding {
@@ -73,8 +76,11 @@ fn catalog_bindings_use_available_fields_and_match_both_handler_arities() {
                     second_source,
                 ],
             };
-            for size in [OperandSize::Word, OperandSize::Dword] {
-                let arity = match form.with_operand_size(size).handler {
+            for resolved in std::iter::once(PrefixState::default())
+                .chain(PrefixState::PREFIXED)
+                .filter_map(|prefixes| form.resolve(prefixes))
+            {
+                let arity = match resolved.handler {
                     Handler::Nullary(_) => 0,
                     Handler::Unary(_) => 1,
                     Handler::Binary(_) => 2,
@@ -129,7 +135,11 @@ fn catalog_bindings_use_available_fields_and_match_both_handler_arities() {
 #[test]
 fn instruction_forms_cannot_shadow_decoder_prefix_and_escape_actions() {
     let primary = forms_by_opcode(opcode_forms(OpcodeMap::Primary));
-    for opcode in [OPERAND_SIZE_PREFIX, REPEAT_PREFIX, EXTENDED_OPCODE_ESCAPE] {
+    for opcode in Prefix::ALL
+        .into_iter()
+        .map(Prefix::byte)
+        .chain([EXTENDED_OPCODE_ESCAPE])
+    {
         assert!(!primary.contains_key(&u32::from(opcode)));
     }
 }
@@ -142,13 +152,13 @@ fn immediate_encoding_keeps_fixed_widths_and_signed_bytes_distinct() {
         (0x83, Some(0), 1, 1, true),
     ] {
         let form = catalog_form(OpcodeMap::Primary, opcode, extension);
-        for (size, bytes) in [
-            (OperandSize::Word, word_bytes),
-            (OperandSize::Dword, dword_bytes),
+        for (prefixes, bytes) in [
+            (word_prefixes(), word_bytes),
+            (PrefixState::default(), dword_bytes),
         ] {
-            let sized = form.with_operand_size(size);
-            assert_eq!(sized.immediate_width().bytes(), bytes);
-            assert_eq!(sized.sign_extends_immediate(), signed);
+            let resolved = form.resolve(prefixes).unwrap();
+            assert_eq!(resolved.immediate_width().bytes(), bytes);
+            assert_eq!(resolved.sign_extends_immediate(), signed);
         }
     }
 
@@ -224,8 +234,8 @@ fn opcode_register_ranges_cover_exactly_eight_codes_and_bind_each_register() {
             Encoding::OpcodeRegisterImmediate { .. }
         ));
         for code in 0..8 {
-            for size in [OperandSize::Word, OperandSize::Dword] {
-                let decoded = form.with_operand_size(size).bind(
+            for prefixes in [word_prefixes(), PrefixState::default()] {
+                let decoded = form.resolve(prefixes).unwrap().bind(
                     DecodedFields::OpcodeRegisterImmediate {
                         register: RegisterCode::from_code(code),
                         immediate: 0x7au32,
@@ -277,10 +287,12 @@ fn flag_transfer_forms_bind_ah_without_encoded_operand_fields() {
     for opcode in [0x9e, 0x9f] {
         let form = catalog_form(OpcodeMap::Primary, opcode, None);
         assert!(matches!(form.encoding, Encoding::OpcodeOnly));
-        for size in [OperandSize::Word, OperandSize::Dword] {
-            let decoded =
-                form.with_operand_size(size)
-                    .bind(DecodedFields::<u32>::OpcodeOnly, 0x1000, 0x1001);
+        for prefixes in [word_prefixes(), PrefixState::default()] {
+            let decoded = form.resolve(prefixes).unwrap().bind(
+                DecodedFields::<u32>::OpcodeOnly,
+                0x1000,
+                0x1001,
+            );
             assert!(!decoded.instruction.ends_block());
             assert!(!decoded.instruction.uses_memory());
             assert!(matches!(
@@ -302,7 +314,7 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
         assert_eq!(lea.matches_modrm(modrm), modrm >> 6 != 3);
         assert!(mov.matches_modrm(modrm));
     }
-    for size in [OperandSize::Word, OperandSize::Dword] {
+    for prefixes in [word_prefixes(), PrefixState::default()] {
         let fields = || DecodedFields::ModRm {
             register: RegisterCode::from_code(2),
             rm: Location::Memory(Address32 {
@@ -312,7 +324,10 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
             }),
             immediate: None,
         };
-        let address = lea.with_operand_size(size).bind(fields(), 0x1000, 0x1006);
+        let address = lea
+            .resolve(prefixes)
+            .unwrap()
+            .bind(fields(), 0x1000, 0x1006);
         assert!(!address.instruction.uses_memory());
         assert!(matches!(
             address.instruction.call,
@@ -324,7 +339,10 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
                 ..
             }
         ));
-        let load = mov.with_operand_size(size).bind(fields(), 0x1000, 0x1006);
+        let load = mov
+            .resolve(prefixes)
+            .unwrap()
+            .bind(fields(), 0x1000, 0x1006);
         assert!(load.instruction.uses_memory());
         assert!(matches!(
             load.instruction.call,

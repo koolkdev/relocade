@@ -560,10 +560,13 @@ MOVS {
 }
 ```
 
-Both decoders check this capability and bind the repeated handler when `F3` is
-present. The bound instruction already names its behavior; lowering needs no
-prefix switch. Repeated forms currently require implicit operands in the primary
-opcode map. The selected form marks the snapshot block boundary.
+`PrefixState` records the supported prefix bytes before form selection. Both decoders
+use `Form::resolve(prefixes)` to accept a form and select its handler, physical fetch
+widths and block boundary. For the current forms, `F3` requires the declared `repeat`
+body; it is interpreted here rather than recorded as repetition by the byte cursor.
+The resulting `ResolvedForm` binds the decoded fields through the existing binding API,
+so lowering needs no prefix switch. Repeated forms currently require implicit operands
+in the primary opcode map.
 
 Physical immediate widths stay independent of logical data widths. `imm8` and
 `imm16` consume one and two bytes respectively; `imm` follows the operand-size
@@ -627,14 +630,19 @@ access checks, so bit-string operations reuse ordinary reads and guarded updates
 The bit-test definitions own signed register offsets versus immediate offsets;
 the address and memory owners retain their normal policies.
 
+Both decoders use `DecodeState` to track the opcode map, find forms admitted by the
+prefix state and choose unsupported-instruction diagnostics. A map with no admitted
+forms is rejected before fetching its selector byte. With the current forms this
+preserves the early rejection of `F3 0F`.
+
 The runtime decoder owns its byte cursor, proven window and completion policy.
-Every opcode map uses the same form-driven switch and selects operand decoding
-by encoding. Only the chosen opcode checks
-its ModRM extension. Direct, checked and prefixed entries share field handling.
-Prefix entries retain the original instruction start and total consumed byte
-count. The repeated entries select only forms with repeated handlers, using the
-same opcode table and operand-size rules. Prefix dispatch finishes before the
-execution loop starts; element iterations never re-enter decoding.
+The cursor tracks byte position and fetch guarantees independently of prefix meaning.
+Direct and checked entries start at a known position; resumed entries receive the
+instruction's total consumed byte count. This choice follows the cursor's position.
+Resumed entries specialize only the prefix states admitted at their decode point,
+using the same form-driven opcode switch and operand handling. Only the chosen opcode
+checks its ModRM extension. Prefix dispatch finishes before the execution loop starts;
+element iterations never re-enter decoding.
 An exact opcode case retains its register selection, so compact MOV, unary and
 stack forms use fixed register views. ModRM and SIB fields select runtime views.
 Memory decoding selects the SIB or ordinary layout

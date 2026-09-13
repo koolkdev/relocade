@@ -10,7 +10,7 @@ impl RuntimeCursor<'_> {
         body: &mut FunctionBuilder<'_>,
         window: &Window,
     ) -> Result<Val<T>, BuildError> {
-        match window.fixed_offset {
+        match self.fixed_offset {
             Some(offset) => self.memory.load(body, &window.physical_start, offset),
             None => self
                 .memory

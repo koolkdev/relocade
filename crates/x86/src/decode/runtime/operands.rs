@@ -7,9 +7,10 @@ use std::collections::BTreeMap;
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
 
 use crate::{
+    decode::DecodeState,
     instruction::{
-        forms_by_opcode, modrm_forms, DecodedFields, DecodedInstruction, Encoding, Form, Location,
-        OpcodeMap, SizedForm,
+        forms_by_opcode, DecodedFields, DecodedInstruction, Encoding, Form, Location, OpcodeMap,
+        ResolvedForm,
     },
     register::RegisterCode,
 };
@@ -26,7 +27,7 @@ where
         mut body: FunctionBuilder<'_>,
         mut cursor: RuntimeCursor<'_>,
         opcode: u8,
-        form: &SizedForm,
+        form: &ResolvedForm,
     ) -> Result<(), BuildError> {
         let fields = match form.encoding() {
             Encoding::OpcodeOnly => DecodedFields::OpcodeOnly,
@@ -54,6 +55,7 @@ where
         &self,
         mut body: FunctionBuilder<'_>,
         mut cursor: RuntimeCursor<'_>,
+        state: DecodeState,
         opcode: &Val<I8>,
         forms: &[&'static Form],
     ) -> Result<(), BuildError> {
@@ -61,17 +63,20 @@ where
         let modrm = cursor.byte(&mut body)?;
         dispatch_form_by_extension(body, &modrm, forms, &|mut arm, form| {
             let Some(form) = form else {
-                return cursor.return_unsupported(arm, opcode);
+                return state.return_unsupported(arm, &cursor, opcode);
             };
             arm.if_(modrm.unsigned().shr(6).ne(3), |memory_body| {
-                self.tail_call_memory_decoder(memory_body, &cursor, opcode, &modrm)
+                self.tail_call_memory_decoder(memory_body, &cursor, state, opcode, &modrm)
             })?;
             if !form.accepts_register_rm() {
-                return cursor.return_unsupported(arm, opcode);
+                return state.return_unsupported(arm, &cursor, opcode);
             }
             let rm =
                 Location::Register(RegisterCode::indexed(modrm.unsigned().extend::<I32>()).into());
-            self.complete_modrm_instruction(arm, cursor.clone(), &modrm, form, rm)
+            let form = form
+                .resolve(state.prefixes)
+                .expect("opcode selection accepted the prefix state");
+            self.complete_modrm_instruction(arm, cursor.clone(), &modrm, &form, rm)
         })
     }
 
@@ -79,14 +84,15 @@ where
         &self,
         body: FunctionBuilder<'_>,
         cursor: &RuntimeCursor<'_>,
+        state: DecodeState,
         opcode: &Val<I8>,
         modrm: &Val<I8>,
     ) -> Result<(), BuildError> {
-        let handlers = match cursor.opcode_map() {
+        let handlers = match state.map {
             OpcodeMap::Primary => &self.primary_modrm_memory_handlers,
             OpcodeMap::Extended => &self.extended_modrm_memory_handlers,
         };
-        handlers.tail_call(body, cursor, &[opcode.into(), modrm.into()])
+        handlers.tail_call(body, cursor, state, &[opcode.into(), modrm.into()])
     }
 
     fn complete_modrm_instruction(
@@ -94,15 +100,14 @@ where
         mut body: FunctionBuilder<'_>,
         mut cursor: RuntimeCursor<'_>,
         modrm: &Val<I8>,
-        form: &Form,
+        form: &ResolvedForm,
         rm: Location<Val<I32>>,
     ) -> Result<(), BuildError> {
-        let form = form.with_operand_size(cursor.operand_size());
         let Encoding::ModRm { immediate } = form.encoding() else {
             unreachable!("the selected form has a ModRM field");
         };
         let immediate = immediate
-            .map(|_| cursor.immediate(&mut body, &form))
+            .map(|_| cursor.immediate(&mut body, form))
             .transpose()?;
         let fields = DecodedFields::ModRm {
             register: RegisterCode::indexed(modrm.unsigned().shr(3).unsigned().extend::<I32>()),
@@ -119,25 +124,29 @@ where
         &self,
         body: FunctionBuilder<'_>,
         cursor: RuntimeCursor<'_>,
+        state: DecodeState,
         opcode: &Val<I8>,
         modrm: &Val<I8>,
     ) -> Result<(), BuildError> {
-        let forms = forms_by_opcode(modrm_forms(cursor.opcode_map()));
+        let forms = forms_by_opcode(state.forms().filter(|form| form.encoding.has_modrm()));
         let opcodes: Vec<_> = forms.keys().copied().collect();
         super::address::decode(body, cursor, modrm, |mut body, cursor, address| {
             body.switch(opcode, &opcodes, |arm, key| {
                 let Some(forms) = key.and_then(|key| forms.get(&key)) else {
-                    return cursor.return_unsupported(arm, opcode);
+                    return state.return_unsupported(arm, &cursor, opcode);
                 };
                 dispatch_form_by_extension(arm, modrm, forms, &|arm, form| {
                     let Some(form) = form else {
-                        return cursor.return_unsupported(arm, opcode);
+                        return state.return_unsupported(arm, &cursor, opcode);
                     };
+                    let form = form
+                        .resolve(state.prefixes)
+                        .expect("opcode selection accepted the prefix state");
                     self.complete_modrm_instruction(
                         arm,
                         cursor.clone(),
                         modrm,
-                        form,
+                        &form,
                         Location::Memory(address.clone()),
                     )
                 })

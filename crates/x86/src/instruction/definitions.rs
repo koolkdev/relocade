@@ -25,10 +25,6 @@ use crate::execution::ExecutionBuilder;
 use crate::flags::Condition;
 use wasm86_compiler::{AtLeast, BuildError, Val, I16, I32, I8};
 
-pub(crate) fn modrm_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form> + Clone {
-    opcode_forms(map).filter(|form| form.encoding.has_modrm())
-}
-
 pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form> + Clone {
     moves::forms()
         .chain(extensions::forms())

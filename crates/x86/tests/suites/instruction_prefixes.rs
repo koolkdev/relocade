@@ -1,3 +1,6 @@
+#[path = "instruction_prefixes/selection.rs"]
+mod selection;
+
 use crate::support::{
     cases::{
         test_cases, InstructionCase as Case,

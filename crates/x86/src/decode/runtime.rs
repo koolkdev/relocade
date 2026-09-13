@@ -9,7 +9,10 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Program, Val, I32, I8};
 use crate::{
     instruction::{DecodedInstruction, OpcodeMap},
     memory::{DirectRange, Intent, Memory},
+    state::exit,
 };
+
+use super::DecodeState;
 
 use self::{
     cursor::{RuntimeCursor, DIRECT_FETCH_BYTES},
@@ -17,7 +20,7 @@ use self::{
 };
 
 /// Builds decoding code that reads guest instruction bytes during execution.
-/// All primary forms share opcode selection. Direct, checked and prefixed
+/// All primary forms share opcode selection. Direct, checked and resumed
 /// entries carry the cursor's fetch guarantees; memory entries resume after
 /// opcode and ModRM validation.
 pub(crate) struct RuntimeDecoder<'memory, C> {
@@ -54,16 +57,16 @@ where
             &decoder.primary_modrm_memory_handlers,
             &decoder.extended_modrm_memory_handlers,
         ] {
-            handlers.define(program, memory, |body, cursor, opcode| {
+            handlers.define(program, memory, |body, cursor, state, opcode| {
                 let modrm = body.parameter::<I8>(2)?;
-                decoder.decode_memory_operands(body, cursor, opcode, &modrm)
+                decoder.decode_memory_operands(body, cursor, state, opcode, &modrm)
             })?;
         }
 
         decoder
             .opcode_handlers
-            .define(program, memory, |body, cursor, opcode| {
-                decoder.decode_opcode(body, cursor, opcode)
+            .define(program, memory, |body, cursor, state, opcode| {
+                decoder.decode_opcode(body, cursor, state, opcode)
             })?;
         Ok(decoder)
     }
@@ -91,6 +94,21 @@ where
             RuntimeCursor::new(&body, self.memory, instruction_eip, physical_start, 0)?;
         let opcode = cursor.byte(&mut body)?;
         self.opcode_handlers
-            .tail_call(body, &cursor, &[(&opcode).into()])
+            .tail_call(body, &cursor, DecodeState::default(), &[(&opcode).into()])
+    }
+}
+
+impl DecodeState {
+    fn return_unsupported(
+        self,
+        body: FunctionBuilder<'_>,
+        cursor: &RuntimeCursor<'_>,
+        selector: &Val<I8>,
+    ) -> Result<(), BuildError> {
+        let opcode = match self.unsupported_opcode_override() {
+            Some(opcode) => body.value::<I8>(u32::from(opcode))?,
+            None => selector.clone(),
+        };
+        body.return_(exit::unsupported(cursor.instruction_eip(), &opcode))
     }
 }

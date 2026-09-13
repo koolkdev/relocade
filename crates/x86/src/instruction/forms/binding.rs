@@ -1,6 +1,6 @@
 //! Assigns decoded fields to the handler's arguments without reading guest state.
 
-use super::{DecodedFields, LocationBinding, OperandBinding, OperandBindingShape, SizedForm};
+use super::{DecodedFields, LocationBinding, OperandBinding, OperandBindingShape, ResolvedForm};
 use crate::{
     address::Address32,
     instruction::{
@@ -9,7 +9,7 @@ use crate::{
     },
 };
 
-impl SizedForm {
+impl ResolvedForm {
     pub(crate) fn bind<V: Clone + From<u32>, P>(
         &self,
         fields: DecodedFields<V>,

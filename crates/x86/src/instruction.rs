@@ -3,22 +3,22 @@ mod forms;
 mod handlers;
 mod lower;
 mod operands;
+mod prefixes;
 
-pub(crate) use definitions::{modrm_forms, opcode_forms};
+pub(crate) use definitions::opcode_forms;
 pub(crate) use forms::*;
 use handlers::HandlerCall;
 pub(super) use lower::lower;
 use operands::{map_location, map_operand};
 pub(crate) use operands::{Input, TypedLocation};
+pub(crate) use prefixes::{Prefix, PrefixState};
 
 use crate::address::Address32;
 use crate::flags::Condition;
 use crate::register::RegisterOperand;
 
 pub(super) const MAX_INSTRUCTION_BYTES: u32 = 15;
-pub(super) const OPERAND_SIZE_PREFIX: u8 = 0x66;
 pub(super) const EXTENDED_OPCODE_ESCAPE: u8 = 0x0f;
-pub(super) const REPEAT_PREFIX: u8 = 0xf3;
 
 /// The effective operand-size attribute in the supported default-32 mode.
 #[derive(Clone, Copy)]

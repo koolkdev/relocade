@@ -3,12 +3,8 @@ mod read;
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32, I8};
 
 use crate::{
-    instruction::{
-        FieldWidth, OpcodeMap, OperandSize, SizedForm, EXTENDED_OPCODE_ESCAPE,
-        MAX_INSTRUCTION_BYTES, REPEAT_PREFIX,
-    },
+    instruction::{FieldWidth, ResolvedForm, MAX_INSTRUCTION_BYTES},
     memory::Memory,
-    state::exit,
 };
 
 // One primary opcode and the widest scalar field fit this shared fetch window.
@@ -25,16 +21,13 @@ pub(super) struct RuntimeCursor<'memory> {
     instruction_eip: Val<I32>,
     offset: Val<I32>,
     maximum_offset: u32,
-    operand_size: OperandSize,
-    repeat_prefix: bool,
-    opcode_map: OpcodeMap,
+    fixed_offset: Option<u32>,
     window: Option<Window>,
 }
 
 #[derive(Clone)]
 struct Window {
     physical_start: Val<I32>,
-    fixed_offset: Option<u32>,
     bytes: u32,
 }
 
@@ -57,12 +50,9 @@ impl<'memory> RuntimeCursor<'memory> {
             instruction_eip: instruction_eip.clone(),
             offset: body.value(consumed)?,
             maximum_offset: consumed,
-            operand_size: OperandSize::Dword,
-            repeat_prefix: false,
-            opcode_map: OpcodeMap::Primary,
+            fixed_offset: Some(consumed),
             window: physical_start.map(|physical_start| Window {
                 physical_start: physical_start.clone(),
-                fixed_offset: Some(consumed),
                 bytes: DIRECT_FETCH_BYTES,
             }),
         })
@@ -74,54 +64,19 @@ impl<'memory> RuntimeCursor<'memory> {
         memory: &'memory Memory,
         instruction_eip: &Val<I32>,
         consumed: &Val<I32>,
-        operand_size: OperandSize,
     ) -> Self {
         Self {
             memory,
             instruction_eip: instruction_eip.clone(),
             offset: consumed.clone(),
             maximum_offset: MAX_INSTRUCTION_BYTES,
-            operand_size,
-            repeat_prefix: false,
-            opcode_map: OpcodeMap::Primary,
+            fixed_offset: None,
             window: None,
         }
     }
 
-    pub(super) fn select_word_operands(&mut self) {
-        self.operand_size = OperandSize::Word;
-    }
-    pub(super) fn select_repeat(&mut self) {
-        self.repeat_prefix = true;
-    }
-    pub(super) fn repeat_prefix(&self) -> bool {
-        self.repeat_prefix
-    }
-    pub(super) fn enter_extended_map(&mut self) {
-        self.opcode_map = OpcodeMap::Extended;
-    }
-    pub(super) fn opcode_map(&self) -> OpcodeMap {
-        self.opcode_map
-    }
-
-    pub(super) fn return_unsupported(
-        &self,
-        body: FunctionBuilder<'_>,
-        selector: &Val<I8>,
-    ) -> Result<(), BuildError> {
-        let opcode = if self.repeat_prefix {
-            body.value::<I8>(u32::from(REPEAT_PREFIX))?
-        } else {
-            match self.opcode_map {
-                OpcodeMap::Primary => selector.clone(),
-                OpcodeMap::Extended => body.value::<I8>(u32::from(EXTENDED_OPCODE_ESCAPE))?,
-            }
-        };
-        body.return_(exit::unsupported(&self.instruction_eip, &opcode))
-    }
-
-    pub(super) fn operand_size(&self) -> OperandSize {
-        self.operand_size
+    pub(super) fn fixed_offset(&self) -> Option<u32> {
+        self.fixed_offset
     }
 
     pub(super) fn physical_start(&self) -> Option<&Val<I32>> {
@@ -143,23 +98,19 @@ impl<'memory> RuntimeCursor<'memory> {
     fn advance(&mut self, bytes: u32) {
         self.offset = self.offset.add(bytes);
         self.maximum_offset = self.maximum_offset.saturating_add(bytes);
-        if let Some(window) = &mut self.window {
-            if let Some(offset) = &mut window.fixed_offset {
-                *offset += bytes;
-            }
+        if let Some(offset) = &mut self.fixed_offset {
+            *offset += bytes;
         }
     }
 
     fn mark_conditional_offset(&mut self) {
-        if let Some(window) = &mut self.window {
-            window.fixed_offset = None;
-        }
+        self.fixed_offset = None;
     }
 
     pub(super) fn immediate(
         &mut self,
         body: &mut FunctionBuilder<'_>,
-        form: &SizedForm,
+        form: &ResolvedForm,
     ) -> Result<Val<I32>, BuildError> {
         if form.sign_extends_immediate() {
             return Ok(self.byte(body)?.signed().extend::<I32>());

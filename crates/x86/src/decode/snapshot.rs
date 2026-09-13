@@ -1,9 +1,10 @@
+use super::DecodeState;
+
 use crate::{
     address::{Address32, IndexTerm, RegisterTerm},
     instruction::{
-        opcode_forms, DecodedFields, DecodedInstruction, Encoding, FieldWidth, Location, OpcodeMap,
-        OperandSize, SizedForm, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES, OPERAND_SIZE_PREFIX,
-        REPEAT_PREFIX,
+        DecodedFields, DecodedInstruction, Encoding, FieldWidth, Location, Prefix, ResolvedForm,
+        EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
     },
     register::{Gpr32, RegisterCode},
     BlockError,
@@ -18,33 +19,24 @@ pub(crate) fn snapshot(
         instruction_eip,
         offset: 0,
     };
-    let mut operand_size = OperandSize::Dword;
-    let mut repeat_prefix = false;
-    let opcode = loop {
+    let mut state = DecodeState::default();
+    let mut opcode = loop {
         let byte = cursor.byte()?;
-        if byte == OPERAND_SIZE_PREFIX {
-            // Repeating the override preserves the selected size; it does not toggle it.
-            operand_size = OperandSize::Word;
-        } else if byte == REPEAT_PREFIX {
-            repeat_prefix = true;
+        if let Some(prefix) = Prefix::from_byte(byte) {
+            state = state.with_prefix(prefix);
         } else {
             break byte;
         }
     };
-    let reported_opcode = if repeat_prefix { REPEAT_PREFIX } else { opcode };
-    if repeat_prefix && opcode == EXTENDED_OPCODE_ESCAPE {
-        return Err(BlockError::UnsupportedInstruction {
+    let reported_opcode = state.unsupported_opcode_override().unwrap_or(opcode);
+    if opcode == EXTENDED_OPCODE_ESCAPE {
+        state = state.extended().ok_or(BlockError::UnsupportedInstruction {
             address: instruction_eip,
             opcode: reported_opcode,
-        });
+        })?;
+        opcode = cursor.byte()?;
     }
-    let (opcode, map) = if opcode == EXTENDED_OPCODE_ESCAPE {
-        (cursor.byte()?, OpcodeMap::Extended)
-    } else {
-        (opcode, OpcodeMap::Primary)
-    };
-    let mut candidates = opcode_forms(map)
-        .filter(|form| form.matches(opcode) && (!repeat_prefix || form.supports_repeat()));
+    let mut candidates = state.forms().filter(|form| form.matches(opcode));
     let first = candidates
         .next()
         .ok_or(BlockError::UnsupportedInstruction {
@@ -60,15 +52,13 @@ pub(crate) fn snapshot(
                 address: instruction_eip,
                 opcode: reported_opcode,
             })?;
-        (form.with_operand_size(operand_size), Some(modrm))
+        (form, Some(modrm))
     } else {
-        (first.with_operand_size(operand_size), None)
+        (first, None)
     };
-    let form = if repeat_prefix {
-        form.with_repeat()
-    } else {
-        form
-    };
+    let form = form
+        .resolve(state.prefixes)
+        .expect("the prefix state admits this form");
     let fields = match form.encoding() {
         Encoding::OpcodeOnly => DecodedFields::OpcodeOnly,
         Encoding::OpcodeRegister => DecodedFields::OpcodeRegister {
@@ -129,7 +119,7 @@ impl SnapshotCursor<'_> {
         Ok(bits)
     }
 
-    fn immediate(&mut self, form: &SizedForm) -> Result<u32, BlockError> {
+    fn immediate(&mut self, form: &ResolvedForm) -> Result<u32, BlockError> {
         let bits = self.integer(form.immediate_width())?;
         Ok(if form.sign_extends_immediate() {
             bits as u8 as i8 as i32 as u32
@@ -140,7 +130,7 @@ impl SnapshotCursor<'_> {
 
     fn modrm_fields(
         &mut self,
-        form: &SizedForm,
+        form: &ResolvedForm,
         modrm: u8,
     ) -> Result<DecodedFields<u32>, BlockError> {
         let rm = if modrm >> 6 == 3 {
