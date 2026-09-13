@@ -44,7 +44,7 @@ fn state(eip: u32) -> CpuState {
 
 #[test]
 fn interpreter_step_exposes_the_cpu_ram_page_map_and_dispatch_abi() {
-    let module = compile_interpreter_step().unwrap();
+    let module = compile_interpreter_step(crate::SegmentProfile::Flat32).unwrap();
     assert_eq!(module.entry, "step");
     Validator::new().validate_all(&module.bytes).unwrap();
     let mut types = Vec::new();

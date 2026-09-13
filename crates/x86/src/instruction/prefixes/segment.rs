@@ -9,18 +9,16 @@ pub(crate) enum SegmentOverride {
     #[default]
     None,
     Fixed(Segment),
-    /// Decoder transport uses zero through five for a segment and six for none.
+    /// An override-bearing decoder entry receives an index from zero through five.
     Runtime(Val<I32>),
 }
 
 impl SegmentOverride {
-    const ABSENT: u32 = 6;
-
-    pub(crate) fn encoded(&self) -> Val<I32> {
+    pub(crate) fn index(&self) -> Option<Val<I32>> {
         match self {
-            Self::None => Self::ABSENT.into(),
-            Self::Fixed(segment) => (*segment as u32).into(),
-            Self::Runtime(value) => value.clone(),
+            Self::None => None,
+            Self::Fixed(segment) => Some((*segment as u32).into()),
+            Self::Runtime(value) => Some(value.clone()),
         }
     }
 
@@ -28,9 +26,7 @@ impl SegmentOverride {
         match self {
             Self::None => default.clone(),
             Self::Fixed(segment) => (*segment).into(),
-            Self::Runtime(value) => {
-                SegmentSelection::Indexed(value.eq(Self::ABSENT).select(default.index(), value))
-            }
+            Self::Runtime(value) => SegmentSelection::Indexed(value.clone()),
         }
     }
 }

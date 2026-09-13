@@ -6,6 +6,9 @@ use crate::{exception::Exception, memory::Intent, state::Cpu};
 
 use super::{Segment, SegmentAttributes, SegmentProfile, SegmentSelection};
 
+#[cfg(test)]
+mod tests;
+
 /// Values read from one loaded cache. The selector does not determine access.
 pub(crate) struct SegmentValues {
     pub(crate) base: Val<I32>,
@@ -25,7 +28,8 @@ impl<'cpu> SegmentAccess<'cpu> {
     }
 
     /// The entry's profile must remain compatible for its entire invocation.
-    /// Flat ordinary segments need no cache reads or per-access segment guards.
+    /// Flat address defaults and named data segments need no cache reads or
+    /// segment guards. Explicit runtime overrides use the complete checked path.
     pub(crate) fn translate<T: MemoryInt>(
         &self,
         body: &mut FunctionBuilder<'_>,
@@ -34,15 +38,30 @@ impl<'cpu> SegmentAccess<'cpu> {
         intent: Intent,
         on_fault: impl Fn(FunctionBuilder<'_>, Exception) -> Result<(), BuildError>,
     ) -> Result<Val<I32>, BuildError> {
-        if self.profile == SegmentProfile::Flat32
-            && matches!(
-                segment.known(),
-                Some(Segment::Ds | Segment::Es | Segment::Ss)
-            )
-            && !matches!(intent, Intent::Fetch)
-        {
-            return Ok(offset.clone());
+        match (self.profile, segment, intent) {
+            (
+                SegmentProfile::Flat32,
+                SegmentSelection::Named(Segment::Cs),
+                Intent::Read | Intent::Fetch,
+            ) => Ok(offset.clone()),
+            (
+                SegmentProfile::Flat32,
+                SegmentSelection::Named(Segment::Ds | Segment::Es | Segment::Ss)
+                | SegmentSelection::AddressDefault(_),
+                Intent::Read | Intent::Write,
+            ) => Ok(offset.clone()),
+            _ => self.translate_checked::<T>(body, segment, offset, intent, &on_fault),
         }
+    }
+
+    fn translate_checked<T: MemoryInt>(
+        &self,
+        body: &mut FunctionBuilder<'_>,
+        segment: &SegmentSelection,
+        offset: &Val<I32>,
+        intent: Intent,
+        on_fault: &impl Fn(FunctionBuilder<'_>, Exception) -> Result<(), BuildError>,
+    ) -> Result<Val<I32>, BuildError> {
         let cache = self.cpu.read_segment(body, segment)?;
         let denied = cache.access_denied::<T>(offset, intent);
         body.if_(denied, |mut fault| {

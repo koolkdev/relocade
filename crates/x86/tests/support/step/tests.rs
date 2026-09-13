@@ -50,10 +50,12 @@ fn check_entry_contexts(engine: Engine) {
 
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &[0x90], 1).unwrap());
     assert_eq!(module.profile, Some(SegmentProfile::Flat32));
-    assert_eq!(
-        TestModule::interpreter().profile,
-        Some(SegmentProfile::Segmented32)
-    );
+    for profile in [SegmentProfile::Flat32, SegmentProfile::Segmented32] {
+        assert_eq!(
+            TestModule::interpreter_with_profile(profile).profile,
+            Some(profile)
+        );
+    }
     let invalid = CpuState::filled(0xa5);
     let mut cpu = invalid;
     cpu.segments = Segments::flat32();

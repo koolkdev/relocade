@@ -20,7 +20,7 @@ fn record(backward: bool) -> StoredFlags {
 fn selection() -> Vec<Case> {
     vec![
         Case::preserving_flags("MOVSB reads DS and writes ES", &[0xa4])
-            .interpreter_only()
+            .segmented_only()
             .stored_flags(record(false))
             .segment(Segment::Ds, data(0x8000, 0xff))
             .segment(Segment::Es, data(0x4000, 0xff))
@@ -30,7 +30,7 @@ fn selection() -> Vec<Case> {
             .memory(0x4030, &[0xff], ReadWrite)
             .expect_memory(0x4030, &[0x78]),
         Case::preserving_flags("FS MOVSB overrides only the source", &[0x64, 0xa4])
-            .interpreter_only()
+            .segmented_only()
             .stored_flags(record(false))
             .segment(Segment::Ds, StoredSegment::unusable(0x23))
             .segment(Segment::Fs, data(0x8000, 0xff))
@@ -102,7 +102,7 @@ fn faults_and_repetition() -> Vec<Case> {
                 format!("ES fault preserves string indices and flags {code:02x?}"),
                 code,
             )
-            .interpreter_only()
+            .segmented_only()
             .stored_flags(record(false))
             .segment(Segment::Fs, data(0x8000, 0xff))
             .segment(Segment::Es, StoredSegment::unusable(0x23))
@@ -121,7 +121,7 @@ fn faults_and_repetition() -> Vec<Case> {
                 format!("zero REP count performs no segment access {code:02x?}"),
                 code,
             )
-            .interpreter_only()
+            .segmented_only()
             .stored_flags(record(false))
             .segment(Segment::Ds, StoredSegment::unusable(0x23))
             .segment(Segment::Es, StoredSegment::unusable(0x23))
@@ -157,7 +157,7 @@ fn faults_and_repetition() -> Vec<Case> {
             "REP destination segment fault retains complete word copies",
             &[0x64, 0x66, 0xf3, 0xa5],
         )
-        .interpreter_only()
+        .segmented_only()
         .stored_flags(record(false))
         .segment(Segment::Fs, data(0x8000, 0xff))
         .segment(Segment::Es, data(0x4000, 3))
@@ -172,6 +172,40 @@ fn faults_and_repetition() -> Vec<Case> {
     cases
 }
 
+fn repeated_prefix_orders() -> Vec<Case> {
+    [
+        &[0x66, 0xf3][..],
+        &[0xf3, 0x66],
+        &[0x64, 0x66, 0xf3],
+        &[0x64, 0xf3, 0x66],
+        &[0x66, 0x64, 0xf3],
+        &[0x66, 0xf3, 0x64],
+        &[0xf3, 0x64, 0x66],
+        &[0xf3, 0x66, 0x64],
+        &[0x65, 0x66, 0xf3, 0x64],
+    ]
+    .into_iter()
+    .map(|prefixes| {
+        let code = [prefixes, &[0xa5]].concat();
+        let source = if prefixes.contains(&0x64) {
+            0x8020
+        } else {
+            0x20
+        };
+        Case::preserving_flags(format!("word REP MOVS prefix order {prefixes:02x?}"), &code)
+            .stored_flags(record(false))
+            .segment(Segment::Fs, data(0x8000, 0xff))
+            .segment(Segment::Gs, StoredSegment::unusable(0x63))
+            .register(Ecx, 2, 0)
+            .register(Esi, 0x20, 0x24)
+            .register(Edi, 0x4000, 0x4004)
+            .memory(source, &[0x11, 0x22, 0x33, 0x44], ReadOnly)
+            .memory(0x4000, &[0xff; 4], ReadWrite)
+            .expect_memory(0x4000, &[0x11, 0x22, 0x33, 0x44])
+    })
+    .collect()
+}
+
 test_cases!(
     sources_accept_overrides_and_destinations_use_es,
     selection()
@@ -179,4 +213,8 @@ test_cases!(
 test_cases!(
     faults_preserve_string_and_rep_restart_boundaries,
     faults_and_repetition()
+);
+test_cases!(
+    operand_size_and_repetition_preserve_override_presence,
+    repeated_prefix_orders()
 );

@@ -56,8 +56,8 @@ pub(crate) struct PrefixState {
 }
 
 impl PrefixState {
-    /// Form selection specializes these facts. Segment overrides travel as
-    /// values and do not multiply the decoder's handler variants.
+    /// Operand size and F3 specialize form selection. Decoder entries also
+    /// distinguish override presence; the override's identity travels as a value.
     pub(crate) const PREFIXED: [Self; 3] = [
         Self {
             operand_size_override: true,

@@ -112,9 +112,13 @@
 //! and a valid span can cross linear zero. For a full-size expand-up segment,
 //! wasm86 permits offset-span wrap; finite limits and expand-down segments reject it.
 //! The returned [`CompiledModule::segment_profile`] records the entry assumptions:
-//! snapshot blocks require [`SegmentProfile::Flat32`], while the interpreter uses
-//! [`SegmentProfile::Segmented32`] and checks data segments at runtime. Both require
-//! flat executable CS, CS.D=1 and SS.B=1. The host must preserve compatibility and
+//! snapshot blocks require [`SegmentProfile::Flat32`], while the interpreter accepts
+//! either profile as a compilation input. Flat entries omit segment checks and base
+//! reads for address defaults, statically known DS/ES/SS accesses, and CS reads.
+//! Interpreter operands with an explicit segment override use complete checked
+//! translation. Segmented entries check all data accesses, including CS, through
+//! the same cache path. Both require flat executable CS, CS.D=1 and SS.B=1; Flat32
+//! additionally requires readable CS. The host must preserve compatibility and
 //! invalidate dependent entries and links when assumptions break. Segment loading,
 //! descriptor validation and 16-bit execution defaults are outside the subset.
 //! In this default-32 mode, `66` selects word operands; repetition has the same

@@ -1,7 +1,7 @@
-//! Executes one-instruction cases through both frontends.
+//! Executes one-instruction cases through the applicable entry profiles.
 
 use std::collections::HashMap;
-use wasm86_x86::compile_block_from_bytes;
+use wasm86_x86::{compile_block_from_bytes, SegmentProfile};
 use wasmparser::Validator;
 
 use super::{expectations, observation::FlagObservations, Frontends, InstructionCase};
@@ -28,7 +28,7 @@ pub(super) fn check(cases: &[InstructionCase], engine: Engine) {
                 );
             }
         }
-        let block = matches!(case.frontends, Frontends::Both).then(|| {
+        let block = matches!(case.frontends, Frontends::All).then(|| {
             blocks
                 .entry((case.initial.eip, case.code.to_vec()))
                 .or_insert_with(|| {
@@ -44,8 +44,14 @@ pub(super) fn check(cases: &[InstructionCase], engine: Engine) {
                     TestModule::new(&module)
                 })
         });
-        for (frontend, module) in std::iter::once(("interpreter", TestModule::interpreter()))
-            .chain(block.map(|module| ("block", &*module)))
+        let flat_interpreter = matches!(case.frontends, Frontends::All)
+            .then(|| ("flat interpreter", TestModule::interpreter()));
+        for (frontend, module) in std::iter::once((
+            "segmented interpreter",
+            TestModule::interpreter_with_profile(SegmentProfile::Segmented32),
+        ))
+        .chain(flat_interpreter)
+        .chain(block.map(|module| ("block", &*module)))
         {
             let context = format!("{} [{engine:?}, {frontend}]", case.name);
             let execution = machine.run(module, engine);

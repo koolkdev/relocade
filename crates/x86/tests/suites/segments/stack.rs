@@ -14,7 +14,7 @@ fn stack_transfers() -> Vec<Case> {
             "PUSH keeps its SS destination despite unusable FS override",
             &[0x64, 0x50],
         )
-        .interpreter_only()
+        .segmented_only()
         .segment(Segment::Ss, data(0x8000, 0xff))
         .segment(Segment::Fs, StoredSegment::unusable(0x53))
         .initial_register(Eax, 0x1234_5678)
@@ -25,14 +25,14 @@ fn stack_transfers() -> Vec<Case> {
             "POP keeps its SS source despite unusable FS override",
             &[0x64, 0x58],
         )
-        .interpreter_only()
+        .segmented_only()
         .segment(Segment::Ss, data(0x8000, 0xff))
         .segment(Segment::Fs, StoredSegment::unusable(0x53))
         .register(Eax, 0, 0x1234_5678)
         .register(Esp, 0x20, 0x24)
         .memory(0x8020, &[0x78, 0x56, 0x34, 0x12], ReadOnly),
         Case::preserving_flags("PUSH memory reads FS then writes SS", &[0x64, 0xff, 0x33])
-            .interpreter_only()
+            .segmented_only()
             .segment(Segment::Ss, data(0x8000, 0xff))
             .segment(Segment::Fs, data(0x4000, 0xff))
             .initial_register(Ebx, 0x20)
@@ -44,7 +44,7 @@ fn stack_transfers() -> Vec<Case> {
             "POP FS:[ESP] uses next ESP for the destination offset",
             &[0x64, 0x8f, 0x04, 0x24],
         )
-        .interpreter_only()
+        .segmented_only()
         .segment(Segment::Ss, data(0x8000, 0xff))
         .segment(Segment::Fs, data(0x4000, 0xff))
         .register(Esp, 0x20, 0x24)
@@ -55,14 +55,14 @@ fn stack_transfers() -> Vec<Case> {
             "CALL return address is stored through SS",
             &[0xe8, 0xfb, 0x0f, 0, 0],
         )
-        .interpreter_only()
+        .segmented_only()
         .segment(Segment::Ss, data(0x8000, 0xff))
         .register(Esp, 0x24, 0x20)
         .memory(0x8020, &[0xff; 4], ReadWrite)
         .expect_memory(0x8020, &[0x05, 0x10, 0, 0])
         .dispatch(0x2000),
         Case::preserving_flags("RET reads its target through SS", &[0xc3])
-            .interpreter_only()
+            .segmented_only()
             .segment(Segment::Ss, data(0x8000, 0xff))
             .register(Esp, 0x20, 0x24)
             .memory(0x8020, &[0, 0x20, 0, 0], ReadOnly)
@@ -104,7 +104,7 @@ fn restart_state() -> Vec<Case> {
                 format!("SS limit fault preserves stack and flags {code:02x?}"),
                 code,
             )
-            .interpreter_only()
+            .segmented_only()
             .segment(Segment::Ss, data(0x8000, 0x20))
             .initial_register(Esp, esp)
             .memory(0x8010, &[0xff; 32], ReadWrite)
@@ -116,7 +116,7 @@ fn restart_state() -> Vec<Case> {
             "POP destination segment fault preserves the original ESP",
             &[0x64, 0x8f, 0x04, 0x24],
         )
-        .interpreter_only()
+        .segmented_only()
         .segment(Segment::Ss, data(0x8000, 0xff))
         .segment(Segment::Fs, data(0x4000, 0x26))
         .initial_register(Esp, 0x20)
@@ -129,7 +129,7 @@ fn restart_state() -> Vec<Case> {
             "PUSH source page fault precedes destination segment fault",
             &[0x64, 0xff, 0x33],
         )
-        .interpreter_only()
+        .segmented_only()
         .segment(Segment::Ss, data(0x8000, 0))
         .segment(Segment::Fs, data(0x4000, 0xff))
         .initial_registers(&[(Ebx, 0x20), (Esp, 0x24)])

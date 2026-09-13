@@ -57,7 +57,7 @@ the remaining state. It is a host execution configuration, not a processor reset
 image or a protected-mode segment load. `CpuState::filled` and `from_bytes` remain
 literal snapshot operations: an all-zero image has unusable segment caches.
 
-`SegmentProfile::Flat32` expresses flat executable CS and writable expand-up
+`SegmentProfile::Flat32` expresses flat readable code CS and writable expand-up
 DS/ES/SS, with 32-bit CS defaults and SS stack addressing. FS and GS have no
 assumptions in this profile; access through them requires runtime segment handling.
 Selectors, reserved attribute bits, and ordinary DS/ES D/B bits do not determine
@@ -82,9 +82,16 @@ assert!(!profile.is_compatible_with(&cpu.segments));
 
 `CompiledModule::segment_profile` records each x86 entry's required assumptions.
 Snapshot blocks return `Some(SegmentProfile::Flat32)` and omit segment guards
-for DS/ES/SS. FS/GS and CS data overrides check their caches at runtime.
-The interpreter returns `Some(SegmentProfile::Segmented32)`: it requires flat
-executable CS, CS.D=1 and SS.B=1, and checks all data accesses at runtime.
+for DS/ES/SS and CS reads. FS/GS accesses and CS writes check their caches at runtime.
+The interpreter accepts either profile when compiled and records it in the result.
+`Flat32` omits segment checks and base reads for address defaults and statically
+known DS/ES/SS accesses, as well as statically known CS reads and fetches.
+Interpreter handlers distinguish segment-override presence:
+ordinary accesses without an override use that shortcut, including after `66` or
+`F3`; operands with explicit runtime overrides use complete checked translation.
+`Segmented32` checks every data access, including CS, through the same cache path.
+Both profiles require flat executable CS, CS.D=1 and SS.B=1. `Flat32` additionally
+requires readable CS; execute-only CS requires `Segmented32`. CS writes always fault.
 Modules that do not execute x86 instructions carry `None`.
 The host must establish compatibility before entering a module and preserve it
 through its invocation. The execution owner must invalidate dependent entries
@@ -535,13 +542,21 @@ would fault, wasm86 checks the source first; this is its deterministic access
 policy. Operand size controls the two- or four-byte transfer and pointer change;
 stack offsets remain 32-bit under both supported segment profiles.
 
-`compile_interpreter_step()` builds a generated `step() -> i64` entry for the
+`compile_interpreter_step(profile)` builds a generated `step() -> i64` entry for the
 same instruction subset. Both compiler functions return a `CompiledModule`
 containing WebAssembly bytes, its exported entry name and the required segment profile.
 
 ```rust
-let module = wasm86_x86::compile_interpreter_step()?;
+use wasm86_x86::{compile_interpreter_step, SegmentProfile};
+
+let flat = compile_interpreter_step(SegmentProfile::Flat32)?;
+let segmented = compile_interpreter_step(SegmentProfile::Segmented32)?;
 ```
+
+The profile specializes the generated module. Both variants have the same imports
+and exported entry signature. A host can instantiate both against the same CPU,
+guest and machine memories, then call the entry whose profile is compatible with
+the current segment state. Changing the active entry requires no CPU-state conversion.
 
 The step reads EIP from CPU state and fetches the instruction from paged guest
 memory. A successful five-byte contiguous-range check permits direct reads of

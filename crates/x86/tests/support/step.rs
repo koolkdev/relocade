@@ -3,6 +3,7 @@ mod tests;
 
 use std::{path::Path, sync::OnceLock};
 
+use crate::SegmentProfile;
 use serde::{Deserialize, Serialize};
 pub(crate) use wasm86_test_support::{Outcome, Value as Argument};
 use wasmtime::{Caller, Linker, Memory, MemoryType, Module, Store, Trap};
@@ -89,7 +90,7 @@ pub(crate) struct TestModule {
     bytes: Vec<u8>,
     compiled: OnceLock<Module>,
     pub(crate) entry: String,
-    profile: Option<crate::SegmentProfile>,
+    profile: Option<SegmentProfile>,
 }
 
 impl TestModule {
@@ -103,8 +104,17 @@ impl TestModule {
     }
 
     pub(crate) fn interpreter() -> &'static Self {
-        static INTERPRETER: OnceLock<TestModule> = OnceLock::new();
-        INTERPRETER.get_or_init(|| Self::new(&crate::compile_interpreter_step().unwrap()))
+        Self::interpreter_with_profile(SegmentProfile::Flat32)
+    }
+
+    pub(crate) fn interpreter_with_profile(profile: SegmentProfile) -> &'static Self {
+        static FLAT: OnceLock<TestModule> = OnceLock::new();
+        static SEGMENTED: OnceLock<TestModule> = OnceLock::new();
+        let module = match profile {
+            SegmentProfile::Flat32 => &FLAT,
+            SegmentProfile::Segmented32 => &SEGMENTED,
+        };
+        module.get_or_init(|| Self::new(&crate::compile_interpreter_step(profile).unwrap()))
     }
 
     pub(crate) fn observe(&self, input: &Input, invocations: usize) -> Observation {

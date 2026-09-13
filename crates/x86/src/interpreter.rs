@@ -18,10 +18,19 @@ use crate::{
 /// 2^20 little-endian 32-bit page-table entries starting at byte zero. Bit 0 marks
 /// presence, bit 1 permits data writes, and bits 12 through 31 identify a 4-KiB
 /// frame in guest memory. Reads require presence. Valid backing for present frames
-/// is an internal invariant. The returned module requires [`SegmentProfile::Segmented32`]:
-/// flat executable CS with 32-bit instruction defaults and SS.B=1. The host
-/// establishes compatibility before entry. Data accesses check loaded segment
+/// is an internal invariant. The selected `profile` is a compilation assumption,
+/// recorded in [`CompiledModule::segment_profile`]. Both profiles require flat
+/// executable CS with 32-bit instruction defaults and SS.B=1. The host establishes
+/// compatibility before entry and preserves it throughout the invocation.
+/// [`SegmentProfile::Flat32`] omits segment checks and base reads for address
+/// defaults and statically known DS/ES/SS accesses. It additionally requires
+/// readable CS. Operands with an explicit segment override use complete checked
+/// translation, while `66` and `F3` alone preserve the default-segment shortcut.
+/// [`SegmentProfile::Segmented32`] permits execute-only CS and checks all data
+/// accesses, including CS, through the same cache path. Checked accesses validate
 /// permissions and complete offset spans, then add the segment base at 32 bits.
+/// Both variants have the same imports and entry signature, so
+/// the host can instantiate them with shared memories and choose a compatible entry.
 ///
 /// A missing instruction page returns `(4 << 48) | (0x10 << 32) | address`, using
 /// the first unavailable byte's 32-bit linear address. Data faults return
@@ -61,16 +70,16 @@ use crate::{
 /// remain outside the subset.
 ///
 /// ```
-/// let module = wasm86_x86::compile_interpreter_step()?;
+/// use wasm86_x86::{compile_interpreter_step, SegmentProfile};
+/// let module = compile_interpreter_step(SegmentProfile::Flat32)?;
 /// assert_eq!(module.entry, "step");
 /// # Ok::<(), wasm86_compiler::BuildError>(())
 /// ```
-pub fn compile_interpreter_step() -> Result<CompiledModule, BuildError> {
+pub fn compile_interpreter_step(profile: SegmentProfile) -> Result<CompiledModule, BuildError> {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let memory = Memory::declare(&mut program)?;
     let dispatch = declare_dispatch(&mut program);
-    let profile = SegmentProfile::Segmented32;
     let signature = Signature {
         parameters: vec![],
         results: vec![Type::I64],

@@ -7,13 +7,15 @@ use crate::support::{
 use wasm86_x86::{
     compile_block_from_bytes, BlockError,
     Gpr32::{Eax, Ebx},
-    Segment,
+    Segment, SegmentAttributes, StoredSegment,
 };
 
 fn prefix_transport() -> Vec<Case> {
     let mut cases = Vec::new();
     for code in [
-        &[0x64, 0x66, 0x8b, 0x03][..],
+        &[0x66, 0x8b, 0x03][..],
+        &[0x66, 0x0f, 0xb6, 0x03],
+        &[0x64, 0x66, 0x8b, 0x03],
         &[0x66, 0x64, 0x8b, 0x03],
         &[0x65, 0x64, 0x66, 0x8b, 0x03],
         &[0x66, 0x64, 0x0f, 0xb6, 0x03],
@@ -23,11 +25,12 @@ fn prefix_transport() -> Vec<Case> {
         } else {
             0xaaaa_5678
         };
+        let address = if code.contains(&0x64) { 0x8020 } else { 0x20 };
         for origin in [0x1000, 0x1fff, 0xffff_fffe] {
             cases.push(Case::preserving_flags(format!("segment prefix state across decoder transitions {code:02x?}, at {origin:08x}"), code)
                 .at(origin).segment(Segment::Fs, data(0x8000, 0xff)).segment(Segment::Gs, data(0xc000, 0xff))
                 .initial_register(Ebx, 0x20).register(Eax, 0xaaaa_bbbb, value)
-                .memory(0x8020, &[0x78, 0x56], ReadOnly).memory(0xc020, &[0xff; 2], ReadOnly));
+                .memory(address, &[0x78, 0x56], ReadOnly).memory(0xc020, &[0xff; 2], ReadOnly));
         }
     }
     let code = [vec![0x64; 12], vec![0x66, 0x8b, 0x03]].concat();
@@ -46,8 +49,23 @@ fn prefix_transport() -> Vec<Case> {
 }
 
 test_cases!(
-    overrides_survive_operand_size_maps_and_checked_fetch,
+    override_presence_survives_operand_size_maps_and_checked_fetch,
     prefix_transport()
+);
+
+test_cases!(
+    execute_only_cs_permits_instruction_fetch,
+    vec![
+        Case::preserving_flags("execute-only CS permits NOP", &[0x90])
+            .segmented_only()
+            .segment(
+                Segment::Cs,
+                StoredSegment {
+                    attributes: SegmentAttributes::from_bits(0x13),
+                    ..StoredSegment::flat_code32(0x1b)
+                },
+            )
+    ]
 );
 
 fn check_prefix_scope(engine: crate::support::step::Engine) {

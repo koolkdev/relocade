@@ -35,7 +35,7 @@ fn default_segments() -> Vec<Case> {
     .into_iter()
     .map(|(name, code, value)| {
         Case::preserving_flags(name, code)
-            .interpreter_only()
+            .segmented_only()
             .segment(Segment::Ds, data(0x4000, 0xff))
             .segment(Segment::Ss, data(0x8000, 0xff))
             .initial_registers(&[(Ebx, 0x20), (Ebp, 0x20), (Esp, 0x20), (Ecx, 0)])
@@ -69,7 +69,7 @@ fn explicit_segments() -> Vec<Case> {
                 case = case.segment(segment, data(base, 0xff));
             }
             if matches!(segment, Segment::Ds | Segment::Es | Segment::Ss) {
-                case = case.interpreter_only();
+                case = case.segmented_only();
             }
             cases.push(case);
         }

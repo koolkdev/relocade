@@ -23,8 +23,8 @@ pub(crate) struct InstructionCase {
 }
 
 pub(super) enum Frontends {
-    Both,
-    Interpreter,
+    All,
+    SegmentedInterpreter,
 }
 
 impl InstructionCase {
@@ -90,12 +90,13 @@ impl InstructionCase {
             code: code.to_vec(),
             initial: InitialState::new(initial),
             expected: ExpectedState::new(expected),
-            frontends: Frontends::Both,
+            frontends: Frontends::All,
         }
     }
 
-    pub(crate) fn interpreter_only(mut self) -> Self {
-        self.frontends = Frontends::Interpreter;
+    /// The case requires segment state outside the flat profile.
+    pub(crate) fn segmented_only(mut self) -> Self {
+        self.frontends = Frontends::SegmentedInterpreter;
         self
     }
 

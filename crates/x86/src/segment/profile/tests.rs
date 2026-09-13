@@ -54,13 +54,15 @@ fn code_defaults_and_stack_width_are_separate_requirements() {
 }
 
 #[test]
-fn code_must_be_executable_but_need_not_be_readable_as_data() {
+fn execute_only_code_requires_the_segmented_profile() {
     let mut segments = Segments::flat32();
     segments.cs.attributes = SegmentAttributes::from_bits(0x13);
-    assert!(compatible(&segments));
+    assert!(!compatible(&segments));
+    assert!(SegmentProfile::Segmented32.is_compatible_with(&segments));
     for bits in [0x15, 0x1b, 0xffff] {
         segments.cs.attributes = SegmentAttributes::from_bits(bits);
         assert!(!compatible(&segments), "CS attributes {bits:04x}");
+        assert!(!SegmentProfile::Segmented32.is_compatible_with(&segments));
     }
 }
 

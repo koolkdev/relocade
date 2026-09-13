@@ -57,7 +57,13 @@ pub(super) struct DecodeHandlers {
     point: DecodePoint,
     direct: Func,
     checked: Func,
-    resumed: Vec<(PrefixState, Func)>,
+    resumed: Vec<ResumedEntry>,
+}
+
+struct ResumedEntry {
+    prefixes: PrefixState,
+    has_segment_override: bool,
+    function: Func,
 }
 
 impl DecodeHandlers {
@@ -73,20 +79,33 @@ impl DecodeHandlers {
             parameters: parameters.clone(),
             results: vec![Type::I64],
         });
-        // Resumed entries carry both progress and a segment override. A segment
-        // prefix alone can resume with the default form-selection facts.
-        parameters.push(Type::I32);
-        let resumed = std::iter::once(PrefixState::default())
-            .chain(PrefixState::PREFIXED)
-            .filter(|prefixes| point.accepts(prefixes))
-            .map(|prefixes| {
+        // Every resumed entry receives cursor progress. Only entries reached
+        // through a segment prefix receive an override index as well.
+        let mut resumed = Vec::new();
+        for has_segment_override in [false, true] {
+            let mut parameters = parameters.clone();
+            if has_segment_override {
+                parameters.push(Type::I32);
+            }
+            for prefixes in std::iter::once(PrefixState::default())
+                .chain(PrefixState::PREFIXED)
+                .filter(|prefixes| {
+                    point.accepts(prefixes)
+                        && (has_segment_override
+                            || !prefixes.same_form_selection(&PrefixState::default()))
+                })
+            {
                 let function = program.declare(Signature {
                     parameters: parameters.clone(),
                     results: vec![Type::I64],
                 });
-                (prefixes, function)
-            })
-            .collect();
+                resumed.push(ResumedEntry {
+                    prefixes,
+                    has_segment_override,
+                    function,
+                });
+            }
+        }
         Self {
             point,
             direct,
@@ -106,17 +125,17 @@ impl DecodeHandlers {
             &Val<I8>,
         ) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
-        enum Entry {
+        enum Entry<'entry> {
             Checked,
             Direct,
-            Resumed(PrefixState),
+            Resumed(&'entry ResumedEntry),
         }
         let entries = [(self.checked, Entry::Checked), (self.direct, Entry::Direct)]
             .into_iter()
             .chain(
                 self.resumed
                     .iter()
-                    .map(|(prefixes, function)| (*function, Entry::Resumed(prefixes.clone()))),
+                    .map(|entry| (entry.function, Entry::Resumed(entry))),
             );
         for (function, entry) in entries {
             let body = program.define(function)?;
@@ -124,16 +143,20 @@ impl DecodeHandlers {
             let opcode = body.parameter::<I8>(1)?;
             let position_parameter = self.point.field_count() as u32 + 1;
             let (cursor, prefixes) = match entry {
-                Entry::Resumed(prefixes) => (
-                    RuntimeCursor::resume(
+                Entry::Resumed(entry) => {
+                    let cursor = RuntimeCursor::resume(
                         memory,
                         &instruction_eip,
                         &body.parameter::<I32>(position_parameter)?,
-                    ),
-                    prefixes.with_segment_override(SegmentOverride::Runtime(
-                        body.parameter::<I32>(position_parameter + 1)?,
-                    )),
-                ),
+                    );
+                    let mut prefixes = entry.prefixes.clone();
+                    if entry.has_segment_override {
+                        prefixes = prefixes.with_segment_override(SegmentOverride::Runtime(
+                            body.parameter::<I32>(position_parameter + 1)?,
+                        ));
+                    }
+                    (cursor, prefixes)
+                }
                 Entry::Checked | Entry::Direct => {
                     let physical_start = if matches!(entry, Entry::Direct) {
                         Some(body.parameter::<I32>(position_parameter)?)
@@ -175,11 +198,17 @@ impl DecodeHandlers {
             }
         } else {
             arguments.push(cursor.consumed().into());
-            arguments.push(state.prefixes.segment_override().encoded().into());
+            let segment_override = state.prefixes.segment_override().index();
+            if let Some(index) = &segment_override {
+                arguments.push(index.into());
+            }
             self.resumed
                 .iter()
-                .find(|(prefixes, _)| prefixes.same_form_selection(&state.prefixes))
-                .map(|(_, function)| *function)
+                .find(|entry| {
+                    entry.has_segment_override == segment_override.is_some()
+                        && entry.prefixes.same_form_selection(&state.prefixes)
+                })
+                .map(|entry| entry.function)
                 .expect("the prefix state has a viable decoder entry")
         };
         body.tail_call(target, &arguments)

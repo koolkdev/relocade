@@ -60,18 +60,21 @@ fn access_rights() -> Vec<Case> {
         cases.push(if readable {
             read.register(Eax, 0, 0x1234_5678)
         } else {
-            read.general_protection(0)
+            read.segmented_only().general_protection(0)
         });
-        cases.push(
-            Case::preserving_flags(
-                format!("CS never permits writes {readable}"),
-                &[0x2e, 0x89, 0x03],
-            )
-            .segment(Segment::Cs, cs)
-            .initial_register(Ebx, 0x4000)
-            .memory(0x4000, &[0x78, 0x56, 0x34, 0x12], ReadWrite)
-            .general_protection(0),
-        );
+        let write = Case::preserving_flags(
+            format!("CS never permits writes {readable}"),
+            &[0x2e, 0x89, 0x03],
+        )
+        .segment(Segment::Cs, cs)
+        .initial_register(Ebx, 0x4000)
+        .memory(0x4000, &[0x78, 0x56, 0x34, 0x12], ReadWrite)
+        .general_protection(0);
+        cases.push(if readable {
+            write
+        } else {
+            write.segmented_only()
+        });
     }
     cases
 }
@@ -89,7 +92,7 @@ fn fault_selection() -> Vec<Case> {
         .initial_register(Ebx, 0x4000)
         .general_protection(0),
         Case::preserving_flags("unusable DS faults before an absent page", &[0x8b, 0x03])
-            .interpreter_only()
+            .segmented_only()
             .segment(Segment::Ds, StoredSegment::unusable(0x23))
             .initial_register(Ebx, 0x4000)
             .general_protection(0),
@@ -97,7 +100,7 @@ fn fault_selection() -> Vec<Case> {
             "SS override reports stack fault for an ordinary operand",
             &[0x36, 0x8b, 0x03],
         )
-        .interpreter_only()
+        .segmented_only()
         .segment(Segment::Ss, data(0x8000, 0x20))
         .initial_register(Ebx, 0x20)
         .stack_fault(0),
@@ -105,7 +108,7 @@ fn fault_selection() -> Vec<Case> {
             "DS override on EBP reports general protection",
             &[0x3e, 0x8b, 0x45, 0],
         )
-        .interpreter_only()
+        .segmented_only()
         .segment(Segment::Ds, data(0x8000, 0x20))
         .initial_register(Ebp, 0x20)
         .general_protection(0),
@@ -113,7 +116,7 @@ fn fault_selection() -> Vec<Case> {
             "unusable SS with retained B=1 faults on access",
             &[0x36, 0x8b, 0x03],
         )
-        .interpreter_only()
+        .segmented_only()
         .segment(
             Segment::Ss,
             StoredSegment {
@@ -127,7 +130,7 @@ fn fault_selection() -> Vec<Case> {
             "unusable SS with retained B=1 does not fault without an access",
             &[0x8b, 0xc3],
         )
-        .interpreter_only()
+        .segmented_only()
         .segment(
             Segment::Ss,
             StoredSegment {

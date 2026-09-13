@@ -10,7 +10,7 @@ use super::{SegmentDefaultSize, SegmentKind};
 /// dependent entries and dispatch links when these assumptions cease to hold.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SegmentProfile {
-    /// Flat executable CS, writable expand-up DS/ES/SS, 32-bit CS defaults and
+    /// Flat readable code CS, writable expand-up DS/ES/SS, 32-bit CS defaults and
     /// a 32-bit stack pointer. FS and GS have no assumptions in this profile;
     /// accesses through them use runtime segment handling.
     Flat32,
@@ -32,16 +32,19 @@ impl SegmentProfile {
             return false;
         }
         match self {
-            Self::Flat32 => [&segments.ds, &segments.es, &segments.ss]
-                .into_iter()
-                .all(|segment| {
-                    flat_range(segment)
-                        && segment.attributes.kind()
-                            == Some(SegmentKind::Data {
-                                writable: true,
-                                expand_down: false,
-                            })
-                }),
+            Self::Flat32 => {
+                cs.attributes.kind() == Some(SegmentKind::Code { readable: true })
+                    && [&segments.ds, &segments.es, &segments.ss]
+                        .into_iter()
+                        .all(|segment| {
+                            flat_range(segment)
+                                && segment.attributes.kind()
+                                    == Some(SegmentKind::Data {
+                                        writable: true,
+                                        expand_down: false,
+                                    })
+                        })
+            }
             Self::Segmented32 => true,
         }
     }

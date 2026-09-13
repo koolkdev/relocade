@@ -32,8 +32,9 @@ use crate::{
 /// The returned module requires [`SegmentProfile::Flat32`]. The host establishes
 /// compatibility before entry and keeps it valid through execution and dispatch
 /// links. DS/ES/SS accesses use those flat assumptions without runtime segment
-/// guards; FS/GS and CS data overrides check their loaded caches. A data fault publishes earlier
-/// completed instructions, keeps EIP at the faulting instruction, and skips dispatch.
+/// guards, as do CS reads; FS/GS accesses and CS writes check their loaded caches.
+/// A data fault publishes earlier completed instructions, keeps EIP at the faulting
+/// instruction, and skips dispatch.
 /// REP also preserves successful elements and their ECX/ESI/EDI progress. It retires
 /// once after all elements succeed, including when ECX starts at zero.
 /// DIV/IDIV divide error returns `1 << 48` with that same completion boundary.
