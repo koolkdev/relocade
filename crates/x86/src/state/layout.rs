@@ -1,6 +1,9 @@
 //! CPU backing fields shared by generated code and host state snapshots.
 
 mod codec;
+mod segments;
+
+pub use segments::{Segments, StoredSegment};
 
 #[cfg(test)]
 mod tests;
@@ -105,13 +108,16 @@ impl IndexMut<Gpr32> for Registers {
 }
 
 /// CPU backing state. Byte conversion is explicitly little endian on every host.
+/// `Default` installs flat segment caches and zeros the other fields; `filled`
+/// and `from_bytes` preserve literal backing images without initialization.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CpuState {
     pub flags: StoredFlags,
     pub registers: Registers,
     pub eip: u32,
-    pub reserved: [u8; 84],
+    pub segments: Segments,
+    pub reserved: [u8; 12],
     pub instruction_count: u32,
     pub reserved_tail: [u8; 4],
 }
@@ -122,6 +128,9 @@ impl CpuState {
 
 impl Default for CpuState {
     fn default() -> Self {
-        Self::filled(0)
+        Self {
+            segments: Segments::flat32(),
+            ..Self::filled(0)
+        }
     }
 }

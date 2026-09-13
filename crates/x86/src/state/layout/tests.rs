@@ -1,3 +1,5 @@
+mod segments;
+
 use std::mem::{offset_of, size_of};
 
 use super::{CpuState, FlagBytes, Registers, StoredFlags, StoredStatusSource};
@@ -45,7 +47,7 @@ fn cpu_layout_matches_the_external_byte_contract() {
         ],
         [
             0, 1, 4, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 28, 32, 36, 40, 44, 48,
-            52, 56, 60, 144, 148
+            52, 56, 132, 144, 148
         ],
     );
 }
@@ -96,7 +98,7 @@ fn decoding_preserves_little_endian_values_and_every_reserved_byte() {
     assert_eq!(cpu.eip, 0x3b3a_3938);
     assert_eq!(
         cpu.reserved,
-        std::array::from_fn(|index| (60 + index) as u8)
+        std::array::from_fn(|index| (132 + index) as u8)
     );
     assert_eq!(cpu.instruction_count, 0x9392_9190);
     assert_eq!(cpu.reserved_tail, [148, 149, 150, 151]);
@@ -121,7 +123,7 @@ fn encoding_changes_only_the_named_fields_including_noncanonical_flags() {
     expected[144..148].fill(0);
     assert_eq!(cpu.to_bytes(), expected);
     assert_eq!(CpuState::from_bytes(expected), cpu);
-    assert_eq!(CpuState::default().to_bytes(), [0; 152]);
+    assert_eq!(CpuState::filled(0).to_bytes(), [0; 152]);
 }
 
 #[test]

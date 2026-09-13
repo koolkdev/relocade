@@ -1,4 +1,4 @@
-use wasm86_x86::{compile_block_from_bytes, CpuState, Registers};
+use wasm86_x86::{compile_block_from_bytes, CpuState, Registers, Segments};
 use wasmparser::Validator;
 
 use super::step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
@@ -31,7 +31,7 @@ impl Image {
         };
         cpu.eip = 0x1000;
         cpu.instruction_count = u32::MAX;
-        cpu.reserved[20..28].fill(0);
+        cpu.segments = Segments::flat32();
         cpu.reserved_tail.fill(0);
         Self {
             cpu,

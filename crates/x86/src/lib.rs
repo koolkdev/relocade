@@ -167,6 +167,7 @@ mod instruction;
 mod interpreter;
 mod memory;
 mod register;
+mod segment;
 mod ssa;
 mod state;
 
@@ -191,7 +192,10 @@ use wasm86_compiler::{Func, FunctionImport, Program, Signature, Type};
 pub use block::compile_block_from_bytes;
 pub use interpreter::compile_interpreter_step;
 pub use register::Gpr32;
-pub use state::{CpuState, FlagBytes, Registers, StoredFlags, StoredStatusSource};
+pub use segment::{Segment, SegmentAttributes, SegmentDefaultSize, SegmentKind, SegmentProfile};
+pub use state::{
+    CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredStatusSource,
+};
 
 /// A WebAssembly module and the exported function that enters it.
 pub struct CompiledModule {

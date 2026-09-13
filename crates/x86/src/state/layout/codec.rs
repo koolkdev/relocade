@@ -1,9 +1,13 @@
 use std::mem::offset_of;
 
-use super::{CpuState, FlagBytes, Registers, StoredFlags, StoredStatusSource};
+use crate::segment::SegmentAttributes;
+
+use super::{
+    CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredStatusSource,
+};
 
 impl CpuState {
-    /// Reads the backing bytes without interpreting or normalizing stored flags.
+    /// Reads every backing field without interpreting or normalizing its bits.
     pub fn from_bytes(bytes: [u8; Self::BYTE_LEN]) -> Self {
         Self {
             flags: StoredFlags {
@@ -39,13 +43,22 @@ impl CpuState {
                 edi: read_u32(&bytes, offset_of!(CpuState, registers.edi)),
             },
             eip: read_u32(&bytes, offset_of!(CpuState, eip)),
+            segments: Segments {
+                es: read_segment(&bytes, offset_of!(CpuState, segments.es)),
+                cs: read_segment(&bytes, offset_of!(CpuState, segments.cs)),
+                ss: read_segment(&bytes, offset_of!(CpuState, segments.ss)),
+                ds: read_segment(&bytes, offset_of!(CpuState, segments.ds)),
+                fs: read_segment(&bytes, offset_of!(CpuState, segments.fs)),
+                gs: read_segment(&bytes, offset_of!(CpuState, segments.gs)),
+            },
             reserved: read(&bytes, offset_of!(CpuState, reserved)),
             instruction_count: read_u32(&bytes, offset_of!(CpuState, instruction_count)),
             reserved_tail: read(&bytes, offset_of!(CpuState, reserved_tail)),
         }
     }
 
-    /// Writes every stored field, including reserved bytes and inactive flag data.
+    /// Writes every stored field, including reserved bytes, raw segment
+    /// attributes, and inactive flag data.
     pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
         let mut bytes = [0; Self::BYTE_LEN];
         bytes[offset_of!(CpuState, flags.status_source.kind)] = self.flags.status_source.kind;
@@ -93,6 +106,16 @@ impl CpuState {
         ] {
             write(&mut bytes, offset, &value.to_le_bytes());
         }
+        for (offset, segment) in [
+            (offset_of!(CpuState, segments.es), &self.segments.es),
+            (offset_of!(CpuState, segments.cs), &self.segments.cs),
+            (offset_of!(CpuState, segments.ss), &self.segments.ss),
+            (offset_of!(CpuState, segments.ds), &self.segments.ds),
+            (offset_of!(CpuState, segments.fs), &self.segments.fs),
+            (offset_of!(CpuState, segments.gs), &self.segments.gs),
+        ] {
+            write_segment(&mut bytes, offset, segment);
+        }
         write(&mut bytes, offset_of!(CpuState, reserved), &self.reserved);
         write(
             &mut bytes,
@@ -116,6 +139,41 @@ fn read<const N: usize>(bytes: &[u8], offset: usize) -> [u8; N] {
 
 fn read_u32(bytes: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes(read(bytes, offset))
+}
+
+fn read_segment(bytes: &[u8], offset: usize) -> StoredSegment {
+    StoredSegment {
+        base: read_u32(bytes, offset + offset_of!(StoredSegment, base)),
+        limit: read_u32(bytes, offset + offset_of!(StoredSegment, limit)),
+        selector: u16::from_le_bytes(read(bytes, offset + offset_of!(StoredSegment, selector))),
+        attributes: SegmentAttributes::from_bits(u16::from_le_bytes(read(
+            bytes,
+            offset + offset_of!(StoredSegment, attributes),
+        ))),
+    }
+}
+
+fn write_segment(bytes: &mut [u8], offset: usize, segment: &StoredSegment) {
+    write(
+        bytes,
+        offset + offset_of!(StoredSegment, base),
+        &segment.base.to_le_bytes(),
+    );
+    write(
+        bytes,
+        offset + offset_of!(StoredSegment, limit),
+        &segment.limit.to_le_bytes(),
+    );
+    write(
+        bytes,
+        offset + offset_of!(StoredSegment, selector),
+        &segment.selector.to_le_bytes(),
+    );
+    write(
+        bytes,
+        offset + offset_of!(StoredSegment, attributes),
+        &segment.attributes.bits().to_le_bytes(),
+    );
 }
 
 fn write(bytes: &mut [u8], offset: usize, value: &[u8]) {

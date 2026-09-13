@@ -7,7 +7,9 @@ mod layout;
 mod observation;
 
 pub(super) use cpu::Cpu;
-pub use layout::{CpuState, FlagBytes, Registers, StoredFlags, StoredStatusSource};
+pub use layout::{
+    CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredStatusSource,
+};
 #[cfg(test)]
 pub(crate) use observation::compile_flag_observer;
 

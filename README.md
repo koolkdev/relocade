@@ -21,8 +21,9 @@ module exports `block_1000` and imports `wasm86.cpuState` memory (minimum one
 64-KiB page) and `wasm86.dispatch(i32) -> i64`.
 
 `CpuState` exposes the backing state as plain Rust fields. `Registers`,
-`StoredFlags`, `StoredStatusSource` and `FlagBytes` retain every field, including
-reserved bytes and inactive flag data. The types support copying and full equality comparisons:
+`StoredFlags`, `StoredStatusSource`, `FlagBytes`, `Segments` and `StoredSegment`
+retain every field, including reserved bytes and inactive flag data. The types
+support copying and full equality comparisons:
 
 ```rust
 let mut cpu = wasm86_x86::CpuState::default();
@@ -36,10 +37,54 @@ assert_eq!(wasm86_x86::CpuState::from_bytes(bytes), cpu);
 Copy `cpu.to_bytes()` into the start of the imported CPU memory to initialize it.
 Decode its first `CpuState::BYTE_LEN` bytes with `CpuState::from_bytes` to inspect
 the result. Conversion is explicitly little endian on every host and preserves
-noncanonical flag bytes without interpreting them. The backing image is 152 bytes:
-EAX through EDI are dwords in encoding order at offsets 24–52, EIP is at 56, and the
-completed-instruction count is at 144. `Registers` also supports indexing by
-`Gpr32` for cases that select a register dynamically.
+noncanonical flag bytes and raw segment attributes without interpreting them.
+The backing image is 152 bytes: EAX through EDI are dwords in encoding order at
+offsets 24–52, EIP is at 56, segment records occupy bytes 60–131, twelve reserved
+bytes follow, and the completed-instruction count is at 144. `Registers` supports
+indexing by `Gpr32`; `Segments` supports indexing by `Segment`.
+
+Each segment record stores a base and effective inclusive byte limit as dwords,
+then a visible selector and normalized attributes as two-byte fields. The named
+records are `es`, `cs`, `ss`, `ds`, `fs`, and `gs`, at offsets 60, 72, 84, 96, 108,
+and 120. `SegmentAttributes::new` describes a usable `SegmentKind` and its
+`SegmentDefaultSize` (the D/B attribute); `from_bits` retains arbitrary backing
+bits. Attributes describe loaded caches rather than raw GDT/LDT entries.
+Descriptor-table changes affect a loaded cache only after a segment reload.
+See [Intel SDM Volume 3A, sections 3.4.3–3.4.5](https://cdrdv2-public.intel.com/874249/253668-090-sdm-vol-3a.pdf#page=94).
+
+`CpuState::default()` installs flat caches with zero visible selectors and clears
+the remaining state. It is a host execution configuration, not a processor reset
+image or a protected-mode segment load. `CpuState::filled` and `from_bytes` remain
+literal snapshot operations: an all-zero image has unusable segment caches.
+
+`SegmentProfile::Flat32` expresses flat executable CS and writable expand-up
+DS/ES/SS, with 32-bit CS defaults and SS stack addressing. FS and GS have no
+assumptions in this profile; access through them requires runtime segment handling.
+Selectors, reserved attribute bits, and ordinary DS/ES D/B bits do not determine
+compatibility:
+
+```rust
+use wasm86_x86::{CpuState, SegmentProfile, StoredSegment};
+
+let profile = SegmentProfile::Flat32;
+let mut cpu = CpuState::default();
+assert!(profile.is_compatible_with(&cpu.segments));
+
+cpu.segments.fs = StoredSegment {
+    base: 0x1234_5000,
+    ..StoredSegment::flat_data32(0x53)
+};
+assert!(profile.is_compatible_with(&cpu.segments));
+
+cpu.segments.ds.base = 0x1000;
+assert!(!profile.is_compatible_with(&cpu.segments));
+```
+
+This state API and compatibility test do not apply segmentation to memory
+accesses or invalidate compiled entries automatically. Execution entries still
+use the flat addressing contract below. An execution owner must invalidate
+dependent compiled entries and dispatch links when their segment assumptions
+break, and separately maintain code-byte and mapping validity.
 
 The flag backing record separates the source of status values from the individual
 stored flag bytes:

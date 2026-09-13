@@ -231,6 +231,18 @@ fn direct_expectations_allow_only_authored_flag_bytes_to_change() {
 }
 
 #[test]
+fn current_instruction_expectations_preserve_every_segment_cache_byte() {
+    for offset in 60..132 {
+        let mut fixture = Fixture::new();
+        fixture.check();
+        let mut bytes = fixture.actual.cpu.to_bytes();
+        bytes[offset] ^= 1;
+        fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+        rejects(|| fixture.check(), "loaded segment registers");
+    }
+}
+
+#[test]
 fn unspecified_direct_flags_must_preserve_their_entire_bytes() {
     for offset in 18..23 {
         let mut fixture = Fixture::new();

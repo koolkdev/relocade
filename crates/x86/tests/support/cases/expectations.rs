@@ -159,6 +159,10 @@ pub(in crate::support) fn check_checkpoint(
         "{context}: retired instruction count"
     );
     assert_eq!(
+        actual.cpu.segments, initial.cpu.segments,
+        "{context}: loaded segment registers"
+    );
+    assert_eq!(
         actual.cpu.reserved, initial.cpu.reserved,
         "{context}: reserved CPU bytes"
     );
