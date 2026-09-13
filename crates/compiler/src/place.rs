@@ -156,7 +156,7 @@ impl<'a> Tree<'a> {
         let mut start = origin.index + 1;
         for child in path.into_iter().rev() {
             let parent = self.0[&child].parent.unwrap();
-            if self.writes(region, start, parent.index, &store, &call) {
+            if self.writes_prefix(region, start, parent.index, &store, &call) {
                 return true;
             }
             // An outer snapshot used in a loop must also survive writes after
@@ -164,22 +164,17 @@ impl<'a> Tree<'a> {
             if matches!(
                 self.0[&region].region.operations[parent.index],
                 Operation::Loop { .. }
-            ) && self.writes(
-                child,
-                0,
-                self.0[&child].region.operations.len(),
-                &store,
-                &call,
-            ) {
+            ) && Self::region_may_write(self.0[&child].region, &store, &call)
+            {
                 return true;
             }
             region = child;
             start = 0;
         }
-        self.writes(region, start, use_.index, &store, &call)
+        self.writes_prefix(region, start, use_.index, &store, &call)
     }
 
-    fn writes(
+    fn writes_prefix(
         &self,
         region: usize,
         start: usize,
@@ -187,27 +182,48 @@ impl<'a> Tree<'a> {
         store: &impl Fn(Location) -> bool,
         call: &impl Fn(Func) -> bool,
     ) -> bool {
-        let direct = |operation: &Operation| match operation {
+        // Stop before the demand's operation or terminal. Its child regions
+        // have not run yet and cannot clobber a selector's snapshot.
+        self.0[&region].region.operations[start..end]
+            .iter()
+            .any(|operation| {
+                Self::writes_operation(operation, store, call)
+                    || operation
+                        .children()
+                        .any(|child| Self::region_may_write(child, store, call))
+            })
+    }
+
+    fn region_may_write(
+        region: &Region,
+        store: &impl Fn(Location) -> bool,
+        call: &impl Fn(Func) -> bool,
+    ) -> bool {
+        // A whole loop lifetime includes every nested operation and terminal.
+        // Returning tail calls can also write before exiting.
+        region.walk().any(|region| {
+            let operations_write = region
+                .operations
+                .iter()
+                .any(|operation| Self::writes_operation(operation, store, call));
+            let terminal_writes = match &region.terminal {
+                Some(Terminal::TailCall(invocation)) => call(invocation.target),
+                _ => false,
+            };
+            operations_write || terminal_writes
+        })
+    }
+
+    fn writes_operation(
+        operation: &Operation,
+        store: &impl Fn(Location) -> bool,
+        call: &impl Fn(Func) -> bool,
+    ) -> bool {
+        match operation {
             Operation::Store { location, .. } => store(*location),
             Operation::Call { invocation, .. } => call(invocation.target),
             _ => false,
-        };
-        let operations = &self.0[&region].region.operations[start..end];
-        operations.iter().any(|operation| {
-            // Branch effects remain conservative, including returning arms whose
-            // terminal call may write before leaving the function.
-            direct(operation)
-                || operation.children().any(|arm| {
-                    arm.walk().any(|region| {
-                        let operations_write = region.operations.iter().any(direct);
-                        let terminal_writes = match &region.terminal {
-                            Some(Terminal::TailCall(invocation)) => call(invocation.target),
-                            _ => false,
-                        };
-                        operations_write || terminal_writes
-                    })
-                })
-        })
+        }
     }
 }
 
@@ -322,6 +338,10 @@ impl Planner<'_> {
                         demand(body, tree, demands, *value, point);
                     }
                     Operation::If {
+                        condition: selector,
+                        ..
+                    }
+                    | Operation::BranchIf {
                         condition: selector,
                         ..
                     }

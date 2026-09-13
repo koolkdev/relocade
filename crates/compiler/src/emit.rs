@@ -6,6 +6,7 @@ use crate::{
     ValueKind,
 };
 
+mod branch;
 mod calls;
 mod control;
 mod integer;
@@ -127,6 +128,31 @@ impl Scheduler<'_> {
             input
         } else {
             condition
+        }
+    }
+
+    fn emit_condition(&mut self, condition: usize, inverted: bool) {
+        let condition = self.condition_input(condition);
+        if inverted {
+            if let ValueKind::ZeroTest {
+                input,
+                nonzero: false,
+            } = self.body.values[condition].kind
+            {
+                // Inverting an unshared i32 zero-test can use its operand as the
+                // Wasm truth value. Saved predicates must keep their original
+                // evaluation, and i64 tests must still produce an i32 condition.
+                if self.placement.slots[condition].is_none()
+                    && wasm_type(self.body.values[input].ty) == ValType::I32
+                {
+                    self.value(input);
+                    return;
+                }
+            }
+        }
+        self.value(condition);
+        if inverted {
+            Instruction::I32Eqz.encode(&mut self.bytes);
         }
     }
 

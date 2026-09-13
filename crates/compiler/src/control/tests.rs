@@ -1,6 +1,7 @@
 use crate::{BuildError, FunctionImport, MemoryImport, Program, Signature, Type, I32, I8};
 use wasmparser::{Parser, Payload};
 
+mod exits;
 mod labels;
 
 #[test]

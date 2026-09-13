@@ -198,6 +198,10 @@ enum Operation {
         else_branch: Option<Region>,
         outputs: Vec<usize>,
     },
+    BranchIf {
+        condition: usize,
+        taken: Region,
+    },
     Switch {
         selector: usize,
         cases: Vec<control::SwitchCase>,

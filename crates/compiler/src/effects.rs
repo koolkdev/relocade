@@ -108,6 +108,7 @@ fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
                 Operation::Block { .. }
                 | Operation::Loop { .. }
                 | Operation::If { .. }
+                | Operation::BranchIf { .. }
                 | Operation::Switch { .. } => {}
             }
         }

@@ -161,9 +161,9 @@ fn branch_call() -> TestModule {
     fixture.finish(run)
 }
 
-fn snapshot_across_a_tail_arm() -> TestModule {
+fn snapshot_with_a_tail_call_branch(store_offset: u32) -> TestModule {
     let mut fixture = Fixture::new();
-    let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
+    let state = fixture.memory("state", &[7, 0, 0, 0, 11, 0, 0, 0, 0xa5, 0x5a]);
     let run = fixture
         .program
         .declare(signature(&[Type::I1], &[Type::I32]));
@@ -171,8 +171,8 @@ fn snapshot_across_a_tail_arm() -> TestModule {
     let mutator = fixture.program.declare(signature(&[], &[Type::I32]));
     let mut body = fixture.program.define(run).unwrap();
     let condition = body.parameter::<I1>(0).unwrap();
-    let before = body.load::<I32>(state, 65536).unwrap();
-    body.store::<I32>(state, 0, 1).unwrap();
+    let before = body.load::<I32>(state, 4).unwrap();
+    body.store::<I32>(state, store_offset, 1).unwrap();
     body.if_(&condition, |branch| branch.tail_call(wrapper, &[]))
         .unwrap();
     body.return_(&before).unwrap();
@@ -183,7 +183,7 @@ fn snapshot_across_a_tail_arm() -> TestModule {
         .tail_call(mutator, &[])
         .unwrap();
     let mut body = fixture.program.define(mutator).unwrap();
-    body.store::<I32>(state, 65536, 9).unwrap();
+    body.store::<I32>(state, 4, 9).unwrap();
     body.return_(5).unwrap();
     fixture.finish(run)
 }
@@ -407,16 +407,16 @@ fn traps_in_calls_and_arguments_respect_their_control_path() {
 }
 
 #[test]
-fn callee_writes_in_a_returning_arm_preserve_earlier_snapshots() {
+fn a_false_edge_snapshot_precedes_an_aliasing_prefix_write() {
     assert_eq!(
-        inspect(snapshot_across_a_tail_arm().bytes()).events,
+        inspect(snapshot_with_a_tail_call_branch(4).bytes()).events,
         [
-            Event::Load(65536),
-            Event::Store(0),
+            Event::Load(4),
+            Event::Store(4),
             Event::If,
             Event::Tail,
             Event::End,
-            Event::Return
+            Event::Return,
         ]
     );
 }
@@ -599,14 +599,17 @@ fn calls_trap_only_on_the_selected_control_path_at_runtime() {
 }
 
 #[test]
-fn tail_arm_aliases_preserve_snapshots_before_the_guard_at_runtime() {
-    let tail_arm = snapshot_across_a_tail_arm();
-    let mut instance = tail_arm.instantiate();
-    assert!(instance.call::<i32>(0).is_err());
-    assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
-    let mut instance = tail_arm.instantiate();
-    assert!(instance.call::<i32>(1).is_err());
-    assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
+fn tail_call_branches_preserve_prefix_writes_and_false_edge_snapshots() {
+    for (store_offset, condition, returned, memory) in [
+        (0, 0, 11, [1, 0, 0, 0, 11, 0, 0, 0, 0xa5, 0x5a]),
+        (0, 1, 5, [1, 0, 0, 0, 9, 0, 0, 0, 0xa5, 0x5a]),
+        (4, 0, 11, [7, 0, 0, 0, 1, 0, 0, 0, 0xa5, 0x5a]),
+        (4, 1, 5, [7, 0, 0, 0, 9, 0, 0, 0, 0xa5, 0x5a]),
+    ] {
+        let mut instance = snapshot_with_a_tail_call_branch(store_offset).instantiate();
+        assert_eq!(instance.call::<i32>(condition), Ok(returned));
+        assert_eq!(&instance.memory("state")[..memory.len()], &memory);
+    }
 }
 
 #[test]

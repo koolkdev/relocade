@@ -38,9 +38,11 @@ impl ExecutionBuilder<'_, '_> {
         let (remaining, final_indices) = self.body.loop_::<(I32, [I32; N]), (I32, [I32; N])>(
             (count, initial_indices),
             |mut body, labels, (remaining, positions)| {
-                body.if_(remaining.eq(0), |exit| {
-                    exit.branch(&labels.exit, (&remaining, positions.clone()))
-                })?;
+                body.branch_if(
+                    remaining.eq(0),
+                    &labels.exit,
+                    (&remaining, positions.clone()),
+                )?;
                 let mut iteration = ExecutionBuilder {
                     body,
                     state: state.clone(),

@@ -181,19 +181,18 @@ impl Memory {
                                     required.into(),
                                 ],
                             )?;
-                            crossing.if_(resolution_word.and(required).ne(required), |denied| {
-                                // Report start, or the next page's first byte if it was denied.
-                                denied.branch(
-                                    &fault,
-                                    (
-                                        resolution_word
-                                            .and(LATER_DENIAL)
-                                            .ne(0)
-                                            .select(resolution_word.and(FRAME_MASK), start),
-                                        resolution_word.truncate::<I1>(),
-                                    ),
-                                )
-                            })?;
+                            // Report start, or the next page's first byte if it was denied.
+                            crossing.branch_if(
+                                resolution_word.and(required).ne(required),
+                                &fault,
+                                (
+                                    resolution_word
+                                        .and(LATER_DENIAL)
+                                        .ne(0)
+                                        .select(resolution_word.and(FRAME_MASK), start),
+                                    resolution_word.truncate::<I1>(),
+                                ),
+                            )?;
                             crossing.branch(
                                 &success,
                                 (
@@ -204,9 +203,11 @@ impl Memory {
                         })
                     })?;
                     // Single-page access: use the first page's permissions and frame.
-                    checks.if_(&first_denied, |denied| {
-                        denied.branch(&fault, (start, first_entry.truncate::<I1>()))
-                    })?;
+                    checks.branch_if(
+                        &first_denied,
+                        &fault,
+                        (start, first_entry.truncate::<I1>()),
+                    )?;
                     checks.branch(&success, (false, physical_address(&first_entry, start)))
                 })?;
                 // All wider-access faults meet here.

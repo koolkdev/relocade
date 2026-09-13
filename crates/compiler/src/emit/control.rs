@@ -4,7 +4,7 @@ use wasm_encoder::{Encode, Instruction};
 use super::{wasm_type, ControlLabel, Scheduler};
 use crate::{
     control::{Region, Site, Target},
-    place, Operation, Terminal, ValueKind,
+    place, Operation, Terminal,
 };
 
 impl Scheduler<'_> {
@@ -21,34 +21,38 @@ impl Scheduler<'_> {
             _ => false,
         };
         for (index, operation) in region.operations.iter().enumerate() {
+            let site = Site {
+                region: region.id,
+                index,
+            };
+            if let Operation::BranchIf { condition, taken } = operation {
+                let continuation = region
+                    .terminal
+                    .as_ref()
+                    .filter(|_| index + 1 == region.operations.len());
+                if self.conditional_branch(*condition, taken, site, continuation, fallthrough) {
+                    return;
+                }
+                continue;
+            }
             let outputs = self.live_outputs(operation);
             let result_types: Vec<_> = outputs
                 .iter()
                 .map(|&id| wasm_type(self.body.values[id].ty))
                 .collect();
             let block_type = self.types.block(&result_types);
-            let site = Site {
-                region: region.id,
-                index,
-            };
             if let Operation::Switch { cases, .. } = operation {
                 self.open_switch(cases.len(), block_type, site, &outputs);
             }
             // Keep the selector on the stack while common values are captured.
             match operation {
-                Operation::If { condition, .. } => self.value(self.condition_input(*condition)),
+                Operation::If { condition, .. } => self.emit_condition(*condition, false),
                 Operation::Switch { selector, .. } => self.value(*selector),
                 _ => {}
             }
-            if let Some(captures) = self.placement.captures.get(&site) {
-                for index in 0..captures.len() {
-                    let id = self.placement.captures[&site][index];
-                    if !self.emitted[id] {
-                        self.evaluate(id, true);
-                    }
-                }
-            }
+            self.emit_captures(site);
             match operation {
+                Operation::BranchIf { .. } => unreachable!("conditional exits emit above"),
                 Operation::Load(_) => {}
                 Operation::Call { invocation, .. } => {
                     if self.effects[invocation.target.0].must_execute() {
@@ -137,7 +141,7 @@ impl Scheduler<'_> {
             }
             match terminal {
                 Terminal::Branch { .. } => {
-                    unreachable!("branch arguments follow the live result shape")
+                    unreachable!("control transfers follow their own path and result shape")
                 }
                 Terminal::Return(_) => Instruction::Return,
                 Terminal::Trap => Instruction::Unreachable,
@@ -150,33 +154,23 @@ impl Scheduler<'_> {
         }
     }
 
+    pub(super) fn emit_captures(&mut self, site: Site) {
+        if let Some(captures) = self.placement.captures.get(&site) {
+            for index in 0..captures.len() {
+                let id = self.placement.captures[&site][index];
+                if !self.emitted[id] {
+                    self.evaluate(id, true);
+                }
+            }
+        }
+    }
+
     fn live_outputs(&self, operation: &Operation) -> Vec<usize> {
         operation
             .branch_outputs()
             .iter()
             .copied()
             .filter(|&id| self.placement.slots[id].is_some())
-            .collect()
-    }
-
-    fn branch_arguments(&self, target: Target, arguments: &[usize]) -> Vec<usize> {
-        let label = self
-            .labels
-            .iter()
-            .rev()
-            .find(|label| label.target == Some(target))
-            .expect("a branch target is an enclosing control label");
-        label
-            .outputs
-            .iter()
-            .map(|&output| {
-                let component = match self.body.values[output].kind {
-                    ValueKind::JoinResult { component, .. }
-                    | ValueKind::LoopInput { component, .. } => component,
-                    _ => unreachable!("control edges name joined values"),
-                };
-                arguments[component]
-            })
             .collect()
     }
 
@@ -198,16 +192,5 @@ impl Scheduler<'_> {
             .pop()
             .expect("an ending control has an open label");
         Instruction::End.encode(&mut self.bytes);
-    }
-
-    pub(super) fn branch_to(&mut self, target: Target) {
-        let depth = self
-            .labels
-            .iter()
-            .rev()
-            .position(|label| label.target == Some(target))
-            .expect("a branch target is an enclosing control label");
-        Instruction::Br(u32::try_from(depth).expect("branch depth fits the Wasm index space"))
-            .encode(&mut self.bytes);
     }
 }

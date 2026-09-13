@@ -11,6 +11,8 @@ mod blocks;
 mod branch_placement;
 #[path = "suites/computed_memory.rs"]
 mod computed_memory;
+#[path = "suites/conditional_branches.rs"]
+mod conditional_branches;
 #[path = "suites/conditional_values.rs"]
 mod conditional_values;
 #[path = "suites/control_flow.rs"]

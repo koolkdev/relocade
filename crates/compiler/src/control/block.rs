@@ -1,9 +1,10 @@
 //! Scoped typed labels and outward exits from structured blocks.
 use std::marker::PhantomData;
 
-use super::Target;
+use super::{JoinTarget, Target};
 use crate::{
     arena::ExpressionArena, Arguments, BuildError, FunctionBuilder, Operation, Results, Terminal,
+    Val, I1,
 };
 
 /// A typed block exit, loop header or loop exit, usable within its control region
@@ -85,14 +86,37 @@ impl FunctionBuilder<'_> {
         arguments: impl Into<Arguments>,
     ) -> Result<(), BuildError> {
         self.fallthrough = false;
+        let target = self.branch_target(label)?;
+        let arguments = self.result_arguments(arguments, &target.types)?;
+        self.complete(Terminal::Branch {
+            target: target.target,
+            arguments,
+        })
+    }
+
+    /// Conditionally passes values to an enclosing label. A true condition skips
+    /// the remaining body; false continues with this builder still open. The
+    /// label and arguments follow [`Self::branch`]'s type and scope rules.
+    /// Arguments are demanded on the taken path, with the usual snapshot rules.
+    /// All inputs are checked even for a false condition; errors leave the parent usable.
+    pub fn branch_if<R: Results>(
+        &mut self,
+        condition: impl Into<Val<I1>>,
+        label: &Label<R>,
+        arguments: impl Into<Arguments>,
+    ) -> Result<(), BuildError> {
+        let target = self.branch_target(label)?;
+        self.conditional_branch(condition, target, arguments)
+    }
+
+    fn branch_target<R: Results>(&self, label: &Label<R>) -> Result<JoinTarget, BuildError> {
         if !self.arena.same_body(&label.arena) {
             return Err(BuildError::ForeignBody);
         }
         self.arena.require_scope(label.scope, self.region.id)?;
-        let arguments = self.result_arguments(arguments, &crate::results::types::<R>())?;
-        self.complete(Terminal::Branch {
+        Ok(JoinTarget {
             target: label.target,
-            arguments,
+            types: crate::results::types::<R>(),
         })
     }
 }

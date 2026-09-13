@@ -43,45 +43,90 @@ fn transfers() -> Vec<Case> {
     ];
     for operation in [Operation::Movs, Operation::Stos] {
         for width in [1, 2, 4] {
+            for count in [1, 3] {
+                for backward in [false, true] {
+                    let offset = if backward { width * (count - 1) } else { 0 };
+                    let final_source = if backward {
+                        0x4000u32.wrapping_sub(width)
+                    } else {
+                        0x4000 + width * count
+                    };
+                    let final_destination = if backward {
+                        0x7000u32.wrapping_sub(width)
+                    } else {
+                        0x7000 + width * count
+                    };
+                    let mut case = Case::preserving_flags(
+                        format!(
+                            "REP {operation:?} width {width}, {count} iterations, backward {backward}"
+                        ),
+                        &rep(operation, width),
+                    )
+                    .stored_flags(record(if backward { 0xff } else { 0xfe }))
+                    .register(Ecx, count, 0)
+                    .memory(0x4000, &source, ReadOnly)
+                    .memory(0x7000, &[0xa5; 12], ReadWrite);
+                    if operation.uses_source_index() {
+                        case = case.register(Esi, 0x4000 + offset, final_source);
+                    } else {
+                        case = case.initial_register(Esi, 0x4000 + offset);
+                    }
+                    if operation.uses_destination_index() {
+                        case = case.register(Edi, 0x7000 + offset, final_destination);
+                    } else {
+                        case = case.initial_register(Edi, 0x7000 + offset);
+                    }
+                    case = case.initial_register(Eax, 0x7856_3412);
+                    let bytes = if operation == Operation::Movs {
+                        source[..(width * count) as usize].to_vec()
+                    } else {
+                        [0x12, 0x34, 0x56, 0x78][..width as usize].repeat(count as usize)
+                    };
+                    case = case.expect_memory(0x7000, &bytes);
+                    cases.push(case);
+                }
+            }
+        }
+    }
+    cases
+}
+
+fn final_index_wrap() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for operation in [Operation::Movs, Operation::Stos] {
+        for width in [1, 2, 4] {
             for backward in [false, true] {
-                let offset = if backward { width * 2 } else { 0 };
-                let final_source = if backward {
-                    0x4000u32.wrapping_sub(width)
+                let (destination, final_destination) = if backward {
+                    (0, 0u32.wrapping_sub(width))
                 } else {
-                    0x4000 + width * 3
+                    (0u32.wrapping_sub(width), 0)
                 };
-                let final_destination = if backward {
-                    0x7000u32.wrapping_sub(width)
-                } else {
-                    0x7000 + width * 3
-                };
+                let payload = &[0x12, 0x34, 0x56, 0x78][..width as usize];
                 let mut case = Case::preserving_flags(
                     format!(
-                        "REP {operation:?} width {width}, three iterations, backward {backward}"
+                        "REP {operation:?} width {width} final index wrap, backward {backward}"
                     ),
                     &rep(operation, width),
                 )
                 .stored_flags(record(if backward { 0xff } else { 0xfe }))
-                .register(Ecx, 3, 0)
-                .memory(0x4000, &source, ReadOnly)
-                .memory(0x7000, &[0xa5; 12], ReadWrite);
-                if operation.uses_source_index() {
-                    case = case.register(Esi, 0x4000 + offset, final_source);
+                .instruction_count(u32::MAX)
+                .register(Ecx, 1, 0)
+                .register(Edi, destination, final_destination)
+                .initial_register(Eax, 0x7856_3412)
+                .memory(destination, &vec![0xa5; width as usize], ReadWrite)
+                .expect_memory(destination, payload);
+                if operation == Operation::Movs {
+                    let final_source = if backward {
+                        0x4000 - width
+                    } else {
+                        0x4000 + width
+                    };
+                    case = case
+                        .register(Esi, 0x4000, final_source)
+                        .memory(0x4000, payload, ReadOnly);
                 } else {
-                    case = case.initial_register(Esi, 0x4000 + offset);
+                    case = case.initial_register(Esi, u32::MAX);
                 }
-                if operation.uses_destination_index() {
-                    case = case.register(Edi, 0x7000 + offset, final_destination);
-                } else {
-                    case = case.initial_register(Edi, 0x7000 + offset);
-                }
-                case = case.initial_register(Eax, 0x7856_3412);
-                let bytes = if operation == Operation::Movs {
-                    source[..(width * 3) as usize].to_vec()
-                } else {
-                    [0x12, 0x34, 0x56, 0x78][..width as usize].repeat(3)
-                };
-                case = case.expect_memory(0x7000, &bytes);
                 cases.push(case);
             }
         }
@@ -236,7 +281,14 @@ fn prefix_order_and_length() -> Vec<Case> {
 
 test_cases!(rep_prefix_order_and_length, prefix_order_and_length());
 test_cases!(zero_ecx_skips_operands_and_preserves_flags, zero_count());
-test_cases!(three_iterations_width_df_and_accumulator, transfers());
+test_cases!(
+    one_and_three_iterations_width_df_and_accumulator,
+    transfers()
+);
+test_cases!(
+    final_element_updates_wrapping_indices_once,
+    final_index_wrap()
+);
 test_cases!(sequential_overlapping_reads_and_writes, overlap());
 test_cases!(
     faults_preserve_completed_iterations,

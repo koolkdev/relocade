@@ -1077,8 +1077,8 @@ This example assumes an I64-returning function, I32 addresses and I1 conditions:
 
 ```rust
 let (address, present) = body.block::<(I32, I1)>(|mut checks, denied| {
-    checks.if_(&first_missing, |arm| arm.branch(&denied, (&start, false)))?;
-    checks.if_(&second_read_only, |arm| arm.branch(&denied, (&next_page, true)))?;
+    checks.branch_if(&first_missing, &denied, (&start, false))?;
+    checks.branch_if(&second_read_only, &denied, (&next_page, true))?;
     checks.return_(0)
 })?;
 body.return_(address.unsigned().extend::<I64>()
@@ -1087,7 +1087,12 @@ body.return_(address.unsigned().extend::<I64>()
 
 `Label<R>` names the block's exit. `branch` consumes its active builder,
 passes the declared values and skips the rest of that block. The direct block
-body can also use `yield_`. Labels belong to one function body and remain usable
+body can also use `yield_`. The conditional forms `branch_if` and `yield_if`
+transfer their values only when the condition is true and leave the builder open
+for the false path. They use the same destinations and argument checks as their
+unconditional forms. `yield_if` uses the direct body's result destination;
+nested ordinary `if_` branches use an explicit label. Labels belong to one function
+body and remain usable
 only in their block and its descendants; keeping a clone cannot extend that
 scope or revive a discarded block. Nonempty blocks require complete paths and
 at least one incoming result. Wasm multi-value signatures and branch depths stay
@@ -1101,7 +1106,7 @@ supply its first iteration; branching to `labels.again` supplies the next one.
 let sum = body.loop_::<(I32, I32), I32>(
     (5, 0),
     |mut iteration, labels, (remaining, sum)| {
-        iteration.if_(remaining.eq(0), |done| done.branch(&labels.exit, &sum))?;
+        iteration.yield_if(remaining.eq(0), &sum)?;
         iteration.branch(&labels.again, (remaining.sub(1), sum.add(remaining)))
     },
 )?;
@@ -1118,6 +1123,16 @@ retained initially. Pre-loop load and read-only call snapshots survive later
 iteration writes; reads authored inside the loop observe each iteration's state.
 Native Wasm parameters and results carry these edges, and local allocation keeps
 outer values alive across backedges.
+
+The compiler records conditional transfers directly. Their taken edge has its own
+region, so result values keep their conditional demand and memory snapshot rules.
+The condition runs before captures shared with the continuation. A conditional
+transfer followed immediately by an unconditional branch can share one tuple when
+both destinations need the same live values. Lowering chooses branch polarity
+around the actual fallthrough destination and emits `br_if`; the untaken path
+retains the tuple for its result. Other conditional transfers keep their argument
+evaluation guarded. Direct `yield_` and explicit `branch` use the same internal
+branch representation, including inside conditional transfers.
 
 `body.trap()` consumes its builder and ends that execution path with a WebAssembly
 trap, regardless of the function result type.

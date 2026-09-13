@@ -74,6 +74,7 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
                     Operation::Block { .. }
                     | Operation::Loop { .. }
                     | Operation::If { .. }
+                    | Operation::BranchIf { .. }
                     | Operation::Switch { .. } => continue,
                     Operation::Call { invocation, .. } => {
                         used_functions[invocation.target.0] = true;

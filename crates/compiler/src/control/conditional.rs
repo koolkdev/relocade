@@ -1,7 +1,47 @@
 //! Conditional execution and typed result selection.
-use crate::{BuildError, FunctionBuilder, Operation, Results, Val, I1};
+use super::JoinTarget;
+use crate::{Arguments, BuildError, FunctionBuilder, Operation, Results, Terminal, Val, I1};
 
 impl FunctionBuilder<'_> {
+    /// Conditionally supplies this direct result arm, block or loop's result.
+    /// A true condition yields and skips the remaining body; false leaves this
+    /// builder open. The result shape and scope rules match [`Self::yield_`].
+    /// Ordinary nested `if_` arms have no yield target; use [`Self::branch_if`]
+    /// with an enclosing label there. Arguments are demanded on the taken path,
+    /// subject to the usual snapshot rules. All inputs are checked even for a
+    /// false condition, and errors leave this builder usable.
+    pub fn yield_if(
+        &mut self,
+        condition: impl Into<Val<I1>>,
+        arguments: impl Into<Arguments>,
+    ) -> Result<(), BuildError> {
+        let target = self.yield_target()?;
+        self.conditional_branch(condition, target, arguments)
+    }
+
+    pub(super) fn conditional_branch(
+        &mut self,
+        condition: impl Into<Val<I1>>,
+        target: JoinTarget,
+        arguments: impl Into<Arguments>,
+    ) -> Result<(), BuildError> {
+        let condition = self.operand(condition)?;
+        let arguments = self.result_arguments(arguments, &target.types)?;
+        let condition = self.arena.normalize(condition)?;
+        let taken = self.build_branch(None, |branch| {
+            branch.complete(Terminal::Branch {
+                target: target.target,
+                arguments,
+            })
+        })?;
+        // The selected edge owns its argument demands, but has no result join
+        // of its own. Construction never changes the parent's fallthrough state.
+        self.region
+            .operations
+            .push(Operation::BranchIf { condition, taken });
+        Ok(())
+    }
+
     /// Builds a branch that executes when the condition is true. A false condition
     /// skips it. The child has the same load, store, conditional and return methods.
     /// Returning `Ok(())` without a terminal lets execution continue after the branch.

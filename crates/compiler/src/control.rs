@@ -18,6 +18,7 @@ impl Operation {
     pub(super) fn children(&self) -> impl DoubleEndedIterator<Item = &Region> {
         let (first, second, cases): (_, _, &[SwitchCase]) = match self {
             Self::Block { region, .. } | Self::Loop { region, .. } => (Some(region), None, &[]),
+            Self::BranchIf { taken, .. } => (Some(taken), None, &[]),
             Self::If {
                 branch,
                 else_branch,
@@ -142,19 +143,22 @@ impl FunctionBuilder<'_> {
     /// with the enclosing block's label or the loop's `exit` label.
     pub fn yield_(mut self, arguments: impl Into<Arguments>) -> Result<(), BuildError> {
         self.fallthrough = false;
-        let Destination::Branch {
-            target: Some(target),
-            ..
-        } = &self.destination
-        else {
-            return Err(BuildError::InvalidYield);
-        };
-        let target = target.clone();
+        let target = self.yield_target()?;
         let arguments = self.result_arguments(arguments, &target.types)?;
         self.complete(Terminal::Branch {
             target: target.target,
             arguments,
         })
+    }
+
+    fn yield_target(&self) -> Result<JoinTarget, BuildError> {
+        match &self.destination {
+            Destination::Branch {
+                target: Some(target),
+                ..
+            } => Ok(target.clone()),
+            _ => Err(BuildError::InvalidYield),
+        }
     }
 
     fn result_target<R: Results>(&self) -> JoinTarget {
