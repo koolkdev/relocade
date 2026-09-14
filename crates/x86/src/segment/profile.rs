@@ -5,10 +5,10 @@ use crate::state::{Segments, StoredSegment};
 use super::{SegmentDefaultSize, SegmentKind};
 
 /// Segment assumptions under which a compiled entry may execute.
-/// Compatibility does not establish code-byte or page-mapping validity and
+/// Compatibility does not validate instruction-fetch spans, code bytes or mappings and
 /// does not perform cache invalidation. The execution owner must invalidate
 /// dependent entries and dispatch links when these assumptions cease to hold.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SegmentProfile {
     /// Flat readable code CS, writable expand-up DS/ES/SS, 32-bit CS defaults and
     /// a 32-bit stack pointer. FS and GS have no assumptions in this profile;

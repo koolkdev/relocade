@@ -4,23 +4,28 @@ use super::DecodeState;
 
 use crate::{
     instruction::{
-        DecodedFields, DecodedInstruction, Encoding, FieldWidth, Location, Prefix, ResolvedForm,
-        EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
+        DecodedFields, DecodedInstruction, Encoding, FieldWidth, Location, Prefix, PrefixState,
+        ResolvedForm, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
     },
     register::RegisterCode,
+    segment::SegmentDefaultSize,
     BlockError,
 };
 
 pub(crate) fn snapshot(
     bytes: &[u8],
     instruction_eip: u32,
+    default_size: SegmentDefaultSize,
 ) -> Result<(DecodedInstruction<u32, u32>, &[u8]), BlockError> {
     let mut cursor = SnapshotCursor {
         bytes,
         instruction_eip,
         offset: 0,
     };
-    let mut state = DecodeState::default();
+    let mut state = DecodeState {
+        prefixes: PrefixState::new(default_size),
+        ..DecodeState::default()
+    };
     let mut opcode = loop {
         let byte = cursor.byte()?;
         if let Some(prefix) = Prefix::from_byte(byte) {

@@ -1,4 +1,5 @@
 pub(crate) mod arithmetic;
+pub(crate) mod blocks;
 pub(crate) mod cases;
 pub(crate) mod conditions;
 pub(crate) mod guest;

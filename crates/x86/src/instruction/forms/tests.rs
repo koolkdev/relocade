@@ -165,7 +165,8 @@ fn immediate_encoding_keeps_fixed_widths_and_signed_bytes_distinct() {
         (&[0xc2, 0xff, 0xff, 0x62][..], 0x1003),
         (&[0x66, 0xc2, 0xff, 0xff, 0x62][..], 0x1004),
     ] {
-        let (decoded, remaining) = crate::decode::snapshot(bytes, 0x1000).unwrap();
+        let (decoded, remaining) =
+            crate::decode::snapshot(bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, fallthrough);
         assert!(decoded.instruction.ends_block());
@@ -264,7 +265,8 @@ fn width_alternatives_share_one_opcode_and_preserve_implicit_register_bindings()
         (&[0x98, 0x62][..], 0x1001),
         (&[0x66, 0x98, 0x62][..], 0x1002),
     ] {
-        let (decoded, remaining) = crate::decode::snapshot(bytes, 0x1000).unwrap();
+        let (decoded, remaining) =
+            crate::decode::snapshot(bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, fallthrough);
         assert!(!decoded.instruction.ends_block());

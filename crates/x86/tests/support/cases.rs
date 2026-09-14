@@ -10,7 +10,9 @@ mod tests;
 
 use super::guest::Mapping;
 use crate::flags::Flag;
-use wasm86_x86::{Gpr32, Segment, StoredFlags, StoredSegment};
+use wasm86_x86::{
+    CpuState, Gpr32, Segment, SegmentDefaultSize, SegmentProfile, StoredFlags, StoredSegment,
+};
 
 pub(crate) use super::guest::Permissions;
 
@@ -19,12 +21,27 @@ pub(crate) struct InstructionCase {
     pub(super) code: Vec<u8>,
     pub(super) initial: InitialState,
     pub(super) expected: ExpectedState,
-    pub(super) frontends: Frontends,
+    pub(super) profiles: Profiles,
 }
 
-pub(super) enum Frontends {
+pub(super) enum Profiles {
     All,
-    SegmentedInterpreter,
+    Segmented,
+}
+
+impl Profiles {
+    pub(super) fn for_cpu(&self, cpu: &CpuState) -> impl Iterator<Item = SegmentProfile> {
+        let segmented = match cpu.segments.cs.attributes.default_size() {
+            SegmentDefaultSize::Bits16 => SegmentProfile::Segmented16,
+            SegmentDefaultSize::Bits32 => SegmentProfile::Segmented32,
+        };
+        [
+            Some(segmented),
+            matches!(self, Self::All).then_some(SegmentProfile::Flat32),
+        ]
+        .into_iter()
+        .flatten()
+    }
 }
 
 impl InstructionCase {
@@ -90,13 +107,13 @@ impl InstructionCase {
             code: code.to_vec(),
             initial: InitialState::new(initial),
             expected: ExpectedState::new(expected),
-            frontends: Frontends::All,
+            profiles: Profiles::All,
         }
     }
 
     /// The case requires segment state outside the flat profile.
     pub(crate) fn segmented_only(mut self) -> Self {
-        self.frontends = Frontends::SegmentedInterpreter;
+        self.profiles = Profiles::Segmented;
         self
     }
 

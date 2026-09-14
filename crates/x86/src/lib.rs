@@ -115,12 +115,19 @@
 //! and a valid span can cross linear zero. For a full-size expand-up segment,
 //! wasm86 permits offset-span wrap; finite limits and expand-down segments reject it.
 //! The returned [`CompiledModule::segment_profile`] records the entry assumptions:
-//! snapshot blocks require [`SegmentProfile::Flat32`], while the interpreter accepts
-//! a segment profile as a compilation input. Flat entries omit segment checks and base
+//! [`compile_block_from_bytes`] defaults to [`SegmentProfile::Flat32`];
+//! [`compile_block_from_bytes_with_profile`] and the interpreter accept an explicit
+//! profile. Flat entries omit segment checks and base
 //! reads for address defaults, statically known DS/ES/SS accesses, and CS reads.
 //! Interpreter operands with an explicit segment override use complete checked
-//! translation. Segmented entries check data accesses and CS instruction fetches
-//! through the same cache path. EIP is an offset; fetching adds CS.base before paging.
+//! translation. Segmented entries check data accesses through the loaded caches.
+//! The interpreter validates CS spans and fetches bytes at CS.base + EIP through
+//! paging. Snapshot blocks require the caller to have validated those instruction
+//! fetches, including CS permissions and limits, and do not repeat the checks.
+//! The host must preserve snapshot validity through entry, direct links and execution,
+//! revalidating or invalidating affected entries when relevant CS state, code bytes
+//! or mappings change. An instruction that changes relied-upon assumptions ends
+//! the block. Profile compatibility alone does not establish fetch validity.
 //! Taken near transfers check CS before publishing instruction effects; destination
 //! paging belongs to the next fetch. Segmented32 requires CS.D=1, Segmented16
 //! requires CS.D=0, and both handle SS.B at runtime. Flat32 requires CS.D=1, SS.B=1
@@ -214,7 +221,7 @@ use std::fmt;
 
 use wasm86_compiler::{Func, FunctionImport, Program, Signature, Type};
 
-pub use block::compile_block_from_bytes;
+pub use block::{compile_block_from_bytes, compile_block_from_bytes_with_profile};
 pub use interpreter::compile_interpreter_step;
 pub use register::Gpr32;
 pub use segment::{Segment, SegmentAttributes, SegmentDefaultSize, SegmentKind, SegmentProfile};
@@ -228,7 +235,7 @@ pub struct CompiledModule {
     pub entry: String,
     /// Required segment assumptions for x86 execution entries. The host must
     /// establish compatibility before entry and invalidate dependent code and
-    /// links when assumptions break. Code-byte and mapping validity are separate.
+    /// links when assumptions break. Snapshot instruction-fetch validity is separate.
     /// Modules that do not execute x86 instructions have no segment profile.
     pub segment_profile: Option<SegmentProfile>,
 }

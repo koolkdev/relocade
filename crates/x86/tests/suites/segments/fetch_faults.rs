@@ -77,7 +77,7 @@ fn fault_order(engine: Engine) {
         );
     }
     // Even with no code page, invalid CS permissions win at the first byte.
-    for bits in [0x10, 0x15, 0x1b] {
+    for bits in [0x10, 0x15, 0x1b, 0xffff] {
         let mut image = Image::empty();
         image.cpu.segments.cs = code(0x8000, u32::MAX);
         image.cpu.segments.cs.attributes = SegmentAttributes::from_bits(bits);
@@ -124,4 +124,43 @@ fn required_bytes_preserve_cs_page_and_length_fault_order() {
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn v8_required_bytes_preserve_cs_page_and_length_fault_order() {
     fault_order(Engine::V8);
+}
+
+fn invalid_instruction_spans(engine: Engine) {
+    let module = TestModule::interpreter_with_profile(SegmentProfile::Segmented32);
+    for bytes in [
+        vec![0x90],
+        vec![0xb8, 0x78, 0x56, 0x34, 0x12],
+        vec![0x66, 0xb8, 0x78, 0x56],
+        vec![0x64, 0x66, 0x0f, 0xb7, 0x43, 0x10],
+        [vec![0x64; 12], vec![0x66, 0x89, 0xc0]].concat(),
+    ] {
+        let mut image = Image::empty();
+        image.cpu.segments.cs = code(0x8000, 0x1000 + bytes.len() as u32 - 2);
+        image.map(9, 0x3000, false);
+        image.data(0x3000, &bytes);
+        assert_eq!(
+            engine.observe(module, &image.input(), 1),
+            expected(
+                &image,
+                &[Step {
+                    cpu: image.cpu,
+                    ram: &[],
+                    exit: Exit::GeneralProtection { error: 0 },
+                }],
+            ),
+            "required final instruction byte exceeds CS: {bytes:02x?}",
+        );
+    }
+}
+
+#[test]
+fn required_instruction_spans_exceed_cs_limit() {
+    invalid_instruction_spans(Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_required_instruction_spans_exceed_cs_limit() {
+    invalid_instruction_spans(Engine::V8);
 }

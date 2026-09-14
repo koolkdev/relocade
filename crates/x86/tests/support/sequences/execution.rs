@@ -1,9 +1,6 @@
-use std::collections::HashMap;
-use wasm86_x86::compile_block_from_bytes;
-use wasmparser::Validator;
-
 use super::{Checkpoint, SequenceCase};
 use crate::support::{
+    blocks::BlockModules,
     cases::{
         expectations::{self, Boundary},
         observation::FlagObservations,
@@ -14,7 +11,7 @@ use crate::support::{
 
 pub(super) fn check(cases: &[SequenceCase], engine: Engine) {
     assert!(!cases.is_empty(), "a sequence group must not be empty");
-    let mut blocks = HashMap::new();
+    let mut blocks = BlockModules::default();
     let mut flags = FlagObservations::new(engine);
     for case in cases {
         validate(case);
@@ -36,64 +33,57 @@ pub(super) fn check(cases: &[SequenceCase], engine: Engine) {
                 );
             }
         }
-        let executions =
-            machine.run_many(TestModule::interpreter(), engine, case.checkpoints.len());
-        let mut before = &initial;
-        let mut final_state = FinalExpectation::new(case);
-        for (index, (checkpoint, execution)) in case.checkpoints.iter().zip(&executions).enumerate()
-        {
-            let context = format!(
-                "{} [{engine:?}, interpreter, checkpoint {}]",
-                case.name,
-                index + 1
+        for profile in case.profiles.for_cpu(&initial.cpu) {
+            let executions = machine.run_many(
+                TestModule::interpreter_with_profile(profile),
+                engine,
+                case.checkpoints.len(),
             );
-            let boundary = boundary(checkpoint, before.cpu.eip);
+            let mut before = &initial;
+            let mut final_state = FinalExpectation::new(case);
+            for (index, (checkpoint, execution)) in
+                case.checkpoints.iter().zip(&executions).enumerate()
+            {
+                let context = format!(
+                    "{} [{engine:?}, {profile:?} interpreter, checkpoint {}]",
+                    case.name,
+                    index + 1
+                );
+                let boundary = boundary(checkpoint, before.cpu.eip);
+                expectations::check_checkpoint(
+                    &checkpoint.expected,
+                    boundary,
+                    before,
+                    execution,
+                    &context,
+                );
+                flags.after(
+                    execution.state.cpu,
+                    before.cpu,
+                    checkpoint.expected.flags,
+                    context,
+                );
+                final_state.append(checkpoint);
+                before = &execution.state;
+            }
+            let block = blocks.get(&initial.cpu, &code, limit, profile);
+            let execution = machine.run(block, engine);
+            let context = format!("{} [{engine:?}, {profile:?} block]", case.name);
+            final_state.complete_flags();
             expectations::check_checkpoint(
-                &checkpoint.expected,
-                boundary,
-                before,
-                execution,
+                &final_state.expected,
+                final_state.boundary,
+                &initial,
+                &execution,
                 &context,
             );
             flags.after(
                 execution.state.cpu,
-                before.cpu,
-                checkpoint.expected.flags,
+                initial.cpu,
+                final_state.expected.flags,
                 context,
             );
-            final_state.append(checkpoint);
-            before = &execution.state;
         }
-        let block = blocks
-            .entry((case.initial.eip, code.clone(), limit))
-            .or_insert_with(|| {
-                let module = compile_block_from_bytes(case.initial.eip, &code, limit)
-                    .unwrap_or_else(|error| {
-                        panic!("{}: compiling the sequence: {error:?}", case.name)
-                    });
-                Validator::new()
-                    .validate_all(&module.bytes)
-                    .unwrap_or_else(|error| {
-                        panic!("{}: validating the sequence: {error}", case.name)
-                    });
-                TestModule::new(&module)
-            });
-        let execution = machine.run(block, engine);
-        let context = format!("{} [{engine:?}, block]", case.name);
-        final_state.complete_flags();
-        expectations::check_checkpoint(
-            &final_state.expected,
-            final_state.boundary,
-            &initial,
-            &execution,
-            &context,
-        );
-        flags.after(
-            execution.state.cpu,
-            initial.cpu,
-            final_state.expected.flags,
-            context,
-        );
     }
     flags.finish();
 }

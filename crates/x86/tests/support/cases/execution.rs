@@ -1,19 +1,15 @@
 //! Executes one-instruction cases through the applicable entry profiles.
 
-use std::collections::HashMap;
-use wasm86_x86::{compile_block_from_bytes, SegmentDefaultSize, SegmentProfile};
-use wasmparser::Validator;
-
-use super::{expectations, observation::FlagObservations, Frontends, InstructionCase};
+use super::{expectations, observation::FlagObservations, InstructionCase};
 pub(super) use crate::support::step::Engine;
-use crate::support::step::TestModule;
+use crate::support::{blocks::BlockModules, step::TestModule};
 
 pub(super) fn check(cases: &[InstructionCase], engine: Engine) {
     assert!(
         !cases.is_empty(),
         "an instruction case group must not be empty"
     );
-    let mut blocks = HashMap::new();
+    let mut blocks = BlockModules::default();
     let mut flags = FlagObservations::new(engine);
     for case in cases {
         expectations::validate(case);
@@ -28,45 +24,22 @@ pub(super) fn check(cases: &[InstructionCase], engine: Engine) {
                 );
             }
         }
-        let block = matches!(case.frontends, Frontends::All).then(|| {
-            blocks
-                .entry((case.initial.eip, case.code.to_vec()))
-                .or_insert_with(|| {
-                    let module = compile_block_from_bytes(case.initial.eip, &case.code, 1)
-                        .unwrap_or_else(|error| {
-                            panic!("{}: compiling the case: {error:?}", case.name)
-                        });
-                    Validator::new()
-                        .validate_all(&module.bytes)
-                        .unwrap_or_else(|error| {
-                            panic!("{}: validating the block: {error}", case.name)
-                        });
-                    TestModule::new(&module)
-                })
-        });
-        let flat_interpreter = matches!(case.frontends, Frontends::All)
-            .then(|| ("flat interpreter", TestModule::interpreter()));
-        for (frontend, module) in std::iter::once((
-            "segmented interpreter",
-            TestModule::interpreter_with_profile(
-                match initial.cpu.segments.cs.attributes.default_size() {
-                    SegmentDefaultSize::Bits16 => SegmentProfile::Segmented16,
-                    SegmentDefaultSize::Bits32 => SegmentProfile::Segmented32,
-                },
-            ),
-        ))
-        .chain(flat_interpreter)
-        .chain(block.map(|module| ("block", &*module)))
-        {
-            let context = format!("{} [{engine:?}, {frontend}]", case.name);
-            let execution = machine.run(module, engine);
-            expectations::check_state(case, &initial, &execution, &context);
-            flags.after(
-                execution.state.cpu,
-                initial.cpu,
-                case.expected.flags,
-                context,
-            );
+        for profile in case.profiles.for_cpu(&initial.cpu) {
+            let block = blocks.get(&initial.cpu, &case.code, 1, profile);
+            for (frontend, module) in [
+                ("interpreter", TestModule::interpreter_with_profile(profile)),
+                ("block", block),
+            ] {
+                let context = format!("{} [{engine:?}, {profile:?} {frontend}]", case.name);
+                let execution = machine.run(module, engine);
+                expectations::check_state(case, &initial, &execution, &context);
+                flags.after(
+                    execution.state.cpu,
+                    initial.cpu,
+                    case.expected.flags,
+                    context,
+                );
+            }
         }
     }
     flags.finish();

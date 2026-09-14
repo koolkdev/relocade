@@ -54,6 +54,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         })
     }
 
+    /// Executes an instruction whose required bytes have passed fetch checks.
     pub(super) fn execute<V: Into<Val<I32>>, P: Into<Val<I32>>>(
         &mut self,
         decoded: DecodedInstruction<V, P>,

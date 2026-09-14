@@ -83,16 +83,26 @@ assert!(!profile.is_compatible_with(&cpu.segments));
 ```
 
 `CompiledModule::segment_profile` records each x86 entry's required assumptions.
-Snapshot blocks return `Some(SegmentProfile::Flat32)` and omit segment guards
-for DS/ES/SS and CS reads. FS/GS accesses and CS writes check their caches at runtime.
-The interpreter accepts a segment profile when compiled and records it in the result.
+`compile_block_from_bytes` defaults to `Flat32`. For an explicit profile, use
+`compile_block_from_bytes_with_profile`:
+
+```rust
+let block = wasm86_x86::compile_block_from_bytes_with_profile(
+    0x1000,
+    &[0xb8, 0x34, 0x12], // MOV AX, 0x1234 under 16-bit code defaults.
+    1,
+    wasm86_x86::SegmentProfile::Segmented16,
+)?;
+```
+
+The interpreter also accepts a profile when compiled and records it in the result.
 `Flat32` omits segment checks and base reads for address defaults and statically
 known DS/ES/SS accesses, as well as statically known CS reads and fetches.
 Interpreter handlers distinguish segment-override presence:
 ordinary accesses without an override use that shortcut, including after `66`, `67` or
 `F3`; operands with explicit runtime overrides use complete checked translation.
-`Segmented32` and `Segmented16` check data accesses and CS fetches through the same
-cache path. They permit nonzero bases, finite limits and invalid access attributes:
+`Segmented32` and `Segmented16` check data accesses through the loaded caches.
+They permit nonzero bases, finite limits and invalid data-access attributes:
 runtime checks report the corresponding guest fault. Their code defaults require
 CS.D=1 and CS.D=0, respectively; both read SS.B for stack addressing at runtime.
 `Flat32` requires CS.D=1, SS.B=1 and flat readable CS. Execute-only CS uses a segmented profile.
@@ -100,10 +110,27 @@ CS writes always fault.
 Modules that do not execute x86 instructions carry `None`.
 The host must establish compatibility before entering a module and preserve it
 through its invocation. The execution owner must invalidate dependent entries
-and dispatch links when assumptions break, and separately maintain code-byte
-and mapping validity. This library exposes the assumptions; it has no code cache
-or automatic invalidation. Segment loading, descriptor and privilege validation,
-and far transfers remain outside the subset.
+and dispatch links when assumptions break.
+
+The interpreter validates CS spans and fetches instruction bytes through paging
+at CS.base + EIP. Snapshot blocks require the caller to have validated every
+compiled instruction's fetch: its full span must fit executable CS, and the bytes
+must match readable guest memory at CS.base + start_eip, with 32-bit linear wrapping.
+Bytes beyond the compilation boundary are ignored. Blocks do not repeat these
+instruction-fetch checks at runtime.
+
+The host must establish snapshot validity before every entry, including direct
+dispatch links, and preserve it throughout execution. Changes to relevant CS
+state, code bytes or mappings require revalidation or invalidation of affected
+entries and links. An instruction that changes relied-upon assumptions must end
+the block. Profile compatibility alone does not establish fetch validity.
+A checked snapshot producer stops before an invalid fetch and executes any valid
+instruction prefix before handling that guest fault, for example by entering the
+interpreter at the failing instruction. Debug assertions belong in that block
+owner and detect violated validity invariants. This byte-only compiler has no CS
+state or code-page access to validate them itself; it has no code cache or automatic
+invalidation. Segment loading, descriptor and privilege validation, and far transfers
+remain outside the subset.
 
 The flag backing record separates the source of status values from the individual
 stored flag bytes:
@@ -133,7 +160,7 @@ The number of completed instructions is fixed during compilation for each exit.
 An exit with progress reads the runtime counter and adds that number; an exit
 with no progress leaves it unchanged. The block
 tail-calls dispatch with the next EIP and returns its result. This snapshot path
-supports these forms in default-32 operand and address mode:
+supports these forms; the table shows the encodings with 32-bit code defaults:
 
 | Operands | Byte | Word (`66`) | Dword |
 | --- | --- | --- | --- |
@@ -1461,11 +1488,16 @@ are literals or independently derived data, never calculated by the runner.
 
 The registration creates ordinary Cargo tests for Wasmtime and the explicit V8
 lane. Both normally run every case through the interpreter and a snapshot block,
-starting from fresh state, and check registers, memory, logical flags, retirement
-and exit. Use `segment(name, cache)` to set a loaded cache and `interpreter_only()`
-for cases outside the snapshot's flat profile. The runner checks each actual
-entry's profile after applying any host state patches.
-Failure messages identify the case, engine, frontend and mismatched field.
+using both flat and segmented profiles. Each invocation starts from fresh state
+and checks registers, memory, logical flags, retirement and exit. On instruction
+cases and sequences, use `segment(name, cache)` to set a loaded cache and
+`segmented_only()` for state outside the flat profile. CS.D selects the segmented
+profile. The runner checks each actual entry's profile after applying any host
+state patches. Failure messages identify the case, engine, profile, frontend and
+mismatched field.
+The block fixture also validates every compiled CS instruction span before
+admitting a snapshot, including on cache hits. Guest instruction-fetch faults
+belong to the interpreter or the checked snapshot producer's fallback path.
 Logical flags are read from a copy through the existing state reader; observing
 them must leave every CPU byte unchanged. Raw flag-record layout and undefined
 flag policy belong in their separate tests.

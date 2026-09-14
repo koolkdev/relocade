@@ -110,31 +110,6 @@ fn code_limits() -> Vec<Case> {
         .initial_register(Ebx, 0x3ff0)
         .memory(0x4000, &[0x78, 0x56], ReadOnly);
         cases.push(fits);
-        cases.push(
-            Case::preserving_flags(
-                format!("required byte beyond CS limit {bytes:02x?}"),
-                &bytes,
-            )
-            .segmented_only()
-            .segment(Segment::Cs, code(0x8000, last - 1))
-            .initial_register(Eax, 0xaaaa_bbbb)
-            .initial_register(Ebx, 0x3ff0)
-            .memory(0x4000, &[0x78, 0x56], ReadOnly)
-            .general_protection(0),
-        );
-    }
-    for attributes in [0x10, 0x15, 0x1b, 0xffff] {
-        let mut cs = code(0x8000, 0x1000);
-        cs.attributes = SegmentAttributes::from_bits(attributes);
-        cases.push(
-            Case::preserving_flags(
-                format!("CS attributes {attributes:04x} forbid fetch"),
-                &[0x90],
-            )
-            .segmented_only()
-            .segment(Segment::Cs, cs)
-            .general_protection(0),
-        );
     }
     let mut cs = code(0x8000, 0x1000);
     cs.attributes = SegmentAttributes::from_bits(0x13);
@@ -146,7 +121,4 @@ fn code_limits() -> Vec<Case> {
     cases
 }
 
-test_cases!(
-    instruction_fetch_checks_permissions_and_only_required_bytes,
-    code_limits()
-);
+test_cases!(instructions_fetchable_at_the_cs_limit, code_limits());

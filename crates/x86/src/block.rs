@@ -43,10 +43,63 @@ use crate::{
 /// destination or changing flags; CMP and TEST require only read permission.
 /// Status flags use the lazy CPU record
 /// described in the [crate documentation](crate).
+/// The host must maintain the snapshot validity described by
+/// [`compile_block_from_bytes_with_profile`], which also accepts segmented profiles.
 pub fn compile_block_from_bytes(
     start_eip: u32,
     bytes: &[u8],
     instruction_limit: u32,
+) -> Result<CompiledModule, BlockError> {
+    compile_block_from_bytes_with_profile(
+        start_eip,
+        bytes,
+        instruction_limit,
+        SegmentProfile::Flat32,
+    )
+}
+
+/// Compiles a byte snapshot under the selected segment profile.
+/// The entry signature, stopping boundary and state publication follow
+/// [`compile_block_from_bytes`]. The profile specializes CS.D during decoding;
+/// operand and address overrides independently select the opposite width.
+/// Segmented profiles handle data segments and SS.B at runtime.
+/// Taken near targets are checked separately, without accessing their pages.
+///
+/// The caller must have validated instruction fetches for every instruction
+/// compiled into the block: CS must permit the complete instruction spans, and
+/// the bytes must match readable guest memory at CS.base + start_eip, with 32-bit
+/// linear wrapping. Bytes beyond the compilation boundary are ignored.
+/// EIP and dispatch targets are CS-relative offsets.
+///
+/// The host must establish snapshot validity and profile compatibility before
+/// every entry, including direct dispatch links, and preserve both throughout
+/// execution. Changes to relevant CS state, code bytes or mappings require
+/// revalidation or invalidation of affected entries and links. An instruction
+/// that changes relied-upon assumptions must end the block before further
+/// execution under them. Profile compatibility alone does not prove fetch validity.
+///
+/// This byte-only compiler cannot validate CS limits, permissions or code pages;
+/// the generated block does not recheck them for instruction fetches. A checked
+/// snapshot producer must stop before an invalid fetch and execute any valid
+/// instruction prefix before handling that guest fault, for example by entering
+/// the interpreter at the failing instruction. A debug assertion in the block
+/// owner can detect a violated validity invariant; it does not replace guest faults.
+///
+/// ```
+/// use wasm86_x86::{compile_block_from_bytes_with_profile, SegmentProfile};
+///
+/// // MOV AX, 0x1234 under 16-bit code defaults.
+/// let block = compile_block_from_bytes_with_profile(
+///     0x1000, &[0xb8, 0x34, 0x12], 1, SegmentProfile::Segmented16,
+/// )?;
+/// assert_eq!(block.segment_profile, Some(SegmentProfile::Segmented16));
+/// # Ok::<(), wasm86_x86::BlockError>(())
+/// ```
+pub fn compile_block_from_bytes_with_profile(
+    start_eip: u32,
+    bytes: &[u8],
+    instruction_limit: u32,
+    profile: SegmentProfile,
 ) -> Result<CompiledModule, BlockError> {
     if instruction_limit == 0 {
         return Err(BlockError::ZeroInstructionLimit);
@@ -56,7 +109,8 @@ pub fn compile_block_from_bytes(
     let mut remaining_bytes = bytes;
     let mut next_eip = start_eip;
     for _ in 0..instruction_limit {
-        let (decoded_instruction, rest) = decode::snapshot(remaining_bytes, next_eip)?;
+        let (decoded_instruction, rest) =
+            decode::snapshot(remaining_bytes, next_eip, profile.code_default_size())?;
         next_eip = decoded_instruction.fallthrough_eip;
         remaining_bytes = rest;
         let ends_block = decoded_instruction.instruction.ends_block();
@@ -74,7 +128,6 @@ pub fn compile_block_from_bytes(
         .then(|| Memory::declare(&mut program))
         .transpose()?;
     let dispatch = declare_dispatch(&mut program);
-    let profile = SegmentProfile::Flat32;
     let function = program.function(
         Signature {
             parameters: vec![],

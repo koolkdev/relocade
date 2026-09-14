@@ -7,13 +7,13 @@ mod tests;
 use super::{
     cases::{
         ExpectedExit, ExpectedFlags, ExpectedState, FlagExpectation, Flags, InitialFlags,
-        InitialState, MemoryExpectation, MemoryRegion, Permissions, RegisterExpectation,
+        InitialState, MemoryExpectation, MemoryRegion, Permissions, Profiles, RegisterExpectation,
     },
     guest::Mapping,
     step::Engine,
 };
 use crate::flags::Flag;
-use wasm86_x86::{Gpr32, StoredFlags};
+use wasm86_x86::{Gpr32, Segment, StoredFlags, StoredSegment};
 
 pub(crate) struct SequenceCase {
     name: String,
@@ -22,6 +22,7 @@ pub(crate) struct SequenceCase {
     trailing_code: Vec<u8>,
     trailing_instructions: u32,
     preserve_flags: bool,
+    profiles: Profiles,
 }
 
 impl SequenceCase {
@@ -53,6 +54,7 @@ impl SequenceCase {
             trailing_code: Vec::new(),
             trailing_instructions: 0,
             preserve_flags,
+            profiles: Profiles::All,
         }
     }
 
@@ -74,6 +76,14 @@ impl SequenceCase {
     }
     pub(crate) fn stored_flags(mut self, record: StoredFlags) -> Self {
         self.initial.flags.set_record(record);
+        self
+    }
+    pub(crate) fn segmented_only(mut self) -> Self {
+        self.profiles = Profiles::Segmented;
+        self
+    }
+    pub(crate) fn segment(mut self, segment: Segment, cache: StoredSegment) -> Self {
+        self.initial.segments.push((segment, cache));
         self
     }
     pub(crate) fn memory(mut self, address: u32, bytes: &[u8], permissions: Permissions) -> Self {
@@ -164,6 +174,14 @@ impl Checkpoint {
     }
     pub(crate) fn fault(mut self, address: u32, error: u16) -> Self {
         self.expected.exit = ExpectedExit::PageFault { address, error };
+        self
+    }
+    pub(crate) fn general_protection(mut self, error: u16) -> Self {
+        self.expected.exit = ExpectedExit::GeneralProtection { error };
+        self
+    }
+    pub(crate) fn stack_fault(mut self, error: u16) -> Self {
+        self.expected.exit = ExpectedExit::StackFault { error };
         self
     }
     pub(crate) fn divide_error(mut self) -> Self {
