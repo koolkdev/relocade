@@ -7,21 +7,26 @@ const GENERAL_PROTECTION: u64 = 2 << 48;
 const PAGE_FAULT: u64 = 4 << 48;
 const UNSUPPORTED_INSTRUCTION: u64 = 8 << 48;
 const STACK_FAULT: u64 = 16 << 48;
+const SEGMENT_NOT_PRESENT: u64 = 32 << 48;
 
 /// Delivers an exception through the host ABI. CPU state must already describe
 /// its restart boundary. These host tags are not architectural vector numbers.
-pub(crate) fn exception(body: FunctionBuilder<'_>, exception: Exception) -> Result<(), BuildError> {
+pub(crate) fn exception(
+    body: FunctionBuilder<'_>,
+    exception: Exception<Val<I32>>,
+) -> Result<(), BuildError> {
     let kind = match exception.vector() {
         ExceptionVector::DivideError => DIVIDE_ERROR,
+        ExceptionVector::SegmentNotPresent => SEGMENT_NOT_PRESENT,
         ExceptionVector::StackFault => STACK_FAULT,
         ExceptionVector::GeneralProtection => GENERAL_PROTECTION,
         ExceptionVector::PageFault => PAGE_FAULT,
     };
     let payload: Val<I64> = match exception {
         Exception::DivideError => 0.into(),
-        Exception::GeneralProtection { error_code } | Exception::StackFault { error_code } => {
-            error_code.unsigned().extend::<I64>().shl(32)
-        }
+        Exception::SegmentNotPresent { error_code }
+        | Exception::GeneralProtection { error_code }
+        | Exception::StackFault { error_code } => error_code.unsigned().extend::<I64>().shl(32),
         Exception::PageFault {
             linear_address,
             error_code,

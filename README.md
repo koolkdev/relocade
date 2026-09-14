@@ -54,6 +54,49 @@ bits. Attributes describe loaded caches rather than raw GDT/LDT entries.
 Descriptor-table changes affect a loaded cache only after a segment reload.
 See [Intel SDM Volume 3A, sections 3.4.3–3.4.5](https://cdrdv2-public.intel.com/874249/253668-090-sdm-vol-3a.pdf#page=94).
 
+`DescriptorTables` stores host-managed global/local descriptors indexed by real
+16-bit selectors. `insert`, `get` and `remove` ignore the selector's two RPL bits;
+the table bit and index select the entry. The host chooses selector values and
+the descriptor view for the current thread, including thread-specific FS entries.
+`SegmentDescriptor` describes a code/data segment's base, effective inclusive
+limit, default size, DPL and presence. Its constructor defaults to present, DPL3.
+Descriptor code types include conformance, which affects loading rather than
+ordinary cached access checks.
+
+```rust
+use wasm86_x86::{
+    CpuState, DescriptorTables, Segment, SegmentDefaultSize, SegmentDescriptor,
+    SegmentDescriptorKind,
+};
+
+let mut tables = DescriptorTables::default();
+tables.insert(0x27, SegmentDescriptor::new(
+    0x4000, 0xffff,
+    SegmentDescriptorKind::Data { writable: true, expand_down: false },
+    SegmentDefaultSize::Bits32,
+));
+let mut cpu = CpuState::default();
+cpu.segments.ds = tables.resolve_user_segment(Segment::Ds, 0x27)?;
+```
+
+`resolve_user_segment` validates a protected-mode CPL3 load and returns a loaded
+cache without changing CPU or table state. It distinguishes `#GP`, `#NP` and `#SS`
+through the shared `Exception` model, checks type/privilege before presence, and
+permits null selectors only for DS/ES/FS/GS. Only global index zero is null; local
+index zero is a normal slot. CS resolution covers direct far CALL/JMP descriptor rules,
+including CS.RPL=3. It does not check a transfer target or implement RET/IRET rules.
+
+The execution owner must complete any remaining instruction checks before
+committing the record. A successful load can break compilation assumptions, so
+execution must leave that context and reestablish compatibility before continuing.
+Table edits alone do not rewrite loaded caches. Ordinary guest memory accesses
+continue to use the six cached records in Wasm CPU memory.
+
+These tables are a host-side user-mode interface, separate from guest GDTR/LDTR,
+packed descriptor-table memory, descriptor accessed-bit writes, Windows selector
+allocation APIs, privilege transitions and real-mode loading. Segment-load guest
+instructions and SS interrupt-inhibition behavior remain outside this part.
+
 `CpuState::default()` installs flat caches with zero visible selectors and clears
 the remaining state. It is a host execution configuration, not a processor reset
 image or a protected-mode segment load. `CpuState::filled` and `from_bytes` remain
@@ -129,8 +172,8 @@ instruction prefix before handling that guest fault, for example by entering the
 interpreter at the failing instruction. Debug assertions belong in that block
 owner and detect violated validity invariants. This byte-only compiler has no CS
 state or code-page access to validate them itself; it has no code cache or automatic
-invalidation. Segment loading, descriptor and privilege validation, and far transfers
-remain outside the subset.
+invalidation. Guest segment-load instructions and far transfers remain outside
+the subset; the host descriptor interface above only resolves loaded cache values.
 
 The flag backing record separates the source of status values from the individual
 stored flag bytes:
@@ -1034,16 +1077,22 @@ require presence. Present frames must fit the backing RAM; this is an internal
 invariant. Unexpected host or Wasm traps from inconsistent internal state are not
 part of the guest execution contract.
 
-The internal `Exception` model represents divide error (vector 0), stack fault
-(vector 12), general protection (vector 13) and page fault (vector 14). Stack
-fault, general protection and page fault require an error code, including when
-it is zero; divide error has none.
+The shared `Exception<V = u32>` model represents divide error (vector 0), segment
+not present (vector 11), stack fault (vector 12), general protection (vector 13)
+and page fault (vector 14). Host resolution returns concrete `Exception` values;
+generated execution uses the same variants with `Val<I32>` payloads. The public
+`ExceptionVector` and `vector()` method expose architectural vector numbers.
+All except divide error require an error code, including when it is zero.
 Page fault also requires the faulting linear address, separate from the restart
 EIP. Instruction and memory code supply these typed faults. `State::fault`
 publishes the supplied restart boundary and terminates through `state::exit`,
 which owns the packed host return format. Runtime fetch uses the same exit adapter
 with CPU state already at instruction entry. The host tags below are independent
 of architectural vector numbers.
+
+The exit adapter encodes segment not present as `(32 << 48) | (error << 32)`.
+Guest segment-load instructions are not implemented yet; the host descriptor
+resolver reports this fault through `Exception::SegmentNotPresent`.
 
 `ExecutionBuilder::fault_if(condition, exception)` uses the current instruction's
 restart EIP and completed count. Callers check faults before defining results of

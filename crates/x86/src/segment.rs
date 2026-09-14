@@ -1,12 +1,16 @@
-//! Segment identities and normalized attributes of loaded segment caches.
+//! Segment identities, loaded caches, and host descriptor-table resolution.
 
 mod access;
+mod descriptor;
 mod profile;
 mod selection;
+mod tables;
 
 pub(crate) use access::{SegmentAccess, SegmentValues};
+pub use descriptor::{PrivilegeLevel, SegmentDescriptor, SegmentDescriptorKind};
 pub use profile::SegmentProfile;
 pub(crate) use selection::SegmentSelection;
+pub use tables::DescriptorTables;
 
 #[cfg(test)]
 mod tests;

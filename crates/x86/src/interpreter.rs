@@ -79,8 +79,8 @@ use crate::{
 /// required bytes are checked in order, with CS checked before paging for each byte.
 /// Attempting to read byte 16 returns general protection with error zero,
 /// encoded as `2 << 48`. A missing required byte within the limit faults first.
-/// This entry has no instruction budget. Segment loads, descriptor validation and far transfers
-/// remain outside the subset.
+/// This entry has no instruction budget. Guest segment-load instructions and far
+/// transfers remain outside the subset.
 ///
 /// ```
 /// use wasm86_x86::{compile_interpreter_step, SegmentProfile};

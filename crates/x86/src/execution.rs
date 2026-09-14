@@ -107,7 +107,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     pub(crate) fn fault_if(
         &mut self,
         condition: impl Into<Val<I1>>,
-        exception: Exception,
+        exception: Exception<Val<I32>>,
     ) -> Result<(), BuildError> {
         self.body.if_(condition, |fault_body| {
             self.state
@@ -122,7 +122,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         offset: &Val<I32>,
         intent: Intent,
     ) -> Result<Access<T>, BuildError> {
-        let on_fault = |fault_body: FunctionBuilder<'_>, exception: Exception| {
+        let on_fault = |fault_body: FunctionBuilder<'_>, exception: Exception<Val<I32>>| {
             self.state
                 .fault(fault_body, &self.eip, self.completed, exception)
         };

@@ -10,6 +10,7 @@ fn exit_module() -> Vec<u8> {
     let mut program = Program::new();
     for name in [
         "divide_error",
+        "segment_not_present",
         "stack_fault",
         "general_protection",
         "page_fault",
@@ -26,6 +27,9 @@ fn exit_module() -> Vec<u8> {
                     let address = body.parameter::<I32>(1)?;
                     let fault = match name {
                         "divide_error" => Exception::DivideError,
+                        "segment_not_present" => {
+                            Exception::SegmentNotPresent { error_code: detail }
+                        }
                         "stack_fault" => Exception::StackFault { error_code: detail },
                         "general_protection" => Exception::GeneralProtection { error_code: detail },
                         "page_fault" => Exception::PageFault {
@@ -55,6 +59,13 @@ fn check_host_exit_words(engine: Engine) {
             0x1234,
             0x89ab_cdef_u32,
             0x0001_0000_0000_0000_i64,
+        ),
+        ("segment_not_present", 0, 0x89ab_cdef, 0x0020_0000_0000_0000),
+        (
+            "segment_not_present",
+            0xfffc,
+            0x89ab_cdef,
+            0x0020_fffc_0000_0000,
         ),
         ("general_protection", 0, 0x89ab_cdef, 0x0002_0000_0000_0000),
         ("stack_fault", 0, 0x89ab_cdef, 0x0010_0000_0000_0000),

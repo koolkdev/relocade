@@ -133,7 +133,7 @@ impl Memory {
         body: &mut FunctionBuilder<'_>,
         start: &Val<I32>,
         intent: Intent,
-        on_fault: impl FnOnce(FunctionBuilder<'_>, Exception) -> Result<(), BuildError>,
+        on_fault: impl FnOnce(FunctionBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
     ) -> Result<Access<T>, BuildError> {
         let first_entry = self.table.entry(body, start)?;
         let required = intent.required_permissions();

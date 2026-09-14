@@ -109,7 +109,7 @@ impl<'cpu> State<'cpu> {
         mut body: FunctionBuilder<'_>,
         restart_eip: impl Into<Val<I32>>,
         completed: u32,
-        exception: Exception,
+        exception: Exception<Val<I32>>,
     ) -> Result<(), BuildError> {
         self.publish(&mut body, restart_eip, completed)?;
         exit::exception(body, exception)

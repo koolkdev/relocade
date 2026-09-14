@@ -4,6 +4,8 @@
 mod bounds;
 #[path = "segments/code.rs"]
 mod code;
+#[path = "segments/descriptor_tables.rs"]
+mod descriptor_tables;
 #[path = "segments/fetch.rs"]
 mod fetch;
 #[path = "segments/fetch_faults.rs"]

@@ -60,7 +60,7 @@ impl<'cpu> SegmentAccess<'cpu> {
         segment: &SegmentSelection,
         offset: &Val<I32>,
         intent: Intent,
-        on_fault: impl Fn(FunctionBuilder<'_>, Exception) -> Result<(), BuildError>,
+        on_fault: impl Fn(FunctionBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
     ) -> Result<Val<I32>, BuildError> {
         let check = self.check(body, segment, offset, T::BYTES, intent)?;
         if let Some(denied) = check.denied {

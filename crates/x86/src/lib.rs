@@ -128,12 +128,17 @@
 //! revalidating or invalidating affected entries when relevant CS state, code bytes
 //! or mappings change. An instruction that changes relied-upon assumptions ends
 //! the block. Profile compatibility alone does not establish fetch validity.
+//! [`DescriptorTables`] provides host-managed global/local descriptor slots and
+//! protected-mode CPL3 resolution into [`StoredSegment`]. Table edits preserve
+//! already-loaded caches; the execution owner commits resolved records and
+//! reestablishes profile and snapshot validity. Guest segment-load instructions,
+//! Windows selector allocation APIs and real-mode loading are not implemented.
 //! Taken near transfers check CS before publishing instruction effects; destination
 //! paging belongs to the next fetch. Segmented32 requires CS.D=1, Segmented16
 //! requires CS.D=0, and both handle SS.B at runtime. Flat32 requires CS.D=1, SS.B=1
 //! and flat readable CS. The host must preserve compatibility and
-//! invalidate dependent entries and links when assumptions break. Segment loading,
-//! descriptor validation and far transfers are outside the subset.
+//! invalidate dependent entries and links when assumptions break. Guest segment-load
+//! instructions and far transfers are outside the subset.
 //! CS.D sets the operand/address defaults; `66` and `67` independently select the
 //! other size. Byte operands stay byte-sized. Prefixes may occur in any order.
 //! Repeated `66`, `67` and `F3` preserve presence; wasm86 uses the last segment
@@ -222,9 +227,13 @@ use std::fmt;
 use wasm86_compiler::{Func, FunctionImport, Program, Signature, Type};
 
 pub use block::{compile_block_from_bytes, compile_block_from_bytes_with_profile};
+pub use exception::{Exception, ExceptionVector};
 pub use interpreter::compile_interpreter_step;
 pub use register::Gpr32;
-pub use segment::{Segment, SegmentAttributes, SegmentDefaultSize, SegmentKind, SegmentProfile};
+pub use segment::{
+    DescriptorTables, PrivilegeLevel, Segment, SegmentAttributes, SegmentDefaultSize,
+    SegmentDescriptor, SegmentDescriptorKind, SegmentKind, SegmentProfile,
+};
 pub use state::{
     CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredStatusSource,
 };
