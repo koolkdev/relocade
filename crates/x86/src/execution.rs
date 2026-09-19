@@ -2,16 +2,18 @@ mod address;
 mod control;
 mod operands;
 mod repetition;
+mod segments;
 mod stack;
 
 pub(crate) use operands::PairValues;
 pub(crate) use repetition::Repetition;
 
-use wasm86_compiler::{BuildError, Func, FunctionBuilder, MemoryInt, Val, I1, I32};
+use wasm86_compiler::{BuildError, FunctionBuilder, MemoryInt, Val, I1, I32};
 
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
 use crate::memory::{Access, Intent, Memory};
+use crate::runtime::Runtime;
 use crate::segment::{Segment, SegmentAccess, SegmentProfile, SegmentSelection};
 use crate::state::{Cpu, State};
 use crate::{address::AddressSize, exception::Exception};
@@ -26,7 +28,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     segments: SegmentAccess<'module>,
     segment_override: SegmentOverride,
     address_size: AddressSize,
-    dispatch: Func,
+    runtime: Runtime,
     eip: Val<I32>,
     completed: u32,
 }
@@ -36,7 +38,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         body: FunctionBuilder<'body>,
         cpu: &'module Cpu,
         memory: Option<&'module Memory>,
-        dispatch: Func,
+        runtime: Runtime,
         start: impl Into<Val<I32>>,
         profile: SegmentProfile,
     ) -> Result<Self, BuildError> {
@@ -48,7 +50,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             segments: SegmentAccess::new(cpu, profile),
             segment_override: SegmentOverride::None,
             address_size: AddressSize::Bits32,
-            dispatch,
+            runtime,
             eip,
             completed: 0,
         })
@@ -135,6 +137,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     pub(super) fn complete(mut self) -> Result<(), BuildError> {
         self.state
             .publish(&mut self.body, &self.eip, self.completed)?;
-        self.body.tail_call(self.dispatch, &[self.eip.into()])
+        self.runtime.dispatch(self.body, &self.eip)
     }
 }

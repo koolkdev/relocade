@@ -10,6 +10,8 @@ mod descriptor_tables;
 mod fetch;
 #[path = "segments/fetch_faults.rs"]
 mod fetch_faults;
+#[path = "segments/moves.rs"]
+mod moves;
 #[path = "segments/permissions.rs"]
 mod permissions;
 #[path = "segments/profiles.rs"]

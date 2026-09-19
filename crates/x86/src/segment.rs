@@ -6,11 +6,21 @@ mod profile;
 mod selection;
 mod tables;
 
-pub(crate) use access::{SegmentAccess, SegmentValues};
+use wasm86_compiler::{Val, I16, I32};
+
+pub(crate) use access::SegmentAccess;
 pub use descriptor::{PrivilegeLevel, SegmentDescriptor, SegmentDescriptorKind};
 pub use profile::SegmentProfile;
 pub(crate) use selection::SegmentSelection;
 pub use tables::DescriptorTables;
+
+/// Symbolic values of a loaded segment record. The selector does not determine access.
+pub(crate) struct SegmentValues {
+    pub(crate) base: Val<I32>,
+    pub(crate) limit: Val<I32>,
+    pub(crate) selector: Val<I16>,
+    pub(crate) attributes: Val<I16>,
+}
 
 #[cfg(test)]
 mod tests;

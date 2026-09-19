@@ -1,0 +1,143 @@
+//! Wasmtime instantiation, host callbacks, and boundary observations.
+
+use ::wasmtime::{Caller, Linker, Memory, MemoryType, Module, Store, Trap};
+
+use super::{
+    changes, Argument, Event, Input, Observation, Outcome, SegmentResolution, Snapshot, TestModule,
+};
+
+struct ExecutionEvents {
+    events: Vec<Event>,
+    machine_unchanged: bool,
+    segment_resolutions: std::vec::IntoIter<SegmentResolution>,
+}
+
+impl TestModule {
+    pub(crate) fn observe(&self, input: &Input, invocations: usize) -> Observation {
+        let engine = wasm86_test_support::engine();
+        let module = self
+            .compiled
+            .get_or_init(|| Module::new(engine, &self.bytes).expect("compile the test module"));
+        let mut store = Store::new(
+            engine,
+            ExecutionEvents {
+                events: Vec::new(),
+                machine_unchanged: true,
+                segment_resolutions: input.segment_resolutions.clone().into_iter(),
+            },
+        );
+        let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
+        let guest = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
+        let machine = Memory::new(&mut store, MemoryType::new(64, None)).unwrap();
+        cpu.write(&mut store, 0, &input.cpu).unwrap();
+        for (memory, patches) in [(guest, &input.guest), (machine, &input.machine)] {
+            for (offset, bytes) in patches {
+                memory.write(&mut store, *offset as usize, bytes).unwrap();
+            }
+        }
+        let guest_before = guest.data(&store).to_vec();
+        let machine_before = machine.data(&store).to_vec();
+        let mut linker = Linker::new(engine);
+        for (name, memory) in [("cpuState", cpu), ("guest", guest), ("machine", machine)] {
+            linker.define(&store, "wasm86", name, memory).unwrap();
+        }
+        let cpu_len = input.cpu.len();
+        let observe_guest = input.observe_guest;
+        let dispatch_return = input.dispatch_return;
+        let dispatch_guest_before = guest_before.clone();
+        let dispatch_machine_before = machine_before.clone();
+        linker
+            .func_wrap(
+                "wasm86",
+                "dispatch",
+                move |mut caller: Caller<'_, ExecutionEvents>, eip: i32| {
+                    let snapshot = Snapshot {
+                        cpu: cpu.data(&caller)[..cpu_len].to_vec(),
+                        guest: observe_guest
+                            .then(|| changes(&dispatch_guest_before, guest.data(&caller))),
+                    };
+                    let unchanged = dispatch_machine_before == machine.data(&caller);
+                    caller.data_mut().machine_unchanged &= unchanged;
+                    caller
+                        .data_mut()
+                        .events
+                        .push(Event::Dispatch { eip, snapshot });
+                    dispatch_return
+                },
+            )
+            .unwrap();
+        linker
+            .func_wrap(
+                "wasm86",
+                "resolveSegment",
+                |mut caller: Caller<'_, ExecutionEvents>, segment: i32, selector: i32| {
+                    let state = caller.data_mut();
+                    let reply = state
+                        .segment_resolutions
+                        .next()
+                        .expect("unexpected segment load");
+                    assert_eq!(
+                        (segment as u32, selector as u32),
+                        (reply.segment, u32::from(reply.selector))
+                    );
+                    state
+                        .events
+                        .push(Event::ResolveSegment { segment, selector });
+                    let [status, error, base, limit, selector, attributes] =
+                        reply.values.map(|value| value as i32);
+                    (status, error, base, limit, selector, attributes)
+                },
+            )
+            .unwrap();
+        let instance = linker
+            .instantiate(&mut store, module)
+            .expect("instantiate the test module");
+        let entry = instance
+            .get_func(&mut store, &self.entry)
+            .expect("the test entry is exported");
+        let arguments = input
+            .arguments
+            .iter()
+            .map(|value| value.wasm())
+            .collect::<Vec<_>>();
+        let mut results = vec![::wasmtime::Val::I32(0); entry.ty(&store).results().len()];
+        for call in 0..invocations {
+            for (offset, bytes) in input
+                .cpu_patches_before_calls
+                .get(call)
+                .into_iter()
+                .flatten()
+            {
+                cpu.write(&mut store, *offset as usize, bytes).unwrap();
+            }
+            self.check_profile(cpu.data(&store));
+            let outcome = match entry.call(&mut store, &arguments, &mut results) {
+                Ok(()) => Outcome::Returned(results.iter().map(Argument::from_wasm).collect()),
+                Err(error) if error.downcast_ref::<Trap>().is_some() => Outcome::Trap,
+                Err(error) => panic!("calling test entry {} failed: {error:#}", self.entry),
+            };
+            let snapshot = Snapshot {
+                cpu: cpu.data(&store)[..cpu_len].to_vec(),
+                guest: observe_guest.then(|| changes(&guest_before, guest.data(&store))),
+            };
+            let unchanged = machine_before == machine.data(&store);
+            store.data_mut().machine_unchanged &= unchanged;
+            store
+                .data_mut()
+                .events
+                .push(Event::Return { outcome, snapshot });
+        }
+        assert_eq!(
+            store.data().segment_resolutions.len(),
+            0,
+            "unused segment resolutions"
+        );
+        let guest_unchanged = guest_before == guest.data(&store);
+        let machine_unchanged = store.data().machine_unchanged;
+        Observation {
+            events: store.into_data().events,
+            guest_unchanged,
+            machine_unchanged,
+        }
+    }
+}

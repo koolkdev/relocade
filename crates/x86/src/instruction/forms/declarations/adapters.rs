@@ -7,6 +7,9 @@ macro_rules! declaration_handlers {
     ($effects:tt $pattern:tt $call:tt byte($($operands:tt)*)) => {
         SizedHandlers::fixed(declaration_adapter!($effects $pattern $call [I8]; $($operands)*))
     };
+    ($effects:tt $pattern:tt $call:tt word($($operands:tt)*)) => {
+        SizedHandlers::fixed(declaration_adapter!($effects $pattern $call [I16]; $($operands)*))
+    };
     ($effects:tt $pattern:tt $call:tt word_or_dword($($operands:tt)*)) => {
         SizedHandlers {
             word: declaration_adapter!($effects $pattern $call [I16]; $($operands)*),
@@ -50,7 +53,6 @@ macro_rules! declaration_adapter {
     };
     ([] $pattern:tt $call:tt [$width:ty]; $left:ident $(($left_value:expr))?, $right:ident $(($right_value:expr))?) => {
         Handler::Binary(|execution, left, right, _condition, fallthrough| {
-            let left = left.into();
             declaration_call!($pattern $call [] execution, _condition;
                 operand_value!($width, left, $left $(($left_value))?),
                 operand_value!($width, right, $right $(($right_value))?))?;
@@ -83,6 +85,12 @@ macro_rules! declaration_call {
 }
 
 macro_rules! operand_value {
+    ($width:ty, $operand:ident, segment($value:expr)) => {{
+        let crate::instruction::Operand::Segment(segment) = $operand else {
+            unreachable!("the form binds a segment register")
+        };
+        segment
+    }};
     ($width:ty, $operand:ident, constant($value:expr)) => { Input::new($operand) };
     ($width:ty, $operand:ident, imm8) => { Input::<I8>::new($operand) };
     ($width:ty, $operand:ident, imm16) => { Input::<I16>::new($operand) };

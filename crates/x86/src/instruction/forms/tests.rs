@@ -63,9 +63,7 @@ fn catalog_bindings_use_available_fields_and_match_resolved_handler_arities() {
             let bindings = match form.binding {
                 OperandBindingShape::Nullary => vec![],
                 OperandBindingShape::Unary(operand) => vec![operand],
-                OperandBindingShape::Binary { left, right } => {
-                    vec![OperandBinding::Location(left), right]
-                }
+                OperandBindingShape::Binary { left, right } => vec![left, right],
                 OperandBindingShape::Ternary {
                     destination,
                     first_source,
@@ -124,6 +122,7 @@ fn catalog_bindings_use_available_fields_and_match_resolved_handler_arities() {
                     }
                     OperandBinding::Immediate => assert!(has_immediate),
                     OperandBinding::Location(LocationBinding::FixedRegister(_))
+                    | OperandBinding::Segment(_)
                     | OperandBinding::Constant(_) => {}
                 }
             }
@@ -246,7 +245,7 @@ fn opcode_register_ranges_cover_exactly_eight_codes_and_bind_each_register() {
                 assert!(matches!(
                     decoded.instruction.call,
                     HandlerCall::Binary {
-                        left: Location::Register(RegisterOperand::Encoded(RegisterCode::Known(actual))),
+                        left: Operand::Location(Location::Register(RegisterOperand::Encoded(RegisterCode::Known(actual)))),
                         right: Operand::Immediate(0x7a),
                         ..
                     } if actual == code
@@ -274,7 +273,7 @@ fn width_alternatives_share_one_opcode_and_preserve_implicit_register_bindings()
         assert!(matches!(
             decoded.instruction.call,
             HandlerCall::Binary {
-                left: Location::Register(RegisterOperand::Named(left)),
+                left: Operand::Location(Location::Register(RegisterOperand::Named(left))),
                 right: Operand::Location(Location::Register(RegisterOperand::Named(right))),
                 ..
             } if left == NamedRegister::low(Gpr32::Eax)

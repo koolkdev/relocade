@@ -1,11 +1,11 @@
 use wasm86_compiler::{Program, Signature, Type};
 
 use crate::{
-    declare_dispatch, decode, execution::ExecutionBuilder, memory::Memory, state::Cpu, BlockError,
+    decode, execution::ExecutionBuilder, memory::Memory, runtime::Runtime, state::Cpu, BlockError,
     CompiledModule, SegmentProfile,
 };
 
-/// Compiles from `start_eip` through the first branch, REP or `instruction_limit`
+/// Compiles from `start_eip` through the first branch, REP, segment load or `instruction_limit`
 /// instructions, whichever comes first. A conditional branch ends the block
 /// on both outcomes. Bytes after that boundary are ignored.
 /// Supports the instruction forms described in the
@@ -30,14 +30,18 @@ use crate::{
 /// Blocks with data-memory operands also import guest RAM and the page table,
 /// using the layout and fault words documented by [`crate::compile_interpreter_step`].
 /// The returned module requires [`SegmentProfile::Flat32`]. The host establishes
-/// compatibility before entry and keeps it valid through execution and dispatch
-/// links. DS/ES/SS accesses use those flat assumptions without runtime segment
+/// compatibility before entry and keeps it valid until a terminal segment load.
+/// Dispatch reestablishes compatibility before entering subsequent code.
+/// DS/ES/SS accesses use those flat assumptions without runtime segment
 /// guards, as do CS reads; FS/GS accesses and CS writes check their loaded caches.
 /// A data fault publishes earlier completed instructions, keeps EIP at the faulting
 /// instruction, and skips dispatch.
 /// REP also preserves successful elements and their address-sized count and index
 /// progress. It retires once after all elements succeed, including a zero count.
 /// DIV/IDIV divide error returns `1 << 48` with that same completion boundary.
+/// Blocks that load a segment also import `wasm86.resolveSegment`, using the
+/// resolver contract documented by [`crate::compile_interpreter_step`]. A load
+/// commits its cache only on success, retires once, and ends the block.
 /// All bytes of a store are permission-checked before any of them are written.
 /// Read-modify-write operations check write permission before reading their
 /// destination or changing flags; CMP and TEST require only read permission.
@@ -72,8 +76,10 @@ pub fn compile_block_from_bytes(
 /// EIP and dispatch targets are CS-relative offsets.
 ///
 /// The host must establish snapshot validity and profile compatibility before
-/// every entry, including direct dispatch links, and preserve both throughout
-/// execution. Changes to relevant CS state, code bytes or mappings require
+/// every entry, including direct dispatch links, and preserve both until a
+/// terminal instruction changes them. After a segment cache commit, only state
+/// publication and dispatch remain; the next entry must be admitted afresh.
+/// Changes to relevant CS state, code bytes or mappings require
 /// revalidation or invalidation of affected entries and links. An instruction
 /// that changes relied-upon assumptions must end the block before further
 /// execution under them. Profile compatibility alone does not prove fetch validity.
@@ -127,7 +133,7 @@ pub fn compile_block_from_bytes_with_profile(
         .any(|decoded_instruction| decoded_instruction.instruction.uses_memory())
         .then(|| Memory::declare(&mut program))
         .transpose()?;
-    let dispatch = declare_dispatch(&mut program);
+    let runtime = Runtime::declare(&mut program);
     let function = program.function(
         Signature {
             parameters: vec![],
@@ -135,7 +141,7 @@ pub fn compile_block_from_bytes_with_profile(
         },
         |body| {
             let mut execution =
-                ExecutionBuilder::new(body, &cpu, memory.as_ref(), dispatch, start_eip, profile)?;
+                ExecutionBuilder::new(body, &cpu, memory.as_ref(), runtime, start_eip, profile)?;
             for decoded_instruction in decoded_instructions {
                 execution.execute(decoded_instruction)?;
             }

@@ -18,6 +18,7 @@ pub(in crate::instruction) enum OperandSpec {
     ModRmRegister,
     OpcodeRegister,
     FixedRegister(NamedRegister),
+    Segment(crate::Segment),
     Offset,
     Immediate(ImmediateWidth),
     Constant(u32),
@@ -27,6 +28,7 @@ pub(in crate::instruction) enum OperandSpec {
 impl OperandSpec {
     const fn binding(self) -> OperandBinding {
         match self {
+            Self::Segment(segment) => OperandBinding::Segment(segment),
             Self::Immediate(_) => OperandBinding::Immediate,
             Self::Constant(value) => OperandBinding::Constant(value),
             Self::Address => OperandBinding::RmAddress,
@@ -54,6 +56,7 @@ impl OperandSpec {
             | (Self::Offset, Self::Offset)
             | (Self::Address, Self::Address) => true,
             (Self::FixedRegister(left), Self::FixedRegister(right)) => left.same_location(right),
+            (Self::Segment(left), Self::Segment(right)) => left as u8 == right as u8,
             (Self::Immediate(left), Self::Immediate(right)) => left as u8 == right as u8,
             (Self::Constant(left), Self::Constant(right)) => left == right,
             _ => false,
@@ -66,6 +69,7 @@ pub(in crate::instruction) enum Effect {
     MemoryRead,
     MemoryWrite,
     ControlTransfer,
+    SegmentLoad,
 }
 
 pub(in crate::instruction) struct Opcode {
@@ -107,7 +111,9 @@ impl Declaration<'_> {
                     );
                     immediate = Some(width);
                 }
-                OperandSpec::FixedRegister(_) | OperandSpec::Constant(_) => {}
+                OperandSpec::FixedRegister(_)
+                | OperandSpec::Constant(_)
+                | OperandSpec::Segment(_) => {}
             }
             index += 1;
         }
@@ -170,7 +176,7 @@ impl Declaration<'_> {
                     (Handler::Binary(_), Handler::Binary(_))
                 ));
                 OperandBindingShape::Binary {
-                    left: left.location(),
+                    left: left.binding(),
                     right: right.binding(),
                 }
             }
@@ -206,7 +212,7 @@ impl Declaration<'_> {
         while index < self.effects.len() {
             match self.effects[index] {
                 Effect::MemoryRead | Effect::MemoryWrite => implicit_memory = true,
-                Effect::ControlTransfer => ends_block = true,
+                Effect::ControlTransfer | Effect::SegmentLoad => ends_block = true,
             }
             index += 1;
         }

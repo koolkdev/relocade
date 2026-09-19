@@ -35,6 +35,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         I32: AtLeast<T>,
     {
         match operand {
+            Operand::Segment(_) => unreachable!("segment operands use selector operations"),
             Operand::Immediate(bits) => Ok(self.body.value::<I32>(bits)?.truncate::<T>()),
             Operand::Address(address) => {
                 let address = address::resolve(&mut self.body, &mut self.state, address, &[])?;

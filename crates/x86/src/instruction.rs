@@ -16,6 +16,7 @@ pub(crate) use prefixes::{Prefix, PrefixState, SegmentOverride};
 use crate::address::{AddressSize, EffectiveAddress, MemoryAddress};
 use crate::flags::Condition;
 use crate::register::RegisterOperand;
+use crate::Segment;
 
 pub(super) const MAX_INSTRUCTION_BYTES: u32 = 15;
 pub(super) const EXTENDED_OPCODE_ESCAPE: u8 = 0x0f;
@@ -30,6 +31,8 @@ pub(super) enum OperandSize {
 /// Decoded values and locations; handlers assign their logical widths.
 pub(super) enum Operand<V> {
     Immediate(V),
+    /// A segment register identity; its selector and cache have separate effects.
+    Segment(Segment),
     /// The address value itself, without accessing the addressed memory.
     Address(EffectiveAddress<V>),
     Location(Location<V>),

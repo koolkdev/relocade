@@ -119,6 +119,7 @@ impl<T: RegisterType> TypedLocation<T> {
 pub(super) fn map_operand<V: Into<Val<I32>>>(operand: Operand<V>) -> Operand<Val<I32>> {
     match operand {
         Operand::Immediate(bits) => Operand::Immediate(bits.into()),
+        Operand::Segment(segment) => Operand::Segment(segment),
         Operand::Address(address) => Operand::Address(map_address(address)),
         Operand::Location(location) => map_location(location).into(),
     }

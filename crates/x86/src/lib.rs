@@ -98,8 +98,8 @@
 //! requires ZF clear. All preserve flags, and all use signed byte displacements.
 //! Address size selects the counter independently of the operand-sized taken target.
 //! Far transfers remain outside the subset. Transfers retire once and dispatch without
-//! fetching the destination instruction. Snapshot blocks end at the first control transfer or REP
-//! or the requested instruction limit, whichever comes first.
+//! fetching the destination instruction. Snapshot blocks end at the first control
+//! transfer, REP, segment load or requested instruction limit, whichever comes first.
 //! Each full memory access is checked before instruction effects. A fault
 //! preserves the current instruction or string element's entry state and publishes earlier progress.
 //! Address size selects 16-bit BX/BP/SI/DI or 32-bit ModRM/SIB effective addresses
@@ -130,15 +130,23 @@
 //! the block. Profile compatibility alone does not establish fetch validity.
 //! [`DescriptorTables`] provides host-managed global/local descriptor slots and
 //! protected-mode CPL3 resolution into [`StoredSegment`]. Table edits preserve
-//! already-loaded caches; the execution owner commits resolved records and
-//! reestablishes profile and snapshot validity. Guest segment-load instructions,
-//! Windows selector allocation APIs and real-mode loading are not implemented.
+//! already-loaded caches. MOV from a segment (`8C /0`–`/5`) reads its visible selector
+//! even if its cache is unusable. A word GPR destination preserves its upper half;
+//! a dword GPR destination zero-extends. Memory destinations always store two bytes.
+//! MOV to ES/SS/DS/FS/GS (`8E /0`, `/2`–`/5`) reads a word source, using the old cache
+//! for memory, calls the host resolver, and commits the returned cache only on success. It ends
+//! the block, retires once and dispatches. The resolver import and fault contract
+//! are documented by [`compile_interpreter_step`]. Windows selector allocation
+//! APIs, real-mode loading and interrupt/debug delivery, including MOV SS inhibition,
+//! are not implemented.
 //! Taken near transfers check CS before publishing instruction effects; destination
 //! paging belongs to the next fetch. Segmented32 requires CS.D=1, Segmented16
 //! requires CS.D=0, and both handle SS.B at runtime. Flat32 requires CS.D=1, SS.B=1
-//! and flat readable CS. The host must preserve compatibility and
-//! invalidate dependent entries and links when assumptions break. Guest segment-load
-//! instructions and far transfers are outside the subset.
+//! and flat readable CS. The host must preserve compatibility until a terminal
+//! segment load. Only publication and dispatch follow the cache commit; the next
+//! entry must reestablish compatibility and snapshot validity. The execution owner
+//! invalidates dependent entries and links when assumptions break. Segment PUSH/POP
+//! and far transfers are outside the subset.
 //! CS.D sets the operand/address defaults; `66` and `67` independently select the
 //! other size. Byte operands stay byte-sized. Prefixes may occur in any order.
 //! Repeated `66`, `67` and `F3` preserve presence; wasm86 uses the last segment
@@ -204,6 +212,7 @@ mod instruction;
 mod interpreter;
 mod memory;
 mod register;
+mod runtime;
 mod segment;
 mod ssa;
 mod state;
@@ -224,8 +233,6 @@ mod instruction_tests;
 
 use std::fmt;
 
-use wasm86_compiler::{Func, FunctionImport, Program, Signature, Type};
-
 pub use block::{compile_block_from_bytes, compile_block_from_bytes_with_profile};
 pub use exception::{Exception, ExceptionVector};
 pub use interpreter::compile_interpreter_step;
@@ -244,7 +251,8 @@ pub struct CompiledModule {
     pub entry: String,
     /// Required segment assumptions for x86 execution entries. The host must
     /// establish compatibility before entry and invalidate dependent code and
-    /// links when assumptions break. Snapshot instruction-fetch validity is separate.
+    /// links when assumptions break. A terminal segment load may change compatibility
+    /// before publication and dispatch. Snapshot instruction-fetch validity is separate.
     /// Modules that do not execute x86 instructions have no segment profile.
     pub segment_profile: Option<SegmentProfile>,
 }
@@ -315,15 +323,4 @@ impl From<wasm86_compiler::BuildError> for BlockError {
     fn from(error: wasm86_compiler::BuildError) -> Self {
         Self::Compiler(error)
     }
-}
-
-fn declare_dispatch(program: &mut Program) -> Func {
-    program.import_function(FunctionImport {
-        module: "wasm86".into(),
-        name: "dispatch".into(),
-        signature: Signature {
-            parameters: vec![Type::I32],
-            results: vec![Type::I64],
-        },
-    })
 }

@@ -17,7 +17,7 @@ pub(super) type NullaryHandler = for<'body, 'module> fn(
 
 pub(super) type BinaryHandler = for<'body, 'module> fn(
     execution: &mut ExecutionBuilder<'body, 'module>,
-    left: Location<Val<I32>>,
+    left: Operand<Val<I32>>,
     right: Operand<Val<I32>>,
     condition: Option<Condition>,
     fallthrough_eip: Val<I32>,
@@ -77,7 +77,7 @@ pub(super) enum HandlerCall<V> {
     },
     Binary {
         handler: BinaryHandler,
-        left: Location<V>,
+        left: Operand<V>,
         right: Operand<V>,
     },
     Unary {

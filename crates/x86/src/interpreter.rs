@@ -1,10 +1,10 @@
 use wasm86_compiler::{BuildError, Program, Signature, Type};
 
 use crate::{
-    declare_dispatch,
     decode::{InstructionFetch, RuntimeDecoder},
     execution::ExecutionBuilder,
     memory::Memory,
+    runtime::Runtime,
     state::Cpu,
     CompiledModule, SegmentProfile,
 };
@@ -26,7 +26,9 @@ use crate::{
 /// recorded in [`CompiledModule::segment_profile`]. Segmented16/Segmented32 assume
 /// CS.D=0/1 respectively and handle SS.B at runtime. Flat32 also requires SS.B=1.
 /// The host establishes
-/// compatibility before entry and preserves it throughout the invocation.
+/// compatibility before entry and preserves it until a terminal segment load.
+/// After committing a cache, the step only publishes state and dispatches; the
+/// dispatch owner must admit the next entry against the new segment state.
 /// [`SegmentProfile::Flat32`] omits segment checks and base reads for address
 /// defaults and statically known DS/ES/SS accesses. It additionally requires
 /// flat readable CS. Operands with an explicit segment override use complete checked
@@ -38,6 +40,19 @@ use crate::{
 /// permissions and complete offset spans, then add the segment base at 32 bits.
 /// All variants have the same imports and entry signature, so
 /// the host can instantiate them with shared memories and choose a compatible entry.
+///
+/// Segment loads call `wasm86.resolveSegment(segment: i32, selector: i32)`.
+/// Segment indices are ES=0, CS=1, SS=2, DS=3, FS=4, GS=5; MOV never loads CS.
+/// The host returns six i32 results: `(status, error_code, base, limit, selector,
+/// attributes)`. Status zero returns a complete normalized [`crate::StoredSegment`];
+/// otherwise status is architectural vector 11, 12 or 13 and only the error code
+/// is used. Selector and attributes use zero-extended 16-bit values. Unknown
+/// statuses or invalid successful records violate the host contract.
+/// The callback resolves the current thread's descriptor view, for example through
+/// [`crate::DescriptorTables::resolve_user_segment`]. It must not inspect or change
+/// CPU state, guest RAM or page tables, or reenter guest execution. Wasm owns cache
+/// commitment and fault publication. Resolver faults use the shared exception exit format:
+/// `(tag << 48) | (error_code << 32)`, with tags 32 for #NP, 16 for #SS and 2 for #GP.
 ///
 /// A missing instruction page returns `(4 << 48) | (0x10 << 32) | address`, using
 /// the first unavailable byte's 32-bit linear address. Data faults return
@@ -79,8 +94,10 @@ use crate::{
 /// required bytes are checked in order, with CS checked before paging for each byte.
 /// Attempting to read byte 16 returns general protection with error zero,
 /// encoded as `2 << 48`. A missing required byte within the limit faults first.
-/// This entry has no instruction budget. Guest segment-load instructions and far
-/// transfers remain outside the subset.
+/// This entry has no instruction budget. MOV reads visible selectors and loads
+/// ES/SS/DS/FS/GS through the resolver. Segment PUSH/POP and far transfers remain
+/// outside the subset. Interrupt/debug delivery and the inhibition following
+/// MOV SS are not modeled.
 ///
 /// ```
 /// use wasm86_x86::{compile_interpreter_step, SegmentProfile};
@@ -92,7 +109,7 @@ pub fn compile_interpreter_step(profile: SegmentProfile) -> Result<CompiledModul
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let memory = Memory::declare(&mut program)?;
-    let dispatch = declare_dispatch(&mut program);
+    let runtime = Runtime::declare(&mut program);
     let signature = Signature {
         parameters: vec![],
         results: vec![Type::I64],
@@ -106,7 +123,7 @@ pub fn compile_interpreter_step(profile: SegmentProfile) -> Result<CompiledModul
         profile.code_default_size(),
         |body, decoded| {
             let mut execution =
-                ExecutionBuilder::new(body, &cpu, Some(&memory), dispatch, &decoded.eip, profile)?;
+                ExecutionBuilder::new(body, &cpu, Some(&memory), runtime, &decoded.eip, profile)?;
             execution.execute(decoded)?;
             execution.complete()
         },

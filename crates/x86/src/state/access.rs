@@ -44,6 +44,10 @@ impl CpuField for u32 {
     type Int = I32;
 }
 
+impl CpuField for u16 {
+    type Int = I16;
+}
+
 impl CpuField for SegmentAttributes {
     type Int = I16;
 }
@@ -61,11 +65,12 @@ pub(in crate::state) fn load<T: CpuField>(
 pub(in crate::state) fn store<T: CpuField>(
     body: &mut FunctionBuilder<'_>,
     memory: Mem,
+    displacement: impl Into<Val<I32>>,
     offset: u32,
     _field: fn(&CpuState) -> &T,
     value: impl Into<Val<T::Int>>,
 ) -> Result<(), BuildError> {
-    body.store::<T::Int>(memory, offset, value)
+    body.store_at::<T::Int>(memory, displacement, offset, value)
 }
 
 pub(in crate::state) fn location<T: CpuField>(
@@ -104,9 +109,13 @@ macro_rules! cpu_load {
 
 macro_rules! cpu_store {
     ($body:expr, $memory:expr, $($field:ident).+, $value:expr $(,)?) => {
+        $crate::state::access::cpu_store!($body, $memory, $($field).+, $value, at: 0u32)
+    };
+    ($body:expr, $memory:expr, $($field:ident).+, $value:expr, at: $displacement:expr $(,)?) => {
         $crate::state::access::store(
             $body,
             $memory,
+            $displacement,
             ::std::mem::offset_of!($crate::state::CpuState, $($field).+) as u32,
             |state: &$crate::state::CpuState| &state.$($field).+,
             $value,

@@ -1,20 +1,15 @@
 //! Segment permissions and complete offset spans are checked before paging.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, MemoryInt, Val, I1, I16, I32};
+use wasm86_compiler::{BuildError, FunctionBuilder, MemoryInt, Val, I1, I32};
 
 use crate::{exception::Exception, memory::Intent, state::Cpu};
 
-use super::{Segment, SegmentAttributes, SegmentDefaultSize, SegmentProfile, SegmentSelection};
+use super::{
+    Segment, SegmentAttributes, SegmentDefaultSize, SegmentProfile, SegmentSelection, SegmentValues,
+};
 
 #[cfg(test)]
 mod tests;
-
-/// Values read from one loaded cache. The selector does not determine access.
-pub(crate) struct SegmentValues {
-    pub(crate) base: Val<I32>,
-    pub(crate) limit: Val<I32>,
-    pub(crate) attributes: Val<I16>,
-}
 
 /// A non-faulting segment probe. A profile-proven span needs no runtime guard.
 pub(crate) struct SegmentCheck {
@@ -51,7 +46,7 @@ impl<'cpu> SegmentAccess<'cpu> {
         }
     }
 
-    /// The entry's profile must remain compatible for its entire invocation.
+    /// The entry's profile must remain compatible until a terminal segment load.
     /// Flat address defaults and named data segments need no cache reads or
     /// segment guards. Explicit runtime overrides use the complete checked path.
     pub(crate) fn translate<T: MemoryInt>(

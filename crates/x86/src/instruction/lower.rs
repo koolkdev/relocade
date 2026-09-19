@@ -18,7 +18,7 @@ pub(crate) fn lower(
             right,
         } => handler(
             execution,
-            map_location(left),
+            map_operand(left),
             map_operand(right),
             instruction.condition,
             fallthrough_eip,

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-const { entry, invocations, input } = JSON.parse(readFileSync(0, 'utf8'));
+const { entry, profile, invocations, input } = JSON.parse(readFileSync(0, 'utf8'));
 const decode = ({ type, value }) => type === 'i64' ? BigInt(value) : value;
 const encode = value => typeof value === 'bigint'
   ? { type: 'i64', value: value.toString() } : { type: 'i32', value };
@@ -29,10 +29,19 @@ const snapshot = () => {
   };
 };
 const events = [];
+let resolutions = 0;
 const module = new WebAssembly.Module(readFileSync(process.argv[2]));
 const instance = new WebAssembly.Instance(module, {
   wasm86: {
     cpuState, guest, machine,
+    resolveSegment: (segment, selector) => {
+      const reply = input.segment_resolutions[resolutions++];
+      if (!reply || reply.segment !== segment || reply.selector !== selector) {
+        throw new Error(`unexpected segment load ${segment}:${selector}`);
+      }
+      events.push({ kind: 'resolve_segment', segment, selector });
+      return reply.values;
+    },
     dispatch: eip => {
       events.push({ kind: 'dispatch', eip, snapshot: snapshot() });
       return BigInt(input.dispatch_return);
@@ -44,6 +53,7 @@ for (let call = 0; call < invocations; call++) {
   for (const [offset, bytes] of input.cpu_patches_before_calls[call] ?? []) {
     new Uint8Array(cpuState.buffer).set(bytes, offset);
   }
+  checkProfile();
   let outcome;
   try {
     const result = instance.exports[entry](...args);
@@ -55,8 +65,27 @@ for (let call = 0; call < invocations; call++) {
   }
   events.push({ kind: 'return', outcome, snapshot: snapshot() });
 }
+if (resolutions !== input.segment_resolutions.length) throw new Error('unused segment resolutions');
 process.stdout.write(JSON.stringify({
   events,
   guest_unchanged: guestBefore.equals(Buffer.from(guest.buffer)),
   machine_unchanged: machineUnchanged,
 }));
+
+// Check the actual loaded caches after preceding calls and explicit CPU patches.
+function checkProfile() {
+  if (profile === null) return;
+  const cpu = new DataView(cpuState.buffer);
+  const attributes = segment => cpu.getUint16(60 + segment * 12 + 10, true);
+  const flat = (segment, kind) => {
+    const offset = 60 + segment * 12;
+    return cpu.getUint32(offset, true) === 0
+      && cpu.getUint32(offset + 4, true) === 0xffffffff
+      && (attributes(segment) & 15) === kind;
+  };
+  const codeBig = (attributes(1) & 16) !== 0;
+  const compatible = codeBig === (profile !== 'segmented16')
+    && (profile !== 'flat32' || (flat(1, 7) && [0, 2, 3].every(s => flat(s, 5))
+      && (attributes(2) & 16) !== 0));
+  if (!compatible) throw new Error(`${entry} requires compatible ${profile} segment state`);
+}

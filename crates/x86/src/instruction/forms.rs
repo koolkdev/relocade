@@ -129,6 +129,7 @@ pub(super) enum LocationBinding {
 #[derive(Clone, Copy)]
 pub(super) enum OperandBinding {
     Location(LocationBinding),
+    Segment(crate::Segment),
     Immediate,
     /// An implicit literal, interpreted at the handler's logical operand width.
     Constant(u32),
@@ -141,7 +142,7 @@ pub(super) enum OperandBindingShape {
     Nullary,
     Unary(OperandBinding),
     Binary {
-        left: LocationBinding,
+        left: OperandBinding,
         right: OperandBinding,
     },
     Ternary {
@@ -202,7 +203,9 @@ impl Form {
         !match self.binding {
             OperandBindingShape::Nullary => false,
             OperandBindingShape::Unary(operand) => requires_address(operand),
-            OperandBindingShape::Binary { right, .. } => requires_address(right),
+            OperandBindingShape::Binary { left, right } => {
+                requires_address(left) || requires_address(right)
+            }
             OperandBindingShape::Ternary {
                 first_source,
                 second_source,

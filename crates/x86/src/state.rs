@@ -14,12 +14,13 @@ pub use layout::{
 pub(crate) use observation::compile_flag_observer;
 
 use access::{cpu_load, cpu_store, register_location};
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32};
+use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32};
 
 use crate::{
     exception::Exception,
     flags::{Condition, Flag, FlagChange},
     register::{Register, RegisterType},
+    segment::{SegmentSelection, SegmentValues},
     ssa::Environment,
 };
 
@@ -37,6 +38,26 @@ impl<'cpu> State<'cpu> {
             registers: Environment::new(cpu.memory()),
             flags: flags::FlagState::new(cpu.memory()),
         }
+    }
+
+    /// Reads the visible selector even when its loaded cache is unusable.
+    pub(crate) fn read_segment_selector(
+        &self,
+        body: &mut FunctionBuilder<'_>,
+        segment: &SegmentSelection,
+    ) -> Result<Val<I16>, BuildError> {
+        Ok(self.cpu.read_segment(body, segment)?.selector)
+    }
+
+    /// Commits a resolved cache after all instruction guards. Only completion
+    /// and dispatch may follow when this breaks the entry's segment assumptions.
+    pub(crate) fn write_segment(
+        &self,
+        body: &mut FunctionBuilder<'_>,
+        segment: &SegmentSelection,
+        values: &SegmentValues,
+    ) -> Result<(), BuildError> {
+        self.cpu.write_segment(body, segment, values)
     }
 
     pub(super) fn read_register<T: RegisterType>(

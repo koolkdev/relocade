@@ -23,7 +23,7 @@ impl ResolvedForm {
             (Handler::Binary(handler), OperandBindingShape::Binary { left, right }) => {
                 HandlerCall::Binary {
                     handler,
-                    left: self.bind_location(&fields, left),
+                    left: self.bind_operand(&fields, left),
                     right: self.bind_operand(&fields, right),
                 }
             }
@@ -110,6 +110,7 @@ impl ResolvedForm {
         binding: OperandBinding,
     ) -> Operand<V> {
         match binding {
+            OperandBinding::Segment(segment) => Operand::Segment(segment),
             OperandBinding::Constant(bits) => Operand::Immediate(bits.into()),
             OperandBinding::Location(location) => self.bind_location(fields, location).into(),
             OperandBinding::RmAddress => {

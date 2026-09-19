@@ -33,7 +33,7 @@ impl ExecutionBuilder<'_, '_> {
         let segments = self.segments;
         let address_size = self.address_size;
         let segment_override = self.segment_override.clone();
-        let dispatch = self.dispatch;
+        let runtime = self.runtime;
         let eip = &self.eip;
         let completed = self.completed;
         let (remaining, final_indices) = self.body.loop_::<(I32, [I32; N]), (I32, [I32; N])>(
@@ -51,7 +51,7 @@ impl ExecutionBuilder<'_, '_> {
                     segments,
                     segment_override,
                     address_size,
-                    dispatch,
+                    runtime,
                     eip: eip.clone(),
                     completed,
                 };

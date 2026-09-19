@@ -12,6 +12,7 @@ mod flag_control;
 mod flag_transfer;
 mod moves;
 mod multiply;
+mod segments;
 mod shifts;
 mod stack;
 mod strings;
@@ -27,6 +28,7 @@ use wasm86_compiler::{AtLeast, BuildError, Val, I16, I32, I8};
 
 pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form> + Clone {
     moves::forms()
+        .chain(segments::forms())
         .chain(extensions::forms())
         .chain(exchanges::forms())
         .chain(alu::forms())

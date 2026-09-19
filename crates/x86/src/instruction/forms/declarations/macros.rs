@@ -108,6 +108,9 @@ macro_rules! declaration_opcode {
 }
 
 macro_rules! declaration_effect {
+    (segment_load) => {
+        Effect::SegmentLoad
+    };
     (memory_read) => {
         Effect::MemoryRead
     };
@@ -120,6 +123,9 @@ macro_rules! declaration_effect {
 }
 
 macro_rules! operand_spec {
+    (segment($segment:expr)) => {
+        OperandSpec::Segment($segment)
+    };
     (rm) => {
         OperandSpec::Rm
     };

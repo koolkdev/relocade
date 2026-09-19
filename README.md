@@ -15,7 +15,7 @@ from byte snapshots:
 let block = wasm86_x86::compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
 ```
 
-Compilation stops at the first branch, REP or the requested instruction limit,
+Compilation stops at the first branch, REP, segment load or the requested instruction limit,
 whichever comes first. A conditional branch ends the block whether taken or not.
 Missing, overlong or unsupported instructions before that boundary are construction
 errors; bytes after it are ignored. The returned
@@ -94,8 +94,22 @@ continue to use the six cached records in Wasm CPU memory.
 
 These tables are a host-side user-mode interface, separate from guest GDTR/LDTR,
 packed descriptor-table memory, descriptor accessed-bit writes, Windows selector
-allocation APIs, privilege transitions and real-mode loading. Segment-load guest
-instructions and SS interrupt-inhibition behavior remain outside this part.
+allocation APIs, privilege transitions and real-mode loading. Interrupt/debug
+delivery and the inhibition following MOV SS are not modeled.
+
+Guest MOV instructions use `wasm86.resolveSegment(segment: i32, selector: i32)`
+to resolve a load. The segment indices are ES=0, CS=1, SS=2, DS=3, FS=4, GS=5;
+MOV cannot load CS. The host returns six i32 results:
+`(status, error_code, base, limit, selector, attributes)`.
+Status zero supplies a complete normalized `StoredSegment`; other supported
+statuses are architectural vectors 11 (#NP), 12 (#SS) and 13 (#GP), with an error
+code and ignored cache fields. Selector and attributes must be zero-extended
+16-bit values. Unknown statuses and invalid success records violate the host
+contract. The callback can call `DescriptorTables::resolve_user_segment` against
+the current thread's descriptor view. It must not inspect or change CPU state,
+guest RAM or page tables, or reenter guest execution: Wasm owns cache commitment,
+retirement and fault publication. Every interpreter imports this callback; snapshot blocks
+import it only when they contain a segment load.
 
 `CpuState::default()` installs flat caches with zero visible selectors and clears
 the remaining state. It is a host execution configuration, not a processor reset
@@ -152,8 +166,10 @@ CS.D=1 and CS.D=0, respectively; both read SS.B for stack addressing at runtime.
 CS writes always fault.
 Modules that do not execute x86 instructions carry `None`.
 The host must establish compatibility before entering a module and preserve it
-through its invocation. The execution owner must invalidate dependent entries
-and dispatch links when assumptions break.
+until a terminal segment load. After the cache commit, only state publication
+and dispatch remain. The next entry must be admitted against the new segment
+state. The execution owner must invalidate dependent entries and dispatch links
+when assumptions break.
 
 The interpreter validates CS spans and fetches instruction bytes through paging
 at CS.base + EIP. Snapshot blocks require the caller to have validated every
@@ -172,8 +188,8 @@ instruction prefix before handling that guest fault, for example by entering the
 interpreter at the failing instruction. Debug assertions belong in that block
 owner and detect violated validity invariants. This byte-only compiler has no CS
 state or code-page access to validate them itself; it has no code cache or automatic
-invalidation. Guest segment-load instructions and far transfers remain outside
-the subset; the host descriptor interface above only resolves loaded cache values.
+invalidation. MOV segment loads end the block at their cache commit; segment
+PUSH/POP and far transfers remain outside the subset.
 
 The flag backing record separates the source of status values from the individual
 stored flag bytes:
@@ -209,6 +225,8 @@ supports these forms; the table shows the encodings with 32-bit code defaults:
 | --- | --- | --- | --- |
 | MOV opcode-selected register and immediate | B0–B7 | B8–BF | B8–BF |
 | MOV register and register/memory | 88/8A | 89/8B | 89/8B |
+| MOV from segment selector | — | 8C /0–/5 | 8C /0–/5 (memory stays word) |
+| MOV to ES/SS/DS/FS/GS | — | 8E /0, /2–/5 | 8E /0, /2–/5 (source stays word) |
 | MOV register/memory destination and immediate | C6 /0 | C7 /0 | C7 /0 |
 | MOV accumulator and absolute memory offset | A0/A2 | A1/A3 | A1/A3 |
 | CBW/CWDE sign extension within the accumulator | — | 98 | 98 |
@@ -307,6 +325,17 @@ image follows the [Intel instruction reference](https://cdrdv2-public.intel.com/
 it is independent of the raw `FlagBytes` backing layout.
 Their effects follow the corresponding entries in the
 [Intel Software Developer's Manual](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html).
+
+MOV from a segment register reads its visible selector without checking whether
+the loaded cache is usable. A word GPR destination preserves its upper half;
+a dword GPR destination zero-extends the selector. Memory stores always write
+two bytes, independently of operand size. MOV to a segment reads a word from
+the source using the old cache and resolves the selector through the host import
+above. Faults preserve the current instruction's entry state and publish earlier
+progress. Success installs all four cache fields, retires once, and dispatches
+without executing further instructions in that block. Loading SS leaves ESP
+unchanged. Invalid segment encodings, including MOV to CS, use the existing
+unsupported-subset exit and are rejected before reading address bytes.
 
 MOVZX (`0F B6`/`0F B7`) and MOVSX (`0F BE`/`0F BF`) read a byte or word
 register/memory source into a register destination. MOVZX fills the added bits
@@ -1091,8 +1120,8 @@ with CPU state already at instruction entry. The host tags below are independent
 of architectural vector numbers.
 
 The exit adapter encodes segment not present as `(32 << 48) | (error << 32)`.
-Guest segment-load instructions are not implemented yet; the host descriptor
-resolver reports this fault through `Exception::SegmentNotPresent`.
+The runtime adapter converts resolver vector 11 to the shared
+`Exception::SegmentNotPresent`, and state publication uses this same exit adapter.
 
 `ExecutionBuilder::fault_if(condition, exception)` uses the current instruction's
 restart EIP and completed count. Callers check faults before defining results of
