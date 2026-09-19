@@ -18,8 +18,12 @@ mod permissions;
 mod profiles;
 #[path = "segments/progress.rs"]
 mod progress;
+#[path = "segments/push_pop.rs"]
+mod push_pop;
 #[path = "segments/selection.rs"]
 mod selection;
+#[path = "segments/selector_cases.rs"]
+mod selector_cases;
 #[path = "segments/stack.rs"]
 mod stack;
 #[path = "segments/strings.rs"]

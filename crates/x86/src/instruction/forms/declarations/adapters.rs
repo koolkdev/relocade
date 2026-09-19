@@ -27,9 +27,9 @@ macro_rules! declaration_handlers {
 // A transfer body already has the successor-returning ABI. Other bodies receive
 // typed arguments and complete with fallthrough. Effects can appear in any order.
 macro_rules! declaration_adapter {
-    ([control_transfer $(, $effect:ident)*] $pattern:tt [$handler:ident $($argument:expr),*] [$width:ty]; $operand:ident $(($value:expr))?) => {
+    ([control_transfer $(, $effect:ident)*] $pattern:tt $call:tt [$width:ty]; $operand:ident $(($value:expr))?) => {
         Handler::Unary(|execution, operand, condition, fallthrough| {
-            $handler::<$width>(execution, operand, condition, fallthrough $(, $argument)*)
+            declaration_invoke!($call [$width]; execution, operand, condition, fallthrough)
         })
     };
     ([control_transfer $(, $effect:ident)*] $($unsupported:tt)*) => {
@@ -46,14 +46,14 @@ macro_rules! declaration_adapter {
     };
     ([] $pattern:tt $call:tt [$width:ty]; $operand:ident $(($value:expr))?) => {
         Handler::Unary(|execution, operand, _condition, fallthrough| {
-            declaration_call!($pattern $call [] execution, _condition;
+            declaration_call!($pattern $call [$width] execution, _condition;
                 operand_value!($width, operand, $operand $(($value))?))?;
             Ok(fallthrough)
         })
     };
     ([] $pattern:tt $call:tt [$width:ty]; $left:ident $(($left_value:expr))?, $right:ident $(($right_value:expr))?) => {
         Handler::Binary(|execution, left, right, _condition, fallthrough| {
-            declaration_call!($pattern $call [] execution, _condition;
+            declaration_call!($pattern $call [$width] execution, _condition;
                 operand_value!($width, left, $left $(($left_value))?),
                 operand_value!($width, right, $right $(($right_value))?))?;
             Ok(fallthrough)
@@ -66,7 +66,7 @@ macro_rules! declaration_adapter {
     ) => {
         Handler::Ternary(|execution, destination, first, second, _condition, fallthrough| {
             let destination = destination.into();
-            declaration_call!($pattern $call [] execution, _condition;
+            declaration_call!($pattern $call [$width] execution, _condition;
                 operand_value!($width, destination, $destination $(($destination_value))?),
                 operand_value!($width, first, $first $(($first_value))?),
                 operand_value!($width, second, $second $(($second_value))?))?;
@@ -76,11 +76,22 @@ macro_rules! declaration_adapter {
 }
 
 macro_rules! declaration_call {
-    ([cc] [$handler:ident $($argument:expr),*] [$($($type:ty),+)?] $execution:ident, $condition:ident; $($operand:expr),*) => {
-        $handler $(::<$($type),+>)? ($execution $(, $operand)*, $condition.expect("+cc binds a condition") $(, $argument)*)
+    ([cc] $call:tt $width:tt $execution:ident, $condition:ident; $($operand:expr),*) => {
+        declaration_invoke!($call $width; $execution $(, $operand)*, $condition.expect("+cc binds a condition"))
     };
-    ([$($pattern:ident)?] [$handler:ident $($argument:expr),*] [$($($type:ty),+)?] $execution:ident, $condition:ident; $($operand:expr),*) => {
-        $handler $(::<$($type),+>)? ($execution $(, $operand)* $(, $argument)*)
+    ([$($pattern:ident)?] $call:tt $width:tt $execution:ident, $condition:ident; $($operand:expr),*) => {
+        declaration_invoke!($call $width; $execution $(, $operand)*)
+    };
+}
+
+// An explicit ::<_> forwards the row's logical width independently of operand
+// kind and arity. Ordinary calls infer types from their typed operands.
+macro_rules! declaration_invoke {
+    ([$handler:ident ::<_>; $($argument:expr),*] [$width:ty]; $($operand:expr),*) => {
+        $handler::<$width>($($operand),* $(, $argument)*)
+    };
+    ([$handler:ident; $($argument:expr),*] $width:tt; $($operand:expr),*) => {
+        $handler($($operand),* $(, $argument)*)
     };
 }
 
@@ -115,5 +126,5 @@ macro_rules! operand_value {
 }
 
 pub(in crate::instruction) use {
-    declaration_adapter, declaration_call, declaration_handlers, operand_value,
+    declaration_adapter, declaration_call, declaration_handlers, declaration_invoke, operand_value,
 };

@@ -41,6 +41,12 @@
 //! pointer uses SP or ESP according to SS.B; PUSH reads its source before decrementing it;
 //! POP uses the incremented ESP to address a memory destination. POP ESP replaces
 //! the pointer with the popped dword; POP SP preserves the incremented high word.
+//! Segment PUSH (`06`/`0E`/`16`/`1E`/`0F A0`/`0F A8`) and POP
+//! (`07`/`17`/`1F`/`0F A1`/`0F A9`) access only two selector bytes, even with a
+//! dword stack adjustment, following P6-family behavior. The upper slot bytes are
+//! untouched. POP resolves the selector before committing ESP and the cache;
+//! POP SS uses the old SS.B for this adjustment and ends the block at cache commit.
+//! Address-size and segment prefixes do not change the implicit SS stack access.
 //! MOVZX (`0F B6`/`0F B7`) and MOVSX (`0F BE`/`0F BF`) read a byte/word
 //! register or memory source into a dword destination, or a word with `66`.
 //! They zero-extend or sign-extend from the opcode's fixed source width. The
@@ -137,7 +143,7 @@
 //! for memory, calls the host resolver, and commits the returned cache only on success. It ends
 //! the block, retires once and dispatches. The resolver import and fault contract
 //! are documented by [`compile_interpreter_step`]. Windows selector allocation
-//! APIs, real-mode loading and interrupt/debug delivery, including MOV SS inhibition,
+//! APIs, real-mode loading and interrupt/debug delivery, including MOV/POP SS inhibition,
 //! are not implemented.
 //! Taken near transfers check CS before publishing instruction effects; destination
 //! paging belongs to the next fetch. Segmented32 requires CS.D=1, Segmented16
@@ -145,8 +151,8 @@
 //! and flat readable CS. The host must preserve compatibility until a terminal
 //! segment load. Only publication and dispatch follow the cache commit; the next
 //! entry must reestablish compatibility and snapshot validity. The execution owner
-//! invalidates dependent entries and links when assumptions break. Segment PUSH/POP
-//! and far transfers are outside the subset.
+//! invalidates dependent entries and links when assumptions break. Far transfers
+//! are outside the subset.
 //! CS.D sets the operand/address defaults; `66` and `67` independently select the
 //! other size. Byte operands stay byte-sized. Prefixes may occur in any order.
 //! Repeated `66`, `67` and `F3` preserve presence; wasm86 uses the last segment

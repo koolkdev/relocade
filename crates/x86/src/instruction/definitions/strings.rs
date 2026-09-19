@@ -13,16 +13,16 @@ use crate::{
 
 instruction_families! {
     MOVS {
-        execute: move_elements(Repetition::Once);
+        execute: move_elements::<_>(Repetition::Once);
         effects: [memory_read, memory_write];
-        repeat: move_elements(Repetition::Count);
+        repeat: move_elements::<_>(Repetition::Count);
         forms {
             0xA4 => byte();
             0xA5 => word_or_dword();
         }
     }
     CMPS {
-        execute: compare_elements;
+        execute: compare_elements::<_>;
         effects: [memory_read];
         forms {
             0xA6 => byte();
@@ -30,16 +30,16 @@ instruction_families! {
         }
     }
     STOS {
-        execute: store_elements(Repetition::Once);
+        execute: store_elements::<_>(Repetition::Once);
         effects: [memory_write];
-        repeat: store_elements(Repetition::Count);
+        repeat: store_elements::<_>(Repetition::Count);
         forms {
             0xAA => byte();
             0xAB => word_or_dword();
         }
     }
     LODS {
-        execute: load_element;
+        execute: load_element::<_>;
         effects: [memory_read];
         forms {
             0xAC => byte();
@@ -47,7 +47,7 @@ instruction_families! {
         }
     }
     SCAS {
-        execute: scan_element;
+        execute: scan_element::<_>;
         effects: [memory_read];
         forms {
             0xAE => byte();

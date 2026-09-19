@@ -8,7 +8,7 @@ use crate::{
 
 instruction_families! {
     JMP_RELATIVE {
-        execute: jump_relative;
+        execute: jump_relative::<_>;
         effects: [control_transfer];
         forms {
             0xEB => word_or_dword(rel8);
@@ -16,7 +16,7 @@ instruction_families! {
         }
     }
     JCC {
-        execute: jump_relative;
+        execute: jump_relative::<_>;
         effects: [control_transfer];
         forms {
             0x70 +cc => word_or_dword(rel8);
@@ -24,49 +24,49 @@ instruction_families! {
         }
     }
     JCXZ {
-        execute: jump_if_count_zero;
+        execute: jump_if_count_zero::<_>;
         effects: [control_transfer];
         forms {
             0xE3 => word_or_dword(rel8);
         }
     }
     LOOP {
-        execute: loop_relative(None);
+        execute: loop_relative::<_>(None);
         effects: [control_transfer];
         forms {
             0xE2 => word_or_dword(rel8);
         }
     }
     LOOPE {
-        execute: loop_relative(Some(Condition::E));
+        execute: loop_relative::<_>(Some(Condition::E));
         effects: [control_transfer];
         forms {
             0xE1 => word_or_dword(rel8);
         }
     }
     LOOPNE {
-        execute: loop_relative(Some(Condition::NE));
+        execute: loop_relative::<_>(Some(Condition::NE));
         effects: [control_transfer];
         forms {
             0xE0 => word_or_dword(rel8);
         }
     }
     CALL_RELATIVE {
-        execute: call_relative;
+        execute: call_relative::<_>;
         effects: [memory_write, control_transfer];
         forms {
             0xE8 => word_or_dword(rel);
         }
     }
     CALL_INDIRECT {
-        execute: call_indirect;
+        execute: call_indirect::<_>;
         effects: [memory_write, control_transfer];
         forms {
             0xFF /2 => word_or_dword(rm);
         }
     }
     RET {
-        execute: return_near;
+        execute: return_near::<_>;
         effects: [memory_read, control_transfer];
         forms {
             0xC3 => word_or_dword(constant(0));
@@ -74,7 +74,7 @@ instruction_families! {
         }
     }
     JMP_INDIRECT {
-        execute: jump_indirect;
+        execute: jump_indirect::<_>;
         effects: [control_transfer];
         forms {
             0xFF /4 => word_or_dword(rm);
@@ -164,7 +164,7 @@ where
     let displacement = Input::<I32>::new(displacement).read(execution)?;
     let target = relative_target::<T>(&fallthrough, displacement);
     let target = execution.jump(target)?;
-    execution.push(fallthrough.truncate::<T>())?;
+    execution.push(fallthrough.truncate::<T>(), T::BYTES)?;
     Ok(target)
 }
 
@@ -180,7 +180,7 @@ where
     // The target observes entry registers and memory before the return-address push.
     let target = Input::<T>::new(source).read(execution)?;
     let target = execution.jump(target.unsigned().extend::<I32>())?;
-    execution.push(fallthrough.truncate::<T>())?;
+    execution.push(fallthrough.truncate::<T>(), T::BYTES)?;
     Ok(target)
 }
 
@@ -207,7 +207,7 @@ where
     I32: AtLeast<T>,
 {
     let discard_bytes = Input::<I16>::new(discard_bytes).read(execution)?;
-    let pop = execution.read_stack::<T>()?;
+    let pop = execution.read_stack::<T>(T::BYTES)?;
     let target = execution.jump(pop.value().unsigned().extend::<I32>())?;
     pop.commit(execution, discard_bytes.unsigned().extend::<I32>())?;
     Ok(target)

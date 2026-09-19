@@ -22,14 +22,14 @@ instruction_families! {
         }
     }
     PUSHF {
-        execute: push_flags;
+        execute: push_flags::<_>;
         effects: [memory_write];
         forms {
             0x9C => word_or_dword();
         }
     }
     POPF {
-        execute: pop_flags;
+        execute: pop_flags::<_>;
         effects: [memory_read];
         forms {
             0x9D => word_or_dword();
@@ -46,7 +46,7 @@ where
 {
     // The source, including ESP or an ESP-based address, observes entry ESP.
     let value = source.read(execution)?;
-    execution.push(value)
+    execution.push(value, T::BYTES)
 }
 
 fn pop<T: RegisterType>(
@@ -65,14 +65,14 @@ where
         4 => image::DWORD.pack(execution.read_flags(image::DWORD.flags())?),
         _ => unreachable!("stack flag images use word or dword operands"),
     };
-    execution.push(image.truncate::<T>())
+    execution.push(image.truncate::<T>(), T::BYTES)
 }
 
 fn pop_flags<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
 {
-    let pop = execution.read_stack::<T>()?;
+    let pop = execution.read_stack::<T>(T::BYTES)?;
     let image = pop.commit(execution, 0)?.unsigned().extend::<I32>();
     let change = match T::BYTES {
         2 => image::WORD.change(&image),

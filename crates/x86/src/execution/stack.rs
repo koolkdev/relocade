@@ -16,6 +16,7 @@ use super::ExecutionBuilder;
 pub(crate) struct StackPop<T: RegisterType> {
     value: Val<T>,
     pointer: StackPointer,
+    slot_bytes: u32,
 }
 
 impl<T: RegisterType> StackPop<T> {
@@ -33,7 +34,9 @@ impl<T: RegisterType> StackPop<T> {
         execution.state.write_register(
             &mut execution.body,
             Gpr32::Esp,
-            self.pointer.advance(discard_bytes.into().add(T::BYTES)).esp,
+            self.pointer
+                .advance(discard_bytes.into().add(self.slot_bytes))
+                .esp,
         )?;
         Ok(self.value)
     }
@@ -73,12 +76,15 @@ impl ExecutionBuilder<'_, '_> {
         Ok(StackPointer { esp, mask })
     }
 
+    /// Reserves a slot independently of the bytes transferred by the value.
+    /// Segment pushes write a selector word even when reserving a dword slot.
     pub(crate) fn push<T: RegisterType>(
         &mut self,
         value: impl Into<Val<T>>,
+        slot_bytes: u32,
     ) -> Result<(), BuildError> {
         let value = self.body.value(value)?;
-        let pointer = self.stack_pointer()?.advance(-(T::BYTES as i32));
+        let pointer = self.stack_pointer()?.advance(-(slot_bytes as i32));
         let memory = self
             .memory
             .expect("a stack instruction declares guest memory");
@@ -97,13 +103,13 @@ impl ExecutionBuilder<'_, '_> {
         &mut self,
         destination: Location<impl Into<Val<I32>>>,
     ) -> Result<(), BuildError> {
-        let popped = self.read_stack::<T>()?;
+        let popped = self.read_stack::<T>(T::BYTES)?;
         // Address reads see next ESP while the fault state still holds entry ESP.
         let target = self.prepare_write::<T>(
             destination,
             &[RegisterValue {
                 register: Gpr32::Esp,
-                value: popped.pointer.advance(T::BYTES).esp,
+                value: popped.pointer.advance(popped.slot_bytes).esp,
             }],
         )?;
         // POP ESP overwrites the increment; POP SP preserves its upper word.
@@ -111,7 +117,12 @@ impl ExecutionBuilder<'_, '_> {
         self.write_target(target, value)
     }
 
-    pub(crate) fn read_stack<T: RegisterType>(&mut self) -> Result<StackPop<T>, BuildError> {
+    /// Reads only T's bytes and saves the slot adjustment and current SS.B.
+    /// Pointer commitment never needs to reread stack attributes.
+    pub(crate) fn read_stack<T: RegisterType>(
+        &mut self,
+        slot_bytes: u32,
+    ) -> Result<StackPop<T>, BuildError> {
         let pointer = self.stack_pointer()?;
         let memory = self
             .memory
@@ -119,6 +130,10 @@ impl ExecutionBuilder<'_, '_> {
         let access =
             self.checked::<T>(memory, &Segment::Ss.into(), &pointer.offset(), Intent::Read)?;
         let value = memory.read(&mut self.body, &access)?;
-        Ok(StackPop { value, pointer })
+        Ok(StackPop {
+            value,
+            pointer,
+            slot_bytes,
+        })
     }
 }

@@ -1,4 +1,4 @@
-//! Segment moves distinguish visible selectors from checked cache loads.
+//! Segment instructions distinguish visible selectors from checked cache loads.
 
 use super::*;
 use crate::{instruction::Location, register::RegisterType, Segment};
@@ -24,6 +24,29 @@ instruction_families! {
             0x8E /3 => word(segment(Segment::Ds), rm);
             0x8E /4 => word(segment(Segment::Fs), rm);
             0x8E /5 => word(segment(Segment::Gs), rm);
+        }
+    }
+    PUSH_SEGMENT {
+        execute: push_selector::<_>;
+        effects: [memory_write];
+        forms {
+            0x06 => word_or_dword(segment(Segment::Es));
+            0x0E => word_or_dword(segment(Segment::Cs));
+            0x16 => word_or_dword(segment(Segment::Ss));
+            0x1E => word_or_dword(segment(Segment::Ds));
+            0x0F 0xA0 => word_or_dword(segment(Segment::Fs));
+            0x0F 0xA8 => word_or_dword(segment(Segment::Gs));
+        }
+    }
+    POP_SEGMENT {
+        execute: pop_selector::<_>;
+        effects: [memory_read, segment_load];
+        forms {
+            0x07 => word_or_dword(segment(Segment::Es));
+            0x17 => word_or_dword(segment(Segment::Ss));
+            0x1F => word_or_dword(segment(Segment::Ds));
+            0x0F 0xA1 => word_or_dword(segment(Segment::Fs));
+            0x0F 0xA9 => word_or_dword(segment(Segment::Gs));
         }
     }
 }
@@ -53,4 +76,19 @@ fn load_selector(
 ) -> Result<(), BuildError> {
     let selector = source.read(execution)?;
     execution.load_segment(segment, selector)
+}
+
+fn push_selector<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    segment: Segment,
+) -> Result<(), BuildError> {
+    let selector = execution.read_segment_selector(segment)?;
+    execution.push(selector, T::BYTES)
+}
+
+fn pop_selector<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    segment: Segment,
+) -> Result<(), BuildError> {
+    execution.pop_segment(segment, T::BYTES)
 }

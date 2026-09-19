@@ -94,10 +94,11 @@ use crate::{
 /// required bytes are checked in order, with CS checked before paging for each byte.
 /// Attempting to read byte 16 returns general protection with error zero,
 /// encoded as `2 << 48`. A missing required byte within the limit faults first.
-/// This entry has no instruction budget. MOV reads visible selectors and loads
-/// ES/SS/DS/FS/GS through the resolver. Segment PUSH/POP and far transfers remain
-/// outside the subset. Interrupt/debug delivery and the inhibition following
-/// MOV SS are not modeled.
+/// This entry has no instruction budget. MOV and PUSH read visible selectors;
+/// MOV and POP load ES/SS/DS/FS/GS through the resolver. Segment stack transfers
+/// access two bytes while adjusting SP/ESP by operand size. POP commits the old-SS
+/// pointer adjustment only after resolution succeeds, then installs the cache.
+/// Far transfers, interrupt/debug delivery and MOV/POP SS inhibition are not modeled.
 ///
 /// ```
 /// use wasm86_x86::{compile_interpreter_step, SegmentProfile};

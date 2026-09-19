@@ -95,11 +95,11 @@ continue to use the six cached records in Wasm CPU memory.
 These tables are a host-side user-mode interface, separate from guest GDTR/LDTR,
 packed descriptor-table memory, descriptor accessed-bit writes, Windows selector
 allocation APIs, privilege transitions and real-mode loading. Interrupt/debug
-delivery and the inhibition following MOV SS are not modeled.
+delivery and the inhibition following MOV SS or POP SS are not modeled.
 
-Guest MOV instructions use `wasm86.resolveSegment(segment: i32, selector: i32)`
+Guest MOV and POP instructions use `wasm86.resolveSegment(segment: i32, selector: i32)`
 to resolve a load. The segment indices are ES=0, CS=1, SS=2, DS=3, FS=4, GS=5;
-MOV cannot load CS. The host returns six i32 results:
+These instructions cannot load CS. The host returns six i32 results:
 `(status, error_code, base, limit, selector, attributes)`.
 Status zero supplies a complete normalized `StoredSegment`; other supported
 statuses are architectural vectors 11 (#NP), 12 (#SS) and 13 (#GP), with an error
@@ -188,8 +188,8 @@ instruction prefix before handling that guest fault, for example by entering the
 interpreter at the failing instruction. Debug assertions belong in that block
 owner and detect violated validity invariants. This byte-only compiler has no CS
 state or code-page access to validate them itself; it has no code cache or automatic
-invalidation. MOV segment loads end the block at their cache commit; segment
-PUSH/POP and far transfers remain outside the subset.
+invalidation. MOV and POP segment loads end the block at their cache commit;
+far transfers remain outside the subset.
 
 The flag backing record separates the source of status values from the individual
 stored flag bytes:
@@ -290,6 +290,8 @@ supports these forms; the table shows the encodings with 32-bit code defaults:
 | PUSH immediate | — | 68/6A | 68/6A |
 | PUSH register/memory | — | FF /6 | FF /6 |
 | POP register/memory | — | 8F /0 | 8F /0 |
+| PUSH ES/CS/SS/DS/FS/GS selector | — | 06/0E/16/1E/0F A0/0F A8 | same opcodes (memory stays word) |
+| POP ES/SS/DS/FS/GS selector | — | 07/17/1F/0F A1/0F A9 | same opcodes (memory stays word) |
 | PUSHF/PUSHFD architectural flag image | — | 9C | 9C |
 | POPF/POPFD architectural flag image | — | 9D | 9D |
 | MOVS memory at ESI to memory at EDI | A4 | A5 | A5 |
@@ -627,7 +629,7 @@ the successor. REP ends a snapshot block and consumes one instruction from its
 compilation limit. This scalar implementation checks each element separately.
 Repeated LODS/CMPS/SCAS and `F2` remain unsupported. In particular, `F3` does not repeat arbitrary instructions.
 
-PUSH and POP transfer a word or dword through SP when SS.B=0 or ESP when SS.B=1.
+Ordinary PUSH and POP transfer a word or dword through SP when SS.B=0 or ESP when SS.B=1.
 This stack width is independent of CS.D, `66` and `67`. PUSH reads
 its source using the entry register values, then subtracts the operand size from
 the stack pointer and stores on the stack. Thus PUSH ESP stores the original ESP.
@@ -638,6 +640,19 @@ preserving the high word of the incremented ESP. When a 16-bit stack wraps durin
 POP to memory, Intel leaves the destination processor-family-specific; wasm86
 uses the incremented ESP with its upper word preserved. These instructions preserve
 the entire flag source and always require guest-memory imports.
+
+Segment PUSH and POP transfer only a two-byte selector while reserving or
+discarding a two- or four-byte slot according to operand size. PUSH leaves the
+upper two bytes of a dword slot unchanged; POP does not read them. Those bytes
+need not fit SS.limit or mapped memory. This follows the P6-family behavior
+specified in [Intel SDM volume 3B §24.31.1](https://cdrdv2-public.intel.com/850979/253669-087-sdm-vol-3b.pdf#page=452).
+PUSH can read any visible segment selector, including an unusable cache, without
+resolving it. POP loads ES/SS/DS/FS/GS through the same host resolver as MOV.
+The stack read and resolution must succeed before ESP or the loaded cache changes.
+POP SS finishes its pointer adjustment using the old SS.B, then installs the new
+cache and dispatches. The next entry uses the new stack base and width. Address-size
+and segment prefixes do not change the implicit SS access. Every segment POP ends
+its block; segment PUSH can continue.
 
 PUSHF/PUSHFD (`9C`) and POPF/POPFD (`9D`) use the same stack accesses. `66`
 selects a two-byte FLAGS image; the default is a four-byte EFLAGS image.
@@ -658,8 +673,9 @@ Stack operations check each complete source and destination access before
 changing registers or memory. Faults preserve the faulting instruction's entry
 state while publishing any earlier completed instructions. When both accesses
 would fault, wasm86 checks the source first; this is its deterministic access
-policy. Operand size controls the two- or four-byte transfer and pointer change;
-SS.B independently controls pointer wrapping and the offset used for stack access.
+policy. Operand size controls the two- or four-byte slot; the value's type controls
+the memory span. SS.B independently controls pointer wrapping and the offset used
+for stack access.
 
 `compile_interpreter_step(profile)` builds a generated `step() -> i64` entry for the
 same instruction subset. Both compiler functions return a `CompiledModule`
@@ -754,17 +770,19 @@ CLC {
 
 Its body receives the execution builder and any fixed `execute` arguments.
 The form uses the ordinary opcode-only fetch path with an empty operand binding.
-Sized forms can also have no operands: `byte()` supplies `I8` to a generic body,
-and `word_or_dword()` supplies `I16` or `I32`. String and stack-flag instructions
-use this existing path for their implicit operands.
+Sized forms can also have no operands. `execute: handler::<_>;` explicitly forwards
+the row's logical type: `byte()` selects `I8`, and `word_or_dword()` selects `I16`
+or `I32`. This works at every arity, including segment operands whose Rust type
+does not carry operand size. Ordinary calls infer types from their typed operands.
+String, stack-flag and control-transfer bodies use explicit width forwarding too.
 
 A family can supply a `repeat` body with the same argument and width adapters:
 
 ```rust
 MOVS {
-    execute: move_elements(Repetition::Once);
+    execute: move_elements::<_>(Repetition::Once);
     effects: [memory_read, memory_write];
-    repeat: move_elements(Repetition::Count);
+    repeat: move_elements::<_>(Repetition::Count);
     forms {
         0xA4 => byte();
         0xA5 => word_or_dword();
@@ -794,7 +812,7 @@ A family's effects appear beside its body. For example:
 
 ```rust
 RET {
-    execute: return_near;
+    execute: return_near::<_>;
     effects: [memory_read, control_transfer];
     forms {
         0xC3 => word_or_dword(constant(0));
@@ -894,11 +912,13 @@ displacement calculation sees that value while fault publication retains entry
 ESP. After both accesses pass their guards, POP defines ESP and writes the
 prepared target.
 
-The stack owner accepts typed push values, so PUSH reads its source and CALL
-reads its target before using the same guarded push. POP and RET share a guarded
-stack read that retains the value and next ESP without committing the pointer.
-POP checks its destination before committing; RET adds its cleanup and returns
-the popped value as the successor EIP.
+The stack owner accepts typed values and an explicit slot size: `push(value,
+slot_bytes)` and `read_stack::<T>(slot_bytes)`. Ordinary transfers pass `T::BYTES`;
+segment transfers use `I16` with the instruction's two- or four-byte slot.
+PUSH reads its source and CALL reads its target before using the same guarded push.
+A pending `StackPop` retains the value, entry pointer, SS.B rule and slot size
+without committing ESP. POP checks its destination or resolves its selector before
+committing; RET adds its cleanup and returns the popped value as the successor EIP.
 
 The state value environment tracks typed byte, word and dword locations,
 forwarding known definitions and caching reads. A location describes either a
@@ -1087,8 +1107,8 @@ and extraction. Packing accepts the results of `read_flags`; extraction produces
 one `FlagChange` for `write_flags`. The word roster omits AC/ID entirely, so those
 flags require no read or write for a word transfer.
 LAHF and SAHF retain ordinary unary `byte(AH)` declarations. PUSHF/POPF use
-`word_or_dword()` declarations with no operands; the declaration adapter supplies
-the semantic body's type argument from the selected width. The existing nullary
+`word_or_dword()` declarations with no operands and `execute: handler::<_>;` to
+supply the semantic body's type argument from the selected width. The nullary
 handlers and both decoders already carry that width selection. Their bodies reuse
 the guarded stack `push` and `read_stack` operations. A pending `StackPop` exposes
 its value and commits the ESP change only after the consumer's remaining checks.

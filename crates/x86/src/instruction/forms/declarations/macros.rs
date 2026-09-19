@@ -2,15 +2,15 @@
 
 macro_rules! instruction_families {
     ($($family:ident {
-        execute: $handler:ident $(($($argument:expr),* $(,)?))?;
+        execute: $handler:ident $(::<$size:tt>)? $(($($argument:expr),* $(,)?))?;
         $(effects: [$($effect:ident),* $(,)?];)?
-        $(repeat: $repeat:ident $(($($repeat_argument:expr),* $(,)?))?;)?
+        $(repeat: $repeat:ident $(::<$repeat_size:tt>)? $(($($repeat_argument:expr),* $(,)?))?;)?
         forms $rows:tt
     })+) => {
         pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
             use crate::instruction::forms::declarations::*;
             const FAMILIES: &[&[&[Form]]] = &[$(
-                declaration_family!([$handler $($($argument),*)?] [$($($effect),*)?] [$($repeat $($($repeat_argument),*)?)?] $rows)
+                declaration_family!([$handler $(::<$size>)?; $($($argument),*)?] [$($($effect),*)?] [$($repeat $(::<$repeat_size>)?; $($($repeat_argument),*)?)?] $rows)
             ),+];
             FAMILIES.iter().flat_map(|rows| rows.iter().flat_map(|forms| forms.iter()))
         }
@@ -52,8 +52,8 @@ macro_rules! declaration_repeat {
     ([] $($row:tt)*) => {
         None
     };
-    ([$handler:ident $($argument:expr),*] $effects:tt $pattern:tt $($row:tt)*) => {
-        Some(declaration_handlers!($effects $pattern [$handler $($argument),*] $($row)*))
+    ([$handler:ident $(::<$size:tt>)?; $($argument:expr),*] $effects:tt $pattern:tt $($row:tt)*) => {
+        Some(declaration_handlers!($effects $pattern [$handler $(::<$size>)?; $($argument),*] $($row)*))
     };
 }
 
