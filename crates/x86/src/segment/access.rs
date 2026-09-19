@@ -1,6 +1,6 @@
 //! Segment permissions and complete offset spans are checked before paging.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, MemoryInt, Val, I1, I32};
+use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32};
 
 use crate::{exception::Exception, memory::Intent, state::Cpu};
 
@@ -49,15 +49,16 @@ impl<'cpu> SegmentAccess<'cpu> {
     /// The entry's profile must remain compatible until a terminal segment load.
     /// Flat address defaults and named data segments need no cache reads or
     /// segment guards. Explicit runtime overrides use the complete checked path.
-    pub(crate) fn translate<T: MemoryInt>(
+    pub(crate) fn translate(
         &self,
         body: &mut FunctionBuilder<'_>,
         segment: &SegmentSelection,
         offset: &Val<I32>,
+        bytes: u32,
         intent: Intent,
         on_fault: impl Fn(FunctionBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
     ) -> Result<Val<I32>, BuildError> {
-        let check = self.check(body, segment, offset, T::BYTES, intent)?;
+        let check = self.check(body, segment, offset, bytes, intent)?;
         if let Some(denied) = check.denied {
             body.if_(denied, |mut fault| {
                 fault.if_else(

@@ -203,15 +203,16 @@ fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmti
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
                 let replacement = body.parameter::<I64>(1)?;
-                let access = memory.resolve_access::<I64>(
+                let access = memory.resolve_access(
                     &mut body,
                     &address,
+                    I64::BYTES,
                     Intent::Write,
                     exit::exception,
                 )?;
-                let before = memory.read(&mut body, &access)?;
-                memory.write(&mut body, &access, &replacement)?;
-                let after = memory.read(&mut body, &access)?;
+                let before = memory.read::<I64>(&mut body, &access, 0)?;
+                memory.write(&mut body, &access, 0, &replacement)?;
+                let after = memory.read::<I64>(&mut body, &access, 0)?;
                 body.return_(
                     before
                         .eq(0x8877_6655_4433_2211u64)

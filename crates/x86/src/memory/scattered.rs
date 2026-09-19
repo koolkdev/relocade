@@ -6,7 +6,7 @@ use wasm86_compiler::{
     BuildError, Func, FunctionBuilder, MemoryInt, Program, Signature, Type, I32, I8,
 };
 
-use super::{physical_address, Memory};
+use super::{page_table::physical_address, Memory};
 
 impl Memory {
     pub(super) fn scattered_reader<T: MemoryInt>(
@@ -84,9 +84,10 @@ impl Memory {
 
 fn width_index<T: MemoryInt>() -> usize {
     match T::TYPE {
-        Type::I16 => 0,
-        Type::I32 => 1,
-        Type::I64 => 2,
-        _ => unreachable!("byte accesses do not need scattered transfers"),
+        Type::I8 => 0,
+        Type::I16 => 1,
+        Type::I32 => 2,
+        Type::I64 => 3,
+        _ => unreachable!("guest transfers use byte, word, dword or qword fields"),
     }
 }

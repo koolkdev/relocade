@@ -8,7 +8,7 @@ mod stack;
 pub(crate) use operands::PairValues;
 pub(crate) use repetition::Repetition;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, MemoryInt, Val, I1, I32};
+use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32};
 
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
@@ -117,21 +117,22 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         })
     }
 
-    fn checked<T: MemoryInt>(
+    fn checked(
         &mut self,
         memory: &'module Memory,
         segment: &SegmentSelection,
         offset: &Val<I32>,
+        bytes: u32,
         intent: Intent,
-    ) -> Result<Access<T>, BuildError> {
+    ) -> Result<Access, BuildError> {
         let on_fault = |fault_body: FunctionBuilder<'_>, exception: Exception<Val<I32>>| {
             self.state
                 .fault(fault_body, &self.eip, self.completed, exception)
         };
         let linear =
             self.segments
-                .translate::<T>(&mut self.body, segment, offset, intent, on_fault)?;
-        memory.resolve_access::<T>(&mut self.body, &linear, intent, on_fault)
+                .translate(&mut self.body, segment, offset, bytes, intent, on_fault)?;
+        memory.resolve_access(&mut self.body, &linear, bytes, intent, on_fault)
     }
 
     pub(super) fn complete(mut self) -> Result<(), BuildError> {

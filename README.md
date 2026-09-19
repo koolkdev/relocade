@@ -4,7 +4,8 @@ Rust components for x86 execution in WebAssembly.
 
 Encoding examples assume 32-bit code defaults unless stated otherwise.
 
-`wasm86-x86` compiles MOV, MOVZX, MOVSX, CBW, CWDE, CWD, CDQ, LEA, XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
+`wasm86-x86` compiles MOV, MOVZX, MOVSX, LES, LDS, LSS, LFS, LGS, CBW, CWDE, CWD, CDQ, LEA,
+XCHG, XADD, CMPXCHG, CMOVcc, ADD, ADC,
 SUB, SBB, CMP, AND, OR, XOR, TEST, INC, DEC, NEG, NOT, MUL, IMUL, DIV, IDIV, SHL, SHR, SAR, SHLD, SHRD,
 ROL, ROR, RCL, RCR, BT, BTS, BTR, BTC, BSF, BSR, PUSH, POP, PUSHF/PUSHFD, POPF/POPFD,
 SETcc, CALL, RET, JMP, Jcc, JCXZ/JECXZ, LOOP, LOOPE, LOOPNE, CLC, STC, CMC, CLD, STD, LAHF, SAHF,
@@ -95,9 +96,9 @@ continue to use the six cached records in Wasm CPU memory.
 These tables are a host-side user-mode interface, separate from guest GDTR/LDTR,
 packed descriptor-table memory, descriptor accessed-bit writes, Windows selector
 allocation APIs, privilege transitions and real-mode loading. Interrupt/debug
-delivery and the inhibition following MOV SS or POP SS are not modeled.
+delivery and the inhibition following SS loads are not modeled.
 
-Guest MOV and POP instructions use `wasm86.resolveSegment(segment: i32, selector: i32)`
+Guest MOV, POP and far-pointer loads use `wasm86.resolveSegment(segment: i32, selector: i32)`
 to resolve a load. The segment indices are ES=0, CS=1, SS=2, DS=3, FS=4, GS=5;
 These instructions cannot load CS. The host returns six i32 results:
 `(status, error_code, base, limit, selector, attributes)`.
@@ -188,7 +189,7 @@ instruction prefix before handling that guest fault, for example by entering the
 interpreter at the failing instruction. Debug assertions belong in that block
 owner and detect violated validity invariants. This byte-only compiler has no CS
 state or code-page access to validate them itself; it has no code cache or automatic
-invalidation. MOV and POP segment loads end the block at their cache commit;
+invalidation. MOV, POP and far-pointer loads end the block at their cache commit;
 far transfers remain outside the subset.
 
 The flag backing record separates the source of status values from the individual
@@ -227,6 +228,8 @@ supports these forms; the table shows the encodings with 32-bit code defaults:
 | MOV register and register/memory | 88/8A | 89/8B | 89/8B |
 | MOV from segment selector | — | 8C /0–/5 | 8C /0–/5 (memory stays word) |
 | MOV to ES/SS/DS/FS/GS | — | 8E /0, /2–/5 | 8E /0, /2–/5 (source stays word) |
+| LES/LDS offset and selector from memory | — | C4/C5 /r (m16:16) | C4/C5 /r (m16:32) |
+| LSS/LFS/LGS offset and selector from memory | — | 0F B2/B4/B5 /r (m16:16) | 0F B2/B4/B5 /r (m16:32) |
 | MOV register/memory destination and immediate | C6 /0 | C7 /0 | C7 /0 |
 | MOV accumulator and absolute memory offset | A0/A2 | A1/A3 | A1/A3 |
 | CBW/CWDE sign extension within the accumulator | — | 98 | 98 |
@@ -654,6 +657,17 @@ cache and dispatches. The next entry uses the new stack base and width. Address-
 and segment prefixes do not change the implicit SS access. Every segment POP ends
 its block; segment PUSH can continue.
 
+LES/LDS/LSS/LFS/LGS read an offset followed by a selector from one memory operand.
+Operand size chooses a four-byte pointer (word offset plus selector) or six-byte
+pointer (dword offset plus selector). Address size wraps the starting offset;
+the following fields remain within the same complete span. The source uses entry
+registers and loaded caches, including any segment override. The complete span
+passes segment and page checks before resolution, and both the GPR and cache are
+committed only after resolution succeeds. Word destinations preserve their upper
+half; flags are unchanged. The loaded offset is data and need not fit the new
+segment's limit. Every load ends its block. These rules follow the
+[Intel far-pointer load entry](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2a-manual.pdf#page=623).
+
 PUSHF/PUSHFD (`9C`) and POPF/POPFD (`9D`) use the same stack accesses. `66`
 selects a two-byte FLAGS image; the default is a four-byte EFLAGS image.
 The execution subset uses a fixed user-mode flags-transfer contract:
@@ -736,6 +750,11 @@ instruction_families! {
 
 Operands appear in the body's argument order. `rm` selects ModRM.r/m,
 `modrm_reg` selects ModRM.reg, and `/4` reserves ModRM.reg as an opcode extension.
+`mem` requires a memory addressing mode and passes its complete `MemoryAddress`
+to the body, including the segment selection. Both decoders reject register mode
+through the same form constraint. Far-pointer loads use
+`word_or_dword(modrm_reg, mem, segment(Segment::Ss))`, for example, with the
+existing `segment_load` effect to declare the terminal cache change.
 `0x0F 0xBE` spells both bytes of an extended opcode. `+reg` covers eight opcode
 register encodings and requires `opcode_reg`; `+cc` covers sixteen condition codes
 and supplies the decoded condition to the body. These patterns expand into the
@@ -1170,19 +1189,29 @@ at the faulting instruction; the failed instruction does not retire or dispatch.
 Contiguous accesses use native loads and stores. Scattered accesses call a shared
 helper for their logical width and direction, resolving each byte's physical
 address after the full span passes permission checks. Memory creates each helper
-when first needed and shares it across the module's functions; byte accesses need
-no transfer helper.
+when first needed and shares it across the module's functions. A one-byte span
+needs no transfer helper; a byte field inside a larger scattered span uses the
+same field-transfer mechanism as wider values.
 
-Memory checks natural alignment first for multi-byte data accesses. Aligned
-accesses and unaligned spans within one page share the ordinary permission check;
-only a crossing span calls the range resolver. Successful resolution returns a
+`Memory::resolve_access` takes an explicit byte count and returns an `Access`
+covering that complete span. `read::<T>(body, &access, field_offset)` and
+`write::<T>(body, &access, field_offset, value)` transfer typed fields within it.
+Field bounds are checked during module construction. Scalar consumers request
+`T::BYTES` and use field offset zero. A dword far pointer requests six bytes and
+reads an I32 at zero and an I16 at four; it never requests an eight-byte carrier.
+
+For power-of-two spans, memory checks natural alignment first. Aligned accesses
+and spans within one page share the ordinary permission check; other sizes use
+the page-crossing predicate directly. Only a crossing span calls the range resolver.
+Successful resolution returns a
 physical address and a separate logical bit for scattered backing. Denials join
 one fault callback, which must terminate before a checked access can be returned.
 The callback receives a typed `Exception::PageFault`. The execution builder uses
 `State::fault` to publish state and terminate that path.
 Segment access owns segment permissions, offset bounds and base addition.
-Page-table translation owns page facts and the order of page checks; memory
-access control owns the successful and faulting paging paths.
+Page-table translation owns page facts and the order of page checks;
+`memory/access.rs` owns complete-span resolution and its successful and faulting
+paging paths. Typed field transfers remain with the memory owner.
 
 An unsupported instruction form returns `(8 << 48) | (opcode << 32) | instruction_eip`.
 The opcode field contains the first byte after operand-size and segment prefixes, including `0F`

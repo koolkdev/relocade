@@ -1,7 +1,7 @@
 //! Segment instructions distinguish visible selectors from checked cache loads.
 
 use super::*;
-use crate::{instruction::Location, register::RegisterType, Segment};
+use crate::{address::MemoryAddress, instruction::Location, register::RegisterType, Segment};
 
 instruction_families! {
     MOV_FROM_SEGMENT {
@@ -49,6 +49,17 @@ instruction_families! {
             0x0F 0xA9 => word_or_dword(segment(Segment::Gs));
         }
     }
+    LOAD_FAR_POINTER {
+        execute: load_pointer;
+        effects: [segment_load];
+        forms {
+            0xC4 => word_or_dword(modrm_reg, mem, segment(Segment::Es));
+            0xC5 => word_or_dword(modrm_reg, mem, segment(Segment::Ds));
+            0x0F 0xB2 => word_or_dword(modrm_reg, mem, segment(Segment::Ss));
+            0x0F 0xB4 => word_or_dword(modrm_reg, mem, segment(Segment::Fs));
+            0x0F 0xB5 => word_or_dword(modrm_reg, mem, segment(Segment::Gs));
+        }
+    }
 }
 
 fn store_selector<T: RegisterType>(
@@ -91,4 +102,16 @@ fn pop_selector<T: RegisterType>(
     segment: Segment,
 ) -> Result<(), BuildError> {
     execution.pop_segment(segment, T::BYTES)
+}
+
+fn load_pointer<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: TypedLocation<T>,
+    source: MemoryAddress<Val<I32>>,
+    segment: Segment,
+) -> Result<(), BuildError> {
+    let Location::Register(register) = destination.into_location() else {
+        unreachable!("the form binds a ModRM register destination")
+    };
+    execution.load_far_pointer(segment, register.view::<T>(), source)
 }

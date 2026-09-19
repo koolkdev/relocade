@@ -123,6 +123,9 @@ macro_rules! declaration_effect {
 }
 
 macro_rules! operand_spec {
+    (mem) => {
+        OperandSpec::Memory
+    };
     (segment($segment:expr)) => {
         OperandSpec::Segment($segment)
     };

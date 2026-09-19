@@ -8,6 +8,7 @@ use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, T
 use crate::{state::exit, CpuState};
 
 mod helpers;
+mod spans;
 
 fn define_read<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str)
 where
@@ -21,13 +22,14 @@ where
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
-                let access = memory.resolve_access::<T>(
+                let access = memory.resolve_access(
                     &mut body,
                     &address,
+                    T::BYTES,
                     Intent::Read,
                     exit::exception,
                 )?;
-                let value = memory.read(&mut body, &access)?;
+                let value = memory.read::<T>(&mut body, &access, 0)?;
                 body.return_(value.unsigned().extend::<I64>())
             },
         )
@@ -45,13 +47,14 @@ fn define_write<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
                 let value = body.parameter::<T>(1)?;
-                let access = memory.resolve_access::<T>(
+                let access = memory.resolve_access(
                     &mut body,
                     &address,
+                    T::BYTES,
                     Intent::Write,
                     exit::exception,
                 )?;
-                memory.write(&mut body, &access, &value)?;
+                memory.write(&mut body, &access, 0, &value)?;
                 body.return_(7)
             },
         )
@@ -85,9 +88,10 @@ fn access_fault_handlers_must_terminate_the_denied_path() {
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
-                memory.resolve_access::<T>(
+                memory.resolve_access(
                     &mut body,
                     &address,
+                    T::BYTES,
                     Intent::Write,
                     |_fault_body, _fault| Ok(()),
                 )?;

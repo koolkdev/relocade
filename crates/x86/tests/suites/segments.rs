@@ -14,6 +14,8 @@ mod fetch_faults;
 mod moves;
 #[path = "segments/permissions.rs"]
 mod permissions;
+#[path = "segments/pointers.rs"]
+mod pointers;
 #[path = "segments/profiles.rs"]
 mod profiles;
 #[path = "segments/progress.rs"]

@@ -75,7 +75,7 @@ impl ResolvedForm {
                 };
                 Location::Register(register.clone().into())
             }
-            LocationBinding::Rm => {
+            LocationBinding::Rm | LocationBinding::Memory => {
                 let DecodedFields::ModRm { rm, .. } = fields else {
                     unreachable!("the form selects a decoded r/m field")
                 };

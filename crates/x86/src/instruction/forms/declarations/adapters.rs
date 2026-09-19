@@ -96,6 +96,12 @@ macro_rules! declaration_invoke {
 }
 
 macro_rules! operand_value {
+    ($width:ty, $operand:ident, mem) => {{
+        let crate::instruction::Operand::Location(crate::instruction::Location::Memory(address)) = $operand else {
+            unreachable!("the form binds a memory addressing mode")
+        };
+        *address
+    }};
     ($width:ty, $operand:ident, segment($value:expr)) => {{
         let crate::instruction::Operand::Segment(segment) = $operand else {
             unreachable!("the form binds a segment register")

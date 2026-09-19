@@ -22,7 +22,7 @@ pub(super) enum WriteTarget<'memory, T: RegisterType> {
     Register(Register<T>),
     Memory {
         memory: &'memory Memory,
-        access: Access<T>,
+        access: Access,
     },
 }
 
@@ -48,8 +48,9 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
                 let offset =
                     address::resolve(&mut self.body, &mut self.state, address.offset, &[])?;
                 let memory = self.memory.expect("a memory operand declares guest memory");
-                let access = self.checked::<T>(memory, &address.segment, &offset, Intent::Read)?;
-                memory.read(&mut self.body, &access)
+                let access =
+                    self.checked(memory, &address.segment, &offset, T::BYTES, Intent::Read)?;
+                memory.read::<T>(&mut self.body, &access, 0)
             }
         }
     }
@@ -108,7 +109,8 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
                 let offset =
                     address::resolve(&mut self.body, &mut self.state, address.offset, bindings)?;
                 let memory = self.memory.expect("a memory operand declares guest memory");
-                let access = self.checked::<T>(memory, &address.segment, &offset, Intent::Write)?;
+                let access =
+                    self.checked(memory, &address.segment, &offset, T::BYTES, Intent::Write)?;
                 WriteTarget::Memory { memory, access }
             }
         })
@@ -122,7 +124,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
             WriteTarget::Register(register) => {
                 self.state.read_register(&mut self.body, register.clone())
             }
-            WriteTarget::Memory { memory, access } => memory.read(&mut self.body, access),
+            WriteTarget::Memory { memory, access } => memory.read::<T>(&mut self.body, access, 0),
         }
     }
 
@@ -138,7 +140,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
             }
             WriteTarget::Memory { memory, access } => {
                 let value = self.body.value(value)?;
-                memory.write(&mut self.body, &access, &value)
+                memory.write(&mut self.body, &access, 0, &value)
             }
         }
     }

@@ -28,10 +28,11 @@ fn translation(
                 let choice = body.parameter::<I32>(0)?;
                 let offset = body.parameter::<I32>(1)?;
                 let linear = match selection {
-                    Some(selection) => access.translate::<I32>(
+                    Some(selection) => access.translate(
                         &mut body,
                         &selection(choice),
                         &offset,
+                        4,
                         intent,
                         exit::exception,
                     )?,

@@ -15,6 +15,7 @@ use crate::register::NamedRegister;
 #[derive(Clone, Copy)]
 pub(in crate::instruction) enum OperandSpec {
     Rm,
+    Memory,
     ModRmRegister,
     OpcodeRegister,
     FixedRegister(NamedRegister),
@@ -38,6 +39,7 @@ impl OperandSpec {
 
     const fn location(self) -> LocationBinding {
         match self {
+            Self::Memory => LocationBinding::Memory,
             Self::Rm => LocationBinding::Rm,
             Self::ModRmRegister | Self::OpcodeRegister => LocationBinding::Register,
             Self::FixedRegister(register) => LocationBinding::FixedRegister(register),
@@ -51,6 +53,7 @@ impl OperandSpec {
     const fn same_binding(self, other: Self) -> bool {
         match (self, other) {
             (Self::Rm, Self::Rm)
+            | (Self::Memory, Self::Memory)
             | (Self::ModRmRegister, Self::ModRmRegister)
             | (Self::OpcodeRegister, Self::OpcodeRegister)
             | (Self::Offset, Self::Offset)
@@ -97,7 +100,7 @@ impl Declaration<'_> {
         let mut index = 0;
         while index < self.operands.len() {
             match self.operands[index] {
-                OperandSpec::Rm | OperandSpec::Address => modrm = true,
+                OperandSpec::Rm | OperandSpec::Memory | OperandSpec::Address => modrm = true,
                 OperandSpec::ModRmRegister => {
                     modrm = true;
                     modrm_register = true;

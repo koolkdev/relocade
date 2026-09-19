@@ -47,6 +47,13 @@
 //! untouched. POP resolves the selector before committing ESP and the cache;
 //! POP SS uses the old SS.B for this adjustment and ends the block at cache commit.
 //! Address-size and segment prefixes do not change the implicit SS stack access.
+//! LES/LDS (`C4`/`C5`) and LSS/LFS/LGS (`0F B2`/`B4`/`B5`) load a GPR offset
+//! and segment selector from memory. Operand size selects a word or dword offset,
+//! followed by a word selector: the complete source span is four or six bytes.
+//! The source uses entry addresses and caches. Full-span checks and selector
+//! resolution precede both commits; word GPR writes preserve their upper half.
+//! These loads preserve flags and terminate the block. The loaded offset is data;
+//! later accesses check it against the newly loaded segment.
 //! MOVZX (`0F B6`/`0F B7`) and MOVSX (`0F BE`/`0F BF`) read a byte/word
 //! register or memory source into a dword destination, or a word with `66`.
 //! They zero-extend or sign-extend from the opcode's fixed source width. The
@@ -143,7 +150,7 @@
 //! for memory, calls the host resolver, and commits the returned cache only on success. It ends
 //! the block, retires once and dispatches. The resolver import and fault contract
 //! are documented by [`compile_interpreter_step`]. Windows selector allocation
-//! APIs, real-mode loading and interrupt/debug delivery, including MOV/POP SS inhibition,
+//! APIs, real-mode loading and interrupt/debug delivery, including SS-load inhibition,
 //! are not implemented.
 //! Taken near transfers check CS before publishing instruction effects; destination
 //! paging belongs to the next fetch. Segmented32 requires CS.D=1, Segmented16

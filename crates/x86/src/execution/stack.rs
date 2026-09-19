@@ -88,13 +88,14 @@ impl ExecutionBuilder<'_, '_> {
         let memory = self
             .memory
             .expect("a stack instruction declares guest memory");
-        let access = self.checked::<T>(
+        let access = self.checked(
             memory,
             &Segment::Ss.into(),
             &pointer.offset(),
+            T::BYTES,
             Intent::Write,
         )?;
-        memory.write(&mut self.body, &access, &value)?;
+        memory.write(&mut self.body, &access, 0, &value)?;
         self.state
             .write_register(&mut self.body, Gpr32::Esp, pointer.esp)
     }
@@ -127,9 +128,14 @@ impl ExecutionBuilder<'_, '_> {
         let memory = self
             .memory
             .expect("a stack instruction declares guest memory");
-        let access =
-            self.checked::<T>(memory, &Segment::Ss.into(), &pointer.offset(), Intent::Read)?;
-        let value = memory.read(&mut self.body, &access)?;
+        let access = self.checked(
+            memory,
+            &Segment::Ss.into(),
+            &pointer.offset(),
+            T::BYTES,
+            Intent::Read,
+        )?;
+        let value = memory.read::<T>(&mut self.body, &access, 0)?;
         Ok(StackPop {
             value,
             pointer,

@@ -47,16 +47,17 @@ impl<'module> InstructionFetch<'module> {
         body: &mut FunctionBuilder<'_>,
         eip: &Val<I32>,
     ) -> Result<Val<I8>, BuildError> {
-        let linear = self.segments.translate::<I8>(
+        let linear = self.segments.translate(
             body,
             &Segment::Cs.into(),
             eip,
+            1,
             Intent::Fetch,
             exit::exception,
         )?;
         let access =
             self.memory
-                .resolve_access::<I8>(body, &linear, Intent::Fetch, exit::exception)?;
-        self.memory.read(body, &access)
+                .resolve_access(body, &linear, 1, Intent::Fetch, exit::exception)?;
+        self.memory.read(body, &access, 0)
     }
 }

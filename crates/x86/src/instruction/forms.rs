@@ -121,6 +121,8 @@ pub(crate) enum DecodedFields<V> {
 pub(super) enum LocationBinding {
     Register,
     Rm,
+    /// The r/m field must select a memory addressing mode.
+    Memory,
     /// A named register view, independent of any encoded register field.
     FixedRegister(NamedRegister),
     AbsoluteOffset,
@@ -199,18 +201,27 @@ impl Form {
     }
 
     pub(crate) fn accepts_register_rm(&self) -> bool {
-        let requires_address = |operand| matches!(operand, OperandBinding::RmAddress);
+        let requires_memory = |operand| {
+            matches!(
+                operand,
+                OperandBinding::RmAddress | OperandBinding::Location(LocationBinding::Memory)
+            )
+        };
         !match self.binding {
             OperandBindingShape::Nullary => false,
-            OperandBindingShape::Unary(operand) => requires_address(operand),
+            OperandBindingShape::Unary(operand) => requires_memory(operand),
             OperandBindingShape::Binary { left, right } => {
-                requires_address(left) || requires_address(right)
+                requires_memory(left) || requires_memory(right)
             }
             OperandBindingShape::Ternary {
+                destination,
                 first_source,
                 second_source,
-                ..
-            } => requires_address(first_source) || requires_address(second_source),
+            } => {
+                matches!(destination, LocationBinding::Memory)
+                    || requires_memory(first_source)
+                    || requires_memory(second_source)
+            }
         }
     }
 }

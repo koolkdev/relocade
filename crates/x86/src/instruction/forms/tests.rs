@@ -114,7 +114,8 @@ fn catalog_bindings_use_available_fields_and_match_resolved_handler_arities() {
                             "ModRM.reg cannot also be an opcode extension"
                         );
                     }
-                    OperandBinding::Location(LocationBinding::Rm) | OperandBinding::RmAddress => {
+                    OperandBinding::Location(LocationBinding::Rm | LocationBinding::Memory)
+                    | OperandBinding::RmAddress => {
                         assert!(form.encoding.has_modrm());
                     }
                     OperandBinding::Location(LocationBinding::AbsoluteOffset) => {
@@ -356,5 +357,43 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
                 ..
             } if address.offset.displacement == 0x12345678
         ));
+    }
+}
+
+#[test]
+fn memory_only_bindings_restrict_modrm_at_every_operand_position() {
+    let memory = OperandBinding::Location(LocationBinding::Memory);
+    let register = OperandBinding::Location(LocationBinding::Register);
+    let base = *catalog_form(OpcodeMap::Primary, 0xc5, None);
+    for binding in [
+        OperandBindingShape::Unary(memory),
+        OperandBindingShape::Binary {
+            left: memory,
+            right: register,
+        },
+        OperandBindingShape::Binary {
+            left: register,
+            right: memory,
+        },
+        OperandBindingShape::Ternary {
+            destination: LocationBinding::Memory,
+            first_source: register,
+            second_source: register,
+        },
+        OperandBindingShape::Ternary {
+            destination: LocationBinding::Register,
+            first_source: memory,
+            second_source: register,
+        },
+        OperandBindingShape::Ternary {
+            destination: LocationBinding::Register,
+            first_source: register,
+            second_source: memory,
+        },
+    ] {
+        let form = Form { binding, ..base };
+        for modrm in 0..=u8::MAX {
+            assert_eq!(form.matches_modrm(modrm), modrm >> 6 != 3);
+        }
     }
 }
