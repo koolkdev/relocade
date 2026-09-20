@@ -1,3 +1,7 @@
+mod frame;
+
+use frame::{enter_frame, leave_frame};
+
 use super::*;
 use crate::address::RegisterValue;
 use crate::flags::image;
@@ -146,30 +150,4 @@ where
     let flags = frame.field::<T>(execution, 0)?.read(execution)?;
     frame.commit(execution, 0)?;
     execution.write_flags(image::stack_change(&flags))
-}
-
-fn leave_frame<T: RegisterType>(
-    execution: &mut ExecutionBuilder<'_, '_>,
-) -> Result<(), BuildError> {
-    let frame_pointer = TypedLocation::<I32>::register(Gpr32::Ebp).read(execution)?;
-    let pointer = execution.stack_pointer()?.with_offset(frame_pointer);
-    // SS.B selects SP/ESP independently of the popped BP/EBP width. Keep
-    // the replacement prospective until the frame read has succeeded.
-    let frame = pointer.pop_frame(execution, T::BYTES, T::BYTES)?;
-    let saved_frame_pointer = frame.field::<T>(execution, 0)?.read(execution)?;
-    frame.commit(execution, 0)?;
-    TypedLocation::<T>::register(Gpr32::Ebp).write(execution, saved_frame_pointer)
-}
-
-fn enter_frame<T: RegisterType>(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    allocation: Input<I16>,
-    nesting: Input<I8>,
-) -> Result<(), BuildError>
-where
-    I32: AtLeast<T>,
-{
-    let allocation = allocation.read(execution)?;
-    let nesting = nesting.read(execution)?;
-    execution.enter_frame::<T>(allocation, nesting)
 }

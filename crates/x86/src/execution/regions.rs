@@ -1,6 +1,6 @@
 //! Nested execution inherits a restart boundary and returns explicit values.
 
-use wasm86_compiler::{Arguments, BuildError, FunctionBuilder, LoopLabels, Results, Val, I1};
+use wasm86_compiler::{Arguments, BuildError, FunctionBuilder, Results, Val, I1};
 
 use super::ExecutionBuilder;
 
@@ -33,32 +33,58 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         }
     }
 
-    pub(super) fn loop_<P: Results, R: Results>(
+    /// Checks `done` before the first and every later iteration. An already
+    /// completed loop returns its initial values; otherwise `step` supplies the
+    /// next iteration's values. The condition only observes carried values.
+    /// Child register definitions do not merge; define successful results in
+    /// the parent from the returned values. Earlier stores survive faults.
+    pub(crate) fn loop_until<P: Results>(
         &mut self,
         initial: impl Into<Arguments>,
-        build: impl FnOnce(
-            ExecutionBuilder<'_, 'module>,
-            LoopLabels<P, R>,
+        done: impl FnOnce(&P::Values) -> Val<I1>,
+        step: impl FnOnce(
+            &mut ExecutionBuilder<'_, 'module>,
             P::Values,
-        ) -> Result<(), BuildError>,
-    ) -> Result<R::Values, BuildError> {
+        ) -> Result<P::Values, BuildError>,
+    ) -> Result<P::Values, BuildError>
+    where
+        P::Values: Clone + Into<Arguments>,
+    {
         let nested = self.nested_builder();
-        self.body.loop_::<P, R>(initial, |body, labels, values| {
-            build(nested(body), labels, values)
+        self.body.loop_::<P, P>(initial, |body, labels, values| {
+            let mut iteration = nested(body);
+            iteration
+                .body
+                .branch_if(done(&values), &labels.exit, values.clone())?;
+            let next = step(&mut iteration, values)?;
+            iteration.body.branch(&labels.again, next)
         })
     }
 
-    pub(super) fn if_value<R: Results>(
+    /// Runs one arm and returns its explicit values. As with loops, child
+    /// register definitions do not merge into the parent and stores persist.
+    pub(crate) fn if_value<R: Results>(
         &mut self,
         condition: impl Into<Val<I1>>,
-        then_build: impl FnOnce(ExecutionBuilder<'_, 'module>) -> Result<(), BuildError>,
-        else_build: impl FnOnce(ExecutionBuilder<'_, 'module>) -> Result<(), BuildError>,
-    ) -> Result<R::Values, BuildError> {
+        then_build: impl FnOnce(&mut ExecutionBuilder<'_, 'module>) -> Result<R::Values, BuildError>,
+        else_build: impl FnOnce(&mut ExecutionBuilder<'_, 'module>) -> Result<R::Values, BuildError>,
+    ) -> Result<R::Values, BuildError>
+    where
+        R::Values: Into<Arguments>,
+    {
         let nested = self.nested_builder();
         self.body.if_value::<R>(
             condition,
-            |body| then_build(nested(body)),
-            |body| else_build(nested(body)),
+            |body| {
+                let mut arm = nested(body);
+                let values = then_build(&mut arm)?;
+                arm.body.yield_(values)
+            },
+            |body| {
+                let mut arm = nested(body);
+                let values = else_build(&mut arm)?;
+                arm.body.yield_(values)
+            },
         )
     }
 }

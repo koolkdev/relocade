@@ -1,7 +1,5 @@
 //! Stack frames separate capacity checks, memory transfers and pointer commitment.
 
-mod frame;
-
 use std::marker::PhantomData;
 
 use wasm86_compiler::{BuildError, Val, I32};
@@ -101,7 +99,8 @@ impl StackPointer {
         self.esp.clone()
     }
 
-    fn offset(&self) -> Val<I32> {
+    /// The active stack offset, without the preserved upper word of a 16-bit SP.
+    pub(crate) fn offset(&self) -> Val<I32> {
         self.esp.and(&self.mask)
     }
 
@@ -117,8 +116,27 @@ impl StackPointer {
         }
     }
 
-    fn advance(&self, bytes: impl Into<Val<I32>>) -> Self {
+    pub(crate) fn advance(&self, bytes: impl Into<Val<I32>>) -> Self {
         self.with_offset(self.esp.add(bytes))
+    }
+
+    /// Checks a write at this stack offset without storing or committing ESP.
+    pub(crate) fn check_write(
+        &self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        bytes: u32,
+    ) -> Result<(), BuildError> {
+        let memory = execution
+            .memory
+            .expect("a stack access declares guest memory");
+        execution.checked(
+            memory,
+            &Segment::Ss.into(),
+            &self.offset(),
+            bytes,
+            Intent::Write,
+        )?;
+        Ok(())
     }
 
     pub(crate) fn commit(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
