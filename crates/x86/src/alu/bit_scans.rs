@@ -22,8 +22,9 @@ impl BitScanOp {
             Self::Forward => source.ctz(),
             Self::Reverse => Val::<T>::from(T::BYTES * 8 - 1).sub(source.clz()),
         };
-        // Scan parity covers the full logical source, unlike ordinary ALU
-        // result parity, which observes only the low byte.
+        // Undefined-result policy: preserve the destination on zero, clear
+        // CF/AF/SF/OF, and compute PF over the full logical source. ZF is the only
+        // architecturally defined flag. Ordinary ALU parity uses the low byte.
         let flags = StatusSource::<T>::Explicit {
             flags: [
                 false.into(),

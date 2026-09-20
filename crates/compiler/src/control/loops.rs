@@ -25,6 +25,10 @@ impl FunctionBuilder<'_> {
     /// A nonempty result requires at least one exit that supplies it.
     /// Errors discard the loop and leave the parent builder usable.
     ///
+    /// Used loads and read-only call results constructed before the loop retain
+    /// their snapshots across iteration writes. Reads constructed inside the loop
+    /// observe each iteration's state at their authored position.
+    ///
     /// ```
     /// use wasm86_compiler::{Program, Signature, Type, I1, I32, I64};
     /// let mut program = Program::new();

@@ -1,4 +1,8 @@
 //! Architectural flag images, independent of the stored flag record.
+//!
+//! Stack transfers use a fixed CPL3/IOPL0 model with IF set and VM/RF/VIF/VIP clear.
+//! Writes ignore fixed and unrepresented bits. Transferring TF, NT, AC or ID does
+//! not enable debug delivery, task switching, alignment checks or interrupts.
 
 use wasm86_compiler::{Val, I1, I32};
 

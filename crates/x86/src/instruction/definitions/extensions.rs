@@ -1,4 +1,7 @@
 //! Integer extensions into a destination register or an implicit accumulator pair.
+//!
+//! Word-to-word MOVZX/MOVSX forms are intentionally accepted as identity copies,
+//! matching the encodings in [Intel XED](https://github.com/intelxed/xed/blob/main/datafiles/xed-isa.txt).
 
 use super::*;
 use crate::register::RegisterType;

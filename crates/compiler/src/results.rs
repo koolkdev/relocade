@@ -18,6 +18,11 @@ mod sealed {
 /// Tuples of up to eight shapes produce corresponding tuples of typed values;
 /// arrays repeat a shape, and shapes may be nested. Components retain their
 /// logical types even when several types use the same WebAssembly carrier.
+///
+/// Control-result components are demanded independently. An unused component
+/// can omit its loads, pure calls and possible traps; ordered arm effects remain.
+/// Function invocations follow [`FunctionBuilder::call`]: when a call runs,
+/// its callee evaluates every declared result, including discarded components.
 pub trait Results: sealed::Shape {
     type Values: sealed::Values;
 }

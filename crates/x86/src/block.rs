@@ -5,54 +5,23 @@ use crate::{
     CompiledModule, SegmentProfile,
 };
 
-/// Compiles from `start_eip` through the first branch, REP, segment load or `instruction_limit`
-/// instructions, whichever comes first. A conditional branch ends the block
-/// on both outcomes. Bytes after that boundary are ignored.
-/// Supports the instruction forms described in the
-/// [crate documentation](crate). Operand and address sizes default to 32 bits;
-/// `66` and `67` independently select 16 bits. `F3` repeats MOVS/STOS.
-/// Incomplete, unsupported or overlong instructions are construction errors. This byte-only
-/// input carries no guest-fault information.
-/// EIP and the completed-instruction count use 32-bit wrapping arithmetic;
-/// a taken branch with `66` additionally truncates its target to sixteen bits.
+/// Compiles a byte snapshot under [`SegmentProfile::Flat32`].
 ///
-/// The exported `block_<hex start_eip>` function has signature `() -> i64` and
-/// imports `wasm86.cpuState`, a memory of at least one 64-KiB page. Its little-endian
-/// 32-bit fields are EAX, ECX, EDX, EBX, ESP, EBP, ESI and EDI at offsets 24 through
-/// 52 in steps of four, EIP at 56 and the completed-instruction count at 144.
-/// Byte and word register writes preserve the remaining bits of their parent register.
-/// Overlapping views synchronize through CPU backing when required; final dirty
-/// definitions are written in first-write order, followed by EIP and count. The block
-/// then tail-calls the imported `wasm86.dispatch(i32) -> i64` with the successor EIP
-/// and returns its result.
-/// A branch selects its target or fallthrough without fetching another instruction.
+/// Compilation stops at the first branch, REP, segment load or `instruction_limit`,
+/// whichever comes first. A conditional branch ends the block on both outcomes;
+/// bytes after the boundary are ignored. The limit must be nonzero. Incomplete,
+/// unsupported or overlong instructions within that boundary return [`BlockError`].
 ///
-/// Blocks with data-memory operands also import guest RAM and the page table,
-/// using the layout and fault words documented by [`crate::compile_interpreter_step`].
-/// The returned module requires [`SegmentProfile::Flat32`]. The host establishes
-/// compatibility before entry and keeps it valid until a terminal segment load.
-/// Dispatch reestablishes compatibility before entering subsequent code.
-/// DS/ES/SS accesses use those flat assumptions without runtime segment
-/// guards, as do CS reads; FS/GS accesses and CS writes check their loaded caches.
-/// A data fault publishes earlier completed instructions, keeps EIP at the faulting
-/// instruction, and skips dispatch.
-/// REP also preserves successful elements and their address-sized count and index
-/// progress. It retires once after all elements succeed, including a zero count.
-/// DIV/IDIV divide error returns `1 << 48` with that same completion boundary.
-/// Blocks that load a segment also import `wasm86.resolveSegment`, using the
-/// resolver contract documented by [`crate::compile_interpreter_step`]. A load
-/// commits its cache only on success, retires once, and ends the block.
-/// Far transfers resolve CS and validate the target against the new limit even
-/// under Flat32, then commit CS and dispatch the operand-sized target. CALL/RET
-/// also guard their return frame before committing stack effects. The new CS.D
-/// determines subsequent decoding defaults. Destination paging belongs to that entry.
-/// All bytes of a store are permission-checked before any of them are written.
-/// Read-modify-write operations check write permission before reading their
-/// destination or changing flags; CMP and TEST require only read permission.
-/// Status flags use the lazy CPU record
-/// described in the [crate documentation](crate).
-/// The host must maintain the snapshot validity described by
-/// [`compile_block_from_bytes_with_profile`], which also accepts segmented profiles.
+/// The generated `block_<hex start_eip>() -> i64` entry executes the block and
+/// tail-calls host dispatch. The host must satisfy the profile and snapshot-validity
+/// requirements documented by [`compile_block_from_bytes_with_profile`].
+///
+/// ```
+/// use wasm86_x86::compile_block_from_bytes;
+/// let module = compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
+/// assert_eq!(module.entry, "block_1000");
+/// # Ok::<(), wasm86_x86::BlockError>(())
+/// ```
 pub fn compile_block_from_bytes(
     start_eip: u32,
     bytes: &[u8],
@@ -67,33 +36,17 @@ pub fn compile_block_from_bytes(
 }
 
 /// Compiles a byte snapshot under the selected segment profile.
-/// The entry signature, stopping boundary and state publication follow
-/// [`compile_block_from_bytes`]. The profile specializes CS.D during decoding;
-/// operand and address overrides independently select the opposite width.
-/// Segmented profiles handle data segments and SS.B at runtime.
-/// Taken near targets are checked separately, without accessing their pages.
+/// The stopping boundary and exported entry follow [`compile_block_from_bytes`].
+/// The profile determines instruction defaults; size prefixes independently
+/// select the opposite operand or address width.
 ///
-/// The caller must have validated instruction fetches for every instruction
-/// compiled into the block: CS must permit the complete instruction spans, and
-/// the bytes must match readable guest memory at CS.base + start_eip, with 32-bit
-/// linear wrapping. Bytes beyond the compilation boundary are ignored.
-/// EIP and dispatch targets are CS-relative offsets.
-///
-/// The host must establish snapshot validity and profile compatibility before
-/// every entry, including direct dispatch links, and preserve both until a
-/// terminal instruction changes them. After a segment cache commit, only state
-/// publication and dispatch remain; the next entry must be admitted afresh.
-/// Changes to relevant CS state, code bytes or mappings require
-/// revalidation or invalidation of affected entries and links. An instruction
-/// that changes relied-upon assumptions must end the block before further
-/// execution under them. Profile compatibility alone does not prove fetch validity.
-///
-/// This byte-only compiler cannot validate CS limits, permissions or code pages;
-/// the generated block does not recheck them for instruction fetches. A checked
-/// snapshot producer must stop before an invalid fetch and execute any valid
-/// instruction prefix before handling that guest fault, for example by entering
-/// the interpreter at the failing instruction. A debug assertion in the block
-/// owner can detect a violated validity invariant; it does not replace guest faults.
+/// Before each entry, the host must establish profile compatibility and validate
+/// the full fetch spans and bytes of every compiled instruction against CS and
+/// guest memory. Generated blocks do not repeat instruction-fetch checks. Changes
+/// to relevant CS state, code bytes or mappings require revalidation or invalidation
+/// of affected entries and direct links. See the
+/// [host integration contract](crate#entry-validity) for validity throughout
+/// execution and fallback at an invalid fetch.
 ///
 /// ```
 /// use wasm86_x86::{compile_block_from_bytes_with_profile, SegmentProfile};

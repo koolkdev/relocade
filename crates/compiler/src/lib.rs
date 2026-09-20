@@ -1,5 +1,11 @@
 //! Guest-independent construction of typed WebAssembly functions.
 //!
+//! [`Program`] owns function and memory declarations. [`Val`] constructs integer
+//! expressions; [`Type`] specifies logical widths and their Wasm calling convention.
+//! [`FunctionBuilder`] adds memory effects and structured control, using [`Results`]
+//! for typed result shapes. [`Mem`] and [`MemoryImport`] describe external memory.
+//! Their API documentation covers value visibility, effect ordering and examples.
+//!
 //! Build functions, choose their exports, then compile the module:
 //!
 //! ```

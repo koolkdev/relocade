@@ -1,4 +1,11 @@
 //! Protected user-mode transfers resolve CS and commit it after all fault checks.
+//!
+//! Frame compatibility policy: both operand-sized slots must fit SS, but paging
+//! and transfers cover only the offset and two selector bytes. Dword selector
+//! padding stays untouched. This combines RET's full-slot capacity check with
+//! P6 selector-transfer behavior; their descriptions leave the access extent
+//! ambiguous. See Intel SDM Volume 3B, section 22.31.1:
+//! <https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-3b-part-2-manual.pdf#page=575>.
 
 use wasm86_compiler::{AtLeast, BuildError, Val, I16, I32};
 

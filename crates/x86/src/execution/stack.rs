@@ -92,7 +92,9 @@ impl<T: RegisterType> StackField<'_, T> {
 }
 
 /// SS.B wraps pointer arithmetic independently of the transferred value width.
-/// The full ESP value is retained for POP destinations with 32-bit addressing.
+/// For a wrapped 16-bit-stack POP to memory, wasm86 uses the incremented ESP
+/// with its upper word preserved. That destination is processor-family-specific;
+/// retaining the full ESP also supplies 32-bit destination addressing.
 struct StackPointer {
     esp: Val<I32>,
     mask: Val<I32>,
@@ -166,6 +168,8 @@ impl ExecutionBuilder<'_, '_> {
     }
 
     /// Segment pushes transfer a selector word even in a dword-sized slot.
+    /// This follows the P6 selector-transfer policy also used by segment POP:
+    /// unused slot padding is neither accessed nor checked against SS.limit.
     pub(crate) fn push<T: RegisterType>(
         &mut self,
         value: impl Into<Val<T>>,
