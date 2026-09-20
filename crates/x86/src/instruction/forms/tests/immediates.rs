@@ -72,7 +72,7 @@ fn immediates_bind_after_location_operands() {
                     Handler::Binary(|_, _, _, _, fallthrough| Ok(fallthrough))
                 }),
                 effects: &[],
-                repeat_handlers: None,
+                repeat_handlers: [None; 2],
             }
             .form();
             let fields = DecodedFields {

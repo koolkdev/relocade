@@ -1,6 +1,6 @@
 //! String repetition owns the countdown and index progress between elements.
 
-use wasm86_compiler::{BuildError, Val, I32};
+use wasm86_compiler::{Arguments, BuildError, Results, Val, I1, I32};
 
 use crate::{execution::ExecutionBuilder, register::Gpr32};
 
@@ -24,22 +24,41 @@ impl Repetition {
         if matches!(self, Self::Once) {
             return element(execution);
         }
-        let count = execution.read_address_register(Gpr32::Ecx)?;
-        let initial_indices = read_indices(execution, indices)?;
-        let (remaining, final_indices) = execution.loop_until::<(I32, [I32; N])>(
-            (count, initial_indices),
-            |(remaining, _)| remaining.eq(0),
-            |iteration, (remaining, positions)| {
-                iteration.write_address_register(Gpr32::Ecx, remaining.clone())?;
-                write_indices(iteration, indices, positions)?;
-                element(iteration)?;
-                let next_indices = read_indices(iteration, indices)?;
-                Ok((remaining.sub(1), next_indices))
-            },
-        )?;
-        execution.write_address_register(Gpr32::Ecx, remaining)?;
-        write_indices(execution, indices, final_indices)
+        repeat::<(), N>(execution, indices, (), |()| false.into(), element)?;
+        Ok(())
     }
+}
+
+/// Carries successful element results alongside count and index progress.
+/// Elements may change only the supplied indices and guest memory, after their
+/// faulting accesses finish. Other architectural results are committed by the
+/// caller on successful return. Returns the initial count and final payload.
+pub(super) fn repeat<P: Results, const N: usize>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    indices: [Gpr32; N],
+    initial: P::Values,
+    done: impl FnOnce(&P::Values) -> Val<I1>,
+    element: impl FnOnce(&mut ExecutionBuilder<'_, '_>) -> Result<P::Values, BuildError>,
+) -> Result<(Val<I32>, P::Values), BuildError>
+where
+    P::Values: Clone + Into<Arguments>,
+{
+    let count = execution.read_address_register(Gpr32::Ecx)?;
+    let initial_indices = read_indices(execution, indices)?;
+    let (remaining, final_indices, result) = execution.loop_until::<(I32, [I32; N], P)>(
+        (count.clone(), initial_indices, initial),
+        |(remaining, _, result)| remaining.eq(0).or(done(result)),
+        |iteration, (remaining, positions, _)| {
+            iteration.write_address_register(Gpr32::Ecx, remaining.clone())?;
+            write_indices(iteration, indices, positions)?;
+            let result = element(iteration)?;
+            let next_indices = read_indices(iteration, indices)?;
+            Ok((remaining.sub(1), next_indices, result))
+        },
+    )?;
+    execution.write_address_register(Gpr32::Ecx, remaining)?;
+    write_indices(execution, indices, final_indices)?;
+    Ok((count, result))
 }
 
 fn read_indices<const N: usize>(

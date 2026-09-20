@@ -67,7 +67,7 @@ pub(in crate::instruction) struct Declaration<'a> {
     pub(in crate::instruction) operands: &'a [OperandSpec],
     pub(in crate::instruction) handlers: SizedHandlers<Handler>,
     pub(in crate::instruction) effects: &'a [Effect],
-    pub(in crate::instruction) repeat_handlers: Option<SizedHandlers<Handler>>,
+    pub(in crate::instruction) repeat_handlers: [Option<SizedHandlers<Handler>>; 2],
 }
 
 impl Declaration<'_> {
@@ -164,21 +164,24 @@ impl Declaration<'_> {
             word: bind_handler(self.handlers.word, bindings),
             dword: bind_handler(self.handlers.dword, bindings),
         };
-        let repeat_handlers = if let Some(repeat) = self.repeat_handlers {
-            assert!(
-                matches!(
-                    (self.opcode.map, handlers.word),
-                    (OpcodeMap::Primary, HandlerCall::Nullary { .. })
-                ),
-                "repeat handlers require a primary opcode with implicit operands"
-            );
-            Some(SizedHandlers {
-                word: bind_handler(repeat.word, bindings),
-                dword: bind_handler(repeat.dword, bindings),
-            })
-        } else {
-            None
-        };
+        let mut repeat_handlers = [None; 2];
+        index = 0;
+        while index < repeat_handlers.len() {
+            if let Some(repeat) = self.repeat_handlers[index] {
+                assert!(
+                    matches!(
+                        (self.opcode.map, handlers.word),
+                        (OpcodeMap::Primary, HandlerCall::Nullary { .. })
+                    ),
+                    "repeat handlers require a primary opcode with implicit operands"
+                );
+                repeat_handlers[index] = Some(SizedHandlers {
+                    word: bind_handler(repeat.word, bindings),
+                    dword: bind_handler(repeat.dword, bindings),
+                });
+            }
+            index += 1;
+        }
         let mut implicit_memory = false;
         let mut ends_block = false;
         index = 0;

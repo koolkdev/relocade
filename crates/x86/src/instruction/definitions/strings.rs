@@ -1,13 +1,14 @@
 //! String elements complete their accesses before advancing the indices.
 
+mod comparisons;
 mod repetition;
 
+use comparisons::{compare_elements, scan_elements, ComparisonRepetition};
 use repetition::Repetition;
 
 use super::*;
 use crate::{
     address::{EffectiveAddress, MemoryAddress, RegisterTerm},
-    alu::{AnyStatusSource, ArithmeticOp, StatusSource},
     flags::Flag,
     instruction::Location,
     register::{Gpr32, RegisterType},
@@ -18,15 +19,19 @@ instruction_families! {
     MOVS {
         execute: move_elements::<_>(Repetition::Once);
         effects: [memory_read, memory_write];
-        repeat: move_elements::<_>(Repetition::Count);
+        repeat { F3 => move_elements::<_>(Repetition::Count); }
         forms {
             0xA4 => byte();
             0xA5 => word_or_dword();
         }
     }
     CMPS {
-        execute: compare_elements::<_>;
+        execute: compare_elements::<_>(ComparisonRepetition::Once);
         effects: [memory_read];
+        repeat {
+            F3 => compare_elements::<_>(ComparisonRepetition::Equal);
+            F2 => compare_elements::<_>(ComparisonRepetition::NotEqual);
+        }
         forms {
             0xA6 => byte();
             0xA7 => word_or_dword();
@@ -35,7 +40,7 @@ instruction_families! {
     STOS {
         execute: store_elements::<_>(Repetition::Once);
         effects: [memory_write];
-        repeat: store_elements::<_>(Repetition::Count);
+        repeat { F3 => store_elements::<_>(Repetition::Count); }
         forms {
             0xAA => byte();
             0xAB => word_or_dword();
@@ -50,8 +55,12 @@ instruction_families! {
         }
     }
     SCAS {
-        execute: scan_element::<_>;
+        execute: scan_elements::<_>(ComparisonRepetition::Once);
         effects: [memory_read];
+        repeat {
+            F3 => scan_elements::<_>(ComparisonRepetition::Equal);
+            F2 => scan_elements::<_>(ComparisonRepetition::NotEqual);
+        }
         forms {
             0xAE => byte();
             0xAF => word_or_dword();
@@ -74,21 +83,6 @@ where
         memory_at_index::<T>(execution, Gpr32::Edi, Segment::Es.into()).write(execution, value)?;
         advance_indices(execution, &indices, &stride)
     })
-}
-
-fn compare_elements<T: RegisterType>(
-    execution: &mut ExecutionBuilder<'_, '_>,
-) -> Result<(), BuildError>
-where
-    I32: AtLeast<T>,
-    StatusSource<T>: Into<AnyStatusSource>,
-{
-    let stride = element_stride::<T>(execution)?;
-    let left = memory_at_index::<T>(execution, Gpr32::Esi, execution.string_source_segment())
-        .read(execution)?;
-    let right = memory_at_index::<T>(execution, Gpr32::Edi, Segment::Es.into()).read(execution)?;
-    execution.write_flags(ArithmeticOp::Subtract.apply(left, right).flags)?;
-    advance_indices(execution, &[Gpr32::Esi, Gpr32::Edi], &stride)
 }
 
 fn store_elements<T: RegisterType>(
@@ -116,18 +110,6 @@ where
         .read(execution)?;
     TypedLocation::<T>::register(Gpr32::Eax).write(execution, value)?;
     advance_indices(execution, &[Gpr32::Esi], &stride)
-}
-
-fn scan_element<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
-where
-    I32: AtLeast<T>,
-    StatusSource<T>: Into<AnyStatusSource>,
-{
-    let stride = element_stride::<T>(execution)?;
-    let left = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
-    let right = memory_at_index::<T>(execution, Gpr32::Edi, Segment::Es.into()).read(execution)?;
-    execution.write_flags(ArithmeticOp::Subtract.apply(left, right).flags)?;
-    advance_indices(execution, &[Gpr32::Edi], &stride)
 }
 
 fn memory_at_index<T: RegisterType>(

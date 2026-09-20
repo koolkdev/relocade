@@ -8,8 +8,8 @@ interpreter decodes guest memory at runtime. The embedding host supplies memory,
 dispatch and segment descriptor resolution.
 
 The current scope is a partial 16/32-bit protected-mode integer instruction set,
-including segment loads, near/far transfers and REP MOVS/STOS. Real mode, privilege
-transitions, interrupt delivery, floating point and SIMD are not implemented.
+including segment loads, near/far transfers and string repetition. Real mode,
+privilege transitions, interrupt delivery, floating point and SIMD are not implemented.
 The project is under development; the crates are not published.
 
 | Crate | Responsibility |

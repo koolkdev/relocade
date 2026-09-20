@@ -229,8 +229,9 @@ described below.
 Each checked guest-memory write is complete or absent. Instructions with ordered
 multiple writes, such as ENTER and PUSHA, retain completed writes if a later access
 faults. REP faults retain completed elements, current indices and the remaining
-count, with EIP at the instruction's first prefix. A successful REP, including
-zero-count execution, retires once.
+count, with EIP at the instruction's first prefix. Repeated CMPS/SCAS faults retain
+the flags from instruction entry. A successful repetition keeps the last comparison's
+flags; zero-count execution preserves them. A successful REP retires once.
 
 POPA also retains registers restored before a later fault. ESP and EIP remain at
 instruction entry and the instruction does not retire. Every slot is checked
@@ -259,7 +260,7 @@ SS and #GP(0) for other segments. Resolver faults retain their selector error co
 An unsupported exit describes an encoding or execution path outside the
 implementation's subset, not an architectural invalid-opcode exception. Its
 diagnostic byte is the first byte after size and segment prefixes, `0F` for an
-extended opcode, or `F3` for an unsupported repeated
+extended opcode, or the selected `F2`/`F3` prefix for an unsupported repeated
 form. It does not retire or dispatch. IRET with entry NT set reports `CF` at the
 instruction's restart EIP, including its prefixes. Snapshot construction reports
 `BlockError` for unsupported encodings; state-dependent unsupported paths remain

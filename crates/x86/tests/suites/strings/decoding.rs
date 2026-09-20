@@ -117,6 +117,9 @@ fn each_string_opcode_completes_without_an_operand_or_following_byte() {
 fn unsupported_prefixes_stop_before_any_string_access() {
     for prefix in [0xf0, 0xf2] {
         for opcode in [0xa4, 0xa5, 0xa6, 0xa7, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf] {
+            if prefix == 0xf2 && matches!(opcode, 0xa6 | 0xa7 | 0xae | 0xaf) {
+                continue;
+            }
             for code in [vec![prefix, opcode], vec![0x66, prefix, opcode]] {
                 assert_eq!(
                     compile_block_from_bytes(0x1000, &code, 1).err(),
@@ -144,8 +147,8 @@ fn unsupported_prefixes_stop_before_any_string_access() {
 }
 
 #[test]
-fn rep_loads_and_comparisons_remain_unsupported() {
-    for opcode in [0xa6, 0xa7, 0xac, 0xad, 0xae, 0xaf] {
+fn rep_loads_remain_unsupported() {
+    for opcode in [0xac, 0xad] {
         for code in [vec![0xf3, opcode], vec![0x66, 0xf3, opcode]] {
             assert_eq!(
                 compile_block_from_bytes(0x1000, &code, 1).err(),

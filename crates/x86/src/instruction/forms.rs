@@ -69,15 +69,15 @@ pub(crate) struct Form {
     pub(super) condition: Option<Condition>,
     pub(super) implicit_memory: bool,
     pub(super) ends_block: bool,
-    repeat_handlers: Option<SizedHandlers<HandlerBinding>>,
+    repeat_handlers: [Option<SizedHandlers<HandlerBinding>>; 2],
 }
 
 impl Form {
     /// Resolve prefix meaning before either decoder reads operand fields.
     pub(crate) fn resolve(&self, prefixes: &PrefixState) -> Option<ResolvedForm> {
         let operand_size = prefixes.operand_size();
-        let (handlers, ends_block) = if prefixes.has_f3() {
-            (self.repeat_handlers?, true)
+        let (handlers, ends_block) = if let Some(prefix) = prefixes.repeat() {
+            (self.repeat_handlers[prefix.index()]?, true)
         } else {
             (self.handlers, self.ends_block)
         };

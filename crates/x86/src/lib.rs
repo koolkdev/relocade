@@ -92,7 +92,7 @@ pub enum BlockError {
     /// The selected encoding is outside the supported instruction subset.
     /// `opcode` is the first byte after size and segment prefixes; other fields may
     /// select an unsupported form. Extended opcodes report `0F`; an unsupported
-    /// form after `F3` reports `F3`.
+    /// form after `F2` or `F3` reports the selected repeat prefix.
     UnsupportedInstruction {
         address: u32,
         opcode: u8,

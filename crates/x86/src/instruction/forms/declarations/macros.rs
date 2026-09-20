@@ -4,13 +4,13 @@ macro_rules! instruction_families {
     ($($family:ident {
         execute: $handler:ident $(::<$size:tt>)? $(($($argument:expr),* $(,)?))?;
         $(effects: [$($effect:ident),* $(,)?];)?
-        $(repeat: $repeat:ident $(::<$repeat_size:tt>)? $(($($repeat_argument:expr),* $(,)?))?;)?
+        $(repeat $repeat:tt)?
         forms $rows:tt
     })+) => {
         pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
             use crate::instruction::forms::declarations::*;
             const FAMILIES: &[&[&[Form]]] = &[$(
-                declaration_family!([$handler $(::<$size>)?; $($($argument),*)?] [$($($effect),*)?] [$($repeat $(::<$repeat_size>)?; $($($repeat_argument),*)?)?] $rows)
+                declaration_family!([$handler $(::<$size>)?; $($($argument),*)?] [$($($effect),*)?] [$($repeat)?] $rows)
             ),+];
             FAMILIES.iter().flat_map(|rows| rows.iter().flat_map(|forms| forms.iter()))
         }
@@ -39,7 +39,7 @@ macro_rules! declaration_family {
                     ),
                     effects: declaration_effects!($effects),
                     repeat_handlers: declaration_repeat!(
-                        $repeat $effects [$($pattern)?] $width $operands $(| $other_width $other_operands)?
+                        $repeat $effects [$($pattern)?] {$width $operands $(| $other_width $other_operands)?}
                     ),
                 }.form()
             };
@@ -50,10 +50,22 @@ macro_rules! declaration_family {
 
 macro_rules! declaration_repeat {
     ([] $($row:tt)*) => {
-        None
+        [None; 2]
     };
-    ([$handler:ident $(::<$size:tt>)?; $($argument:expr),*] $effects:tt $pattern:tt $($row:tt)*) => {
-        Some(declaration_handlers!($effects $pattern [$handler $(::<$size>)?; $($argument),*] $($row)*))
+    ([{$($prefix:ident => $handler:ident $(::<$size:tt>)? $(($($argument:expr),* $(,)?))?;)+}]
+        $effects:tt $pattern:tt $row:tt) => {{
+        let mut handlers = [None; 2];
+        $(
+            let prefix = crate::instruction::RepeatPrefix::$prefix;
+            assert!(handlers[prefix.index()].is_none(), "one handler per repeat prefix");
+            handlers[prefix.index()] = Some(declaration_repeat!(@handlers
+                $effects $pattern [$handler $(::<$size>)?; $($($argument),*)?] $row
+            ));
+        )+
+        handlers
+    }};
+    (@handlers $effects:tt $pattern:tt $call:tt {$($row:tt)*}) => {
+        declaration_handlers!($effects $pattern $call $($row)*)
     };
 }
 

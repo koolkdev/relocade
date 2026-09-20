@@ -377,7 +377,7 @@ fn memory_only_bindings_restrict_modrm_at_every_operand_position() {
             operands,
             handlers: SizedHandlers::fixed(handler),
             effects: &[],
-            repeat_handlers: None,
+            repeat_handlers: [None; 2],
         }
         .form();
         for modrm in 0..=u8::MAX {

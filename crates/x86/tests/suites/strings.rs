@@ -1,5 +1,7 @@
-//! String operations use 32-bit indices and the stored DF bit.
+//! String operations, repetition and direction-controlled index progress.
 
+#[path = "strings/conditional_repetition.rs"]
+mod conditional_repetition;
 #[path = "strings/decoding.rs"]
 mod decoding;
 #[path = "strings/memory.rs"]

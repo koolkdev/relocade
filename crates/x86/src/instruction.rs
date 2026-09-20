@@ -11,7 +11,7 @@ use handlers::HandlerCall;
 pub(super) use lower::lower;
 use operands::{map_location, map_operand};
 pub(crate) use operands::{Input, TypedLocation};
-pub(crate) use prefixes::{Prefix, PrefixState, SegmentOverride};
+pub(crate) use prefixes::{Prefix, PrefixState, RepeatPrefix, SegmentOverride};
 
 use crate::address::{AddressSize, EffectiveAddress, MemoryAddress};
 use crate::flags::Condition;
