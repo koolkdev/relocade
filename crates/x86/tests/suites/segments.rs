@@ -36,6 +36,8 @@ mod stack;
 mod strings;
 #[path = "segments/transfers.rs"]
 mod transfers;
+#[path = "segments/verification.rs"]
+mod verification;
 
 use wasm86_x86::StoredSegment;
 

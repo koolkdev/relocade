@@ -3,13 +3,15 @@
 use ::wasmtime::{Caller, Linker, Memory, MemoryType, Module, Store, Trap};
 
 use super::{
-    changes, Argument, Event, Input, Observation, Outcome, SegmentResolution, Snapshot, TestModule,
+    changes, Argument, Event, Input, Observation, Outcome, SegmentPermissionQuery,
+    SegmentResolution, Snapshot, TestModule,
 };
 
 struct ExecutionEvents {
     events: Vec<Event>,
     machine_unchanged: bool,
     segment_resolutions: std::vec::IntoIter<SegmentResolution>,
+    segment_permission_queries: std::vec::IntoIter<SegmentPermissionQuery>,
 }
 
 impl TestModule {
@@ -24,6 +26,7 @@ impl TestModule {
                 events: Vec::new(),
                 machine_unchanged: true,
                 segment_resolutions: input.segment_resolutions.clone().into_iter(),
+                segment_permission_queries: input.segment_permission_queries.clone().into_iter(),
             },
         );
         let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
@@ -89,6 +92,22 @@ impl TestModule {
                 },
             )
             .unwrap();
+        linker
+            .func_wrap(
+                "wasm86",
+                "segmentPermissions",
+                |mut caller: Caller<'_, ExecutionEvents>, selector: i32| {
+                    let state = caller.data_mut();
+                    let reply = state
+                        .segment_permission_queries
+                        .next()
+                        .expect("unexpected segment permission query");
+                    assert_eq!(selector as u32, u32::from(reply.selector));
+                    state.events.push(Event::SegmentPermissions { selector });
+                    reply.permissions as i32
+                },
+            )
+            .unwrap();
         let instance = linker
             .instantiate(&mut store, module)
             .expect("instantiate the test module");
@@ -131,6 +150,11 @@ impl TestModule {
             store.data().segment_resolutions.len(),
             0,
             "unused segment resolutions"
+        );
+        assert_eq!(
+            store.data().segment_permission_queries.len(),
+            0,
+            "unused segment permission queries"
         );
         let guest_unchanged = guest_before == guest.data(&store);
         let machine_unchanged = store.data().machine_unchanged;

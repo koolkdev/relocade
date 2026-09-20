@@ -43,7 +43,7 @@ fn state(eip: u32) -> CpuState {
 }
 
 #[test]
-fn interpreter_step_exposes_memory_dispatch_and_segment_resolution_abis() {
+fn interpreter_step_exposes_memory_dispatch_and_descriptor_query_abis() {
     let module = compile_interpreter_step(crate::SegmentProfile::Flat32).unwrap();
     assert_eq!(module.entry, "step");
     Validator::new().validate_all(&module.bytes).unwrap();
@@ -98,7 +98,7 @@ fn interpreter_step_exposes_memory_dispatch_and_segment_resolution_abis() {
             ("machine".into(), 64)
         ]
     );
-    assert_eq!(imports.len(), 2);
+    assert_eq!(imports.len(), 3);
     assert_eq!(imports[0].0, "dispatch");
     assert_eq!(
         types[imports[0].1 as usize],
@@ -108,6 +108,11 @@ fn interpreter_step_exposes_memory_dispatch_and_segment_resolution_abis() {
     assert_eq!(
         types[imports[1].1 as usize],
         (vec![ValType::I32; 2], vec![ValType::I32; 6])
+    );
+    assert_eq!(imports[2].0, "segmentPermissions");
+    assert_eq!(
+        types[imports[2].1 as usize],
+        (vec![ValType::I32], vec![ValType::I32])
     );
     let entry = exported.unwrap() as usize - imports.len();
     assert_eq!(

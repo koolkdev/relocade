@@ -1,4 +1,5 @@
 mod loads;
+mod permissions;
 
 use crate::{
     DescriptorTables, Exception, Segment, SegmentAttributes, SegmentDefaultSize, SegmentDescriptor,

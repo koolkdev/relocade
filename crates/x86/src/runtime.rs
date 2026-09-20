@@ -1,19 +1,20 @@
 //! Host execution imports and their adapters to architectural values.
 
 use wasm86_compiler::{
-    BuildError, Func, FunctionBuilder, FunctionImport, Program, Signature, Type, Val, I16, I32,
+    BuildError, Func, FunctionBuilder, FunctionImport, Program, Signature, Type, Val, I1, I16, I32,
 };
 
 use crate::{
     exception::{Exception, ExceptionVector},
     segment::SegmentValues,
-    Segment,
+    Segment, SegmentPermissions,
 };
 
 #[derive(Clone, Copy)]
 pub(crate) struct Runtime {
     dispatch: Func,
     resolve_segment: Func,
+    segment_permissions: Func,
 }
 
 impl Runtime {
@@ -41,9 +42,18 @@ impl Runtime {
                 ],
             },
         });
+        let segment_permissions = program.import_function(FunctionImport {
+            module: "wasm86".into(),
+            name: "segmentPermissions".into(),
+            signature: Signature {
+                parameters: vec![Type::I16],
+                results: vec![Type::I32],
+            },
+        });
         Self {
             dispatch,
             resolve_segment,
+            segment_permissions,
         }
     }
 
@@ -53,6 +63,20 @@ impl Runtime {
         eip: &Val<I32>,
     ) -> Result<(), BuildError> {
         body.tail_call(self.dispatch, &[eip.into()])
+    }
+
+    /// Queries the current host descriptor view without loading a segment or
+    /// accessing guest memory. The result has read/write rights in bits 0/1.
+    pub(crate) fn segment_permissions(
+        self,
+        body: &mut FunctionBuilder<'_>,
+        selector: &Val<I16>,
+    ) -> Result<SegmentPermissions<Val<I1>>, BuildError> {
+        let permissions = body.call::<I32>(self.segment_permissions, &[selector.into()])?;
+        Ok(SegmentPermissions {
+            readable: permissions.and(1).ne(0),
+            writable: permissions.and(2).ne(0),
+        })
     }
 
     /// The host resolves its descriptor view without inspecting or changing CPU

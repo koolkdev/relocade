@@ -1,9 +1,19 @@
-//! Segment instructions distinguish visible selectors from checked cache loads.
+//! Segment instructions read, load and verify selectors.
 
 use super::*;
-use crate::{address::MemoryAddress, instruction::Location, register::RegisterType, Segment};
+use crate::{
+    address::MemoryAddress, flags::Flag, instruction::Location, register::RegisterType, Segment,
+};
 
 instruction_families! {
+    VERR {
+        execute: verify_read;
+        forms { 0x0F 0x00 /4 => word(rm); }
+    }
+    VERW {
+        execute: verify_write;
+        forms { 0x0F 0x00 /5 => word(rm); }
+    }
     MOV_FROM_SEGMENT {
         execute: store_selector;
         forms {
@@ -60,6 +70,24 @@ instruction_families! {
             0x0F 0xB5 => word_or_dword(modrm_reg, mem, segment(Segment::Gs));
         }
     }
+}
+
+fn verify_read(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    source: TypedLocation<I16>,
+) -> Result<(), BuildError> {
+    let selector = source.read(execution)?;
+    let permissions = execution.segment_permissions(&selector)?;
+    execution.write_flag(Flag::ZF, permissions.readable)
+}
+
+fn verify_write(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    source: TypedLocation<I16>,
+) -> Result<(), BuildError> {
+    let selector = source.read(execution)?;
+    let permissions = execution.segment_permissions(&selector)?;
+    execution.write_flag(Flag::ZF, permissions.writable)
 }
 
 fn store_selector<T: RegisterType>(

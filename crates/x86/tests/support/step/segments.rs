@@ -1,7 +1,23 @@
-//! Both engines consume replies from the same host descriptor resolver.
+//! Both engines consume replies from the same host descriptor view.
 
 use serde::Serialize;
 use wasm86_x86::{DescriptorTables, Exception, Segment};
+
+#[derive(Clone, Serialize)]
+pub(crate) struct SegmentPermissionQuery {
+    pub(crate) selector: u16,
+    pub(crate) permissions: u32,
+}
+
+impl SegmentPermissionQuery {
+    pub(crate) fn new(tables: &DescriptorTables, selector: u16) -> Self {
+        let rights = tables.user_segment_permissions(selector);
+        Self {
+            selector,
+            permissions: u32::from(rights.readable) | (u32::from(rights.writable) << 1),
+        }
+    }
+}
 
 #[derive(Clone, Serialize)]
 pub(crate) struct SegmentResolution {

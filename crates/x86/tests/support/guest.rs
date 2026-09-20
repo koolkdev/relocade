@@ -228,7 +228,10 @@ impl Machine {
         let mut executions = Vec::new();
         let mut dispatches = Vec::new();
         for event in &observation.events {
-            if matches!(event, Event::ResolveSegment { .. }) {
+            if matches!(
+                event,
+                Event::ResolveSegment { .. } | Event::SegmentPermissions { .. }
+            ) {
                 continue;
             }
             let Event::Return { outcome, snapshot } = event else {

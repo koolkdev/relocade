@@ -1,6 +1,6 @@
 //! Segment instructions keep resolution separate from cache commitment.
 
-use wasm86_compiler::{BuildError, Val, I16, I32};
+use wasm86_compiler::{BuildError, Val, I1, I16, I32};
 
 use super::ExecutionBuilder;
 use crate::{
@@ -8,10 +8,17 @@ use crate::{
     memory::Intent,
     register::{Register, RegisterType},
     segment::SegmentValues,
-    Segment,
+    Segment, SegmentPermissions,
 };
 
 impl ExecutionBuilder<'_, '_> {
+    pub(crate) fn segment_permissions(
+        &mut self,
+        selector: &Val<I16>,
+    ) -> Result<SegmentPermissions<Val<I1>>, BuildError> {
+        self.runtime.segment_permissions(&mut self.body, selector)
+    }
+
     pub(crate) fn read_segment_selector(
         &mut self,
         segment: Segment,

@@ -2,7 +2,7 @@
 
 use crate::{Exception, StoredSegment};
 
-use super::{Segment, SegmentDescriptor};
+use super::{Segment, SegmentDescriptor, SegmentPermissions};
 
 /// Host-managed global and local descriptor slots, addressed by x86 selectors.
 /// Bits 15:3 select an entry, bit 2 selects the local table, and bits 1:0 are
@@ -61,6 +61,19 @@ impl DescriptorTables {
     pub fn remove(&mut self, selector: u16) -> Option<SegmentDescriptor> {
         let (table, index) = slot(selector);
         self.tables[table].get_mut(index).and_then(Option::take)
+    }
+
+    /// Returns the rights tested by VERR/VERW at CPL=3 using the current table.
+    /// Null selectors and missing slots have neither permission. Presence, base,
+    /// limit and default size do not affect this query; loaded caches are untouched.
+    /// Only code/data descriptors are represented by these tables.
+    pub fn user_segment_permissions(&self, selector: u16) -> SegmentPermissions {
+        if selector & !3 == 0 {
+            return SegmentPermissions::default();
+        }
+        self.get(selector)
+            .map(SegmentDescriptor::user_permissions)
+            .unwrap_or_default()
     }
 
     /// Resolves a segment descriptor at CPL=3 without changing CPU or table state.

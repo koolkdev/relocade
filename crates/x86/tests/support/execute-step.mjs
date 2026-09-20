@@ -30,10 +30,19 @@ const snapshot = () => {
 };
 const events = [];
 let resolutions = 0;
+let permissionQueries = 0;
 const module = new WebAssembly.Module(readFileSync(process.argv[2]));
 const instance = new WebAssembly.Instance(module, {
   wasm86: {
     cpuState, guest, machine,
+    segmentPermissions: selector => {
+      const reply = input.segment_permission_queries[permissionQueries++];
+      if (!reply || reply.selector !== selector) {
+        throw new Error(`unexpected segment permission query ${selector}`);
+      }
+      events.push({ kind: 'segment_permissions', selector });
+      return reply.permissions;
+    },
     resolveSegment: (segment, selector) => {
       const reply = input.segment_resolutions[resolutions++];
       if (!reply || reply.segment !== segment || reply.selector !== selector) {
@@ -66,6 +75,9 @@ for (let call = 0; call < invocations; call++) {
   events.push({ kind: 'return', outcome, snapshot: snapshot() });
 }
 if (resolutions !== input.segment_resolutions.length) throw new Error('unused segment resolutions');
+if (permissionQueries !== input.segment_permission_queries.length) {
+  throw new Error('unused segment permission queries');
+}
 process.stdout.write(JSON.stringify({
   events,
   guest_unchanged: guestBefore.equals(Buffer.from(guest.buffer)),

@@ -1,4 +1,4 @@
-//! Host descriptors and protected-mode user-level load rules.
+//! Host descriptors and protected-mode user-level permissions and load rules.
 
 use crate::{Exception, StoredSegment};
 
@@ -15,11 +15,19 @@ pub enum PrivilegeLevel {
 }
 
 /// Code/data descriptor types supported by user-mode segment resolution.
-/// Conformance affects loading a code descriptor, not ordinary cached accesses.
+/// Conformance affects loading and verifying a descriptor, not cached accesses.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SegmentDescriptorKind {
     Data { writable: bool, expand_down: bool },
     Code { readable: bool, conforming: bool },
+}
+
+/// Read/write rights visible at CPL=3, independent of descriptor presence.
+/// Neither permission guarantees that a segment load or a memory access succeeds.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SegmentPermissions<V = bool> {
+    pub readable: V,
+    pub writable: V,
 }
 
 /// A host-managed descriptor, separate from any CPU's loaded segment cache.
@@ -53,6 +61,35 @@ impl SegmentDescriptor {
         }
     }
 
+    // At CPL=3, every RPL is already covered by the DPL check. Conforming code
+    // remains visible at every DPL; readability is checked by the caller.
+    fn user_visible(&self) -> bool {
+        self.dpl == PrivilegeLevel::Ring3
+            || matches!(
+                self.kind,
+                SegmentDescriptorKind::Code {
+                    conforming: true,
+                    ..
+                }
+            )
+    }
+
+    pub(super) fn user_permissions(&self) -> SegmentPermissions {
+        if !self.user_visible() {
+            return SegmentPermissions::default();
+        }
+        match self.kind {
+            SegmentDescriptorKind::Data { writable, .. } => SegmentPermissions {
+                readable: true,
+                writable,
+            },
+            SegmentDescriptorKind::Code { readable, .. } => SegmentPermissions {
+                readable,
+                writable: false,
+            },
+        }
+    }
+
     pub(super) fn resolve_user(
         &self,
         destination: Segment,
@@ -63,23 +100,9 @@ impl SegmentDescriptor {
             (Segment::Ss, Data { writable: true, .. }) => {
                 self.dpl == PrivilegeLevel::Ring3 && selector & 3 == 3
             }
-            (Segment::Cs, Code { conforming, .. }) => {
-                conforming || self.dpl == PrivilegeLevel::Ring3
-            }
+            (Segment::Cs, Code { .. }) => self.user_visible(),
             (Segment::Ss | Segment::Cs, _) => false,
-            (
-                _,
-                Code {
-                    readable: false, ..
-                },
-            ) => false,
-            (
-                _,
-                Code {
-                    conforming: true, ..
-                },
-            ) => true,
-            (_, _) => self.dpl == PrivilegeLevel::Ring3,
+            (_, _) => self.user_permissions().readable,
         };
         let error_code = u32::from(selector & !3);
         if !accessible {
