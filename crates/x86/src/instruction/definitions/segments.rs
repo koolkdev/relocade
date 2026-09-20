@@ -176,7 +176,8 @@ fn load_selector(
     source: TypedLocation<I16>,
 ) -> Result<(), BuildError> {
     let selector = source.read(execution)?;
-    execution.load_segment(segment, selector)
+    let resolved = execution.resolve_segment(segment, &selector)?;
+    resolved.commit(execution)
 }
 
 fn push_selector<T: RegisterType>(
@@ -191,7 +192,13 @@ fn pop_selector<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     segment: Segment,
 ) -> Result<(), BuildError> {
-    execution.pop_segment(segment, T::BYTES)
+    let frame = execution.pop_frame(T::BYTES, 2)?;
+    let selector = frame.field::<I16>(execution, 0)?.read(execution)?;
+    let resolved = execution.resolve_segment(segment, &selector)?;
+    // Resolve before changing ESP; commit its old-SS pointer before replacing
+    // the cache, since the new SS may have a different base or stack width.
+    frame.commit(execution, 0)?;
+    resolved.commit(execution)
 }
 
 fn load_pointer<T: RegisterType>(
@@ -200,8 +207,8 @@ fn load_pointer<T: RegisterType>(
     source: MemoryAddress<Val<I32>>,
     segment: Segment,
 ) -> Result<(), BuildError> {
-    let Location::Register(register) = destination.into_location() else {
-        unreachable!("the form binds a ModRM register destination")
-    };
-    execution.load_far_pointer(segment, register.view::<T>(), source)
+    let (offset, selector) = execution.read_far_pointer::<T>(source)?;
+    let resolved = execution.resolve_segment(segment, &selector)?;
+    destination.write(execution, offset)?;
+    resolved.commit(execution)
 }

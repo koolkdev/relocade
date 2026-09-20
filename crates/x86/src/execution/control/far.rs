@@ -11,17 +11,17 @@ use wasm86_compiler::{AtLeast, BuildError, Val, I16, I32};
 
 use crate::{
     exception::Exception,
-    execution::ExecutionBuilder,
+    execution::{segments::ResolvedSegment, ExecutionBuilder},
     flags::{image, Flag},
     register::RegisterType,
-    segment::{Segment, SegmentValues},
+    Segment,
 };
 
 /// A resolved code segment and offset. Direct transfers check the limit separately
 /// because CALL must first validate stack capacity; returns check it during resolution.
 struct CodeTarget {
     offset: Val<I32>,
-    segment: SegmentValues,
+    segment: ResolvedSegment,
 }
 
 impl CodeTarget {
@@ -62,7 +62,7 @@ impl CodeTarget {
     fn check_limit(&self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
         // The new limit applies even when the incoming profile was flat.
         execution.fault_if(
-            self.segment.limit.unsigned().lt(&self.offset),
+            self.segment.limit().unsigned().lt(&self.offset),
             Exception::GeneralProtection {
                 error_code: 0.into(),
             },
@@ -70,9 +70,7 @@ impl CodeTarget {
     }
 
     fn commit(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<Val<I32>, BuildError> {
-        execution
-            .state
-            .write_segment(&mut execution.body, &Segment::Cs.into(), &self.segment)?;
+        self.segment.commit(execution)?;
         Ok(self.offset)
     }
 }

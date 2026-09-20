@@ -1,4 +1,4 @@
-//! Segment instructions keep resolution separate from cache commitment.
+//! Selector resolution and cache commitment are separate execution operations.
 
 use wasm86_compiler::{BuildError, Val, I1, I16, I32};
 
@@ -6,10 +6,30 @@ use super::ExecutionBuilder;
 use crate::{
     address::{self, MemoryAddress},
     memory::Intent,
-    register::{Register, RegisterType},
+    register::RegisterType,
     segment::SegmentValues,
     Segment, SegmentDescriptorInfo,
 };
+
+/// A resolved segment cache and its destination, not yet installed in CPU state.
+pub(crate) struct ResolvedSegment {
+    segment: Segment,
+    values: SegmentValues,
+}
+
+impl ResolvedSegment {
+    pub(super) fn limit(&self) -> &Val<I32> {
+        &self.values.limit
+    }
+
+    /// Installs the selector and cache after all instruction guards. Only
+    /// completion and dispatch may follow if this breaks the entry's segment assumptions.
+    pub(crate) fn commit(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
+        execution
+            .state
+            .write_segment(&mut execution.body, &self.segment.into(), &self.values)
+    }
+}
 
 impl ExecutionBuilder<'_, '_> {
     pub(crate) fn query_segment_descriptor(
@@ -28,43 +48,20 @@ impl ExecutionBuilder<'_, '_> {
             .read_segment_selector(&mut self.body, &segment.into())
     }
 
-    pub(crate) fn load_segment(
+    /// Resolves the selector without installing its cache. Code offsets require
+    /// a separate limit check before committing the resolved CS.
+    pub(crate) fn resolve_segment(
         &mut self,
         segment: Segment,
-        selector: Val<I16>,
-    ) -> Result<(), BuildError> {
-        let values = self.resolve_segment(segment, &selector)?;
-        self.state
-            .write_segment(&mut self.body, &segment.into(), &values)
-    }
-
-    pub(crate) fn pop_segment(
-        &mut self,
-        segment: Segment,
-        slot_bytes: u32,
-    ) -> Result<(), BuildError> {
-        let frame = self.pop_frame(slot_bytes, 2)?;
-        let selector = frame.field::<I16>(self, 0)?.read(self)?;
-        let values = self.resolve_segment(segment, &selector)?;
-        // Resolve before changing ESP; commit its old-SS pointer before replacing
-        // the cache, since the new SS may have a different base or stack width.
-        frame.commit(self, 0)?;
-        self.state
-            .write_segment(&mut self.body, &segment.into(), &values)
-    }
-
-    pub(crate) fn load_far_pointer<T: RegisterType>(
-        &mut self,
-        segment: Segment,
-        destination: Register<T>,
-        source: MemoryAddress<Val<I32>>,
-    ) -> Result<(), BuildError> {
-        let (pointer_offset, selector) = self.read_far_pointer::<T>(source)?;
-        let values = self.resolve_segment(segment, &selector)?;
-        self.state
-            .write_register(&mut self.body, destination, pointer_offset)?;
-        self.state
-            .write_segment(&mut self.body, &segment.into(), &values)
+        selector: &Val<I16>,
+    ) -> Result<ResolvedSegment, BuildError> {
+        let values = self.runtime.resolve_segment(
+            &mut self.body,
+            segment,
+            selector,
+            |body, exception| self.state.fault(body, &self.eip, self.completed, exception),
+        )?;
+        Ok(ResolvedSegment { segment, values })
     }
 
     /// Reads an offset followed by a selector through the entry address and cache.
@@ -82,16 +79,5 @@ impl ExecutionBuilder<'_, '_> {
         let pointer_offset = memory.read::<T>(&mut self.body, &access, 0)?;
         let selector = memory.read::<I16>(&mut self.body, &access, T::BYTES)?;
         Ok((pointer_offset, selector))
-    }
-
-    pub(super) fn resolve_segment(
-        &mut self,
-        segment: Segment,
-        selector: &Val<I16>,
-    ) -> Result<SegmentValues, BuildError> {
-        self.runtime
-            .resolve_segment(&mut self.body, segment, selector, |body, exception| {
-                self.state.fault(body, &self.eip, self.completed, exception)
-            })
     }
 }
