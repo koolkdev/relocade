@@ -71,7 +71,8 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
             // Imports follow authored operations, including unused loads.
             for operation in &region.operations {
                 let location = match operation {
-                    Operation::Block { .. }
+                    Operation::Nop
+                    | Operation::Block { .. }
                     | Operation::Loop { .. }
                     | Operation::If { .. }
                     | Operation::BranchIf { .. }

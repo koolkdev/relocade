@@ -177,6 +177,8 @@ impl Terminal {
 }
 
 enum Operation {
+    // Keep authored sites stable when control folding removes an operation.
+    Nop,
     Load(usize),
     Store {
         location: Location,
@@ -499,10 +501,11 @@ impl FunctionBuilder<'_> {
     fn complete(mut self, terminal: Terminal) -> Result<(), BuildError> {
         self.fallthrough = false;
         self.region.terminal = Some(terminal);
-        let region = std::mem::replace(&mut self.region, Region::new(0));
+        let mut region = std::mem::replace(&mut self.region, Region::new(0));
         match &mut self.destination {
             Destination::Function => {
                 let values = self.arena.take().ok_or(BuildError::BodyClosed)?;
+                region.fold_constants(&values);
                 self.program.functions[self.function.0].kind =
                     FunctionKind::Defined(Some(Body { values, region }));
             }

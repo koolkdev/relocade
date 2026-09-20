@@ -15,6 +15,8 @@ mod computed_memory;
 mod conditional_branches;
 #[path = "suites/conditional_values.rs"]
 mod conditional_values;
+#[path = "suites/constant_control.rs"]
+mod constant_control;
 #[path = "suites/control_flow.rs"]
 mod control_flow;
 #[path = "suites/division.rs"]

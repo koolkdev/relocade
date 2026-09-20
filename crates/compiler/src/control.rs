@@ -3,6 +3,7 @@ use crate::{results, Arguments, BuildError, FunctionBuilder, Operation, Results,
 
 mod block;
 mod conditional;
+mod fold;
 mod loops;
 mod switch;
 

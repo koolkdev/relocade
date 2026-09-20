@@ -358,7 +358,7 @@ impl Planner<'_> {
                             }
                         }
                     }
-                    Operation::Load(_) | Operation::Block { .. } => {}
+                    Operation::Nop | Operation::Load(_) | Operation::Block { .. } => {}
                 }
             }
             if let Some(terminal) = &region.terminal {

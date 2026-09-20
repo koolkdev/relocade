@@ -105,7 +105,8 @@ fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
                     include(&mut writes, [MemoryRange::from_location(*location, body)])
                 }
                 Operation::Call { invocation, .. } => callees.push(invocation.target),
-                Operation::Block { .. }
+                Operation::Nop
+                | Operation::Block { .. }
                 | Operation::Loop { .. }
                 | Operation::If { .. }
                 | Operation::BranchIf { .. }

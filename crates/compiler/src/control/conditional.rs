@@ -46,6 +46,8 @@ impl FunctionBuilder<'_> {
     /// skips it. The child has the same load, store, conditional and return methods.
     /// Returning `Ok(())` without a terminal lets execution continue after the branch.
     /// A closure error discards the branch and leaves the parent usable.
+    /// Construction checks the branch even for a constant condition. Constant
+    /// conditions are folded after the complete function body has been checked.
     ///
     /// Values depending on child reads, calls or joins can be consumed only in
     /// that child or its descendants. Pure expressions from parent values can be
@@ -85,6 +87,7 @@ impl FunctionBuilder<'_> {
     /// Executes exactly one of two branches. Each branch may fall through,
     /// return from the function, tail-call or trap. A construction error discards both
     /// branches and leaves the parent usable. Child values follow `if_`'s scope rules.
+    /// Both closures run during construction, including for constant conditions.
     ///
     /// ```
     /// use wasm86_compiler::{Program, Signature, Type, I32};
@@ -127,6 +130,7 @@ impl FunctionBuilder<'_> {
     /// to this conditional. Unit result arms may fall through.
     /// A yield supplies this conditional's result, while a return exits the function.
     /// A construction error discards both arms and leaves the parent usable.
+    /// Both arms are checked even when the condition is constant.
     ///
     /// The selected value is visible in the parent. Other values depending on
     /// child reads, calls or joins remain confined to that child and its descendants.

@@ -53,7 +53,7 @@ impl Scheduler<'_> {
             self.emit_captures(site);
             match operation {
                 Operation::BranchIf { .. } => unreachable!("conditional exits emit above"),
-                Operation::Load(_) => {}
+                Operation::Nop | Operation::Load(_) => {}
                 Operation::Call { invocation, .. } => {
                     if self.effects[invocation.target.0].must_execute() {
                         self.authored_call(site);
@@ -73,14 +73,17 @@ impl Scheduler<'_> {
                     .encode(&mut self.bytes);
                 }
                 Operation::Block { region, .. } => {
-                    self.begin_control(
-                        Instruction::Block(block_type),
-                        Some(Target::exit(site)),
-                        &outputs,
-                    );
                     let before = self.emitted.clone();
-                    self.region(region, Some(Target::exit(site)));
-                    self.end_control();
+                    let target = Target::exit(site);
+                    if outputs.is_empty() && region.exits_to(target).next().is_none() {
+                        // An unreferenced unit block needs no Wasm label. Outward
+                        // exits must still skip the enclosing body's continuation.
+                        self.region(region, None);
+                    } else {
+                        self.begin_control(Instruction::Block(block_type), Some(target), &outputs);
+                        self.region(region, Some(target));
+                        self.end_control();
+                    }
                     // An outward exit can skip any capture in this child. Only
                     // the joined outputs are available after the block.
                     self.emitted = before;
