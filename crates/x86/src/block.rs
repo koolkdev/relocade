@@ -42,8 +42,9 @@ use crate::{
 /// Blocks that load a segment also import `wasm86.resolveSegment`, using the
 /// resolver contract documented by [`crate::compile_interpreter_step`]. A load
 /// commits its cache only on success, retires once, and ends the block.
-/// Far JMP resolves CS and validates the target against the new limit even under
-/// Flat32, then commits CS and dispatches its operand-sized target. The new CS.D
+/// Far transfers resolve CS and validate the target against the new limit even
+/// under Flat32, then commit CS and dispatch the operand-sized target. CALL/RET
+/// also guard their return frame before committing stack effects. The new CS.D
 /// determines subsequent decoding defaults. Destination paging belongs to that entry.
 /// All bytes of a store are permission-checked before any of them are written.
 /// Read-modify-write operations check write permission before reading their

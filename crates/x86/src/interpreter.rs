@@ -42,7 +42,7 @@ use crate::{
 /// the host can instantiate them with shared memories and choose a compatible entry.
 ///
 /// Segment loads call `wasm86.resolveSegment(segment: i32, selector: i32)`.
-/// Segment indices are ES=0, CS=1, SS=2, DS=3, FS=4, GS=5. Far JMP resolves CS;
+/// Segment indices are ES=0, CS=1, SS=2, DS=3, FS=4, GS=5. Far JMP/CALL/RET resolve CS;
 /// MOV, POP and pointer loads resolve ES/SS/DS/FS/GS.
 /// The host returns six i32 results: `(status, error_code, base, limit, selector,
 /// attributes)`. Status zero returns a complete normalized [`crate::StoredSegment`];
@@ -106,8 +106,17 @@ use crate::{
 /// before committing CS and the operand-sized EIP. The memory form uses the same
 /// complete four-/six-byte pointer access. Descriptor faults precede target #GP(0).
 /// The target check applies even under Flat32; the new CS.D controls subsequent
-/// decoding, not this target's width. Far CALL/RET, gates, privilege transitions,
-/// interrupt/debug delivery and SS-load inhibition are not modeled.
+/// decoding, not this target's width. Far CALL (`9A`, `FF /3` memory) checks stack
+/// capacity between resolution and target validation, proves all frame pages,
+/// then saves old CS and fallthrough and commits ESP and CS. Far RET (`CB`, `CA
+/// imm16`) checks and reads the frame, requires RPL3, resolves CS and checks the
+/// target before committing ESP, unsigned cleanup and CS. Frames reserve and
+/// segment-check two operand-sized slots, transferring the offset plus two CS
+/// bytes. Selector padding is excluded from paging and preserved, the emulator's
+/// compatibility interpretation of P6 selector access and RET's full-slot check.
+/// SS.B wraps pointer adjustment; frame fields remain consecutive. Gates,
+/// privilege transitions, real-mode transfers, interrupt/debug delivery and
+/// SS-load inhibition are not modeled.
 ///
 /// ```
 /// use wasm86_x86::{compile_interpreter_step, SegmentProfile};

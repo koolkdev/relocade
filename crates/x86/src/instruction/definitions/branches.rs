@@ -1,10 +1,7 @@
 //! Jumps, calls and returns select the next execution entry.
 
 use super::*;
-use crate::{
-    address::MemoryAddress,
-    register::{Gpr32, RegisterType},
-};
+use crate::register::{Gpr32, RegisterType};
 
 instruction_families! {
     JMP_RELATIVE {
@@ -78,20 +75,6 @@ instruction_families! {
         effects: [control_transfer];
         forms {
             0xFF /4 => word_or_dword(rm);
-        }
-    }
-    JMP_FAR_IMMEDIATE {
-        execute: jump_far_immediate::<_>;
-        effects: [control_transfer, segment_load];
-        forms {
-            0xEA => word_or_dword(imm, imm16);
-        }
-    }
-    JMP_FAR_INDIRECT {
-        execute: jump_far_indirect::<_>;
-        effects: [control_transfer, segment_load];
-        forms {
-            0xFF /5 => word_or_dword(mem);
         }
     }
 }
@@ -221,36 +204,9 @@ where
     I32: AtLeast<T>,
 {
     let discard_bytes = discard_bytes.read(execution)?;
-    let pop = execution.read_stack::<T>(T::BYTES)?;
-    let target = execution.jump(pop.value().unsigned().extend::<I32>())?;
-    pop.commit(execution, discard_bytes.unsigned().extend::<I32>())?;
+    let frame = execution.pop_frame(T::BYTES, T::BYTES)?;
+    let value = frame.field::<T>(execution, 0)?.read(execution)?;
+    let target = execution.jump(value.unsigned().extend::<I32>())?;
+    frame.commit(execution, discard_bytes.unsigned().extend::<I32>())?;
     Ok(target)
-}
-
-fn jump_far_immediate<T: RegisterType>(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    offset: Input<T>,
-    selector: Input<I16>,
-    _condition: Option<Condition>,
-    _fallthrough: Val<I32>,
-) -> Result<Val<I32>, BuildError>
-where
-    I32: AtLeast<T>,
-{
-    let offset = offset.read(execution)?;
-    let selector = selector.read(execution)?;
-    execution.jump_far(offset, selector)
-}
-
-fn jump_far_indirect<T: RegisterType>(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    source: MemoryAddress<Val<I32>>,
-    _condition: Option<Condition>,
-    _fallthrough: Val<I32>,
-) -> Result<Val<I32>, BuildError>
-where
-    I32: AtLeast<T>,
-{
-    let (offset, selector) = execution.read_far_pointer::<T>(source)?;
-    execution.jump_far(offset, selector)
 }

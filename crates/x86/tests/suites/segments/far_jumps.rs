@@ -13,7 +13,9 @@ mod targets;
 
 use super::{
     data,
-    selector_cases::{check_one, code_defaults},
+    selector_cases::{
+        check_one, code_defaults, code_descriptor as descriptor, far_pointer as pointer, loaded,
+    },
 };
 use crate::support::{
     blocks::BlockModules,
@@ -21,36 +23,9 @@ use crate::support::{
     step::{Engine, Event, SegmentResolution, TestModule},
 };
 use wasm86_x86::{
-    DescriptorTables, PrivilegeLevel, Segment, SegmentAttributes, SegmentDefaultSize,
-    SegmentDescriptor, SegmentDescriptorKind, SegmentProfile, StoredSegment,
+    DescriptorTables, PrivilegeLevel, Segment, SegmentDefaultSize, SegmentDescriptor,
+    SegmentDescriptorKind, SegmentProfile, StoredSegment,
 };
-
-fn descriptor(base: u32, limit: u32, size: SegmentDefaultSize) -> SegmentDescriptor {
-    SegmentDescriptor::new(
-        base,
-        limit,
-        SegmentDescriptorKind::Code {
-            readable: true,
-            conforming: false,
-        },
-        size,
-    )
-}
-
-fn loaded(selector: u16, base: u32, limit: u32, attributes: u16) -> StoredSegment {
-    StoredSegment {
-        base,
-        limit,
-        selector,
-        attributes: SegmentAttributes::from_bits(attributes),
-    }
-}
-
-fn pointer(word: bool, offset: u32, selector: u16) -> Vec<u8> {
-    let mut bytes = offset.to_le_bytes()[..if word { 2 } else { 4 }].to_vec();
-    bytes.extend(selector.to_le_bytes());
-    bytes
-}
 
 fn immediate(word: bool, offset: u32, selector: u16) -> Vec<u8> {
     let mut code = if word { vec![0x66, 0xea] } else { vec![0xea] };

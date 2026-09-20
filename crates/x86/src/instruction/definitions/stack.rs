@@ -72,8 +72,13 @@ fn pop_flags<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Resul
 where
     I32: AtLeast<T>,
 {
-    let pop = execution.read_stack::<T>(T::BYTES)?;
-    let image = pop.commit(execution, 0)?.unsigned().extend::<I32>();
+    let frame = execution.pop_frame(T::BYTES, T::BYTES)?;
+    let image = frame
+        .field::<T>(execution, 0)?
+        .read(execution)?
+        .unsigned()
+        .extend::<I32>();
+    frame.commit(execution, 0)?;
     let change = match T::BYTES {
         2 => image::WORD.change(&image),
         4 => image::DWORD.change(&image),

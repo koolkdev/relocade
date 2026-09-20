@@ -85,7 +85,8 @@ cache without changing CPU or table state. It distinguishes `#GP`, `#NP` and `#S
 through the shared `Exception` model, checks type/privilege before presence, and
 permits null selectors only for DS/ES/FS/GS. Only global index zero is null; local
 index zero is a normal slot. CS resolution covers direct far CALL/JMP descriptor rules,
-including CS.RPL=3. It does not check a transfer target or implement RET/IRET rules.
+including CS.RPL=3. It does not check a transfer target or RET/IRET-specific
+selector rules. Guest RET adds its RPL3 check before using the CS resolver.
 
 The execution owner must complete any remaining instruction checks before
 committing the record. A successful load can break compilation assumptions, so
@@ -98,9 +99,9 @@ packed descriptor-table memory, descriptor accessed-bit writes, Windows selector
 allocation APIs, privilege transitions and real-mode loading. Interrupt/debug
 delivery and the inhibition following SS loads are not modeled.
 
-Guest MOV, POP, far-pointer loads and far JMP use `wasm86.resolveSegment(segment: i32, selector: i32)`
+Guest MOV, POP, far-pointer loads and far transfers use `wasm86.resolveSegment(segment: i32, selector: i32)`
 to resolve a load. The segment indices are ES=0, CS=1, SS=2, DS=3, FS=4, GS=5;
-far JMP resolves CS, while MOV, POP and pointer loads resolve data segments.
+far JMP/CALL/RET resolve CS, while MOV, POP and pointer loads resolve data segments.
 The host returns six i32 results:
 `(status, error_code, base, limit, selector, attributes)`.
 Status zero supplies a complete normalized `StoredSegment`; other supported
@@ -117,6 +118,8 @@ import it only when they contain a segment load.
 the remaining state. It is a host execution configuration, not a processor reset
 image or a protected-mode segment load. `CpuState::filled` and `from_bytes` remain
 literal snapshot operations: an all-zero image has unusable segment caches.
+Hosts using far CALL/RET must initialize CS with a valid return selector and
+provide its descriptor; the default zero selector cannot be reloaded by RET.
 
 `SegmentProfile::Flat32` expresses flat readable code CS and writable expand-up
 DS/ES/SS, with 32-bit CS defaults and SS stack addressing. FS and GS have no
@@ -190,7 +193,7 @@ instruction prefix before handling that guest fault, for example by entering the
 interpreter at the failing instruction. Debug assertions belong in that block
 owner and detect violated validity invariants. This byte-only compiler has no CS
 state or code-page access to validate them itself; it has no code cache or automatic
-invalidation. MOV, POP, far-pointer loads and far JMP end the block at their cache commit.
+invalidation. MOV, POP, far-pointer loads and far transfers end the block at their cache commit.
 
 The flag backing record separates the source of status values from the individual
 stored flag bytes:
@@ -308,6 +311,9 @@ supports these forms; the table shows the encodings with 32-bit code defaults:
 | JMP register/memory | — | FF /4 | FF /4 |
 | Far JMP immediate offset and selector | — | EA (ptr16:16) | EA (ptr16:32) |
 | Far JMP memory offset and selector | — | FF /5 (m16:16) | FF /5 (m16:32) |
+| Far CALL immediate offset and selector | — | 9A (ptr16:16) | 9A (ptr16:32) |
+| Far CALL memory offset and selector | — | FF /3 (m16:16) | FF /3 (m16:32) |
+| Far RET / RET with unsigned cleanup | — | CB / CA iw | CB / CA iw |
 | JCXZ/JECXZ relative byte displacement | — | E3 | E3 |
 | LOOP relative byte displacement | — | E2 | E2 |
 | LOOPE/LOOPZ relative byte displacement | — | E1 | E1 |
@@ -534,7 +540,6 @@ RET checks only the return-pointer cell; it does not access the discarded bytes
 or validate the resulting ESP. Word indirect and return targets are zero-extended.
 These rules follow the CALL, RET and JMP entries in the
 [Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
-Far CALL and RET remain outside the supported subset.
 
 Far JMP reads an immediate pointer (`EA`) or a memory pointer (`FF /5`, memory
 mode only). The offset is a word or dword at operand size, followed by a word
@@ -549,6 +554,29 @@ the new CS.D sets subsequent decoding defaults and does not narrow this target.
 Dispatch must admit the next entry using the new CS. Destination page faults belong
 to that next fetch. Gates, task switches and privilege transitions are not modeled.
 These rules follow the [Intel JMP entry](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2a-manual.pdf#page=590).
+
+Far CALL uses `9A` for an immediate pointer or `FF /3` for a memory-only pointer.
+It reads the pointer through entry registers and caches, resolves CS, checks stack
+capacity, checks the new target limit, then checks the CS write field followed by the saved-offset field. Only
+after all checks succeed does it store the old visible CS and operand-sized
+fallthrough pointer, update ESP and commit CS. Far RET (`CB`, or `CA imm16` with
+unsigned cleanup) reads the return frame, requires selector RPL3, resolves CS,
+checks the target, then commits frame removal and cleanup followed by CS. Both
+operate at CPL3, preserve flags and other GPRs, and end the execution entry.
+See the protected direct CALL and same-level RET operations in
+[Intel Volume 2A](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2a-manual.pdf#page=229)
+and [Volume 2B](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2b-manual.pdf#page=557).
+
+A far return frame reserves two operand-sized slots: offset at its start and CS
+at the next slot. wasm86 checks the entire four- or eight-byte capacity against
+SS, while transferring only the offset and two selector bytes; dword CS padding
+is preserved and excluded from paging. This is the emulator's compatibility
+interpretation of RET's full-slot check and the P6 selector-transfer behavior in
+[Intel Volume 3B, section 22.31.1](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-3b-part-2-manual.pdf#page=575),
+whose descriptions do not fully agree on the access extent. Fields use consecutive
+offsets within the checked frame, including for B=0 segments with larger limits;
+SS.B wraps the pointer adjustment. Cleanup bytes are not accessed or limit-checked.
+All frame pages are proved before any store, preserving guest memory on faults.
 
 JMP, Jcc and JECXZ preserve registers and flags. LOOP/LOOPcc change ECX, while
 CALL and RET change ESP; all preserve the other registers and flags. Each
@@ -958,13 +986,28 @@ displacement calculation sees that value while fault publication retains entry
 ESP. After both accesses pass their guards, POP defines ESP and writes the
 prepared target.
 
-The stack owner accepts typed values and an explicit slot size: `push(value,
-slot_bytes)` and `read_stack::<T>(slot_bytes)`. Ordinary transfers pass `T::BYTES`;
-segment transfers use `I16` with the instruction's two- or four-byte slot.
-PUSH reads its source and CALL reads its target before using the same guarded push.
-A pending `StackPop` retains the value, entry pointer, SS.B rule and slot size
-without committing ESP. POP checks its destination or resolves its selector before
-committing; RET adds its cleanup and returns the popped value as the successor EIP.
+The stack owner separates frame reservation, capacity checks, page checks and
+pointer commitment. `push_frame(slot_bytes, checked_bytes)` checks from the
+prospective new SP; `pop_frame(slot_bytes, checked_bytes)` checks from entry SP.
+Both return a `StackFrame` retaining the entry ESP, SS.B rule and pending adjustment.
+`frame.field::<T>(execution, offset)` checks a typed field's pages and returns a
+`StackField<T>` with reads/writes restricted to that field. All write fields are
+proved before any store. Their proof order selects the first page fault; CALL
+uses CS then IP, matching its push order. `frame.commit(execution, cleanup)`
+publishes the saved adjustment only after the consumer's remaining checks.
+The reserved, segment-checked and transferred sizes are distinct: ordinary
+segment PUSH/POP reserve an operand-sized slot but check and transfer only two
+bytes; far frames check both complete slots but do not transfer selector padding.
+`push(value, slot_bytes)` uses this lifecycle for scalar transfers. POP checks
+its destination or resolves its selector before commitment; RET checks its target.
+CALL's deferred frame allows its code-target check between SS capacity and paging.
+
+Near transfer checks stay in `execution/control.rs`; protected CS replacement
+lives in `execution/control/far.rs`. Its `CodeTarget` resolves a descriptor, checks
+the new limit and commits CS in separate steps, so JMP, CALL and RET can share the
+policy with their required ordering. Near and far instruction declarations have
+separate modules. Far forms reuse ordered immediates, memory-only ModRM binding,
+`read_far_pointer`, the existing resolver ABI and normal retirement/dispatch.
 
 The state value environment tracks typed byte, word and dword locations,
 forwarding known definitions and caching reads. A location describes either a
@@ -1156,8 +1199,8 @@ LAHF and SAHF retain ordinary unary `byte(AH)` declarations. PUSHF/POPF use
 `word_or_dword()` declarations with no operands and `execute: handler::<_>;` to
 supply the semantic body's type argument from the selected width. The nullary
 handlers and both decoders already carry that width selection. Their bodies reuse
-the guarded stack `push` and `read_stack` operations. A pending `StackPop` exposes
-its value and commits the ESP change only after the consumer's remaining checks.
+the guarded stack `push` and frame operations. The frame reads typed fields and
+commits the ESP change only after the consumer's remaining checks.
 The instruction bodies do not depend on the backing flag record's representation.
 MOV, MOVZX, MOVSX, LEA, XCHG, CMOVcc and SETcc preserve flags, and these instructions
 leave control and system flag bytes untouched. A faulting operand access preserves the

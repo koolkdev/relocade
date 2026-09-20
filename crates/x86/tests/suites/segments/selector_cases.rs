@@ -7,7 +7,7 @@ use crate::support::{
 };
 use wasm86_x86::{
     SegmentAttributes, SegmentDefaultSize, SegmentDescriptor, SegmentDescriptorKind, SegmentKind,
-    SegmentProfile,
+    SegmentProfile, StoredSegment,
 };
 
 pub(super) fn check_one(
@@ -61,4 +61,36 @@ pub(super) fn code_defaults(image: &mut Image, profile: SegmentProfile) {
             SegmentDefaultSize::Bits16,
         );
     }
+}
+
+/// A direct, nonconforming user-code descriptor.
+pub(super) fn code_descriptor(
+    base: u32,
+    limit: u32,
+    size: SegmentDefaultSize,
+) -> SegmentDescriptor {
+    SegmentDescriptor::new(
+        base,
+        limit,
+        SegmentDescriptorKind::Code {
+            readable: true,
+            conforming: false,
+        },
+        size,
+    )
+}
+
+pub(super) fn loaded(selector: u16, base: u32, limit: u32, attributes: u16) -> StoredSegment {
+    StoredSegment {
+        base,
+        limit,
+        selector,
+        attributes: SegmentAttributes::from_bits(attributes),
+    }
+}
+
+pub(super) fn far_pointer(word: bool, offset: u32, selector: u16) -> Vec<u8> {
+    let mut bytes = offset.to_le_bytes()[..if word { 2 } else { 4 }].to_vec();
+    bytes.extend(selector.to_le_bytes());
+    bytes
 }

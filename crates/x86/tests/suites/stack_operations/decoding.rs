@@ -59,7 +59,7 @@ fn stack_encodings_consume_only_their_register_address_or_immediate_fields() {
 fn unsupported_stack_group_extensions_stop_before_address_fetch() {
     let extensions = (1..8)
         .map(|extension| (0x8f, (extension << 3) | 4))
-        .chain([(0xff, 0x1c), (0xff, 0x3c)]);
+        .chain([(0xff, 0x3c)]);
     for (opcode, modrm) in extensions {
         for prefixes in [0, 13] {
             let code = [vec![0x66; prefixes], vec![opcode, modrm]].concat();

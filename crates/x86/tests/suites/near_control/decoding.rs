@@ -205,51 +205,6 @@ fn the_length_limit_precedes_the_absent_code_page_in_v8() {
     check_length_limit(Engine::V8);
 }
 
-// Far CALL and RET remain outside the subset.
-const UNSUPPORTED: &[&[u8]] = &[&[0x9a], &[0xca], &[0xcb], &[0xff, 0x1c]];
-
-#[test]
-fn unsupported_forms_do_not_require_far_pointer_immediate_or_sib_fields() {
-    for &suffix in UNSUPPORTED {
-        for code in [suffix.to_vec(), fifteen_bytes(suffix)] {
-            let start = 0x2000 - code.len() as u32;
-            assert_eq!(
-                compile_block_from_bytes(start, &code, 1).err(),
-                Some(BlockError::UnsupportedInstruction {
-                    address: start,
-                    opcode: suffix[0],
-                }),
-                "{code:02x?}",
-            );
-        }
-    }
-}
-
-fn check_unsupported_forms(engine: Engine) {
-    for &suffix in UNSUPPORTED {
-        let image = image_at_page_end(&fifteen_bytes(suffix));
-        check_exit(
-            engine,
-            &format!("unsupported near-control neighbor {suffix:02x?}"),
-            &image,
-            Exit::Other(
-                0x0008_0000_0000_0000 | (u64::from(suffix[0]) << 32) | u64::from(image.cpu.eip),
-            ),
-        );
-    }
-}
-
-#[test]
-fn unsupported_forms_stop_before_missing_fields_in_wasmtime() {
-    check_unsupported_forms(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn unsupported_forms_stop_before_missing_fields_in_v8() {
-    check_unsupported_forms(Engine::V8);
-}
-
 struct BoundaryForm {
     code: &'static [u8],
     stack_before: u32,

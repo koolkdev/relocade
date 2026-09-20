@@ -125,14 +125,47 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         bytes: u32,
         intent: Intent,
     ) -> Result<Access, BuildError> {
-        let on_fault = |fault_body: FunctionBuilder<'_>, exception: Exception<Val<I32>>| {
-            self.state
-                .fault(fault_body, &self.eip, self.completed, exception)
-        };
-        let linear =
-            self.segments
-                .translate(&mut self.body, segment, offset, bytes, intent, on_fault)?;
-        memory.resolve_access(&mut self.body, &linear, bytes, intent, on_fault)
+        let linear = self.translate(segment, offset, bytes, intent)?;
+        self.resolve_access(memory, &linear, bytes, intent)
+    }
+
+    fn translate(
+        &mut self,
+        segment: &SegmentSelection,
+        offset: &Val<I32>,
+        bytes: u32,
+        intent: Intent,
+    ) -> Result<Val<I32>, BuildError> {
+        self.segments.translate(
+            &mut self.body,
+            segment,
+            offset,
+            bytes,
+            intent,
+            |fault_body, exception| {
+                self.state
+                    .fault(fault_body, &self.eip, self.completed, exception)
+            },
+        )
+    }
+
+    fn resolve_access(
+        &mut self,
+        memory: &Memory,
+        linear: &Val<I32>,
+        bytes: u32,
+        intent: Intent,
+    ) -> Result<Access, BuildError> {
+        memory.resolve_access(
+            &mut self.body,
+            linear,
+            bytes,
+            intent,
+            |fault_body, exception| {
+                self.state
+                    .fault(fault_body, &self.eip, self.completed, exception)
+            },
+        )
     }
 
     pub(super) fn complete(mut self) -> Result<(), BuildError> {

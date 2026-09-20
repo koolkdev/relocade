@@ -116,7 +116,16 @@
 //! then commits CS and the target EIP together. Descriptor faults precede #GP(0)
 //! for an excessive target. Registers, stack and flags are preserved. Operand size
 //! determines target width; the new CS.D controls subsequent decoding defaults.
-//! Far CALL, RET, gates and privilege transitions remain outside the subset.
+//! Far CALL (`9A` immediate, `FF /3` memory) resolves CS, checks stack capacity,
+//! checks the new target and proves frame write access before saving old CS and
+//! the operand-sized fallthrough offset. Far RET (`CB`, `CA imm16` cleanup) reads
+//! the frame, requires RPL3, resolves CS and checks the target before committing
+//! ESP and CS. Both reserve two operand-sized slots, check the complete frame
+//! against SS and transfer an operand-sized offset plus two selector bytes.
+//! Unused selector padding is preserved and excluded from paging, following the
+//! emulator's chosen interpretation of P6 selector transfers and RET's slot check.
+//! Frame fields are consecutive; SS.B wraps pointer arithmetic, including cleanup.
+//! Gates, privilege transitions and real-mode transfers remain outside the subset.
 //! Transfers retire once and dispatch without
 //! fetching the destination instruction. Snapshot blocks end at the first control
 //! transfer, REP, segment load or requested instruction limit, whichever comes first.
@@ -165,7 +174,7 @@
 //! and flat readable CS. The host must preserve compatibility until a terminal
 //! segment load. Only publication and dispatch follow the cache commit; the next
 //! entry must reestablish compatibility and snapshot validity. The execution owner
-//! invalidates dependent entries and links when assumptions break. Far JMP validates
+//! invalidates dependent entries and links when assumptions break. Far transfers validate
 //! the new CS limit even when entered under Flat32.
 //! CS.D sets the operand/address defaults; `66` and `67` independently select the
 //! other size. Byte operands stay byte-sized. Prefixes may occur in any order.

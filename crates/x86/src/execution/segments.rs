@@ -35,11 +35,12 @@ impl ExecutionBuilder<'_, '_> {
         segment: Segment,
         slot_bytes: u32,
     ) -> Result<(), BuildError> {
-        let popped = self.read_stack::<I16>(slot_bytes)?;
-        let values = self.resolve_segment(segment, popped.value())?;
+        let frame = self.pop_frame(slot_bytes, 2)?;
+        let selector = frame.field::<I16>(self, 0)?.read(self)?;
+        let values = self.resolve_segment(segment, &selector)?;
         // Resolve before changing ESP; commit its old-SS pointer before replacing
         // the cache, since the new SS may have a different base or stack width.
-        popped.commit(self, 0)?;
+        frame.commit(self, 0)?;
         self.state
             .write_segment(&mut self.body, &segment.into(), &values)
     }
