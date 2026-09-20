@@ -35,6 +35,11 @@ instruction_families! {
             0x9D => word_or_dword();
         }
     }
+    ENTER {
+        execute: enter_frame::<_>;
+        effects: [memory_read, memory_write];
+        forms { 0xC8 => word_or_dword(imm16, imm8); }
+    }
     LEAVE {
         execute: leave_frame::<_>;
         effects: [memory_read];
@@ -87,4 +92,17 @@ fn leave_frame<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
 ) -> Result<(), BuildError> {
     execution.leave_frame::<T>()
+}
+
+fn enter_frame<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    allocation: Input<I16>,
+    nesting: Input<I8>,
+) -> Result<(), BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let allocation = allocation.read(execution)?;
+    let nesting = nesting.read(execution)?;
+    execution.enter_frame::<T>(allocation, nesting)
 }

@@ -222,8 +222,9 @@ the callback runs.
 
 A guest fault returns directly without calling dispatch. Earlier completed
 instructions remain published; EIP identifies the faulting instruction, which
-does not retire. An ordinary fault preserves that instruction's entry CPU state
-and makes no partial guest-memory writes. REP faults retain completed elements,
+does not retire. An ordinary fault preserves that instruction's entry CPU state.
+Each checked guest-memory write is complete or absent, but ENTER retains successful
+frame pushes if a later access faults. REP faults retain completed elements,
 current indices and the remaining count, with EIP at the instruction's first
 prefix. A successful REP, including zero-count execution, retires once.
 

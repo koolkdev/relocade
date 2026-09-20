@@ -1,6 +1,7 @@
 mod address;
 mod control;
 mod operands;
+mod regions;
 mod repetition;
 mod segments;
 mod stack;

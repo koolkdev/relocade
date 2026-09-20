@@ -28,33 +28,14 @@ impl ExecutionBuilder<'_, '_> {
         }
         let count = self.read_address_register(Gpr32::Ecx)?;
         let initial_indices = self.read_indices(indices)?;
-        let state = &self.state;
-        let memory = self.memory;
-        let segments = self.segments;
-        let address_size = self.address_size;
-        let segment_override = self.segment_override.clone();
-        let runtime = self.runtime;
-        let eip = &self.eip;
-        let completed = self.completed;
-        let (remaining, final_indices) = self.body.loop_::<(I32, [I32; N]), (I32, [I32; N])>(
+        let (remaining, final_indices) = self.loop_::<(I32, [I32; N]), (I32, [I32; N])>(
             (count, initial_indices),
-            |mut body, labels, (remaining, positions)| {
-                body.branch_if(
+            |mut iteration, labels, (remaining, positions)| {
+                iteration.body.branch_if(
                     remaining.eq(0),
                     &labels.exit,
                     (&remaining, positions.clone()),
                 )?;
-                let mut iteration = ExecutionBuilder {
-                    body,
-                    state: state.clone(),
-                    memory,
-                    segments,
-                    segment_override,
-                    address_size,
-                    runtime,
-                    eip: eip.clone(),
-                    completed,
-                };
                 iteration.write_address_register(Gpr32::Ecx, remaining.clone())?;
                 iteration.write_indices(indices, positions)?;
                 element(&mut iteration)?;

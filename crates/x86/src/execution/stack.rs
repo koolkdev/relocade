@@ -1,5 +1,7 @@
 //! Stack frames separate capacity checks, memory transfers and pointer commitment.
 
+mod procedure;
+
 use std::marker::PhantomData;
 
 use wasm86_compiler::{BuildError, Val, I32};
@@ -8,7 +10,7 @@ use crate::{
     address::RegisterValue,
     instruction::Location,
     memory::{Access, Intent, Memory},
-    register::{Gpr32, Register, RegisterType},
+    register::{Gpr32, RegisterType},
     segment::Segment,
 };
 
@@ -95,6 +97,7 @@ impl<T: RegisterType> StackField<'_, T> {
 /// For a wrapped 16-bit-stack POP to memory, wasm86 uses the incremented ESP
 /// with its upper word preserved. That destination is processor-family-specific;
 /// retaining the full ESP also supplies 32-bit destination addressing.
+#[derive(Clone)]
 struct StackPointer {
     esp: Val<I32>,
     mask: Val<I32>,
@@ -138,6 +141,15 @@ impl ExecutionBuilder<'_, '_> {
         checked_bytes: u32,
     ) -> Result<StackFrame, BuildError> {
         let pointer = self.stack_pointer()?;
+        self.push_frame_at(pointer, slot_bytes, checked_bytes)
+    }
+
+    fn push_frame_at(
+        &mut self,
+        pointer: StackPointer,
+        slot_bytes: u32,
+        checked_bytes: u32,
+    ) -> Result<StackFrame, BuildError> {
         let adjustment = -(slot_bytes as i32);
         let offset = pointer.advance(adjustment).offset();
         let intent = Intent::Write;
@@ -178,21 +190,6 @@ impl ExecutionBuilder<'_, '_> {
             pointer,
             adjustment: slot_bytes as i32,
         })
-    }
-
-    pub(crate) fn leave_frame<T: RegisterType>(&mut self) -> Result<(), BuildError> {
-        let frame_pointer = self.state.read_register(&mut self.body, Gpr32::Ebp)?;
-        let pointer = self.stack_pointer()?.with_offset(frame_pointer);
-        // SS.B selects SP/ESP independently of the popped BP/EBP width. Keep
-        // the replacement prospective until the frame read has succeeded.
-        let frame = self.pop_frame_at(pointer, T::BYTES, T::BYTES)?;
-        let saved_frame_pointer = frame.field::<T>(self, 0)?.read(self)?;
-        frame.commit(self, 0)?;
-        self.state.write_register(
-            &mut self.body,
-            Register::<T>::named(Gpr32::Ebp),
-            saved_frame_pointer,
-        )
     }
 
     /// Segment pushes transfer a selector word even in a dword-sized slot.
