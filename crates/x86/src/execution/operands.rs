@@ -18,12 +18,49 @@ pub(crate) struct PairValues<T: RegisterType> {
 }
 
 /// A location whose complete write span has passed its architectural guards.
-pub(super) enum WriteTarget<'memory, T: RegisterType> {
+pub(crate) struct WriteTarget<'memory, T: RegisterType> {
+    location: WriteLocation<'memory, T>,
+}
+
+enum WriteLocation<'memory, T: RegisterType> {
     Register(Register<T>),
     Memory {
         memory: &'memory Memory,
         access: Access,
     },
+}
+
+impl<T: RegisterType> WriteTarget<'_, T> {
+    fn read(&self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<Val<T>, BuildError> {
+        match &self.location {
+            WriteLocation::Register(register) => execution
+                .state
+                .read_register(&mut execution.body, register.clone()),
+            WriteLocation::Memory { memory, access } => {
+                memory.read::<T>(&mut execution.body, access, 0)
+            }
+        }
+    }
+
+    /// Writes without repeating address evaluation or architectural guards.
+    /// Register targets retain their alias and apply it to state at this point.
+    pub(crate) fn write(
+        self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        value: impl Into<Val<T>>,
+    ) -> Result<(), BuildError> {
+        match self.location {
+            WriteLocation::Register(register) => {
+                execution
+                    .state
+                    .write_register(&mut execution.body, register, value)
+            }
+            WriteLocation::Memory { memory, access } => {
+                let value = execution.body.value(value)?;
+                memory.write(&mut execution.body, &access, 0, &value)
+            }
+        }
+    }
 }
 
 impl<'memory> ExecutionBuilder<'_, 'memory> {
@@ -61,7 +98,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
         let target = self.prepare_write::<T>(location, &[])?;
-        self.write_target(target, value)
+        target.write(self, value)
     }
 
     /// Checks the complete write span before reading the old value, then writes
@@ -73,9 +110,9 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         update: impl FnOnce(&mut Self, Val<T>) -> Result<Val<T>, BuildError>,
     ) -> Result<(), BuildError> {
         let target = self.prepare_write::<T>(location, &[])?;
-        let old_value = self.read_target(&target)?;
+        let old_value = target.read(self)?;
         let value = update(self, old_value)?;
-        self.write_target(target, value)
+        target.write(self, value)
     }
 
     /// Resolves and checks both write targets, then reads both old values before
@@ -90,58 +127,32 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         let left = self.prepare_write::<T>(left, &[])?;
         let right = self.prepare_write::<T>(right, &[])?;
         let old_values = PairValues {
-            left: self.read_target(&left)?,
-            right: self.read_target(&right)?,
+            left: left.read(self)?,
+            right: right.read(self)?,
         };
         let values = update(self, old_values)?;
-        self.write_target(right, values.right)?;
-        self.write_target(left, values.left)
+        right.write(self, values.right)?;
+        left.write(self, values.left)
     }
 
-    pub(super) fn prepare_write<T: RegisterType>(
+    /// Resolves the destination using temporary address bindings and checks its
+    /// complete write span without changing architectural register values.
+    pub(crate) fn prepare_write<T: RegisterType>(
         &mut self,
         location: Location<impl Into<Val<I32>>>,
         bindings: &[RegisterValue],
     ) -> Result<WriteTarget<'memory, T>, BuildError> {
-        Ok(match location {
-            Location::Register(register) => WriteTarget::Register(register.view::<T>()),
+        let location = match location {
+            Location::Register(register) => WriteLocation::Register(register.view::<T>()),
             Location::Memory(address) => {
                 let offset =
                     address::resolve(&mut self.body, &mut self.state, address.offset, bindings)?;
                 let memory = self.memory.expect("a memory operand declares guest memory");
                 let access =
                     self.checked(memory, &address.segment, &offset, T::BYTES, Intent::Write)?;
-                WriteTarget::Memory { memory, access }
+                WriteLocation::Memory { memory, access }
             }
-        })
-    }
-
-    fn read_target<T: RegisterType>(
-        &mut self,
-        target: &WriteTarget<'memory, T>,
-    ) -> Result<Val<T>, BuildError> {
-        match target {
-            WriteTarget::Register(register) => {
-                self.state.read_register(&mut self.body, register.clone())
-            }
-            WriteTarget::Memory { memory, access } => memory.read::<T>(&mut self.body, access, 0),
-        }
-    }
-
-    /// Applies a prepared target without further architectural guards.
-    pub(super) fn write_target<T: RegisterType>(
-        &mut self,
-        target: WriteTarget<'memory, T>,
-        value: impl Into<Val<T>>,
-    ) -> Result<(), BuildError> {
-        match target {
-            WriteTarget::Register(register) => {
-                self.state.write_register(&mut self.body, register, value)
-            }
-            WriteTarget::Memory { memory, access } => {
-                let value = self.body.value(value)?;
-                memory.write(&mut self.body, &access, 0, &value)
-            }
-        }
+        };
+        Ok(WriteTarget { location })
     }
 }

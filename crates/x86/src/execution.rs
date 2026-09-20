@@ -6,7 +6,7 @@ mod repetition;
 mod segments;
 mod stack;
 
-pub(crate) use operands::PairValues;
+pub(crate) use operands::{PairValues, WriteTarget};
 pub(crate) use repetition::Repetition;
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32, I8};

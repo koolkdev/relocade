@@ -22,8 +22,8 @@ impl ExecutionBuilder<'_, '_> {
         let level = nesting.unsigned().extend::<I32>().and(31);
         let old_frame = self.state.read_register(&mut self.body, Gpr32::Ebp)?;
         let pointer = self.stack_pointer()?;
-        let saved = self.push_frame_at(pointer.clone(), T::BYTES, T::BYTES)?;
-        let frame_pointer = saved.next_pointer().esp;
+        let saved = pointer.clone().push_frame(self, T::BYTES, T::BYTES)?;
+        let frame_pointer = saved.next_pointer().value();
         saved
             .field::<T>(self, 0)?
             .write(self, &old_frame.truncate::<T>())?;
@@ -38,10 +38,12 @@ impl ExecutionBuilder<'_, '_> {
                             .body
                             .branch_if(remaining.eq(0), &labels.exit, &esp)?;
                         let source = pointer.with_offset(source).advance(-(T::BYTES as i32));
-                        let read = iteration.pop_frame_at(source.clone(), T::BYTES, T::BYTES)?;
+                        let read = source
+                            .clone()
+                            .pop_frame(&mut iteration, T::BYTES, T::BYTES)?;
                         let value = read.field::<T>(&mut iteration, 0)?.read(&mut iteration)?;
-                        let write = iteration.push_frame_at(
-                            pointer.with_offset(esp),
+                        let write = pointer.with_offset(esp).push_frame(
+                            &mut iteration,
                             T::BYTES,
                             T::BYTES,
                         )?;
@@ -51,14 +53,20 @@ impl ExecutionBuilder<'_, '_> {
                             .write(&mut iteration, &value)?;
                         iteration.body.branch(
                             &labels.again,
-                            (remaining.sub(1), source.offset(), write.next_pointer().esp),
+                            (
+                                remaining.sub(1),
+                                source.offset(),
+                                write.next_pointer().value(),
+                            ),
                         )
                     },
                 )?;
-                let link = nested.push_frame_at(pointer.with_offset(esp), T::BYTES, T::BYTES)?;
+                let link = pointer
+                    .with_offset(esp)
+                    .push_frame(&mut nested, T::BYTES, T::BYTES)?;
                 link.field::<T>(&mut nested, 0)?
                     .write(&mut nested, &frame_pointer.truncate::<T>())?;
-                nested.body.yield_(link.next_pointer().esp)
+                nested.body.yield_(link.next_pointer().value())
             },
             |nested| nested.body.yield_(&frame_pointer),
         )?;
@@ -79,22 +87,6 @@ impl ExecutionBuilder<'_, '_> {
             Register::<T>::named(Gpr32::Ebp),
             frame_pointer.truncate::<T>(),
         )?;
-        self.state
-            .write_register(&mut self.body, Gpr32::Esp, allocated.esp)
-    }
-
-    pub(crate) fn leave_frame<T: RegisterType>(&mut self) -> Result<(), BuildError> {
-        let frame_pointer = self.state.read_register(&mut self.body, Gpr32::Ebp)?;
-        let pointer = self.stack_pointer()?.with_offset(frame_pointer);
-        // SS.B selects SP/ESP independently of the popped BP/EBP width. Keep
-        // the replacement prospective until the frame read has succeeded.
-        let frame = self.pop_frame_at(pointer, T::BYTES, T::BYTES)?;
-        let saved_frame_pointer = frame.field::<T>(self, 0)?.read(self)?;
-        frame.commit(self, 0)?;
-        self.state.write_register(
-            &mut self.body,
-            Register::<T>::named(Gpr32::Ebp),
-            saved_frame_pointer,
-        )
+        allocated.commit(self)
     }
 }

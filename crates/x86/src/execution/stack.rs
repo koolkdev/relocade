@@ -1,15 +1,12 @@
 //! Stack frames separate capacity checks, memory transfers and pointer commitment.
 
 mod frame;
-mod registers;
 
 use std::marker::PhantomData;
 
 use wasm86_compiler::{BuildError, Val, I32};
 
 use crate::{
-    address::RegisterValue,
-    instruction::Location,
     memory::{Access, Intent, Memory},
     register::{Gpr32, RegisterType},
     segment::Segment,
@@ -49,7 +46,7 @@ impl StackFrame {
         })
     }
 
-    fn next_pointer(&self) -> StackPointer {
+    pub(crate) fn next_pointer(&self) -> StackPointer {
         self.pointer.advance(self.adjustment)
     }
 
@@ -59,13 +56,9 @@ impl StackFrame {
         execution: &mut ExecutionBuilder<'_, '_>,
         discard_bytes: impl Into<Val<I32>>,
     ) -> Result<(), BuildError> {
-        execution.state.write_register(
-            &mut execution.body,
-            Gpr32::Esp,
-            self.pointer
-                .advance(discard_bytes.into().add(self.adjustment))
-                .esp,
-        )
+        self.pointer
+            .advance(discard_bytes.into().add(self.adjustment))
+            .commit(execution)
     }
 }
 
@@ -94,22 +87,26 @@ impl<T: RegisterType> StackField<'_, T> {
     }
 }
 
-/// SS.B wraps pointer arithmetic independently of the transferred value width.
-/// For a wrapped 16-bit-stack POP to memory, wasm86 uses the incremented ESP
-/// with its upper word preserved. That destination is processor-family-specific;
-/// retaining the full ESP also supplies 32-bit destination addressing.
+/// A prospective ESP value whose arithmetic uses the captured SS.B width.
+/// Deriving pointers and checking frames does not update architectural ESP.
 #[derive(Clone)]
-struct StackPointer {
+pub(crate) struct StackPointer {
     esp: Val<I32>,
     mask: Val<I32>,
 }
 
 impl StackPointer {
+    /// Includes the preserved upper word when SS.B selects a 16-bit stack.
+    pub(crate) fn value(&self) -> Val<I32> {
+        self.esp.clone()
+    }
+
     fn offset(&self) -> Val<I32> {
         self.esp.and(&self.mask)
     }
 
-    fn with_offset(&self, offset: impl Into<Val<I32>>) -> Self {
+    /// Replaces the active SP/ESP bits, preserving the entry value's other bits.
+    pub(crate) fn with_offset(&self, offset: impl Into<Val<I32>>) -> Self {
         let esp = self
             .esp
             .and(self.mask.xor(u32::MAX))
@@ -123,10 +120,56 @@ impl StackPointer {
     fn advance(&self, bytes: impl Into<Val<I32>>) -> Self {
         self.with_offset(self.esp.add(bytes))
     }
+
+    pub(crate) fn commit(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
+        execution
+            .state
+            .write_register(&mut execution.body, Gpr32::Esp, self.esp)
+    }
+
+    /// Reserves bytes below this pointer and checks capacity at the new SP.
+    pub(crate) fn push_frame(
+        self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        slot_bytes: u32,
+        checked_bytes: u32,
+    ) -> Result<StackFrame, BuildError> {
+        let adjustment = -(slot_bytes as i32);
+        let offset = self.advance(adjustment).offset();
+        let intent = Intent::Write;
+        let linear = execution.translate(&Segment::Ss.into(), &offset, checked_bytes, intent)?;
+        Ok(StackFrame {
+            linear,
+            checked_bytes,
+            intent,
+            pointer: self,
+            adjustment,
+        })
+    }
+
+    /// Checks capacity at this SP and saves an adjustment using the captured SS.B.
+    /// Fields within the frame are consecutive; only pointer arithmetic wraps.
+    pub(crate) fn pop_frame(
+        self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        slot_bytes: u32,
+        checked_bytes: u32,
+    ) -> Result<StackFrame, BuildError> {
+        let offset = self.offset();
+        let intent = Intent::Read;
+        let linear = execution.translate(&Segment::Ss.into(), &offset, checked_bytes, intent)?;
+        Ok(StackFrame {
+            linear,
+            checked_bytes,
+            intent,
+            pointer: self,
+            adjustment: slot_bytes as i32,
+        })
+    }
 }
 
 impl ExecutionBuilder<'_, '_> {
-    fn stack_pointer(&mut self) -> Result<StackPointer, BuildError> {
+    pub(crate) fn stack_pointer(&mut self) -> Result<StackPointer, BuildError> {
         let esp = self.state.read_register(&mut self.body, Gpr32::Esp)?;
         let mask = self
             .segments
@@ -135,62 +178,22 @@ impl ExecutionBuilder<'_, '_> {
         Ok(StackPointer { esp, mask })
     }
 
-    /// Reserves bytes below the entry pointer and checks capacity at the new SP.
     pub(crate) fn push_frame(
         &mut self,
         slot_bytes: u32,
         checked_bytes: u32,
     ) -> Result<StackFrame, BuildError> {
-        let pointer = self.stack_pointer()?;
-        self.push_frame_at(pointer, slot_bytes, checked_bytes)
+        self.stack_pointer()?
+            .push_frame(self, slot_bytes, checked_bytes)
     }
 
-    fn push_frame_at(
-        &mut self,
-        pointer: StackPointer,
-        slot_bytes: u32,
-        checked_bytes: u32,
-    ) -> Result<StackFrame, BuildError> {
-        let adjustment = -(slot_bytes as i32);
-        let offset = pointer.advance(adjustment).offset();
-        let intent = Intent::Write;
-        let linear = self.translate(&Segment::Ss.into(), &offset, checked_bytes, intent)?;
-        Ok(StackFrame {
-            linear,
-            checked_bytes,
-            intent,
-            pointer,
-            adjustment,
-        })
-    }
-
-    /// Checks capacity at entry SP and saves an adjustment using the entry SS.B.
-    /// Fields within the frame are consecutive; only pointer arithmetic wraps.
     pub(crate) fn pop_frame(
         &mut self,
         slot_bytes: u32,
         checked_bytes: u32,
     ) -> Result<StackFrame, BuildError> {
-        let pointer = self.stack_pointer()?;
-        self.pop_frame_at(pointer, slot_bytes, checked_bytes)
-    }
-
-    fn pop_frame_at(
-        &mut self,
-        pointer: StackPointer,
-        slot_bytes: u32,
-        checked_bytes: u32,
-    ) -> Result<StackFrame, BuildError> {
-        let offset = pointer.offset();
-        let intent = Intent::Read;
-        let linear = self.translate(&Segment::Ss.into(), &offset, checked_bytes, intent)?;
-        Ok(StackFrame {
-            linear,
-            checked_bytes,
-            intent,
-            pointer,
-            adjustment: slot_bytes as i32,
-        })
+        self.stack_pointer()?
+            .pop_frame(self, slot_bytes, checked_bytes)
     }
 
     /// Segment pushes transfer a selector word even in a dword-sized slot.
@@ -205,24 +208,5 @@ impl ExecutionBuilder<'_, '_> {
         let frame = self.push_frame(slot_bytes, T::BYTES)?;
         frame.field::<T>(self, 0)?.write(self, &value)?;
         frame.commit(self, 0)
-    }
-
-    pub(crate) fn pop<T: RegisterType>(
-        &mut self,
-        destination: Location<impl Into<Val<I32>>>,
-    ) -> Result<(), BuildError> {
-        let frame = self.pop_frame(T::BYTES, T::BYTES)?;
-        let value = frame.field::<T>(self, 0)?.read(self)?;
-        // Address reads see next ESP while the fault state still holds entry ESP.
-        let target = self.prepare_write::<T>(
-            destination,
-            &[RegisterValue {
-                register: Gpr32::Esp,
-                value: frame.next_pointer().esp,
-            }],
-        )?;
-        // POP ESP overwrites the increment; POP SP preserves its upper word.
-        frame.commit(self, 0)?;
-        self.write_target(target, value)
     }
 }

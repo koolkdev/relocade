@@ -5,8 +5,8 @@ use wasm86_compiler::{AtLeast, BuildError, Val, I32};
 
 use super::{Location, Operand};
 use crate::{
-    address::{EffectiveAddress, IndexTerm, MemoryAddress},
-    execution::{ExecutionBuilder, PairValues},
+    address::{EffectiveAddress, IndexTerm, MemoryAddress, RegisterValue},
+    execution::{ExecutionBuilder, PairValues, WriteTarget},
     register::{Gpr32, RegisterType},
 };
 
@@ -89,6 +89,16 @@ impl<T: RegisterType> TypedLocation<T> {
         value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
         execution.write::<T>(self.location, value)
+    }
+
+    /// Checks a destination with temporary address-register values. Its write
+    /// can follow other state updates without reevaluating the destination.
+    pub(crate) fn prepare_write<'module>(
+        self,
+        execution: &mut ExecutionBuilder<'_, 'module>,
+        bindings: &[RegisterValue],
+    ) -> Result<WriteTarget<'module, T>, BuildError> {
+        execution.prepare_write::<T>(self.location, bindings)
     }
 
     pub(crate) fn update<'body, 'module>(

@@ -1,6 +1,7 @@
 use super::*;
+use crate::address::RegisterValue;
 use crate::flags::image;
-use crate::register::RegisterType;
+use crate::register::{Gpr32, RegisterType};
 
 instruction_families! {
     PUSH {
@@ -73,19 +74,56 @@ fn pop<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<T>,
 ) -> Result<(), BuildError> {
-    execution.pop::<T>(destination.into_location())
+    let frame = execution.pop_frame(T::BYTES, T::BYTES)?;
+    let value = frame.field::<T>(execution, 0)?.read(execution)?;
+    // Address reads see next ESP while the fault state still holds entry ESP.
+    // On a 16-bit stack, this uses the preserved upper ESP word even on wrap.
+    // That wrapped destination policy is processor-family-specific.
+    let target = destination.prepare_write(
+        execution,
+        &[RegisterValue {
+            register: Gpr32::Esp,
+            value: frame.next_pointer().value(),
+        }],
+    )?;
+    // POP ESP overwrites the increment; POP SP preserves its upper word.
+    frame.commit(execution, 0)?;
+    target.write(execution, value)
 }
 
 fn push_all_registers<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-) -> Result<(), BuildError> {
-    execution.push_all_registers::<T>()
+) -> Result<(), BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let mut pointer = execution.stack_pointer()?;
+    for register in Gpr32::ALL {
+        // ESP stays at its entry value until all eight pushes succeed.
+        let value = TypedLocation::<T>::register(register).read(execution)?;
+        let frame = pointer.push_frame(execution, T::BYTES, T::BYTES)?;
+        frame.field::<T>(execution, 0)?.write(execution, &value)?;
+        pointer = frame.next_pointer();
+    }
+    pointer.commit(execution)
 }
 
 fn pop_all_registers<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
 ) -> Result<(), BuildError> {
-    execution.pop_all_registers::<T>()
+    let mut pointer = execution.stack_pointer()?;
+    for register in Gpr32::ALL.into_iter().rev() {
+        let frame = pointer.pop_frame(execution, T::BYTES, T::BYTES)?;
+        // The discarded SP/ESP slot still requires segment and page checks.
+        let field = frame.field::<T>(execution, 0)?;
+        if register != Gpr32::Esp {
+            let value = field.read(execution)?;
+            // Earlier restores survive a later fault, while ESP stays at entry.
+            TypedLocation::<T>::register(register).write(execution, value)?;
+        }
+        pointer = frame.next_pointer();
+    }
+    pointer.commit(execution)
 }
 
 fn push_flags<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
@@ -113,7 +151,14 @@ where
 fn leave_frame<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
 ) -> Result<(), BuildError> {
-    execution.leave_frame::<T>()
+    let frame_pointer = TypedLocation::<I32>::register(Gpr32::Ebp).read(execution)?;
+    let pointer = execution.stack_pointer()?.with_offset(frame_pointer);
+    // SS.B selects SP/ESP independently of the popped BP/EBP width. Keep
+    // the replacement prospective until the frame read has succeeded.
+    let frame = pointer.pop_frame(execution, T::BYTES, T::BYTES)?;
+    let saved_frame_pointer = frame.field::<T>(execution, 0)?.read(execution)?;
+    frame.commit(execution, 0)?;
+    TypedLocation::<T>::register(Gpr32::Ebp).write(execution, saved_frame_pointer)
 }
 
 fn enter_frame<T: RegisterType>(
