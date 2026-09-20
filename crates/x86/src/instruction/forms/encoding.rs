@@ -47,106 +47,45 @@ impl ImmediateWidth {
     }
 }
 
-/// Immediate fields in their encoded order. Widths and decoded values use the
-/// same shape; a failed read prevents reading any later field.
+/// Fields preceding the immediate operands, including any complete address.
 #[derive(Clone, Copy)]
-pub(crate) enum ImmediateFields<T> {
-    One(T),
-    Two(T, T),
-}
-
-impl<T> ImmediateFields<T> {
-    pub(crate) const fn len(&self) -> usize {
-        match self {
-            Self::One(_) => 1,
-            Self::Two(_, _) => 2,
-        }
-    }
-
-    pub(crate) fn get(&self, index: usize) -> &T {
-        match (self, index) {
-            (Self::One(first) | Self::Two(first, _), 0) => first,
-            (Self::Two(_, second), 1) => second,
-            _ => panic!("the binding selects an encoded immediate field"),
-        }
-    }
-
-    pub(crate) fn try_map<U, E>(
-        self,
-        mut map: impl FnMut(T) -> Result<U, E>,
-    ) -> Result<ImmediateFields<U>, E> {
-        Ok(match self {
-            Self::One(first) => ImmediateFields::One(map(first)?),
-            Self::Two(first, second) => {
-                let first = map(first)?;
-                let second = map(second)?;
-                ImmediateFields::Two(first, second)
-            }
-        })
-    }
-}
-
-impl ImmediateFields<ImmediateWidth> {
-    pub(super) const fn append(self, width: ImmediateWidth) -> Self {
-        match self {
-            Self::One(first) => Self::Two(first, width),
-            Self::Two(_, _) => panic!("a form has at most two immediate fields"),
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum Encoding {
-    OpcodeOnly,
+pub(crate) enum OperandEncoding {
+    None,
     OpcodeRegister,
-    OpcodeRegisterImmediate {
-        immediates: ImmediateFields<ImmediateWidth>,
-    },
-    Immediate {
-        immediates: ImmediateFields<ImmediateWidth>,
-    },
-    /// ModRM supplies reg/rm fields. Immediates follow the complete address.
-    ModRm {
-        immediates: Option<ImmediateFields<ImmediateWidth>>,
-    },
+    ModRm,
     /// Address size selects the offset field width independently of data width.
-    AccumulatorOffset,
+    AbsoluteOffset,
+}
+
+/// A form's physical layout. Immediate fields follow the complete operand layout
+/// in encoded order, with unused array entries set to None.
+#[derive(Clone, Copy)]
+pub(crate) struct Encoding {
+    pub(crate) operands: OperandEncoding,
+    pub(crate) immediates: [Option<ImmediateWidth>; 2],
 }
 
 impl Encoding {
     pub(crate) fn has_modrm(self) -> bool {
-        matches!(self, Self::ModRm { .. })
-    }
-
-    pub(crate) const fn immediates(self) -> Option<ImmediateFields<ImmediateWidth>> {
-        match self {
-            Self::OpcodeRegisterImmediate { immediates } | Self::Immediate { immediates } => {
-                Some(immediates)
-            }
-            Self::ModRm { immediates } => immediates,
-            _ => None,
-        }
+        matches!(self.operands, OperandEncoding::ModRm)
     }
 }
 
-pub(crate) enum DecodedFields<V> {
-    OpcodeOnly,
-    OpcodeRegister {
-        register: RegisterCode,
-    },
-    OpcodeRegisterImmediate {
-        register: RegisterCode,
-        immediates: ImmediateFields<V>,
-    },
-    Immediate {
-        immediates: ImmediateFields<V>,
-    },
-    ModRm {
-        register: RegisterCode,
-        rm: Location<V>,
-        immediates: Option<ImmediateFields<V>>,
-    },
-    AccumulatorOffset {
-        offset: V,
-    },
+/// Decoders fill the fields required by the form. Binding selects them by role.
+pub(crate) struct DecodedFields<V> {
+    pub(crate) register: Option<RegisterCode>,
+    pub(crate) rm: Option<Location<V>>,
+    pub(crate) absolute_offset: Option<V>,
+    pub(crate) immediates: [Option<V>; 2],
+}
+
+impl<V> Default for DecodedFields<V> {
+    fn default() -> Self {
+        Self {
+            register: None,
+            rm: None,
+            absolute_offset: None,
+            immediates: [None, None],
+        }
+    }
 }

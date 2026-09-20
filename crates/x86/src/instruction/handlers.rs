@@ -39,7 +39,7 @@ pub(super) type TernaryHandler = for<'body, 'module> fn(
     fallthrough_eip: Val<I32>,
 ) -> Result<Val<I32>, BuildError>;
 
-/// These are Rust code-generation functions, selected while decoding a form.
+/// Declaration adapters supply these functions before their field bindings are paired.
 #[derive(Clone, Copy)]
 pub(super) enum Handler {
     Nullary(NullaryHandler),
@@ -49,20 +49,20 @@ pub(super) enum Handler {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct SizedHandlers {
-    pub(super) word: Handler,
-    pub(super) dword: Handler,
+pub(super) struct SizedHandlers<H> {
+    pub(super) word: H,
+    pub(super) dword: H,
 }
 
-impl SizedHandlers {
-    pub(super) const fn fixed(handler: Handler) -> Self {
+impl<H: Copy> SizedHandlers<H> {
+    pub(super) const fn fixed(handler: H) -> Self {
         Self {
             word: handler,
             dword: handler,
         }
     }
 
-    pub(super) fn resolve(self, size: OperandSize) -> Handler {
+    pub(super) fn resolve(self, size: OperandSize) -> H {
         match size {
             OperandSize::Word => self.word,
             OperandSize::Dword => self.dword,
@@ -70,24 +70,25 @@ impl SizedHandlers {
     }
 }
 
-/// A concrete handler together with its decoded operand arguments.
-pub(super) enum HandlerCall<V> {
+/// A handler and its arguments share one shape, from field bindings to decoded operands.
+#[derive(Clone, Copy)]
+pub(super) enum HandlerCall<L, O> {
     Nullary {
         handler: NullaryHandler,
     },
     Binary {
         handler: BinaryHandler,
-        left: Operand<V>,
-        right: Operand<V>,
+        left: O,
+        right: O,
     },
     Unary {
         handler: UnaryHandler,
-        operand: Operand<V>,
+        operand: O,
     },
     Ternary {
         handler: TernaryHandler,
-        destination: Location<V>,
-        first_source: Operand<V>,
-        second_source: Operand<V>,
+        destination: L,
+        first_source: O,
+        second_source: O,
     },
 }

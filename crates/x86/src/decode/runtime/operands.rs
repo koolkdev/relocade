@@ -9,8 +9,8 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
 use crate::{
     decode::DecodeState,
     instruction::{
-        forms_by_opcode, DecodedFields, DecodedInstruction, Encoding, Form, Location, OpcodeMap,
-        ResolvedForm,
+        forms_by_opcode, DecodedFields, DecodedInstruction, Form, Location, OpcodeMap,
+        OperandEncoding, ResolvedForm,
     },
     register::RegisterCode,
 };
@@ -29,23 +29,19 @@ where
         opcode: u8,
         form: &ResolvedForm,
     ) -> Result<(), BuildError> {
-        let fields = match form.encoding() {
-            Encoding::OpcodeOnly => DecodedFields::OpcodeOnly,
-            Encoding::OpcodeRegister => DecodedFields::OpcodeRegister {
-                register: RegisterCode::from_code(opcode),
+        let mut fields = match form.encoding().operands {
+            OperandEncoding::None => DecodedFields::default(),
+            OperandEncoding::OpcodeRegister => DecodedFields {
+                register: Some(RegisterCode::from_code(opcode)),
+                ..DecodedFields::default()
             },
-            Encoding::OpcodeRegisterImmediate { .. } => DecodedFields::OpcodeRegisterImmediate {
-                register: RegisterCode::from_code(opcode),
-                immediates: cursor.immediates(&mut body, form)?,
+            OperandEncoding::AbsoluteOffset => DecodedFields {
+                absolute_offset: Some(cursor.integer(&mut body, form.address_width())?),
+                ..DecodedFields::default()
             },
-            Encoding::Immediate { .. } => DecodedFields::Immediate {
-                immediates: cursor.immediates(&mut body, form)?,
-            },
-            Encoding::AccumulatorOffset => DecodedFields::AccumulatorOffset {
-                offset: cursor.integer(&mut body, form.address_width())?,
-            },
-            _ => unreachable!("the selected form has no ModRM"),
+            OperandEncoding::ModRm => unreachable!("the selected form has no ModRM"),
         };
+        cursor.read_immediates(&mut body, form, &mut fields)?;
         let decoded_instruction =
             form.bind(fields, cursor.instruction_eip().clone(), cursor.next_eip());
         (self.complete_instruction)(body, decoded_instruction)
@@ -103,17 +99,14 @@ where
         form: &ResolvedForm,
         rm: Location<Val<I32>>,
     ) -> Result<(), BuildError> {
-        let Encoding::ModRm { immediates } = form.encoding() else {
-            unreachable!("the selected form has a ModRM field");
+        let mut fields = DecodedFields {
+            rm: Some(rm),
+            ..DecodedFields::default()
         };
-        let immediates = immediates
-            .map(|_| cursor.immediates(&mut body, form))
-            .transpose()?;
-        let fields = DecodedFields::ModRm {
-            register: RegisterCode::indexed(modrm.unsigned().shr(3).unsigned().extend::<I32>()),
-            rm,
-            immediates,
-        };
+        cursor.read_immediates(&mut body, form, &mut fields)?;
+        fields.register = Some(RegisterCode::indexed(
+            modrm.unsigned().shr(3).unsigned().extend::<I32>(),
+        ));
         let instruction = form.bind(fields, cursor.instruction_eip().clone(), cursor.next_eip());
         (self.complete_instruction)(body, instruction)
     }

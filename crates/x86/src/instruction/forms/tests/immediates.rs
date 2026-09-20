@@ -1,6 +1,5 @@
 //! Ordered physical fields retain their widths and logical operand bindings.
 
-use super::declarations::{Declaration, Opcode, OperandSpec};
 use super::*;
 
 #[test]
@@ -8,13 +7,19 @@ fn two_immediates_bind_in_encoded_order_with_independent_physical_widths() {
     let form = catalog_form(OpcodeMap::Primary, 0xea, None);
     for (prefixes, offset_bytes) in [(word_prefixes(), 2), (PrefixState::default(), 4)] {
         let resolved = form.resolve(&prefixes).unwrap();
-        let fields = resolved.immediates();
-        assert_eq!(fields.len(), 2);
+        let encoding = resolved.encoding();
         assert_eq!(
-            resolved.immediate_width(*fields.get(0)).bytes(),
+            resolved
+                .immediate_width(encoding.immediates[0].unwrap())
+                .bytes(),
             offset_bytes
         );
-        assert_eq!(resolved.immediate_width(*fields.get(1)).bytes(), 2);
+        assert_eq!(
+            resolved
+                .immediate_width(encoding.immediates[1].unwrap())
+                .bytes(),
+            2
+        );
     }
     for (bytes, offset, fallthrough) in [
         (
@@ -41,7 +46,7 @@ fn two_immediates_bind_in_encoded_order_with_independent_physical_widths() {
 }
 
 #[test]
-fn immediate_indices_skip_locations_in_every_layout_that_accepts_immediates() {
+fn immediates_bind_after_location_operands() {
     for location in [
         OperandSpec::FixedRegister(NamedRegister::low(Gpr32::Eax)),
         OperandSpec::OpcodeRegister,
@@ -70,22 +75,13 @@ fn immediate_indices_skip_locations_in_every_layout_that_accepts_immediates() {
                 repeat_handlers: None,
             }
             .form();
-            let immediates: ImmediateFields<u32> = if two {
-                ImmediateFields::Two(0x9234_5678, 0xf327)
-            } else {
-                ImmediateFields::One(0x9234_5678)
-            };
-            let fields = match location {
-                OperandSpec::OpcodeRegister => DecodedFields::OpcodeRegisterImmediate {
-                    register: RegisterCode::from_code(0),
-                    immediates,
-                },
-                OperandSpec::Rm => DecodedFields::ModRm {
-                    register: RegisterCode::from_code(0),
-                    rm: Location::Register(RegisterCode::from_code(0).into()),
-                    immediates: Some(immediates),
-                },
-                _ => DecodedFields::Immediate { immediates },
+            let fields = DecodedFields {
+                register: matches!(location, OperandSpec::OpcodeRegister | OperandSpec::Rm)
+                    .then(|| RegisterCode::from_code(0)),
+                rm: matches!(location, OperandSpec::Rm)
+                    .then(|| Location::Register(RegisterCode::from_code(0).into())),
+                immediates: [Some(0x9234_5678u32), two.then_some(0xf327)],
+                ..DecodedFields::default()
             };
             let decoded = form
                 .resolve(&PrefixState::default())
@@ -116,17 +112,6 @@ fn immediate_indices_skip_locations_in_every_layout_that_accepts_immediates() {
 }
 
 #[test]
-fn a_failed_field_read_prevents_reading_later_fields() {
-    let mut reads = vec![];
-    let result = ImmediateFields::Two(0, 1).try_map(|field| {
-        reads.push(field);
-        Err::<(), _>("missing first field")
-    });
-    assert!(matches!(result, Err("missing first field")));
-    assert_eq!(reads, [0]);
-}
-
-#[test]
 fn immediate_encoding_keeps_fixed_widths_and_signed_bytes_distinct() {
     for (opcode, extension, word_bytes, dword_bytes, signed) in [
         (0xc2, None, 2, 2, false),
@@ -139,10 +124,11 @@ fn immediate_encoding_keeps_fixed_widths_and_signed_bytes_distinct() {
             (PrefixState::default(), dword_bytes),
         ] {
             let resolved = form.resolve(&prefixes).unwrap();
-            let fields = resolved.immediates();
-            assert_eq!(fields.len(), 1);
-            assert_eq!(resolved.immediate_width(*fields.get(0)).bytes(), bytes);
-            assert_eq!(fields.get(0).is_signed(), signed);
+            let encoding = resolved.encoding();
+            assert!(encoding.immediates[1].is_none());
+            let field = encoding.immediates[0].unwrap();
+            assert_eq!(resolved.immediate_width(field).bytes(), bytes);
+            assert_eq!(field.is_signed(), signed);
         }
     }
 

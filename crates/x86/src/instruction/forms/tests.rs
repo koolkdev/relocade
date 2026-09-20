@@ -1,13 +1,14 @@
 mod immediates;
 
+use super::declarations::{Declaration, Opcode, OperandSpec};
 use super::*;
 use crate::{
     address::EffectiveAddress,
     instruction::{
-        handlers::HandlerCall, opcode_forms, Location, Operand, Prefix, PrefixState,
-        EXTENDED_OPCODE_ESCAPE,
+        handlers::{Handler, HandlerCall},
+        opcode_forms, Location, Operand, Prefix, PrefixState, EXTENDED_OPCODE_ESCAPE,
     },
-    register::{Gpr32, RegisterCode, RegisterOperand},
+    register::{Gpr32, RegisterCode, RegisterOperand, RegisterSelection},
 };
 
 fn word_prefixes() -> PrefixState {
@@ -60,72 +61,73 @@ fn opcode_candidates_share_a_decode_layout_and_never_overlap() {
 }
 
 #[test]
-fn catalog_bindings_use_available_fields_and_match_resolved_handler_arities() {
+fn catalog_bindings_select_declared_fields() {
     for map in [OpcodeMap::Primary, OpcodeMap::Extended] {
         for form in opcode_forms(map) {
-            let bindings = match form.binding {
-                OperandBindingShape::Nullary => vec![],
-                OperandBindingShape::Unary(operand) => vec![operand],
-                OperandBindingShape::Binary { left, right } => vec![left, right],
-                OperandBindingShape::Ternary {
-                    destination,
-                    first_source,
-                    second_source,
-                } => vec![
-                    OperandBinding::Location(destination),
-                    first_source,
-                    second_source,
-                ],
-            };
             for resolved in PrefixState::combinations(crate::SegmentDefaultSize::Bits32)
                 .filter_map(|prefixes| form.resolve(&prefixes))
             {
-                let arity = match resolved.handler {
-                    Handler::Nullary(_) => 0,
-                    Handler::Unary(_) => 1,
-                    Handler::Binary(_) => 2,
-                    Handler::Ternary(_) => 3,
+                let bindings = match resolved.call {
+                    HandlerCall::Nullary { .. } => vec![],
+                    HandlerCall::Unary { operand, .. } => vec![operand],
+                    HandlerCall::Binary { left, right, .. } => vec![left, right],
+                    HandlerCall::Ternary {
+                        destination,
+                        first_source,
+                        second_source,
+                        ..
+                    } => vec![
+                        OperandBinding::Location(destination),
+                        first_source,
+                        second_source,
+                    ],
                 };
-                assert_eq!(arity, bindings.len(), "opcode {:02x}", form.opcode);
-            }
-            let immediate_count = form.encoding.immediates().map_or(0, |fields| fields.len());
-            assert_eq!(
-                bindings
-                    .iter()
-                    .filter_map(|binding| match binding {
-                        OperandBinding::Immediate(index) => Some(*index),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>(),
-                (0..immediate_count).collect::<Vec<_>>(),
-                "opcode {:02x} must bind each encoded immediate once in order",
-                form.opcode
-            );
-            for binding in bindings {
-                match binding {
-                    OperandBinding::Location(LocationBinding::Register) => {
-                        assert!(matches!(
-                            form.encoding,
-                            Encoding::OpcodeRegister
-                                | Encoding::OpcodeRegisterImmediate { .. }
-                                | Encoding::ModRm { .. }
-                        ));
-                        assert!(
-                            form.extension.is_none(),
-                            "ModRM.reg cannot also be an opcode extension"
-                        );
+                assert_eq!(
+                    bindings
+                        .iter()
+                        .filter_map(|binding| match binding {
+                            OperandBinding::Immediate(index) => Some(*index),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>(),
+                    form.encoding
+                        .immediates
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, width)| width.map(|_| index))
+                        .collect::<Vec<_>>(),
+                    "opcode {:02x} must bind each encoded immediate once in order",
+                    form.opcode
+                );
+                for binding in bindings {
+                    match binding {
+                        OperandBinding::Location(LocationBinding::Register) => {
+                            assert!(matches!(
+                                form.encoding.operands,
+                                OperandEncoding::OpcodeRegister | OperandEncoding::ModRm
+                            ));
+                            assert!(
+                                form.extension.is_none(),
+                                "ModRM.reg cannot also be an opcode extension"
+                            );
+                        }
+                        OperandBinding::Location(LocationBinding::Rm)
+                        | OperandBinding::RmAddress => {
+                            assert!(form.encoding.has_modrm());
+                        }
+                        OperandBinding::Location(LocationBinding::AbsoluteOffset) => {
+                            assert!(matches!(
+                                form.encoding.operands,
+                                OperandEncoding::AbsoluteOffset
+                            ));
+                        }
+                        OperandBinding::Immediate(index) => {
+                            assert!(form.encoding.immediates[index].is_some())
+                        }
+                        OperandBinding::Location(LocationBinding::FixedRegister(_))
+                        | OperandBinding::Segment(_)
+                        | OperandBinding::Constant(_) => {}
                     }
-                    OperandBinding::Location(LocationBinding::Rm | LocationBinding::Memory)
-                    | OperandBinding::RmAddress => {
-                        assert!(form.encoding.has_modrm());
-                    }
-                    OperandBinding::Location(LocationBinding::AbsoluteOffset) => {
-                        assert!(matches!(form.encoding, Encoding::AccumulatorOffset));
-                    }
-                    OperandBinding::Immediate(index) => assert!(index < immediate_count),
-                    OperandBinding::Location(LocationBinding::FixedRegister(_))
-                    | OperandBinding::Segment(_)
-                    | OperandBinding::Constant(_) => {}
                 }
             }
         }
@@ -193,15 +195,16 @@ fn opcode_register_ranges_cover_exactly_eight_codes_and_bind_each_register() {
         );
         assert_eq!(form.mask, 0xf8);
         assert!(matches!(
-            form.encoding,
-            Encoding::OpcodeRegisterImmediate { .. }
+            form.encoding.operands,
+            OperandEncoding::OpcodeRegister
         ));
         for code in 0..8 {
             for prefixes in [word_prefixes(), PrefixState::default()] {
                 let decoded = form.resolve(&prefixes).unwrap().bind(
-                    DecodedFields::OpcodeRegisterImmediate {
-                        register: RegisterCode::from_code(code),
-                        immediates: ImmediateFields::One(0x7au32),
+                    DecodedFields {
+                        register: Some(RegisterCode::from_code(code)),
+                        immediates: [Some(0x7au32), None],
+                        ..DecodedFields::default()
                     },
                     0x1000,
                     0x1002,
@@ -220,10 +223,36 @@ fn opcode_register_ranges_cover_exactly_eight_codes_and_bind_each_register() {
 }
 
 #[test]
+fn modrm_direction_selects_the_handler_destination_and_source() {
+    for (opcode, destination, source) in [
+        (0x89, Gpr32::Ecx, Gpr32::Ebx),
+        (0x8b, Gpr32::Ebx, Gpr32::Ecx),
+    ] {
+        // ModRM encodes EBX in reg and ECX in r/m; the opcode determines direction.
+        let bytes = [opcode, 0xd9];
+        let (decoded, remaining) =
+            crate::decode::snapshot(&bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
+        assert!(remaining.is_empty());
+        let HandlerCall::Binary {
+            left: Operand::Location(Location::Register(left)),
+            right: Operand::Location(Location::Register(right)),
+            ..
+        } = decoded.instruction.call
+        else {
+            panic!("register MOV binds two register operands");
+        };
+        assert!(matches!(left.view::<wasm86_compiler::I32>().selection,
+            RegisterSelection::Named { parent, byte: 0 } if parent == destination));
+        assert!(matches!(right.view::<wasm86_compiler::I32>().selection,
+            RegisterSelection::Named { parent, byte: 0 } if parent == source));
+    }
+}
+
+#[test]
 fn width_alternatives_share_one_opcode_and_preserve_implicit_register_bindings() {
     let form = catalog_form(OpcodeMap::Primary, 0x98, None);
     assert_eq!(form.mask, 0xff);
-    assert!(matches!(form.encoding, Encoding::OpcodeOnly));
+    assert!(matches!(form.encoding.operands, OperandEncoding::None));
     for (bytes, fallthrough) in [
         (&[0x98, 0x62][..], 0x1001),
         (&[0x66, 0x98, 0x62][..], 0x1002),
@@ -250,10 +279,10 @@ fn width_alternatives_share_one_opcode_and_preserve_implicit_register_bindings()
 fn flag_transfer_forms_bind_ah_without_encoded_operand_fields() {
     for opcode in [0x9e, 0x9f] {
         let form = catalog_form(OpcodeMap::Primary, opcode, None);
-        assert!(matches!(form.encoding, Encoding::OpcodeOnly));
+        assert!(matches!(form.encoding.operands, OperandEncoding::None));
         for prefixes in [word_prefixes(), PrefixState::default()] {
             let decoded = form.resolve(&prefixes).unwrap().bind(
-                DecodedFields::<u32>::OpcodeOnly,
+                DecodedFields::<u32>::default(),
                 0x1000,
                 0x1001,
             );
@@ -279,9 +308,9 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
         assert!(mov.matches_modrm(modrm));
     }
     for prefixes in [word_prefixes(), PrefixState::default()] {
-        let fields = || DecodedFields::ModRm {
-            register: RegisterCode::from_code(2),
-            rm: Location::Memory(
+        let fields = || DecodedFields {
+            register: Some(RegisterCode::from_code(2)),
+            rm: Some(Location::Memory(
                 EffectiveAddress {
                     size: crate::address::AddressSize::Bits32,
                     base: None,
@@ -290,8 +319,8 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
                 }
                 .memory()
                 .into(),
-            ),
-            immediates: None,
+            )),
+            ..DecodedFields::default()
         };
         let address = lea
             .resolve(&prefixes)
@@ -325,36 +354,32 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
 
 #[test]
 fn memory_only_bindings_restrict_modrm_at_every_operand_position() {
-    let memory = OperandBinding::Location(LocationBinding::Memory);
-    let register = OperandBinding::Location(LocationBinding::Register);
-    let base = *catalog_form(OpcodeMap::Primary, 0xc5, None);
-    for binding in [
-        OperandBindingShape::Unary(memory),
-        OperandBindingShape::Binary {
-            left: memory,
-            right: register,
-        },
-        OperandBindingShape::Binary {
-            left: register,
-            right: memory,
-        },
-        OperandBindingShape::Ternary {
-            destination: LocationBinding::Memory,
-            first_source: register,
-            second_source: register,
-        },
-        OperandBindingShape::Ternary {
-            destination: LocationBinding::Register,
-            first_source: memory,
-            second_source: register,
-        },
-        OperandBindingShape::Ternary {
-            destination: LocationBinding::Register,
-            first_source: register,
-            second_source: memory,
-        },
+    let memory = OperandSpec::Memory;
+    let register = OperandSpec::ModRmRegister;
+    let unary = Handler::Unary(|_, _, _, fallthrough| Ok(fallthrough));
+    let binary = Handler::Binary(|_, _, _, _, fallthrough| Ok(fallthrough));
+    let ternary = Handler::Ternary(|_, _, _, _, _, fallthrough| Ok(fallthrough));
+    for (operands, handler) in [
+        (&[memory][..], unary),
+        (&[memory, register][..], binary),
+        (&[register, memory][..], binary),
+        (&[memory, register, register][..], ternary),
+        (&[register, memory, register][..], ternary),
+        (&[register, register, memory][..], ternary),
     ] {
-        let form = Form { binding, ..base };
+        let form = Declaration {
+            opcode: Opcode {
+                map: OpcodeMap::Primary,
+                byte: 0x00,
+                register_range: false,
+                extension: None,
+            },
+            operands,
+            handlers: SizedHandlers::fixed(handler),
+            effects: &[],
+            repeat_handlers: None,
+        }
+        .form();
         for modrm in 0..=u8::MAX {
             assert_eq!(form.matches_modrm(modrm), modrm >> 6 != 3);
         }

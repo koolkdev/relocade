@@ -1,12 +1,9 @@
 //! Assigns decoded fields to the handler's arguments without reading guest state.
 
-use super::{DecodedFields, LocationBinding, OperandBinding, OperandBindingShape, ResolvedForm};
+use super::{DecodedFields, LocationBinding, OperandBinding, ResolvedForm};
 use crate::{
     address::EffectiveAddress,
-    instruction::{
-        handlers::{Handler, HandlerCall},
-        DecodedInstruction, Instruction, Location, Operand,
-    },
+    instruction::{handlers::HandlerCall, DecodedInstruction, Instruction, Location, Operand},
 };
 
 impl ResolvedForm {
@@ -16,35 +13,32 @@ impl ResolvedForm {
         eip: P,
         fallthrough_eip: P,
     ) -> DecodedInstruction<V, P> {
-        let call = match (self.handler, self.form.binding) {
-            (Handler::Nullary(handler), OperandBindingShape::Nullary) => {
-                HandlerCall::Nullary { handler }
-            }
-            (Handler::Binary(handler), OperandBindingShape::Binary { left, right }) => {
-                HandlerCall::Binary {
-                    handler,
-                    left: self.bind_operand(&fields, left),
-                    right: self.bind_operand(&fields, right),
-                }
-            }
-            (Handler::Unary(handler), OperandBindingShape::Unary(operand)) => HandlerCall::Unary {
+        let call = match self.call {
+            HandlerCall::Nullary { handler } => HandlerCall::Nullary { handler },
+            HandlerCall::Binary {
+                handler,
+                left,
+                right,
+            } => HandlerCall::Binary {
+                handler,
+                left: self.bind_operand(&fields, left),
+                right: self.bind_operand(&fields, right),
+            },
+            HandlerCall::Unary { handler, operand } => HandlerCall::Unary {
                 handler,
                 operand: self.bind_operand(&fields, operand),
             },
-            (
-                Handler::Ternary(handler),
-                OperandBindingShape::Ternary {
-                    destination,
-                    first_source,
-                    second_source,
-                },
-            ) => HandlerCall::Ternary {
+            HandlerCall::Ternary {
+                handler,
+                destination,
+                first_source,
+                second_source,
+            } => HandlerCall::Ternary {
                 handler,
                 destination: self.bind_location(&fields, destination),
                 first_source: self.bind_operand(&fields, first_source),
                 second_source: self.bind_operand(&fields, second_source),
             },
-            _ => unreachable!("the form binds the handler's argument shape"),
         };
         DecodedInstruction {
             instruction: Instruction {
@@ -66,37 +60,28 @@ impl ResolvedForm {
         binding: LocationBinding,
     ) -> Location<V> {
         let mut location = match binding {
-            LocationBinding::Register => {
-                let (DecodedFields::OpcodeRegisterImmediate { register, .. }
-                | DecodedFields::ModRm { register, .. }
-                | DecodedFields::OpcodeRegister { register }) = fields
-                else {
-                    unreachable!("the form selects a decoded register field")
-                };
-                Location::Register(register.clone().into())
-            }
-            LocationBinding::Rm | LocationBinding::Memory => {
-                let DecodedFields::ModRm { rm, .. } = fields else {
-                    unreachable!("the form selects a decoded r/m field")
-                };
-                rm.clone()
-            }
-            LocationBinding::FixedRegister(register) => Location::Register(register.into()),
-            LocationBinding::AbsoluteOffset => {
-                let DecodedFields::AccumulatorOffset { offset } = fields else {
-                    unreachable!("the form selects a decoded absolute offset")
-                };
-                Location::Memory(
-                    EffectiveAddress {
-                        size: self.address_size,
-                        base: None,
-                        index: None,
-                        displacement: offset.clone(),
-                    }
-                    .memory()
+            LocationBinding::Register => Location::Register(
+                fields
+                    .register
+                    .clone()
+                    .expect("the form decodes a register")
                     .into(),
-                )
-            }
+            ),
+            LocationBinding::Rm => fields.rm.clone().expect("the form decodes r/m"),
+            LocationBinding::FixedRegister(register) => Location::Register(register.into()),
+            LocationBinding::AbsoluteOffset => Location::Memory(
+                EffectiveAddress {
+                    size: self.address_size,
+                    base: None,
+                    index: None,
+                    displacement: fields
+                        .absolute_offset
+                        .clone()
+                        .expect("the form decodes an absolute offset"),
+                }
+                .memory()
+                .into(),
+            ),
         };
         if let Location::Memory(address) = &mut location {
             address.segment = self.segment_override.apply(&address.segment);
@@ -120,18 +105,11 @@ impl ResolvedForm {
                 };
                 Operand::Address(address.offset)
             }
-            OperandBinding::Immediate(index) => {
-                let (DecodedFields::OpcodeRegisterImmediate { immediates, .. }
-                | DecodedFields::Immediate { immediates }
-                | DecodedFields::ModRm {
-                    immediates: Some(immediates),
-                    ..
-                }) = fields
-                else {
-                    unreachable!("the form selects a decoded immediate")
-                };
-                Operand::Immediate(immediates.get(index).clone())
-            }
+            OperandBinding::Immediate(index) => Operand::Immediate(
+                fields.immediates[index]
+                    .clone()
+                    .expect("the form decodes this immediate"),
+            ),
         }
     }
 }

@@ -4,8 +4,8 @@ use super::DecodeState;
 
 use crate::{
     instruction::{
-        DecodedFields, DecodedInstruction, Encoding, FieldWidth, ImmediateFields, Location, Prefix,
-        PrefixState, ResolvedForm, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
+        DecodedFields, DecodedInstruction, FieldWidth, ImmediateWidth, Location, OperandEncoding,
+        Prefix, PrefixState, ResolvedForm, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
     },
     register::RegisterCode,
     segment::SegmentDefaultSize,
@@ -65,25 +65,25 @@ pub(crate) fn snapshot(
     let form = form
         .resolve(&state.prefixes)
         .expect("the prefix state admits this form");
-    let fields = match form.encoding() {
-        Encoding::OpcodeOnly => DecodedFields::OpcodeOnly,
-        Encoding::OpcodeRegister => DecodedFields::OpcodeRegister {
-            register: RegisterCode::from_code(opcode),
+    let mut fields = match form.encoding().operands {
+        OperandEncoding::None => DecodedFields::default(),
+        OperandEncoding::OpcodeRegister => DecodedFields {
+            register: Some(RegisterCode::from_code(opcode)),
+            ..DecodedFields::default()
         },
-        Encoding::OpcodeRegisterImmediate { .. } => DecodedFields::OpcodeRegisterImmediate {
-            register: RegisterCode::from_code(opcode),
-            immediates: cursor.immediates(&form)?,
-        },
-        Encoding::Immediate { .. } => DecodedFields::Immediate {
-            immediates: cursor.immediates(&form)?,
-        },
-        Encoding::ModRm { .. } => {
+        OperandEncoding::ModRm => {
             cursor.modrm_fields(&form, modrm.expect("the selected encoding has ModRM"))?
         }
-        Encoding::AccumulatorOffset => DecodedFields::AccumulatorOffset {
-            offset: cursor.integer(form.address_width())?,
+        OperandEncoding::AbsoluteOffset => DecodedFields {
+            absolute_offset: Some(cursor.integer(form.address_width())?),
+            ..DecodedFields::default()
         },
     };
+    for (value, width) in fields.immediates.iter_mut().zip(form.encoding().immediates) {
+        *value = width
+            .map(|width| cursor.immediate(&form, width))
+            .transpose()?;
+    }
     let next_eip = instruction_eip.wrapping_add(cursor.offset as u32);
     Ok((
         form.bind(fields, instruction_eip, next_eip),
@@ -125,14 +125,12 @@ impl SnapshotCursor<'_> {
         Ok(bits)
     }
 
-    fn immediates(&mut self, form: &ResolvedForm) -> Result<ImmediateFields<u32>, BlockError> {
-        form.immediates().try_map(|field| {
-            let bits = self.integer(form.immediate_width(field))?;
-            Ok(if field.is_signed() {
-                bits as u8 as i8 as i32 as u32
-            } else {
-                bits
-            })
+    fn immediate(&mut self, form: &ResolvedForm, field: ImmediateWidth) -> Result<u32, BlockError> {
+        let bits = self.integer(form.immediate_width(field))?;
+        Ok(if field.is_signed() {
+            bits as u8 as i8 as i32 as u32
+        } else {
+            bits
         })
     }
 
@@ -150,14 +148,10 @@ impl SnapshotCursor<'_> {
                     .into(),
             )
         };
-        let Encoding::ModRm { immediates } = form.encoding() else {
-            unreachable!("the selected form has a ModRM field");
-        };
-        let immediates = immediates.map(|_| self.immediates(form)).transpose()?;
-        Ok(DecodedFields::ModRm {
-            register: RegisterCode::from_code(modrm >> 3),
-            rm,
-            immediates,
+        Ok(DecodedFields {
+            register: Some(RegisterCode::from_code(modrm >> 3)),
+            rm: Some(rm),
+            ..DecodedFields::default()
         })
     }
 }

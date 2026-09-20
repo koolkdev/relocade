@@ -6,11 +6,11 @@ mod macros;
 pub(in crate::instruction) use {adapters::*, macros::*};
 
 use super::{
-    Encoding, Form, ImmediateFields, ImmediateWidth, LocationBinding, OpcodeMap, OperandBinding,
-    OperandBindingShape,
+    Encoding, Form, HandlerBinding, ImmediateWidth, LocationBinding, OpcodeMap, OperandBinding,
+    OperandEncoding,
 };
 use crate::flags::Condition;
-use crate::instruction::handlers::{Handler, SizedHandlers};
+use crate::instruction::handlers::{Handler, HandlerCall, SizedHandlers};
 use crate::register::NamedRegister;
 
 #[derive(Clone, Copy)]
@@ -28,27 +28,6 @@ pub(in crate::instruction) enum OperandSpec {
 }
 
 impl OperandSpec {
-    const fn binding(self, immediate_index: usize) -> OperandBinding {
-        match self {
-            Self::Segment(segment) => OperandBinding::Segment(segment),
-            Self::Immediate(_) => OperandBinding::Immediate(immediate_index),
-            Self::Constant(value) => OperandBinding::Constant(value),
-            Self::Address => OperandBinding::RmAddress,
-            _ => OperandBinding::Location(self.location()),
-        }
-    }
-
-    const fn location(self) -> LocationBinding {
-        match self {
-            Self::Memory => LocationBinding::Memory,
-            Self::Rm => LocationBinding::Rm,
-            Self::ModRmRegister | Self::OpcodeRegister => LocationBinding::Register,
-            Self::FixedRegister(register) => LocationBinding::FixedRegister(register),
-            Self::Offset => LocationBinding::AbsoluteOffset,
-            _ => panic!("this handler argument requires a location"),
-        }
-    }
-
     // Width alternatives may change logical types, but must decode and bind the
     // same physical fields. Named AX and EAX therefore share a binding here.
     const fn same_binding(self, other: Self) -> bool {
@@ -86,9 +65,9 @@ pub(in crate::instruction) struct Opcode {
 pub(in crate::instruction) struct Declaration<'a> {
     pub(in crate::instruction) opcode: Opcode,
     pub(in crate::instruction) operands: &'a [OperandSpec],
-    pub(in crate::instruction) handlers: SizedHandlers,
+    pub(in crate::instruction) handlers: SizedHandlers<Handler>,
     pub(in crate::instruction) effects: &'a [Effect],
-    pub(in crate::instruction) repeat_handlers: Option<SizedHandlers>,
+    pub(in crate::instruction) repeat_handlers: Option<SizedHandlers<Handler>>,
 }
 
 impl Declaration<'_> {
@@ -101,33 +80,51 @@ impl Declaration<'_> {
         let mut modrm_register = false;
         let mut opcode_register = false;
         let mut offset = false;
-        let mut immediates: Option<ImmediateFields<ImmediateWidth>> = None;
+        let mut immediates = [None; 2];
+        let mut immediate_count = 0;
+        let mut memory_only = false;
         let mut bindings = [None; 3];
         let mut index = 0;
         while index < self.operands.len() {
-            let immediate_index = match immediates {
-                Some(fields) => fields.len(),
-                None => 0,
-            };
-            bindings[index] = Some(self.operands[index].binding(immediate_index));
-            match self.operands[index] {
-                OperandSpec::Rm | OperandSpec::Memory | OperandSpec::Address => modrm = true,
+            bindings[index] = Some(match self.operands[index] {
+                OperandSpec::Rm | OperandSpec::Memory | OperandSpec::Address => {
+                    modrm = true;
+                    memory_only |= !matches!(self.operands[index], OperandSpec::Rm);
+                    if matches!(self.operands[index], OperandSpec::Address) {
+                        OperandBinding::RmAddress
+                    } else {
+                        OperandBinding::Location(LocationBinding::Rm)
+                    }
+                }
                 OperandSpec::ModRmRegister => {
                     modrm = true;
                     modrm_register = true;
+                    OperandBinding::Location(LocationBinding::Register)
                 }
-                OperandSpec::OpcodeRegister => opcode_register = true,
-                OperandSpec::Offset => offset = true,
+                OperandSpec::OpcodeRegister => {
+                    opcode_register = true;
+                    OperandBinding::Location(LocationBinding::Register)
+                }
+                OperandSpec::Offset => {
+                    offset = true;
+                    OperandBinding::Location(LocationBinding::AbsoluteOffset)
+                }
                 OperandSpec::Immediate(width) => {
-                    immediates = Some(match immediates {
-                        Some(fields) => fields.append(width),
-                        None => ImmediateFields::One(width),
-                    });
+                    assert!(
+                        immediate_count < immediates.len(),
+                        "a form has at most two immediate fields"
+                    );
+                    immediates[immediate_count] = Some(width);
+                    let binding = OperandBinding::Immediate(immediate_count);
+                    immediate_count += 1;
+                    binding
                 }
-                OperandSpec::FixedRegister(_)
-                | OperandSpec::Constant(_)
-                | OperandSpec::Segment(_) => {}
-            }
+                OperandSpec::FixedRegister(register) => {
+                    OperandBinding::Location(LocationBinding::FixedRegister(register))
+                }
+                OperandSpec::Constant(value) => OperandBinding::Constant(value),
+                OperandSpec::Segment(segment) => OperandBinding::Segment(segment),
+            });
             index += 1;
         }
         assert!(
@@ -145,7 +142,7 @@ impl Declaration<'_> {
             "ModRM and opcode register fields cannot coexist"
         );
         assert!(
-            !(offset && (modrm || opcode_register || immediates.is_some())),
+            !(offset && (modrm || opcode_register || immediate_count != 0)),
             "moffs is a separate address layout"
         );
         if let Some(extension) = self.opcode.extension {
@@ -154,71 +151,34 @@ impl Declaration<'_> {
                 "/n requires ModRM with no register operand"
             );
         }
-        let encoding = if modrm {
-            Encoding::ModRm { immediates }
+        let operands = if modrm {
+            OperandEncoding::ModRm
         } else if opcode_register {
-            match immediates {
-                Some(immediates) => Encoding::OpcodeRegisterImmediate { immediates },
-                None => Encoding::OpcodeRegister,
-            }
+            OperandEncoding::OpcodeRegister
         } else if offset {
-            Encoding::AccumulatorOffset
-        } else if let Some(immediates) = immediates {
-            Encoding::Immediate { immediates }
+            OperandEncoding::AbsoluteOffset
         } else {
-            Encoding::OpcodeOnly
+            OperandEncoding::None
         };
-        let binding = match self.operands {
-            [] => {
-                assert!(matches!(
-                    (self.handlers.word, self.handlers.dword),
-                    (Handler::Nullary(_), Handler::Nullary(_))
-                ));
-                OperandBindingShape::Nullary
-            }
-            [_] => {
-                assert!(matches!(
-                    (self.handlers.word, self.handlers.dword),
-                    (Handler::Unary(_), Handler::Unary(_))
-                ));
-                OperandBindingShape::Unary(bindings[0].expect("the operand was bound"))
-            }
-            [_, _] => {
-                assert!(matches!(
-                    (self.handlers.word, self.handlers.dword),
-                    (Handler::Binary(_), Handler::Binary(_))
-                ));
-                OperandBindingShape::Binary {
-                    left: bindings[0].expect("the left operand was bound"),
-                    right: bindings[1].expect("the right operand was bound"),
-                }
-            }
-            [destination, _, _] => {
-                assert!(matches!(
-                    (self.handlers.word, self.handlers.dword),
-                    (Handler::Ternary(_), Handler::Ternary(_))
-                ));
-                OperandBindingShape::Ternary {
-                    destination: destination.location(),
-                    first_source: bindings[1].expect("the first source was bound"),
-                    second_source: bindings[2].expect("the second source was bound"),
-                }
-            }
-            _ => panic!("instruction bodies take at most three operands"),
+        let handlers = SizedHandlers {
+            word: bind_handler(self.handlers.word, bindings),
+            dword: bind_handler(self.handlers.dword, bindings),
         };
-        if let Some(handlers) = self.repeat_handlers {
+        let repeat_handlers = if let Some(repeat) = self.repeat_handlers {
             assert!(
                 matches!(
-                    (self.opcode.map, binding),
-                    (OpcodeMap::Primary, OperandBindingShape::Nullary)
+                    (self.opcode.map, handlers.word),
+                    (OpcodeMap::Primary, HandlerCall::Nullary { .. })
                 ),
                 "repeat handlers require a primary opcode with implicit operands"
             );
-            assert!(matches!(
-                (handlers.word, handlers.dword),
-                (Handler::Nullary(_), Handler::Nullary(_))
-            ));
-        }
+            Some(SizedHandlers {
+                word: bind_handler(repeat.word, bindings),
+                dword: bind_handler(repeat.dword, bindings),
+            })
+        } else {
+            None
+        };
         let mut implicit_memory = false;
         let mut ends_block = false;
         index = 0;
@@ -234,14 +194,42 @@ impl Declaration<'_> {
             mask: if opcode_register { 0xf8 } else { 0xff },
             map: self.opcode.map,
             extension: self.opcode.extension,
-            encoding,
-            handlers: self.handlers,
-            binding,
+            encoding: Encoding {
+                operands,
+                immediates,
+            },
+            handlers,
+            memory_only,
             condition: None,
             implicit_memory,
             ends_block,
-            repeat_handlers: self.repeat_handlers,
+            repeat_handlers,
         }
+    }
+}
+
+/// Declaration construction pairs each function with bindings of its exact arity.
+const fn bind_handler(handler: Handler, bindings: [Option<OperandBinding>; 3]) -> HandlerBinding {
+    match (handler, bindings) {
+        (Handler::Nullary(handler), [None, None, None]) => HandlerCall::Nullary { handler },
+        (Handler::Unary(handler), [Some(operand), None, None]) => {
+            HandlerCall::Unary { handler, operand }
+        }
+        (Handler::Binary(handler), [Some(left), Some(right), None]) => HandlerCall::Binary {
+            handler,
+            left,
+            right,
+        },
+        (
+            Handler::Ternary(handler),
+            [Some(OperandBinding::Location(destination)), Some(first_source), Some(second_source)],
+        ) => HandlerCall::Ternary {
+            handler,
+            destination,
+            first_source,
+            second_source,
+        },
+        _ => panic!("the declaration must match the handler's arguments"),
     }
 }
 

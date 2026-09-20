@@ -7,11 +7,11 @@ mod opcodes;
 mod tests;
 
 pub(super) use declarations::instruction_families;
-pub(crate) use encoding::{DecodedFields, Encoding, FieldWidth, ImmediateFields, ImmediateWidth};
+pub(crate) use encoding::{DecodedFields, Encoding, FieldWidth, ImmediateWidth, OperandEncoding};
 pub(crate) use opcodes::forms_by_opcode;
 
 use super::{
-    handlers::{Handler, SizedHandlers},
+    handlers::{HandlerCall, SizedHandlers},
     OperandSize, PrefixState, SegmentOverride,
 };
 use crate::register::NamedRegister;
@@ -38,8 +38,6 @@ impl OpcodeMap {
 pub(super) enum LocationBinding {
     Register,
     Rm,
-    /// The r/m field must select a memory addressing mode.
-    Memory,
     /// A named register view, independent of any encoded register field.
     FixedRegister(NamedRegister),
     AbsoluteOffset,
@@ -56,20 +54,7 @@ pub(super) enum OperandBinding {
     RmAddress,
 }
 
-#[derive(Clone, Copy)]
-pub(super) enum OperandBindingShape {
-    Nullary,
-    Unary(OperandBinding),
-    Binary {
-        left: OperandBinding,
-        right: OperandBinding,
-    },
-    Ternary {
-        destination: LocationBinding,
-        first_source: OperandBinding,
-        second_source: OperandBinding,
-    },
-}
+type HandlerBinding = HandlerCall<LocationBinding, OperandBinding>;
 
 #[derive(Clone, Copy)]
 pub(crate) struct Form {
@@ -79,12 +64,12 @@ pub(crate) struct Form {
     pub(crate) encoding: Encoding,
     /// Required ModRM.reg opcode extension; otherwise those bits belong to the encoding.
     pub(crate) extension: Option<u8>,
-    pub(super) handlers: SizedHandlers,
-    pub(super) binding: OperandBindingShape,
+    handlers: SizedHandlers<HandlerBinding>,
+    memory_only: bool,
     pub(super) condition: Option<Condition>,
     pub(super) implicit_memory: bool,
     pub(super) ends_block: bool,
-    pub(super) repeat_handlers: Option<SizedHandlers>,
+    repeat_handlers: Option<SizedHandlers<HandlerBinding>>,
 }
 
 impl Form {
@@ -100,7 +85,7 @@ impl Form {
             form: *self,
             operand_size,
             address_size: prefixes.address_size(),
-            handler: handlers.resolve(operand_size),
+            call: handlers.resolve(operand_size),
             ends_block,
             segment_override: prefixes.segment_override().clone(),
         })
@@ -118,28 +103,7 @@ impl Form {
     }
 
     pub(crate) fn accepts_register_rm(&self) -> bool {
-        let requires_memory = |operand| {
-            matches!(
-                operand,
-                OperandBinding::RmAddress | OperandBinding::Location(LocationBinding::Memory)
-            )
-        };
-        !match self.binding {
-            OperandBindingShape::Nullary => false,
-            OperandBindingShape::Unary(operand) => requires_memory(operand),
-            OperandBindingShape::Binary { left, right } => {
-                requires_memory(left) || requires_memory(right)
-            }
-            OperandBindingShape::Ternary {
-                destination,
-                first_source,
-                second_source,
-            } => {
-                matches!(destination, LocationBinding::Memory)
-                    || requires_memory(first_source)
-                    || requires_memory(second_source)
-            }
-        }
+        !self.memory_only
     }
 }
 
@@ -149,7 +113,7 @@ pub(crate) struct ResolvedForm {
     form: Form,
     operand_size: OperandSize,
     address_size: AddressSize,
-    handler: Handler,
+    call: HandlerBinding,
     ends_block: bool,
     segment_override: SegmentOverride,
 }
@@ -172,12 +136,5 @@ impl ResolvedForm {
 
     pub(crate) fn immediate_width(&self, field: ImmediateWidth) -> FieldWidth {
         field.width(self.operand_size)
-    }
-
-    pub(crate) fn immediates(&self) -> ImmediateFields<ImmediateWidth> {
-        self.form
-            .encoding
-            .immediates()
-            .expect("the selected encoding contains immediate fields")
     }
 }

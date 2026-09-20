@@ -53,7 +53,7 @@ impl<V> From<Location<V>> for Operand<V> {
 
 /// Handler arguments and the properties shared by every instruction shape.
 pub(super) struct Instruction<V> {
-    call: HandlerCall<V>,
+    call: HandlerCall<Location<V>, Operand<V>>,
     condition: Option<Condition>,
     implicit_memory: bool,
     ends_block: bool,

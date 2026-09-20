@@ -871,14 +871,10 @@ at address width, independently of data width. `address` requires memory address
 but passes the effective address without reading data memory; LEA uses it with
 the ordinary MOV body.
 
-One or two immediate fields can follow an encoding's address fields. The
-`ImmediateFields<T>` collection stores their widths or decoded values in encoded
-order. Both cursors read each field through the same width and sign-extension
-path, stopping at the first fault. `OperandBinding::Immediate(index)` refers to
-the field's position among immediates, skipping other operands. For example,
-`0xEA => word_or_dword(imm, imm16)` binds an operand-sized offset and a fixed-word
-selector to the two typed arguments of the far-JMP body. The physical field types
-live in `forms::encoding`; form resolution and semantic binding retain their own owners.
+One or two immediate fields can follow the complete address. Both decoders read
+them in order, stopping at the first fault. For example,
+`0xEA => word_or_dword(imm, imm16)` supplies an operand-sized offset and a fixed-word
+selector to the two typed arguments of the far-JMP body.
 
 A family's effects appear beside its body. For example:
 
@@ -907,14 +903,10 @@ just as they follow typed operands for ordinary bodies. For example,
 body. Ordinary typed bodies return `Result<()>`; their adapters return
 fallthrough after success. Execution owns retirement and state publication.
 
-The `forms::declarations` helper derives an `Encoding` and operand bindings from
-each row. `Encoding::ModRm` describes reg/rm fields and optional trailing
-immediate fields. Both decoders retain them in `DecodedFields::ModRm`; immediates
-are fetched after all address fields regardless of the body's argument order. Binding
-assigns these fields to zero, one, two or three arguments without reading guest
-state. Lowering converts snapshot literals and runtime expressions to the common
-`Val<I32>` carrier and calls the bound Rust handler. The `handlers` module owns
-these callable shapes and their word/dword selection.
+Declarations derive the encoding and pair each handler with its field bindings.
+Both decoders supply decoded fields; binding assigns them to the handler's arguments
+without reading guest state. Lowering converts snapshot literals and runtime
+expressions to the common `Val<I32>` carrier and calls the bound Rust handler.
 
 `Input<T>` and `TypedLocation<T>` attach logical width to values and locations
 while deferring access until the body requests it. A location converts to an

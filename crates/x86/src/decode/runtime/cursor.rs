@@ -2,7 +2,9 @@ mod read;
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32, I8};
 
-use crate::instruction::{FieldWidth, ImmediateFields, ResolvedForm, MAX_INSTRUCTION_BYTES};
+use crate::instruction::{
+    DecodedFields, FieldWidth, ImmediateWidth, ResolvedForm, MAX_INSTRUCTION_BYTES,
+};
 
 use super::InstructionFetch;
 
@@ -106,17 +108,30 @@ impl<'memory> RuntimeCursor<'memory> {
         self.fixed_offset = None;
     }
 
-    pub(super) fn immediates(
+    pub(super) fn read_immediates(
         &mut self,
         body: &mut FunctionBuilder<'_>,
         form: &ResolvedForm,
-    ) -> Result<ImmediateFields<Val<I32>>, BuildError> {
-        form.immediates().try_map(|field| {
-            if field.is_signed() {
-                return Ok(self.byte(body)?.signed().extend::<I32>());
-            }
-            self.integer(body, form.immediate_width(field))
-        })
+        fields: &mut DecodedFields<Val<I32>>,
+    ) -> Result<(), BuildError> {
+        for (value, width) in fields.immediates.iter_mut().zip(form.encoding().immediates) {
+            *value = width
+                .map(|width| self.immediate(body, form, width))
+                .transpose()?;
+        }
+        Ok(())
+    }
+
+    fn immediate(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        form: &ResolvedForm,
+        field: ImmediateWidth,
+    ) -> Result<Val<I32>, BuildError> {
+        if field.is_signed() {
+            return Ok(self.byte(body)?.signed().extend::<I32>());
+        }
+        self.integer(body, form.immediate_width(field))
     }
 
     pub(super) fn integer(
