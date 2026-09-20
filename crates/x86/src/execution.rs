@@ -2,13 +2,11 @@ mod address;
 mod control;
 mod operands;
 mod regions;
-mod repetition;
 mod segments;
 mod stack;
 
 pub(crate) use control::CodeTarget;
 pub(crate) use operands::{PairValues, WriteTarget};
-pub(crate) use repetition::Repetition;
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32, I8};
 

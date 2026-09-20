@@ -1,10 +1,13 @@
 //! String elements complete their accesses before advancing the indices.
 
+mod repetition;
+
+use repetition::Repetition;
+
 use super::*;
 use crate::{
     address::{EffectiveAddress, MemoryAddress, RegisterTerm},
     alu::{AnyStatusSource, ArithmeticOp, StatusSource},
-    execution::Repetition,
     flags::Flag,
     instruction::Location,
     register::{Gpr32, RegisterType},
@@ -65,7 +68,7 @@ where
 {
     let indices = [Gpr32::Esi, Gpr32::Edi];
     let stride = element_stride::<T>(execution)?;
-    execution.string_elements(repetition, indices, |execution| {
+    repetition.execute(execution, indices, |execution| {
         let value = memory_at_index::<T>(execution, Gpr32::Esi, execution.string_source_segment())
             .read(execution)?;
         memory_at_index::<T>(execution, Gpr32::Edi, Segment::Es.into()).write(execution, value)?;
@@ -98,7 +101,7 @@ where
     let indices = [Gpr32::Edi];
     let stride = element_stride::<T>(execution)?;
     let value = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
-    execution.string_elements(repetition, indices, |execution| {
+    repetition.execute(execution, indices, |execution| {
         memory_at_index::<T>(execution, Gpr32::Edi, Segment::Es.into()).write(execution, &value)?;
         advance_indices(execution, &indices, &stride)
     })
