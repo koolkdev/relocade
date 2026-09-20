@@ -1,7 +1,21 @@
-//! Direct code-segment transfers end the current execution entry.
+//! Far jumps, calls and returns end the current execution entry.
+//!
+//! Frame compatibility policy: all operand-sized slots must fit SS, but paging
+//! and transfers cover only their values, including two selector bytes. Dword
+//! selector padding stays untouched. This combines RET's full-slot capacity check
+//! with P6 selector-transfer behavior; their descriptions leave the access extent
+//! ambiguous. See Intel SDM Volume 3B, section 22.31.1:
+//! <https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-3b-part-2-manual.pdf#page=575>.
 
 use super::*;
-use crate::{address::MemoryAddress, register::RegisterType};
+use crate::{
+    address::MemoryAddress,
+    exception::Exception,
+    execution::CodeTarget,
+    flags::{image, Flag},
+    register::RegisterType,
+    Segment,
+};
 
 instruction_families! {
     JMP_FAR_IMMEDIATE {
@@ -59,7 +73,7 @@ where
 {
     let offset = offset.read(execution)?;
     let selector = selector.read(execution)?;
-    execution.jump_far(offset, selector)
+    jump_far(execution, offset, selector)
 }
 
 fn jump_far_indirect<T: RegisterType>(
@@ -72,7 +86,20 @@ where
     I32: AtLeast<T>,
 {
     let (offset, selector) = execution.read_far_pointer::<T>(source)?;
-    execution.jump_far(offset, selector)
+    jump_far(execution, offset, selector)
+}
+
+fn jump_far<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    offset: Val<T>,
+    selector: Val<I16>,
+) -> Result<Val<I32>, BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let target = CodeTarget::resolve(execution, offset, &selector)?;
+    target.check_limit(execution)?;
+    target.commit(execution)
 }
 
 fn call_far_immediate<T: RegisterType>(
@@ -87,7 +114,7 @@ where
 {
     let offset = offset.read(execution)?;
     let selector = selector.read(execution)?;
-    execution.call_far(offset, selector, fallthrough)
+    call_far(execution, offset, selector, fallthrough)
 }
 
 fn call_far_indirect<T: RegisterType>(
@@ -100,7 +127,30 @@ where
     I32: AtLeast<T>,
 {
     let (offset, selector) = execution.read_far_pointer::<T>(source)?;
-    execution.call_far(offset, selector, fallthrough)
+    call_far(execution, offset, selector, fallthrough)
+}
+
+fn call_far<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    offset: Val<T>,
+    selector: Val<I16>,
+    fallthrough: Val<I32>,
+) -> Result<Val<I32>, BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let target = CodeTarget::resolve(execution, offset, &selector)?;
+    let frame = execution.push_frame(2 * T::BYTES, 2 * T::BYTES)?;
+    target.check_limit(execution)?;
+    // Both slots must fit SS. The selector's unused high word is not touched.
+    // Prove both fields in push order before writing either of them.
+    let selector_slot = frame.field::<I16>(execution, T::BYTES)?;
+    let offset_slot = frame.field::<T>(execution, 0)?;
+    let old_cs = execution.read_segment_selector(Segment::Cs)?;
+    selector_slot.write(execution, &old_cs)?;
+    offset_slot.write(execution, &fallthrough.truncate::<T>())?;
+    frame.commit(execution, 0)?;
+    target.commit(execution)
 }
 
 fn return_far<T: RegisterType>(
@@ -113,7 +163,12 @@ where
     I32: AtLeast<T>,
 {
     let discard_bytes = discard_bytes.read(execution)?;
-    execution.return_far::<T>(discard_bytes)
+    let frame = execution.pop_frame(2 * T::BYTES, 2 * T::BYTES)?;
+    let offset = frame.field::<T>(execution, 0)?.read(execution)?;
+    let selector = frame.field::<I16>(execution, T::BYTES)?.read(execution)?;
+    let target = resolve_return_target(execution, offset, &selector)?;
+    frame.commit(execution, discard_bytes.unsigned().extend::<I32>())?;
+    target.commit(execution)
 }
 
 fn return_interrupt<T: RegisterType>(
@@ -124,5 +179,37 @@ fn return_interrupt<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
-    execution.return_interrupt::<T>()
+    // NT selects a task return before stack access. Task switching uses the
+    // unsupported-execution exit.
+    let nested_task = execution.read_flag(Flag::NT)?;
+    execution.unsupported_if(nested_task, 0xcf)?;
+    let frame = execution.pop_frame(3 * T::BYTES, 3 * T::BYTES)?;
+    let offset = frame.field::<T>(execution, 0)?.read(execution)?;
+    let selector = frame.field::<I16>(execution, T::BYTES)?.read(execution)?;
+    let flags = frame.field::<T>(execution, 2 * T::BYTES)?.read(execution)?;
+    let target = resolve_return_target(execution, offset, &selector)?;
+    execution.write_flags(image::stack_change(&flags))?;
+    frame.commit(execution, 0)?;
+    target.commit(execution)
+}
+
+fn resolve_return_target<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    offset: Val<T>,
+    selector: &Val<I16>,
+) -> Result<CodeTarget, BuildError>
+where
+    I32: AtLeast<T>,
+{
+    // Returns cannot go inward. With CPL fixed at 3, only RPL 3 is valid.
+    // After this check the direct-CS resolver implements the return policy.
+    execution.fault_if(
+        selector.and(3).ne(3),
+        Exception::GeneralProtection {
+            error_code: selector.unsigned().extend::<I32>().and(0xfffc),
+        },
+    )?;
+    let target = CodeTarget::resolve(execution, offset, selector)?;
+    target.check_limit(execution)?;
+    Ok(target)
 }

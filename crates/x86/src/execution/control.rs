@@ -2,6 +2,8 @@
 
 mod far;
 
+pub(crate) use far::CodeTarget;
+
 use wasm86_compiler::{BuildError, Val, I1, I32};
 
 use crate::{exception::Exception, memory::Intent, segment::Segment};

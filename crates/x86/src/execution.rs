@@ -6,6 +6,7 @@ mod repetition;
 mod segments;
 mod stack;
 
+pub(crate) use control::CodeTarget;
 pub(crate) use operands::{PairValues, WriteTarget};
 pub(crate) use repetition::Repetition;
 
