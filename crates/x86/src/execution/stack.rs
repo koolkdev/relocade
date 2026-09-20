@@ -8,7 +8,7 @@ use crate::{
     address::RegisterValue,
     instruction::Location,
     memory::{Access, Intent, Memory},
-    register::{Gpr32, RegisterType},
+    register::{Gpr32, Register, RegisterType},
     segment::Segment,
 };
 
@@ -105,15 +105,19 @@ impl StackPointer {
         self.esp.and(&self.mask)
     }
 
-    fn advance(&self, bytes: impl Into<Val<I32>>) -> Self {
+    fn with_offset(&self, offset: impl Into<Val<I32>>) -> Self {
         let esp = self
             .esp
             .and(self.mask.xor(u32::MAX))
-            .or(self.esp.add(bytes).and(&self.mask));
+            .or(offset.into().and(&self.mask));
         Self {
             esp,
             mask: self.mask.clone(),
         }
+    }
+
+    fn advance(&self, bytes: impl Into<Val<I32>>) -> Self {
+        self.with_offset(self.esp.add(bytes))
     }
 }
 
@@ -155,6 +159,15 @@ impl ExecutionBuilder<'_, '_> {
         checked_bytes: u32,
     ) -> Result<StackFrame, BuildError> {
         let pointer = self.stack_pointer()?;
+        self.pop_frame_at(pointer, slot_bytes, checked_bytes)
+    }
+
+    fn pop_frame_at(
+        &mut self,
+        pointer: StackPointer,
+        slot_bytes: u32,
+        checked_bytes: u32,
+    ) -> Result<StackFrame, BuildError> {
         let offset = pointer.offset();
         let intent = Intent::Read;
         let linear = self.translate(&Segment::Ss.into(), &offset, checked_bytes, intent)?;
@@ -165,6 +178,21 @@ impl ExecutionBuilder<'_, '_> {
             pointer,
             adjustment: slot_bytes as i32,
         })
+    }
+
+    pub(crate) fn leave_frame<T: RegisterType>(&mut self) -> Result<(), BuildError> {
+        let frame_pointer = self.state.read_register(&mut self.body, Gpr32::Ebp)?;
+        let pointer = self.stack_pointer()?.with_offset(frame_pointer);
+        // SS.B selects SP/ESP independently of the popped BP/EBP width. Keep
+        // the replacement prospective until the frame read has succeeded.
+        let frame = self.pop_frame_at(pointer, T::BYTES, T::BYTES)?;
+        let saved_frame_pointer = frame.field::<T>(self, 0)?.read(self)?;
+        frame.commit(self, 0)?;
+        self.state.write_register(
+            &mut self.body,
+            Register::<T>::named(Gpr32::Ebp),
+            saved_frame_pointer,
+        )
     }
 
     /// Segment pushes transfer a selector word even in a dword-sized slot.

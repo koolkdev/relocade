@@ -35,6 +35,11 @@ instruction_families! {
             0x9D => word_or_dword();
         }
     }
+    LEAVE {
+        execute: leave_frame::<_>;
+        effects: [memory_read];
+        forms { 0xC9 => word_or_dword(); }
+    }
 }
 
 fn push<T: RegisterType>(
@@ -76,4 +81,10 @@ where
     let flags = frame.field::<T>(execution, 0)?.read(execution)?;
     frame.commit(execution, 0)?;
     execution.write_flags(image::stack_change(&flags))
+}
+
+fn leave_frame<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+) -> Result<(), BuildError> {
+    execution.leave_frame::<T>()
 }

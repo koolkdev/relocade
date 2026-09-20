@@ -9,6 +9,8 @@ use wasm86_x86::Gpr32::{self, *};
 mod decoding;
 #[path = "stack_operations/faults.rs"]
 mod faults;
+#[path = "stack_operations/leave.rs"]
+mod leave;
 #[path = "stack_operations/memory.rs"]
 mod memory;
 #[path = "stack_operations/sequences.rs"]
