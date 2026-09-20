@@ -6,7 +6,7 @@ use wasm86_x86::{DescriptorTables, Exception, Segment};
 #[derive(Clone, Serialize)]
 pub(crate) struct SegmentQuery {
     pub(crate) selector: u16,
-    pub(crate) values: [u32; 3],
+    pub(crate) values: [u32; 5],
 }
 
 impl SegmentQuery {
@@ -15,9 +15,9 @@ impl SegmentQuery {
         Self {
             selector,
             values: [
-                u32::from(descriptor_info.readable)
-                    | (u32::from(descriptor_info.writable) << 1)
-                    | (u32::from(descriptor_info.visible) << 2),
+                u32::from(descriptor_info.visible),
+                u32::from(descriptor_info.readable),
+                u32::from(descriptor_info.writable),
                 descriptor_info.access_rights,
                 descriptor_info.limit,
             ],

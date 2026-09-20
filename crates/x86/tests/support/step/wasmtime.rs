@@ -106,8 +106,9 @@ impl TestModule {
                     state
                         .events
                         .push(Event::QuerySegmentDescriptor { selector });
-                    let [flags, access_rights, limit] = reply.values.map(|value| value as i32);
-                    (flags, access_rights, limit)
+                    let [visible, readable, writable, access_rights, limit] =
+                        reply.values.map(|value| value as i32);
+                    (visible, readable, writable, access_rights, limit)
                 },
             )
             .unwrap();

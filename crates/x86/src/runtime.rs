@@ -47,7 +47,7 @@ impl Runtime {
             name: "querySegmentDescriptor".into(),
             signature: Signature {
                 parameters: vec![Type::I16],
-                results: vec![Type::I32, Type::I32, Type::I32],
+                results: vec![Type::I1, Type::I1, Type::I1, Type::I32, Type::I32],
             },
         });
         Self {
@@ -66,18 +66,18 @@ impl Runtime {
     }
 
     /// Queries the current host descriptor view without loading a segment or
-    /// accessing guest memory. Result flags encode read/write/visibility in bits 0/1/2.
+    /// accessing guest memory.
     pub(crate) fn query_segment_descriptor(
         self,
         body: &mut FunctionBuilder<'_>,
         selector: &Val<I16>,
     ) -> Result<SegmentDescriptorInfo<Val<I1>, Val<I32>>, BuildError> {
-        let (flags, access_rights, limit) =
-            body.call::<(I32, I32, I32)>(self.query_segment_descriptor, &[selector.into()])?;
+        let (visible, readable, writable, access_rights, limit) =
+            body.call::<(I1, I1, I1, I32, I32)>(self.query_segment_descriptor, &[selector.into()])?;
         Ok(SegmentDescriptorInfo {
-            visible: flags.and(4).ne(0),
-            readable: flags.and(1).ne(0),
-            writable: flags.and(2).ne(0),
+            visible,
+            readable,
+            writable,
             access_rights,
             limit,
         })

@@ -1,13 +1,13 @@
-//! LAR/LSL inspect descriptors without loading a segment or ending a block.
+//! LAR/LSL query descriptors without loading a segment or ending a block.
 
-#[path = "inspection/operands.rs"]
+#[path = "queries/operands.rs"]
 mod operands;
-#[path = "inspection/progress.rs"]
+#[path = "queries/progress.rs"]
 mod progress;
 
 use super::{
     data,
-    inspection_cases::{check_one, completed, image},
+    query_cases::{check_one, completed, image},
     selector_cases::descriptor,
 };
 use crate::support::{

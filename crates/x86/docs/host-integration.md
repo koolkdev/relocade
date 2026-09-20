@@ -182,16 +182,17 @@ type's API documentation for load validation and descriptor construction.
 
 ## Descriptor queries
 
-LAR/LSL/VERR/VERW call
-`wasm86.querySegmentDescriptor(selector: i32) -> (flags: i32, accessRights: i32, limit: i32)`
-after reading their 16-bit selector operand. The input is zero-extended. The result
-describes code/data descriptors at CPL3:
+LAR/LSL/VERR/VERW call `wasm86.querySegmentDescriptor(selector: i32)` after reading
+their 16-bit selector operand. The input is zero-extended. The callback returns
+five Wasm i32 results in this order: `(visible, readable, writable, accessRights,
+limit)`. The first three results are booleans represented as 0 or 1. The results
+describe code/data descriptors at CPL3:
 
 | Result | Meaning |
 | --- | --- |
-| `flags` bit 0 | Readable; VERR uses this as ZF. |
-| `flags` bit 1 | Writable; VERW uses this as ZF. |
-| `flags` bit 2 | Visible; LAR and LSL use this as ZF. |
+| `visible` | Visible; LAR and LSL use this as ZF. |
+| `readable` | Readable; VERR uses this as ZF. |
+| `writable` | Writable; VERW uses this as ZF. |
 | `accessRights` | LAR's 32-bit result, with the bit positions specified below. |
 | `limit` | Inclusive effective byte limit, with page granularity already expanded. |
 
@@ -199,9 +200,9 @@ describes code/data descriptors at CPL3:
 S 12, DPL 14:13, P 15, AVL 20, L 21, D/B 22 and G 23. All remaining bits are zero
 in this model, including the architecturally undefined bits 19:16.
 
-Other flag bits must be zero. Null, missing and privilege-inaccessible descriptors
-return all zeros. Presence affects the reported P bit, not visibility or read/write
-permission. Execute-only code can be visible without either permission; code is
+Null, missing and privilege-inaccessible descriptors return all zeros. Presence
+affects the reported P bit, not visibility or read/write permission. Execute-only
+code can be visible without either permission; code is
 never writable. LAR/LSL preserve the destination on failure and truncate successful
 results to the operand width. All four instructions change only ZF among flags.
 

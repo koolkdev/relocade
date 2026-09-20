@@ -16,10 +16,6 @@ mod far_jumps;
 mod fetch;
 #[path = "segments/fetch_faults.rs"]
 mod fetch_faults;
-#[path = "segments/inspection.rs"]
-mod inspection;
-#[path = "segments/inspection_cases.rs"]
-mod inspection_cases;
 #[path = "segments/interrupt_returns.rs"]
 mod interrupt_returns;
 #[path = "segments/moves.rs"]
@@ -34,6 +30,10 @@ mod profiles;
 mod progress;
 #[path = "segments/push_pop.rs"]
 mod push_pop;
+#[path = "segments/queries.rs"]
+mod queries;
+#[path = "segments/query_cases.rs"]
+mod query_cases;
 #[path = "segments/selection.rs"]
 mod selection;
 #[path = "segments/selector_cases.rs"]

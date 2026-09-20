@@ -2,9 +2,9 @@
 
 mod access;
 mod descriptor;
-mod inspection;
 mod limit;
 mod profile;
+mod query;
 mod selection;
 mod tables;
 
@@ -12,9 +12,9 @@ use wasm86_compiler::{Val, I16, I32};
 
 pub(crate) use access::SegmentAccess;
 pub use descriptor::{PrivilegeLevel, SegmentDescriptor, SegmentDescriptorKind};
-pub use inspection::SegmentDescriptorInfo;
 pub use limit::SegmentLimit;
 pub use profile::SegmentProfile;
+pub use query::SegmentDescriptorInfo;
 pub(crate) use selection::SegmentSelection;
 pub use tables::DescriptorTables;
 

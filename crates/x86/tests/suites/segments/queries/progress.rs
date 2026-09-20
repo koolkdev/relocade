@@ -39,7 +39,7 @@ fn lazy_flags(engine: Engine) {
 }
 
 #[test]
-fn successful_and_failed_inspection_change_only_zf_among_pending_arithmetic_flags() {
+fn successful_and_failed_queries_change_only_zf_among_pending_arithmetic_flags() {
     lazy_flags(Engine::Wasmtime);
 }
 
@@ -192,7 +192,7 @@ fn current_table_rights_and_limits_are_observed_without_changing_loaded_caches()
 
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_inspection_flags_continuation_table_changes_and_restart() {
+fn v8_queries_flags_continuation_table_changes_and_restart() {
     lazy_flags(Engine::V8);
     continuation_and_restart(Engine::V8);
     table_changes(Engine::V8);

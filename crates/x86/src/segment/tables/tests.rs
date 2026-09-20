@@ -1,6 +1,6 @@
-mod inspection;
 mod loads;
 mod permissions;
+mod query;
 
 use crate::{
     DescriptorTables, Exception, Segment, SegmentAttributes, SegmentDefaultSize, SegmentDescriptor,

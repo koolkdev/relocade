@@ -216,7 +216,7 @@ fn source_faults_leave_destination_and_pending_flags_intact_before_any_query() {
 
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_inspection_registers_memory_and_source_faults() {
+fn v8_queries_registers_memory_and_source_faults() {
     registers(Engine::V8);
     memory_sources(Engine::V8);
     source_faults(Engine::V8);

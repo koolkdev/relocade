@@ -122,7 +122,7 @@ fn visibility_uses_privilege_and_conformance_without_requiring_presence() {
 }
 
 #[test]
-fn inspection_retains_descriptor_flags_and_expands_the_same_limit_as_a_load() {
+fn query_retains_descriptor_flags_and_expands_the_same_limit_as_a_load() {
     use SegmentDefaultSize::*;
     for (present, size, available, limit, rights, effective) in [
         (

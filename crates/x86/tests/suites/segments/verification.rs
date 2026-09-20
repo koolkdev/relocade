@@ -7,7 +7,7 @@ mod progress;
 
 use super::{
     data,
-    inspection_cases::{check_one, completed, image},
+    query_cases::{check_one, completed, image},
     selector_cases::descriptor,
 };
 use crate::support::{
