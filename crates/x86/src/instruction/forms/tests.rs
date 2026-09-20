@@ -1,10 +1,13 @@
+mod immediates;
+
 use super::*;
 use crate::{
     address::EffectiveAddress,
     instruction::{
-        handlers::HandlerCall, opcode_forms, Operand, Prefix, PrefixState, EXTENDED_OPCODE_ESCAPE,
+        handlers::HandlerCall, opcode_forms, Location, Operand, Prefix, PrefixState,
+        EXTENDED_OPCODE_ESCAPE,
     },
-    register::{Gpr32, RegisterOperand},
+    register::{Gpr32, RegisterCode, RegisterOperand},
 };
 
 fn word_prefixes() -> PrefixState {
@@ -85,19 +88,17 @@ fn catalog_bindings_use_available_fields_and_match_resolved_handler_arities() {
                 };
                 assert_eq!(arity, bindings.len(), "opcode {:02x}", form.opcode);
             }
-            let has_immediate = matches!(
-                form.encoding,
-                Encoding::Immediate { .. }
-                    | Encoding::OpcodeRegisterImmediate { .. }
-                    | Encoding::ModRm { immediate: Some(_) }
-            );
+            let immediate_count = form.encoding.immediates().map_or(0, |fields| fields.len());
             assert_eq!(
                 bindings
                     .iter()
-                    .filter(|binding| matches!(binding, OperandBinding::Immediate))
-                    .count(),
-                usize::from(has_immediate),
-                "opcode {:02x} must bind its encoded immediate exactly once",
+                    .filter_map(|binding| match binding {
+                        OperandBinding::Immediate(index) => Some(*index),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                (0..immediate_count).collect::<Vec<_>>(),
+                "opcode {:02x} must bind each encoded immediate once in order",
                 form.opcode
             );
             for binding in bindings {
@@ -121,7 +122,7 @@ fn catalog_bindings_use_available_fields_and_match_resolved_handler_arities() {
                     OperandBinding::Location(LocationBinding::AbsoluteOffset) => {
                         assert!(matches!(form.encoding, Encoding::AccumulatorOffset));
                     }
-                    OperandBinding::Immediate => assert!(has_immediate),
+                    OperandBinding::Immediate(index) => assert!(index < immediate_count),
                     OperandBinding::Location(LocationBinding::FixedRegister(_))
                     | OperandBinding::Segment(_)
                     | OperandBinding::Constant(_) => {}
@@ -140,44 +141,6 @@ fn instruction_forms_cannot_shadow_decoder_prefix_and_escape_actions() {
         .chain([EXTENDED_OPCODE_ESCAPE])
     {
         assert!(!primary.contains_key(&u32::from(opcode)));
-    }
-}
-
-#[test]
-fn immediate_encoding_keeps_fixed_widths_and_signed_bytes_distinct() {
-    for (opcode, extension, word_bytes, dword_bytes, signed) in [
-        (0xc2, None, 2, 2, false),
-        (0xe8, None, 2, 4, false),
-        (0x83, Some(0), 1, 1, true),
-    ] {
-        let form = catalog_form(OpcodeMap::Primary, opcode, extension);
-        for (prefixes, bytes) in [
-            (word_prefixes(), word_bytes),
-            (PrefixState::default(), dword_bytes),
-        ] {
-            let resolved = form.resolve(&prefixes).unwrap();
-            assert_eq!(resolved.immediate_width().bytes(), bytes);
-            assert_eq!(resolved.sign_extends_immediate(), signed);
-        }
-    }
-
-    for (bytes, fallthrough) in [
-        (&[0xc2, 0xff, 0xff, 0x62][..], 0x1003),
-        (&[0x66, 0xc2, 0xff, 0xff, 0x62][..], 0x1004),
-    ] {
-        let (decoded, remaining) =
-            crate::decode::snapshot(bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
-        assert_eq!(remaining, [0x62]);
-        assert_eq!(decoded.fallthrough_eip, fallthrough);
-        assert!(decoded.instruction.ends_block());
-        assert!(decoded.instruction.uses_memory());
-        assert!(matches!(
-            decoded.instruction.call,
-            HandlerCall::Unary {
-                operand: Operand::Immediate(0xffff),
-                ..
-            }
-        ));
     }
 }
 
@@ -238,7 +201,7 @@ fn opcode_register_ranges_cover_exactly_eight_codes_and_bind_each_register() {
                 let decoded = form.resolve(&prefixes).unwrap().bind(
                     DecodedFields::OpcodeRegisterImmediate {
                         register: RegisterCode::from_code(code),
-                        immediate: 0x7au32,
+                        immediates: ImmediateFields::One(0x7au32),
                     },
                     0x1000,
                     0x1002,
@@ -328,7 +291,7 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
                 .memory()
                 .into(),
             ),
-            immediate: None,
+            immediates: None,
         };
         let address = lea
             .resolve(&prefixes)

@@ -205,15 +205,8 @@ fn the_length_limit_precedes_the_absent_code_page_in_v8() {
     check_length_limit(Engine::V8);
 }
 
-// Far forms remain outside the subset.
-const UNSUPPORTED: &[&[u8]] = &[
-    &[0x9a],
-    &[0xea],
-    &[0xca],
-    &[0xcb],
-    &[0xff, 0x1c],
-    &[0xff, 0x2c],
-];
+// Far CALL and RET remain outside the subset.
+const UNSUPPORTED: &[&[u8]] = &[&[0x9a], &[0xca], &[0xcb], &[0xff, 0x1c]];
 
 #[test]
 fn unsupported_forms_do_not_require_far_pointer_immediate_or_sib_fields() {

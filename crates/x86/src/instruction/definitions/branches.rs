@@ -1,8 +1,8 @@
-//! Near jumps, calls and returns select the next execution entry.
+//! Jumps, calls and returns select the next execution entry.
 
 use super::*;
 use crate::{
-    instruction::Operand,
+    address::MemoryAddress,
     register::{Gpr32, RegisterType},
 };
 
@@ -80,18 +80,32 @@ instruction_families! {
             0xFF /4 => word_or_dword(rm);
         }
     }
+    JMP_FAR_IMMEDIATE {
+        execute: jump_far_immediate::<_>;
+        effects: [control_transfer, segment_load];
+        forms {
+            0xEA => word_or_dword(imm, imm16);
+        }
+    }
+    JMP_FAR_INDIRECT {
+        execute: jump_far_indirect::<_>;
+        effects: [control_transfer, segment_load];
+        forms {
+            0xFF /5 => word_or_dword(mem);
+        }
+    }
 }
 
 fn jump_relative<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    displacement: Operand<Val<I32>>,
+    displacement: Input<I32>,
     condition: Option<Condition>,
     fallthrough: Val<I32>,
 ) -> Result<Val<I32>, BuildError>
 where
     I32: AtLeast<T>,
 {
-    let displacement = Input::<I32>::new(displacement).read(execution)?;
+    let displacement = displacement.read(execution)?;
     let target = relative_target::<T>(&fallthrough, displacement);
     match condition {
         Some(condition) => {
@@ -115,14 +129,14 @@ where
 
 fn jump_if_count_zero<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    displacement: Operand<Val<I32>>,
+    displacement: Input<I32>,
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
 ) -> Result<Val<I32>, BuildError>
 where
     I32: AtLeast<T>,
 {
-    let displacement = Input::<I32>::new(displacement).read(execution)?;
+    let displacement = displacement.read(execution)?;
     let count = execution.read_address_register(Gpr32::Ecx)?;
     let target = relative_target::<T>(&fallthrough, displacement);
     execution.branch(count.eq(0), target, fallthrough)
@@ -130,7 +144,7 @@ where
 
 fn loop_relative<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    displacement: Operand<Val<I32>>,
+    displacement: Input<I32>,
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
     loop_condition: Option<Condition>,
@@ -138,7 +152,7 @@ fn loop_relative<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
-    let displacement = Input::<I32>::new(displacement).read(execution)?;
+    let displacement = displacement.read(execution)?;
     // Address size selects the counter; operand size only narrows a taken target.
     let count = execution.read_address_register(Gpr32::Ecx)?;
     let count = execution.address_size().wrap(count.sub(1));
@@ -154,14 +168,14 @@ where
 
 fn call_relative<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    displacement: Operand<Val<I32>>,
+    displacement: Input<I32>,
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
 ) -> Result<Val<I32>, BuildError>
 where
     I32: AtLeast<T>,
 {
-    let displacement = Input::<I32>::new(displacement).read(execution)?;
+    let displacement = displacement.read(execution)?;
     let target = relative_target::<T>(&fallthrough, displacement);
     let target = execution.jump(target)?;
     execution.push(fallthrough.truncate::<T>(), T::BYTES)?;
@@ -170,7 +184,7 @@ where
 
 fn call_indirect<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    source: Operand<Val<I32>>,
+    source: Input<T>,
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
 ) -> Result<Val<I32>, BuildError>
@@ -178,7 +192,7 @@ where
     I32: AtLeast<T>,
 {
     // The target observes entry registers and memory before the return-address push.
-    let target = Input::<T>::new(source).read(execution)?;
+    let target = source.read(execution)?;
     let target = execution.jump(target.unsigned().extend::<I32>())?;
     execution.push(fallthrough.truncate::<T>(), T::BYTES)?;
     Ok(target)
@@ -186,29 +200,57 @@ where
 
 fn jump_indirect<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    source: Operand<Val<I32>>,
+    source: Input<T>,
     _condition: Option<Condition>,
     _fallthrough: Val<I32>,
 ) -> Result<Val<I32>, BuildError>
 where
     I32: AtLeast<T>,
 {
-    let target = Input::<T>::new(source).read(execution)?;
+    let target = source.read(execution)?;
     execution.jump(target.unsigned().extend::<I32>())
 }
 
 fn return_near<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    discard_bytes: Operand<Val<I32>>,
+    discard_bytes: Input<I16>,
     _condition: Option<Condition>,
     _fallthrough: Val<I32>,
 ) -> Result<Val<I32>, BuildError>
 where
     I32: AtLeast<T>,
 {
-    let discard_bytes = Input::<I16>::new(discard_bytes).read(execution)?;
+    let discard_bytes = discard_bytes.read(execution)?;
     let pop = execution.read_stack::<T>(T::BYTES)?;
     let target = execution.jump(pop.value().unsigned().extend::<I32>())?;
     pop.commit(execution, discard_bytes.unsigned().extend::<I32>())?;
     Ok(target)
+}
+
+fn jump_far_immediate<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    offset: Input<T>,
+    selector: Input<I16>,
+    _condition: Option<Condition>,
+    _fallthrough: Val<I32>,
+) -> Result<Val<I32>, BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let offset = offset.read(execution)?;
+    let selector = selector.read(execution)?;
+    execution.jump_far(offset, selector)
+}
+
+fn jump_far_indirect<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    source: MemoryAddress<Val<I32>>,
+    _condition: Option<Condition>,
+    _fallthrough: Val<I32>,
+) -> Result<Val<I32>, BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let (offset, selector) = execution.read_far_pointer::<T>(source)?;
+    execution.jump_far(offset, selector)
 }

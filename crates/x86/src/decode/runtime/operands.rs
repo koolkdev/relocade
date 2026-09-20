@@ -36,10 +36,10 @@ where
             },
             Encoding::OpcodeRegisterImmediate { .. } => DecodedFields::OpcodeRegisterImmediate {
                 register: RegisterCode::from_code(opcode),
-                immediate: cursor.immediate(&mut body, form)?,
+                immediates: cursor.immediates(&mut body, form)?,
             },
             Encoding::Immediate { .. } => DecodedFields::Immediate {
-                immediate: cursor.immediate(&mut body, form)?,
+                immediates: cursor.immediates(&mut body, form)?,
             },
             Encoding::AccumulatorOffset => DecodedFields::AccumulatorOffset {
                 offset: cursor.integer(&mut body, form.address_width())?,
@@ -103,16 +103,16 @@ where
         form: &ResolvedForm,
         rm: Location<Val<I32>>,
     ) -> Result<(), BuildError> {
-        let Encoding::ModRm { immediate } = form.encoding() else {
+        let Encoding::ModRm { immediates } = form.encoding() else {
             unreachable!("the selected form has a ModRM field");
         };
-        let immediate = immediate
-            .map(|_| cursor.immediate(&mut body, form))
+        let immediates = immediates
+            .map(|_| cursor.immediates(&mut body, form))
             .transpose()?;
         let fields = DecodedFields::ModRm {
             register: RegisterCode::indexed(modrm.unsigned().shr(3).unsigned().extend::<I32>()),
             rm,
-            immediate,
+            immediates,
         };
         let instruction = form.bind(fields, cursor.instruction_eip().clone(), cursor.next_eip());
         (self.complete_instruction)(body, instruction)

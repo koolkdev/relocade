@@ -50,6 +50,19 @@ impl ExecutionBuilder<'_, '_> {
         destination: Register<T>,
         source: MemoryAddress<Val<I32>>,
     ) -> Result<(), BuildError> {
+        let (pointer_offset, selector) = self.read_far_pointer::<T>(source)?;
+        let values = self.resolve_segment(segment, &selector)?;
+        self.state
+            .write_register(&mut self.body, destination, pointer_offset)?;
+        self.state
+            .write_segment(&mut self.body, &segment.into(), &values)
+    }
+
+    /// Reads an offset followed by a selector through the entry address and cache.
+    pub(crate) fn read_far_pointer<T: RegisterType>(
+        &mut self,
+        source: MemoryAddress<Val<I32>>,
+    ) -> Result<(Val<T>, Val<I16>), BuildError> {
         let offset = address::resolve(&mut self.body, &mut self.state, source.offset, &[])?;
         let memory = self
             .memory
@@ -59,14 +72,10 @@ impl ExecutionBuilder<'_, '_> {
         let access = self.checked(memory, &source.segment, &offset, T::BYTES + 2, Intent::Read)?;
         let pointer_offset = memory.read::<T>(&mut self.body, &access, 0)?;
         let selector = memory.read::<I16>(&mut self.body, &access, T::BYTES)?;
-        let values = self.resolve_segment(segment, &selector)?;
-        self.state
-            .write_register(&mut self.body, destination, pointer_offset)?;
-        self.state
-            .write_segment(&mut self.body, &segment.into(), &values)
+        Ok((pointer_offset, selector))
     }
 
-    fn resolve_segment(
+    pub(super) fn resolve_segment(
         &mut self,
         segment: Segment,
         selector: &Val<I16>,

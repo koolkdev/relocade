@@ -98,9 +98,10 @@ packed descriptor-table memory, descriptor accessed-bit writes, Windows selector
 allocation APIs, privilege transitions and real-mode loading. Interrupt/debug
 delivery and the inhibition following SS loads are not modeled.
 
-Guest MOV, POP and far-pointer loads use `wasm86.resolveSegment(segment: i32, selector: i32)`
+Guest MOV, POP, far-pointer loads and far JMP use `wasm86.resolveSegment(segment: i32, selector: i32)`
 to resolve a load. The segment indices are ES=0, CS=1, SS=2, DS=3, FS=4, GS=5;
-These instructions cannot load CS. The host returns six i32 results:
+far JMP resolves CS, while MOV, POP and pointer loads resolve data segments.
+The host returns six i32 results:
 `(status, error_code, base, limit, selector, attributes)`.
 Status zero supplies a complete normalized `StoredSegment`; other supported
 statuses are architectural vectors 11 (#NP), 12 (#SS) and 13 (#GP), with an error
@@ -189,8 +190,7 @@ instruction prefix before handling that guest fault, for example by entering the
 interpreter at the failing instruction. Debug assertions belong in that block
 owner and detect violated validity invariants. This byte-only compiler has no CS
 state or code-page access to validate them itself; it has no code cache or automatic
-invalidation. MOV, POP and far-pointer loads end the block at their cache commit;
-far transfers remain outside the subset.
+invalidation. MOV, POP, far-pointer loads and far JMP end the block at their cache commit.
 
 The flag backing record separates the source of status values from the individual
 stored flag bytes:
@@ -306,6 +306,8 @@ supports these forms; the table shows the encodings with 32-bit code defaults:
 | CALL register/memory | — | FF /2 | FF /2 |
 | RET with optional imm16 cleanup | — | C3/C2 | C3/C2 |
 | JMP register/memory | — | FF /4 | FF /4 |
+| Far JMP immediate offset and selector | — | EA (ptr16:16) | EA (ptr16:32) |
+| Far JMP memory offset and selector | — | FF /5 (m16:16) | FF /5 (m16:32) |
 | JCXZ/JECXZ relative byte displacement | — | E3 | E3 |
 | LOOP relative byte displacement | — | E2 | E2 |
 | LOOPE/LOOPZ relative byte displacement | — | E1 | E1 |
@@ -532,7 +534,21 @@ RET checks only the return-pointer cell; it does not access the discarded bytes
 or validate the resulting ESP. Word indirect and return targets are zero-extended.
 These rules follow the CALL, RET and JMP entries in the
 [Intel instruction reference](https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf).
-Far calls, returns and jumps remain outside the supported subset.
+Far CALL and RET remain outside the supported subset.
+
+Far JMP reads an immediate pointer (`EA`) or a memory pointer (`FF /5`, memory
+mode only). The offset is a word or dword at operand size, followed by a word
+selector. The memory form reads the complete four- or six-byte span through the
+entry address and segment cache before resolving CS. The host validates a CPL3
+direct code descriptor, including execute-only and conforming code, and normalizes
+CS.RPL to 3. Execution then checks the unsigned offset against the returned inclusive
+limit, including when the incoming profile is Flat32. An excessive target raises
+#GP(0); descriptor failures take precedence. CS and EIP change only after all checks
+succeed, with no register, stack or flag changes. Operand size sets target width;
+the new CS.D sets subsequent decoding defaults and does not narrow this target.
+Dispatch must admit the next entry using the new CS. Destination page faults belong
+to that next fetch. Gates, task switches and privilege transitions are not modeled.
+These rules follow the [Intel JMP entry](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2a-manual.pdf#page=590).
 
 JMP, Jcc and JECXZ preserve registers and flags. LOOP/LOOPcc change ECX, while
 CALL and RET change ESP; all preserve the other registers and flags. Each
@@ -544,7 +560,7 @@ reads the stack first, then validates the target before changing ESP or discardi
 parameters. A faulting LOOP preserves ECX. Untaken branches do not check the unused
 target or fallthrough offset. Operand-size truncation precedes target validation.
 Control transfers do not fetch the destination instruction; its page faults belong
-to the next execution entry. Flat profiles need no runtime target guard.
+to the next execution entry. Flat profiles need no runtime guard for near targets.
 See the CALL, Jcc, JMP and LOOP operations in
 [Intel SDM Volume 2A](https://cdrdv2-public.intel.com/812383/253666-sdm-vol-2a.pdf)
 and RET in [Volume 2B](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2b-manual.pdf#page=555).
@@ -827,6 +843,15 @@ at address width, independently of data width. `address` requires memory address
 but passes the effective address without reading data memory; LEA uses it with
 the ordinary MOV body.
 
+One or two immediate fields can follow an encoding's address fields. The
+`ImmediateFields<T>` collection stores their widths or decoded values in encoded
+order. Both cursors read each field through the same width and sign-extension
+path, stopping at the first fault. `OperandBinding::Immediate(index)` refers to
+the field's position among immediates, skipping other operands. For example,
+`0xEA => word_or_dword(imm, imm16)` binds an operand-sized offset and a fixed-word
+selector to the two typed arguments of the far-JMP body. The physical field types
+live in `forms::encoding`; form resolution and semantic binding retain their own owners.
+
 A family's effects appear beside its body. For example:
 
 ```rust
@@ -844,18 +869,20 @@ The return-address cell follows the operand-size attribute while the encoded
 cleanup remains unsigned 16-bit. `memory_read` and `memory_write` declare implicit
 memory use for stack and string accesses; explicit memory operands already supply
 it. Permissions are checked by the actual accesses. `control_transfer` ends
-the block and selects the existing successor-returning handler interface. That
-interface receives the bound operand, condition and fallthrough EIP, and returns
-the next EIP. Fixed arguments in `execute` follow those inputs for transfer bodies,
+the block and selects the successor-returning completion adapter. Every handler
+arity uses the same typed operand adaptation; transfer bodies additionally receive
+the condition and fallthrough EIP and return the next EIP. Relative displacements
+remain `Input<I32>`, indirect near targets use `Input<T>`, and RET cleanup uses
+`Input<I16>`. Fixed arguments in `execute` follow those inputs for transfer bodies,
 just as they follow typed operands for ordinary bodies. For example,
-`execute: loop_relative(Some(Condition::E));` adds a ZF test to the shared LOOP
+`execute: loop_relative::<_>(Some(Condition::E));` adds a ZF test to the shared LOOP
 body. Ordinary typed bodies return `Result<()>`; their adapters return
 fallthrough after success. Execution owns retirement and state publication.
 
 The `forms::declarations` helper derives an `Encoding` and operand bindings from
-each row. `Encoding::ModRm` describes reg/rm fields and an optional trailing
-immediate. Both decoders retain them in `DecodedFields::ModRm`; the immediate is
-fetched after all address fields regardless of the body's argument order. Binding
+each row. `Encoding::ModRm` describes reg/rm fields and optional trailing
+immediate fields. Both decoders retain them in `DecodedFields::ModRm`; immediates
+are fetched after all address fields regardless of the body's argument order. Binding
 assigns these fields to zero, one, two or three arguments without reading guest
 state. Lowering converts snapshot literals and runtime expressions to the common
 `Val<I32>` carrier and calls the bound Rust handler. The `handlers` module owns

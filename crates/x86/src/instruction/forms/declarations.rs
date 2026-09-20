@@ -6,7 +6,8 @@ mod macros;
 pub(in crate::instruction) use {adapters::*, macros::*};
 
 use super::{
-    Encoding, Form, ImmediateWidth, LocationBinding, OpcodeMap, OperandBinding, OperandBindingShape,
+    Encoding, Form, ImmediateFields, ImmediateWidth, LocationBinding, OpcodeMap, OperandBinding,
+    OperandBindingShape,
 };
 use crate::flags::Condition;
 use crate::instruction::handlers::{Handler, SizedHandlers};
@@ -27,10 +28,10 @@ pub(in crate::instruction) enum OperandSpec {
 }
 
 impl OperandSpec {
-    const fn binding(self) -> OperandBinding {
+    const fn binding(self, immediate_index: usize) -> OperandBinding {
         match self {
             Self::Segment(segment) => OperandBinding::Segment(segment),
-            Self::Immediate(_) => OperandBinding::Immediate,
+            Self::Immediate(_) => OperandBinding::Immediate(immediate_index),
             Self::Constant(value) => OperandBinding::Constant(value),
             Self::Address => OperandBinding::RmAddress,
             _ => OperandBinding::Location(self.location()),
@@ -92,13 +93,23 @@ pub(in crate::instruction) struct Declaration<'a> {
 
 impl Declaration<'_> {
     pub(in crate::instruction) const fn form(self) -> Form {
+        assert!(
+            self.operands.len() <= 3,
+            "instruction bodies take at most three operands"
+        );
         let mut modrm = false;
         let mut modrm_register = false;
         let mut opcode_register = false;
         let mut offset = false;
-        let mut immediate = None;
+        let mut immediates: Option<ImmediateFields<ImmediateWidth>> = None;
+        let mut bindings = [None; 3];
         let mut index = 0;
         while index < self.operands.len() {
+            let immediate_index = match immediates {
+                Some(fields) => fields.len(),
+                None => 0,
+            };
+            bindings[index] = Some(self.operands[index].binding(immediate_index));
             match self.operands[index] {
                 OperandSpec::Rm | OperandSpec::Memory | OperandSpec::Address => modrm = true,
                 OperandSpec::ModRmRegister => {
@@ -108,11 +119,10 @@ impl Declaration<'_> {
                 OperandSpec::OpcodeRegister => opcode_register = true,
                 OperandSpec::Offset => offset = true,
                 OperandSpec::Immediate(width) => {
-                    assert!(
-                        immediate.is_none(),
-                        "a form has at most one immediate field"
-                    );
-                    immediate = Some(width);
+                    immediates = Some(match immediates {
+                        Some(fields) => fields.append(width),
+                        None => ImmediateFields::One(width),
+                    });
                 }
                 OperandSpec::FixedRegister(_)
                 | OperandSpec::Constant(_)
@@ -135,7 +145,7 @@ impl Declaration<'_> {
             "ModRM and opcode register fields cannot coexist"
         );
         assert!(
-            !(offset && (modrm || opcode_register || immediate.is_some())),
+            !(offset && (modrm || opcode_register || immediates.is_some())),
             "moffs is a separate address layout"
         );
         if let Some(extension) = self.opcode.extension {
@@ -145,16 +155,16 @@ impl Declaration<'_> {
             );
         }
         let encoding = if modrm {
-            Encoding::ModRm { immediate }
+            Encoding::ModRm { immediates }
         } else if opcode_register {
-            match immediate {
-                Some(immediate) => Encoding::OpcodeRegisterImmediate { immediate },
+            match immediates {
+                Some(immediates) => Encoding::OpcodeRegisterImmediate { immediates },
                 None => Encoding::OpcodeRegister,
             }
         } else if offset {
             Encoding::AccumulatorOffset
-        } else if let Some(immediate) = immediate {
-            Encoding::Immediate { immediate }
+        } else if let Some(immediates) = immediates {
+            Encoding::Immediate { immediates }
         } else {
             Encoding::OpcodeOnly
         };
@@ -166,32 +176,32 @@ impl Declaration<'_> {
                 ));
                 OperandBindingShape::Nullary
             }
-            [operand] => {
+            [_] => {
                 assert!(matches!(
                     (self.handlers.word, self.handlers.dword),
                     (Handler::Unary(_), Handler::Unary(_))
                 ));
-                OperandBindingShape::Unary(operand.binding())
+                OperandBindingShape::Unary(bindings[0].expect("the operand was bound"))
             }
-            [left, right] => {
+            [_, _] => {
                 assert!(matches!(
                     (self.handlers.word, self.handlers.dword),
                     (Handler::Binary(_), Handler::Binary(_))
                 ));
                 OperandBindingShape::Binary {
-                    left: left.binding(),
-                    right: right.binding(),
+                    left: bindings[0].expect("the left operand was bound"),
+                    right: bindings[1].expect("the right operand was bound"),
                 }
             }
-            [destination, first_source, second_source] => {
+            [destination, _, _] => {
                 assert!(matches!(
                     (self.handlers.word, self.handlers.dword),
                     (Handler::Ternary(_), Handler::Ternary(_))
                 ));
                 OperandBindingShape::Ternary {
                     destination: destination.location(),
-                    first_source: first_source.binding(),
-                    second_source: second_source.binding(),
+                    first_source: bindings[1].expect("the first source was bound"),
+                    second_source: bindings[2].expect("the second source was bound"),
                 }
             }
             _ => panic!("instruction bodies take at most three operands"),

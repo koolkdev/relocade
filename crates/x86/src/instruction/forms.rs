@@ -1,18 +1,20 @@
 mod binding;
 pub(super) mod declarations;
+mod encoding;
 mod opcodes;
 
 #[cfg(test)]
 mod tests;
 
 pub(super) use declarations::instruction_families;
+pub(crate) use encoding::{DecodedFields, Encoding, FieldWidth, ImmediateFields, ImmediateWidth};
 pub(crate) use opcodes::forms_by_opcode;
 
 use super::{
     handlers::{Handler, SizedHandlers},
-    Location, OperandSize, PrefixState, SegmentOverride,
+    OperandSize, PrefixState, SegmentOverride,
 };
-use crate::register::{NamedRegister, RegisterCode};
+use crate::register::NamedRegister;
 use crate::{address::AddressSize, flags::Condition};
 
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
@@ -31,91 +33,6 @@ impl OpcodeMap {
     }
 }
 
-/// Storage width of an integer field in the instruction encoding.
-#[derive(Clone, Copy)]
-pub(crate) enum FieldWidth {
-    Byte,
-    Word,
-    Dword,
-}
-
-impl FieldWidth {
-    pub(crate) const fn bytes(self) -> u32 {
-        match self {
-            Self::Byte => 1,
-            Self::Word => 2,
-            Self::Dword => 4,
-        }
-    }
-}
-
-/// Physical immediate bytes, independent of the handler's logical operand widths.
-#[derive(Clone, Copy)]
-pub(crate) enum ImmediateWidth {
-    Byte,
-    Word,
-    OperandSize,
-    SignedByte,
-}
-
-impl ImmediateWidth {
-    const fn width(self, size: OperandSize) -> FieldWidth {
-        match (self, size) {
-            (Self::Byte | Self::SignedByte, _) => FieldWidth::Byte,
-            (Self::Word, _) => FieldWidth::Word,
-            (Self::OperandSize, OperandSize::Word) => FieldWidth::Word,
-            (Self::OperandSize, OperandSize::Dword) => FieldWidth::Dword,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum Encoding {
-    OpcodeOnly,
-    OpcodeRegister,
-    OpcodeRegisterImmediate {
-        immediate: ImmediateWidth,
-    },
-    Immediate {
-        immediate: ImmediateWidth,
-    },
-    /// ModRM always supplies reg/rm fields. Any immediate follows the address.
-    ModRm {
-        immediate: Option<ImmediateWidth>,
-    },
-    /// Address size selects the offset field width independently of data width.
-    AccumulatorOffset,
-}
-
-impl Encoding {
-    pub(crate) fn has_modrm(self) -> bool {
-        matches!(self, Self::ModRm { .. })
-    }
-}
-
-/// Physical fields, before assignment to the operation's operand roles.
-pub(crate) enum DecodedFields<V> {
-    OpcodeOnly,
-    OpcodeRegister {
-        register: RegisterCode,
-    },
-    OpcodeRegisterImmediate {
-        register: RegisterCode,
-        immediate: V,
-    },
-    Immediate {
-        immediate: V,
-    },
-    ModRm {
-        register: RegisterCode,
-        rm: Location<V>,
-        immediate: Option<V>,
-    },
-    AccumulatorOffset {
-        offset: V,
-    },
-}
-
 /// A location's role is independent of the fields needed to decode it.
 #[derive(Clone, Copy)]
 pub(super) enum LocationBinding {
@@ -132,7 +49,7 @@ pub(super) enum LocationBinding {
 pub(super) enum OperandBinding {
     Location(LocationBinding),
     Segment(crate::Segment),
-    Immediate,
+    Immediate(usize),
     /// An implicit literal, interpreted at the handler's logical operand width.
     Constant(u32),
     /// The r/m address fields form a value; register addressing is not accepted.
@@ -253,22 +170,14 @@ impl ResolvedForm {
         self.form.encoding
     }
 
-    pub(crate) fn immediate_width(&self) -> FieldWidth {
-        self.immediate().width(self.operand_size)
+    pub(crate) fn immediate_width(&self, field: ImmediateWidth) -> FieldWidth {
+        field.width(self.operand_size)
     }
 
-    pub(crate) fn sign_extends_immediate(&self) -> bool {
-        matches!(self.immediate(), ImmediateWidth::SignedByte)
-    }
-
-    fn immediate(&self) -> ImmediateWidth {
-        match self.form.encoding {
-            Encoding::OpcodeRegisterImmediate { immediate }
-            | Encoding::Immediate { immediate }
-            | Encoding::ModRm {
-                immediate: Some(immediate),
-            } => immediate,
-            _ => unreachable!("the selected encoding contains an immediate field"),
-        }
+    pub(crate) fn immediates(&self) -> ImmediateFields<ImmediateWidth> {
+        self.form
+            .encoding
+            .immediates()
+            .expect("the selected encoding contains immediate fields")
     }
 }

@@ -4,8 +4,8 @@ use super::DecodeState;
 
 use crate::{
     instruction::{
-        DecodedFields, DecodedInstruction, Encoding, FieldWidth, Location, Prefix, PrefixState,
-        ResolvedForm, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
+        DecodedFields, DecodedInstruction, Encoding, FieldWidth, ImmediateFields, Location, Prefix,
+        PrefixState, ResolvedForm, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
     },
     register::RegisterCode,
     segment::SegmentDefaultSize,
@@ -72,10 +72,10 @@ pub(crate) fn snapshot(
         },
         Encoding::OpcodeRegisterImmediate { .. } => DecodedFields::OpcodeRegisterImmediate {
             register: RegisterCode::from_code(opcode),
-            immediate: cursor.immediate(&form)?,
+            immediates: cursor.immediates(&form)?,
         },
         Encoding::Immediate { .. } => DecodedFields::Immediate {
-            immediate: cursor.immediate(&form)?,
+            immediates: cursor.immediates(&form)?,
         },
         Encoding::ModRm { .. } => {
             cursor.modrm_fields(&form, modrm.expect("the selected encoding has ModRM"))?
@@ -125,12 +125,14 @@ impl SnapshotCursor<'_> {
         Ok(bits)
     }
 
-    fn immediate(&mut self, form: &ResolvedForm) -> Result<u32, BlockError> {
-        let bits = self.integer(form.immediate_width())?;
-        Ok(if form.sign_extends_immediate() {
-            bits as u8 as i8 as i32 as u32
-        } else {
-            bits
+    fn immediates(&mut self, form: &ResolvedForm) -> Result<ImmediateFields<u32>, BlockError> {
+        form.immediates().try_map(|field| {
+            let bits = self.integer(form.immediate_width(field))?;
+            Ok(if field.is_signed() {
+                bits as u8 as i8 as i32 as u32
+            } else {
+                bits
+            })
         })
     }
 
@@ -148,14 +150,14 @@ impl SnapshotCursor<'_> {
                     .into(),
             )
         };
-        let Encoding::ModRm { immediate } = form.encoding() else {
+        let Encoding::ModRm { immediates } = form.encoding() else {
             unreachable!("the selected form has a ModRM field");
         };
-        let immediate = immediate.map(|_| self.immediate(form)).transpose()?;
+        let immediates = immediates.map(|_| self.immediates(form)).transpose()?;
         Ok(DecodedFields::ModRm {
             register: RegisterCode::from_code(modrm >> 3),
             rm,
-            immediate,
+            immediates,
         })
     }
 }

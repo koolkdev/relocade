@@ -24,55 +24,59 @@ macro_rules! declaration_handlers {
     };
 }
 
-// A transfer body already has the successor-returning ABI. Other bodies receive
-// typed arguments and complete with fallthrough. Effects can appear in any order.
+// All bodies receive typed operands. Transfers return the successor EIP;
+// ordinary bodies complete with fallthrough. Effects can appear in any order.
 macro_rules! declaration_adapter {
-    ([control_transfer $(, $effect:ident)*] $pattern:tt $call:tt [$width:ty]; $operand:ident $(($value:expr))?) => {
-        Handler::Unary(|execution, operand, condition, fallthrough| {
-            declaration_invoke!($call [$width]; execution, operand, condition, fallthrough)
-        })
-    };
-    ([control_transfer $(, $effect:ident)*] $($unsupported:tt)*) => {
-        compile_error!("control-transfer bodies use one operand and return the successor EIP")
+    ([control_transfer $(, $effect:ident)*] $($row:tt)*) => {
+        declaration_adapter!(@result [control_transfer] $($row)*)
     };
     ([$effect:ident $(, $rest:ident)*] $pattern:tt $call:tt $width:tt; $($operands:tt)*) => {
         declaration_adapter!([$($rest),*] $pattern $call $width; $($operands)*)
     };
-    ([] $pattern:tt $call:tt [$($width:ty)?];) => {
+    ([] $($row:tt)*) => {
+        declaration_adapter!(@result [] $($row)*)
+    };
+    (@result $result:tt $pattern:tt $call:tt [$($width:ty)?];) => {
         Handler::Nullary(|execution, _condition, fallthrough| {
-            declaration_call!($pattern $call [$($width)?] execution, _condition;)?;
-            Ok(fallthrough)
+            declaration_result!($result $pattern $call [$($width)?] execution, _condition, fallthrough;)
         })
     };
-    ([] $pattern:tt $call:tt [$width:ty]; $operand:ident $(($value:expr))?) => {
+    (@result $result:tt $pattern:tt $call:tt [$width:ty]; $operand:ident $(($value:expr))?) => {
         Handler::Unary(|execution, operand, _condition, fallthrough| {
-            declaration_call!($pattern $call [$width] execution, _condition;
-                operand_value!($width, operand, $operand $(($value))?))?;
-            Ok(fallthrough)
+            declaration_result!($result $pattern $call [$width] execution, _condition, fallthrough;
+                operand_value!($width, operand, $operand $(($value))?))
         })
     };
-    ([] $pattern:tt $call:tt [$width:ty]; $left:ident $(($left_value:expr))?, $right:ident $(($right_value:expr))?) => {
+    (@result $result:tt $pattern:tt $call:tt [$width:ty]; $left:ident $(($left_value:expr))?, $right:ident $(($right_value:expr))?) => {
         Handler::Binary(|execution, left, right, _condition, fallthrough| {
-            declaration_call!($pattern $call [$width] execution, _condition;
+            declaration_result!($result $pattern $call [$width] execution, _condition, fallthrough;
                 operand_value!($width, left, $left $(($left_value))?),
-                operand_value!($width, right, $right $(($right_value))?))?;
-            Ok(fallthrough)
+                operand_value!($width, right, $right $(($right_value))?))
         })
     };
-    ([] $pattern:tt $call:tt [$width:ty];
+    (@result $result:tt $pattern:tt $call:tt [$width:ty];
         $destination:ident $(($destination_value:expr))?,
         $first:ident $(($first_value:expr))?,
         $second:ident $(($second_value:expr))?
     ) => {
         Handler::Ternary(|execution, destination, first, second, _condition, fallthrough| {
             let destination = destination.into();
-            declaration_call!($pattern $call [$width] execution, _condition;
+            declaration_result!($result $pattern $call [$width] execution, _condition, fallthrough;
                 operand_value!($width, destination, $destination $(($destination_value))?),
                 operand_value!($width, first, $first $(($first_value))?),
-                operand_value!($width, second, $second $(($second_value))?))?;
-            Ok(fallthrough)
+                operand_value!($width, second, $second $(($second_value))?))
         })
     };
+}
+
+macro_rules! declaration_result {
+    ([control_transfer] $pattern:tt $call:tt $width:tt $execution:ident, $condition:ident, $fallthrough:ident; $($operand:expr),*) => {
+        declaration_invoke!($call $width; $execution $(, $operand)*, $condition, $fallthrough)
+    };
+    ([] $pattern:tt $call:tt $width:tt $execution:ident, $condition:ident, $fallthrough:ident; $($operand:expr),*) => {{
+        declaration_call!($pattern $call $width $execution, $condition; $($operand),*)?;
+        Ok($fallthrough)
+    }};
 }
 
 macro_rules! declaration_call {
@@ -113,6 +117,8 @@ macro_rules! operand_value {
     ($width:ty, $operand:ident, imm16) => { Input::<I16>::new($operand) };
     ($width:ty, $operand:ident, imm) => { Input::<$width>::new($operand) };
     ($width:ty, $operand:ident, signed_imm8) => { Input::<$width>::new($operand) };
+    ($width:ty, $operand:ident, rel8) => { Input::<I32>::new($operand) };
+    ($width:ty, $operand:ident, rel) => { Input::<I32>::new($operand) };
     ($width:ty, $operand:ident, address) => { Input::<$width>::new($operand) };
     ($width:ty, $operand:ident, rm8) => { operand_value!(@location I8, $operand) };
     ($width:ty, $operand:ident, rm16) => { operand_value!(@location I16, $operand) };
@@ -132,5 +138,6 @@ macro_rules! operand_value {
 }
 
 pub(in crate::instruction) use {
-    declaration_adapter, declaration_call, declaration_handlers, declaration_invoke, operand_value,
+    declaration_adapter, declaration_call, declaration_handlers, declaration_invoke,
+    declaration_result, operand_value,
 };

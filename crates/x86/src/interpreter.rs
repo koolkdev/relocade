@@ -42,7 +42,8 @@ use crate::{
 /// the host can instantiate them with shared memories and choose a compatible entry.
 ///
 /// Segment loads call `wasm86.resolveSegment(segment: i32, selector: i32)`.
-/// Segment indices are ES=0, CS=1, SS=2, DS=3, FS=4, GS=5; supported guest loads exclude CS.
+/// Segment indices are ES=0, CS=1, SS=2, DS=3, FS=4, GS=5. Far JMP resolves CS;
+/// MOV, POP and pointer loads resolve ES/SS/DS/FS/GS.
 /// The host returns six i32 results: `(status, error_code, base, limit, selector,
 /// attributes)`. Status zero returns a complete normalized [`crate::StoredSegment`];
 /// otherwise status is architectural vector 11, 12 or 13 and only the error code
@@ -101,7 +102,12 @@ use crate::{
 /// LES/LDS/LSS/LFS/LGS load a GPR offset and selector from a complete four- or
 /// six-byte memory span, resolving before either destination changes. They use
 /// entry addresses and caches, preserve flags and dispatch after cache commitment.
-/// Far transfers, interrupt/debug delivery and SS-load inhibition are not modeled.
+/// Far JMP (`EA` immediate or `FF /5` memory) resolves CS, then checks its new limit
+/// before committing CS and the operand-sized EIP. The memory form uses the same
+/// complete four-/six-byte pointer access. Descriptor faults precede target #GP(0).
+/// The target check applies even under Flat32; the new CS.D controls subsequent
+/// decoding, not this target's width. Far CALL/RET, gates, privilege transitions,
+/// interrupt/debug delivery and SS-load inhibition are not modeled.
 ///
 /// ```
 /// use wasm86_x86::{compile_interpreter_step, SegmentProfile};

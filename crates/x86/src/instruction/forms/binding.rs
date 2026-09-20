@@ -120,17 +120,17 @@ impl ResolvedForm {
                 };
                 Operand::Address(address.offset)
             }
-            OperandBinding::Immediate => {
-                let (DecodedFields::OpcodeRegisterImmediate { immediate, .. }
-                | DecodedFields::Immediate { immediate }
+            OperandBinding::Immediate(index) => {
+                let (DecodedFields::OpcodeRegisterImmediate { immediates, .. }
+                | DecodedFields::Immediate { immediates }
                 | DecodedFields::ModRm {
-                    immediate: Some(immediate),
+                    immediates: Some(immediates),
                     ..
                 }) = fields
                 else {
                     unreachable!("the form selects a decoded immediate")
                 };
-                Operand::Immediate(immediate.clone())
+                Operand::Immediate(immediates.get(index).clone())
             }
         }
     }

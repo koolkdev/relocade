@@ -110,7 +110,14 @@
 //! decrements that counter and branches when nonzero; LOOPE (`E1`) also requires ZF set, LOOPNE (`E0`)
 //! requires ZF clear. All preserve flags, and all use signed byte displacements.
 //! Address size selects the counter independently of the operand-sized taken target.
-//! Far transfers remain outside the subset. Transfers retire once and dispatch without
+//! Far JMP (`EA` immediate or `FF /5` memory) reads an operand-sized offset followed
+//! by a word selector. The memory form checks exactly four or six bytes through the
+//! old cache. It resolves a CPL3 direct code descriptor, checks the returned limit,
+//! then commits CS and the target EIP together. Descriptor faults precede #GP(0)
+//! for an excessive target. Registers, stack and flags are preserved. Operand size
+//! determines target width; the new CS.D controls subsequent decoding defaults.
+//! Far CALL, RET, gates and privilege transitions remain outside the subset.
+//! Transfers retire once and dispatch without
 //! fetching the destination instruction. Snapshot blocks end at the first control
 //! transfer, REP, segment load or requested instruction limit, whichever comes first.
 //! Each full memory access is checked before instruction effects. A fault
@@ -158,8 +165,8 @@
 //! and flat readable CS. The host must preserve compatibility until a terminal
 //! segment load. Only publication and dispatch follow the cache commit; the next
 //! entry must reestablish compatibility and snapshot validity. The execution owner
-//! invalidates dependent entries and links when assumptions break. Far transfers
-//! are outside the subset.
+//! invalidates dependent entries and links when assumptions break. Far JMP validates
+//! the new CS limit even when entered under Flat32.
 //! CS.D sets the operand/address defaults; `66` and `67` independently select the
 //! other size. Byte operands stay byte-sized. Prefixes may occur in any order.
 //! Repeated `66`, `67` and `F3` preserve presence; wasm86 uses the last segment

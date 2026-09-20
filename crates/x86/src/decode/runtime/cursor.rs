@@ -2,7 +2,7 @@ mod read;
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32, I8};
 
-use crate::instruction::{FieldWidth, ResolvedForm, MAX_INSTRUCTION_BYTES};
+use crate::instruction::{FieldWidth, ImmediateFields, ResolvedForm, MAX_INSTRUCTION_BYTES};
 
 use super::InstructionFetch;
 
@@ -106,15 +106,17 @@ impl<'memory> RuntimeCursor<'memory> {
         self.fixed_offset = None;
     }
 
-    pub(super) fn immediate(
+    pub(super) fn immediates(
         &mut self,
         body: &mut FunctionBuilder<'_>,
         form: &ResolvedForm,
-    ) -> Result<Val<I32>, BuildError> {
-        if form.sign_extends_immediate() {
-            return Ok(self.byte(body)?.signed().extend::<I32>());
-        }
-        self.integer(body, form.immediate_width())
+    ) -> Result<ImmediateFields<Val<I32>>, BuildError> {
+        form.immediates().try_map(|field| {
+            if field.is_signed() {
+                return Ok(self.byte(body)?.signed().extend::<I32>());
+            }
+            self.integer(body, form.immediate_width(field))
+        })
     }
 
     pub(super) fn integer(
