@@ -1,9 +1,9 @@
 //! Protected user-mode transfers resolve CS and commit it after all fault checks.
 //!
-//! Frame compatibility policy: both operand-sized slots must fit SS, but paging
-//! and transfers cover only the offset and two selector bytes. Dword selector
-//! padding stays untouched. This combines RET's full-slot capacity check with
-//! P6 selector-transfer behavior; their descriptions leave the access extent
+//! Frame compatibility policy: all operand-sized slots must fit SS, but paging
+//! and transfers cover only their values, including two selector bytes. Dword
+//! selector padding stays untouched. This combines RET's full-slot capacity check
+//! with P6 selector-transfer behavior; their descriptions leave the access extent
 //! ambiguous. See Intel SDM Volume 3B, section 22.31.1:
 //! <https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-3b-part-2-manual.pdf#page=575>.
 
@@ -12,12 +12,13 @@ use wasm86_compiler::{AtLeast, BuildError, Val, I16, I32};
 use crate::{
     exception::Exception,
     execution::ExecutionBuilder,
+    flags::{image, Flag},
     register::RegisterType,
     segment::{Segment, SegmentValues},
 };
 
-/// Resolution proves code type, privilege and presence; the offset is checked later
-/// because CALL must first validate its stack capacity.
+/// A resolved code segment and offset. Direct transfers check the limit separately
+/// because CALL must first validate stack capacity; returns check it during resolution.
 struct CodeTarget {
     offset: Val<I32>,
     segment: SegmentValues,
@@ -35,6 +36,27 @@ impl CodeTarget {
         let offset = offset.unsigned().extend::<I32>();
         let segment = execution.resolve_segment(Segment::Cs, selector)?;
         Ok(Self { offset, segment })
+    }
+
+    fn resolve_return<T: RegisterType>(
+        execution: &mut ExecutionBuilder<'_, '_>,
+        offset: Val<T>,
+        selector: &Val<I16>,
+    ) -> Result<Self, BuildError>
+    where
+        I32: AtLeast<T>,
+    {
+        // Returns cannot go inward. With CPL fixed at 3, only RPL 3 is valid.
+        // After this check the direct-CS resolver implements the return policy.
+        execution.fault_if(
+            selector.and(3).ne(3),
+            Exception::GeneralProtection {
+                error_code: selector.unsigned().extend::<I32>().and(0xfffc),
+            },
+        )?;
+        let target = Self::resolve(execution, offset, selector)?;
+        target.check_limit(execution)?;
+        Ok(target)
     }
 
     fn check_limit(&self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
@@ -102,17 +124,26 @@ impl ExecutionBuilder<'_, '_> {
         let frame = self.pop_frame(2 * T::BYTES, 2 * T::BYTES)?;
         let offset = frame.field::<T>(self, 0)?.read(self)?;
         let selector = frame.field::<I16>(self, T::BYTES)?.read(self)?;
-        // RET cannot return inward. With CPL fixed at 3, only RPL 3 is valid.
-        // After this check the direct-CS resolver also implements RET's policy.
-        self.fault_if(
-            selector.and(3).ne(3),
-            Exception::GeneralProtection {
-                error_code: selector.unsigned().extend::<I32>().and(0xfffc),
-            },
-        )?;
-        let target = CodeTarget::resolve(self, offset, &selector)?;
-        target.check_limit(self)?;
+        let target = CodeTarget::resolve_return(self, offset, &selector)?;
         frame.commit(self, discard_bytes.unsigned().extend::<I32>())?;
+        target.commit(self)
+    }
+
+    pub(crate) fn return_interrupt<T: RegisterType>(&mut self) -> Result<Val<I32>, BuildError>
+    where
+        I32: AtLeast<T>,
+    {
+        // NT selects a task return before stack access. Task switching uses the
+        // unsupported-execution exit.
+        let nested_task = self.read_flag(Flag::NT)?;
+        self.unsupported_if(nested_task, 0xcf)?;
+        let frame = self.pop_frame(3 * T::BYTES, 3 * T::BYTES)?;
+        let offset = frame.field::<T>(self, 0)?.read(self)?;
+        let selector = frame.field::<I16>(self, T::BYTES)?.read(self)?;
+        let flags = frame.field::<T>(self, 2 * T::BYTES)?.read(self)?;
+        let target = CodeTarget::resolve_return(self, offset, &selector)?;
+        self.write_flags(image::stack_change(&flags))?;
+        frame.commit(self, 0)?;
         target.commit(self)
     }
 }

@@ -37,7 +37,7 @@ fn exit_module() -> Vec<u8> {
                             error_code: detail,
                         },
                         "unsupported" => {
-                            return unsupported(body, &address, &detail.truncate::<I8>())
+                            return unsupported(body, &address, detail.truncate::<I8>())
                         }
                         _ => unreachable!(),
                     };

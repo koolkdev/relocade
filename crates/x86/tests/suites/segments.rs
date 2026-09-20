@@ -20,6 +20,8 @@ mod fetch_faults;
 mod inspection;
 #[path = "segments/inspection_cases.rs"]
 mod inspection_cases;
+#[path = "segments/interrupt_returns.rs"]
+mod interrupt_returns;
 #[path = "segments/moves.rs"]
 mod moves;
 #[path = "segments/permissions.rs"]

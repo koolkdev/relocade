@@ -8,14 +8,14 @@ mod stack;
 pub(crate) use operands::PairValues;
 pub(crate) use repetition::Repetition;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32};
+use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32, I8};
 
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
 use crate::memory::{Access, Intent, Memory};
 use crate::runtime::Runtime;
 use crate::segment::{Segment, SegmentAccess, SegmentProfile, SegmentSelection};
-use crate::state::{Cpu, State};
+use crate::state::{exit, Cpu, State};
 use crate::{address::AddressSize, exception::Exception};
 
 /// Builds one execution path. State definitions and progress describe completed
@@ -114,6 +114,20 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.body.if_(condition, |fault_body| {
             self.state
                 .fault(fault_body, &self.eip, self.completed, exception)
+        })
+    }
+
+    /// Stops an unsupported execution path without retiring the instruction.
+    /// Earlier completed work is published at the current restart boundary.
+    /// Call before defining any effects of the current instruction.
+    pub(crate) fn unsupported_if(
+        &mut self,
+        condition: impl Into<Val<I1>>,
+        opcode: impl Into<Val<I8>>,
+    ) -> Result<(), BuildError> {
+        self.body.if_(condition, |mut body| {
+            self.state.publish(&mut body, &self.eip, self.completed)?;
+            exit::unsupported(body, &self.eip, opcode)
         })
     }
 

@@ -40,6 +40,11 @@ instruction_families! {
             0xCA => word_or_dword(imm16);
         }
     }
+    IRET {
+        execute: return_interrupt::<_>;
+        effects: [memory_read, control_transfer, segment_load];
+        forms { 0xCF => word_or_dword(); }
+    }
 }
 
 fn jump_far_immediate<T: RegisterType>(
@@ -109,4 +114,15 @@ where
 {
     let discard_bytes = discard_bytes.read(execution)?;
     execution.return_far::<T>(discard_bytes)
+}
+
+fn return_interrupt<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    _condition: Option<Condition>,
+    _fallthrough: Val<I32>,
+) -> Result<Val<I32>, BuildError>
+where
+    I32: AtLeast<T>,
+{
+    execution.return_interrupt::<T>()
 }

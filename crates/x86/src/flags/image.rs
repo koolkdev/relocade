@@ -4,7 +4,7 @@
 //! Writes ignore fixed and unrepresented bits. Transferring TF, NT, AC or ID does
 //! not enable debug delivery, task switching, alignment checks or interrupts.
 
-use wasm86_compiler::{Val, I1, I32};
+use wasm86_compiler::{AtLeast, IntType, Type, Val, I1, I32};
 
 use super::{Flag, FlagChange, StatusFlag};
 
@@ -52,6 +52,21 @@ pub(crate) const DWORD: FlagImage<11> = FlagImage {
     ],
     fixed: 0x0202,
 };
+
+/// Restores the modeled flags from a word or dword stack image. Word images
+/// leave AC/ID unchanged. RF is unrepresented even for IRETD, which restores it
+/// on hardware; debug delivery is outside this execution model.
+pub(crate) fn stack_change<T: IntType>(image: &Val<T>) -> FlagChange
+where
+    I32: AtLeast<T>,
+{
+    let image = image.unsigned().extend::<I32>();
+    match T::TYPE {
+        Type::I16 => WORD.change(&image),
+        Type::I32 => DWORD.change(&image),
+        _ => unreachable!("stack flag images use word or dword operands"),
+    }
+}
 
 impl<const N: usize> FlagImage<N> {
     pub(crate) fn flags(&self) -> [Flag; N] {

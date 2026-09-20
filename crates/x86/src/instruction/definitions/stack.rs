@@ -73,16 +73,7 @@ where
     I32: AtLeast<T>,
 {
     let frame = execution.pop_frame(T::BYTES, T::BYTES)?;
-    let image = frame
-        .field::<T>(execution, 0)?
-        .read(execution)?
-        .unsigned()
-        .extend::<I32>();
+    let flags = frame.field::<T>(execution, 0)?.read(execution)?;
     frame.commit(execution, 0)?;
-    let change = match T::BYTES {
-        2 => image::WORD.change(&image),
-        4 => image::DWORD.change(&image),
-        _ => unreachable!("stack flag images use word or dword operands"),
-    };
-    execution.write_flags(change)
+    execution.write_flags(image::stack_change(&flags))
 }

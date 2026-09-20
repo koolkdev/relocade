@@ -82,6 +82,12 @@ is active. Control and system flags always use their stored bytes. Valid source
 kinds are an internal invariant; a host setting concrete status flags must also
 select kind zero.
 
+Architectural flag transfers use a fixed CPL3/IOPL0 model with IF set and
+VM/RF/VIF/VIP clear. Word stack images restore the represented low flags;
+dword images also restore AC and ID. IRETD restores RF on hardware, but RF is
+unrepresented here along with debug delivery. TF and AC are stored without
+enabling debug traps or alignment checks.
+
 ```rust
 use wasm86_x86::CpuState;
 
@@ -154,6 +160,12 @@ architectural vectors 11 (#NP), 12 (#SS) or 13 (#GP); only their error code is u
 Unknown statuses or invalid success records violate the host contract. Wasm owns
 the instruction's remaining checks, cache commitment, retirement and fault exit.
 In particular, resolving CS does not validate a transfer's target offset.
+
+RETF and IRET require a return selector with RPL 3 before resolving CS. IRET
+checks all three slots and reads their values before resolving the selector.
+It commits CS, EIP, flags and the stack pointer only after all checks succeed.
+An entry NT flag of one requests an unsupported task return before ordinary stack
+access. Restoring NT from the frame affects a later IRET, not the current return.
 
 The callback resolves the current thread's descriptor view, for example through
 `DescriptorTables::resolve_user_segment`. It must not inspect or mutate CPU state,
@@ -232,11 +244,14 @@ Page-fault error bit 0 means a present but denied page, bit 1 means a data write
 and bit 4 means instruction fetch. Cached segment-access failures use #SS(0) for
 SS and #GP(0) for other segments. Resolver faults retain their selector error code.
 
-An unsupported exit describes the implementation's subset, not an architectural
-invalid-opcode exception. Its diagnostic byte is the first byte after size and
-segment prefixes, `0F` for an extended opcode, or `F3` for an unsupported repeated
-form. It does not retire or dispatch. Snapshot construction instead reports
-`BlockError`; truncated byte input alone cannot establish a guest fetch fault.
+An unsupported exit describes an encoding or execution path outside the
+implementation's subset, not an architectural invalid-opcode exception. Its
+diagnostic byte is the first byte after size and segment prefixes, `0F` for an
+extended opcode, or `F3` for an unsupported repeated
+form. It does not retire or dispatch. IRET with entry NT set reports `CF` at the
+instruction's restart EIP, including its prefixes. Snapshot construction reports
+`BlockError` for unsupported encodings; state-dependent unsupported paths remain
+runtime exits. Truncated byte input alone cannot establish a guest fetch fault.
 
 Faults are reported to the host. Guest IDT delivery, privilege transitions,
 interrupt/debug delivery, real-mode transfers and SS-load inhibition are not

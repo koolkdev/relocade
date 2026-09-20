@@ -41,13 +41,13 @@ pub(crate) fn exception(
 pub(crate) fn unsupported(
     body: FunctionBuilder<'_>,
     address: &Val<I32>,
-    opcode: &Val<I8>,
+    opcode: impl Into<Val<I8>>,
 ) -> Result<(), BuildError> {
     body.return_(
         address
             .unsigned()
             .extend::<I64>()
-            .or(opcode.unsigned().extend::<I64>().shl(32))
+            .or(opcode.into().unsigned().extend::<I64>().shl(32))
             .or(UNSUPPORTED_INSTRUCTION),
     )
 }
