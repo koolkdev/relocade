@@ -1,6 +1,6 @@
 //! Stack frames separate capacity checks, memory transfers and pointer commitment.
 
-mod procedure;
+mod frame;
 
 use std::marker::PhantomData;
 
