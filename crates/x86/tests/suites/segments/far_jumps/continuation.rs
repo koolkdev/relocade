@@ -130,7 +130,7 @@ fn terminal_jump(engine: Engine) {
             immediate(false, 0x200, 0x27)
         };
         let length = code.len();
-        code.push(0x62); // Unsupported old-code byte must not be decoded.
+        code.push(0xf4); // Unsupported old-code byte must not be decoded.
         let mut image = Image::new(&code);
         image.cpu.segments.cs.limit = 0x1000 + length as u32 - 1;
         image.cpu.registers.ebx = 0x4000;

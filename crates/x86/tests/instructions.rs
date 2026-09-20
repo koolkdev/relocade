@@ -10,6 +10,8 @@ mod binary_operands;
 mod bit_scans;
 #[path = "suites/bit_tests.rs"]
 mod bit_tests;
+#[path = "suites/bounds.rs"]
+mod bounds;
 #[path = "suites/byte_moves.rs"]
 mod byte_moves;
 #[path = "suites/carry_arithmetic.rs"]

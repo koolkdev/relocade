@@ -75,7 +75,7 @@ fn lss_commits_the_offset_before_the_next_entry_applies_the_new_stack_rules() {
 fn terminal_loads(engine: Engine) {
     for (segment, opcode) in FORMS {
         let mut code = opcode.to_vec();
-        code.extend([0x03, 0x62]); // Load EAX,[EBX], followed by an unsupported byte.
+        code.extend([0x03, 0xf4]); // Load EAX,[EBX], followed by an unsupported byte.
         let mut image = Image::new(&code);
         image.cpu.registers.ebx = 0x4000;
         image.map(4, 0x8000, false);

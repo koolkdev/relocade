@@ -302,9 +302,9 @@ fn missing_instruction_bytes_and_unsupported_opcodes_preserve_entry_state() {
         (
             "unsupported opcode at page end",
             0x1fff,
-            vec![(0x3fff, vec![0x62])],
+            vec![(0x3fff, vec![0xf4])],
             vec![(4, vec![1, 0x30, 0, 0])],
-            Exit::Other(0x0008_0062_0000_1fff),
+            Exit::Other(0x0008_00f4_0000_1fff),
         ),
         (
             "address prefix needs the next code page",

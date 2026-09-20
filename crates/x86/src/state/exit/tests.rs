@@ -10,6 +10,7 @@ fn exit_module() -> Vec<u8> {
     let mut program = Program::new();
     for name in [
         "divide_error",
+        "bound_range_exceeded",
         "segment_not_present",
         "stack_fault",
         "general_protection",
@@ -27,6 +28,7 @@ fn exit_module() -> Vec<u8> {
                     let address = body.parameter::<I32>(1)?;
                     let fault = match name {
                         "divide_error" => Exception::DivideError,
+                        "bound_range_exceeded" => Exception::BoundRangeExceeded,
                         "segment_not_present" => {
                             Exception::SegmentNotPresent { error_code: detail }
                         }
@@ -61,6 +63,12 @@ fn check_host_exit_words(engine: Engine) {
             0x0001_0000_0000_0000_i64,
         ),
         ("segment_not_present", 0, 0x89ab_cdef, 0x0020_0000_0000_0000),
+        (
+            "bound_range_exceeded",
+            0xffff,
+            0x89ab_cdef,
+            0x0040_0000_0000_0000,
+        ),
         (
             "segment_not_present",
             0xfffc,

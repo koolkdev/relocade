@@ -31,14 +31,14 @@ fn selected_memory_forms_require_only_their_address_bytes() {
             })
         );
     }
-    let code = [0x8b, 0x14, 0x25, 0xf3, 0x0f, 0xb8, 0x66, 0x62];
+    let code = [0x8b, 0x14, 0x25, 0xf3, 0x0f, 0xb8, 0x66, 0xf4];
     let module = compile_block_from_bytes(0x1000, &code, 1).unwrap();
     Validator::new().validate_all(&module.bytes).unwrap();
     assert_eq!(
         compile_block_from_bytes(0x1000, &code, 2).err(),
         Some(BlockError::UnsupportedInstruction {
             address: 0x1007,
-            opcode: 0x62
+            opcode: 0xf4
         })
     );
 }

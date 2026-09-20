@@ -49,7 +49,7 @@ fn snapshots_require_every_field_and_stop_at_each_near_control_form() {
             );
         }
         let complete = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        for input in [code.to_vec(), [code, &[0x62, 0x66, 0x0f]].concat()] {
+        for input in [code.to_vec(), [code, &[0xf4, 0x66, 0x0f]].concat()] {
             assert_eq!(
                 compile_block_from_bytes(0x1000, &input, u32::MAX)
                     .unwrap()
@@ -78,7 +78,7 @@ fn a_near_transfer_ends_a_snapshot_after_an_earlier_instruction() {
                 .bytes,
             complete.bytes,
         );
-        let trailing = [&code[..], &[0x62]].concat();
+        let trailing = [&code[..], &[0xf4]].concat();
         assert_eq!(
             compile_block_from_bytes(0x1000, &trailing, u32::MAX)
                 .unwrap()

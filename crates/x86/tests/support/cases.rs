@@ -232,6 +232,11 @@ impl InstructionCase {
         self
     }
 
+    pub(crate) fn bound_range_exceeded(mut self) -> Self {
+        self.expected.exit = ExpectedExit::BoundRangeExceeded;
+        self
+    }
+
     pub(crate) fn general_protection(mut self, error: u16) -> Self {
         self.expected.exit = ExpectedExit::GeneralProtection { error };
         self
@@ -247,6 +252,7 @@ impl InstructionCase {
             ExpectedExit::Fallthrough => self.initial.eip.wrapping_add(self.code.len() as u32),
             ExpectedExit::Dispatch(target) => target,
             ExpectedExit::DivideError
+            | ExpectedExit::BoundRangeExceeded
             | ExpectedExit::GeneralProtection { .. }
             | ExpectedExit::StackFault { .. }
             | ExpectedExit::PageFault { .. } => self.initial.eip,
@@ -257,6 +263,7 @@ impl InstructionCase {
         match self.expected.exit {
             ExpectedExit::Fallthrough | ExpectedExit::Dispatch(_) => 1,
             ExpectedExit::DivideError
+            | ExpectedExit::BoundRangeExceeded
             | ExpectedExit::GeneralProtection { .. }
             | ExpectedExit::StackFault { .. }
             | ExpectedExit::PageFault { .. } => 0,
@@ -405,6 +412,7 @@ pub(super) enum ExpectedExit {
     Fallthrough,
     Dispatch(u32),
     DivideError,
+    BoundRangeExceeded,
     GeneralProtection { error: u16 },
     StackFault { error: u16 },
     PageFault { address: u32, error: u16 },

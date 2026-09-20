@@ -188,6 +188,11 @@ impl Checkpoint {
         self.expected.exit = ExpectedExit::DivideError;
         self
     }
+
+    pub(crate) fn bound_range_exceeded(mut self) -> Self {
+        self.expected.exit = ExpectedExit::BoundRangeExceeded;
+        self
+    }
 }
 
 pub(crate) fn check_sequences(cases: &[SequenceCase]) {

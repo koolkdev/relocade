@@ -3,6 +3,7 @@
 mod alu;
 mod bit_scans;
 mod bit_tests;
+mod bounds;
 mod branches;
 mod conditions;
 mod divide;
@@ -38,6 +39,7 @@ pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form
         .chain(shifts::forms())
         .chain(bit_scans::forms())
         .chain(bit_tests::forms())
+        .chain(bounds::forms())
         .chain(stack::forms())
         .chain(strings::forms())
         .chain(conditions::forms())

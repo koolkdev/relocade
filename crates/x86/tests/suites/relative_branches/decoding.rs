@@ -52,7 +52,7 @@ fn snapshots_require_every_opcode_and_displacement_byte_before_ending_a_block() 
         }
         let complete = compile_block_from_bytes(0x1000, code, 1).unwrap();
         let mut trailing = code.to_vec();
-        trailing.extend_from_slice(&[0xb8, 0, 0, 0, 0, 0x62]);
+        trailing.extend_from_slice(&[0xb8, 0, 0, 0, 0, 0xf4]);
         assert_eq!(
             compile_block_from_bytes(0x1000, &trailing, 99)
                 .unwrap()

@@ -250,6 +250,7 @@ exception vector numbers:
 | Unsupported instruction | 8 | Diagnostic opcode byte | Instruction's starting EIP |
 | Stack fault | 16 | Error code | Zero |
 | Segment not present | 32 | Error code | Zero |
+| BOUND range exceeded | 64 | Zero | Zero |
 
 Page-fault error bit 0 means a present but denied page, bit 1 means a data write,
 and bit 4 means instruction fetch. Cached segment-access failures use #SS(0) for

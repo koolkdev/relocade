@@ -62,7 +62,7 @@ fn snapshot_limits_stop_at_the_first_branch_and_preserve_earlier_progress() {
                 &[first, last],
             );
             let module = compile_block_from_bytes(0x1000, &code, 2).unwrap();
-            code.extend_from_slice(&[0x62, 0x66, 0x0f]);
+            code.extend_from_slice(&[0xf4, 0x66, 0x0f]);
             assert_eq!(
                 compile_block_from_bytes(0x1000, &code, u32::MAX)
                     .unwrap()

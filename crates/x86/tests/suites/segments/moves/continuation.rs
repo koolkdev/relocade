@@ -57,7 +57,7 @@ fn the_next_entry_uses_loaded_ss_base_and_stack_width() {
 
 fn terminal_null_load(engine: Engine) {
     // MOV DS,EAX must end compilation before the unsupported following byte.
-    let code = [0x8e, 0xd8, 0x62];
+    let code = [0x8e, 0xd8, 0xf4];
     let mut image = Image::new(&code);
     image.cpu.registers.eax = 0xabcd_0003;
     let tables = DescriptorTables::default();

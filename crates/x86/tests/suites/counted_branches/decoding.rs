@@ -33,7 +33,7 @@ fn snapshots_consume_one_displacement_and_stop_at_the_branch() {
             );
         }
         let complete = compile_block_from_bytes(0x1000, &code, 1).unwrap();
-        for input in [code.clone(), [&code[..], &[0x62, 0x66, 0x0f]].concat()] {
+        for input in [code.clone(), [&code[..], &[0xf4, 0x66, 0x0f]].concat()] {
             assert_eq!(
                 compile_block_from_bytes(0x1000, &input, u32::MAX)
                     .unwrap()

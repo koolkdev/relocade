@@ -7,6 +7,7 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Exception<V = u32> {
     DivideError,
+    BoundRangeExceeded,
     SegmentNotPresent { error_code: V },
     StackFault { error_code: V },
     GeneralProtection { error_code: V },
@@ -18,6 +19,7 @@ pub enum Exception<V = u32> {
 #[repr(u8)]
 pub enum ExceptionVector {
     DivideError = 0,
+    BoundRangeExceeded = 5,
     SegmentNotPresent = 11,
     StackFault = 12,
     GeneralProtection = 13,
@@ -28,6 +30,7 @@ impl<V> Exception<V> {
     pub const fn vector(&self) -> ExceptionVector {
         match self {
             Self::DivideError => ExceptionVector::DivideError,
+            Self::BoundRangeExceeded => ExceptionVector::BoundRangeExceeded,
             Self::SegmentNotPresent { .. } => ExceptionVector::SegmentNotPresent,
             Self::StackFault { .. } => ExceptionVector::StackFault,
             Self::GeneralProtection { .. } => ExceptionVector::GeneralProtection,
@@ -40,6 +43,7 @@ impl fmt::Display for Exception<u32> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (name, error_code) = match self {
             Self::DivideError => return f.write_str("#DE"),
+            Self::BoundRangeExceeded => return f.write_str("#BR"),
             Self::SegmentNotPresent { error_code } => ("#NP", error_code),
             Self::StackFault { error_code } => ("#SS", error_code),
             Self::GeneralProtection { error_code } => ("#GP", error_code),
