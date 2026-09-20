@@ -1,3 +1,4 @@
+use super::{code16, stack_segment};
 use crate::support::cases::{
     test_cases, InstructionCase as Case,
     Permissions::{ReadOnly, ReadWrite},
@@ -11,22 +12,6 @@ use wasm86_x86::{
 mod faults;
 #[path = "enter/progress.rs"]
 mod progress;
-
-fn stack_segment(base: u32, limit: u32, big: bool) -> StoredSegment {
-    StoredSegment {
-        base,
-        limit,
-        selector: 0x23,
-        attributes: SegmentAttributes::from_bits(if big { 0x15 } else { 0x05 }),
-    }
-}
-
-fn code16() -> StoredSegment {
-    StoredSegment {
-        attributes: SegmentAttributes::from_bits(0x07),
-        ..StoredSegment::flat_code32(0x1b)
-    }
-}
 
 fn widths() -> Vec<Case> {
     let mut cases = Vec::new();

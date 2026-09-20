@@ -1,6 +1,7 @@
 //! Stack frames separate capacity checks, memory transfers and pointer commitment.
 
 mod frame;
+mod registers;
 
 use std::marker::PhantomData;
 
@@ -48,8 +49,8 @@ impl StackFrame {
         })
     }
 
-    fn next_esp(&self) -> Val<I32> {
-        self.pointer.advance(self.adjustment).esp
+    fn next_pointer(&self) -> StackPointer {
+        self.pointer.advance(self.adjustment)
     }
 
     /// Extra discarded bytes are neither accessed nor checked against SS.limit.
@@ -217,7 +218,7 @@ impl ExecutionBuilder<'_, '_> {
             destination,
             &[RegisterValue {
                 register: Gpr32::Esp,
-                value: frame.next_esp(),
+                value: frame.next_pointer().esp,
             }],
         )?;
         // POP ESP overwrites the increment; POP SP preserves its upper word.

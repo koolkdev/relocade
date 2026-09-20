@@ -21,6 +21,16 @@ instruction_families! {
             0x8F /0 => word_or_dword(rm);
         }
     }
+    PUSHA {
+        execute: push_all_registers::<_>;
+        effects: [memory_write];
+        forms { 0x60 => word_or_dword(); }
+    }
+    POPA {
+        execute: pop_all_registers::<_>;
+        effects: [memory_read];
+        forms { 0x61 => word_or_dword(); }
+    }
     PUSHF {
         execute: push_flags::<_>;
         effects: [memory_write];
@@ -64,6 +74,18 @@ fn pop<T: RegisterType>(
     destination: TypedLocation<T>,
 ) -> Result<(), BuildError> {
     execution.pop::<T>(destination.into_location())
+}
+
+fn push_all_registers<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+) -> Result<(), BuildError> {
+    execution.push_all_registers::<T>()
+}
+
+fn pop_all_registers<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+) -> Result<(), BuildError> {
+    execution.pop_all_registers::<T>()
 }
 
 fn push_flags<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>

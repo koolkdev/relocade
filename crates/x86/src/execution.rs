@@ -20,8 +20,8 @@ use crate::state::{exit, Cpu, State};
 use crate::{address::AddressSize, exception::Exception};
 
 /// Builds one execution path. State definitions and progress describe completed
-/// instructions. Within a repeated string instruction, the current state also
-/// includes successful elements, while EIP and the instruction count stay at entry.
+/// instructions. Instructions with partial progress, such as REP and POPA, also
+/// define completed effects while EIP and the instruction count stay at entry.
 pub(super) struct ExecutionBuilder<'body, 'module> {
     body: FunctionBuilder<'body>,
     state: State<'module>,
@@ -105,8 +105,8 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.state.condition(&mut self.body, condition)
     }
 
-    /// Ends a faulting path at the current restart boundary. Call before defining
-    /// results of the faulting instruction or its current string element.
+    /// Ends a faulting path with the current state. Define only effects permitted
+    /// to survive that fault; the instruction's EIP and retirement stay at entry.
     pub(crate) fn fault_if(
         &mut self,
         condition: impl Into<Val<I1>>,

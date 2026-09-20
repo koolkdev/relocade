@@ -23,7 +23,7 @@ impl ExecutionBuilder<'_, '_> {
         let old_frame = self.state.read_register(&mut self.body, Gpr32::Ebp)?;
         let pointer = self.stack_pointer()?;
         let saved = self.push_frame_at(pointer.clone(), T::BYTES, T::BYTES)?;
-        let frame_pointer = saved.next_esp();
+        let frame_pointer = saved.next_pointer().esp;
         saved
             .field::<T>(self, 0)?
             .write(self, &old_frame.truncate::<T>())?;
@@ -51,14 +51,14 @@ impl ExecutionBuilder<'_, '_> {
                             .write(&mut iteration, &value)?;
                         iteration.body.branch(
                             &labels.again,
-                            (remaining.sub(1), source.offset(), write.next_esp()),
+                            (remaining.sub(1), source.offset(), write.next_pointer().esp),
                         )
                     },
                 )?;
                 let link = nested.push_frame_at(pointer.with_offset(esp), T::BYTES, T::BYTES)?;
                 link.field::<T>(&mut nested, 0)?
                     .write(&mut nested, &frame_pointer.truncate::<T>())?;
-                nested.body.yield_(link.next_esp())
+                nested.body.yield_(link.next_pointer().esp)
             },
             |nested| nested.body.yield_(&frame_pointer),
         )?;

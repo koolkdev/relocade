@@ -3,7 +3,10 @@ use crate::support::cases::{
     Permissions::{ReadOnly, ReadWrite},
     RegisterExpectation::Exact,
 };
-use wasm86_x86::Gpr32::{self, *};
+use wasm86_x86::{
+    Gpr32::{self, *},
+    SegmentAttributes, StoredSegment,
+};
 
 #[path = "stack_operations/decoding.rs"]
 mod decoding;
@@ -15,8 +18,26 @@ mod faults;
 mod leave;
 #[path = "stack_operations/memory.rs"]
 mod memory;
+#[path = "stack_operations/registers.rs"]
+mod registers;
 #[path = "stack_operations/sequences.rs"]
 mod sequences;
+
+fn stack_segment(base: u32, limit: u32, big: bool) -> StoredSegment {
+    StoredSegment {
+        base,
+        limit,
+        selector: 0x23,
+        attributes: SegmentAttributes::from_bits(if big { 0x15 } else { 0x05 }),
+    }
+}
+
+fn code16() -> StoredSegment {
+    StoredSegment {
+        attributes: SegmentAttributes::from_bits(0x07),
+        ..StoredSegment::flat_code32(0x1b)
+    }
+}
 
 struct Register {
     encoding: u8,

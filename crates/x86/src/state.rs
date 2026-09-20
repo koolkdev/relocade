@@ -123,8 +123,8 @@ impl<'cpu> State<'cpu> {
         self.flags.condition(body, self.cpu, condition)
     }
 
-    /// Publishes and terminates at the supplied restart boundary. Call before
-    /// defining effects of the faulting instruction or its current REP element.
+    /// Publishes current definitions and terminates at the supplied faulting EIP.
+    /// Callers define only effects that are permitted to survive this fault.
     pub(super) fn fault(
         &self,
         mut body: FunctionBuilder<'_>,
@@ -136,8 +136,8 @@ impl<'cpu> State<'cpu> {
         exit::exception(body, exception)
     }
 
-    /// Publishes the current restart boundary on a terminating path, including
-    /// completed instructions and successful elements of an unretired REP.
+    /// Publishes current state on a terminating path, including any permitted
+    /// partial progress in an unretired instruction.
     /// Indexed accesses may already have synchronized register definitions to backing.
     /// Later definitions do not change an earlier authored exit; this does not
     /// restore an older state after partially executing a new instruction.
