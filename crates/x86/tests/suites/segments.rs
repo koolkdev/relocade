@@ -1,5 +1,7 @@
-//! Loaded segment caches guard and translate instruction and data accesses.
+//! Selectors, descriptors and loaded caches support protected-mode segment behavior.
 
+#[path = "segments/arpl.rs"]
+mod arpl;
 #[path = "segments/bounds.rs"]
 mod bounds;
 #[path = "segments/code.rs"]

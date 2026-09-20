@@ -1,4 +1,4 @@
-//! Segment instructions read and load selectors and query descriptors.
+//! Segment instructions read, adjust and load selectors and query descriptors.
 
 use super::*;
 use crate::{
@@ -6,6 +6,10 @@ use crate::{
 };
 
 instruction_families! {
+    ARPL {
+        execute: adjust_rpl;
+        forms { 0x63 => word(rm, modrm_reg); }
+    }
     LAR {
         execute: load_access_rights;
         forms { 0x0F 0x02 => word_or_dword(modrm_reg, rm16); }
@@ -78,6 +82,20 @@ instruction_families! {
             0x0F 0xB5 => word_or_dword(modrm_reg, mem, segment(Segment::Gs));
         }
     }
+}
+
+fn adjust_rpl(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: TypedLocation<I16>,
+    source: Input<I16>,
+) -> Result<(), BuildError> {
+    // A memory destination must be writable even when its RPL needs no adjustment.
+    destination.update(execution, |execution, selector| {
+        let source_rpl = source.read(execution)?.and(3);
+        let adjust = selector.and(3).unsigned().lt(&source_rpl);
+        execution.write_flag(Flag::ZF, adjust.clone())?;
+        Ok(adjust.select(selector.and(0xfffc).or(source_rpl), selector))
+    })
 }
 
 fn load_access_rights<T: RegisterType>(
