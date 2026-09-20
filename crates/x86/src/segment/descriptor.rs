@@ -2,7 +2,7 @@
 
 use crate::{Exception, StoredSegment};
 
-use super::{Segment, SegmentAttributes, SegmentDefaultSize, SegmentKind};
+use super::{Segment, SegmentAttributes, SegmentDefaultSize, SegmentKind, SegmentLimit};
 
 /// Architectural privilege levels, ordered from most to least privileged.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,32 +22,26 @@ pub enum SegmentDescriptorKind {
     Code { readable: bool, conforming: bool },
 }
 
-/// Read/write rights visible at CPL=3, independent of descriptor presence.
-/// Neither permission guarantees that a segment load or a memory access succeeds.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct SegmentPermissions<V = bool> {
-    pub readable: V,
-    pub writable: V,
-}
-
 /// A host-managed descriptor, separate from any CPU's loaded segment cache.
-/// Limits are inclusive effective byte limits; this is not the packed x86
-/// descriptor format. System descriptors and gates are outside this model.
+/// All entries are pre-accessed (A=1), with L=0 for 16/32-bit code. This is not the
+/// packed x86 descriptor format. System descriptors and gates are outside this model.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SegmentDescriptor {
     pub base: u32,
-    pub limit: u32,
+    pub limit: SegmentLimit,
     pub kind: SegmentDescriptorKind,
     pub default_size: SegmentDefaultSize,
     pub dpl: PrivilegeLevel,
     pub present: bool,
+    /// The software-available descriptor bit (AVL), observable through LAR.
+    pub available: bool,
 }
 
 impl SegmentDescriptor {
-    /// Constructs a present descriptor with DPL=3.
+    /// Constructs a present descriptor with DPL=3 and AVL=0.
     pub const fn new(
         base: u32,
-        limit: u32,
+        limit: SegmentLimit,
         kind: SegmentDescriptorKind,
         default_size: SegmentDefaultSize,
     ) -> Self {
@@ -58,12 +52,13 @@ impl SegmentDescriptor {
             default_size,
             dpl: PrivilegeLevel::Ring3,
             present: true,
+            available: false,
         }
     }
 
     // At CPL=3, every RPL is already covered by the DPL check. Conforming code
     // remains visible at every DPL; readability is checked by the caller.
-    fn user_visible(&self) -> bool {
+    pub(super) fn user_visible(&self) -> bool {
         self.dpl == PrivilegeLevel::Ring3
             || matches!(
                 self.kind,
@@ -72,22 +67,6 @@ impl SegmentDescriptor {
                     ..
                 }
             )
-    }
-
-    pub(super) fn user_permissions(&self) -> SegmentPermissions {
-        if !self.user_visible() {
-            return SegmentPermissions::default();
-        }
-        match self.kind {
-            SegmentDescriptorKind::Data { writable, .. } => SegmentPermissions {
-                readable: true,
-                writable,
-            },
-            SegmentDescriptorKind::Code { readable, .. } => SegmentPermissions {
-                readable,
-                writable: false,
-            },
-        }
     }
 
     pub(super) fn resolve_user(
@@ -102,7 +81,7 @@ impl SegmentDescriptor {
             }
             (Segment::Cs, Code { .. }) => self.user_visible(),
             (Segment::Ss | Segment::Cs, _) => false,
-            (_, _) => self.user_permissions().readable,
+            (_, _) => self.query_user().readable,
         };
         let error_code = u32::from(selector & !3);
         if !accessible {
@@ -127,7 +106,7 @@ impl SegmentDescriptor {
         };
         Ok(StoredSegment {
             base: self.base,
-            limit: self.limit,
+            limit: self.limit.effective(),
             selector: if destination == Segment::Cs {
                 selector | 3
             } else {

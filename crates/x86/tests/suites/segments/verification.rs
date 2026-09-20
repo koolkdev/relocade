@@ -7,69 +7,18 @@ mod progress;
 
 use super::{
     data,
-    selector_cases::{code_defaults, descriptor},
+    inspection_cases::{check_one, completed, image},
+    selector_cases::descriptor,
 };
 use crate::support::{
     blocks::BlockModules,
-    machine::{expected, Exit, Image, Step},
-    step::{Engine, Event, SegmentPermissionQuery, TestModule},
+    machine::{expected, Exit, Step},
+    step::{Engine, Event, SegmentQuery, TestModule},
 };
 use crate::{
     CpuState, DescriptorTables, Gpr32, PrivilegeLevel, Segment, SegmentDefaultSize,
     SegmentDescriptor, SegmentDescriptorKind, SegmentProfile,
 };
-
-fn image(code: &[u8], profile: SegmentProfile) -> Image {
-    let mut image = Image::new(code);
-    code_defaults(&mut image, profile);
-    image.cpu.flags.status_source.kind = 0;
-    image.cpu.flags.bytes.cf = 1;
-    image.cpu.flags.bytes.pf = 0;
-    image.cpu.flags.bytes.af = 1;
-    image.cpu.flags.bytes.zf = 0;
-    image.cpu.flags.bytes.sf = 0;
-    image.cpu.flags.bytes.of = 1;
-    image
-}
-
-fn completed(image: &Image, len: usize, zf: bool) -> CpuState {
-    let mut cpu = image.cpu;
-    cpu.flags.bytes.zf = u8::from(zf);
-    cpu.eip += len as u32;
-    cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
-    cpu
-}
-
-fn check_one(
-    engine: Engine,
-    profile: SegmentProfile,
-    code: &[u8],
-    image: &Image,
-    queries: &[SegmentPermissionQuery],
-    step: Step<'_>,
-) {
-    let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, code, 1, profile);
-    let mut input = image.input();
-    input.segment_permission_queries = queries.to_vec();
-    let mut wanted = expected(image, &[step]);
-    for (index, query) in queries.iter().enumerate() {
-        wanted.events.insert(
-            index,
-            Event::SegmentPermissions {
-                selector: i32::from(query.selector),
-            },
-        );
-    }
-    for module in [block, TestModule::interpreter_with_profile(profile)] {
-        assert_eq!(
-            engine.observe(module, &input, 1),
-            wanted,
-            "{} {profile:?} {code:02x?}",
-            module.entry
-        );
-    }
-}
 
 fn descriptor_results(engine: Engine) {
     use SegmentDescriptorKind::{Code, Data};
@@ -183,7 +132,7 @@ fn descriptor_results(engine: Engine) {
                 profile,
                 &code,
                 &image,
-                &[SegmentPermissionQuery::new(&tables, selector)],
+                &[SegmentQuery::new(&tables, selector)],
                 Step {
                     cpu,
                     ram: &[],

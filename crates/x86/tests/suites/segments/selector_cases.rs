@@ -7,7 +7,7 @@ use crate::support::{
 };
 use wasm86_x86::{
     SegmentAttributes, SegmentDefaultSize, SegmentDescriptor, SegmentDescriptorKind, SegmentKind,
-    SegmentProfile, StoredSegment,
+    SegmentLimit, SegmentProfile, StoredSegment,
 };
 
 pub(super) fn check_one(
@@ -45,7 +45,7 @@ pub(super) fn check_one(
 pub(super) fn descriptor(base: u32, size: SegmentDefaultSize) -> SegmentDescriptor {
     SegmentDescriptor::new(
         base,
-        0xffff,
+        SegmentLimit::bytes(0xffff).unwrap(),
         SegmentDescriptorKind::Data {
             writable: true,
             expand_down: false,
@@ -71,7 +71,7 @@ pub(super) fn code_descriptor(
 ) -> SegmentDescriptor {
     SegmentDescriptor::new(
         base,
-        limit,
+        SegmentLimit::from_effective(limit).unwrap(),
         SegmentDescriptorKind::Code {
             readable: true,
             conforming: false,

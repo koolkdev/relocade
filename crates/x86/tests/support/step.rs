@@ -10,7 +10,7 @@ pub(crate) use wasm86_test_support::{Outcome, Value as Argument};
 
 mod segments;
 mod wasmtime;
-pub(crate) use segments::{SegmentPermissionQuery, SegmentResolution};
+pub(crate) use segments::{SegmentQuery, SegmentResolution};
 
 #[derive(Serialize)]
 pub(crate) struct Input {
@@ -20,7 +20,7 @@ pub(crate) struct Input {
     pub(crate) arguments: Vec<Argument>,
     pub(crate) observe_guest: bool,
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
-    pub(crate) segment_permission_queries: Vec<SegmentPermissionQuery>,
+    pub(crate) segment_queries: Vec<SegmentQuery>,
     pub(crate) cpu_patches_before_calls: Vec<Vec<(u32, Vec<u8>)>>,
     #[serde(with = "wasm86_test_support::decimal_i64")]
     pub(crate) dispatch_return: i64,
@@ -35,7 +35,7 @@ impl Input {
             arguments: Vec::new(),
             observe_guest: false,
             segment_resolutions: Vec::new(),
-            segment_permission_queries: Vec::new(),
+            segment_queries: Vec::new(),
             cpu_patches_before_calls: Vec::new(),
             dispatch_return: i64::MIN,
         }
@@ -51,7 +51,7 @@ pub(crate) struct Snapshot {
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Event {
-    SegmentPermissions {
+    QuerySegmentDescriptor {
         selector: i32,
     },
     ResolveSegment {

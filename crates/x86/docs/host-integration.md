@@ -33,11 +33,11 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | `machine` | 64 | Linear-to-physical page table at byte zero. |
 
 Every interpreter imports all three memories, `dispatch`, `resolveSegment` and
-`segmentPermissions`.
+`querySegmentDescriptor`.
 Snapshot modules omit imports they do not use: memory instructions require guest
-RAM and the page table, segment loads require `resolveSegment`, and VERR/VERW
-require `segmentPermissions`. Hosts should use the generated module's import list
-when instantiating it.
+RAM and the page table, segment loads require `resolveSegment`, and LAR/LSL/VERR/VERW
+require `querySegmentDescriptor`. Hosts should use the generated module's import
+list when instantiating it.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical
@@ -163,23 +163,48 @@ future loads and leave already-loaded CPU caches unchanged.
 `DescriptorTables` provides host-managed global/local slots keyed by selector table
 and index bits, ignoring RPL for lookup. Resolution applies protected-mode CPL3
 load rules; it neither allocates Windows selectors nor models guest GDTR/LDTR,
-packed descriptor memory or descriptor accessed-bit writes. See the type's API
-documentation for load validation and descriptor construction.
+packed descriptor memory or descriptor accessed-bit writes. All represented
+descriptors have A=1 and L=0. `SegmentLimit` keeps the encoded 20-bit limit and
+granularity together; loaded caches still use an effective byte limit. See the
+type's API documentation for load validation and descriptor construction.
 
-## Segment permission queries
+## Descriptor queries
 
-VERR/VERW call `wasm86.segmentPermissions(selector: i32) -> i32` after reading
-their 16-bit selector operand. The input is zero-extended; result bit 0 means
-readable and bit 1 means writable at CPL3. Other result bits must be zero. Null,
-missing, inaccessible or system descriptors return zero. The descriptor's present
-bit does not affect this query, and code segments are never writable.
+LAR/LSL/VERR/VERW call
+`wasm86.querySegmentDescriptor(selector: i32) -> (flags: i32, accessRights: i32, limit: i32)`
+after reading their 16-bit selector operand. The input is zero-extended. The result
+describes code/data descriptors at CPL3:
+
+| Result | Meaning |
+| --- | --- |
+| `flags` bit 0 | Readable; VERR uses this as ZF. |
+| `flags` bit 1 | Writable; VERW uses this as ZF. |
+| `flags` bit 2 | Visible; LAR and LSL use this as ZF. |
+| `accessRights` | LAR's 32-bit result, with the bit positions specified below. |
+| `limit` | Inclusive effective byte limit, with page granularity already expanded. |
+
+`accessRights` uses bit positions within the descriptor's upper 32 bits: type 11:8,
+S 12, DPL 14:13, P 15, AVL 20, L 21, D/B 22 and G 23. All remaining bits are zero
+in this model, including the architecturally undefined bits 19:16.
+
+Other flag bits must be zero. Null, missing and privilege-inaccessible descriptors
+return all zeros. Presence affects the reported P bit, not visibility or read/write
+permission. Execute-only code can be visible without either permission; code is
+never writable. LAR/LSL preserve the destination on failure and truncate successful
+results to the operand width. All four instructions change only ZF among flags.
+
+The represented environment contains only code/data entries, which share LAR/LSL
+eligibility. System descriptors and gates are outside this contract. In particular,
+a future gate model needs separate LAR/LSL eligibility. A=1 and L=0 match the host
+descriptor invariants; undefined LAR bits 19:16 are chosen as zero.
 
 The callback queries the current thread's descriptor table, for example through
-`DescriptorTables::user_segment_permissions`, which returns named `readable` and
-`writable` booleans. It must not inspect or mutate CPU state, guest RAM or page
-tables, or reenter guest execution. It does not load a segment or fault for a
-rejected selector. Table edits affect the next query while loaded caches remain
-unchanged. Guest operand reads can still fault before the callback runs.
+`DescriptorTables::query_user_segment_descriptor`, which returns a
+`SegmentDescriptorInfo` with named booleans and values. It must not inspect or
+mutate CPU state, guest RAM or page tables, or reenter guest execution. It does not
+load a segment or fault for a rejected selector. Table edits affect the next query
+while loaded caches remain unchanged. Guest operand reads can still fault before
+the callback runs.
 
 ## Fault and unsupported exits
 

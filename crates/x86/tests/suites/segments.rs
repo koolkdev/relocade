@@ -14,6 +14,10 @@ mod far_jumps;
 mod fetch;
 #[path = "segments/fetch_faults.rs"]
 mod fetch_faults;
+#[path = "segments/inspection.rs"]
+mod inspection;
+#[path = "segments/inspection_cases.rs"]
+mod inspection_cases;
 #[path = "segments/moves.rs"]
 mod moves;
 #[path = "segments/permissions.rs"]

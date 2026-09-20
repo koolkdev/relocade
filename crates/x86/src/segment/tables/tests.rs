@@ -1,15 +1,16 @@
+mod inspection;
 mod loads;
 mod permissions;
 
 use crate::{
     DescriptorTables, Exception, Segment, SegmentAttributes, SegmentDefaultSize, SegmentDescriptor,
-    SegmentDescriptorKind, StoredSegment,
+    SegmentDescriptorKind, SegmentLimit, StoredSegment,
 };
 
 fn data() -> SegmentDescriptor {
     SegmentDescriptor::new(
         0x1234_5000,
-        0xffff,
+        SegmentLimit::bytes(0xffff).unwrap(),
         SegmentDescriptorKind::Data {
             writable: true,
             expand_down: false,

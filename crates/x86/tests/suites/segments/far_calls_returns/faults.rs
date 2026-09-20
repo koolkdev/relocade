@@ -213,7 +213,7 @@ fn return_selectors(engine: Engine) {
         (
             0x27,
             Some(SegmentDescriptor {
-                limit: 0x1ff,
+                limit: crate::SegmentLimit::bytes(0x1ff).unwrap(),
                 ..normal
             }),
             true,

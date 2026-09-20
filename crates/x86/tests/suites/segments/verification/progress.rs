@@ -32,7 +32,7 @@ fn lazy_flags(engine: Engine) {
             profile,
             &code,
             &image,
-            &[SegmentPermissionQuery::new(&tables, 0x27)],
+            &[SegmentQuery::new(&tables, 0x27)],
             Step {
                 cpu,
                 ram: &[],
@@ -67,7 +67,7 @@ fn continuing_block(engine: Engine) {
         },
     );
     let mut input = image.input();
-    input.segment_permission_queries = vec![SegmentPermissionQuery::new(&tables, 0x27); 2];
+    input.segment_queries = vec![SegmentQuery::new(&tables, 0x27); 2];
     let first = completed(&image, 3, true);
     let mut second = first;
     second.registers.edx = (second.registers.edx & !0xff) | 1;
@@ -92,10 +92,10 @@ fn continuing_block(engine: Engine) {
     );
     wanted
         .events
-        .insert(0, Event::SegmentPermissions { selector: 0x27 });
+        .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
     wanted
         .events
-        .insert(5, Event::SegmentPermissions { selector: 0x27 });
+        .insert(5, Event::QuerySegmentDescriptor { selector: 0x27 });
     assert_eq!(
         engine.observe(TestModule::interpreter_with_profile(profile), &input, 4),
         wanted
@@ -105,10 +105,10 @@ fn continuing_block(engine: Engine) {
     let mut wanted = expected(&image, &[step(fourth)]);
     wanted
         .events
-        .insert(0, Event::SegmentPermissions { selector: 0x27 });
+        .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
     wanted
         .events
-        .insert(1, Event::SegmentPermissions { selector: 0x27 });
+        .insert(1, Event::QuerySegmentDescriptor { selector: 0x27 });
     assert_eq!(engine.observe(block, &input, 1), wanted);
 }
 
@@ -148,9 +148,7 @@ fn table_changes(engine: Engine) {
             tables.remove(0x27);
         }
         let mut input = image.input();
-        input
-            .segment_permission_queries
-            .push(SegmentPermissionQuery::new(&tables, 0x27));
+        input.segment_queries.push(SegmentQuery::new(&tables, 0x27));
         let cpu = completed(&image, code.len(), result);
         let mut wanted = expected(
             &image,
@@ -162,7 +160,7 @@ fn table_changes(engine: Engine) {
         );
         wanted
             .events
-            .insert(0, Event::SegmentPermissions { selector: 0x27 });
+            .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
         for module in [block, TestModule::interpreter()] {
             assert_eq!(engine.observe(module, &input, 1), wanted);
         }
@@ -184,9 +182,7 @@ fn later_fault(engine: Engine) {
     let mut tables = DescriptorTables::default();
     tables.insert(0x27, descriptor(0, SegmentDefaultSize::Bits32));
     let mut input = image.input();
-    input
-        .segment_permission_queries
-        .push(SegmentPermissionQuery::new(&tables, 0x27));
+    input.segment_queries.push(SegmentQuery::new(&tables, 0x27));
     let cpu = completed(&image, 3, true);
     let fault = || Step {
         cpu,
@@ -209,14 +205,14 @@ fn later_fault(engine: Engine) {
     );
     wanted
         .events
-        .insert(0, Event::SegmentPermissions { selector: 0x27 });
+        .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
     assert_eq!(engine.observe(TestModule::interpreter(), &input, 2), wanted);
     let mut blocks = BlockModules::default();
     let block = blocks.get(&image.cpu, &code, 2, profile);
     let mut wanted = expected(&image, &[fault()]);
     wanted
         .events
-        .insert(0, Event::SegmentPermissions { selector: 0x27 });
+        .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
     assert_eq!(engine.observe(block, &input, 1), wanted);
 }
 

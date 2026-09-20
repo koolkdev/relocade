@@ -44,7 +44,7 @@ fn registers_and_widths(engine: Engine, all_registers: bool) {
                     tables.insert(
                         0xf327,
                         SegmentDescriptor {
-                            limit: 0x10,
+                            limit: crate::SegmentLimit::bytes(0x10).unwrap(),
                             ..descriptor(0x9000, SegmentDefaultSize::Bits16)
                         },
                     );

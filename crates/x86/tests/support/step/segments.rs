@@ -4,17 +4,23 @@ use serde::Serialize;
 use wasm86_x86::{DescriptorTables, Exception, Segment};
 
 #[derive(Clone, Serialize)]
-pub(crate) struct SegmentPermissionQuery {
+pub(crate) struct SegmentQuery {
     pub(crate) selector: u16,
-    pub(crate) permissions: u32,
+    pub(crate) values: [u32; 3],
 }
 
-impl SegmentPermissionQuery {
+impl SegmentQuery {
     pub(crate) fn new(tables: &DescriptorTables, selector: u16) -> Self {
-        let rights = tables.user_segment_permissions(selector);
+        let descriptor_info = tables.query_user_segment_descriptor(selector);
         Self {
             selector,
-            permissions: u32::from(rights.readable) | (u32::from(rights.writable) << 1),
+            values: [
+                u32::from(descriptor_info.readable)
+                    | (u32::from(descriptor_info.writable) << 1)
+                    | (u32::from(descriptor_info.visible) << 2),
+                descriptor_info.access_rights,
+                descriptor_info.limit,
+            ],
         }
     }
 }

@@ -55,7 +55,8 @@ pub use interpreter::compile_interpreter_step;
 pub use register::Gpr32;
 pub use segment::{
     DescriptorTables, PrivilegeLevel, Segment, SegmentAttributes, SegmentDefaultSize,
-    SegmentDescriptor, SegmentDescriptorKind, SegmentKind, SegmentPermissions, SegmentProfile,
+    SegmentDescriptor, SegmentDescriptorInfo, SegmentDescriptorKind, SegmentKind, SegmentLimit,
+    SegmentProfile,
 };
 pub use state::{
     CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredStatusSource,

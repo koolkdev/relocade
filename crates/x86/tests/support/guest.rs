@@ -230,7 +230,7 @@ impl Machine {
         for event in &observation.events {
             if matches!(
                 event,
-                Event::ResolveSegment { .. } | Event::SegmentPermissions { .. }
+                Event::ResolveSegment { .. } | Event::QuerySegmentDescriptor { .. }
             ) {
                 continue;
             }

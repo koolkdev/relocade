@@ -2,7 +2,7 @@
 
 use crate::{Exception, StoredSegment};
 
-use super::{Segment, SegmentDescriptor, SegmentPermissions};
+use super::{Segment, SegmentDescriptor, SegmentDescriptorInfo};
 
 /// Host-managed global and local descriptor slots, addressed by x86 selectors.
 /// Bits 15:3 select an entry, bit 2 selects the local table, and bits 1:0 are
@@ -16,12 +16,12 @@ use super::{Segment, SegmentDescriptor, SegmentPermissions};
 /// ```
 /// use wasm86_x86::{
 ///     DescriptorTables, Exception, Segment, SegmentDefaultSize, SegmentDescriptor,
-///     SegmentDescriptorKind,
+///     SegmentDescriptorKind, SegmentLimit,
 /// };
 ///
 /// let mut tables = DescriptorTables::default();
 /// tables.insert(0x27, SegmentDescriptor::new(
-///     0x4000, 0xffff,
+///     0x4000, SegmentLimit::bytes(0xffff).unwrap(),
 ///     SegmentDescriptorKind::Data { writable: true, expand_down: false },
 ///     SegmentDefaultSize::Bits32,
 /// ));
@@ -63,16 +63,17 @@ impl DescriptorTables {
         self.tables[table].get_mut(index).and_then(Option::take)
     }
 
-    /// Returns the rights tested by VERR/VERW at CPL=3 using the current table.
-    /// Null selectors and missing slots have neither permission. Presence, base,
-    /// limit and default size do not affect this query; loaded caches are untouched.
-    /// Only code/data descriptors are represented by these tables.
-    pub fn user_segment_permissions(&self, selector: u16) -> SegmentPermissions {
+    /// Queries the current table for LAR/LSL and VERR/VERW at CPL=3. Null selectors,
+    /// missing slots and privilege-inaccessible descriptors are not visible.
+    /// Presence affects the reported rights, not visibility or read/write permission.
+    /// Loaded caches are untouched. Only code/data descriptors are represented;
+    /// all visible entries are eligible for both LAR and LSL.
+    pub fn query_user_segment_descriptor(&self, selector: u16) -> SegmentDescriptorInfo {
         if selector & !3 == 0 {
-            return SegmentPermissions::default();
+            return SegmentDescriptorInfo::default();
         }
         self.get(selector)
-            .map(SegmentDescriptor::user_permissions)
+            .map(SegmentDescriptor::query_user)
             .unwrap_or_default()
     }
 

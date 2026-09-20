@@ -7,14 +7,14 @@ use wasm86_compiler::{
 use crate::{
     exception::{Exception, ExceptionVector},
     segment::SegmentValues,
-    Segment, SegmentPermissions,
+    Segment, SegmentDescriptorInfo,
 };
 
 #[derive(Clone, Copy)]
 pub(crate) struct Runtime {
     dispatch: Func,
     resolve_segment: Func,
-    segment_permissions: Func,
+    query_segment_descriptor: Func,
 }
 
 impl Runtime {
@@ -42,18 +42,18 @@ impl Runtime {
                 ],
             },
         });
-        let segment_permissions = program.import_function(FunctionImport {
+        let query_segment_descriptor = program.import_function(FunctionImport {
             module: "wasm86".into(),
-            name: "segmentPermissions".into(),
+            name: "querySegmentDescriptor".into(),
             signature: Signature {
                 parameters: vec![Type::I16],
-                results: vec![Type::I32],
+                results: vec![Type::I32, Type::I32, Type::I32],
             },
         });
         Self {
             dispatch,
             resolve_segment,
-            segment_permissions,
+            query_segment_descriptor,
         }
     }
 
@@ -66,16 +66,20 @@ impl Runtime {
     }
 
     /// Queries the current host descriptor view without loading a segment or
-    /// accessing guest memory. The result has read/write rights in bits 0/1.
-    pub(crate) fn segment_permissions(
+    /// accessing guest memory. Result flags encode read/write/visibility in bits 0/1/2.
+    pub(crate) fn query_segment_descriptor(
         self,
         body: &mut FunctionBuilder<'_>,
         selector: &Val<I16>,
-    ) -> Result<SegmentPermissions<Val<I1>>, BuildError> {
-        let permissions = body.call::<I32>(self.segment_permissions, &[selector.into()])?;
-        Ok(SegmentPermissions {
-            readable: permissions.and(1).ne(0),
-            writable: permissions.and(2).ne(0),
+    ) -> Result<SegmentDescriptorInfo<Val<I1>, Val<I32>>, BuildError> {
+        let (flags, access_rights, limit) =
+            body.call::<(I32, I32, I32)>(self.query_segment_descriptor, &[selector.into()])?;
+        Ok(SegmentDescriptorInfo {
+            visible: flags.and(4).ne(0),
+            readable: flags.and(1).ne(0),
+            writable: flags.and(2).ne(0),
+            access_rights,
+            limit,
         })
     }
 

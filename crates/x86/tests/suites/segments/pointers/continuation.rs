@@ -16,7 +16,7 @@ fn stack_load(engine: Engine) {
         tables.insert(
             0x27,
             SegmentDescriptor {
-                limit,
+                limit: crate::SegmentLimit::from_effective(limit).unwrap(),
                 ..descriptor(0x9000, SegmentDefaultSize::Bits16)
             },
         );

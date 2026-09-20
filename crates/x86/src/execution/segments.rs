@@ -8,15 +8,16 @@ use crate::{
     memory::Intent,
     register::{Register, RegisterType},
     segment::SegmentValues,
-    Segment, SegmentPermissions,
+    Segment, SegmentDescriptorInfo,
 };
 
 impl ExecutionBuilder<'_, '_> {
-    pub(crate) fn segment_permissions(
+    pub(crate) fn query_segment_descriptor(
         &mut self,
         selector: &Val<I16>,
-    ) -> Result<SegmentPermissions<Val<I1>>, BuildError> {
-        self.runtime.segment_permissions(&mut self.body, selector)
+    ) -> Result<SegmentDescriptorInfo<Val<I1>, Val<I32>>, BuildError> {
+        self.runtime
+            .query_segment_descriptor(&mut self.body, selector)
     }
 
     pub(crate) fn read_segment_selector(

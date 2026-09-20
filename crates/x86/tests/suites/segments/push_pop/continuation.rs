@@ -22,7 +22,7 @@ fn changed_stack_width(engine: Engine) {
         tables.insert(
             0x27,
             SegmentDescriptor {
-                limit,
+                limit: crate::SegmentLimit::from_effective(limit).unwrap(),
                 ..descriptor(
                     base,
                     if old_big {

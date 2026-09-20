@@ -109,10 +109,10 @@ fn interpreter_step_exposes_memory_dispatch_and_descriptor_query_abis() {
         types[imports[1].1 as usize],
         (vec![ValType::I32; 2], vec![ValType::I32; 6])
     );
-    assert_eq!(imports[2].0, "segmentPermissions");
+    assert_eq!(imports[2].0, "querySegmentDescriptor");
     assert_eq!(
         types[imports[2].1 as usize],
-        (vec![ValType::I32], vec![ValType::I32])
+        (vec![ValType::I32], vec![ValType::I32; 3])
     );
     let entry = exported.unwrap() as usize - imports.len();
     assert_eq!(

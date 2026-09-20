@@ -1,4 +1,4 @@
-//! Segment instructions read, load and verify selectors.
+//! Segment instructions read and load selectors and query descriptors.
 
 use super::*;
 use crate::{
@@ -6,6 +6,14 @@ use crate::{
 };
 
 instruction_families! {
+    LAR {
+        execute: load_access_rights;
+        forms { 0x0F 0x02 => word_or_dword(modrm_reg, rm16); }
+    }
+    LSL {
+        execute: load_limit;
+        forms { 0x0F 0x03 => word_or_dword(modrm_reg, rm16); }
+    }
     VERR {
         execute: verify_read;
         forms { 0x0F 0x00 /4 => word(rm); }
@@ -72,13 +80,49 @@ instruction_families! {
     }
 }
 
+fn load_access_rights<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: TypedLocation<T>,
+    source: Input<I16>,
+) -> Result<(), BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let selector = source.read(execution)?;
+    let descriptor_info = execution.query_segment_descriptor(&selector)?;
+    execution.write_flag(Flag::ZF, descriptor_info.visible.clone())?;
+    destination.update(execution, |_, previous| {
+        Ok(descriptor_info
+            .visible
+            .select(descriptor_info.access_rights.truncate::<T>(), previous))
+    })
+}
+
+fn load_limit<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: TypedLocation<T>,
+    source: Input<I16>,
+) -> Result<(), BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let selector = source.read(execution)?;
+    let descriptor_info = execution.query_segment_descriptor(&selector)?;
+    execution.write_flag(Flag::ZF, descriptor_info.visible.clone())?;
+    destination.update(execution, |_, previous| {
+        Ok(descriptor_info
+            .visible
+            .select(descriptor_info.limit.truncate::<T>(), previous))
+    })
+}
+
 fn verify_read(
     execution: &mut ExecutionBuilder<'_, '_>,
     source: TypedLocation<I16>,
 ) -> Result<(), BuildError> {
     let selector = source.read(execution)?;
-    let permissions = execution.segment_permissions(&selector)?;
-    execution.write_flag(Flag::ZF, permissions.readable)
+    let descriptor_info = execution.query_segment_descriptor(&selector)?;
+    execution.write_flag(Flag::ZF, descriptor_info.readable)
 }
 
 fn verify_write(
@@ -86,8 +130,8 @@ fn verify_write(
     source: TypedLocation<I16>,
 ) -> Result<(), BuildError> {
     let selector = source.read(execution)?;
-    let permissions = execution.segment_permissions(&selector)?;
-    execution.write_flag(Flag::ZF, permissions.writable)
+    let descriptor_info = execution.query_segment_descriptor(&selector)?;
+    execution.write_flag(Flag::ZF, descriptor_info.writable)
 }
 
 fn store_selector<T: RegisterType>(

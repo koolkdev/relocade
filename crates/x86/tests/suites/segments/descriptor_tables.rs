@@ -5,7 +5,7 @@ use crate::support::{
 };
 use wasm86_x86::{
     DescriptorTables, Segment, SegmentDefaultSize, SegmentDescriptor, SegmentDescriptorKind,
-    SegmentProfile,
+    SegmentLimit, SegmentProfile,
 };
 
 fn loaded_cache_lifetime(engine: Engine) {
@@ -13,7 +13,7 @@ fn loaded_cache_lifetime(engine: Engine) {
     let mut tables = DescriptorTables::default();
     let descriptor = SegmentDescriptor::new(
         0x6000,
-        0xffff,
+        SegmentLimit::bytes(0xffff).unwrap(),
         SegmentDescriptorKind::Data {
             writable: true,
             expand_down: false,

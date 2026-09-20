@@ -33,7 +33,7 @@ fn registers(engine: Engine) {
                         profile,
                         &code,
                         &image,
-                        &[SegmentPermissionQuery::new(&tables, 0xffff)],
+                        &[SegmentQuery::new(&tables, 0xffff)],
                         Step {
                             cpu,
                             ram: &[],
@@ -77,7 +77,7 @@ fn memory_sources(engine: Engine) {
                     profile,
                     &code,
                     &image,
-                    &[SegmentPermissionQuery::new(&tables, 0xf327)],
+                    &[SegmentQuery::new(&tables, 0xf327)],
                     Step {
                         cpu,
                         ram: &[],
@@ -105,7 +105,7 @@ fn memory_sources(engine: Engine) {
             profile,
             &code,
             &image,
-            &[SegmentPermissionQuery::new(&tables, 0xf327)],
+            &[SegmentQuery::new(&tables, 0xf327)],
             Step {
                 cpu,
                 ram: &[],
