@@ -12,6 +12,8 @@ mod bit_scans;
 mod bit_tests;
 #[path = "suites/bounds.rs"]
 mod bounds;
+#[path = "suites/byte_swaps.rs"]
+mod byte_swaps;
 #[path = "suites/carry_arithmetic.rs"]
 mod carry_arithmetic;
 #[path = "suites/carry_rotates.rs"]

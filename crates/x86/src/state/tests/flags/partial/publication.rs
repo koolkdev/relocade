@@ -357,7 +357,7 @@ fn mixed_partial_and_complete_history_keeps_constant_publication_depth() {
             } else if selector % 2 == 0 {
                 expected.flags.status_source.kind = 11;
                 expected.flags.status_source.left = selector as u32;
-                pf = u8::from((selector as u8).count_ones() % 2 == 0);
+                pf = u8::from((selector as u8).count_ones().is_multiple_of(2));
                 zf = u8::from(selector == 0);
             } else {
                 cf = u8::from(selector & 2 != 0);

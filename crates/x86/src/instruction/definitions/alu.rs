@@ -167,6 +167,12 @@ instruction_families! {
             0xF7 /3 => word_or_dword(rm);
         }
     }
+    BSWAP {
+        execute: update_unary(UnaryOp::ByteSwap);
+        forms {
+            0x0F 0xC8 +reg => word_or_dword(opcode_reg);
+        }
+    }
 }
 
 fn update_binary<T: RegisterType>(
