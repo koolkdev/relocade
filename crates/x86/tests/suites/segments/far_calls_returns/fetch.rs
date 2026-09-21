@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::encoding::check_length;
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 fn encodings() -> Vec<Vec<u8>> {
@@ -19,17 +20,7 @@ fn encodings() -> Vec<Vec<u8>> {
 #[test]
 fn snapshot_forms_require_every_field_and_end_the_block() {
     for code in encodings() {
-        for available in 0..code.len() {
-            assert_eq!(
-                compile_block_from_bytes(0x1000, &code[..available], 1).err(),
-                Some(BlockError::TruncatedInstruction {
-                    address: 0x1000,
-                    available
-                }),
-                "{code:02x?}"
-            );
-        }
-        let complete = compile_block_from_bytes(0x1000, &code, 1).unwrap();
+        let complete = check_length(&code);
         let trailing = [&code[..], &[0xf4]].concat();
         assert_eq!(
             compile_block_from_bytes(0x1000, &trailing, u32::MAX)

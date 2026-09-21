@@ -1,3 +1,4 @@
+use crate::support::encoding::check_length;
 #[path = "instruction_prefixes/selection.rs"]
 mod selection;
 
@@ -41,15 +42,7 @@ fn operand_size_changes_values_but_keeps_address_fields_at_four_bytes() {
         &[0x66, 0xa0, 0x20, 0x40, 0, 0][..],
         &[0x66, 0xa2, 0x20, 0x40, 0, 0][..],
     ] {
-        for available in 0..code.len() {
-            assert!(matches!(
-                compile_block_from_bytes(0x1000, &code[..available], 1),
-                Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual })
-                    if actual == available
-            ));
-        }
-        let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        Validator::new().validate_all(&module.bytes).unwrap();
+        let module = check_length(code);
         let mut with_suffix = code.to_vec();
         with_suffix.extend_from_slice(&[0x66; 15]);
         assert_eq!(

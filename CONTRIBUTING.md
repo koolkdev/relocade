@@ -16,6 +16,22 @@ cargo fmt --all -- --check
 cargo doc --workspace --no-deps --locked
 ```
 
+While editing an instruction, select its suite and skip the full interpreter:
+
+```sh
+cargo test -p wasm86-x86 --lib --locked decimal_adjust -- --skip interpreter
+```
+
+Case and sequence groups expose separate `block` and `interpreter` tests. The
+block checks compile only the supplied instructions; interpreter checks generate
+the complete instruction set for each required segment profile. Omit the skip to
+exercise both, and run the ordinary workspace suite before review. Explicit
+runtime-fetch tests can also require an interpreter; their test names should say so.
+
+The test profile optimizes runtime Wasm generation and engine compilation while
+retaining debug assertions and overflow checks. Measure test execution separately
+from Cargo rebuilds, especially after changing the profile or dependencies.
+
 Ignored engine tests use Node.js 24 on `PATH` and run V8 with TurboFan. Select the
 affected suite for a focused check, for example:
 
@@ -23,6 +39,11 @@ affected suite for a focused check, for example:
 cargo test -p wasm86-x86 --lib --locked -- --ignored segments::pointers
 cargo test -p wasm86-compiler --test integration --locked -- --ignored constant_control
 ```
+
+Use `--skip interpreter` with a case-based V8 suite for a focused block check too.
+V8 uses up to four workers per test process, bounded by available CPUs. A module
+stays on one worker and is compiled once. Both engine hosts create fresh instances,
+memories and callback state for each observation.
 
 `cargo test --workspace --locked -- --ignored` runs the full V8 lane when needed.
 Compare generated Wasm bytes before timing a change; measure changed output with
@@ -82,6 +103,28 @@ cover several instructions with a checkpoint after each one. These run through
 snapshot and interpreter entries, ordinarily with flat and segmented profiles,
 in Wasmtime and the explicit V8 lane. The x86 suites live in the library test
 target so they can observe private state readers without adding public APIs.
+
+Keep an instruction addition small: a table of distinct input/result boundaries,
+its encoding forms, and a sequence only when interactions with pending flags,
+register aliases or earlier effects need coverage. Use representative cases for
+shared prefix, addressing and fault mechanisms; avoid multiplying every arithmetic
+input across unrelated dimensions already covered by their owners. Add an engine
+or frontend to the shared harness, not to each instruction suite.
+
+For example, this case checks a byte write and preservation of the rest of EAX:
+
+```rust,ignore
+test_cases!(byte_immediate, [
+    InstructionCase::preserving_flags("MOV AL,7", &[0xb0, 7])
+        .register(Gpr32::Eax, 0x4433_2211, 0x4433_2207),
+]);
+```
+
+Use [encoding::check_length](crates/x86/tests/support/encoding.rs) for complete
+encoding examples. It checks every truncated prefix, validates the resulting
+Wasm and checks that a successor cannot affect a one-instruction block. Families
+only supply their bytes; branch tests can use the returned module to check that
+larger block limits still stop at the branch.
 
 Give complete parent-register expectations for narrow writes. Unlisted registers
 and guest bytes must remain unchanged. Choose flag expectations deliberately:

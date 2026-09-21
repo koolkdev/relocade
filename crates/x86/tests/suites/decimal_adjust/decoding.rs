@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::encoding::check_length;
 use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{Engine, TestModule},
@@ -61,22 +62,7 @@ fn fixed_accumulators() -> Vec<Case> {
 #[test]
 fn radix_forms_consume_exactly_one_immediate_byte() {
     for code in [&[0xd4, 0][..], &[0xd5, 255][..], &[0x66, 0xd4, 10][..]] {
-        for available in 0..code.len() {
-            assert_eq!(
-                compile_block_from_bytes(0x1000, &code[..available], 1).err(),
-                Some(BlockError::TruncatedInstruction {
-                    address: 0x1000,
-                    available,
-                })
-            );
-        }
-        let complete = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        assert_eq!(
-            complete.bytes,
-            compile_block_from_bytes(0x1000, &[code, &[0x0f]].concat(), 1)
-                .unwrap()
-                .bytes
-        );
+        check_length(code);
     }
 }
 
@@ -123,13 +109,13 @@ fn immediate_fetch_faults(engine: Engine) {
 }
 
 #[test]
-fn immediate_fetch_faults_precede_execution() {
+fn interpreter_immediate_fetch_faults_precede_execution() {
     immediate_fetch_faults(Engine::Wasmtime);
 }
 
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_immediate_fetch_faults_precede_execution() {
+fn v8_interpreter_immediate_fetch_faults_precede_execution() {
     immediate_fetch_faults(Engine::V8);
 }
 

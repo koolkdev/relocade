@@ -1,4 +1,5 @@
 use crate::support::cases::{test_cases, InstructionCase as Case};
+use crate::support::encoding::check_length;
 use wasm86_x86::Gpr32::{Eax, Ecx};
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
@@ -24,24 +25,7 @@ fn snapshots_require_each_form_field_but_no_immediate_or_successor() {
         encodings.push(vec![0x66, opcode]);
     }
     for code in encodings {
-        for available in 0..code.len() {
-            assert!(
-                matches!(
-                    compile_block_from_bytes(0x1000, &code[..available], 1),
-                    Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual })
-                        if actual == available
-                ),
-                "{code:02x?}, available {available}",
-            );
-        }
-        let complete = compile_block_from_bytes(0x1000, &code, 1).unwrap();
-        let with_suffix = [code.as_slice(), &[0x0f]].concat();
-        assert_eq!(
-            compile_block_from_bytes(0x1000, &with_suffix, 1)
-                .unwrap()
-                .bytes,
-            complete.bytes,
-        );
+        check_length(&code);
     }
 }
 

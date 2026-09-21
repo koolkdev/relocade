@@ -1,3 +1,4 @@
+use crate::support::encoding::check_length;
 use wasm86_x86::{
     compile_block_from_bytes, BlockError,
     Gpr32::{Eax, Esp},
@@ -38,17 +39,7 @@ const ENCODINGS: &[&[u8]] = &[
 #[test]
 fn snapshots_require_every_field_and_stop_at_each_near_control_form() {
     for &code in ENCODINGS {
-        for available in 0..code.len() {
-            assert_eq!(
-                compile_block_from_bytes(0x1000, &code[..available], 1).err(),
-                Some(BlockError::TruncatedInstruction {
-                    address: 0x1000,
-                    available,
-                }),
-                "{code:02x?}, available {available}",
-            );
-        }
-        let complete = compile_block_from_bytes(0x1000, code, 1).unwrap();
+        let complete = check_length(code);
         for input in [code.to_vec(), [code, &[0xf4, 0x66, 0x0f]].concat()] {
             assert_eq!(
                 compile_block_from_bytes(0x1000, &input, u32::MAX)

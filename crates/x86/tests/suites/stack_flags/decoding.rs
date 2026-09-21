@@ -1,4 +1,5 @@
 use super::{pop_case, push_case, stored_flags, IMAGES};
+use crate::support::encoding::check_length;
 use crate::support::{
     cases::{
         test_cases, InstructionCase as Case,
@@ -9,7 +10,6 @@ use crate::support::{
     step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule},
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::Esp};
-use wasmparser::Validator;
 
 fn boundary_cases() -> Vec<Case> {
     let mut cases = Vec::new();
@@ -42,23 +42,7 @@ fn complete_stack_flag_opcodes_need_no_operand_or_next_byte() {
     for opcode in [0x9c, 0x9d] {
         for prefixes in [0, 1, 2, 14] {
             let code = [vec![0x66; prefixes], vec![opcode]].concat();
-            for available in 0..code.len() {
-                assert_eq!(
-                    compile_block_from_bytes(0x1000, &code[..available], 1).err(),
-                    Some(BlockError::TruncatedInstruction {
-                        address: 0x1000,
-                        available
-                    })
-                );
-            }
-            let complete = compile_block_from_bytes(0x1000, &code, 1).unwrap();
-            Validator::new().validate_all(&complete.bytes).unwrap();
-            assert_eq!(
-                complete.bytes,
-                compile_block_from_bytes(0x1000, &[&code[..], &[0x0f]].concat(), 1)
-                    .unwrap()
-                    .bytes
-            );
+            check_length(&code);
         }
     }
 }

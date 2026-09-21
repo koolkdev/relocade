@@ -1,3 +1,4 @@
+use crate::support::encoding::check_length;
 use wasm86_x86::Gpr32::{Eax, Ecx, Edx};
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
@@ -24,24 +25,7 @@ fn all_double_shift_forms_decode_their_source_address_and_count() {
             vec![0x0f, operation.opcode(false), 0x15, 0x20, 0x40, 0, 0, 32],
             vec![0x66, 0x0f, operation.opcode(true), 0x54, 0x8b, 0xfc],
         ] {
-            for available in 0..code.len() {
-                assert!(
-                    matches!(
-                        compile_block_from_bytes(0x1000, &code[..available], 1),
-                        Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual })
-                            if actual == available
-                    ),
-                    "{operation:?} {code:02x?}, available {available}"
-                );
-            }
-            let complete = compile_block_from_bytes(0x1000, &code, 1).unwrap();
-            let with_suffix = [code, vec![0x0f]].concat();
-            assert_eq!(
-                compile_block_from_bytes(0x1000, &with_suffix, 1)
-                    .unwrap()
-                    .bytes,
-                complete.bytes
-            );
+            check_length(&code);
         }
     }
 }

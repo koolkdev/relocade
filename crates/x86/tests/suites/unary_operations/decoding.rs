@@ -1,3 +1,4 @@
+use crate::support::encoding::check_length;
 use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32::Eax, StoredFlags};
 use wasm86_x86::{FlagBytes, StoredStatusSource};
 
@@ -38,24 +39,7 @@ fn unary_lengths_stop_after_the_selected_register_or_address() {
         &[0xf7, 0xc0, 0xf6, 0xf7, 0xfe, 0xff],
         &[0x66, 0xf7, 0xc0, 0xf6, 0xf7],
     ] {
-        for available in 0..code.len() {
-            assert_eq!(
-                compile_block_from_bytes(0x1000, &code[..available], 1).err(),
-                Some(BlockError::TruncatedInstruction {
-                    address: 0x1000,
-                    available
-                }),
-                "{code:02x?}, available {available}",
-            );
-        }
-        let complete = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        let with_suffix = [code, &[0x0f]].concat();
-        assert_eq!(
-            complete.bytes,
-            compile_block_from_bytes(0x1000, &with_suffix, 1)
-                .unwrap()
-                .bytes
-        );
+        check_length(code);
     }
 }
 

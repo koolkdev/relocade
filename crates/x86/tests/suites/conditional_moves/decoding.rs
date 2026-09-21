@@ -1,5 +1,5 @@
+use crate::support::encoding::check_length;
 use wasm86_x86::{compile_block_from_bytes, BlockError};
-use wasmparser::Validator;
 
 use super::{INITIAL_FLAGS, PRESERVED_FLAGS};
 use crate::support::{
@@ -16,26 +16,7 @@ fn conditional_moves_require_the_selected_address_fields() {
         &[0x66, 0x0f, 0x4f, 0x44, 0x8b, 0x80][..],
         &[0x0f, 0x44, 0x05, 0x20, 0x40, 0, 0][..],
     ] {
-        for available in 0..code.len() {
-            assert!(
-                matches!(
-                    compile_block_from_bytes(0x1000, &code[..available], 1),
-                    Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual })
-                        if actual == available
-                ),
-                "{code:02x?}, available {available}",
-            );
-        }
-        let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        Validator::new().validate_all(&module.bytes).unwrap();
-        let mut with_suffix = code.to_vec();
-        with_suffix.push(0x0f);
-        assert_eq!(
-            compile_block_from_bytes(0x1000, &with_suffix, 1)
-                .unwrap()
-                .bytes,
-            module.bytes,
-        );
+        check_length(code);
     }
 }
 

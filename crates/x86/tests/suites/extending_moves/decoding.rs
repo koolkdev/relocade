@@ -1,7 +1,7 @@
 use crate::support::cases::{test_cases, InstructionCase as Case};
+use crate::support::encoding::check_length;
 use wasm86_x86::Gpr32;
 use wasm86_x86::{compile_block_from_bytes, BlockError};
-use wasmparser::Validator;
 
 use crate::support::machine::{byte_register_image, check, Exit, Step};
 use crate::support::step::TestModule;
@@ -15,26 +15,7 @@ fn encoded_fields_are_required_but_bytes_after_the_instruction_are_not() {
         &[0x66, 0x0f, 0xbf, 0x44, 0x8b, 0x80][..],
         &[0x66, 0x66, 0x0f, 0xb7, 0x04, 0x25, 0x20, 0x40, 0, 0][..],
     ] {
-        for available in 0..code.len() {
-            assert!(
-                matches!(
-                    compile_block_from_bytes(0x1000, &code[..available], 1),
-                    Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual })
-                        if actual == available
-                ),
-                "{code:02x?}, available {available}",
-            );
-        }
-        let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        Validator::new().validate_all(&module.bytes).unwrap();
-        let mut with_suffix = code.to_vec();
-        with_suffix.extend_from_slice(&[0x66, 0x0f]);
-        assert_eq!(
-            compile_block_from_bytes(0x1000, &with_suffix, 1)
-                .unwrap()
-                .bytes,
-            module.bytes,
-        );
+        check_length(code);
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::support::encoding::check_length;
 use wasm86_x86::Gpr32::{Eax, Ecx};
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
@@ -23,24 +24,7 @@ fn snapshot_lengths_distinguish_implicit_cl_and_immediate_counts() {
         &[0xc0, 0xcd, 3][..],
         &[0x66, 0xc1, 0x44, 0x8b, 0xfc, 32][..],
     ] {
-        for available in 0..code.len() {
-            assert!(
-                matches!(
-                    compile_block_from_bytes(0x1000, &code[..available], 1),
-                    Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual })
-                        if actual == available
-                ),
-                "{code:02x?}, available {available}"
-            );
-        }
-        let complete = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        let with_suffix = [code, &[0x0f]].concat();
-        assert_eq!(
-            compile_block_from_bytes(0x1000, &with_suffix, 1)
-                .unwrap()
-                .bytes,
-            complete.bytes
-        );
+        check_length(code);
     }
 }
 

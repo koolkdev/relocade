@@ -430,31 +430,16 @@ pub(super) enum MemoryExpectation {
     Undefined { address: u32, length: u32 },
 }
 
-pub(crate) fn check_cases(cases: &[InstructionCase]) {
-    execution::check(cases, execution::Engine::Wasmtime);
-}
-
-pub(crate) fn check_cases_v8(cases: &[InstructionCase]) {
-    execution::check(cases, execution::Engine::V8);
-}
+pub(crate) use execution::check as check_cases;
 
 /// Register one case group in the normal test run and the explicit V8 lane.
 macro_rules! test_cases {
     ($group:ident, $cases:expr $(,)?) => {
-        mod $group {
-            use super::*;
-
-            #[test]
-            fn wasmtime() {
-                $crate::support::cases::check_cases(&($cases));
-            }
-
-            #[test]
-            #[ignore = "requires Node.js; run the explicit V8 lane"]
-            fn v8() {
-                $crate::support::cases::check_cases_v8(&($cases));
-            }
-        }
+        $crate::support::execution::test_frontends!(
+            $group,
+            $cases,
+            $crate::support::cases::check_cases
+        );
     };
 }
 

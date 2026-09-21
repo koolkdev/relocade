@@ -4,8 +4,8 @@ mod tests;
 use std::{path::Path, sync::OnceLock};
 
 use crate::SegmentProfile;
-use ::wasmtime::Module;
 use serde::{Deserialize, Serialize};
+use wasm86_test_support::Module;
 pub(crate) use wasm86_test_support::{Outcome, Value as Argument};
 
 mod segments;
@@ -97,8 +97,7 @@ impl Engine {
 }
 
 pub(crate) struct TestModule {
-    bytes: Vec<u8>,
-    compiled: OnceLock<Module>,
+    module: Module,
     pub(crate) entry: String,
     profile: Option<SegmentProfile>,
 }
@@ -106,8 +105,7 @@ pub(crate) struct TestModule {
 impl TestModule {
     pub(crate) fn new(module: &crate::CompiledModule) -> Self {
         Self {
-            bytes: module.bytes.clone(),
-            compiled: OnceLock::new(),
+            module: Module::new(&module.bytes),
             entry: module.entry.clone(),
             profile: module.segment_profile,
         }
@@ -115,6 +113,10 @@ impl TestModule {
 
     pub(crate) fn interpreter() -> &'static Self {
         Self::interpreter_with_profile(SegmentProfile::Flat32)
+    }
+
+    pub(crate) fn bytes(&self) -> &[u8] {
+        self.module.bytes()
     }
 
     pub(crate) fn interpreter_with_profile(profile: SegmentProfile) -> &'static Self {
@@ -137,9 +139,8 @@ impl TestModule {
             invocations: usize,
             input: &'a Input,
         }
-        wasm86_test_support::run_v8(
+        self.module.run_v8(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/execute-step.mjs"),
-            &self.bytes,
             &Request {
                 entry: &self.entry,
                 profile: self.profile.map(|profile| match profile {

@@ -5,7 +5,7 @@ use crate::support::machine::{check, Exit, Image, Step};
 use crate::support::sequences::{test_sequences, Checkpoint, SequenceCase};
 use crate::support::step;
 use step::TestModule;
-use wasm86_x86::{compile_block_from_bytes, compile_interpreter_step, CpuState, Gpr32};
+use wasm86_x86::{compile_block_from_bytes, CpuState, Gpr32};
 use wasmparser::{ExternalKind, Parser, Payload, TypeRef, ValType, Validator};
 
 const MOVES: [(&[u8], Gpr32, u32); 8] = [
@@ -44,15 +44,15 @@ fn state(eip: u32) -> CpuState {
 
 #[test]
 fn interpreter_step_exposes_memory_dispatch_and_descriptor_query_abis() {
-    let module = compile_interpreter_step(crate::SegmentProfile::Flat32).unwrap();
+    let module = TestModule::interpreter();
     assert_eq!(module.entry, "step");
-    Validator::new().validate_all(&module.bytes).unwrap();
+    Validator::new().validate_all(module.bytes()).unwrap();
     let mut types = Vec::new();
     let mut memories = Vec::new();
     let mut functions = Vec::new();
     let mut imports = Vec::new();
     let mut exported = None;
-    for payload in Parser::new(0).parse_all(&module.bytes) {
+    for payload in Parser::new(0).parse_all(module.bytes()) {
         match payload.unwrap() {
             Payload::TypeSection(section) => {
                 for ty in section.into_iter_err_on_gc_types() {

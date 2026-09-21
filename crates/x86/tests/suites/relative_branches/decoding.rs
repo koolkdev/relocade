@@ -1,3 +1,4 @@
+use crate::support::encoding::check_length;
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 use crate::support::machine::Image;
@@ -41,16 +42,7 @@ const ENCODINGS: &[&[u8]] = &[
 #[test]
 fn snapshots_require_every_opcode_and_displacement_byte_before_ending_a_block() {
     for &code in ENCODINGS {
-        for available in 0..code.len() {
-            assert!(
-                matches!(
-                    compile_block_from_bytes(0x1000, &code[..available], 1),
-                    Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual }) if actual == available
-                ),
-                "{code:02x?}, {available} bytes"
-            );
-        }
-        let complete = compile_block_from_bytes(0x1000, code, 1).unwrap();
+        let complete = check_length(code);
         let mut trailing = code.to_vec();
         trailing.extend_from_slice(&[0xb8, 0, 0, 0, 0, 0xf4]);
         assert_eq!(

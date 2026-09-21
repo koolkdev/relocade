@@ -1,3 +1,4 @@
+use crate::support::encoding::check_length;
 #[path = "immediate_and_absolute_moves/sequences.rs"]
 mod sequences;
 
@@ -5,7 +6,6 @@ mod sequences;
 mod cases;
 
 use wasm86_x86::{compile_block_from_bytes, BlockError};
-use wasmparser::Validator;
 
 use crate::support::machine;
 use crate::support::step;
@@ -26,23 +26,7 @@ fn selected_form_lengths_include_the_address_then_the_immediate() {
         &[0xa2, 0x20, 0x40, 0, 0x80][..],
         &[0xa3, 0x20, 0x40, 0, 0x80][..],
     ] {
-        for available in 0..code.len() {
-            assert!(matches!(
-                compile_block_from_bytes(0x1000, &code[..available], 1),
-                Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual })
-                    if actual == available
-            ));
-        }
-        let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        Validator::new().validate_all(&module.bytes).unwrap();
-        let mut with_suffix = code.to_vec();
-        with_suffix.extend_from_slice(&[0xc7, 0x0c]);
-        assert_eq!(
-            compile_block_from_bytes(0x1000, &with_suffix, 1)
-                .unwrap()
-                .bytes,
-            module.bytes
-        );
+        check_length(code);
     }
 }
 

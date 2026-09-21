@@ -1,4 +1,5 @@
 use super::{byte_flags, concrete_record, sahf_flags, Case, Flags, Preserved};
+use crate::support::encoding::check_length;
 use crate::support::{
     cases::test_cases,
     guest::{Exit, Machine},
@@ -6,7 +7,6 @@ use crate::support::{
     step::{Engine, TestModule},
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::Eax};
-use wasmparser::Validator;
 
 const OPCODES: [u8; 2] = [0x9e, 0x9f];
 
@@ -54,21 +54,8 @@ fn boundary_cases() -> Vec<Case> {
 fn the_opcode_completes_each_transfer_without_an_operand_or_next_byte() {
     for opcode in OPCODES {
         for prefixes in [0, 1, 2, 14] {
-            let mut code = [vec![0x66; prefixes], vec![opcode]].concat();
-            for available in 0..code.len() {
-                assert!(matches!(
-                    compile_block_from_bytes(0x1000, &code[..available], 1),
-                    Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual })
-                        if actual == available
-                ));
-            }
-            let complete = compile_block_from_bytes(0x1000, &code, 1).unwrap();
-            Validator::new().validate_all(&complete.bytes).unwrap();
-            code.extend_from_slice(&[0x0f, 0xff]);
-            assert_eq!(
-                compile_block_from_bytes(0x1000, &code, 1).unwrap().bytes,
-                complete.bytes
-            );
+            let code = [vec![0x66; prefixes], vec![opcode]].concat();
+            check_length(&code);
         }
     }
 }

@@ -1,4 +1,5 @@
 use super::{input_flags, FORMS};
+use crate::support::encoding::check_length;
 use crate::support::{
     cases::{test_cases, FlagExpectation::Preserved, Flags, InstructionCase as Case},
     machine::{self, Exit, Image, Step},
@@ -22,17 +23,7 @@ fn encodings() -> Vec<Vec<u8>> {
 #[test]
 fn snapshots_consume_one_displacement_and_stop_at_the_branch() {
     for code in encodings() {
-        for available in 0..code.len() {
-            assert_eq!(
-                compile_block_from_bytes(0x1000, &code[..available], 1).err(),
-                Some(BlockError::TruncatedInstruction {
-                    address: 0x1000,
-                    available
-                }),
-                "{code:02x?}, available {available}",
-            );
-        }
-        let complete = compile_block_from_bytes(0x1000, &code, 1).unwrap();
+        let complete = check_length(&code);
         for input in [code.clone(), [&code[..], &[0xf4, 0x66, 0x0f]].concat()] {
             assert_eq!(
                 compile_block_from_bytes(0x1000, &input, u32::MAX)

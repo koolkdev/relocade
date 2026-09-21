@@ -10,7 +10,6 @@ use super::{
         InitialState, MemoryExpectation, MemoryRegion, Permissions, Profiles, RegisterExpectation,
     },
     guest::Mapping,
-    step::Engine,
 };
 use crate::flags::Flag;
 use wasm86_x86::{Gpr32, Segment, StoredFlags, StoredSegment};
@@ -195,27 +194,15 @@ impl Checkpoint {
     }
 }
 
-pub(crate) fn check_sequences(cases: &[SequenceCase]) {
-    execution::check(cases, Engine::Wasmtime);
-}
-pub(crate) fn check_sequences_v8(cases: &[SequenceCase]) {
-    execution::check(cases, Engine::V8);
-}
+pub(crate) use execution::check as check_sequences;
 
 macro_rules! test_sequences {
     ($group:ident, $cases:expr $(,)?) => {
-        mod $group {
-            use super::*;
-            #[test]
-            fn wasmtime() {
-                $crate::support::sequences::check_sequences(&($cases));
-            }
-            #[test]
-            #[ignore = "requires Node.js; run the explicit V8 lane"]
-            fn v8() {
-                $crate::support::sequences::check_sequences_v8(&($cases));
-            }
-        }
+        $crate::support::execution::test_frontends!(
+            $group,
+            $cases,
+            $crate::support::sequences::check_sequences
+        );
     };
 }
 pub(crate) use test_sequences;

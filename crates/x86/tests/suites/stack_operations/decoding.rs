@@ -1,4 +1,5 @@
 use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadWrite};
+use crate::support::encoding::check_length;
 use wasm86_x86::Gpr32::{Eax, Esp};
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
@@ -45,25 +46,7 @@ fn stack_encodings_consume_only_their_register_address_or_immediate_fields() {
         &[0x8f, 0x84, 0x25, 0x11, 0x22, 0x33, 0x44],
         &[0x66, 0x8f, 0x05, 0x11, 0x22, 0x33, 0x44],
     ] {
-        for available in 0..code.len() {
-            assert_eq!(
-                compile_block_from_bytes(0x1000, &code[..available], 1).err(),
-                Some(BlockError::TruncatedInstruction {
-                    address: 0x1000,
-                    available
-                }),
-                "{code:02x?}, available {available}",
-            );
-        }
-        let complete = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        let with_suffix = [code, &[0x0f]].concat();
-        assert_eq!(
-            complete.bytes,
-            compile_block_from_bytes(0x1000, &with_suffix, 1)
-                .unwrap()
-                .bytes,
-            "{code:02x?}",
-        );
+        check_length(code);
     }
 }
 

@@ -92,8 +92,9 @@ This is a public repository. Commit messages use `component: title`.
   with the behavior and owner they protect.
 - Use the ordinary Wasmtime suite for broad correctness coverage. Use V8/TurboFan
   for performance measurements and focused correctness checks of changed generated
-  code before timing. Run the full V8 suite only for a concrete engine or compiler
-  concern; do not repeat it by default for every instruction addition.
+  code before timing. Prefer focused block tests while iterating on an instruction.
+  Full V8 runs are also appropriate for routine broad verification; choose coverage
+  to match the change and measured test cost.
 - Compare Wasm bytes first; do not benchmark identical output. Measure changed
   output with meaningful workloads and matching execution boundaries, and report
   uncertainty honestly.

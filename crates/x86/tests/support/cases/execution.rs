@@ -1,10 +1,13 @@
 //! Executes one-instruction cases through the applicable entry profiles.
 
 use super::{expectations, observation::FlagObservations, InstructionCase};
-pub(super) use crate::support::step::Engine;
-use crate::support::{blocks::BlockModules, step::TestModule};
+use crate::support::{
+    blocks::BlockModules,
+    execution::Frontend,
+    step::{Engine, TestModule},
+};
 
-pub(super) fn check(cases: &[InstructionCase], engine: Engine) {
+pub(crate) fn check(cases: &[InstructionCase], engine: Engine, frontend: Frontend) {
     assert!(
         !cases.is_empty(),
         "an instruction case group must not be empty"
@@ -25,21 +28,19 @@ pub(super) fn check(cases: &[InstructionCase], engine: Engine) {
             }
         }
         for profile in case.profiles.for_cpu(&initial.cpu) {
-            let block = blocks.get(&initial.cpu, &case.code, 1, profile);
-            for (frontend, module) in [
-                ("interpreter", TestModule::interpreter_with_profile(profile)),
-                ("block", block),
-            ] {
-                let context = format!("{} [{engine:?}, {profile:?} {frontend}]", case.name);
-                let execution = machine.run(module, engine);
-                expectations::check_state(case, &initial, &execution, &context);
-                flags.after(
-                    execution.state.cpu,
-                    initial.cpu,
-                    case.expected.flags,
-                    context,
-                );
-            }
+            let module = match frontend {
+                Frontend::Block => blocks.get(&initial.cpu, &case.code, 1, profile),
+                Frontend::Interpreter => TestModule::interpreter_with_profile(profile),
+            };
+            let context = format!("{} [{engine:?}, {profile:?} {frontend:?}]", case.name);
+            let execution = machine.run(module, engine);
+            expectations::check_state(case, &initial, &execution, &context);
+            flags.after(
+                execution.state.cpu,
+                initial.cpu,
+                case.expected.flags,
+                context,
+            );
         }
     }
     flags.finish();

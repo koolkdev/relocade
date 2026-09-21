@@ -1,6 +1,7 @@
 //! Wasmtime instantiation, host callbacks, and boundary observations.
 
-use ::wasmtime::{Caller, Linker, Memory, MemoryType, Module, Store, Trap};
+use ::wasmtime::{Caller, Linker, Memory, MemoryType, Store, Trap};
+use std::sync::Arc;
 
 use super::{
     changes, Argument, Event, Input, Observation, Outcome, SegmentQuery, SegmentResolution,
@@ -17,9 +18,7 @@ struct ExecutionEvents {
 impl TestModule {
     pub(crate) fn observe(&self, input: &Input, invocations: usize) -> Observation {
         let engine = wasm86_test_support::engine();
-        let module = self
-            .compiled
-            .get_or_init(|| Module::new(engine, &self.bytes).expect("compile the test module"));
+        let module = self.module.wasmtime();
         let mut store = Store::new(
             engine,
             ExecutionEvents {
@@ -38,8 +37,13 @@ impl TestModule {
                 memory.write(&mut store, *offset as usize, bytes).unwrap();
             }
         }
-        let guest_before = guest.data(&store).to_vec();
-        let machine_before = machine.data(&store).to_vec();
+        let guest_before: Arc<[u8]> = guest.data(&store).into();
+        // CPU-only observers cannot touch machine memory. Avoid copying and
+        // comparing its four megabytes at every flag-observation checkpoint.
+        let machine_before = module
+            .imports()
+            .any(|import| import.module() == "wasm86" && import.name() == "machine")
+            .then(|| Arc::<[u8]>::from(machine.data(&store)));
         let mut linker = Linker::new(engine);
         for (name, memory) in [("cpuState", cpu), ("guest", guest), ("machine", machine)] {
             linker.define(&store, "wasm86", name, memory).unwrap();
@@ -59,7 +63,9 @@ impl TestModule {
                         guest: observe_guest
                             .then(|| changes(&dispatch_guest_before, guest.data(&caller))),
                     };
-                    let unchanged = dispatch_machine_before == machine.data(&caller);
+                    let unchanged = dispatch_machine_before
+                        .as_ref()
+                        .is_none_or(|before| &**before == machine.data(&caller));
                     caller.data_mut().machine_unchanged &= unchanged;
                     caller
                         .data_mut()
@@ -143,7 +149,9 @@ impl TestModule {
                 cpu: cpu.data(&store)[..cpu_len].to_vec(),
                 guest: observe_guest.then(|| changes(&guest_before, guest.data(&store))),
             };
-            let unchanged = machine_before == machine.data(&store);
+            let unchanged = machine_before
+                .as_ref()
+                .is_none_or(|before| &**before == machine.data(&store));
             store.data_mut().machine_unchanged &= unchanged;
             store
                 .data_mut()
@@ -160,7 +168,7 @@ impl TestModule {
             0,
             "unused segment queries"
         );
-        let guest_unchanged = guest_before == guest.data(&store);
+        let guest_unchanged = &*guest_before == guest.data(&store);
         let machine_unchanged = store.data().machine_unchanged;
         Observation {
             events: store.into_data().events,

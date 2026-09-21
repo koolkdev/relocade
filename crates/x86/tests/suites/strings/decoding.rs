@@ -1,4 +1,5 @@
 use super::{flags, record, OPERATIONS};
+use crate::support::encoding::check_length;
 use crate::support::{
     cases::{
         test_cases, InstructionCase as Case,
@@ -12,7 +13,6 @@ use wasm86_x86::{
     compile_block_from_bytes, BlockError,
     Gpr32::{Eax, Ecx, Edi, Esi},
 };
-use wasmparser::Validator;
 
 fn prefix_boundaries() -> Vec<Case> {
     let mut cases = Vec::new();
@@ -88,23 +88,7 @@ fn each_string_opcode_completes_without_an_operand_or_following_byte() {
     for opcode in [0xa4, 0xa5, 0xa6, 0xa7, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf] {
         for prefixes in [0, 1, 2, 14] {
             let code = [vec![0x66; prefixes], vec![opcode]].concat();
-            for available in 0..code.len() {
-                assert_eq!(
-                    compile_block_from_bytes(0x1000, &code[..available], 1).err(),
-                    Some(BlockError::TruncatedInstruction {
-                        address: 0x1000,
-                        available
-                    })
-                );
-            }
-            let complete = compile_block_from_bytes(0x1000, &code, 1).unwrap();
-            Validator::new().validate_all(&complete.bytes).unwrap();
-            assert_eq!(
-                complete.bytes,
-                compile_block_from_bytes(0x1000, &[&code[..], &[0x0f]].concat(), 1)
-                    .unwrap()
-                    .bytes
-            );
+            check_length(&code);
         }
         assert_eq!(
             compile_block_from_bytes(0x1000, &[vec![0x66; 15], vec![opcode]].concat(), 1).err(),

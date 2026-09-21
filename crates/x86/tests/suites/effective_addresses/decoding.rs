@@ -1,4 +1,5 @@
 use crate::support::cases::{test_cases, InstructionCase as Case};
+use crate::support::encoding::check_length;
 use wasm86_x86::Gpr32::{Eax, Ebx};
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
@@ -41,24 +42,7 @@ fn snapshots_require_address_fields_but_no_immediate_or_successor() {
         &[0x66, 0x8d, 0x44, 0x8b, 0x80][..],
         &[0x8d, 0x04, 0x25, 0x78, 0x56, 0x34, 0x12][..],
     ] {
-        for available in 0..code.len() {
-            assert!(
-                matches!(
-                    compile_block_from_bytes(0x1000, &code[..available], 1),
-                    Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual })
-                        if actual == available
-                ),
-                "{code:02x?}, available {available}",
-            );
-        }
-        let complete = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        let with_suffix = [code, &[0x0f]].concat();
-        assert_eq!(
-            compile_block_from_bytes(0x1000, &with_suffix, 1)
-                .unwrap()
-                .bytes,
-            complete.bytes,
-        );
+        check_length(code);
     }
 }
 

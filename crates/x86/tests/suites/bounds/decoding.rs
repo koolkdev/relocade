@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::encoding::check_length;
 use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{Engine, TestModule},
@@ -15,22 +16,7 @@ fn encodings_consume_exactly_the_memory_address() {
         &[0x64, 0x67, 0x66, 0x62, 0x42, 0x80],
         &[0x62, 0x8c, 0x25, 0x78, 0x56, 0x34, 0x12],
     ] {
-        for available in 0..code.len() {
-            assert_eq!(
-                compile_block_from_bytes(0x1000, &code[..available], 1).err(),
-                Some(BlockError::TruncatedInstruction {
-                    address: 0x1000,
-                    available
-                })
-            );
-        }
-        let complete = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        assert_eq!(
-            complete.bytes,
-            compile_block_from_bytes(0x1000, &[code, &[0x0f]].concat(), 1)
-                .unwrap()
-                .bytes
-        );
+        check_length(code);
     }
 }
 

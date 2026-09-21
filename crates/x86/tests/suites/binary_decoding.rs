@@ -1,3 +1,4 @@
+use crate::support::encoding::check_length;
 use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32::Eax, StoredFlags};
 use wasm86_x86::{FlagBytes, StoredStatusSource};
 use wasmparser::Validator;
@@ -47,28 +48,6 @@ fn binary_lengths_follow_the_selected_operand_and_immediate_widths() {
     ] {
         check_length(code);
     }
-}
-
-fn check_length(code: &[u8]) {
-    for available in 0..code.len() {
-        assert!(
-            matches!(
-                compile_block_from_bytes(0x1000, &code[..available], 1),
-                Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual }) if actual == available
-            ),
-            "{code:02x?}, available {available}"
-        );
-    }
-    let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
-    Validator::new().validate_all(&module.bytes).unwrap();
-    let mut with_suffix = code.to_vec();
-    with_suffix.push(0x0f);
-    assert_eq!(
-        compile_block_from_bytes(0x1000, &with_suffix, 1)
-            .unwrap()
-            .bytes,
-        module.bytes
-    );
 }
 
 #[test]

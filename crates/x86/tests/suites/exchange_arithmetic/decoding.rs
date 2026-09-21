@@ -1,3 +1,4 @@
+use crate::support::encoding::check_length;
 use wasm86_x86::{
     compile_block_from_bytes, BlockError,
     Gpr32::{Eax, Ebx},
@@ -24,21 +25,7 @@ fn snapshot_forms_require_their_encoding_but_no_successor() {
         &[0x66, 0x0f, 0xb1, 0x44, 0x8b, 0x80][..],
         &[0x0f, 0xc1, 0x04, 0x25, 0x20, 0x40, 0, 0][..],
     ] {
-        for available in 0..code.len() {
-            assert!(matches!(
-                compile_block_from_bytes(0x1000, &code[..available], 1),
-                Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual })
-                    if actual == available
-            ));
-        }
-        let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        let with_suffix = [code, &[0x0f]].concat();
-        assert_eq!(
-            compile_block_from_bytes(0x1000, &with_suffix, 1)
-                .unwrap()
-                .bytes,
-            module.bytes,
-        );
+        check_length(code);
     }
 }
 

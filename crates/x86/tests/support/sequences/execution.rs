@@ -6,10 +6,11 @@ use crate::support::{
         observation::FlagObservations,
         ExpectedExit, ExpectedFlags, ExpectedState, FlagExpectation, Flags,
     },
+    execution::Frontend,
     step::{Engine, TestModule},
 };
 
-pub(super) fn check(cases: &[SequenceCase], engine: Engine) {
+pub(crate) fn check(cases: &[SequenceCase], engine: Engine, frontend: Frontend) {
     assert!(!cases.is_empty(), "a sequence group must not be empty");
     let mut blocks = BlockModules::default();
     let mut flags = FlagObservations::new(engine);
@@ -34,13 +35,36 @@ pub(super) fn check(cases: &[SequenceCase], engine: Engine) {
             }
         }
         for profile in case.profiles.for_cpu(&initial.cpu) {
+            if matches!(frontend, Frontend::Block) {
+                let block = blocks.get(&initial.cpu, &code, limit, profile);
+                let execution = machine.run(block, engine);
+                let context = format!("{} [{engine:?}, {profile:?} block]", case.name);
+                let mut final_state = FinalExpectation::new(case);
+                for checkpoint in &case.checkpoints {
+                    final_state.append(checkpoint);
+                }
+                final_state.complete_flags();
+                expectations::check_checkpoint(
+                    &final_state.expected,
+                    final_state.boundary,
+                    &initial,
+                    &execution,
+                    &context,
+                );
+                flags.after(
+                    execution.state.cpu,
+                    initial.cpu,
+                    final_state.expected.flags,
+                    context,
+                );
+                continue;
+            }
             let executions = machine.run_many(
                 TestModule::interpreter_with_profile(profile),
                 engine,
                 case.checkpoints.len(),
             );
             let mut before = &initial;
-            let mut final_state = FinalExpectation::new(case);
             for (index, (checkpoint, execution)) in
                 case.checkpoints.iter().zip(&executions).enumerate()
             {
@@ -63,26 +87,8 @@ pub(super) fn check(cases: &[SequenceCase], engine: Engine) {
                     checkpoint.expected.flags,
                     context,
                 );
-                final_state.append(checkpoint);
                 before = &execution.state;
             }
-            let block = blocks.get(&initial.cpu, &code, limit, profile);
-            let execution = machine.run(block, engine);
-            let context = format!("{} [{engine:?}, {profile:?} block]", case.name);
-            final_state.complete_flags();
-            expectations::check_checkpoint(
-                &final_state.expected,
-                final_state.boundary,
-                &initial,
-                &execution,
-                &context,
-            );
-            flags.after(
-                execution.state.cpu,
-                initial.cpu,
-                final_state.expected.flags,
-                context,
-            );
         }
     }
     flags.finish();

@@ -1,13 +1,13 @@
-use std::{cell::OnceCell, path::Path};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use wasmtime::{
-    AsContext, ExternType, Func, Linker, Memory, MemoryType, Module, Store, Val, ValType,
-    WasmParams, WasmResults,
+    AsContext, ExternType, Func, Linker, Memory, MemoryType, Store, Val, ValType, WasmParams,
+    WasmResults,
 };
 
 pub use wasm86_test_support::Value;
-use wasm86_test_support::{engine, run_v8, Outcome};
+use wasm86_test_support::{engine, Module, Outcome};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryBytes {
@@ -118,8 +118,7 @@ impl Input {
 }
 
 pub struct TestModule {
-    bytes: Vec<u8>,
-    compiled: OnceCell<Module>,
+    module: Module,
     memories: Vec<MemoryBytes>,
     callbacks: Vec<Callback>,
 }
@@ -135,30 +134,26 @@ impl TestModule {
         callbacks: Vec<Callback>,
     ) -> Self {
         Self {
-            bytes: bytes.into(),
-            compiled: OnceCell::new(),
+            module: Module::new(bytes),
             memories,
             callbacks,
         }
     }
 
     pub fn bytes(&self) -> &[u8] {
-        &self.bytes
+        self.module.bytes()
     }
 
     pub fn run_v8(&self, input: &Input) -> Observation {
-        run_v8(
+        self.module.run_v8(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/execute.mjs"),
-            &self.bytes,
             input,
         )
     }
 
     pub fn instantiate(&self) -> Instance {
         let engine = engine();
-        let module = self
-            .compiled
-            .get_or_init(|| Module::new(engine, &self.bytes).expect("compile test module"));
+        let module = self.module.wasmtime();
         let mut store = Store::new(engine, Vec::<Call>::new());
         let mut linker = Linker::new(engine);
         let memories = self

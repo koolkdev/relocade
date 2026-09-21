@@ -1,3 +1,4 @@
+use crate::support::encoding::check_length;
 use crate::support::{
     cases::{test_cases, InstructionCase as Case},
     machine::{check, Exit, Image, Step},
@@ -7,28 +8,13 @@ use wasm86_x86::{
     compile_block_from_bytes, BlockError,
     Gpr32::{Eax, Edx},
 };
-use wasmparser::Validator;
 
 use super::ENCODINGS;
 
 #[test]
 fn opcode_only_encodings_need_neither_operands_nor_successor_bytes() {
     for (_, code) in ENCODINGS {
-        for available in 0..code.len() {
-            assert!(matches!(
-                compile_block_from_bytes(0x1000, &code[..available], 1),
-                Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual })
-                    if actual == available
-            ));
-        }
-        let complete = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        Validator::new().validate_all(&complete.bytes).unwrap();
-        assert_eq!(
-            compile_block_from_bytes(0x1000, &[code, &[0x0f]].concat(), 1)
-                .unwrap()
-                .bytes,
-            complete.bytes
-        );
+        check_length(code);
     }
 }
 

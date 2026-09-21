@@ -1,11 +1,11 @@
 use super::{operation_case, ENCODINGS};
+use crate::support::encoding::check_length;
 use crate::support::{
     cases::{test_cases, InstructionCase as Case},
     machine::{check, Exit, Image, Step},
     step::TestModule,
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError};
-use wasmparser::Validator;
 
 #[test]
 fn opcode_completion_needs_no_operand_or_successor_byte() {
@@ -13,20 +13,7 @@ fn opcode_completion_needs_no_operand_or_successor_byte() {
         for prefixes in [0, 1, 2, 14] {
             let mut code = vec![0x66; prefixes];
             code.push(opcode);
-            for available in 0..code.len() {
-                assert!(matches!(
-                    compile_block_from_bytes(0x1000, &code[..available], 1),
-                    Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual })
-                        if actual == available
-                ));
-            }
-            let complete = compile_block_from_bytes(0x1000, &code, 1).unwrap();
-            Validator::new().validate_all(&complete.bytes).unwrap();
-            code.push(0x0f);
-            assert_eq!(
-                compile_block_from_bytes(0x1000, &code, 1).unwrap().bytes,
-                complete.bytes
-            );
+            check_length(&code);
         }
     }
 }

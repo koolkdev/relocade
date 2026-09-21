@@ -1,8 +1,8 @@
+use crate::support::encoding::check_length;
 use wasm86_x86::{
     compile_block_from_bytes, BlockError,
     Gpr32::{Eax, Ebx, Edx},
 };
-use wasmparser::Validator;
 
 use crate::support::{
     cases::{test_cases, FlagExpectation::Clear, InstructionCase as Case},
@@ -27,24 +27,7 @@ fn snapshots_require_the_source_fields_and_the_selected_immediate_width() {
         &[0x66, 0x66, 0xf6, 0xec][..],
         &[0x69, 0x04, 0x25, 0x20, 0x40, 0, 0, 0xfe, 0xff, 0xff, 0xff][..],
     ] {
-        for available in 0..code.len() {
-            assert!(
-                matches!(
-                    compile_block_from_bytes(0x1000, &code[..available], 1),
-                    Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual }) if actual == available
-                ),
-                "{code:02x?}, available {available}"
-            );
-        }
-        let complete = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        Validator::new().validate_all(&complete.bytes).unwrap();
-        let with_suffix = [code, &[0x0f]].concat();
-        assert_eq!(
-            compile_block_from_bytes(0x1000, &with_suffix, 1)
-                .unwrap()
-                .bytes,
-            complete.bytes
-        );
+        check_length(code);
     }
 }
 
