@@ -57,7 +57,7 @@ where
                             arm,
                             cursor.clone(),
                             state.clone(),
-                            opcode,
+                            opcode_case as u8,
                             forms,
                         )
                     } else {

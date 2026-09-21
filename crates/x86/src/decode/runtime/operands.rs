@@ -52,20 +52,35 @@ where
         mut body: FunctionBuilder<'_>,
         mut cursor: RuntimeCursor<'_>,
         state: DecodeState,
-        opcode: &Val<I8>,
+        opcode: u8,
         forms: &[&'static Form],
     ) -> Result<(), BuildError> {
         // Select the extension, then validate the addressing mode before binding.
         let modrm = cursor.byte(&mut body)?;
+        let opcode_value = body.value::<I8>(u32::from(opcode))?;
+        let memory_forms = memory_forms(&state);
         dispatch_form_by_extension(body, &modrm, forms, &|mut arm, form| {
             let Some(form) = form else {
-                return state.return_unsupported(arm, &cursor, opcode);
+                return state.return_unsupported(arm, &cursor, &opcode_value);
             };
+            let form_index = memory_forms
+                .iter()
+                .position(|candidate| {
+                    candidate.opcode == opcode && candidate.form.extension == form.extension
+                })
+                .expect("the accepted memory form has a decoder index")
+                as u32;
             arm.if_(modrm.unsigned().shr(6).ne(3), |memory_body| {
-                self.tail_call_memory_decoder(memory_body, &cursor, state.clone(), opcode, &modrm)
+                self.tail_call_memory_decoder(
+                    memory_body,
+                    &cursor,
+                    state.clone(),
+                    form_index,
+                    &modrm,
+                )
             })?;
             if !form.accepts_register_rm() {
-                return state.return_unsupported(arm, &cursor, opcode);
+                return state.return_unsupported(arm, &cursor, &opcode_value);
             }
             let rm =
                 Location::Register(RegisterCode::indexed(modrm.unsigned().extend::<I32>()).into());
@@ -81,14 +96,14 @@ where
         body: FunctionBuilder<'_>,
         cursor: &RuntimeCursor<'_>,
         state: DecodeState,
-        opcode: &Val<I8>,
+        form_index: u32,
         modrm: &Val<I8>,
     ) -> Result<(), BuildError> {
         let handlers = match state.map {
             OpcodeMap::Primary => &self.primary_modrm_memory_handlers,
             OpcodeMap::Extended => &self.extended_modrm_memory_handlers,
         };
-        handlers.tail_call(body, cursor, state, &[opcode.into(), modrm.into()])
+        handlers.tail_call(body, cursor, state, &[form_index.into(), modrm.into()])
     }
 
     fn complete_modrm_instruction(
@@ -118,36 +133,32 @@ where
         body: FunctionBuilder<'_>,
         cursor: RuntimeCursor<'_>,
         state: DecodeState,
-        opcode: &Val<I8>,
+        form_index: &Val<I32>,
         modrm: &Val<I8>,
     ) -> Result<(), BuildError> {
-        let forms = forms_by_opcode(state.forms().filter(|form| form.encoding.has_modrm()));
-        let opcodes: Vec<_> = forms.keys().copied().collect();
+        let forms = memory_forms(&state);
+        let indices: Vec<_> = (0..forms.len() as u32).collect();
         super::address::decode(
             body,
             cursor,
             modrm,
             state.prefixes.address_size(),
             |mut body, cursor, address| {
-                body.switch(opcode, &opcodes, |arm, key| {
-                    let Some(forms) = key.and_then(|key| forms.get(&key)) else {
-                        return state.return_unsupported(arm, &cursor, opcode);
+                body.switch(form_index, &indices, |arm, index| {
+                    let Some(index) = index else {
+                        return arm.trap();
                     };
-                    dispatch_form_by_extension(arm, modrm, forms, &|arm, form| {
-                        let Some(form) = form else {
-                            return state.return_unsupported(arm, &cursor, opcode);
-                        };
-                        let form = form
-                            .resolve(&state.prefixes)
-                            .expect("opcode selection accepted the prefix state");
-                        self.complete_modrm_instruction(
-                            arm,
-                            cursor.clone(),
-                            modrm,
-                            &form,
-                            Location::Memory(address.clone().memory().into()),
-                        )
-                    })
+                    let form = forms[index as usize]
+                        .form
+                        .resolve(&state.prefixes)
+                        .expect("opcode selection accepted the prefix state");
+                    self.complete_modrm_instruction(
+                        arm,
+                        cursor.clone(),
+                        modrm,
+                        &form,
+                        Location::Memory(address.clone().memory().into()),
+                    )
                 })?;
                 body.trap()
             },
@@ -157,8 +168,6 @@ where
 
 /// Calls the continuation with the matching form, or `None` if unsupported.
 /// Forms are nonempty and belong to one opcode; non-group forms ignore extension bits.
-/// Memory entries repeat selection after address decoding because they receive
-/// the opcode and ModRM rather than a selected form.
 fn dispatch_form_by_extension(
     mut body: FunctionBuilder<'_>,
     modrm: &Val<I8>,
@@ -182,4 +191,23 @@ fn dispatch_form_by_extension(
         continue_decoding(arm, key.and_then(|key| extensions.get(&key)).copied())
     })?;
     body.trap()
+}
+
+struct MemoryForm {
+    opcode: u8,
+    form: &'static Form,
+}
+
+/// A prefix state's accepted memory forms have dense indices shared by the
+/// initial selection and the continuation after address decoding.
+fn memory_forms(state: &DecodeState) -> Vec<MemoryForm> {
+    forms_by_opcode(state.forms().filter(|form| form.encoding.has_modrm()))
+        .into_iter()
+        .flat_map(|(opcode, forms)| {
+            forms.into_iter().map(move |form| MemoryForm {
+                opcode: opcode as u8,
+                form,
+            })
+        })
+        .collect()
 }

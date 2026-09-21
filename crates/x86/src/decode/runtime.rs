@@ -66,16 +66,18 @@ where
             &decoder.primary_modrm_memory_handlers,
             &decoder.extended_modrm_memory_handlers,
         ] {
-            handlers.define(program, fetch, |body, cursor, state, opcode| {
+            handlers.define(program, fetch, |body, cursor, state| {
+                let form_index = body.parameter::<I32>(1)?;
                 let modrm = body.parameter::<I8>(2)?;
-                decoder.decode_memory_operands(body, cursor, state, opcode, &modrm)
+                decoder.decode_memory_operands(body, cursor, state, &form_index, &modrm)
             })?;
         }
 
         decoder
             .opcode_handlers
-            .define(program, fetch, |body, cursor, state, opcode| {
-                decoder.decode_opcode(body, cursor, state, opcode)
+            .define(program, fetch, |body, cursor, state| {
+                let opcode = body.parameter::<I8>(1)?;
+                decoder.decode_opcode(body, cursor, state, &opcode)
             })?;
         Ok(decoder)
     }

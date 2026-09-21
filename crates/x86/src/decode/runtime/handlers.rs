@@ -1,7 +1,5 @@
 //! Decoder entry signatures and transport of cursor progress and semantic state.
-use wasm86_compiler::{
-    Argument, BuildError, Func, FunctionBuilder, Program, Signature, Type, Val, I32, I8,
-};
+use wasm86_compiler::{Argument, BuildError, Func, FunctionBuilder, Program, Signature, Type, I32};
 
 use crate::{
     decode::DecodeState,
@@ -29,10 +27,10 @@ impl DecodePoint {
         }
     }
 
-    fn field_count(self) -> usize {
+    fn field_types(self) -> &'static [Type] {
         match self {
-            Self::Opcode => 1,
-            Self::MemoryOperand(_) => 2,
+            Self::Opcode => &[Type::I8],
+            Self::MemoryOperand(_) => &[Type::I32, Type::I8],
         }
     }
 
@@ -75,7 +73,7 @@ impl DecodeHandlers {
     ) -> Self {
         let default_prefixes = PrefixState::new(default_size);
         let mut parameters = vec![Type::I32];
-        parameters.resize(point.field_count() + 1, Type::I8);
+        parameters.extend_from_slice(point.field_types());
         let checked = program.declare(Signature {
             parameters: parameters.clone(),
             results: vec![Type::I64],
@@ -125,7 +123,6 @@ impl DecodeHandlers {
             FunctionBuilder<'_>,
             RuntimeCursor<'memory>,
             DecodeState,
-            &Val<I8>,
         ) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         enum Entry<'entry> {
@@ -143,8 +140,7 @@ impl DecodeHandlers {
         for (function, entry) in entries {
             let body = program.define(function)?;
             let instruction_eip = body.parameter::<I32>(0)?;
-            let opcode = body.parameter::<I8>(1)?;
-            let position_parameter = self.point.field_count() as u32 + 1;
+            let position_parameter = self.point.field_types().len() as u32 + 1;
             let (cursor, prefixes) = match entry {
                 Entry::Resumed(entry) => {
                     let cursor = RuntimeCursor::resume(
@@ -176,12 +172,14 @@ impl DecodeHandlers {
                     (cursor, self.default_prefixes.clone())
                 }
             };
-            decode(body, cursor, self.point.state(prefixes), &opcode)?;
+            decode(body, cursor, self.point.state(prefixes))?;
         }
         Ok(())
     }
 
-    /// `fields` contains the opcode, followed by ModRM at a memory-operand entry.
+    /// Opcode entries receive a byte; memory entries receive a validated form
+    /// index and ModRM. Cursor progress and optional prefix arguments follow
+    /// these decoded fields.
     pub(super) fn tail_call(
         &self,
         body: FunctionBuilder<'_>,

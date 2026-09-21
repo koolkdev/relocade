@@ -31,7 +31,7 @@ fn missing_immediates_fault_after_conditional_address_fields() {
             &[0xc6, 0x44, 0x24, 0x7f][..],
         ),
         (
-            "wide immediate extends beyond the five-byte proof",
+            "wide immediate is truncated at the page boundary",
             0x1ffb,
             &[0xc7, 0x44, 0x24, 0x7f, 0x12][..],
         ),
@@ -55,16 +55,30 @@ fn missing_immediates_fault_after_conditional_address_fields() {
 
 fn complete_operand_cases() -> Vec<Case> {
     let mut cases = Vec::new();
-    for (name, start, code) in [
+    for (name, start, code, written) in [
         (
-            "SIB and displacement fill the five-byte window",
+            "byte immediate follows SIB and displacement at page end",
             0x1ffb,
             &[0xc6, 0x44, 0x24, 0x7f, 0x80][..],
+            &[0x80][..],
         ),
         (
             "absent SIB leaves a complete four-byte instruction",
             0x1ffc,
             &[0xc6, 0x43, 0x7f, 0x80][..],
+            &[0x80][..],
+        ),
+        (
+            "wide displacement and immediate fit before page end",
+            0x1ff1,
+            &[0xc7, 0x84, 0x24, 0x7f, 0, 0, 0, 0x78, 0x56, 0x34, 0x12][..],
+            &[0x78, 0x56, 0x34, 0x12][..],
+        ),
+        (
+            "wide displacement and immediate finish at page end",
+            0x1ff5,
+            &[0xc7, 0x84, 0x24, 0x7f, 0, 0, 0, 0x78, 0x56, 0x34, 0x12][..],
+            &[0x78, 0x56, 0x34, 0x12][..],
         ),
     ] {
         cases.push(
@@ -77,12 +91,12 @@ fn complete_operand_cases() -> Vec<Case> {
                 ])
                 .map_page(8, 0x5000, ReadWrite)
                 .backing(0x507f, &[0xa5; 4])
-                .expect_memory(0x807f, &[0x80]),
+                .expect_memory(0x807f, written),
         );
     }
     for (name, start) in [
-        ("extended opcode retains its direct window", 0x1ffa),
-        ("extended opcode uses checked reads at page end", 0x1ffc),
+        ("extended opcode and operands fit before page end", 0x1ffa),
+        ("extended instruction completes at page end", 0x1ffc),
     ] {
         cases.push(
             Case::new(
