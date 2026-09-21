@@ -1,5 +1,6 @@
 //! Instruction families keep their encodings and shared semantics together.
 
+mod adjust;
 mod alu;
 mod bit_scans;
 mod bit_tests;
@@ -34,6 +35,7 @@ pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form
         .chain(extensions::forms())
         .chain(exchanges::forms())
         .chain(alu::forms())
+        .chain(adjust::forms())
         .chain(multiply::forms())
         .chain(divide::forms())
         .chain(shifts::forms())

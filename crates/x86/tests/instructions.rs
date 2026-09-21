@@ -24,6 +24,8 @@ mod conditional_moves;
 mod count_publication;
 #[path = "suites/counted_branches.rs"]
 mod counted_branches;
+#[path = "suites/decimal_adjust.rs"]
+mod decimal_adjust;
 #[path = "suites/division.rs"]
 mod division;
 #[path = "suites/double_shifts.rs"]

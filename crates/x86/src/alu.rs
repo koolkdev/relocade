@@ -1,6 +1,7 @@
 //! Pure x86 operand results, status-flag changes and numeric fault conditions.
 //! Operand access belongs to instruction execution; flag storage belongs to state.
 
+mod adjust;
 mod arithmetic;
 mod bit_scans;
 mod bit_tests;
@@ -12,6 +13,7 @@ mod shifts;
 mod status;
 mod unary;
 
+pub(crate) use adjust::{adjust_after_multiply, adjust_before_division};
 pub(crate) use arithmetic::ArithmeticOp;
 pub(crate) use bit_scans::BitScanOp;
 pub(crate) use bit_tests::BitTestOp;
