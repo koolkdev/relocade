@@ -2,22 +2,10 @@ use crate::support::cases::{
     test_cases, InstructionCase as Case, Permissions::ReadOnly, RegisterExpectation::Exact,
 };
 use crate::support::machine::{check, Exit, Image, Step};
-use crate::support::sequences::{test_sequences, Checkpoint, SequenceCase};
 use crate::support::step;
 use step::{Engine, TestModule};
 use wasm86_x86::{compile_block_from_bytes, CpuState, Gpr32};
 use wasmparser::{ExternalKind, Parser, Payload, TypeRef, ValType, Validator};
-
-const MOVES: [(&[u8], Gpr32, u32); 8] = [
-    (&[0xb8, 0x78, 0x56, 0x34, 0x12], Gpr32::Eax, 0x1234_5678),
-    (&[0xb9, 0, 0, 0, 0x80], Gpr32::Ecx, 0x8000_0000),
-    (&[0xba, 0xff, 0xff, 0xff, 0xff], Gpr32::Edx, 0xffff_ffff),
-    (&[0xbb, 0, 0, 0, 0], Gpr32::Ebx, 0),
-    (&[0xbc, 0xf3, 0x0f, 0xb8, 0x66], Gpr32::Esp, 0x66b8_0ff3),
-    (&[0xbd, 0xff, 0xff, 0xff, 0x7f], Gpr32::Ebp, 0x7fff_ffff),
-    (&[0xbe, 0xef, 0xbe, 0xad, 0xde], Gpr32::Esi, 0xdead_beef),
-    (&[0xbf, 0x21, 0x43, 0x65, 0x87], Gpr32::Edi, 0x8765_4321),
-];
 
 const REGISTERS: [(Gpr32, u32); 8] = [
     (Gpr32::Eax, 0x1111_1111),
@@ -121,62 +109,6 @@ fn interpreter_step_exposes_memory_dispatch_and_descriptor_query_abis() {
     );
 }
 
-fn register_moves() -> Vec<Case> {
-    let mut cases = Vec::new();
-    for (source, &(_, value)) in REGISTERS.iter().enumerate() {
-        for (destination, &(register, _)) in REGISTERS.iter().enumerate() {
-            for code in [
-                [0x89, 0xc0 | ((source as u8) << 3) | destination as u8],
-                [0x8b, 0xc0 | ((destination as u8) << 3) | source as u8],
-            ] {
-                cases.push(
-                    Case::preserving_flags(
-                        format!(
-                            "MOV opcode {:02x}, source {source}, destination {destination}",
-                            code[0]
-                        ),
-                        &code,
-                    )
-                    .at(0x1234)
-                    .initial_registers(&REGISTERS)
-                    .expect_register(register, Exact(value)),
-                );
-            }
-        }
-    }
-    for &(code, register, value) in &MOVES {
-        cases.push(
-            Case::preserving_flags(format!("MOV {register:?}, immediate {value:#x}"), code)
-                .at(0x1234)
-                .initial_registers(&REGISTERS)
-                .expect_register(register, Exact(value)),
-        );
-    }
-    cases
-}
-
-#[rustfmt::skip]
-fn forwarded_values() -> Vec<SequenceCase> {
-    vec![
-        SequenceCase::preserving_flags("register rotation retains source values").initial_registers(&REGISTERS)
-            .step(Checkpoint::preserving_flags(&[0x89, 0xc2]).register(Gpr32::Edx, 0x1111_1111))
-            .step(Checkpoint::preserving_flags(&[0x8b, 0xc1]).register(Gpr32::Eax, 0x2222_2222))
-            .step(Checkpoint::preserving_flags(&[0x89, 0xd1]).register(Gpr32::Ecx, 0x1111_1111))
-            .step(Checkpoint::preserving_flags(&[0x8b, 0xf8]).register(Gpr32::Edi, 0x2222_2222))
-            .step(Checkpoint::preserving_flags(&[0x89, 0xce]).register(Gpr32::Esi, 0x1111_1111))
-            .step(Checkpoint::preserving_flags(&[0x8b, 0xda]).register(Gpr32::Ebx, 0x1111_1111)),
-        SequenceCase::preserving_flags("immediate definition forwards through register copies").initial_registers(&REGISTERS)
-            .step(Checkpoint::preserving_flags(&[0xb8, 42, 0, 0, 0]).register(Gpr32::Eax, 42))
-            .step(Checkpoint::preserving_flags(&[0x89, 0xc1]).register(Gpr32::Ecx, 42))
-            .step(Checkpoint::preserving_flags(&[0x8b, 0xd1]).register(Gpr32::Edx, 42))
-            .step(Checkpoint::preserving_flags(&[0x89, 0xd3]).register(Gpr32::Ebx, 42)),
-        SequenceCase::preserving_flags("earlier copy survives replacing its source register").initial_registers(&REGISTERS)
-            .step(Checkpoint::preserving_flags(&[0x89, 0xc1]).register(Gpr32::Ecx, 0x1111_1111))
-            .step(Checkpoint::preserving_flags(&[0xb8, 9, 0, 0, 0]).register(Gpr32::Eax, 9))
-            .step(Checkpoint::preserving_flags(&[0x8b, 0xd1]).register(Gpr32::Edx, 0x1111_1111)),
-    ]
-}
-
 #[rustfmt::skip]
 fn successful_fetch_boundaries() -> Vec<Case> {
     vec![
@@ -211,12 +143,10 @@ fn successful_fetch_boundaries() -> Vec<Case> {
     ]
 }
 
-test_cases!(register_and_immediate_moves, register_moves());
 test_cases!(
     scattered_wrapping_and_complete_fetches,
     successful_fetch_boundaries()
 );
-test_sequences!(register_value_forwarding, forwarded_values());
 
 #[test]
 fn missing_successor_fields_preserve_completed_instruction_progress() {

@@ -1,3 +1,5 @@
+//! Shared 32-bit ModRM/SIB address integration using MOV loads and stores.
+
 use crate::support::cases::{
     test_cases, InstructionCase as Case, Permissions::ReadWrite, RegisterExpectation::Exact,
 };

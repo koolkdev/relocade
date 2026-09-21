@@ -1,33 +1,9 @@
-use crate::support::cases::{test_cases, InstructionCase as Case, RegisterExpectation::Exact};
-use crate::support::sequences::{test_sequences, Checkpoint, SequenceCase};
 use crate::support::step;
 use step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
-use wasm86_x86::{
-    compile_block_from_bytes, BlockError, CompiledModule, CpuState, Gpr32, Registers,
-};
+use wasm86_x86::{compile_block_from_bytes, BlockError, CompiledModule, CpuState, Registers};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Validator};
 
-// Intel SDM, MOV: B8+rd id copies imm32 into r32 and leaves flags unchanged.
-const SINGLE_MOVES: [(&[u8], Gpr32, u32); 8] = [
-    (&[0xb8, 0x78, 0x56, 0x34, 0x12], Gpr32::Eax, 0x1234_5678),
-    (&[0xb9, 0, 0, 0, 0x80], Gpr32::Ecx, 0x8000_0000),
-    (&[0xba, 0xff, 0xff, 0xff, 0xff], Gpr32::Edx, 0xffff_ffff),
-    (&[0xbb, 0, 0, 0, 0], Gpr32::Ebx, 0),
-    (&[0xbc, 0xf3, 0x0f, 0xb8, 0x66], Gpr32::Esp, 0x66b8_0ff3),
-    (&[0xbd, 0xff, 0xff, 0xff, 0x7f], Gpr32::Ebp, 0x7fff_ffff),
-    (&[0xbe, 0xef, 0xbe, 0xad, 0xde], Gpr32::Esi, 0xdead_beef),
-    (&[0xbf, 0x21, 0x43, 0x65, 0x87], Gpr32::Edi, 0x8765_4321),
-];
-const REGISTERS: [(Gpr32, u32); 8] = [
-    (Gpr32::Eax, 0x1111_1111),
-    (Gpr32::Ecx, 0x2222_2222),
-    (Gpr32::Edx, 0x3333_3333),
-    (Gpr32::Ebx, 0x4444_4444),
-    (Gpr32::Esp, 0x5555_5555),
-    (Gpr32::Ebp, 0x6666_6666),
-    (Gpr32::Esi, 0x7777_7777),
-    (Gpr32::Edi, 0x8888_8888),
-];
+const IMMEDIATE: &[u8] = &[0xb8, 0x78, 0x56, 0x34, 0x12];
 const TWO: &[u8] = &[0xb8, 0x78, 0x56, 0x34, 0x12, 0xbf, 0xff, 0xff, 0xff, 0xff];
 const OVERWRITE: &[u8] = &[0xb8, 0x78, 0x56, 0x34, 0x12, 0xb8, 0xff, 0xff, 0xff, 0xff];
 const REVERSE: &[u8] = &[0xbf, 0xff, 0xff, 0xff, 0xff, 0xb8, 0x78, 0x56, 0x34, 0x12];
@@ -43,7 +19,7 @@ fn selected_mov_requires_all_five_bytes() {
             compile_block_from_bytes(0x1000, &instruction[..available], 1),
             Err(BlockError::TruncatedInstruction { address: 0x1000, available: actual }) if actual == available
         ));
-        let mut after_prefix = SINGLE_MOVES[0].0.to_vec();
+        let mut after_prefix = IMMEDIATE.to_vec();
         after_prefix.extend_from_slice(&instruction[..available]);
         assert!(matches!(
             compile_block_from_bytes(0xffff_fffd, &after_prefix, 2),
@@ -60,7 +36,7 @@ fn unsupported_selected_opcodes_report_their_instruction_address() {
             Err(BlockError::UnsupportedInstruction { address: 0x1000, opcode }) if opcode == bytes[0]
         ));
     }
-    let mut bytes = SINGLE_MOVES[0].0.to_vec();
+    let mut bytes = IMMEDIATE.to_vec();
     bytes.push(0xf0);
     assert!(matches!(
         compile_block_from_bytes(0x1000, &bytes, 2),
@@ -73,9 +49,9 @@ fn unsupported_selected_opcodes_report_their_instruction_address() {
 
 #[test]
 fn instruction_limit_excludes_valid_partial_and_unsupported_suffixes() {
-    let expected = compile_block_from_bytes(0x1000, SINGLE_MOVES[0].0, 1).unwrap();
+    let expected = compile_block_from_bytes(0x1000, IMMEDIATE, 1).unwrap();
     for suffix in [&TWO[5..], &[0xbf, 0x12][..], &[0x66][..]] {
-        let mut bytes = SINGLE_MOVES[0].0.to_vec();
+        let mut bytes = IMMEDIATE.to_vec();
         bytes.extend_from_slice(suffix);
         let block = compile_block_from_bytes(0x1000, &bytes, 1).unwrap();
         assert_eq!(block.bytes, expected.bytes);
@@ -220,48 +196,15 @@ fn check_dispatch_abi(
     );
 }
 
-fn immediate_moves() -> Vec<Case> {
-    SINGLE_MOVES
-        .iter()
-        .map(|&(code, register, value)| {
-            Case::preserving_flags(format!("MOV {register:?}, immediate {value:#x}"), code)
-                .initial_registers(&REGISTERS)
-                .expect_register(register, Exact(value))
-        })
-        .collect()
-}
-
-#[rustfmt::skip]
-fn overwrite_sequences() -> Vec<SequenceCase> {
-    vec![
-        SequenceCase::preserving_flags("two immediate moves keep both results").initial_registers(&REGISTERS)
-            .step(Checkpoint::preserving_flags(&[0xb8, 0x78, 0x56, 0x34, 0x12]).register(Gpr32::Eax, 0x1234_5678))
-            .step(Checkpoint::preserving_flags(&[0xbf, 0xff, 0xff, 0xff, 0xff]).register(Gpr32::Edi, 0xffff_ffff)),
-        SequenceCase::preserving_flags("later immediate move replaces the earlier value").initial_registers(&REGISTERS)
-            .step(Checkpoint::preserving_flags(&[0xb8, 0x78, 0x56, 0x34, 0x12]).register(Gpr32::Eax, 0x1234_5678))
-            .step(Checkpoint::preserving_flags(&[0xb8, 0xff, 0xff, 0xff, 0xff]).register(Gpr32::Eax, 0xffff_ffff)),
-        SequenceCase::preserving_flags("reversed immediate moves keep both results").initial_registers(&REGISTERS)
-            .step(Checkpoint::preserving_flags(&[0xbf, 0xff, 0xff, 0xff, 0xff]).register(Gpr32::Edi, 0xffff_ffff))
-            .step(Checkpoint::preserving_flags(&[0xb8, 0x78, 0x56, 0x34, 0x12]).register(Gpr32::Eax, 0x1234_5678)),
-        SequenceCase::preserving_flags("later write keeps its value after another register changes").initial_registers(&REGISTERS)
-            .step(Checkpoint::preserving_flags(&[0xbf, 0x11, 0x11, 0x11, 0x11]).register(Gpr32::Edi, 0x1111_1111))
-            .step(Checkpoint::preserving_flags(&[0xb8, 0x22, 0x22, 0x22, 0x22]).register(Gpr32::Eax, 0x2222_2222))
-            .step(Checkpoint::preserving_flags(&[0xbf, 0x33, 0x33, 0x33, 0x33]).register(Gpr32::Edi, 0x3333_3333)),
-    ]
-}
-
-test_cases!(immediate_results_preserve_opaque_flags, immediate_moves());
-test_sequences!(overwrites_and_ordered_results, overwrite_sequences());
-
 #[test]
 fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value() {
     // These cases exercise the CPU-only block interface. Incoming EIP deliberately
     // differs from the compiled origin; the callback sees completed CPU bytes and
     // its full i64 return value passes through unchanged. Ordinary MOV results are
-    // covered by the shared cases above.
+    // covered by the data_moves family.
     for (bytes, limit, start, initial_count, eax, edi, next_eip, count, dispatched, returned) in [
         (
-            SINGLE_MOVES[0].0,
+            IMMEDIATE,
             1,
             0x1000,
             u32::MAX,
@@ -333,7 +276,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             0x1234_5678_9abc_def0,
         ),
         (
-            SINGLE_MOVES[0].0,
+            IMMEDIATE,
             1,
             0xffff_fffd,
             u32::MAX,
@@ -345,7 +288,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             -1,
         ),
         (
-            SINGLE_MOVES[0].0,
+            IMMEDIATE,
             1,
             0x7fff_fffd,
             u32::MAX,
@@ -357,7 +300,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             -1,
         ),
         (
-            SINGLE_MOVES[0].0,
+            IMMEDIATE,
             1,
             0x1000,
             17,

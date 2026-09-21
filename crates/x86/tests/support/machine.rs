@@ -183,12 +183,3 @@ pub(crate) fn check(module: &TestModule, name: &str, image: &Image, steps: &[Ste
         module.entry
     );
 }
-
-pub(crate) fn byte_register_image(code: &[u8]) -> Image {
-    let mut image = Image::new(code);
-    image.cpu.registers.eax = 0x4433_2211;
-    image.cpu.registers.ecx = 0x8877_6655;
-    image.cpu.registers.edx = 0xccbb_aa99;
-    image.cpu.registers.ebx = 0x10ff_eedd;
-    image
-}

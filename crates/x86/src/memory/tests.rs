@@ -109,7 +109,9 @@ fn access_fault_handlers_must_terminate_the_denied_path() {
 fn contiguous_accesses_keep_native_loads_and_stores_for_every_storage_width() {
     let bytes = accesses();
     Validator::new().validate_all(&bytes).unwrap();
-    let mut operations = std::collections::BTreeSet::new();
+    let mut operations = std::collections::BTreeMap::new();
+    let mut exports = std::collections::BTreeMap::new();
+    let mut function_index = 0;
     let mut guest_index = None;
     let mut memories = 0;
     for payload in Parser::new(0).parse_all(&bytes) {
@@ -122,11 +124,25 @@ fn contiguous_accesses_keep_native_loads_and_stores_for_every_storage_width() {
                         guest_index = Some(memories);
                     }
                     memories += 1;
+                } else if matches!(import.ty, TypeRef::Func(_)) {
+                    function_index += 1;
+                }
+            }
+        }
+        if let Payload::ExportSection(section) = &payload {
+            for export in section.clone() {
+                let export = export.unwrap();
+                if export.kind == wasmparser::ExternalKind::Func {
+                    exports.insert(export.index, export.name.to_owned());
                 }
             }
         }
         if let Payload::CodeSectionEntry(body) = payload {
+            let name = exports.get(&function_index);
+            function_index += 1;
+            let Some(name) = name else { continue };
             let guest_index = guest_index.expect("guest memory is imported");
+            let mut native_accesses = Vec::new();
             for operator in body.get_operators_reader().unwrap() {
                 let name = match operator.unwrap() {
                     Operator::I32Load8U { memarg } if memarg.memory == guest_index => "load8",
@@ -139,13 +155,28 @@ fn contiguous_accesses_keep_native_loads_and_stores_for_every_storage_width() {
                     Operator::I64Store { memarg } if memarg.memory == guest_index => "store64",
                     _ => continue,
                 };
-                operations.insert(name);
+                native_accesses.push(name);
             }
+            operations.insert(name.clone(), native_accesses);
         }
     }
+    // Check each exported access independently: a narrow path must not use a
+    // wider native access. Scattered byte assembly lives in separate helpers.
     assert_eq!(
-        operations.into_iter().collect::<Vec<_>>(),
-        ["load16", "load32", "load64", "load8", "store16", "store32", "store64", "store8"]
+        operations,
+        [
+            ("read8", "load8"),
+            ("read16", "load16"),
+            ("read32", "load32"),
+            ("read64", "load64"),
+            ("write8", "store8"),
+            ("write16", "store16"),
+            ("write32", "store32"),
+            ("write64", "store64"),
+        ]
+        .into_iter()
+        .map(|(name, operation)| (name.to_owned(), vec![operation]))
+        .collect()
     );
 }
 

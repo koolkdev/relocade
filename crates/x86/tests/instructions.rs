@@ -12,8 +12,6 @@ mod bit_scans;
 mod bit_tests;
 #[path = "suites/bounds.rs"]
 mod bounds;
-#[path = "suites/byte_moves.rs"]
-mod byte_moves;
 #[path = "suites/carry_arithmetic.rs"]
 mod carry_arithmetic;
 #[path = "suites/carry_rotates.rs"]
@@ -24,6 +22,8 @@ mod conditional_moves;
 mod count_publication;
 #[path = "suites/counted_branches.rs"]
 mod counted_branches;
+#[path = "suites/data_moves.rs"]
+mod data_moves;
 #[path = "suites/decimal_adjust.rs"]
 mod decimal_adjust;
 #[path = "suites/division.rs"]
@@ -42,8 +42,6 @@ mod extending_moves;
 mod flag_control;
 #[path = "suites/flag_transfer.rs"]
 mod flag_transfer;
-#[path = "suites/immediate_and_absolute_moves.rs"]
-mod immediate_and_absolute_moves;
 #[path = "suites/instruction_prefixes.rs"]
 mod instruction_prefixes;
 #[path = "suites/interpreter_runs.rs"]
@@ -52,8 +50,8 @@ mod interpreter_runs;
 mod interpreter_steps;
 #[path = "suites/logical_flags.rs"]
 mod logical_flags;
-#[path = "suites/memory_moves.rs"]
-mod memory_moves;
+#[path = "suites/memory_addressing.rs"]
+mod memory_addressing;
 #[path = "suites/mov_blocks.rs"]
 mod mov_blocks;
 #[path = "suites/multiply.rs"]
@@ -80,8 +78,6 @@ mod stack_operations;
 mod strings;
 #[path = "suites/unary_operations.rs"]
 mod unary_operations;
-#[path = "suites/word_moves.rs"]
-mod word_moves;
 
 #[path = "suites/execution_sizes.rs"]
 mod execution_sizes;
