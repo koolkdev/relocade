@@ -205,13 +205,6 @@ impl InstructionCase {
         self
     }
 
-    pub(crate) fn undefined_memory(mut self, address: u32, length: u32) -> Self {
-        self.expected
-            .memory
-            .push(MemoryExpectation::Undefined { address, length });
-        self
-    }
-
     pub(crate) fn at(mut self, origin: u32) -> Self {
         self.initial.eip = origin;
         self
