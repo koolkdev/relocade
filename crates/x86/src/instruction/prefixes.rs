@@ -14,22 +14,18 @@ use crate::{
 pub(crate) enum Prefix {
     OperandSize,
     AddressSize,
-    Repeat(RepeatPrefix),
+    Group1(Group1Prefix),
     Segment(Segment),
 }
 
-/// Encoded prefix identity; the instruction form determines its meaning.
+/// Supported group-1 prefix bytes; the instruction form determines their meaning.
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub(crate) enum RepeatPrefix {
+pub(crate) enum Group1Prefix {
     F2,
     F3,
 }
 
-impl RepeatPrefix {
-    pub(crate) const fn index(self) -> usize {
-        self as usize
-    }
-
+impl Group1Prefix {
     pub(crate) const fn byte(self) -> u8 {
         match self {
             Self::F2 => 0xf2,
@@ -42,8 +38,8 @@ impl Prefix {
     pub(crate) const ALL: [Self; 10] = [
         Self::OperandSize,
         Self::AddressSize,
-        Self::Repeat(RepeatPrefix::F2),
-        Self::Repeat(RepeatPrefix::F3),
+        Self::Group1(Group1Prefix::F2),
+        Self::Group1(Group1Prefix::F3),
         Self::Segment(Segment::Es),
         Self::Segment(Segment::Cs),
         Self::Segment(Segment::Ss),
@@ -60,7 +56,7 @@ impl Prefix {
         match self {
             Self::OperandSize => 0x66,
             Self::AddressSize => 0x67,
-            Self::Repeat(prefix) => prefix.byte(),
+            Self::Group1(prefix) => prefix.byte(),
             Self::Segment(segment) => match segment {
                 Segment::Es => 0x26,
                 Segment::Cs => 0x2e,
@@ -80,7 +76,7 @@ pub(crate) struct PrefixState {
     default_size: SegmentDefaultSize,
     operand_size_override: bool,
     address_size_override: bool,
-    repeat: Option<RepeatPrefix>,
+    group1: Option<Group1Prefix>,
     segment_override: SegmentOverride,
 }
 
@@ -90,21 +86,21 @@ impl PrefixState {
             default_size,
             operand_size_override: false,
             address_size_override: false,
-            repeat: None,
+            group1: None,
             segment_override: SegmentOverride::None,
         }
     }
 
-    /// Enumerates the independent size and repetition states for decoder entries.
+    /// Enumerates the independent size and group-1 prefix states for decoder entries.
     /// Override presence selects an entry; its segment identity travels as a value.
     pub(crate) fn combinations(default_size: SegmentDefaultSize) -> impl Iterator<Item = Self> {
-        [None, Some(RepeatPrefix::F2), Some(RepeatPrefix::F3)]
+        [None, Some(Group1Prefix::F2), Some(Group1Prefix::F3)]
             .into_iter()
-            .flat_map(move |repeat| {
+            .flat_map(move |group1| {
                 (0..4).map(move |bits| Self {
                     operand_size_override: bits & 1 != 0,
                     address_size_override: bits & 2 != 0,
-                    repeat,
+                    group1,
                     ..Self::new(default_size)
                 })
             })
@@ -116,7 +112,7 @@ impl PrefixState {
         match prefix {
             Prefix::OperandSize => self.operand_size_override = true,
             Prefix::AddressSize => self.address_size_override = true,
-            Prefix::Repeat(prefix) => self.repeat = Some(prefix),
+            Prefix::Group1(prefix) => self.group1 = Some(prefix),
             Prefix::Segment(segment) => self.segment_override = SegmentOverride::Fixed(segment),
         }
         self
@@ -138,8 +134,8 @@ impl PrefixState {
         }
     }
 
-    pub(crate) fn repeat(&self) -> Option<RepeatPrefix> {
-        self.repeat
+    pub(crate) fn group1(&self) -> Option<Group1Prefix> {
+        self.group1
     }
 
     pub(crate) fn segment_override(&self) -> &SegmentOverride {
@@ -154,7 +150,7 @@ impl PrefixState {
     pub(crate) fn same_form_selection(&self, other: &Self) -> bool {
         self.operand_size() == other.operand_size()
             && self.address_size() == other.address_size()
-            && self.repeat == other.repeat
+            && self.group1 == other.group1
     }
 }
 

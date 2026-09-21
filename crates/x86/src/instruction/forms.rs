@@ -12,7 +12,7 @@ pub(crate) use opcodes::forms_by_opcode;
 
 use super::{
     handlers::{HandlerCall, SizedHandlers},
-    OperandSize, PrefixState, SegmentOverride,
+    Group1Prefix, OperandSize, PrefixState, SegmentOverride,
 };
 use crate::register::NamedRegister;
 use crate::{address::AddressSize, flags::Condition};
@@ -61,6 +61,8 @@ pub(crate) struct Form {
     pub(super) opcode: u8,
     pub(super) mask: u8,
     pub(crate) map: OpcodeMap,
+    /// Exact F2/F3 requirement; None requires neither prefix.
+    group1_prefix: Option<Group1Prefix>,
     pub(crate) encoding: Encoding,
     /// Required ModRM.reg opcode extension; otherwise those bits belong to the encoding.
     pub(crate) extension: Option<u8>,
@@ -69,23 +71,20 @@ pub(crate) struct Form {
     pub(super) condition: Option<Condition>,
     pub(super) implicit_memory: bool,
     pub(super) ends_block: bool,
-    repeat_handlers: [Option<SizedHandlers<HandlerBinding>>; 2],
 }
 
 impl Form {
     /// Resolve prefix meaning before either decoder reads operand fields.
     pub(crate) fn resolve(&self, prefixes: &PrefixState) -> Option<ResolvedForm> {
+        if self.group1_prefix != prefixes.group1() {
+            return None;
+        }
         let operand_size = prefixes.operand_size();
-        let handlers = if let Some(prefix) = prefixes.repeat() {
-            self.repeat_handlers[prefix.index()]?
-        } else {
-            self.handlers
-        };
         Some(ResolvedForm {
             form: *self,
             operand_size,
             address_size: prefixes.address_size(),
-            call: handlers.resolve(operand_size),
+            call: self.handlers.resolve(operand_size),
             segment_override: prefixes.segment_override().clone(),
         })
     }

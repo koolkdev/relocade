@@ -279,7 +279,7 @@ SS and #GP(0) for other segments. Resolver faults retain their selector error co
 An unsupported exit describes an encoding or execution path outside the
 implementation's subset, not an architectural invalid-opcode exception. Its
 diagnostic byte is the first byte after size and segment prefixes, `0F` for an
-extended opcode, or the selected `F2`/`F3` prefix for an unsupported repeated
+extended opcode, or the selected `F2`/`F3` prefix for an unsupported prefixed
 form. It does not retire or dispatch. IRET with entry NT set reports `CF` at the
 instruction's restart EIP, including its prefixes. Snapshot construction reports
 `BlockError` for unsupported encodings; state-dependent unsupported paths remain

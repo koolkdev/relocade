@@ -11,6 +11,7 @@ use super::{
 };
 use crate::flags::Condition;
 use crate::instruction::handlers::{Handler, HandlerCall, SizedHandlers};
+use crate::instruction::Group1Prefix;
 use crate::register::NamedRegister;
 
 #[derive(Clone, Copy)]
@@ -60,6 +61,7 @@ pub(in crate::instruction) enum Effect {
 pub(in crate::instruction) struct Opcode {
     pub(in crate::instruction) map: OpcodeMap,
     pub(in crate::instruction) byte: u8,
+    pub(in crate::instruction) group1_prefix: Option<Group1Prefix>,
     pub(in crate::instruction) register_range: bool,
     pub(in crate::instruction) extension: Option<u8>,
 }
@@ -69,7 +71,6 @@ pub(in crate::instruction) struct Declaration<'a> {
     pub(in crate::instruction) operands: &'a [OperandSpec],
     pub(in crate::instruction) handlers: SizedHandlers<Handler>,
     pub(in crate::instruction) effects: &'a [Effect],
-    pub(in crate::instruction) repeat_handlers: [Option<SizedHandlers<Handler>>; 2],
 }
 
 impl Declaration<'_> {
@@ -168,24 +169,6 @@ impl Declaration<'_> {
             word: bind_handler(self.handlers.word, bindings),
             dword: bind_handler(self.handlers.dword, bindings),
         };
-        let mut repeat_handlers = [None; 2];
-        index = 0;
-        while index < repeat_handlers.len() {
-            if let Some(repeat) = self.repeat_handlers[index] {
-                assert!(
-                    matches!(
-                        (self.opcode.map, handlers.word),
-                        (OpcodeMap::Primary, HandlerCall::Nullary { .. })
-                    ),
-                    "repeat handlers require a primary opcode with implicit operands"
-                );
-                repeat_handlers[index] = Some(SizedHandlers {
-                    word: bind_handler(repeat.word, bindings),
-                    dword: bind_handler(repeat.dword, bindings),
-                });
-            }
-            index += 1;
-        }
         let mut implicit_memory = false;
         let mut ends_block = false;
         index = 0;
@@ -202,6 +185,7 @@ impl Declaration<'_> {
             opcode: self.opcode.byte,
             mask: if opcode_register { 0xf8 } else { 0xff },
             map: self.opcode.map,
+            group1_prefix: self.opcode.group1_prefix,
             extension: self.opcode.extension,
             encoding: Encoding {
                 operands,
@@ -212,7 +196,6 @@ impl Declaration<'_> {
             condition: None,
             implicit_memory,
             ends_block,
-            repeat_handlers,
         }
     }
 }

@@ -39,7 +39,7 @@ impl DecodeState {
     }
 
     fn unsupported_opcode_override(&self) -> Option<u8> {
-        if let Some(prefix) = self.prefixes.repeat() {
+        if let Some(prefix) = self.prefixes.group1() {
             Some(prefix.byte())
         } else if self.map == OpcodeMap::Extended {
             Some(EXTENDED_OPCODE_ESCAPE)

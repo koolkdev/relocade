@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn two_immediates_bind_in_encoded_order_with_independent_physical_widths() {
-    let form = catalog_form(OpcodeMap::Primary, 0xea, None);
+    let form = unprefixed_form(OpcodeMap::Primary, 0xea, None);
     for (prefixes, offset_bytes) in [(word_prefixes(), 2), (PrefixState::default(), 4)] {
         let resolved = form.resolve(&prefixes).unwrap();
         let encoding = resolved.encoding();
@@ -62,6 +62,7 @@ fn immediates_bind_after_location_operands() {
                 opcode: Opcode {
                     map: OpcodeMap::Primary,
                     byte: 0x00,
+                    group1_prefix: None,
                     register_range: matches!(location, OperandSpec::OpcodeRegister),
                     extension: None,
                 },
@@ -72,7 +73,6 @@ fn immediates_bind_after_location_operands() {
                     Handler::Binary(|_, _, _, _, fallthrough| Ok(fallthrough))
                 }),
                 effects: &[],
-                repeat_handlers: [None; 2],
             }
             .form();
             let fields = DecodedFields {
@@ -118,7 +118,7 @@ fn immediate_encoding_keeps_fixed_widths_and_signed_bytes_distinct() {
         (0xe8, None, 2, 4, false),
         (0x83, Some(0), 1, 1, true),
     ] {
-        let form = catalog_form(OpcodeMap::Primary, opcode, extension);
+        let form = unprefixed_form(OpcodeMap::Primary, opcode, extension);
         for (prefixes, bytes) in [
             (word_prefixes(), word_bytes),
             (PrefixState::default(), dword_bytes),

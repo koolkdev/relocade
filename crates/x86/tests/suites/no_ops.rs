@@ -1,10 +1,11 @@
-//! Multi-byte NOP consumes its address encoding without accessing an operand.
+//! NOP and PAUSE retire without changing general registers, flags or data memory.
 
 use crate::support::{
     cases::{
         test_cases,
         FlagExpectation::{Clear, Set},
         Flags, InstructionCase as Case,
+        Permissions::ReadWrite,
     },
     encoding::check_length,
     machine::{Exit, Image},
@@ -113,12 +114,39 @@ fn ignored_segments() -> Vec<Case> {
     cases
 }
 
+fn pause_forms() -> Vec<Case> {
+    vec![
+        Case::preserving_flags("PAUSE preserves ECX and data memory", &[0xf3, 0x90])
+            .initial_register(Ecx, u32::MAX)
+            .memory(0x4000, &[0x12, 0x34, 0x56, 0x78], ReadWrite),
+        Case::preserving_flags(
+            "PAUSE ignores size and segment overrides",
+            &[0x66, 0x67, 0x64, 0xf3, 0x90],
+        )
+        .initial_register(Ecx, 0xffff_0001)
+        .segment(Segment::Fs, StoredSegment::unusable(0)),
+        Case::preserving_flags("complete PAUSE needs no following code page", &[0xf3, 0x90])
+            .at(0x1ffe),
+        Case::preserving_flags("PAUSE in 16-bit code", &[0xf3, 0x90])
+            .segmented_only()
+            .segment(
+                Segment::Cs,
+                StoredSegment {
+                    attributes: SegmentAttributes::from_bits(0x07),
+                    ..StoredSegment::flat_code32(0x1b)
+                },
+            ),
+    ]
+}
+
 #[test]
-fn complete_encodings_require_every_address_byte_and_no_successor() {
+fn complete_encodings_require_every_byte_and_no_successor() {
     for code in ALIGNMENT_NOPS.iter().copied().chain([
         &[0x0f, 0x1f, 0xc0][..],
         &[0x67, 0x0f, 0x1f, 0x04],
         &[0x67, 0x0f, 0x1f, 0x06, 0x8b, 0xc7],
+        &[0xf3, 0x90],
+        &[0x66, 0x67, 0x64, 0xf3, 0x90],
     ]) {
         check_length(code);
     }
@@ -167,11 +195,12 @@ test_cases!(
     nominal_addresses_do_not_access_data_segments,
     ignored_segments()
 );
+test_cases!(pause_retires_once_and_preserves_state, pause_forms());
 
 test_sequences!(
     pending_flags_and_later_fault,
     [Sequence::from_opaque_flags(
-        "NOP preserves pending arithmetic and retires before a later fault"
+        "NOP and PAUSE preserve pending arithmetic and retire before a later fault"
     )
     .initial_registers(&[(Eax, 0), (Ebx, 0x4000), (Ecx, 0)])
     .step(
@@ -189,6 +218,7 @@ test_sequences!(
         .register(Eax, u32::MAX)
     )
     .step(Step::preserving_flags(&[0x0f, 0x1f, 0x44, 0x00, 0x7f]))
+    .step(Step::preserving_flags(&[0xf3, 0x90]))
     .step(Step::preserving_flags(&[0x0f, 0x92, 0xc1]).register(Ecx, 1))
     .step(Step::preserving_flags(&[0x8a, 0x13]).fault(0x4000, 0))]
 );

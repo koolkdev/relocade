@@ -15,9 +15,10 @@ fn word_prefixes() -> PrefixState {
     PrefixState::default().with_prefix(Prefix::OperandSize)
 }
 
-fn catalog_form(map: OpcodeMap, opcode: u8, extension: Option<u8>) -> &'static Form {
-    let mut candidates =
-        opcode_forms(map).filter(|form| form.matches(opcode) && form.extension == extension);
+fn unprefixed_form(map: OpcodeMap, opcode: u8, extension: Option<u8>) -> &'static Form {
+    let mut candidates = opcode_forms(map).filter(|form| {
+        form.matches(opcode) && form.extension == extension && form.group1_prefix.is_none()
+    });
     let form = candidates.next().expect("the representative form exists");
     assert!(
         candidates.next().is_none(),
@@ -27,33 +28,37 @@ fn catalog_form(map: OpcodeMap, opcode: u8, extension: Option<u8>) -> &'static F
 }
 
 #[test]
-fn opcode_candidates_share_a_decode_layout_and_never_overlap() {
+fn admitted_opcode_candidates_share_a_decode_layout_and_never_overlap() {
     for map in [OpcodeMap::Primary, OpcodeMap::Extended] {
-        for (opcode, candidates) in forms_by_opcode(opcode_forms(map)) {
-            let has_modrm = candidates[0].encoding.has_modrm();
-            let mut extensions = [false; 8];
-            for form in &candidates {
-                assert!(form.map == map);
-                assert_eq!(form.opcode & form.mask, form.opcode);
-                assert_eq!(
-                    form.encoding.has_modrm(),
-                    has_modrm,
-                    "opcode {opcode:02x} must choose one physical decode path"
-                );
-                if let Some(extension) = form.extension {
-                    assert!(has_modrm, "opcode extensions require ModRM");
-                    assert!(extension < 8);
-                    assert!(
-                        !extensions[usize::from(extension)],
-                        "opcode {opcode:02x} repeats extension {extension}"
-                    );
-                    extensions[usize::from(extension)] = true;
-                } else {
+        for prefixes in PrefixState::combinations(crate::SegmentDefaultSize::Bits32) {
+            for (opcode, candidates) in
+                forms_by_opcode(opcode_forms(map).filter(|form| form.resolve(&prefixes).is_some()))
+            {
+                let has_modrm = candidates[0].encoding.has_modrm();
+                let mut extensions = [false; 8];
+                for form in &candidates {
+                    assert!(form.map == map);
+                    assert_eq!(form.opcode & form.mask, form.opcode);
                     assert_eq!(
-                        candidates.len(),
-                        1,
-                        "opcode {opcode:02x} mixes an unrestricted form with other candidates"
+                        form.encoding.has_modrm(),
+                        has_modrm,
+                        "opcode {opcode:02x} must choose one physical decode path"
                     );
+                    if let Some(extension) = form.extension {
+                        assert!(has_modrm, "opcode extensions require ModRM");
+                        assert!(extension < 8);
+                        assert!(
+                            !extensions[usize::from(extension)],
+                            "opcode {opcode:02x} repeats extension {extension}"
+                        );
+                        extensions[usize::from(extension)] = true;
+                    } else {
+                        assert_eq!(
+                            candidates.len(),
+                            1,
+                            "opcode {opcode:02x} mixes an unrestricted form with other candidates"
+                        );
+                    }
                 }
             }
         }
@@ -174,7 +179,7 @@ fn condition_ranges_bind_the_architectural_order_for_all_sixteen_opcodes() {
     ] {
         for (code, expected) in conditions.into_iter().enumerate() {
             let opcode = first_opcode + code as u8;
-            let form = catalog_form(map, opcode, None);
+            let form = unprefixed_form(map, opcode, None);
             assert_eq!(form.opcode, opcode);
             assert_eq!(form.mask, 0xff);
             assert!(form.condition == Some(expected), "opcode {opcode:02x}");
@@ -185,7 +190,7 @@ fn condition_ranges_bind_the_architectural_order_for_all_sixteen_opcodes() {
 #[test]
 fn opcode_register_ranges_cover_exactly_eight_codes_and_bind_each_register() {
     for first_opcode in [0xb0, 0xb8] {
-        let form = catalog_form(OpcodeMap::Primary, first_opcode, None);
+        let form = unprefixed_form(OpcodeMap::Primary, first_opcode, None);
         let matching: Vec<_> = (0..=u8::MAX)
             .filter(|opcode| form.matches(*opcode))
             .collect();
@@ -250,7 +255,7 @@ fn modrm_direction_selects_the_handler_destination_and_source() {
 
 #[test]
 fn width_alternatives_share_one_opcode_and_preserve_implicit_register_bindings() {
-    let form = catalog_form(OpcodeMap::Primary, 0x98, None);
+    let form = unprefixed_form(OpcodeMap::Primary, 0x98, None);
     assert_eq!(form.mask, 0xff);
     assert!(matches!(form.encoding.operands, OperandEncoding::None));
     for (bytes, fallthrough) in [
@@ -278,7 +283,7 @@ fn width_alternatives_share_one_opcode_and_preserve_implicit_register_bindings()
 #[test]
 fn flag_transfer_forms_bind_ah_without_encoded_operand_fields() {
     for opcode in [0x9e, 0x9f] {
-        let form = catalog_form(OpcodeMap::Primary, opcode, None);
+        let form = unprefixed_form(OpcodeMap::Primary, opcode, None);
         assert!(matches!(form.encoding.operands, OperandEncoding::None));
         for prefixes in [word_prefixes(), PrefixState::default()] {
             let decoded = form.resolve(&prefixes).unwrap().bind(
@@ -301,7 +306,7 @@ fn flag_transfer_forms_bind_ah_without_encoded_operand_fields() {
 
 #[test]
 fn opcode_extensions_can_decode_without_binding_operands() {
-    let form = catalog_form(OpcodeMap::Extended, 0x1f, Some(0));
+    let form = unprefixed_form(OpcodeMap::Extended, 0x1f, Some(0));
     assert!(form.encoding.has_modrm());
     for modrm in 0..=u8::MAX {
         assert_eq!(form.matches_modrm(modrm), modrm & 0x38 == 0);
@@ -325,8 +330,8 @@ fn opcode_extensions_can_decode_without_binding_operands() {
 
 #[test]
 fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_read() {
-    let lea = catalog_form(OpcodeMap::Primary, 0x8d, None);
-    let mov = catalog_form(OpcodeMap::Primary, 0x8b, None);
+    let lea = unprefixed_form(OpcodeMap::Primary, 0x8d, None);
+    let mov = unprefixed_form(OpcodeMap::Primary, 0x8b, None);
     for modrm in 0..=u8::MAX {
         assert_eq!(lea.matches_modrm(modrm), modrm >> 6 != 3);
         assert!(mov.matches_modrm(modrm));
@@ -395,13 +400,13 @@ fn memory_only_bindings_restrict_modrm_at_every_operand_position() {
             opcode: Opcode {
                 map: OpcodeMap::Primary,
                 byte: 0x00,
+                group1_prefix: None,
                 register_range: false,
                 extension: None,
             },
             operands,
             handlers: SizedHandlers::fixed(handler),
             effects: &[],
-            repeat_handlers: [None; 2],
         }
         .form();
         for modrm in 0..=u8::MAX {

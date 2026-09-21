@@ -94,6 +94,12 @@ width that cannot be inferred from the handler's operands. See
 handler and neighboring families for other forms. Declaration validation checks
 field compatibility; catalog tests reject overlapping encodings.
 
+An `F2` or `F3` before the opcode declares an exact prefix requirement, such as
+`F3 0x90 => no_operands();` for PAUSE. A row without either prefix accepts neither.
+Prefix selection chooses the complete form before operand decoding. Repeated
+string forms use the same syntax and pass their repetition policy to their
+semantic handler.
+
 Forms derive ordinary operand effects. Declare additional effects when accesses
 are implicit, as in [strings](crates/x86/src/instruction/definitions/strings.rs),
 or when a segment load terminates execution under the current assumptions, as in

@@ -17,31 +17,57 @@ instruction_families! {
     MOVS {
         execute: move_elements::<_>(Repetition::Once);
         effects: [memory_read, memory_write];
-        repeat { F3 => move_elements::<_>(Repetition::Count); }
         forms {
             0xA4 => byte();
             0xA5 => word_or_dword();
         }
     }
+    REP_MOVS {
+        execute: move_elements::<_>(Repetition::Count);
+        effects: [memory_read, memory_write];
+        forms {
+            F3 0xA4 => byte();
+            F3 0xA5 => word_or_dword();
+        }
+    }
     CMPS {
         execute: compare_elements::<_>(ComparisonRepetition::Once);
         effects: [memory_read];
-        repeat {
-            F3 => compare_elements::<_>(ComparisonRepetition::Equal);
-            F2 => compare_elements::<_>(ComparisonRepetition::NotEqual);
-        }
         forms {
             0xA6 => byte();
             0xA7 => word_or_dword();
         }
     }
+    REPE_CMPS {
+        execute: compare_elements::<_>(ComparisonRepetition::Equal);
+        effects: [memory_read];
+        forms {
+            F3 0xA6 => byte();
+            F3 0xA7 => word_or_dword();
+        }
+    }
+    REPNE_CMPS {
+        execute: compare_elements::<_>(ComparisonRepetition::NotEqual);
+        effects: [memory_read];
+        forms {
+            F2 0xA6 => byte();
+            F2 0xA7 => word_or_dword();
+        }
+    }
     STOS {
         execute: store_elements::<_>(Repetition::Once);
         effects: [memory_write];
-        repeat { F3 => store_elements::<_>(Repetition::Count); }
         forms {
             0xAA => byte();
             0xAB => word_or_dword();
+        }
+    }
+    REP_STOS {
+        execute: store_elements::<_>(Repetition::Count);
+        effects: [memory_write];
+        forms {
+            F3 0xAA => byte();
+            F3 0xAB => word_or_dword();
         }
     }
     LODS {
@@ -55,13 +81,25 @@ instruction_families! {
     SCAS {
         execute: scan_elements::<_>(ComparisonRepetition::Once);
         effects: [memory_read];
-        repeat {
-            F3 => scan_elements::<_>(ComparisonRepetition::Equal);
-            F2 => scan_elements::<_>(ComparisonRepetition::NotEqual);
-        }
         forms {
             0xAE => byte();
             0xAF => word_or_dword();
+        }
+    }
+    REPE_SCAS {
+        execute: scan_elements::<_>(ComparisonRepetition::Equal);
+        effects: [memory_read];
+        forms {
+            F3 0xAE => byte();
+            F3 0xAF => word_or_dword();
+        }
+    }
+    REPNE_SCAS {
+        execute: scan_elements::<_>(ComparisonRepetition::NotEqual);
+        effects: [memory_read];
+        forms {
+            F2 0xAE => byte();
+            F2 0xAF => word_or_dword();
         }
     }
 }
