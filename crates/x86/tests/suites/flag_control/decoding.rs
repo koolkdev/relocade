@@ -3,7 +3,7 @@ use crate::support::encoding::check_length;
 use crate::support::{
     cases::{test_cases, InstructionCase as Case},
     machine::{check, Exit, Image, Step},
-    step::TestModule,
+    step::{Engine, TestModule},
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
@@ -51,15 +51,11 @@ fn unsupported_prefixes_stop_before_the_flag_control_opcode() {
                         if actual == prefix
                 ));
                 let image = Image::new(&code);
-                check(
+                image.check_unchanged_exit(
+                    Engine::Wasmtime,
                     TestModule::interpreter(),
                     "unsupported prefix preserves the complete CPU and memory",
-                    &image,
-                    &[Step {
-                        cpu: image.cpu,
-                        ram: &[],
-                        exit: Exit::Other(0x0008_0000_0000_1000 | (u64::from(prefix) << 32)),
-                    }],
+                    Exit::Other(0x0008_0000_0000_1000 | (u64::from(prefix) << 32)),
                 );
             }
         }
@@ -78,15 +74,11 @@ fn the_length_limit_precedes_the_sixteenth_opcode_fetch() {
     let mut image = Image::new(&[]);
     image.cpu.eip = 0x1ff1;
     image.data(0x3ff1, &[0x66; 15]);
-    check(
+    image.check_unchanged_exit(
+        Engine::Wasmtime,
         TestModule::interpreter(),
         "fifteen prefixes preserve flags before the absent opcode page",
-        &image,
-        &[Step {
-            cpu: image.cpu,
-            ram: &[],
-            exit: Exit::Other(0x0002_0000_0000_0000),
-        }],
+        Exit::Other(0x0002_0000_0000_0000),
     );
 }
 
@@ -96,18 +88,14 @@ fn a_missing_opcode_after_operand_prefixes_leaves_all_flags_unchanged() {
         let mut image = Image::new(&[]);
         image.cpu.eip = 0x2000 - count;
         image.data(0x4000 - count, &vec![0x66; count as usize]);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "opcode fetch fault preserves the complete incoming state",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x2000,
-                    error: 0x10,
-                },
-            }],
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
         );
     }
 }

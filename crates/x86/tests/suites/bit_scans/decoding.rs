@@ -2,8 +2,8 @@ use crate::support::encoding::check_length;
 use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32};
 
 use crate::support::{
-    machine::{check, Exit, Step},
-    step::TestModule,
+    machine::Exit,
+    step::{Engine, TestModule},
 };
 
 use super::{image, EVEN, ODD, OPERATIONS, ZERO};
@@ -90,18 +90,14 @@ fn missing_scan_fields_fault_before_source_access_destination_changes_or_flags()
             image.cpu.eip = start;
             image.cpu.registers.edx = 0;
             image.data(0x3000 + (start & 0xfff), &code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "bit scan fetch fault precedes operand effects",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::PageFault {
-                        address: 0x2000,
-                        error: 0x10,
-                    },
-                }],
+                Exit::PageFault {
+                    address: 0x2000,
+                    error: 0x10,
+                },
             );
         }
     }
@@ -125,15 +121,11 @@ fn scan_length_limit_precedes_fetching_a_sixteenth_encoding_byte() {
             let mut image = image(&[]);
             image.cpu.eip = 0x1ff1;
             image.data(0x3ff1, &code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "bit scan needs a field beyond byte fifteen",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(0x0002_0000_0000_0000),
-                }],
+                Exit::Other(0x0002_0000_0000_0000),
             );
         }
     }
@@ -153,15 +145,11 @@ fn f3_prefixed_count_instructions_are_not_accepted_as_bit_scans() {
                 })
             ));
             let image = image(&code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "unsupported F3 prefix precedes the unmapped source",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(0x0008_00f3_0000_1000),
-                }],
+                Exit::Other(0x0008_00f3_0000_1000),
             );
         }
     }

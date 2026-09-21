@@ -90,6 +90,12 @@ This is a public repository. Commit messages use `component: title`.
 - Tests protect behavior, component invariants or external representations, using
   literal or independently derived expectations. Keep test names and files aligned
   with the behavior and owner they protect.
+- Instruction-family tests cover distinct forms, semantic boundaries, specific
+  faults and necessary interactions. Keep comprehensive addressing, prefix, memory,
+  register-alias and flag-representation coverage with their shared owners. Use
+  representative integration cases; multiply dimensions only for an interaction
+  they can expose. Before removing repeated cases, verify the owning suite covers
+  their contract. A new family does not require a standard set of test files.
 - Use the ordinary Wasmtime suite for broad correctness coverage. Use V8/TurboFan
   for performance measurements and focused correctness checks of changed generated
   code before timing. Prefer focused block tests while iterating on an instruction.

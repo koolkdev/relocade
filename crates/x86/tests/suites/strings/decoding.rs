@@ -6,7 +6,7 @@ use crate::support::{
         Permissions::{ReadOnly, ReadWrite},
     },
     guest::{Exit, Machine},
-    machine::{check, Image, Step},
+    machine::Image,
     step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule},
 };
 use wasm86_x86::{
@@ -117,15 +117,11 @@ fn unsupported_prefixes_stop_before_any_string_access() {
         let mut image = Image::new(&[0x66, prefix, 0xa5]);
         image.cpu.registers.esi = 0x9000;
         image.cpu.registers.edi = 0xa000;
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "unsupported prefix preserves CPU before missing operands",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::Other(0x0008_0000_0000_1000 | (u64::from(prefix) << 32)),
-            }],
+            Exit::Other(0x0008_0000_0000_1000 | (u64::from(prefix) << 32)),
         );
     }
 }
@@ -145,15 +141,11 @@ fn rep_loads_remain_unsupported() {
             image.cpu.registers.ecx = 0;
             image.cpu.registers.esi = 0x9000;
             image.cpu.registers.edi = 0xa000;
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "unsupported REP family rejects even with zero count",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(0x0008_0000_0000_1000 | (0xf3u64 << 32)),
-                }],
+                Exit::Other(0x0008_0000_0000_1000 | (0xf3u64 << 32)),
             );
         }
     }
@@ -175,15 +167,11 @@ fn missing_opcode_and_instruction_length_faults_precede_string_data_access() {
                 error: 0x10,
             }
         };
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "fetch prefix without opcode before string access",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit,
-            }],
+            exit,
         );
     }
 }

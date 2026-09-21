@@ -8,9 +8,9 @@ use crate::support::{
         FlagExpectation::{Clear, Preserved, Set, Undefined},
         Flags, InstructionCase as Case,
     },
-    machine::{check, Exit, Image, Step},
+    machine::{Exit, Image},
     sequences::{test_sequences, Checkpoint, SequenceCase},
-    step::TestModule,
+    step::{Engine, TestModule},
 };
 
 #[test]
@@ -87,17 +87,11 @@ fn unsupported_group_extensions_stop_before_sib_or_displacement_fetch() {
             image.cpu.flags.status_source.kind = 0xff;
             image.cpu.eip = start;
             image.data(0x3000 + (start & 0xfff), &code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "unsupported extension precedes address fields",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(
-                        0x0008_0000_0000_0000 | (u64::from(opcode) << 32) | u64::from(start),
-                    ),
-                }],
+                Exit::Other(0x0008_0000_0000_0000 | (u64::from(opcode) << 32) | u64::from(start)),
             );
         }
     }
@@ -117,18 +111,14 @@ fn required_unary_fields_fault_before_data_access() {
         image.cpu.registers.ebx = 0x4000;
         image.cpu.eip = start;
         image.data(0x3000 + (start & 0xfff), code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "required unary field crosses an unmapped code page",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x2000,
-                    error: 0x10,
-                },
-            }],
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
         );
     }
     for suffix in [
@@ -146,15 +136,11 @@ fn required_unary_fields_fault_before_data_access() {
         image.cpu.flags.status_source.kind = 0;
         image.cpu.eip = 0x1ff1;
         image.data(0x3ff1, &code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "byte sixteen is rejected before page fetch",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::Other(0x0002_0000_0000_0000),
-            }],
+            Exit::Other(0x0002_0000_0000_0000),
         );
     }
 }

@@ -1,4 +1,8 @@
-use super::{code_with_width, image as flag_image, step::TestModule, OPERATIONS, WIDTHS};
+use super::{
+    code_with_width, image as flag_image,
+    step::{Engine, TestModule},
+    OPERATIONS, WIDTHS,
+};
 use crate::support::{
     cases::{
         test_cases,
@@ -6,7 +10,7 @@ use crate::support::{
         Flags, InstructionCase as Case,
         Permissions::{ReadOnly, ReadWrite},
     },
-    machine::{check, Exit, Step},
+    machine::Exit,
     sequences::{test_sequences, Checkpoint, SequenceCase},
 };
 use wasm86_x86::Gpr32::{Eax, Ebx, Ecx, Edx};
@@ -183,18 +187,14 @@ fn fetch_and_length_faults_precede_operand_access() {
             let mut image = flag_image(&[]);
             image.cpu.eip = start;
             image.data(0x3000 + (start & 0xfff), &code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 step,
                 "carry fetch fault preserves flags and precedes operand access",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::PageFault {
-                        address: 0x00002000,
-                        error: 0x10,
-                    },
-                }],
+                Exit::PageFault {
+                    address: 0x00002000,
+                    error: 0x10,
+                },
             );
         }
         for suffix in [vec![op.opcode()], vec![0x81, group | 0xc0, 1]] {
@@ -202,15 +202,11 @@ fn fetch_and_length_faults_precede_operand_access() {
             let mut image = flag_image(&[]);
             image.cpu.eip = 0x1ff1;
             image.data(0x3ff1, &code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 step,
                 "carry field beyond byte fifteen raises length before fetch",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(0x0002_0000_0000_0000),
-                }],
+                Exit::Other(0x0002_0000_0000_0000),
             );
         }
     }

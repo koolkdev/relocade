@@ -1,7 +1,7 @@
 use super::*;
 use crate::support::{
     cases::{test_cases, Permissions::ReadOnly},
-    machine::{expected, Exit, Image, Step},
+    machine::{Exit, Image},
     step::{Engine, TestModule},
 };
 use wasm86_x86::{
@@ -118,16 +118,11 @@ fn fetch(engine: Engine) {
                     error: 0x10,
                 }
             };
-            assert_eq!(
-                engine.observe(TestModule::interpreter(), &image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu: image.cpu,
-                        ram: &[],
-                        exit
-                    }]
-                )
+            image.check_unchanged_exit(
+                engine,
+                TestModule::interpreter(),
+                &format!("prefix-only REP {prefix:02x}, length {length}"),
+                exit,
             );
         }
         for opcode in [0x90, 0x0f, 0xac] {
@@ -135,16 +130,11 @@ fn fetch(engine: Engine) {
             image.cpu.eip = 0x1ffe;
             image.cpu.registers.ecx = 0;
             image.data(0x3ffe, &[prefix, opcode]);
-            assert_eq!(
-                engine.observe(TestModule::interpreter(), &image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu: image.cpu,
-                        ram: &[],
-                        exit: Exit::Other(0x0008_0000_0000_1ffe | (u64::from(prefix) << 32))
-                    }]
-                )
+            image.check_unchanged_exit(
+                engine,
+                TestModule::interpreter(),
+                &format!("unsupported REP form {prefix:02x} {opcode:02x}"),
+                Exit::Other(0x0008_0000_0000_1ffe | (u64::from(prefix) << 32)),
             );
         }
     }

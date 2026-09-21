@@ -198,16 +198,13 @@ fn invalid_extensions(engine: Engine) {
             image.cpu.eip = 0x1ffe;
             image.map(1, 0x3000, false);
             image.data(0x3ffe, &code);
-            assert_eq!(
-                engine.observe(TestModule::interpreter(), &image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu: image.cpu,
-                        ram: &[],
-                        exit: Exit::Other((8 << 48) | (u64::from(opcode) << 32) | 0x1ffe),
-                    }]
+            image.check_unchanged_exit(
+                engine,
+                TestModule::interpreter(),
+                &format!(
+                    "invalid segment move opcode={opcode:02x}, extension={extension}, mode={mode}"
                 ),
+                Exit::Other((8 << 48) | (u64::from(opcode) << 32) | 0x1ffe),
             );
         }
     }

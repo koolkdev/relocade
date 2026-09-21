@@ -8,8 +8,8 @@ use crate::support::{
         FlagExpectation::{Clear, Set},
         Flags, InstructionCase as Case,
     },
-    machine::{check, Exit, Step},
-    step::TestModule,
+    machine::Exit,
+    step::{Engine, TestModule},
 };
 
 use super::{image, STORED_FLAGS};
@@ -39,15 +39,11 @@ fn unsupported_groups_stop_before_address_or_count_bytes() {
         let mut image = image(&[]);
         image.cpu.eip = 0x1ffe;
         image.data(0x3ffe, &code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "undocumented group six remains unsupported",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::Other(0x0008_0000_0000_1ffe | (u64::from(opcode) << 32)),
-            }],
+            Exit::Other(0x0008_0000_0000_1ffe | (u64::from(opcode) << 32)),
         );
     }
 }
@@ -68,15 +64,11 @@ fn instruction_length_limit_precedes_fetching_a_required_field() {
         let mut image = image(&[]);
         image.cpu.eip = 0x1ff1;
         image.data(0x3ff1, &code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "a required shift field would exceed fifteen bytes",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::Other(0x0002_0000_0000_0000),
-            }],
+            Exit::Other(0x0002_0000_0000_0000),
         );
     }
 }
@@ -95,18 +87,14 @@ fn required_fields_fault_before_operand_effects() {
         let mut image = image(&[]);
         image.cpu.eip = start;
         image.data(0x3000 + (start & 0xfff), code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "missing shift encoding bytes precede data and flag effects",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x2000,
-                    error: 0x10,
-                },
-            }],
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
         );
     }
 }

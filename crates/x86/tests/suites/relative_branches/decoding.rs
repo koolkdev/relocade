@@ -25,7 +25,7 @@ fn image_at(start: u32, code: &[u8]) -> Image {
 
 use crate::support::{
     machine::{check, Exit, Step},
-    step::TestModule,
+    step::{Engine, TestModule},
 };
 
 const ENCODINGS: &[&[u8]] = &[
@@ -64,18 +64,14 @@ fn runtime_fetches_all_branch_fields_for_both_condition_outcomes() {
                 let mut image = image_at(start, &code[..available]);
                 image.cpu.flags.status_source.kind = 0;
                 image.cpu.flags.bytes.zf = zero;
-                check(
+                image.check_unchanged_exit(
+                    Engine::Wasmtime,
                     TestModule::interpreter(),
                     &format!("incomplete branch {code:02x?}, {available} bytes, ZF={zero}"),
-                    &image,
-                    &[Step {
-                        cpu: image.cpu,
-                        ram: &[],
-                        exit: Exit::PageFault {
-                            address: 0x2000,
-                            error: 0x10,
-                        },
-                    }],
+                    Exit::PageFault {
+                        address: 0x2000,
+                        error: 0x10,
+                    },
                 );
             }
         }
@@ -100,15 +96,11 @@ fn prefix_bytes_count_toward_the_branch_length_limit() {
             let mut image = image_at(0x1ff1, &overlong[..15]);
             image.cpu.flags.status_source.kind = 0;
             image.cpu.flags.bytes.zf = zero;
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "overlong branch faults before next-page fetch",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(0x0002_0000_0000_0000),
-                }],
+                Exit::Other(0x0002_0000_0000_0000),
             );
         }
     }

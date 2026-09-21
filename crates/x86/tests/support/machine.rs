@@ -1,7 +1,7 @@
 use wasm86_x86::{compile_block_from_bytes, CpuState, Registers, Segments};
 use wasmparser::Validator;
 
-use super::step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
+use super::step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule};
 
 pub(crate) struct Image {
     pub(crate) cpu: CpuState,
@@ -53,6 +53,30 @@ impl Image {
             observe_guest: true,
             ..Input::new(&self.cpu.to_bytes())
         }
+    }
+
+    /// Expect one exit with the entire CPU record and both memories unchanged.
+    #[track_caller]
+    pub(crate) fn check_unchanged_exit(
+        &self,
+        engine: Engine,
+        module: &TestModule,
+        name: &str,
+        exit: Exit,
+    ) {
+        assert_eq!(
+            engine.observe(module, &self.input(), 1),
+            expected(
+                self,
+                &[Step {
+                    cpu: self.cpu,
+                    ram: &[],
+                    exit
+                }]
+            ),
+            "{name}, {}",
+            module.entry,
+        );
     }
 }
 

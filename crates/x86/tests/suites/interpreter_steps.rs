@@ -4,7 +4,7 @@ use crate::support::cases::{
 use crate::support::machine::{check, Exit, Image, Step};
 use crate::support::sequences::{test_sequences, Checkpoint, SequenceCase};
 use crate::support::step;
-use step::TestModule;
+use step::{Engine, TestModule};
 use wasm86_x86::{compile_block_from_bytes, CpuState, Gpr32};
 use wasmparser::{ExternalKind, Parser, Payload, TypeRef, ValType, Validator};
 
@@ -332,16 +332,7 @@ fn missing_instruction_bytes_and_unsupported_opcodes_preserve_entry_state() {
             guest,
             machine,
         };
-        check(
-            TestModule::interpreter(),
-            name,
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit,
-            }],
-        );
+        image.check_unchanged_exit(Engine::Wasmtime, TestModule::interpreter(), name, exit);
     }
 }
 

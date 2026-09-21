@@ -5,8 +5,8 @@ use super::{INITIAL_FLAGS, PRESERVED_FLAGS};
 use crate::support::{
     arithmetic,
     cases::{test_cases, InstructionCase as Case},
-    machine::{check, Exit, Step},
-    step::TestModule,
+    machine::Exit,
+    step::{Engine, TestModule},
 };
 
 #[test]
@@ -31,15 +31,11 @@ fn repeated_operand_prefixes_reject_a_sixteenth_byte_before_fetch() {
     let mut image = arithmetic::image(&[]);
     image.cpu.eip = 0x1ff1;
     image.data(0x3ff1, &code);
-    check(
+    image.check_unchanged_exit(
+        Engine::Wasmtime,
         TestModule::interpreter(),
         "CMOV ModRM beyond byte fifteen reports GP before fetching",
-        &image,
-        &[Step {
-            cpu: image.cpu,
-            ram: &[],
-            exit: Exit::Other(0x0002_0000_0000_0000),
-        }],
+        Exit::Other(0x0002_0000_0000_0000),
     );
 }
 
@@ -53,18 +49,14 @@ fn false_conditions_still_fetch_the_complete_instruction() {
         let mut image = arithmetic::image(&[]);
         image.cpu.eip = start;
         image.data(0x3000 + (start & 0xfff), code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "false CMOVNE requires its ModRM and full displacement",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x2000,
-                    error: 0x10,
-                },
-            }],
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
         );
     }
 }

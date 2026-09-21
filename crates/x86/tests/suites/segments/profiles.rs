@@ -41,16 +41,11 @@ fn changed_runtime_cache(engine: Engine) {
     image.cpu.segments.fs.limit = 0x20;
     assert!(profile.is_compatible_with(&image.cpu.segments));
     for module in [&block, TestModule::interpreter()] {
-        assert_eq!(
-            engine.observe(module, &image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::GeneralProtection { error: 0 }
-                }]
-            )
+        image.check_unchanged_exit(
+            engine,
+            module,
+            "reused entry reads the current segment limit",
+            Exit::GeneralProtection { error: 0 },
         );
     }
     image.cpu.segments.ds.base = 0x6000;

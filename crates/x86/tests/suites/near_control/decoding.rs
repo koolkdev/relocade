@@ -6,7 +6,7 @@ use wasm86_x86::{
 
 use crate::support::{
     cases::{test_cases, InstructionCase as Case, Permissions},
-    machine::{self, Exit, Image, Step},
+    machine::{Exit, Image},
     step::{Engine, TestModule},
 };
 
@@ -94,21 +94,6 @@ fn image_at_page_end(code: &[u8]) -> Image {
     image
 }
 
-fn check_exit(engine: Engine, name: &str, image: &Image, exit: Exit) {
-    assert_eq!(
-        engine.observe(TestModule::interpreter(), &image.input(), 1),
-        machine::expected(
-            image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit,
-            }],
-        ),
-        "{name}",
-    );
-}
-
 fn check_missing_fields(engine: Engine) {
     for code in [
         &[0xe8][..],
@@ -124,10 +109,10 @@ fn check_missing_fields(engine: Engine) {
         &[0x66, 0xc2, 0x34],
     ] {
         let image = image_at_page_end(code);
-        check_exit(
+        image.check_unchanged_exit(
             engine,
+            TestModule::interpreter(),
             &format!("missing near-control field after {code:02x?}"),
-            &image,
             Exit::PageFault {
                 address: 0x2000,
                 error: 0x10,
@@ -176,10 +161,10 @@ fn snapshots_reject_a_required_sixteenth_instruction_byte() {
 fn check_length_limit(engine: Engine) {
     for &suffix in INCOMPLETE_SUFFIXES {
         let image = image_at_page_end(&fifteen_bytes(suffix));
-        check_exit(
+        image.check_unchanged_exit(
             engine,
+            TestModule::interpreter(),
             &format!("length limit before fetching byte sixteen after {suffix:02x?}"),
-            &image,
             Exit::Other(0x0002_0000_0000_0000),
         );
     }

@@ -1,7 +1,7 @@
 use super::*;
 use crate::support::encoding::check_length;
 use crate::support::{
-    machine::{expected, Exit, Image, Step},
+    machine::{Exit, Image},
     step::{Engine, TestModule},
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, SegmentProfile};
@@ -33,16 +33,11 @@ fn fetch_boundaries(engine: Engine) {
         let mut image = Image::new(&[]);
         image.cpu.eip = 0x1ffe;
         image.data(0x3ffe, &code);
-        assert_eq!(
-            engine.observe(TestModule::interpreter(), &image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(0x0008_0062_0000_1ffe),
-                }]
-            )
+        image.check_unchanged_exit(
+            engine,
+            TestModule::interpreter(),
+            &format!("BOUND rejects register ModRM {modrm:02x}"),
+            Exit::Other(0x0008_0062_0000_1ffe),
         );
     }
     for code in [
@@ -56,23 +51,14 @@ fn fetch_boundaries(engine: Engine) {
         image.cpu.eip = start;
         image.cpu.segments.ds = StoredSegment::unusable(0);
         image.data(0x3000 + (start & 0xfff), code);
-        assert_eq!(
-            engine.observe(
-                TestModule::interpreter_with_profile(SegmentProfile::Segmented32),
-                &image.input(),
-                1
-            ),
-            expected(
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::PageFault {
-                        address: 0x2000,
-                        error: 16
-                    },
-                }]
-            )
+        image.check_unchanged_exit(
+            engine,
+            TestModule::interpreter_with_profile(SegmentProfile::Segmented32),
+            &format!("BOUND fetches its complete address: {code:02x?}"),
+            Exit::PageFault {
+                address: 0x2000,
+                error: 16,
+            },
         );
     }
     let code = [vec![0x66; 14], vec![0x62]].concat();
@@ -83,16 +69,11 @@ fn fetch_boundaries(engine: Engine) {
     let mut image = Image::new(&[]);
     image.cpu.eip = 0x1ff1;
     image.data(0x3ff1, &code);
-    assert_eq!(
-        engine.observe(TestModule::interpreter(), &image.input(), 1),
-        expected(
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::GeneralProtection { error: 0 },
-            }]
-        )
+    image.check_unchanged_exit(
+        engine,
+        TestModule::interpreter(),
+        "BOUND address would exceed fifteen bytes",
+        Exit::GeneralProtection { error: 0 },
     );
 }
 

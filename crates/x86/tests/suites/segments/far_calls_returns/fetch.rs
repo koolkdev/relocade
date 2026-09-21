@@ -38,19 +38,14 @@ fn missing_fields(engine: Engine) {
             image.cpu.eip = 0x2000 - available as u32;
             image.map(1, 0x3000, false);
             image.data(0x4000 - available as u32, &code[..available]);
-            assert_eq!(
-                engine.observe(TestModule::interpreter(), &image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu: image.cpu,
-                        ram: &[],
-                        exit: Exit::PageFault {
-                            address: 0x2000,
-                            error: 0x10
-                        }
-                    }]
-                )
+            image.check_unchanged_exit(
+                engine,
+                TestModule::interpreter(),
+                &format!("far control fields {code:02x?}, available {available}"),
+                Exit::PageFault {
+                    address: 0x2000,
+                    error: 0x10,
+                },
             );
         }
     }
@@ -134,16 +129,11 @@ fn length_and_register_modes(engine: Engine) {
                     compile_block_from_bytes(0x1ff1, &code[..15], 1).err(),
                     Some(BlockError::InstructionTooLong { address: 0x1ff1 })
                 );
-                assert_eq!(
-                    engine.observe(TestModule::interpreter(), &image.input(), 1),
-                    expected(
-                        &image,
-                        &[Step {
-                            cpu: image.cpu,
-                            ram: &[],
-                            exit: Exit::GeneralProtection { error: 0 }
-                        }]
-                    )
+                image.check_unchanged_exit(
+                    engine,
+                    TestModule::interpreter(),
+                    &format!("far control exceeds fifteen bytes, returning={returning}"),
+                    Exit::GeneralProtection { error: 0 },
                 );
             } else {
                 let mut cpu = image.cpu;
@@ -183,16 +173,11 @@ fn length_and_register_modes(engine: Engine) {
                 opcode: 0xff
             })
         );
-        assert_eq!(
-            engine.observe(TestModule::interpreter(), &image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(0x0008_00ff_0000_1ffe)
-                }]
-            )
+        image.check_unchanged_exit(
+            engine,
+            TestModule::interpreter(),
+            &format!("far CALL rejects register {rm}"),
+            Exit::Other(0x0008_00ff_0000_1ffe),
         );
     }
 }

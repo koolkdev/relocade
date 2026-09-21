@@ -236,18 +236,11 @@ fn register_sources(engine: Engine) {
                 wasm86_x86::compile_block_from_bytes(image.cpu.eip, &code, 1),
                 Err(wasm86_x86::BlockError::UnsupportedInstruction { .. })
             ));
-            assert_eq!(
-                engine.observe(TestModule::interpreter(), &image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu: image.cpu,
-                        ram: &[],
-                        exit: Exit::Other(
-                            (8 << 48) | (u64::from(opcode[0]) << 32) | u64::from(image.cpu.eip)
-                        )
-                    }]
-                )
+            image.check_unchanged_exit(
+                engine,
+                TestModule::interpreter(),
+                &format!("pointer load rejects register source {code:02x?}"),
+                Exit::Other((8 << 48) | (u64::from(opcode[0]) << 32) | u64::from(image.cpu.eip)),
             );
         }
     }

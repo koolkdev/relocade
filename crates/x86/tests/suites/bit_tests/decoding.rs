@@ -3,8 +3,8 @@ use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32};
 
 use crate::support::{
     cases::{test_cases, FlagExpectation::Clear, InstructionCase},
-    machine::{check, Exit, Step},
-    step::TestModule,
+    machine::Exit,
+    step::{Engine, TestModule},
 };
 
 use super::{bit_flags, image, other_register_inputs, INITIAL_FLAGS, OPERATIONS, STORED_FLAGS};
@@ -117,18 +117,14 @@ fn missing_bit_encoding_fields_fault_before_operand_and_flag_effects() {
             let mut image = image(&[]);
             image.cpu.eip = start;
             image.data(0x3000 + (start & 0xfff), &code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "bit operation fetches its encoding before any effect",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::PageFault {
-                        address: 0x2000,
-                        error: 0x10,
-                    },
-                }],
+                Exit::PageFault {
+                    address: 0x2000,
+                    error: 0x10,
+                },
             );
         }
     }
@@ -152,15 +148,11 @@ fn length_limit_precedes_fetching_another_bit_encoding_field() {
             let mut image = image(&[]);
             image.cpu.eip = 0x1ff1;
             image.data(0x3ff1, &code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "bit operation would exceed fifteen bytes",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(0x0002_0000_0000_0000),
-                }],
+                Exit::Other(0x0002_0000_0000_0000),
             );
         }
     }
@@ -181,15 +173,11 @@ fn unsupported_ba_extensions_are_rejected_before_address_or_immediate_fetches() 
             let mut image = image(&[]);
             image.cpu.eip = 0x1ffd;
             image.data(0x3ffd, &code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "unsupported BA extension needs no further bytes",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(0x0008_000f_0000_1ffd),
-                }],
+                Exit::Other(0x0008_000f_0000_1ffd),
             );
         }
     }
@@ -207,15 +195,11 @@ fn lock_prefixed_bit_operations_remain_outside_the_supported_subset() {
             })
         ));
         let image = image(&code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "LOCK bit operation is unsupported before any effect",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::Other(0x0008_00f0_0000_1000),
-            }],
+            Exit::Other(0x0008_00f0_0000_1000),
         );
     }
 }

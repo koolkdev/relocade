@@ -6,8 +6,8 @@ use wasm86_x86::{
 
 use crate::support::{
     cases::{test_cases, InstructionCase as Case},
-    machine::{check, Exit, Image, Step},
-    step::TestModule,
+    machine::{Exit, Image},
+    step::{Engine, TestModule},
 };
 
 use super::successful_division as division;
@@ -113,18 +113,14 @@ fn missing_divisor_address_fields_fault_before_operand_access_or_divide_error() 
         image.cpu.registers.ebx = 0x4020;
         image.cpu.registers.ecx = 0;
         image.data(0x3000 + (start & 0xfff), code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             &format!("missing division field in {code:02x?}"),
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x2000,
-                    error: 0x10,
-                },
-            }],
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
         );
     }
 }
@@ -146,15 +142,11 @@ fn a_sixteenth_divisor_field_byte_reports_the_length_limit_before_fetch() {
         let mut image = Image::new(&[]);
         image.cpu.eip = 0x1ff1;
         image.data(0x3ff1, &code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "division field exceeds fifteen bytes",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::Other(0x0002_0000_0000_0000),
-            }],
+            Exit::Other(0x0002_0000_0000_0000),
         );
     }
 }

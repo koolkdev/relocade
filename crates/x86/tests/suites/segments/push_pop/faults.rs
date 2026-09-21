@@ -203,16 +203,11 @@ fn opcode_fetch(engine: Engine) {
                 error: 0x10,
             }
         };
-        assert_eq!(
-            engine.observe(TestModule::interpreter(), &image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit
-                }]
-            )
+        image.check_unchanged_exit(
+            engine,
+            TestModule::interpreter(),
+            &format!("segment stack opcode fetch with {prefixes} prefixes"),
+            exit,
         );
     }
     // A complete 15-byte POP GS does not fetch byte 16 before dispatching.

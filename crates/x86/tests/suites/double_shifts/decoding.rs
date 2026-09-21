@@ -8,8 +8,8 @@ use crate::support::{
         FlagExpectation::{Clear, Set},
         Flags, InstructionCase as Case,
     },
-    machine::{check, Exit, Step},
-    step::TestModule,
+    machine::Exit,
+    step::{Engine, TestModule},
 };
 
 use super::{image, OPERATIONS, STORED_FLAGS};
@@ -45,18 +45,14 @@ fn missing_double_shift_fields_fault_before_operand_and_flag_effects() {
             let mut image = image(&[]);
             image.cpu.eip = start;
             image.data(0x3000 + (start & 0xfff), &code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "double shift fetches its encoding before accessing an operand",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::PageFault {
-                        address: 0x2000,
-                        error: 0x10,
-                    },
-                }],
+                Exit::PageFault {
+                    address: 0x2000,
+                    error: 0x10,
+                },
             );
         }
     }
@@ -80,15 +76,11 @@ fn length_limit_precedes_fetching_another_double_shift_field() {
             let mut image = image(&[]);
             image.cpu.eip = 0x1ff1;
             image.data(0x3ff1, &code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "double shift would exceed fifteen bytes",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(0x0002_0000_0000_0000),
-                }],
+                Exit::Other(0x0002_0000_0000_0000),
             );
         }
     }

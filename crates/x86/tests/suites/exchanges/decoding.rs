@@ -5,7 +5,7 @@ use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 use crate::support::{
     machine::{check, Exit, Step},
-    step::TestModule,
+    step::{Engine, TestModule},
 };
 
 use super::{image, LAZY_FLAGS};
@@ -69,15 +69,11 @@ fn instruction_length_limit_precedes_fetching_a_required_sixteenth_byte() {
         let mut image = image(&[]);
         image.cpu.eip = 0x1ff1;
         image.data(0x3ff1, &code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "required XCHG encoding byte is beyond the instruction limit",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::Other(0x0002_0000_0000_0000),
-            }],
+            Exit::Other(0x0002_0000_0000_0000),
         );
     }
 }
@@ -98,18 +94,14 @@ fn required_encoding_bytes_can_fault_during_instruction_fetch() {
         let mut image = image(&[]);
         image.cpu.eip = start;
         image.data(0x3000 + (start & 0xfff), code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "XCHG fetches each required encoding byte",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x2000,
-                    error: 0x10,
-                },
-            }],
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
         );
     }
 }

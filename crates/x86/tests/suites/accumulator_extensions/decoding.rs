@@ -2,7 +2,7 @@ use crate::support::encoding::check_length;
 use crate::support::{
     cases::{test_cases, InstructionCase as Case},
     machine::{check, Exit, Image, Step},
-    step::TestModule,
+    step::{Engine, TestModule},
 };
 use wasm86_x86::{
     compile_block_from_bytes, BlockError,
@@ -111,15 +111,11 @@ fn a_sixteenth_opcode_byte_is_rejected_before_fetch() {
     let mut image = Image::new(&[]);
     image.cpu.eip = 0x1ff1;
     image.data(0x3ff1, &prefixes);
-    check(
+    image.check_unchanged_exit(
+        Engine::Wasmtime,
         TestModule::interpreter(),
         "the length limit precedes fetching the opcode from the absent page",
-        &image,
-        &[Step {
-            cpu: image.cpu,
-            ram: &[],
-            exit: Exit::Other(0x0002_0000_0000_0000),
-        }],
+        Exit::Other(0x0002_0000_0000_0000),
     );
 }
 

@@ -8,8 +8,8 @@ use crate::support::{
         FlagExpectation::{Clear, Preserved, Set},
         Flags, InstructionCase as Case,
     },
-    machine::{check, Exit, Step},
-    step::TestModule,
+    machine::Exit,
+    step::{Engine, TestModule},
 };
 
 use super::{image, stored_flags, OPERATIONS};
@@ -47,18 +47,14 @@ fn missing_encoding_fields_fault_before_operand_and_flag_effects() {
             let mut image = image(&[], 1);
             image.cpu.eip = start;
             image.data(0x3000 + (start & 0xfff), &code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "carry rotate requires its encoding before any effect",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::PageFault {
-                        address: 0x2000,
-                        error: 0x10,
-                    },
-                }],
+                Exit::PageFault {
+                    address: 0x2000,
+                    error: 0x10,
+                },
             );
         }
     }
@@ -82,15 +78,11 @@ fn length_limit_precedes_fetching_another_carry_rotate_field() {
             let mut image = image(&[], 1);
             image.cpu.eip = 0x1ff1;
             image.data(0x3ff1, &code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "carry rotate would exceed fifteen bytes",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(0x0002_0000_0000_0000),
-                }],
+                Exit::Other(0x0002_0000_0000_0000),
             );
         }
     }

@@ -44,18 +44,11 @@ fn fetch_precedence(engine: Engine) {
                 error: 0x10,
             }
         };
-        assert_eq!(
-            engine.observe(TestModule::interpreter(), &image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit
-                }]
-            ),
-            "prefix-only REP length {}",
-            prefixes.len()
+        image.check_unchanged_exit(
+            engine,
+            TestModule::interpreter(),
+            &format!("prefix-only REP length {}", prefixes.len()),
+            exit,
         );
     }
     for opcode in [0x90, 0x0f] {
@@ -65,17 +58,11 @@ fn fetch_precedence(engine: Engine) {
         image.cpu.registers.esi = 0x9000;
         image.cpu.registers.edi = 0xa000;
         image.data(0x3ffe, &[0xf3, opcode]);
-        assert_eq!(
-            engine.observe(TestModule::interpreter(), &image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(0x0008_00f3_0000_1ffe),
-                }]
-            ),
-            "unsupported F3 {opcode:02x} must not fetch the next page"
+        image.check_unchanged_exit(
+            engine,
+            TestModule::interpreter(),
+            &format!("unsupported F3 {opcode:02x} must not fetch the next page"),
+            Exit::Other(0x0008_00f3_0000_1ffe),
         );
     }
 }

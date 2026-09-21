@@ -1,6 +1,6 @@
 use super::code;
 use crate::support::{
-    machine::{expected, Exit, Image, Step},
+    machine::{Exit, Image},
     step::{Engine, TestModule},
 };
 use wasm86_x86::{SegmentAttributes, SegmentProfile};
@@ -63,17 +63,11 @@ fn fault_order(engine: Engine) {
         image.cpu.segments.cs = code(0x8000, limit);
         image.map(8, 0x3000, false);
         image.data(0x3000 + eip, &bytes);
-        assert_eq!(
-            engine.observe(module, &image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: fault,
-                }]
-            ),
-            "{bytes:02x?}, CS limit {limit:x}"
+        image.check_unchanged_exit(
+            engine,
+            module,
+            &format!("{bytes:02x?}, CS limit {limit:x}"),
+            fault,
         );
     }
     // Even with no code page, invalid CS permissions win at the first byte.
@@ -81,16 +75,11 @@ fn fault_order(engine: Engine) {
         let mut image = Image::empty();
         image.cpu.segments.cs = code(0x8000, u32::MAX);
         image.cpu.segments.cs.attributes = SegmentAttributes::from_bits(bits);
-        assert_eq!(
-            engine.observe(module, &image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::GeneralProtection { error: 0 },
-                }]
-            )
+        image.check_unchanged_exit(
+            engine,
+            module,
+            &format!("invalid CS attributes {bits:04x}"),
+            Exit::GeneralProtection { error: 0 },
         );
     }
     // A legal CS offset can wrap in linear space; PF reports the linear byte.
@@ -99,19 +88,14 @@ fn fault_order(engine: Engine) {
     image.cpu.segments.cs = code(0xffff_ffdf, 0x40);
     image.map(0xfffff, 0x3000, false);
     image.data(0x3fff, &[0xb8]);
-    assert_eq!(
-        engine.observe(module, &image.input(), 1),
-        expected(
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0,
-                    error: 0x10
-                },
-            }]
-        )
+    image.check_unchanged_exit(
+        engine,
+        module,
+        "instruction fetch wraps its linear address",
+        Exit::PageFault {
+            address: 0,
+            error: 0x10,
+        },
     );
 }
 
@@ -139,17 +123,11 @@ fn invalid_instruction_spans(engine: Engine) {
         image.cpu.segments.cs = code(0x8000, 0x1000 + bytes.len() as u32 - 2);
         image.map(9, 0x3000, false);
         image.data(0x3000, &bytes);
-        assert_eq!(
-            engine.observe(module, &image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::GeneralProtection { error: 0 },
-                }],
-            ),
-            "required final instruction byte exceeds CS: {bytes:02x?}",
+        image.check_unchanged_exit(
+            engine,
+            module,
+            &format!("required final instruction byte exceeds CS: {bytes:02x?}"),
+            Exit::GeneralProtection { error: 0 },
         );
     }
 }

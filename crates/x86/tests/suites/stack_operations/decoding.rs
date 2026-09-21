@@ -4,8 +4,8 @@ use wasm86_x86::Gpr32::{Eax, Esp};
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 use crate::support::{
-    machine::{check, Exit, Image, Step},
-    step::TestModule,
+    machine::{Exit, Image},
+    step::{Engine, TestModule},
 };
 
 #[test]
@@ -70,17 +70,11 @@ fn unsupported_stack_group_extensions_stop_before_address_fetch() {
             image.cpu.flags.status_source.kind = 0xff;
             image.cpu.eip = start;
             image.data(0x3000 + (start & 0xfff), &code);
-            check(
+            image.check_unchanged_exit(
+                Engine::Wasmtime,
                 TestModule::interpreter(),
                 "an unsupported extension does not fetch its missing SIB",
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(
-                        0x0008_0000_0000_0000 | (u64::from(opcode) << 32) | u64::from(start),
-                    ),
-                }],
+                Exit::Other(0x0008_0000_0000_0000 | (u64::from(opcode) << 32) | u64::from(start)),
             );
         }
     }
@@ -109,18 +103,14 @@ fn missing_stack_instruction_fields_fault_before_any_stack_access() {
         image.cpu.registers.esp = 0x4000;
         image.cpu.eip = start;
         image.data(0x3000 + (start & 0xfff), code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "the required immediate or address field crosses an unmapped code page",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x2000,
-                    error: 0x10,
-                },
-            }],
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
         );
     }
 }
@@ -144,15 +134,11 @@ fn stack_encodings_reject_a_required_sixteenth_byte_before_fetching_it() {
         image.cpu.flags.status_source.kind = 0xff;
         image.cpu.eip = 0x1ff1;
         image.data(0x3ff1, &code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "the length limit precedes the missing next code page",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::Other(0x0002_0000_0000_0000),
-            }],
+            Exit::Other(0x0002_0000_0000_0000),
         );
     }
 }

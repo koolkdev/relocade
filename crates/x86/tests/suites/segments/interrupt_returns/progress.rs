@@ -102,32 +102,22 @@ fn dispatch_and_fetch(engine: Engine) {
     image.cpu = cpu;
     let step = TestModule::interpreter_with_profile(SegmentProfile::Segmented16);
     // Destination fetch belongs to the next entry, even when restored NT is set.
-    assert_eq!(
-        engine.observe(step, &image.input(), 1),
-        expected(
-            &image,
-            &[Step {
-                cpu,
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0xc200,
-                    error: 0x10
-                },
-            }]
-        )
+    image.check_unchanged_exit(
+        engine,
+        step,
+        "destination fetch precedes checking restored NT",
+        Exit::PageFault {
+            address: 0xc200,
+            error: 0x10,
+        },
     );
     image.map(0xc, 0x5000, false);
     image.data(0x5200, &[0xcf]);
-    assert_eq!(
-        engine.observe(step, &image.input(), 1),
-        expected(
-            &image,
-            &[Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Other(0x0008_00cf_0000_0200),
-            }]
-        )
+    image.check_unchanged_exit(
+        engine,
+        step,
+        "restored NT applies at the next IRET",
+        Exit::Other(0x0008_00cf_0000_0200),
     );
 }
 
@@ -211,16 +201,11 @@ fn fetch_boundary(engine: Engine) {
                 crate::compile_block_from_bytes(0x1ff1, &code, 1),
                 Err(crate::BlockError::InstructionTooLong { address: 0x1ff1 })
             ));
-            assert_eq!(
-                engine.observe(TestModule::interpreter(), &image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu: image.cpu,
-                        ram: &[],
-                        exit
-                    }]
-                )
+            image.check_unchanged_exit(
+                engine,
+                TestModule::interpreter(),
+                "IRET exceeds fifteen bytes before checking NT",
+                exit,
             );
         }
     }
@@ -228,19 +213,14 @@ fn fetch_boundary(engine: Engine) {
     image.cpu.eip = 0x1fff;
     image.cpu.flags.bytes.nt = 1;
     image.data(0x3fff, &[0x66]);
-    assert_eq!(
-        engine.observe(TestModule::interpreter(), &image.input(), 1),
-        expected(
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x2000,
-                    error: 0x10
-                },
-            }]
-        )
+    image.check_unchanged_exit(
+        engine,
+        TestModule::interpreter(),
+        "IRET prefix fetch precedes checking NT",
+        Exit::PageFault {
+            address: 0x2000,
+            error: 0x10,
+        },
     );
 }
 

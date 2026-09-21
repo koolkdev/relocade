@@ -4,8 +4,8 @@ use crate::support::{
         test_cases, InstructionCase as Case,
         Permissions::{ReadOnly, ReadWrite},
     },
-    machine::{check, Exit, Image, Step},
-    step::TestModule,
+    machine::{Exit, Image},
+    step::{Engine, TestModule},
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32};
 
@@ -25,18 +25,14 @@ fn prefix_order_preserves_the_next_required_fetch() {
         image.cpu.eip = origin;
         image.cpu.registers.ecx = 0;
         image.data(0x3000 + (origin & 0xfff), code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             &format!("incomplete prefix order {code:02x?}"),
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x2000,
-                    error: 0x10,
-                },
-            }],
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
         );
     }
 }
@@ -71,15 +67,11 @@ fn f3_extended_map_rejection_respects_the_fifteen_byte_limit() {
         image.cpu.eip = 0x1ff1;
         image.cpu.registers.ecx = 0;
         image.data(0x3ff1, &code[..15]);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             &format!("F3 escape after {prefixes} operand overrides"),
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: runtime_exit,
-            }],
+            runtime_exit,
         );
     }
 }

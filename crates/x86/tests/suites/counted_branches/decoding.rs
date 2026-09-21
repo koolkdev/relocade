@@ -2,7 +2,7 @@ use super::{input_flags, FORMS};
 use crate::support::encoding::check_length;
 use crate::support::{
     cases::{test_cases, FlagExpectation::Preserved, Flags, InstructionCase as Case},
-    machine::{self, Exit, Image, Step},
+    machine::{Exit, Image},
     step::{Engine, TestModule},
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::Ecx};
@@ -62,30 +62,15 @@ fn at_page_end(code: &[u8], count: u32, zero: bool) -> Image {
     image
 }
 
-fn unchanged_exit(engine: Engine, image: &Image, name: &str, exit: Exit) {
-    assert_eq!(
-        engine.observe(TestModule::interpreter(), &image.input(), 1),
-        machine::expected(
-            image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit
-            }]
-        ),
-        "{name}",
-    );
-}
-
 fn check_missing_bytes(engine: Engine) {
     for code in encodings() {
         for available in 1..code.len() {
             // Both branch outcomes must fetch the displacement before changing ECX.
             for (count, zero) in [(0, false), (0, true), (1, false), (1, true)] {
                 let image = at_page_end(&code[..available], count, zero);
-                unchanged_exit(
+                image.check_unchanged_exit(
                     engine,
-                    &image,
+                    TestModule::interpreter(),
                     &format!(
                         "missing byte after {:02x?}, ECX={count}, ZF={zero}",
                         &code[..available]
@@ -123,7 +108,12 @@ fn check_rejected_encodings(engine: Engine) {
         }
         for (count, zero) in [(0, false), (1, true)] {
             let image = at_page_end(&overlong, count, zero);
-            unchanged_exit(engine, &image, name, Exit::Other(0x0002_0000_0000_0000));
+            image.check_unchanged_exit(
+                engine,
+                TestModule::interpreter(),
+                name,
+                Exit::Other(0x0002_0000_0000_0000),
+            );
         }
     }
 
@@ -146,9 +136,9 @@ fn check_rejected_encodings(engine: Engine) {
                 }
             }),
         );
-        unchanged_exit(
+        image.check_unchanged_exit(
             engine,
-            &image,
+            TestModule::interpreter(),
             "address-size prefix still requires an opcode",
             if code.len() == 15 {
                 Exit::Other(0x0002_0000_0000_0000)

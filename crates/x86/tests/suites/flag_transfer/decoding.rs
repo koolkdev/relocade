@@ -3,7 +3,7 @@ use crate::support::encoding::check_length;
 use crate::support::{
     cases::test_cases,
     guest::{Exit, Machine},
-    machine::{check, Image, Step},
+    machine::Image,
     step::{Engine, TestModule},
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::Eax};
@@ -71,15 +71,11 @@ fn unsupported_prefixes_leave_the_transfer_unexecuted() {
                         if actual == prefix
                 ));
                 let image = Image::new(&code);
-                check(
+                image.check_unchanged_exit(
+                    Engine::Wasmtime,
                     TestModule::interpreter(),
                     "unsupported prefix preserves the complete state",
-                    &image,
-                    &[Step {
-                        cpu: image.cpu,
-                        ram: &[],
-                        exit: Exit::Other(0x0008_0000_0000_1000 | (u64::from(prefix) << 32)),
-                    }],
+                    Exit::Other(0x0008_0000_0000_1000 | (u64::from(prefix) << 32)),
                 );
             }
         }
@@ -98,15 +94,11 @@ fn the_fifteen_byte_limit_precedes_fetching_a_transfer_opcode() {
     let mut image = Image::new(&[]);
     image.cpu.eip = 0x1ff1;
     image.data(0x3ff1, &[0x66; 15]);
-    check(
+    image.check_unchanged_exit(
+        Engine::Wasmtime,
         TestModule::interpreter(),
         "the absent sixteenth byte is not fetched",
-        &image,
-        &[Step {
-            cpu: image.cpu,
-            ram: &[],
-            exit: Exit::Other(0x0002_0000_0000_0000),
-        }],
+        Exit::Other(0x0002_0000_0000_0000),
     );
 }
 
@@ -116,18 +108,14 @@ fn missing_opcodes_after_prefixes_preserve_ah_and_flags() {
         let mut image = Image::new(&[]);
         image.cpu.eip = 0x2000 - count;
         image.data(0x4000 - count, &vec![0x66; count as usize]);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "opcode fetch fault precedes any AH transfer",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x2000,
-                    error: 0x10,
-                },
-            }],
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
         );
     }
 }

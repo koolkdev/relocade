@@ -6,7 +6,7 @@ use crate::support::{
         Permissions::{ReadOnly, ReadWrite},
     },
     guest::{Exit, Machine},
-    machine::{check, Image, Step},
+    machine::Image,
     step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule},
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::Esp};
@@ -60,15 +60,11 @@ fn unsupported_prefixes_precede_flag_and_stack_access() {
                     })
                 );
                 let image = Image::new(&code);
-                check(
+                image.check_unchanged_exit(
+                    Engine::Wasmtime,
                     TestModule::interpreter(),
                     "unsupported prefix leaves the complete CPU and stack unchanged",
-                    &image,
-                    &[Step {
-                        cpu: image.cpu,
-                        ram: &[],
-                        exit: Exit::Other(0x0008_0000_0000_1000 | (u64::from(prefix) << 32)),
-                    }],
+                    Exit::Other(0x0008_0000_0000_1000 | (u64::from(prefix) << 32)),
                 );
             }
         }
@@ -91,15 +87,11 @@ fn a_missing_opcode_or_exhausted_length_budget_precedes_stack_access() {
                 error: 0x10,
             }
         };
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             TestModule::interpreter(),
             "the opcode is required before stack access",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit,
-            }],
+            exit,
         );
     }
     for opcode in [0x9c, 0x9d] {

@@ -69,20 +69,13 @@ fn missing_fields(engine: Engine) {
                         error: 0x10,
                     }
                 };
-                assert_eq!(
-                    engine.observe(
-                        TestModule::interpreter_with_profile(SegmentProfile::Segmented32),
-                        &image.input(),
-                        1
+                image.check_unchanged_exit(
+                    engine,
+                    TestModule::interpreter_with_profile(SegmentProfile::Segmented32),
+                    &format!(
+                        "far JMP fields {code:02x?}, available {available}, CS limit {limit:x}"
                     ),
-                    expected(
-                        &image,
-                        &[Step {
-                            cpu: image.cpu,
-                            ram: &[],
-                            exit
-                        }]
-                    )
+                    exit,
                 );
             }
         }
@@ -108,16 +101,11 @@ fn length_boundary(engine: Engine) {
                     compile_block_from_bytes(0x1ff1, &code[..15], 1).err(),
                     Some(BlockError::InstructionTooLong { address: 0x1ff1 })
                 );
-                assert_eq!(
-                    engine.observe(TestModule::interpreter(), &image.input(), 1),
-                    expected(
-                        &image,
-                        &[Step {
-                            cpu: image.cpu,
-                            ram: &[],
-                            exit: Exit::GeneralProtection { error: 0 }
-                        }]
-                    )
+                image.check_unchanged_exit(
+                    engine,
+                    TestModule::interpreter(),
+                    &format!("far JMP exceeds fifteen bytes, word={word}"),
+                    Exit::GeneralProtection { error: 0 },
                 );
             } else {
                 let mut tables = DescriptorTables::default();
@@ -162,16 +150,11 @@ fn register_modes(engine: Engine) {
                 opcode: 0xff
             })
         );
-        assert_eq!(
-            engine.observe(TestModule::interpreter(), &image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit: Exit::Other(0x0008_00ff_0000_1ffe)
-                }]
-            )
+        image.check_unchanged_exit(
+            engine,
+            TestModule::interpreter(),
+            &format!("far JMP rejects register {rm}"),
+            Exit::Other(0x0008_00ff_0000_1ffe),
         );
     }
 }

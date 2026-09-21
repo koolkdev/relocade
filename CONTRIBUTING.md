@@ -60,8 +60,9 @@ establish correctness, not V8 performance.
    access rules belong in memory and segment owners. Complete fault checks before
    changing the instruction's architectural state; REP does this per element.
 3. Add behavioral cases to the instruction's [test suite](crates/x86/tests/suites).
-   Cover widths, aliases, memory access and relevant restart boundaries. Keep
-   encoding rejection, ABI and generated-code assertions in focused tests.
+   Cover distinct forms, semantic boundaries and instruction-specific faults.
+   Use representative cases for integration with shared mechanisms, following
+   the coverage rules below.
 
 Both decoders consume the same declarations. For example, the existing SHL family
 connects its encodings to one handler:
@@ -104,12 +105,28 @@ snapshot and interpreter entries, ordinarily with flat and segmented profiles,
 in Wasmtime and the explicit V8 lane. The x86 suites live in the library test
 target so they can observe private state readers without adding public APIs.
 
-Keep an instruction addition small: a table of distinct input/result boundaries,
-its encoding forms, and a sequence only when interactions with pending flags,
-register aliases or earlier effects need coverage. Use representative cases for
-shared prefix, addressing and fault mechanisms; avoid multiplying every arithmetic
-input across unrelated dimensions already covered by their owners. Add an engine
-or frontend to the shared harness, not to each instruction suite.
+Keep a family's tests proportional to its distinct behavior:
+
+| Coverage | What the family supplies |
+| --- | --- |
+| Forms | A discriminating example for each opcode/form and meaningful width, with operand values that expose incorrect operand selection. |
+| Semantics | Literal or independently derived results and flags at the boundaries that change behavior. |
+| Specific faults | The family's exceptional conditions, access ordering or partial-progress rules. |
+| Interactions | Short sequences only where preceding flags, overlapping operands or later faults can change the result. |
+
+Comprehensive ModRM/SIB, prefix, fetch-boundary, paging, segmentation, alias and
+flag-representation tests belong with their shared owners. Family tests retain
+representative integrations with those mechanisms. Before removing repeated
+cases, check that the owning suite protects the same contract and retain any
+distinct regression. For example, AAM's missing base must fault before its
+divide-error check; the generic fifteen-byte instruction limit is decoder coverage.
+
+Vary unrelated dimensions in representative cases instead of multiplying every
+arithmetic input by every register, prefix, initial flag value or execution mode.
+Use additional combinations when they protect a specific interaction. A small
+family normally fits in one data-driven file; split it when independent behavior
+needs its own fixtures or substantial coverage. Add engine/frontend execution
+mechanisms to the shared harness, not to each instruction suite.
 
 For example, this case checks a byte write and preservation of the rest of EAX:
 
@@ -125,6 +142,11 @@ encoding examples. It checks every truncated prefix, validates the resulting
 Wasm and checks that a successor cannot affect a one-instruction block. Families
 only supply their bytes; branch tests can use the returned module to check that
 larger block limits still stop at the branch.
+
+For execution fixtures built with `Image`, use
+`image.check_unchanged_exit(engine, module, name, exit)` when a fault or rejection
+must preserve the full CPU record and both memories. The fixture constructs the
+expected observation; families supply the encoding, initial state and exit.
 
 Give complete parent-register expectations for narrow writes. Unlisted registers
 and guest bytes must remain unchanged. Choose flag expectations deliberately:

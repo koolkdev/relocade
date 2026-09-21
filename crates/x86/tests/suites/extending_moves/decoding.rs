@@ -4,7 +4,7 @@ use wasm86_x86::Gpr32;
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 use crate::support::machine::{byte_register_image, check, Exit, Step};
-use crate::support::step::TestModule;
+use crate::support::step::{Engine, TestModule};
 
 #[test]
 fn encoded_fields_are_required_but_bytes_after_the_instruction_are_not() {
@@ -49,15 +49,11 @@ fn length_limit_precedes_fetching_an_unavailable_field() {
         let mut image = byte_register_image(&[]);
         image.cpu.eip = 0x1ff1;
         image.data(0x3ff1, &code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             step,
             "required field begins beyond offset fourteen",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::Other(0x0002_0000_0000_0000),
-            }],
+            Exit::Other(0x0002_0000_0000_0000),
         );
     }
 }
@@ -74,18 +70,14 @@ fn incomplete_encoding_faults_before_reading_data() {
         let mut image = byte_register_image(&[]);
         image.cpu.eip = start;
         image.data(0x3000 + (start & 0xfff), code);
-        check(
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
             step,
             "missing encoding byte precedes an unmapped data operand",
-            &image,
-            &[Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::PageFault {
-                    address: 0x2000,
-                    error: 0x10,
-                },
-            }],
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
         );
     }
 }
