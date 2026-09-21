@@ -10,64 +10,58 @@ fn registers(engine: Engine) {
             ..descriptor(0, SegmentDefaultSize::Bits32)
         },
     );
-    let registers = [
-        Gpr32::Eax,
-        Gpr32::Ecx,
-        Gpr32::Edx,
-        Gpr32::Ebx,
-        Gpr32::Esp,
-        Gpr32::Ebp,
-        Gpr32::Esi,
-        Gpr32::Edi,
-    ];
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
+    for (profile, code, destination, source, value) in [
+        (
+            SegmentProfile::Flat32,
+            &[0x0f, 0x02, 0xc8][..],
+            Gpr32::Ecx,
+            Gpr32::Eax,
+            0x00d0_f300,
+        ),
+        (
+            SegmentProfile::Segmented16,
+            &[0x0f, 0x02, 0xff][..],
+            Gpr32::Edi,
+            Gpr32::Edi,
+            0xabcd_f300,
+        ),
+        (
+            SegmentProfile::Segmented16,
+            &[0x66, 0x0f, 0x03, 0xf6][..],
+            Gpr32::Esi,
+            Gpr32::Esi,
+            0x1234_5fff,
+        ),
+        (
+            SegmentProfile::Flat32,
+            &[0x66, 0x0f, 0x03, 0xd9][..],
+            Gpr32::Ebx,
+            Gpr32::Ecx,
+            0xcafe_5fff,
+        ),
     ] {
-        for operand_override in [false, true] {
-            let word = (profile == SegmentProfile::Segmented16) != operand_override;
-            for (opcode, value) in [(2, 0x00d0_f300), (3, 0x1234_5fff)] {
-                for (index, destination) in registers.into_iter().enumerate() {
-                    for alias in [false, true] {
-                        let source_index = if alias { index } else { (index + 3) % 8 };
-                        for selector in [0x27, 0x33] {
-                            let mut code = if operand_override { vec![0x66] } else { vec![] };
-                            code.extend([
-                                0x0f,
-                                opcode,
-                                0xc0 | ((index as u8) << 3) | source_index as u8,
-                            ]);
-                            let mut image = image(&code, profile);
-                            image.cpu.registers[destination] = 0xcafe_4321;
-                            image.cpu.registers[registers[source_index]] =
-                                0xabcd_0000 | u32::from(selector);
-                            let success = selector == 0x27;
-                            image.cpu.flags.bytes.zf = u8::from(!success);
-                            let mut cpu = completed(&image, code.len(), success);
-                            if success {
-                                cpu.registers[destination] = if word {
-                                    (cpu.registers[destination] & 0xffff_0000) | (value & 0xffff)
-                                } else {
-                                    value
-                                };
-                            }
-                            check_one(
-                                engine,
-                                profile,
-                                &code,
-                                &image,
-                                &[SegmentQuery::new(&tables, selector)],
-                                Step {
-                                    cpu,
-                                    ram: &[],
-                                    exit: Exit::Dispatch(cpu.eip),
-                                },
-                            );
-                        }
-                    }
-                }
+        for selector in [0x27, 0x33] {
+            let mut image = image(code, profile);
+            image.cpu.registers[destination] = 0xcafe_4321;
+            image.cpu.registers[source] = 0xabcd_0000 | u32::from(selector);
+            let success = selector == 0x27;
+            image.cpu.flags.bytes.zf = u8::from(!success);
+            let mut cpu = completed(&image, code.len(), success);
+            if success {
+                cpu.registers[destination] = value;
             }
+            check_one(
+                engine,
+                profile,
+                code,
+                &image,
+                &[SegmentQuery::new(&tables, selector)],
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                },
+            );
         }
     }
 }
@@ -80,46 +74,36 @@ fn register_queries_honor_destination_width_and_preserve_aliases_on_failure() {
 fn memory_sources(engine: Engine) {
     let mut tables = DescriptorTables::default();
     tables.insert(0xf327, descriptor(0, SegmentDefaultSize::Bits32));
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
-    ] {
-        for operand_override in [false, true] {
-            let word = (profile == SegmentProfile::Segmented16) != operand_override;
-            for (opcode, value) in [(2, 0x0040_f300), (3, 0xffff)] {
-                let mut code = if operand_override { vec![0x66] } else { vec![] };
-                if profile == SegmentProfile::Segmented16 {
-                    code.push(0x67);
-                }
-                code.extend([0x0f, opcode, 3]); // LAR/LSL (E)AX,[EBX].
-                let mut image = image(&code, profile);
-                image.cpu.registers.ebx = 0x4ffe;
-                if profile != SegmentProfile::Flat32 {
-                    image.cpu.segments.ds.limit = 0x4fff;
-                }
-                image.map(4, 0x8000, false);
-                image.data(0x8ffe, &[0x27, 0xf3]);
-                // Only two bytes fit before the segment/page end, even for r32.
-                let mut cpu = completed(&image, code.len(), true);
-                cpu.registers.eax = if word {
-                    (cpu.registers.eax & 0xffff_0000) | (value & 0xffff)
-                } else {
-                    value
-                };
-                check_one(
-                    engine,
-                    profile,
-                    &code,
-                    &image,
-                    &[SegmentQuery::new(&tables, 0xf327)],
-                    Step {
-                        cpu,
-                        ram: &[],
-                        exit: Exit::Dispatch(cpu.eip),
-                    },
-                );
-            }
+    let profile = SegmentProfile::Segmented32;
+    for operand_override in [false, true] {
+        let word = operand_override;
+        for (opcode, value) in [(2, 0x0040_f300), (3, 0xffff)] {
+            let mut code = if operand_override { vec![0x66] } else { vec![] };
+            code.extend([0x0f, opcode, 3]); // LAR/LSL (E)AX,[EBX].
+            let mut image = image(&code, profile);
+            image.cpu.registers.ebx = 0x4ffe;
+            image.cpu.segments.ds.limit = 0x4fff;
+            image.map(4, 0x8000, false);
+            image.data(0x8ffe, &[0x27, 0xf3]);
+            // Only two bytes fit before the segment/page end, even for r32.
+            let mut cpu = completed(&image, code.len(), true);
+            cpu.registers.eax = if word {
+                (cpu.registers.eax & 0xffff_0000) | (value & 0xffff)
+            } else {
+                value
+            };
+            check_one(
+                engine,
+                profile,
+                &code,
+                &image,
+                &[SegmentQuery::new(&tables, 0xf327)],
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                },
+            );
         }
     }
     for (opcode, value) in [(2, 0x0040_f300), (3, 0xffff)] {

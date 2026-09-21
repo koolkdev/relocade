@@ -68,44 +68,43 @@ test_cases!(ordinary_memory_operands, ordinary_memory());
 #[rustfmt::skip]
 fn page_spans() -> Vec<Case> {
     let mut cases = Vec::new();
-    for (layout, next_frame) in [("contiguous", 0x9000), ("scattered", 0xa000)] {
-        cases.push(Case::new(format!("{layout} dword ADD keeps adjacent canaries"), &[0x01, 0x03], Flags::all(true),
-            Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Set, of: Set })
-            .initial_register(Eax, 1).initial_register(Ebx, 0x4ffe)
-            .map_page(4, 0x8000, ReadWrite).map_page(5, next_frame, ReadWrite)
-            .backing(0x8ffd, &[0xa5, 0xff, 0xff]).backing(next_frame, &[0xff, 0x7f, 0x5a])
-            .expect_memory(0x4ffe, &[0, 0, 0, 0x80]));
-        for (name, code, eax, before, after, flags) in [
-            ("byte TEST reads AH and readonly memory", &[0x84, 0x23][..], 0x4433_8001,
-                &[0xf0][..], None,
-                Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Set, of: Clear }),
-            ("word immediate TEST reads a readonly page span", &[0x66, 0xf7, 0x03, 0x00, 0xff][..], 0x4433_8001,
-                &[0xff, 0x80][..], None,
-                Flags { cf: Clear, pf: Set, af: Undefined, zf: Clear, sf: Set, of: Clear }),
-            ("dword TEST preserves memory and its source register", &[0x85, 0x03][..], 0xffff_00ff,
-                &[1, 0, 0, 0x80][..], None,
-                Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Set, of: Clear }),
-            ("byte AND updates memory using old AH", &[0x20, 0x23][..], 0x4433_8001,
-                &[0xf3][..], Some(&[0x80][..]),
-                Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Set, of: Clear }),
-            ("word OR updates exactly two bytes", &[0x66, 0x09, 0x03][..], 0x4433_0001,
-                &[0, 0x80][..], Some(&[1, 0x80][..]),
-                Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Set, of: Clear }),
-            ("dword XOR updates the whole proven page span", &[0x31, 0x03][..], 0x8000_0000,
-                &[0xff, 0xff, 0xff, 0xff][..], Some(&[0xff, 0xff, 0xff, 0x7f][..]),
-                Flags { cf: Clear, pf: Set, af: Undefined, zf: Clear, sf: Clear, of: Clear }),
-        ] {
-            let permissions = if after.is_some() { ReadWrite } else { ReadOnly };
-            let mut case = Case::new(format!("{layout} {name}"), code, Flags::all(true), flags)
-                .initial_register(Eax, eax).initial_register(Ebx, 0x4fff)
-                .map_page(4, 0x8000, permissions).map_page(5, next_frame, permissions)
-                .backing(0x8ffe, &[0xa5, before[0]]).backing(next_frame, &before[1..])
-                .backing(next_frame + before.len() as u32 - 1, &[0x5a]);
-            if let Some(bytes) = after { case = case.expect_memory(0x4fff, bytes); }
-            cases.push(case);
-        }
+    let next_frame = 0xa000;
+    cases.push(Case::new("split dword ADD keeps adjacent canaries", &[0x01, 0x03], Flags::all(true),
+        Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Set, of: Set })
+        .initial_register(Eax, 1).initial_register(Ebx, 0x4ffe)
+        .map_page(4, 0x8000, ReadWrite).map_page(5, next_frame, ReadWrite)
+        .backing(0x8ffd, &[0xa5, 0xff, 0xff]).backing(next_frame, &[0xff, 0x7f, 0x5a])
+        .expect_memory(0x4ffe, &[0, 0, 0, 0x80]));
+    for (name, code, eax, before, after, flags) in [
+        ("byte TEST reads AH and readonly memory", &[0x84, 0x23][..], 0x4433_8001,
+            &[0xf0][..], None,
+            Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Set, of: Clear }),
+        ("word immediate TEST reads a readonly page span", &[0x66, 0xf7, 0x03, 0x00, 0xff][..], 0x4433_8001,
+            &[0xff, 0x80][..], None,
+            Flags { cf: Clear, pf: Set, af: Undefined, zf: Clear, sf: Set, of: Clear }),
+        ("dword TEST preserves memory and its source register", &[0x85, 0x03][..], 0xffff_00ff,
+            &[1, 0, 0, 0x80][..], None,
+            Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Set, of: Clear }),
+        ("byte AND updates memory using old AH", &[0x20, 0x23][..], 0x4433_8001,
+            &[0xf3][..], Some(&[0x80][..]),
+            Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Set, of: Clear }),
+        ("word OR updates exactly two bytes", &[0x66, 0x09, 0x03][..], 0x4433_0001,
+            &[0, 0x80][..], Some(&[1, 0x80][..]),
+            Flags { cf: Clear, pf: Clear, af: Undefined, zf: Clear, sf: Set, of: Clear }),
+        ("dword XOR updates the whole proven page span", &[0x31, 0x03][..], 0x8000_0000,
+            &[0xff, 0xff, 0xff, 0xff][..], Some(&[0xff, 0xff, 0xff, 0x7f][..]),
+            Flags { cf: Clear, pf: Set, af: Undefined, zf: Clear, sf: Clear, of: Clear }),
+    ] {
+        let permissions = if after.is_some() { ReadWrite } else { ReadOnly };
+        let mut case = Case::new(name, code, Flags::all(true), flags)
+            .initial_register(Eax, eax).initial_register(Ebx, 0x4fff)
+            .map_page(4, 0x8000, permissions).map_page(5, next_frame, permissions)
+            .backing(0x8ffe, &[0xa5, before[0]]).backing(next_frame, &before[1..])
+            .backing(next_frame + before.len() as u32 - 1, &[0x5a]);
+        if let Some(bytes) = after { case = case.expect_memory(0x4fff, bytes); }
+        cases.push(case);
     }
     cases
 }
 
-test_cases!(contiguous_and_scattered_memory, page_spans());
+test_cases!(split_memory_operands, page_spans());

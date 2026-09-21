@@ -9,7 +9,7 @@ mod loads;
 
 use super::{
     data,
-    selector_cases::{check_one, code_defaults, descriptor},
+    selector_cases::{check_one, code_defaults, descriptor, loaded},
 };
 use crate::{
     register::Gpr32,
@@ -20,8 +20,7 @@ use crate::{
     },
 };
 use wasm86_x86::{
-    DescriptorTables, Segment, SegmentAttributes, SegmentDefaultSize, SegmentDescriptor,
-    SegmentProfile, StoredSegment,
+    DescriptorTables, Segment, SegmentDefaultSize, SegmentDescriptor, SegmentProfile, StoredSegment,
 };
 
 const FORMS: [(Segment, &[u8]); 5] = [
@@ -31,12 +30,3 @@ const FORMS: [(Segment, &[u8]); 5] = [
     (Segment::Fs, &[0x0f, 0xb4]),
     (Segment::Gs, &[0x0f, 0xb5]),
 ];
-
-fn loaded(selector: u16, base: u32, limit: u32) -> StoredSegment {
-    StoredSegment {
-        base,
-        limit,
-        selector,
-        attributes: SegmentAttributes::from_bits(5),
-    }
-}

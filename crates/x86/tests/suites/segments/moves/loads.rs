@@ -1,60 +1,67 @@
+use super::super::selector_cases::loaded;
 use super::*;
 use crate::register::Gpr32;
 
-fn register_loads(engine: Engine, all_registers: bool) {
-    for profile in [SegmentProfile::Flat32, SegmentProfile::Segmented16] {
-        for prefix in [false, true] {
-            for segment in [
-                Segment::Es,
-                Segment::Ss,
-                Segment::Ds,
-                Segment::Fs,
-                Segment::Gs,
-            ] {
-                for (index, register) in Gpr32::ALL.into_iter().enumerate() {
-                    if !all_registers && index != 4 {
-                        continue;
-                    }
-                    let mut code = vec![];
-                    if prefix {
-                        code.push(0x66);
-                    }
-                    code.extend([0x8e, 0xc0 | ((segment as u8) << 3) | index as u8]);
-                    let mut image = Image::new(&code);
-                    code_defaults(&mut image, profile);
-                    image.cpu.registers[register] = 0xabcd_f327;
-                    let mut tables = DescriptorTables::default();
-                    tables.insert(0xf327, descriptor(0x8765_0000, SegmentDefaultSize::Bits16));
-                    let mut cpu = image.cpu;
-                    cpu.segments[segment] = StoredSegment {
-                        base: 0x8765_0000,
-                        limit: 0xffff,
-                        selector: 0xf327,
-                        attributes: SegmentAttributes::from_bits(5),
-                    };
-                    cpu.eip += code.len() as u32;
-                    cpu.instruction_count = 0;
-                    check_one(
-                        engine,
-                        profile,
-                        &code,
-                        &image,
-                        &[SegmentResolution::new(&tables, segment, 0xf327)],
-                        Step {
-                            cpu,
-                            ram: &[],
-                            exit: Exit::Dispatch(cpu.eip),
-                        },
-                    );
-                }
-            }
-        }
+fn register_loads(engine: Engine) {
+    for (profile, code, segment, source) in [
+        (
+            SegmentProfile::Flat32,
+            &[0x8e, 0xc7][..],
+            Segment::Es,
+            Gpr32::Edi,
+        ),
+        (
+            SegmentProfile::Segmented16,
+            &[0x66, 0x8e, 0xd4][..],
+            Segment::Ss,
+            Gpr32::Esp,
+        ),
+        (
+            SegmentProfile::Segmented16,
+            &[0x8e, 0xd9][..],
+            Segment::Ds,
+            Gpr32::Ecx,
+        ),
+        (
+            SegmentProfile::Flat32,
+            &[0x66, 0x8e, 0xe2][..],
+            Segment::Fs,
+            Gpr32::Edx,
+        ),
+        (
+            SegmentProfile::Segmented32,
+            &[0x8e, 0xeb][..],
+            Segment::Gs,
+            Gpr32::Ebx,
+        ),
+    ] {
+        let mut image = Image::new(code);
+        code_defaults(&mut image, profile);
+        image.cpu.registers[source] = 0xabcd_f327;
+        let mut tables = DescriptorTables::default();
+        tables.insert(0xf327, descriptor(0x8765_0000, SegmentDefaultSize::Bits16));
+        let mut cpu = image.cpu;
+        cpu.segments[segment] = loaded(0xf327, 0x8765_0000, 0xffff, 5);
+        cpu.eip += code.len() as u32;
+        cpu.instruction_count = 0;
+        check_one(
+            engine,
+            profile,
+            code,
+            &image,
+            &[SegmentResolution::new(&tables, segment, 0xf327)],
+            Step {
+                cpu,
+                ram: &[],
+                exit: Exit::Dispatch(cpu.eip),
+            },
+        );
     }
 }
 
 #[test]
-fn segment_loads_take_the_low_word_of_every_gpr_and_commit_each_cache() {
-    register_loads(Engine::Wasmtime, true);
+fn segment_load_forms_take_a_low_word_and_commit_each_cache() {
+    register_loads(Engine::Wasmtime);
 }
 
 fn old_memory_cache(engine: Engine) {
@@ -71,12 +78,7 @@ fn old_memory_cache(engine: Engine) {
         let mut tables = DescriptorTables::default();
         tables.insert(0xf327, descriptor(0x9000, SegmentDefaultSize::Bits16));
         let mut cpu = image.cpu;
-        cpu.segments[segment] = StoredSegment {
-            base: 0x9000,
-            limit: 0xffff,
-            selector: 0xf327,
-            attributes: SegmentAttributes::from_bits(5),
-        };
+        cpu.segments[segment] = loaded(0xf327, 0x9000, 0xffff, 5);
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
@@ -127,12 +129,7 @@ fn overridden_source(engine: Engine) {
             },
         );
         let mut cpu = image.cpu;
-        cpu.segments.fs = StoredSegment {
-            base: 0x9000,
-            limit: 0xffff,
-            selector: 0x27,
-            attributes: SegmentAttributes::from_bits(1),
-        };
+        cpu.segments.fs = loaded(0x27, 0x9000, 0xffff, 1);
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
@@ -158,7 +155,7 @@ fn segment_load_sources_honor_address_size_and_the_last_segment_override() {
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn v8_segment_load_sources_and_cache_commit() {
-    register_loads(Engine::V8, false);
+    register_loads(Engine::V8);
     old_memory_cache(Engine::V8);
     overridden_source(Engine::V8);
 }

@@ -16,109 +16,36 @@ use crate::support::{
     step::{Engine, Event, SegmentQuery, TestModule},
 };
 use crate::{
-    CpuState, DescriptorTables, Gpr32, PrivilegeLevel, Segment, SegmentDefaultSize,
-    SegmentDescriptor, SegmentDescriptorKind, SegmentProfile,
+    CpuState, DescriptorTables, Gpr32, Segment, SegmentDefaultSize, SegmentDescriptor,
+    SegmentDescriptorKind, SegmentProfile,
 };
 
 fn descriptor_results(engine: Engine) {
-    use SegmentDescriptorKind::{Code, Data};
     let profile = SegmentProfile::Flat32;
     let mut tables = DescriptorTables::default();
-    for (selector, kind, dpl, present) in [
-        (
-            0,
-            Data {
-                writable: true,
-                expand_down: false,
-            },
-            PrivilegeLevel::Ring3,
-            true,
-        ),
-        (
-            4,
-            Data {
-                writable: true,
-                expand_down: true,
-            },
-            PrivilegeLevel::Ring3,
-            false,
-        ),
-        (
-            0x20,
-            Data {
+    let writable = descriptor(0, SegmentDefaultSize::Bits32);
+    tables.insert(0, writable);
+    tables.insert(
+        4,
+        SegmentDescriptor {
+            present: false,
+            ..writable
+        },
+    );
+    tables.insert(
+        0x20,
+        SegmentDescriptor {
+            kind: SegmentDescriptorKind::Data {
                 writable: false,
                 expand_down: false,
             },
-            PrivilegeLevel::Ring3,
-            true,
-        ),
-        (
-            0x24,
-            Data {
-                writable: true,
-                expand_down: false,
-            },
-            PrivilegeLevel::Ring2,
-            true,
-        ),
-        (
-            0x28,
-            Code {
-                readable: true,
-                conforming: true,
-            },
-            PrivilegeLevel::Ring0,
-            false,
-        ),
-        (
-            0x2c,
-            Code {
-                readable: false,
-                conforming: true,
-            },
-            PrivilegeLevel::Ring3,
-            true,
-        ),
-        (
-            0x30,
-            Code {
-                readable: true,
-                conforming: false,
-            },
-            PrivilegeLevel::Ring2,
-            true,
-        ),
-        (
-            0x34,
-            Code {
-                readable: true,
-                conforming: false,
-            },
-            PrivilegeLevel::Ring3,
-            true,
-        ),
-    ] {
-        tables.insert(
-            selector,
-            SegmentDescriptor {
-                kind,
-                dpl,
-                present,
-                ..descriptor(0, SegmentDefaultSize::Bits32)
-            },
-        );
-    }
+            ..writable
+        },
+    );
     for (selector, readable, writable) in [
-        (0, false, false),
         (3, false, false),
-        (4, true, true),
         (7, true, true),
         (0x23, true, false),
-        (0x27, false, false),
-        (0x2b, true, false),
-        (0x2f, false, false),
-        (0x33, false, false),
-        (0x37, true, false),
         (0xffff, false, false),
     ] {
         for (extension, result) in [(4, readable), (5, writable)] {

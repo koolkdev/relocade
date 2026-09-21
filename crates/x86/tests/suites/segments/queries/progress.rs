@@ -43,7 +43,7 @@ fn successful_and_failed_queries_change_only_zf_among_pending_arithmetic_flags()
     lazy_flags(Engine::Wasmtime);
 }
 
-fn continuation_and_restart(engine: Engine) {
+fn continuation_and_fault_publication(engine: Engine) {
     let profile = SegmentProfile::Flat32;
     // LAR ECX,AX; SETZ DL; VERR AX; SETZ BL; LSL ESI,DI; MOV ECX,[EBP].
     let code = [
@@ -126,7 +126,7 @@ fn continuation_and_restart(engine: Engine) {
 
 #[test]
 fn descriptor_queries_continue_in_one_block_and_a_later_fault_keeps_their_results() {
-    continuation_and_restart(Engine::Wasmtime);
+    continuation_and_fault_publication(Engine::Wasmtime);
 }
 
 fn table_changes(engine: Engine) {
@@ -192,8 +192,8 @@ fn current_table_rights_and_limits_are_observed_without_changing_loaded_caches()
 
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_queries_flags_continuation_table_changes_and_restart() {
+fn v8_queries_flags_table_changes_and_fault_publication() {
     lazy_flags(Engine::V8);
-    continuation_and_restart(Engine::V8);
+    continuation_and_fault_publication(Engine::V8);
     table_changes(Engine::V8);
 }

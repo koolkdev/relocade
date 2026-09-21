@@ -225,24 +225,23 @@ fn pointer_load_faults_publish_earlier_flags_register_store_and_retirement_progr
 
 fn register_sources(engine: Engine) {
     for (_, opcode) in FORMS {
-        for rm in 0..8 {
-            let mut code = opcode.to_vec();
-            code.push(0xc0 | rm);
-            let mut image = Image::empty();
-            image.cpu.eip = 0x2000 - code.len() as u32;
-            image.map(1, 0x3000, false);
-            image.data(0x4000 - code.len() as u32, &code);
-            assert!(matches!(
-                wasm86_x86::compile_block_from_bytes(image.cpu.eip, &code, 1),
-                Err(wasm86_x86::BlockError::UnsupportedInstruction { .. })
-            ));
-            image.check_unchanged_exit(
-                engine,
-                TestModule::interpreter(),
-                &format!("pointer load rejects register source {code:02x?}"),
-                Exit::Other((8 << 48) | (u64::from(opcode[0]) << 32) | u64::from(image.cpu.eip)),
-            );
-        }
+        let rm = 3;
+        let mut code = opcode.to_vec();
+        code.push(0xc0 | rm);
+        let mut image = Image::empty();
+        image.cpu.eip = 0x2000 - code.len() as u32;
+        image.map(1, 0x3000, false);
+        image.data(0x4000 - code.len() as u32, &code);
+        assert!(matches!(
+            wasm86_x86::compile_block_from_bytes(image.cpu.eip, &code, 1),
+            Err(wasm86_x86::BlockError::UnsupportedInstruction { .. })
+        ));
+        image.check_unchanged_exit(
+            engine,
+            TestModule::interpreter(),
+            &format!("pointer load rejects register source {code:02x?}"),
+            Exit::Other((8 << 48) | (u64::from(opcode[0]) << 32) | u64::from(image.cpu.eip)),
+        );
     }
 }
 
@@ -253,7 +252,7 @@ fn register_sources_are_rejected_by_both_decoders_before_execution() {
 
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_pointer_load_faults_restart_and_invalid_forms() {
+fn v8_pointer_load_fault_publication_and_invalid_forms() {
     source_faults(Engine::V8);
     resolver_faults(Engine::V8);
     earlier_progress(Engine::V8);

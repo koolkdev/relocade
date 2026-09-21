@@ -22,7 +22,7 @@ fn stack_load(engine: Engine) {
         );
         let mut cpu = image.cpu;
         cpu.registers.esp = offset;
-        cpu.segments.ss = loaded(0x27, 0x9000, limit);
+        cpu.segments.ss = loaded(0x27, 0x9000, limit, 5);
         cpu.eip = 0x1003;
         cpu.instruction_count = 0;
         check_one(
@@ -88,7 +88,7 @@ fn terminal_loads(engine: Engine) {
             .push(SegmentResolution::new(&tables, segment, 0x27));
         let mut cpu = image.cpu;
         cpu.registers.eax = 0x9234_5678;
-        cpu.segments[segment] = loaded(0x27, 0x9000, 0xffff);
+        cpu.segments[segment] = loaded(0x27, 0x9000, 0xffff, 5);
         cpu.eip += opcode.len() as u32 + 1;
         cpu.instruction_count = 0;
         let mut wanted = expected(

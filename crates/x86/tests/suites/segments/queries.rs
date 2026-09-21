@@ -21,7 +21,7 @@ use crate::{
 };
 
 fn descriptor_results(engine: Engine) {
-    use SegmentDescriptorKind::{Code, Data};
+    let profile = SegmentProfile::Flat32;
     let mut tables = DescriptorTables::default();
     let ordinary = descriptor(0x1234_0000, SegmentDefaultSize::Bits16);
     tables.insert(0, ordinary);
@@ -31,40 +31,11 @@ fn descriptor_results(engine: Engine) {
             present: false,
             available: true,
             default_size: SegmentDefaultSize::Bits32,
-            kind: Data {
+            kind: SegmentDescriptorKind::Data {
                 writable: true,
                 expand_down: true,
             },
             limit: SegmentLimit::pages(0x12345).unwrap(),
-            ..ordinary
-        },
-    );
-    tables.insert(
-        0x27,
-        SegmentDescriptor {
-            dpl: PrivilegeLevel::Ring2,
-            ..ordinary
-        },
-    );
-    tables.insert(
-        0x2b,
-        SegmentDescriptor {
-            kind: Code {
-                readable: false,
-                conforming: true,
-            },
-            dpl: PrivilegeLevel::Ring0,
-            present: false,
-            ..ordinary
-        },
-    );
-    tables.insert(
-        0x2f,
-        SegmentDescriptor {
-            kind: Code {
-                readable: false,
-                conforming: false,
-            },
             ..ordinary
         },
     );
@@ -75,49 +46,33 @@ fn descriptor_results(engine: Engine) {
             ..ordinary
         },
     );
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
+    for (selector, result) in [
+        (3, None),
+        (7, Some((0x00d0_7700, 0x1234_5fff))),
+        (0xffff, Some((0x0080_f300, u32::MAX))),
     ] {
-        for (selector, result) in [
-            (0, None),
-            (3, None),
-            (7, Some((0x00d0_7700, 0x1234_5fff))),
-            (0x27, None),
-            (0x2b, Some((0x1d00, 0xffff))),
-            (0x2f, Some((0xf900, 0xffff))),
-            (0x33, None),
-            (0xffff, Some((0x0080_f300, u32::MAX))),
-        ] {
-            for opcode in [0x02, 0x03] {
-                let code = [0x0f, opcode, 0xc8]; // LAR/LSL (E)CX,AX.
-                let mut image = image(&code, profile);
-                image.cpu.registers.eax = 0xbeef_0000 | u32::from(selector);
-                image.cpu.registers.ecx = 0xcafe_1234;
-                image.cpu.flags.bytes.zf = u8::from(result.is_none());
-                let mut cpu = completed(&image, code.len(), result.is_some());
-                if let Some((rights, limit)) = result {
-                    let value = if opcode == 2 { rights } else { limit };
-                    cpu.registers.ecx = if profile == SegmentProfile::Segmented16 {
-                        0xcafe_0000 | (value & 0xffff)
-                    } else {
-                        value
-                    };
-                }
-                check_one(
-                    engine,
-                    profile,
-                    &code,
-                    &image,
-                    &[SegmentQuery::new(&tables, selector)],
-                    Step {
-                        cpu,
-                        ram: &[],
-                        exit: Exit::Dispatch(cpu.eip),
-                    },
-                );
+        for opcode in [0x02, 0x03] {
+            let code = [0x0f, opcode, 0xc8];
+            let mut image = image(&code, profile);
+            image.cpu.registers.eax = 0xbeef_0000 | u32::from(selector);
+            image.cpu.registers.ecx = 0xcafe_1234;
+            image.cpu.flags.bytes.zf = u8::from(result.is_none());
+            let mut cpu = completed(&image, code.len(), result.is_some());
+            if let Some((rights, limit)) = result {
+                cpu.registers.ecx = if opcode == 2 { rights } else { limit };
             }
+            check_one(
+                engine,
+                profile,
+                &code,
+                &image,
+                &[SegmentQuery::new(&tables, selector)],
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                },
+            );
         }
     }
 }

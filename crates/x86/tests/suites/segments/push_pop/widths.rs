@@ -1,90 +1,79 @@
 use super::*;
 
-fn selector_widths(engine: Engine, all_segments: bool) {
-    for profile in [SegmentProfile::Segmented32, SegmentProfile::Segmented16] {
-        for big in [false, true] {
-            for override_size in [false, true] {
-                let slot = if (profile == SegmentProfile::Segmented32) != override_size {
-                    4
+fn selector_widths(engine: Engine) {
+    // Every fixed form appears once; shared stack tests own the full size matrix.
+    for (push, forms) in [(true, &PUSH[..]), (false, &POP[..])] {
+        for (index, &(segment, opcode)) in forms.iter().enumerate() {
+            let (profile, big, override_size, slot) = [
+                (SegmentProfile::Segmented32, true, false, 4),
+                (SegmentProfile::Segmented32, false, true, 2),
+                (SegmentProfile::Segmented16, true, false, 2),
+                (SegmentProfile::Segmented16, false, true, 4),
+            ][index % 4];
+            let mut code = vec![];
+            if override_size {
+                // Neither address size nor the last segment override changes SS.
+                code.extend([0x66, 0x67, 0x64, 0x65]);
+            }
+            code.extend(opcode);
+            let mut image = Image::new(&code);
+            code_defaults(&mut image, profile);
+            image.cpu.segments.ss = data(0x4000, 0xffff);
+            image.cpu.segments.ss.attributes = stack_attributes(big);
+            image.cpu.segments.fs = StoredSegment::unusable(0xf327);
+            image.cpu.segments.gs = StoredSegment::unusable(0xf327);
+            if segment == Segment::Ds && push {
+                image.cpu.segments.ds = StoredSegment::unusable(0xf327);
+            }
+            image.cpu.segments[segment].selector = 0xf327;
+            image.cpu.registers.esp = if big { 0x104 } else { 0xabcd_0104 };
+            image.map(4, 0x8000, true);
+            image.data(0x8100, &[0xa5; 12]);
+            let mut cpu = image.cpu;
+            cpu.eip += code.len() as u32;
+            cpu.instruction_count = 0;
+            if push {
+                cpu.registers.esp -= slot;
+                check_one(
+                    engine,
+                    profile,
+                    &code,
+                    &image,
+                    &[],
+                    Step {
+                        cpu,
+                        ram: &[(0x8104 - slot, &[0x27, 0xf3])],
+                        exit: Exit::Dispatch(cpu.eip),
+                    },
+                );
+            } else {
+                image.data(0x8104, &[0x27, 0xf3]);
+                let size = if big {
+                    SegmentDefaultSize::Bits16
                 } else {
-                    2
+                    SegmentDefaultSize::Bits32
                 };
-                for (push, forms) in [(true, &PUSH[..]), (false, &POP[..])] {
-                    for &(segment, opcode) in forms {
-                        if !all_segments && !matches!(segment, Segment::Ss | Segment::Fs) {
-                            continue;
-                        }
-                        let mut code = vec![];
-                        if override_size {
-                            // Neither address size nor the last segment override changes SS.
-                            code.extend([0x66, 0x67, 0x64, 0x65]);
-                        }
-                        code.extend(opcode);
-                        let mut image = Image::new(&code);
-                        code_defaults(&mut image, profile);
-                        image.cpu.segments.ss = data(0x4000, 0xffff);
-                        image.cpu.segments.ss.attributes = stack_attributes(big);
-                        image.cpu.segments.fs = StoredSegment::unusable(0xf327);
-                        image.cpu.segments.gs = StoredSegment::unusable(0xf327);
-                        if segment == Segment::Ds && push {
-                            image.cpu.segments.ds = StoredSegment::unusable(0xf327);
-                        }
-                        image.cpu.segments[segment].selector = 0xf327;
-                        image.cpu.registers.esp = if big { 0x104 } else { 0xabcd_0104 };
-                        image.map(4, 0x8000, true);
-                        image.data(0x8100, &[0xa5; 12]);
-                        let mut cpu = image.cpu;
-                        cpu.eip += code.len() as u32;
-                        cpu.instruction_count = 0;
-                        if push {
-                            cpu.registers.esp -= slot;
-                            check_one(
-                                engine,
-                                profile,
-                                &code,
-                                &image,
-                                &[],
-                                Step {
-                                    cpu,
-                                    ram: &[(0x8104 - slot, &[0x27, 0xf3])],
-                                    exit: Exit::Dispatch(cpu.eip),
-                                },
-                            );
-                        } else {
-                            image.data(0x8104, &[0x27, 0xf3]);
-                            let size = if big {
-                                SegmentDefaultSize::Bits16
-                            } else {
-                                SegmentDefaultSize::Bits32
-                            };
-                            let mut tables = DescriptorTables::default();
-                            tables.insert(0xf327, descriptor(0x9000, size));
-                            cpu.registers.esp += slot;
-                            cpu.segments[segment] = StoredSegment {
-                                base: 0x9000,
-                                limit: 0xffff,
-                                selector: 0xf327,
-                                attributes: SegmentAttributes::from_bits(if big {
-                                    5
-                                } else {
-                                    0x15
-                                }),
-                            };
-                            check_one(
-                                engine,
-                                profile,
-                                &code,
-                                &image,
-                                &[SegmentResolution::new(&tables, segment, 0xf327)],
-                                Step {
-                                    cpu,
-                                    ram: &[],
-                                    exit: Exit::Dispatch(cpu.eip),
-                                },
-                            );
-                        }
-                    }
-                }
+                let mut tables = DescriptorTables::default();
+                tables.insert(0xf327, descriptor(0x9000, size));
+                cpu.registers.esp += slot;
+                cpu.segments[segment] = StoredSegment {
+                    base: 0x9000,
+                    limit: 0xffff,
+                    selector: 0xf327,
+                    attributes: SegmentAttributes::from_bits(if big { 5 } else { 0x15 }),
+                };
+                check_one(
+                    engine,
+                    profile,
+                    &code,
+                    &image,
+                    &[SegmentResolution::new(&tables, segment, 0xf327)],
+                    Step {
+                        cpu,
+                        ram: &[],
+                        exit: Exit::Dispatch(cpu.eip),
+                    },
+                );
             }
         }
     }
@@ -92,7 +81,7 @@ fn selector_widths(engine: Engine, all_segments: bool) {
 
 #[test]
 fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
-    selector_widths(Engine::Wasmtime, true);
+    selector_widths(Engine::Wasmtime);
 }
 
 fn unread_slot_bytes(engine: Engine) {
@@ -214,7 +203,7 @@ fn selector_words_can_cross_discontiguous_physical_pages() {
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn v8_segment_stack_widths_and_access_spans() {
-    selector_widths(Engine::V8, false);
+    selector_widths(Engine::V8);
     unread_slot_bytes(Engine::V8);
     split_selector(Engine::V8);
 }

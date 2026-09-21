@@ -1,127 +1,91 @@
-use super::*;
-use crate::register::Gpr32;
+use super::super::data;
+use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadWrite};
+use crate::{Gpr32::*, Segment, SegmentAttributes, StoredSegment};
 
-#[test]
-fn all_visible_selectors_store_to_every_gpr_at_both_operand_sizes() {
-    for profile in [SegmentProfile::Flat32, SegmentProfile::Segmented16] {
-        for prefix in [false, true] {
-            for segment in Segment::ALL {
-                for (index, register) in Gpr32::ALL.into_iter().enumerate() {
-                    let mut code = vec![];
-                    if prefix {
-                        code.push(0x66);
-                    }
-                    code.extend([0x8c, 0xc0 | ((segment as u8) << 3) | index as u8]);
-                    let mut image = Image::new(&code);
-                    code_defaults(&mut image, profile);
-                    image.cpu.segments[segment].selector = 0xf327;
-                    let mut cpu = image.cpu;
-                    let word = (profile == SegmentProfile::Segmented16) != prefix;
-                    cpu.registers[register] = if word {
-                        (cpu.registers[register] & 0xffff_0000) | 0xf327
-                    } else {
-                        0xf327
-                    };
-                    cpu.eip += code.len() as u32;
-                    cpu.instruction_count = 0;
-                    check_one(
-                        Engine::Wasmtime,
-                        profile,
-                        &code,
-                        &image,
-                        &[],
-                        Step {
-                            cpu,
-                            ram: &[],
-                            exit: Exit::Dispatch(cpu.eip),
-                        },
-                    );
-                }
-            }
-        }
-    }
-}
-
-fn unusable_selectors(engine: Engine) {
-    for (segment, selector) in [(Segment::Ds, 3), (Segment::Fs, 0xf327)] {
-        let code = [0x8c, 0xc0 | ((segment as u8) << 3)];
-        let mut image = Image::new(&code);
-        image.cpu.segments[segment] = StoredSegment::unusable(selector);
-        let mut cpu = image.cpu;
-        cpu.registers.eax = u32::from(selector);
-        cpu.eip += 2;
-        cpu.instruction_count = 0;
-        check_one(
-            engine,
-            SegmentProfile::Segmented32,
-            &code,
-            &image,
-            &[],
-            Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            },
-        );
-    }
-}
-
-#[test]
-fn reading_a_selector_does_not_require_a_usable_cache() {
-    unusable_selectors(Engine::Wasmtime);
-}
-
-fn memory_width(engine: Engine) {
-    for profile in [SegmentProfile::Flat32, SegmentProfile::Segmented16] {
-        for operand_override in [false, true] {
-            // GS overrides DS; address override selects the opposite address size.
-            let mut code = vec![0x3e, 0x65, 0x67];
-            if operand_override {
-                code.push(0x66);
-            }
-            code.extend([
-                0x8c,
-                if profile == SegmentProfile::Segmented16 {
-                    0x03
-                } else {
-                    0x07
-                },
-            ]);
-            let mut image = Image::new(&code);
-            code_defaults(&mut image, profile);
-            image.cpu.registers.ebx = 0x0ffe;
-            image.cpu.segments.gs = data(0x4000, 0x0fff);
-            image.cpu.segments.es.selector = 0xf327;
-            image.map(4, 0x8000, true);
-            image.data(0x8ffd, &[0xaa, 0xbb, 0xcc, 0xdd]);
-            let mut cpu = image.cpu;
-            cpu.eip += code.len() as u32;
-            cpu.instruction_count = 0;
-            // A four-byte write would exceed both GS and the mapped page.
-            check_one(
-                engine,
-                profile,
-                &code,
-                &image,
-                &[],
-                Step {
-                    cpu,
-                    ram: &[(0x8ffe, &[0x27, 0xf3])],
-                    exit: Exit::Dispatch(cpu.eip),
+fn stores() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (segment, code, destination, output, code16) in [
+        (Segment::Es, &[0x8c, 0xc0][..], Eax, 0xf327, false),
+        (
+            Segment::Cs,
+            &[0x66, 0x8c, 0xc9][..],
+            Ecx,
+            0xaaaa_f327,
+            false,
+        ),
+        (Segment::Ss, &[0x8c, 0xd2][..], Edx, 0xaaaa_f327, true),
+        (Segment::Ds, &[0x66, 0x8c, 0xdb][..], Ebx, 0xf327, true),
+        (
+            Segment::Fs,
+            &[0x66, 0x8c, 0xe4][..],
+            Esp,
+            0xaaaa_f327,
+            false,
+        ),
+        (Segment::Gs, &[0x8c, 0xef][..], Edi, 0xf327, false),
+    ] {
+        let cache = if segment == Segment::Cs {
+            StoredSegment::flat_code32(0xf327)
+        } else {
+            StoredSegment::flat_data32(0xf327)
+        };
+        let mut case =
+            Case::preserving_flags(format!("MOV {destination:?},{segment:?} {code:02x?}"), code)
+                .segment(segment, cache)
+                .register(destination, 0xaaaa_5555, output);
+        if code16 {
+            case = case.segmented_only().segment(
+                Segment::Cs,
+                StoredSegment {
+                    attributes: SegmentAttributes::from_bits(0x07),
+                    ..StoredSegment::flat_code32(0x1b)
                 },
             );
         }
+        cases.push(case);
     }
+    cases.extend([
+        Case::preserving_flags(
+            "MOV reads a null visible selector from an unusable DS",
+            &[0x8c, 0xd8],
+        )
+        .segmented_only()
+        .segment(Segment::Ds, StoredSegment::unusable(3))
+        .register(Eax, 0x1234_5678, 3),
+        Case::preserving_flags(
+            "MOV reads a nonnull visible selector from an unusable FS",
+            &[0x8c, 0xe0],
+        )
+        .segment(Segment::Fs, StoredSegment::unusable(0xf327))
+        .register(Eax, 0x1234_5678, 0xf327),
+        Case::preserving_flags(
+            "selector store writes only two bytes through the last override",
+            &[0x3e, 0x65, 0x67, 0x8c, 0x07],
+        )
+        .initial_register(Ebx, 0xabcd_0ffe)
+        .segment(Segment::Gs, data(0x4000, 0xfff))
+        .segment(Segment::Es, StoredSegment::flat_data32(0xf327))
+        .memory(0x4ffd, &[0xaa, 0xbb, 0xcc], ReadWrite)
+        .expect_memory(0x4ffe, &[0x27, 0xf3]),
+        Case::preserving_flags(
+            "dword operand override still stores a word in 16-bit code",
+            &[0x65, 0x67, 0x66, 0x8c, 0x03],
+        )
+        .segmented_only()
+        .segment(
+            Segment::Cs,
+            StoredSegment {
+                attributes: SegmentAttributes::from_bits(0x07),
+                ..StoredSegment::flat_code32(0x1b)
+            },
+        )
+        .initial_register(Ebx, 0xffe)
+        .segment(Segment::Gs, data(0x4000, 0xfff))
+        .segment(Segment::Es, StoredSegment::flat_data32(0xf327))
+        .memory(0x4ffd, &[0xaa, 0xbb, 0xcc], ReadWrite)
+        .expect_memory(0x4ffe, &[0x27, 0xf3]),
+    ]);
+    cases
 }
 
-#[test]
-fn selector_memory_stores_use_two_bytes_with_either_operand_size() {
-    memory_width(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_selector_reads_and_memory_widths() {
-    unusable_selectors(Engine::V8);
-    memory_width(Engine::V8);
-}
+test_cases!(visible_selectors_and_destination_widths, stores());
