@@ -109,7 +109,7 @@ impl SequenceCase {
         self.checkpoints.push(checkpoint);
         self
     }
-    /// Include instructions compiled after the final expected fault or branch.
+    /// Append instructions after the final expected fault or branch; they must not execute.
     pub(crate) fn trailing_code(mut self, bytes: &[u8], instructions: u32) -> Self {
         self.trailing_code.extend_from_slice(bytes);
         self.trailing_instructions += instructions;
@@ -190,6 +190,11 @@ impl Checkpoint {
 
     pub(crate) fn bound_range_exceeded(mut self) -> Self {
         self.expected.exit = ExpectedExit::BoundRangeExceeded;
+        self
+    }
+
+    pub(crate) fn invalid_opcode(mut self) -> Self {
+        self.expected.exit = ExpectedExit::InvalidOpcode;
         self
     }
 }

@@ -115,8 +115,8 @@ fn unsupported_extensions_stop_before_address_and_immediate_fields() {
         (&[0xf7, 0x0c][..], 0xf7),
         (&[0x66, 0xf7, 0x0d][..], 0xf7),
         (&[0xf6, 0x0d][..], 0xf6),
-        (&[0x0f, 0x0b][..], 0x0f),
-        (&[0x66, 0x0f, 0xff][..], 0x0f),
+        (&[0x0f, 0x28][..], 0x0f), // MOVAPS is outside the integer subset.
+        (&[0x66, 0x0f, 0x28][..], 0x0f), // MOVAPD
     ] {
         assert_eq!(
             compile_block_from_bytes(0x1000, code, 1).err(),
@@ -228,9 +228,9 @@ fn binary_fetch_faults_follow_decode_precedence() {
             Exit::Other(0x0008_00f7_0000_1ffe),
         ),
         (
-            "unsupported second opcode before ModRM",
+            "unsupported MOVAPS opcode before ModRM",
             0x1ffe,
-            vec![0x0f, 0x0b],
+            vec![0x0f, 0x28],
             Exit::Other(0x0008_000f_0000_1ffe),
         ),
         (
@@ -276,9 +276,9 @@ fn binary_fetch_faults_follow_decode_precedence() {
             Exit::Other(0x0008_00f6_0000_1ff1),
         ),
         (
-            "last-byte second opcode rejection avoids a length fault",
+            "last-byte MOVAPD opcode rejection avoids a ModRM length fault",
             0x1ff1,
-            [vec![0x66; 13], vec![0x0f, 0x0b]].concat(),
+            [vec![0x66; 13], vec![0x0f, 0x28]].concat(),
             Exit::Other(0x0008_000f_0000_1ff1),
         ),
     ] {

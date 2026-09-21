@@ -232,6 +232,7 @@ pub(in crate::support) fn check_checkpoint(
         expected.exit,
         ExpectedExit::DivideError
             | ExpectedExit::BoundRangeExceeded
+            | ExpectedExit::InvalidOpcode
             | ExpectedExit::GeneralProtection { .. }
             | ExpectedExit::StackFault { .. }
             | ExpectedExit::PageFault { .. }
@@ -252,6 +253,7 @@ pub(in crate::support) fn check_checkpoint(
         }
         ExpectedExit::DivideError => Exit::DivideError,
         ExpectedExit::BoundRangeExceeded => Exit::BoundRangeExceeded,
+        ExpectedExit::InvalidOpcode => Exit::InvalidOpcode,
         ExpectedExit::GeneralProtection { error } => Exit::GeneralProtection { error },
         ExpectedExit::StackFault { error } => Exit::StackFault { error },
         ExpectedExit::PageFault { address, error } => Exit::PageFault { address, error },

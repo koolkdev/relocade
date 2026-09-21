@@ -154,6 +154,7 @@ fn boundary(checkpoint: &Checkpoint, entry: u32) -> Boundary {
         },
         ExpectedExit::DivideError
         | ExpectedExit::BoundRangeExceeded
+        | ExpectedExit::InvalidOpcode
         | ExpectedExit::GeneralProtection { .. }
         | ExpectedExit::StackFault { .. }
         | ExpectedExit::PageFault { .. } => Boundary {

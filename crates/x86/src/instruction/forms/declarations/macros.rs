@@ -132,6 +132,9 @@ macro_rules! declaration_effect {
     (control_transfer) => {
         Effect::ControlTransfer
     };
+    (unconditional_fault) => {
+        Effect::UnconditionalFault
+    };
 }
 
 macro_rules! operand_spec {

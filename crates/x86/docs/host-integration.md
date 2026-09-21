@@ -265,6 +265,12 @@ exception vector numbers:
 | Stack fault | 16 | Error code | Zero |
 | Segment not present | 32 | Error code | Zero |
 | BOUND range exceeded | 64 | Zero | Zero |
+| Invalid opcode | 128 | Zero | Zero |
+
+UD2 raises invalid opcode (#UD, architectural vector 6) after its complete encoding
+has been fetched. It preserves CPU state and memory, does not retire or dispatch,
+and leaves EIP at its first prefix or opcode byte. Snapshot compilation ends at
+UD2 without decoding subsequent bytes.
 
 Page-fault error bit 0 means a present but denied page, bit 1 means a data write,
 and bit 4 means instruction fetch. Cached segment-access failures use #SS(0) for

@@ -53,6 +53,8 @@ pub(in crate::instruction) enum Effect {
     MemoryWrite,
     ControlTransfer,
     SegmentLoad,
+    /// Execution always raises a guest fault, so no successor belongs to the block.
+    UnconditionalFault,
 }
 
 pub(in crate::instruction) struct Opcode {
@@ -190,7 +192,9 @@ impl Declaration<'_> {
         while index < self.effects.len() {
             match self.effects[index] {
                 Effect::MemoryRead | Effect::MemoryWrite => implicit_memory = true,
-                Effect::ControlTransfer | Effect::SegmentLoad => ends_block = true,
+                Effect::ControlTransfer | Effect::SegmentLoad | Effect::UnconditionalFault => {
+                    ends_block = true
+                }
             }
             index += 1;
         }

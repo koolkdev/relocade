@@ -98,6 +98,8 @@ Forms derive ordinary operand effects. Declare additional effects when accesses
 are implicit, as in [strings](crates/x86/src/instruction/definitions/strings.rs),
 or when a segment load terminates execution under the current assumptions, as in
 [segment instructions](crates/x86/src/instruction/definitions/segments.rs).
+Use `unconditional_fault` when execution always raises a guest fault, as in UD2,
+so snapshot compilation stops without decoding a successor.
 
 For implicit memory based on a register, `execution.memory_at_register::<T>`
 uses the current address size and an explicit segment selection. Pass

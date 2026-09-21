@@ -20,7 +20,7 @@ fn check(engine: Engine, module: &TestModule, name: &str, image: &Image, step: S
     );
 }
 
-fn dispatch_boundaries(engine: Engine, module: &TestModule) {
+fn execution_boundaries(engine: Engine, module: &TestModule) {
     let image = Image::new(&[
         0xb8, 0x78, 0x56, 0x34, 0x12, // MOV EAX,12345678
         0xb4, 0x9a, // MOV AH,9A
@@ -112,6 +112,27 @@ fn dispatch_boundaries(engine: Engine, module: &TestModule) {
             cpu,
             ram: &[],
             exit: Exit::Dispatch(cpu.eip),
+        },
+    );
+
+    let image = Image::new(&[
+        0xb4, 0x9a, // MOV AH,9A
+        0x66, 0x0f, 0x0b, // UD2
+        0xb0, 0x77, // Unexecuted MOV AL,77
+    ]);
+    let mut cpu = image.cpu;
+    cpu.registers.eax = 0x1111_9a11;
+    cpu.eip = 0x1002;
+    cpu.instruction_count = 0;
+    check(
+        engine,
+        module,
+        "UD2 returns its guest fault without retiring or dispatching",
+        &image,
+        Step {
+            cpu,
+            ram: &[],
+            exit: Exit::InvalidOpcode,
         },
     );
 }
@@ -281,7 +302,7 @@ fn segmented_execution(engine: Engine) {
 
 fn check_runs(engine: Engine) {
     let module = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
-    dispatch_boundaries(engine, &module);
+    execution_boundaries(engine, &module);
     fetch::check_fetch(engine, &module);
     repetition_progress(engine, &module);
     terminal_segment_load(engine, &module);

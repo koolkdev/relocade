@@ -84,6 +84,8 @@ mod strings;
 mod table_lookups;
 #[path = "suites/unary_operations.rs"]
 mod unary_operations;
+#[path = "suites/undefined_instructions.rs"]
+mod undefined_instructions;
 
 #[path = "suites/execution_sizes.rs"]
 mod execution_sizes;

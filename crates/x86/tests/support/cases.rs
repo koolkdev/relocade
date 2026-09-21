@@ -230,6 +230,11 @@ impl InstructionCase {
         self
     }
 
+    pub(crate) fn invalid_opcode(mut self) -> Self {
+        self.expected.exit = ExpectedExit::InvalidOpcode;
+        self
+    }
+
     pub(crate) fn general_protection(mut self, error: u16) -> Self {
         self.expected.exit = ExpectedExit::GeneralProtection { error };
         self
@@ -246,6 +251,7 @@ impl InstructionCase {
             ExpectedExit::Dispatch(target) => target,
             ExpectedExit::DivideError
             | ExpectedExit::BoundRangeExceeded
+            | ExpectedExit::InvalidOpcode
             | ExpectedExit::GeneralProtection { .. }
             | ExpectedExit::StackFault { .. }
             | ExpectedExit::PageFault { .. } => self.initial.eip,
@@ -257,6 +263,7 @@ impl InstructionCase {
             ExpectedExit::Fallthrough | ExpectedExit::Dispatch(_) => 1,
             ExpectedExit::DivideError
             | ExpectedExit::BoundRangeExceeded
+            | ExpectedExit::InvalidOpcode
             | ExpectedExit::GeneralProtection { .. }
             | ExpectedExit::StackFault { .. }
             | ExpectedExit::PageFault { .. } => 0,
@@ -406,6 +413,7 @@ pub(super) enum ExpectedExit {
     Dispatch(u32),
     DivideError,
     BoundRangeExceeded,
+    InvalidOpcode,
     GeneralProtection { error: u16 },
     StackFault { error: u16 },
     PageFault { address: u32, error: u16 },

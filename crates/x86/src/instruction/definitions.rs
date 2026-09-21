@@ -20,6 +20,7 @@ mod segments;
 mod shifts;
 mod stack;
 mod strings;
+mod undefined;
 
 use super::{
     forms::*,
@@ -46,6 +47,7 @@ pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form
         .chain(bounds::forms())
         .chain(stack::forms())
         .chain(strings::forms())
+        .chain(undefined::forms())
         .chain(conditions::forms())
         .chain(flag_control::forms())
         .chain(flag_transfer::forms())

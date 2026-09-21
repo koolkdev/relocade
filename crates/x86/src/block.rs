@@ -7,14 +7,15 @@ use crate::{
 
 /// Compiles a byte snapshot under [`SegmentProfile::Flat32`].
 ///
-/// Compilation stops at the first branch, segment load or `instruction_limit`,
-/// whichever comes first. A conditional branch ends the block on both outcomes;
+/// Compilation stops at the first branch, segment load, unconditional fault or
+/// `instruction_limit`. A conditional branch ends the block on both outcomes;
 /// bytes after the boundary are ignored. The limit must be nonzero. Incomplete,
 /// unsupported or overlong instructions within that boundary return [`BlockError`].
 ///
 /// The generated `block_<hex start_eip>() -> i64` entry executes the block and
-/// tail-calls host dispatch. The host must satisfy the profile and snapshot-validity
-/// requirements documented by [`compile_block_from_bytes_with_profile`].
+/// tail-calls host dispatch on success; guest faults return directly.
+/// The host must satisfy the profile and snapshot-validity requirements documented
+/// by [`compile_block_from_bytes_with_profile`].
 ///
 /// ```
 /// use wasm86_x86::compile_block_from_bytes;
