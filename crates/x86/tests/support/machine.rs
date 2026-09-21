@@ -1,5 +1,4 @@
-use wasm86_x86::{compile_block_from_bytes, CpuState, Registers, Segments};
-use wasmparser::Validator;
+use wasm86_x86::{CpuState, Registers, Segments};
 
 use super::step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule};
 
@@ -182,33 +181,6 @@ pub(crate) fn check(module: &TestModule, name: &str, image: &Image, steps: &[Ste
         expected(image, steps),
         "{name}, {}",
         module.entry
-    );
-}
-pub(crate) fn both(
-    step: &TestModule,
-    name: &str,
-    code: &[u8],
-    count: u32,
-    image: &Image,
-    steps: &[Step<'_>],
-) {
-    check(step, name, image, steps);
-    let start = image.cpu.eip;
-    let snapshot = compile_block_from_bytes(start, code, count).unwrap();
-    Validator::new().validate_all(&snapshot.bytes).unwrap();
-    let ram = steps
-        .iter()
-        .flat_map(|step| step.ram.iter().copied())
-        .collect::<Vec<_>>();
-    check(
-        &TestModule::new(&snapshot),
-        name,
-        image,
-        &[Step {
-            cpu: steps.last().unwrap().cpu,
-            ram: &ram,
-            exit: steps.last().unwrap().exit,
-        }],
     );
 }
 

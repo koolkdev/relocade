@@ -1,299 +1,216 @@
-use crate::support::cases::Flags;
-use wasm86_x86::FlagBytes;
-use wasm86_x86::{compile_block_from_bytes, CpuState};
-use wasmparser::Validator;
+use wasm86_x86::Gpr32::{Eax, Ebx, Ecx, Edx};
 
-use crate::support::arithmetic;
-use crate::support::conditions;
-use crate::support::machine;
-use crate::support::step;
-use arithmetic::image;
-use conditions::check_conditions;
-use machine::{check, Exit, Step};
-use step::TestModule;
-#[path = "carry_arithmetic/operands.rs"]
-mod operands;
-#[path = "carry_arithmetic/registers.rs"]
-mod registers;
-#[path = "carry_arithmetic/sources.rs"]
-mod sources;
+use crate::support::{
+    cases::{
+        test_cases,
+        FlagExpectation::{Clear, Preserved, Set, Undefined},
+        Flags, InstructionCase as Case,
+        Permissions::{ReadOnly, ReadWrite},
+    },
+    sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
+};
 
-#[derive(Clone, Copy, Debug)]
-enum Operation {
-    Adc,
-    Sbb,
-}
-
-impl Operation {
-    fn opcode(self) -> u8 {
-        match self {
-            Self::Adc => 0x10,
-            Self::Sbb => 0x18,
-        }
-    }
-
-    fn extension(self) -> u8 {
-        match self {
-            Self::Adc => 2,
-            Self::Sbb => 3,
-        }
-    }
-}
-
-const OPERATIONS: [Operation; 2] = [Operation::Adc, Operation::Sbb];
-const WIDTHS: [u32; 3] = [8, 16, 32];
-
-struct Expected {
-    result: u32,
-    status: Flags<u8>,
-    conditions: u16,
-}
-
-// Use widened unsigned, signed, and nibble arithmetic independently. In particular,
-// the carry is never combined with a width-truncated right operand.
-fn expected(op: Operation, bits: u32, left: u32, right: u32, carry: bool) -> Expected {
-    let modulus = 1i64 << bits;
-    let mask = modulus - 1;
-    let left = i64::from(left) & mask;
-    let right = i64::from(right) & mask;
-    let carry = i64::from(carry);
-    let signed = |value: i64| {
-        if value >= modulus / 2 {
-            value - modulus
-        } else {
-            value
-        }
-    };
-    let (wide, signed_wide, nibble) = match op {
-        Operation::Adc => (
-            left + right + carry,
-            signed(left) + signed(right) + carry,
-            (left % 16) + (right % 16) + carry,
-        ),
-        Operation::Sbb => (
-            left - right - carry,
-            signed(left) - signed(right) - carry,
-            (left % 16) - (right % 16) - carry,
-        ),
-    };
-    let result = wide.rem_euclid(modulus) as u32;
-    let cf = !(0..modulus).contains(&wide);
-    let pf = (result as u8).count_ones() % 2 == 0;
-    let af = !(0..16).contains(&nibble);
-    let zf = result == 0;
-    let sf = i64::from(result) >= modulus / 2;
-    let of = !(-modulus / 2..modulus / 2).contains(&signed_wide);
-    let mut conditions = 0;
-    for (pair, value) in [of, cf, zf, cf || zf, sf, pf, sf != of, zf || sf != of]
-        .into_iter()
-        .enumerate()
-    {
-        conditions |= 1 << (2 * pair + usize::from(!value));
-    }
-    Expected {
-        result,
-        status: Flags {
-            cf: u8::from(cf),
-            pf: u8::from(pf),
-            af: u8::from(af),
-            zf: u8::from(zf),
-            sf: u8::from(sf),
-            of: u8::from(of),
-        },
-        conditions,
-    }
-}
-
-fn mask(bits: u32) -> u32 {
-    ((1u64 << bits) - 1) as u32
-}
-
-fn register_result(original: u32, bits: u32, result: u32) -> u32 {
-    (original & !mask(bits)) | result
-}
-
-fn code_with_width(bits: u32, opcode: u8, tail: &[u8]) -> Vec<u8> {
-    let mut code = Vec::new();
-    if bits == 16 {
-        code.push(0x66);
-    }
-    code.push(opcode);
-    code.extend_from_slice(tail);
-    code
-}
-
-fn concrete_cpu(mut cpu: CpuState, expected: &Expected) -> CpuState {
-    cpu.flags.status_source.kind = 0;
-    cpu.flags.bytes = FlagBytes {
-        cf: expected.status.cf,
-        pf: expected.status.pf,
-        af: expected.status.af,
-        zf: expected.status.zf,
-        sf: expected.status.sf,
-        of: expected.status.of,
-        ..cpu.flags.bytes
-    };
-    cpu
-}
-
-#[test]
-fn widened_arithmetic_model_checks_edge_results_and_conditions() {
-    let step = TestModule::interpreter();
-    for op in OPERATIONS {
-        for bits in WIDTHS {
-            let max = mask(bits);
-            let sign = 1 << (bits - 1);
-            for (left, right) in [
-                (0, 0),
-                (max, 0),
-                (0, max),
-                (max, max),
-                (sign - 1, 0),
-                (0, sign - 1),
-                (sign, sign - 1),
-                (sign - 1, sign),
-                (sign, 0),
-                (sign, sign),
-                (0x0f, 0),
-            ] {
-                for carry in [false, true] {
-                    let code = code_with_width(bits, op.opcode() + u8::from(bits != 8), &[0xd8]);
-                    let eax = register_result(0x4433_2200, bits, left);
-                    let expected = expected(op, bits, left, right, carry);
-                    let mut image = image(&code);
-                    image.cpu.flags.bytes.cf = u8::from(carry);
-                    image.cpu.registers.eax = eax;
-                    image.cpu.registers.ebx = right;
-                    let mut cpu = concrete_cpu(image.cpu, &expected);
-                    cpu.registers.eax = register_result(eax, bits, expected.result);
-                    check_conditions(
-                        step,
-                        &format!("{op:?}/{bits}: {left:#x}, {right:#x}, carry {carry}"),
-                        &code,
-                        &mut image,
-                        &cpu,
-                        expected.conditions,
-                    );
-                }
-            }
-        }
-    }
-}
-
-#[test]
-fn discarded_local_carry_operands_remain_unpublished() {
-    let step = TestModule::interpreter();
-    for source_bits in WIDTHS {
-        for (opcode, kind, left, right, source_result, carry) in [
-            (0x00, 2, mask(source_bits), 1, 0, true),
-            (0x28, 1, 0, 1, mask(source_bits), true),
-            (0x30, 3, mask(source_bits), 1, mask(source_bits) - 1, false),
-        ] {
-            for op in OPERATIONS {
-                let producer =
-                    code_with_width(source_bits, opcode + u8::from(source_bits != 8), &[0xd1]);
-                let consumer = [op.opcode() + 1, 0xd8];
-                let code = [producer.as_slice(), &consumer].concat();
-                let mut image = image(&code);
-                image.cpu.flags.bytes.cf = u8::from(!carry);
-                image.cpu.registers.eax = 0xffff_ffff;
-                image.cpu.registers.ecx = register_result(0x4433_2200, source_bits, left);
-                image.cpu.registers.edx = right;
-                image.cpu.registers.ebx = 0;
-                let ecx = register_result(0x4433_2200, source_bits, source_result);
-                let tag = kind
-                    | match source_bits {
-                        8 => 0,
-                        16 => 4,
-                        _ => 8,
-                    };
-                let mut expected_cpu = image.cpu;
-                let mut steps = Vec::new();
-
-                if kind == 3 {
-                    expected_cpu.flags.status_source.kind = tag;
-                    expected_cpu.flags.status_source.left = source_result;
-                } else {
-                    expected_cpu.flags.status_source.kind = tag;
-                    expected_cpu.flags.status_source.left = left;
-                    expected_cpu.flags.status_source.right = right;
-                }
-                expected_cpu.registers.ecx = ecx;
-                expected_cpu.eip = 0x1000 + producer.len() as u32;
-                expected_cpu.instruction_count = 0;
-                steps.push(Step {
-                    cpu: expected_cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(expected_cpu.eip),
-                });
-
-                let expected = expected(op, 32, 0xffff_ffff, 0, carry);
-                let next = 0x1000 + code.len() as u32;
-                expected_cpu.flags.status_source.kind = 0;
-                expected_cpu.flags.bytes = FlagBytes {
-                    cf: expected.status.cf,
-                    pf: expected.status.pf,
-                    af: expected.status.af,
-                    zf: expected.status.zf,
-                    sf: expected.status.sf,
-                    of: expected.status.of,
-                    ..expected_cpu.flags.bytes
-                };
-                expected_cpu.registers.eax = expected.result;
-                expected_cpu.eip = next;
-                expected_cpu.instruction_count = 1;
-                steps.push(Step {
-                    cpu: expected_cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(next),
-                });
-
-                check(
-                    step,
-                    "carry consumes the prior completed source",
-                    &image,
-                    &steps,
-                );
-
-                // A single snapshot publishes only its final flags. The overwritten
-                // source's unused payload must retain its original backing bytes.
-                let snapshot = compile_block_from_bytes(0x1000, &code, 2).unwrap();
-                Validator::new().validate_all(&snapshot.bytes).unwrap();
-                expected_cpu.flags.status_source.left = image.cpu.flags.status_source.left;
-                expected_cpu.flags.status_source.right = image.cpu.flags.status_source.right;
-
-                check(
-                    &TestModule::new(&snapshot),
-                    "local carry source publishes concrete flags",
-                    &image,
-                    &[Step {
-                        cpu: expected_cpu,
-                        ram: &[],
-                        exit: Exit::Dispatch(next),
-                    }],
-                );
-            }
-        }
-    }
+#[rustfmt::skip]
+fn arithmetic_boundaries() -> Vec<Case> {
+    vec![
+        Case::new("ADC dword with clear carry", &[0x11, 0xd8], Flags::all(false),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x0000_0000, 0x0000_0000).initial_register(Ebx, 0x0000_0000),
+        Case::new("ADC byte accumulator immediate consumes carry", &[0x14, 0x00], Flags::all(true),
+            Flags { cf: Clear, pf: Clear, af: Clear, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_2200, 0x4433_2201),
+        Case::new("ADC byte group immediate carries out of the width", &[0x80, 0xd0, 0x00], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_22ff, 0x4433_2200),
+        Case::new("ADC word equal maximum operands retain carry", &[0x66, 0x11, 0xd8], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Clear, sf: Set, of: Clear })
+            .register(Eax, 0x4433_ffff, 0x4433_ffff).initial_register(Ebx, 0x0000_ffff),
+        Case::new("ADC dword maximum immediate plus carry must not truncate first", &[0x15, 0xff, 0xff, 0xff, 0xff], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x0000_0000, 0x0000_0000),
+        Case::new("ADC word carry crosses the positive signed limit", &[0x66, 0x15, 0x00, 0x00], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Set, of: Set })
+            .register(Eax, 0x4433_7fff, 0x4433_8000),
+        Case::new("ADC dword right operand plus carry changes sign", &[0x13, 0xc3], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Set, of: Set })
+            .register(Eax, 0x0000_0000, 0x8000_0000).initial_register(Ebx, 0x7fff_ffff),
+        Case::new("ADC dword mixed signs carry without signed overflow", &[0x11, 0xd8], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x8000_0000, 0x0000_0000).initial_register(Ebx, 0x7fff_ffff),
+        Case::new("ADC dword negative self addition overflows with clear carry in", &[0x11, 0xc0], Flags::all(false),
+            Flags { cf: Set, pf: Set, af: Clear, zf: Set, sf: Clear, of: Set })
+            .register(Eax, 0x8000_0000, 0x0000_0000),
+        Case::new("ADC byte reverse form carries across a nibble", &[0x12, 0xc3], Flags::all(true),
+            Flags { cf: Clear, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_220f, 0x4433_2210).initial_register(Ebx, 0x0000_0000),
+        Case::new("SBB word with clear borrow", &[0x66, 0x19, 0xd8], Flags::all(false),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_0000, 0x4433_0000).initial_register(Ebx, 0x0000_0000),
+        Case::new("SBB byte clear borrow still subtracts its source", &[0x18, 0xd8], Flags::all(false),
+            Flags { cf: Set, pf: Set, af: Set, zf: Clear, sf: Set, of: Clear })
+            .register(Eax, 0x4433_2200, 0x4433_22ff).initial_register(Ebx, 1),
+        Case::new("SBB byte accumulator immediate borrows from zero", &[0x1c, 0x00], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Clear, sf: Set, of: Clear })
+            .register(Eax, 0x4433_2200, 0x4433_22ff),
+        Case::new("SBB word borrow can exactly consume the left operand", &[0x66, 0x1d, 0x00, 0x00], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_0001, 0x4433_0000),
+        Case::new("SBB word maximum immediate plus borrow must not truncate first", &[0x66, 0x81, 0xd8, 0xff, 0xff], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_0000, 0x4433_0000),
+        Case::new("SBB dword equal maximum operands retain borrow", &[0x19, 0xd8], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Clear, sf: Set, of: Clear })
+            .register(Eax, 0xffff_ffff, 0xffff_ffff).initial_register(Ebx, 0xffff_ffff),
+        Case::new("SBB word borrow crosses the negative signed limit", &[0x66, 0x1b, 0xc3], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Clear, of: Set })
+            .register(Eax, 0x4433_8000, 0x4433_7fff).initial_register(Ebx, 0x0000_0000),
+        Case::new("SBB byte right operand plus borrow changes sign without overflow", &[0x1a, 0xc3], Flags::all(true),
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Set, of: Clear })
+            .register(Eax, 0x4433_2200, 0x4433_2280).initial_register(Ebx, 0x0000_007f),
+        Case::new("SBB dword mixed signs overflow to zero without borrow out", &[0x1d, 0xff, 0xff, 0xff, 0x7f], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Set, zf: Set, sf: Clear, of: Set })
+            .register(Eax, 0x8000_0000, 0x0000_0000),
+        Case::new("SBB dword mixed signs produce both borrow and overflow", &[0x19, 0xd8], Flags::all(true),
+            Flags { cf: Set, pf: Clear, af: Clear, zf: Clear, sf: Set, of: Set })
+            .register(Eax, 0x7fff_ffff, 0xffff_fffe).initial_register(Ebx, 0x8000_0000),
+        Case::new("SBB byte group immediate borrows across a nibble", &[0x80, 0xd8, 0x00], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_2210, 0x4433_220f),
+    ]
 }
 
 #[rustfmt::skip]
-fn mixed_carry_sequence() -> Vec<crate::support::sequences::SequenceCase> {
-    use wasm86_x86::Gpr32::{Eax, Ebx};
-    use crate::support::{
-        cases::{Flags, FlagExpectation::{Clear, Set}},
-        sequences::{Checkpoint, SequenceCase},
-    };
-    vec![SequenceCase::new("mixed-width carry chain replaces cached incoming CF", Flags::all(true))
-        .initial_register(Eax, 0xffff_ffff).initial_register(Ebx, 0)
-        .step(Checkpoint::new(&[0x10, 0xd8],
+fn immediates_and_aliases() -> Vec<Case> {
+    vec![
+        Case::new("ADC AX, full group immediate -1", &[0x66, 0x81, 0xd0, 0xff, 0xff], Flags::all(true),
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_0001, 0x4433_0001),
+        Case::new("ADC AX, sign-extended immediate 7f", &[0x66, 0x83, 0xd0, 0x7f], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_0001, 0x4433_0081),
+        Case::new("ADC EAX, sign-extended immediate 80", &[0x83, 0xd0, 0x80], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Clear, sf: Set, of: Clear })
+            .register(Eax, 0x0000_0001, 0xffff_ff82),
+        Case::new("ADC AL,AH reads old byte aliases", &[0x10, 0xe0], Flags::all(true),
             Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
-            .register(Eax, 0xffff_ff00))
-        .step(Checkpoint::new(&[0x66, 0x19, 0xd8],
-            Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Set, of: Clear })
-            .register(Eax, 0xffff_feff))
-        .step(Checkpoint::new(&[0x11, 0xd8],
-            Flags { cf: Clear, pf: Set, af: Clear, zf: Clear, sf: Set, of: Clear }))]
+            .register(Eax, 0x4433_7f80, 0x4433_7f00),
+        Case::new("ADC AH,AH reads old byte aliases", &[0x10, 0xe4], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Set, of: Set })
+            .register(Eax, 0x4433_7f80, 0x4433_ff80),
+        Case::new("SBB AX, sign-extended immediate 7f", &[0x66, 0x83, 0xd8, 0x7f], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Clear, sf: Set, of: Clear })
+            .register(Eax, 0x4433_0001, 0x4433_ff81),
+        Case::new("SBB EAX, full group immediate -1", &[0x81, 0xd8, 0xff, 0xff, 0xff, 0xff], Flags::all(true),
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x0000_0001, 0x0000_0001),
+        Case::new("SBB EAX, sign-extended immediate 80", &[0x83, 0xd8, 0x80], Flags::all(true),
+            Flags { cf: Set, pf: Clear, af: Clear, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x0000_0001, 0x0000_0080),
+        Case::new("SBB AH,AL reads old byte aliases", &[0x18, 0xc4], Flags::all(true),
+            Flags { cf: Set, pf: Clear, af: Clear, zf: Clear, sf: Set, of: Set })
+            .register(Eax, 0x4433_7f80, 0x4433_fe80),
+        Case::new("SBB EAX,EAX reads its old self operand", &[0x19, 0xc0], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Clear, sf: Set, of: Clear })
+            .register(Eax, 0x8000_8000, 0xffff_ffff),
+    ]
 }
 
-crate::support::sequences::test_sequences!(mixed_carry_chain, mixed_carry_sequence());
+#[rustfmt::skip]
+fn memory_operands() -> Vec<Case> {
+    vec![
+        Case::new("ADC byte destination uses its old address and AL", &[0x10, 0x00], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
+            .initial_register(Eax, 0x4020).memory(0x401f, &[0xa5, 0xdf, 0xa5], ReadWrite)
+            .expect_memory(0x4020, &[0]),
+        Case::new("SBB dword source uses the old destination as its address", &[0x1b, 0x00], Flags::all(true),
+            Flags { cf: Clear, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear })
+            .register(Eax, 0x4020, 0x401a).memory(0x4020, &[5, 0, 0, 0], ReadOnly),
+        Case::new("ADC word reads a source across scattered pages", &[0x66, 0x13, 0x03], Flags::all(true),
+            Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear })
+            .register(Eax, 0x4433_ffff, 0x4433_0000).initial_register(Ebx, 0x4fff)
+            .map_page(4, 0x8000, ReadOnly).map_page(5, 0xa000, ReadOnly).memory(0x4fff, &[0, 0], ReadOnly),
+        Case::new("SBB word writes a destination across scattered pages", &[0x66, 0x19, 0x03], Flags::all(true),
+            Flags { cf: Clear, pf: Clear, af: Clear, zf: Clear, sf: Set, of: Clear })
+            .initial_registers(&[(Eax, 0x4433_0000), (Ebx, 0x4fff)])
+            .map_page(4, 0x8000, ReadWrite).map_page(5, 0xa000, ReadWrite)
+            .memory(0x4ffe, &[0xa5, 0xff, 0xff, 0x5a], ReadWrite).expect_memory(0x4fff, &[0xfe, 0xff]),
+        Case::new("ADC dword memory destination takes a signed byte immediate", &[0x83, 0x53, 0x80, 0x80], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Clear, zf: Clear, sf: Set, of: Clear })
+            .initial_register(Ebx, 0x40a0).memory(0x4020, &[1, 0, 0, 0], ReadWrite)
+            .expect_memory(0x4020, &[0x82, 0xff, 0xff, 0xff]),
+        Case::new("SBB byte immediate can leave memory unchanged while replacing flags", &[0x80, 0x1b, 0xff], Flags::all(true),
+            Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear })
+            .initial_register(Ebx, 0x4020).memory(0x4020, &[1], ReadWrite).expect_memory(0x4020, &[1]),
+        Case::new("ADC dword memory destination replaces flags after addition", &[0x11, 0x03], Flags::all(true),
+            Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Set, of: Set })
+            .initial_registers(&[(Eax, 0), (Ebx, 0x4020)]).memory(0x4020, &[0xff, 0xff, 0xff, 0x7f], ReadWrite)
+            .expect_memory(0x4020, &[0, 0, 0, 0x80]),
+        Case::new("SBB byte reads only the final mapped source byte", &[0x1a, 0x03], Flags::all(true),
+            Flags { cf: Clear, pf: Clear, af: Clear, zf: Clear, sf: Set, of: Clear })
+            .register(Eax, 0x4433_00ff, 0x4433_00fe).initial_register(Ebx, 0x4fff).memory(0x4fff, &[0], ReadOnly),
+    ]
+}
+
+#[rustfmt::skip]
+fn access_faults() -> Vec<Case> {
+    vec![
+        Case::new("ADC missing byte source preserves entry state", &[0x12, 0x03], Flags::all(true), Flags::all(Preserved))
+            .preserve_flag_record().initial_register(Ebx, 0x5000).fault(0x5000, 0),
+        Case::new("SBB incomplete word source preserves entry state", &[0x66, 0x1b, 0x03], Flags::all(true), Flags::all(Preserved))
+            .preserve_flag_record().initial_register(Ebx, 0x4fff).memory(0x4fff, &[0xff], ReadOnly).fault(0x5000, 0),
+        Case::new("SBB read-only byte destination faults even when arithmetic would leave it unchanged", &[0x80, 0x1b, 0xff], Flags::all(true), Flags::all(Preserved))
+            .preserve_flag_record().initial_register(Ebx, 0x4020).memory(0x4020, &[1], ReadOnly).fault(0x4020, 3),
+        Case::new("ADC missing second destination page prevents partial writes and flags", &[0x11, 0x03], Flags::all(true), Flags::all(Preserved))
+            .preserve_flag_record().initial_register(Ebx, 0x4fff).memory(0x4ffe, &[0xa5, 0xff], ReadWrite).fault(0x5000, 2),
+        Case::new("SBB read-only second destination page prevents partial writes and flags", &[0x19, 0x03], Flags::all(true), Flags::all(Preserved))
+            .preserve_flag_record().initial_register(Ebx, 0x4fff)
+            .memory(0x4ffe, &[0xa5, 0xff], ReadWrite).memory(0x5000, &[0xff, 0xff, 0xff, 0x5a], ReadOnly).fault(0x5000, 3),
+    ]
+}
+
+#[rustfmt::skip]
+fn carry_sequences() -> Vec<Sequence> {
+    vec![
+        Sequence::new("ADC consumes carry from ADD instead of stale clear CF", Flags::all(false))
+            .initial_registers(&[(Eax, 0x4433_22ff), (Ebx, 1), (Ecx, 0)])
+            .step(Step::new(&[0x00, 0xd8],
+                Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear }).register(Eax, 0x4433_2200))
+            .step(Step::new(&[0x83, 0xd1, 0], Flags::all(Clear)).register(Ecx, 1)),
+        Sequence::new("SBB consumes borrow from SUB instead of stale clear CF", Flags::all(false))
+            .initial_registers(&[(Eax, 0x4433_0000), (Ebx, 1), (Ecx, 0)])
+            .step(Step::new(&[0x66, 0x29, 0xd8],
+                Flags { cf: Set, pf: Set, af: Set, zf: Clear, sf: Set, of: Clear }).register(Eax, 0x4433_ffff))
+            .step(Step::new(&[0x83, 0xd9, 0],
+                Flags { cf: Set, pf: Set, af: Set, zf: Clear, sf: Set, of: Clear }).register(Ecx, 0xffff_ffff)),
+        Sequence::new("ADC consumes clear carry from XOR instead of stale set CF", Flags::all(true))
+            .initial_registers(&[(Eax, 0xffff_ffff), (Ecx, 0x4433_0000)])
+            .step(Step::new(&[0x31, 0xc0],
+                Flags { cf: Clear, pf: Set, af: Undefined, zf: Set, sf: Clear, of: Clear }).register(Eax, 0))
+            .step(Step::new(&[0x66, 0x83, 0xd1, 0],
+                Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear })),
+        Sequence::new("mixed-width carry chain replaces cached incoming CF", Flags::all(true))
+            .initial_registers(&[(Eax, 0xffff_ffff), (Ebx, 0)])
+            .step(Step::new(&[0x10, 0xd8],
+                Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear }).register(Eax, 0xffff_ff00))
+            .step(Step::new(&[0x66, 0x19, 0xd8],
+                Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Set, of: Clear }).register(Eax, 0xffff_feff))
+            .step(Step::new(&[0x11, 0xd8],
+                Flags { cf: Clear, pf: Set, af: Clear, zf: Clear, sf: Set, of: Clear })),
+        Sequence::new("failed SBB destination publishes completed ADC", Flags::all(true))
+            .initial_registers(&[(Ecx, 0xffff_ffff), (Edx, 1), (Ebx, 0x4fff)])
+            .memory(0x4ffe, &[0xa5, 0xff], ReadWrite)
+            .step(Step::new(&[0x11, 0xd1],
+                Flags { cf: Set, pf: Clear, af: Set, zf: Clear, sf: Clear, of: Clear }).register(Ecx, 1))
+            .step(Step::preserving_flags(&[0x19, 0x03]).fault(0x5000, 2))
+            .trailing_code(&[0xb9, 0, 0, 0, 0], 1),
+    ]
+}
+
+test_cases!(carry_borrow_and_signed_boundaries, arithmetic_boundaries());
+test_cases!(
+    immediates_and_old_register_aliases,
+    immediates_and_aliases()
+);
+test_cases!(memory_sources_and_destinations, memory_operands());
+test_cases!(access_faults_preserve_entry_state, access_faults());
+test_sequences!(pending_carry_and_fault_publication, carry_sequences());
