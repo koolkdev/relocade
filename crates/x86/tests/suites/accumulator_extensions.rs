@@ -1,24 +1,14 @@
-use wasm86_x86::{FlagBytes, StoredStatusSource};
-#[path = "accumulator_extensions/decoding.rs"]
-mod decoding;
-#[path = "accumulator_extensions/sequences.rs"]
-mod sequences;
-
-use crate::support::cases::{
-    test_cases, FlagExpectation::Preserved, Flags, InstructionCase as Case,
+//! Sign boundaries and dividend consumers for the implicit accumulator extensions.
+use crate::support::{
+    cases::{
+        test_cases,
+        FlagExpectation::{Clear, Set, Undefined},
+        Flags, InstructionCase as Case,
+    },
+    encoding::check_length,
+    sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::{
-    CpuState,
-    Gpr32::{Eax, Edx},
-    StoredFlags,
-};
-
-const ENCODINGS: [(&str, &[u8]); 4] = [
-    ("CBW", &[0x66, 0x98]),
-    ("CWDE", &[0x98]),
-    ("CWD", &[0x66, 0x99]),
-    ("CDQ", &[0x99]),
-];
+use wasm86_x86::Gpr32::{Eax, Ebx, Ecx, Edx};
 
 #[rustfmt::skip]
 fn boundary_cases() -> Vec<Case> {
@@ -45,93 +35,55 @@ fn boundary_cases() -> Vec<Case> {
     }).collect()
 }
 
-fn stored_flag_cases() -> Vec<Case> {
-    let concrete = StoredFlags {
-        status_source: StoredStatusSource {
-            kind: 0,
-            left: 0x1234_5678,
-            right: 0x8765_4321,
-            ..(CpuState::filled(0xa5).flags).status_source
-        },
-        bytes: FlagBytes {
-            cf: 1,
-            pf: 0,
-            af: 1,
-            zf: 0,
-            sf: 1,
-            of: 0,
-            ..(CpuState::filled(0xa5).flags).bytes
-        },
-    };
-    let pending_add = StoredFlags {
-        status_source: StoredStatusSource {
-            kind: 10,
-            left: 0x7fff_ffff,
-            right: 1,
-            ..(CpuState::filled(0x5a).flags).status_source
-        },
-        bytes: FlagBytes {
-            cf: 1,
-            pf: 0,
-            af: 0,
-            zf: 1,
-            sf: 0,
-            of: 0,
-            ..(CpuState::filled(0x5a).flags).bytes
-        },
-    };
-    let mut cases = Vec::new();
-    for (name, stored, flags) in [
-        (
-            "concrete flags with unused payload",
-            concrete,
-            Flags {
-                cf: true,
-                pf: false,
-                af: true,
-                zf: false,
-                sf: true,
-                of: false,
-            },
-        ),
-        (
-            "pending ADD with contradictory concrete bytes",
-            pending_add,
-            Flags {
-                cf: false,
-                pf: true,
-                af: true,
-                zf: false,
-                sf: true,
-                of: true,
-            },
-        ),
-    ] {
-        for ((mnemonic, code), (eax, edx)) in ENCODINGS.into_iter().zip([
-            (0x1234_ff81, 0xccbb_aa99),
-            (0xffff_8081, 0xccbb_aa99),
-            (0x1234_8081, 0xccbb_ffff),
-            (0x1234_8081, 0),
-        ]) {
-            cases.push(
-                Case::new(
-                    format!("{mnemonic}: {name}"),
-                    code,
-                    flags,
-                    Flags::all(Preserved),
-                )
-                .stored_flags(stored)
-                .preserve_flag_record()
-                .register(Eax, 0x1234_8081, eax)
-                .register(Edx, 0xccbb_aa99, edx),
-            );
-        }
+#[test]
+fn each_form_consumes_only_its_opcode_and_operand_prefix() {
+    for code in [&[0x66, 0x98][..], &[0x98], &[0x66, 0x99], &[0x99]] {
+        check_length(code);
     }
-    cases
 }
 
-test_cases!(
-    sign_boundaries_preserve_unwritten_register_bits,
-    boundary_cases()
+#[rustfmt::skip]
+fn dividend_and_flag_sequences() -> Vec<Sequence> {
+    vec![
+        Sequence::from_opaque_flags("all four extensions preserve pending arithmetic for later conditions")
+            .initial_registers(&[(Eax, 0x4433_7f80), (Edx, 0xccbb_0000), (Ebx, 0x7fff_ffff), (Ecx, 0)])
+            .step(Step::new(&[0x83, 0xc3, 1],
+                Flags { cf: Clear, pf: Set, af: Set, zf: Clear, sf: Set, of: Set }).register(Ebx, 0x8000_0000))
+            .step(Step::preserving_flags(&[0x66, 0x98]).register(Eax, 0x4433_ff80))
+            .step(Step::preserving_flags(&[0x98]).register(Eax, 0xffff_ff80))
+            .step(Step::preserving_flags(&[0x66, 0x99]).register(Edx, 0xccbb_ffff))
+            .step(Step::preserving_flags(&[0x99]).register(Edx, 0xffff_ffff))
+            .step(Step::preserving_flags(&[0x0f, 0x90, 0xc1]).register(Ecx, 1))
+            .step(Step::preserving_flags(&[0x0f, 0x92, 0xc5]).register(Ecx, 1)),
+        Sequence::new("CBW prepares a negative byte dividend after MOV AL", Flags::all(true))
+            .initial_registers(&[(Eax, 0x4433_2211), (Ecx, 7)])
+            .step(Step::preserving_flags(&[0xb0, 0x9c]).register(Eax, 0x4433_229c))
+            .step(Step::preserving_flags(&[0x66, 0x98]).register(Eax, 0x4433_ff9c))
+            .step(Step::new(&[0xf6, 0xf9], Flags::all(Undefined)).register(Eax, 0x4433_fef2)),
+        Sequence::new("CWD prepares DX while preserving EAX and the high EDX half", Flags::all(false))
+            .initial_registers(&[(Eax, 0x4433_2211), (Edx, 0xccbb_aa99), (Ecx, 7)])
+            .step(Step::preserving_flags(&[0x66, 0xb8, 0x9c, 0xff]).register(Eax, 0x4433_ff9c))
+            .step(Step::preserving_flags(&[0x66, 0x99]).register(Edx, 0xccbb_ffff))
+            .step(Step::new(&[0x66, 0xf7, 0xf9], Flags::all(Undefined))
+                .register(Eax, 0x4433_fff2).register(Edx, 0xccbb_fffe)),
+        Sequence::new("CWDE and CDQ prepare a dword dividend from a preceding AX write", Flags::all(true))
+            .initial_registers(&[(Eax, 0x4433_2211), (Edx, 0xccbb_aa99), (Ecx, 7)])
+            .step(Step::preserving_flags(&[0x66, 0xb8, 0x9c, 0xff]).register(Eax, 0x4433_ff9c))
+            .step(Step::preserving_flags(&[0x98]).register(Eax, 0xffff_ff9c))
+            .step(Step::preserving_flags(&[0x99]).register(Edx, 0xffff_ffff))
+            .step(Step::new(&[0xf7, 0xf9], Flags::all(Undefined))
+                .register(Eax, 0xffff_fff2).register(Edx, 0xffff_fffe)),
+        Sequence::preserving_flags("dword quotient overflow publishes the preceding MOV and CDQ")
+            .initial_registers(&[(Eax, 0x4433_2211), (Edx, 0xccbb_aa99), (Ecx, 0xffff_ffff)])
+            .step(Step::preserving_flags(&[0xb8, 0, 0, 0, 0x80]).register(Eax, 0x8000_0000))
+            .step(Step::preserving_flags(&[0x99]).register(Edx, 0xffff_ffff))
+            .step(Step::preserving_flags(&[0xf7, 0xf9]).divide_error())
+            .trailing_code(&[0xba, 0, 0, 0, 0], 1),
+    ]
+}
+
+test_cases!(sign_boundaries_preserve_unwritten_bits, boundary_cases());
+test_sequences!(
+    dividend_preparation_and_pending_flags,
+    dividend_and_flag_sequences()
 );
-test_cases!(concrete_and_lazy_flags_are_unchanged, stored_flag_cases());

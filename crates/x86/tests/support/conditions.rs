@@ -1,9 +1,55 @@
 use wasm86_x86::CpuState;
 
 use super::{
+    cases::Flags,
     guest::Permissions::ReadWrite,
+    machine::{both, Exit, Image, Step},
     sequences::{Checkpoint, SequenceCase},
+    step::TestModule,
 };
+
+pub(crate) struct ConditionExample {
+    pub(crate) name: &'static str,
+    pub(crate) flags: Flags<bool>,
+    /// Literal outcomes in O, NO, B, AE, E, NE, BE, A, S, NS, P, NP, L, GE, LE, G order.
+    pub(crate) results: [bool; 16],
+}
+
+// These inputs distinguish each condition, including signed/unsigned disagreement
+// and the independent terms of compound predicates. Families sample encoding widths.
+#[rustfmt::skip]
+pub(crate) const CONDITION_EXAMPLES: [ConditionExample; 6] = [
+    ConditionExample {
+        name: "condition inputs clear",
+        flags: Flags { cf: false, pf: false, af: true, zf: false, sf: false, of: false },
+        results: [false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true],
+    },
+    ConditionExample {
+        name: "equal without carry",
+        flags: Flags { cf: false, pf: true, af: true, zf: true, sf: false, of: false },
+        results: [false, true, false, true, true, false, true, false, false, true, true, false, false, true, true, false],
+    },
+    ConditionExample {
+        name: "carry and overflow",
+        flags: Flags { cf: true, pf: true, af: true, zf: true, sf: false, of: true },
+        results: [true, false, true, false, true, false, true, false, false, true, true, false, true, false, true, false],
+    },
+    ConditionExample {
+        name: "negative without overflow",
+        flags: Flags { cf: false, pf: false, af: true, zf: false, sf: true, of: false },
+        results: [false, true, false, true, false, true, false, true, true, false, false, true, true, false, true, false],
+    },
+    ConditionExample {
+        name: "signed and unsigned disagreement",
+        flags: Flags { cf: true, pf: true, af: false, zf: false, sf: true, of: true },
+        results: [true, false, true, false, false, true, true, false, true, false, true, false, false, true, false, true],
+    },
+    ConditionExample {
+        name: "overflow without carry",
+        flags: Flags { cf: false, pf: true, af: true, zf: false, sf: true, of: true },
+        results: [true, false, false, true, false, true, false, true, true, false, true, false, false, true, false, true],
+    },
+];
 
 impl SequenceCase {
     /// Append all sixteen condition stores using EDI=0x6000 and guarded output
@@ -29,11 +75,6 @@ impl SequenceCase {
         self
     }
 }
-
-use super::{
-    machine::{both, Exit, Image, Step},
-    step::TestModule,
-};
 
 pub(crate) fn check_conditions(
     step: &TestModule,

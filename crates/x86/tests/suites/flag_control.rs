@@ -1,262 +1,114 @@
+//! Carry and direction controls change only their named flag.
 use crate::flags::Flag;
-use wasm86_x86::{FlagBytes, StoredStatusSource};
-#[path = "flag_control/carry.rs"]
-mod carry;
-#[path = "flag_control/decoding.rs"]
-mod decoding;
-#[path = "flag_control/direction.rs"]
-mod direction;
-#[path = "flag_control/sequences.rs"]
-mod sequences;
-
-use crate::support::cases::{FlagExpectation, Flags, InstructionCase as Case};
-use wasm86_x86::{CpuState, StoredFlags};
-
-const ENCODINGS: [(&str, u8); 5] = [
-    ("CLC", 0xf8),
-    ("STC", 0xf9),
-    ("CMC", 0xf5),
-    ("CLD", 0xfc),
-    ("STD", 0xfd),
-];
-
-fn logical_flags(bits: u8) -> Flags<bool> {
-    Flags {
-        cf: bits & 1 != 0,
-        pf: bits & 2 != 0,
-        af: bits & 4 != 0,
-        zf: bits & 8 != 0,
-        sf: bits & 16 != 0,
-        of: bits & 32 != 0,
-    }
-}
+use crate::support::{
+    cases::{
+        test_cases,
+        FlagExpectation::{self, Clear, Preserved, Set},
+        Flags, InstructionCase as Case,
+    },
+    encoding::check_length,
+    sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
+};
+use wasm86_x86::{
+    CpuState,
+    Gpr32::{Eax, Ebx, Ecx, Esi},
+};
 
 fn carry_result(value: bool) -> Flags<FlagExpectation> {
     Flags {
-        cf: if value {
-            FlagExpectation::Set
-        } else {
-            FlagExpectation::Clear
-        },
-        ..Flags::all(FlagExpectation::Preserved)
+        cf: if value { Set } else { Clear },
+        ..Flags::all(Preserved)
     }
 }
 
-fn operation_case(name: String, code: &[u8], opcode: u8) -> Case {
-    match opcode {
-        0xfc | 0xfd => {
-            Case::preserving_flags(name, code).expect_direct_flag(Flag::DF, opcode == 0xfd)
+fn carry_cases() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for initial in [false, true] {
+        for (name, opcode, result) in [
+            ("CLC", 0xf8, false),
+            ("STC", 0xf9, true),
+            ("CMC", 0xf5, !initial),
+        ] {
+            let code = if initial {
+                vec![0x66, opcode]
+            } else {
+                vec![opcode]
+            };
+            cases.push(Case::new(
+                format!("{name}, initial status flags {initial}"),
+                &code,
+                Flags::all(initial),
+                carry_result(result),
+            ));
         }
-        0xf8 => Case::new(name, code, Flags::all(true), carry_result(false)),
-        0xf9 | 0xf5 => Case::new(name, code, Flags::all(false), carry_result(true)),
-        _ => unreachable!(),
+    }
+    cases
+}
+
+fn direction_cases() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for fill in [0x80, 0xff] {
+        for (name, opcode, result) in [("CLD", 0xfc, false), ("STD", 0xfd, true)] {
+            let code = if fill == 0xff {
+                vec![0x66, opcode]
+            } else {
+                vec![opcode]
+            };
+            cases.push(
+                Case::preserving_flags(format!("{name} preserves opaque {fill:02x} status"), &code)
+                    .stored_flags(CpuState::filled(fill).flags)
+                    .expect_direct_flag(Flag::DF, result),
+            );
+        }
+    }
+    cases
+}
+
+#[test]
+fn controls_consume_only_their_opcode_and_ignored_operand_prefix() {
+    for opcode in [0xf8, 0xf9, 0xf5, 0xfc, 0xfd] {
+        check_length(&[opcode]);
+        check_length(&[0x66, opcode]);
     }
 }
 
-fn flag_records() -> Vec<(&'static str, StoredFlags, Flags<bool>)> {
-    let status = Flags {
-        cf: 0xfe,
-        pf: 0xff,
-        af: 0x80,
-        zf: 0x7f,
-        sf: 0x5a,
-        of: 0x5b,
-    };
-    let base = StoredFlags {
-        status_source: StoredStatusSource {
-            kind: 0,
-            left: 0x1234_5678,
-            right: 0x8765_4321,
-            ..(CpuState::filled(0xa5).flags).status_source
-        },
-        bytes: FlagBytes {
-            cf: status.cf,
-            pf: status.pf,
-            af: status.af,
-            zf: status.zf,
-            sf: status.sf,
-            of: status.of,
-            ..(CpuState::filled(0xa5).flags).bytes
-        },
-    };
-    let mut records = vec![
-        (
-            "noncanonical concrete clear carry",
-            base,
-            Flags {
-                cf: false,
-                pf: true,
-                af: false,
-                zf: true,
-                sf: false,
-                of: true,
-            },
-        ),
-        (
-            "noncanonical concrete set carry",
-            StoredFlags {
-                bytes: FlagBytes {
-                    cf: 0x81,
-                    pf: status.pf,
-                    af: status.af,
-                    zf: status.zf,
-                    sf: status.sf,
-                    of: status.of,
-                    ..base.bytes
-                },
-                ..base
-            },
-            Flags {
-                cf: true,
-                pf: true,
-                af: false,
-                zf: true,
-                sf: false,
-                of: true,
-            },
-        ),
-    ];
-    for (name, kind, left, right, flags) in [
-        (
-            "pending byte ADD",
-            2,
-            0xff,
-            1,
-            Flags {
-                cf: true,
-                pf: true,
-                af: true,
-                zf: true,
-                sf: false,
-                of: false,
-            },
-        ),
-        (
-            "pending word ADD",
-            6,
-            0xffff,
-            1,
-            Flags {
-                cf: true,
-                pf: true,
-                af: true,
-                zf: true,
-                sf: false,
-                of: false,
-            },
-        ),
-        (
-            "pending dword ADD",
-            10,
-            0x7fff_ffff,
-            1,
-            Flags {
-                cf: false,
-                pf: true,
-                af: true,
-                zf: false,
-                sf: true,
-                of: true,
-            },
-        ),
-        (
-            "pending byte SUB",
-            1,
-            0,
-            1,
-            Flags {
-                cf: true,
-                pf: true,
-                af: true,
-                zf: false,
-                sf: true,
-                of: false,
-            },
-        ),
-        (
-            "pending word SUB",
-            5,
-            0x8000,
-            1,
-            Flags {
-                cf: false,
-                pf: true,
-                af: true,
-                zf: false,
-                sf: false,
-                of: true,
-            },
-        ),
-        (
-            "pending dword SUB",
-            9,
-            0,
-            1,
-            Flags {
-                cf: true,
-                pf: true,
-                af: true,
-                zf: false,
-                sf: true,
-                of: false,
-            },
-        ),
-        (
-            "pending byte logical",
-            3,
-            0x80,
-            0xdead_beef,
-            Flags {
-                cf: false,
-                pf: false,
-                af: false,
-                zf: false,
-                sf: true,
-                of: false,
-            },
-        ),
-        (
-            "pending word logical",
-            7,
-            0x8000,
-            0xdead_beef,
-            Flags {
-                cf: false,
-                pf: true,
-                af: false,
-                zf: false,
-                sf: true,
-                of: false,
-            },
-        ),
-        (
-            "pending dword logical",
-            11,
-            0,
-            0xdead_beef,
-            Flags {
-                cf: false,
-                pf: true,
-                af: false,
-                zf: true,
-                sf: false,
-                of: false,
-            },
-        ),
-    ] {
-        records.push((
-            name,
-            StoredFlags {
-                status_source: StoredStatusSource {
-                    kind,
-                    left,
-                    right,
-                    ..base.status_source
-                },
-                ..base
-            },
-            flags,
-        ));
-    }
-    records
+#[rustfmt::skip]
+fn dependent_flags() -> Vec<Sequence> {
+    vec![
+        Sequence::new("carry controls replace pending ADD flags before ADC and SBB", Flags::all(false))
+            .initial_registers(&[(Eax, u32::MAX), (Ecx, 0)])
+            .step(Step::new(&[0x05, 1, 0, 0, 0],
+                Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear }).register(Eax, 0))
+            .step(Step::new(&[0xf8], carry_result(false)))
+            .step(Step::new(&[0x83, 0xd1, 0],
+                Flags { cf: Clear, pf: Set, af: Clear, zf: Set, sf: Clear, of: Clear }))
+            .step(Step::new(&[0xf9], carry_result(true)))
+            .step(Step::new(&[0x83, 0xd9, 0],
+                Flags { cf: Set, pf: Set, af: Set, zf: Clear, sf: Set, of: Clear }).register(Ecx, u32::MAX))
+            .step(Step::new(&[0xf5], carry_result(false)))
+            .step(Step::preserving_flags(&[0x73, 5]).dispatch(0x1015))
+            .trailing_code(&[0xf9, 0xfd], 2),
+        Sequence::new("CMC consumes pending carry and preserves overflow for SETO", Flags::all(false))
+            .initial_registers(&[(Eax, 0x4433_227f), (Ebx, 0x8877_6600), (Ecx, 0)])
+            .step(Step::new(&[0x04, 1],
+                Flags { cf: Clear, pf: Clear, af: Set, zf: Clear, sf: Set, of: Set }).register(Eax, 0x4433_2280))
+            .step(Step::new(&[0xf5], carry_result(true)))
+            .step(Step::preserving_flags(&[0x0f, 0x90, 0xc3]).register(Ebx, 0x8877_6601))
+            .step(Step::preserving_flags(&[0x0f, 0x92, 0xc1]).register(Ecx, 1)),
+        Sequence::new("direction changes preserve pending carry and publish before a later fault", Flags::all(false))
+            .initial_registers(&[(Eax, u32::MAX), (Ecx, 0), (Esi, 0x6000)])
+            .step(Step::new(&[0x05, 1, 0, 0, 0],
+                Flags { cf: Set, pf: Set, af: Set, zf: Set, sf: Clear, of: Clear }).register(Eax, 0))
+            .step(Step::preserving_flags(&[0xfd]).expect_direct_flag(Flag::DF, true))
+            .step(Step::preserving_flags(&[0xfc]).expect_direct_flag(Flag::DF, false))
+            .step(Step::new(&[0x83, 0xd1, 0], Flags::all(Clear)).register(Ecx, 1))
+            .step(Step::new(&[0xf9], carry_result(true)))
+            .step(Step::preserving_flags(&[0xfd]).expect_direct_flag(Flag::DF, true))
+            .step(Step::preserving_flags(&[0x89, 0x06]).fault(0x6000, 2))
+            .trailing_code(&[0xf8, 0xfc], 2),
+    ]
 }
+
+test_cases!(carry_changes_and_preserved_status, carry_cases());
+test_cases!(direction_changes_preserve_opaque_status, direction_cases());
+test_sequences!(pending_flags_consumers_and_publication, dependent_flags());

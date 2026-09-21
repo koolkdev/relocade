@@ -1,13 +1,14 @@
+use crate::support::{
+    cases::{test_cases, FlagExpectation::Preserved, Flags, InstructionCase as Case},
+    conditions::CONDITION_EXAMPLES,
+    encoding::check_length,
+    machine::{Exit, Image},
+    sequences::{test_sequences, Checkpoint, SequenceCase},
+    step::{Engine, TestModule},
+};
 use wasm86_x86::StoredStatusSource;
 use wasm86_x86::{CpuState, Gpr32, StoredFlags};
 
-use crate::support::{
-    cases::{test_cases, FlagExpectation::Preserved, Flags, InstructionCase as Case},
-    sequences::{test_sequences, Checkpoint, SequenceCase},
-};
-
-#[path = "conditional_moves/decoding.rs"]
-mod decoding;
 #[path = "conditional_moves/memory.rs"]
 mod memory;
 
@@ -16,74 +17,28 @@ const PRESERVED_FLAGS: Flags<crate::support::cases::FlagExpectation> = Flags::al
 
 fn register_cases() -> Vec<Case> {
     let mut cases = Vec::new();
-    // Each array gives literal O, NO, B, AE, Z, NZ, BE, A, S, NS, P, NP,
-    // L, GE, LE, G outcomes. Both outcomes occur for every condition.
-    for (name, flags, taken) in [
-        (
-            "condition inputs clear",
-            Flags {
-                cf: false,
-                pf: false,
-                af: true,
-                zf: false,
-                sf: false,
-                of: false,
-            },
-            [
-                false, true, false, true, false, true, false, true, false, true, false, true,
-                false, true, false, true,
-            ],
-        ),
-        (
-            "carry and overflow",
-            Flags {
-                cf: true,
-                pf: true,
-                af: true,
-                zf: true,
-                sf: false,
-                of: true,
-            },
-            [
-                true, false, true, false, true, false, true, false, false, true, true, false, true,
-                false, true, false,
-            ],
-        ),
-        (
-            "negative without overflow",
-            Flags {
-                cf: false,
-                pf: false,
-                af: true,
-                zf: false,
-                sf: true,
-                of: false,
-            },
-            [
-                false, true, false, true, false, true, false, true, true, false, false, true, true,
-                false, true, false,
-            ],
-        ),
-    ] {
-        for (prefix, replacement) in [(&[][..], 0x8877_6655), (&[0x66][..], 0x4433_6655)] {
-            for (condition, taken) in taken.into_iter().enumerate() {
-                let code = [prefix, &[0x0f, 0x40 + condition as u8, 0xc1]].concat();
-                cases.push(
-                    Case::new(
-                        format!("{name}, prefix {prefix:02x?}, condition {condition:x}"),
-                        &code,
-                        flags,
-                        PRESERVED_FLAGS,
-                    )
-                    .preserve_flag_record()
-                    .register(
-                        Gpr32::Eax,
-                        0x4433_2211,
-                        if taken { replacement } else { 0x4433_2211 },
-                    )
-                    .initial_register(Gpr32::Ecx, 0x8877_6655),
-                );
-            }
+    // Each condition appears at both widths; flag inputs do not form a width cross product.
+    for (index, example) in CONDITION_EXAMPLES.into_iter().enumerate() {
+        let word = index % 2 != 0;
+        for (condition, taken) in example.results.into_iter().enumerate() {
+            let mut code = if word { vec![0x66] } else { vec![] };
+            code.extend([0x0f, 0x40 + condition as u8, 0xc1]);
+            let replacement = if word { 0x4433_6655 } else { 0x8877_6655 };
+            cases.push(
+                Case::new(
+                    format!("{}, CMOV {code:02x?}", example.name),
+                    &code,
+                    example.flags,
+                    PRESERVED_FLAGS,
+                )
+                .preserve_flag_record()
+                .register(
+                    Gpr32::Eax,
+                    0x4433_2211,
+                    if taken { replacement } else { 0x4433_2211 },
+                )
+                .initial_register(Gpr32::Ecx, 0x8877_6655),
+            );
         }
     }
     for (code, destination, value) in [
@@ -203,3 +158,38 @@ test_sequences!(
             .step(Checkpoint::preserving_flags(&[0x0f, 0x44, 0xc1]).register(Gpr32::Eax, 0xc0))
     ]
 );
+
+#[test]
+fn conditional_move_forms_require_the_selected_address_fields() {
+    for code in [
+        &[0x0f, 0x40, 0xc1][..],
+        &[0x66, 0x0f, 0x4f, 0x44, 0x8b, 0x80][..],
+        &[0x0f, 0x44, 0x05, 0x20, 0x40, 0, 0][..],
+    ] {
+        check_length(code);
+    }
+}
+
+#[test]
+fn false_conditions_still_fetch_the_complete_instruction() {
+    for code in [
+        &[0x0f, 0x45][..],
+        &[0x66, 0x0f, 0x45, 0x05, 0x20, 0x40, 0][..],
+    ] {
+        let start = 0x2000 - code.len() as u32;
+        let mut image = Image::new(&[]);
+        image.cpu.eip = start;
+        image.cpu.flags.status_source.kind = 0;
+        image.cpu.flags.bytes.zf = 1;
+        image.data(0x3000 + (start & 0xfff), code);
+        image.check_unchanged_exit(
+            Engine::Wasmtime,
+            TestModule::interpreter(),
+            "false CMOVNE requires its complete address",
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
+        );
+    }
+}
