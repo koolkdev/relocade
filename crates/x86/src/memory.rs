@@ -3,6 +3,7 @@ mod page_table;
 mod scattered;
 
 pub(crate) use access::{Access, DirectRange};
+pub(crate) use page_table::{PageCache, PageCacheInputs};
 
 use std::cell::Cell;
 

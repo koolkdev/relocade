@@ -21,7 +21,7 @@ pub(crate) struct Input {
     pub(crate) observe_guest: bool,
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
     pub(crate) segment_queries: Vec<SegmentQuery>,
-    pub(crate) cpu_patches_before_calls: Vec<Vec<(u32, Vec<u8>)>>,
+    pub(crate) patches_before_calls: Vec<CallPatches>,
     #[serde(with = "wasm86_test_support::decimal_i64")]
     pub(crate) dispatch_return: i64,
 }
@@ -36,8 +36,25 @@ impl Input {
             observe_guest: false,
             segment_resolutions: Vec::new(),
             segment_queries: Vec::new(),
-            cpu_patches_before_calls: Vec::new(),
+            patches_before_calls: Vec::new(),
             dispatch_return: i64::MIN,
+        }
+    }
+}
+
+/// Host memory edits applied immediately before an entry invocation.
+#[derive(Default, Serialize)]
+pub(crate) struct CallPatches {
+    pub(crate) cpu: Vec<(u32, Vec<u8>)>,
+    pub(crate) guest: Vec<(u32, Vec<u8>)>,
+    pub(crate) machine: Vec<(u32, Vec<u8>)>,
+}
+
+impl CallPatches {
+    pub(crate) fn cpu(patches: Vec<(u32, Vec<u8>)>) -> Self {
+        Self {
+            cpu: patches,
+            ..Self::default()
         }
     }
 }

@@ -34,7 +34,7 @@ impl DecodePoint {
         }
     }
 
-    fn consumed(self) -> u32 {
+    pub(super) fn consumed(self) -> u32 {
         match self {
             Self::Opcode => OpcodeMap::Primary.bytes(),
             Self::MemoryOperand(map) => map.bytes() + 1,
@@ -54,7 +54,7 @@ impl DecodePoint {
 pub(super) struct DecodeHandlers {
     point: DecodePoint,
     default_prefixes: PrefixState,
-    direct: Func,
+    direct: Option<Func>,
     checked: Func,
     resumed: Vec<ResumedEntry>,
 }
@@ -70,6 +70,7 @@ impl DecodeHandlers {
         program: &mut Program,
         point: DecodePoint,
         default_size: SegmentDefaultSize,
+        direct_entry: bool,
     ) -> Self {
         let default_prefixes = PrefixState::new(default_size);
         let mut parameters = vec![Type::I32];
@@ -79,9 +80,11 @@ impl DecodeHandlers {
             results: vec![Type::I64],
         });
         parameters.push(Type::I32);
-        let direct = program.declare(Signature {
-            parameters: parameters.clone(),
-            results: vec![Type::I64],
+        let direct = direct_entry.then(|| {
+            program.declare(Signature {
+                parameters: parameters.clone(),
+                results: vec![Type::I64],
+            })
         });
         // Every resumed entry receives cursor progress. Only entries reached
         // through a segment prefix receive an override index as well.
@@ -130,8 +133,9 @@ impl DecodeHandlers {
             Direct,
             Resumed(&'entry ResumedEntry),
         }
-        let entries = [(self.checked, Entry::Checked), (self.direct, Entry::Direct)]
+        let entries = [(self.checked, Entry::Checked)]
             .into_iter()
+            .chain(self.direct.map(|function| (function, Entry::Direct)))
             .chain(
                 self.resumed
                     .iter()
@@ -193,7 +197,7 @@ impl DecodeHandlers {
             match cursor.physical_start() {
                 Some(physical_start) => {
                     arguments.push(physical_start.into());
-                    self.direct
+                    self.direct.expect("direct decoding has a function entry")
                 }
                 None => self.checked,
             }

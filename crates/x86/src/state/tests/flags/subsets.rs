@@ -1,7 +1,7 @@
 use crate::flags::{FlagMask, StatusFlag};
 use crate::state::access::cpu_load;
 use crate::state::Cpu;
-use crate::test_step::{Argument, Event, Input, Outcome, TestModule};
+use crate::test_step::{Argument, CallPatches, Event, Input, Outcome, TestModule};
 use crate::FlagBytes;
 use crate::{CompiledModule, CpuState};
 use wasm86_compiler::{Program, Signature, Type, Val, I1, I64};
@@ -196,9 +196,9 @@ fn every_mask_reads_every_record_kind_without_changing_cpu_bytes() {
     let cases = record_cases();
     let module = TestModule::new(&all_masks_reader());
     let input = Input {
-        cpu_patches_before_calls: cases
+        patches_before_calls: cases
             .iter()
-            .map(|cpu| vec![(0, cpu.to_bytes().to_vec())])
+            .map(|cpu| CallPatches::cpu(vec![(0, cpu.to_bytes().to_vec())]))
             .collect(),
         ..Input::new(&cases[0].to_bytes())
     };

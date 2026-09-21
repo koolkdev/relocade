@@ -105,6 +105,94 @@ fn a_block_suffix_and_its_continuation_each_compute_a_shared_sum() {
     }
 }
 
+fn block_with_alternative_continuations() -> TestModule {
+    let mut fixture = Fixture::new();
+    let state = fixture.memory("state", &[0; 12]);
+    fixture.function(
+        &[Type::I1, Type::I1, Type::I1, Type::I32],
+        &[Type::I32],
+        |mut body| {
+            let continue_to_arms = body.parameter::<I1>(0)?;
+            let first_arm = body.parameter::<I1>(1)?;
+            let use_in_block = body.parameter::<I1>(2)?;
+            let sum = body.parameter::<I32>(3)?.add(5);
+            let first_arm = body.block::<I1>(|mut block, continuation| {
+                block.if_(continue_to_arms, |arm| arm.branch(&continuation, first_arm))?;
+                block.if_(use_in_block, |mut arm| {
+                    arm.store(state, 0, &sum)?;
+                    arm.return_(&sum)
+                })?;
+                block.return_(17)
+            })?;
+            body.if_else(
+                first_arm,
+                |mut arm| {
+                    arm.store(state, 4, &sum)?;
+                    arm.return_(&sum)
+                },
+                |mut arm| {
+                    arm.store(state, 8, &sum)?;
+                    arm.return_(&sum)
+                },
+            )?;
+            body.trap()
+        },
+    )
+}
+
+fn check_alternative_continuations(v8: bool) {
+    use crate::wasm::{Input, Observation};
+
+    let module = block_with_alternative_continuations();
+    let events = inspect(module.bytes());
+    let guards: Vec<_> = events
+        .iter()
+        .enumerate()
+        .filter_map(|(index, event)| (*event == Event::If).then_some(index))
+        .collect();
+    assert!(!events[..=guards[1]].contains(&Event::Add));
+    assert_eq!(
+        events.iter().filter(|&&event| event == Event::Add).count(),
+        3
+    );
+    for (arguments, result, memory) in [
+        ([0, 0, 0, 9], 17, [0; 12]),
+        ([0, 0, 1, 9], 14, [14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+        ([1, 1, 0, 9], 14, [0, 0, 0, 0, 14, 0, 0, 0, 0, 0, 0, 0]),
+        ([1, 0, 1, 9], 14, [0, 0, 0, 0, 0, 0, 0, 0, 14, 0, 0, 0]),
+    ] {
+        if v8 {
+            assert_eq!(
+                module.run_v8(
+                    &Input::call("run", &arguments.map(Value::I32))
+                        .with_memories(&[MemoryBytes::new("state", &[0; 12])])
+                ),
+                Observation::returned(&[Value::I32(result)])
+                    .with_memories(&[MemoryBytes::new("state", &memory)])
+            );
+        } else {
+            let mut instance = module.instantiate();
+            let [continue_to_arms, first_arm, use_in_block, input] = arguments;
+            assert_eq!(
+                instance.call::<i32>((continue_to_arms, first_arm, use_in_block, input)),
+                Ok(result)
+            );
+            assert_eq!(&instance.memory("state")[..12], memory);
+        }
+    }
+}
+
+#[test]
+fn alternative_continuations_compute_only_after_their_guards() {
+    check_alternative_continuations(false);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn alternative_continuations_compute_only_after_their_guards_in_v8() {
+    check_alternative_continuations(true);
+}
+
 #[test]
 fn three_demand_regions_retain_one_shared_calculation() {
     let mut fixture = Fixture::new();

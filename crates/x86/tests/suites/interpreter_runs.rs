@@ -1,5 +1,8 @@
 //! Runtime decoding continues between block boundaries.
 
+#[path = "interpreter_runs/fetch.rs"]
+mod fetch;
+
 use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{Engine, Event, SegmentResolution, TestModule},
@@ -103,135 +106,6 @@ fn dispatch_boundaries(engine: Engine, module: &TestModule) {
         engine,
         module,
         "long straight-line execution reaches its explicit boundary",
-        &image,
-        Step {
-            cpu,
-            ram: &[],
-            exit: Exit::Dispatch(cpu.eip),
-        },
-    );
-}
-
-fn completed_progress_at_faults(engine: Engine, module: &TestModule) {
-    for (name, start, suffix, restart, exit) in [
-        (
-            "absent next opcode",
-            0x1ffb,
-            &[][..],
-            0x2000,
-            Exit::PageFault {
-                address: 0x2000,
-                error: 0x10,
-            },
-        ),
-        (
-            "absent next ModRM",
-            0x1ffa,
-            &[0x89][..],
-            0x1fff,
-            Exit::PageFault {
-                address: 0x2000,
-                error: 0x10,
-            },
-        ),
-        (
-            "incomplete next immediate",
-            0x1ff7,
-            &[0xb9, 1, 2, 3][..],
-            0x1ffc,
-            Exit::PageFault {
-                address: 0x2000,
-                error: 0x10,
-            },
-        ),
-        (
-            "next data access faults",
-            0x1000,
-            &[0x8b, 0x13][..],
-            0x1005,
-            Exit::PageFault {
-                address: 0x4444_4444,
-                error: 0,
-            },
-        ),
-        (
-            "next opcode is unsupported",
-            0x1000,
-            &[0xf4][..],
-            0x1005,
-            Exit::Other(0x0008_00f4_0000_1005),
-        ),
-    ] {
-        let mut image = Image::empty();
-        image.cpu.eip = start;
-        image.map(1, 0x3000, false);
-        let mut code = vec![0xb8, 42, 0, 0, 0];
-        code.extend_from_slice(suffix);
-        image.data(0x3000 + (start & 0xfff), &code);
-        let mut cpu = image.cpu;
-        cpu.registers.eax = 42;
-        cpu.eip = restart;
-        cpu.instruction_count = 0;
-        check(
-            engine,
-            module,
-            name,
-            &image,
-            Step {
-                cpu,
-                ram: &[],
-                exit,
-            },
-        );
-    }
-}
-
-fn live_bytes_and_prefixes(engine: Engine, module: &TestModule) {
-    let mut image = Image::new(&[
-        0xc6, 0x05, 8, 0x10, 0, 0, 42, // MOV byte [1008],42
-        0xb0, 7, // MOV AL,7; preceding store replaces its immediate
-        0xeb, 0,
-    ]);
-    image.map(1, 0x3000, true);
-    let mut cpu = image.cpu;
-    cpu.registers.eax = 0x1111_112a;
-    cpu.eip = 0x100b;
-    cpu.instruction_count = 2;
-    check(
-        engine,
-        module,
-        "a completed store changes the next instruction's live bytes",
-        &image,
-        Step {
-            cpu,
-            ram: &[(0x3008, &[42])],
-            exit: Exit::Dispatch(cpu.eip),
-        },
-    );
-
-    let mut image = Image::new(&[
-        0x66, 0xb8, 0x34, 0x12, // MOV AX,1234
-        0xb9, 0x78, 0x56, 0x34, 0x12, // MOV ECX,12345678
-        0x64, 0x8b, 0x13, // MOV EDX,FS:[EBX]
-        0x8b, 0x03, // MOV EAX,[EBX]
-        0xeb, 0,
-    ]);
-    image.cpu.registers.ebx = 0x8000;
-    image.cpu.segments.fs.base = 0x1000;
-    image.map(8, 0x5000, false);
-    image.map(9, 0x6000, false);
-    image.data(0x5000, &[0x11; 4]);
-    image.data(0x6000, &[0x22; 4]);
-    let mut cpu = image.cpu;
-    cpu.registers.eax = 0x1111_1111;
-    cpu.registers.ecx = 0x1234_5678;
-    cpu.registers.edx = 0x2222_2222;
-    cpu.eip = 0x1010;
-    cpu.instruction_count = 4;
-    check(
-        engine,
-        module,
-        "operand and segment prefixes end with their instruction",
         &image,
         Step {
             cpu,
@@ -385,6 +259,7 @@ fn segmented_execution(engine: Engine) {
 
     let module = TestModule::new(&compile_interpreter(SegmentProfile::Segmented32).unwrap());
     let mut image = Image::new(&[0xb8, 42, 0, 0, 0, 0x90]);
+    fetch::segmented_code_pages(engine, &module);
     image.cpu.segments.cs.limit = 0x1004;
     let mut cpu = image.cpu;
     cpu.registers.eax = 42;
@@ -406,8 +281,7 @@ fn segmented_execution(engine: Engine) {
 fn check_runs(engine: Engine) {
     let module = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
     dispatch_boundaries(engine, &module);
-    completed_progress_at_faults(engine, &module);
-    live_bytes_and_prefixes(engine, &module);
+    fetch::check_fetch(engine, &module);
     repetition_progress(engine, &module);
     terminal_segment_load(engine, &module);
     segmented_execution(engine);

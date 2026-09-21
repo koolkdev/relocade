@@ -10,7 +10,7 @@ use crate::{
     },
 };
 
-use super::{cursor::RuntimeCursor, RuntimeDecoder};
+use super::{cursor::RuntimeCursor, InstructionDecoder};
 
 enum OpcodeAction {
     Instruction(Vec<&'static Form>),
@@ -18,7 +18,7 @@ enum OpcodeAction {
     Prefix(Prefix),
 }
 
-impl<C> RuntimeDecoder<'_, C>
+impl<C> InstructionDecoder<'_, '_, C>
 where
     C: Fn(FunctionBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
 {
@@ -75,7 +75,7 @@ where
                 OpcodeAction::Prefix(prefix) => {
                     let mut cursor = cursor.clone();
                     let opcode = cursor.byte(&mut arm)?;
-                    self.opcode_handlers.tail_call(
+                    self.decoder.opcode_handlers.tail_call(
                         arm,
                         &cursor,
                         state.with_prefix(*prefix),

@@ -1,5 +1,9 @@
 //! Page translation and permission facts for spans touching at most two pages.
 
+mod cache;
+
+pub(crate) use cache::{PageCache, PageCacheInputs};
+
 use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryImport, Program, Val, I1, I32};
 
 const PAGE_SHIFT: u32 = 12;

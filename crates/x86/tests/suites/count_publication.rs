@@ -4,7 +4,7 @@ use crate::support::{
     step,
 };
 
-use step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
+use step::{Argument, CallPatches, Event, Input, Observation, Outcome, Snapshot, TestModule};
 use wasm86_x86::{compile_block_from_bytes, CpuState, Gpr32};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
@@ -152,10 +152,10 @@ fn instruction_counts_reread_host_changes_between_invocations() {
     let mut before_third = expected_cpu;
     before_third.instruction_count = 7;
     let input = Input {
-        cpu_patches_before_calls: vec![
-            vec![],
-            vec![(0, before_second.to_bytes().to_vec())],
-            vec![(0, before_third.to_bytes().to_vec())],
+        patches_before_calls: vec![
+            CallPatches::default(),
+            CallPatches::cpu(vec![(0, before_second.to_bytes().to_vec())]),
+            CallPatches::cpu(vec![(0, before_third.to_bytes().to_vec())]),
         ],
         ..Input::new(&initial.to_bytes())
     };

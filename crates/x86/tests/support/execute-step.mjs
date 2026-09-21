@@ -11,7 +11,8 @@ export default function execute(module, { entry, profile, invocations, input }) 
   }
   const guestBefore = Buffer.from(new Uint8Array(guest.buffer));
   const observesMachine = WebAssembly.Module.imports(module)
-    .some(resource => resource.module === 'wasm86' && resource.name === 'machine');
+    .some(resource => resource.module === 'wasm86' && resource.name === 'machine')
+    || input.patches_before_calls.some(patches => patches.machine.length !== 0);
   const machineBefore = observesMachine ? Buffer.from(new Uint8Array(machine.buffer)) : null;
   let machineUnchanged = true;
   const snapshot = () => {
@@ -58,8 +59,11 @@ export default function execute(module, { entry, profile, invocations, input }) 
   });
   const args = input.arguments.map(decode);
   for (let call = 0; call < invocations; call++) {
-    for (const [offset, bytes] of input.cpu_patches_before_calls[call] ?? []) {
-      new Uint8Array(cpuState.buffer).set(bytes, offset);
+    const patches = input.patches_before_calls[call];
+    if (patches) {
+      for (const [memory, edits] of [[cpuState, patches.cpu], [guest, patches.guest], [machine, patches.machine]]) {
+        for (const [offset, bytes] of edits) new Uint8Array(memory.buffer).set(bytes, offset);
+      }
     }
     checkProfile();
     let outcome;
@@ -83,7 +87,7 @@ export default function execute(module, { entry, profile, invocations, input }) 
     machine_unchanged: machineUnchanged,
   };
 
-  // Check the actual loaded caches after preceding calls and explicit CPU patches.
+  // Check the actual loaded caches after preceding calls and explicit host patches.
   function checkProfile() {
     if (profile === null) return;
     const cpu = new DataView(cpuState.buffer);

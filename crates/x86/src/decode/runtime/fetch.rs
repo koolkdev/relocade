@@ -3,7 +3,7 @@
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
 
 use crate::{
-    memory::{DirectRange, Intent, Memory},
+    memory::{DirectRange, Intent, Memory, PageCache},
     segment::{Segment, SegmentAccess, SegmentProfile},
     state::{exit, Cpu},
 };
@@ -11,6 +11,7 @@ use crate::{
 #[derive(Clone, Copy)]
 pub(crate) struct InstructionFetch<'module> {
     pub(super) memory: &'module Memory,
+    cpu: &'module Cpu,
     segments: SegmentAccess<'module>,
 }
 
@@ -18,8 +19,13 @@ impl<'module> InstructionFetch<'module> {
     pub(crate) fn new(cpu: &'module Cpu, memory: &'module Memory, profile: SegmentProfile) -> Self {
         Self {
             memory,
+            cpu,
             segments: SegmentAccess::new(cpu, profile),
         }
+    }
+
+    pub(super) fn eip(&self, body: &mut FunctionBuilder<'_>) -> Result<Val<I32>, BuildError> {
+        self.cpu.read_eip(body)
     }
 
     /// An unavailable window is not a fault: a shorter instruction may still fit.
@@ -28,13 +34,14 @@ impl<'module> InstructionFetch<'module> {
         body: &mut FunctionBuilder<'_>,
         eip: &Val<I32>,
         bytes: u32,
+        cache: Option<&mut PageCache>,
     ) -> Result<DirectRange, BuildError> {
         let segment = self
             .segments
             .check(body, &Segment::Cs.into(), eip, bytes, Intent::Fetch)?;
         let mut direct =
             self.memory
-                .check_direct_access(body, &segment.linear, bytes, Intent::Fetch)?;
+                .check_direct_access(body, &segment.linear, bytes, Intent::Fetch, cache)?;
         if let Some(denied) = segment.denied {
             direct.unavailable = denied.or(direct.unavailable);
         }

@@ -1,6 +1,6 @@
 //! Decodes operand layouts after the opcode has been read.
 //! ModRM extensions are checked before fetching address bytes. Register operands
-//! continue locally; memory operands transfer to a separate decoder entry.
+//! continue locally; memory operands join their shared address decoder.
 
 use std::collections::BTreeMap;
 
@@ -15,9 +15,9 @@ use crate::{
     register::RegisterCode,
 };
 
-use super::{cursor::RuntimeCursor, RuntimeDecoder};
+use super::{cursor::RuntimeCursor, InstructionDecoder};
 
-impl<C> RuntimeDecoder<'_, C>
+impl<C> InstructionDecoder<'_, '_, C>
 where
     C: Fn(FunctionBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
 {
@@ -71,7 +71,7 @@ where
                 .expect("the accepted memory form has a decoder index")
                 as u32;
             arm.if_(modrm.unsigned().shr(6).ne(3), |memory_body| {
-                self.tail_call_memory_decoder(
+                self.continue_memory_decoding(
                     memory_body,
                     &cursor,
                     state.clone(),
@@ -91,7 +91,7 @@ where
         })
     }
 
-    fn tail_call_memory_decoder(
+    fn continue_memory_decoding(
         &self,
         body: FunctionBuilder<'_>,
         cursor: &RuntimeCursor<'_>,
@@ -99,9 +99,15 @@ where
         form_index: u32,
         modrm: &Val<I8>,
     ) -> Result<(), BuildError> {
+        if let Some(target) = &self.memory_continuation {
+            return body.branch(
+                target,
+                (state.map == OpcodeMap::Extended, form_index, modrm),
+            );
+        }
         let handlers = match state.map {
-            OpcodeMap::Primary => &self.primary_modrm_memory_handlers,
-            OpcodeMap::Extended => &self.extended_modrm_memory_handlers,
+            OpcodeMap::Primary => &self.decoder.primary_modrm_memory_handlers,
+            OpcodeMap::Extended => &self.decoder.extended_modrm_memory_handlers,
         };
         handlers.tail_call(body, cursor, state, &[form_index.into(), modrm.into()])
     }

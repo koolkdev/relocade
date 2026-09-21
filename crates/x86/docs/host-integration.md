@@ -151,6 +151,10 @@ producer stops before an invalid fetch, executes any valid instruction prefix,
 then handles the fault, for example by entering the interpreter at the failing EIP.
 
 The interpreter checks required instruction bytes through CS and paging at runtime.
+Its direct decoding loop may retain the current page-table entry until it leaves
+that decoder invocation. It still fetches live guest bytes and checks every access;
+no mapping cache survives a host dispatch or a new interpreter entry. The host may
+therefore remap code pages between entries under the existing validity rules.
 CS checks precede page checks for each byte. It fetches all fields of a supported
 form before data access, but rejects an unsupported group extension before reading
 unneeded fields. Requiring byte sixteen raises #GP(0); an earlier unavailable

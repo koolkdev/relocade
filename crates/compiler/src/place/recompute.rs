@@ -22,17 +22,36 @@ pub(super) fn groups(body: &Body, id: usize, demand: Demand, tree: &Tree<'_>) ->
     ) {
         return vec![demand];
     }
-    demand
+    let groups = demand
         .exclusive_arms(tree)
         .or_else(|| {
-            // These regions can run on the same path. Permit at most two
-            // placements of each cheap value, not recursive copies of its DAG.
+            // Permit only one split into two sequential placement sites.
+            // Alternative arms within either operation do not add another site.
             // Operand demands retain their own sharing and snapshot policies.
             cheap_to_repeat(body, id)
                 .then(|| demand.control_regions(tree))
                 .flatten()
         })
-        .unwrap_or_else(|| vec![demand])
+        .unwrap_or_else(|| vec![demand]);
+    groups
+        .into_iter()
+        .flat_map(|group| exclusive_groups(group, tree))
+        .collect()
+}
+
+fn exclusive_groups(demand: Demand, tree: &Tree<'_>) -> Vec<Demand> {
+    let mut pending = vec![demand];
+    let mut groups = Vec::new();
+    while let Some(demand) = pending.pop() {
+        if let Some(arms) = demand.exclusive_arms(tree) {
+            // Descend through nested alternatives and single-child blocks.
+            // Every partition moves the existing demands into child regions.
+            pending.extend(arms.into_iter().rev());
+        } else {
+            groups.push(demand);
+        }
+    }
+    groups
 }
 
 fn cheap_to_repeat(body: &Body, id: usize) -> bool {
@@ -56,7 +75,7 @@ fn cheap_to_repeat(body: &Body, id: usize) -> bool {
 #[derive(Eq, Ord, PartialEq, PartialOrd)]
 enum DemandRegion {
     Main,
-    Child(usize),
+    Operation(usize),
 }
 
 impl Demand {
@@ -114,9 +133,9 @@ impl Tree<'_> {
                 .parent
                 .expect("a demand descends from its common region");
             if parent.region == ancestor {
-                // Blocks count too: an outward exit can skip a use in their
-                // suffix. Repeated uses within this child still share normally.
-                return DemandRegion::Child(region);
+                // Alternative arms belong to one operation: only one can run.
+                // Blocks count too, since an outward exit can skip their suffix.
+                return DemandRegion::Operation(parent.index);
             }
             region = parent.region;
         }

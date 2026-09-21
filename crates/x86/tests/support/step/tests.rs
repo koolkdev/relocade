@@ -1,4 +1,4 @@
-use super::{Engine, Input, TestModule};
+use super::{CallPatches, Engine, Input, TestModule};
 use wasm86_compiler::{MemoryImport, Program, Signature, Type, I32};
 
 fn check_transient_machine_write(engine: Engine) {
@@ -44,6 +44,71 @@ fn v8_observes_machine_changes_before_a_later_call_restores_them() {
     check_transient_machine_write(Engine::V8);
 }
 
+fn check_host_memory_edits(engine: Engine) {
+    use super::{Argument, Event, Observation, Outcome, Snapshot};
+
+    let mut program = Program::new();
+    let entry = program
+        .function(
+            Signature {
+                parameters: vec![],
+                results: vec![Type::I32],
+            },
+            |body| body.return_(0),
+        )
+        .unwrap();
+    program.export("entry", entry).unwrap();
+    let module = TestModule::new(&crate::CompiledModule {
+        segment_profile: None,
+        bytes: program.compile().unwrap(),
+        entry: "entry".into(),
+    });
+    let input = Input {
+        observe_guest: true,
+        patches_before_calls: vec![
+            CallPatches {
+                cpu: vec![(0, vec![3])],
+                guest: vec![(7, vec![41])],
+                machine: vec![(12, vec![1])],
+            },
+            CallPatches {
+                guest: vec![(7, vec![0])],
+                machine: vec![(12, vec![0])],
+                ..CallPatches::default()
+            },
+        ],
+        ..Input::new(&[0])
+    };
+    assert_eq!(
+        engine.observe(&module, &input, 2),
+        Observation {
+            events: [vec![(7, 41)], vec![]]
+                .into_iter()
+                .map(|guest| Event::Return {
+                    outcome: Outcome::Returned(vec![Argument::I32(0)]),
+                    snapshot: Snapshot {
+                        cpu: vec![3],
+                        guest: Some(guest),
+                    },
+                })
+                .collect(),
+            guest_unchanged: true,
+            machine_unchanged: false,
+        }
+    );
+}
+
+#[test]
+fn host_edits_are_observed_without_module_memory_imports() {
+    check_host_memory_edits(Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_observes_host_edits_without_module_memory_imports() {
+    check_host_memory_edits(Engine::V8);
+}
+
 fn check_entry_contexts(engine: Engine) {
     use super::{Argument, Event, Observation, Outcome, Snapshot};
     use crate::{compile_block_from_bytes, CpuState, SegmentProfile, Segments};
@@ -62,9 +127,9 @@ fn check_entry_contexts(engine: Engine) {
     cpu.eip = 0x1000;
     cpu.instruction_count = 4;
     let input = Input {
-        cpu_patches_before_calls: vec![
-            vec![(0, cpu.to_bytes().to_vec())],
-            vec![(0, invalid.to_bytes().to_vec())],
+        patches_before_calls: vec![
+            CallPatches::cpu(vec![(0, cpu.to_bytes().to_vec())]),
+            CallPatches::cpu(vec![(0, invalid.to_bytes().to_vec())]),
         ],
         ..Input::new(&invalid.to_bytes())
     };

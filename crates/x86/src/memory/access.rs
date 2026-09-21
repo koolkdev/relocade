@@ -3,7 +3,7 @@
 use super::page_table::{
     crosses_page, physical_address, FRAME_MASK, LATER_DENIAL, PAGE_BYTES, SCATTERED,
 };
-use super::{Intent, Memory};
+use super::{Intent, Memory, PageCache};
 use crate::exception::Exception;
 use wasm86_compiler::{BuildError, FunctionBuilder, MemoryInt, Val, I1, I32};
 
@@ -39,9 +39,13 @@ impl Memory {
         start: &Val<I32>,
         bytes: u32,
         intent: Intent,
+        cache: Option<&mut PageCache>,
     ) -> Result<DirectRange, BuildError> {
         assert!((1..=PAGE_BYTES).contains(&bytes));
-        let first_entry = self.table.entry(body, start)?;
+        let first_entry = match cache {
+            Some(cache) => cache.lookup(self.table, body, start)?,
+            None => self.table.entry(body, start)?,
+        };
         let unavailable = body.if_value::<I1>(
             crosses_page(start, bytes),
             |mut arm| {

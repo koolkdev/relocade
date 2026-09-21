@@ -69,7 +69,7 @@ impl RuntimeCursor<'_> {
         }
         let direct = self
             .fetch
-            .check_direct_access(body, &self.next_eip(), T::BYTES)?;
+            .check_direct_access(body, &self.next_eip(), T::BYTES, None)?;
         let needs_byte_reads = if self.maximum_offset + T::BYTES > MAX_INSTRUCTION_BYTES {
             direct.unavailable.or(self
                 .offset

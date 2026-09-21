@@ -352,14 +352,25 @@ fn nested_uses_share_one_capture_inside_each_selected_switch_arm() {
 }
 
 #[test]
-fn a_shared_dependency_needed_after_the_join_keeps_its_capture() {
+fn a_cheap_dependency_is_computed_in_each_arm_and_its_continuation() {
     let events = inspect(dependency_used_after_the_join().bytes());
     let branch = events.iter().position(|event| *event == Event::If).unwrap();
     assert_eq!(
         events.iter().filter(|event| **event == Event::Add).count(),
+        3
+    );
+    assert!(!events[..branch].contains(&Event::Add));
+    let join = events
+        .iter()
+        .position(|event| *event == Event::End)
+        .unwrap();
+    assert_eq!(
+        events[join..]
+            .iter()
+            .filter(|event| **event == Event::Add)
+            .count(),
         1
     );
-    assert!(events[..branch].contains(&Event::Add));
     assert!(!events[..branch].contains(&Event::Xor));
     assert_eq!(xor_counts_on_paths(&events, &mut 0), [1, 1]);
 }
@@ -389,7 +400,7 @@ fn a_shared_address_is_available_when_the_parent_captures_its_load() {
     let events = inspect(shared_address_needed_by_a_parent_load().bytes());
     assert_eq!(
         events.iter().filter(|event| **event == Event::Add).count(),
-        1
+        3
     );
     let address = events
         .iter()

@@ -86,18 +86,15 @@ fn compile(profile: SegmentProfile, entry: InterpreterEntry) -> Result<CompiledM
         &mut program,
         fetch,
         profile.code_default_size(),
-        |body, decoded| {
-            let should_dispatch =
-                matches!(entry, InterpreterEntry::Step) || decoded.instruction.ends_block();
+        matches!(entry, InterpreterEntry::Run).then_some(entry_function),
+        |body, decoded, continuation| {
+            let continuation = continuation.filter(|_| !decoded.instruction.ends_block());
             let mut execution =
                 ExecutionBuilder::new(body, &cpu, Some(&memory), runtime, &decoded.eip, profile)?;
             execution.execute(decoded)?;
-            execution.complete(|body, eip| {
-                if should_dispatch {
-                    runtime.dispatch(body, eip)
-                } else {
-                    body.tail_call(entry_function, &[])
-                }
+            execution.complete(|body, eip| match continuation {
+                Some(continuation) => continuation.resume(body),
+                None => runtime.dispatch(body, eip),
             })
         },
     )?;

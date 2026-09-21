@@ -38,12 +38,16 @@ impl TestModule {
             }
         }
         let guest_before: Arc<[u8]> = guest.data(&store).into();
-        // CPU-only observers cannot touch machine memory. Avoid copying and
-        // comparing its four megabytes at every flag-observation checkpoint.
-        let machine_before = module
+        // CPU-only observers without host mapping edits cannot change machine
+        // memory. Avoid its four-megabyte copies at flag-observation checkpoints.
+        let observes_machine = module
             .imports()
             .any(|import| import.module() == "wasm86" && import.name() == "machine")
-            .then(|| Arc::<[u8]>::from(machine.data(&store)));
+            || input
+                .patches_before_calls
+                .iter()
+                .any(|patches| !patches.machine.is_empty());
+        let machine_before = observes_machine.then(|| Arc::<[u8]>::from(machine.data(&store)));
         let mut linker = Linker::new(engine);
         for (name, memory) in [("cpuState", cpu), ("guest", guest), ("machine", machine)] {
             linker.define(&store, "wasm86", name, memory).unwrap();
@@ -131,13 +135,16 @@ impl TestModule {
             .collect::<Vec<_>>();
         let mut results = vec![::wasmtime::Val::I32(0); entry.ty(&store).results().len()];
         for call in 0..invocations {
-            for (offset, bytes) in input
-                .cpu_patches_before_calls
-                .get(call)
-                .into_iter()
-                .flatten()
-            {
-                cpu.write(&mut store, *offset as usize, bytes).unwrap();
+            if let Some(patches) = input.patches_before_calls.get(call) {
+                for (memory, edits) in [
+                    (cpu, &patches.cpu),
+                    (guest, &patches.guest),
+                    (machine, &patches.machine),
+                ] {
+                    for (offset, bytes) in edits {
+                        memory.write(&mut store, *offset as usize, bytes).unwrap();
+                    }
+                }
             }
             self.check_profile(cpu.data(&store));
             let outcome = match entry.call(&mut store, &arguments, &mut results) {
