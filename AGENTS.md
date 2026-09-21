@@ -2,6 +2,13 @@
 
 This is a public repository. Commit messages use `component: title`.
 
+## Compatibility target
+
+- Aim for Pentium 4 (P4) user-mode instruction-set parity. Prioritize missing P4
+  instructions and architectural behavior when recommending or choosing work.
+  Check instruction availability as well as semantics against Intel's manuals.
+  Existing support for later extensions does not expand this target.
+
 ## Clean product code
 
 - Commit implementation, permanent behavior tests and useful project documentation only.

@@ -7,6 +7,9 @@ semantics. Blocks decode supplied bytes at compilation time; the generated
 interpreter decodes guest memory at runtime. The embedding host supplies memory,
 dispatch and segment descriptor resolution.
 
+The project aims for Pentium 4 (P4) user-mode instruction-set parity.
+Development prioritizes missing P4 instructions and architectural behavior.
+
 The current scope is a partial 16/32-bit protected-mode integer instruction set,
 including segment loads, near/far transfers and string repetition. Real mode,
 privilege transitions, interrupt delivery, floating point and SIMD are not implemented.
