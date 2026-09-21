@@ -6,6 +6,8 @@ mod arithmetic_flags;
 mod binary_decoding;
 #[path = "suites/binary_operands.rs"]
 mod binary_operands;
+#[path = "suites/bit_counts.rs"]
+mod bit_counts;
 #[path = "suites/bit_scans.rs"]
 mod bit_scans;
 #[path = "suites/bit_tests.rs"]

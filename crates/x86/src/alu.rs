@@ -3,6 +3,7 @@
 
 mod adjust;
 mod arithmetic;
+mod bit_counts;
 mod bit_scans;
 mod bit_tests;
 mod divide;
@@ -15,6 +16,7 @@ mod unary;
 
 pub(crate) use adjust::{adjust_after_multiply, adjust_before_division};
 pub(crate) use arithmetic::ArithmeticOp;
+pub(crate) use bit_counts::population_count;
 pub(crate) use bit_scans::BitScanOp;
 pub(crate) use bit_tests::BitTestOp;
 pub(crate) use divide::DivideOp;

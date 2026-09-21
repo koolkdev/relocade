@@ -1,4 +1,6 @@
 use crate::support::encoding::check_length;
+#[path = "instruction_prefixes/extended.rs"]
+mod extended;
 #[path = "instruction_prefixes/selection.rs"]
 mod selection;
 

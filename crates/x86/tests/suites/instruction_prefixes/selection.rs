@@ -104,45 +104,6 @@ test_cases!(
     ]
 );
 
-#[test]
-fn f3_extended_map_rejection_respects_the_fifteen_byte_limit() {
-    for (prefixes, snapshot_error, runtime_exit) in [
-        (
-            13,
-            BlockError::UnsupportedInstruction {
-                address: 0x1ff1,
-                opcode: 0xf3,
-            },
-            Exit::Other(0x0008_00f3_0000_1ff1),
-        ),
-        (
-            14,
-            BlockError::InstructionTooLong { address: 0x1ff1 },
-            Exit::Other(0x0002_0000_0000_0000),
-        ),
-    ] {
-        let code = [vec![0x66; prefixes], vec![0xf3, 0x0f]].concat();
-        for available in 15..=code.len() {
-            assert_eq!(
-                compile_block_from_bytes(0x1ff1, &code[..available], 1)
-                    .err()
-                    .as_ref(),
-                Some(&snapshot_error)
-            );
-        }
-        let mut image = Image::new(&[]);
-        image.cpu.eip = 0x1ff1;
-        image.cpu.registers.ecx = 0;
-        image.data(0x3ff1, &code[..15]);
-        image.check_unchanged_exit(
-            Engine::Wasmtime,
-            TestModule::interpreter(),
-            &format!("F3 escape after {prefixes} operand overrides"),
-            runtime_exit,
-        );
-    }
-}
-
 fn repeated_byte_forms() -> Vec<Case> {
     let mut flags = CpuState::filled(0xa5).flags;
     flags.status_source.kind = 0;
