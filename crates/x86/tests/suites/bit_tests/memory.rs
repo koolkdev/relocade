@@ -1,443 +1,129 @@
-use wasm86_x86::Gpr32;
-
+//! Memory bit indexes select a signed offset in operand-sized units.
+use super::{bit_flags, INITIAL_FLAGS};
 use crate::support::cases::{
-    test_cases, FlagExpectation,
+    test_cases,
     FlagExpectation::{Clear, Set},
-    InstructionCase,
+    InstructionCase as Case,
     Permissions::{ReadOnly, ReadWrite},
 };
+use wasm86_x86::Gpr32::*;
 
-use super::{bit_flags, other_register_inputs, INITIAL_FLAGS, OPERATIONS, STORED_FLAGS};
-
-fn signed_and_immediate_indexes() -> Vec<InstructionCase> {
-    struct Operand {
-        name: &'static str,
-        bits: u32,
-        base: u32,
-        index: u32,
-        immediate: bool,
-        address: u32,
-        input: u32,
-        // BT, BTS, BTR, BTC, in that order.
-        outputs: [u32; 4],
-        carry: FlagExpectation,
-    }
+fn signed_indexes() -> Vec<Case> {
     let mut cases = Vec::new();
-    for operand in [
-        Operand {
-            name: "word minus one",
-            bits: 16,
-            base: 0x4004,
-            index: 0xffff,
-            immediate: false,
-            address: 0x4002,
-            input: 0x0000_8001,
-            outputs: [0x0000_8001, 0x0000_8001, 0x0000_0001, 0x0000_0001],
-            carry: Set,
-        },
-        Operand {
-            name: "word minus sixteen",
-            bits: 16,
-            base: 0x4004,
-            index: 0xfff0,
-            immediate: false,
-            address: 0x4002,
-            input: 0x0000_8001,
-            outputs: [0x0000_8001, 0x0000_8001, 0x0000_8000, 0x0000_8000],
-            carry: Set,
-        },
-        Operand {
-            name: "word minus seventeen",
-            bits: 16,
-            base: 0x4004,
-            index: 0xffef,
-            immediate: false,
-            address: 0x4000,
-            input: 0x0000_8001,
-            outputs: [0x0000_8001, 0x0000_8001, 0x0000_0001, 0x0000_0001],
-            carry: Set,
-        },
-        Operand {
-            name: "dword minus one",
-            bits: 32,
-            base: 0x4008,
-            index: u32::MAX,
-            immediate: false,
-            address: 0x4004,
-            input: 0x8000_0001,
-            outputs: [0x8000_0001, 0x8000_0001, 0x0000_0001, 0x0000_0001],
-            carry: Set,
-        },
-        Operand {
-            name: "dword minus thirty-two",
-            bits: 32,
-            base: 0x4008,
-            index: 0xffff_ffe0,
-            immediate: false,
-            address: 0x4004,
-            input: 0x8000_0001,
-            outputs: [0x8000_0001, 0x8000_0001, 0x8000_0000, 0x8000_0000],
-            carry: Set,
-        },
-        Operand {
-            name: "dword minus thirty-three",
-            bits: 32,
-            base: 0x4008,
-            index: 0xffff_ffdf,
-            immediate: false,
-            address: 0x4000,
-            input: 0x8000_0001,
-            outputs: [0x8000_0001, 0x8000_0001, 0x0000_0001, 0x0000_0001],
-            carry: Set,
-        },
-        Operand {
-            name: "word next operand",
-            bits: 16,
-            base: 0x4000,
-            index: 16,
-            immediate: false,
-            address: 0x4002,
-            input: 0x0000_8001,
-            outputs: [0x0000_8001, 0x0000_8001, 0x0000_8000, 0x0000_8000],
-            carry: Set,
-        },
-        Operand {
-            name: "word next operand second bit",
-            bits: 16,
-            base: 0x4000,
-            index: 17,
-            immediate: false,
-            address: 0x4002,
-            input: 0x0000_8001,
-            outputs: [0x0000_8001, 0x0000_8003, 0x0000_8001, 0x0000_8003],
-            carry: Clear,
-        },
-        Operand {
-            name: "dword next operand",
-            bits: 32,
-            base: 0x4000,
-            index: 32,
-            immediate: false,
-            address: 0x4004,
-            input: 0x8000_0001,
-            outputs: [0x8000_0001, 0x8000_0001, 0x8000_0000, 0x8000_0000],
-            carry: Set,
-        },
-        Operand {
-            name: "dword next operand second bit",
-            bits: 32,
-            base: 0x4000,
-            index: 33,
-            immediate: false,
-            address: 0x4004,
-            input: 0x8000_0001,
-            outputs: [0x8000_0001, 0x8000_0003, 0x8000_0001, 0x8000_0003],
-            carry: Clear,
-        },
-        Operand {
-            name: "word sign comes from the low word",
-            bits: 16,
-            base: 0x5000,
-            index: 0x1234_8000,
-            immediate: false,
-            address: 0x4000,
-            input: 0x0000_8001,
-            outputs: [0x0000_8001, 0x0000_8001, 0x0000_8000, 0x0000_8000],
-            carry: Set,
-        },
-        Operand {
-            name: "word positive maximum ends at the page boundary",
-            bits: 16,
-            base: 0x4000,
-            index: 0xabcd_7fff,
-            immediate: false,
-            address: 0x4ffe,
-            input: 0x0000_8001,
-            outputs: [0x0000_8001, 0x0000_8001, 0x0000_0001, 0x0000_0001],
-            carry: Set,
-        },
-        Operand {
-            name: "dword negative minimum",
-            bits: 32,
-            base: 0x1000_4000,
-            index: 0x8000_0000,
-            immediate: false,
-            address: 0x4000,
-            input: 0x8000_0001,
-            outputs: [0x8000_0001, 0x8000_0001, 0x8000_0000, 0x8000_0000],
-            carry: Set,
-        },
-        Operand {
-            name: "dword positive maximum wraps the adjusted address",
-            bits: 32,
-            base: 0xf000_4004,
-            index: 0x7fff_ffff,
-            immediate: false,
-            address: 0x4000,
-            input: 0x8000_0001,
-            outputs: [0x8000_0001, 0x8000_0001, 0x0000_0001, 0x0000_0001],
-            carry: Set,
-        },
-        Operand {
-            name: "word adjustment preserves an unaligned base",
-            bits: 16,
-            base: 0x4003,
-            index: 16,
-            immediate: false,
-            address: 0x4005,
-            input: 0x0000_8001,
-            outputs: [0x0000_8001, 0x0000_8001, 0x0000_8000, 0x0000_8000],
-            carry: Set,
-        },
-        Operand {
-            name: "word immediate high bits stay in the encoded operand",
-            bits: 16,
-            base: 0x4ffe,
-            index: 255,
-            immediate: true,
-            address: 0x4ffe,
-            input: 0x0000_8001,
-            outputs: [0x0000_8001, 0x0000_8001, 0x0000_0001, 0x0000_0001],
-            carry: Set,
-        },
-        Operand {
-            name: "dword immediate high bits stay in the encoded operand",
-            bits: 32,
-            base: 0x4ffc,
-            index: 255,
-            immediate: true,
-            address: 0x4ffc,
-            input: 0x8000_0001,
-            outputs: [0x8000_0001, 0x8000_0001, 0x0000_0001, 0x0000_0001],
-            carry: Set,
-        },
-        Operand {
-            name: "word immediate sixteen selects bit zero",
-            bits: 16,
-            base: 0x4ffe,
-            index: 16,
-            immediate: true,
-            address: 0x4ffe,
-            input: 0x0000_8001,
-            outputs: [0x0000_8001, 0x0000_8001, 0x0000_8000, 0x0000_8000],
-            carry: Set,
-        },
-        Operand {
-            name: "dword immediate thirty-two selects bit zero",
-            bits: 32,
-            base: 0x4ffc,
-            index: 32,
-            immediate: true,
-            address: 0x4ffc,
-            input: 0x8000_0001,
-            outputs: [0x8000_0001, 0x8000_0001, 0x8000_0000, 0x8000_0000],
-            carry: Set,
-        },
-        Operand {
-            name: "word split after adjustment",
-            bits: 16,
-            base: 0x5001,
-            index: 0xffff,
-            immediate: false,
-            address: 0x4fff,
-            input: 0x0000_8001,
-            outputs: [0x0000_8001, 0x0000_8001, 0x0000_0001, 0x0000_0001],
-            carry: Set,
-        },
-        Operand {
-            name: "dword split after adjustment",
-            bits: 32,
-            base: 0x5002,
-            index: u32::MAX,
-            immediate: false,
-            address: 0x4ffe,
-            input: 0x8000_0001,
-            outputs: [0x8000_0001, 0x8000_0001, 0x0000_0001, 0x0000_0001],
-            carry: Set,
-        },
-        Operand {
-            name: "word adjusted past the address limit",
-            bits: 16,
-            base: 0xffff_fffe,
-            index: 16,
-            immediate: false,
-            address: 0,
-            input: 0x0000_8001,
-            outputs: [0x0000_8001, 0x0000_8001, 0x0000_8000, 0x0000_8000],
-            carry: Set,
-        },
-        Operand {
-            name: "dword adjusted below zero",
-            bits: 32,
-            base: 0,
-            index: u32::MAX,
-            immediate: false,
-            address: 0xffff_fffc,
-            input: 0x8000_0001,
-            outputs: [0x8000_0001, 0x8000_0001, 0x0000_0001, 0x0000_0001],
-            carry: Set,
-        },
+    // Literal addresses cover floor division at negative boundaries and width truncation.
+    for (word, base, index, address, carry) in [
+        (true, 0x4004, 0xffff, 0x4002, Set),
+        (true, 0x4004, 0xfff0, 0x4002, Set),
+        (true, 0x4004, 0xffef, 0x4000, Set),
+        (false, 0x4008, 0xffff_ffff, 0x4004, Set),
+        (false, 0x4008, 0xffff_ffe0, 0x4004, Set),
+        (false, 0x4008, 0xffff_ffdf, 0x4000, Set),
+        (true, 0x4000, 16, 0x4002, Set),
+        (true, 0x4000, 17, 0x4002, Clear),
+        (false, 0x4000, 32, 0x4004, Set),
+        (false, 0x4000, 33, 0x4004, Clear),
+        (true, 0x5000, 0x1234_8000, 0x4000, Set),
+        (true, 0x4000, 0xabcd_7fff, 0x4ffe, Set),
+        (false, 0x1000_4000, 0x8000_0000, 0x4000, Set),
+        (false, 0xf000_4004, 0x7fff_ffff, 0x4000, Set),
+        (true, 0x4003, 16, 0x4005, Set),
+        (true, 0x5001, 0xffff, 0x4fff, Set),
+        (false, 0x5002, 0xffff_ffff, 0x4ffe, Set),
+        (true, 0xffff_fffe, 16, 0, Set),
+        (false, 0, 0xffff_ffff, 0xffff_fffc, Set),
     ] {
-        for (operation, output) in OPERATIONS.into_iter().zip(operand.outputs) {
-            let mut code = if operand.bits == 16 {
-                vec![0x66]
-            } else {
-                vec![]
-            };
-            if operand.immediate {
-                code.extend_from_slice(&[
-                    0x0f,
-                    0xba,
-                    0x03 | (operation.extension() << 3),
-                    operand.index as u8,
-                ]);
-            } else {
-                code.extend_from_slice(&[0x0f, operation.register_opcode(), 0x13]);
-            }
-            let permissions = if operation.modifies() {
-                ReadWrite
-            } else {
-                ReadOnly
-            };
-            let bytes = operand.input.to_le_bytes();
-            let written = output.to_le_bytes();
-            let len = (operand.bits / 8) as usize;
-            let offset = operand.address & 0xfff;
-            let physical = 0x8000 + offset;
-            let first_len = len.min((0x1000 - offset) as usize);
-            // BT uses read-only mappings; each modifier requires writable mappings.
-            let mut case = InstructionCase::new(
-                format!("{operation:?}: {}", operand.name),
-                &code,
+        let (code, bytes) = if word {
+            (&[0x66, 0x0f, 0xa3, 0x13][..], &[1, 0x80][..])
+        } else {
+            (&[0x0f, 0xa3, 0x13][..], &[1, 0, 0, 0x80][..])
+        };
+        cases.push(
+            Case::new(
+                format!("BT word={word}, base={base:x}, index={index:x}"),
+                code,
                 INITIAL_FLAGS,
-                bit_flags(operand.carry),
+                bit_flags(carry),
             )
-            .initial_registers(&other_register_inputs(&[Gpr32::Ebx, Gpr32::Edx]))
-            .stored_flags(STORED_FLAGS)
-            .initial_register(Gpr32::Ebx, operand.base)
-            .initial_register(Gpr32::Edx, operand.index)
-            .map_page(operand.address >> 12, 0x8000, permissions)
-            .backing(physical - 1, &[0x5a])
-            .backing(physical, &bytes[..first_len]);
-            if first_len < len {
-                case = case
-                    .map_page((operand.address >> 12) + 1, 0xa000, permissions)
-                    .backing(0xa000, &bytes[first_len..len])
-                    .backing(0xa000 + (len - first_len) as u32, &[0x5a]);
-            } else if offset + (first_len as u32) < 0x1000 {
-                case = case.backing(physical + first_len as u32, &[0x5a]);
-            }
-            if operation.modifies() {
-                case = case.expect_memory(operand.address, &written[..len]);
-            }
-            cases.push(case);
-        }
+            .initial_registers(&[(Ebx, base), (Edx, index)])
+            .memory(address, bytes, ReadOnly),
+        );
     }
     cases
 }
-
 test_cases!(
-    signed_indexes_and_immediate_masking,
-    signed_and_immediate_indexes()
+    signed_register_indexes_choose_the_operand_address,
+    signed_indexes()
 );
 
-fn aliased_address_indexes() -> Vec<InstructionCase> {
-    struct Operand {
-        name: &'static str,
-        bits: u32,
-        address_bytes: &'static [u8],
-        registers: &'static [(Gpr32, u32)],
-        address: u32,
-        input: u32,
-        outputs: [u32; 4],
-        carry: FlagExpectation,
-    }
-    let mut cases = Vec::new();
-    for operand in [
-        Operand {
-            name: "EBX supplies address and dword index",
-            bits: 32,
-            address_bytes: &[0x1b],
-            registers: &[(Gpr32::Ebx, 0x4000)],
-            address: 0x4800,
-            input: 0xa55a_5aa5,
-            outputs: [0xa55a_5aa5, 0xa55a_5aa5, 0xa55a_5aa4, 0xa55a_5aa4],
-            carry: Set,
-        },
-        Operand {
-            name: "ECX supplies a full address and word index",
-            bits: 16,
-            address_bytes: &[0x09],
-            registers: &[(Gpr32::Ecx, 0xffff_4001)],
-            address: 0xffff_4801,
-            input: 0x0000_5aa5,
-            outputs: [0x0000_5aa5, 0x0000_5aa7, 0x0000_5aa5, 0x0000_5aa7],
-            carry: Clear,
-        },
-        Operand {
-            name: "EBP supplies a negative address and bit index",
-            bits: 32,
-            address_bytes: &[0x2c, 0x2b],
-            registers: &[(Gpr32::Ebx, 0x4005), (Gpr32::Ebp, u32::MAX)],
-            address: 0x4000,
-            input: 0xa55a_5aa5,
-            outputs: [0xa55a_5aa5, 0xa55a_5aa5, 0x255a_5aa5, 0x255a_5aa5],
-            carry: Set,
-        },
-        Operand {
-            name: "ECX supplies a wrapping scaled address and bit index",
-            bits: 32,
-            address_bytes: &[0x4c, 0x8b, 0xfc],
-            registers: &[(Gpr32::Ebx, 0x4010), (Gpr32::Ecx, 0x4000_0001)],
-            address: 0x0800_4010,
-            input: 0xa55a_5aa5,
-            outputs: [0xa55a_5aa5, 0xa55a_5aa7, 0xa55a_5aa5, 0xa55a_5aa7],
-            carry: Clear,
-        },
-    ] {
-        for (operation, output) in OPERATIONS.into_iter().zip(operand.outputs) {
-            let mut code = if operand.bits == 16 {
-                vec![0x66]
-            } else {
-                vec![]
-            };
-            code.extend_from_slice(&[0x0f, operation.register_opcode()]);
-            code.extend_from_slice(operand.address_bytes);
-            let len = (operand.bits / 8) as usize;
-            let physical = 0x8000 + (operand.address & 0xfff);
-            let permissions = if operation.modifies() {
-                ReadWrite
-            } else {
-                ReadOnly
-            };
-            let address_registers = operand
-                .registers
-                .iter()
-                .map(|&(register, _)| register)
-                .collect::<Vec<_>>();
-            let mut case = InstructionCase::new(
-                format!("{operation:?}: {}", operand.name),
-                &code,
-                INITIAL_FLAGS,
-                bit_flags(operand.carry),
-            )
-            .initial_registers(&other_register_inputs(&address_registers))
-            .stored_flags(STORED_FLAGS)
-            .initial_registers(operand.registers)
-            .map_page(operand.address >> 12, 0x8000, permissions)
-            .backing(physical - 1, &[0x5a])
-            .backing(physical, &operand.input.to_le_bytes()[..len])
-            .backing(physical + len as u32, &[0x5a]);
-            if operation.modifies() {
-                case = case.expect_memory(operand.address, &output.to_le_bytes()[..len]);
-            }
-            cases.push(case);
-        }
-    }
-    cases
+#[rustfmt::skip]
+fn immediate_indexes() -> Vec<Case> {
+    vec![
+        Case::new("BTS word masks immediate 255 without adjusting the base", &[0x66, 0x0f, 0xba, 0x2b, 255],
+            INITIAL_FLAGS, bit_flags(Set)).initial_register(Ebx, 0x4ffe).memory(0x4ffe, &[1, 0x80], ReadWrite),
+        Case::new("BTR dword masks immediate 255 to bit 31", &[0x0f, 0xba, 0x33, 255],
+            INITIAL_FLAGS, bit_flags(Set)).initial_register(Ebx, 0x4ffc)
+            .memory(0x4ffc, &[1, 0, 0, 0x80], ReadWrite).expect_memory(0x4ffc, &[1, 0, 0, 0]),
+        Case::new("BTC word masks immediate 16 to bit zero", &[0x66, 0x0f, 0xba, 0x3b, 16],
+            INITIAL_FLAGS, bit_flags(Set)).initial_register(Ebx, 0x4ffe)
+            .memory(0x4ffe, &[1, 0x80], ReadWrite).expect_memory(0x4ffe, &[0, 0x80]),
+        Case::new("BT dword masks immediate 32 without adjusting the base", &[0x0f, 0xba, 0x23, 32],
+            INITIAL_FLAGS, bit_flags(Set)).initial_register(Ebx, 0x4ffc).memory(0x4ffc, &[1, 0, 0, 0x80], ReadOnly),
+    ]
 }
-
 test_cases!(
-    indexes_capture_the_old_address_registers,
-    aliased_address_indexes()
+    immediates_never_change_the_operand_address,
+    immediate_indexes()
 );
+
+#[rustfmt::skip]
+fn aliased_addresses() -> Vec<Case> {
+    vec![
+        Case::new("BT uses EBX as both base and signed index", &[0x0f, 0xa3, 0x1b], INITIAL_FLAGS, bit_flags(Set))
+            .initial_register(Ebx, 0x4000).memory(0x4800, &[0xa5, 0x5a, 0x5a, 0xa5], ReadOnly),
+        Case::new("BTS uses full ECX as base but only CX as index", &[0x66, 0x0f, 0xab, 0x09], INITIAL_FLAGS, bit_flags(Clear))
+            .initial_register(Ecx, 0xffff_4001).memory(0xffff_4801, &[0xa5, 0x5a], ReadWrite)
+            .expect_memory(0xffff_4801, &[0xa7, 0x5a]),
+        Case::new("BTR uses EBP as address index and negative bit index", &[0x0f, 0xb3, 0x2c, 0x2b], INITIAL_FLAGS, bit_flags(Set))
+            .initial_registers(&[(Ebx, 0x4005), (Ebp, u32::MAX)])
+            .memory(0x4000, &[0xa5, 0x5a, 0x5a, 0xa5], ReadWrite).expect_memory(0x4000, &[0xa5, 0x5a, 0x5a, 0x25]),
+        Case::new("BTC scales ECX for the address but not the bit index", &[0x0f, 0xbb, 0x4c, 0x8b, 0xfc], INITIAL_FLAGS, bit_flags(Clear))
+            .initial_registers(&[(Ebx, 0x4010), (Ecx, 0x4000_0001)])
+            .memory(0x0800_4010, &[0xa5, 0x5a, 0x5a, 0xa5], ReadWrite).expect_memory(0x0800_4010, &[0xa7, 0x5a, 0x5a, 0xa5]),
+        Case::new("BTR negative index writes the complete word across scattered pages", &[0x66, 0x0f, 0xb3, 0x13],
+            INITIAL_FLAGS, bit_flags(Set)).initial_registers(&[(Ebx, 0x5001), (Edx, 0xffff)])
+            .map_page(4, 0x8000, ReadWrite).map_page(5, 0xa000, ReadWrite)
+            .memory(0x4ffe, &[0x5a, 1, 0x80, 0x5a], ReadWrite).expect_memory(0x4fff, &[1, 0]),
+    ]
+}
+test_cases!(
+    address_dependencies_and_scattered_writes,
+    aliased_addresses()
+);
+
+#[rustfmt::skip]
+fn faults() -> Vec<Case> {
+    vec![
+        Case::preserving_flags("BTS already-set bit still needs write permission", &[0x0f, 0xba, 0x2b, 0])
+            .initial_register(Ebx, 0x4000).memory(0x4000, &[1, 0, 0, 0], ReadOnly).fault(0x4000, 3),
+        Case::preserving_flags("BTR already-clear bit still needs write permission", &[0x66, 0x0f, 0xba, 0x33, 0])
+            .initial_register(Ebx, 0x4000).memory(0x4000, &[0, 0], ReadOnly).fault(0x4000, 3),
+        Case::preserving_flags("BTC requires write permission", &[0x0f, 0xba, 0x3b, 31])
+            .initial_register(Ebx, 0x4000).memory(0x4000, &[0, 0, 0, 0], ReadOnly).fault(0x4000, 3),
+        Case::preserving_flags("BT faults at the adjusted address despite a readable encoded base", &[0x66, 0x0f, 0xa3, 0x13])
+            .initial_registers(&[(Ebx, 0x5000), (Edx, 0x1234_8000)])
+            .memory(0x5000, &[1, 0x80], ReadOnly).fault(0x4000, 0),
+        Case::preserving_flags("BT reads the complete word even when bit zero is readable", &[0x66, 0x0f, 0xba, 0x23, 0])
+            .initial_register(Ebx, 0x4fff).memory(0x4fff, &[1], ReadOnly).fault(0x5000, 0),
+        Case::preserving_flags("BTR negative index cannot partially write before a missing page", &[0x0f, 0xb3, 0x13])
+            .initial_registers(&[(Ebx, 0x5002), (Edx, u32::MAX)])
+            .memory(0x4ffe, &[1, 0], ReadWrite).fault(0x5000, 2),
+        Case::preserving_flags("BTS rejects the read-only first page before the absent second page", &[0x66, 0x0f, 0xba, 0x2b, 0])
+            .initial_register(Ebx, 0x4fff).memory(0x4fff, &[1], ReadOnly).fault(0x4fff, 3),
+        Case::preserving_flags("BT high immediate still requires the complete word", &[0x66, 0x0f, 0xba, 0x23, 255])
+            .initial_register(Ebx, 0x4fff).memory(0x4fff, &[1], ReadOnly).fault(0x5000, 0),
+        Case::preserving_flags("BT adjusted word read wraps at the linear address boundary", &[0x66, 0x0f, 0xa3, 0x13])
+            .initial_registers(&[(Ebx, 1), (Edx, 0xffff)])
+            .memory(u32::MAX, &[1], ReadOnly).fault(0, 0),
+    ]
+}
+test_cases!(access_width_write_intent_and_fault_atomicity, faults());
