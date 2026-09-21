@@ -8,11 +8,9 @@ use repetition::Repetition;
 
 use super::*;
 use crate::{
-    address::{EffectiveAddress, MemoryAddress, RegisterTerm},
     flags::Flag,
-    instruction::Location,
     register::{Gpr32, RegisterType},
-    segment::{Segment, SegmentSelection},
+    segment::Segment,
 };
 
 instruction_families! {
@@ -78,9 +76,12 @@ where
     let indices = [Gpr32::Esi, Gpr32::Edi];
     let stride = element_stride::<T>(execution)?;
     repetition.execute(execution, indices, |execution| {
-        let value = memory_at_index::<T>(execution, Gpr32::Esi, execution.string_source_segment())
+        let value = execution
+            .memory_at_register::<T>(Gpr32::Esi, execution.data_segment())
             .read(execution)?;
-        memory_at_index::<T>(execution, Gpr32::Edi, Segment::Es.into()).write(execution, value)?;
+        execution
+            .memory_at_register::<T>(Gpr32::Edi, Segment::Es.into())
+            .write(execution, value)?;
         advance_indices(execution, &indices, &stride)
     })
 }
@@ -96,7 +97,9 @@ where
     let stride = element_stride::<T>(execution)?;
     let value = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
     repetition.execute(execution, indices, |execution| {
-        memory_at_index::<T>(execution, Gpr32::Edi, Segment::Es.into()).write(execution, &value)?;
+        execution
+            .memory_at_register::<T>(Gpr32::Edi, Segment::Es.into())
+            .write(execution, &value)?;
         advance_indices(execution, &indices, &stride)
     })
 }
@@ -106,32 +109,11 @@ where
     I32: AtLeast<T>,
 {
     let stride = element_stride::<T>(execution)?;
-    let value = memory_at_index::<T>(execution, Gpr32::Esi, execution.string_source_segment())
+    let value = execution
+        .memory_at_register::<T>(Gpr32::Esi, execution.data_segment())
         .read(execution)?;
     TypedLocation::<T>::register(Gpr32::Eax).write(execution, value)?;
     advance_indices(execution, &[Gpr32::Esi], &stride)
-}
-
-fn memory_at_index<T: RegisterType>(
-    execution: &ExecutionBuilder<'_, '_>,
-    index: Gpr32,
-    segment: SegmentSelection,
-) -> TypedLocation<T> {
-    TypedLocation::new(Location::Memory(
-        MemoryAddress {
-            segment,
-            offset: EffectiveAddress {
-                size: execution.address_size(),
-                base: Some(RegisterTerm {
-                    register: index.into(),
-                    present: None,
-                }),
-                index: None,
-                displacement: 0.into(),
-            },
-        }
-        .into(),
-    ))
 }
 
 fn element_stride<T: RegisterType>(

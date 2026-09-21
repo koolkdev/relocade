@@ -99,6 +99,13 @@ are implicit, as in [strings](crates/x86/src/instruction/definitions/strings.rs)
 or when a segment load terminates execution under the current assumptions, as in
 [segment instructions](crates/x86/src/instruction/definitions/segments.rs).
 
+For implicit memory based on a register, `execution.memory_at_register::<T>`
+uses the current address size and an explicit segment selection. Pass
+`execution.data_segment()` for DS with a possible override, or a fixed segment
+for accesses such as string destinations. The returned typed location supports
+`offset_memory` for a wrapping byte displacement, as used by XLAT's unsigned AL
+index, before its ordinary checked `read` or `write`.
+
 ## Writing tests
 
 An `InstructionCase` states encoding bytes, initial state and expected changes.

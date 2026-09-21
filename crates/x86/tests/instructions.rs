@@ -80,6 +80,8 @@ mod stack_flags;
 mod stack_operations;
 #[path = "suites/strings.rs"]
 mod strings;
+#[path = "suites/table_lookups.rs"]
+mod table_lookups;
 #[path = "suites/unary_operations.rs"]
 mod unary_operations;
 

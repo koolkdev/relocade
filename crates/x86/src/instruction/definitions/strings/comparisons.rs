@@ -66,10 +66,12 @@ where
 {
     let stride = element_stride::<T>(execution)?;
     repetition.execute(execution, [Gpr32::Esi, Gpr32::Edi], &stride, |execution| {
-        let left = memory_at_index::<T>(execution, Gpr32::Esi, execution.string_source_segment())
+        let left = execution
+            .memory_at_register::<T>(Gpr32::Esi, execution.data_segment())
             .read(execution)?;
-        let right =
-            memory_at_index::<T>(execution, Gpr32::Edi, Segment::Es.into()).read(execution)?;
+        let right = execution
+            .memory_at_register::<T>(Gpr32::Edi, Segment::Es.into())
+            .read(execution)?;
         Ok([left, right])
     })
 }
@@ -85,8 +87,9 @@ where
     let stride = element_stride::<T>(execution)?;
     let left = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
     repetition.execute(execution, [Gpr32::Edi], &stride, |execution| {
-        let right =
-            memory_at_index::<T>(execution, Gpr32::Edi, Segment::Es.into()).read(execution)?;
+        let right = execution
+            .memory_at_register::<T>(Gpr32::Edi, Segment::Es.into())
+            .read(execution)?;
         Ok([left, right])
     })
 }

@@ -14,7 +14,7 @@ use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
 use crate::memory::{Access, Intent, Memory};
 use crate::runtime::Runtime;
-use crate::segment::{Segment, SegmentAccess, SegmentProfile, SegmentSelection};
+use crate::segment::{SegmentAccess, SegmentProfile, SegmentSelection};
 use crate::state::{exit, Cpu, State};
 use crate::{address::AddressSize, exception::Exception};
 
@@ -68,11 +68,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.eip = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
         self.completed += 1;
         Ok(())
-    }
-
-    /// String sources use DS unless the current instruction overrides it.
-    pub(crate) fn string_source_segment(&self) -> SegmentSelection {
-        self.segment_override.apply(&Segment::Ds.into())
     }
 
     /// Defines a flag change while preserving flags omitted from its write mask.

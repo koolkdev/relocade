@@ -1,5 +1,5 @@
 use super::*;
-use crate::register::RegisterType;
+use crate::register::{Gpr32, RegisterType};
 
 instruction_families! {
     MOV {
@@ -25,6 +25,25 @@ instruction_families! {
             0x8D => word_or_dword(modrm_reg, address);
         }
     }
+    XLAT {
+        execute: translate_byte;
+        effects: [memory_read];
+        forms {
+            0xD7 => no_operands();
+        }
+    }
+}
+
+fn translate_byte(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
+    let index = TypedLocation::<I8>::register(Gpr32::Eax)
+        .read(execution)?
+        .unsigned()
+        .extend::<I32>();
+    let value = execution
+        .memory_at_register::<I8>(Gpr32::Ebx, execution.data_segment())
+        .offset_memory(index)
+        .read(execution)?;
+    TypedLocation::<I8>::register(Gpr32::Eax).write(execution, value)
 }
 
 fn mov<T: RegisterType>(
