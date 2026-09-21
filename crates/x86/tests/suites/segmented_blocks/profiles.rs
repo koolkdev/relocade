@@ -58,10 +58,16 @@ fn snapshot_field_bounds_follow_the_selected_code_defaults() {
         Err(BlockError::InstructionTooLong { address: 0x1000 }),
     ));
     for profile in [SegmentProfile::Segmented16, SegmentProfile::Segmented32] {
-        for prefix in [&[0xeb, 0][..], &[0xf3, 0xa4]] {
-            let bytes = [prefix, &[0x0f]].concat();
-            assert!(compile_block_from_bytes_with_profile(0x1000, &bytes, 5, profile).is_ok());
-        }
+        assert!(
+            compile_block_from_bytes_with_profile(0x1000, &[0xeb, 0, 0x0f], 5, profile).is_ok()
+        );
+        assert!(matches!(
+            compile_block_from_bytes_with_profile(0x1000, &[0xf3, 0xa4, 0x0f], 2, profile),
+            Err(BlockError::TruncatedInstruction {
+                address: 0x1002,
+                available: 1
+            }),
+        ));
         assert!(matches!(
             compile_block_from_bytes_with_profile(0x1000, &[0x90], 0, profile),
             Err(BlockError::ZeroInstructionLimit),

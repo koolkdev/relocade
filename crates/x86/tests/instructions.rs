@@ -44,6 +44,8 @@ mod flag_transfer;
 mod immediate_and_absolute_moves;
 #[path = "suites/instruction_prefixes.rs"]
 mod instruction_prefixes;
+#[path = "suites/interpreter_runs.rs"]
+mod interpreter_runs;
 #[path = "suites/interpreter_steps.rs"]
 mod interpreter_steps;
 #[path = "suites/logical_flags.rs"]

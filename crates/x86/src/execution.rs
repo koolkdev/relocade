@@ -182,9 +182,13 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         )
     }
 
-    pub(super) fn complete(mut self) -> Result<(), BuildError> {
+    /// Publishes completed work before the frontend dispatches or continues decoding.
+    pub(super) fn complete(
+        mut self,
+        continue_execution: impl FnOnce(FunctionBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
+    ) -> Result<(), BuildError> {
         self.state
             .publish(&mut self.body, &self.eip, self.completed)?;
-        self.runtime.dispatch(self.body, &self.eip)
+        continue_execution(self.body, &self.eip)
     }
 }

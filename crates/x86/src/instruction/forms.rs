@@ -76,17 +76,16 @@ impl Form {
     /// Resolve prefix meaning before either decoder reads operand fields.
     pub(crate) fn resolve(&self, prefixes: &PrefixState) -> Option<ResolvedForm> {
         let operand_size = prefixes.operand_size();
-        let (handlers, ends_block) = if let Some(prefix) = prefixes.repeat() {
-            (self.repeat_handlers[prefix.index()]?, true)
+        let handlers = if let Some(prefix) = prefixes.repeat() {
+            self.repeat_handlers[prefix.index()]?
         } else {
-            (self.handlers, self.ends_block)
+            self.handlers
         };
         Some(ResolvedForm {
             form: *self,
             operand_size,
             address_size: prefixes.address_size(),
             call: handlers.resolve(operand_size),
-            ends_block,
             segment_override: prefixes.segment_override().clone(),
         })
     }
@@ -114,7 +113,6 @@ pub(crate) struct ResolvedForm {
     operand_size: OperandSize,
     address_size: AddressSize,
     call: HandlerBinding,
-    ends_block: bool,
     segment_override: SegmentOverride,
 }
 

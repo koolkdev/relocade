@@ -7,7 +7,7 @@ use crate::{
 
 /// Compiles a byte snapshot under [`SegmentProfile::Flat32`].
 ///
-/// Compilation stops at the first branch, REP, segment load or `instruction_limit`,
+/// Compilation stops at the first branch, segment load or `instruction_limit`,
 /// whichever comes first. A conditional branch ends the block on both outcomes;
 /// bytes after the boundary are ignored. The limit must be nonzero. Incomplete,
 /// unsupported or overlong instructions within that boundary return [`BlockError`].
@@ -102,7 +102,7 @@ pub fn compile_block_from_bytes_with_profile(
             for decoded_instruction in decoded_instructions {
                 execution.execute(decoded_instruction)?;
             }
-            execution.complete()
+            execution.complete(|body, eip| runtime.dispatch(body, eip))
         },
     )?;
     let entry = format!("block_{start_eip:x}");

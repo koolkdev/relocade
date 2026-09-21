@@ -1,14 +1,14 @@
 # Host integration
 
 Generated x86 modules use this contract for both snapshot blocks and interpreter
-steps. The embedding host supplies memory, dispatch and descriptor resolution.
+entries. The embedding host supplies memory, dispatch and descriptor resolution.
 The Wasm engine must support multiple memories, multiple results and tail calls.
 
 ## Entries and dispatch
 
 `CompiledModule` contains the Wasm bytes, exported entry name and required segment
 profile. Snapshot entries are named `block_<hex start_eip>`; interpreter entries
-are named `step`. Both have the Wasm signature `() -> i64`.
+are named `run` or `step`. All have the Wasm signature `() -> i64`.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
 count, then tail-calls `wasm86.dispatch(next_eip: i32) -> i64`. Its result is returned
@@ -16,10 +16,19 @@ unchanged. EIP and dispatch arguments are offsets relative to CS, and EIP and co
 use 32-bit wrapping arithmetic. A taken transfer checks its segment target before
 committing instruction effects; fetching the destination belongs to the next entry.
 
-The host chooses whether dispatch enters more code or returns control. An
-interpreter step executes one instruction before dispatch, including all elements
-of a supported REP instruction. It has no execution budget; neither the repeated
-work nor a chain of dispatches is bounded by the word “step”.
+The host chooses whether dispatch enters more code or returns control. Interpreter
+`run` continues inside Wasm until a branch or segment load completes. It uses
+the same instruction boundary as snapshot compilation: conditional branches end
+execution on both outcomes. Earlier instructions remain published if a later
+instruction faults or is unsupported. Each instruction fetches live guest bytes
+and starts with fresh prefix state. REP completes its repetition and continues
+to the next instruction in both frontends.
+
+Interpreter `step` executes one instruction before dispatch, including all elements
+of a supported REP instruction. Neither interpreter entry has an execution budget.
+Straight-line `run` execution, REP work and chains of host dispatches have no fixed
+bound. The snapshot compiler's instruction limit bounds compilation only; it is
+not an interpreter limit or a host responsiveness guarantee.
 
 ## Imported memories
 

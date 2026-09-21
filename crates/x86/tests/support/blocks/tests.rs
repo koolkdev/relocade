@@ -44,9 +44,15 @@ fn admission_checks_only_instructions_inside_the_compilation_boundary() {
     for (bytes, limit, cs_limit) in [
         (&[0x90, 0x0f][..], 1, 0x1000),
         (&[0xeb, 0, 0x0f][..], 3, 0x1001),
-        (&[0xf3, 0xa4, 0x0f][..], 3, 0x1001),
+        (&[0xf3, 0xa4, 0x0f][..], 1, 0x1001),
     ] {
         cpu.segments.cs.limit = cs_limit;
         blocks.get(&cpu, bytes, limit, SegmentProfile::Segmented32);
     }
+    assert!(catch_unwind(AssertUnwindSafe(|| {
+        blocks.get(&cpu, &[0xf3, 0xa4, 0x90], 2, SegmentProfile::Segmented32);
+    }))
+    .is_err());
+    cpu.segments.cs.limit = 0x1002;
+    blocks.get(&cpu, &[0xf3, 0xa4, 0x90], 2, SegmentProfile::Segmented32);
 }

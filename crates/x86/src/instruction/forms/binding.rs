@@ -46,7 +46,7 @@ impl ResolvedForm {
                 address_size: self.address_size,
                 condition: self.form.condition,
                 implicit_memory: self.form.implicit_memory,
-                ends_block: self.ends_block,
+                ends_block: self.form.ends_block,
                 segment_override: self.segment_override.clone(),
             },
             eip,

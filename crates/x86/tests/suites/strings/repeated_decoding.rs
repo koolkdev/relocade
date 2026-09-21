@@ -106,11 +106,20 @@ fn snapshot_prefix_truncation_and_byte_sixteen_precedence() {
         } else {
             let module = compile_block_from_bytes(0x1000, &code, 1).unwrap();
             Validator::new().validate_all(&module.bytes).unwrap();
+            let next_eip = 0x1000 + code.len() as u32;
+            let with_successor = [code, vec![0x0f]].concat();
             assert_eq!(
                 module.bytes,
-                compile_block_from_bytes(0x1000, &[code, vec![0x0f]].concat(), 2)
+                compile_block_from_bytes(0x1000, &with_successor, 1)
                     .unwrap()
                     .bytes
+            );
+            assert_eq!(
+                compile_block_from_bytes(0x1000, &with_successor, 2).err(),
+                Some(BlockError::TruncatedInstruction {
+                    address: next_eip,
+                    available: 1
+                })
             );
         }
     }
@@ -189,7 +198,6 @@ fn per_instruction_reset(engine: Engine) {
             ]
         )
     );
-    // The REP ends its snapshot block; the next block starts with fresh prefix state.
     let block =
         TestModule::new(&compile_block_from_bytes(0x1000, &[0x66, 0xf3, 0xab, 0xab], 2).unwrap());
     assert_eq!(
@@ -197,23 +205,8 @@ fn per_instruction_reset(engine: Engine) {
         expected(
             &image,
             &[Step {
-                cpu: first,
-                ram: &[(0x8000, first_bytes)],
-                exit: Exit::Dispatch(0x1003)
-            },]
-        )
-    );
-    let mut resumed = reset_image();
-    resumed.cpu = first;
-    resumed.data(0x8000, first_bytes);
-    let block = TestModule::new(&compile_block_from_bytes(0x1003, &[0xab], 1).unwrap());
-    assert_eq!(
-        engine.observe(&block, &resumed.input(), 1),
-        expected(
-            &resumed,
-            &[Step {
                 cpu: second,
-                ram: &[(0x8004, second_bytes)],
+                ram: &[(0x8000, first_bytes), (0x8004, second_bytes)],
                 exit: Exit::Dispatch(0x1004)
             },]
         )

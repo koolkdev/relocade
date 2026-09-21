@@ -10,6 +10,8 @@ mod memory;
 mod repeated_decoding;
 #[path = "strings/repeated_restart.rs"]
 mod repeated_restart;
+#[path = "strings/repeated_sequences.rs"]
+mod repeated_sequences;
 #[path = "strings/repetition.rs"]
 mod repetition;
 #[path = "strings/sequences.rs"]

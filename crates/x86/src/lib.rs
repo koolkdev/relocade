@@ -2,7 +2,9 @@
 //!
 //! [`compile_block_from_bytes`] decodes a supplied snapshot under flat 32-bit
 //! assumptions. [`compile_block_from_bytes_with_profile`] selects explicit segment
-//! assumptions; [`compile_interpreter_step`] generates runtime instruction decoding.
+//! assumptions; [`compile_interpreter`] generates runtime instruction decoding
+//! through a block boundary, and [`compile_interpreter_step`] generates a
+//! single-instruction entry.
 //! Both frontends share instruction semantics and return a [`CompiledModule`].
 //!
 //! The supported subset covers 16/32-bit protected-mode integer execution.
@@ -51,7 +53,7 @@ use std::fmt;
 
 pub use block::{compile_block_from_bytes, compile_block_from_bytes_with_profile};
 pub use exception::{Exception, ExceptionVector};
-pub use interpreter::compile_interpreter_step;
+pub use interpreter::{compile_interpreter, compile_interpreter_step};
 pub use register::Gpr32;
 pub use segment::{
     DescriptorTables, PrivilegeLevel, Segment, SegmentAttributes, SegmentDefaultSize,

@@ -58,7 +58,7 @@ test_cases!(
 );
 
 #[test]
-fn snapshot_fetch_lengths_and_block_termination() {
+fn snapshot_fetch_lengths_and_successors_after_repetition() {
     for prefix in [0xf2, 0xf3] {
         for opcode in [0xa6, 0xa7, 0xae, 0xaf] {
             for length in [1, 2, 14, 15] {
@@ -84,10 +84,18 @@ fn snapshot_fetch_lengths_and_block_termination() {
                     );
                 } else {
                     let module = compile_block_from_bytes(0x1000, &code, 1).unwrap();
+                    let next_eip = 0x1000 + code.len() as u32;
                     code.push(0x0f);
                     assert_eq!(
                         module.bytes,
-                        compile_block_from_bytes(0x1000, &code, 2).unwrap().bytes
+                        compile_block_from_bytes(0x1000, &code, 1).unwrap().bytes
+                    );
+                    assert_eq!(
+                        compile_block_from_bytes(0x1000, &code, 2).err(),
+                        Some(BlockError::TruncatedInstruction {
+                            address: next_eip,
+                            available: 1
+                        })
                     );
                 }
             }
