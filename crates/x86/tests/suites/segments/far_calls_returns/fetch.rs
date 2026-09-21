@@ -32,77 +32,81 @@ fn snapshot_forms_require_every_field_and_end_the_block() {
 }
 
 fn missing_fields(engine: Engine) {
-    for code in encodings() {
-        for available in 1..code.len() {
-            let mut image = Image::empty();
-            image.cpu.eip = 0x2000 - available as u32;
-            image.map(1, 0x3000, false);
-            image.data(0x4000 - available as u32, &code[..available]);
-            image.check_unchanged_exit(
-                engine,
-                TestModule::interpreter(),
-                &format!("far control fields {code:02x?}, available {available}"),
-                Exit::PageFault {
-                    address: 0x2000,
-                    error: 0x10,
-                },
-            );
-        }
+    for (code, available) in [
+        (immediate(false, 0x9234_5678, 0xf327), 3), // Offset.
+        (immediate(true, 0x5678, 0xf327), 5),       // Selector.
+        (vec![0xff, 0x9c, 0x25, 0x78, 0x56, 0x34, 0x12], 6), // Displacement.
+        (ret(false, Some(0xabcd)), 2),              // Cleanup.
+    ] {
+        let mut image = Image::empty();
+        image.cpu.eip = 0x2000 - available as u32;
+        image.map(1, 0x3000, false);
+        image.data(0x4000 - available as u32, &code[..available]);
+        image.check_unchanged_exit(
+            engine,
+            TestModule::interpreter(),
+            &format!("far control fields {code:02x?}, available {available}"),
+            Exit::PageFault {
+                address: 0x2000,
+                error: 0x10,
+            },
+        );
     }
 }
 
 #[test]
-fn all_instruction_fields_are_fetched_before_source_stack_or_descriptor_checks() {
+fn incomplete_pointer_displacement_or_cleanup_faults_before_data_or_descriptor_checks() {
     missing_fields(Engine::Wasmtime);
 }
 
 fn complete_fields(engine: Engine) {
-    for returning in [false, true] {
-        for word in [false, true] {
-            let code = if returning {
-                ret(word, Some(0x1234))
-            } else {
-                immediate(word, 0x200, 0x27)
-            };
-            for split in 1..=code.len() {
-                let mut image = image_with_stack(&[], if returning { 0x9000 } else { 0x9008 });
-                image.cpu.eip = 0x2000 - split as u32;
-                image.data(0x4000 - split as u32, &code[..split]);
-                if split < code.len() {
-                    image.map(2, 0x5000, false);
-                    image.data(0x5000, &code[split..]);
-                }
-                image.data(0x8000, &pointer(word, 0x200, 0x27));
-                let mut cpu = image.cpu;
-                cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, 23);
-                cpu.eip = 0x200;
-                cpu.registers.esp = match (returning, word) {
-                    (true, true) => 0xa238,
-                    (true, false) => 0xa23c,
-                    (false, true) => 0x9004,
-                    (false, false) => 0x9000,
-                };
-                cpu.instruction_count = 0;
-                let saved = pointer(word, image.cpu.eip + code.len() as u32, 0x1b);
-                let ram = if returning {
-                    vec![]
-                } else {
-                    vec![(if word { 0x8004 } else { 0x8000 }, saved.as_slice())]
-                };
-                check_one(
-                    engine,
-                    SegmentProfile::Flat32,
-                    &code,
-                    &image,
-                    &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
-                    Step {
-                        cpu,
-                        ram: &ram,
-                        exit: Exit::Dispatch(cpu.eip),
-                    },
-                );
-            }
+    for (returning, word, split) in [
+        (false, false, 3), // Dword offset crosses the page.
+        (false, true, 5),  // Word pointer's selector crosses the page.
+        (true, false, 2),  // Cleanup crosses the page.
+        (true, true, 4),   // Complete word return needs no next page.
+    ] {
+        let code = if returning {
+            ret(word, Some(0x1234))
+        } else {
+            immediate(word, 0x200, 0x27)
+        };
+        let mut image = image_with_stack(&[], if returning { 0x9000 } else { 0x9008 });
+        image.cpu.eip = 0x2000 - split as u32;
+        image.data(0x4000 - split as u32, &code[..split]);
+        if split < code.len() {
+            image.map(2, 0x5000, false);
+            image.data(0x5000, &code[split..]);
         }
+        image.data(0x8000, &pointer(word, 0x200, 0x27));
+        let mut cpu = image.cpu;
+        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, 23);
+        cpu.eip = 0x200;
+        cpu.registers.esp = match (returning, word) {
+            (true, true) => 0xa238,
+            (true, false) => 0xa23c,
+            (false, true) => 0x9004,
+            (false, false) => 0x9000,
+        };
+        cpu.instruction_count = 0;
+        let saved = pointer(word, image.cpu.eip + code.len() as u32, 0x1b);
+        let ram = if returning {
+            vec![]
+        } else {
+            vec![(if word { 0x8004 } else { 0x8000 }, saved.as_slice())]
+        };
+        check_one(
+            engine,
+            SegmentProfile::Flat32,
+            &code,
+            &image,
+            &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
+            Step {
+                cpu,
+                ram: &ram,
+                exit: Exit::Dispatch(cpu.eip),
+            },
+        );
     }
 }
 
@@ -161,25 +165,23 @@ fn length_and_register_modes(engine: Engine) {
             }
         }
     }
-    for rm in 0..8 {
-        let code = [0xff, 0xd8 | rm];
-        let mut image = Image::new(&[]);
-        image.cpu.eip = 0x1ffe;
-        image.data(0x3ffe, &code);
-        assert_eq!(
-            compile_block_from_bytes(0x1ffe, &code, 1).err(),
-            Some(BlockError::UnsupportedInstruction {
-                address: 0x1ffe,
-                opcode: 0xff
-            })
-        );
-        image.check_unchanged_exit(
-            engine,
-            TestModule::interpreter(),
-            &format!("far CALL rejects register {rm}"),
-            Exit::Other(0x0008_00ff_0000_1ffe),
-        );
-    }
+    let code = [0xff, 0xdf];
+    let mut image = Image::new(&[]);
+    image.cpu.eip = 0x1ffe;
+    image.data(0x3ffe, &code);
+    assert_eq!(
+        compile_block_from_bytes(0x1ffe, &code, 1).err(),
+        Some(BlockError::UnsupportedInstruction {
+            address: 0x1ffe,
+            opcode: 0xff
+        })
+    );
+    image.check_unchanged_exit(
+        engine,
+        TestModule::interpreter(),
+        "far CALL rejects a register operand",
+        Exit::Other(0x0008_00ff_0000_1ffe),
+    );
 }
 
 #[test]

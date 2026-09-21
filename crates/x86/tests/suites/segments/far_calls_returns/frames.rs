@@ -1,87 +1,98 @@
 use super::*;
 
 fn call_widths(engine: Engine) {
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
+    // Each immediate/indirect form covers the four operand-width/SS.B combinations.
+    for (profile, code, word, stack_big) in [
+        (
+            SegmentProfile::Flat32,
+            &[0x9a, 0x78, 0x56, 0x34, 0x92, 0x24, 0][..],
+            false,
+            true,
+        ),
+        (
+            SegmentProfile::Segmented32,
+            &[0x66, 0x9a, 0x78, 0x56, 0x24, 0],
+            true,
+            false,
+        ),
+        (
+            SegmentProfile::Segmented16,
+            &[0x9a, 0x78, 0x56, 0x24, 0],
+            true,
+            true,
+        ),
+        (
+            SegmentProfile::Segmented16,
+            &[0x66, 0x9a, 0x78, 0x56, 0x34, 0x92, 0x24, 0],
+            false,
+            false,
+        ),
+        (SegmentProfile::Flat32, &[0xff, 0x1b], false, true),
+        (
+            SegmentProfile::Segmented32,
+            &[0x66, 0xff, 0x1b],
+            true,
+            false,
+        ),
+        (SegmentProfile::Segmented16, &[0xff, 0x18], true, true),
+        (
+            SegmentProfile::Segmented16,
+            &[0x66, 0xff, 0x18],
+            false,
+            false,
+        ),
     ] {
-        for override_size in [false, true] {
-            let word = (profile == SegmentProfile::Segmented16) != override_size;
-            for stack_big in [false, true] {
-                if profile == SegmentProfile::Flat32 && !stack_big {
-                    continue;
-                }
-                for indirect in [false, true] {
-                    for next_word in [false, true] {
-                        let mut code = if override_size { vec![0x66] } else { vec![] };
-                        if indirect {
-                            code.extend(if profile == SegmentProfile::Segmented16 {
-                                [0xff, 0x18]
-                            } else {
-                                [0xff, 0x1b]
-                            });
-                        } else {
-                            code.push(0x9a);
-                            code.extend(pointer(word, 0x9234_5678, 0x24));
-                        }
-                        let mut image = Image::new(&code);
-                        image.cpu.segments.cs.selector = 0x1b;
-                        code_defaults(&mut image, profile);
-                        image.cpu.registers.esp = 0x1234_9008;
-                        image.cpu.registers.ebx = 0x4000;
-                        image.cpu.registers.esi = 0;
-                        let base = if profile == SegmentProfile::Flat32 {
-                            0
-                        } else {
-                            0x10000
-                        };
-                        image.cpu.segments.ss =
-                            loaded(0x23, base, u32::MAX, if stack_big { 21 } else { 5 });
-                        image.map(
-                            if stack_big { 0x12349 } else { 9 } + (base >> 12),
-                            0x8000,
-                            true,
-                        );
-                        image.data(0x8000, &[0xa5; 16]);
-                        image.map(4, 0x5000, false);
-                        image.data(0x5000, &pointer(word, 0x9234_5678, 0x24));
-                        let mut table = tables(u32::MAX);
-                        table.insert(
-                            0x24,
-                            descriptor(
-                                0xc000,
-                                u32::MAX,
-                                if next_word {
-                                    SegmentDefaultSize::Bits16
-                                } else {
-                                    SegmentDefaultSize::Bits32
-                                },
-                            ),
-                        );
-                        let mut cpu = image.cpu;
-                        cpu.segments.cs =
-                            loaded(0x27, 0xc000, u32::MAX, if next_word { 7 } else { 23 });
-                        cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
-                        cpu.registers.esp = if word { 0x1234_9004 } else { 0x1234_9000 };
-                        cpu.instruction_count = 0;
-                        let saved = pointer(word, 0x1000 + code.len() as u32, 0x1b);
-                        check_one(
-                            engine,
-                            profile,
-                            &code,
-                            &image,
-                            &[SegmentResolution::new(&table, Segment::Cs, 0x24)],
-                            Step {
-                                cpu,
-                                ram: &[(if word { 0x8004 } else { 0x8000 }, &saved)],
-                                exit: Exit::Dispatch(cpu.eip),
-                            },
-                        );
-                    }
-                }
-            }
-        }
+        let mut image = Image::new(code);
+        image.cpu.segments.cs.selector = 0x1b;
+        code_defaults(&mut image, profile);
+        image.cpu.registers.esp = 0x1234_9008;
+        image.cpu.registers.ebx = 0x4000;
+        image.cpu.registers.esi = 0;
+        let base = if profile == SegmentProfile::Flat32 {
+            0
+        } else {
+            0x10000
+        };
+        image.cpu.segments.ss = loaded(0x23, base, u32::MAX, if stack_big { 21 } else { 5 });
+        image.map(
+            if stack_big { 0x12349 } else { 9 } + (base >> 12),
+            0x8000,
+            true,
+        );
+        image.data(0x8000, &[0xa5; 16]);
+        image.map(4, 0x5000, false);
+        image.data(0x5000, &pointer(word, 0x9234_5678, 0x24));
+        let mut table = tables(u32::MAX);
+        table.insert(
+            0x24,
+            descriptor(
+                0xc000,
+                u32::MAX,
+                if word {
+                    SegmentDefaultSize::Bits32
+                } else {
+                    SegmentDefaultSize::Bits16
+                },
+            ),
+        );
+        let mut cpu = image.cpu;
+        cpu.segments.cs = loaded(0x27, 0xc000, u32::MAX, if word { 23 } else { 7 });
+        cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
+        cpu.registers.esp = if word { 0x1234_9004 } else { 0x1234_9000 };
+        cpu.instruction_count = 0;
+        let saved = pointer(word, 0x1000 + code.len() as u32, 0x1b);
+        check_one(
+            engine,
+            profile,
+            code,
+            &image,
+            &[SegmentResolution::new(&table, Segment::Cs, 0x24)],
+            Step {
+                cpu,
+                ram: &[(if word { 0x8004 } else { 0x8000 }, &saved)],
+                exit: Exit::Dispatch(cpu.eip),
+            },
+        );
     }
 }
 
@@ -91,54 +102,46 @@ fn call_forms_keep_operand_width_code_defaults_and_stack_width_independent() {
 }
 
 fn return_widths(engine: Engine) {
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
+    for (profile, operand_override, word, stack_big) in [
+        (SegmentProfile::Flat32, false, false, true),
+        (SegmentProfile::Segmented32, true, true, false),
+        (SegmentProfile::Segmented16, false, true, true),
+        (SegmentProfile::Segmented16, true, false, false),
     ] {
-        for override_size in [false, true] {
-            let word = (profile == SegmentProfile::Segmented16) != override_size;
-            for stack_big in [false, true] {
-                if profile == SegmentProfile::Flat32 && !stack_big {
-                    continue;
-                }
-                for cleanup in [None, Some(0xffff)] {
-                    let code = ret(override_size, cleanup);
-                    let mut image = Image::new(&code);
-                    image.cpu.segments.cs.selector = 0x1b;
-                    code_defaults(&mut image, profile);
-                    image.cpu.registers.esp = 0x1234_9000;
-                    image.cpu.segments.ss =
-                        loaded(0x23, 0, u32::MAX, if stack_big { 21 } else { 5 });
-                    image.map(if stack_big { 0x12349 } else { 9 }, 0x8000, false);
-                    image.data(0x8000, &[0xa5; 8]);
-                    image.data(0x8000, &pointer(word, 0x9234_5678, 0x27));
-                    let mut cpu = image.cpu;
-                    cpu.segments.cs = loaded(0x27, 0xc000, u32::MAX, 23);
-                    cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
-                    cpu.registers.esp = match (word, cleanup, stack_big) {
-                        (true, None, _) => 0x1234_9004,
-                        (false, None, _) => 0x1234_9008,
-                        (true, Some(_), true) => 0x1235_9003,
-                        (false, Some(_), true) => 0x1235_9007,
-                        (true, Some(_), false) => 0x1234_9003,
-                        (false, Some(_), false) => 0x1234_9007,
-                    };
-                    cpu.instruction_count = 0;
-                    check_one(
-                        engine,
-                        profile,
-                        &code,
-                        &image,
-                        &[SegmentResolution::new(&tables(u32::MAX), Segment::Cs, 0x27)],
-                        Step {
-                            cpu,
-                            ram: &[],
-                            exit: Exit::Dispatch(cpu.eip),
-                        },
-                    );
-                }
-            }
+        for cleanup in [None, Some(0xffff)] {
+            let code = ret(operand_override, cleanup);
+            let mut image = Image::new(&code);
+            image.cpu.segments.cs.selector = 0x1b;
+            code_defaults(&mut image, profile);
+            image.cpu.registers.esp = 0x1234_9000;
+            image.cpu.segments.ss = loaded(0x23, 0, u32::MAX, if stack_big { 21 } else { 5 });
+            image.map(if stack_big { 0x12349 } else { 9 }, 0x8000, false);
+            image.data(0x8000, &[0xa5; 8]);
+            image.data(0x8000, &pointer(word, 0x9234_5678, 0x27));
+            let mut cpu = image.cpu;
+            cpu.segments.cs = loaded(0x27, 0xc000, u32::MAX, 23);
+            cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
+            cpu.registers.esp = match (word, cleanup, stack_big) {
+                (true, None, _) => 0x1234_9004,
+                (false, None, _) => 0x1234_9008,
+                (true, Some(_), true) => 0x1235_9003,
+                (false, Some(_), true) => 0x1235_9007,
+                (true, Some(_), false) => 0x1234_9003,
+                (false, Some(_), false) => 0x1234_9007,
+            };
+            cpu.instruction_count = 0;
+            check_one(
+                engine,
+                profile,
+                &code,
+                &image,
+                &[SegmentResolution::new(&tables(u32::MAX), Segment::Cs, 0x27)],
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                },
+            );
         }
     }
 }

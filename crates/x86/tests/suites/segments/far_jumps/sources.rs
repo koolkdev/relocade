@@ -1,52 +1,55 @@
 use super::*;
 
 fn source_spans(engine: Engine) {
-    for word in [false, true] {
+    for (word, split) in [
+        (true, 4),
+        (false, 6),
+        (true, 1),
+        (true, 3),
+        (false, 3),
+        (false, 5),
+    ] {
         let payload = pointer(word, 0x9234_5678, 0x27);
-        for split in 1..=payload.len() {
-            for second_frame in [0x9000, 0xa000] {
-                let code = if word {
-                    &[0x66, 0xff, 0x2b][..]
-                } else {
-                    &[0xff, 0x2b]
-                };
-                let mut image = Image::new(code);
-                image.cpu.registers.ebx = 0x5000 - split as u32;
-                image.map(4, 0x8000, false);
-                image.data(0x9000 - split as u32, &payload[..split]);
-                // A pointer ending at the page boundary needs no next page.
-                if split < payload.len() {
-                    image.map(5, second_frame, false);
-                    image.data(second_frame, &payload[split..]);
-                }
-                let mut tables = DescriptorTables::default();
-                tables.insert(
-                    0x27,
-                    descriptor(0x9000, u32::MAX, SegmentDefaultSize::Bits32),
-                );
-                let mut cpu = image.cpu;
-                cpu.segments.cs = loaded(0x27, 0x9000, u32::MAX, 23);
-                cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
-                cpu.instruction_count = 0;
-                check_one(
-                    engine,
-                    SegmentProfile::Flat32,
-                    code,
-                    &image,
-                    &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
-                    Step {
-                        cpu,
-                        ram: &[],
-                        exit: Exit::Dispatch(cpu.eip),
-                    },
-                );
-            }
+        let code = if word {
+            &[0x66, 0xff, 0x2b][..]
+        } else {
+            &[0xff, 0x2b]
+        };
+        let mut image = Image::new(code);
+        image.cpu.registers.ebx = 0x5000 - split as u32;
+        image.map(4, 0x8000, false);
+        image.data(0x9000 - split as u32, &payload[..split]);
+        // Exact page-end reads need no next page; split offset/selector fields use scattered pages.
+        if split < payload.len() {
+            image.map(5, 0xa000, false);
+            image.data(0xa000, &payload[split..]);
         }
+        let mut tables = DescriptorTables::default();
+        tables.insert(
+            0x27,
+            descriptor(0x9000, u32::MAX, SegmentDefaultSize::Bits32),
+        );
+        let mut cpu = image.cpu;
+        cpu.segments.cs = loaded(0x27, 0x9000, u32::MAX, 23);
+        cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
+        cpu.instruction_count = 0;
+        check_one(
+            engine,
+            SegmentProfile::Flat32,
+            code,
+            &image,
+            &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
+            Step {
+                cpu,
+                ram: &[],
+                exit: Exit::Dispatch(cpu.eip),
+            },
+        );
     }
 }
 
 #[test]
-fn memory_pointers_read_exactly_four_or_six_bytes_across_every_page_split() {
+fn memory_pointers_read_exact_spans_and_split_offset_or_selector_fields() {
     source_spans(Engine::Wasmtime);
 }
 

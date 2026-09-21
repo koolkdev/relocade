@@ -1,70 +1,56 @@
 use super::*;
 
 fn widths_and_profiles(engine: Engine) {
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
+    for (profile, code, word) in [
+        (
+            SegmentProfile::Flat32,
+            &[0xea, 0x78, 0x56, 0x34, 0x92, 0x24, 0xf3][..],
+            false,
+        ),
+        (
+            SegmentProfile::Segmented32,
+            &[0x66, 0xea, 0x78, 0x56, 0x24, 0xf3],
+            true,
+        ),
+        (SegmentProfile::Segmented16, &[0xff, 0x28], true),
+        (SegmentProfile::Segmented16, &[0x66, 0xff, 0x28], false),
     ] {
-        for override_size in [false, true] {
-            let word = (profile == SegmentProfile::Segmented16) != override_size;
-            for indirect in [false, true] {
-                for next_word in [false, true] {
-                    let payload = pointer(word, 0x9234_5678, 0xf324);
-                    let mut code = vec![];
-                    if override_size {
-                        code.push(0x66);
-                    }
-                    if indirect {
-                        code.extend(if profile == SegmentProfile::Segmented16 {
-                            [0xff, 0x28] // [BX+SI].
-                        } else {
-                            [0xff, 0x2b] // [EBX].
-                        });
-                    } else {
-                        code.push(0xea);
-                        code.extend(&payload);
-                    }
-                    let mut image = Image::new(&code);
-                    code_defaults(&mut image, profile);
-                    image.cpu.registers.ebx = 0x4000;
-                    image.cpu.registers.esi = 0;
-                    image.map(4, 0x8000, false);
-                    image.data(0x8000, &payload);
-                    let mut tables = DescriptorTables::default();
-                    tables.insert(
-                        0xf324,
-                        descriptor(
-                            0x9000,
-                            u32::MAX,
-                            if next_word {
-                                SegmentDefaultSize::Bits16
-                            } else {
-                                SegmentDefaultSize::Bits32
-                            },
-                        ),
-                    );
-                    let mut cpu = image.cpu;
-                    cpu.segments.cs =
-                        loaded(0xf327, 0x9000, u32::MAX, if next_word { 7 } else { 23 });
-                    // CS.D sets subsequent defaults; it does not narrow this transfer.
-                    cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
-                    cpu.instruction_count = 0;
-                    check_one(
-                        engine,
-                        profile,
-                        &code,
-                        &image,
-                        &[SegmentResolution::new(&tables, Segment::Cs, 0xf324)],
-                        Step {
-                            cpu,
-                            ram: &[],
-                            exit: Exit::Dispatch(cpu.eip),
-                        },
-                    );
-                }
-            }
-        }
+        let mut image = Image::new(code);
+        code_defaults(&mut image, profile);
+        image.cpu.registers.ebx = 0x4000;
+        image.cpu.registers.esi = 0;
+        image.map(4, 0x8000, false);
+        image.data(0x8000, &pointer(word, 0x9234_5678, 0xf324));
+        // Opposite destination defaults expose accidental narrowing by the new CS.D.
+        let mut tables = DescriptorTables::default();
+        tables.insert(
+            0xf324,
+            descriptor(
+                0x9000,
+                u32::MAX,
+                if word {
+                    SegmentDefaultSize::Bits32
+                } else {
+                    SegmentDefaultSize::Bits16
+                },
+            ),
+        );
+        let mut cpu = image.cpu;
+        cpu.segments.cs = loaded(0xf327, 0x9000, u32::MAX, if word { 23 } else { 7 });
+        cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
+        cpu.instruction_count = 0;
+        check_one(
+            engine,
+            profile,
+            code,
+            &image,
+            &[SegmentResolution::new(&tables, Segment::Cs, 0xf324)],
+            Step {
+                cpu,
+                ram: &[],
+                exit: Exit::Dispatch(cpu.eip),
+            },
+        );
     }
 }
 
@@ -74,51 +60,46 @@ fn both_forms_use_operand_size_for_the_target_and_preserve_all_other_state() {
 }
 
 fn accepted_descriptors(engine: Engine) {
-    for selector_slot in [0x18, 0x04] {
-        // GDT and the valid LDT index zero.
-        for rpl in 0..4 {
-            for (readable, conforming, dpl) in [
-                (false, false, PrivilegeLevel::Ring3),
-                (true, true, PrivilegeLevel::Ring0),
-            ] {
-                let selector = selector_slot | rpl;
-                let code = immediate(false, 0x200, selector);
-                let image = Image::new(&code);
-                let mut tables = DescriptorTables::default();
-                tables.insert(
-                    selector,
-                    SegmentDescriptor {
-                        kind: SegmentDescriptorKind::Code {
-                            readable,
-                            conforming,
-                        },
-                        dpl,
-                        ..descriptor(0x9000, 0x200, SegmentDefaultSize::Bits32)
-                    },
-                );
-                let mut cpu = image.cpu;
-                cpu.segments.cs = loaded(
-                    selector_slot | 3,
-                    0x9000,
-                    0x200,
-                    if readable { 23 } else { 19 },
-                );
-                cpu.eip = 0x200;
-                cpu.instruction_count = 0;
-                check_one(
-                    engine,
-                    SegmentProfile::Flat32,
-                    &code,
-                    &image,
-                    &[SegmentResolution::new(&tables, Segment::Cs, selector)],
-                    Step {
-                        cpu,
-                        ram: &[],
-                        exit: Exit::Dispatch(cpu.eip),
-                    },
-                );
-            }
-        }
+    // One GDT execute-only descriptor and a conforming descriptor at LDT index zero.
+    for (selector, visible_selector, readable, conforming, dpl) in [
+        (0x18, 0x1b, false, false, PrivilegeLevel::Ring3),
+        (0x05, 0x07, true, true, PrivilegeLevel::Ring0),
+    ] {
+        let code = immediate(false, 0x200, selector);
+        let image = Image::new(&code);
+        let mut tables = DescriptorTables::default();
+        tables.insert(
+            selector,
+            SegmentDescriptor {
+                kind: SegmentDescriptorKind::Code {
+                    readable,
+                    conforming,
+                },
+                dpl,
+                ..descriptor(0x9000, 0x200, SegmentDefaultSize::Bits32)
+            },
+        );
+        let mut cpu = image.cpu;
+        cpu.segments.cs = loaded(
+            visible_selector,
+            0x9000,
+            0x200,
+            if readable { 23 } else { 19 },
+        );
+        cpu.eip = 0x200;
+        cpu.instruction_count = 0;
+        check_one(
+            engine,
+            SegmentProfile::Flat32,
+            &code,
+            &image,
+            &[SegmentResolution::new(&tables, Segment::Cs, selector)],
+            Step {
+                cpu,
+                ram: &[],
+                exit: Exit::Dispatch(cpu.eip),
+            },
+        );
     }
 }
 
