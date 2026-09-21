@@ -15,6 +15,7 @@ mod flag_control;
 mod flag_transfer;
 mod moves;
 mod multiply;
+mod no_ops;
 mod segments;
 mod shifts;
 mod stack;
@@ -34,6 +35,7 @@ pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form
         .chain(segments::forms())
         .chain(extensions::forms())
         .chain(exchanges::forms())
+        .chain(no_ops::forms())
         .chain(alu::forms())
         .chain(adjust::forms())
         .chain(multiply::forms())

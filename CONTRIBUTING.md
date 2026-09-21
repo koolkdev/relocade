@@ -85,7 +85,10 @@ instruction_families! {
 
 Operands are in handler argument order. `rm` binds ModRM.r/m, `/4` reserves
 ModRM.reg as an opcode extension, and `word_or_dword` follows the effective operand
-size. Use `execute: handler::<_>;` when the row must explicitly supply a logical
+size. An opcode extension requires decoding the complete ModRM address fields
+even with `no_operands()`, as in NOP. Decoding those fields does not itself read a
+register or access data memory.
+Use `execute: handler::<_>;` when the row must explicitly supply a logical
 width that cannot be inferred from the handler's operands. See
 [shifts.rs](crates/x86/src/instruction/definitions/shifts.rs) for the complete
 handler and neighboring families for other forms. Declaration validation checks

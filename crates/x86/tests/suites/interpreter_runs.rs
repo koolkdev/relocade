@@ -24,23 +24,24 @@ fn dispatch_boundaries(engine: Engine, module: &TestModule) {
     let image = Image::new(&[
         0xb8, 0x78, 0x56, 0x34, 0x12, // MOV EAX,12345678
         0xb4, 0x9a, // MOV AH,9A
+        0x0f, 0x1f, 0x44, 0x00, 0x7f, // NOP [EAX+EAX+7F]
         0x89, 0xc1, // MOV ECX,EAX
         0xeb, 0, 0xf4, // JMP to unsupported successor
     ]);
     let mut cpu = image.cpu;
     cpu.registers.eax = 0x1234_9a78;
     cpu.registers.ecx = 0x1234_9a78;
-    cpu.eip = 0x100b;
-    cpu.instruction_count = 3;
+    cpu.eip = 0x1010;
+    cpu.instruction_count = 4;
     check(
         engine,
         module,
-        "dependent aliases reach one dispatch and retirement wraps",
+        "padding preserves dependent aliases until dispatch and retirement wraps",
         &image,
         Step {
             cpu,
             ram: &[],
-            exit: Exit::Dispatch(0x100b),
+            exit: Exit::Dispatch(0x1010),
         },
     );
 

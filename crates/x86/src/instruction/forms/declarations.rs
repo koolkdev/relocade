@@ -76,7 +76,9 @@ impl Declaration<'_> {
             self.operands.len() <= 3,
             "instruction bodies take at most three operands"
         );
-        let mut modrm = false;
+        // An opcode extension requires the complete ModRM address encoding,
+        // even when the instruction binds no operand to its handler.
+        let mut modrm = self.opcode.extension.is_some();
         let mut modrm_register = false;
         let mut opcode_register = false;
         let mut offset = false;
@@ -147,8 +149,8 @@ impl Declaration<'_> {
         );
         if let Some(extension) = self.opcode.extension {
             assert!(
-                extension < 8 && modrm && !modrm_register,
-                "/n requires ModRM with no register operand"
+                extension < 8 && !modrm_register,
+                "/n requires a three-bit extension and cannot also bind ModRM.reg"
             );
         }
         let operands = if modrm {

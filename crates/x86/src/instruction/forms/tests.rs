@@ -300,6 +300,30 @@ fn flag_transfer_forms_bind_ah_without_encoded_operand_fields() {
 }
 
 #[test]
+fn opcode_extensions_can_decode_without_binding_operands() {
+    let form = catalog_form(OpcodeMap::Extended, 0x1f, Some(0));
+    assert!(form.encoding.has_modrm());
+    for modrm in 0..=u8::MAX {
+        assert_eq!(form.matches_modrm(modrm), modrm & 0x38 == 0);
+    }
+    for bytes in [
+        &[0x0f, 0x1f, 0xc0][..],
+        &[0x0f, 0x1f, 0x84, 0x8b, 0x78, 0x56, 0x34, 0x12],
+    ] {
+        let (decoded, remaining) =
+            crate::decode::snapshot(bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
+        assert!(remaining.is_empty());
+        assert_eq!(decoded.fallthrough_eip, 0x1000 + bytes.len() as u32);
+        assert!(matches!(
+            decoded.instruction.call,
+            HandlerCall::Nullary { .. }
+        ));
+        assert!(!decoded.instruction.uses_memory());
+        assert!(!decoded.instruction.ends_block());
+    }
+}
+
+#[test]
 fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_read() {
     let lea = catalog_form(OpcodeMap::Primary, 0x8d, None);
     let mov = catalog_form(OpcodeMap::Primary, 0x8b, None);

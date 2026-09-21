@@ -60,6 +60,8 @@ mod mov_blocks;
 mod multiply;
 #[path = "suites/near_control.rs"]
 mod near_control;
+#[path = "suites/no_ops.rs"]
+mod no_ops;
 #[path = "suites/operand_fetch.rs"]
 mod operand_fetch;
 #[path = "suites/relative_branches.rs"]
