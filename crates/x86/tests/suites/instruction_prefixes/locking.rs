@@ -1,16 +1,19 @@
 //! LOCK selects eligible memory updates and preserves required fetch boundaries.
 
+#[path = "locking/native.rs"]
+mod native;
+
 use crate::support::{
     cases::{
         test_cases,
         FlagExpectation::{Clear, Preserved, Set},
         Flags, InstructionCase as Case,
-        Permissions::ReadWrite,
+        Permissions::{ReadOnly, ReadWrite},
     },
     machine::{Exit, Image},
     step::{Engine, TestModule},
 };
-use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::*};
+use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::*, Segment, StoredSegment};
 
 fn memory_updates() -> Vec<Case> {
     let clear = Flags::all(Clear);
@@ -149,7 +152,7 @@ fn memory_updates() -> Vec<Case> {
     ] {
         cases.push(
             Case::new(
-                format!("LOCK {name} uses its ordinary memory semantics"),
+                format!("LOCK {name} updates memory and flags"),
                 code,
                 Flags {
                     cf: carry,
@@ -207,6 +210,128 @@ fn memory_updates() -> Vec<Case> {
 }
 
 test_cases!(eligible_memory_updates, memory_updates());
+
+fn atomic_boundaries() -> Vec<Case> {
+    let clear = Flags::all(Clear);
+    let mut cases = Vec::new();
+    for (width, prefix, adc, sbb) in [
+        (1, &[][..], 0x10, 0x18),
+        (2, &[0x66][..], 0x11, 0x19),
+        (4, &[][..], 0x11, 0x19),
+    ] {
+        for (name, opcode) in [("ADC", adc), ("SBB", sbb)] {
+            let code = [prefix, &[0xf0, opcode, 0x03]].concat();
+            cases.push(
+                Case::new(
+                    format!("LOCK {name} {width}-byte all-ones source plus carry wraps"),
+                    &code,
+                    Flags {
+                        cf: true,
+                        ..Flags::all(false)
+                    },
+                    Flags {
+                        cf: Set,
+                        af: Set,
+                        ..clear
+                    },
+                )
+                .initial_registers(&[(Eax, u32::MAX), (Ebx, 0x4000)])
+                .memory(0x4000, &[0x10, 0, 0, 0][..width], ReadWrite),
+            );
+        }
+    }
+    for (name, code, input, output, flags) in [
+        (
+            "byte zero",
+            &[0xf0, 0xf6, 0x1b][..],
+            &[0][..],
+            &[0][..],
+            Flags {
+                pf: Set,
+                zf: Set,
+                ..clear
+            },
+        ),
+        (
+            "word minimum",
+            &[0x66, 0xf0, 0xf7, 0x1b],
+            &[0, 0x80],
+            &[0, 0x80],
+            Flags {
+                cf: Set,
+                pf: Set,
+                sf: Set,
+                of: Set,
+                ..clear
+            },
+        ),
+        (
+            "dword one",
+            &[0xf0, 0xf7, 0x1b],
+            &[1, 0, 0, 0],
+            &[0xff; 4],
+            Flags {
+                cf: Set,
+                pf: Set,
+                af: Set,
+                sf: Set,
+                ..clear
+            },
+        ),
+    ] {
+        cases.push(
+            Case::replacing_flags(format!("LOCK NEG {name}"), code, flags)
+                .initial_register(Ebx, 0x4000)
+                .memory(0x4000, input, ReadWrite)
+                .expect_memory(0x4000, output),
+        );
+    }
+    for (offset, base) in [(0x4000, 1), (0x4001, 3)] {
+        cases.push(
+            Case::preserving_flags(
+                "XCHG alignment follows segment translation",
+                &[0x64, 0x87, 0x03],
+            )
+            .initial_register(Ebx, offset)
+            .register(Eax, 0x1122_3344, 0x8877_6655)
+            .segment(
+                Segment::Fs,
+                StoredSegment {
+                    base,
+                    ..StoredSegment::flat_data32(0x33)
+                },
+            )
+            .memory(offset + base, &[0x55, 0x66, 0x77, 0x88], ReadWrite)
+            .expect_memory(offset + base, &[0x44, 0x33, 0x22, 0x11]),
+        );
+    }
+    cases.extend([
+        Case::preserving_flags(
+            "aligned LOCK CMPXCHG mismatch still requires writes",
+            &[0xf0, 0x0f, 0xb1, 0x0b],
+        )
+        .initial_registers(&[(Eax, 0), (Ecx, 3), (Ebx, 0x4000)])
+        .memory(0x4000, &[1, 0, 0, 0], ReadOnly)
+        .fault(0x4000, 3),
+        Case::replacing_flags(
+            "unaligned LOCK ADD uses both scattered frames",
+            &[0xf0, 0x83, 0x03, 1],
+            Flags {
+                pf: Set,
+                af: Set,
+                ..clear
+            },
+        )
+        .initial_register(Ebx, 0x4fff)
+        .map_page(4, 0x8000, ReadWrite)
+        .map_page(5, 0xa000, ReadWrite)
+        .memory(0x4fff, &[0xff, 0xff, 0, 0], ReadWrite)
+        .expect_memory(0x4fff, &[0, 0, 1, 0]),
+    ]);
+    cases
+}
+
+test_cases!(atomic_operand_boundaries, atomic_boundaries());
 
 fn rejected_forms(engine: Engine) {
     for code in [

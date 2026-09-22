@@ -1,9 +1,7 @@
 use super::*;
 use crate::address::MemoryAddress;
-use crate::alu::{
-    compare_exchange, compare_exchange8b, AnyStatusSource, ArithmeticOp, StatusSource,
-};
-use crate::execution::PairValues;
+use crate::alu::{AnyStatusSource, ArithmeticOp, OperandUpdate, StatusSource};
+use crate::flags::{Flag, FlagChange};
 use crate::register::{Gpr32, RegisterType};
 use wasm86_compiler::I64;
 
@@ -43,12 +41,15 @@ fn xchg<T: RegisterType>(
     left: TypedLocation<T>,
     right: TypedLocation<T>,
 ) -> Result<(), BuildError> {
-    left.update_pair(execution, right, |_, old| {
-        Ok(PairValues {
-            left: old.right,
-            right: old.left,
-        })
-    })
+    let left = left.prepare_write(execution, &[])?;
+    let right = right.prepare_write(execution, &[])?;
+    let replacement = right.read(execution)?;
+    left.modify(
+        execution,
+        OperandUpdate::Exchange(replacement),
+        true,
+        |execution, previous| right.write(execution, previous),
+    )
 }
 
 fn xadd<T: RegisterType>(
@@ -59,15 +60,19 @@ fn xadd<T: RegisterType>(
 where
     StatusSource<T>: Into<AnyStatusSource>,
 {
-    destination.update_pair(execution, source, |execution, old| {
-        let outcome = ArithmeticOp::Add.apply(old.left.clone(), old.right);
-        let sum = outcome.result;
-        execution.write_flags(outcome.flags)?;
-        Ok(PairValues {
-            left: sum,
-            right: old.left,
-        })
-    })
+    let destination = destination.prepare_write(execution, &[])?;
+    let source = source.prepare_write(execution, &[])?;
+    let addend = source.read(execution)?;
+    let locked = execution.is_locked();
+    destination.modify(
+        execution,
+        OperandUpdate::Add(addend.clone()),
+        locked,
+        |execution, previous| {
+            execution.write_flags(ArithmeticOp::Add.apply(previous.clone(), addend).flags)?;
+            source.write(execution, previous)
+        },
+    )
 }
 
 fn cmpxchg<T: RegisterType>(
@@ -79,31 +84,38 @@ where
     I32: AtLeast<T>,
     StatusSource<T>: Into<AnyStatusSource>,
 {
-    destination.update_pair(
-        execution,
-        TypedLocation::register(Gpr32::Eax),
-        |execution, old| {
-            let replacement = source.read(execution)?;
-            let outcome = compare_exchange(old.left, old.right, replacement);
-            execution.write_flags(outcome.flags)?;
-            Ok(PairValues {
-                left: outcome.destination,
-                right: outcome.accumulator,
-            })
-        },
-    )
+    let destination = destination.prepare_write(execution, &[])?;
+    let accumulator = TypedLocation::<T>::register(Gpr32::Eax).prepare_write(execution, &[])?;
+    let expected = accumulator.read(execution)?;
+    let replacement = source.read(execution)?;
+    let update = OperandUpdate::CompareExchange {
+        expected: expected.clone(),
+        replacement,
+    };
+    let locked = execution.is_locked();
+    destination.modify(execution, update, locked, |execution, previous| {
+        execution.write_flags(
+            ArithmeticOp::Subtract
+                .apply(expected, previous.clone())
+                .flags,
+        )?;
+        accumulator.write(execution, previous)
+    })
 }
 
 fn cmpxchg8b(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: MemoryAddress<Val<I32>>,
 ) -> Result<(), BuildError> {
-    execution.update_memory::<I64>(destination, |execution, previous| {
-        let accumulator = execution.read_register_pair::<I32>(Gpr32::Edx, Gpr32::Eax)?;
-        let replacement = execution.read_register_pair::<I32>(Gpr32::Ecx, Gpr32::Ebx)?;
-        let outcome = compare_exchange8b(previous, accumulator, replacement);
-        execution.write_flags(outcome.flags)?;
-        execution.write_register_pair::<I32>(Gpr32::Edx, Gpr32::Eax, outcome.accumulator)?;
-        Ok(outcome.destination)
-    })
+    let accumulator = execution.read_register_pair::<I32>(Gpr32::Edx, Gpr32::Eax)?;
+    let replacement = execution.read_register_pair::<I32>(Gpr32::Ecx, Gpr32::Ebx)?;
+    let previous = execution.modify_memory::<I64>(
+        destination,
+        OperandUpdate::CompareExchange {
+            expected: accumulator.clone(),
+            replacement,
+        },
+    )?;
+    execution.write_flags(FlagChange::partial([(Flag::ZF, accumulator.eq(&previous))]))?;
+    execution.write_register_pair::<I32>(Gpr32::Edx, Gpr32::Eax, previous)
 }

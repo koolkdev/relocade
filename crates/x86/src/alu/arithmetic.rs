@@ -55,14 +55,21 @@ impl ArithmeticOp {
     {
         let left = left.into();
         let right = right.into();
-        let intermediate = self.result(&left, &right);
-        let carry_operand = carry_in.unsigned().extend::<T>();
-        let result = self.result(&intermediate, &carry_operand);
+        let result = self.result_with_carry(&left, &right, &carry_in);
         let flags = StatusFlag::ALL.map(|flag| self.flag(&left, &right, &result, &carry_in, flag));
         AluResult {
             result,
             flags: FlagChange::from(StatusSource::<T>::Explicit { flags }),
         }
+    }
+
+    pub(crate) fn result_with_carry<T: MemoryInt>(
+        self,
+        left: &Val<T>,
+        right: &Val<T>,
+        carry: &Val<I1>,
+    ) -> Val<T> {
+        self.result(&self.result(left, right), &carry.unsigned().extend::<T>())
     }
 
     pub(super) fn flag<T: MemoryInt>(

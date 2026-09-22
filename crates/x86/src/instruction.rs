@@ -59,6 +59,7 @@ pub(super) struct Instruction<V> {
     ends_block: bool,
     pub(super) address_size: AddressSize,
     pub(super) segment_override: SegmentOverride,
+    pub(super) locked: bool,
 }
 
 pub(super) struct DecodedInstruction<V, P> {

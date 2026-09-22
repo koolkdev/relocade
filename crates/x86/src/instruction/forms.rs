@@ -91,6 +91,7 @@ impl Form {
             address_size: prefixes.address_size(),
             call: self.handlers.resolve(operand_size),
             segment_override: prefixes.segment_override().clone(),
+            locked: prefixes.group1() == Some(Group1Prefix::F0),
         })
     }
 
@@ -118,6 +119,7 @@ pub(crate) struct ResolvedForm {
     address_size: AddressSize,
     call: HandlerBinding,
     segment_override: SegmentOverride,
+    locked: bool,
 }
 
 impl ResolvedForm {

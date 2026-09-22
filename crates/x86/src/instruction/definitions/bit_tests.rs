@@ -1,5 +1,9 @@
 use super::*;
-use crate::{alu::BitTestOp, instruction::Operand, register::RegisterType};
+use crate::{
+    alu::{BitTestOp, OperandUpdate},
+    instruction::Operand,
+    register::RegisterType,
+};
 
 instruction_families! {
     BT {
@@ -58,10 +62,17 @@ where
         let input = destination.read(execution)?;
         execution.write_flags(operation.apply(input, offset).flags)
     } else {
-        destination.update(execution, |execution, input| {
-            let outcome = operation.apply(input, offset);
-            execution.write_flags(outcome.flags)?;
-            Ok(outcome.result)
+        let target = destination.prepare_write(execution, &[])?;
+        let mask = BitTestOp::mask::<T>(&offset);
+        let update = match operation {
+            BitTestOp::Set => OperandUpdate::Or(mask),
+            BitTestOp::Reset => OperandUpdate::And(mask.xor(-1)),
+            BitTestOp::Complement => OperandUpdate::Xor(mask),
+            BitTestOp::Test => unreachable!("read-only bit tests do not modify their operand"),
+        };
+        let locked = execution.is_locked();
+        target.modify(execution, update, locked, |execution, input| {
+            execution.write_flags(operation.apply(input, offset).flags)
         })
     }
 }

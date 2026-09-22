@@ -7,13 +7,13 @@ mod bit_counts;
 mod bit_scans;
 mod bit_tests;
 mod divide;
-mod exchanges;
 mod logic;
 mod multiply;
 mod rotates;
 mod shifts;
 mod status;
 mod unary;
+mod update;
 
 pub(crate) use adjust::{adjust_after_multiply, adjust_before_division};
 pub(crate) use arithmetic::ArithmeticOp;
@@ -21,13 +21,13 @@ pub(crate) use bit_counts::population_count;
 pub(crate) use bit_scans::BitScanOp;
 pub(crate) use bit_tests::BitTestOp;
 pub(crate) use divide::DivideOp;
-pub(crate) use exchanges::{compare_exchange, compare_exchange8b};
 pub(crate) use logic::LogicOp;
 pub(crate) use multiply::MultiplyOp;
 pub(crate) use rotates::RotateDirection;
 pub(crate) use shifts::{DoubleShiftOp, ShiftOp};
 pub(crate) use status::{AnyStatusSource, StatusSource};
 pub(crate) use unary::UnaryOp;
+pub(crate) use update::OperandUpdate;
 
 use wasm86_compiler::{AtLeast, MemoryInt, Val, I1, I16, I32, I64, I8};
 

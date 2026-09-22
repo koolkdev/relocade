@@ -8,7 +8,7 @@ mod segments;
 mod stack;
 
 pub(crate) use control::CodeTarget;
-pub(crate) use operands::{PairValues, WriteTarget};
+pub(crate) use operands::WriteTarget;
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32, I8};
 
@@ -30,6 +30,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     segments: SegmentAccess<'module>,
     segment_override: SegmentOverride,
     address_size: AddressSize,
+    locked: bool,
     runtime: Runtime,
     eip: Val<I32>,
     completed: u32,
@@ -52,6 +53,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             segments: SegmentAccess::new(cpu, profile),
             segment_override: SegmentOverride::None,
             address_size: AddressSize::Bits32,
+            locked: false,
             runtime,
             eip,
             completed: 0,
@@ -67,9 +69,14 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         let fallthrough_eip = self.body.value(decoded.fallthrough_eip)?;
         self.address_size = decoded.instruction.address_size;
         self.segment_override = decoded.instruction.segment_override.clone();
+        self.locked = decoded.instruction.locked;
         self.eip = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
         self.completed += 1;
         Ok(())
+    }
+
+    pub(crate) fn is_locked(&self) -> bool {
+        self.locked
     }
 
     /// Defines a flag change while preserving flags omitted from its write mask.

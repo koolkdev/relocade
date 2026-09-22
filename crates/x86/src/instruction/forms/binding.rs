@@ -48,6 +48,7 @@ impl ResolvedForm {
                 implicit_memory: self.form.implicit_memory,
                 ends_block: self.form.ends_block,
                 segment_override: self.segment_override.clone(),
+                locked: self.locked,
             },
             eip,
             fallthrough_eip,

@@ -7,6 +7,7 @@ use wasm86_compiler::{BuildError, MemoryInt, Val, I32};
 use super::ExecutionBuilder;
 use crate::{
     address::{self, MemoryAddress, RegisterValue},
+    alu::OperandUpdate,
     memory::{Access, Intent, Memory},
 };
 
@@ -33,6 +34,15 @@ impl<T: MemoryInt> MemoryWriteTarget<'_, T> {
         self.memory
             .write(&mut execution.body, &self.access, 0, &value)
     }
+
+    pub(super) fn atomic_update(
+        self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        update: &OperandUpdate<T>,
+    ) -> Result<Val<T>, BuildError> {
+        self.memory
+            .atomic_update(&mut execution.body, &self.access, update)
+    }
 }
 
 impl<'memory> ExecutionBuilder<'_, 'memory> {
@@ -57,17 +67,21 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         })
     }
 
-    /// Checks the whole memory destination before reading or updating it.
-    /// The callback must complete any other faulting reads before changing state.
-    pub(crate) fn update_memory<T: MemoryInt>(
+    /// Checks and modifies a complete memory operand. Inputs must be captured
+    /// before entry; the returned value belongs to this successful update.
+    pub(crate) fn modify_memory<T: MemoryInt>(
         &mut self,
         address: MemoryAddress<impl Into<Val<I32>>>,
-        update: impl FnOnce(&mut Self, Val<T>) -> Result<Val<T>, BuildError>,
-    ) -> Result<(), BuildError> {
+        update: OperandUpdate<T>,
+    ) -> Result<Val<T>, BuildError> {
         let target = self.prepare_memory_write::<T>(address, &[])?;
-        let value = target.read(self)?;
-        let value = update(self, value)?;
-        target.write(self, value)
+        if self.locked {
+            target.atomic_update(self, &update)
+        } else {
+            let previous = target.read(self)?;
+            target.write(self, update.apply(&previous))?;
+            Ok(previous)
+        }
     }
 
     fn memory_operand(

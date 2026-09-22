@@ -14,12 +14,16 @@ pub(crate) enum BitTestOp {
 }
 
 impl BitTestOp {
+    pub(crate) fn mask<T: MemoryInt>(offset: &Val<I32>) -> Val<T> {
+        Val::<T>::from(1).shl(offset.and(T::BYTES * 8 - 1))
+    }
+
     /// Offsets wrap within this logical operand. Selecting another memory unit
     /// from a signed bit-string offset belongs to the instruction's addressing.
     pub(crate) fn apply<T: MemoryInt>(self, input: Val<T>, offset: Val<I32>) -> AluResult<T> {
         let index = offset.and(T::BYTES * 8 - 1);
         let carry = input.unsigned().shr(&index).truncate::<I1>();
-        let mask = Val::<T>::from(1).shl(index);
+        let mask = Self::mask::<T>(&offset);
         let result = match self {
             Self::Test => input,
             Self::Set => input.or(mask),

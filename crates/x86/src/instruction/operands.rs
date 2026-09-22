@@ -6,7 +6,7 @@ use wasm86_compiler::{AtLeast, BuildError, Val, I32};
 use super::{Location, Operand};
 use crate::{
     address::{EffectiveAddress, IndexTerm, MemoryAddress, RegisterValue},
-    execution::{ExecutionBuilder, PairValues, WriteTarget},
+    execution::{ExecutionBuilder, WriteTarget},
     register::{Gpr32, RegisterType},
 };
 
@@ -107,18 +107,6 @@ impl<T: RegisterType> TypedLocation<T> {
         update: impl FnOnce(&mut ExecutionBuilder<'body, 'module>, Val<T>) -> Result<Val<T>, BuildError>,
     ) -> Result<(), BuildError> {
         execution.update::<T>(self.location, update)
-    }
-
-    pub(crate) fn update_pair<'body, 'module>(
-        self,
-        execution: &mut ExecutionBuilder<'body, 'module>,
-        other: Self,
-        update: impl FnOnce(
-            &mut ExecutionBuilder<'body, 'module>,
-            PairValues<T>,
-        ) -> Result<PairValues<T>, BuildError>,
-    ) -> Result<(), BuildError> {
-        execution.update_pair::<T>(self.location, other.location, update)
     }
 
     pub(crate) fn into_location(self) -> Location<Val<I32>> {

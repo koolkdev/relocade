@@ -4,17 +4,12 @@ use wasm86_compiler::{AtLeast, BuildError, Val, I32};
 
 use crate::{
     address::{self, RegisterValue},
+    alu::OperandUpdate,
     instruction::{Location, Operand},
     register::{Register, RegisterType},
 };
 
 use super::{memory::MemoryWriteTarget, ExecutionBuilder};
-
-/// Values read from or written to a pair of locations.
-pub(crate) struct PairValues<T: RegisterType> {
-    pub(crate) left: Val<T>,
-    pub(crate) right: Val<T>,
-}
 
 /// A location whose complete write span has passed its architectural guards.
 pub(crate) struct WriteTarget<'memory, T: RegisterType> {
@@ -27,12 +22,40 @@ enum WriteLocation<'memory, T: RegisterType> {
 }
 
 impl<T: RegisterType> WriteTarget<'_, T> {
-    fn read(&self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<Val<T>, BuildError> {
+    pub(crate) fn read(
+        &self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+    ) -> Result<Val<T>, BuildError> {
         match &self.location {
             WriteLocation::Register(register) => execution
                 .state
                 .read_register(&mut execution.body, register.clone()),
             WriteLocation::Memory(target) => target.read(execution),
+        }
+    }
+
+    /// Applies a prepared modification and publishes effects from its prior value.
+    /// The callback must not perform faulting guest accesses. For register targets,
+    /// it runs before the final write so the destination wins register aliases.
+    pub(crate) fn modify(
+        self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        update: OperandUpdate<T>,
+        locked: bool,
+        complete: impl FnOnce(&mut ExecutionBuilder<'_, '_>, Val<T>) -> Result<(), BuildError>,
+    ) -> Result<(), BuildError> {
+        match self.location {
+            WriteLocation::Memory(target) if locked => {
+                let previous = target.atomic_update(execution, &update)?;
+                complete(execution, previous)
+            }
+            location => {
+                let target = Self { location };
+                let previous = target.read(execution)?;
+                let replacement = update.apply(&previous);
+                complete(execution, previous)?;
+                target.write(execution, replacement)
+            }
         }
     }
 
@@ -97,26 +120,6 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         let old_value = target.read(self)?;
         let value = update(self, old_value)?;
         target.write(self, value)
-    }
-
-    /// Resolves and checks both write targets, then reads both old values before
-    /// calling the update. Writes right before left, so left wins when they alias.
-    /// The callback must read any other faulting operands before changing state.
-    pub(crate) fn update_pair<T: RegisterType>(
-        &mut self,
-        left: Location<impl Into<Val<I32>>>,
-        right: Location<impl Into<Val<I32>>>,
-        update: impl FnOnce(&mut Self, PairValues<T>) -> Result<PairValues<T>, BuildError>,
-    ) -> Result<(), BuildError> {
-        let left = self.prepare_write::<T>(left, &[])?;
-        let right = self.prepare_write::<T>(right, &[])?;
-        let old_values = PairValues {
-            left: left.read(self)?,
-            right: right.read(self)?,
-        };
-        let values = update(self, old_values)?;
-        right.write(self, values.right)?;
-        left.write(self, values.left)
     }
 
     /// Resolves the destination using temporary address bindings and checks its

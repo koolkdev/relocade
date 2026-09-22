@@ -1,5 +1,5 @@
 use super::*;
-use crate::alu::{AnyStatusSource, ArithmeticOp, LogicOp, StatusSource, UnaryOp};
+use crate::alu::{AnyStatusSource, ArithmeticOp, LogicOp, OperandUpdate, StatusSource, UnaryOp};
 use crate::register::RegisterType;
 
 #[derive(Clone, Copy)]
@@ -185,25 +185,47 @@ where
     I32: AtLeast<T>,
     StatusSource<T>: Into<AnyStatusSource>,
 {
-    destination.update(execution, |execution, left| {
-        let right = source.read(execution)?;
+    let target = destination.prepare_write(execution, &[])?;
+    let right = source.read(execution)?;
+    let carry = if matches!(
+        operation,
+        BinaryOperation::AddWithCarry | BinaryOperation::SubtractWithBorrow
+    ) {
+        Some(execution.read_flag(crate::flags::Flag::CF)?)
+    } else {
+        None
+    };
+    let update = match operation {
+        BinaryOperation::Add => OperandUpdate::Add(right.clone()),
+        BinaryOperation::Subtract => OperandUpdate::Subtract(right.clone()),
+        BinaryOperation::AddWithCarry => OperandUpdate::AddWithCarry {
+            source: right.clone(),
+            carry: carry.clone().unwrap(),
+        },
+        BinaryOperation::SubtractWithBorrow => OperandUpdate::SubtractWithBorrow {
+            source: right.clone(),
+            borrow: carry.clone().unwrap(),
+        },
+        BinaryOperation::And => OperandUpdate::And(right.clone()),
+        BinaryOperation::Or => OperandUpdate::Or(right.clone()),
+        BinaryOperation::Xor => OperandUpdate::Xor(right.clone()),
+    };
+    let locked = execution.is_locked();
+    target.modify(execution, update, locked, |execution, left| {
         let outcome = match operation {
             BinaryOperation::Add => ArithmeticOp::Add.apply(left, right),
             BinaryOperation::Subtract => ArithmeticOp::Subtract.apply(left, right),
             BinaryOperation::AddWithCarry => {
-                let carry = execution.read_flag(crate::flags::Flag::CF)?;
-                ArithmeticOp::Add.apply_with_carry(left, right, carry)
+                ArithmeticOp::Add.apply_with_carry(left, right, carry.unwrap())
             }
             BinaryOperation::SubtractWithBorrow => {
-                let carry = execution.read_flag(crate::flags::Flag::CF)?;
-                ArithmeticOp::Subtract.apply_with_carry(left, right, carry)
+                ArithmeticOp::Subtract.apply_with_carry(left, right, carry.unwrap())
             }
             BinaryOperation::And => LogicOp::And.apply(left, right),
             BinaryOperation::Or => LogicOp::Or.apply(left, right),
             BinaryOperation::Xor => LogicOp::Xor.apply(left, right),
         };
-        execution.write_flags(outcome.flags)?;
-        Ok(outcome.result)
+        execution.write_flags(outcome.flags)
     })
 }
 
@@ -243,9 +265,22 @@ fn update_unary<T: RegisterType>(
 where
     StatusSource<T>: Into<AnyStatusSource>,
 {
-    destination.update(execution, |execution, input| {
-        let outcome = operation.apply(input);
-        execution.write_flags(outcome.flags)?;
-        Ok(outcome.result)
+    let update = match operation {
+        UnaryOp::Increment => OperandUpdate::Add(1.into()),
+        UnaryOp::Decrement => OperandUpdate::Subtract(1.into()),
+        UnaryOp::Not => OperandUpdate::Xor((-1).into()),
+        UnaryOp::Negate => OperandUpdate::Negate,
+        UnaryOp::ByteSwap => {
+            return destination.update(execution, |execution, input| {
+                let outcome = operation.apply(input);
+                execution.write_flags(outcome.flags)?;
+                Ok(outcome.result)
+            })
+        }
+    };
+    let target = destination.prepare_write(execution, &[])?;
+    let locked = execution.is_locked();
+    target.modify(execution, update, locked, |execution, input| {
+        execution.write_flags(operation.apply(input).flags)
     })
 }

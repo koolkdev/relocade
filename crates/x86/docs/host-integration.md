@@ -2,7 +2,8 @@
 
 Generated x86 modules use this contract for both snapshot blocks and interpreter
 entries. The embedding host supplies memory, dispatch and descriptor resolution.
-The Wasm engine must support multiple memories, multiple results and tail calls.
+The Wasm engine must support multiple memories, multiple results, tail calls and
+the threads extension's atomic instructions, including on unshared memories.
 
 ## Entries and dispatch
 
@@ -61,11 +62,19 @@ Read-modify-write destinations require write permission even when their value
 will remain unchanged. Faults identify the first denied byte.
 
 LOCK is supported on eligible memory-destination forms, including CMPXCHG8B.
-With unshared Wasm memories, these updates execute without guest interleaving;
-LOCK requires no additional dispatch boundary or Wasm atomic operation. This
-contract does not provide concurrent access to shared guest RAM. Rejected LOCK
-combinations and register forms of memory-only instructions remain unsupported
-encodings, reported through the unsupported-instruction path rather than #UD.
+Naturally aligned operands use native Wasm atomic read-modify-write operations;
+memory XCHG does so with or without LOCK. NEG uses a compare-exchange retry loop.
+Alignment is determined after segment translation. All operand bytes pass write
+checks before the update, including a failed comparison. Ordinary loads, stores
+and unlocked updates retain ordinary Wasm accesses; no extra fences are inserted.
+
+Unaligned locked operands use checked reads and writes under the private-memory
+contract, which prevents guest interleaving. The current imports do not support
+concurrent access to shared guest RAM. Such access will require coordination for
+unaligned locked operands as well as the surrounding ordinary accesses.
+Rejected LOCK combinations and register forms of memory-only instructions remain
+unsupported encodings, reported through the unsupported-instruction path rather
+than #UD.
 
 ## CPU backing image
 
