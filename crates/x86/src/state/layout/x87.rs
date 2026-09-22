@@ -18,14 +18,19 @@ pub struct StoredX87Register {
 }
 
 /// Independent backing bytes for the x87 status fields, in snapshot order.
-/// Exceptions use bits 0–6, TOP uses bits 0–2, and other fields use bit 0.
+/// TOP uses bits 0–2, and every other field uses bit 0.
 /// Serialization preserves every byte without normalizing unused bits.
 /// This record is not the architectural status-word encoding.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct StoredX87Status {
-    /// IE, DE, ZE, OE, UE, PE and SF in their architectural bit positions.
-    pub exception_flags: u8,
+    pub invalid: u8,
+    pub denormal: u8,
+    pub zero_divide: u8,
+    pub overflow: u8,
+    pub underflow: u8,
+    pub precision: u8,
+    pub stack_fault: u8,
     pub top: u8,
     pub c0: u8,
     pub c1: u8,
@@ -35,42 +40,78 @@ pub struct StoredX87Status {
     pub busy: u8,
 }
 
+/// Independent control fields. Masks and infinity control use bit 0;
+/// precision and rounding control use bits 0–1. `reserved_bits` retains
+/// architectural control-word bits selected by 0xe0c0. The codec preserves
+/// unused bits too; this record is not a packed architectural control word.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StoredX87Control {
+    pub invalid_mask: u8,
+    pub denormal_mask: u8,
+    pub zero_divide_mask: u8,
+    pub overflow_mask: u8,
+    pub underflow_mask: u8,
+    pub precision_mask: u8,
+    pub precision_control: u8,
+    pub rounding_control: u8,
+    pub infinity_control: u8,
+    /// Snapshot padding, retained without interpretation.
+    pub reserved: u8,
+    pub reserved_bits: u16,
+}
+
+impl Default for StoredX87Control {
+    fn default() -> Self {
+        Self {
+            invalid_mask: 1,
+            denormal_mask: 1,
+            zero_divide_mask: 1,
+            overflow_mask: 1,
+            underflow_mask: 1,
+            precision_mask: 1,
+            precision_control: 3,
+            rounding_control: 0,
+            infinity_control: 0,
+            reserved: 0,
+            reserved_bits: 0x0040,
+        }
+    }
+}
+
 /// The x87 environment and eight physical registers in host snapshot order.
 /// `registers[0]` is R0; `status.top` maps logical ST(i) to Rn.
-/// `tag_word` stores all eight architectural two-bit tags, including empty tags.
+/// `tag_word` contains two bits for each physical register, with 3 meaning empty.
 /// Pointer offsets and selectors describe the last recorded x87 instructions
 /// and data operands. This layout is not an FSAVE or FXSAVE memory image.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StoredX87 {
-    pub control_word: u16,
+    pub control: StoredX87Control,
     pub tag_word: u16,
     pub opcode: u16,
-    /// Snapshot padding, retained without interpretation.
-    pub reserved_control: [u8; 2],
     pub instruction_offset: u32,
     pub data_offset: u32,
     pub instruction_selector: u16,
     pub data_selector: u16,
     pub status: StoredX87Status,
     /// Snapshot padding, retained without interpretation.
-    pub reserved: [u8; 4],
+    pub reserved: [u8; 6],
     pub registers: [StoredX87Register; 8],
 }
 
 impl Default for StoredX87 {
     fn default() -> Self {
         Self {
-            control_word: 0x037f,
+            control: StoredX87Control::default(),
             tag_word: 0xffff,
             opcode: 0,
-            reserved_control: [0; 2],
             instruction_offset: 0,
             data_offset: 0,
             instruction_selector: 0,
             data_selector: 0,
             status: StoredX87Status::default(),
-            reserved: [0; 4],
+            reserved: [0; 6],
             registers: [StoredX87Register::default(); 8],
         }
     }
@@ -79,16 +120,33 @@ impl Default for StoredX87 {
 impl StoredX87 {
     pub(super) fn read(bytes: &[u8]) -> Self {
         Self {
-            control_word: read_u16(bytes, offset_of!(Self, control_word)),
+            control: StoredX87Control {
+                invalid_mask: bytes[offset_of!(Self, control.invalid_mask)],
+                denormal_mask: bytes[offset_of!(Self, control.denormal_mask)],
+                zero_divide_mask: bytes[offset_of!(Self, control.zero_divide_mask)],
+                overflow_mask: bytes[offset_of!(Self, control.overflow_mask)],
+                underflow_mask: bytes[offset_of!(Self, control.underflow_mask)],
+                precision_mask: bytes[offset_of!(Self, control.precision_mask)],
+                precision_control: bytes[offset_of!(Self, control.precision_control)],
+                rounding_control: bytes[offset_of!(Self, control.rounding_control)],
+                infinity_control: bytes[offset_of!(Self, control.infinity_control)],
+                reserved: bytes[offset_of!(Self, control.reserved)],
+                reserved_bits: read_u16(bytes, offset_of!(Self, control.reserved_bits)),
+            },
             tag_word: read_u16(bytes, offset_of!(Self, tag_word)),
             opcode: read_u16(bytes, offset_of!(Self, opcode)),
-            reserved_control: read(bytes, offset_of!(Self, reserved_control)),
             instruction_offset: read_u32(bytes, offset_of!(Self, instruction_offset)),
             data_offset: read_u32(bytes, offset_of!(Self, data_offset)),
             instruction_selector: read_u16(bytes, offset_of!(Self, instruction_selector)),
             data_selector: read_u16(bytes, offset_of!(Self, data_selector)),
             status: StoredX87Status {
-                exception_flags: bytes[offset_of!(Self, status.exception_flags)],
+                invalid: bytes[offset_of!(Self, status.invalid)],
+                denormal: bytes[offset_of!(Self, status.denormal)],
+                zero_divide: bytes[offset_of!(Self, status.zero_divide)],
+                overflow: bytes[offset_of!(Self, status.overflow)],
+                underflow: bytes[offset_of!(Self, status.underflow)],
+                precision: bytes[offset_of!(Self, status.precision)],
+                stack_fault: bytes[offset_of!(Self, status.stack_fault)],
                 top: bytes[offset_of!(Self, status.top)],
                 c0: bytes[offset_of!(Self, status.c0)],
                 c1: bytes[offset_of!(Self, status.c1)],
@@ -117,7 +175,10 @@ impl StoredX87 {
 
     pub(super) fn write(&self, bytes: &mut [u8]) {
         for (offset, value) in [
-            (offset_of!(Self, control_word), self.control_word),
+            (
+                offset_of!(Self, control.reserved_bits),
+                self.control.reserved_bits,
+            ),
             (offset_of!(Self, tag_word), self.tag_word),
             (offset_of!(Self, opcode), self.opcode),
             (
@@ -128,11 +189,6 @@ impl StoredX87 {
         ] {
             write(bytes, offset, &value.to_le_bytes());
         }
-        write(
-            bytes,
-            offset_of!(Self, reserved_control),
-            &self.reserved_control,
-        );
         write(
             bytes,
             offset_of!(Self, instruction_offset),
@@ -146,8 +202,54 @@ impl StoredX87 {
         write(bytes, offset_of!(Self, reserved), &self.reserved);
         for (offset, value) in [
             (
-                offset_of!(Self, status.exception_flags),
-                self.status.exception_flags,
+                offset_of!(Self, control.invalid_mask),
+                self.control.invalid_mask,
+            ),
+            (
+                offset_of!(Self, control.denormal_mask),
+                self.control.denormal_mask,
+            ),
+            (
+                offset_of!(Self, control.zero_divide_mask),
+                self.control.zero_divide_mask,
+            ),
+            (
+                offset_of!(Self, control.overflow_mask),
+                self.control.overflow_mask,
+            ),
+            (
+                offset_of!(Self, control.underflow_mask),
+                self.control.underflow_mask,
+            ),
+            (
+                offset_of!(Self, control.precision_mask),
+                self.control.precision_mask,
+            ),
+            (
+                offset_of!(Self, control.precision_control),
+                self.control.precision_control,
+            ),
+            (
+                offset_of!(Self, control.rounding_control),
+                self.control.rounding_control,
+            ),
+            (
+                offset_of!(Self, control.infinity_control),
+                self.control.infinity_control,
+            ),
+            (offset_of!(Self, control.reserved), self.control.reserved),
+            (offset_of!(Self, status.invalid), self.status.invalid),
+            (offset_of!(Self, status.denormal), self.status.denormal),
+            (
+                offset_of!(Self, status.zero_divide),
+                self.status.zero_divide,
+            ),
+            (offset_of!(Self, status.overflow), self.status.overflow),
+            (offset_of!(Self, status.underflow), self.status.underflow),
+            (offset_of!(Self, status.precision), self.status.precision),
+            (
+                offset_of!(Self, status.stack_fault),
+                self.status.stack_fault,
             ),
             (offset_of!(Self, status.top), self.status.top),
             (offset_of!(Self, status.c0), self.status.c0),

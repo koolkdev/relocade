@@ -3,40 +3,13 @@
 use wasm86_compiler::{BuildError, Val, I16, I32, I64};
 
 use crate::{
-    address::MemoryAddress, instruction::X87StackIndex, memory::Intent, state::ExtendedValue,
-    Segment,
+    address::MemoryAddress,
+    instruction::X87StackIndex,
+    memory::Intent,
+    state::{ExtendedValue, LoadSource},
 };
 
-use super::{wait, ExecutionBuilder};
-use crate::execution::memory::MemoryOperand;
-
-fn record_instruction(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
-    let selector = execution
-        .state
-        .read_segment_selector(&mut execution.body, &Segment::Cs.into())?;
-    let opcode = execution
-        .x87_opcode
-        .as_ref()
-        .expect("x87 forms retain their opcode");
-    execution
-        .state
-        .x87
-        .record_instruction(&mut execution.body, &execution.eip, selector, opcode)
-}
-
-fn record_memory(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    operand: &MemoryOperand<'_>,
-) -> Result<(), BuildError> {
-    record_instruction(execution)?;
-    let selector = execution
-        .state
-        .read_segment_selector(&mut execution.body, operand.segment())?;
-    execution
-        .state
-        .x87
-        .record_data(&mut execution.body, operand.offset(), selector)
-}
+use super::{record_instruction, record_memory, wait, ExecutionBuilder};
 
 pub(crate) fn load_extended(
     execution: &mut ExecutionBuilder<'_, '_>,
@@ -49,7 +22,10 @@ pub(crate) fn load_extended(
         sign_exponent: operand.read::<I16>(execution, 8)?,
     };
     record_memory(execution, &operand)?;
-    execution.state.x87.push(&mut execution.body, &value, false)
+    execution
+        .state
+        .x87
+        .push(&mut execution.body, LoadSource::Extended(value))
 }
 
 pub(crate) fn load_register(
@@ -66,7 +42,7 @@ pub(crate) fn load_register(
     execution
         .state
         .x87
-        .push(&mut execution.body, &source.value, source.empty)
+        .push(&mut execution.body, LoadSource::Register(source))
 }
 
 pub(crate) fn store_register(

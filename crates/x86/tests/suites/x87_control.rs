@@ -1,17 +1,23 @@
 //! x87 environment controls, deferred exception delivery and memory commitment.
 
+#[path = "x87_control/words.rs"]
+mod words;
+
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit, Image, Step},
     step::{Engine, TestModule},
-    x87::status,
+    x87::{set_control, status},
 };
-use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, SegmentProfile, StoredX87Status};
+use wasm86_x86::{
+    compile_block_from_bytes, BlockError, CpuState, SegmentProfile, StoredX87Control,
+    StoredX87Status,
+};
 
 fn initial_image(code: &[u8]) -> Image {
     let mut image = Image::new(code);
-    image.cpu.x87.control_word = 0x037f;
+    set_control(&mut image.cpu.x87.control, 0x037f);
     image.cpu.x87.status = status(0x3a20);
     image.cpu.x87.tag_word = 0x5a5a;
     image.cpu.x87.opcode = 0x0654;
@@ -23,7 +29,7 @@ fn initial_image(code: &[u8]) -> Image {
 }
 
 fn pending(image: &mut Image) {
-    image.cpu.x87.control_word = 0x035f;
+    set_control(&mut image.cpu.x87.control, 0x035f);
     image.cpu.x87.status = status(0xbaa0);
 }
 
@@ -42,7 +48,7 @@ fn dispatch(cpu: CpuState) -> Step<'static> {
 }
 
 fn initialized(mut cpu: CpuState) -> CpuState {
-    cpu.x87.control_word = 0x037f;
+    set_control(&mut cpu.x87.control, 0x037f);
     cpu.x87.status = status(0);
     cpu.x87.tag_word = 0xffff;
     cpu.x87.opcode = 0;
@@ -62,6 +68,13 @@ fn reset_and_clear(engine: Engine, frontend: Frontend) {
         let mut image = initial_image(code);
         pending(&mut image);
         image.cpu.x87.status = status(0xffff);
+        image.cpu.x87.status.invalid = 0x81;
+        image.cpu.x87.status.denormal = 0x83;
+        image.cpu.x87.status.zero_divide = 0x85;
+        image.cpu.x87.status.overflow = 0x87;
+        image.cpu.x87.status.underflow = 0x89;
+        image.cpu.x87.status.precision = 0x8b;
+        image.cpu.x87.status.stack_fault = 0x8d;
         let mut cpu = retire(image.cpu, 2);
         if code[1] == 0xe3 {
             cpu = initialized(cpu);
@@ -134,7 +147,13 @@ fn status_field_packing(engine: Engine, frontend: Frontend) {
         (
             "FNSTSW packs C1/C3 and independent B without ES",
             StoredX87Status {
-                exception_flags: 0xff,
+                invalid: 0x81,
+                denormal: 0x83,
+                zero_divide: 0x85,
+                overflow: 0x87,
+                underflow: 0x89,
+                precision: 0x8b,
+                stack_fault: 0x8d,
                 top: 0xfa,
                 c0: 0xfe,
                 c1: 0xa5,
@@ -148,7 +167,13 @@ fn status_field_packing(engine: Engine, frontend: Frontend) {
         (
             "FNSTSW packs C0/C2 and independent ES without B",
             StoredX87Status {
-                exception_flags: 0xa0,
+                invalid: 0x80,
+                denormal: 0x82,
+                zero_divide: 0x84,
+                overflow: 0x86,
+                underflow: 0x88,
+                precision: 0x8b,
+                stack_fault: 0x8c,
                 top: 0xfd,
                 c0: 0x81,
                 c1: 0xa4,
@@ -178,12 +203,20 @@ fn load_control_and_pending(engine: Engine, frontend: Frontend) {
     for flag in [1_u16, 2, 4, 8, 16, 32] {
         let mut image = initial_image(&code);
         image.cpu.x87.status = status(0x3a00 | flag);
+        image.cpu.x87.status.invalid |= 0x80;
+        image.cpu.x87.status.denormal |= 0x80;
+        image.cpu.x87.status.zero_divide |= 0x80;
+        image.cpu.x87.status.overflow |= 0x80;
+        image.cpu.x87.status.underflow |= 0x80;
+        image.cpu.x87.status.precision |= 0x80;
+        image.cpu.x87.status.stack_fault = 0x80;
         image.map(4, 0x8000, false);
         let control = 0x037f & !flag;
         image.data(0x8001, &control.to_le_bytes());
         let mut loaded = retire(image.cpu, 6);
-        loaded.x87.control_word = control;
-        loaded.x87.status = status(0xba80 | flag);
+        set_control(&mut loaded.x87.control, control);
+        loaded.x87.status.error_summary = 1;
+        loaded.x87.status.busy = 1;
         let mut observed = retire(loaded, 2);
         observed.registers.eax = 0x1111_0000 | u32::from(0xba80 | flag);
         checks.check(
@@ -202,12 +235,38 @@ fn load_control_and_pending(engine: Engine, frontend: Frontend) {
         );
     }
 
+    let mut image = initial_image(&code);
+    image.cpu.x87.status = status(0x3a00);
+    image.cpu.x87.status.invalid = 0x80;
+    image.cpu.x87.status.denormal = 0x82;
+    image.cpu.x87.status.zero_divide = 0x84;
+    image.cpu.x87.status.overflow = 0x86;
+    image.cpu.x87.status.underflow = 0x88;
+    image.cpu.x87.status.precision = 0x8a;
+    image.cpu.x87.status.stack_fault = 0x81;
+    image.map(4, 0x8000, false);
+    image.data(0x8001, &[0x40, 0x03]);
+    let mut loaded = retire(image.cpu, 6);
+    set_control(&mut loaded.x87.control, 0x0340);
+    let mut observed = retire(loaded, 2);
+    observed.registers.eax = 0x1111_3a40;
+    checks.check(
+        "FLDCW excludes SF and unused flag bits from its pending-exception test",
+        &code,
+        &image,
+        &[
+            dispatch(loaded),
+            dispatch(observed),
+            dispatch(retire(observed, 1)),
+        ],
+    );
+
     let code = [0x66, 0xd9, 0x2d, 1, 0x40, 0, 0, 0x9b];
     let mut image = initial_image(&code);
     image.map(4, 0x8000, false);
     image.data(0x8001, &[0x7f, 0x0a]);
     let mut loaded = retire(image.cpu, 7);
-    loaded.x87.control_word = 0x0a7f;
+    set_control(&mut loaded.x87.control, 0x0a7f);
     checks.check(
         "FLDCW changes PC/RC without rounding payloads or unmasking PE",
         &code,
@@ -229,6 +288,46 @@ fn load_control_and_pending(engine: Engine, frontend: Frontend) {
             ram: &[],
             exit: Exit::FloatingPoint,
         }],
+    );
+
+    // The new mask is consumed by the next instruction within one block.
+    let code = [
+        0xd9, 0x2d, 0, 0x40, 0, 0, // FLDCW [4000]
+        0xd9, 0x05, 2, 0x40, 0, 0, // FLD m32 [4002]
+        0xdf, 0xe0, 0x9b, // FNSTSW AX; FWAIT
+    ];
+    let mut image = initial_image(&code);
+    image.cpu.segments.cs.selector = 0x1b;
+    image.cpu.segments.ds.selector = 0x23;
+    image.cpu.x87.status = status(0x0200);
+    image.cpu.x87.tag_word = 0xffff;
+    image.map(4, 0x8000, false);
+    image.data(0x8000, &[0x7e, 0x03, 1, 0, 0x80, 0x7f]);
+    let mut loaded = retire(image.cpu, 6);
+    set_control(&mut loaded.x87.control, 0x037e);
+    let mut produced = retire(loaded, 6);
+    produced.x87.status = status(0x8081);
+    produced.x87.instruction_offset = 0x1006;
+    produced.x87.instruction_selector = 0x1b;
+    produced.x87.data_offset = 0x4002;
+    produced.x87.data_selector = 0x23;
+    produced.x87.opcode = 0x0105;
+    let mut observed = retire(produced, 2);
+    observed.registers.eax = 0x1111_8081;
+    checks.check(
+        "FLDCW's newly unmasked invalid exception suppresses a following SNaN push",
+        &code,
+        &image,
+        &[
+            dispatch(loaded),
+            dispatch(produced),
+            dispatch(observed),
+            Step {
+                cpu: observed,
+                ram: &[],
+                exit: Exit::FloatingPoint,
+            },
+        ],
     );
 }
 

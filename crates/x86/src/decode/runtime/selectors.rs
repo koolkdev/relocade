@@ -106,6 +106,8 @@ pub(super) fn dispatch_modrm_form(
 
 /// Select shared fixed bits first so an eight-register range lowers one body,
 /// even when another form at this opcode selects a complete ModRM byte.
+/// Disjoint addressing policies distinguish register mode from all three memory
+/// modes together, without repeating a memory form in separate mode branches.
 fn dispatch_modrm_bits(
     mut body: FunctionBuilder<'_>,
     modrm: &Val<I8>,
@@ -130,6 +132,43 @@ fn dispatch_modrm_bits(
     let common = forms.iter().fold(u8::MAX, |mask, form| {
         mask & form.modrm.expect("a ModRM form has a selector").mask
     });
+    if common & !tested_mask == 0
+        && forms
+            .iter()
+            .all(|form| form.accepts_memory_rm() != form.accepts_register_rm(&state.prefixes))
+    {
+        let (register_forms, memory_forms): (Vec<_>, Vec<_>) = forms
+            .iter()
+            .copied()
+            .partition(|form| form.accepts_register_rm(&state.prefixes));
+        if !register_forms.is_empty() && !memory_forms.is_empty() {
+            body.if_else(
+                modrm.unsigned().shr(6).eq(3),
+                |arm| {
+                    dispatch_modrm_bits(
+                        arm,
+                        modrm,
+                        &register_forms,
+                        state,
+                        tested_mask | 0xc0,
+                        continue_decoding,
+                    )
+                },
+                |arm| {
+                    // Memory mode excludes 11b but does not fix either bit.
+                    dispatch_modrm_bits(
+                        arm,
+                        modrm,
+                        &memory_forms,
+                        state,
+                        tested_mask,
+                        continue_decoding,
+                    )
+                },
+            )?;
+            return body.trap();
+        }
+    }
     let mask = if common & !tested_mask != 0 {
         common & !tested_mask
     } else {

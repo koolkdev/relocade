@@ -29,7 +29,7 @@ fn raw_extended_roundtrips(engine: Engine, frontend: Frontend) {
         let mut image = super::initial_image(&code, 3, 0xffff);
         // PC24 and unmasked invalid/denormal exceptions do not change raw80
         // movement. No arithmetic conversion or operand exception is permitted.
-        image.cpu.x87.control_word = 0x007c;
+        set_control(&mut image.cpu.x87.control, 0x007c);
         image.map(4, 0x8000, true);
         let bytes = real80((significand, sign_exponent));
         image.data(0x8000, &bytes);
@@ -65,7 +65,10 @@ fn memory_stack_faults(engine: Engine, frontend: Frontend) {
     for masked in [true, false] {
         let code = [0xdb, 0x3d, 1, 0x40, 0, 0];
         let mut image = super::initial_image(&code, 0, 3);
-        image.cpu.x87.control_word = if masked { 0x037f } else { 0x037e };
+        set_control(
+            &mut image.cpu.x87.control,
+            if masked { 0x037f } else { 0x037e },
+        );
         image.map(4, 0x8000, true);
         image.data(0x8000, &[0x6a; 12]);
         let mut cpu = complete(image.cpu, 6, 0x033d);
@@ -198,7 +201,7 @@ fn memory_fault_commitment(engine: Engine, frontend: Frontend) {
     ] {
         let code = [0xdb, modrm, 0xf9, 0x4f, 0, 0];
         let mut image = super::initial_image(&code, 0, tags);
-        image.cpu.x87.control_word = control;
+        set_control(&mut image.cpu.x87.control, control);
         image.map(4, 0x8000, true);
         image.data(0x8ff9, &[0x71; 7]);
         checks.check(

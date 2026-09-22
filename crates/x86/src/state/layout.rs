@@ -5,7 +5,7 @@ mod segments;
 mod x87;
 
 pub use segments::{Segments, StoredSegment};
-pub use x87::{StoredX87, StoredX87Register, StoredX87Status};
+pub use x87::{StoredX87, StoredX87Control, StoredX87Register, StoredX87Status};
 
 #[cfg(test)]
 mod tests;

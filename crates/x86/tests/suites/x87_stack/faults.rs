@@ -159,7 +159,7 @@ fn unmasked_stack_faults(engine: Engine, frontend: Frontend) {
         // An integer NOP and the no-wait status store run before FWAIT delivers #MF.
         let code = [instruction.as_slice(), &[0x90, 0xdf, 0xe0, 0x9b]].concat();
         let mut image = super::initial_image(&code, 0, tags);
-        image.cpu.x87.control_word = 0x037e;
+        set_control(&mut image.cpu.x87.control, 0x037e);
         // Suppressed stack movement retains the complete imported TOP byte.
         image.cpu.x87.status.top = 0xa8;
         let mut produced = complete(
@@ -209,7 +209,7 @@ fn pending_exception_blocks_stack_operations(engine: Engine, frontend: Frontend)
         &[0xdb, 0x3d, 0, 0x40, 0, 0],
     ] {
         let mut image = super::initial_image(code, 0, 0xc000);
-        image.cpu.x87.control_word = 0x037e;
+        set_control(&mut image.cpu.x87.control, 0x037e);
         image.cpu.x87.status = status(0xc7e1);
         image.map(4, 0x8000, true);
         image.data(0x8000, &[0xa7; 10]);
@@ -259,7 +259,7 @@ fn live_status_controls(engine: Engine, frontend: Frontend) {
     let mut unmasked = pushed;
     unmasked.eip += 6;
     unmasked.instruction_count = unmasked.instruction_count.wrapping_add(1);
-    unmasked.x87.control_word = 0x037e;
+    set_control(&mut unmasked.x87.control, 0x037e);
     unmasked.x87.status = status(0xfde1);
     checks.check(
         "FLDCW unmasks an invalid flag produced earlier in the same block",

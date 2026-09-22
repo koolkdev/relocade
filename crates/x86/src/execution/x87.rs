@@ -1,7 +1,9 @@
-//! x87 controls and stack operations share waiting-exception boundaries.
+//! x87 operations share waiting exceptions and instruction/data-pointer tracking.
 
+mod load;
 mod stack;
 
+pub(crate) use load::load_binary;
 pub(crate) use stack::{
     exchange_register, free_register, load_extended, load_register, rotate_stack, store_extended,
     store_register,
@@ -9,9 +11,37 @@ pub(crate) use stack::{
 
 use wasm86_compiler::{BuildError, I16};
 
-use crate::{exception::Exception, instruction::TypedLocation};
+use crate::{exception::Exception, instruction::TypedLocation, Segment};
 
-use super::ExecutionBuilder;
+use super::{memory::MemoryOperand, ExecutionBuilder};
+
+fn record_instruction(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
+    let selector = execution
+        .state
+        .read_segment_selector(&mut execution.body, &Segment::Cs.into())?;
+    let opcode = execution
+        .x87_opcode
+        .as_ref()
+        .expect("x87 forms retain their opcode");
+    execution
+        .state
+        .x87
+        .record_instruction(&mut execution.body, &execution.eip, selector, opcode)
+}
+
+fn record_memory(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    operand: &MemoryOperand<'_>,
+) -> Result<(), BuildError> {
+    record_instruction(execution)?;
+    let selector = execution
+        .state
+        .read_segment_selector(&mut execution.body, operand.segment())?;
+    execution
+        .state
+        .x87
+        .record_data(&mut execution.body, operand.offset(), selector)
+}
 
 pub(crate) fn wait(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
     let pending = execution.state.x87.pending_exception(&mut execution.body)?;

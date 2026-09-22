@@ -1,5 +1,9 @@
 //! Exact extended-real bits, including encodings that arithmetic cannot consume.
 
+mod binary;
+
+pub(crate) use binary::{BinaryFormat, BinaryOperand};
+
 use wasm86_compiler::{Val, I1, I16, I64};
 
 #[derive(Clone)]

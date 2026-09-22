@@ -7,71 +7,14 @@ mod memory;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Image, Step},
+    machine::{Exit, Step},
     step::Engine,
-    x87::status,
+    x87::{
+        complete_x87 as complete, dispatch, real80, register_bits, set_control,
+        stack_image as initial_image, status, write_register_bits, INDEFINITE,
+    },
 };
-use wasm86_x86::{CpuState, SegmentProfile, StoredX87Status};
-
-const INDEFINITE: (u64, u16) = (0xc000_0000_0000_0000, 0xffff);
-
-fn initial_image(code: &[u8], top: u8, tags: u16) -> Image {
-    let mut image = Image::new(code);
-    image.cpu.segments.cs.selector = 0x1b;
-    image.cpu.segments.ds.selector = 0x23;
-    image.cpu.x87.control_word = 0x037f;
-    image.cpu.x87.status = status(0x4720);
-    image.cpu.x87.status.top = top;
-    image.cpu.x87.tag_word = tags;
-    image.cpu.x87.opcode = 0x0654;
-    image.cpu.x87.instruction_offset = 0x1234_5678;
-    image.cpu.x87.instruction_selector = 0x17;
-    image.cpu.x87.data_offset = 0x89ab_cdef;
-    image.cpu.x87.data_selector = 0x27;
-    for (index, register) in image.cpu.x87.registers.iter_mut().enumerate() {
-        register.significand = 0x8000_0000_0000_0000 + index as u64 * 0x1000_0001;
-        register.sign_exponent = 0x3fff + index as u16;
-        register.reserved.fill(0x80 + index as u8);
-    }
-    image
-}
-
-fn register_bits(cpu: &CpuState, physical: usize) -> (u64, u16) {
-    let register = cpu.x87.registers[physical];
-    (register.significand, register.sign_exponent)
-}
-
-fn write_register_bits(cpu: &mut CpuState, physical: usize, value: (u64, u16)) {
-    // Padding belongs to the physical snapshot slot, not to an x87 value.
-    cpu.x87.registers[physical].significand = value.0;
-    cpu.x87.registers[physical].sign_exponent = value.1;
-}
-
-fn complete(mut cpu: CpuState, bytes: u32, opcode: u16) -> CpuState {
-    cpu.x87.instruction_offset = cpu.eip;
-    cpu.x87.instruction_selector = 0x1b;
-    // This emulator enables the P4 opcode-compatibility policy. Register-only
-    // operations retain the architecturally undefined data pointer.
-    cpu.x87.opcode = opcode;
-    cpu.eip = cpu.eip.wrapping_add(bytes);
-    cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
-    cpu
-}
-
-fn dispatch(cpu: CpuState) -> Step<'static> {
-    Step {
-        cpu,
-        ram: &[],
-        exit: Exit::Dispatch(cpu.eip),
-    }
-}
-
-fn real80(value: (u64, u16)) -> [u8; 10] {
-    let mut bytes = [0; 10];
-    bytes[..8].copy_from_slice(&value.0.to_le_bytes());
-    bytes[8..].copy_from_slice(&value.1.to_le_bytes());
-    bytes
-}
+use wasm86_x86::{SegmentProfile, StoredX87Status};
 
 fn register_moves(engine: Engine, frontend: Frontend) {
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
@@ -194,7 +137,7 @@ fn raw_register_copies(engine: Engine, frontend: Frontend) {
         ),
     ] {
         let mut image = initial_image(&code, 0, original_tags);
-        image.cpu.x87.control_word = 0x007c;
+        set_control(&mut image.cpu.x87.control, 0x007c);
         write_register_bits(&mut image.cpu, 0, bits);
         let mut pushed = complete(image.cpu, 2, 0x01c0);
         pushed.x87.status = status(0x7d20);
@@ -238,7 +181,13 @@ fn stack_controls(engine: Engine, frontend: Frontend) {
     let code = [0xd9, 0xf7, 0xdf, 0xe0];
     let mut image = initial_image(&code, 7, 0);
     image.cpu.x87.status = StoredX87Status {
-        exception_flags: 0xa0,
+        invalid: 0x80,
+        denormal: 0x82,
+        zero_divide: 0x84,
+        overflow: 0x86,
+        underflow: 0x88,
+        precision: 0x8b,
+        stack_fault: 0x8c,
         top: 0xff,
         c0: 0x81,
         c1: 0x81,

@@ -81,7 +81,7 @@ than #UD.
 Use `CpuState::to_bytes` and `CpuState::from_bytes` to exchange state with CPU memory.
 Conversion is explicitly little endian and preserves reserved bytes, inactive flag
 payloads, raw segment attributes and x87 encodings. The image is
-`CpuState::BYTE_LEN` (312) bytes:
+`CpuState::BYTE_LEN` (328) bytes:
 
 | Byte offset | Contents |
 | ---: | --- |
@@ -93,16 +93,26 @@ payloads, raw segment attributes and x87 encodings. The image is
 | 132 | Twelve reserved bytes. |
 | 144 | u32 completed-instruction count. |
 | 148 | Four reserved bytes. |
-| 152 | Three u16 x87 fields: control word, full tag word, last opcode. |
-| 158 | Two reserved bytes. |
-| 160 | Two u32 x87 pointer offsets: instruction, data. |
-| 168 | Two u16 x87 pointer selectors: instruction, data. |
-| 172 | Eight-byte `StoredX87Status`: exception flags, TOP, C0, C1, C2, C3, ES, B. |
-| 180 | Four reserved bytes. |
-| 184 | Eight 16-byte physical x87 register slots, R0 through R7. |
+| 152 | Twelve-byte `StoredX87Control`: six mask bytes, PC, RC, IC, padding byte, u16 reserved bits. |
+| 164 | u16 full x87 tag word. |
+| 166 | u16 last x87 opcode. |
+| 168 | Two u32 x87 pointer offsets: instruction, data. |
+| 176 | Two u16 x87 pointer selectors: instruction, data. |
+| 180 | Fourteen-byte `StoredX87Status`: IE, DE, ZE, OE, UE, PE, SF, TOP, C0, C1, C2, C3, ES, B. |
+| 194 | Six reserved bytes. |
+| 200 | Eight 16-byte physical x87 register slots, R0 through R7. |
+
+`StoredX87Control` keeps each exception mask in bit 0 of its named byte: invalid,
+denormal, zero divide, overflow, underflow and precision. A set mask suppresses
+exception delivery. `precision_control` and `rounding_control` use bits 0–1;
+`infinity_control` uses bit 0 and has no execution meaning on the Pentium 4.
+`reserved_bits` retains control-word positions 15–13 and 7–6 for readback; it
+contains no active control fields. FLDCW unpacks these fields and FNSTCW packs
+them. Their snapshot padding is preserved by both instructions and FNINIT.
 
 `StoredX87Status` stores independent bytes rather than a packed status word.
-`exception_flags` uses bits 0–6 for IE, DE, ZE, OE, UE, PE and SF. `top` uses
+`invalid`, `denormal`, `zero_divide`, `overflow`, `underflow`, `precision` and
+`stack_fault` each use bit 0 for IE, DE, ZE, OE, UE, PE and SF respectively. `top` uses
 bits 0–2; `c0`, `c1`, `c2`, `c3`, `error_summary` and `busy` use bit 0.
 Serialization preserves the unused bits of these bytes without interpretation.
 
@@ -144,7 +154,8 @@ assert_eq!(CpuState::from_bytes(image), cpu);
 ```
 
 `CpuState::default()` installs flat segment caches with zero visible selectors
-and initializes the x87 control word to `037F`, status to zero and tags to `FFFF`.
+and initializes x87 control fields to represent `037F`, status to zero and the
+tag word to `FFFF` (all eight registers empty).
 Other fields are zero. It is a host execution configuration, not a processor
 reset or a segment-load operation. `filled` and `from_bytes` preserve literal
 images; an all-zero image has unusable segment caches. Hosts using far CALL/RET
@@ -154,9 +165,9 @@ must initialize CS with a valid return selector and provide its descriptor.
 
 The implemented controls are FNINIT, FNCLEX, FLDCW, FNSTCW, FNSTSW (memory and AX)
 and standalone FWAIT. Stack operations include FLD ST(i), FST/FSTP ST(i), FXCH,
-FFREE, FINCSTP and FDECSTP. Memory data transfers support FLD m80 and FSTP m80;
-there is no FST m80 encoding. Arithmetic and binary32/binary64 transfers remain
-unsupported.
+FFREE, FINCSTP and FDECSTP. Memory data transfers support FLD m32/m64/m80 and
+FSTP m80; there is no FST m80 encoding. Arithmetic and binary32/binary64 stores
+remain unsupported.
 Execution assumes an enabled FPU with native exception reporting, corresponding
 to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
 modeled by this user-mode environment.
@@ -198,6 +209,16 @@ FLD ST(i) reads its source relative to the old TOP, before pushing. FSTP ST(i)
 writes its destination before marking the old stack top empty and advancing TOP.
 FFREE changes only its register tag; rotations change TOP without moving payloads.
 
+FLD m32/m64 expands the source exactly, independently of precision and rounding
+control. Subnormals become normal extended values and set DE. A masked SNaN sets
+IE and becomes a QNaN with its sign and payload preserved; an unmasked SNaN
+suppresses the push. Stack overflow takes priority over both source conditions.
+An unmasked denormal load still pushes its value and sets DE, ES and B; the next
+waiting instruction reports #MF. This follows the instruction-specific
+clarification in Intel's [FLD entry, Volume 2](https://cdrdv2-public.intel.com/789581/325383-sdm-vol-2abcd.pdf),
+which is more specific than the older general description of unmasked
+denormal-operand exceptions. These exact conversions do not set PE, UE or OE.
+
 Stack faults set IE and SF. C1 distinguishes overflow from underflow; a source
 underflow takes priority over a destination overflow. Masked faults substitute
 the extended indefinite value and perform the instruction's push or pop.
@@ -206,11 +227,11 @@ An unmasked stack fault suppresses data and stack changes, records pending
 status, and retires its producer. Integer and no-wait instructions can continue;
 the next waiting instruction reports #MF. Reporting it does not clear the status.
 
-The complete ten-byte memory span passes segment and page checks before a
+The complete memory operand passes segment and page checks before a
 transfer changes data, stack state or numerical pointers. This implementation
-checks these accesses before generating a new stack fault. A preexisting pending
-exception is checked first. Faulting stores do not write an earlier portion of
-the value or pop the stack.
+checks these accesses before generating a new stack or source exception. A
+preexisting pending exception is checked first. Faulting stores do not write an
+earlier portion of the value or pop the stack.
 
 Stack and data-transfer instructions record their instruction offset, selector
 and opcode. Memory forms also record their effective offset and segment selector;
