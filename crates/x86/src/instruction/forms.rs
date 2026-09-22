@@ -61,8 +61,9 @@ pub(crate) struct Form {
     pub(super) opcode: u8,
     pub(super) mask: u8,
     pub(crate) map: OpcodeMap,
-    /// Exact F2/F3 requirement; None requires neither prefix.
+    /// Exact F2/F3 requirement; LOCK is admitted separately for eligible forms.
     group1_prefix: Option<Group1Prefix>,
+    lockable: bool,
     pub(crate) encoding: Encoding,
     /// Required ModRM.reg opcode extension; otherwise those bits belong to the encoding.
     pub(crate) extension: Option<u8>,
@@ -76,7 +77,11 @@ pub(crate) struct Form {
 impl Form {
     /// Resolve prefix meaning before either decoder reads operand fields.
     pub(crate) fn resolve(&self, prefixes: &PrefixState) -> Option<ResolvedForm> {
-        if self.group1_prefix != prefixes.group1() {
+        let accepts_prefix = match prefixes.group1() {
+            Some(Group1Prefix::F0) => self.lockable,
+            prefix => self.group1_prefix == prefix,
+        };
+        if !accepts_prefix {
             return None;
         }
         let operand_size = prefixes.operand_size();
@@ -94,14 +99,14 @@ impl Form {
         opcode & self.mask == self.opcode
     }
 
-    pub(crate) fn matches_modrm(&self, modrm: u8) -> bool {
+    pub(crate) fn matches_modrm(&self, modrm: u8, prefixes: &PrefixState) -> bool {
         self.extension
             .is_none_or(|extension| ((modrm >> 3) & 7) == extension)
-            && (modrm >> 6 != 3 || self.accepts_register_rm())
+            && (modrm >> 6 != 3 || self.accepts_register_rm(prefixes))
     }
 
-    pub(crate) fn accepts_register_rm(&self) -> bool {
-        !self.memory_only
+    pub(crate) fn accepts_register_rm(&self, prefixes: &PrefixState) -> bool {
+        !self.memory_only && prefixes.group1() != Some(Group1Prefix::F0)
     }
 }
 

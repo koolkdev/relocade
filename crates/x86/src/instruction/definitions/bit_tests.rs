@@ -12,22 +12,22 @@ instruction_families! {
     BTS {
         execute: bit_test(BitTestOp::Set);
         forms {
-            0x0F 0xAB => word_or_dword(rm, modrm_reg);
-            0x0F 0xBA /5 => word_or_dword(rm, imm8);
+            0x0F 0xAB => word_or_dword(rm, modrm_reg) lockable;
+            0x0F 0xBA /5 => word_or_dword(rm, imm8) lockable;
         }
     }
     BTR {
         execute: bit_test(BitTestOp::Reset);
         forms {
-            0x0F 0xB3 => word_or_dword(rm, modrm_reg);
-            0x0F 0xBA /6 => word_or_dword(rm, imm8);
+            0x0F 0xB3 => word_or_dword(rm, modrm_reg) lockable;
+            0x0F 0xBA /6 => word_or_dword(rm, imm8) lockable;
         }
     }
     BTC {
         execute: bit_test(BitTestOp::Complement);
         forms {
-            0x0F 0xBB => word_or_dword(rm, modrm_reg);
-            0x0F 0xBA /7 => word_or_dword(rm, imm8);
+            0x0F 0xBB => word_or_dword(rm, modrm_reg) lockable;
+            0x0F 0xBA /7 => word_or_dword(rm, imm8) lockable;
         }
     }
 }

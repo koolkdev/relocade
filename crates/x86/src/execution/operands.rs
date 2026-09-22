@@ -5,11 +5,10 @@ use wasm86_compiler::{AtLeast, BuildError, Val, I32};
 use crate::{
     address::{self, RegisterValue},
     instruction::{Location, Operand},
-    memory::{Access, Intent, Memory},
     register::{Register, RegisterType},
 };
 
-use super::ExecutionBuilder;
+use super::{memory::MemoryWriteTarget, ExecutionBuilder};
 
 /// Values read from or written to a pair of locations.
 pub(crate) struct PairValues<T: RegisterType> {
@@ -24,10 +23,7 @@ pub(crate) struct WriteTarget<'memory, T: RegisterType> {
 
 enum WriteLocation<'memory, T: RegisterType> {
     Register(Register<T>),
-    Memory {
-        memory: &'memory Memory,
-        access: Access,
-    },
+    Memory(MemoryWriteTarget<'memory, T>),
 }
 
 impl<T: RegisterType> WriteTarget<'_, T> {
@@ -36,9 +32,7 @@ impl<T: RegisterType> WriteTarget<'_, T> {
             WriteLocation::Register(register) => execution
                 .state
                 .read_register(&mut execution.body, register.clone()),
-            WriteLocation::Memory { memory, access } => {
-                memory.read::<T>(&mut execution.body, access, 0)
-            }
+            WriteLocation::Memory(target) => target.read(execution),
         }
     }
 
@@ -55,10 +49,7 @@ impl<T: RegisterType> WriteTarget<'_, T> {
                     .state
                     .write_register(&mut execution.body, register, value)
             }
-            WriteLocation::Memory { memory, access } => {
-                let value = execution.body.value(value)?;
-                memory.write(&mut execution.body, &access, 0, &value)
-            }
+            WriteLocation::Memory(target) => target.write(execution, value),
         }
     }
 }
@@ -81,14 +72,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
             Operand::Location(Location::Register(register)) => self
                 .state
                 .read_register(&mut self.body, register.view::<T>()),
-            Operand::Location(Location::Memory(address)) => {
-                let offset =
-                    address::resolve(&mut self.body, &mut self.state, address.offset, &[])?;
-                let memory = self.memory.expect("a memory operand declares guest memory");
-                let access =
-                    self.checked(memory, &address.segment, &offset, T::BYTES, Intent::Read)?;
-                memory.read::<T>(&mut self.body, &access, 0)
-            }
+            Operand::Location(Location::Memory(address)) => self.read_memory::<T>(*address),
         }
     }
 
@@ -145,12 +129,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         let location = match location {
             Location::Register(register) => WriteLocation::Register(register.view::<T>()),
             Location::Memory(address) => {
-                let offset =
-                    address::resolve(&mut self.body, &mut self.state, address.offset, bindings)?;
-                let memory = self.memory.expect("a memory operand declares guest memory");
-                let access =
-                    self.checked(memory, &address.segment, &offset, T::BYTES, Intent::Write)?;
-                WriteLocation::Memory { memory, access }
+                WriteLocation::Memory(self.prepare_memory_write::<T>(*address, bindings)?)
             }
         };
         Ok(WriteTarget { location })

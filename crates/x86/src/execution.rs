@@ -1,7 +1,9 @@
 mod address;
 mod control;
+mod memory;
 mod operands;
 mod regions;
+mod register_pairs;
 mod segments;
 mod stack;
 

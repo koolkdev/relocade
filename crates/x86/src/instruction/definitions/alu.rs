@@ -17,43 +17,43 @@ instruction_families! {
     ADD {
         execute: update_binary(BinaryOperation::Add);
         forms {
-            0x00 => byte(rm, modrm_reg);
-            0x01 => word_or_dword(rm, modrm_reg);
+            0x00 => byte(rm, modrm_reg) lockable;
+            0x01 => word_or_dword(rm, modrm_reg) lockable;
             0x02 => byte(modrm_reg, rm);
             0x03 => word_or_dword(modrm_reg, rm);
             0x04 => byte(accumulator, imm8);
             0x05 => word_or_dword(accumulator, imm);
-            0x80 /0 => byte(rm, imm8);
-            0x81 /0 => word_or_dword(rm, imm);
-            0x83 /0 => word_or_dword(rm, signed_imm8);
+            0x80 /0 => byte(rm, imm8) lockable;
+            0x81 /0 => word_or_dword(rm, imm) lockable;
+            0x83 /0 => word_or_dword(rm, signed_imm8) lockable;
         }
     }
     ADC {
         execute: update_binary(BinaryOperation::AddWithCarry);
         forms {
-            0x10 => byte(rm, modrm_reg);
-            0x11 => word_or_dword(rm, modrm_reg);
+            0x10 => byte(rm, modrm_reg) lockable;
+            0x11 => word_or_dword(rm, modrm_reg) lockable;
             0x12 => byte(modrm_reg, rm);
             0x13 => word_or_dword(modrm_reg, rm);
             0x14 => byte(accumulator, imm8);
             0x15 => word_or_dword(accumulator, imm);
-            0x80 /2 => byte(rm, imm8);
-            0x81 /2 => word_or_dword(rm, imm);
-            0x83 /2 => word_or_dword(rm, signed_imm8);
+            0x80 /2 => byte(rm, imm8) lockable;
+            0x81 /2 => word_or_dword(rm, imm) lockable;
+            0x83 /2 => word_or_dword(rm, signed_imm8) lockable;
         }
     }
     SBB {
         execute: update_binary(BinaryOperation::SubtractWithBorrow);
         forms {
-            0x18 => byte(rm, modrm_reg);
-            0x19 => word_or_dword(rm, modrm_reg);
+            0x18 => byte(rm, modrm_reg) lockable;
+            0x19 => word_or_dword(rm, modrm_reg) lockable;
             0x1A => byte(modrm_reg, rm);
             0x1B => word_or_dword(modrm_reg, rm);
             0x1C => byte(accumulator, imm8);
             0x1D => word_or_dword(accumulator, imm);
-            0x80 /3 => byte(rm, imm8);
-            0x81 /3 => word_or_dword(rm, imm);
-            0x83 /3 => word_or_dword(rm, signed_imm8);
+            0x80 /3 => byte(rm, imm8) lockable;
+            0x81 /3 => word_or_dword(rm, imm) lockable;
+            0x83 /3 => word_or_dword(rm, signed_imm8) lockable;
         }
     }
     CMP {
@@ -73,57 +73,57 @@ instruction_families! {
     SUB {
         execute: update_binary(BinaryOperation::Subtract);
         forms {
-            0x28 => byte(rm, modrm_reg);
-            0x29 => word_or_dword(rm, modrm_reg);
+            0x28 => byte(rm, modrm_reg) lockable;
+            0x29 => word_or_dword(rm, modrm_reg) lockable;
             0x2A => byte(modrm_reg, rm);
             0x2B => word_or_dword(modrm_reg, rm);
             0x2C => byte(accumulator, imm8);
             0x2D => word_or_dword(accumulator, imm);
-            0x80 /5 => byte(rm, imm8);
-            0x81 /5 => word_or_dword(rm, imm);
-            0x83 /5 => word_or_dword(rm, signed_imm8);
+            0x80 /5 => byte(rm, imm8) lockable;
+            0x81 /5 => word_or_dword(rm, imm) lockable;
+            0x83 /5 => word_or_dword(rm, signed_imm8) lockable;
         }
     }
     AND {
         execute: update_binary(BinaryOperation::And);
         forms {
-            0x20 => byte(rm, modrm_reg);
-            0x21 => word_or_dword(rm, modrm_reg);
+            0x20 => byte(rm, modrm_reg) lockable;
+            0x21 => word_or_dword(rm, modrm_reg) lockable;
             0x22 => byte(modrm_reg, rm);
             0x23 => word_or_dword(modrm_reg, rm);
             0x24 => byte(accumulator, imm8);
             0x25 => word_or_dword(accumulator, imm);
-            0x80 /4 => byte(rm, imm8);
-            0x81 /4 => word_or_dword(rm, imm);
-            0x83 /4 => word_or_dword(rm, signed_imm8);
+            0x80 /4 => byte(rm, imm8) lockable;
+            0x81 /4 => word_or_dword(rm, imm) lockable;
+            0x83 /4 => word_or_dword(rm, signed_imm8) lockable;
         }
     }
     OR {
         execute: update_binary(BinaryOperation::Or);
         forms {
-            0x08 => byte(rm, modrm_reg);
-            0x09 => word_or_dword(rm, modrm_reg);
+            0x08 => byte(rm, modrm_reg) lockable;
+            0x09 => word_or_dword(rm, modrm_reg) lockable;
             0x0A => byte(modrm_reg, rm);
             0x0B => word_or_dword(modrm_reg, rm);
             0x0C => byte(accumulator, imm8);
             0x0D => word_or_dword(accumulator, imm);
-            0x80 /1 => byte(rm, imm8);
-            0x81 /1 => word_or_dword(rm, imm);
-            0x83 /1 => word_or_dword(rm, signed_imm8);
+            0x80 /1 => byte(rm, imm8) lockable;
+            0x81 /1 => word_or_dword(rm, imm) lockable;
+            0x83 /1 => word_or_dword(rm, signed_imm8) lockable;
         }
     }
     XOR {
         execute: update_binary(BinaryOperation::Xor);
         forms {
-            0x30 => byte(rm, modrm_reg);
-            0x31 => word_or_dword(rm, modrm_reg);
+            0x30 => byte(rm, modrm_reg) lockable;
+            0x31 => word_or_dword(rm, modrm_reg) lockable;
             0x32 => byte(modrm_reg, rm);
             0x33 => word_or_dword(modrm_reg, rm);
             0x34 => byte(accumulator, imm8);
             0x35 => word_or_dword(accumulator, imm);
-            0x80 /6 => byte(rm, imm8);
-            0x81 /6 => word_or_dword(rm, imm);
-            0x83 /6 => word_or_dword(rm, signed_imm8);
+            0x80 /6 => byte(rm, imm8) lockable;
+            0x81 /6 => word_or_dword(rm, imm) lockable;
+            0x83 /6 => word_or_dword(rm, signed_imm8) lockable;
         }
     }
     TEST {
@@ -141,30 +141,30 @@ instruction_families! {
         execute: update_unary(UnaryOp::Increment);
         forms {
             0x40 +reg => word_or_dword(opcode_reg);
-            0xFE /0 => byte(rm);
-            0xFF /0 => word_or_dword(rm);
+            0xFE /0 => byte(rm) lockable;
+            0xFF /0 => word_or_dword(rm) lockable;
         }
     }
     DEC {
         execute: update_unary(UnaryOp::Decrement);
         forms {
             0x48 +reg => word_or_dword(opcode_reg);
-            0xFE /1 => byte(rm);
-            0xFF /1 => word_or_dword(rm);
+            0xFE /1 => byte(rm) lockable;
+            0xFF /1 => word_or_dword(rm) lockable;
         }
     }
     NOT {
         execute: update_unary(UnaryOp::Not);
         forms {
-            0xF6 /2 => byte(rm);
-            0xF7 /2 => word_or_dword(rm);
+            0xF6 /2 => byte(rm) lockable;
+            0xF7 /2 => word_or_dword(rm) lockable;
         }
     }
     NEG {
         execute: update_unary(UnaryOp::Negate);
         forms {
-            0xF6 /3 => byte(rm);
-            0xF7 /3 => word_or_dword(rm);
+            0xF6 /3 => byte(rm) lockable;
+            0xF7 /3 => word_or_dword(rm) lockable;
         }
     }
     BSWAP {

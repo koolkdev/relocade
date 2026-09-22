@@ -19,7 +19,7 @@ macro_rules! instruction_families {
 macro_rules! declaration_family {
     ($call:tt $effects:tt {
         $($($prefix:ident)? $opcode:literal $($extended:literal)? $(+ $pattern:ident)? $(/ $extension:literal)? =>
-            $width:ident $operands:tt $(| $other_width:ident $other_operands:tt)?;
+            $width:ident $operands:tt $(| $other_width:ident $other_operands:tt)? $($lockable:ident)?;
         )+
     }) => {
         &[$({
@@ -38,6 +38,7 @@ macro_rules! declaration_family {
                         $effects [$($pattern)?] $call $width $operands $(| $other_width $other_operands)?
                     ),
                     effects: declaration_effects!($effects),
+                    lockable: declaration_opcode!(@lockable $($lockable)?),
                 }.form()
             };
             declaration_opcode!(@rows FORM; $($pattern)?)
@@ -56,6 +57,12 @@ macro_rules! declaration_effects {
 }
 
 macro_rules! declaration_opcode {
+    (@lockable lockable) => {
+        true
+    };
+    (@lockable) => {
+        false
+    };
     (@prefix $prefix:ident) => {
         Some(crate::instruction::Group1Prefix::$prefix)
     };

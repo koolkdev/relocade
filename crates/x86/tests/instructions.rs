@@ -20,6 +20,8 @@ mod byte_swaps;
 mod carry_arithmetic;
 #[path = "suites/carry_rotates.rs"]
 mod carry_rotates;
+#[path = "suites/compare_exchange8b.rs"]
+mod compare_exchange8b;
 #[path = "suites/conditional_moves.rs"]
 mod conditional_moves;
 #[path = "suites/count_publication.rs"]

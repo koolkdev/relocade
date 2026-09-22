@@ -1,4 +1,5 @@
 mod immediates;
+mod locking;
 
 use super::declarations::{Declaration, Opcode, OperandSpec};
 use super::*;
@@ -309,7 +310,10 @@ fn opcode_extensions_can_decode_without_binding_operands() {
     let form = unprefixed_form(OpcodeMap::Extended, 0x1f, Some(0));
     assert!(form.encoding.has_modrm());
     for modrm in 0..=u8::MAX {
-        assert_eq!(form.matches_modrm(modrm), modrm & 0x38 == 0);
+        assert_eq!(
+            form.matches_modrm(modrm, &PrefixState::default()),
+            modrm & 0x38 == 0
+        );
     }
     for bytes in [
         &[0x0f, 0x1f, 0xc0][..],
@@ -333,8 +337,11 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
     let lea = unprefixed_form(OpcodeMap::Primary, 0x8d, None);
     let mov = unprefixed_form(OpcodeMap::Primary, 0x8b, None);
     for modrm in 0..=u8::MAX {
-        assert_eq!(lea.matches_modrm(modrm), modrm >> 6 != 3);
-        assert!(mov.matches_modrm(modrm));
+        assert_eq!(
+            lea.matches_modrm(modrm, &PrefixState::default()),
+            modrm >> 6 != 3
+        );
+        assert!(mov.matches_modrm(modrm, &PrefixState::default()));
     }
     for prefixes in [word_prefixes(), PrefixState::default()] {
         let fields = || DecodedFields {
@@ -407,10 +414,14 @@ fn memory_only_bindings_restrict_modrm_at_every_operand_position() {
             operands,
             handlers: SizedHandlers::fixed(handler),
             effects: &[],
+            lockable: false,
         }
         .form();
         for modrm in 0..=u8::MAX {
-            assert_eq!(form.matches_modrm(modrm), modrm >> 6 != 3);
+            assert_eq!(
+                form.matches_modrm(modrm, &PrefixState::default()),
+                modrm >> 6 != 3
+            );
         }
     }
 }

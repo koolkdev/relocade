@@ -100,6 +100,13 @@ Prefix selection chooses the complete form before operand decoding. Repeated
 string forms use the same syntax and pass their repetition policy to their
 semantic handler.
 
+Mark an eligible memory-destination form with `lockable`, for example
+`0x01 => word_or_dword(rm, modrm_reg) lockable;`. It accepts the ordinary form
+and its LOCK-prefixed memory form; LOCK rejects register addressing before
+decoding further operand fields. Fixed eight-byte operands use `qword(mem)`,
+independently of the operand-size attribute. Checked memory operations support
+that width without introducing a 64-bit general-purpose register view.
+
 Forms derive ordinary operand effects. Declare additional effects when accesses
 are implicit, as in [strings](crates/x86/src/instruction/definitions/strings.rs),
 or when a segment load terminates execution under the current assumptions, as in

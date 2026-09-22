@@ -39,11 +39,7 @@ where
             .unsigned()
             .extend::<T::Double>()
     } else {
-        let low = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
-        let high = TypedLocation::<T>::register(Gpr32::Edx).read(execution)?;
-        low.unsigned()
-            .extend::<T::Double>()
-            .or(high.unsigned().extend::<T::Double>().shl(T::BYTES * 8))
+        execution.read_register_pair::<T>(Gpr32::Edx, Gpr32::Eax)?
     };
     execution.fault_if(
         operation.input_fault(&dividend, &divisor),

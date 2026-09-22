@@ -48,12 +48,7 @@ where
         TypedLocation::<I16>::register(Gpr32::Eax)
             .write(execution, outcome.result.truncate::<I16>())?;
     } else {
-        TypedLocation::<T>::register(Gpr32::Eax)
-            .write(execution, outcome.result.truncate::<T>())?;
-        TypedLocation::<T>::register(Gpr32::Edx).write(
-            execution,
-            outcome.result.unsigned().shr(T::BYTES * 8).truncate::<T>(),
-        )?;
+        execution.write_register_pair::<T>(Gpr32::Edx, Gpr32::Eax, outcome.result)?;
     }
     execution.write_flags(outcome.flags)
 }

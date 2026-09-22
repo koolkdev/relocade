@@ -79,7 +79,7 @@ where
                     &modrm,
                 )
             })?;
-            if !form.accepts_register_rm() {
+            if !form.accepts_register_rm(&state.prefixes) {
                 return state.return_unsupported(arm, &cursor, &opcode_value);
             }
             let rm =

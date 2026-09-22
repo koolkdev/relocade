@@ -21,6 +21,7 @@ pub(crate) enum Prefix {
 /// Supported group-1 prefix bytes; the instruction form determines their meaning.
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum Group1Prefix {
+    F0,
     F2,
     F3,
 }
@@ -28,6 +29,7 @@ pub(crate) enum Group1Prefix {
 impl Group1Prefix {
     pub(crate) const fn byte(self) -> u8 {
         match self {
+            Self::F0 => 0xf0,
             Self::F2 => 0xf2,
             Self::F3 => 0xf3,
         }
@@ -35,9 +37,10 @@ impl Group1Prefix {
 }
 
 impl Prefix {
-    pub(crate) const ALL: [Self; 10] = [
+    pub(crate) const ALL: [Self; 11] = [
         Self::OperandSize,
         Self::AddressSize,
+        Self::Group1(Group1Prefix::F0),
         Self::Group1(Group1Prefix::F2),
         Self::Group1(Group1Prefix::F3),
         Self::Segment(Segment::Es),
@@ -94,20 +97,25 @@ impl PrefixState {
     /// Enumerates the independent size and group-1 prefix states for decoder entries.
     /// Override presence selects an entry; its segment identity travels as a value.
     pub(crate) fn combinations(default_size: SegmentDefaultSize) -> impl Iterator<Item = Self> {
-        [None, Some(Group1Prefix::F2), Some(Group1Prefix::F3)]
-            .into_iter()
-            .flat_map(move |group1| {
-                (0..4).map(move |bits| Self {
-                    operand_size_override: bits & 1 != 0,
-                    address_size_override: bits & 2 != 0,
-                    group1,
-                    ..Self::new(default_size)
-                })
+        [
+            None,
+            Some(Group1Prefix::F0),
+            Some(Group1Prefix::F2),
+            Some(Group1Prefix::F3),
+        ]
+        .into_iter()
+        .flat_map(move |group1| {
+            (0..4).map(move |bits| Self {
+                operand_size_override: bits & 1 != 0,
+                address_size_override: bits & 2 != 0,
+                group1,
+                ..Self::new(default_size)
             })
+        })
     }
 
     pub(crate) fn with_prefix(mut self, prefix: Prefix) -> Self {
-        // Repeated 66/67 preserve presence. For duplicate segment or F2/F3
+        // Repeated 66/67 preserve presence. For duplicate segment or group-1
         // prefixes, this decoder uses the last one; Intel specifies one per group.
         match prefix {
             Prefix::OperandSize => self.operand_size_override = true,

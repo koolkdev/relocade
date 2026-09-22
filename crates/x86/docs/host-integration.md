@@ -60,6 +60,13 @@ are permission-checked before any byte is written, including scattered backing.
 Read-modify-write destinations require write permission even when their value
 will remain unchanged. Faults identify the first denied byte.
 
+LOCK is supported on eligible memory-destination forms, including CMPXCHG8B.
+With unshared Wasm memories, these updates execute without guest interleaving;
+LOCK requires no additional dispatch boundary or Wasm atomic operation. This
+contract does not provide concurrent access to shared guest RAM. Rejected LOCK
+combinations and register forms of memory-only instructions remain unsupported
+encodings, reported through the unsupported-instruction path rather than #UD.
+
 ## CPU backing image
 
 Use `CpuState::to_bytes` and `CpuState::from_bytes` to exchange state with CPU memory.
@@ -279,7 +286,7 @@ SS and #GP(0) for other segments. Resolver faults retain their selector error co
 An unsupported exit describes an encoding or execution path outside the
 implementation's subset, not an architectural invalid-opcode exception. Its
 diagnostic byte is the first byte after size and segment prefixes, `0F` for an
-extended opcode, or the selected `F2`/`F3` prefix for an unsupported prefixed
+extended opcode, or the selected `F0`/`F2`/`F3` prefix for an unsupported prefixed
 form. It does not retire or dispatch. IRET with entry NT set reports `CF` at the
 instruction's restart EIP, including its prefixes. Snapshot construction reports
 `BlockError` for unsupported encodings; state-dependent unsupported paths remain

@@ -53,7 +53,7 @@ pub(crate) fn snapshot(
         let modrm = cursor.byte()?;
         let form = std::iter::once(first)
             .chain(candidates)
-            .find(|form| form.matches_modrm(modrm))
+            .find(|form| form.matches_modrm(modrm, &state.prefixes))
             .ok_or(BlockError::UnsupportedInstruction {
                 address: instruction_eip,
                 opcode: reported_opcode,

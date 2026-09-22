@@ -71,10 +71,28 @@ pub(in crate::instruction) struct Declaration<'a> {
     pub(in crate::instruction) operands: &'a [OperandSpec],
     pub(in crate::instruction) handlers: SizedHandlers<Handler>,
     pub(in crate::instruction) effects: &'a [Effect],
+    pub(in crate::instruction) lockable: bool,
 }
 
 impl Declaration<'_> {
     pub(in crate::instruction) const fn form(self) -> Form {
+        assert!(
+            !matches!(self.opcode.group1_prefix, Some(Group1Prefix::F0)),
+            "declare optional LOCK support with lockable"
+        );
+        if self.lockable {
+            assert!(
+                self.opcode.group1_prefix.is_none(),
+                "LOCK eligibility requires an unprefixed form"
+            );
+            assert!(
+                matches!(
+                    self.operands.first(),
+                    Some(OperandSpec::Rm | OperandSpec::Memory)
+                ),
+                "LOCK eligibility requires a ModRM memory destination"
+            );
+        }
         assert!(
             self.operands.len() <= 3,
             "instruction bodies take at most three operands"
@@ -186,6 +204,7 @@ impl Declaration<'_> {
             mask: if opcode_register { 0xf8 } else { 0xff },
             map: self.opcode.map,
             group1_prefix: self.opcode.group1_prefix,
+            lockable: self.lockable,
             extension: self.opcode.extension,
             encoding: Encoding {
                 operands,
