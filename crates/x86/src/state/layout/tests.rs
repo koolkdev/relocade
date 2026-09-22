@@ -1,4 +1,5 @@
 mod segments;
+mod x87;
 
 use std::mem::{offset_of, size_of};
 
@@ -7,7 +8,7 @@ use crate::Gpr32;
 
 #[test]
 fn cpu_layout_matches_the_external_byte_contract() {
-    assert_eq!(CpuState::BYTE_LEN, 152);
+    assert_eq!(CpuState::BYTE_LEN, 304);
     assert_eq!(size_of::<StoredFlags>(), 24);
     assert_eq!(size_of::<StoredStatusSource>(), 12);
     assert_eq!(size_of::<FlagBytes>(), 12);
@@ -114,7 +115,7 @@ fn encoding_changes_only_the_named_fields_including_noncanonical_flags() {
     cpu.flags.status_source.kind = 0xff;
     cpu.flags.bytes.cf = 0x80;
     cpu.flags.bytes.df = 0xfe;
-    let mut expected = [0xa5; 152];
+    let mut expected = [0xa5; CpuState::BYTE_LEN];
     expected[0] = 0xff;
     expected[12] = 0x80;
     expected[19] = 0xfe;
@@ -123,7 +124,7 @@ fn encoding_changes_only_the_named_fields_including_noncanonical_flags() {
     expected[144..148].fill(0);
     assert_eq!(cpu.to_bytes(), expected);
     assert_eq!(CpuState::from_bytes(expected), cpu);
-    assert_eq!(CpuState::filled(0).to_bytes(), [0; 152]);
+    assert_eq!(CpuState::filled(0).to_bytes(), [0; CpuState::BYTE_LEN]);
 }
 
 #[test]

@@ -64,7 +64,7 @@ fn immediates_bind_after_location_operands() {
                     byte: 0x00,
                     group1_prefix: None,
                     register_range: matches!(location, OperandSpec::OpcodeRegister),
-                    extension: None,
+                    modrm: None,
                 },
                 operands: &operands[..if two { 3 } else { 2 }],
                 handlers: SizedHandlers::fixed(if two {

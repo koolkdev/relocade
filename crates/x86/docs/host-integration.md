@@ -80,7 +80,8 @@ than #UD.
 
 Use `CpuState::to_bytes` and `CpuState::from_bytes` to exchange state with CPU memory.
 Conversion is explicitly little endian and preserves reserved bytes, inactive flag
-payloads and raw segment attributes. The image is `CpuState::BYTE_LEN` (152) bytes:
+payloads, raw segment attributes and x87 encodings. The image is
+`CpuState::BYTE_LEN` (304) bytes:
 
 | Byte offset | Contents |
 | ---: | --- |
@@ -92,6 +93,18 @@ payloads and raw segment attributes. The image is `CpuState::BYTE_LEN` (152) byt
 | 132 | Twelve reserved bytes. |
 | 144 | u32 completed-instruction count. |
 | 148 | Four reserved bytes. |
+| 152 | Four u16 x87 fields: control word, status word, full tag word, last opcode. |
+| 160 | Two u32 x87 pointer offsets: instruction, data. |
+| 168 | Two u16 x87 pointer selectors: instruction, data. |
+| 172 | Four reserved bytes. |
+| 176 | Eight 16-byte physical x87 register slots, R0 through R7. |
+
+Each x87 slot contains a u64 significand, a u16 sign/exponent word and six
+reserved bytes. The ten value bytes retain the binary80 encoding, including its
+explicit integer bit and noncanonical encodings. TOP in the status word maps
+logical ST(i) to these physical registers. The full tag word retains each
+register's two-bit tag; marking a register empty does not erase its payload.
+`StoredX87` is a host snapshot layout, not an FSAVE or FXSAVE memory operand.
 
 Each segment record contains a u32 base, u32 inclusive byte limit, u16 visible
 selector and u16 normalized attributes. Attribute bits 0–4 mean usable, code,
@@ -124,10 +137,48 @@ assert_eq!(CpuState::from_bytes(image), cpu);
 ```
 
 `CpuState::default()` installs flat segment caches with zero visible selectors
-and clears the other fields. It is a host execution configuration, not a processor
+and initializes the x87 control word to `037F`, status to zero and tags to `FFFF`.
+Other fields are zero. It is a host execution configuration, not a processor
 reset or a segment-load operation. `filled` and `from_bytes` preserve literal
 images; an all-zero image has unusable segment caches. Hosts using far CALL/RET
 must initialize CS with a valid return selector and provide its descriptor.
+
+## x87 control environment
+
+The implemented controls are FNINIT, FNCLEX, FLDCW, FNSTCW, FNSTSW (memory and AX)
+and standalone FWAIT. Arithmetic and x87 data-transfer encodings remain unsupported.
+Execution assumes an enabled FPU with native exception reporting, corresponding
+to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
+modeled by this user-mode environment.
+
+FWAIT and FLDCW observe the status word's exception-summary bit, ES. A pending
+exception returns #MF at that waiting instruction's EIP without retirement.
+The stored x87 instruction and data pointers retain the previous operation;
+they are not replaced by the waiter's address. Hosts supplying x87 state must
+keep ES/B consistent with its sticky exception flags and control masks.
+
+FLDCW first checks for a pending exception, then reads its two-byte operand.
+A successful load updates the control word and refreshes ES/B from the retained
+exception flags and new masks. Newly unmasked exceptions become pending; the
+load itself completes and the next waiter reports #MF. The pending check before
+a simultaneously faulting operand is this implementation's ordering policy;
+Intel does not specify a universal priority for those competing execution faults.
+
+The no-wait controls bypass pending-exception delivery. FNINIT resets the x87
+environment while preserving raw register payloads and snapshot padding.
+FNCLEX clears exception flags, stack fault, ES and B; this implementation retains
+the otherwise undefined condition codes. Control/status stores use two bytes
+regardless of the operand-size prefix. FNSTSW AX preserves EAX's upper half.
+The control instructions otherwise leave the x87 pointers and opcode unchanged.
+Reserved control bits have no execution meaning; their readback is not a
+Pentium 4 compatibility guarantee.
+
+Waiting spellings such as FINIT and FSTCW encode a separate `9B` FWAIT followed
+by the no-wait instruction. They retain separate retirement and fault boundaries.
+The behavior above follows Intel's Pentium-4-era manuals:
+[Volume 1](https://kib.kiev.ua/x86docs/Intel/SDMs/253665-014.pdf), sections
+8.1.7–8.1.8 and 8.3.12, and the control-instruction entries in
+[Volume 2A](https://kib.kiev.ua/x86docs/Intel/SDMs/253666-014.pdf).
 
 ## Entry validity
 
@@ -282,6 +333,11 @@ exception vector numbers:
 | Segment not present | 32 | Error code | Zero |
 | BOUND range exceeded | 64 | Zero | Zero |
 | Invalid opcode | 128 | Zero | Zero |
+| Floating-point error | 256 | Zero | Zero |
+
+Floating-point error reports #MF (architectural vector 16). Its return value
+contains no payload; the published x87 status and environment describe the
+pending exception.
 
 UD2 raises invalid opcode (#UD, architectural vector 6) after its complete encoding
 has been fetched. It preserves CPU state and memory, does not retire or dispatch,

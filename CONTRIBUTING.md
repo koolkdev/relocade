@@ -88,6 +88,11 @@ ModRM.reg as an opcode extension, and `word_or_dword` follows the effective oper
 size. An opcode extension requires decoding the complete ModRM address fields
 even with `no_operands()`, as in NOP. Decoding those fields does not itself read a
 register or access data memory.
+An `@` byte selects a complete ModRM value, as in
+`0xDB @ 0xE3 => no_operands();` for FNINIT. The same selector mechanism handles
+opcode extensions and memory/register restrictions in both decoders.
+`mem` passes a memory address to the semantic body; `mem16` passes a fixed-width
+word location with ordinary checked `read` and `write` operations.
 Use `execute: handler::<_>;` when the row must explicitly supply a logical
 width that cannot be inferred from the handler's operands. See
 [shifts.rs](crates/x86/src/instruction/definitions/shifts.rs) for the complete

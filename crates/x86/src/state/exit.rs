@@ -10,6 +10,7 @@ const STACK_FAULT: u64 = 16 << 48;
 const SEGMENT_NOT_PRESENT: u64 = 32 << 48;
 const BOUND_RANGE_EXCEEDED: u64 = 64 << 48;
 const INVALID_OPCODE: u64 = 128 << 48;
+const FLOATING_POINT: u64 = 256 << 48;
 
 /// Delivers an exception through the host ABI. CPU state must already describe
 /// its restart boundary. These host tags are not architectural vector numbers.
@@ -25,11 +26,13 @@ pub(crate) fn exception(
         ExceptionVector::StackFault => STACK_FAULT,
         ExceptionVector::GeneralProtection => GENERAL_PROTECTION,
         ExceptionVector::PageFault => PAGE_FAULT,
+        ExceptionVector::FloatingPoint => FLOATING_POINT,
     };
     let payload: Val<I64> = match exception {
-        Exception::DivideError | Exception::BoundRangeExceeded | Exception::InvalidOpcode => {
-            0.into()
-        }
+        Exception::DivideError
+        | Exception::BoundRangeExceeded
+        | Exception::InvalidOpcode
+        | Exception::FloatingPoint => 0.into(),
         Exception::SegmentNotPresent { error_code }
         | Exception::GeneralProtection { error_code }
         | Exception::StackFault { error_code } => error_code.unsigned().extend::<I64>().shl(32),

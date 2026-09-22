@@ -1,5 +1,5 @@
 //! Decodes operand layouts after the opcode has been read.
-//! ModRM extensions are checked before fetching address bytes. Register operands
+//! ModRM forms are selected before fetching address bytes. Register operands
 //! continue locally; memory operands join their shared address decoder.
 
 use std::collections::BTreeMap;
@@ -55,30 +55,31 @@ where
         opcode: u8,
         forms: &[&'static Form],
     ) -> Result<(), BuildError> {
-        // Select the extension, then validate the addressing mode before binding.
         let modrm = cursor.byte(&mut body)?;
         let opcode_value = body.value::<I8>(u32::from(opcode))?;
         let memory_forms = memory_forms(&state);
-        dispatch_form_by_extension(body, &modrm, forms, &|mut arm, form| {
+        dispatch_modrm_form(body, &modrm, forms, &state, &|mut arm, form| {
             let Some(form) = form else {
                 return state.return_unsupported(arm, &cursor, &opcode_value);
             };
-            let form_index = memory_forms
-                .iter()
-                .position(|candidate| {
-                    candidate.opcode == opcode && candidate.form.extension == form.extension
-                })
-                .expect("the accepted memory form has a decoder index")
-                as u32;
-            arm.if_(modrm.unsigned().shr(6).ne(3), |memory_body| {
-                self.continue_memory_decoding(
-                    memory_body,
-                    &cursor,
-                    state.clone(),
-                    form_index,
-                    &modrm,
-                )
-            })?;
+            if form.accepts_memory_rm() {
+                let form_index = memory_forms
+                    .iter()
+                    .position(|candidate| {
+                        candidate.opcode == opcode && std::ptr::eq(candidate.form, form)
+                    })
+                    .expect("the accepted memory form has a decoder index")
+                    as u32;
+                arm.if_(modrm.unsigned().shr(6).ne(3), |memory_body| {
+                    self.continue_memory_decoding(
+                        memory_body,
+                        &cursor,
+                        state.clone(),
+                        form_index,
+                        &modrm,
+                    )
+                })?;
+            }
             if !form.accepts_register_rm(&state.prefixes) {
                 return state.return_unsupported(arm, &cursor, &opcode_value);
             }
@@ -132,8 +133,8 @@ where
         (self.complete_instruction)(body, instruction)
     }
 
-    /// Decodes address fields after the caller has accepted the opcode and any
-    /// required ModRM extension and established a memory addressing mode.
+    /// Decodes address fields after the caller has selected a form from its
+    /// opcode and fixed ModRM bits and established a memory addressing mode.
     pub(super) fn decode_memory_operands(
         &self,
         body: FunctionBuilder<'_>,
@@ -172,30 +173,43 @@ where
     }
 }
 
-/// Calls the continuation with the matching form, or `None` if unsupported.
-/// Forms are nonempty and belong to one opcode; non-group forms ignore extension bits.
-fn dispatch_form_by_extension(
+/// Fixed selector bits distinguish forms before address decoding. The selected
+/// form then enforces its memory/register policy. Ordinary /r forms need no
+/// switch; /n groups continue to select only their three extension bits.
+fn dispatch_modrm_form(
     mut body: FunctionBuilder<'_>,
     modrm: &Val<I8>,
     forms: &[&'static Form],
+    state: &DecodeState,
     continue_decoding: &impl Fn(FunctionBuilder<'_>, Option<&Form>) -> Result<(), BuildError>,
 ) -> Result<(), BuildError> {
-    if forms[0].extension.is_none() {
+    let mask = forms.iter().fold(0, |mask, form| {
+        mask | form.modrm.expect("a ModRM form has a selector").mask
+    });
+    if mask == 0 {
+        assert_eq!(forms.len(), 1, "unrestricted ModRM forms cannot overlap");
         return continue_decoding(body, Some(forms[0]));
     }
-    let extensions: BTreeMap<_, _> = forms
-        .iter()
-        .map(|form| {
-            let extension = form
-                .extension
-                .expect("group forms select ModRM.reg extensions");
-            (u32::from(extension), *form)
-        })
-        .collect();
-    let keys: Vec<_> = extensions.keys().copied().collect();
-    body.switch(modrm.unsigned().shr(3).and(7), &keys, |arm, key| {
-        continue_decoding(arm, key.and_then(|key| extensions.get(&key)).copied())
-    })?;
+    let shift = mask.trailing_zeros();
+    let mut choices = BTreeMap::new();
+    for byte in 0..=u8::MAX {
+        for form in forms {
+            if form.matches_modrm(byte, &state.prefixes) {
+                let key = u32::from(byte & mask) >> shift;
+                let previous = choices.insert(key, *form);
+                assert!(
+                    previous.is_none_or(|previous| std::ptr::eq(previous, *form)),
+                    "fixed selector bits must distinguish ModRM forms"
+                );
+            }
+        }
+    }
+    let keys: Vec<_> = choices.keys().copied().collect();
+    body.switch(
+        modrm.unsigned().shr(shift).and(u32::from(mask) >> shift),
+        &keys,
+        |arm, key| continue_decoding(arm, key.and_then(|key| choices.get(&key)).copied()),
+    )?;
     body.trap()
 }
 
@@ -207,7 +221,7 @@ struct MemoryForm {
 /// A prefix state's accepted memory forms have dense indices shared by the
 /// initial selection and the continuation after address decoding.
 fn memory_forms(state: &DecodeState) -> Vec<MemoryForm> {
-    forms_by_opcode(state.forms().filter(|form| form.encoding.has_modrm()))
+    forms_by_opcode(state.forms().filter(|form| form.accepts_memory_rm()))
         .into_iter()
         .flat_map(|(opcode, forms)| {
             forms.into_iter().map(move |form| MemoryForm {

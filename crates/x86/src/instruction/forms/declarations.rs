@@ -6,8 +6,8 @@ mod macros;
 pub(in crate::instruction) use {adapters::*, macros::*};
 
 use super::{
-    Encoding, Form, HandlerBinding, ImmediateWidth, LocationBinding, OpcodeMap, OperandBinding,
-    OperandEncoding,
+    Encoding, Form, HandlerBinding, ImmediateWidth, LocationBinding, ModRmSelector, OpcodeMap,
+    OperandBinding, OperandEncoding,
 };
 use crate::flags::Condition;
 use crate::instruction::handlers::{Handler, HandlerCall, SizedHandlers};
@@ -63,7 +63,7 @@ pub(in crate::instruction) struct Opcode {
     pub(in crate::instruction) byte: u8,
     pub(in crate::instruction) group1_prefix: Option<Group1Prefix>,
     pub(in crate::instruction) register_range: bool,
-    pub(in crate::instruction) extension: Option<u8>,
+    pub(in crate::instruction) modrm: Option<ModRmSelector>,
 }
 
 pub(in crate::instruction) struct Declaration<'a> {
@@ -97,9 +97,9 @@ impl Declaration<'_> {
             self.operands.len() <= 3,
             "instruction bodies take at most three operands"
         );
-        // An opcode extension requires the complete ModRM address encoding,
+        // A selector requires the complete ModRM address encoding,
         // even when the instruction binds no operand to its handler.
-        let mut modrm = self.opcode.extension.is_some();
+        let mut modrm = self.opcode.modrm.is_some();
         let mut modrm_register = false;
         let mut opcode_register = false;
         let mut offset = false;
@@ -168,10 +168,10 @@ impl Declaration<'_> {
             !(offset && (modrm || opcode_register || immediate_count != 0)),
             "moffs is a separate address layout"
         );
-        if let Some(extension) = self.opcode.extension {
+        if let Some(selector) = self.opcode.modrm {
             assert!(
-                extension < 8 && !modrm_register,
-                "/n requires a three-bit extension and cannot also bind ModRM.reg"
+                selector.mask & 0x38 == 0 || !modrm_register,
+                "fixed ModRM.reg bits cannot also bind a register operand"
             );
         }
         let operands = if modrm {
@@ -205,13 +205,24 @@ impl Declaration<'_> {
             map: self.opcode.map,
             group1_prefix: self.opcode.group1_prefix,
             lockable: self.lockable,
-            extension: self.opcode.extension,
+            modrm: if modrm {
+                let selector = match self.opcode.modrm {
+                    Some(selector) => selector,
+                    None => ModRmSelector::any(),
+                };
+                Some(if memory_only {
+                    selector.memory()
+                } else {
+                    selector
+                })
+            } else {
+                None
+            },
             encoding: Encoding {
                 operands,
                 immediates,
             },
             handlers,
-            memory_only,
             condition: None,
             implicit_memory,
             ends_block,

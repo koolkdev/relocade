@@ -5,10 +5,12 @@ mod flags;
 mod layout;
 #[cfg(test)]
 mod observation;
+mod x87;
 
 pub(super) use cpu::Cpu;
 pub use layout::{
     CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredStatusSource,
+    StoredX87, StoredX87Register,
 };
 #[cfg(test)]
 pub(crate) use observation::compile_flag_observer;
@@ -29,6 +31,7 @@ pub(super) struct State<'cpu> {
     cpu: &'cpu Cpu,
     registers: Environment,
     flags: flags::FlagState,
+    pub(super) x87: x87::X87State,
 }
 
 impl<'cpu> State<'cpu> {
@@ -37,6 +40,7 @@ impl<'cpu> State<'cpu> {
             cpu,
             registers: Environment::new(cpu.memory()),
             flags: flags::FlagState::new(cpu.memory()),
+            x87: x87::X87State::new(cpu.memory()),
         }
     }
 
@@ -148,6 +152,7 @@ impl<'cpu> State<'cpu> {
         completed: u32,
     ) -> Result<(), BuildError> {
         self.flags.publish(body, self.cpu)?;
+        self.x87.publish(body)?;
         self.registers.publish(body)?;
         cpu_store!(body, self.cpu.memory(), eip, next_eip)?;
         if completed != 0 {

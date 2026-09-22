@@ -4,6 +4,7 @@ use crate::segment::SegmentAttributes;
 
 use super::{
     CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredStatusSource,
+    StoredX87,
 };
 
 impl CpuState {
@@ -54,6 +55,7 @@ impl CpuState {
             reserved: read(&bytes, offset_of!(CpuState, reserved)),
             instruction_count: read_u32(&bytes, offset_of!(CpuState, instruction_count)),
             reserved_tail: read(&bytes, offset_of!(CpuState, reserved_tail)),
+            x87: StoredX87::read(&bytes[offset_of!(CpuState, x87)..]),
         }
     }
 
@@ -122,6 +124,7 @@ impl CpuState {
             offset_of!(CpuState, reserved_tail),
             &self.reserved_tail,
         );
+        self.x87.write(&mut bytes[offset_of!(CpuState, x87)..]);
         bytes
     }
 
@@ -131,13 +134,17 @@ impl CpuState {
     }
 }
 
-fn read<const N: usize>(bytes: &[u8], offset: usize) -> [u8; N] {
+pub(super) fn read<const N: usize>(bytes: &[u8], offset: usize) -> [u8; N] {
     bytes[offset..offset + N]
         .try_into()
         .expect("a CPU field must fit in its backing image")
 }
 
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+pub(super) fn read_u16(bytes: &[u8], offset: usize) -> u16 {
+    u16::from_le_bytes(read(bytes, offset))
+}
+
+pub(super) fn read_u32(bytes: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes(read(bytes, offset))
 }
 
@@ -145,11 +152,11 @@ fn read_segment(bytes: &[u8], offset: usize) -> StoredSegment {
     StoredSegment {
         base: read_u32(bytes, offset + offset_of!(StoredSegment, base)),
         limit: read_u32(bytes, offset + offset_of!(StoredSegment, limit)),
-        selector: u16::from_le_bytes(read(bytes, offset + offset_of!(StoredSegment, selector))),
-        attributes: SegmentAttributes::from_bits(u16::from_le_bytes(read(
+        selector: read_u16(bytes, offset + offset_of!(StoredSegment, selector)),
+        attributes: SegmentAttributes::from_bits(read_u16(
             bytes,
             offset + offset_of!(StoredSegment, attributes),
-        ))),
+        )),
     }
 }
 
@@ -176,6 +183,6 @@ fn write_segment(bytes: &mut [u8], offset: usize, segment: &StoredSegment) {
     );
 }
 
-fn write(bytes: &mut [u8], offset: usize, value: &[u8]) {
+pub(super) fn write(bytes: &mut [u8], offset: usize, value: &[u8]) {
     bytes[offset..offset + value.len()].copy_from_slice(value);
 }

@@ -16,6 +16,7 @@ fn exit_module() -> Vec<u8> {
         "stack_fault",
         "general_protection",
         "page_fault",
+        "floating_point",
         "unsupported",
     ] {
         let function = program
@@ -31,6 +32,7 @@ fn exit_module() -> Vec<u8> {
                         "divide_error" => Exception::DivideError,
                         "bound_range_exceeded" => Exception::BoundRangeExceeded,
                         "invalid_opcode" => Exception::InvalidOpcode,
+                        "floating_point" => Exception::FloatingPoint,
                         "segment_not_present" => {
                             Exception::SegmentNotPresent { error_code: detail }
                         }
@@ -89,6 +91,7 @@ fn check_host_exit_words(engine: Engine) {
         ),
         ("page_fault", 0, 0x89ab_cdef, 0x0004_0000_89ab_cdef),
         ("page_fault", 0x13, 0xffff_ffff, 0x0004_0013_ffff_ffff),
+        ("floating_point", 0xffff, 0x89ab_cdef, 0x0100_0000_0000_0000),
         ("unsupported", 0xf3, 0x89ab_cdef, 0x0008_00f3_89ab_cdef),
     ] {
         let module = TestModule::new(&CompiledModule {

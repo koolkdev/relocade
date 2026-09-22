@@ -1,6 +1,7 @@
 mod binding;
 pub(super) mod declarations;
 mod encoding;
+mod modrm;
 mod opcodes;
 
 #[cfg(test)]
@@ -8,6 +9,7 @@ mod tests;
 
 pub(super) use declarations::instruction_families;
 pub(crate) use encoding::{DecodedFields, Encoding, FieldWidth, ImmediateWidth, OperandEncoding};
+pub(crate) use modrm::ModRmSelector;
 pub(crate) use opcodes::forms_by_opcode;
 
 use super::{
@@ -65,10 +67,8 @@ pub(crate) struct Form {
     group1_prefix: Option<Group1Prefix>,
     lockable: bool,
     pub(crate) encoding: Encoding,
-    /// Required ModRM.reg opcode extension; otherwise those bits belong to the encoding.
-    pub(crate) extension: Option<u8>,
+    pub(crate) modrm: Option<ModRmSelector>,
     handlers: SizedHandlers<HandlerBinding>,
-    memory_only: bool,
     pub(super) condition: Option<Condition>,
     pub(super) implicit_memory: bool,
     pub(super) ends_block: bool,
@@ -101,13 +101,17 @@ impl Form {
     }
 
     pub(crate) fn matches_modrm(&self, modrm: u8, prefixes: &PrefixState) -> bool {
-        self.extension
-            .is_none_or(|extension| ((modrm >> 3) & 7) == extension)
+        self.modrm.is_some_and(|selector| selector.matches(modrm))
             && (modrm >> 6 != 3 || self.accepts_register_rm(prefixes))
     }
 
     pub(crate) fn accepts_register_rm(&self, prefixes: &PrefixState) -> bool {
-        !self.memory_only && prefixes.group1() != Some(Group1Prefix::F0)
+        self.modrm.is_some_and(ModRmSelector::accepts_register)
+            && prefixes.group1() != Some(Group1Prefix::F0)
+    }
+
+    pub(crate) fn accepts_memory_rm(&self) -> bool {
+        self.modrm.is_some_and(ModRmSelector::accepts_memory)
     }
 }
 

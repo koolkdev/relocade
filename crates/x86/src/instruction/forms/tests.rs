@@ -18,7 +18,15 @@ fn word_prefixes() -> PrefixState {
 
 fn unprefixed_form(map: OpcodeMap, opcode: u8, extension: Option<u8>) -> &'static Form {
     let mut candidates = opcode_forms(map).filter(|form| {
-        form.matches(opcode) && form.extension == extension && form.group1_prefix.is_none()
+        form.matches(opcode)
+            && match (form.modrm, extension) {
+                (Some(selector), Some(extension)) => {
+                    selector.mask == 0x38 && selector.matches(extension << 3)
+                }
+                (selector, None) => selector.is_none_or(|selector| selector.mask == 0),
+                (None, Some(_)) => false,
+            }
+            && form.group1_prefix.is_none()
     });
     let form = candidates.next().expect("the representative form exists");
     assert!(
@@ -36,7 +44,6 @@ fn admitted_opcode_candidates_share_a_decode_layout_and_never_overlap() {
                 forms_by_opcode(opcode_forms(map).filter(|form| form.resolve(&prefixes).is_some()))
             {
                 let has_modrm = candidates[0].encoding.has_modrm();
-                let mut extensions = [false; 8];
                 for form in &candidates {
                     assert!(form.map == map);
                     assert_eq!(form.opcode & form.mask, form.opcode);
@@ -45,21 +52,21 @@ fn admitted_opcode_candidates_share_a_decode_layout_and_never_overlap() {
                         has_modrm,
                         "opcode {opcode:02x} must choose one physical decode path"
                     );
-                    if let Some(extension) = form.extension {
-                        assert!(has_modrm, "opcode extensions require ModRM");
-                        assert!(extension < 8);
+                    assert_eq!(form.modrm.is_some(), has_modrm);
+                }
+                if has_modrm {
+                    for byte in 0..=u8::MAX {
                         assert!(
-                            !extensions[usize::from(extension)],
-                            "opcode {opcode:02x} repeats extension {extension}"
-                        );
-                        extensions[usize::from(extension)] = true;
-                    } else {
-                        assert_eq!(
-                            candidates.len(),
-                            1,
-                            "opcode {opcode:02x} mixes an unrestricted form with other candidates"
+                            candidates
+                                .iter()
+                                .filter(|form| form.matches_modrm(byte, &prefixes))
+                                .count()
+                                <= 1,
+                            "opcode {opcode:02x} has overlapping forms at ModRM {byte:02x}"
                         );
                     }
+                } else {
+                    assert_eq!(candidates.len(), 1, "an opcode without ModRM has one form");
                 }
             }
         }
@@ -113,7 +120,7 @@ fn catalog_bindings_select_declared_fields() {
                                 OperandEncoding::OpcodeRegister | OperandEncoding::ModRm
                             ));
                             assert!(
-                                form.extension.is_none(),
+                                form.modrm.is_none_or(|selector| selector.mask & 0x38 == 0),
                                 "ModRM.reg cannot also be an opcode extension"
                             );
                         }
@@ -409,7 +416,7 @@ fn memory_only_bindings_restrict_modrm_at_every_operand_position() {
                 byte: 0x00,
                 group1_prefix: None,
                 register_range: false,
-                extension: None,
+                modrm: None,
             },
             operands,
             handlers: SizedHandlers::fixed(handler),

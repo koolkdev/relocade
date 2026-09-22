@@ -6,6 +6,7 @@ mod regions;
 mod register_pairs;
 mod segments;
 mod stack;
+pub(crate) mod x87;
 
 pub(crate) use control::CodeTarget;
 pub(crate) use operands::WriteTarget;

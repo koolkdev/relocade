@@ -3,9 +3,8 @@ use std::collections::BTreeMap;
 
 use super::Form;
 
-/// Shared opcode extensions become one case; masked patterns contribute every
-/// byte they accept. The selected case fixes the opcode while ModRM chooses its
-/// extension.
+/// Forms sharing an opcode become one case; masked patterns contribute every
+/// byte they accept. ModRM selects the form within each opcode case.
 pub(crate) fn forms_by_opcode<'a>(
     forms: impl Iterator<Item = &'a Form>,
 ) -> BTreeMap<u32, Vec<&'a Form>> {

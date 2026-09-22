@@ -73,7 +73,7 @@ fn encoding_a_named_segment_changes_only_its_twelve_bytes() {
             selector: 0x1357,
             attributes: SegmentAttributes::from_bits(0xbeef),
         };
-        let mut expected = [0xa5; 152];
+        let mut expected = [0xa5; CpuState::BYTE_LEN];
         expected[offset..offset + 12].copy_from_slice(&[
             0x78, 0x56, 0x34, 0x12, 0x98, 0xba, 0xdc, 0xfe, 0x57, 0x13, 0xef, 0xbe,
         ]);
@@ -97,10 +97,10 @@ fn cpu_default_installs_flat_caches_while_literal_zero_images_stay_zero() {
         expected[offset..offset + 12]
             .copy_from_slice(&[0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff, 0, 0, attributes, 0]);
     }
-    assert_eq!(cpu.to_bytes(), expected);
+    assert_eq!(&cpu.to_bytes()[..152], &expected);
     assert_eq!(cpu.segments, Segments::flat32());
-    let zero = CpuState::from_bytes([0; 152]);
-    assert_eq!(zero.to_bytes(), [0; 152]);
+    let zero = CpuState::from_bytes([0; CpuState::BYTE_LEN]);
+    assert_eq!(zero.to_bytes(), [0; CpuState::BYTE_LEN]);
     assert_eq!(zero.segments, Segments::default());
     for segment in Segment::ALL {
         assert!(!zero.segments[segment].attributes.is_usable());

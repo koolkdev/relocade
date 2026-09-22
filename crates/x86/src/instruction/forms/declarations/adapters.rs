@@ -124,6 +124,7 @@ macro_rules! operand_value {
     ($width:ty, $operand:ident, rel) => { Input::<I32>::new($operand) };
     ($width:ty, $operand:ident, address) => { Input::<$width>::new($operand) };
     ($width:ty, $operand:ident, rm8) => { operand_value!(@location I8, $operand) };
+    ($width:ty, $operand:ident, mem16) => { operand_value!(@location I16, $operand) };
     ($width:ty, $operand:ident, rm16) => { operand_value!(@location I16, $operand) };
     ($width:ty, $operand:ident, AL) => { operand_value!(@location I8, $operand) };
     ($width:ty, $operand:ident, AH) => { operand_value!(@location I8, $operand) };

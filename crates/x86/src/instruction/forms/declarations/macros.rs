@@ -8,7 +8,8 @@ macro_rules! instruction_families {
     })+) => {
         pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
             use crate::instruction::forms::declarations::*;
-            const FAMILIES: &[&[&[Form]]] = &[$(
+            // Runtime decoder tables identify forms across catalog traversals.
+            static FAMILIES: &[&[&[Form]]] = &[$(
                 declaration_family!([$handler $(::<$size>)?; $($($argument),*)?] [$($($effect),*)?] $rows)
             ),+];
             FAMILIES.iter().flat_map(|rows| rows.iter().flat_map(|forms| forms.iter()))
@@ -18,7 +19,7 @@ macro_rules! instruction_families {
 
 macro_rules! declaration_family {
     ($call:tt $effects:tt {
-        $($($prefix:ident)? $opcode:literal $($extended:literal)? $(+ $pattern:ident)? $(/ $extension:literal)? =>
+        $($($prefix:ident)? $opcode:literal $($extended:literal)? $(+ $pattern:ident)? $(/ $extension:literal)? $(@ $modrm:literal)? =>
             $width:ident $operands:tt $(| $other_width:ident $other_operands:tt)? $($lockable:ident)?;
         )+
     }) => {
@@ -31,7 +32,7 @@ macro_rules! declaration_family {
                         byte: declaration_opcode!(@byte $opcode $($extended)?),
                         group1_prefix: declaration_opcode!(@prefix $($prefix)?),
                         register_range: declaration_opcode!(@register $($pattern)?),
-                        extension: declaration_opcode!(@extension $($extension)?),
+                        modrm: declaration_opcode!(@modrm [$($extension)?] [$($modrm)?]),
                     },
                     operands: declaration_operands!($operands),
                     handlers: declaration_handlers!(
@@ -91,10 +92,13 @@ macro_rules! declaration_opcode {
     (@register) => {
         false
     };
-    (@extension $extension:literal) => {
-        Some($extension)
+    (@modrm [$extension:literal] []) => {
+        Some(ModRmSelector::extension($extension))
     };
-    (@extension) => {
+    (@modrm [] [$modrm:literal]) => {
+        Some(ModRmSelector::byte($modrm))
+    };
+    (@modrm [] []) => {
         None
     };
     (@rows $form:ident; cc) => {
@@ -127,6 +131,9 @@ macro_rules! declaration_effect {
 }
 
 macro_rules! operand_spec {
+    (mem16) => {
+        OperandSpec::Memory
+    };
     (mem) => {
         OperandSpec::Memory
     };

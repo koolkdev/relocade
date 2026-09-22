@@ -9,10 +9,21 @@ pub enum Exception<V = u32> {
     DivideError,
     BoundRangeExceeded,
     InvalidOpcode,
-    SegmentNotPresent { error_code: V },
-    StackFault { error_code: V },
-    GeneralProtection { error_code: V },
-    PageFault { linear_address: V, error_code: V },
+    SegmentNotPresent {
+        error_code: V,
+    },
+    StackFault {
+        error_code: V,
+    },
+    GeneralProtection {
+        error_code: V,
+    },
+    PageFault {
+        linear_address: V,
+        error_code: V,
+    },
+    /// A pending x87 floating-point exception reported by a waiting instruction.
+    FloatingPoint,
 }
 
 /// Architectural vector numbers, independent of the host exit encoding.
@@ -26,6 +37,7 @@ pub enum ExceptionVector {
     StackFault = 12,
     GeneralProtection = 13,
     PageFault = 14,
+    FloatingPoint = 16,
 }
 
 impl<V> Exception<V> {
@@ -38,6 +50,7 @@ impl<V> Exception<V> {
             Self::StackFault { .. } => ExceptionVector::StackFault,
             Self::GeneralProtection { .. } => ExceptionVector::GeneralProtection,
             Self::PageFault { .. } => ExceptionVector::PageFault,
+            Self::FloatingPoint => ExceptionVector::FloatingPoint,
         }
     }
 }
@@ -48,6 +61,7 @@ impl fmt::Display for Exception<u32> {
             Self::DivideError => return f.write_str("#DE"),
             Self::BoundRangeExceeded => return f.write_str("#BR"),
             Self::InvalidOpcode => return f.write_str("#UD"),
+            Self::FloatingPoint => return f.write_str("#MF"),
             Self::SegmentNotPresent { error_code } => ("#NP", error_code),
             Self::StackFault { error_code } => ("#SS", error_code),
             Self::GeneralProtection { error_code } => ("#GP", error_code),

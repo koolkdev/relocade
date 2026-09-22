@@ -85,6 +85,7 @@ pub(crate) enum Exit {
     DivideError,
     BoundRangeExceeded,
     InvalidOpcode,
+    FloatingPoint,
     GeneralProtection { error: u16 },
     StackFault { error: u16 },
     PageFault { address: u32, error: u16 },
@@ -99,6 +100,8 @@ impl Exit {
             Self::BoundRangeExceeded
         } else if word == 0x0080_0000_0000_0000 {
             Self::InvalidOpcode
+        } else if word == 0x0100_0000_0000_0000 {
+            Self::FloatingPoint
         } else if word >> 48 == 2 {
             Self::GeneralProtection {
                 error: (word >> 32) as u16,
@@ -159,6 +162,7 @@ pub(crate) fn expected(image: &Image, steps: &[Step<'_>]) -> Observation {
                 Outcome::Returned(vec![Argument::I64(0x0040_0000_0000_0000)])
             }
             Exit::InvalidOpcode => Outcome::Returned(vec![Argument::I64(0x0080_0000_0000_0000)]),
+            Exit::FloatingPoint => Outcome::Returned(vec![Argument::I64(0x0100_0000_0000_0000)]),
             Exit::GeneralProtection { error } => Outcome::Returned(vec![Argument::I64(
                 ((2_u64 << 48) | (u64::from(error) << 32)) as i64,
             )]),
