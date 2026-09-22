@@ -4,8 +4,9 @@ export default function execute(module, input) {
     ? { type: 'i64', value: value.toString() }
     : { type: 'i32', value };
   const imports = { test: {} };
+  const memoryImports = new Map(input.memory_imports.map(({ name, ...descriptor }) => [name, descriptor]));
   const memories = input.memories.map(({ name, bytes }) => {
-    const memory = new WebAssembly.Memory({ initial: 1 });
+    const memory = new WebAssembly.Memory(memoryImports.get(name) ?? { initial: 1 });
     new Uint8Array(memory.buffer).set(bytes);
     imports.test[name] = memory;
     return { name, memory, length: bytes.length };

@@ -334,6 +334,7 @@ fn values_from_completed_switch_arms_cannot_escape_their_scope() {
         name: "state".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let run = program.declare(signature(&[Type::I32], &[Type::I32]));
     let mut body = program.define(run).unwrap();

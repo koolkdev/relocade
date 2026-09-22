@@ -1,5 +1,7 @@
 //! Structured regions, result joins and branch construction.
-use crate::{results, Arguments, BuildError, FunctionBuilder, Operation, Results, Terminal, Type};
+use crate::{
+    results, Arguments, Body, BuildError, FunctionBuilder, Operation, Results, Terminal, Type,
+};
 
 mod block;
 mod conditional;
@@ -13,6 +15,17 @@ pub use loops::LoopLabels;
 pub(super) struct SwitchCase {
     pub(super) key: u32,
     pub(super) region: Region,
+}
+
+impl Body {
+    pub(super) fn operation(&self, site: Site) -> &Operation {
+        &self
+            .region
+            .walk()
+            .find(|region| region.id == site.region)
+            .expect("an operation result names an attached region")
+            .operations[site.index]
+    }
 }
 
 impl Operation {

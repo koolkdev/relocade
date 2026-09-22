@@ -37,6 +37,7 @@ fn removed_effects() -> TestModule {
         name: "dead_memory".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let dead_call = fixture.program.import_function(FunctionImport {
         module: "test".into(),

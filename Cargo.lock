@@ -757,6 +757,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "wasm-encoder 0.254.0",
  "wasmtime",
 ]
 
@@ -834,6 +835,7 @@ dependencies = [
  "wasmtime-math",
  "wasmtime-slab",
  "wasmtime-versioned-export-macros",
+ "wasmtime-winch",
  "windows-sys 0.59.0",
 ]
 
@@ -949,12 +951,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasmtime-winch"
+version = "30.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a9c8eae8395d530bb00a388030de9f543528674c382326f601de47524376975"
+dependencies = [
+ "anyhow",
+ "cranelift-codegen",
+ "gimli",
+ "object 0.36.7",
+ "target-lexicon",
+ "wasmparser",
+ "wasmtime-cranelift",
+ "wasmtime-environ",
+ "winch-codegen",
+]
+
+[[package]]
 name = "winapi-util"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "winch-codegen"
+version = "30.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dbd4e07bd92c7ddace2f3267bdd31d4197b5ec58c315751325d45c19bfb56df"
+dependencies = [
+ "anyhow",
+ "cranelift-codegen",
+ "gimli",
+ "regalloc2",
+ "smallvec",
+ "target-lexicon",
+ "thiserror 1.0.69",
+ "wasmparser",
+ "wasmtime-cranelift",
+ "wasmtime-environ",
 ]
 
 [[package]]

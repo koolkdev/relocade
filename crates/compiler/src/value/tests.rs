@@ -41,6 +41,7 @@ fn returning_from_a_body_closes_retained_loads() {
         name: "memory".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let function = program.declare(Signature {
         parameters: vec![],
@@ -183,6 +184,7 @@ fn expression_identity_reuses_nodes_but_keeps_read_events_distinct() {
         name: "state".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let function = program.declare(Signature {
         parameters: vec![Type::I32],

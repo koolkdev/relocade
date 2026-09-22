@@ -54,6 +54,19 @@ impl Scheduler<'_> {
             match operation {
                 Operation::BranchIf { .. } => unreachable!("conditional exits emit above"),
                 Operation::Nop | Operation::Load(_) => {}
+                Operation::Fence => Instruction::AtomicFence.encode(&mut self.bytes),
+                Operation::Atomic { access, output } => {
+                    for input in access.inputs() {
+                        self.value(input);
+                    }
+                    self.atomic_operation(access);
+                    if let Some(output) = *output {
+                        self.completed(output, true);
+                        if self.placement.slots[output].is_none() {
+                            Instruction::Drop.encode(&mut self.bytes);
+                        }
+                    }
+                }
                 Operation::Call { invocation, .. } => {
                     if self.effects[invocation.target.0].must_execute() {
                         self.authored_call(site);

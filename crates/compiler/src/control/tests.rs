@@ -12,6 +12,7 @@ fn a_failed_else_branch_discards_both_arms_without_closing_the_parent() {
         name: "memory".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let signature = Signature {
         parameters: vec![],
@@ -100,6 +101,7 @@ fn a_failed_yield_discards_both_arms_without_retaining_their_imports() {
         name: "memory".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let signature = Signature {
         parameters: vec![],

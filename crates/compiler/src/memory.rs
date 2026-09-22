@@ -3,6 +3,10 @@ use crate::{
     I32, I64, I8,
 };
 
+mod atomic;
+pub use atomic::AtomicAccess;
+pub(super) use atomic::{AtomicKind, AtomicOperation};
+
 /// An imported memory. Use only with the program that declared it.
 /// Distinct declarations must be bound to distinct WebAssembly memory objects.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -16,6 +20,9 @@ pub struct MemoryImport {
     pub name: String,
     pub minimum: u32,
     pub maximum: Option<u32>,
+    /// Whether the host supplies a shared memory. Requires an explicit maximum.
+    /// Sharing does not change ordinary load/store ordering or atomicity.
+    pub shared: bool,
 }
 
 /// An integer type supported by memory accesses at its logical width.
@@ -86,8 +93,23 @@ impl Location {
 
 impl Program {
     /// Declares an imported memory. It is emitted only if a completed body
-    /// contains a load or store naming it, including an unused load.
+    /// contains a memory access naming it, including an unused ordinary load.
+    /// Panics if the limits are invalid or a shared memory has no maximum.
     pub fn import_memory(&mut self, import: MemoryImport) -> Mem {
+        assert!(
+            import.minimum <= 65536,
+            "memory minimum exceeds 32-bit limits"
+        );
+        assert!(
+            import
+                .maximum
+                .is_none_or(|maximum| maximum >= import.minimum && maximum <= 65536),
+            "invalid memory maximum"
+        );
+        assert!(
+            !import.shared || import.maximum.is_some(),
+            "shared memory requires a maximum"
+        );
         let memory = Mem(self.memories.len());
         self.memories.push(import);
         memory
@@ -97,8 +119,9 @@ impl Program {
 impl FunctionBuilder<'_> {
     /// Reads an integer at a fixed byte offset in little-endian memory.
     /// Each call creates a separate read. Reusing its value preserves that read's
-    /// snapshot across overlapping stores. A used read may run later, past stores
-    /// to other bytes; an unused read and its possible trap are omitted.
+    /// snapshot across overlapping stores and explicit atomic effects. A used
+    /// read may run later, past stores to other bytes; an unused read and its
+    /// possible trap are omitted.
     pub fn load<T: MemoryInt>(&mut self, memory: Mem, offset: u32) -> Result<Val<T>, BuildError> {
         self.load_at(memory, 0, offset)
     }
@@ -112,7 +135,7 @@ impl FunctionBuilder<'_> {
     /// use wasm86_compiler::{MemoryImport, Program, Signature, Type, I8, I32};
     /// let mut program = Program::new();
     /// let memory = program.import_memory(MemoryImport {
-    ///     module: "guest".into(), name: "memory".into(), minimum: 1, maximum: None,
+    ///     module: "guest".into(), name: "memory".into(), minimum: 1, maximum: None, shared: false,
     /// });
     /// let function = program.declare(Signature {
     ///     parameters: vec![Type::I32], results: vec![Type::I8],
@@ -187,13 +210,14 @@ mod tests {
     use wasmparser::{Parser, Payload};
 
     #[test]
-    fn a_foreign_store_operand_leaves_the_body_usable_and_does_not_retain_an_import() {
+    fn foreign_memory_operands_leave_the_body_usable_and_do_not_retain_an_import() {
         let mut program = Program::new();
         let memory = program.import_memory(MemoryImport {
             module: "state".into(),
             name: "memory".into(),
             minimum: 1,
             maximum: None,
+            shared: false,
         });
         let function = program.declare(Signature {
             parameters: vec![],
@@ -212,6 +236,31 @@ mod tests {
             body.store_at::<I32>(memory, &foreign, 0, 7),
             Err(BuildError::ForeignBody)
         );
+        assert_eq!(
+            body.atomic::<I32>(memory, &foreign, 0).err(),
+            Some(BuildError::ForeignBody)
+        );
+        assert_eq!(
+            body.atomic::<I32>(memory, 0, 0).unwrap().store(&foreign),
+            Err(BuildError::ForeignBody)
+        );
+        assert_eq!(
+            body.atomic::<I32>(memory, 0, 0)
+                .unwrap()
+                .add(&foreign)
+                .err(),
+            Some(BuildError::ForeignBody)
+        );
+        let local = body.value::<I32>(7).unwrap();
+        for (expected, replacement) in [(&foreign, &local), (&local, &foreign)] {
+            assert_eq!(
+                body.atomic::<I32>(memory, 0, 0)
+                    .unwrap()
+                    .compare_exchange(expected, replacement)
+                    .err(),
+                Some(BuildError::ForeignBody)
+            );
+        }
         body.return_(7).unwrap();
         let bytes = program.compile().unwrap();
         assert!(Parser::new(0)

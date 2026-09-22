@@ -48,6 +48,7 @@ pub(super) enum Effects {
     Known {
         reads: Vec<MemoryRange>,
         writes: Vec<MemoryRange>,
+        synchronizes: bool,
     },
 }
 
@@ -55,13 +56,20 @@ impl Effects {
     pub(super) fn must_execute(&self) -> bool {
         match self {
             Self::Unknown => true,
-            Self::Known { writes, .. } => !writes.is_empty(),
+            Self::Known {
+                writes,
+                synchronizes,
+                ..
+            } => *synchronizes || !writes.is_empty(),
         }
     }
 
     pub(super) fn writes_location(&self, location: Location, body: &Body) -> bool {
         match self {
             Self::Unknown => true,
+            Self::Known {
+                synchronizes: true, ..
+            } => true,
             Self::Known { writes, .. } => writes
                 .iter()
                 .any(|range| range.overlaps_location(location, body)),
@@ -71,6 +79,9 @@ impl Effects {
     pub(super) fn writes_reads(&self, reads: &[MemoryRange]) -> bool {
         match self {
             Self::Unknown => !reads.is_empty(),
+            Self::Known {
+                synchronizes: true, ..
+            } => !reads.is_empty(),
             Self::Known { writes, .. } => writes
                 .iter()
                 .any(|write| reads.iter().any(|read| write.overlaps(read))),
@@ -92,6 +103,7 @@ fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
     let mut reads = Vec::new();
     let mut writes = Vec::new();
     let mut callees = Vec::new();
+    let mut synchronizes = false;
     for region in body.region.walk() {
         for operation in &region.operations {
             match operation {
@@ -105,6 +117,7 @@ fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
                     include(&mut writes, [MemoryRange::from_location(*location, body)])
                 }
                 Operation::Call { invocation, .. } => callees.push(invocation.target),
+                Operation::Atomic { .. } | Operation::Fence => synchronizes = true,
                 Operation::Nop
                 | Operation::Block { .. }
                 | Operation::Loop { .. }
@@ -123,13 +136,19 @@ fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
             Effects::Known {
                 reads: child_reads,
                 writes: child_writes,
+                synchronizes: child_synchronizes,
             } => {
+                synchronizes |= child_synchronizes;
                 include(&mut reads, child_reads.iter().cloned());
                 include(&mut writes, child_writes.iter().cloned());
             }
         }
     }
-    Some(Effects::Known { reads, writes })
+    Some(Effects::Known {
+        reads,
+        writes,
+        synchronizes,
+    })
 }
 
 pub(super) fn infer(program: &Program) -> Vec<Effects> {

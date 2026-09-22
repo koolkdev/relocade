@@ -76,12 +76,14 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
                     | Operation::Loop { .. }
                     | Operation::If { .. }
                     | Operation::BranchIf { .. }
+                    | Operation::Fence
                     | Operation::Switch { .. } => continue,
                     Operation::Call { invocation, .. } => {
                         used_functions[invocation.target.0] = true;
                         continue;
                     }
                     Operation::Store { location, .. } => *location,
+                    Operation::Atomic { access, .. } => access.location,
                     Operation::Load(value) => match body.values[*value].kind {
                         ValueKind::Load { location, .. } => location,
                         _ => unreachable!("a load operation names its load value"),
@@ -160,7 +162,7 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
                     minimum: u64::from(memory.minimum),
                     maximum: memory.maximum.map(u64::from),
                     memory64: false,
-                    shared: false,
+                    shared: memory.shared,
                     page_size_log2: None,
                 },
             );

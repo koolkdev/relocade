@@ -92,7 +92,7 @@ impl ExpressionArena {
         })
     }
 
-    pub(super) fn call_result(
+    pub(super) fn operation_result(
         &self,
         ty: Type,
         site: Site,
@@ -101,7 +101,7 @@ impl ExpressionArena {
         self.with_open(|arena| {
             arena.push(Value {
                 ty,
-                kind: ValueKind::CallResult { site, component },
+                kind: ValueKind::OperationResult { site, component },
             })
         })
     }
@@ -469,7 +469,7 @@ impl ValueArena {
             ValueKind::Constant(_) | ValueKind::Parameter(_) => Some(0),
             ValueKind::LoopInput { region, .. } => Some(region),
             ValueKind::Load { site, .. }
-            | ValueKind::CallResult { site, .. }
+            | ValueKind::OperationResult { site, .. }
             | ValueKind::JoinResult { site, .. } => Some(site.region),
             ValueKind::Binary(_, a, b)
             | ValueKind::Compare(_, a, b)

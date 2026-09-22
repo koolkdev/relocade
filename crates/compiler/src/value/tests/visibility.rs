@@ -11,6 +11,7 @@ fn memory_program() -> (Program, Mem) {
         name: "memory".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     (program, memory)
 }
@@ -155,6 +156,17 @@ fn every_operand_and_argument_boundary_checks_folded_visibility() {
         Some(BuildError::OutOfScope)
     );
     assert_eq!(
+        body.atomic::<I32>(memory, &value, 0).err(),
+        Some(BuildError::OutOfScope)
+    );
+    assert_eq!(
+        body.atomic::<I32>(memory, 0, 0)
+            .unwrap()
+            .exchange(&value)
+            .err(),
+        Some(BuildError::OutOfScope)
+    );
+    assert_eq!(
         body.if_(value.eq(1), |_| Ok(())),
         Err(BuildError::OutOfScope)
     );
@@ -267,6 +279,7 @@ fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
         name: "memory".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let function = program.declare(Signature {
         parameters: vec![],

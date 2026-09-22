@@ -176,7 +176,7 @@ impl Scheduler<'_> {
                     continue;
                 }
                 Walk::FinishCall(id) => {
-                    let ValueKind::CallResult { site, .. } = self.body.values[id].kind else {
+                    let ValueKind::OperationResult { site, .. } = self.body.values[id].kind else {
                         unreachable!("call completion names a call result")
                     };
                     self.finish_call(site, Some((id, capture && id == root)));
@@ -275,7 +275,7 @@ impl Scheduler<'_> {
                     pending.push(Walk::FinishZero(id, extension));
                     pending.push(Walk::Value(input));
                 }
-                ValueKind::CallResult { site, .. } => {
+                ValueKind::OperationResult { site, .. } => {
                     pending.push(Walk::FinishCall(id));
                     for &argument in self.body.call(site).0.arguments.iter().rev() {
                         pending.push(Walk::Value(argument));

@@ -10,15 +10,10 @@ pub(super) struct Invocation {
 
 impl Body {
     pub(super) fn call(&self, site: Site) -> (&Invocation, &[usize]) {
-        let region = self
-            .region
-            .walk()
-            .find(|region| region.id == site.region)
-            .expect("a call result names an attached region");
         let Operation::Call {
             invocation,
             outputs,
-        } = &region.operations[site.index]
+        } = self.operation(site)
         else {
             unreachable!("a call result names its invocation")
         };
@@ -93,13 +88,14 @@ impl FunctionBuilder<'_> {
     /// Components share one invocation and are visible in this branch and its
     /// descendants. `()` requests no results; tuples and arrays request several.
     ///
-    /// Defined helpers without inferred writes or unknown effects can run later
-    /// or disappear when unused. Possible traps in the call or its argument
-    /// computations move or disappear with it. Read snapshots remain protected
-    /// across overlapping writes. Calls that may write, call imports or reach
-    /// unresolved recursion execute in authored order, even when their result is
-    /// unused. Every declared result is evaluated when a call runs, including
-    /// components its caller discards. Narrow results follow
+    /// Defined helpers without inferred writes, synchronization or unknown effects
+    /// can run later or disappear when unused. Possible traps in the call or its
+    /// argument computations move or disappear with it. Read snapshots remain
+    /// protected across overlapping writes and explicit atomic effects. Calls that
+    /// may write, synchronize, call imports or reach unresolved recursion execute
+    /// in authored order, even when their result is unused. Every declared result
+    /// is evaluated when a call runs, including components its caller discards.
+    /// Narrow results follow
     /// the same zero-extended calling convention as tail calls.
     ///
     /// ```
@@ -129,7 +125,7 @@ impl FunctionBuilder<'_> {
         let outputs = types
             .iter()
             .enumerate()
-            .map(|(component, &ty)| self.arena.call_result(ty, self.site(), component))
+            .map(|(component, &ty)| self.arena.operation_result(ty, self.site(), component))
             .collect::<Result<Vec<_>, _>>()?;
         let values = results::bind::<R>(self, &outputs);
         self.region.operations.push(Operation::Call {

@@ -63,7 +63,7 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
         ValueKind::LoopInput { .. } => carrier,
         ValueKind::JoinResult { .. } => unreachable!("join bounds come from its yielding arms"),
         ValueKind::Constant(bits) => (64 - bits.leading_zeros()) as u8,
-        ValueKind::Parameter(_) | ValueKind::Load { .. } | ValueKind::CallResult { .. } => {
+        ValueKind::Parameter(_) | ValueKind::Load { .. } | ValueKind::OperationResult { .. } => {
             value.ty.bits()
         }
         ValueKind::Binary(operator, a, b) => match operator {

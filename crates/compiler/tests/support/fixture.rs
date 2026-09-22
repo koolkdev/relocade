@@ -26,12 +26,21 @@ impl Fixture {
     }
 
     pub fn memory(&mut self, name: &str, bytes: &[u8]) -> Mem {
+        self.memory_import(name, bytes, false)
+    }
+
+    pub fn shared_memory(&mut self, name: &str, bytes: &[u8]) -> Mem {
+        self.memory_import(name, bytes, true)
+    }
+
+    fn memory_import(&mut self, name: &str, bytes: &[u8], shared: bool) -> Mem {
         self.memories.push(MemoryBytes::new(name, bytes));
         self.program.import_memory(MemoryImport {
             module: "test".into(),
             name: name.into(),
             minimum: 1,
-            maximum: None,
+            maximum: shared.then_some(1),
+            shared,
         })
     }
 

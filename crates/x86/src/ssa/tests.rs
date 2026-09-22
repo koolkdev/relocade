@@ -21,6 +21,7 @@ fn accesses(
         name: "state".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let function = program.declare(Signature {
         parameters: vec![Type::I32],

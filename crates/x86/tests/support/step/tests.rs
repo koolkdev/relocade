@@ -8,6 +8,7 @@ fn check_transient_machine_write(engine: Engine) {
         name: "machine".into(),
         minimum: 64,
         maximum: None,
+        shared: false,
     });
     let toggle = program
         .function(

@@ -57,6 +57,7 @@ fn a_callback_error_discards_even_a_completed_body_and_its_import_use() {
         name: "memory".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let error = program
         .function(
@@ -189,6 +190,7 @@ fn a_failed_function_restores_forward_declarations_and_discards_appended_resourc
                 name: "memory".into(),
                 minimum: 1,
                 maximum: None,
+                shared: false,
             });
             let helper = body.program().function(signature.clone(), |mut helper| {
                 let value = helper.load::<I32>(memory, 0)?;

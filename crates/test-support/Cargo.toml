@@ -10,3 +10,4 @@ serde.workspace = true
 serde_json.workspace = true
 tempfile = "=3.19.1"
 wasmtime.workspace = true
+wasm-encoder.workspace = true

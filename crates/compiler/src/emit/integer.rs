@@ -139,7 +139,7 @@ impl Scheduler<'_> {
             | ValueKind::Parameter(_)
             | ValueKind::LoopInput { .. }
             | ValueKind::Load { .. }
-            | ValueKind::CallResult { .. }
+            | ValueKind::OperationResult { .. }
             | ValueKind::JoinResult { .. } => {
                 unreachable!("constants, parameters and authored results emit separately")
             }

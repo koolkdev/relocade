@@ -30,6 +30,7 @@ impl PageTable {
                 name: "machine".into(),
                 minimum: 64,
                 maximum: None,
+                shared: false,
             }),
         }
     }

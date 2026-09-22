@@ -6,7 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-wasm-encoder = { version = "=0.254.0", default-features = false }
+wasm-encoder.workspace = true
 
 [dev-dependencies]
 serde.workspace = true

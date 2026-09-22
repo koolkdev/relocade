@@ -222,6 +222,7 @@ impl<'a> Tree<'a> {
         match operation {
             Operation::Store { location, .. } => store(*location),
             Operation::Call { invocation, .. } => call(invocation.target),
+            Operation::Atomic { .. } | Operation::Fence => true,
             _ => false,
         }
     }
@@ -337,6 +338,11 @@ impl Planner<'_> {
                         demand(body, tree, demands, location.base, point);
                         demand(body, tree, demands, *value, point);
                     }
+                    Operation::Atomic { access, .. } => {
+                        for input in access.inputs() {
+                            demand(body, tree, demands, input, point);
+                        }
+                    }
                     Operation::If {
                         condition: selector,
                         ..
@@ -358,7 +364,10 @@ impl Planner<'_> {
                             }
                         }
                     }
-                    Operation::Nop | Operation::Load(_) | Operation::Block { .. } => {}
+                    Operation::Nop
+                    | Operation::Load(_)
+                    | Operation::Block { .. }
+                    | Operation::Fence => {}
                 }
             }
             if let Some(terminal) = &region.terminal {
@@ -391,9 +400,15 @@ impl Planner<'_> {
             if matches!(body.values[id].kind, ValueKind::LoopInput { .. }) {
                 continue;
             }
-            if let ValueKind::CallResult { site, component } = body.values[id].kind {
+            if let ValueKind::OperationResult { site, component } = body.values[id].kind {
                 // Failed branch construction can leave values from a discarded region.
                 if !self.tree.0.contains_key(&site.region) {
+                    continue;
+                }
+                if matches!(body.operation(site), Operation::Atomic { .. }) {
+                    // Ordered memory results are produced at the authored site.
+                    // A live value must survive until its consumers demand it.
+                    self.saved[id] = self.demands[id].is_some();
                     continue;
                 }
                 let (_, outputs) = body.call(site);
@@ -478,8 +493,8 @@ impl Planner<'_> {
                     }
                     ValueKind::Constant(_) | ValueKind::Parameter(_) => {}
                     ValueKind::LoopInput { .. } => unreachable!("loop inputs are fixed at entry"),
-                    ValueKind::CallResult { .. } => {
-                        unreachable!("call outputs share one placement")
+                    ValueKind::OperationResult { .. } => {
+                        unreachable!("effect results follow their producer's placement")
                     }
                     ValueKind::JoinResult { .. } => {
                         unreachable!("join demands stay inside their arms")

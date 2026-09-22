@@ -7,7 +7,7 @@ use wasmtime::{
 };
 
 pub use wasm86_test_support::Value;
-use wasm86_test_support::{engine, Module, Outcome};
+use wasm86_test_support::{engine, Module, Outcome, SharedBytes};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryBytes {
@@ -145,13 +145,52 @@ impl TestModule {
     }
 
     pub fn run_v8(&self, input: &Input) -> Observation {
+        #[derive(Serialize)]
+        struct MemoryDescriptor<'a> {
+            name: &'a str,
+            initial: u64,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            maximum: Option<u64>,
+            shared: bool,
+        }
+        #[derive(Serialize)]
+        struct V8Input<'a> {
+            #[serde(flatten)]
+            call: &'a Input,
+            memory_imports: Vec<MemoryDescriptor<'a>>,
+        }
+        let mut memory_imports = Vec::new();
+        for payload in wasmparser::Parser::new(0).parse_all(self.bytes()) {
+            if let wasmparser::Payload::ImportSection(imports) = payload.unwrap() {
+                for import in imports {
+                    let import = import.unwrap();
+                    if let wasmparser::TypeRef::Memory(memory) = import.ty {
+                        memory_imports.push(MemoryDescriptor {
+                            name: import.name,
+                            initial: memory.initial,
+                            maximum: memory.maximum,
+                            shared: memory.shared,
+                        });
+                    }
+                }
+            }
+        }
         self.module.run_v8(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/execute.mjs"),
-            input,
+            &V8Input {
+                call: input,
+                memory_imports,
+            },
         )
     }
 
     pub fn instantiate(&self) -> Instance {
+        self.instantiate_with_shared(&[])
+    }
+
+    /// Reuses already initialized shared memory across independent instances.
+    /// Supplied memories retain their contents instead of applying fixture bytes.
+    pub fn instantiate_with_shared(&self, shared: &[(&str, SharedBytes)]) -> Instance {
         let engine = engine();
         let module = self.module.wasmtime();
         let mut store = Store::new(engine, Vec::<Call>::new());
@@ -160,13 +199,37 @@ impl TestModule {
             .memories
             .iter()
             .map(|initial| {
-                let memory =
-                    Memory::new(&mut store, MemoryType::new(1, None)).expect("create test memory");
-                memory
-                    .write(&mut store, 0, &initial.bytes)
-                    .expect("initialize test memory");
+                let memory = if let Some((_, memory)) =
+                    shared.iter().find(|(name, _)| *name == initial.name)
+                {
+                    MemoryBinding::Shared(memory.clone())
+                } else {
+                    let memory_type = module
+                        .imports()
+                        .find(|import| import.module() == "test" && import.name() == initial.name)
+                        .and_then(|import| match import.ty() {
+                            ExternType::Memory(memory) => Some(memory),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| MemoryType::new(1, None));
+                    if memory_type.is_shared() {
+                        let memory = SharedBytes::new(
+                            memory_type.minimum() as u32,
+                            memory_type.maximum().unwrap() as u32,
+                        );
+                        memory.write(0, &initial.bytes);
+                        MemoryBinding::Shared(memory)
+                    } else {
+                        let memory =
+                            Memory::new(&mut store, memory_type).expect("create test memory");
+                        memory
+                            .write(&mut store, 0, &initial.bytes)
+                            .expect("initialize test memory");
+                        MemoryBinding::Private(memory)
+                    }
+                };
                 linker
-                    .define(&store, "test", &initial.name, memory)
+                    .define(&store, "test", &initial.name, memory.external())
                     .expect("define test memory");
                 (initial.name.clone(), memory, initial.bytes.len())
             })
@@ -228,7 +291,7 @@ impl TestModule {
 pub struct Instance {
     store: Store<Vec<Call>>,
     instance: wasmtime::Instance,
-    memories: Vec<(String, Memory, usize)>,
+    memories: Vec<(String, MemoryBinding, usize)>,
 }
 
 impl Instance {
@@ -255,13 +318,13 @@ impl Instance {
         })
     }
 
-    pub fn memory(&self, name: &str) -> &[u8] {
+    pub fn memory(&self, name: &str) -> Vec<u8> {
         let (_, memory, _) = self
             .memories
             .iter()
             .find(|(memory_name, _, _)| memory_name == name)
             .expect("fixture memory must exist");
-        memory.data(&self.store)
+        memory.read(&self.store, memory.size(&self.store))
     }
 
     pub fn callbacks(&self) -> &[Call] {
@@ -301,11 +364,43 @@ impl Instance {
     }
 }
 
-fn snapshot(store: impl AsContext, memories: &[(String, Memory, usize)]) -> Vec<MemoryBytes> {
+#[derive(Clone)]
+enum MemoryBinding {
+    Private(Memory),
+    Shared(SharedBytes),
+}
+
+impl MemoryBinding {
+    fn external(&self) -> wasmtime::Extern {
+        match self {
+            Self::Private(memory) => (*memory).into(),
+            Self::Shared(memory) => memory.memory().clone().into(),
+        }
+    }
+
+    fn size(&self, store: impl AsContext) -> usize {
+        match self {
+            Self::Private(memory) => memory.data_size(store),
+            Self::Shared(memory) => memory.memory().data_size(),
+        }
+    }
+
+    fn read(&self, store: impl AsContext, length: usize) -> Vec<u8> {
+        match self {
+            Self::Private(memory) => memory.data(store.as_context())[..length].to_vec(),
+            Self::Shared(memory) => memory.read(0, length),
+        }
+    }
+}
+
+fn snapshot(
+    store: impl AsContext,
+    memories: &[(String, MemoryBinding, usize)],
+) -> Vec<MemoryBytes> {
     memories
         .iter()
         .map(|(name, memory, length)| {
-            MemoryBytes::new(name, &memory.data(store.as_context())[..*length])
+            MemoryBytes::new(name, &memory.read(store.as_context(), *length))
         })
         .collect()
 }

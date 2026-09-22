@@ -19,6 +19,7 @@ fn conditional_exits_keep_their_edge_scope_and_adjacent_authored_sites() {
         name: "memory".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let function = program.declare(signature());
     let mut body = program.define(function).unwrap();
@@ -110,6 +111,7 @@ fn conditional_exit_errors_leave_the_parent_open_and_do_not_attach_an_edge() {
         name: "memory".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let function = program.declare(signature());
     let mut body = program.define(function).unwrap();

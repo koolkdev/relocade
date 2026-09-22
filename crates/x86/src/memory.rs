@@ -55,6 +55,7 @@ impl Memory {
             name: "guest".into(),
             minimum: 1,
             maximum: None,
+            shared: false,
         });
         let table = PageTable::declare(program);
         let range_resolver = program.function(

@@ -44,6 +44,7 @@ fn cancelling_offsets_retain_the_original_operand_scope() {
         name: "memory".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let function = program.declare(Signature {
         parameters: vec![Type::I32],

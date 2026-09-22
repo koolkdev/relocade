@@ -25,6 +25,7 @@ impl Cpu {
                 name: "cpuState".into(),
                 minimum: 1,
                 maximum: None,
+                shared: false,
             }),
             condition_resolvers: Condition::CANONICAL.map(|_| Cell::new(None)),
             flag_resolvers: std::array::from_fn(|_| Cell::new(None)),

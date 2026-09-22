@@ -1,5 +1,5 @@
 use crate::fixture::Fixture;
-use crate::wasm::TestModule;
+use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
 
 use wasm86_compiler::{MemoryImport, MemoryInt, Program, Signature, Type, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, TypeRef};
@@ -306,6 +306,7 @@ fn abandoned_bodies_do_not_retain_memory_imports() {
         name: "abandoned".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let function = program.declare(Signature {
         parameters: vec![],
@@ -470,4 +471,58 @@ fn stores_in_one_memory_do_not_change_another_memory() {
     assert_eq!(&instance.memory("state")[..4], &[7, 0, 0, 0]);
     assert_eq!(&instance.memory("other")[..4], &[9, 0, 0, 0]);
     assert!(instance.callbacks().is_empty());
+}
+
+fn check_import_limits(v8: bool) {
+    for shared in [false, true] {
+        let mut program = Program::new();
+        let memory = program.import_memory(MemoryImport {
+            module: "test".into(),
+            name: "memory".into(),
+            minimum: 2,
+            maximum: Some(2),
+            shared,
+        });
+        let run = program
+            .function(
+                Signature {
+                    parameters: vec![],
+                    results: vec![Type::I32],
+                },
+                |mut body| {
+                    body.store::<I32>(memory, 65536, 73)?;
+                    let value = body.load::<I32>(memory, 65536)?;
+                    body.return_(value)
+                },
+            )
+            .unwrap();
+        program.export("run", run).unwrap();
+        let module = TestModule::with_imports(
+            &program.compile().unwrap(),
+            vec![MemoryBytes::new("memory", &[])],
+            vec![],
+        );
+        if v8 {
+            assert_eq!(
+                module.run_v8(
+                    &Input::call("run", &[]).with_memories(&[MemoryBytes::new("memory", &[])])
+                ),
+                Observation::returned(&[Value::I32(73)])
+                    .with_memories(&[MemoryBytes::new("memory", &[])])
+            );
+        } else {
+            assert_eq!(module.instantiate().call::<u32>(()).unwrap(), 73);
+        }
+    }
+}
+
+#[test]
+fn private_and_shared_imports_preserve_declared_limits() {
+    check_import_limits(false);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_private_and_shared_imports_preserve_declared_limits() {
+    check_import_limits(true);
 }

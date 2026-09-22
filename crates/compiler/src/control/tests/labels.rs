@@ -88,6 +88,7 @@ fn branch_and_yield_arguments_validate_counts_logical_types_and_visibility() {
         name: "memory".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let function = program.declare(signature());
     let mut body = program.define(function).unwrap();
@@ -191,6 +192,7 @@ fn failed_late_branches_discard_earlier_arms_and_their_imports() {
         name: "memory".into(),
         minimum: 1,
         maximum: None,
+        shared: false,
     });
     let function = program.declare(signature());
     let mut body = program.define(function).unwrap();

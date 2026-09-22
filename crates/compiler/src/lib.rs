@@ -47,8 +47,8 @@ use call::Invocation;
 use control::{Destination, Region, Site};
 pub use control::{Label, LoopLabels};
 use integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp};
-use memory::Location;
-pub use memory::{Mem, MemoryImport, MemoryInt};
+pub use memory::{AtomicAccess, Mem, MemoryImport, MemoryInt};
+use memory::{AtomicOperation, Location};
 pub use results::{Arguments, Results};
 pub use types::{AtLeast, IntType, Type, I1, I16, I32, I64, I8};
 pub use value::{Argument, Signed, Unsigned, Val};
@@ -190,6 +190,11 @@ enum Operation {
         location: Location,
         value: usize,
     },
+    Atomic {
+        access: AtomicOperation,
+        output: Option<usize>,
+    },
+    Fence,
     Block {
         region: Region,
         outputs: Vec<usize>,
@@ -265,7 +270,7 @@ enum ValueKind {
         location: Location,
         site: Site,
     },
-    CallResult {
+    OperationResult {
         site: Site,
         component: usize,
     },
