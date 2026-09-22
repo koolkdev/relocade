@@ -1,4 +1,11 @@
-//! Control instructions observe pending x87 exceptions at waiting boundaries.
+//! x87 controls and stack operations share waiting-exception boundaries.
+
+mod stack;
+
+pub(crate) use stack::{
+    exchange_register, free_register, load_extended, load_register, rotate_stack, store_extended,
+    store_register,
+};
 
 use wasm86_compiler::{BuildError, I16};
 

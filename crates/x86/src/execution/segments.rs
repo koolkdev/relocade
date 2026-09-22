@@ -4,10 +4,7 @@ use wasm86_compiler::{BuildError, Val, I1, I16, I32};
 
 use super::ExecutionBuilder;
 use crate::{
-    address::{self, MemoryAddress},
-    memory::Intent,
-    register::RegisterType,
-    segment::SegmentValues,
+    address::MemoryAddress, memory::Intent, register::RegisterType, segment::SegmentValues,
     Segment, SegmentDescriptorInfo,
 };
 
@@ -69,15 +66,11 @@ impl ExecutionBuilder<'_, '_> {
         &mut self,
         source: MemoryAddress<Val<I32>>,
     ) -> Result<(Val<T>, Val<I16>), BuildError> {
-        let offset = address::resolve(&mut self.body, &mut self.state, source.offset, &[])?;
-        let memory = self
-            .memory
-            .expect("a far pointer source declares guest memory");
         // Address size wraps the starting offset. The selector follows the offset
         // inside one complete operand span, including across a 16-bit boundary.
-        let access = self.checked(memory, &source.segment, &offset, T::BYTES + 2, Intent::Read)?;
-        let pointer_offset = memory.read::<T>(&mut self.body, &access, 0)?;
-        let selector = memory.read::<I16>(&mut self.body, &access, T::BYTES)?;
+        let operand = self.memory_operand(source, T::BYTES + 2, Intent::Read, &[])?;
+        let pointer_offset = operand.read::<T>(self, 0)?;
+        let selector = operand.read::<I16>(self, T::BYTES)?;
         Ok((pointer_offset, selector))
     }
 }

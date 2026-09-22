@@ -10,6 +10,20 @@ use crate::{
     register::{Gpr32, RegisterType},
 };
 
+/// An encoded ST(i) offset; TOP determines its physical register at execution.
+#[derive(Clone)]
+pub(crate) struct X87StackIndex(Val<I32>);
+
+impl X87StackIndex {
+    pub(crate) fn new(offset: impl Into<Val<I32>>) -> Self {
+        Self(offset.into())
+    }
+
+    pub(crate) fn offset(self) -> Val<I32> {
+        self.0
+    }
+}
+
 pub(crate) struct Input<T: RegisterType> {
     operand: Operand<Val<I32>>,
     width: PhantomData<T>,
@@ -117,6 +131,7 @@ impl<T: RegisterType> TypedLocation<T> {
 pub(super) fn map_operand<V: Into<Val<I32>>>(operand: Operand<V>) -> Operand<Val<I32>> {
     match operand {
         Operand::Immediate(bits) => Operand::Immediate(bits.into()),
+        Operand::X87StackIndex(index) => Operand::X87StackIndex(index.into()),
         Operand::Segment(segment) => Operand::Segment(segment),
         Operand::Address(address) => Operand::Address(map_address(address)),
         Operand::Location(location) => map_location(location).into(),

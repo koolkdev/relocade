@@ -62,7 +62,7 @@ pub use segment::{
 };
 pub use state::{
     CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredStatusSource,
-    StoredX87, StoredX87Register,
+    StoredX87, StoredX87Register, StoredX87Status,
 };
 
 /// A WebAssembly module and the exported function that enters it.

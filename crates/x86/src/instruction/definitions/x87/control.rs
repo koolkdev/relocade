@@ -20,17 +20,17 @@ instruction_families! {
     }
     FLDCW {
         execute: load_control;
-        forms { 0xD9 / 5 => word(mem16); }
+        forms { 0xD9 / 5 => operands(mem16); }
     }
     FNSTCW {
         execute: store_control;
-        forms { 0xD9 / 7 => word(mem16); }
+        forms { 0xD9 / 7 => operands(mem16); }
     }
     FNSTSW {
         execute: store_status;
         forms {
-            0xDD / 7 => word(mem16);
-            0xDF @ 0xE0 => word(AX);
+            0xDD / 7 => operands(mem16);
+            0xDF @ 0xE0 => operands(AX);
         }
     }
 }

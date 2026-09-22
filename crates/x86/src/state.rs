@@ -10,10 +10,11 @@ mod x87;
 pub(super) use cpu::Cpu;
 pub use layout::{
     CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredStatusSource,
-    StoredX87, StoredX87Register,
+    StoredX87, StoredX87Register, StoredX87Status,
 };
 #[cfg(test)]
 pub(crate) use observation::compile_flag_observer;
+pub(crate) use x87::ExtendedValue;
 
 use access::{cpu_load, cpu_store, register_location};
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32};

@@ -18,6 +18,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         let segment_override = self.segment_override.clone();
         let address_size = self.address_size;
         let locked = self.locked;
+        let x87_opcode = self.x87_opcode.clone();
         let runtime = self.runtime;
         let eip = self.eip.clone();
         let completed = self.completed;
@@ -29,6 +30,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             segment_override: segment_override.clone(),
             address_size,
             locked,
+            x87_opcode: x87_opcode.clone(),
             runtime,
             eip: eip.clone(),
             completed,

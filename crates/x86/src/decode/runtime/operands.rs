@@ -2,8 +2,6 @@
 //! ModRM forms are selected before fetching address bytes. Register operands
 //! continue locally; memory operands join their shared address decoder.
 
-use std::collections::BTreeMap;
-
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
 
 use crate::{
@@ -15,7 +13,7 @@ use crate::{
     register::RegisterCode,
 };
 
-use super::{cursor::RuntimeCursor, InstructionDecoder};
+use super::{cursor::RuntimeCursor, selectors::dispatch_modrm_form, InstructionDecoder};
 
 impl<C> InstructionDecoder<'_, '_, C>
 where
@@ -122,6 +120,8 @@ where
         rm: Location<Val<I32>>,
     ) -> Result<(), BuildError> {
         let mut fields = DecodedFields {
+            modrm: Some(modrm.unsigned().extend::<I32>()),
+            rm_index: Some(modrm.and(7).unsigned().extend::<I32>()),
             rm: Some(rm),
             ..DecodedFields::default()
         };
@@ -171,46 +171,6 @@ where
             },
         )
     }
-}
-
-/// Fixed selector bits distinguish forms before address decoding. The selected
-/// form then enforces its memory/register policy. Ordinary /r forms need no
-/// switch; /n groups continue to select only their three extension bits.
-fn dispatch_modrm_form(
-    mut body: FunctionBuilder<'_>,
-    modrm: &Val<I8>,
-    forms: &[&'static Form],
-    state: &DecodeState,
-    continue_decoding: &impl Fn(FunctionBuilder<'_>, Option<&Form>) -> Result<(), BuildError>,
-) -> Result<(), BuildError> {
-    let mask = forms.iter().fold(0, |mask, form| {
-        mask | form.modrm.expect("a ModRM form has a selector").mask
-    });
-    if mask == 0 {
-        assert_eq!(forms.len(), 1, "unrestricted ModRM forms cannot overlap");
-        return continue_decoding(body, Some(forms[0]));
-    }
-    let shift = mask.trailing_zeros();
-    let mut choices = BTreeMap::new();
-    for byte in 0..=u8::MAX {
-        for form in forms {
-            if form.matches_modrm(byte, &state.prefixes) {
-                let key = u32::from(byte & mask) >> shift;
-                let previous = choices.insert(key, *form);
-                assert!(
-                    previous.is_none_or(|previous| std::ptr::eq(previous, *form)),
-                    "fixed selector bits must distinguish ModRM forms"
-                );
-            }
-        }
-    }
-    let keys: Vec<_> = choices.keys().copied().collect();
-    body.switch(
-        modrm.unsigned().shr(shift).and(u32::from(mask) >> shift),
-        &keys,
-        |arm, key| continue_decoding(arm, key.and_then(|key| choices.get(&key)).copied()),
-    )?;
-    body.trap()
 }
 
 struct MemoryForm {

@@ -73,6 +73,9 @@ impl Encoding {
 
 /// Decoders fill the fields required by the form. Binding selects them by role.
 pub(crate) struct DecodedFields<V> {
+    /// The complete byte is retained separately from its operand field roles.
+    pub(crate) modrm: Option<V>,
+    pub(crate) rm_index: Option<V>,
     pub(crate) register: Option<RegisterCode>,
     pub(crate) rm: Option<Location<V>>,
     pub(crate) absolute_offset: Option<V>,
@@ -82,6 +85,8 @@ pub(crate) struct DecodedFields<V> {
 impl<V> Default for DecodedFields<V> {
     fn default() -> Self {
         Self {
+            modrm: None,
+            rm_index: None,
             register: None,
             rm: None,
             absolute_offset: None,

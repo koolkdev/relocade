@@ -19,6 +19,7 @@ pub(in crate::instruction) enum OperandSpec {
     Rm,
     Memory,
     ModRmRegister,
+    X87StackIndex,
     OpcodeRegister,
     FixedRegister(NamedRegister),
     Segment(crate::Segment),
@@ -36,6 +37,7 @@ impl OperandSpec {
             (Self::Rm, Self::Rm)
             | (Self::Memory, Self::Memory)
             | (Self::ModRmRegister, Self::ModRmRegister)
+            | (Self::X87StackIndex, Self::X87StackIndex)
             | (Self::OpcodeRegister, Self::OpcodeRegister)
             | (Self::Offset, Self::Offset)
             | (Self::Address, Self::Address) => true,
@@ -101,6 +103,7 @@ impl Declaration<'_> {
         // even when the instruction binds no operand to its handler.
         let mut modrm = self.opcode.modrm.is_some();
         let mut modrm_register = false;
+        let mut stack_index = false;
         let mut opcode_register = false;
         let mut offset = false;
         let mut immediates = [None; 2];
@@ -123,6 +126,11 @@ impl Declaration<'_> {
                     modrm = true;
                     modrm_register = true;
                     OperandBinding::Location(LocationBinding::Register)
+                }
+                OperandSpec::X87StackIndex => {
+                    modrm = true;
+                    stack_index = true;
+                    OperandBinding::X87StackIndex
                 }
                 OperandSpec::OpcodeRegister => {
                     opcode_register = true;
@@ -172,6 +180,12 @@ impl Declaration<'_> {
             assert!(
                 selector.mask & 0x38 == 0 || !modrm_register,
                 "fixed ModRM.reg bits cannot also bind a register operand"
+            );
+        }
+        if stack_index {
+            assert!(
+                matches!(self.opcode.modrm, Some(selector) if selector.mask == 0xf8),
+                "an x87 stack operand requires a ModRM register range"
             );
         }
         let operands = if modrm {

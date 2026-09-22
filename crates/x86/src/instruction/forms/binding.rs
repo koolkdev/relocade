@@ -3,7 +3,9 @@
 use super::{DecodedFields, LocationBinding, OperandBinding, ResolvedForm};
 use crate::{
     address::EffectiveAddress,
-    instruction::{handlers::HandlerCall, DecodedInstruction, Instruction, Location, Operand},
+    instruction::{
+        handlers::HandlerCall, DecodedInstruction, Instruction, Location, Operand, X87Opcode,
+    },
 };
 
 impl ResolvedForm {
@@ -49,6 +51,15 @@ impl ResolvedForm {
                 ends_block: self.form.ends_block,
                 segment_override: self.segment_override.clone(),
                 locked: self.locked,
+                x87_opcode: (self.form.map == super::OpcodeMap::Primary
+                    && (0xd8..=0xdf).contains(&self.form.opcode))
+                .then(|| X87Opcode {
+                    primary: self.form.opcode,
+                    modrm: fields
+                        .modrm
+                        .clone()
+                        .expect("x87 encodings have a ModRM byte"),
+                }),
             },
             eip,
             fallthrough_eip,
@@ -96,6 +107,9 @@ impl ResolvedForm {
         binding: OperandBinding,
     ) -> Operand<V> {
         match binding {
+            OperandBinding::X87StackIndex => {
+                Operand::X87StackIndex(fields.rm_index.clone().expect("the form decodes ModRM.r/m"))
+            }
             OperandBinding::Segment(segment) => Operand::Segment(segment),
             OperandBinding::Constant(bits) => Operand::Immediate(bits.into()),
             OperandBinding::Location(location) => self.bind_location(fields, location).into(),

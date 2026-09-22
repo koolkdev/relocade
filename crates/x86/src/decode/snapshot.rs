@@ -149,6 +149,8 @@ impl SnapshotCursor<'_> {
             )
         };
         Ok(DecodedFields {
+            modrm: Some(u32::from(modrm)),
+            rm_index: Some(u32::from(modrm & 7)),
             register: Some(RegisterCode::from_code(modrm >> 3)),
             rm: Some(rm),
             ..DecodedFields::default()

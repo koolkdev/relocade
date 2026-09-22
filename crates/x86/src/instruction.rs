@@ -10,13 +10,14 @@ pub(crate) use forms::*;
 use handlers::HandlerCall;
 pub(super) use lower::lower;
 use operands::{map_location, map_operand};
-pub(crate) use operands::{Input, TypedLocation};
+pub(crate) use operands::{Input, TypedLocation, X87StackIndex};
 pub(crate) use prefixes::{Group1Prefix, Prefix, PrefixState, SegmentOverride};
 
 use crate::address::{AddressSize, EffectiveAddress, MemoryAddress};
 use crate::flags::Condition;
 use crate::register::RegisterOperand;
 use crate::Segment;
+use wasm86_compiler::{Val, I16, I32};
 
 pub(super) const MAX_INSTRUCTION_BYTES: u32 = 15;
 pub(super) const EXTENDED_OPCODE_ESCAPE: u8 = 0x0f;
@@ -31,6 +32,8 @@ pub(super) enum OperandSize {
 /// Decoded values and locations; handlers assign their logical widths.
 pub(super) enum Operand<V> {
     Immediate(V),
+    /// A logical x87 stack offset, independent of the current TOP.
+    X87StackIndex(V),
     /// A segment register identity; its selector and cache have separate effects.
     Segment(Segment),
     /// The address value itself, without accessing the addressed memory.
@@ -60,6 +63,7 @@ pub(super) struct Instruction<V> {
     pub(super) address_size: AddressSize,
     pub(super) segment_override: SegmentOverride,
     pub(super) locked: bool,
+    pub(super) x87_opcode: Option<X87Opcode<V>>,
 }
 
 pub(super) struct DecodedInstruction<V, P> {
@@ -67,6 +71,21 @@ pub(super) struct DecodedInstruction<V, P> {
     pub(super) eip: P,
     /// The byte position after this instruction, before choosing a branch target.
     pub(super) fallthrough_eip: P,
+}
+
+/// Original x87 encoding bytes, retained for the architectural last opcode.
+pub(crate) struct X87Opcode<V> {
+    primary: u8,
+    modrm: V,
+}
+
+impl<V: Into<Val<I32>>> X87Opcode<V> {
+    pub(crate) fn bits(self) -> Val<I16> {
+        self.modrm
+            .into()
+            .or(u32::from(self.primary & 7) << 8)
+            .truncate()
+    }
 }
 
 impl<V> Instruction<V> {

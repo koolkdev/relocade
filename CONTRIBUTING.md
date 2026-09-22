@@ -91,6 +91,10 @@ register or access data memory.
 An `@` byte selects a complete ModRM value, as in
 `0xDB @ 0xE3 => no_operands();` for FNINIT. The same selector mechanism handles
 opcode extensions and memory/register restrictions in both decoders.
+`@ 0xC0 + rm` selects eight register-mode ModRM bytes, with the low three bits
+available for an operand. For example, `0xD9 @ 0xC0 + rm => operands(st);`
+binds an x87 stack offset. `operands(...)` supplies no implicit scalar width;
+each operand token determines its semantic type.
 `mem` passes a memory address to the semantic body; `mem16` passes a fixed-width
 word location with ordinary checked `read` and `write` operations.
 Use `execute: handler::<_>;` when the row must explicitly supply a logical

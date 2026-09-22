@@ -9,7 +9,7 @@ use crate::{
     register::{Register, RegisterType},
 };
 
-use super::{memory::MemoryWriteTarget, ExecutionBuilder};
+use super::{memory::MemoryOperand, ExecutionBuilder};
 
 /// A location whose complete write span has passed its architectural guards.
 pub(crate) struct WriteTarget<'memory, T: RegisterType> {
@@ -18,7 +18,7 @@ pub(crate) struct WriteTarget<'memory, T: RegisterType> {
 
 enum WriteLocation<'memory, T: RegisterType> {
     Register(Register<T>),
-    Memory(MemoryWriteTarget<'memory, T>),
+    Memory(MemoryOperand<'memory>),
 }
 
 impl<T: RegisterType> WriteTarget<'_, T> {
@@ -30,7 +30,7 @@ impl<T: RegisterType> WriteTarget<'_, T> {
             WriteLocation::Register(register) => execution
                 .state
                 .read_register(&mut execution.body, register.clone()),
-            WriteLocation::Memory(target) => target.read(execution),
+            WriteLocation::Memory(target) => target.read(execution, 0),
         }
     }
 
@@ -72,7 +72,7 @@ impl<T: RegisterType> WriteTarget<'_, T> {
                     .state
                     .write_register(&mut execution.body, register, value)
             }
-            WriteLocation::Memory(target) => target.write(execution, value),
+            WriteLocation::Memory(target) => target.write(execution, 0, value),
         }
     }
 }
@@ -87,6 +87,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
     {
         match operand {
             Operand::Segment(_) => unreachable!("segment operands use selector operations"),
+            Operand::X87StackIndex(_) => unreachable!("x87 stack operands use stack operations"),
             Operand::Immediate(bits) => Ok(self.body.value::<I32>(bits)?.truncate::<T>()),
             Operand::Address(address) => {
                 let address = address::resolve(&mut self.body, &mut self.state, address, &[])?;

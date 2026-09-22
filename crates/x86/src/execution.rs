@@ -11,7 +11,7 @@ pub(crate) mod x87;
 pub(crate) use control::CodeTarget;
 pub(crate) use operands::WriteTarget;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32, I8};
+use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32, I8};
 
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
@@ -32,6 +32,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     segment_override: SegmentOverride,
     address_size: AddressSize,
     locked: bool,
+    x87_opcode: Option<Val<I16>>,
     runtime: Runtime,
     eip: Val<I32>,
     completed: u32,
@@ -55,6 +56,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             segment_override: SegmentOverride::None,
             address_size: AddressSize::Bits32,
             locked: false,
+            x87_opcode: None,
             runtime,
             eip,
             completed: 0,
@@ -64,13 +66,18 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     /// Executes an instruction whose required bytes have passed fetch checks.
     pub(super) fn execute<V: Into<Val<I32>>, P: Into<Val<I32>>>(
         &mut self,
-        decoded: DecodedInstruction<V, P>,
+        mut decoded: DecodedInstruction<V, P>,
     ) -> Result<(), BuildError> {
         self.eip = self.body.value(decoded.eip)?;
         let fallthrough_eip = self.body.value(decoded.fallthrough_eip)?;
         self.address_size = decoded.instruction.address_size;
         self.segment_override = decoded.instruction.segment_override.clone();
         self.locked = decoded.instruction.locked;
+        self.x87_opcode = decoded
+            .instruction
+            .x87_opcode
+            .take()
+            .map(|opcode| opcode.bits());
         self.eip = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
         self.completed += 1;
         Ok(())

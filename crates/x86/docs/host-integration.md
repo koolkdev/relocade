@@ -81,7 +81,7 @@ than #UD.
 Use `CpuState::to_bytes` and `CpuState::from_bytes` to exchange state with CPU memory.
 Conversion is explicitly little endian and preserves reserved bytes, inactive flag
 payloads, raw segment attributes and x87 encodings. The image is
-`CpuState::BYTE_LEN` (304) bytes:
+`CpuState::BYTE_LEN` (312) bytes:
 
 | Byte offset | Contents |
 | ---: | --- |
@@ -93,15 +93,22 @@ payloads, raw segment attributes and x87 encodings. The image is
 | 132 | Twelve reserved bytes. |
 | 144 | u32 completed-instruction count. |
 | 148 | Four reserved bytes. |
-| 152 | Four u16 x87 fields: control word, status word, full tag word, last opcode. |
+| 152 | Three u16 x87 fields: control word, full tag word, last opcode. |
+| 158 | Two reserved bytes. |
 | 160 | Two u32 x87 pointer offsets: instruction, data. |
 | 168 | Two u16 x87 pointer selectors: instruction, data. |
-| 172 | Four reserved bytes. |
-| 176 | Eight 16-byte physical x87 register slots, R0 through R7. |
+| 172 | Eight-byte `StoredX87Status`: exception flags, TOP, C0, C1, C2, C3, ES, B. |
+| 180 | Four reserved bytes. |
+| 184 | Eight 16-byte physical x87 register slots, R0 through R7. |
+
+`StoredX87Status` stores independent bytes rather than a packed status word.
+`exception_flags` uses bits 0–6 for IE, DE, ZE, OE, UE, PE and SF. `top` uses
+bits 0–2; `c0`, `c1`, `c2`, `c3`, `error_summary` and `busy` use bit 0.
+Serialization preserves the unused bits of these bytes without interpretation.
 
 Each x87 slot contains a u64 significand, a u16 sign/exponent word and six
 reserved bytes. The ten value bytes retain the binary80 encoding, including its
-explicit integer bit and noncanonical encodings. TOP in the status word maps
+explicit integer bit and noncanonical encodings. `status.top` maps
 logical ST(i) to these physical registers. The full tag word retains each
 register's two-bit tag; marking a register empty does not erase its payload.
 `StoredX87` is a host snapshot layout, not an FSAVE or FXSAVE memory operand.
@@ -143,15 +150,18 @@ reset or a segment-load operation. `filled` and `from_bytes` preserve literal
 images; an all-zero image has unusable segment caches. Hosts using far CALL/RET
 must initialize CS with a valid return selector and provide its descriptor.
 
-## x87 control environment
+## x87 environment and stack
 
 The implemented controls are FNINIT, FNCLEX, FLDCW, FNSTCW, FNSTSW (memory and AX)
-and standalone FWAIT. Arithmetic and x87 data-transfer encodings remain unsupported.
+and standalone FWAIT. Stack operations include FLD ST(i), FST/FSTP ST(i), FXCH,
+FFREE, FINCSTP and FDECSTP. Memory data transfers support FLD m80 and FSTP m80;
+there is no FST m80 encoding. Arithmetic and binary32/binary64 transfers remain
+unsupported.
 Execution assumes an enabled FPU with native exception reporting, corresponding
 to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
 modeled by this user-mode environment.
 
-FWAIT and FLDCW observe the status word's exception-summary bit, ES. A pending
+FWAIT and FLDCW observe `status.error_summary`, the architectural ES bit. A pending
 exception returns #MF at that waiting instruction's EIP without retirement.
 The stored x87 instruction and data pointers retain the previous operation;
 they are not replaced by the waiter's address. Hosts supplying x87 state must
@@ -179,6 +189,40 @@ The behavior above follows Intel's Pentium-4-era manuals:
 [Volume 1](https://kib.kiev.ua/x86docs/Intel/SDMs/253665-014.pdf), sections
 8.1.7–8.1.8 and 8.3.12, and the control-instruction entries in
 [Volume 2A](https://kib.kiev.ua/x86docs/Intel/SDMs/253666-014.pdf).
+
+Extended transfers preserve all ten value bytes, including signaling NaNs,
+pseudo-denormals and unsupported encodings; these movements do not perform
+arithmetic or rounding. Nonempty destination tags describe the stored encoding.
+Physical-slot padding stays with its storage location.
+FLD ST(i) reads its source relative to the old TOP, before pushing. FSTP ST(i)
+writes its destination before marking the old stack top empty and advancing TOP.
+FFREE changes only its register tag; rotations change TOP without moving payloads.
+
+Stack faults set IE and SF. C1 distinguishes overflow from underflow; a source
+underflow takes priority over a destination overflow. Masked faults substitute
+the extended indefinite value and perform the instruction's push or pop.
+For FXCH, each empty source is replaced before the two values are exchanged.
+An unmasked stack fault suppresses data and stack changes, records pending
+status, and retires its producer. Integer and no-wait instructions can continue;
+the next waiting instruction reports #MF. Reporting it does not clear the status.
+
+The complete ten-byte memory span passes segment and page checks before a
+transfer changes data, stack state or numerical pointers. This implementation
+checks these accesses before generating a new stack fault. A preexisting pending
+exception is checked first. Faulting stores do not write an earlier portion of
+the value or pop the stack.
+
+Stack and data-transfer instructions record their instruction offset, selector
+and opcode. Memory forms also record their effective offset and segment selector;
+register forms preserve the otherwise undefined data pointer. Opcode recording
+uses the Pentium 4 compatibility-mode policy, keeping the last x87 opcode valid
+after every such instruction. Operand-size prefixes do not change the width of
+these transfers; address-size and segment prefixes retain their ordinary meaning.
+
+Status fields remain separate in generated execution and in the host snapshot.
+FNSTSW assembles the architectural status word when requested; exits publish
+changed fields directly. Untouched imported fields retain every byte, including
+unused bits and ES/B. Changing a field may normalize that field's unused bits.
 
 ## Entry validity
 

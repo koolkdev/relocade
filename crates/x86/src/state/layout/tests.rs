@@ -8,7 +8,7 @@ use crate::Gpr32;
 
 #[test]
 fn cpu_layout_matches_the_external_byte_contract() {
-    assert_eq!(CpuState::BYTE_LEN, 304);
+    assert_eq!(CpuState::BYTE_LEN, 312);
     assert_eq!(size_of::<StoredFlags>(), 24);
     assert_eq!(size_of::<StoredStatusSource>(), 12);
     assert_eq!(size_of::<FlagBytes>(), 12);

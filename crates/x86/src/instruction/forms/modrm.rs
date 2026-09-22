@@ -44,6 +44,18 @@ impl ModRmSelector {
         }
     }
 
+    pub(in crate::instruction) const fn register_range(first: u8) -> Self {
+        assert!(
+            first >> 6 == 3 && first & 7 == 0,
+            "a ModRM register range starts on an eight-byte boundary"
+        );
+        Self {
+            mask: 0xf8,
+            value: first,
+            mode: ModRmMode::Register,
+        }
+    }
+
     pub(in crate::instruction) const fn memory(self) -> Self {
         assert!(
             !matches!(self.mode, ModRmMode::Register),
@@ -70,5 +82,9 @@ impl ModRmSelector {
             } else {
                 self.accepts_memory()
             }
+    }
+
+    pub(crate) fn fixed_bits(self) -> u8 {
+        self.value
     }
 }

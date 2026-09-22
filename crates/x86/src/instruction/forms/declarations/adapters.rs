@@ -1,6 +1,9 @@
 //! Adapts a row's operands to the ordinary Rust semantic body's argument types.
 
 macro_rules! declaration_handlers {
+    ($effects:tt $pattern:tt $call:tt operands($($operands:tt)+)) => {
+        SizedHandlers::fixed(declaration_adapter!($effects $pattern $call []; $($operands)+))
+    };
     ($effects:tt $pattern:tt $call:tt no_operands()) => {
         SizedHandlers::fixed(declaration_adapter!($effects $pattern $call [];))
     };
@@ -44,30 +47,30 @@ macro_rules! declaration_adapter {
             declaration_result!($result $pattern $call [$($width)?] execution, _condition, fallthrough;)
         })
     };
-    (@result $result:tt $pattern:tt $call:tt [$width:ty]; $operand:ident $(($value:expr))?) => {
+    (@result $result:tt $pattern:tt $call:tt [$($width:ty)?]; $operand:ident $(($value:expr))?) => {
         Handler::Unary(|execution, operand, _condition, fallthrough| {
-            declaration_result!($result $pattern $call [$width] execution, _condition, fallthrough;
-                operand_value!($width, operand, $operand $(($value))?))
+            declaration_result!($result $pattern $call [$($width)?] execution, _condition, fallthrough;
+                operand_value!([$($width)?], operand, $operand $(($value))?))
         })
     };
-    (@result $result:tt $pattern:tt $call:tt [$width:ty]; $left:ident $(($left_value:expr))?, $right:ident $(($right_value:expr))?) => {
+    (@result $result:tt $pattern:tt $call:tt [$($width:ty)?]; $left:ident $(($left_value:expr))?, $right:ident $(($right_value:expr))?) => {
         Handler::Binary(|execution, left, right, _condition, fallthrough| {
-            declaration_result!($result $pattern $call [$width] execution, _condition, fallthrough;
-                operand_value!($width, left, $left $(($left_value))?),
-                operand_value!($width, right, $right $(($right_value))?))
+            declaration_result!($result $pattern $call [$($width)?] execution, _condition, fallthrough;
+                operand_value!([$($width)?], left, $left $(($left_value))?),
+                operand_value!([$($width)?], right, $right $(($right_value))?))
         })
     };
-    (@result $result:tt $pattern:tt $call:tt [$width:ty];
+    (@result $result:tt $pattern:tt $call:tt [$($width:ty)?];
         $destination:ident $(($destination_value:expr))?,
         $first:ident $(($first_value:expr))?,
         $second:ident $(($second_value:expr))?
     ) => {
         Handler::Ternary(|execution, destination, first, second, _condition, fallthrough| {
             let destination = destination.into();
-            declaration_result!($result $pattern $call [$width] execution, _condition, fallthrough;
-                operand_value!($width, destination, $destination $(($destination_value))?),
-                operand_value!($width, first, $first $(($first_value))?),
-                operand_value!($width, second, $second $(($second_value))?))
+            declaration_result!($result $pattern $call [$($width)?] execution, _condition, fallthrough;
+                operand_value!([$($width)?], destination, $destination $(($destination_value))?),
+                operand_value!([$($width)?], first, $first $(($first_value))?),
+                operand_value!([$($width)?], second, $second $(($second_value))?))
         })
     };
 }
@@ -103,41 +106,47 @@ macro_rules! declaration_invoke {
 }
 
 macro_rules! operand_value {
-    ($width:ty, $operand:ident, mem) => {{
+    ($width:tt, $operand:ident, st) => {{
+        let crate::instruction::Operand::X87StackIndex(index) = $operand else {
+            unreachable!("the form binds an x87 stack index")
+        };
+        crate::instruction::X87StackIndex::new(index)
+    }};
+    ($width:tt, $operand:ident, mem) => {{
         let crate::instruction::Operand::Location(crate::instruction::Location::Memory(address)) = $operand else {
             unreachable!("the form binds a memory addressing mode")
         };
         *address
     }};
-    ($width:ty, $operand:ident, segment($value:expr)) => {{
+    ($width:tt, $operand:ident, segment($value:expr)) => {{
         let crate::instruction::Operand::Segment(segment) = $operand else {
             unreachable!("the form binds a segment register")
         };
         segment
     }};
-    ($width:ty, $operand:ident, constant($value:expr)) => { Input::new($operand) };
-    ($width:ty, $operand:ident, imm8) => { Input::<I8>::new($operand) };
-    ($width:ty, $operand:ident, imm16) => { Input::<I16>::new($operand) };
-    ($width:ty, $operand:ident, imm) => { Input::<$width>::new($operand) };
-    ($width:ty, $operand:ident, signed_imm8) => { Input::<$width>::new($operand) };
-    ($width:ty, $operand:ident, rel8) => { Input::<I32>::new($operand) };
-    ($width:ty, $operand:ident, rel) => { Input::<I32>::new($operand) };
-    ($width:ty, $operand:ident, address) => { Input::<$width>::new($operand) };
-    ($width:ty, $operand:ident, rm8) => { operand_value!(@location I8, $operand) };
-    ($width:ty, $operand:ident, mem16) => { operand_value!(@location I16, $operand) };
-    ($width:ty, $operand:ident, rm16) => { operand_value!(@location I16, $operand) };
-    ($width:ty, $operand:ident, AL) => { operand_value!(@location I8, $operand) };
-    ($width:ty, $operand:ident, AH) => { operand_value!(@location I8, $operand) };
-    ($width:ty, $operand:ident, CL) => { operand_value!(@location I8, $operand) };
-    ($width:ty, $operand:ident, AX) => { operand_value!(@location I16, $operand) };
-    ($width:ty, $operand:ident, DX) => { operand_value!(@location I16, $operand) };
-    ($width:ty, $operand:ident, EAX) => { operand_value!(@location I32, $operand) };
-    ($width:ty, $operand:ident, EDX) => { operand_value!(@location I32, $operand) };
-    ($width:ty, $operand:ident, rm) => { operand_value!(@location $width, $operand) };
-    ($width:ty, $operand:ident, modrm_reg) => { operand_value!(@location $width, $operand) };
-    ($width:ty, $operand:ident, opcode_reg) => { operand_value!(@location $width, $operand) };
-    ($width:ty, $operand:ident, accumulator) => { operand_value!(@location $width, $operand) };
-    ($width:ty, $operand:ident, moffs) => { operand_value!(@location $width, $operand) };
+    ($width:tt, $operand:ident, constant($value:expr)) => { Input::new($operand) };
+    ($width:tt, $operand:ident, imm8) => { Input::<I8>::new($operand) };
+    ($width:tt, $operand:ident, imm16) => { Input::<I16>::new($operand) };
+    ([$width:ty], $operand:ident, imm) => { Input::<$width>::new($operand) };
+    ([$width:ty], $operand:ident, signed_imm8) => { Input::<$width>::new($operand) };
+    ($width:tt, $operand:ident, rel8) => { Input::<I32>::new($operand) };
+    ($width:tt, $operand:ident, rel) => { Input::<I32>::new($operand) };
+    ([$width:ty], $operand:ident, address) => { Input::<$width>::new($operand) };
+    ($width:tt, $operand:ident, rm8) => { operand_value!(@location I8, $operand) };
+    ($width:tt, $operand:ident, mem16) => { operand_value!(@location I16, $operand) };
+    ($width:tt, $operand:ident, rm16) => { operand_value!(@location I16, $operand) };
+    ($width:tt, $operand:ident, AL) => { operand_value!(@location I8, $operand) };
+    ($width:tt, $operand:ident, AH) => { operand_value!(@location I8, $operand) };
+    ($width:tt, $operand:ident, CL) => { operand_value!(@location I8, $operand) };
+    ($width:tt, $operand:ident, AX) => { operand_value!(@location I16, $operand) };
+    ($width:tt, $operand:ident, DX) => { operand_value!(@location I16, $operand) };
+    ($width:tt, $operand:ident, EAX) => { operand_value!(@location I32, $operand) };
+    ($width:tt, $operand:ident, EDX) => { operand_value!(@location I32, $operand) };
+    ([$width:ty], $operand:ident, rm) => { operand_value!(@location $width, $operand) };
+    ([$width:ty], $operand:ident, modrm_reg) => { operand_value!(@location $width, $operand) };
+    ([$width:ty], $operand:ident, opcode_reg) => { operand_value!(@location $width, $operand) };
+    ([$width:ty], $operand:ident, accumulator) => { operand_value!(@location $width, $operand) };
+    ([$width:ty], $operand:ident, moffs) => { operand_value!(@location $width, $operand) };
     (@location $width:ty, $operand:ident) => { TypedLocation::<$width>::from_operand($operand).into() };
 }
 

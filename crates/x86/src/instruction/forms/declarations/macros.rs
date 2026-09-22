@@ -19,7 +19,7 @@ macro_rules! instruction_families {
 
 macro_rules! declaration_family {
     ($call:tt $effects:tt {
-        $($($prefix:ident)? $opcode:literal $($extended:literal)? $(+ $pattern:ident)? $(/ $extension:literal)? $(@ $modrm:literal)? =>
+        $($($prefix:ident)? $opcode:literal $($extended:literal)? $(+ $pattern:ident)? $(/ $extension:literal)? $(@ $modrm:literal $(+ $modrm_range:ident)?)? =>
             $width:ident $operands:tt $(| $other_width:ident $other_operands:tt)? $($lockable:ident)?;
         )+
     }) => {
@@ -32,7 +32,7 @@ macro_rules! declaration_family {
                         byte: declaration_opcode!(@byte $opcode $($extended)?),
                         group1_prefix: declaration_opcode!(@prefix $($prefix)?),
                         register_range: declaration_opcode!(@register $($pattern)?),
-                        modrm: declaration_opcode!(@modrm [$($extension)?] [$($modrm)?]),
+                        modrm: declaration_opcode!(@modrm [$($extension)?] [$($modrm $(+ $modrm_range)?)?]),
                     },
                     operands: declaration_operands!($operands),
                     handlers: declaration_handlers!(
@@ -98,6 +98,9 @@ macro_rules! declaration_opcode {
     (@modrm [] [$modrm:literal]) => {
         Some(ModRmSelector::byte($modrm))
     };
+    (@modrm [] [$modrm:literal + rm]) => {
+        Some(ModRmSelector::register_range($modrm))
+    };
     (@modrm [] []) => {
         None
     };
@@ -131,6 +134,9 @@ macro_rules! declaration_effect {
 }
 
 macro_rules! operand_spec {
+    (st) => {
+        OperandSpec::X87StackIndex
+    };
     (mem16) => {
         OperandSpec::Memory
     };

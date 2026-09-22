@@ -1,4 +1,4 @@
-//! Prefix transitions, opcode-map escapes and selection of viable forms.
+//! Selects instruction forms from prefixes, opcode maps and fixed ModRM bits.
 use std::collections::BTreeMap;
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
@@ -11,6 +11,9 @@ use crate::{
 };
 
 use super::{cursor::RuntimeCursor, InstructionDecoder};
+
+#[cfg(test)]
+mod tests;
 
 enum OpcodeAction {
     Instruction(Vec<&'static Form>),
@@ -86,4 +89,86 @@ where
         })?;
         body.trap()
     }
+}
+
+/// Fixed selector bits distinguish forms before address decoding. The selected
+/// form then enforces its memory/register policy. Ordinary /r forms need no
+/// switch; /n groups continue to select only their three extension bits.
+pub(super) fn dispatch_modrm_form(
+    body: FunctionBuilder<'_>,
+    modrm: &Val<I8>,
+    forms: &[&'static Form],
+    state: &DecodeState,
+    continue_decoding: &impl Fn(FunctionBuilder<'_>, Option<&Form>) -> Result<(), BuildError>,
+) -> Result<(), BuildError> {
+    dispatch_modrm_bits(body, modrm, forms, state, 0, continue_decoding)
+}
+
+/// Select shared fixed bits first so an eight-register range lowers one body,
+/// even when another form at this opcode selects a complete ModRM byte.
+fn dispatch_modrm_bits(
+    mut body: FunctionBuilder<'_>,
+    modrm: &Val<I8>,
+    forms: &[&Form],
+    state: &DecodeState,
+    tested_mask: u8,
+    continue_decoding: &impl Fn(FunctionBuilder<'_>, Option<&Form>) -> Result<(), BuildError>,
+) -> Result<(), BuildError> {
+    if let [form] = forms {
+        let selector = form.modrm.expect("a ModRM form has a selector");
+        let remaining = selector.mask & !tested_mask;
+        if remaining != 0 {
+            body.if_(
+                modrm
+                    .and(u32::from(remaining))
+                    .ne(u32::from(selector.fixed_bits() & remaining)),
+                |arm| continue_decoding(arm, None),
+            )?;
+        }
+        return continue_decoding(body, Some(form));
+    }
+    let common = forms.iter().fold(u8::MAX, |mask, form| {
+        mask & form.modrm.expect("a ModRM form has a selector").mask
+    });
+    let mask = if common & !tested_mask != 0 {
+        common & !tested_mask
+    } else {
+        forms.iter().fold(0, |mask, form| {
+            mask | form.modrm.expect("a ModRM form has a selector").mask
+        }) & !tested_mask
+    };
+    assert_ne!(mask, 0, "fixed selector bits must distinguish ModRM forms");
+    let shift = mask.trailing_zeros();
+    let mut choices = BTreeMap::<u32, Vec<&Form>>::new();
+    for byte in 0..=u8::MAX {
+        for form in forms {
+            if form.matches_modrm(byte, &state.prefixes) {
+                let key = u32::from(byte & mask) >> shift;
+                let candidates = choices.entry(key).or_default();
+                if !candidates
+                    .iter()
+                    .any(|candidate| std::ptr::eq(*candidate, *form))
+                {
+                    candidates.push(form);
+                }
+            }
+        }
+    }
+    let keys: Vec<_> = choices.keys().copied().collect();
+    body.switch(
+        modrm.unsigned().shr(shift).and(u32::from(mask) >> shift),
+        &keys,
+        |arm, key| match key.and_then(|key| choices.get(&key)) {
+            Some(candidates) => dispatch_modrm_bits(
+                arm,
+                modrm,
+                candidates,
+                state,
+                tested_mask | mask,
+                continue_decoding,
+            ),
+            None => continue_decoding(arm, None),
+        },
+    )?;
+    body.trap()
 }

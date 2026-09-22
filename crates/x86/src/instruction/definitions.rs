@@ -22,7 +22,7 @@ mod shifts;
 mod stack;
 mod strings;
 mod undefined;
-mod x87_control;
+mod x87;
 
 use super::{
     forms::*,
@@ -56,6 +56,6 @@ pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form
         .chain(flag_transfer::forms())
         .chain(branches::forms())
         .chain(far_control::forms())
-        .chain(x87_control::forms())
+        .chain(x87::forms())
         .filter(move |form| form.map == map)
 }

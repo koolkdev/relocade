@@ -1,5 +1,6 @@
 mod immediates;
 mod locking;
+mod modrm;
 
 use super::declarations::{Declaration, Opcode, OperandSpec};
 use super::*;
@@ -127,6 +128,11 @@ fn catalog_bindings_select_declared_fields() {
                         OperandBinding::Location(LocationBinding::Rm)
                         | OperandBinding::RmAddress => {
                             assert!(form.encoding.has_modrm());
+                        }
+                        OperandBinding::X87StackIndex => {
+                            assert!(form.encoding.has_modrm());
+                            assert!(form.modrm.is_some_and(|selector| selector.mask == 0xf8));
+                            assert!(!form.accepts_memory_rm());
                         }
                         OperandBinding::Location(LocationBinding::AbsoluteOffset) => {
                             assert!(matches!(

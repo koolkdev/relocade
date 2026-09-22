@@ -48,6 +48,7 @@ pub(super) enum LocationBinding {
 #[derive(Clone, Copy)]
 pub(super) enum OperandBinding {
     Location(LocationBinding),
+    X87StackIndex,
     Segment(crate::Segment),
     Immediate(usize),
     /// An implicit literal, interpreted at the handler's logical operand width.

@@ -11,9 +11,10 @@ The project aims for Pentium 4 (P4) user-mode instruction-set parity.
 Development prioritizes missing P4 instructions and architectural behavior.
 
 The current scope is a partial 16/32-bit protected-mode integer instruction set,
-including segment loads, near/far transfers, string repetition and x87 control
-instructions. x87 arithmetic and data transfers, real mode, privilege transitions,
-interrupt delivery and SIMD are not implemented.
+including segment loads, near/far transfers, string repetition, x87 controls,
+stack operations and binary80 transfers. x87 arithmetic and binary32/binary64
+transfers, real mode, privilege transitions, interrupt delivery and SIMD are not
+implemented.
 The project is under development; the crates are not published.
 
 | Crate | Responsibility |

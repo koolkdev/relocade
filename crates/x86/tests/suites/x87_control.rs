@@ -5,13 +5,14 @@ use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit, Image, Step},
     step::{Engine, TestModule},
+    x87::status,
 };
-use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, SegmentProfile};
+use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, SegmentProfile, StoredX87Status};
 
 fn initial_image(code: &[u8]) -> Image {
     let mut image = Image::new(code);
     image.cpu.x87.control_word = 0x037f;
-    image.cpu.x87.status_word = 0x3a20;
+    image.cpu.x87.status = status(0x3a20);
     image.cpu.x87.tag_word = 0x5a5a;
     image.cpu.x87.opcode = 0x0654;
     image.cpu.x87.instruction_offset = 0x1234_5678;
@@ -23,7 +24,7 @@ fn initial_image(code: &[u8]) -> Image {
 
 fn pending(image: &mut Image) {
     image.cpu.x87.control_word = 0x035f;
-    image.cpu.x87.status_word = 0xbaa0;
+    image.cpu.x87.status = status(0xbaa0);
 }
 
 fn retire(mut cpu: CpuState, bytes: u32) -> CpuState {
@@ -42,7 +43,7 @@ fn dispatch(cpu: CpuState) -> Step<'static> {
 
 fn initialized(mut cpu: CpuState) -> CpuState {
     cpu.x87.control_word = 0x037f;
-    cpu.x87.status_word = 0;
+    cpu.x87.status = status(0);
     cpu.x87.tag_word = 0xffff;
     cpu.x87.opcode = 0;
     cpu.x87.instruction_offset = 0;
@@ -60,14 +61,14 @@ fn reset_and_clear(engine: Engine, frontend: Frontend) {
     ] {
         let mut image = initial_image(code);
         pending(&mut image);
-        image.cpu.x87.status_word = 0xffff;
+        image.cpu.x87.status = status(0xffff);
         let mut cpu = retire(image.cpu, 2);
         if code[1] == 0xe3 {
             cpu = initialized(cpu);
         } else {
             // All exception/SF/ES/B bits clear. Retaining undefined condition
             // codes is this implementation's policy, not an Intel guarantee.
-            cpu.x87.status_word = 0x7f00;
+            cpu.x87.status = status(0x7f00);
         }
         checks.check(
             name,
@@ -126,19 +127,63 @@ fn no_wait_stores(engine: Engine, frontend: Frontend) {
     }
 }
 
+fn status_field_packing(engine: Engine, frontend: Frontend) {
+    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let code = [0xdf, 0xe0];
+    for (name, fields, word) in [
+        (
+            "FNSTSW packs C1/C3 and independent B without ES",
+            StoredX87Status {
+                exception_flags: 0xff,
+                top: 0xfa,
+                c0: 0xfe,
+                c1: 0xa5,
+                c2: 0x80,
+                c3: 0xff,
+                error_summary: 0x80,
+                busy: 0x01,
+            },
+            0xd27f,
+        ),
+        (
+            "FNSTSW packs C0/C2 and independent ES without B",
+            StoredX87Status {
+                exception_flags: 0xa0,
+                top: 0xfd,
+                c0: 0x81,
+                c1: 0xa4,
+                c2: 0xff,
+                c3: 0x82,
+                error_summary: 0xff,
+                busy: 0xfe,
+            },
+            0x2da0,
+        ),
+    ] {
+        let mut image = initial_image(&code);
+        image.cpu.x87.status = fields;
+        image.cpu.registers.eax = 0xabcd_1234;
+        let mut observed = retire(image.cpu, 2);
+        observed.registers.eax = 0xabcd_0000 | word;
+        // Packing observes only architectural low bits. The backing bytes,
+        // including unrelated upper bits and an independent ES/B pair, survive.
+        checks.check(name, &code, &image, &[dispatch(observed)]);
+    }
+}
+
 fn load_control_and_pending(engine: Engine, frontend: Frontend) {
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
     // FLDCW m16; FNSTSW AX; FWAIT.
     let code = [0xd9, 0x2d, 1, 0x40, 0, 0, 0xdf, 0xe0, 0x9b];
     for flag in [1_u16, 2, 4, 8, 16, 32] {
         let mut image = initial_image(&code);
-        image.cpu.x87.status_word = 0x3a00 | flag;
+        image.cpu.x87.status = status(0x3a00 | flag);
         image.map(4, 0x8000, false);
         let control = 0x037f & !flag;
         image.data(0x8001, &control.to_le_bytes());
         let mut loaded = retire(image.cpu, 6);
         loaded.x87.control_word = control;
-        loaded.x87.status_word = 0xba80 | flag;
+        loaded.x87.status = status(0xba80 | flag);
         let mut observed = retire(loaded, 2);
         observed.registers.eax = 0x1111_0000 | u32::from(0xba80 | flag);
         checks.check(
@@ -249,7 +294,7 @@ fn memory_faults(engine: Engine, frontend: Frontend) {
         image.map(4, 0x8000, true);
         image.data(0x8fff, &[0xcc]);
         let mut cleared = retire(image.cpu, 2);
-        cleared.x87.status_word = 0x3a00;
+        cleared.x87.status = status(0x3a00);
         checks.check(
             &format!("faulting split {name} preserves earlier FNCLEX and the first byte"),
             &code,
@@ -318,6 +363,7 @@ test_frontends!(
     no_wait_stores_preserve_pending_state_and_use_fixed_word_destinations,
     no_wait_stores
 );
+test_frontends!(status_fields_pack_at_observation, status_field_packing);
 test_frontends!(
     control_loads_establish_pending_exceptions_for_a_later_wait,
     load_control_and_pending
