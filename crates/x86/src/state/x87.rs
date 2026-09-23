@@ -35,6 +35,15 @@ pub(crate) enum LoadSource {
     Binary(value::BinaryOperand),
 }
 
+impl LoadSource {
+    fn decoded_tag(&self) -> Option<Val<I16>> {
+        match self {
+            Self::Binary(source) => Some(source.tag.clone()),
+            Self::Extended(_) | Self::Register(_) => None,
+        }
+    }
+}
+
 impl X87State {
     pub(crate) fn new(memory: Mem) -> Self {
         Self {
@@ -156,6 +165,7 @@ impl X87State {
         body: &mut FunctionBuilder<'_>,
         source: LoadSource,
     ) -> Result<(), BuildError> {
+        let decoded_tag = source.decoded_tag();
         let (value, source_empty, signaling_nan, denormal) = match source {
             LoadSource::Extended(value) => (value, false.into(), false.into(), false.into()),
             LoadSource::Register(source) => {
@@ -195,8 +205,11 @@ impl X87State {
         // FLD description). Only an unmasked invalid exception suppresses it.
         let enabled = unmasked_invalid.eq(false);
         let value = value.or_indefinite(&fault);
-        self.registers
-            .write(body, &target, &value, value.tag(), &enabled)?;
+        let tag = match decoded_tag {
+            Some(tag) => fault.select(2_u32, tag),
+            None => value.tag(),
+        };
+        self.registers.write(body, &target, &value, tag, &enabled)?;
         self.status.set_top(body, target, enabled)
     }
 

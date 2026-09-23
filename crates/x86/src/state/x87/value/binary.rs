@@ -12,6 +12,8 @@ pub(crate) enum BinaryFormat {
 
 pub(crate) struct BinaryOperand {
     pub(crate) value: ExtendedValue,
+    /// Tag of the expanded value; narrow subnormals become normal extended values.
+    pub(crate) tag: Val<I16>,
     pub(crate) signaling_nan: Val<I1>,
     pub(crate) denormal: Val<I1>,
 }
@@ -65,6 +67,9 @@ impl BinaryFormat {
                 significand,
                 sign_exponent,
             },
+            tag: zero_exponent
+                .and(nonzero_fraction.eq(false))
+                .select(1_u32, special.select(2_u32, 0_u32)),
             signaling_nan,
             denormal: zero_exponent.and(nonzero_fraction),
         }
