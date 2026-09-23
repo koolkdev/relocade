@@ -9,14 +9,14 @@ pub(crate) use value::{BinaryFormat, ExtendedValue};
 
 use wasm86_compiler::{BuildError, FunctionBuilder, Mem, Val, I1, I16, I32};
 
-use crate::ssa::Environment;
+use crate::ssa::StateFields;
 
 use super::access::cpu_location;
 use control::Exception;
 
 #[derive(Clone)]
 pub(crate) struct X87State {
-    environment: Environment,
+    metadata: StateFields,
     control: control::Control,
     status: status::Status,
     registers: registers::Registers,
@@ -38,7 +38,7 @@ pub(crate) enum LoadSource {
 impl X87State {
     pub(crate) fn new(memory: Mem) -> Self {
         Self {
-            environment: Environment::new(memory),
+            metadata: StateFields::new(memory),
             control: control::Control::new(memory),
             status: status::Status::new(memory),
             registers: registers::Registers::new(memory),
@@ -71,15 +71,14 @@ impl X87State {
         self.control.load_word(body, 0x037f.into())?;
         self.status.initialize(body)?;
         self.registers.initialize(body)?;
-        self.environment
-            .define(body, cpu_location!(x87.opcode), 0)?;
-        self.environment
+        self.metadata.define(body, cpu_location!(x87.opcode), 0)?;
+        self.metadata
             .define(body, cpu_location!(x87.instruction_offset), 0)?;
-        self.environment
+        self.metadata
             .define(body, cpu_location!(x87.data_offset), 0)?;
-        self.environment
+        self.metadata
             .define(body, cpu_location!(x87.instruction_selector), 0)?;
-        self.environment
+        self.metadata
             .define(body, cpu_location!(x87.data_selector), 0)
     }
 
@@ -238,11 +237,11 @@ impl X87State {
         selector: Val<I16>,
         opcode: &Val<I16>,
     ) -> Result<(), BuildError> {
-        self.environment
+        self.metadata
             .define(body, cpu_location!(x87.instruction_offset), offset)?;
-        self.environment
+        self.metadata
             .define(body, cpu_location!(x87.instruction_selector), selector)?;
-        self.environment
+        self.metadata
             .define(body, cpu_location!(x87.opcode), opcode)
     }
 
@@ -252,9 +251,9 @@ impl X87State {
         offset: &Val<I32>,
         selector: Val<I16>,
     ) -> Result<(), BuildError> {
-        self.environment
+        self.metadata
             .define(body, cpu_location!(x87.data_offset), offset)?;
-        self.environment
+        self.metadata
             .define(body, cpu_location!(x87.data_selector), selector)
     }
 
@@ -262,6 +261,6 @@ impl X87State {
         self.control.publish(body)?;
         self.status.publish(body)?;
         self.registers.publish(body)?;
-        self.environment.publish(body)
+        self.metadata.publish(body)
     }
 }

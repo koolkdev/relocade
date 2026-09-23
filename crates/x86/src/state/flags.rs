@@ -9,7 +9,7 @@ use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, I1, I8};
 use crate::{
     alu::{AnyStatusSource, StatusSource},
     flags::{Condition, Flag, FlagChange, FlagMask, FlagValues},
-    ssa::{Environment, Location},
+    ssa::{Location, StateFields},
 };
 
 use super::access::cpu_location;
@@ -25,7 +25,7 @@ pub(super) fn condition_index(canonical: Condition) -> usize {
 #[derive(Clone)]
 pub(super) struct FlagState {
     status: StatusState,
-    direct: Environment,
+    direct: StateFields,
 }
 
 fn direct_location(flag: Flag) -> Option<Location<I8>> {
@@ -63,7 +63,7 @@ impl FlagState {
     pub(super) fn new(memory: Mem) -> Self {
         Self {
             status: StatusState::default(),
-            direct: Environment::new(memory),
+            direct: StateFields::new(memory),
         }
     }
 

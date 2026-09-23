@@ -3,7 +3,7 @@
 use wasm86_compiler::{BuildError, FunctionBuilder, Mem, Val, I1, I16, I32, I8};
 
 use crate::{
-    ssa::{Environment, Location},
+    ssa::{Location, StateFields},
     state::access::cpu_location,
 };
 
@@ -24,13 +24,13 @@ impl Exception {
 
 #[derive(Clone)]
 pub(super) struct Status {
-    environment: Environment,
+    fields: StateFields,
 }
 
 impl Status {
     pub(super) fn new(memory: Mem) -> Self {
         Self {
-            environment: Environment::new(memory),
+            fields: StateFields::new(memory),
         }
     }
 
@@ -58,7 +58,7 @@ impl Status {
     }
 
     pub(super) fn top(&mut self, body: &mut FunctionBuilder<'_>) -> Result<Val<I32>, BuildError> {
-        let top = self.environment.read(body, cpu_location!(x87.status.top))?;
+        let top = self.fields.read(body, cpu_location!(x87.status.top))?;
         body.value(top.and(7).unsigned().extend::<I32>())
     }
 
@@ -68,8 +68,8 @@ impl Status {
         top: Val<I32>,
         enabled: impl Into<Val<I1>>,
     ) -> Result<(), BuildError> {
-        let previous = self.environment.read(body, cpu_location!(x87.status.top))?;
-        self.environment.define(
+        let previous = self.fields.read(body, cpu_location!(x87.status.top))?;
+        self.fields.define(
             body,
             cpu_location!(x87.status.top),
             enabled.into().select(top.and(7).truncate::<I8>(), previous),
@@ -81,7 +81,7 @@ impl Status {
         body: &mut FunctionBuilder<'_>,
         value: impl Into<Val<I1>>,
     ) -> Result<(), BuildError> {
-        self.environment.define(
+        self.fields.define(
             body,
             cpu_location!(x87.status.c1),
             value.into().unsigned().extend::<I8>(),
@@ -108,9 +108,9 @@ impl Status {
             pending = pending.or(raised.and(control.unmasked(body, exception)?));
         }
         let pending = pending.unsigned().extend::<I8>();
-        self.environment
+        self.fields
             .define(body, cpu_location!(x87.status.error_summary), &pending)?;
-        self.environment
+        self.fields
             .define(body, cpu_location!(x87.status.busy), pending)
     }
 
@@ -148,8 +148,8 @@ impl Status {
         ] {
             // A new unmasked fault sets both bits. Other operations preserve
             // their independent imported values, including unused backing bits.
-            let previous = self.environment.read(body, location.clone())?;
-            self.environment
+            let previous = self.fields.read(body, location.clone())?;
+            self.fields
                 .define(body, location, unmasked.select(1_u32, previous))?;
         }
         Ok(())
@@ -160,7 +160,7 @@ impl Status {
         body: &mut FunctionBuilder<'_>,
         location: Location<I8>,
     ) -> Result<Val<I1>, BuildError> {
-        Ok(self.environment.read(body, location)?.truncate::<I1>())
+        Ok(self.fields.read(body, location)?.truncate::<I1>())
     }
 
     fn record_sticky_flag(
@@ -169,8 +169,8 @@ impl Status {
         location: Location<I8>,
         raised: &Val<I1>,
     ) -> Result<(), BuildError> {
-        let previous = self.environment.read(body, location.clone())?;
-        self.environment.define(
+        let previous = self.fields.read(body, location.clone())?;
+        self.fields.define(
             body,
             location,
             previous.or(raised.unsigned().extend::<I8>()),
@@ -182,15 +182,14 @@ impl Status {
         body: &mut FunctionBuilder<'_>,
     ) -> Result<(), BuildError> {
         for exception in Exception::ALL {
-            self.environment
-                .define(body, exception.status_location(), 0)?;
+            self.fields.define(body, exception.status_location(), 0)?;
         }
         for location in [
             cpu_location!(x87.status.stack_fault),
             cpu_location!(x87.status.error_summary),
             cpu_location!(x87.status.busy),
         ] {
-            self.environment.define(body, location, 0)?;
+            self.fields.define(body, location, 0)?;
         }
         Ok(())
     }
@@ -204,12 +203,12 @@ impl Status {
             cpu_location!(x87.status.c2),
             cpu_location!(x87.status.c3),
         ] {
-            self.environment.define(body, location, 0)?;
+            self.fields.define(body, location, 0)?;
         }
         Ok(())
     }
 
     pub(super) fn publish(&self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
-        self.environment.publish(body)
+        self.fields.publish(body)
     }
 }

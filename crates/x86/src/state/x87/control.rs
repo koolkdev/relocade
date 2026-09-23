@@ -3,7 +3,7 @@
 use wasm86_compiler::{BuildError, FunctionBuilder, Mem, Val, I1, I16, I8};
 
 use crate::{
-    ssa::{Environment, Location},
+    ssa::{Location, StateFields},
     state::access::cpu_location,
 };
 
@@ -43,13 +43,13 @@ impl Exception {
 
 #[derive(Clone)]
 pub(super) struct Control {
-    environment: Environment,
+    fields: StateFields,
 }
 
 impl Control {
     pub(super) fn new(memory: Mem) -> Self {
         Self {
-            environment: Environment::new(memory),
+            fields: StateFields::new(memory),
         }
     }
 
@@ -58,7 +58,7 @@ impl Control {
         body: &mut FunctionBuilder<'_>,
         exception: Exception,
     ) -> Result<Val<I1>, BuildError> {
-        let mask = self.environment.read(body, exception.mask_location())?;
+        let mask = self.fields.read(body, exception.mask_location())?;
         Ok(mask.truncate::<I1>().eq(false))
     }
 
@@ -66,15 +66,15 @@ impl Control {
     /// bits in any backing field affect another architectural control field.
     pub(super) fn word(&mut self, body: &mut FunctionBuilder<'_>) -> Result<Val<I16>, BuildError> {
         let reserved = self
-            .environment
+            .fields
             .read(body, cpu_location!(x87.control.reserved_bits))?;
         let mut word = reserved.and(0xe0c0);
         for exception in Exception::ALL {
-            let mask = self.environment.read(body, exception.mask_location())?;
+            let mask = self.fields.read(body, exception.mask_location())?;
             word = word.or(mask.and(1).unsigned().extend::<I16>().shl(exception as u32));
         }
         for (location, mask, shift) in Self::mode_fields() {
-            let field = self.environment.read(body, location)?;
+            let field = self.fields.read(body, location)?;
             word = word.or(field.and(mask).unsigned().extend::<I16>().shl(shift));
         }
         body.value(word)
@@ -88,7 +88,7 @@ impl Control {
         word: Val<I16>,
     ) -> Result<(), BuildError> {
         for exception in Exception::ALL {
-            self.environment.define(
+            self.fields.define(
                 body,
                 exception.mask_location(),
                 word.unsigned()
@@ -98,13 +98,13 @@ impl Control {
             )?;
         }
         for (location, mask, shift) in Self::mode_fields() {
-            self.environment.define(
+            self.fields.define(
                 body,
                 location,
                 word.unsigned().shr(shift).and(mask).truncate::<I8>(),
             )?;
         }
-        self.environment.define(
+        self.fields.define(
             body,
             cpu_location!(x87.control.reserved_bits),
             word.and(0xe0c0),
@@ -120,6 +120,6 @@ impl Control {
     }
 
     pub(super) fn publish(&self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
-        self.environment.publish(body)
+        self.fields.publish(body)
     }
 }

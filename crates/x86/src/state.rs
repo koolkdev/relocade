@@ -24,13 +24,13 @@ use crate::{
     flags::{Condition, Flag, FlagChange},
     register::{Register, RegisterType},
     segment::{SegmentSelection, SegmentValues},
-    ssa::Environment,
+    ssa::StateFields,
 };
 
 #[derive(Clone)]
 pub(super) struct State<'cpu> {
     cpu: &'cpu Cpu,
-    registers: Environment,
+    registers: StateFields,
     flags: flags::FlagState,
     pub(super) x87: x87::X87State,
 }
@@ -39,7 +39,7 @@ impl<'cpu> State<'cpu> {
     pub(super) fn new(cpu: &'cpu Cpu) -> Self {
         Self {
             cpu,
-            registers: Environment::new(cpu.memory()),
+            registers: StateFields::new(cpu.memory()),
             flags: flags::FlagState::new(cpu.memory()),
             x87: x87::X87State::new(cpu.memory()),
         }

@@ -5,7 +5,7 @@ use std::mem::{offset_of, size_of};
 use wasm86_compiler::{BuildError, FunctionBuilder, Mem, Val, I1, I16, I32, I64};
 
 use crate::{
-    ssa::Environment,
+    ssa::StateFields,
     state::{access::cpu_location, CpuState, StoredX87Register},
 };
 
@@ -14,14 +14,14 @@ use super::ExtendedValue;
 #[derive(Clone)]
 pub(super) struct Registers {
     memory: Mem,
-    tags: Environment,
+    tags: StateFields,
 }
 
 impl Registers {
     pub(super) fn new(memory: Mem) -> Self {
         Self {
             memory,
-            tags: Environment::new(memory),
+            tags: StateFields::new(memory),
         }
     }
 

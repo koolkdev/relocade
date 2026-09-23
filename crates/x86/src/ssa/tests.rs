@@ -1,4 +1,4 @@
-use super::{Environment, Location};
+use super::{Location, StateFields};
 use wasm86_compiler::{FunctionBuilder, MemoryImport, Program, Signature, Type, Val, I16, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -13,7 +13,7 @@ enum Access {
 }
 
 fn accesses(
-    build: impl FnOnce(&mut FunctionBuilder<'_>, &mut Environment) -> Val<I32>,
+    build: impl FnOnce(&mut FunctionBuilder<'_>, &mut StateFields) -> Val<I32>,
 ) -> Vec<Access> {
     let mut program = Program::new();
     let memory = program.import_memory(MemoryImport {
@@ -28,7 +28,7 @@ fn accesses(
         results: vec![Type::I32],
     });
     let mut body = program.define(function).unwrap();
-    let mut state = Environment::new(memory);
+    let mut state = StateFields::new(memory);
     let result = build(&mut body, &mut state);
     body.return_(result).unwrap();
     program.export("run", function).unwrap();
