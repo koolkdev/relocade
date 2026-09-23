@@ -1,4 +1,5 @@
 mod arithmetic;
+mod comparisons;
 mod unbound;
 mod visibility;
 
