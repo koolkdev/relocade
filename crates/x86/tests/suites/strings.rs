@@ -19,6 +19,8 @@ use wasm86_x86::{
 
 #[path = "strings/conditional_repetition.rs"]
 mod conditional_repetition;
+#[path = "strings/repeated_loads.rs"]
+mod repeated_loads;
 #[path = "strings/repetition.rs"]
 mod repetition;
 #[path = "strings/restart.rs"]
@@ -233,6 +235,8 @@ fn admitted_string_forms() {
         (0xf3, 0xa5),
         (0xf3, 0xaa),
         (0xf3, 0xab),
+        (0xf3, 0xac),
+        (0xf3, 0xad),
         (0xf2, 0xa6),
         (0xf2, 0xa7),
         (0xf2, 0xae),
@@ -259,8 +263,6 @@ fn unsupported_string_forms_reject_even_with_zero_count() {
         (0xf2, 0xab),
         (0xf2, 0xac),
         (0xf2, 0xad),
-        (0xf3, 0xac),
-        (0xf3, 0xad),
     ] {
         let code = [prefix, opcode];
         assert_eq!(

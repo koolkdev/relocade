@@ -374,7 +374,8 @@ described below.
 Each checked guest-memory write is complete or absent. Instructions with ordered
 multiple writes, such as ENTER and PUSHA, retain completed writes if a later access
 faults. REP faults retain completed elements, current indices and the remaining
-count, with EIP at the instruction's first prefix. Repeated CMPS/SCAS faults retain
+count, with EIP at the instruction's first prefix. REP LODS also retains the last
+successfully loaded accumulator value. Repeated CMPS/SCAS faults retain
 the flags from instruction entry. A successful repetition keeps the last comparison's
 flags; zero-count execution preserves them. A successful REP retires once.
 

@@ -10,13 +10,14 @@ use crate::support::{
 };
 use wasm86_x86::compile_block_from_bytes;
 
-fn restart_after_source_page_repair(engine: Engine) {
-    let code = [0xf3, 0xa4];
+fn restart_after_source_page_repair(engine: Engine, opcode: u8) {
+    let code = [0xf3, opcode];
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     for module in [TestModule::interpreter(), &block] {
         let mut machine = Machine::new(&code);
         machine.cpu.flags = record(0xfe);
         machine.cpu.instruction_count = 17;
+        machine.cpu.registers.eax = 0xaabb_ccdd;
         machine.cpu.registers.ecx = 4;
         machine.cpu.registers.esi = 0x4ffe;
         machine.cpu.registers.edi = 0x7000;
@@ -27,8 +28,12 @@ fn restart_after_source_page_repair(engine: Engine) {
         let mut expected = initial;
         expected.cpu.registers.ecx = 2;
         expected.cpu.registers.esi = 0x5000;
-        expected.cpu.registers.edi = 0x7002;
-        expected.memory.write(0x7000, &[0x12, 0x34]);
+        if opcode == 0xa4 {
+            expected.cpu.registers.edi = 0x7002;
+            expected.memory.write(0x7000, &[0x12, 0x34]);
+        } else {
+            expected.cpu.registers.eax = 0xaabb_cc34;
+        }
         assert_eq!(fault.state, expected);
         assert_eq!(
             fault.exit,
@@ -39,19 +44,23 @@ fn restart_after_source_page_repair(engine: Engine) {
         );
         assert!(fault.dispatches.is_empty() && fault.machine_unchanged);
 
-        // Resume from the actual architectural state, with the absent page repaired.
-        // Alter already-consumed source bytes so restarting the entire copy is observable.
+        // Restore the actual fault state with the missing page repaired and the
+        // consumed source page unmapped, so replaying completed loads would fault.
+        let mut machine = Machine::new(&code);
         machine.cpu = fault.state.cpu;
-        machine.memory(0x4ffe, &[0x99, 0x99], ReadOnly);
         machine.memory(0x5000, &[0x56, 0x78], ReadOnly);
         machine.memory(0x7000, &fault.state.memory.read(0x7000, 4), ReadWrite);
         let mut completed = machine.state();
         completed.cpu.registers.ecx = 0;
         completed.cpu.registers.esi = 0x5002;
-        completed.cpu.registers.edi = 0x7004;
         completed.cpu.eip = 0x1002;
         completed.cpu.instruction_count = 18;
-        completed.memory.write(0x7000, &[0x12, 0x34, 0x56, 0x78]);
+        if opcode == 0xa4 {
+            completed.cpu.registers.edi = 0x7004;
+            completed.memory.write(0x7000, &[0x12, 0x34, 0x56, 0x78]);
+        } else {
+            completed.cpu.registers.eax = 0xaabb_cc78;
+        }
         let actual = machine.run(module, engine);
         assert_eq!(actual.state, completed);
         assert_eq!(actual.exit, Exit::Dispatch(0x1002));
@@ -160,13 +169,17 @@ fn restart_comparisons_after_page_repair(engine: Engine) {
 
 #[test]
 fn repaired_transfer_resumes_after_completed_elements() {
-    restart_after_source_page_repair(Engine::Wasmtime);
+    for opcode in [0xa4, 0xac] {
+        restart_after_source_page_repair(Engine::Wasmtime, opcode);
+    }
 }
 
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn repaired_transfer_resumes_after_completed_elements_v8() {
-    restart_after_source_page_repair(Engine::V8);
+    for opcode in [0xa4, 0xac] {
+        restart_after_source_page_repair(Engine::V8, opcode);
+    }
 }
 
 #[test]

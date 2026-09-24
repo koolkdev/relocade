@@ -33,7 +33,7 @@ impl ComparisonRepetition {
             indices,
             (false.into(), [0.into(), 0.into()]),
             |(done, _)| done.clone(),
-            |iteration| {
+            |iteration, _| {
                 let [left, right] = operands(iteration)?;
                 advance_indices(iteration, &indices, stride)?;
                 let done = match self {

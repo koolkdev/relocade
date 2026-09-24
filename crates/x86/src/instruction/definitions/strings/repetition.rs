@@ -24,21 +24,28 @@ impl Repetition {
         if matches!(self, Self::Once) {
             return element(execution);
         }
-        repeat::<(), N>(execution, indices, (), |()| false.into(), element)?;
+        repeat::<(), N>(
+            execution,
+            indices,
+            (),
+            |()| false.into(),
+            |iteration, ()| element(iteration),
+        )?;
         Ok(())
     }
 }
 
 /// Carries successful element results alongside count and index progress.
-/// Elements may change only the supplied indices and guest memory, after their
-/// faulting accesses finish. Other architectural results are committed by the
-/// caller on successful return. Returns the initial count and final payload.
+/// Each element receives the previous result so it can publish completed register
+/// changes before another access can fault. New results and index changes must
+/// follow successful accesses. The caller publishes the final returned result in
+/// the parent. Returns the initial count and final payload.
 pub(super) fn repeat<P: Results, const N: usize>(
     execution: &mut ExecutionBuilder<'_, '_>,
     indices: [Gpr32; N],
     initial: P::Values,
     done: impl FnOnce(&P::Values) -> Val<I1>,
-    element: impl FnOnce(&mut ExecutionBuilder<'_, '_>) -> Result<P::Values, BuildError>,
+    element: impl FnOnce(&mut ExecutionBuilder<'_, '_>, P::Values) -> Result<P::Values, BuildError>,
 ) -> Result<(Val<I32>, P::Values), BuildError>
 where
     P::Values: Clone + Into<Arguments>,
@@ -48,10 +55,10 @@ where
     let (remaining, final_indices, result) = execution.loop_until::<(I32, [I32; N], P)>(
         (count.clone(), initial_indices, initial),
         |(remaining, _, result)| remaining.eq(0).or(done(result)),
-        |iteration, (remaining, positions, _)| {
+        |iteration, (remaining, positions, previous)| {
             iteration.write_address_register(Gpr32::Ecx, remaining.clone())?;
             write_indices(iteration, indices, positions)?;
-            let result = element(iteration)?;
+            let result = element(iteration, previous)?;
             let next_indices = read_indices(iteration, indices)?;
             Ok((remaining.sub(1), next_indices, result))
         },

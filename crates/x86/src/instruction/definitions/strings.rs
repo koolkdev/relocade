@@ -71,11 +71,19 @@ instruction_families! {
         }
     }
     LODS {
-        execute: load_element::<_>;
+        execute: load_elements::<_>(Repetition::Once);
         effects: [memory_read];
         forms {
             0xAC => byte();
             0xAD => word_or_dword();
+        }
+    }
+    REP_LODS {
+        execute: load_elements::<_>(Repetition::Count);
+        effects: [memory_read];
+        forms {
+            F3 0xAC => byte();
+            F3 0xAD => word_or_dword();
         }
     }
     SCAS {
@@ -140,6 +148,32 @@ where
             .write(execution, &value)?;
         advance_indices(execution, &indices, &stride)
     })
+}
+
+fn load_elements<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    repetition: Repetition,
+) -> Result<(), BuildError>
+where
+    I32: AtLeast<T>,
+{
+    if matches!(repetition, Repetition::Once) {
+        return load_element::<T>(execution);
+    }
+    let initial = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
+    let (_, value) = repetition::repeat::<T, 1>(
+        execution,
+        [Gpr32::Esi],
+        initial,
+        |_| false.into(),
+        |iteration, previous| {
+            // A later fault must retain the last completed load.
+            TypedLocation::<T>::register(Gpr32::Eax).write(iteration, previous)?;
+            load_element::<T>(iteration)?;
+            TypedLocation::<T>::register(Gpr32::Eax).read(iteration)
+        },
+    )?;
+    TypedLocation::<T>::register(Gpr32::Eax).write(execution, value)
 }
 
 fn load_element<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
