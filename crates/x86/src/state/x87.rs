@@ -44,6 +44,29 @@ impl LoadSource {
     }
 }
 
+impl super::State<'_> {
+    /// Delivers a deferred x87 exception at this instruction's restart boundary.
+    /// The fault path keeps conditional writes. Reaching the continuation proves
+    /// that earlier writes were enabled, so later stack reads can omit their guards.
+    pub(crate) fn check_x87(
+        &mut self,
+        body: &mut FunctionBuilder<'_>,
+        restart_eip: &Val<I32>,
+        completed: u32,
+    ) -> Result<(), BuildError> {
+        let pending = self.x87.status.pending(body)?;
+        body.if_(pending, |fault_body| {
+            self.fault(
+                fault_body,
+                restart_eip,
+                completed,
+                crate::exception::Exception::FloatingPoint,
+            )
+        })?;
+        self.x87.registers.discard_write_guards(body)
+    }
+}
+
 impl X87State {
     pub(crate) fn new(memory: Mem) -> Self {
         Self {
@@ -68,13 +91,6 @@ impl X87State {
         self.status.word(body)
     }
 
-    pub(crate) fn pending_exception(
-        &mut self,
-        body: &mut FunctionBuilder<'_>,
-    ) -> Result<Val<I1>, BuildError> {
-        self.status.pending(body)
-    }
-
     pub(crate) fn initialize(&mut self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
         // FNINIT marks the stack empty without changing register payloads.
         self.control.load_word(body, 0x037f.into())?;
@@ -96,6 +112,9 @@ impl X87State {
         body: &mut FunctionBuilder<'_>,
     ) -> Result<(), BuildError> {
         // C0/C1/C2/C3 are undefined for FNCLEX; retain them and the unchanged TOP.
+        // Clearing ES does not prove that a suppressed write succeeded. Publish
+        // its conditional result and discard the old slot mapping before resuming.
+        self.registers.rebase(body)?;
         self.status.clear_exceptions(body)
     }
 
@@ -113,9 +132,9 @@ impl X87State {
         &mut self,
         body: &mut FunctionBuilder<'_>,
         index: impl Into<Val<I32>>,
-    ) -> Result<Val<I32>, BuildError> {
+    ) -> Result<registers::Slot, BuildError> {
         let top = self.status.top(body)?;
-        body.value(top.add(index).and(7))
+        self.registers.slot(body, &top, index.into())
     }
 
     pub(crate) fn read_stack(
@@ -179,7 +198,7 @@ impl X87State {
             ),
         };
         let top = self.status.top(body)?;
-        let target = body.value(top.sub(1).and(7))?;
+        let target = self.registers.slot(body, &top, 7.into())?;
         let full = self.registers.tag(body, &target)?.ne(3);
         let fault = source_empty.or(&full);
         // A missing source takes priority over an occupied push destination.
@@ -210,7 +229,8 @@ impl X87State {
             None => value.tag(),
         };
         self.registers.write(body, &target, &value, tag, &enabled)?;
-        self.status.set_top(body, target, enabled)
+        self.registers.advance(-1);
+        self.status.set_top(body, target.physical, enabled)
     }
 
     pub(crate) fn pop(
@@ -219,7 +239,9 @@ impl X87State {
         enabled: &Val<I1>,
     ) -> Result<(), BuildError> {
         let top = self.status.top(body)?;
-        self.registers.set_tag(body, &top, 3.into(), enabled)?;
+        let slot = self.registers.slot(body, &top, 0.into())?;
+        self.registers.set_tag(body, &slot, 3.into(), enabled)?;
+        self.registers.advance(1);
         self.status.set_top(body, top.add(1), enabled)
     }
 
@@ -240,6 +262,7 @@ impl X87State {
         let top = self.status.top(body)?;
         self.status
             .set_top(body, top.add(if increment { 1 } else { u32::MAX }), true)?;
+        self.registers.advance(if increment { 1 } else { -1 });
         self.status.set_c1(body, false)
     }
 

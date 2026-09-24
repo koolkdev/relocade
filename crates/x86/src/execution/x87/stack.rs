@@ -9,13 +9,13 @@ use crate::{
     state::{ExtendedValue, LoadSource},
 };
 
-use super::{record_instruction, record_memory, wait, ExecutionBuilder};
+use super::{check_pending_exception, record_instruction, record_memory, ExecutionBuilder};
 
 pub(crate) fn load_extended(
     execution: &mut ExecutionBuilder<'_, '_>,
     address: MemoryAddress<Val<I32>>,
 ) -> Result<(), BuildError> {
-    wait(execution)?;
+    check_pending_exception(execution)?;
     let operand = execution.memory_operand(address, 10, Intent::Read, &[])?;
     let value = ExtendedValue {
         significand: operand.read::<I64>(execution, 0)?,
@@ -32,7 +32,7 @@ pub(crate) fn load_register(
     execution: &mut ExecutionBuilder<'_, '_>,
     source: X87StackIndex,
 ) -> Result<(), BuildError> {
-    wait(execution)?;
+    check_pending_exception(execution)?;
     record_instruction(execution)?;
     // The source uses the old TOP, including when the push destination aliases it.
     let source = execution
@@ -50,7 +50,7 @@ pub(crate) fn store_register(
     destination: X87StackIndex,
     pop: bool,
 ) -> Result<(), BuildError> {
-    wait(execution)?;
+    check_pending_exception(execution)?;
     record_instruction(execution)?;
     let source = execution.state.x87.read_stack(&mut execution.body, 0)?;
     let enabled =
@@ -74,7 +74,7 @@ pub(crate) fn store_extended(
     execution: &mut ExecutionBuilder<'_, '_>,
     address: MemoryAddress<Val<I32>>,
 ) -> Result<(), BuildError> {
-    wait(execution)?;
+    check_pending_exception(execution)?;
     let operand = execution.memory_operand(address, 10, Intent::Write, &[])?;
     let source = execution.state.x87.read_stack(&mut execution.body, 0)?;
     record_memory(execution, &operand)?;
@@ -99,7 +99,7 @@ pub(crate) fn exchange_register(
     execution: &mut ExecutionBuilder<'_, '_>,
     other: X87StackIndex,
 ) -> Result<(), BuildError> {
-    wait(execution)?;
+    check_pending_exception(execution)?;
     record_instruction(execution)?;
     let index = other.offset();
     let top = execution.state.x87.read_stack(&mut execution.body, 0)?;
@@ -131,7 +131,7 @@ pub(crate) fn free_register(
     execution: &mut ExecutionBuilder<'_, '_>,
     register: X87StackIndex,
 ) -> Result<(), BuildError> {
-    wait(execution)?;
+    check_pending_exception(execution)?;
     record_instruction(execution)?;
     execution
         .state
@@ -143,7 +143,7 @@ pub(crate) fn rotate_stack(
     execution: &mut ExecutionBuilder<'_, '_>,
     increment: bool,
 ) -> Result<(), BuildError> {
-    wait(execution)?;
+    check_pending_exception(execution)?;
     record_instruction(execution)?;
     execution.state.x87.rotate(&mut execution.body, increment)
 }

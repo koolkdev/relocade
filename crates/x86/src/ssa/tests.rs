@@ -1,13 +1,19 @@
+mod captured;
+
 use super::{Location, StateFields};
-use wasm86_compiler::{FunctionBuilder, MemoryImport, Program, Signature, Type, Val, I16, I32, I8};
+use wasm86_compiler::{
+    FunctionBuilder, MemoryImport, Program, Signature, Type, Val, I16, I32, I64, I8,
+};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[derive(Debug, Eq, PartialEq)]
 enum Access {
     Load(u64),
+    LoadQword(u64),
     LoadByte(u64),
     LoadWord(u64),
     Store(u64, Option<i32>),
+    StoreQword(u64, Option<i64>),
     StoreByte(u64, Option<i32>),
     StoreWord(u64, Option<i32>),
 }
@@ -38,6 +44,7 @@ fn accesses(
     for payload in Parser::new(0).parse_all(&bytes) {
         if let Payload::CodeSectionEntry(code) = payload.unwrap() {
             let mut previous_constant = None;
+            let mut previous_qword = None;
             for operation in code.get_operators_reader().unwrap() {
                 let operation = operation.unwrap();
                 match operation {
@@ -53,12 +60,20 @@ fn accesses(
                     Operator::I32Store16 { memarg } => {
                         accesses.push(Access::StoreWord(memarg.offset, previous_constant));
                     }
+                    Operator::I64Load { memarg } => accesses.push(Access::LoadQword(memarg.offset)),
+                    Operator::I64Store { memarg } => {
+                        accesses.push(Access::StoreQword(memarg.offset, previous_qword));
+                    }
                     Operator::I32Load { memarg } => accesses.push(Access::Load(memarg.offset)),
                     Operator::I32Store { memarg } => {
                         accesses.push(Access::Store(memarg.offset, previous_constant));
                     }
                     _ => {}
                 }
+                previous_qword = match operation {
+                    Operator::I64Const { value } => Some(value),
+                    _ => None,
+                };
                 previous_constant = match operation {
                     Operator::I32Const { value } => Some(value),
                     _ => None,
@@ -191,5 +206,25 @@ fn covering_definitions_replace_pending_partial_writes() {
             Access::StoreWord(8, Some(0x99aa)),
             Access::StoreByte(10, Some(0xbb)),
         ]
+    );
+}
+
+#[test]
+fn qword_reads_are_retained_and_only_the_latest_definition_is_published() {
+    let emitted = accesses(|body, state| {
+        let first = state.read(body, Location::<I64>::new(32)).unwrap();
+        let second = state.read(body, Location::<I64>::new(32)).unwrap();
+        state
+            .define(body, Location::<I64>::new(32), 11_u64)
+            .unwrap();
+        state
+            .define(body, Location::<I64>::new(32), 13_u64)
+            .unwrap();
+        state.publish(body).unwrap();
+        first.add(second).truncate::<I32>()
+    });
+    assert_eq!(
+        emitted,
+        [Access::LoadQword(32), Access::StoreQword(32, Some(13))]
     );
 }

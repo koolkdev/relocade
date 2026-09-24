@@ -8,14 +8,14 @@ use crate::{
     state::{BinaryFormat, LoadSource},
 };
 
-use super::{record_memory, wait, ExecutionBuilder};
+use super::{check_pending_exception, record_memory, ExecutionBuilder};
 
 pub(crate) fn load_binary(
     execution: &mut ExecutionBuilder<'_, '_>,
     address: MemoryAddress<Val<I32>>,
     format: BinaryFormat,
 ) -> Result<(), BuildError> {
-    wait(execution)?;
+    check_pending_exception(execution)?;
     let operand = execution.memory_operand(address, format.bytes(), Intent::Read, &[])?;
     let bits = match format {
         BinaryFormat::Binary32 => operand

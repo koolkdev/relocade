@@ -3,7 +3,7 @@
 use super::TrackedValue;
 use std::marker::PhantomData;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, Val, I16, I32, I8};
+use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, Val, I16, I32, I64, I8};
 
 #[derive(Clone)]
 pub(crate) struct Location<T: SsaType> {
@@ -79,6 +79,7 @@ pub(crate) enum DefinitionValue {
     Byte(TrackedValue<I8>),
     Word(TrackedValue<I16>),
     Dword(TrackedValue<I32>),
+    Qword(TrackedValue<I64>),
 }
 
 impl DefinitionValue {
@@ -87,6 +88,7 @@ impl DefinitionValue {
             Self::Byte(value) => value.dirty_value().is_some(),
             Self::Word(value) => value.dirty_value().is_some(),
             Self::Dword(value) => value.dirty_value().is_some(),
+            Self::Qword(value) => value.dirty_value().is_some(),
         }
     }
 
@@ -95,6 +97,7 @@ impl DefinitionValue {
             Self::Byte(value) => value.mark_clean(),
             Self::Word(value) => value.mark_clean(),
             Self::Dword(value) => value.mark_clean(),
+            Self::Qword(value) => value.mark_clean(),
         }
     }
 
@@ -102,12 +105,14 @@ impl DefinitionValue {
         &self,
         body: &mut FunctionBuilder<'_>,
         memory: Mem,
+        base: &Val<I32>,
         offset: u32,
     ) -> Result<(), BuildError> {
         match self {
-            Self::Byte(value) => body.store(memory, offset, value.value()),
-            Self::Word(value) => body.store(memory, offset, value.value()),
-            Self::Dword(value) => body.store(memory, offset, value.value()),
+            Self::Byte(value) => body.store_at(memory, base, offset, value.value()),
+            Self::Word(value) => body.store_at(memory, base, offset, value.value()),
+            Self::Dword(value) => body.store_at(memory, base, offset, value.value()),
+            Self::Qword(value) => body.store_at(memory, base, offset, value.value()),
         }
     }
 }
@@ -145,6 +150,7 @@ macro_rules! ssa_type {
 ssa_type!(I8, Byte);
 ssa_type!(I16, Word);
 ssa_type!(I32, Dword);
+ssa_type!(I64, Qword);
 
 #[derive(Clone)]
 struct Definition {
@@ -162,6 +168,7 @@ struct Definition {
 #[derive(Clone)]
 pub(crate) struct StateFields {
     memory: Mem,
+    base: Val<I32>,
     // Live fixed definitions never overlap; an exact replacement needs no flush.
     definitions: Vec<Definition>,
     writes: usize,
@@ -169,8 +176,15 @@ pub(crate) struct StateFields {
 
 impl StateFields {
     pub(crate) fn new(memory: Mem) -> Self {
+        Self::with_base(memory, 0.into())
+    }
+
+    /// Captures an address base. Field offsets and alias spans are relative to this
+    /// immutable base; independently managed records must not overlap.
+    pub(crate) fn with_base(memory: Mem, base: Val<I32>) -> Self {
         Self {
             memory,
+            base,
             definitions: Vec::new(),
             writes: 0,
         }
@@ -184,7 +198,7 @@ impl StateFields {
         let offset = match location.address {
             Address::Fixed(offset) => offset,
             Address::Indexed { span, displacement } => {
-                let displacement = body.value(displacement)?;
+                let displacement = body.value(self.base.add(displacement))?;
                 self.flush(body, span, false)?;
                 return body.load_at::<T>(self.memory, displacement, span.start as u32);
             }
@@ -203,7 +217,7 @@ impl StateFields {
         self.flush(body, location.span(), false)?;
         self.definitions
             .retain(|entry| !location.span().overlaps(entry.location.span()));
-        let value = body.load::<T>(self.memory, location.offset)?;
+        let value = body.load_at::<T>(self.memory, &self.base, location.offset)?;
         self.definitions.push(Definition {
             location,
             value: T::retain(TrackedValue::new(body, &value)?),
@@ -221,7 +235,7 @@ impl StateFields {
         let offset = match location.address {
             Address::Fixed(offset) => offset,
             Address::Indexed { span, displacement } => {
-                let displacement = body.value(displacement)?;
+                let displacement = body.value(self.base.add(displacement))?;
                 let value = body.value(value)?;
                 self.flush(body, span, false)?;
                 body.store_at(self.memory, displacement, span.start as u32, value)?;
@@ -285,7 +299,7 @@ impl StateFields {
             if span.overlaps(overlap) && !(replacing && span.covers(overlap)) {
                 entry
                     .value
-                    .store(body, self.memory, entry.location.offset)?;
+                    .store(body, self.memory, &self.base, entry.location.offset)?;
                 entry.value.mark_clean();
             }
         }
@@ -299,7 +313,7 @@ impl StateFields {
             let entry = &self.definitions[index];
             entry
                 .value
-                .store(body, self.memory, entry.location.offset)?;
+                .store(body, self.memory, &self.base, entry.location.offset)?;
         }
         Ok(())
     }

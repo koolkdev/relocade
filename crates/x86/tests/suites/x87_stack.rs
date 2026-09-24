@@ -1,5 +1,7 @@
 //! Exact extended-real movement and logical stack addressing.
 
+#[path = "x87_stack/continuations.rs"]
+mod continuations;
 #[path = "x87_stack/faults.rs"]
 mod faults;
 #[path = "x87_stack/memory.rs"]

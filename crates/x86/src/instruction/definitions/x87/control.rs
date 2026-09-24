@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::execution::x87::{
-    clear_exceptions, initialize, load_control, store_control, store_status, wait,
+    check_pending_exception, clear_exceptions, initialize, load_control, store_control,
+    store_status,
 };
 
 instruction_families! {
@@ -15,7 +16,7 @@ instruction_families! {
         forms { 0xDB @ 0xE2 => no_operands(); }
     }
     FWAIT {
-        execute: wait;
+        execute: check_pending_exception;
         forms { 0x9B => no_operands(); }
     }
     FLDCW {
