@@ -152,6 +152,63 @@ fn self_pop_leaves_empty_source(engine: Engine, frontend: Frontend) {
     );
 }
 
+fn consecutive_pushes_fill_then_overflow(engine: Engine, frontend: Frontend) {
+    let code = [
+        0xd9, 0xc0, // FLD ST0, fills the last empty slot
+        0xd9, 0xc0, // FLD ST0, stack overflow
+        0xdf, 0xe0, // FNSTSW AX, observes the deferred exception
+        0x9b, // FWAIT
+    ];
+    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    for masked in [false, true] {
+        let mut image = initial_image(&code, 0, 0xc000);
+        image.cpu.x87.status = status(0);
+        set_control(
+            &mut image.cpu.x87.control,
+            if masked { 0x037f } else { 0x037e },
+        );
+        let mut pushed = complete(image.cpu, 2, 0x01c0);
+        pushed.x87.status.top = 7;
+        pushed.x87.tag_word = 0;
+        write_register_bits(&mut pushed, 7, register_bits(&image.cpu, 0));
+        let mut overflowed = complete(pushed, 2, 0x01c0);
+        let word = if masked { 0x3241 } else { 0xbac1 };
+        overflowed.x87.status = status(word);
+        if masked {
+            overflowed.x87.tag_word = 0x2000;
+            write_register_bits(&mut overflowed, 6, INDEFINITE);
+        }
+        let mut observed = overflowed;
+        observed.eip += 2;
+        observed.instruction_count = observed.instruction_count.wrapping_add(1);
+        observed.registers.eax = 0x1111_0000 | u32::from(word);
+        let waiting = if masked {
+            let mut waited = observed;
+            waited.eip += 1;
+            waited.instruction_count = waited.instruction_count.wrapping_add(1);
+            dispatch(waited)
+        } else {
+            Step {
+                cpu: observed,
+                ram: &[],
+                exit: Exit::FloatingPoint,
+            }
+        };
+        checks.check(
+            "a successful push fills the stack before the next push overflows",
+            &code,
+            &image,
+            &[
+                dispatch(pushed),
+                dispatch(overflowed),
+                dispatch(observed),
+                waiting,
+            ],
+        );
+    }
+}
+
 test_frontends!(suppressed_push, suppressed_push_preserves_earlier_payload);
 test_frontends!(empty_payloads, empty_payloads_survive_reset_and_fault);
 test_frontends!(self_pop, self_pop_leaves_empty_source);
+test_frontends!(consecutive_pushes, consecutive_pushes_fill_then_overflow);

@@ -36,7 +36,7 @@ struct Frame {
     entry_top: Val<I32>,
     delta: usize,
     entry_tag_word: Val<I16>,
-    tags: [Option<TrackedValue<I16>>; 8],
+    tags: [Option<Tag>; 8],
     payloads: [Option<Payload>; 8],
 }
 
@@ -44,6 +44,14 @@ impl Frame {
     fn physical(&self, relative: usize) -> Val<I32> {
         self.entry_top.add(relative as u32).and(7)
     }
+}
+
+#[derive(Clone)]
+struct Tag {
+    current: TrackedValue<I16>,
+    // Keep the last assignment, including an empty tag after FSTP ST0.
+    // The exception check proves its guard before it replaces `current`.
+    latest_write: Option<Val<I16>>,
 }
 
 /// `fields` holds the value before `conditional_write`, or the current value
@@ -123,15 +131,18 @@ impl Registers {
         };
         let frame = self.frame.as_mut().unwrap();
         if let Some(tag) = &frame.tags[relative] {
-            return tag.read(body);
+            return tag.current.read(body);
         }
         let initial = frame
             .entry_tag_word
             .unsigned()
             .shr(frame.physical(relative).shl(1))
             .and(3);
-        let tag = TrackedValue::new(body, initial)?;
-        let value = tag.read(body)?;
+        let tag = Tag {
+            current: TrackedValue::new(body, initial)?,
+            latest_write: None,
+        };
+        let value = tag.current.read(body)?;
         frame.tags[relative] = Some(tag);
         Ok(value)
     }
@@ -147,10 +158,13 @@ impl Registers {
             return self.backing.set_tag(body, &slot.physical, tag, enabled);
         };
         let previous = self.tag(body, slot)?;
-        self.frame.as_mut().unwrap().tags[relative]
+        let cached_tag = self.frame.as_mut().unwrap().tags[relative]
             .as_mut()
-            .unwrap()
-            .define(body, enabled.select(tag, previous))?;
+            .unwrap();
+        cached_tag
+            .current
+            .define(body, enabled.select(&tag, previous))?;
+        cached_tag.latest_write = Some(body.value(tag)?);
         Ok(())
     }
 
@@ -207,6 +221,11 @@ impl Registers {
         body: &mut FunctionBuilder<'_>,
     ) -> Result<(), BuildError> {
         if let Some(frame) = &mut self.frame {
+            for tag in frame.tags.iter_mut().flatten() {
+                if let Some(value) = tag.latest_write.take() {
+                    tag.current.define(body, value)?;
+                }
+            }
             for payload in frame.payloads.iter_mut().flatten() {
                 if let Some(write) = payload.conditional_write.take() {
                     Payload::define_fields(&mut payload.fields, body, &write.value)?;
@@ -244,7 +263,7 @@ impl Registers {
         for relative in 0..8 {
             if let Some(tag) = frame.tags[relative]
                 .as_ref()
-                .and_then(TrackedValue::dirty_value)
+                .and_then(|tag| tag.current.dirty_value())
             {
                 changed = true;
                 let shift = frame.physical(relative).shl(1);
