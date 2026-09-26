@@ -29,7 +29,7 @@ fn conditional_exits_keep_their_edge_scope_and_adjacent_authored_sites() {
             let before = block.load::<I32>(memory, 0)?;
             block.branch_if(&choose, &exit, before)?;
             let after = block.load::<I32>(memory, 4)?;
-            block.yield_if(choose, &after)?;
+            block.yield_if(after.eq(0), &after)?;
             block.yield_(after)
         })
         .unwrap();

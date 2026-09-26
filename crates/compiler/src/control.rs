@@ -8,9 +8,11 @@ mod conditional;
 mod fold;
 mod loops;
 mod switch;
+mod tree;
 
 pub use block::Label;
 pub use loops::LoopLabels;
+pub(crate) use tree::RegionTree;
 
 pub(super) struct SwitchCase {
     pub(super) key: u32,

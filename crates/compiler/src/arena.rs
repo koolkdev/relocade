@@ -12,6 +12,7 @@ use crate::{
 
 mod arithmetic;
 mod comparisons;
+mod paths;
 mod shifts;
 
 #[derive(Clone)]
@@ -195,24 +196,7 @@ impl ExpressionArena {
         when_true: usize,
         when_false: usize,
     ) -> Result<usize, BuildError> {
-        self.with_open(|arena| {
-            let condition = arena.normalize(condition);
-            let value = Value {
-                ty: arena.values[when_true].ty,
-                kind: ValueKind::Select {
-                    condition,
-                    when_true,
-                    when_false,
-                },
-            };
-            match arena.values[condition].kind {
-                ValueKind::Constant(0) => return when_false,
-                ValueKind::Constant(_) => return when_true,
-                _ if when_true == when_false => return when_true,
-                _ => {}
-            }
-            arena.intern(value)
-        })
+        self.with_open(|arena| arena.select(condition, when_true, when_false))
     }
 
     pub(super) fn bit_count(
@@ -220,17 +204,7 @@ impl ExpressionArena {
         operator: BitCountOp,
         input: usize,
     ) -> Result<usize, BuildError> {
-        self.with_open(|arena| {
-            let value = arena.values[input];
-            if let ValueKind::Constant(bits) = value.kind {
-                return arena.constant(value.ty, integer::bit_count(value.ty, operator, bits));
-            }
-            let input = arena.normalize(input);
-            arena.intern(Value {
-                ty: value.ty,
-                kind: ValueKind::BitCount(operator, input),
-            })
-        })
+        self.with_open(|arena| arena.bit_count(operator, input))
     }
 
     pub(super) fn sign_extend(&self, input: usize, target: Type) -> Result<usize, BuildError> {
@@ -263,9 +237,48 @@ impl ExpressionArena {
         let arena = self.0.borrow_mut().take();
         arena.map(|arena| arena.values)
     }
+
+    pub(super) fn simplify_paths(
+        &self,
+        region: &mut crate::control::Region,
+    ) -> Result<(), BuildError> {
+        let mut arena = self.0.borrow_mut();
+        paths::simplify(arena.as_mut().ok_or(BuildError::BodyClosed)?, region);
+        Ok(())
+    }
 }
 
 impl ValueArena {
+    fn select(&mut self, condition: usize, when_true: usize, when_false: usize) -> usize {
+        let condition = self.normalize(condition);
+        match self.values[condition].kind {
+            ValueKind::Constant(0) => return when_false,
+            ValueKind::Constant(_) => return when_true,
+            _ if when_true == when_false => return when_true,
+            _ => {}
+        }
+        self.intern(Value {
+            ty: self.values[when_true].ty,
+            kind: ValueKind::Select {
+                condition,
+                when_true,
+                when_false,
+            },
+        })
+    }
+
+    fn bit_count(&mut self, operator: BitCountOp, input: usize) -> usize {
+        let value = self.values[input];
+        if let ValueKind::Constant(bits) = value.kind {
+            return self.constant(value.ty, integer::bit_count(value.ty, operator, bits));
+        }
+        let input = self.normalize(input);
+        self.intern(Value {
+            ty: value.ty,
+            kind: ValueKind::BitCount(operator, input),
+        })
+    }
+
     fn constant(&mut self, ty: Type, bits: u64) -> usize {
         self.intern(Value {
             ty,

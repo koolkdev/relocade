@@ -280,6 +280,55 @@ enum ValueKind {
     },
 }
 
+impl ValueKind {
+    fn is_calculation(self) -> bool {
+        matches!(
+            self,
+            Self::Binary(..)
+                | Self::Compare(..)
+                | Self::Shift { .. }
+                | Self::Rotate { .. }
+                | Self::Select { .. }
+                | Self::Normalize(_)
+                | Self::Convert(_)
+                | Self::SignExtend(_)
+                | Self::BitCount(..)
+                | Self::ZeroTest { .. }
+        )
+    }
+
+    // Calls and joins keep their incoming values on the structured operation.
+    fn inputs(self) -> impl DoubleEndedIterator<Item = usize> {
+        let inputs = match self {
+            Self::Binary(_, a, b)
+            | Self::Compare(_, a, b)
+            | Self::Shift {
+                value: a, count: b, ..
+            }
+            | Self::Rotate {
+                value: a, count: b, ..
+            } => [Some(a), Some(b), None],
+            Self::Select {
+                condition,
+                when_true,
+                when_false,
+            } => [Some(condition), Some(when_true), Some(when_false)],
+            Self::Normalize(input)
+            | Self::Convert(input)
+            | Self::SignExtend(input)
+            | Self::BitCount(_, input)
+            | Self::ZeroTest { input, .. } => [Some(input), None, None],
+            Self::Load { location, .. } => [Some(location.base), None, None],
+            Self::Constant(_)
+            | Self::Parameter(_)
+            | Self::LoopInput { .. }
+            | Self::OperationResult { .. }
+            | Self::JoinResult { .. } => [None; 3],
+        };
+        inputs.into_iter().flatten()
+    }
+}
+
 /// Builds a function body, block, loop or branch. A yield, branch, return, tail call or trap
 /// consumes the active builder; completing the outer builder saves the function
 /// body.
@@ -515,6 +564,7 @@ impl FunctionBuilder<'_> {
         let mut region = std::mem::replace(&mut self.region, Region::new(0));
         match &mut self.destination {
             Destination::Function => {
+                self.arena.simplify_paths(&mut region)?;
                 let values = self.arena.take().ok_or(BuildError::BodyClosed)?;
                 region.fold_constants(&values);
                 self.program.functions[self.function.0].kind =

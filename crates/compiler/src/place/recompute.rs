@@ -7,19 +7,7 @@ use crate::{control::Site, integer::BinaryOp, Body, ValueKind};
 pub(super) fn groups(body: &Body, id: usize, demand: Demand, tree: &Tree<'_>) -> Vec<Demand> {
     // Derived calculations can be recomputed on their consuming paths. Their
     // operands can include snapshots; loads, calls and joins retain their sharing.
-    if !matches!(
-        body.values[id].kind,
-        ValueKind::Binary(..)
-            | ValueKind::Compare(..)
-            | ValueKind::Shift { .. }
-            | ValueKind::Rotate { .. }
-            | ValueKind::Select { .. }
-            | ValueKind::Normalize(_)
-            | ValueKind::Convert(_)
-            | ValueKind::SignExtend(_)
-            | ValueKind::BitCount(..)
-            | ValueKind::ZeroTest { .. }
-    ) {
+    if !body.values[id].kind.is_calculation() {
         return vec![demand];
     }
     let groups = demand
@@ -118,7 +106,7 @@ impl Tree<'_> {
     fn arm_containing(&self, point: Point, branch: Site) -> Option<usize> {
         let mut region = point.site.region;
         loop {
-            let parent = self.0[&region].parent?;
+            let parent = self.0.parent(region)?;
             if parent == branch {
                 return Some(region);
             }
@@ -129,8 +117,9 @@ impl Tree<'_> {
     fn demand_region(&self, point: Point, ancestor: usize) -> DemandRegion {
         let mut region = point.site.region;
         while region != ancestor {
-            let parent = self.0[&region]
-                .parent
+            let parent = self
+                .0
+                .parent(region)
                 .expect("a demand descends from its common region");
             if parent.region == ancestor {
                 // Alternative arms belong to one operation: only one can run.

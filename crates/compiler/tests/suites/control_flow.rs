@@ -333,8 +333,8 @@ fn overlapping_stores_preserve_a_snapshot_across_the_guard() {
             Event::Return
         ]
     );
-    // Both returns compute the cheap addition from the same captured load.
-    assert_eq!(shared.additions, 2);
+    // The taken arm knows the load is seven; only the continuation adds at runtime.
+    assert_eq!(shared.additions, 1);
 }
 
 #[test]

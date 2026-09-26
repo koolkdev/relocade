@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use wasm_encoder::ValType;
 
 use crate::{
-    control::{Region, Site, Target},
+    control::{Region, RegionTree, Site, Target},
     effects::Effects,
     emit::wasm_type,
     memory::Location,
@@ -12,6 +12,7 @@ use crate::{
 };
 
 mod calls;
+mod order;
 mod recompute;
 
 pub(super) struct Placement {
@@ -41,62 +42,16 @@ impl Point {
     }
 }
 
-struct RegionInfo<'a> {
-    region: &'a Region,
-    parent: Option<Site>,
-    depth: usize,
-}
+struct Tree<'a>(RegionTree<'a>);
 
-struct Tree<'a>(HashMap<usize, RegionInfo<'a>>);
-
-impl<'a> Tree<'a> {
-    fn new(root: &'a Region) -> Self {
-        let mut regions = HashMap::new();
-        let mut pending = vec![(root, None, 0)];
-        while let Some((region, parent, depth)) = pending.pop() {
-            for (index, operation) in region.operations.iter().enumerate() {
-                for child in operation.children() {
-                    pending.push((
-                        child,
-                        Some(Site {
-                            region: region.id,
-                            index,
-                        }),
-                        depth + 1,
-                    ));
-                }
-            }
-            regions.insert(
-                region.id,
-                RegionInfo {
-                    region,
-                    parent,
-                    depth,
-                },
-            );
-        }
-        Self(regions)
-    }
-
-    fn lift(&self, point: Point) -> Point {
-        Point {
-            site: self.0[&point.site.region]
-                .parent
-                .expect("a child has a parent"),
-            phase: Phase::Header,
-        }
-    }
-
+impl Tree<'_> {
     fn common_bounds(&self, mut a: Point, mut b: Point) -> (Point, Point) {
-        while self.0[&a.site.region].depth > self.0[&b.site.region].depth {
-            a = self.lift(a);
-        }
-        while self.0[&b.site.region].depth > self.0[&a.site.region].depth {
-            b = self.lift(b);
-        }
-        while a.site.region != b.site.region {
-            a = self.lift(a);
-            b = self.lift(b);
+        let (a_site, b_site) = self.0.common_region(a.site, b.site);
+        for (point, site) in [(&mut a, a_site), (&mut b, b_site)] {
+            if point.site.region != site.region {
+                point.site = site;
+                point.phase = Phase::Header;
+            }
         }
         // A child cannot initialize values for its parent's other path. Common
         // captures belong after the parent's selector, before entering the child.
@@ -120,11 +75,12 @@ impl<'a> Tree<'a> {
         let mut anchor = use_;
         let mut region = use_.site.region;
         while region != origin.region {
-            let parent = self.0[&region]
-                .parent
+            let parent = self
+                .0
+                .parent(region)
                 .expect("a snapshot is visible at its demand");
             if matches!(
-                self.0[&parent.region].region.operations[parent.index],
+                self.0.region(parent.region).operations[parent.index],
                 Operation::Loop { .. }
             ) {
                 // Preserve an authored snapshot once before the first crossed
@@ -147,24 +103,25 @@ impl<'a> Tree<'a> {
         let mut scope = use_.region;
         while scope != origin.region {
             path.push(scope);
-            scope = self.0[&scope]
-                .parent
+            scope = self
+                .0
+                .parent(scope)
                 .expect("a read is visible at its demand")
                 .region;
         }
         let mut region = origin.region;
         let mut start = origin.index + 1;
         for child in path.into_iter().rev() {
-            let parent = self.0[&child].parent.unwrap();
+            let parent = self.0.parent(child).unwrap();
             if self.writes_prefix(region, start, parent.index, &store, &call) {
                 return true;
             }
             // An outer snapshot used in a loop must also survive writes after
             // that use: a backedge reaches the use again on the next iteration.
             if matches!(
-                self.0[&region].region.operations[parent.index],
+                self.0.region(region).operations[parent.index],
                 Operation::Loop { .. }
-            ) && Self::region_may_write(self.0[&child].region, &store, &call)
+            ) && Self::region_may_write(self.0.region(child), &store, &call)
             {
                 return true;
             }
@@ -184,7 +141,7 @@ impl<'a> Tree<'a> {
     ) -> bool {
         // Stop before the demand's operation or terminal. Its child regions
         // have not run yet and cannot clobber a selector's snapshot.
-        self.0[&region].region.operations[start..end]
+        self.0.region(region).operations[start..end]
             .iter()
             .any(|operation| {
                 Self::writes_operation(operation, store, call)
@@ -292,16 +249,20 @@ struct Planner<'a> {
     demands: Vec<Option<Demand>>,
     capture_points: Vec<Vec<Point>>,
     saved: Vec<bool>,
+    value_order: Vec<usize>,
 }
 
 pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
+    let tree = Tree(RegionTree::new(&body.region));
+    let value_order = order::values(body, &tree);
     let mut planner = Planner {
         body,
         effects,
-        tree: Tree::new(&body.region),
+        tree,
         demands: vec![None; body.values.len()],
         capture_points: vec![Vec::new(); body.values.len()],
         saved: vec![false; body.values.len()],
+        value_order,
     };
     planner.collect_demands();
     planner.place_values();
@@ -393,16 +354,17 @@ impl Planner<'_> {
     fn place_values(&mut self) {
         let body = self.body;
         let effects = self.effects;
-        // Operands precede consumers. Each chosen placement needs its inputs once.
+        // Visit consumers before their inputs, including rewritten edge arguments.
         // Recomputed expressions pass their actual placements to their inputs;
         // snapshot producers retain their own sharing and clobber rules.
-        for id in (0..body.values.len()).rev() {
+        for index in (0..self.value_order.len()).rev() {
+            let id = self.value_order[index];
             if matches!(body.values[id].kind, ValueKind::LoopInput { .. }) {
                 continue;
             }
             if let ValueKind::OperationResult { site, component } = body.values[id].kind {
                 // Failed branch construction can leave values from a discarded region.
-                if !self.tree.0.contains_key(&site.region) {
+                if self.tree.0.operation(site).is_none() {
                     continue;
                 }
                 if matches!(body.operation(site), Operation::Atomic { .. }) {
@@ -412,8 +374,8 @@ impl Planner<'_> {
                     continue;
                 }
                 let (_, outputs) = body.call(site);
-                // Result IDs are adjacent and follow every argument. Visit the group
-                // at its last component, after all consumers have supplied demand.
+                // Result groups follow every argument in the dependency order. Visit
+                // the last component after all consumers have supplied demand.
                 if component + 1 == outputs.len() {
                     self.place_call(site);
                 }
@@ -428,7 +390,7 @@ impl Planner<'_> {
             };
             if let ValueKind::JoinResult { site, component } = body.values[id].kind {
                 saved[id] = true;
-                let operation = &tree.0[&site.region].region.operations[site.index];
+                let operation = &tree.0.region(site.region).operations[site.index];
                 // The branch operation stays at its authored site. A live output needs
                 // each incoming component only at its actual branch site, including
                 // exits nested within other control operations.
@@ -459,46 +421,8 @@ impl Planner<'_> {
                     capture_points[id].push(anchor);
                     saved[id] = true;
                 }
-                match body.values[id].kind {
-                    ValueKind::Binary(_, a, b)
-                    | ValueKind::Compare(_, a, b)
-                    | ValueKind::Shift {
-                        value: a, count: b, ..
-                    }
-                    | ValueKind::Rotate {
-                        value: a, count: b, ..
-                    } => {
-                        demand(body, tree, demands, a, anchor);
-                        demand(body, tree, demands, b, anchor);
-                    }
-                    ValueKind::Select {
-                        condition,
-                        when_true,
-                        when_false,
-                    } => {
-                        demand(body, tree, demands, when_true, anchor);
-                        demand(body, tree, demands, when_false, anchor);
-                        demand(body, tree, demands, condition, anchor);
-                    }
-                    ValueKind::Normalize(input)
-                    | ValueKind::Convert(input)
-                    | ValueKind::SignExtend(input)
-                    | ValueKind::BitCount(_, input)
-                    | ValueKind::ZeroTest { input, .. } => {
-                        demand(body, tree, demands, input, anchor)
-                    }
-                    // Address reads preserve their snapshots where this read runs.
-                    ValueKind::Load { location, .. } => {
-                        demand(body, tree, demands, location.base, anchor)
-                    }
-                    ValueKind::Constant(_) | ValueKind::Parameter(_) => {}
-                    ValueKind::LoopInput { .. } => unreachable!("loop inputs are fixed at entry"),
-                    ValueKind::OperationResult { .. } => {
-                        unreachable!("effect results follow their producer's placement")
-                    }
-                    ValueKind::JoinResult { .. } => {
-                        unreachable!("join demands stay inside their arms")
-                    }
+                for input in body.values[id].kind.inputs() {
+                    demand(body, tree, demands, input, anchor);
                 }
             }
         }
@@ -509,6 +433,7 @@ impl Planner<'_> {
             body,
             capture_points,
             saved,
+            value_order,
             ..
         } = self;
         let mut slot_types = Vec::new();
@@ -529,9 +454,9 @@ impl Planner<'_> {
             })
             .collect();
         let mut captures: HashMap<_, Vec<_>> = HashMap::new();
-        // Increasing value order places captured dependencies before their users.
-        for (id, points) in capture_points.into_iter().enumerate() {
-            for point in points {
+        // Captures at the same site must initialize dependencies before consumers.
+        for id in value_order {
+            for point in &capture_points[id] {
                 captures.entry(point.site).or_default().push(id);
             }
         }

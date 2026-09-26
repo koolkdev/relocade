@@ -43,6 +43,8 @@ mod multiplication;
 mod no_result_functions;
 #[path = "suites/ordinary_calls.rs"]
 mod ordinary_calls;
+#[path = "suites/path_facts.rs"]
+mod path_facts;
 #[path = "suites/rotations.rs"]
 mod rotations;
 #[path = "suites/shifts.rs"]

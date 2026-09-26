@@ -144,7 +144,7 @@ impl ValueArena {
         }
     }
 
-    fn zero_test(&mut self, input: usize, nonzero: bool) -> usize {
+    pub(super) fn zero_test(&mut self, input: usize, nonzero: bool) -> usize {
         let input = if self.bounds[input].signed <= self.values[input].ty.bits() {
             input
         } else {

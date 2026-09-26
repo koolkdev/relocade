@@ -62,7 +62,7 @@ impl ValueArena {
         })
     }
 
-    fn rotate(&mut self, operator: RotateOp, input: usize, count: usize) -> usize {
+    pub(super) fn rotate(&mut self, operator: RotateOp, input: usize, count: usize) -> usize {
         let value = self.values[input];
         if let ValueKind::Constant(bits) = self.values[count].kind {
             let effective = integer::rotate_count(value.ty, bits as u32);
