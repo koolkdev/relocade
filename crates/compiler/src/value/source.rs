@@ -97,8 +97,12 @@ impl<T: IntType> Val<T> {
     // Authored parameters, reads, calls and joins begin with their runtime scope.
     // Expressions use `bound` to retain scopes that folding may discard.
     pub(crate) fn new(arena: ExpressionArena, expression: Result<usize, BuildError>) -> Self {
-        let expression = expression
-            .and_then(|value| Ok(BoundExpression::new(value, arena.required_scope(value)?)));
+        let expression = expression.and_then(|value| {
+            Ok(BoundExpression::new(
+                value,
+                Some(arena.definition_scope(value)?),
+            ))
+        });
         Self::bound(arena, expression)
     }
 

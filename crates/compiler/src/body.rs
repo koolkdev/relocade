@@ -10,6 +10,8 @@ use crate::{
 
 mod tree;
 pub(super) use tree::BlockTree;
+mod values;
+pub(super) use values::ValueTable;
 
 pub(super) struct Body {
     pub(super) values: Vec<Value>,

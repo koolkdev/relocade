@@ -5,12 +5,13 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::super::ValueArena;
-use crate::body::{Block, BlockTree, Operation, Site, Target, Terminal, ValueDefinition};
+use crate::body::{
+    Block, BlockTree, Operation, Site, Target, Terminal, ValueDefinition, ValueTable,
+};
 
-pub(super) fn analyze(arena: &ValueArena, block: &Block) -> HashMap<Site, Vec<usize>> {
+pub(super) fn analyze(table: &ValueTable, block: &Block) -> HashMap<Site, Vec<usize>> {
     let mut analysis = Analysis {
-        arena,
+        table,
         groups: Vec::new(),
         tree: BlockTree::new(block),
         continuations: HashMap::new(),
@@ -30,7 +31,7 @@ pub(super) fn analyze(arena: &ValueArena, block: &Block) -> HashMap<Site, Vec<us
 }
 
 struct Analysis<'a> {
-    arena: &'a ValueArena,
+    table: &'a ValueTable,
     groups: Vec<UseGroup>,
     tree: BlockTree<'a>,
     continuations: HashMap<Target, Live>,
@@ -127,7 +128,7 @@ impl Analysis<'_> {
         let mut pending: Vec<_> = inputs.into_iter().collect();
         let mut current = HashSet::new();
         while let Some(value) = pending.pop() {
-            let ValueDefinition::Expression(expression) = self.arena.values[value].definition
+            let ValueDefinition::Expression(expression) = self.table.values[value].definition
             else {
                 continue;
             };

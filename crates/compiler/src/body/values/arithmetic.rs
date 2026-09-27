@@ -1,13 +1,13 @@
 //! Binary folding and a shared representation for modular constant offsets.
 
-use super::ValueArena;
+use super::ValueTable;
 use crate::{
     body::{Value, ValueDefinition},
     integer::{self, BinaryOp},
     Expression,
 };
 
-impl ValueArena {
+impl ValueTable {
     pub(super) fn binary(&mut self, operator: BinaryOp, left: usize, right: usize) -> usize {
         let a = self.values[left];
         let b = self.values[right];

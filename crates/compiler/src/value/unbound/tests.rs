@@ -22,7 +22,7 @@ fn shared_unbound_expressions_are_cached_per_body_and_released_when_closed() {
             assert_eq!(retained.strong_count(), owners);
         }
     }
-    assert!(first.take().is_some());
+    let _first_values = first.take().unwrap();
     assert_eq!(
         folded.checked_expression(&first, 0),
         Err(BuildError::BodyClosed)
@@ -32,7 +32,7 @@ fn shared_unbound_expressions_are_cached_per_body_and_released_when_closed() {
     drop(expression);
     // Only the second body's cache retains the expression graph.
     assert_eq!(retained.strong_count(), 1);
-    assert!(second.take().is_some());
+    let _second_values = second.take().unwrap();
     assert!(retained.upgrade().is_none());
 }
 
@@ -79,7 +79,7 @@ fn unbound_operands_keep_their_types_across_comparisons_shifts_and_conversions()
             1 << 40,
         ),
     ];
-    let values = arena.take().unwrap();
+    let values = arena.take().unwrap().values;
     for (id, ty, bits) in expected {
         assert_eq!(values[id].ty, ty);
         assert!(

@@ -1,27 +1,27 @@
 //! Simplifies completed control blocks before effects and value placement.
 use crate::body::{Block, Operation, Value, ValueDefinition};
 
-pub(super) fn control(block: &mut Block, values: &[Value]) {
+pub(super) fn fold(block: &mut Block, values: &[Value]) {
     for operation in &mut block.operations {
         match operation {
             Operation::Block { block, .. }
             | Operation::Loop { block, .. }
-            | Operation::BranchIf { taken: block, .. } => control(block, values),
+            | Operation::BranchIf { taken: block, .. } => fold(block, values),
             Operation::If {
                 branch,
                 else_branch,
                 ..
             } => {
-                control(branch, values);
+                fold(branch, values);
                 if let Some(other) = else_branch {
-                    control(other, values);
+                    fold(other, values);
                 }
             }
             Operation::Switch { cases, default, .. } => {
                 for case in cases {
-                    control(&mut case.block, values);
+                    fold(&mut case.block, values);
                 }
-                control(default, values);
+                fold(default, values);
             }
             _ => {}
         }

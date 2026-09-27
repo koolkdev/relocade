@@ -6,8 +6,7 @@ mod values;
 
 use std::collections::HashMap;
 
-use super::ValueArena;
-use crate::body::{Block, Operation, Site, Target, Terminal};
+use crate::body::{Block, Operation, Site, Target, Terminal, ValueTable};
 use facts::Facts;
 
 #[derive(Default)]
@@ -28,17 +27,17 @@ impl Path {
         }
     }
 
-    fn learn(&mut self, arena: &ValueArena, condition: usize, truth: bool) {
+    fn learn(&mut self, table: &ValueTable, condition: usize, truth: bool) {
         // Shared expressions may still refer to the original predicate even
         // after this branch has acquired an equivalent, simpler expression.
-        self.facts.assume(arena, condition, truth);
+        self.facts.assume(table, condition, truth);
         if let Some(&rewritten) = self.rewritten.get(&condition) {
-            self.facts.assume(arena, rewritten, truth);
+            self.facts.assume(table, rewritten, truth);
         }
         self.rewritten.clear();
     }
 
-    fn share(&mut self, arena: &mut ValueArena, values: &[usize]) {
+    fn share(&mut self, table: &mut ValueTable, values: &[usize]) {
         // A new group may be exclusive with an inherited group. Reconsider its
         // values using this anchor's facts, including cached dependent results.
         for value in values {
@@ -47,25 +46,25 @@ impl Path {
         self.rewritten.clear();
         for &original in values {
             let mut rewritten = original;
-            self.value(arena, &mut rewritten);
+            self.value(table, &mut rewritten);
             self.shared.insert(original, rewritten);
         }
     }
 
-    fn arguments(&mut self, arena: &mut ValueArena, arguments: &mut [usize]) {
+    fn arguments(&mut self, table: &mut ValueTable, arguments: &mut [usize]) {
         for argument in arguments {
-            self.value(arena, argument);
+            self.value(table, argument);
         }
     }
 }
 
-pub(super) fn simplify(arena: &mut ValueArena, block: &mut Block) {
-    let sharing = sharing::analyze(arena, block);
-    Simplifier { arena, sharing }.visit(block, &mut Path::default());
+pub(super) fn simplify(table: &mut ValueTable, block: &mut Block) {
+    let sharing = sharing::analyze(table, block);
+    Simplifier { table, sharing }.visit(block, &mut Path::default());
 }
 
 struct Simplifier<'a> {
-    arena: &'a mut ValueArena,
+    table: &'a mut ValueTable,
     sharing: HashMap<Site, Vec<usize>>,
 }
 
@@ -79,28 +78,28 @@ impl Simplifier<'_> {
                 index,
             };
             if let Some(values) = self.sharing.get(&site) {
-                path.share(self.arena, values);
+                path.share(self.table, values);
             }
             match operation {
                 // Loads retain their authored addresses and snapshot identities. A
                 // fact about an earlier read never describes a fresh read after a write.
                 Operation::Nop | Operation::Load { .. } | Operation::Fence => {}
                 Operation::Store { location, value } => {
-                    path.value(self.arena, &mut location.base);
-                    path.value(self.arena, value);
+                    path.value(self.table, &mut location.base);
+                    path.value(self.table, value);
                 }
                 Operation::Atomic { access, .. } => {
                     *access = access.map(|mut value| {
-                        path.value(self.arena, &mut value);
+                        path.value(self.table, &mut value);
                         value
                     });
                 }
                 Operation::Call { invocation, .. } => {
-                    path.arguments(self.arena, &mut invocation.arguments)
+                    path.arguments(self.table, &mut invocation.arguments)
                 }
                 Operation::Block { block, .. } => self.visit(block, &mut path.fork()),
                 Operation::Loop { initial, block, .. } => {
-                    path.arguments(self.arena, initial);
+                    path.arguments(self.table, initial);
                     // Only inherited facts hold on every entry. Facts learned in an
                     // iteration do not escape the loop or flow around its backedges.
                     self.visit(block, &mut path.fork());
@@ -112,14 +111,14 @@ impl Simplifier<'_> {
                     ..
                 } => {
                     let original = *condition;
-                    path.value(self.arena, condition);
+                    path.value(self.table, condition);
                     let mut taken = path.fork();
-                    taken.learn(self.arena, original, true);
+                    taken.learn(self.table, original, true);
                     self.visit(branch, &mut taken);
                     let then_continues = continues(branch, site);
                     let else_continues = if let Some(other) = else_branch {
                         let mut skipped = path.fork();
-                        skipped.learn(self.arena, original, false);
+                        skipped.learn(self.table, original, false);
                         self.visit(other, &mut skipped);
                         continues(other, site)
                     } else {
@@ -129,21 +128,21 @@ impl Simplifier<'_> {
                     // Later facts within that arm might have been bypassed by an
                     // earlier yield, so they are deliberately not exported here.
                     if !then_continues && else_continues {
-                        path.learn(self.arena, original, false);
+                        path.learn(self.table, original, false);
                     } else if then_continues && !else_continues {
-                        path.learn(self.arena, original, true);
+                        path.learn(self.table, original, true);
                     }
                 }
                 Operation::BranchIf { condition, taken } => {
                     let original = *condition;
-                    path.value(self.arena, condition);
+                    path.value(self.table, condition);
                     if shared_tail && index + 1 == operation_count {
                         // A br_if can carry one tuple for both edges. Simplify it
                         // before learning which edge is taken so it stays shared.
                         let Some(Terminal::Branch { arguments, .. }) = &mut taken.terminal else {
                             unreachable!("a shared tail has two branch edges");
                         };
-                        path.arguments(self.arena, arguments);
+                        path.arguments(self.table, arguments);
                         let Some(Terminal::Branch {
                             arguments: continued,
                             ..
@@ -155,9 +154,9 @@ impl Simplifier<'_> {
                         continue;
                     }
                     let mut edge = path.fork();
-                    edge.learn(self.arena, original, true);
+                    edge.learn(self.table, original, true);
                     self.visit(taken, &mut edge);
-                    path.learn(self.arena, original, false);
+                    path.learn(self.table, original, false);
                 }
                 Operation::Switch {
                     selector,
@@ -165,7 +164,7 @@ impl Simplifier<'_> {
                     default,
                     ..
                 } => {
-                    path.value(self.arena, selector);
+                    path.value(self.table, selector);
                     for case in cases {
                         self.visit(&mut case.block, &mut path.fork());
                     }
@@ -177,7 +176,7 @@ impl Simplifier<'_> {
             block: block.id,
             index: operation_count,
         }) {
-            path.share(self.arena, values);
+            path.share(self.table, values);
         }
         if let Some(terminal) = &mut block.terminal {
             if shared_tail {
@@ -186,10 +185,10 @@ impl Simplifier<'_> {
             match terminal {
                 Terminal::Trap => {}
                 Terminal::Return(arguments) | Terminal::Branch { arguments, .. } => {
-                    path.arguments(self.arena, arguments)
+                    path.arguments(self.table, arguments)
                 }
                 Terminal::TailCall(invocation) => {
-                    path.arguments(self.arena, &mut invocation.arguments)
+                    path.arguments(self.table, &mut invocation.arguments)
                 }
             }
         }

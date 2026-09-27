@@ -1,13 +1,13 @@
 //! Comparison folding and logical-width normalization.
 
-use super::ValueArena;
+use super::ValueTable;
 use crate::{
     body::{Value, ValueDefinition},
     integer::{self, BinaryOp, CompareOp},
     Expression, Type,
 };
 
-impl ValueArena {
+impl ValueTable {
     pub(super) fn compare(&mut self, operator: CompareOp, left: usize, right: usize) -> usize {
         let a = self.values[left];
         let b = self.values[right];

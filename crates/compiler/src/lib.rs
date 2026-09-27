@@ -32,7 +32,6 @@ mod control;
 mod effects;
 mod emit;
 mod expression;
-mod fold;
 mod function;
 mod integer;
 mod memory;
@@ -40,6 +39,7 @@ mod module;
 mod place;
 mod results;
 mod schedule;
+mod simplify;
 mod types;
 mod value;
 

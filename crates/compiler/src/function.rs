@@ -1,7 +1,7 @@
 //! Function construction, pending blocks and definition publication.
 use crate::{
     arena::ExpressionArena,
-    body::{Block, Body, Operation, Site, Terminal, Value, ValueDefinition},
+    body::{Block, Operation, Site, Terminal, Value, ValueDefinition},
     control::JoinTarget,
     Argument, Arguments, BuildError, Func, FunctionKind, IntType, Program, Signature, Type, Val,
 };
@@ -152,15 +152,13 @@ struct Definition<'program> {
 }
 
 impl Definition<'_> {
-    fn publish(&mut self, mut block: Block) -> Result<(), BuildError> {
+    fn publish(&mut self, block: Block) -> Result<(), BuildError> {
         if block.terminal.is_none() {
             return Err(BuildError::MissingBody);
         }
-        self.arena.simplify_paths(&mut block)?;
         let values = self.arena.take().ok_or(BuildError::BodyClosed)?;
-        crate::fold::control(&mut block, &values);
         self.program.functions[self.function.0].kind =
-            FunctionKind::Defined(Some(Body { values, block }));
+            FunctionKind::Defined(Some(crate::simplify::body(values, block)));
         Ok(())
     }
 }

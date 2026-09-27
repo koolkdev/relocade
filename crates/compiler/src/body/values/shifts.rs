@@ -1,13 +1,13 @@
 //! Shift and rotate folding, count conversion and logical-width lowering.
 
-use super::ValueArena;
+use super::ValueTable;
 use crate::{
     body::{Value, ValueDefinition},
     integer::{self, BinaryOp, RotateOp, ShiftOp},
     Expression, Type,
 };
 
-impl ValueArena {
+impl ValueTable {
     pub(super) fn shift(&mut self, operator: ShiftOp, input: usize, count: usize) -> usize {
         let value = self.values[input];
         if let ValueDefinition::Constant(bits) = self.values[count].definition {
