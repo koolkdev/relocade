@@ -2,8 +2,9 @@
 use std::ops::Range;
 
 use crate::{
+    body::{Body, Operation, Terminal, ValueDefinition},
     memory::{Location, Mem},
-    place, Body, FunctionKind, Operation, Program, Terminal, ValueDefinition,
+    place, FunctionKind, Program,
 };
 
 #[derive(Clone, Eq, PartialEq)]

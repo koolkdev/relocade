@@ -4,11 +4,11 @@ use std::collections::HashMap;
 use wasm_encoder::ValType;
 
 use crate::{
-    control::{Block, BlockTree, Site, Target},
+    body::{Block, BlockTree, Body, Operation, Site, Target, Terminal, ValueDefinition},
     effects::Effects,
     emit::wasm_type,
     memory::Location,
-    Body, Expression, Func, Operation, Terminal, ValueDefinition,
+    Expression, Func,
 };
 
 mod calls;

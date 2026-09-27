@@ -2,8 +2,9 @@
 
 use super::ValueArena;
 use crate::{
+    body::{Value, ValueDefinition},
     integer::{self, BinaryOp},
-    Expression, Value, ValueDefinition,
+    Expression,
 };
 
 impl ValueArena {

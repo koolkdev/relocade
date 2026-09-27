@@ -2,7 +2,7 @@
 use wasm_encoder::Instruction;
 
 use super::{wasm_type, Scheduler};
-use crate::control::{Block, Site, Target};
+use crate::body::{Block, Site, Target};
 
 impl Scheduler<'_> {
     pub(super) fn loop_block(

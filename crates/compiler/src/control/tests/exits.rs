@@ -1,7 +1,6 @@
 use crate::{
-    control::{Site, Target},
-    BuildError, FunctionKind, MemoryImport, Operation, Program, Signature, Terminal, Type,
-    ValueDefinition, I1, I32,
+    body::{Operation, Site, Target, Terminal, ValueDefinition},
+    BuildError, FunctionKind, MemoryImport, Program, Signature, Type, I1, I32,
 };
 
 fn signature() -> Signature {

@@ -3,8 +3,9 @@ use wasm_encoder::{Encode, Instruction};
 
 use super::Scheduler;
 use crate::{
+    body::ValueDefinition,
     integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
-    Expression, Type, ValueDefinition,
+    Expression, Type,
 };
 
 impl Scheduler<'_> {

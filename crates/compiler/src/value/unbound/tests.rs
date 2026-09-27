@@ -1,5 +1,5 @@
 use super::*;
-use crate::{value::source::ValueSource, IntType, Val, ValueDefinition, I1, I32, I64, I8};
+use crate::{body::ValueDefinition, value::source::ValueSource, IntType, Val, I1, I32, I64, I8};
 
 #[test]
 fn shared_unbound_expressions_are_cached_per_body_and_released_when_closed() {

@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::{
-    control::Site,
+    body::{Site, Value, ValueDefinition},
     integer::{self, BitBounds, BitCountOp},
     memory::Location,
     value::UnboundExpression,
-    BuildError, Expression, Type, Value, ValueDefinition,
+    BuildError, Expression, Type,
 };
 
 mod arithmetic;
@@ -203,10 +203,7 @@ impl ExpressionArena {
         arena.map(|arena| arena.values)
     }
 
-    pub(super) fn simplify_paths(
-        &self,
-        block: &mut crate::control::Block,
-    ) -> Result<(), BuildError> {
+    pub(super) fn simplify_paths(&self, block: &mut crate::body::Block) -> Result<(), BuildError> {
         let mut arena = self.0.borrow_mut();
         paths::simplify(arena.as_mut().ok_or(BuildError::BodyClosed)?, block);
         Ok(())

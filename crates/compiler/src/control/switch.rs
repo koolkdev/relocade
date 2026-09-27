@@ -1,8 +1,11 @@
 //! Multiway branch construction and logical selector validation.
 use std::collections::HashSet;
 
-use super::{Block, JoinTarget, SwitchCase};
-use crate::{AtLeast, BlockBuilder, BuildError, IntType, Operation, Results, Val, I32};
+use super::JoinTarget;
+use crate::{
+    body::{Block, Operation, SwitchCase},
+    AtLeast, BlockBuilder, BuildError, IntType, Results, Val, I32,
+};
 
 impl BlockBuilder<'_> {
     /// Executes the arm whose key equals the selector, or the default arm when no

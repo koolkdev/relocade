@@ -1,6 +1,6 @@
 //! One placement for every demanded result of an invocation.
 use super::{demand, Demand, Planner, Point};
-use crate::{control::Site, effects::Effects};
+use crate::{body::Site, effects::Effects};
 
 impl Planner<'_> {
     pub(super) fn place_call(&mut self, site: Site) {

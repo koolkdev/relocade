@@ -1,9 +1,9 @@
 //! Function construction, pending blocks and definition publication.
 use crate::{
     arena::ExpressionArena,
-    control::{Block, JoinTarget, Site},
-    Argument, Arguments, Body, BuildError, Func, FunctionKind, IntType, Operation, Program,
-    Signature, Terminal, Type, Val, Value, ValueDefinition,
+    body::{Block, Body, Operation, Site, Terminal, Value, ValueDefinition},
+    control::JoinTarget,
+    Argument, Arguments, BuildError, Func, FunctionKind, IntType, Program, Signature, Type, Val,
 };
 
 /// Builds a function body or child block. Its parent owns the block and attaches
@@ -158,7 +158,7 @@ impl Definition<'_> {
         }
         self.arena.simplify_paths(&mut block)?;
         let values = self.arena.take().ok_or(BuildError::BodyClosed)?;
-        block.fold_constants(&values);
+        crate::fold::control(&mut block, &values);
         self.program.functions[self.function.0].kind =
             FunctionKind::Defined(Some(Body { values, block }));
         Ok(())

@@ -2,8 +2,7 @@
 
 use std::collections::HashMap;
 
-use super::{Block, Site};
-use crate::Operation;
+use super::{Block, Operation, Site};
 
 struct BlockInfo<'a> {
     block: &'a Block,

@@ -1,10 +1,11 @@
 //! Scoped typed labels and outward exits from structured blocks.
 use std::marker::PhantomData;
 
-use super::{JoinTarget, Target};
+use super::JoinTarget;
 use crate::{
-    arena::ExpressionArena, Arguments, BlockBuilder, BuildError, Operation, Results, Terminal, Val,
-    I1,
+    arena::ExpressionArena,
+    body::{Operation, Target, Terminal},
+    Arguments, BlockBuilder, BuildError, Results, Val, I1,
 };
 
 /// A typed block exit, loop header or loop exit, usable within its control block

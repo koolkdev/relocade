@@ -3,8 +3,9 @@ use wasm_encoder::{Encode, Instruction, MemArg};
 
 use super::Scheduler;
 use crate::{
+    body::ValueDefinition,
     memory::{AtomicKind, AtomicOperation, Location},
-    place, Expression, Type, ValueDefinition,
+    place, Expression, Type,
 };
 
 impl Scheduler<'_> {

@@ -2,7 +2,7 @@
 use wasm_encoder::{Encode, Instruction};
 
 use super::{LocalOp, Scheduler};
-use crate::control::Site;
+use crate::body::Site;
 
 impl Scheduler<'_> {
     pub(super) fn authored_call(&mut self, site: Site) {

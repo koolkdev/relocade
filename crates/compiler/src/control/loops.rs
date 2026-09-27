@@ -1,9 +1,10 @@
 //! Typed loop entry and exit edges within the structured control tree.
 use std::marker::PhantomData;
 
-use super::{Label, Target};
+use super::Label;
 use crate::{
-    results, Arguments, BlockBuilder, BuildError, Operation, Results, Value, ValueDefinition,
+    body::{Operation, Target, Value, ValueDefinition},
+    results, Arguments, BlockBuilder, BuildError, Results,
 };
 
 /// The two destinations visible within a loop and its descendants.

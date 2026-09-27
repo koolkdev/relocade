@@ -4,8 +4,9 @@ use std::collections::HashMap;
 
 use super::super::ValueArena;
 use crate::{
+    body::ValueDefinition,
     integer::{BinaryOp, CompareOp},
-    Expression, Type, ValueDefinition,
+    Expression, Type,
 };
 
 #[derive(Clone, Copy, Default)]

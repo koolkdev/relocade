@@ -1,7 +1,10 @@
 //! Rebuild calculations at their uses; snapshots and effect results keep identity.
 
 use super::{super::ValueArena, Path};
-use crate::{Expression, Value, ValueDefinition};
+use crate::{
+    body::{Value, ValueDefinition},
+    Expression,
+};
 
 impl Path {
     pub(super) fn value(&mut self, arena: &mut ValueArena, root: &mut usize) {

@@ -1,7 +1,10 @@
 //! Conservative bit widths of emitted values, including unused logical upper bits.
 
 use super::{shift_count, BinaryOp, BitCountOp, ShiftOp};
-use crate::{Expression, Type, Value, ValueDefinition};
+use crate::{
+    body::{Value, ValueDefinition},
+    Expression, Type,
+};
 
 #[derive(Clone, Copy)]
 pub(crate) struct BitBounds {

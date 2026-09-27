@@ -3,8 +3,8 @@ use wasm_encoder::{Encode, Instruction};
 
 use super::{wasm_type, ControlLabel, Scheduler};
 use crate::{
-    control::{Block, Site, Target},
-    place, Operation, Terminal,
+    body::{Block, Operation, Site, Target, Terminal},
+    place,
 };
 
 impl Scheduler<'_> {

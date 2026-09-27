@@ -6,10 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::super::ValueArena;
-use crate::{
-    control::{Block, BlockTree, Site, Target},
-    Operation, Terminal, ValueDefinition,
-};
+use crate::body::{Block, BlockTree, Operation, Site, Target, Terminal, ValueDefinition};
 
 pub(super) fn analyze(arena: &ValueArena, block: &Block) -> HashMap<Site, Vec<usize>> {
     let mut analysis = Analysis {

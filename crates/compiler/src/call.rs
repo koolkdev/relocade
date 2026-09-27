@@ -1,25 +1,8 @@
 use crate::{
-    control::Site, results, Argument, BlockBuilder, Body, BuildError, Declaration, Func,
-    FunctionKind, Operation, Program, Results, Signature, Terminal, Type,
+    body::{Invocation, Operation, Terminal},
+    results, Argument, BlockBuilder, BuildError, Declaration, Func, FunctionKind, Program, Results,
+    Signature, Type,
 };
-
-pub(super) struct Invocation {
-    pub(super) target: Func,
-    pub(super) arguments: Vec<usize>,
-}
-
-impl Body {
-    pub(super) fn call(&self, site: Site) -> (&Invocation, &[usize]) {
-        let Operation::Call {
-            invocation,
-            outputs,
-        } = self.operation(site)
-        else {
-            unreachable!("a call result names its invocation")
-        };
-        (invocation, outputs)
-    }
-}
 
 /// An external function and its logical parameter and return types.
 /// Narrow arguments are passed zero-extended. The imported function must return

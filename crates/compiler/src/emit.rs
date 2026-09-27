@@ -2,8 +2,12 @@
 use wasm_encoder::{Encode, Function, Instruction, ValType};
 
 use crate::{
-    control::Target, effects::Effects, locals, memory::Location, module::Types, place, Body,
-    Expression, Type, ValueDefinition,
+    body::{Body, Target, ValueDefinition},
+    effects::Effects,
+    locals,
+    memory::Location,
+    module::Types,
+    place, Expression, Type,
 };
 
 mod branch;

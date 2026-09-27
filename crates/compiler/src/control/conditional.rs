@@ -1,6 +1,9 @@
 //! Conditional execution and typed result selection.
 use super::JoinTarget;
-use crate::{Arguments, BlockBuilder, BuildError, Operation, Results, Terminal, Val, I1};
+use crate::{
+    body::{Operation, Terminal},
+    Arguments, BlockBuilder, BuildError, Results, Val, I1,
+};
 
 impl BlockBuilder<'_> {
     /// Conditionally supplies this direct result arm, block or loop's result.

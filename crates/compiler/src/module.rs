@@ -6,7 +6,10 @@ use wasm_encoder::{
     MemoryType, Module, TypeSection, ValType,
 };
 
-use crate::{effects, emit, FunctionKind, Operation, Program, Terminal, ValueDefinition};
+use crate::{
+    body::{Operation, Terminal, ValueDefinition},
+    effects, emit, FunctionKind, Program,
+};
 
 /// Function and multi-result block signatures share one deterministic carrier table.
 #[derive(Default)]

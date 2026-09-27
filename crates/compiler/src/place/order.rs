@@ -1,7 +1,7 @@
 //! Dependency order for placement, independent of expression allocation order.
 
 use super::Tree;
-use crate::{control::Target, Body, Operation, ValueDefinition};
+use crate::body::{Body, Operation, Target, ValueDefinition};
 
 pub(super) fn values(body: &Body, tree: &Tree<'_>) -> Vec<usize> {
     let mut visited = vec![false; body.values.len()];

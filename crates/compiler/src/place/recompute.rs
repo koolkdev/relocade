@@ -2,7 +2,11 @@
 use std::collections::BTreeMap;
 
 use super::{representation, Demand, Phase, Point, Tree};
-use crate::{control::Site, integer::BinaryOp, Body, Expression, ValueDefinition};
+use crate::{
+    body::{Body, Site, ValueDefinition},
+    integer::BinaryOp,
+    Expression,
+};
 
 pub(super) fn groups(body: &Body, id: usize, demand: Demand, tree: &Tree<'_>) -> Vec<Demand> {
     // Derived calculations can be recomputed on their consuming paths. Their

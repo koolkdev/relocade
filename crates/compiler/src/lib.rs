@@ -26,11 +26,13 @@
 #![forbid(unsafe_code)]
 
 mod arena;
+mod body;
 mod call;
 mod control;
 mod effects;
 mod emit;
 mod expression;
+mod fold;
 mod function;
 mod integer;
 mod locals;
@@ -43,14 +45,12 @@ mod value;
 
 use std::fmt;
 
+use body::Body;
 pub use call::FunctionImport;
-use call::Invocation;
-use control::{Block, Site};
 pub use control::{Label, LoopLabels};
 use expression::Expression;
 pub use function::BlockBuilder;
 pub use memory::{AtomicAccess, Mem, MemoryImport, MemoryInt};
-use memory::{AtomicOperation, Location};
 pub use results::{Arguments, Results};
 pub use types::{AtLeast, IntType, Type, I1, I16, I32, I64, I8};
 pub use value::{Argument, Signed, Unsigned, Val};
@@ -155,112 +155,6 @@ struct Declaration {
 enum FunctionKind {
     Defined(Option<Body>),
     Imported { module: String, name: String },
-}
-
-struct Body {
-    values: Vec<Value>,
-    block: Block,
-}
-
-enum Terminal {
-    Trap,
-    Branch {
-        target: control::Target,
-        arguments: Vec<usize>,
-    },
-    Return(Vec<usize>),
-    TailCall(Invocation),
-}
-
-impl Terminal {
-    fn inputs(&self) -> &[usize] {
-        match self {
-            Self::Trap => &[],
-            Self::Return(arguments) | Self::Branch { arguments, .. } => arguments,
-            Self::TailCall(invocation) => &invocation.arguments,
-        }
-    }
-}
-
-enum Operation {
-    // Keep authored sites stable when control folding removes an operation.
-    Nop,
-    Load(usize),
-    Store {
-        location: Location,
-        value: usize,
-    },
-    Atomic {
-        access: AtomicOperation,
-        output: Option<usize>,
-    },
-    Fence,
-    Block {
-        block: Block,
-        outputs: Vec<usize>,
-    },
-    Loop {
-        initial: Vec<usize>,
-        inputs: Vec<usize>,
-        block: Block,
-        outputs: Vec<usize>,
-    },
-    If {
-        condition: usize,
-        branch: Block,
-        else_branch: Option<Block>,
-        outputs: Vec<usize>,
-    },
-    BranchIf {
-        condition: usize,
-        taken: Block,
-    },
-    Switch {
-        selector: usize,
-        cases: Vec<control::SwitchCase>,
-        default: Block,
-        outputs: Vec<usize>,
-    },
-    Call {
-        invocation: Invocation,
-        outputs: Vec<usize>,
-    },
-}
-
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-struct Value {
-    ty: Type,
-    definition: ValueDefinition,
-}
-
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-enum ValueDefinition {
-    Constant(u64),
-    Parameter(u32),
-    LoopInput { block: usize, component: usize },
-    Expression(Expression<usize>),
-    Load { location: Location, site: Site },
-    OperationResult { site: Site, component: usize },
-    JoinResult { site: Site, component: usize },
-}
-
-impl ValueDefinition {
-    // Calls and joins keep their incoming values on the structured operation.
-    fn inputs(&self) -> impl DoubleEndedIterator<Item = usize> + '_ {
-        let expression = match self {
-            Self::Expression(expression) => Some(expression),
-            _ => None,
-        };
-        let address = match self {
-            Self::Load { location, .. } => Some(location.base),
-            _ => None,
-        };
-        expression
-            .into_iter()
-            .flat_map(Expression::inputs)
-            .copied()
-            .chain(address)
-    }
 }
 
 impl Program {

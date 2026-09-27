@@ -1,6 +1,6 @@
 use crate::{
-    place, AtLeast, BlockBuilder, Body, BuildError, Operation, Program, Val, ValueDefinition, I1,
-    I16, I32, I64, I8,
+    body::{Body, Operation, ValueDefinition},
+    place, AtLeast, BlockBuilder, BuildError, Program, Val, I1, I16, I32, I64, I8,
 };
 
 mod atomic;

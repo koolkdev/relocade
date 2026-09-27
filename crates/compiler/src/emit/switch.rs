@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use wasm_encoder::{BlockType, Encode, Instruction, ValType};
 
 use super::{LocalOp, Scheduler};
-use crate::control::{Block, Site, SwitchCase, Target};
+use crate::body::{Block, Site, SwitchCase, Target};
 
 impl Scheduler<'_> {
     pub(super) fn open_switch(

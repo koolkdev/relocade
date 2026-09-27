@@ -8,9 +8,8 @@ use std::collections::HashMap;
 
 use super::ValueArena;
 use crate::{
-    control::{Block, Site, Target},
+    body::{Block, Operation, Site, Target, Terminal},
     memory::AtomicKind,
-    Operation, Terminal,
 };
 use facts::Facts;
 

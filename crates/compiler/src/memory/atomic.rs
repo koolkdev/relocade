@@ -3,7 +3,7 @@
 use std::marker::PhantomData;
 
 use super::{Location, Mem, MemoryInt};
-use crate::{BlockBuilder, BuildError, Operation, Val, I32};
+use crate::{body::Operation, BlockBuilder, BuildError, Val, I32};
 
 /// An atomic access at a fixed logical width and address. Atomic operations are
 /// sequentially consistent, execute once in authored order, and require natural
