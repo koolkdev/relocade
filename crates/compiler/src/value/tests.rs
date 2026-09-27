@@ -1,6 +1,5 @@
 mod arithmetic;
 mod comparisons;
-mod unbound;
 mod visibility;
 
 use super::{Val, ValueSource};

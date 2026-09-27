@@ -1,7 +1,7 @@
 //! Dependency order for placement, independent of expression allocation order.
 
 use super::Tree;
-use crate::{control::Target, Body, Operation, ValueKind};
+use crate::{control::Target, Body, Operation, ValueDefinition};
 
 pub(super) fn values(body: &Body, tree: &Tree<'_>) -> Vec<usize> {
     let mut visited = vec![false; body.values.len()];
@@ -13,11 +13,10 @@ pub(super) fn values(body: &Body, tree: &Tree<'_>) -> Vec<usize> {
             if visited[id] {
                 continue;
             }
-            let kind = body.values[id].kind;
-            let operation = match kind {
-                ValueKind::JoinResult { site, .. } | ValueKind::OperationResult { site, .. } => {
-                    tree.0.operation(site)
-                }
+            let definition = body.values[id].definition;
+            let operation = match definition {
+                ValueDefinition::JoinResult { site, .. }
+                | ValueDefinition::OperationResult { site, .. } => tree.0.operation(site),
                 _ => None,
             };
             if ready {
@@ -35,12 +34,12 @@ pub(super) fn values(body: &Body, tree: &Tree<'_>) -> Vec<usize> {
                 continue;
             }
             pending.push((id, true));
-            pending.extend(kind.inputs().map(|input| (input, false)));
-            match (kind, operation) {
+            pending.extend(definition.inputs().map(|input| (input, false)));
+            match (definition, operation) {
                 (_, Some(Operation::Call { invocation, .. })) => {
                     pending.extend(invocation.arguments.iter().map(|&input| (input, false)));
                 }
-                (ValueKind::JoinResult { site, component }, Some(operation)) => {
+                (ValueDefinition::JoinResult { site, component }, Some(operation)) => {
                     for arm in operation.children() {
                         for (_, arguments) in arm.exits_to(Target::exit(site)) {
                             pending.push((arguments[component], false));

@@ -1,45 +1,25 @@
 //! Shift and rotate folding, count conversion and logical-width lowering.
 
-use super::{ExpressionArena, ValueArena};
+use super::ValueArena;
 use crate::{
     integer::{self, BinaryOp, RotateOp, ShiftOp},
-    BuildError, Type, Value, ValueKind,
+    Expression, Type, Value, ValueDefinition,
 };
 
-impl ExpressionArena {
-    pub(crate) fn shift(
-        &self,
-        operator: ShiftOp,
-        input: usize,
-        count: usize,
-    ) -> Result<usize, BuildError> {
-        self.with_open(|arena| arena.shift(operator, input, count))
-    }
-
-    pub(crate) fn rotate(
-        &self,
-        operator: RotateOp,
-        input: usize,
-        count: usize,
-    ) -> Result<usize, BuildError> {
-        self.with_open(|arena| arena.rotate(operator, input, count))
-    }
-}
-
 impl ValueArena {
-    fn shift(&mut self, operator: ShiftOp, input: usize, count: usize) -> usize {
+    pub(super) fn shift(&mut self, operator: ShiftOp, input: usize, count: usize) -> usize {
         let value = self.values[input];
-        if let ValueKind::Constant(bits) = self.values[count].kind {
+        if let ValueDefinition::Constant(bits) = self.values[count].definition {
             let effective = integer::shift_count(value.ty, bits as u32);
             if effective == 0 {
                 return input;
             }
-            if let ValueKind::Constant(bits) = value.kind {
+            if let ValueDefinition::Constant(bits) = value.definition {
                 let bits = integer::shift(value.ty, operator, bits, effective);
                 return self.constant(value.ty, bits);
             }
         }
-        if matches!(value.kind, ValueKind::Constant(0)) {
+        if matches!(value.definition, ValueDefinition::Constant(0)) {
             return input;
         }
         let input = match operator {
@@ -54,28 +34,28 @@ impl ValueArena {
         };
         self.intern(Value {
             ty: value.ty,
-            kind: ValueKind::Shift {
+            definition: ValueDefinition::Expression(Expression::Shift {
                 operator,
                 value: input,
                 count,
-            },
+            }),
         })
     }
 
     pub(super) fn rotate(&mut self, operator: RotateOp, input: usize, count: usize) -> usize {
         let value = self.values[input];
-        if let ValueKind::Constant(bits) = self.values[count].kind {
+        if let ValueDefinition::Constant(bits) = self.values[count].definition {
             let effective = integer::rotate_count(value.ty, bits as u32);
             if effective == 0 {
                 return input;
             }
-            if let ValueKind::Constant(bits) = value.kind {
+            if let ValueDefinition::Constant(bits) = value.definition {
                 let bits = integer::rotate(value.ty, operator, bits, effective);
                 return self.constant(value.ty, bits);
             }
         }
         if value.ty == Type::I1
-            || matches!(value.kind, ValueKind::Constant(bits) if bits == 0 || bits == value.ty.mask())
+            || matches!(value.definition, ValueDefinition::Constant(bits) if bits == 0 || bits == value.ty.mask())
         {
             return input;
         }
@@ -102,11 +82,11 @@ impl ValueArena {
         };
         self.intern(Value {
             ty: value.ty,
-            kind: ValueKind::Rotate {
+            definition: ValueDefinition::Expression(Expression::Rotate {
                 operator,
                 value: input,
                 count,
-            },
+            }),
         })
     }
 }

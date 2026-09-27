@@ -4,7 +4,7 @@ use wasm_encoder::{Encode, Instruction, MemArg};
 use super::Scheduler;
 use crate::{
     memory::{AtomicKind, AtomicOperation, Location},
-    place, Type, ValueKind,
+    place, Expression, Type, ValueDefinition,
 };
 
 impl Scheduler<'_> {
@@ -61,14 +61,16 @@ impl Scheduler<'_> {
             if self.placement.slots[input].is_some() {
                 return None;
             }
-            match self.body.values[input].kind {
-                ValueKind::SignExtend(original) if self.body.values[original].ty.bits() <= bits => {
+            match self.body.values[input].definition {
+                ValueDefinition::Expression(Expression::SignExtend { input: original })
+                    if self.body.values[original].ty.bits() <= bits =>
+                {
                     // An unshared extension can be covered with the wider one.
                     // Narrowing below its original sign would change the value.
                     bits = self.body.values[original].ty.bits();
                     input = original;
                 }
-                ValueKind::Load { location, .. } => {
+                ValueDefinition::Load { location, .. } => {
                     // Cover the full original read; conversions must not change
                     // its access width or choose a different logical sign bit.
                     return (bits == location.bytes * 8).then_some(location);

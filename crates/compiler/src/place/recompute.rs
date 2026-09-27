@@ -2,21 +2,21 @@
 use std::collections::BTreeMap;
 
 use super::{representation, Demand, Phase, Point, Tree};
-use crate::{control::Site, integer::BinaryOp, Body, ValueKind};
+use crate::{control::Site, integer::BinaryOp, Body, Expression, ValueDefinition};
 
 pub(super) fn groups(body: &Body, id: usize, demand: Demand, tree: &Tree<'_>) -> Vec<Demand> {
     // Derived calculations can be recomputed on their consuming paths. Their
     // operands can include snapshots; loads, calls and joins retain their sharing.
-    if !body.values[id].kind.is_calculation() {
+    let ValueDefinition::Expression(expression) = body.values[id].definition else {
         return vec![demand];
-    }
+    };
     let groups = demand
         .exclusive_arms(tree)
         .or_else(|| {
             // Permit only one split into two sequential placement sites.
             // Alternative arms within either operation do not add another site.
             // Operand demands retain their own sharing and snapshot policies.
-            cheap_to_repeat(body, id)
+            cheap_to_repeat(body, expression)
                 .then(|| demand.control_groups(tree))
                 .flatten()
         })
@@ -42,19 +42,19 @@ fn exclusive_groups(demand: Demand, tree: &Tree<'_>) -> Vec<Demand> {
     groups
 }
 
-fn cheap_to_repeat(body: &Body, id: usize) -> bool {
-    match body.values[id].kind {
-        ValueKind::Binary(
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::And | BinaryOp::Or | BinaryOp::Xor,
-            ..,
-        )
-        | ValueKind::Compare(..)
-        | ValueKind::ZeroTest { .. }
-        | ValueKind::Normalize(_)
-        | ValueKind::Convert(_) => true,
-        ValueKind::Shift { count, .. } => matches!(
-            body.values[representation(body, count)].kind,
-            ValueKind::Constant(_)
+fn cheap_to_repeat(body: &Body, expression: Expression<usize>) -> bool {
+    match expression {
+        Expression::Binary {
+            operator: BinaryOp::Add | BinaryOp::Sub | BinaryOp::And | BinaryOp::Or | BinaryOp::Xor,
+            ..
+        }
+        | Expression::Compare { .. }
+        | Expression::ZeroTest { .. }
+        | Expression::Normalize { .. }
+        | Expression::Convert { .. } => true,
+        Expression::Shift { count, .. } => matches!(
+            body.values[representation(body, count)].definition,
+            ValueDefinition::Constant(_)
         ),
         _ => false,
     }

@@ -8,7 +8,7 @@ use crate::{
     effects::Effects,
     emit::wasm_type,
     memory::Location,
-    Body, Func, Operation, Terminal, ValueKind,
+    Body, Expression, Func, Operation, Terminal, ValueDefinition,
 };
 
 mod calls;
@@ -218,7 +218,9 @@ impl Demand {
 // A conversion within one Wasm type changes only the logical type. All its
 // uses must reach the producer so sharing neither adds a local nor repeats work.
 pub(super) fn representation(body: &Body, mut id: usize) -> usize {
-    while let ValueKind::Convert(input) = body.values[id].kind {
+    while let ValueDefinition::Expression(Expression::Convert { input }) =
+        body.values[id].definition
+    {
         if wasm_type(body.values[id].ty) != wasm_type(body.values[input].ty) {
             break;
         }
@@ -359,10 +361,14 @@ impl Planner<'_> {
         // snapshot producers retain their own sharing and clobber rules.
         for index in (0..self.value_order.len()).rev() {
             let id = self.value_order[index];
-            if matches!(body.values[id].kind, ValueKind::LoopInput { .. }) {
+            if matches!(
+                body.values[id].definition,
+                ValueDefinition::LoopInput { .. }
+            ) {
                 continue;
             }
-            if let ValueKind::OperationResult { site, component } = body.values[id].kind {
+            if let ValueDefinition::OperationResult { site, component } = body.values[id].definition
+            {
                 // Failed branch construction can leave values from a discarded block.
                 if self.tree.0.operation(site).is_none() {
                     continue;
@@ -388,7 +394,7 @@ impl Planner<'_> {
             let Some(use_) = demands[id].clone() else {
                 continue;
             };
-            if let ValueKind::JoinResult { site, component } = body.values[id].kind {
+            if let ValueDefinition::JoinResult { site, component } = body.values[id].definition {
                 saved[id] = true;
                 let operation = &tree.0.block(site.block).operations[site.index];
                 // The branch operation stays at its authored site. A live output needs
@@ -404,7 +410,7 @@ impl Planner<'_> {
             for use_ in recompute::groups(body, id, use_, tree) {
                 saved[id] |= use_.points.len() > 1;
                 let mut anchor = use_.first;
-                if let ValueKind::Load { location, site } = body.values[id].kind {
+                if let ValueDefinition::Load { location, site } = body.values[id].definition {
                     anchor = tree.snapshot_anchor(
                         site,
                         anchor,
@@ -414,14 +420,14 @@ impl Planner<'_> {
                 }
                 if (!use_.at_first || anchor != use_.first)
                     && !matches!(
-                        body.values[id].kind,
-                        ValueKind::Constant(_) | ValueKind::Parameter(_)
+                        body.values[id].definition,
+                        ValueDefinition::Constant(_) | ValueDefinition::Parameter(_)
                     )
                 {
                     capture_points[id].push(anchor);
                     saved[id] = true;
                 }
-                for input in body.values[id].kind.inputs() {
+                for input in body.values[id].definition.inputs() {
                     demand(body, tree, demands, input, anchor);
                 }
             }
@@ -443,7 +449,10 @@ impl Planner<'_> {
             .enumerate()
             .map(|(id, value)| {
                 if saved[id]
-                    && !matches!(value.kind, ValueKind::Constant(_) | ValueKind::Parameter(_))
+                    && !matches!(
+                        value.definition,
+                        ValueDefinition::Constant(_) | ValueDefinition::Parameter(_)
+                    )
                 {
                     let slot = slot_types.len();
                     slot_types.push(wasm_type(value.ty));

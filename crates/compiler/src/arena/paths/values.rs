@@ -1,7 +1,7 @@
 //! Rebuild calculations at their uses; snapshots and effect results keep identity.
 
 use super::{super::ValueArena, Path};
-use crate::{Value, ValueKind};
+use crate::{Expression, Value, ValueDefinition};
 
 impl Path {
     pub(super) fn value(&mut self, arena: &mut ValueArena, root: &mut usize) {
@@ -20,12 +20,12 @@ impl Path {
                 // A known selection can use an input or snapshot directly.
                 // Calculated arms retain the group's rewrite: exposing one
                 // separately could make placement repeat it on the same path.
-                let result = match arena.values[shared].kind {
-                    ValueKind::Select {
+                let result = match arena.values[shared].definition {
+                    ValueDefinition::Expression(Expression::Select {
                         condition,
                         when_true,
                         when_false,
-                    } => match self.facts.constant(arena, condition) {
+                    }) => match self.facts.constant(arena, condition) {
                         Some(0) => when_false,
                         Some(_) => when_true,
                         None => shared,
@@ -34,7 +34,10 @@ impl Path {
                 };
                 self.rewritten.insert(
                     id,
-                    if arena.values[result].kind.is_calculation() {
+                    if matches!(
+                        arena.values[result].definition,
+                        ValueDefinition::Expression(_)
+                    ) {
                         shared
                     } else {
                         result
@@ -42,64 +45,64 @@ impl Path {
                 );
                 continue;
             }
-            if !value.kind.is_calculation() {
+            let ValueDefinition::Expression(expression) = value.definition else {
                 self.rewritten.insert(id, id);
                 continue;
-            }
+            };
             if !ready {
                 pending.push((id, true));
-                for input in value.kind.inputs() {
+                for &input in expression.inputs() {
                     if !self.rewritten.contains_key(&input) {
                         pending.push((input, false));
                     }
                 }
                 continue;
             }
-            let input = |id| self.rewritten[&id];
-            let rebuilt = match value.kind {
-                ValueKind::Binary(op, a, b) => {
-                    let (a, b) = (input(a), input(b));
+            let expression = expression.map(|input| self.rewritten[input]);
+            let rebuilt = match expression {
+                Expression::Binary {
+                    operator: op,
+                    left: a,
+                    right: b,
+                } => {
                     if arena.values[a].ty == value.ty && arena.values[b].ty == value.ty {
                         arena.binary(op, a, b)
                     } else {
                         arena.intern(Value {
                             ty: value.ty,
-                            kind: ValueKind::Binary(op, a, b),
+                            definition: ValueDefinition::Expression(Expression::Binary {
+                                operator: op,
+                                left: a,
+                                right: b,
+                            }),
                         })
                     }
                 }
-                ValueKind::Compare(op, a, b) => arena.compare(op, input(a), input(b)),
-                ValueKind::Shift {
-                    operator,
-                    value: shifted,
-                    count,
-                } => arena.intern(Value {
+                Expression::Compare {
+                    operator: op,
+                    left: a,
+                    right: b,
+                } => arena.compare(op, a, b),
+                // These nodes already contain carrier conversions chosen during
+                // construction. Preserve them instead of lowering logical inputs again.
+                Expression::Shift { .. } | Expression::Convert { .. } => arena.intern(Value {
                     ty: value.ty,
-                    kind: ValueKind::Shift {
-                        operator,
-                        value: input(shifted),
-                        count: input(count),
-                    },
+                    definition: ValueDefinition::Expression(expression),
                 }),
-                ValueKind::Rotate {
+                Expression::Rotate {
                     operator,
                     value,
                     count,
-                } => arena.rotate(operator, input(value), input(count)),
-                ValueKind::Select {
+                } => arena.rotate(operator, value, count),
+                Expression::Select {
                     condition,
                     when_true,
                     when_false,
-                } => arena.select(input(condition), input(when_true), input(when_false)),
-                ValueKind::Normalize(i) => arena.normalize(input(i)),
-                ValueKind::Convert(i) => arena.intern(Value {
-                    ty: value.ty,
-                    kind: ValueKind::Convert(input(i)),
-                }),
-                ValueKind::SignExtend(i) => arena.sign_extend(input(i), value.ty),
-                ValueKind::BitCount(op, i) => arena.bit_count(op, input(i)),
-                ValueKind::ZeroTest { input: i, nonzero } => arena.zero_test(input(i), nonzero),
-                _ => unreachable!("only calculations have inputs to rebuild"),
+                } => arena.select(condition, when_true, when_false),
+                Expression::Normalize { input } => arena.normalize(input),
+                Expression::SignExtend { input } => arena.sign_extend(input, value.ty),
+                Expression::BitCount { operator, input } => arena.bit_count(operator, input),
+                Expression::ZeroTest { input, nonzero } => arena.zero_test(input, nonzero),
             };
             let result = match self.facts.refine(arena, id, rebuilt) {
                 Some(bits) => constant(arena, id, bits),
@@ -135,7 +138,7 @@ fn constant(arena: &mut ValueArena, original: usize, bits: u64) -> usize {
         // Preserve that representation for consumers whose lowering relies on it.
         arena.intern(Value {
             ty,
-            kind: ValueKind::SignExtend(constant),
+            definition: ValueDefinition::Expression(Expression::SignExtend { input: constant }),
         })
     } else {
         constant

@@ -1,17 +1,18 @@
 mod argument;
 mod construction;
 mod source;
+mod unbound;
 
 pub use argument::Argument;
 
 use std::marker::PhantomData;
 
-pub(crate) use source::UnboundExpression;
 use source::ValueSource;
+pub(crate) use unbound::UnboundExpression;
 
 use crate::{
-    integer::{self, BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
-    AtLeast, IntType, I1, I32, I64,
+    integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
+    AtLeast, Expression, IntType, I1, I32, I64,
 };
 
 /// A literal, unbound calculation or function-body integer expression, checked by Rust.
@@ -215,49 +216,49 @@ impl<T: IntType> Val<T> {
 
     fn binary(&self, operator: BinaryOp, other: impl Into<Val<T>>) -> Self {
         let other: Self = other.into();
-        self.combine(
-            &other,
-            |left, right| integer::binary(T::TYPE, operator, left, right),
-            move |arena, left, right| arena.binary(operator, left, right),
-        )
+        Self::expression(Expression::Binary {
+            operator,
+            left: self.into(),
+            right: other.into(),
+        })
     }
 
     fn bit_count(&self, operator: BitCountOp) -> Self {
-        self.map(
-            |bits| integer::bit_count(T::TYPE, operator, bits),
-            move |arena, input| arena.bit_count(operator, input),
-        )
+        Self::expression(Expression::BitCount {
+            operator,
+            input: self.into(),
+        })
     }
 
     fn compare(&self, operator: CompareOp, other: impl Into<Val<T>>) -> Val<I1> {
         let other: Self = other.into();
-        self.combine(
-            &other,
-            |left, right| Some(u64::from(integer::compare(T::TYPE, operator, left, right))),
-            move |arena, left, right| arena.compare(operator, left, right),
-        )
+        Val::expression(Expression::Compare {
+            operator,
+            left: self.into(),
+            right: other.into(),
+        })
     }
 
     fn shift(&self, operator: ShiftOp, count: impl Into<Val<I32>>) -> Self {
         let count: Val<I32> = count.into();
-        self.combine(
-            &count,
-            |value, count| Some(integer::shift(T::TYPE, operator, value, count as u32)),
-            move |arena, value, count| arena.shift(operator, value, count),
-        )
+        Self::expression(Expression::Shift {
+            operator,
+            value: self.into(),
+            count: count.into(),
+        })
     }
 
     fn rotate(&self, operator: RotateOp, count: impl Into<Val<I32>>) -> Self {
         let count: Val<I32> = count.into();
-        self.combine(
-            &count,
-            |value, count| Some(integer::rotate(T::TYPE, operator, value, count as u32)),
-            move |arena, value, count| arena.rotate(operator, value, count),
-        )
+        Self::expression(Expression::Rotate {
+            operator,
+            value: self.into(),
+            count: count.into(),
+        })
     }
 
     fn convert<To: IntType>(&self) -> Val<To> {
-        self.map(|bits| bits, |arena, input| arena.convert(input, To::TYPE))
+        Val::expression(Expression::Convert { input: self.into() })
     }
 }
 
@@ -350,10 +351,9 @@ impl<T: IntType> Signed<'_, T> {
     /// Widens by repeating the source's logical sign bit. The destination cannot
     /// be narrower. For I1, the bit pattern 1 extends to all ones.
     pub fn extend<To: AtLeast<T>>(&self) -> Val<To> {
-        self.0.map(
-            |bits| integer::signed_value(T::TYPE, bits) as u64,
-            |arena, input| arena.sign_extend(input, To::TYPE),
-        )
+        Val::expression(Expression::SignExtend {
+            input: self.0.into(),
+        })
     }
 }
 

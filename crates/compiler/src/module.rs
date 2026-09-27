@@ -6,7 +6,7 @@ use wasm_encoder::{
     MemoryType, Module, TypeSection, ValType,
 };
 
-use crate::{effects, emit, FunctionKind, Operation, Program, Terminal, ValueKind};
+use crate::{effects, emit, FunctionKind, Operation, Program, Terminal, ValueDefinition};
 
 /// Function and multi-result block signatures share one deterministic carrier table.
 #[derive(Default)]
@@ -84,8 +84,8 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
                     }
                     Operation::Store { location, .. } => *location,
                     Operation::Atomic { access, .. } => access.location,
-                    Operation::Load(value) => match body.values[*value].kind {
-                        ValueKind::Load { location, .. } => location,
+                    Operation::Load(value) => match body.values[*value].definition {
+                        ValueDefinition::Load { location, .. } => location,
                         _ => unreachable!("a load operation names its load value"),
                     },
                 };

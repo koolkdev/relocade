@@ -1,6 +1,6 @@
 //! Simplifies completed control blocks before effects and value placement.
 use super::Block;
-use crate::{Operation, Value, ValueKind};
+use crate::{Operation, Value, ValueDefinition};
 
 impl Block {
     pub(crate) fn fold_constants(&mut self, values: &[Value]) {
@@ -33,7 +33,7 @@ impl Block {
                 }
                 _ => continue,
             };
-            let ValueKind::Constant(bits) = values[condition].kind else {
+            let ValueDefinition::Constant(bits) = values[condition].definition else {
                 continue;
             };
             // Construction has checked every arm and enclosing result join. Keep

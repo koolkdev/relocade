@@ -3,7 +3,7 @@
 use super::ValueArena;
 use crate::{
     integer::{self, BinaryOp, CompareOp},
-    Type, Value, ValueKind,
+    Expression, Type, Value, ValueDefinition,
 };
 
 impl ValueArena {
@@ -11,7 +11,9 @@ impl ValueArena {
         let a = self.values[left];
         let b = self.values[right];
         debug_assert_eq!(a.ty, b.ty);
-        if let (ValueKind::Constant(a), ValueKind::Constant(b)) = (a.kind, b.kind) {
+        if let (ValueDefinition::Constant(a), ValueDefinition::Constant(b)) =
+            (a.definition, b.definition)
+        {
             let result = integer::compare(self.values[left].ty, operator, a, b);
             return self.constant(Type::I1, u64::from(result));
         }
@@ -24,9 +26,9 @@ impl ValueArena {
                 )),
             );
         }
-        let constant_comparison = match (a.kind, b.kind) {
-            (_, ValueKind::Constant(constant)) => Some((left, constant, false)),
-            (ValueKind::Constant(constant), _) => Some((right, constant, true)),
+        let constant_comparison = match (a.definition, b.definition) {
+            (_, ValueDefinition::Constant(constant)) => Some((left, constant, false)),
+            (ValueDefinition::Constant(constant), _) => Some((right, constant, true)),
             _ => None,
         };
         if let Some((input, constant, constant_first)) = constant_comparison {
@@ -50,9 +52,9 @@ impl ValueArena {
                 && self.bounds[left].signed <= a.ty.bits()
                 && self.bounds[right].signed <= b.ty.bits());
         if matches!(operator, CompareOp::Eq | CompareOp::Ne) {
-            let input = match (a.kind, b.kind) {
-                (_, ValueKind::Constant(0)) => Some(left),
-                (ValueKind::Constant(0), _) => Some(right),
+            let input = match (a.definition, b.definition) {
+                (_, ValueDefinition::Constant(0)) => Some(left),
+                (ValueDefinition::Constant(0), _) => Some(right),
                 _ => None,
             };
             if let Some(input) = input {
@@ -61,17 +63,22 @@ impl ValueArena {
                 }
                 return self.zero_test(input, operator == CompareOp::Ne);
             }
-            let masked = match (a.kind, b.kind) {
-                (_, ValueKind::Constant(mask)) => Some((left, mask)),
-                (ValueKind::Constant(mask), _) => Some((right, mask)),
+            let masked = match (a.definition, b.definition) {
+                (_, ValueDefinition::Constant(mask)) => Some((left, mask)),
+                (ValueDefinition::Constant(mask), _) => Some((right, mask)),
                 _ => None,
             };
             if let Some((input, mask)) = masked {
-                if let ValueKind::Binary(BinaryOp::And, x, y) = self.values[input].kind {
+                if let ValueDefinition::Expression(Expression::Binary {
+                    operator: BinaryOp::And,
+                    left: x,
+                    right: y,
+                }) = self.values[input].definition
+                {
                     // A one-bit mask yields either zero or that mask.
                     if mask.is_power_of_two()
-                        && (self.values[x].kind == ValueKind::Constant(mask)
-                            || self.values[y].kind == ValueKind::Constant(mask))
+                        && (self.values[x].definition == ValueDefinition::Constant(mask)
+                            || self.values[y].definition == ValueDefinition::Constant(mask))
                     {
                         return self.zero_test(input, operator == CompareOp::Eq);
                     }
@@ -96,7 +103,11 @@ impl ValueArena {
         };
         self.intern(Value {
             ty: Type::I1,
-            kind: ValueKind::Compare(operator, left, right),
+            definition: ValueDefinition::Expression(Expression::Compare {
+                operator,
+                left,
+                right,
+            }),
         })
     }
 
@@ -110,8 +121,8 @@ impl ValueArena {
     ) -> Option<bool> {
         *remaining = remaining.checked_sub(1)?;
         let value = self.values[input];
-        match value.kind {
-            ValueKind::Constant(bits) => {
+        match value.definition {
+            ValueDefinition::Constant(bits) => {
                 let (left, right) = if constant_first {
                     (constant, bits)
                 } else {
@@ -119,11 +130,11 @@ impl ValueArena {
                 };
                 Some(integer::compare(value.ty, operator, left, right))
             }
-            ValueKind::Select {
+            ValueDefinition::Expression(Expression::Select {
                 when_true,
                 when_false,
                 ..
-            } => {
+            }) => {
                 let when_true = self.compare_constant_choices(
                     when_true,
                     constant,
@@ -156,7 +167,7 @@ impl ValueArena {
         }
         self.intern(Value {
             ty: Type::I1,
-            kind: ValueKind::ZeroTest { input, nonzero },
+            definition: ValueDefinition::Expression(Expression::ZeroTest { input, nonzero }),
         })
     }
 }

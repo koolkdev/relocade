@@ -4,7 +4,7 @@ use wasm_encoder::{BlockType, Encode, Instruction, ValType};
 use super::{LocalOp, Scheduler};
 use crate::{
     control::{Block, Site, Target},
-    place, Terminal, ValueKind,
+    place, Terminal, ValueDefinition,
 };
 
 impl Scheduler<'_> {
@@ -91,9 +91,9 @@ impl Scheduler<'_> {
             .outputs
             .iter()
             .map(|&output| {
-                let component = match self.body.values[output].kind {
-                    ValueKind::JoinResult { component, .. }
-                    | ValueKind::LoopInput { component, .. } => component,
+                let component = match self.body.values[output].definition {
+                    ValueDefinition::JoinResult { component, .. }
+                    | ValueDefinition::LoopInput { component, .. } => component,
                     _ => unreachable!("control edges name joined values"),
                 };
                 arguments[component]

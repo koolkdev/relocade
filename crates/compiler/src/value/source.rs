@@ -1,11 +1,9 @@
 //! Literal, unbound and body-owned handles, with visibility preserved across folding.
 
-use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
-use std::rc::Rc;
 
-use super::Val;
+use super::{UnboundExpression, Val};
 use crate::{arena::ExpressionArena, BuildError, IntType, Type};
 
 #[derive(Clone)]
@@ -16,33 +14,6 @@ pub(super) enum ValueSource {
         arena: ExpressionArena,
         expression: Result<BoundExpression, BuildError>,
     },
-}
-
-// Recipes capture only unbound operands and operators, never an arena. An open
-// arena can therefore retain resolved recipe identities without an Rc cycle.
-type ExpressionRecipe = dyn Fn(&ExpressionArena) -> Result<usize, BuildError>;
-
-#[derive(Clone)]
-pub(crate) struct UnboundExpression(Rc<ExpressionRecipe>);
-
-impl UnboundExpression {
-    pub(crate) fn build(&self, arena: &ExpressionArena) -> Result<usize, BuildError> {
-        self.0(arena)
-    }
-}
-
-impl PartialEq for UnboundExpression {
-    fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl Eq for UnboundExpression {}
-
-impl Hash for UnboundExpression {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        (Rc::as_ptr(&self.0) as *const ()).hash(state);
-    }
 }
 
 /// Admission retains the original scope independently of the folded runtime node.
@@ -67,10 +38,6 @@ impl BoundExpression {
 
     pub(super) fn required_scope(self) -> Option<usize> {
         self.required_scope.map(|scope| scope.get() - 1)
-    }
-
-    pub(super) fn with_value(self, value: usize) -> Self {
-        Self { value, ..self }
     }
 
     pub(super) fn admit(self, arena: &ExpressionArena, scope: usize) -> Result<usize, BuildError> {
@@ -128,7 +95,7 @@ impl ValueSource {
 
 impl<T: IntType> Val<T> {
     // Authored parameters, reads, calls and joins begin with their runtime scope.
-    // Calculations use `bound` to retain scopes that folding may discard.
+    // Expressions use `bound` to retain scopes that folding may discard.
     pub(crate) fn new(arena: ExpressionArena, expression: Result<usize, BuildError>) -> Self {
         let expression = expression
             .and_then(|value| Ok(BoundExpression::new(value, arena.required_scope(value)?)));
@@ -152,11 +119,9 @@ impl<T: IntType> Val<T> {
         }
     }
 
-    pub(super) fn unbound(
-        expression: impl Fn(&ExpressionArena) -> Result<usize, BuildError> + 'static,
-    ) -> Self {
+    pub(super) fn unbound(expression: UnboundExpression) -> Self {
         Self {
-            source: ValueSource::Unbound(UnboundExpression(Rc::new(expression))),
+            source: ValueSource::Unbound(expression),
             ty: PhantomData,
         }
     }

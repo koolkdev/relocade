@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use super::super::ValueArena;
 use crate::{
     control::{Block, BlockTree, Site, Target},
-    Operation, Terminal,
+    Operation, Terminal, ValueDefinition,
 };
 
 pub(super) fn analyze(arena: &ValueArena, block: &Block) -> HashMap<Site, Vec<usize>> {
@@ -104,7 +104,8 @@ impl Analysis<'_> {
             }
             match operation {
                 Operation::Load(value) => {
-                    self.inputs(self.arena.values[*value].kind.inputs(), site, &mut live);
+                    let definition = self.arena.values[*value].definition;
+                    self.inputs(definition.inputs(), site, &mut live);
                 }
                 Operation::Store { location, value } => {
                     self.inputs([location.base, *value], site, &mut live);
@@ -130,11 +131,14 @@ impl Analysis<'_> {
         let mut pending: Vec<_> = inputs.into_iter().collect();
         let mut current = HashSet::new();
         while let Some(value) = pending.pop() {
-            let kind = self.arena.values[value].kind;
-            if !kind.is_calculation() || !current.insert(value) {
+            let ValueDefinition::Expression(expression) = self.arena.values[value].definition
+            else {
+                continue;
+            };
+            if !current.insert(value) {
                 continue;
             }
-            pending.extend(kind.inputs());
+            pending.extend(expression.inputs().copied());
         }
         for value in current {
             let groups = live.entry(value).or_default();

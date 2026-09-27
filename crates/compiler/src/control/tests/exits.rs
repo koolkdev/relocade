@@ -1,7 +1,7 @@
 use crate::{
     control::{Site, Target},
     BuildError, FunctionKind, MemoryImport, Operation, Program, Signature, Terminal, Type,
-    ValueKind, I1, I32,
+    ValueDefinition, I1, I32,
 };
 
 fn signature() -> Signature {
@@ -48,7 +48,7 @@ fn conditional_exits_keep_their_edge_scope_and_adjacent_authored_sites() {
     for (index, operation) in block.operations.iter().enumerate() {
         match operation {
             Operation::Load(value) => {
-                let ValueKind::Load { site, .. } = body.values[*value].kind else {
+                let ValueDefinition::Load { site, .. } = body.values[*value].definition else {
                     panic!("a load operation names its load value");
                 };
                 assert!(

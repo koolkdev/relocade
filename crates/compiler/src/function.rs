@@ -3,7 +3,7 @@ use crate::{
     arena::ExpressionArena,
     control::{Block, JoinTarget, Site},
     Argument, Arguments, Body, BuildError, Func, FunctionKind, IntType, Operation, Program,
-    Signature, Terminal, Type, Val, Value, ValueKind,
+    Signature, Terminal, Type, Val, Value, ValueDefinition,
 };
 
 /// Builds a function body or child block. Its parent owns the block and attaches
@@ -203,7 +203,7 @@ impl BlockBuilder<'_> {
         }
         let value = self.arena.intern(Value {
             ty: actual,
-            kind: ValueKind::Parameter(index),
+            definition: ValueDefinition::Parameter(index),
         })?;
         Ok(Val::new(self.arena.clone(), Ok(value)))
     }

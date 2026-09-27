@@ -2,7 +2,9 @@
 use std::marker::PhantomData;
 
 use super::{Label, Target};
-use crate::{results, Arguments, BlockBuilder, BuildError, Operation, Results, Value, ValueKind};
+use crate::{
+    results, Arguments, BlockBuilder, BuildError, Operation, Results, Value, ValueDefinition,
+};
 
 /// The two destinations visible within a loop and its descendants.
 /// `again` supplies the next iteration's inputs; `exit` supplies the loop result.
@@ -65,7 +67,7 @@ impl BlockBuilder<'_> {
             .map(|(component, ty)| {
                 self.arena.intern(Value {
                     ty,
-                    kind: ValueKind::LoopInput {
+                    definition: ValueDefinition::LoopInput {
                         block: scope,
                         component,
                     },

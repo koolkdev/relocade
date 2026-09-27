@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use super::super::ValueArena;
 use crate::{
     integer::{BinaryOp, CompareOp},
-    Type, ValueKind,
+    Expression, Type, ValueDefinition,
 };
 
 #[derive(Clone, Copy, Default)]
@@ -40,8 +40,8 @@ pub(super) struct Facts(HashMap<usize, Bits>);
 impl Facts {
     fn bits(&self, arena: &ValueArena, id: usize) -> Bits {
         let value = arena.values[id];
-        match value.kind {
-            ValueKind::Constant(bits) => Bits {
+        match value.definition {
+            ValueDefinition::Constant(bits) => Bits {
                 mask: value.ty.mask(),
                 value: bits,
             },
@@ -74,11 +74,18 @@ impl Facts {
             }
             let bits = previous.union(bits);
             self.0.insert(id, bits);
-            match value.kind {
-                ValueKind::Normalize(input) | ValueKind::Convert(input) => {
+            let ValueDefinition::Expression(expression) = value.definition else {
+                continue;
+            };
+            match expression {
+                Expression::Normalize { input } | Expression::Convert { input } => {
                     pending.push((input, bits))
                 }
-                ValueKind::Binary(BinaryOp::Or, a, b) => {
+                Expression::Binary {
+                    operator: BinaryOp::Or,
+                    left: a,
+                    right: b,
+                } => {
                     let zeros = Bits {
                         mask: bits.mask & !bits.value,
                         value: 0,
@@ -86,7 +93,11 @@ impl Facts {
                     pending.push((a, zeros));
                     pending.push((b, zeros));
                 }
-                ValueKind::Binary(BinaryOp::And, a, b) => {
+                Expression::Binary {
+                    operator: BinaryOp::And,
+                    left: a,
+                    right: b,
+                } => {
                     let ones = Bits {
                         mask: bits.value,
                         value: bits.value,
@@ -99,7 +110,7 @@ impl Facts {
                         pending.push((input, bits.restrict(other.value)));
                     }
                 }
-                ValueKind::ZeroTest { input, nonzero } if bits.mask & 1 != 0 => {
+                Expression::ZeroTest { input, nonzero } if bits.mask & 1 != 0 => {
                     let is_zero = (bits.value & 1 != 0) != nonzero;
                     if is_zero {
                         pending.push((
@@ -121,14 +132,15 @@ impl Facts {
                         ));
                     }
                 }
-                ValueKind::Compare(operator @ (CompareOp::Eq | CompareOp::Ne), a, b)
-                    if bits.mask & 1 != 0
-                        && (bits.value & 1 != 0) == (operator == CompareOp::Eq) =>
-                {
+                Expression::Compare {
+                    operator: operator @ (CompareOp::Eq | CompareOp::Ne),
+                    left: a,
+                    right: b,
+                } if bits.mask & 1 != 0 && (bits.value & 1 != 0) == (operator == CompareOp::Eq) => {
                     pending.push((a, self.bits(arena, b)));
                     pending.push((b, self.bits(arena, a)));
                 }
-                ValueKind::Select {
+                Expression::Select {
                     condition,
                     when_true,
                     when_false,
@@ -163,38 +175,49 @@ impl Facts {
         rebuilt: usize,
     ) -> Option<u64> {
         let value = arena.values[rebuilt];
-        let bits = match value.kind {
-            ValueKind::Convert(input) | ValueKind::Normalize(input) => {
-                let input_bits = self.bits(arena, input);
-                // Convert also represents carrier aliases introduced by signed
-                // lowering. Only proved zero upper bits can cross a widening.
-                let width = arena.bounds[input].unsigned;
-                let source_mask = u64::MAX.checked_shr(64 - u32::from(width)).unwrap_or(0);
-                input_bits.union(Bits {
-                    mask: value.ty.mask() & !source_mask,
-                    value: 0,
-                })
-            }
-            ValueKind::Binary(BinaryOp::And, a, b) => {
-                let a = self.bits(arena, a);
-                let b = self.bits(arena, b);
-                let zeros = (a.mask & !a.value) | (b.mask & !b.value);
-                let ones = a.value & b.value;
-                Bits {
-                    mask: zeros | ones,
-                    value: ones,
+        let bits = match value.definition {
+            ValueDefinition::Expression(expression) => match expression {
+                Expression::Convert { input } | Expression::Normalize { input } => {
+                    let input_bits = self.bits(arena, input);
+                    // Convert also represents carrier aliases introduced by signed
+                    // lowering. Only proved zero upper bits can cross a widening.
+                    let width = arena.bounds[input].unsigned;
+                    let source_mask = u64::MAX.checked_shr(64 - u32::from(width)).unwrap_or(0);
+                    input_bits.union(Bits {
+                        mask: value.ty.mask() & !source_mask,
+                        value: 0,
+                    })
                 }
-            }
-            ValueKind::Binary(BinaryOp::Or, a, b) => {
-                let a = self.bits(arena, a);
-                let b = self.bits(arena, b);
-                let zeros = a.mask & !a.value & b.mask & !b.value;
-                let ones = a.value | b.value;
-                Bits {
-                    mask: zeros | ones,
-                    value: ones,
+                Expression::Binary {
+                    operator: BinaryOp::And,
+                    left: a,
+                    right: b,
+                } => {
+                    let a = self.bits(arena, a);
+                    let b = self.bits(arena, b);
+                    let zeros = (a.mask & !a.value) | (b.mask & !b.value);
+                    let ones = a.value & b.value;
+                    Bits {
+                        mask: zeros | ones,
+                        value: ones,
+                    }
                 }
-            }
+                Expression::Binary {
+                    operator: BinaryOp::Or,
+                    left: a,
+                    right: b,
+                } => {
+                    let a = self.bits(arena, a);
+                    let b = self.bits(arena, b);
+                    let zeros = a.mask & !a.value & b.mask & !b.value;
+                    let ones = a.value | b.value;
+                    Bits {
+                        mask: zeros | ones,
+                        value: ones,
+                    }
+                }
+                _ => Bits::default(),
+            },
             _ => Bits::default(),
         }
         .union(self.bits(arena, original))

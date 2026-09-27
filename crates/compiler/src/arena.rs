@@ -4,10 +4,10 @@ use std::rc::Rc;
 
 use crate::{
     control::Site,
-    integer::{self, BinaryOp, BitBounds, BitCountOp, CompareOp},
+    integer::{self, BitBounds, BitCountOp},
     memory::Location,
     value::UnboundExpression,
-    BuildError, Type, Value, ValueKind,
+    BuildError, Expression, Type, Value, ValueDefinition,
 };
 
 mod arithmetic;
@@ -89,7 +89,7 @@ impl ExpressionArena {
             // therefore gets its own value instead of entering the expression cache.
             arena.push(Value {
                 ty,
-                kind: ValueKind::Load { location, site },
+                definition: ValueDefinition::Load { location, site },
             })
         })
     }
@@ -103,7 +103,7 @@ impl ExpressionArena {
         self.with_open(|arena| {
             arena.push(Value {
                 ty,
-                kind: ValueKind::OperationResult { site, component },
+                definition: ValueDefinition::OperationResult { site, component },
             })
         })
     }
@@ -126,7 +126,7 @@ impl ExpressionArena {
             arena.push_with_bounds(
                 Value {
                     ty,
-                    kind: ValueKind::JoinResult { site, component },
+                    definition: ValueDefinition::JoinResult { site, component },
                 },
                 bounds,
             )
@@ -181,47 +181,12 @@ impl ExpressionArena {
         }
     }
 
-    pub(super) fn binary(
+    pub(super) fn expression(
         &self,
-        operator: BinaryOp,
-        left: usize,
-        right: usize,
+        ty: Type,
+        expression: Expression<usize>,
     ) -> Result<usize, BuildError> {
-        self.with_open(|arena| arena.binary(operator, left, right))
-    }
-
-    pub(super) fn select(
-        &self,
-        condition: usize,
-        when_true: usize,
-        when_false: usize,
-    ) -> Result<usize, BuildError> {
-        self.with_open(|arena| arena.select(condition, when_true, when_false))
-    }
-
-    pub(super) fn bit_count(
-        &self,
-        operator: BitCountOp,
-        input: usize,
-    ) -> Result<usize, BuildError> {
-        self.with_open(|arena| arena.bit_count(operator, input))
-    }
-
-    pub(super) fn sign_extend(&self, input: usize, target: Type) -> Result<usize, BuildError> {
-        self.with_open(|arena| arena.sign_extend(input, target))
-    }
-
-    pub(super) fn compare(
-        &self,
-        operator: CompareOp,
-        left: usize,
-        right: usize,
-    ) -> Result<usize, BuildError> {
-        self.with_open(|arena| arena.compare(operator, left, right))
-    }
-
-    pub(super) fn convert(&self, input: usize, target: Type) -> Result<usize, BuildError> {
-        self.with_open(|arena| arena.convert(input, target))
+        self.with_open(|arena| arena.expression(ty, expression))
     }
 
     pub(super) fn normalize(&self, input: usize) -> Result<usize, BuildError> {
@@ -249,40 +214,77 @@ impl ExpressionArena {
 }
 
 impl ValueArena {
+    // These inputs have logical types. Existing canonical body nodes may carry
+    // wider operands and must retain their own rebuilding rules.
+    fn expression(&mut self, ty: Type, expression: Expression<usize>) -> usize {
+        match expression {
+            Expression::Binary {
+                operator,
+                left,
+                right,
+            } => self.binary(operator, left, right),
+            Expression::Compare {
+                operator,
+                left,
+                right,
+            } => self.compare(operator, left, right),
+            Expression::Shift {
+                operator,
+                value,
+                count,
+            } => self.shift(operator, value, count),
+            Expression::Rotate {
+                operator,
+                value,
+                count,
+            } => self.rotate(operator, value, count),
+            Expression::Select {
+                condition,
+                when_true,
+                when_false,
+            } => self.select(condition, when_true, when_false),
+            Expression::SignExtend { input } => self.sign_extend(input, ty),
+            Expression::BitCount { operator, input } => self.bit_count(operator, input),
+            Expression::ZeroTest { input, nonzero } => self.zero_test(input, nonzero),
+            Expression::Convert { input } => self.convert(input, ty),
+            Expression::Normalize { input } => self.normalize(input),
+        }
+    }
+
     fn select(&mut self, condition: usize, when_true: usize, when_false: usize) -> usize {
         let condition = self.normalize(condition);
-        match self.values[condition].kind {
-            ValueKind::Constant(0) => return when_false,
-            ValueKind::Constant(_) => return when_true,
+        match self.values[condition].definition {
+            ValueDefinition::Constant(0) => return when_false,
+            ValueDefinition::Constant(_) => return when_true,
             _ if when_true == when_false => return when_true,
             _ => {}
         }
         self.intern(Value {
             ty: self.values[when_true].ty,
-            kind: ValueKind::Select {
+            definition: ValueDefinition::Expression(Expression::Select {
                 condition,
                 when_true,
                 when_false,
-            },
+            }),
         })
     }
 
     fn bit_count(&mut self, operator: BitCountOp, input: usize) -> usize {
         let value = self.values[input];
-        if let ValueKind::Constant(bits) = value.kind {
+        if let ValueDefinition::Constant(bits) = value.definition {
             return self.constant(value.ty, integer::bit_count(value.ty, operator, bits));
         }
         let input = self.normalize(input);
         self.intern(Value {
             ty: value.ty,
-            kind: ValueKind::BitCount(operator, input),
+            definition: ValueDefinition::Expression(Expression::BitCount { operator, input }),
         })
     }
 
     fn constant(&mut self, ty: Type, bits: u64) -> usize {
         self.intern(Value {
             ty,
-            kind: ValueKind::Constant(ty.normalize(bits)),
+            definition: ValueDefinition::Constant(ty.normalize(bits)),
         })
     }
 
@@ -291,7 +293,7 @@ impl ValueArena {
         if source.ty == target {
             return input;
         }
-        if let ValueKind::Constant(bits) = source.kind {
+        if let ValueDefinition::Constant(bits) = source.definition {
             return self.constant(target, bits);
         }
         let input = if source.ty.bits() < target.bits() {
@@ -301,7 +303,7 @@ impl ValueArena {
         };
         self.intern(Value {
             ty: target,
-            kind: ValueKind::Convert(input),
+            definition: ValueDefinition::Expression(Expression::Convert { input }),
         })
     }
 
@@ -310,7 +312,7 @@ impl ValueArena {
         if source.ty == target {
             return input;
         }
-        if let ValueKind::Constant(bits) = source.kind {
+        if let ValueDefinition::Constant(bits) = source.definition {
             return self.constant(target, integer::signed_value(source.ty, bits) as u64);
         }
         let canonical = self.bounds[input].signed <= source.ty.bits();
@@ -319,7 +321,7 @@ impl ValueArena {
             // only the logical type widens; unsigned convert() would mask it.
             return self.intern(Value {
                 ty: target,
-                kind: ValueKind::Convert(input),
+                definition: ValueDefinition::Expression(Expression::Convert { input }),
             });
         }
         if canonical {
@@ -328,18 +330,18 @@ impl ValueArena {
             } else {
                 self.intern(Value {
                     ty: Type::I32,
-                    kind: ValueKind::Convert(input),
+                    definition: ValueDefinition::Expression(Expression::Convert { input }),
                 })
             };
             // Crossing into i64 still needs the signed carrier extension.
             return self.intern(Value {
                 ty: target,
-                kind: ValueKind::SignExtend(alias),
+                definition: ValueDefinition::Expression(Expression::SignExtend { input: alias }),
             });
         }
         self.intern(Value {
             ty: target,
-            kind: ValueKind::SignExtend(input),
+            definition: ValueDefinition::Expression(Expression::SignExtend { input }),
         })
     }
 
@@ -363,7 +365,7 @@ impl ValueArena {
         // Arithmetic and stores keep the original value.
         self.intern(Value {
             ty: value.ty,
-            kind: ValueKind::Normalize(input),
+            definition: ValueDefinition::Expression(Expression::Normalize { input }),
         })
     }
 
@@ -389,36 +391,17 @@ impl ValueArena {
     // Scope of dependencies remaining in the runtime node. Handle provenance
     // separately retains requirements discarded by folding.
     fn availability(&self, value: Value) -> Option<usize> {
-        match value.kind {
-            ValueKind::Constant(_) | ValueKind::Parameter(_) => Some(0),
-            ValueKind::LoopInput { block, .. } => Some(block),
-            ValueKind::Load { site, .. }
-            | ValueKind::OperationResult { site, .. }
-            | ValueKind::JoinResult { site, .. } => Some(site.block),
-            ValueKind::Binary(_, a, b)
-            | ValueKind::Compare(_, a, b)
-            | ValueKind::Shift {
-                value: a, count: b, ..
+        match value.definition {
+            ValueDefinition::Constant(_) | ValueDefinition::Parameter(_) => Some(0),
+            ValueDefinition::LoopInput { block, .. } => Some(block),
+            ValueDefinition::Load { site, .. }
+            | ValueDefinition::OperationResult { site, .. }
+            | ValueDefinition::JoinResult { site, .. } => Some(site.block),
+            ValueDefinition::Expression(expression) => {
+                expression.inputs().fold(Some(0), |scope, input| {
+                    self.merge_scopes(scope, self.availability[*input])
+                })
             }
-            | ValueKind::Rotate {
-                value: a, count: b, ..
-            } => self.merge_scopes(self.availability[a], self.availability[b]),
-            ValueKind::Select {
-                condition,
-                when_true,
-                when_false,
-            } => {
-                let mut scope = self.availability[condition];
-                for input in [when_true, when_false] {
-                    scope = self.merge_scopes(scope, self.availability[input]);
-                }
-                scope
-            }
-            ValueKind::Convert(input)
-            | ValueKind::SignExtend(input)
-            | ValueKind::BitCount(_, input)
-            | ValueKind::Normalize(input)
-            | ValueKind::ZeroTest { input, .. } => self.availability[input],
         }
     }
 

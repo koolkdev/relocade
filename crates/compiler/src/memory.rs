@@ -1,6 +1,6 @@
 use crate::{
-    place, AtLeast, BlockBuilder, Body, BuildError, Operation, Program, Val, ValueKind, I1, I16,
-    I32, I64, I8,
+    place, AtLeast, BlockBuilder, Body, BuildError, Operation, Program, Val, ValueDefinition, I1,
+    I16, I32, I64, I8,
 };
 
 mod atomic;
@@ -77,13 +77,14 @@ impl Location {
         }
         let left = place::representation(body, self.base);
         let right = place::representation(body, other.base);
-        let (left_start, right_start) = match (body.values[left].kind, body.values[right].kind) {
-            (ValueKind::Constant(a), ValueKind::Constant(b)) => {
-                (a + u64::from(self.offset), b + u64::from(other.offset))
-            }
-            _ if left == right => (u64::from(self.offset), u64::from(other.offset)),
-            _ => return true,
-        };
+        let (left_start, right_start) =
+            match (body.values[left].definition, body.values[right].definition) {
+                (ValueDefinition::Constant(a), ValueDefinition::Constant(b)) => {
+                    (a + u64::from(self.offset), b + u64::from(other.offset))
+                }
+                _ if left == right => (u64::from(self.offset), u64::from(other.offset)),
+                _ => return true,
+            };
         // Displacements add without wrapping, so equal bases preserve disjoint
         // spans. Different unknown bases may still name the same bytes.
         left_start < right_start + u64::from(other.bytes)

@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use crate::{
     memory::{Location, Mem},
-    place, Body, FunctionKind, Operation, Program, Terminal, ValueKind,
+    place, Body, FunctionKind, Operation, Program, Terminal, ValueDefinition,
 };
 
 #[derive(Clone, Eq, PartialEq)]
@@ -15,8 +15,8 @@ pub(super) struct MemoryRange {
 impl MemoryRange {
     fn from_location(location: Location, body: &Body) -> Self {
         let base = place::representation(body, location.base);
-        let bytes = match body.values[base].kind {
-            ValueKind::Constant(base) => {
+        let bytes = match body.values[base].definition {
+            ValueDefinition::Constant(base) => {
                 let start = base + u64::from(location.offset);
                 Some(start..start + u64::from(location.bytes))
             }
@@ -108,7 +108,8 @@ fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
         for operation in &block.operations {
             match operation {
                 Operation::Load(value) => {
-                    let ValueKind::Load { location, .. } = body.values[*value].kind else {
+                    let ValueDefinition::Load { location, .. } = body.values[*value].definition
+                    else {
                         unreachable!("a load operation names its load value")
                     };
                     include(&mut reads, [MemoryRange::from_location(location, body)]);

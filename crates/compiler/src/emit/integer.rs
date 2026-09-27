@@ -4,15 +4,18 @@ use wasm_encoder::{Encode, Instruction};
 use super::Scheduler;
 use crate::{
     integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
-    Type, ValueKind,
+    Expression, Type, ValueDefinition,
 };
 
 impl Scheduler<'_> {
     pub(super) fn operation(&mut self, id: usize) {
         let value = self.body.values[id];
+        let ValueDefinition::Expression(expression) = value.definition else {
+            unreachable!("only expressions need integer lowering")
+        };
         let wide = value.ty == Type::I64;
-        let instruction = match value.kind {
-            ValueKind::Binary(operator, _, _) => match (operator, wide) {
+        let instruction = match expression {
+            Expression::Binary { operator, .. } => match (operator, wide) {
                 (BinaryOp::Add, false) => Instruction::I32Add,
                 (BinaryOp::Add, true) => Instruction::I64Add,
                 (BinaryOp::Sub, false) => Instruction::I32Sub,
@@ -34,7 +37,7 @@ impl Scheduler<'_> {
                 (BinaryOp::Xor, false) => Instruction::I32Xor,
                 (BinaryOp::Xor, true) => Instruction::I64Xor,
             },
-            ValueKind::Shift { operator, .. } => match (operator, wide) {
+            Expression::Shift { operator, .. } => match (operator, wide) {
                 (ShiftOp::Left, false) => Instruction::I32Shl,
                 (ShiftOp::Left, true) => Instruction::I64Shl,
                 (ShiftOp::RightUnsigned, false) => Instruction::I32ShrU,
@@ -42,39 +45,41 @@ impl Scheduler<'_> {
                 (ShiftOp::RightSigned, false) => Instruction::I32ShrS,
                 (ShiftOp::RightSigned, true) => Instruction::I64ShrS,
             },
-            ValueKind::Rotate { operator, .. } => match (operator, wide) {
+            Expression::Rotate { operator, .. } => match (operator, wide) {
                 (RotateOp::Left, false) => Instruction::I32Rotl,
                 (RotateOp::Left, true) => Instruction::I64Rotl,
                 (RotateOp::Right, false) => Instruction::I32Rotr,
                 (RotateOp::Right, true) => Instruction::I64Rotr,
             },
-            ValueKind::Select { .. } => Instruction::Select,
-            ValueKind::BitCount(operator, _) => match (operator, wide) {
-                (BitCountOp::Ones, false) => Instruction::I32Popcnt,
-                (BitCountOp::Ones, true) => Instruction::I64Popcnt,
-                (BitCountOp::LeadingZeros, true) => Instruction::I64Clz,
-                (BitCountOp::TrailingZeros, true) => Instruction::I64Ctz,
-                (BitCountOp::LeadingZeros, false) => {
-                    let padding = 32 - value.ty.bits();
-                    if padding == 0 {
-                        Instruction::I32Clz
-                    } else {
-                        Instruction::I32Clz.encode(&mut self.bytes);
-                        Instruction::I32Const(i32::from(padding)).encode(&mut self.bytes);
-                        Instruction::I32Sub
+            Expression::Select { .. } => Instruction::Select,
+            Expression::BitCount { operator, .. } => {
+                match (operator, wide) {
+                    (BitCountOp::Ones, false) => Instruction::I32Popcnt,
+                    (BitCountOp::Ones, true) => Instruction::I64Popcnt,
+                    (BitCountOp::LeadingZeros, true) => Instruction::I64Clz,
+                    (BitCountOp::TrailingZeros, true) => Instruction::I64Ctz,
+                    (BitCountOp::LeadingZeros, false) => {
+                        let padding = 32 - value.ty.bits();
+                        if padding == 0 {
+                            Instruction::I32Clz
+                        } else {
+                            Instruction::I32Clz.encode(&mut self.bytes);
+                            Instruction::I32Const(i32::from(padding)).encode(&mut self.bytes);
+                            Instruction::I32Sub
+                        }
+                    }
+                    (BitCountOp::TrailingZeros, false) => {
+                        if value.ty.bits() < 32 {
+                            // The first bit above the logical value caps the zero case
+                            // at its width without changing any nonzero count.
+                            Instruction::I32Const(1 << value.ty.bits()).encode(&mut self.bytes);
+                            Instruction::I32Or.encode(&mut self.bytes);
+                        }
+                        Instruction::I32Ctz
                     }
                 }
-                (BitCountOp::TrailingZeros, false) => {
-                    if value.ty.bits() < 32 {
-                        // The first bit above the logical value caps the zero case
-                        // at its width without changing any nonzero count.
-                        Instruction::I32Const(1 << value.ty.bits()).encode(&mut self.bytes);
-                        Instruction::I32Or.encode(&mut self.bytes);
-                    }
-                    Instruction::I32Ctz
-                }
-            },
-            ValueKind::SignExtend(input) => {
+            }
+            Expression::SignExtend { input } => {
                 match self.body.values[input].ty {
                     Type::I1 => {
                         Instruction::I32Const(31).encode(&mut self.bytes);
@@ -93,9 +98,9 @@ impl Scheduler<'_> {
                     return;
                 }
             }
-            ValueKind::Compare(operator, a, _) => {
+            Expression::Compare { operator, left, .. } => {
                 // Comparisons produce I1; their opcode follows the operands' carrier.
-                let wide = self.body.values[a].ty == Type::I64;
+                let wide = self.body.values[left].ty == Type::I64;
                 match (operator, wide) {
                     (CompareOp::Eq, false) => Instruction::I32Eq,
                     (CompareOp::Eq, true) => Instruction::I64Eq,
@@ -111,7 +116,7 @@ impl Scheduler<'_> {
                     (CompareOp::GeSigned, true) => Instruction::I64GeS,
                 }
             }
-            ValueKind::ZeroTest { input, nonzero } => {
+            Expression::ZeroTest { input, nonzero } => {
                 let test = if self.body.values[input].ty == Type::I64 {
                     Instruction::I64Eqz
                 } else {
@@ -124,24 +129,16 @@ impl Scheduler<'_> {
                     test
                 }
             }
-            ValueKind::Normalize(_) => {
+            Expression::Normalize { .. } => {
                 Instruction::I32Const(value.ty.mask() as i32).encode(&mut self.bytes);
                 Instruction::I32And
             }
-            ValueKind::Convert(_) => {
+            Expression::Convert { .. } => {
                 if wide {
                     Instruction::I64ExtendI32U
                 } else {
                     Instruction::I32WrapI64
                 }
-            }
-            ValueKind::Constant(_)
-            | ValueKind::Parameter(_)
-            | ValueKind::LoopInput { .. }
-            | ValueKind::Load { .. }
-            | ValueKind::OperationResult { .. }
-            | ValueKind::JoinResult { .. } => {
-                unreachable!("constants, parameters and authored results emit separately")
             }
         };
         instruction.encode(&mut self.bytes);

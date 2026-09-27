@@ -30,6 +30,7 @@ mod call;
 mod control;
 mod effects;
 mod emit;
+mod expression;
 mod function;
 mod integer;
 mod locals;
@@ -46,8 +47,8 @@ pub use call::FunctionImport;
 use call::Invocation;
 use control::{Block, Site};
 pub use control::{Label, LoopLabels};
+use expression::Expression;
 pub use function::BlockBuilder;
-use integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp};
 pub use memory::{AtomicAccess, Mem, MemoryImport, MemoryInt};
 use memory::{AtomicOperation, Location};
 pub use results::{Arguments, Results};
@@ -229,102 +230,36 @@ enum Operation {
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 struct Value {
     ty: Type,
-    kind: ValueKind,
+    definition: ValueDefinition,
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
-enum ValueKind {
+enum ValueDefinition {
     Constant(u64),
     Parameter(u32),
-    LoopInput {
-        block: usize,
-        component: usize,
-    },
-    Binary(BinaryOp, usize, usize),
-    Shift {
-        operator: ShiftOp,
-        value: usize,
-        count: usize,
-    },
-    Rotate {
-        operator: RotateOp,
-        value: usize,
-        count: usize,
-    },
-    Select {
-        condition: usize,
-        when_true: usize,
-        when_false: usize,
-    },
-    SignExtend(usize),
-    BitCount(BitCountOp, usize),
-    Compare(CompareOp, usize, usize),
-    ZeroTest {
-        input: usize,
-        nonzero: bool,
-    },
-    Convert(usize),
-    Normalize(usize),
-    Load {
-        location: Location,
-        site: Site,
-    },
-    OperationResult {
-        site: Site,
-        component: usize,
-    },
-    JoinResult {
-        site: Site,
-        component: usize,
-    },
+    LoopInput { block: usize, component: usize },
+    Expression(Expression<usize>),
+    Load { location: Location, site: Site },
+    OperationResult { site: Site, component: usize },
+    JoinResult { site: Site, component: usize },
 }
 
-impl ValueKind {
-    fn is_calculation(self) -> bool {
-        matches!(
-            self,
-            Self::Binary(..)
-                | Self::Compare(..)
-                | Self::Shift { .. }
-                | Self::Rotate { .. }
-                | Self::Select { .. }
-                | Self::Normalize(_)
-                | Self::Convert(_)
-                | Self::SignExtend(_)
-                | Self::BitCount(..)
-                | Self::ZeroTest { .. }
-        )
-    }
-
+impl ValueDefinition {
     // Calls and joins keep their incoming values on the structured operation.
-    fn inputs(self) -> impl DoubleEndedIterator<Item = usize> {
-        let inputs = match self {
-            Self::Binary(_, a, b)
-            | Self::Compare(_, a, b)
-            | Self::Shift {
-                value: a, count: b, ..
-            }
-            | Self::Rotate {
-                value: a, count: b, ..
-            } => [Some(a), Some(b), None],
-            Self::Select {
-                condition,
-                when_true,
-                when_false,
-            } => [Some(condition), Some(when_true), Some(when_false)],
-            Self::Normalize(input)
-            | Self::Convert(input)
-            | Self::SignExtend(input)
-            | Self::BitCount(_, input)
-            | Self::ZeroTest { input, .. } => [Some(input), None, None],
-            Self::Load { location, .. } => [Some(location.base), None, None],
-            Self::Constant(_)
-            | Self::Parameter(_)
-            | Self::LoopInput { .. }
-            | Self::OperationResult { .. }
-            | Self::JoinResult { .. } => [None; 3],
+    fn inputs(&self) -> impl DoubleEndedIterator<Item = usize> + '_ {
+        let expression = match self {
+            Self::Expression(expression) => Some(expression),
+            _ => None,
         };
-        inputs.into_iter().flatten()
+        let address = match self {
+            Self::Load { location, .. } => Some(location.base),
+            _ => None,
+        };
+        expression
+            .into_iter()
+            .flat_map(Expression::inputs)
+            .copied()
+            .chain(address)
     }
 }
 

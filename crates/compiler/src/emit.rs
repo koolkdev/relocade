@@ -2,8 +2,8 @@
 use wasm_encoder::{Encode, Function, Instruction, ValType};
 
 use crate::{
-    control::Target, effects::Effects, locals, memory::Location, module::Types, place, Body, Type,
-    ValueKind,
+    control::Target, effects::Effects, locals, memory::Location, module::Types, place, Body,
+    Expression, Type, ValueDefinition,
 };
 
 mod branch;
@@ -113,10 +113,10 @@ impl Scheduler<'_> {
 
     fn condition_input(&self, condition: usize) -> usize {
         let condition = place::representation(self.body, condition);
-        let ValueKind::ZeroTest {
+        let ValueDefinition::Expression(Expression::ZeroTest {
             input,
             nonzero: true,
-        } = self.body.values[condition].kind
+        }) = self.body.values[condition].definition
         else {
             return condition;
         };
@@ -134,10 +134,10 @@ impl Scheduler<'_> {
     fn emit_condition(&mut self, condition: usize, inverted: bool) {
         let condition = self.condition_input(condition);
         if inverted {
-            if let ValueKind::ZeroTest {
+            if let ValueDefinition::Expression(Expression::ZeroTest {
                 input,
                 nonzero: false,
-            } = self.body.values[condition].kind
+            }) = self.body.values[condition].definition
             {
                 // Inverting an unshared i32 zero-test can use its operand as the
                 // Wasm truth value. Saved predicates must keep their original
@@ -176,7 +176,9 @@ impl Scheduler<'_> {
                     continue;
                 }
                 Walk::FinishCall(id) => {
-                    let ValueKind::OperationResult { site, .. } = self.body.values[id].kind else {
+                    let ValueDefinition::OperationResult { site, .. } =
+                        self.body.values[id].definition
+                    else {
                         unreachable!("call completion names a call result")
                     };
                     self.finish_call(site, Some((id, capture && id == root)));
@@ -202,86 +204,96 @@ impl Scheduler<'_> {
                 self.local(slot, LocalOp::Get);
                 continue;
             }
-            match self.body.values[id].kind {
-                ValueKind::Constant(bits) => match self.body.values[id].ty {
+            match self.body.values[id].definition {
+                ValueDefinition::Constant(bits) => match self.body.values[id].ty {
                     Type::I1 | Type::I8 | Type::I16 | Type::I32 => {
                         Instruction::I32Const(bits as u32 as i32)
                     }
                     Type::I64 => Instruction::I64Const(bits as i64),
                 }
                 .encode(&mut self.bytes),
-                ValueKind::Parameter(index) => Instruction::LocalGet(index).encode(&mut self.bytes),
-                ValueKind::JoinResult { .. } => {
+                ValueDefinition::Parameter(index) => {
+                    Instruction::LocalGet(index).encode(&mut self.bytes)
+                }
+                ValueDefinition::JoinResult { .. } => {
                     unreachable!("a used join was saved after its branch operation")
                 }
-                ValueKind::LoopInput { .. } => {
+                ValueDefinition::LoopInput { .. } => {
                     unreachable!("loop inputs are saved at the header")
                 }
-                ValueKind::Binary(_, a, b)
-                | ValueKind::Compare(_, a, b)
-                | ValueKind::Shift {
-                    value: a, count: b, ..
-                }
-                | ValueKind::Rotate {
-                    value: a, count: b, ..
-                } => {
-                    pending.push(Walk::Finish(id));
-                    pending.push(Walk::Value(b));
-                    pending.push(Walk::Value(a));
-                }
-                ValueKind::Select {
-                    condition,
-                    when_true,
-                    when_false,
-                } => {
-                    pending.push(Walk::Finish(id));
-                    pending.push(Walk::Value(self.condition_input(condition)));
-                    pending.push(Walk::Value(when_false));
-                    pending.push(Walk::Value(when_true));
-                }
-                ValueKind::Normalize(input)
-                | ValueKind::Convert(input)
-                | ValueKind::BitCount(_, input) => {
-                    pending.push(Walk::Finish(id));
-                    pending.push(Walk::Value(input));
-                }
-                ValueKind::SignExtend(input) => {
-                    if let Some(location) = self.signed_load_location(input) {
-                        pending.push(Walk::FinishLoad {
-                            result: id,
-                            location,
-                            signed: true,
-                        });
-                        pending.push(Walk::Value(location.base));
-                    } else {
+                ValueDefinition::Expression(expression) => match expression {
+                    Expression::Binary { left, right, .. }
+                    | Expression::Compare { left, right, .. }
+                    | Expression::Shift {
+                        value: left,
+                        count: right,
+                        ..
+                    }
+                    | Expression::Rotate {
+                        value: left,
+                        count: right,
+                        ..
+                    } => {
+                        pending.push(Walk::Finish(id));
+                        pending.push(Walk::Value(right));
+                        pending.push(Walk::Value(left));
+                    }
+                    Expression::Select {
+                        condition,
+                        when_true,
+                        when_false,
+                    } => {
+                        pending.push(Walk::Finish(id));
+                        pending.push(Walk::Value(self.condition_input(condition)));
+                        pending.push(Walk::Value(when_false));
+                        pending.push(Walk::Value(when_true));
+                    }
+                    Expression::Normalize { input }
+                    | Expression::Convert { input }
+                    | Expression::BitCount { input, .. } => {
                         pending.push(Walk::Finish(id));
                         pending.push(Walk::Value(input));
                     }
-                }
-                ValueKind::ZeroTest { input, .. } => {
-                    let mut input = place::representation(self.body, input);
-                    let mut extension = None;
-                    if let ValueKind::Normalize(raw) = self.body.values[input].kind {
-                        let ty = self.body.values[input].ty;
-                        if matches!(ty, Type::I8 | Type::I16)
-                            && self.placement.slots[input].is_none()
-                        {
-                            // For a zero test alone, sign extension tests the same low
-                            // bits with one instruction. Shared masks remain unsigned.
-                            extension = Some(ty);
-                            input = raw;
+                    Expression::SignExtend { input } => {
+                        if let Some(location) = self.signed_load_location(input) {
+                            pending.push(Walk::FinishLoad {
+                                result: id,
+                                location,
+                                signed: true,
+                            });
+                            pending.push(Walk::Value(location.base));
+                        } else {
+                            pending.push(Walk::Finish(id));
+                            pending.push(Walk::Value(input));
                         }
                     }
-                    pending.push(Walk::FinishZero(id, extension));
-                    pending.push(Walk::Value(input));
-                }
-                ValueKind::OperationResult { site, .. } => {
+                    Expression::ZeroTest { input, .. } => {
+                        let mut input = place::representation(self.body, input);
+                        let mut extension = None;
+                        if let ValueDefinition::Expression(Expression::Normalize { input: raw }) =
+                            self.body.values[input].definition
+                        {
+                            let ty = self.body.values[input].ty;
+                            if matches!(ty, Type::I8 | Type::I16)
+                                && self.placement.slots[input].is_none()
+                            {
+                                // For a zero test alone, sign extension tests the same low
+                                // bits with one instruction. Shared masks remain unsigned.
+                                extension = Some(ty);
+                                input = raw;
+                            }
+                        }
+                        pending.push(Walk::FinishZero(id, extension));
+                        pending.push(Walk::Value(input));
+                    }
+                },
+                ValueDefinition::OperationResult { site, .. } => {
                     pending.push(Walk::FinishCall(id));
                     for &argument in self.body.call(site).0.arguments.iter().rev() {
                         pending.push(Walk::Value(argument));
                     }
                 }
-                ValueKind::Load { location, .. } => {
+                ValueDefinition::Load { location, .. } => {
                     pending.push(Walk::FinishLoad {
                         result: id,
                         location,
