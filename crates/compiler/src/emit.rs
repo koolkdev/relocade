@@ -31,14 +31,16 @@ pub(super) fn wasm_type(ty: Type) -> ValType {
 
 enum Walk {
     Value(usize),
-    Finish(usize),
+    FinishExpression {
+        result: usize,
+        sign_extend_from: Option<Type>,
+    },
     FinishLoad {
         result: usize,
         location: Location,
         signed: bool,
     },
     FinishCall(usize),
-    FinishZero(usize, Option<Type>),
 }
 
 struct ControlLabel {
@@ -153,9 +155,23 @@ impl Scheduler<'_> {
         while let Some(next) = pending.pop() {
             let id = match next {
                 Walk::Value(id) => place::representation(self.body, id),
-                Walk::Finish(id) => {
-                    self.operation(id);
-                    self.completed(id, capture && id == root);
+                Walk::FinishExpression {
+                    result,
+                    sign_extend_from,
+                } => {
+                    if let Some(input) = sign_extend_from {
+                        integer::emit(&mut self.code, Type::I32, Expression::SignExtend { input });
+                    }
+                    let value = self.body.values[result];
+                    let ValueDefinition::Expression(expression) = value.definition else {
+                        unreachable!("expression completion names an expression result")
+                    };
+                    integer::emit(
+                        &mut self.code,
+                        value.ty,
+                        expression.map(|&input| self.body.values[input].ty),
+                    );
+                    self.completed(result, capture && result == root);
                     continue;
                 }
                 Walk::FinishLoad {
@@ -174,21 +190,6 @@ impl Scheduler<'_> {
                         unreachable!("call completion names a call result")
                     };
                     self.finish_call(site, Some((id, capture && id == root)));
-                    continue;
-                }
-                Walk::FinishZero(id, extension) => {
-                    if let Some(ty) = extension {
-                        let instruction = match ty {
-                            Type::I8 => Instruction::I32Extend8S,
-                            Type::I16 => Instruction::I32Extend16S,
-                            _ => {
-                                unreachable!("only byte and word masks have a sign-extension cover")
-                            }
-                        };
-                        self.code.instruction(instruction);
-                    }
-                    self.operation(id);
-                    self.completed(id, capture && id == root);
                     continue;
                 }
             };
@@ -227,7 +228,10 @@ impl Scheduler<'_> {
                         count: right,
                         ..
                     } => {
-                        pending.push(Walk::Finish(id));
+                        pending.push(Walk::FinishExpression {
+                            result: id,
+                            sign_extend_from: None,
+                        });
                         pending.push(Walk::Value(right));
                         pending.push(Walk::Value(left));
                     }
@@ -236,7 +240,10 @@ impl Scheduler<'_> {
                         when_true,
                         when_false,
                     } => {
-                        pending.push(Walk::Finish(id));
+                        pending.push(Walk::FinishExpression {
+                            result: id,
+                            sign_extend_from: None,
+                        });
                         pending.push(Walk::Value(self.condition_input(condition)));
                         pending.push(Walk::Value(when_false));
                         pending.push(Walk::Value(when_true));
@@ -244,7 +251,10 @@ impl Scheduler<'_> {
                     Expression::Normalize { input }
                     | Expression::Convert { input }
                     | Expression::BitCount { input, .. } => {
-                        pending.push(Walk::Finish(id));
+                        pending.push(Walk::FinishExpression {
+                            result: id,
+                            sign_extend_from: None,
+                        });
                         pending.push(Walk::Value(input));
                     }
                     Expression::SignExtend { input } => {
@@ -256,13 +266,16 @@ impl Scheduler<'_> {
                             });
                             pending.push(Walk::Value(location.base));
                         } else {
-                            pending.push(Walk::Finish(id));
+                            pending.push(Walk::FinishExpression {
+                                result: id,
+                                sign_extend_from: None,
+                            });
                             pending.push(Walk::Value(input));
                         }
                     }
                     Expression::ZeroTest { input, .. } => {
                         let mut input = place::representation(self.body, input);
-                        let mut extension = None;
+                        let mut sign_extend_from = None;
                         if let ValueDefinition::Expression(Expression::Normalize { input: raw }) =
                             self.body.values[input].definition
                         {
@@ -270,11 +283,14 @@ impl Scheduler<'_> {
                             if matches!(ty, Type::I8 | Type::I16) && self.slots[input].is_none() {
                                 // For a zero test alone, sign extension tests the same low
                                 // bits with one instruction. Shared masks remain unsigned.
-                                extension = Some(ty);
+                                sign_extend_from = Some(ty);
                                 input = raw;
                             }
                         }
-                        pending.push(Walk::FinishZero(id, extension));
+                        pending.push(Walk::FinishExpression {
+                            result: id,
+                            sign_extend_from,
+                        });
                         pending.push(Walk::Value(input));
                     }
                 },
