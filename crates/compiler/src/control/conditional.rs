@@ -1,8 +1,8 @@
 //! Conditional execution and typed result selection.
 use super::JoinTarget;
-use crate::{Arguments, BuildError, FunctionBuilder, Operation, Results, Terminal, Val, I1};
+use crate::{Arguments, BlockBuilder, BuildError, Operation, Results, Terminal, Val, I1};
 
-impl FunctionBuilder<'_> {
+impl BlockBuilder<'_> {
     /// Conditionally supplies this direct result arm, block or loop's result.
     /// A true condition yields and skips the remaining body; false leaves this
     /// builder open. The result shape and scope rules match [`Self::yield_`].
@@ -29,14 +29,16 @@ impl FunctionBuilder<'_> {
         let arguments = self.result_arguments(arguments, &target.types)?;
         let condition = self.arena.normalize(condition)?;
         let taken = self.build_branch(None, |branch| {
-            branch.complete(Terminal::Branch {
-                target: target.target,
-                arguments,
+            branch.terminate(|_| {
+                Ok(Terminal::Branch {
+                    target: target.target,
+                    arguments,
+                })
             })
         })?;
         // The selected edge owns its argument demands, but has no result join
         // of its own. Construction never changes the parent's fallthrough state.
-        self.region
+        self.pending
             .operations
             .push(Operation::BranchIf { condition, taken });
         Ok(())
@@ -44,7 +46,7 @@ impl FunctionBuilder<'_> {
 
     /// Builds a branch that executes when the condition is true. A false condition
     /// skips it. The child has the same load, store, conditional and return methods.
-    /// Returning `Ok(())` without a terminal lets execution continue after the branch.
+    /// Return `Ok(())` without a terminal to continue after the branch.
     /// A closure error discards the branch and leaves the parent usable.
     /// Construction checks the branch even for a constant condition. Constant
     /// conditions are folded after the complete function body has been checked.
@@ -56,13 +58,13 @@ impl FunctionBuilder<'_> {
     /// ```
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
-    /// let function = program.declare(Signature {
+    /// let function = program.function(Signature {
     ///     parameters: vec![Type::I32], results: vec![Type::I32],
-    /// });
-    /// let mut body = program.define(function)?;
-    /// let value = body.parameter::<I32>(0)?;
-    /// body.if_(value.eq(0), |branch| branch.return_(7))?;
-    /// body.return_(value.add(1))?;
+    /// }, |mut body| {
+    ///     let value = body.parameter::<I32>(0)?;
+    ///     body.if_(value.eq(0), |branch| branch.return_(7))?;
+    ///     body.return_(value.add(1))
+    /// })?;
     /// program.export("increment_or_seven", function)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), wasm86_compiler::BuildError>(())
@@ -70,12 +72,12 @@ impl FunctionBuilder<'_> {
     pub fn if_(
         &mut self,
         condition: impl Into<Val<I1>>,
-        build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
+        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         let condition = self.operand(condition)?;
         let branch = self.build_branch(None, build)?;
         let condition = self.arena.normalize(condition)?;
-        self.region.operations.push(Operation::If {
+        self.pending.operations.push(Operation::If {
             condition,
             branch,
             else_branch: None,
@@ -92,30 +94,30 @@ impl FunctionBuilder<'_> {
     /// ```
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
-    /// let function = program.declare(Signature {
+    /// let function = program.function(Signature {
     ///     parameters: vec![Type::I32], results: vec![Type::I32],
-    /// });
-    /// let mut body = program.define(function)?;
-    /// let value = body.parameter::<I32>(0)?;
-    /// body.if_else(value.eq(0),
-    ///     |branch| branch.return_(7),
-    ///     |_branch| Ok(()),
-    /// )?;
-    /// body.return_(value.add(1))?;
+    /// }, |mut body| {
+    ///     let value = body.parameter::<I32>(0)?;
+    ///     body.if_else(value.eq(0),
+    ///         |branch| branch.return_(7),
+    ///         |_| Ok(()),
+    ///     )?;
+    ///     body.return_(value.add(1))
+    /// })?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), wasm86_compiler::BuildError>(())
     /// ```
     pub fn if_else(
         &mut self,
         condition: impl Into<Val<I1>>,
-        then_build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
-        else_build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
+        then_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
+        else_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         let condition = self.operand(condition)?;
         let branch = self.build_branch(None, then_build)?;
         let else_branch = self.build_branch(None, else_build)?;
         let condition = self.arena.normalize(condition)?;
-        self.region.operations.push(Operation::If {
+        self.pending.operations.push(Operation::If {
             condition,
             branch,
             else_branch: Some(else_branch),
@@ -138,16 +140,16 @@ impl FunctionBuilder<'_> {
     /// ```
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
-    /// let function = program.declare(Signature {
+    /// let function = program.function(Signature {
     ///     parameters: vec![Type::I32], results: vec![Type::I32],
-    /// });
-    /// let mut body = program.define(function)?;
-    /// let value = body.parameter::<I32>(0)?;
-    /// let selected = body.if_value::<I32>(value.eq(0),
-    ///     |arm| arm.yield_(7),
-    ///     |arm| arm.yield_(value.add(1)),
-    /// )?;
-    /// body.return_(selected.add(2))?;
+    /// }, |mut body| {
+    ///     let value = body.parameter::<I32>(0)?;
+    ///     let selected = body.if_value::<I32>(value.eq(0),
+    ///         |arm| arm.yield_(7),
+    ///         |arm| arm.yield_(value.add(1)),
+    ///     )?;
+    ///     body.return_(selected.add(2))
+    /// })?;
     /// program.export("choose_then_add", function)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), wasm86_compiler::BuildError>(())
@@ -155,8 +157,8 @@ impl FunctionBuilder<'_> {
     pub fn if_value<R: Results>(
         &mut self,
         condition: impl Into<Val<I1>>,
-        then_build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
-        else_build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
+        then_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
+        else_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<R::Values, BuildError> {
         let condition = self.operand(condition)?;
         let target = self.result_target::<R>();
@@ -165,7 +167,7 @@ impl FunctionBuilder<'_> {
         let condition = self.arena.normalize(condition)?;
         let outputs = self.join_outputs(&target, [&branch, &else_branch])?;
         let values = crate::results::bind::<R>(self, &outputs);
-        self.region.operations.push(Operation::If {
+        self.pending.operations.push(Operation::If {
             condition,
             branch,
             else_branch: Some(else_branch),

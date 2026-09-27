@@ -1,10 +1,10 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::TestModule;
 
-use wasm86_compiler::{FunctionBuilder, Mem, Type, Val, I1, I32, I64, I8};
+use wasm86_compiler::{BlockBuilder, Mem, Type, Val, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
-fn selected_loads(body: &mut FunctionBuilder<'_>, state: Mem) -> Val<I32> {
+fn selected_loads(body: &mut BlockBuilder<'_>, state: Mem) -> Val<I32> {
     let condition = body.parameter::<I1>(0).unwrap();
     let left = body.parameter::<I32>(1).unwrap();
     let right = body.parameter::<I32>(2).unwrap();

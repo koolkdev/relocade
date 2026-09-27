@@ -1,7 +1,7 @@
 //! Host execution imports and their adapters to architectural values.
 
 use wasm86_compiler::{
-    BuildError, Func, FunctionBuilder, FunctionImport, Program, Signature, Type, Val, I1, I16, I32,
+    BlockBuilder, BuildError, Func, FunctionImport, Program, Signature, Type, Val, I1, I16, I32,
 };
 
 use crate::{
@@ -57,11 +57,7 @@ impl Runtime {
         }
     }
 
-    pub(crate) fn dispatch(
-        self,
-        body: FunctionBuilder<'_>,
-        eip: &Val<I32>,
-    ) -> Result<(), BuildError> {
+    pub(crate) fn dispatch(self, body: BlockBuilder<'_>, eip: &Val<I32>) -> Result<(), BuildError> {
         body.tail_call(self.dispatch, &[eip.into()])
     }
 
@@ -69,7 +65,7 @@ impl Runtime {
     /// accessing guest memory.
     pub(crate) fn query_segment_descriptor(
         self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         selector: &Val<I16>,
     ) -> Result<SegmentDescriptorInfo<Val<I1>, Val<I32>>, BuildError> {
         let (visible, readable, writable, access_rights, limit) =
@@ -88,10 +84,10 @@ impl Runtime {
     /// segment-fault vectors. Cache fields are used only after the fault path has exited.
     pub(crate) fn resolve_segment(
         self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         segment: Segment,
         selector: &Val<I16>,
-        on_fault: impl Fn(FunctionBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
+        on_fault: impl Fn(BlockBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
     ) -> Result<SegmentValues, BuildError> {
         let (status, error_code, base, limit, selector, attributes) =
             body.call::<(I32, I32, I32, I32, I16, I16)>(

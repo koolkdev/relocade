@@ -312,11 +312,13 @@ fn abandoned_bodies_do_not_retain_memory_imports() {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    let mut body = program.define(function).unwrap();
-    body.load::<I32>(memory, 0).unwrap();
-    drop(body);
-    let body = program.define(function).unwrap();
-    body.return_(7).unwrap();
+    assert!(program
+        .define(function, |mut body| {
+            body.load::<I32>(memory, 0)?;
+            Ok(())
+        })
+        .is_err());
+    program.define(function, |body| body.return_(7)).unwrap();
     program.export("run", function).unwrap();
     assert!(inspect(&program.compile().unwrap()).memories.is_empty());
 }

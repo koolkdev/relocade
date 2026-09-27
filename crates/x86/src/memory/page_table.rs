@@ -4,7 +4,7 @@ mod cache;
 
 pub(crate) use cache::{PageCache, PageCacheInputs};
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryImport, Program, Val, I1, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryImport, Program, Val, I1, I32};
 
 const PAGE_SHIFT: u32 = 12;
 pub(super) const PAGE_BYTES: u32 = 1 << PAGE_SHIFT;
@@ -37,7 +37,7 @@ impl PageTable {
 
     pub(super) fn entry(
         self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         address: &Val<I32>,
     ) -> Result<Val<I32>, BuildError> {
         let index = address.unsigned().shr(PAGE_SHIFT).shl(2);
@@ -48,7 +48,7 @@ impl PageTable {
     /// The range must touch at most two pages.
     pub(super) fn lookup_span(
         self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         start: &Val<I32>,
         last_byte_offset: impl Into<Val<I32>>,
         first_entry: &Val<I32>,
@@ -68,7 +68,7 @@ impl PageTable {
     // cross-page path even when scattered accesses also use that address later.
     pub(super) fn define_range_resolver(
         self,
-        mut body: FunctionBuilder<'_>,
+        mut body: BlockBuilder<'_>,
     ) -> Result<(), BuildError> {
         let start = body.parameter::<I32>(0)?;
         let last_byte_offset = body.parameter::<I32>(1)?;

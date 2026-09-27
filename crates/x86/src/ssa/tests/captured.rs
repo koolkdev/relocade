@@ -15,31 +15,34 @@ fn captured_records_preserve_held_qwords_and_bytes_outside_narrow_writes() {
         parameters: vec![Type::I32],
         results: vec![Type::I64, Type::I64, Type::I64],
     });
-    let mut body = program.define(function).unwrap();
-    let index = body.parameter::<I32>(0).unwrap().and(7);
-    let base = body.load::<I32>(memory, 0).unwrap();
-    let mut record = StateFields::with_base(memory, base);
-    let original = record.read(&mut body, Location::<I64>::new(8)).unwrap();
-    record
-        .define(
-            &mut body,
-            Location::<I64>::new(8),
-            original.xor(0x0102_0304_0506_0708_u64),
-        )
+    program
+        .define(function, |mut body| {
+            let index = body.parameter::<I32>(0).unwrap().and(7);
+            let base = body.load::<I32>(memory, 0).unwrap();
+            let mut record = StateFields::with_base(memory, base);
+            let original = record.read(&mut body, Location::<I64>::new(8)).unwrap();
+            record
+                .define(
+                    &mut body,
+                    Location::<I64>::new(8),
+                    original.xor(0x0102_0304_0506_0708_u64),
+                )
+                .unwrap();
+            let held = record.read(&mut body, Location::<I64>::new(8)).unwrap();
+            // The pointer field is outside the captured record. Changing it must not
+            // retarget the record or an older value held by its caller.
+            body.store::<I32>(memory, 0, 96).unwrap();
+            record
+                .define(&mut body, Location::<I16>::new(10), 0xabcd)
+                .unwrap();
+            record
+                .define(&mut body, Location::<I8>::indexed(8, 8, index), 0xef)
+                .unwrap();
+            let current = record.read(&mut body, Location::<I64>::new(8)).unwrap();
+            record.publish(&mut body).unwrap();
+            body.return_((original, held, current))
+        })
         .unwrap();
-    let held = record.read(&mut body, Location::<I64>::new(8)).unwrap();
-    // The pointer field is outside the captured record. Changing it must not
-    // retarget the record or an older value held by its caller.
-    body.store::<I32>(memory, 0, 96).unwrap();
-    record
-        .define(&mut body, Location::<I16>::new(10), 0xabcd)
-        .unwrap();
-    record
-        .define(&mut body, Location::<I8>::indexed(8, 8, index), 0xef)
-        .unwrap();
-    let current = record.read(&mut body, Location::<I64>::new(8)).unwrap();
-    record.publish(&mut body).unwrap();
-    body.return_((original, held, current)).unwrap();
     program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
 

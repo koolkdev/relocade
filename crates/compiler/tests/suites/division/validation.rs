@@ -8,35 +8,48 @@ fn division_and_remainder_preserve_foreign_operand_validation() {
     for kind in KINDS {
         let mut program = Program::new();
         let function = program.declare(signature(&[], &[Type::I32]));
-        let body = program.define(function).unwrap();
-        let foreign = body.value::<I32>(1).unwrap();
-        drop(body);
-        let body = program.define(function).unwrap();
-        let cached = Val::<I32>::from(7).unsigned().div(0).and(0);
-        body.value(&cached).unwrap();
+        let mut foreign = None;
         assert_eq!(
-            body.value(cached.add(&foreign).mul(0)).err(),
-            Some(BuildError::ForeignBody)
+            program.define(function, |body| {
+                foreign = Some(body.value::<I32>(1)?);
+                Ok(())
+            }),
+            Err(BuildError::MissingBody)
         );
-        for literal in [0, 1] {
-            assert_eq!(
-                body.value(kind.apply(&foreign, literal)).err(),
-                Some(BuildError::ForeignBody)
-            );
-            assert_eq!(
-                body.value(kind.apply(literal, &foreign)).err(),
-                Some(BuildError::ForeignBody)
-            );
-        }
-        let result = kind.apply(body.value::<I32>(0).unwrap(), 1);
-        body.return_(0).unwrap();
+        let foreign = foreign.unwrap();
+        let mut result = None;
+        program
+            .define(function, |body| {
+                let cached = Val::<I32>::from(7).unsigned().div(0).and(0);
+                body.value(&cached).unwrap();
+                assert_eq!(
+                    body.value(cached.add(&foreign).mul(0)).err(),
+                    Some(BuildError::ForeignBody)
+                );
+                for literal in [0, 1] {
+                    assert_eq!(
+                        body.value(kind.apply(&foreign, literal)).err(),
+                        Some(BuildError::ForeignBody)
+                    );
+                    assert_eq!(
+                        body.value(kind.apply(literal, &foreign)).err(),
+                        Some(BuildError::ForeignBody)
+                    );
+                }
+                result = Some(kind.apply(body.value::<I32>(0).unwrap(), 1));
+                body.return_(0)
+            })
+            .unwrap();
         let next_function = program.declare(signature(&[], &[Type::I32]));
-        let next = program.define(next_function).unwrap();
-        assert_eq!(
-            next.value(result.add(1)).err(),
-            Some(BuildError::ForeignBody)
-        );
-        next.return_(0).unwrap();
+        program
+            .define(next_function, |next| {
+                assert_eq!(
+                    next.value(result.unwrap().add(1)).err(),
+                    Some(BuildError::ForeignBody)
+                );
+                next.return_(0)
+            })
+            .unwrap();
         assert!(program.compile().is_ok());
     }
 }

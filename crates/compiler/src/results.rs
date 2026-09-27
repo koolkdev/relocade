@@ -1,5 +1,5 @@
 //! Logical result shapes and signature-directed arguments.
-use crate::{Argument, BuildError, FunctionBuilder, IntType, Type, Val};
+use crate::{Argument, BlockBuilder, BuildError, IntType, Type, Val};
 
 mod sealed {
     use super::*;
@@ -8,7 +8,7 @@ mod sealed {
 
     pub trait Values: Sized {
         fn types() -> Vec<Type>;
-        fn bind(body: &FunctionBuilder<'_>, outputs: &mut dyn Iterator<Item = usize>) -> Self;
+        fn bind(body: &BlockBuilder<'_>, outputs: &mut dyn Iterator<Item = usize>) -> Self;
     }
 }
 
@@ -21,7 +21,7 @@ mod sealed {
 ///
 /// Control-result components are demanded independently. An unused component
 /// can omit its loads, pure calls and possible traps; ordered arm effects remain.
-/// Function invocations follow [`FunctionBuilder::call`]: when a call runs,
+/// Function invocations follow [`BlockBuilder::call`]: when a call runs,
 /// its callee evaluates every declared result, including discarded components.
 pub trait Results: sealed::Shape {
     type Values: sealed::Values;
@@ -38,7 +38,7 @@ impl<T: IntType> sealed::Values for Val<T> {
         vec![T::TYPE]
     }
 
-    fn bind(body: &FunctionBuilder<'_>, outputs: &mut dyn Iterator<Item = usize>) -> Self {
+    fn bind(body: &BlockBuilder<'_>, outputs: &mut dyn Iterator<Item = usize>) -> Self {
         Val::new(
             body.arena.clone(),
             Ok(outputs
@@ -58,7 +58,7 @@ impl sealed::Values for () {
     fn types() -> Vec<Type> {
         vec![]
     }
-    fn bind(_: &FunctionBuilder<'_>, _: &mut dyn Iterator<Item = usize>) {}
+    fn bind(_: &BlockBuilder<'_>, _: &mut dyn Iterator<Item = usize>) {}
 }
 
 impl<R: Results, const N: usize> Results for [R; N] {
@@ -72,7 +72,7 @@ impl<V: sealed::Values, const N: usize> sealed::Values for [V; N] {
         V::types().repeat(N)
     }
 
-    fn bind(body: &FunctionBuilder<'_>, outputs: &mut dyn Iterator<Item = usize>) -> Self {
+    fn bind(body: &BlockBuilder<'_>, outputs: &mut dyn Iterator<Item = usize>) -> Self {
         std::array::from_fn(|_| V::bind(body, outputs))
     }
 }
@@ -114,7 +114,7 @@ impl<T: Into<Argument>> From<Vec<T>> for Arguments {
     }
 }
 
-impl FunctionBuilder<'_> {
+impl BlockBuilder<'_> {
     pub(super) fn result_arguments(
         &self,
         arguments: impl Into<Arguments>,
@@ -153,7 +153,7 @@ macro_rules! tuples {
                 types
             }
 
-            fn bind(body: &FunctionBuilder<'_>, outputs: &mut dyn Iterator<Item = usize>) -> Self {
+            fn bind(body: &BlockBuilder<'_>, outputs: &mut dyn Iterator<Item = usize>) -> Self {
                 ($($shape::bind(body, outputs),)+)
             }
         }
@@ -181,6 +181,6 @@ pub(super) fn types<R: Results>() -> Vec<Type> {
     <R::Values as sealed::Values>::types()
 }
 
-pub(super) fn bind<R: Results>(body: &FunctionBuilder<'_>, outputs: &[usize]) -> R::Values {
+pub(super) fn bind<R: Results>(body: &BlockBuilder<'_>, outputs: &[usize]) -> R::Values {
     <R::Values as sealed::Values>::bind(body, &mut outputs.iter().copied())
 }

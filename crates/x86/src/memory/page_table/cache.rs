@@ -1,6 +1,6 @@
 //! One page-table entry retained across a generated loop's iterations.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I32};
 
 use super::{PageTable, PAGE_SHIFT};
 
@@ -29,7 +29,7 @@ impl PageCache {
     pub(in crate::memory) fn lookup(
         &mut self,
         table: PageTable,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         address: &Val<I32>,
     ) -> Result<Val<I32>, BuildError> {
         let index = address.unsigned().shr(PAGE_SHIFT).shl(2);

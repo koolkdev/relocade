@@ -9,7 +9,7 @@ pub(crate) use page_table::{PageCache, PageCacheInputs};
 use std::cell::Cell;
 
 use wasm86_compiler::{
-    BuildError, Func, FunctionBuilder, Mem, MemoryImport, MemoryInt, Program, Signature, Type, Val,
+    BlockBuilder, BuildError, Func, Mem, MemoryImport, MemoryInt, Program, Signature, Type, Val,
     I32,
 };
 
@@ -77,7 +77,7 @@ impl Memory {
 
     pub(super) fn read<T: MemoryInt>(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         access: &Access,
         offset: u32,
     ) -> Result<Val<T>, BuildError> {
@@ -101,7 +101,7 @@ impl Memory {
 
     pub(super) fn write<T: MemoryInt>(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         access: &Access,
         offset: u32,
         value: &Val<T>,
@@ -127,7 +127,7 @@ impl Memory {
     /// The caller must prove this entire read is present and physically contiguous.
     pub(super) fn load<T: MemoryInt>(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         physical: &Val<I32>,
         offset: u32,
     ) -> Result<Val<T>, BuildError> {

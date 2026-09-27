@@ -1,7 +1,7 @@
 //! Stored condition and flag-subset queries over CPU records.
 
 use wasm86_compiler::{
-    AtLeast, BuildError, Func, FunctionBuilder, MemoryInt, Program, Signature, Type, Val, I1, I16,
+    AtLeast, BlockBuilder, BuildError, Func, MemoryInt, Program, Signature, Type, Val, I1, I16,
     I32, I8,
 };
 
@@ -17,7 +17,7 @@ use super::{
 };
 
 /// Builds one typed comparison inside an already selected record case.
-type RecordQuery = fn(&Cpu, &mut FunctionBuilder<'_>, Condition) -> Result<Val<I1>, BuildError>;
+type RecordQuery = fn(&Cpu, &mut BlockBuilder<'_>, Condition) -> Result<Val<I1>, BuildError>;
 
 #[derive(Clone, Copy)]
 enum StoredQuery {
@@ -33,7 +33,7 @@ impl StoredQuery {
         }
     }
 
-    fn return_concrete(self, cpu: &Cpu, mut body: FunctionBuilder<'_>) -> Result<(), BuildError> {
+    fn return_concrete(self, cpu: &Cpu, mut body: BlockBuilder<'_>) -> Result<(), BuildError> {
         match self {
             Self::Condition(condition) => {
                 let result = condition.evaluate(|flag| cpu.read_concrete_flag(&mut body, flag))?;
@@ -51,7 +51,7 @@ impl StoredQuery {
 
     fn return_from_source(
         self,
-        body: FunctionBuilder<'_>,
+        body: BlockBuilder<'_>,
         source: &AnyStatusSource,
     ) -> Result<(), BuildError> {
         match self {
@@ -66,7 +66,7 @@ impl StoredQuery {
 }
 
 fn call_flags(
-    body: &mut FunctionBuilder<'_>,
+    body: &mut BlockBuilder<'_>,
     resolver: Func,
     count: usize,
 ) -> Result<Vec<Val<I1>>, BuildError> {
@@ -87,7 +87,7 @@ impl Cpu {
     /// readonly reader.
     pub(in crate::state) fn read_condition(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         condition: Condition,
     ) -> Result<Val<I1>, BuildError> {
         if condition.operand_comparison::<I32>().is_none() {
@@ -145,7 +145,7 @@ impl Cpu {
     /// Reading never changes CPU storage.
     pub(in crate::state) fn read_flags(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         mask: FlagMask,
     ) -> Result<[Option<Val<I1>>; 6], BuildError> {
         debug_assert!(FlagMask::STATUS.covers(mask));
@@ -163,7 +163,7 @@ impl Cpu {
 
     fn read_condition_fallback(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         condition: Condition,
     ) -> Result<Val<I1>, BuildError> {
         let resolver = self.flag_resolver(
@@ -203,7 +203,7 @@ impl Cpu {
 
     fn define_flag_resolver(
         &self,
-        mut body: FunctionBuilder<'_>,
+        mut body: BlockBuilder<'_>,
         query: StoredQuery,
     ) -> Result<(), BuildError> {
         let kind = cpu_load!(&mut body, self.memory, flags.status_source.kind)?;
@@ -212,7 +212,7 @@ impl Cpu {
         })?;
         let left = cpu_load!(&mut body, self.memory, flags.status_source.left)?;
         let right = cpu_load!(&mut body, self.memory, flags.status_source.right)?;
-        // The kind groups records by operand width; dispatch that region before
+        // The kind groups records by operand width; dispatch that width group before
         // testing its operation so later widths do not scan earlier operations.
         body.if_(
             kind.unsigned().lt(u32::from(record::width_code::<I16>())),
@@ -227,7 +227,7 @@ impl Cpu {
 
     fn read_concrete_flag(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         flag: StatusFlag,
     ) -> Result<Val<I1>, BuildError> {
         let value = match flag {
@@ -243,7 +243,7 @@ impl Cpu {
 }
 
 fn return_query<T: MemoryInt>(
-    mut body: FunctionBuilder<'_>,
+    mut body: BlockBuilder<'_>,
     stored_kind: &Val<I8>,
     left: &Val<I32>,
     right: &Val<I32>,
@@ -278,7 +278,7 @@ where
 
 fn read_subtraction<T: MemoryInt>(
     cpu: &Cpu,
-    body: &mut FunctionBuilder<'_>,
+    body: &mut BlockBuilder<'_>,
     condition: Condition,
 ) -> Result<Val<I1>, BuildError>
 where
@@ -294,7 +294,7 @@ where
 
 fn read_logic<T: MemoryInt>(
     cpu: &Cpu,
-    body: &mut FunctionBuilder<'_>,
+    body: &mut BlockBuilder<'_>,
     condition: Condition,
 ) -> Result<Val<I1>, BuildError>
 where

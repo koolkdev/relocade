@@ -5,7 +5,7 @@ use super::page_table::{
 };
 use super::{Intent, Memory, PageCache};
 use crate::exception::Exception;
-use wasm86_compiler::{BuildError, FunctionBuilder, MemoryInt, Val, I1, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, MemoryInt, Val, I1, I32};
 
 pub(crate) struct DirectRange {
     pub(crate) unavailable: Val<I1>,
@@ -35,7 +35,7 @@ impl Memory {
     /// contiguous physical backing. Failure does not raise an architectural fault.
     pub(crate) fn check_direct_access(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         start: &Val<I32>,
         bytes: u32,
         intent: Intent,
@@ -77,34 +77,33 @@ impl Memory {
     /// for the caller's read or write.
     pub(crate) fn resolve_access(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         start: &Val<I32>,
         bytes: u32,
         intent: Intent,
-        on_fault: impl FnOnce(FunctionBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
+        on_fault: impl FnOnce(BlockBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
     ) -> Result<Access, BuildError> {
         assert!((1..=PAGE_BYTES).contains(&bytes));
         let first_entry = self.table.entry(body, start)?;
         let required = intent.required_permissions();
         let first_denied = first_entry.and(required).ne(required);
-        let report_fault =
-            |fault_body: FunctionBuilder<'_>, address: Val<I32>, present: Val<I1>| {
-                let error_code = match intent {
-                    Intent::Write => present
-                        .unsigned()
-                        .extend::<I32>()
-                        .or(intent.base_error_code()),
-                    // Presence is the only read/fetch permission, so denial is non-present.
-                    Intent::Read | Intent::Fetch => fault_body.value(intent.base_error_code())?,
-                };
-                on_fault(
-                    fault_body,
-                    Exception::PageFault {
-                        linear_address: address,
-                        error_code,
-                    },
-                )
+        let report_fault = |fault_body: BlockBuilder<'_>, address: Val<I32>, present: Val<I1>| {
+            let error_code = match intent {
+                Intent::Write => present
+                    .unsigned()
+                    .extend::<I32>()
+                    .or(intent.base_error_code()),
+                // Presence is the only read/fetch permission, so denial is non-present.
+                Intent::Read | Intent::Fetch => fault_body.value(intent.base_error_code())?,
             };
+            on_fault(
+                fault_body,
+                Exception::PageFault {
+                    linear_address: address,
+                    error_code,
+                },
+            )
+        };
         let (scattered, physical) = if bytes == 1 {
             // A byte needs only the first page check.
             let physical = body.if_value::<I32>(

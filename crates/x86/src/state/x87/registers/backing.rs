@@ -2,7 +2,7 @@
 
 use std::mem::{offset_of, size_of};
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, Val, I1, I16, I32, I64};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I64};
 
 use crate::{
     ssa::StateFields,
@@ -27,7 +27,7 @@ impl Backing {
 
     pub(super) fn tag(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         slot: &Val<I32>,
     ) -> Result<Val<I16>, BuildError> {
         let tags = self.tags.read(body, cpu_location!(x87.tag_word))?;
@@ -36,7 +36,7 @@ impl Backing {
 
     pub(super) fn set_tag(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         slot: &Val<I32>,
         tag: Val<I16>,
         enabled: &Val<I1>,
@@ -54,7 +54,7 @@ impl Backing {
 
     pub(super) fn read(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         slot: &Val<I32>,
     ) -> Result<ExtendedValue, BuildError> {
         let address = slot.mul(size_of::<StoredX87Register>() as u32);
@@ -75,7 +75,7 @@ impl Backing {
 
     pub(super) fn write(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         slot: &Val<I32>,
         value: &ExtendedValue,
         tag: Val<I16>,
@@ -100,11 +100,11 @@ impl Backing {
         self.set_tag(body, slot, tag, enabled)
     }
 
-    pub(super) fn initialize(&mut self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+    pub(super) fn initialize(&mut self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.tags.define(body, cpu_location!(x87.tag_word), 0xffff)
     }
 
-    pub(super) fn publish(&self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+    pub(super) fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.tags.publish(body)
     }
 }

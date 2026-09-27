@@ -2,7 +2,7 @@ use crate::fixture::{signature, Fixture};
 use crate::wasm::{TestModule, Value};
 use std::collections::BTreeMap;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Signature, Type, Val, I1, I16, I32, I64, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Signature, Type, Val, I1, I16, I32, I64, I8};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, Validator};
 
 #[derive(Clone, Copy)]
@@ -23,7 +23,7 @@ impl Form {
         }
     }
 
-    fn finish(self, mut body: FunctionBuilder<'_>, condition: Val<I1>) -> Result<(), BuildError> {
+    fn finish(self, mut body: BlockBuilder<'_>, condition: Val<I1>) -> Result<(), BuildError> {
         match self {
             Self::If => {
                 body.if_(condition, |arm| arm.return_(17))?;
@@ -49,7 +49,7 @@ const VALUE_FORMS: &[Form] = &[Form::IfValue, Form::Select];
 struct Predicate {
     name: &'static str,
     parameter: Type,
-    build: fn(&FunctionBuilder<'_>) -> Val<I1>,
+    build: fn(&BlockBuilder<'_>) -> Val<I1>,
     forms: &'static [Form],
     zero_tests: (usize, usize),
     masks: usize,

@@ -1,10 +1,10 @@
 //! Multiway branch construction and logical selector validation.
 use std::collections::HashSet;
 
-use super::{JoinTarget, Region, SwitchCase};
-use crate::{AtLeast, BuildError, FunctionBuilder, IntType, Operation, Results, Val, I32};
+use super::{Block, JoinTarget, SwitchCase};
+use crate::{AtLeast, BlockBuilder, BuildError, IntType, Operation, Results, Val, I32};
 
-impl FunctionBuilder<'_> {
+impl BlockBuilder<'_> {
     /// Executes the arm whose key equals the selector, or the default arm when no
     /// key matches. Keys are unsigned and must be unique and fit the selector's
     /// logical type. The selector may be I1, I8, I16 or I32.
@@ -18,14 +18,14 @@ impl FunctionBuilder<'_> {
         &mut self,
         selector: impl Into<Val<S>>,
         cases: &[u32],
-        build: impl FnMut(FunctionBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
+        build: impl FnMut(BlockBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError>
     where
         I32: AtLeast<S>,
     {
         let selector = self.switch_selector(selector, cases)?;
         let (cases, default) = self.switch_arms(None, cases, build)?;
-        self.region.operations.push(Operation::Switch {
+        self.pending.operations.push(Operation::Switch {
             selector,
             cases,
             default,
@@ -64,7 +64,7 @@ impl FunctionBuilder<'_> {
         &mut self,
         selector: impl Into<Val<S>>,
         cases: &[u32],
-        build: impl FnMut(FunctionBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
+        build: impl FnMut(BlockBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
     ) -> Result<R::Values, BuildError>
     where
         I32: AtLeast<S>,
@@ -76,11 +76,11 @@ impl FunctionBuilder<'_> {
             &target,
             cases
                 .iter()
-                .map(|case| &case.region)
+                .map(|case| &case.block)
                 .chain(std::iter::once(&default)),
         )?;
         let values = crate::results::bind::<R>(self, &outputs);
-        self.region.operations.push(Operation::Switch {
+        self.pending.operations.push(Operation::Switch {
             selector,
             cases,
             default,
@@ -117,12 +117,12 @@ impl FunctionBuilder<'_> {
         &mut self,
         target: Option<&JoinTarget>,
         keys: &[u32],
-        mut build: impl FnMut(FunctionBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
-    ) -> Result<(Vec<SwitchCase>, Region), BuildError> {
+        mut build: impl FnMut(BlockBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
+    ) -> Result<(Vec<SwitchCase>, Block), BuildError> {
         let mut cases = Vec::with_capacity(keys.len());
         for &key in keys {
-            let region = self.build_branch(target, |arm| build(arm, Some(key)))?;
-            cases.push(SwitchCase { key, region });
+            let block = self.build_branch(target, |arm| build(arm, Some(key)))?;
+            cases.push(SwitchCase { key, block });
         }
         let default = self.build_branch(target, |arm| build(arm, None))?;
         cases.sort_unstable_by_key(|case| case.key);

@@ -1,4 +1,4 @@
-use wasm86_compiler::{AtLeast, BuildError, FunctionBuilder, MemoryInt, Val, I32, I8};
+use wasm86_compiler::{AtLeast, BlockBuilder, BuildError, MemoryInt, Val, I32, I8};
 
 use crate::{exception::Exception, instruction::MAX_INSTRUCTION_BYTES, state::exit};
 
@@ -7,7 +7,7 @@ use super::{RuntimeCursor, Window};
 impl RuntimeCursor<'_> {
     fn read_window<T: MemoryInt>(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         window: &Window,
     ) -> Result<Val<T>, BuildError> {
         match self.fixed_offset {
@@ -21,7 +21,7 @@ impl RuntimeCursor<'_> {
 
     pub(in super::super) fn byte(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
     ) -> Result<Val<I8>, BuildError> {
         if self.maximum_offset >= MAX_INSTRUCTION_BYTES {
             body.if_(
@@ -48,14 +48,14 @@ impl RuntimeCursor<'_> {
 
     pub(in super::super) fn dword(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
     ) -> Result<Val<I32>, BuildError> {
         self.read(body)
     }
 
     pub(super) fn read<T: MemoryInt>(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
     ) -> Result<Val<T>, BuildError>
     where
         I32: AtLeast<T>,

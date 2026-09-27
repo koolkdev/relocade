@@ -4,9 +4,7 @@ use crate::flags::{Condition, FlagChange, StatusFlag};
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::{CompiledModule, FlagBytes};
-use wasm86_compiler::{
-    BuildError, FunctionBuilder, Program, Signature, Type, Val, I1, I32, I64, I8,
-};
+use wasm86_compiler::{BlockBuilder, BuildError, Program, Signature, Type, Val, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 use super::super::fixture::{assert_result, initial_cpu};
@@ -14,10 +12,7 @@ use super::super::fixture::{assert_result, initial_cpu};
 const SUB_FLAGS: [u8; 6] = [1, 1, 1, 0, 1, 0];
 const ZERO_FLAGS: [u8; 6] = [0, 1, 0, 1, 0, 0];
 
-fn query_all(
-    body: &mut FunctionBuilder<'_>,
-    state: &mut State<'_>,
-) -> Result<Val<I64>, BuildError> {
+fn query_all(body: &mut BlockBuilder<'_>, state: &mut State<'_>) -> Result<Val<I64>, BuildError> {
     let mut packed: Val<I64> = 0_u64.into();
     for code in 0..16_u8 {
         let value = state.condition(body, Condition::from_code(code))?;

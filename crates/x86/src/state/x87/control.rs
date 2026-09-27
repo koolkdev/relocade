@@ -1,6 +1,6 @@
 //! Control fields remain independent until a guest observes the control word.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, Val, I1, I16, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I8};
 
 use crate::{
     ssa::{Location, StateFields},
@@ -55,7 +55,7 @@ impl Control {
 
     pub(super) fn unmasked(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         exception: Exception,
     ) -> Result<Val<I1>, BuildError> {
         let mask = self.fields.read(body, exception.mask_location())?;
@@ -64,7 +64,7 @@ impl Control {
 
     /// Packing preserves reserved bits for readback without letting unused
     /// bits in any backing field affect another architectural control field.
-    pub(super) fn word(&mut self, body: &mut FunctionBuilder<'_>) -> Result<Val<I16>, BuildError> {
+    pub(super) fn word(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I16>, BuildError> {
         let reserved = self
             .fields
             .read(body, cpu_location!(x87.control.reserved_bits))?;
@@ -84,7 +84,7 @@ impl Control {
     /// host snapshot's padding. Changing PC does not round existing stack values.
     pub(super) fn load_word(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         word: Val<I16>,
     ) -> Result<(), BuildError> {
         for exception in Exception::ALL {
@@ -119,7 +119,7 @@ impl Control {
         ]
     }
 
-    pub(super) fn publish(&self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+    pub(super) fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.fields.publish(body)
     }
 }

@@ -4,7 +4,7 @@ mod publication;
 mod queries;
 pub(super) mod record;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, I1, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, I1, I8};
 
 use crate::{
     alu::{AnyStatusSource, StatusSource},
@@ -71,7 +71,7 @@ impl FlagState {
     /// A false change preserves every backing byte, including noncanonical flags.
     pub(super) fn apply(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         mut change: FlagChange,
     ) -> Result<(), BuildError> {
         change.condition = change
@@ -125,7 +125,7 @@ impl StatusState {
     }
 }
 
-fn admit_values(body: &FunctionBuilder<'_>, values: &FlagValues) -> Result<(), BuildError> {
+fn admit_values(body: &BlockBuilder<'_>, values: &FlagValues) -> Result<(), BuildError> {
     match values {
         FlagValues::Status(source) => match source {
             AnyStatusSource::Byte(source) => admit_source(body, source),
@@ -142,7 +142,7 @@ fn admit_values(body: &FunctionBuilder<'_>, values: &FlagValues) -> Result<(), B
 }
 
 fn admit_source<T: MemoryInt>(
-    body: &FunctionBuilder<'_>,
+    body: &BlockBuilder<'_>,
     source: &StatusSource<T>,
 ) -> Result<(), BuildError> {
     match source {

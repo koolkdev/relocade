@@ -1,6 +1,6 @@
 //! Segment permissions and complete offset spans are checked before paging.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
 use crate::{exception::Exception, memory::Intent, state::Cpu};
 
@@ -31,7 +31,7 @@ impl<'cpu> SegmentAccess<'cpu> {
     /// Returns the D/B bit, using the profile when it proves the attribute.
     pub(crate) fn is_segment_big(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         segment: Segment,
     ) -> Result<Val<I1>, BuildError> {
         match segment {
@@ -51,12 +51,12 @@ impl<'cpu> SegmentAccess<'cpu> {
     /// segment guards. Explicit runtime overrides use the complete checked path.
     pub(crate) fn translate(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
         offset: &Val<I32>,
         bytes: u32,
         intent: Intent,
-        on_fault: impl Fn(FunctionBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
+        on_fault: impl Fn(BlockBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
     ) -> Result<Val<I32>, BuildError> {
         let check = self.check(body, segment, offset, bytes, intent)?;
         if let Some(denied) = check.denied {
@@ -90,7 +90,7 @@ impl<'cpu> SegmentAccess<'cpu> {
     /// target predicate, without checking its page or using its linear address.
     pub(crate) fn check(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
         offset: &Val<I32>,
         bytes: u32,

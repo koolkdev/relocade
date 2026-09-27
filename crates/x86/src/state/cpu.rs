@@ -5,7 +5,7 @@ mod segments;
 
 use std::cell::Cell;
 
-use wasm86_compiler::{BuildError, Func, FunctionBuilder, Mem, MemoryImport, Program, Val, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Func, Mem, MemoryImport, Program, Val, I32};
 
 use crate::flags::{Condition, StatusFlag};
 
@@ -36,7 +36,7 @@ impl Cpu {
         self.memory
     }
 
-    pub(crate) fn read_eip(&self, body: &mut FunctionBuilder<'_>) -> Result<Val<I32>, BuildError> {
+    pub(crate) fn read_eip(&self, body: &mut BlockBuilder<'_>) -> Result<Val<I32>, BuildError> {
         cpu_load!(body, self.memory, eip)
     }
 }

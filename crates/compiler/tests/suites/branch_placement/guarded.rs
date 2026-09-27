@@ -161,7 +161,7 @@ fn repeated_tests(count: usize, guarded: bool, returned: bool) -> TestModule {
 }
 
 #[test]
-fn three_control_regions_keep_a_shared_test() {
+fn three_control_groups_keep_a_shared_test() {
     for (count, guarded, returned) in [(3, true, false), (2, true, true)] {
         let module = repeated_tests(count, guarded, returned);
         assert_eq!(comparisons(&module), [0]);
@@ -192,7 +192,7 @@ fn two_transparent_blocks_each_compute_their_test() {
 }
 
 #[test]
-fn each_of_two_regions_shares_its_test_with_its_arithmetic() {
+fn each_of_two_groups_shares_its_test_with_its_arithmetic() {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0; 12]);
     let module = fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {

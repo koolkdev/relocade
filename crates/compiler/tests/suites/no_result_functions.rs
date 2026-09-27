@@ -112,10 +112,14 @@ fn conditional_calls() -> TestModule {
 fn recursive_tail() -> TestModule {
     let mut fixture = Fixture::new();
     let run = fixture.program.declare(signature(&[Type::I32], &[]));
-    let mut body = fixture.program.define(run).unwrap();
-    let remaining = body.parameter::<I32>(0).unwrap();
-    body.if_(remaining.eq(0), |arm| arm.return_(())).unwrap();
-    body.tail_call(run, &[remaining.sub(1).into()]).unwrap();
+    fixture
+        .program
+        .define(run, |mut body| {
+            let remaining = body.parameter::<I32>(0).unwrap();
+            body.if_(remaining.eq(0), |arm| arm.return_(())).unwrap();
+            body.tail_call(run, &[remaining.sub(1).into()])
+        })
+        .unwrap();
     fixture.finish(run)
 }
 

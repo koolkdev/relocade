@@ -1,6 +1,6 @@
 use wasm86_compiler::{
-    BuildError, Func, FunctionBuilder, FunctionImport, IntType, Mem, MemoryImport, Program,
-    Signature, Type, Val,
+    BlockBuilder, BuildError, Func, FunctionImport, IntType, Mem, MemoryImport, Program, Signature,
+    Type, Val,
 };
 
 use crate::wasm::{Callback, MemoryBytes, TestModule, Value};
@@ -58,7 +58,7 @@ impl Fixture {
         mut self,
         parameters: &[Type],
         results: &[Type],
-        build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
+        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> TestModule {
         let run = self
             .program
@@ -70,7 +70,7 @@ impl Fixture {
     pub fn expression<T: IntType>(
         self,
         parameters: &[Type],
-        build: impl FnOnce(&FunctionBuilder<'_>) -> Val<T>,
+        build: impl FnOnce(&BlockBuilder<'_>) -> Val<T>,
     ) -> TestModule {
         self.function(parameters, &[T::TYPE], |body| {
             let value = build(&body);

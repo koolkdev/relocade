@@ -7,7 +7,7 @@ mod value;
 
 pub(crate) use value::{BinaryFormat, ExtendedValue};
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, Val, I1, I16, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 
 use crate::ssa::StateFields;
 
@@ -50,7 +50,7 @@ impl super::State<'_> {
     /// that earlier writes were enabled, so later stack reads can omit their guards.
     pub(crate) fn check_x87(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         restart_eip: &Val<I32>,
         completed: u32,
     ) -> Result<(), BuildError> {
@@ -79,19 +79,19 @@ impl X87State {
 
     pub(crate) fn control_word(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
     ) -> Result<Val<I16>, BuildError> {
         self.control.word(body)
     }
 
     pub(crate) fn status_word(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
     ) -> Result<Val<I16>, BuildError> {
         self.status.word(body)
     }
 
-    pub(crate) fn initialize(&mut self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+    pub(crate) fn initialize(&mut self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         // FNINIT marks the stack empty without changing register payloads.
         self.control.load_word(body, 0x037f.into())?;
         self.status.initialize(body)?;
@@ -109,7 +109,7 @@ impl X87State {
 
     pub(crate) fn clear_exceptions(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
     ) -> Result<(), BuildError> {
         // C0/C1/C2/C3 are undefined for FNCLEX; retain them and the unchanged TOP.
         // Clearing ES does not prove that a suppressed write succeeded. Publish
@@ -120,7 +120,7 @@ impl X87State {
 
     pub(crate) fn load_control_word(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         control: Val<I16>,
     ) -> Result<(), BuildError> {
         self.control.load_word(body, control)?;
@@ -130,7 +130,7 @@ impl X87State {
 
     fn slot(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         index: impl Into<Val<I32>>,
     ) -> Result<registers::Slot, BuildError> {
         let top = self.status.top(body)?;
@@ -139,7 +139,7 @@ impl X87State {
 
     pub(crate) fn read_stack(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         index: impl Into<Val<I32>>,
     ) -> Result<StackValue, BuildError> {
         let slot = self.slot(body, index)?;
@@ -153,7 +153,7 @@ impl X87State {
     /// An unmasked fault becomes pending; its producer still retires normally.
     pub(crate) fn stack_fault(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         fault: &Val<I1>,
         overflow: Val<I1>,
     ) -> Result<Val<I1>, BuildError> {
@@ -169,7 +169,7 @@ impl X87State {
 
     pub(crate) fn write_stack(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         index: impl Into<Val<I32>>,
         value: &ExtendedValue,
         enabled: &Val<I1>,
@@ -181,7 +181,7 @@ impl X87State {
 
     pub(crate) fn push(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         source: LoadSource,
     ) -> Result<(), BuildError> {
         let decoded_tag = source.decoded_tag();
@@ -235,7 +235,7 @@ impl X87State {
 
     pub(crate) fn pop(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         enabled: &Val<I1>,
     ) -> Result<(), BuildError> {
         let top = self.status.top(body)?;
@@ -247,7 +247,7 @@ impl X87State {
 
     pub(crate) fn free(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         index: impl Into<Val<I32>>,
     ) -> Result<(), BuildError> {
         let slot = self.slot(body, index)?;
@@ -256,7 +256,7 @@ impl X87State {
 
     pub(crate) fn rotate(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         increment: bool,
     ) -> Result<(), BuildError> {
         let top = self.status.top(body)?;
@@ -268,7 +268,7 @@ impl X87State {
 
     pub(crate) fn record_instruction(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         offset: &Val<I32>,
         selector: Val<I16>,
         opcode: &Val<I16>,
@@ -283,7 +283,7 @@ impl X87State {
 
     pub(crate) fn record_data(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         offset: &Val<I32>,
         selector: Val<I16>,
     ) -> Result<(), BuildError> {
@@ -293,7 +293,7 @@ impl X87State {
             .define(body, cpu_location!(x87.data_selector), selector)
     }
 
-    pub(crate) fn publish(&self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+    pub(crate) fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.control.publish(body)?;
         self.status.publish(body)?;
         self.registers.publish(body)?;

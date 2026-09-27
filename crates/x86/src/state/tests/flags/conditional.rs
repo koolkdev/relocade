@@ -266,85 +266,95 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
         parameters: vec![Type::I32],
         results: vec![Type::I32],
     });
-    let foreign_body = foreign_program.define(foreign_function).unwrap();
-    let foreign = foreign_body.parameter::<I32>(0).unwrap();
-    let mut program = Program::new();
-    let cpu = Cpu::declare(&mut program);
-    program
-        .function(
-            Signature {
-                parameters: vec![Type::I1],
-                results: vec![Type::I32],
-            },
-            |mut body| {
-                let mut state = State::new(&cpu);
-                let pending = body.parameter::<I1>(0)?;
-                let current = StatusSource::<I8>::Logic { result: 42.into() };
-                state.write_flags(&mut body, FlagChange::from(current).when(pending))?;
-                let mut child = None;
-                body.if_(false, |mut arm| {
-                    child = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?);
-                    Ok(())
-                })?;
-                for (invalid, error) in [
-                    (foreign, BuildError::ForeignBody),
-                    (child.unwrap(), BuildError::OutOfScope),
-                ] {
-                    let valid = StatusSource::<I32>::Logic { result: 3.into() };
-                    assert_eq!(
-                        state.write_flags(&mut body, FlagChange::from(valid).when(invalid.eq(0))),
-                        Err(error.clone())
-                    );
-                    for false_first in [false, true] {
-                        let change =
-                            FlagChange::from(StatusSource::<I32>::Logic { result: 3.into() });
-                        let change = if false_first {
-                            change.when(false).when(invalid.eq(0))
-                        } else {
-                            change.when(invalid.eq(0)).when(false)
-                        };
-                        assert_eq!(state.write_flags(&mut body, change), Err(error.clone()));
-                    }
-                    for condition in [false, true] {
-                        for flag in StatusFlag::ALL {
-                            let invalid_source = StatusSource::<I32>::Explicit {
-                                flags: StatusFlag::ALL.map(|candidate| {
-                                    if candidate == flag {
-                                        invalid.eq(0)
-                                    } else {
-                                        false.into()
-                                    }
-                                }),
-                            };
+    foreign_program
+        .define(foreign_function, |foreign_body| {
+            let foreign = foreign_body.parameter::<I32>(0).unwrap();
+            let mut program = Program::new();
+            let cpu = Cpu::declare(&mut program);
+            program
+                .function(
+                    Signature {
+                        parameters: vec![Type::I1],
+                        results: vec![Type::I32],
+                    },
+                    |mut body| {
+                        let mut state = State::new(&cpu);
+                        let pending = body.parameter::<I1>(0)?;
+                        let current = StatusSource::<I8>::Logic { result: 42.into() };
+                        state.write_flags(&mut body, FlagChange::from(current).when(pending))?;
+                        let mut child = None;
+                        body.if_(false, |mut arm| {
+                            child = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?);
+                            Ok(())
+                        })?;
+                        for (invalid, error) in [
+                            (foreign, BuildError::ForeignBody),
+                            (child.unwrap(), BuildError::OutOfScope),
+                        ] {
+                            let valid = StatusSource::<I32>::Logic { result: 3.into() };
                             assert_eq!(
                                 state.write_flags(
                                     &mut body,
-                                    FlagChange::from(invalid_source).when(condition)
+                                    FlagChange::from(valid).when(invalid.eq(0))
                                 ),
                                 Err(error.clone())
                             );
+                            for false_first in [false, true] {
+                                let change = FlagChange::from(StatusSource::<I32>::Logic {
+                                    result: 3.into(),
+                                });
+                                let change = if false_first {
+                                    change.when(false).when(invalid.eq(0))
+                                } else {
+                                    change.when(invalid.eq(0)).when(false)
+                                };
+                                assert_eq!(
+                                    state.write_flags(&mut body, change),
+                                    Err(error.clone())
+                                );
+                            }
+                            for condition in [false, true] {
+                                for flag in StatusFlag::ALL {
+                                    let invalid_source = StatusSource::<I32>::Explicit {
+                                        flags: StatusFlag::ALL.map(|candidate| {
+                                            if candidate == flag {
+                                                invalid.eq(0)
+                                            } else {
+                                                false.into()
+                                            }
+                                        }),
+                                    };
+                                    assert_eq!(
+                                        state.write_flags(
+                                            &mut body,
+                                            FlagChange::from(invalid_source).when(condition)
+                                        ),
+                                        Err(error.clone())
+                                    );
+                                }
+                                assert_eq!(
+                                    state.write_flags(
+                                        &mut body,
+                                        FlagChange::from(StatusSource::Logic {
+                                            result: invalid.clone()
+                                        })
+                                        .when(condition),
+                                    ),
+                                    Err(error.clone())
+                                );
+                            }
                         }
-                        assert_eq!(
-                            state.write_flags(
-                                &mut body,
-                                FlagChange::from(StatusSource::Logic {
-                                    result: invalid.clone()
-                                })
-                                .when(condition),
-                            ),
-                            Err(error.clone())
-                        );
-                    }
-                }
-                state.publish(&mut body, 0x1002, 1)?;
-                body.return_(0)
-            },
-        )
+                        state.publish(&mut body, 0x1002, 1)?;
+                        body.return_(0)
+                    },
+                )
+                .unwrap();
+            let bytes = program.compile().unwrap();
+            Validator::new().validate_all(&bytes).unwrap();
+            assert_eq!(super::flag_stores(&bytes), [(2, 4, 42), (2, 0, 3)]);
+            foreign_body.return_(0)
+        })
         .unwrap();
-    foreign_body.return_(0).unwrap();
-    let bytes = program.compile().unwrap();
-    Validator::new().validate_all(&bytes).unwrap();
-    assert_eq!(super::flag_stores(&bytes), [(2, 4, 42), (2, 0, 3)]);
 }
 
 #[test]

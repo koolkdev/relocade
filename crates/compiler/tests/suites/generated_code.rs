@@ -1,6 +1,6 @@
 use crate::fixture::Fixture;
 use wasm86_compiler::{
-    FunctionBuilder, IntType, Program, Signature, Type, Val, I1, I16, I32, I64, I8,
+    BlockBuilder, IntType, Program, Signature, Type, Val, I1, I16, I32, I64, I8,
 };
 use wasmparser::{Operator, Parser, Payload, ValType};
 
@@ -15,7 +15,7 @@ struct CodeShape {
 
 fn shape<T: IntType>(
     parameters: &[Type],
-    build: impl FnOnce(&FunctionBuilder<'_>) -> Val<T>,
+    build: impl FnOnce(&BlockBuilder<'_>) -> Val<T>,
 ) -> CodeShape {
     let module = Fixture::new().expression(parameters, build);
     let mut shape = CodeShape::default();
@@ -160,9 +160,12 @@ fn logical_signatures_share_their_wasm_integer_representation() {
             parameters: vec![T::TYPE],
             results: vec![T::TYPE],
         });
-        let body = program.define(function).unwrap();
-        let result = body.parameter::<T>(0).unwrap();
-        body.return_(&result).unwrap();
+        program
+            .define(function, |body| {
+                let result = body.parameter::<T>(0).unwrap();
+                body.return_(&result)
+            })
+            .unwrap();
         program.export(name, function).unwrap();
     }
     let mut program = Program::new();

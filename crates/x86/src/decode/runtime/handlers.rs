@@ -1,5 +1,5 @@
 //! Decoder entry signatures and transport of cursor progress and semantic state.
-use wasm86_compiler::{Argument, BuildError, Func, FunctionBuilder, Program, Signature, Type, I32};
+use wasm86_compiler::{Argument, BlockBuilder, BuildError, Func, Program, Signature, Type, I32};
 
 use crate::{
     decode::DecodeState,
@@ -122,11 +122,7 @@ impl DecodeHandlers {
         &self,
         program: &mut Program,
         fetch: InstructionFetch<'memory>,
-        decode: impl Fn(
-            FunctionBuilder<'_>,
-            RuntimeCursor<'memory>,
-            DecodeState,
-        ) -> Result<(), BuildError>,
+        decode: impl Fn(BlockBuilder<'_>, RuntimeCursor<'memory>, DecodeState) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         enum Entry<'entry> {
             Checked,
@@ -142,41 +138,42 @@ impl DecodeHandlers {
                     .map(|entry| (entry.function, Entry::Resumed(entry))),
             );
         for (function, entry) in entries {
-            let body = program.define(function)?;
-            let instruction_eip = body.parameter::<I32>(0)?;
-            let position_parameter = self.point.field_types().len() as u32 + 1;
-            let (cursor, prefixes) = match entry {
-                Entry::Resumed(entry) => {
-                    let cursor = RuntimeCursor::resume(
-                        fetch,
-                        &instruction_eip,
-                        &body.parameter::<I32>(position_parameter)?,
-                    );
-                    let mut prefixes = entry.prefixes.clone();
-                    if entry.has_segment_override {
-                        prefixes = prefixes.with_segment_override(SegmentOverride::Runtime(
-                            body.parameter::<I32>(position_parameter + 1)?,
-                        ));
+            program.define(function, |body| {
+                let instruction_eip = body.parameter::<I32>(0)?;
+                let position_parameter = self.point.field_types().len() as u32 + 1;
+                let (cursor, prefixes) = match entry {
+                    Entry::Resumed(entry) => {
+                        let cursor = RuntimeCursor::resume(
+                            fetch,
+                            &instruction_eip,
+                            &body.parameter::<I32>(position_parameter)?,
+                        );
+                        let mut prefixes = entry.prefixes.clone();
+                        if entry.has_segment_override {
+                            prefixes = prefixes.with_segment_override(SegmentOverride::Runtime(
+                                body.parameter::<I32>(position_parameter + 1)?,
+                            ));
+                        }
+                        (cursor, prefixes)
                     }
-                    (cursor, prefixes)
-                }
-                Entry::Checked | Entry::Direct => {
-                    let physical_start = if matches!(entry, Entry::Direct) {
-                        Some(body.parameter::<I32>(position_parameter)?)
-                    } else {
-                        None
-                    };
-                    let cursor = RuntimeCursor::new(
-                        &body,
-                        fetch,
-                        &instruction_eip,
-                        physical_start.as_ref(),
-                        self.point.consumed(),
-                    )?;
-                    (cursor, self.default_prefixes.clone())
-                }
-            };
-            decode(body, cursor, self.point.state(prefixes))?;
+                    Entry::Checked | Entry::Direct => {
+                        let physical_start = if matches!(entry, Entry::Direct) {
+                            Some(body.parameter::<I32>(position_parameter)?)
+                        } else {
+                            None
+                        };
+                        let cursor = RuntimeCursor::new(
+                            &body,
+                            fetch,
+                            &instruction_eip,
+                            physical_start.as_ref(),
+                            self.point.consumed(),
+                        )?;
+                        (cursor, self.default_prefixes.clone())
+                    }
+                };
+                decode(body, cursor, self.point.state(prefixes))
+            })?;
         }
         Ok(())
     }
@@ -186,7 +183,7 @@ impl DecodeHandlers {
     /// these decoded fields.
     pub(super) fn tail_call(
         &self,
-        body: FunctionBuilder<'_>,
+        body: BlockBuilder<'_>,
         cursor: &RuntimeCursor<'_>,
         state: DecodeState,
         fields: &[Argument],

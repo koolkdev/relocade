@@ -212,12 +212,19 @@ fn forward_tail_results() -> TestModule {
     let shape = signature(&[Type::I32], &[Type::I1, Type::I8, Type::I64]);
     let run = fixture.program.declare(shape.clone());
     let helper = fixture.program.declare(shape);
-    let body = fixture.program.define(run).unwrap();
-    let input = body.parameter::<I32>(0).unwrap();
-    body.tail_call(helper, &[input.into()]).unwrap();
-    let body = fixture.program.define(helper).unwrap();
-    let input = body.parameter::<I32>(0).unwrap();
-    body.return_((input.eq(255), input.truncate::<I8>().add(1), u64::MAX))
+    fixture
+        .program
+        .define(run, |body| {
+            let input = body.parameter::<I32>(0).unwrap();
+            body.tail_call(helper, &[input.into()])
+        })
+        .unwrap();
+    fixture
+        .program
+        .define(helper, |body| {
+            let input = body.parameter::<I32>(0).unwrap();
+            body.return_((input.eq(255), input.truncate::<I8>().add(1), u64::MAX))
+        })
         .unwrap();
     fixture.finish(run)
 }

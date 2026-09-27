@@ -104,8 +104,8 @@ fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
     let mut writes = Vec::new();
     let mut callees = Vec::new();
     let mut synchronizes = false;
-    for region in body.region.walk() {
-        for operation in &region.operations {
+    for block in body.block.walk() {
+        for operation in &block.operations {
             match operation {
                 Operation::Load(value) => {
                     let ValueKind::Load { location, .. } = body.values[*value].kind else {
@@ -126,7 +126,7 @@ fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
                 | Operation::Switch { .. } => {}
             }
         }
-        if let Some(Terminal::TailCall(invocation)) = &region.terminal {
+        if let Some(Terminal::TailCall(invocation)) = &block.terminal {
             callees.push(invocation.target);
         }
     }

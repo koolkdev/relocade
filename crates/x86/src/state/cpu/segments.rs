@@ -2,7 +2,7 @@
 
 use std::mem::size_of;
 
-use wasm86_compiler::{BuildError, FunctionBuilder};
+use wasm86_compiler::{BlockBuilder, BuildError};
 
 use crate::{
     segment::{SegmentSelection, SegmentValues},
@@ -17,7 +17,7 @@ use super::Cpu;
 impl Cpu {
     pub(crate) fn read_segment(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
     ) -> Result<SegmentValues, BuildError> {
         let displacement = segment.index().mul(size_of::<StoredSegment>() as u32);
@@ -31,7 +31,7 @@ impl Cpu {
 
     pub(crate) fn write_segment(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
         values: &SegmentValues,
     ) -> Result<(), BuildError> {

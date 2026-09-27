@@ -87,14 +87,24 @@ fn imported_and_defined_targets() -> TestModule {
         &[Value::I64(-9223372036854775808)],
     );
     let other = fixture.program.declare(signature(&[], &[Type::I64]));
-    let mut body = fixture.program.define(run).unwrap();
-    body.store::<I32>(state, 0, 11).unwrap();
-    body.tail_call(helper, &[11.into()]).unwrap();
-    let body = fixture.program.define(helper).unwrap();
-    let parameter = body.parameter::<I32>(0).unwrap();
-    body.tail_call(left, &[parameter.argument()]).unwrap();
-    let body = fixture.program.define(other).unwrap();
-    body.tail_call(right, &[22.into()]).unwrap();
+    fixture
+        .program
+        .define(run, |mut body| {
+            body.store::<I32>(state, 0, 11).unwrap();
+            body.tail_call(helper, &[11.into()])
+        })
+        .unwrap();
+    fixture
+        .program
+        .define(helper, |body| {
+            let parameter = body.parameter::<I32>(0).unwrap();
+            body.tail_call(left, &[parameter.argument()])
+        })
+        .unwrap();
+    fixture
+        .program
+        .define(other, |body| body.tail_call(right, &[22.into()]))
+        .unwrap();
     for (name, function) in [
         ("run", run),
         ("helper", helper),
@@ -275,14 +285,13 @@ fn tail_signatures_require_logical_argument_and_result_types() {
             parameters: vec![],
             results: vec![Type::I1],
         });
-        let body = program.define(run).unwrap();
-        let bit = body.value::<I1>(true).unwrap();
-        assert!(matches!(
-            body.tail_call(target, &[bit.argument()]),
-            Err(BuildError::TypeMismatch { .. })
-        ));
-        let body = program.define(run).unwrap();
-        body.return_(false).unwrap();
+        let result = program.define(run, |body| {
+            let bit = body.value::<I1>(true).unwrap();
+            assert!(body.tail_call(target, &[bit.argument()]).is_err());
+            Ok(())
+        });
+        assert!(matches!(result, Err(BuildError::TypeMismatch { .. })));
+        program.define(run, |body| body.return_(false)).unwrap();
         let bytes = program.compile().unwrap();
         assert!(Parser::new(0)
             .parse_all(&bytes)

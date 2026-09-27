@@ -20,35 +20,37 @@ fn synchronized_registers(source: IndexSource) -> crate::CompiledModule {
         parameters: vec![Type::I32, Type::I1],
         results: vec![Type::I64],
     });
-    let mut body = program.define(function).unwrap();
-    let mut state = State::new(&cpu);
-    let index = match source {
-        IndexSource::Parameter => body.parameter::<I32>(0).unwrap(),
-        IndexSource::OldEax => state.read_register(&mut body, Gpr32::Eax).unwrap(),
-    };
-    let stop = body.parameter::<I1>(1).unwrap();
-    state.write_register(&mut body, Gpr32::Eax, 42).unwrap();
-    body.if_(stop, |mut branch| {
-        state.publish(&mut branch, 0x1005, 1)?;
-        branch.return_(7)
-    })
-    .unwrap();
-    let before = state
-        .read_register(&mut body, Register::<I32>::indexed(index.clone()))
+    program
+        .define(function, |mut body| {
+            let mut state = State::new(&cpu);
+            let index = match source {
+                IndexSource::Parameter => body.parameter::<I32>(0).unwrap(),
+                IndexSource::OldEax => state.read_register(&mut body, Gpr32::Eax).unwrap(),
+            };
+            let stop = body.parameter::<I1>(1).unwrap();
+            state.write_register(&mut body, Gpr32::Eax, 42).unwrap();
+            body.if_(stop, |mut branch| {
+                state.publish(&mut branch, 0x1005, 1)?;
+                branch.return_(7)
+            })
+            .unwrap();
+            let before = state
+                .read_register(&mut body, Register::<I32>::indexed(index.clone()))
+                .unwrap();
+            state
+                .write_register(&mut body, Register::<I32>::indexed(index), 99)
+                .unwrap();
+            let after = state.read_register(&mut body, Gpr32::Eax).unwrap();
+            state.publish(&mut body, 0x100a, 2).unwrap();
+            body.return_(
+                before
+                    .unsigned()
+                    .extend::<I64>()
+                    .shl(32)
+                    .or(after.unsigned().extend::<I64>()),
+            )
+        })
         .unwrap();
-    state
-        .write_register(&mut body, Register::<I32>::indexed(index), 99)
-        .unwrap();
-    let after = state.read_register(&mut body, Gpr32::Eax).unwrap();
-    state.publish(&mut body, 0x100a, 2).unwrap();
-    body.return_(
-        before
-            .unsigned()
-            .extend::<I64>()
-            .shl(32)
-            .or(after.unsigned().extend::<I64>()),
-    )
-    .unwrap();
     program.export("run", function).unwrap();
     crate::CompiledModule {
         segment_profile: None,

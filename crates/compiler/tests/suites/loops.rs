@@ -243,57 +243,61 @@ fn direct_yield_and_unit_fallthrough_complete_once() {
 fn loop_inputs_and_labels_cannot_escape_and_failed_builds_leave_parent_usable() {
     let mut fixture = Fixture::new();
     let function = fixture.program.declare(signature(&[], &[Type::I32]));
-    let mut body = fixture.program.define(function).unwrap();
-    let mut escaped_value = None;
-    let mut escaped_again = None;
-    let mut escaped_exit = None;
-    let result = body
-        .loop_::<I32, I32>(7, |iteration, labels, value| {
-            escaped_value = Some(value.clone());
-            escaped_again = Some(labels.again.clone());
-            escaped_exit = Some(labels.exit.clone());
-            iteration.yield_(value)
+    fixture
+        .program
+        .define(function, |mut body| {
+            let mut escaped_value = None;
+            let mut escaped_again = None;
+            let mut escaped_exit = None;
+            let result = body
+                .loop_::<I32, I32>(7, |iteration, labels, value| {
+                    escaped_value = Some(value.clone());
+                    escaped_again = Some(labels.again.clone());
+                    escaped_exit = Some(labels.exit.clone());
+                    iteration.yield_(value)
+                })
+                .unwrap();
+            assert_eq!(
+                body.value(escaped_value.unwrap()).err(),
+                Some(BuildError::OutOfScope)
+            );
+            for label in [
+                escaped_again.as_ref().unwrap(),
+                escaped_exit.as_ref().unwrap(),
+            ] {
+                assert_eq!(
+                    body.if_(true, |branch| branch.branch(label, 9)),
+                    Err(BuildError::OutOfScope)
+                );
+            }
+            assert_eq!(
+                body.loop_::<(I32, I1), I32>(7, |iteration, _, _| iteration.yield_(0))
+                    .err(),
+                Some(BuildError::ResultCount {
+                    expected: 2,
+                    actual: 1
+                })
+            );
+            assert_eq!(
+                body.loop_::<I32, I32>(true, |iteration, _, _| iteration.yield_(0))
+                    .err(),
+                Some(BuildError::TypeMismatch {
+                    expected: Type::I32,
+                    actual: Type::I1
+                })
+            );
+            assert_eq!(
+                body.loop_::<I32, I32>(1, |iteration, labels, _| iteration
+                    .branch(&labels.again, true))
+                    .err(),
+                Some(BuildError::TypeMismatch {
+                    expected: Type::I32,
+                    actual: Type::I1
+                })
+            );
+            body.return_(result)
         })
         .unwrap();
-    assert_eq!(
-        body.value(escaped_value.unwrap()).err(),
-        Some(BuildError::OutOfScope)
-    );
-    for label in [
-        escaped_again.as_ref().unwrap(),
-        escaped_exit.as_ref().unwrap(),
-    ] {
-        assert_eq!(
-            body.if_(true, |branch| branch.branch(label, 9)),
-            Err(BuildError::OutOfScope)
-        );
-    }
-    assert_eq!(
-        body.loop_::<(I32, I1), I32>(7, |iteration, _, _| iteration.yield_(0))
-            .err(),
-        Some(BuildError::ResultCount {
-            expected: 2,
-            actual: 1
-        })
-    );
-    assert_eq!(
-        body.loop_::<I32, I32>(true, |iteration, _, _| iteration.yield_(0))
-            .err(),
-        Some(BuildError::TypeMismatch {
-            expected: Type::I32,
-            actual: Type::I1
-        })
-    );
-    assert_eq!(
-        body.loop_::<I32, I32>(1, |iteration, labels, _| iteration
-            .branch(&labels.again, true))
-            .err(),
-        Some(BuildError::TypeMismatch {
-            expected: Type::I32,
-            actual: Type::I1
-        })
-    );
-    body.return_(result).unwrap();
     validate(&fixture.finish(function));
 }
 

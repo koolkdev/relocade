@@ -2,14 +2,14 @@
 use wasm_encoder::Instruction;
 
 use super::{wasm_type, Scheduler};
-use crate::control::{Region, Site, Target};
+use crate::control::{Block, Site, Target};
 
 impl Scheduler<'_> {
-    pub(super) fn loop_region(
+    pub(super) fn loop_block(
         &mut self,
         initial: &[usize],
         inputs: &[usize],
-        region: &Region,
+        block: &Block,
         site: Site,
         outputs: &[usize],
     ) {
@@ -43,7 +43,7 @@ impl Scheduler<'_> {
         for &input in inputs.iter().rev() {
             self.completed(input, true);
         }
-        self.region(region, Some(Target::exit(site)));
+        self.block(block, Some(Target::exit(site)));
         self.end_control();
         self.loop_ranges.push((start, self.events.len()));
         self.end_control();

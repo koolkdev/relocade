@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use super::ValueArena;
 use crate::{
-    control::{Region, Site, Target},
+    control::{Block, Site, Target},
     memory::AtomicKind,
     Operation, Terminal,
 };
@@ -63,9 +63,9 @@ impl Path {
     }
 }
 
-pub(super) fn simplify(arena: &mut ValueArena, region: &mut Region) {
-    let sharing = sharing::analyze(arena, region);
-    Simplifier { arena, sharing }.visit(region, &mut Path::default());
+pub(super) fn simplify(arena: &mut ValueArena, block: &mut Block) {
+    let sharing = sharing::analyze(arena, block);
+    Simplifier { arena, sharing }.visit(block, &mut Path::default());
 }
 
 struct Simplifier<'a> {
@@ -74,12 +74,12 @@ struct Simplifier<'a> {
 }
 
 impl Simplifier<'_> {
-    fn visit(&mut self, region: &mut Region, path: &mut Path) {
-        let shared_tail = shared_tail(region);
-        let operation_count = region.operations.len();
-        for (index, operation) in region.operations.iter_mut().enumerate() {
+    fn visit(&mut self, block: &mut Block, path: &mut Path) {
+        let shared_tail = shared_tail(block);
+        let operation_count = block.operations.len();
+        for (index, operation) in block.operations.iter_mut().enumerate() {
             let site = Site {
-                region: region.id,
+                block: block.id,
                 index,
             };
             if let Some(values) = self.sharing.get(&site) {
@@ -116,14 +116,12 @@ impl Simplifier<'_> {
                 Operation::Call { invocation, .. } => {
                     path.arguments(self.arena, &mut invocation.arguments)
                 }
-                Operation::Block { region, .. } => self.visit(region, &mut path.fork()),
-                Operation::Loop {
-                    initial, region, ..
-                } => {
+                Operation::Block { block, .. } => self.visit(block, &mut path.fork()),
+                Operation::Loop { initial, block, .. } => {
                     path.arguments(self.arena, initial);
                     // Only inherited facts hold on every entry. Facts learned in an
                     // iteration do not escape the loop or flow around its backedges.
-                    self.visit(region, &mut path.fork());
+                    self.visit(block, &mut path.fork());
                 }
                 Operation::If {
                     condition,
@@ -167,7 +165,7 @@ impl Simplifier<'_> {
                         let Some(Terminal::Branch {
                             arguments: continued,
                             ..
-                        }) = &mut region.terminal
+                        }) = &mut block.terminal
                         else {
                             unreachable!("a shared tail has two branch edges");
                         };
@@ -187,19 +185,19 @@ impl Simplifier<'_> {
                 } => {
                     path.value(self.arena, selector);
                     for case in cases {
-                        self.visit(&mut case.region, &mut path.fork());
+                        self.visit(&mut case.block, &mut path.fork());
                     }
                     self.visit(default, &mut path.fork());
                 }
             }
         }
         if let Some(values) = self.sharing.get(&Site {
-            region: region.id,
+            block: block.id,
             index: operation_count,
         }) {
             path.share(self.arena, values);
         }
-        if let Some(terminal) = &mut region.terminal {
+        if let Some(terminal) = &mut block.terminal {
             if shared_tail {
                 return;
             }
@@ -216,11 +214,11 @@ impl Simplifier<'_> {
     }
 }
 
-fn shared_tail(region: &Region) -> bool {
-    let Some(Operation::BranchIf { taken, .. }) = region.operations.last() else {
+fn shared_tail(block: &Block) -> bool {
+    let Some(Operation::BranchIf { taken, .. }) = block.operations.last() else {
         return false;
     };
-    match (&taken.terminal, &region.terminal) {
+    match (&taken.terminal, &block.terminal) {
         (
             Some(Terminal::Branch { arguments, .. }),
             Some(Terminal::Branch {
@@ -232,6 +230,6 @@ fn shared_tail(region: &Region) -> bool {
     }
 }
 
-fn continues(region: &Region, site: Site) -> bool {
-    region.terminal.is_none() || region.exits_to(Target::exit(site)).next().is_some()
+fn continues(block: &Block, site: Site) -> bool {
+    block.terminal.is_none() || block.exits_to(Target::exit(site)).next().is_some()
 }

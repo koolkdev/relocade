@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use wasm_encoder::ValType;
 
 use crate::{
-    control::{Region, RegionTree, Site, Target},
+    control::{Block, BlockTree, Site, Target},
     effects::Effects,
     emit::wasm_type,
     memory::Location,
@@ -42,13 +42,13 @@ impl Point {
     }
 }
 
-struct Tree<'a>(RegionTree<'a>);
+struct Tree<'a>(BlockTree<'a>);
 
 impl Tree<'_> {
     fn common_bounds(&self, mut a: Point, mut b: Point) -> (Point, Point) {
-        let (a_site, b_site) = self.0.common_region(a.site, b.site);
+        let (a_site, b_site) = self.0.common_block(a.site, b.site);
         for (point, site) in [(&mut a, a_site), (&mut b, b_site)] {
-            if point.site.region != site.region {
+            if point.site.block != site.block {
                 point.site = site;
                 point.phase = Phase::Header;
             }
@@ -73,21 +73,21 @@ impl Tree<'_> {
             return Point::main(origin);
         }
         let mut anchor = use_;
-        let mut region = use_.site.region;
-        while region != origin.region {
+        let mut block = use_.site.block;
+        while block != origin.block {
             let parent = self
                 .0
-                .parent(region)
+                .parent(block)
                 .expect("a snapshot is visible at its demand");
             if matches!(
-                self.0.region(parent.region).operations[parent.index],
+                self.0.block(parent.block).operations[parent.index],
                 Operation::Loop { .. }
             ) {
                 // Preserve an authored snapshot once before the first crossed
                 // loop. Its enclosing guards and input scope remain intact.
                 anchor = Point::main(parent);
             }
-            region = parent.region;
+            block = parent.block;
         }
         anchor
     }
@@ -100,70 +100,70 @@ impl Tree<'_> {
         call: impl Fn(Func) -> bool,
     ) -> bool {
         let mut path = Vec::new();
-        let mut scope = use_.region;
-        while scope != origin.region {
+        let mut scope = use_.block;
+        while scope != origin.block {
             path.push(scope);
             scope = self
                 .0
                 .parent(scope)
                 .expect("a read is visible at its demand")
-                .region;
+                .block;
         }
-        let mut region = origin.region;
+        let mut block = origin.block;
         let mut start = origin.index + 1;
         for child in path.into_iter().rev() {
             let parent = self.0.parent(child).unwrap();
-            if self.writes_prefix(region, start, parent.index, &store, &call) {
+            if self.writes_prefix(block, start, parent.index, &store, &call) {
                 return true;
             }
             // An outer snapshot used in a loop must also survive writes after
             // that use: a backedge reaches the use again on the next iteration.
             if matches!(
-                self.0.region(region).operations[parent.index],
+                self.0.block(block).operations[parent.index],
                 Operation::Loop { .. }
-            ) && Self::region_may_write(self.0.region(child), &store, &call)
+            ) && Self::block_may_write(self.0.block(child), &store, &call)
             {
                 return true;
             }
-            region = child;
+            block = child;
             start = 0;
         }
-        self.writes_prefix(region, start, use_.index, &store, &call)
+        self.writes_prefix(block, start, use_.index, &store, &call)
     }
 
     fn writes_prefix(
         &self,
-        region: usize,
+        block: usize,
         start: usize,
         end: usize,
         store: &impl Fn(Location) -> bool,
         call: &impl Fn(Func) -> bool,
     ) -> bool {
-        // Stop before the demand's operation or terminal. Its child regions
+        // Stop before the demand's operation or terminal. Its child blocks
         // have not run yet and cannot clobber a selector's snapshot.
-        self.0.region(region).operations[start..end]
+        self.0.block(block).operations[start..end]
             .iter()
             .any(|operation| {
                 Self::writes_operation(operation, store, call)
                     || operation
                         .children()
-                        .any(|child| Self::region_may_write(child, store, call))
+                        .any(|child| Self::block_may_write(child, store, call))
             })
     }
 
-    fn region_may_write(
-        region: &Region,
+    fn block_may_write(
+        block: &Block,
         store: &impl Fn(Location) -> bool,
         call: &impl Fn(Func) -> bool,
     ) -> bool {
         // A whole loop lifetime includes every nested operation and terminal.
         // Returning tail calls can also write before exiting.
-        region.walk().any(|region| {
-            let operations_write = region
+        block.walk().any(|block| {
+            let operations_write = block
                 .operations
                 .iter()
                 .any(|operation| Self::writes_operation(operation, store, call));
-            let terminal_writes = match &region.terminal {
+            let terminal_writes = match &block.terminal {
                 Some(Terminal::TailCall(invocation)) => call(invocation.target),
                 _ => false,
             };
@@ -253,7 +253,7 @@ struct Planner<'a> {
 }
 
 pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
-    let tree = Tree(RegionTree::new(&body.region));
+    let tree = Tree(BlockTree::new(&body.block));
     let value_order = order::values(body, &tree);
     let mut planner = Planner {
         body,
@@ -275,10 +275,10 @@ impl Planner<'_> {
         let tree = &self.tree;
         let effects = self.effects;
         let demands = &mut self.demands;
-        for region in body.region.walk() {
-            for (index, operation) in region.operations.iter().enumerate() {
+        for block in body.block.walk() {
+            for (index, operation) in block.operations.iter().enumerate() {
                 let point = Point::main(Site {
-                    region: region.id,
+                    block: block.id,
                     index,
                 });
                 match operation {
@@ -331,7 +331,7 @@ impl Planner<'_> {
                     | Operation::Fence => {}
                 }
             }
-            if let Some(terminal) = &region.terminal {
+            if let Some(terminal) = &block.terminal {
                 if matches!(terminal, Terminal::Branch { target, .. } if !target.entry) {
                     continue;
                 }
@@ -342,8 +342,8 @@ impl Planner<'_> {
                         demands,
                         value,
                         Point::main(Site {
-                            region: region.id,
-                            index: region.operations.len(),
+                            block: block.id,
+                            index: block.operations.len(),
                         }),
                     );
                 }
@@ -363,7 +363,7 @@ impl Planner<'_> {
                 continue;
             }
             if let ValueKind::OperationResult { site, component } = body.values[id].kind {
-                // Failed branch construction can leave values from a discarded region.
+                // Failed branch construction can leave values from a discarded block.
                 if self.tree.0.operation(site).is_none() {
                     continue;
                 }
@@ -390,7 +390,7 @@ impl Planner<'_> {
             };
             if let ValueKind::JoinResult { site, component } = body.values[id].kind {
                 saved[id] = true;
-                let operation = &tree.0.region(site.region).operations[site.index];
+                let operation = &tree.0.block(site.block).operations[site.index];
                 // The branch operation stays at its authored site. A live output needs
                 // each incoming component only at its actual branch site, including
                 // exits nested within other control operations.

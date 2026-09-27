@@ -1,6 +1,6 @@
 use crate::{
-    BuildError, FunctionBuilder, FunctionImport, Mem, MemoryImport, Program, Signature, Type, Val,
-    I1, I32, I64,
+    BlockBuilder, BuildError, FunctionImport, Mem, MemoryImport, Program, Signature, Type, Val, I1,
+    I32, I64,
 };
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -16,7 +16,7 @@ fn memory_program() -> (Program, Mem) {
     (program, memory)
 }
 
-fn child_constant(body: &mut FunctionBuilder<'_>, memory: Mem) -> Val<I32> {
+fn child_constant(body: &mut BlockBuilder<'_>, memory: Mem) -> Val<I32> {
     let mut retained = None;
     body.if_(false, |mut child| {
         let input = child.load::<I32>(memory, 0)?;
@@ -34,71 +34,74 @@ fn fold_chains_keep_original_visibility_and_runtime_identity() {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    let mut body = program.define(function).unwrap();
-    let mut retained = vec![];
-    body.if_(false, |mut child| {
-        let input = child.load::<I32>(memory, 0)?;
-        for (value, expected) in [
-            (
-                input
-                    .and(0)
-                    .add(1)
-                    .unsigned()
-                    .extend::<I64>()
-                    .truncate::<I32>()
-                    .popcnt(),
-                1,
-            ),
-            (input.and(0).clz(), 32),
-            (input.and(0).ctz(), 32),
-            (input.mul(0).add(1), 1),
-            (Val::<I32>::from(0).mul(&input).add(1), 1),
-            (input.mul(1).and(0).add(1), 1),
-            (Val::<I32>::from(1).mul(&input).and(0).add(1), 1),
-            (input.or(-1).clz(), 0),
-            (input.or(-1).ctz(), 0),
-            (Val::<I32>::from(0).shl(&input).add(1), 1),
-            (Val::<I32>::from(0).unsigned().shr(&input).add(1), 1),
-            (Val::<I32>::from(0).signed().shr(&input).add(1), 1),
-            (Val::<I32>::from(0).rotl(&input).add(1), 1),
-            (Val::<I32>::from(0).rotr(&input).add(1), 1),
-            (Val::<I32>::from(-1).rotl(&input).add(1), 0),
-            (Val::<I32>::from(-1).rotr(&input).add(1), 0),
-            (Val::<I32>::from(129).rotl(input.and(0)), 129),
-            (Val::<I32>::from(129).rotr(input.and(0).add(32)), 129),
-            (
-                Val::<I1>::from(true)
-                    .rotl(&input)
-                    .unsigned()
-                    .extend::<I32>(),
-                1,
-            ),
-            (
-                Val::<I1>::from(false)
-                    .rotr(&input)
-                    .unsigned()
-                    .extend::<I32>(),
-                0,
-            ),
-            (input.rotl(32).and(0).add(1), 1),
-            (input.rotr(0).and(0).add(1), 1),
-            (input.eq(&input).unsigned().extend::<I32>().add(1), 2),
-            (Val::<I1>::from(false).select(&input, 7).add(1), 8),
-            (input.ne(&input).select(&input, 8).add(1), 9),
-        ] {
-            let admitted = child.value(value)?;
-            assert!(admitted.same_expression(&child.value::<I32>(expected)?));
-            retained.push((admitted, expected));
-        }
-        Ok(())
-    })
-    .unwrap();
-    for (value, expected) in retained {
-        // Identity concerns the runtime node; admission still checks its provenance.
-        assert!(value.same_expression(&body.value::<I32>(expected).unwrap()));
-        assert_eq!(body.value(value).err(), Some(BuildError::OutOfScope));
-    }
-    body.return_(0).unwrap();
+    program
+        .define(function, |mut body| {
+            let mut retained = vec![];
+            body.if_(false, |mut child| {
+                let input = child.load::<I32>(memory, 0)?;
+                for (value, expected) in [
+                    (
+                        input
+                            .and(0)
+                            .add(1)
+                            .unsigned()
+                            .extend::<I64>()
+                            .truncate::<I32>()
+                            .popcnt(),
+                        1,
+                    ),
+                    (input.and(0).clz(), 32),
+                    (input.and(0).ctz(), 32),
+                    (input.mul(0).add(1), 1),
+                    (Val::<I32>::from(0).mul(&input).add(1), 1),
+                    (input.mul(1).and(0).add(1), 1),
+                    (Val::<I32>::from(1).mul(&input).and(0).add(1), 1),
+                    (input.or(-1).clz(), 0),
+                    (input.or(-1).ctz(), 0),
+                    (Val::<I32>::from(0).shl(&input).add(1), 1),
+                    (Val::<I32>::from(0).unsigned().shr(&input).add(1), 1),
+                    (Val::<I32>::from(0).signed().shr(&input).add(1), 1),
+                    (Val::<I32>::from(0).rotl(&input).add(1), 1),
+                    (Val::<I32>::from(0).rotr(&input).add(1), 1),
+                    (Val::<I32>::from(-1).rotl(&input).add(1), 0),
+                    (Val::<I32>::from(-1).rotr(&input).add(1), 0),
+                    (Val::<I32>::from(129).rotl(input.and(0)), 129),
+                    (Val::<I32>::from(129).rotr(input.and(0).add(32)), 129),
+                    (
+                        Val::<I1>::from(true)
+                            .rotl(&input)
+                            .unsigned()
+                            .extend::<I32>(),
+                        1,
+                    ),
+                    (
+                        Val::<I1>::from(false)
+                            .rotr(&input)
+                            .unsigned()
+                            .extend::<I32>(),
+                        0,
+                    ),
+                    (input.rotl(32).and(0).add(1), 1),
+                    (input.rotr(0).and(0).add(1), 1),
+                    (input.eq(&input).unsigned().extend::<I32>().add(1), 2),
+                    (Val::<I1>::from(false).select(&input, 7).add(1), 8),
+                    (input.ne(&input).select(&input, 8).add(1), 9),
+                ] {
+                    let admitted = child.value(value)?;
+                    assert!(admitted.same_expression(&child.value::<I32>(expected)?));
+                    retained.push((admitted, expected));
+                }
+                Ok(())
+            })
+            .unwrap();
+            for (value, expected) in retained {
+                // Identity concerns the runtime node; admission still checks its provenance.
+                assert!(value.same_expression(&body.value::<I32>(expected).unwrap()));
+                assert_eq!(body.value(value).err(), Some(BuildError::OutOfScope));
+            }
+            body.return_(0)
+        })
+        .unwrap();
     assert!(program.compile().is_ok());
 }
 
@@ -109,26 +112,29 @@ fn folded_operands_from_siblings_have_no_shared_visible_scope() {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    let mut body = program.define(function).unwrap();
-    let first = child_constant(&mut body, memory);
-    body.if_(false, |mut sibling| {
-        let local = sibling.load::<I32>(memory, 4)?.and(0).add(1);
-        for value in [
-            first.add(&local),
-            first.mul(&local),
-            first.rotl(&local),
-            first.rotr(&local),
-            first.eq(&local).unsigned().extend::<I32>(),
-            Val::<I1>::from(true).select(&first, &local),
-            Val::<I1>::from(false).select(&first, &local),
-            first.eq(1).select::<I32>(7, 9),
-        ] {
-            assert_eq!(sibling.value(value).err(), Some(BuildError::OutOfScope));
-        }
-        Ok(())
-    })
-    .unwrap();
-    body.return_(0).unwrap();
+    program
+        .define(function, |mut body| {
+            let first = child_constant(&mut body, memory);
+            body.if_(false, |mut sibling| {
+                let local = sibling.load::<I32>(memory, 4)?.and(0).add(1);
+                for value in [
+                    first.add(&local),
+                    first.mul(&local),
+                    first.rotl(&local),
+                    first.rotr(&local),
+                    first.eq(&local).unsigned().extend::<I32>(),
+                    Val::<I1>::from(true).select(&first, &local),
+                    Val::<I1>::from(false).select(&first, &local),
+                    first.eq(1).select::<I32>(7, 9),
+                ] {
+                    assert_eq!(sibling.value(value).err(), Some(BuildError::OutOfScope));
+                }
+                Ok(())
+            })
+            .unwrap();
+            body.return_(0)
+        })
+        .unwrap();
     assert!(program.compile().is_ok());
 }
 
@@ -147,44 +153,47 @@ fn every_operand_and_argument_boundary_checks_folded_visibility() {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    let mut body = program.define(function).unwrap();
-    let value = child_constant(&mut body, memory);
-    assert_eq!(body.value(&value).err(), Some(BuildError::OutOfScope));
-    assert_eq!(body.store(memory, 0, &value), Err(BuildError::OutOfScope));
-    assert_eq!(
-        body.load_at::<I32>(memory, &value, 0).err(),
-        Some(BuildError::OutOfScope)
-    );
-    assert_eq!(
-        body.atomic::<I32>(memory, &value, 0).err(),
-        Some(BuildError::OutOfScope)
-    );
-    assert_eq!(
-        body.atomic::<I32>(memory, 0, 0)
-            .unwrap()
-            .exchange(&value)
-            .err(),
-        Some(BuildError::OutOfScope)
-    );
-    assert_eq!(
-        body.if_(value.eq(1), |_| Ok(())),
-        Err(BuildError::OutOfScope)
-    );
-    assert_eq!(
-        body.call::<I32>(target, &[value.argument()]).err(),
-        Some(BuildError::OutOfScope)
-    );
-    assert_eq!(
-        body.if_value::<I32>(true, |arm| arm.yield_(&value), |arm| arm.yield_(0))
-            .err(),
-        Some(BuildError::OutOfScope),
-    );
-    assert_eq!(
-        body.block::<I32>(|block, exit| block.branch(&exit, value.argument()))
-            .err(),
-        Some(BuildError::OutOfScope),
-    );
-    body.return_(0).unwrap();
+    program
+        .define(function, |mut body| {
+            let value = child_constant(&mut body, memory);
+            assert_eq!(body.value(&value).err(), Some(BuildError::OutOfScope));
+            assert_eq!(body.store(memory, 0, &value), Err(BuildError::OutOfScope));
+            assert_eq!(
+                body.load_at::<I32>(memory, &value, 0).err(),
+                Some(BuildError::OutOfScope)
+            );
+            assert_eq!(
+                body.atomic::<I32>(memory, &value, 0).err(),
+                Some(BuildError::OutOfScope)
+            );
+            assert_eq!(
+                body.atomic::<I32>(memory, 0, 0)
+                    .unwrap()
+                    .exchange(&value)
+                    .err(),
+                Some(BuildError::OutOfScope)
+            );
+            assert_eq!(
+                body.if_(value.eq(1), |_| Ok(())),
+                Err(BuildError::OutOfScope)
+            );
+            assert_eq!(
+                body.call::<I32>(target, &[value.argument()]).err(),
+                Some(BuildError::OutOfScope)
+            );
+            assert_eq!(
+                body.if_value::<I32>(true, |arm| arm.yield_(&value), |arm| arm.yield_(0))
+                    .err(),
+                Some(BuildError::OutOfScope),
+            );
+            assert_eq!(
+                body.block::<I32>(|block, exit| block.branch(&exit, value.argument()))
+                    .err(),
+                Some(BuildError::OutOfScope),
+            );
+            body.return_(0)
+        })
+        .unwrap();
     assert!(program.compile().is_ok());
 }
 
@@ -202,16 +211,16 @@ fn returns_and_tail_calls_check_folded_argument_visibility() {
             signature: signature.clone(),
         });
         let function = program.declare(signature);
-        let mut body = program.define(function).unwrap();
-        let value = child_constant(&mut body, memory);
-        let error = if tail_call {
-            body.tail_call(target, &[value.argument()])
-        } else {
-            body.return_(value.argument())
-        };
+        let error = program.define(function, |mut body| {
+            let value = child_constant(&mut body, memory);
+            if tail_call {
+                body.tail_call(target, &[value.argument()])
+            } else {
+                body.return_(value.argument())
+            }
+        });
         assert_eq!(error, Err(BuildError::OutOfScope));
-        let body = program.define(function).unwrap();
-        body.return_(0).unwrap();
+        program.define(function, |body| body.return_(0)).unwrap();
         assert!(program.compile().is_ok());
     }
 }
@@ -285,43 +294,52 @@ fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    let discarded = program.define(function).unwrap();
-    let foreign = discarded.value::<I32>(9).unwrap();
-    drop(discarded);
-    let mut body = program.define(function).unwrap();
+    let mut foreign = None;
     assert_eq!(
-        body.value(Val::<I1>::from(true).select(7, &foreign)).err(),
-        Some(BuildError::ForeignBody)
+        program.define(function, |discarded| {
+            foreign = Some(discarded.value::<I32>(9).unwrap());
+            Ok(())
+        }),
+        Err(BuildError::MissingBody)
     );
-    assert_eq!(
-        body.value(Val::<I1>::from(false).select(&foreign, 7)).err(),
-        Some(BuildError::ForeignBody)
-    );
+    let foreign = foreign.unwrap();
+    program
+        .define(function, |mut body| {
+            assert_eq!(
+                body.value(Val::<I1>::from(true).select(7, &foreign)).err(),
+                Some(BuildError::ForeignBody)
+            );
+            assert_eq!(
+                body.value(Val::<I1>::from(false).select(&foreign, 7)).err(),
+                Some(BuildError::ForeignBody)
+            );
 
-    let mut sibling = None;
-    body.if_(false, |mut branch| {
-        sibling = Some(branch.load::<I32>(memory, 0)?);
-        Ok(())
-    })
-    .unwrap();
-    body.if_(false, |mut branch| {
-        let local = branch.load::<I32>(memory, 4)?;
-        let sibling = sibling.as_ref().unwrap();
-        assert_eq!(
-            branch
-                .value(Val::<I1>::from(true).select(&local, sibling))
-                .err(),
-            Some(BuildError::OutOfScope)
-        );
-        assert_eq!(
-            branch
-                .value(Val::<I1>::from(false).select(sibling, &local))
-                .err(),
-            Some(BuildError::OutOfScope)
-        );
-        Ok(())
-    })
-    .unwrap();
-    body.return_(7).unwrap();
+            let mut sibling = None;
+            body.if_(false, |mut branch| {
+                sibling = Some(branch.load::<I32>(memory, 0)?);
+                Ok(())
+            })
+            .unwrap();
+            body.if_(false, |mut branch| {
+                let local = branch.load::<I32>(memory, 4)?;
+                let sibling = sibling.as_ref().unwrap();
+                assert_eq!(
+                    branch
+                        .value(Val::<I1>::from(true).select(&local, sibling))
+                        .err(),
+                    Some(BuildError::OutOfScope)
+                );
+                assert_eq!(
+                    branch
+                        .value(Val::<I1>::from(false).select(sibling, &local))
+                        .err(),
+                    Some(BuildError::OutOfScope)
+                );
+                Ok(())
+            })
+            .unwrap();
+            body.return_(7)
+        })
+        .unwrap();
     assert!(program.compile().is_ok());
 }

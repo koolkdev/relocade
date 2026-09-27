@@ -17,7 +17,7 @@ pub(crate) use observation::compile_flag_observer;
 pub(crate) use x87::{BinaryFormat, ExtendedValue, LoadSource};
 
 use access::{cpu_load, cpu_store, register_location};
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32};
 
 use crate::{
     exception::Exception,
@@ -48,7 +48,7 @@ impl<'cpu> State<'cpu> {
     /// Reads the visible selector even when its loaded cache is unusable.
     pub(crate) fn read_segment_selector(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
     ) -> Result<Val<I16>, BuildError> {
         Ok(self.cpu.read_segment(body, segment)?.selector)
@@ -58,7 +58,7 @@ impl<'cpu> State<'cpu> {
     /// and dispatch may follow when this breaks the entry's segment assumptions.
     pub(crate) fn write_segment(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
         values: &SegmentValues,
     ) -> Result<(), BuildError> {
@@ -67,7 +67,7 @@ impl<'cpu> State<'cpu> {
 
     pub(super) fn read_register<T: RegisterType>(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         register: impl Into<Register<T>>,
     ) -> Result<Val<T>, BuildError> {
         self.registers
@@ -76,7 +76,7 @@ impl<'cpu> State<'cpu> {
 
     pub(super) fn write_register<T: RegisterType>(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         register: impl Into<Register<T>>,
         value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
@@ -86,7 +86,7 @@ impl<'cpu> State<'cpu> {
 
     pub(crate) fn read_flag(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         flag: Flag,
     ) -> Result<Val<I1>, BuildError> {
         self.flags.read(body, self.cpu, flag)
@@ -95,7 +95,7 @@ impl<'cpu> State<'cpu> {
     /// Reads logical flags in request order. Repeated flags share their current value.
     pub(crate) fn read_flags<const N: usize>(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         flags: [Flag; N],
     ) -> Result<[Val<I1>; N], BuildError> {
         self.flags.read_flags(body, self.cpu, flags)
@@ -103,7 +103,7 @@ impl<'cpu> State<'cpu> {
 
     pub(crate) fn write_flag(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         flag: Flag,
         value: impl Into<Val<I1>>,
     ) -> Result<(), BuildError> {
@@ -114,7 +114,7 @@ impl<'cpu> State<'cpu> {
     /// their current values; backing bytes are written when state is published.
     pub(crate) fn write_flags(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         change: impl Into<FlagChange>,
     ) -> Result<(), BuildError> {
         self.flags.apply(body, change.into())
@@ -122,7 +122,7 @@ impl<'cpu> State<'cpu> {
 
     pub(crate) fn condition(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         condition: Condition,
     ) -> Result<Val<I1>, BuildError> {
         self.flags.condition(body, self.cpu, condition)
@@ -132,7 +132,7 @@ impl<'cpu> State<'cpu> {
     /// Callers define only effects that are permitted to survive this fault.
     pub(super) fn fault(
         &self,
-        mut body: FunctionBuilder<'_>,
+        mut body: BlockBuilder<'_>,
         restart_eip: impl Into<Val<I32>>,
         completed: u32,
         exception: Exception<Val<I32>>,
@@ -148,7 +148,7 @@ impl<'cpu> State<'cpu> {
     /// restore an older state after partially executing a new instruction.
     pub(super) fn publish(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         next_eip: impl Into<Val<I32>>,
         completed: u32,
     ) -> Result<(), BuildError> {

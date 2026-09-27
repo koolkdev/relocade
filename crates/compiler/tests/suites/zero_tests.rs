@@ -3,13 +3,13 @@ use crate::wasm::{TestModule, Value};
 #[path = "zero_tests/conditions.rs"]
 mod conditions;
 
-use wasm86_compiler::{FunctionBuilder, Signature, Type, Val, I1, I32, I64, I8};
+use wasm86_compiler::{BlockBuilder, Signature, Type, Val, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 struct Case {
     name: &'static str,
     parameter: Type,
-    build: fn(&FunctionBuilder<'_>) -> Val<I1>,
+    build: fn(&BlockBuilder<'_>) -> Val<I1>,
     needs_test: bool,
     inputs: &'static [(Value, i32)],
 }
@@ -117,9 +117,12 @@ fn module(cases: &[Case]) -> TestModule {
             parameters: vec![case.parameter],
             results: vec![Type::I1],
         });
-        let body = program.define(function).unwrap();
-        let value = (case.build)(&body);
-        body.return_(value).unwrap();
+        program
+            .define(function, |body| {
+                let value = (case.build)(&body);
+                body.return_(value)
+            })
+            .unwrap();
         program.export(case.name, function).unwrap();
     }
     fixture.compile()

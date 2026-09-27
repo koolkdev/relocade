@@ -1,6 +1,6 @@
 //! Logical flag queries, condition shortcuts and demand-driven status composition.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1};
 
 use crate::flags::{Condition, Flag, FlagChange, FlagMask, StatusFlag};
 use crate::state::Cpu;
@@ -10,7 +10,7 @@ use super::{condition_index, direct_location, FlagState, StatusBase, StatusState
 impl FlagState {
     pub(in crate::state) fn read(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         cpu: &Cpu,
         flag: Flag,
     ) -> Result<Val<I1>, BuildError> {
@@ -28,7 +28,7 @@ impl FlagState {
 
     pub(in crate::state) fn read_flags<const N: usize>(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         cpu: &Cpu,
         requested: [Flag; N],
     ) -> Result<[Val<I1>; N], BuildError> {
@@ -57,7 +57,7 @@ impl FlagState {
 
     pub(in crate::state) fn condition(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         cpu: &Cpu,
         condition: Condition,
     ) -> Result<Val<I1>, BuildError> {
@@ -93,7 +93,7 @@ impl StoredFlagCache {
 impl StatusState {
     pub(super) fn read_flag(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         cpu: &Cpu,
         flag: StatusFlag,
     ) -> Result<Val<I1>, BuildError> {
@@ -106,7 +106,7 @@ impl StatusState {
 
     pub(super) fn condition(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         cpu: &Cpu,
         condition: Condition,
     ) -> Result<Val<I1>, BuildError> {
@@ -157,7 +157,7 @@ impl StatusState {
 }
 
 pub(super) fn resolve_flags(
-    body: &mut FunctionBuilder<'_>,
+    body: &mut BlockBuilder<'_>,
     cpu: &Cpu,
     base: &mut StatusBase,
     updates: &[FlagChange],
@@ -205,7 +205,7 @@ pub(super) fn resolve_flags(
 impl StatusBase {
     fn condition(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         cpu: &Cpu,
         condition: Condition,
     ) -> Result<Val<I1>, BuildError> {
@@ -232,7 +232,7 @@ impl StatusBase {
 
     fn read_flags(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         cpu: &Cpu,
         needed: FlagMask,
     ) -> Result<[Option<Val<I1>>; 6], BuildError> {

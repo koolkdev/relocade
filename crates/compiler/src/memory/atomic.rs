@@ -3,7 +3,7 @@
 use std::marker::PhantomData;
 
 use super::{Location, Mem, MemoryInt};
-use crate::{BuildError, FunctionBuilder, Operation, Val, I32};
+use crate::{BlockBuilder, BuildError, Operation, Val, I32};
 
 /// An atomic access at a fixed logical width and address. Atomic operations are
 /// sequentially consistent, execute once in authored order, and require natural
@@ -11,7 +11,7 @@ use crate::{BuildError, FunctionBuilder, Operation, Val, I32};
 /// The same operations work with shared or private memories. An unused result
 /// does not discard the access or its synchronization effects.
 pub struct AtomicAccess<'body, 'program, T: MemoryInt> {
-    body: &'body mut FunctionBuilder<'program>,
+    body: &'body mut BlockBuilder<'program>,
     location: Location,
     width: PhantomData<T>,
 }
@@ -56,7 +56,7 @@ impl AtomicOperation {
     }
 }
 
-impl<'program> FunctionBuilder<'program> {
+impl<'program> BlockBuilder<'program> {
     /// Selects an atomic memory operand. Address displacement does not wrap,
     /// matching ordinary memory accesses. Operations accept native literals.
     ///
@@ -95,7 +95,7 @@ impl<'program> FunctionBuilder<'program> {
     /// Orders memory effects in all imported memories, including accesses made
     /// by generated helpers. The fence remains present when no value is used.
     pub fn atomic_fence(&mut self) {
-        self.region.operations.push(Operation::Fence);
+        self.pending.operations.push(Operation::Fence);
     }
 }
 
@@ -108,7 +108,7 @@ impl<T: MemoryInt> AtomicAccess<'_, '_, T> {
     /// Writes the low bits at the operand's logical width.
     pub fn store(self, value: impl Into<Val<T>>) -> Result<(), BuildError> {
         let value = self.body.operand(value)?;
-        self.body.region.operations.push(Operation::Atomic {
+        self.body.pending.operations.push(Operation::Atomic {
             access: AtomicOperation {
                 location: self.location,
                 operation: AtomicKind::Store { value },
@@ -175,7 +175,7 @@ impl<T: MemoryInt> AtomicAccess<'_, '_, T> {
             .body
             .arena
             .operation_result(T::TYPE, self.body.site(), 0)?;
-        self.body.region.operations.push(Operation::Atomic {
+        self.body.pending.operations.push(Operation::Atomic {
             access: AtomicOperation {
                 location: self.location,
                 operation,

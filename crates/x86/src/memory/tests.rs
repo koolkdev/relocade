@@ -88,17 +88,12 @@ fn access_fault_handlers_must_terminate_the_denied_path() {
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
-                memory.resolve_access(
-                    &mut body,
-                    &address,
-                    T::BYTES,
-                    Intent::Write,
-                    |_fault_body, _fault| Ok(()),
-                )?;
+                memory
+                    .resolve_access(&mut body, &address, T::BYTES, Intent::Write, |_, _| Ok(()))?;
                 body.return_(7)
             },
         );
-        assert_eq!(result.err(), Some(BuildError::IncompleteBranch));
+        assert_eq!(result.err(), Some(BuildError::MissingBranchValue));
     }
 
     reject_fallthrough::<I8>();

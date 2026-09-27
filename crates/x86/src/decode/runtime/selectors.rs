@@ -1,7 +1,7 @@
 //! Selects instruction forms from prefixes, opcode maps and fixed ModRM bits.
 use std::collections::BTreeMap;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I32, I8};
 
 use crate::{
     decode::DecodeState,
@@ -23,11 +23,11 @@ enum OpcodeAction {
 
 impl<C> InstructionDecoder<'_, '_, C>
 where
-    C: Fn(FunctionBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
+    C: Fn(BlockBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
 {
     pub(super) fn decode_opcode(
         &self,
-        mut body: FunctionBuilder<'_>,
+        mut body: BlockBuilder<'_>,
         cursor: RuntimeCursor<'_>,
         state: DecodeState,
         opcode: &Val<I8>,
@@ -95,11 +95,11 @@ where
 /// form then enforces its memory/register policy. Ordinary /r forms need no
 /// switch; /n groups continue to select only their three extension bits.
 pub(super) fn dispatch_modrm_form(
-    body: FunctionBuilder<'_>,
+    body: BlockBuilder<'_>,
     modrm: &Val<I8>,
     forms: &[&'static Form],
     state: &DecodeState,
-    continue_decoding: &impl Fn(FunctionBuilder<'_>, Option<&Form>) -> Result<(), BuildError>,
+    continue_decoding: &impl Fn(BlockBuilder<'_>, Option<&Form>) -> Result<(), BuildError>,
 ) -> Result<(), BuildError> {
     dispatch_modrm_bits(body, modrm, forms, state, 0, continue_decoding)
 }
@@ -109,12 +109,12 @@ pub(super) fn dispatch_modrm_form(
 /// Disjoint addressing policies distinguish register mode from all three memory
 /// modes together, without repeating a memory form in separate mode branches.
 fn dispatch_modrm_bits(
-    mut body: FunctionBuilder<'_>,
+    mut body: BlockBuilder<'_>,
     modrm: &Val<I8>,
     forms: &[&Form],
     state: &DecodeState,
     tested_mask: u8,
-    continue_decoding: &impl Fn(FunctionBuilder<'_>, Option<&Form>) -> Result<(), BuildError>,
+    continue_decoding: &impl Fn(BlockBuilder<'_>, Option<&Form>) -> Result<(), BuildError>,
 ) -> Result<(), BuildError> {
     if let [form] = forms {
         let selector = form.modrm.expect("a ModRM form has a selector");

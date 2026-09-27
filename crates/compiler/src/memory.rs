@@ -1,5 +1,5 @@
 use crate::{
-    place, AtLeast, Body, BuildError, FunctionBuilder, Operation, Program, Val, ValueKind, I1, I16,
+    place, AtLeast, BlockBuilder, Body, BuildError, Operation, Program, Val, ValueKind, I1, I16,
     I32, I64, I8,
 };
 
@@ -30,8 +30,8 @@ pub struct MemoryImport {
 /// These types also support narrowing to an individual logical bit.
 /// Storing an I1 value in a larger slot is a separate, unsupported operation.
 /// ```compile_fail
-/// use wasm86_compiler::{FunctionBuilder, Mem, I1};
-/// fn load_bit(body: &mut FunctionBuilder<'_>, memory: Mem) {
+/// use wasm86_compiler::{BlockBuilder, Mem, I1};
+/// fn load_bit(body: &mut BlockBuilder<'_>, memory: Mem) {
 ///     let bit = body.load::<I1>(memory, 0);
 /// }
 /// ```
@@ -116,7 +116,7 @@ impl Program {
     }
 }
 
-impl FunctionBuilder<'_> {
+impl BlockBuilder<'_> {
     /// Reads an integer at a fixed byte offset in little-endian memory.
     /// Each call creates a separate read. Reusing its value preserves that read's
     /// snapshot across overlapping stores and explicit atomic effects. A used
@@ -137,13 +137,13 @@ impl FunctionBuilder<'_> {
     /// let memory = program.import_memory(MemoryImport {
     ///     module: "guest".into(), name: "memory".into(), minimum: 1, maximum: None, shared: false,
     /// });
-    /// let function = program.declare(Signature {
+    /// let function = program.function(Signature {
     ///     parameters: vec![Type::I32], results: vec![Type::I8],
-    /// });
-    /// let mut body = program.define(function)?;
-    /// let address = body.parameter::<I32>(0)?;
-    /// let byte = body.load_at::<I8>(memory, &address, 1)?;
-    /// body.return_(&byte)?;
+    /// }, |mut body| {
+    ///     let address = body.parameter::<I32>(0)?;
+    ///     let byte = body.load_at::<I8>(memory, &address, 1)?;
+    ///     body.return_(&byte)
+    /// })?;
     /// program.export("next_byte", function)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), wasm86_compiler::BuildError>(())
@@ -158,7 +158,7 @@ impl FunctionBuilder<'_> {
         self.require_memory(memory)?;
         let location = Location::new::<T>(memory, base, offset);
         let value = self.arena.load(T::TYPE, location, self.site())?;
-        self.region.operations.push(Operation::Load(value));
+        self.pending.operations.push(Operation::Load(value));
         Ok(Val::new(self.arena.clone(), Ok(value)))
     }
 
@@ -187,7 +187,7 @@ impl FunctionBuilder<'_> {
         let base = self.operand(address)?;
         let value = self.operand(value)?;
         self.require_memory(memory)?;
-        self.region.operations.push(Operation::Store {
+        self.pending.operations.push(Operation::Store {
             location: Location::new::<T>(memory, base, offset),
             value,
         });
@@ -223,45 +223,54 @@ mod tests {
             parameters: vec![],
             results: vec![Type::I32],
         });
-        let discarded = program.define(function).unwrap();
-        let foreign = discarded.value::<I32>(9).unwrap();
-        drop(discarded);
+        let mut foreign = None;
+        assert_eq!(
+            program.define(function, |discarded| {
+                foreign = Some(discarded.value::<I32>(9).unwrap());
+                Ok(())
+            }),
+            Err(BuildError::MissingBody)
+        );
+        let foreign = foreign.unwrap();
 
-        let mut body = program.define(function).unwrap();
-        assert_eq!(
-            body.store(memory, 0, &foreign),
-            Err(BuildError::ForeignBody)
-        );
-        assert_eq!(
-            body.store_at::<I32>(memory, &foreign, 0, 7),
-            Err(BuildError::ForeignBody)
-        );
-        assert_eq!(
-            body.atomic::<I32>(memory, &foreign, 0).err(),
-            Some(BuildError::ForeignBody)
-        );
-        assert_eq!(
-            body.atomic::<I32>(memory, 0, 0).unwrap().store(&foreign),
-            Err(BuildError::ForeignBody)
-        );
-        assert_eq!(
-            body.atomic::<I32>(memory, 0, 0)
-                .unwrap()
-                .add(&foreign)
-                .err(),
-            Some(BuildError::ForeignBody)
-        );
-        let local = body.value::<I32>(7).unwrap();
-        for (expected, replacement) in [(&foreign, &local), (&local, &foreign)] {
-            assert_eq!(
-                body.atomic::<I32>(memory, 0, 0)
-                    .unwrap()
-                    .compare_exchange(expected, replacement)
-                    .err(),
-                Some(BuildError::ForeignBody)
-            );
-        }
-        body.return_(7).unwrap();
+        program
+            .define(function, |mut body| {
+                assert_eq!(
+                    body.store(memory, 0, &foreign),
+                    Err(BuildError::ForeignBody)
+                );
+                assert_eq!(
+                    body.store_at::<I32>(memory, &foreign, 0, 7),
+                    Err(BuildError::ForeignBody)
+                );
+                assert_eq!(
+                    body.atomic::<I32>(memory, &foreign, 0).err(),
+                    Some(BuildError::ForeignBody)
+                );
+                assert_eq!(
+                    body.atomic::<I32>(memory, 0, 0).unwrap().store(&foreign),
+                    Err(BuildError::ForeignBody)
+                );
+                assert_eq!(
+                    body.atomic::<I32>(memory, 0, 0)
+                        .unwrap()
+                        .add(&foreign)
+                        .err(),
+                    Some(BuildError::ForeignBody)
+                );
+                let local = body.value::<I32>(7).unwrap();
+                for (expected, replacement) in [(&foreign, &local), (&local, &foreign)] {
+                    assert_eq!(
+                        body.atomic::<I32>(memory, 0, 0)
+                            .unwrap()
+                            .compare_exchange(expected, replacement)
+                            .err(),
+                        Some(BuildError::ForeignBody)
+                    );
+                }
+                body.return_(7)
+            })
+            .unwrap();
         let bytes = program.compile().unwrap();
         assert!(Parser::new(0)
             .parse_all(&bytes)

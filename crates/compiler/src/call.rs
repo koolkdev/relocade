@@ -1,5 +1,5 @@
 use crate::{
-    control::Site, results, Argument, Body, BuildError, Declaration, Func, FunctionBuilder,
+    control::Site, results, Argument, BlockBuilder, Body, BuildError, Declaration, Func,
     FunctionKind, Operation, Program, Results, Signature, Terminal, Type,
 };
 
@@ -46,12 +46,12 @@ impl Program {
     }
 }
 
-impl FunctionBuilder<'_> {
-    /// Ends the generated function by returning the target function's result,
-    /// saving the completed body and consuming the builder. The call does not
+impl BlockBuilder<'_> {
+    /// Ends this execution path by returning the target function's result,
+    /// consuming the builder. The call does not
     /// retain this function's Wasm frame. Ordered stores run before the call.
-    /// In a branch, only that branch is completed. An error when completing the
-    /// outer builder discards the function body and leaves it undefined.
+    /// The parent attaches the block after the callback succeeds. A callback
+    /// error discards the completed block too.
     ///
     /// Argument and result types must match logically, even when their Wasm
     /// representations coincide. The target may be imported or defined.
@@ -68,20 +68,21 @@ impl FunctionBuilder<'_> {
     ///         results: vec![Type::I64],
     ///     },
     /// });
-    /// let block = program.declare(Signature {
+    /// let block = program.function(Signature {
     ///     parameters: vec![],
     ///     results: vec![Type::I64],
-    /// });
-    /// let body = program.define(block)?;
-    /// body.tail_call(dispatch, &[0x1004.into()])?;
+    /// }, |body| {
+    ///     body.tail_call(dispatch, &[0x1004.into()])
+    /// })?;
     /// program.export("block", block)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), wasm86_compiler::BuildError>(())
     /// ```
-    pub fn tail_call(mut self, target: Func, arguments: &[Argument]) -> Result<(), BuildError> {
-        self.fallthrough = false;
-        let invocation = self.resolve_call(target, arguments, &self.signature().results)?;
-        self.complete(Terminal::TailCall(invocation))
+    pub fn tail_call(self, target: Func, arguments: &[Argument]) -> Result<(), BuildError> {
+        self.terminate(|body| {
+            let invocation = body.resolve_call(target, arguments, &body.signature().results)?;
+            Ok(Terminal::TailCall(invocation))
+        })
     }
 
     /// Calls a function and returns its typed result shape, leaving this builder open.
@@ -101,16 +102,16 @@ impl FunctionBuilder<'_> {
     /// ```
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
-    /// let increment = program.declare(Signature {
+    /// let increment = program.function(Signature {
     ///     parameters: vec![Type::I32], results: vec![Type::I32],
-    /// });
-    /// let helper = program.define(increment)?;
-    /// let input = helper.parameter::<I32>(0)?;
-    /// helper.return_(input.add(1))?;
-    /// let function = program.declare(Signature { parameters: vec![], results: vec![Type::I32] });
-    /// let mut body = program.define(function)?;
-    /// let result = body.call::<I32>(increment, &[7.into()])?;
-    /// body.return_(result.add(1))?;
+    /// }, |helper| {
+    ///     let input = helper.parameter::<I32>(0)?;
+    ///     helper.return_(input.add(1))
+    /// })?;
+    /// let function = program.function(Signature { parameters: vec![], results: vec![Type::I32] }, |mut body| {
+    ///     let result = body.call::<I32>(increment, &[7.into()])?;
+    ///     body.return_(result.add(1))
+    /// })?;
     /// program.export("run", function)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), wasm86_compiler::BuildError>(())
@@ -128,7 +129,7 @@ impl FunctionBuilder<'_> {
             .map(|(component, &ty)| self.arena.operation_result(ty, self.site(), component))
             .collect::<Result<Vec<_>, _>>()?;
         let values = results::bind::<R>(self, &outputs);
-        self.region.operations.push(Operation::Call {
+        self.pending.operations.push(Operation::Call {
             invocation,
             outputs,
         });
@@ -161,7 +162,7 @@ impl FunctionBuilder<'_> {
         }
         let mut values = Vec::with_capacity(arguments.len());
         for (argument, expected) in arguments.iter().zip(&signature.parameters) {
-            let value = argument.resolve(&self.arena, *expected, self.region.id)?;
+            let value = argument.resolve(&self.arena, *expected, self.pending.id)?;
             values.push(value);
         }
         // Validate every argument before creating shared results with upper bits cleared.
@@ -195,30 +196,39 @@ mod tests {
             parameters: vec![],
             results: vec![Type::I32],
         });
-        let discarded = program.define(function).unwrap();
-        let foreign = discarded.value::<I1>(true).unwrap();
-        drop(discarded);
-        let mut body = program.define(function).unwrap();
+        let mut foreign = None;
         assert_eq!(
-            body.call::<I1>(target, &[true.into()]).err(),
-            Some(BuildError::TypeMismatch {
-                expected: Type::I1,
-                actual: Type::I8
+            program.define(function, |discarded| {
+                foreign = Some(discarded.value::<I1>(true).unwrap());
+                Ok(())
+            }),
+            Err(BuildError::MissingBody)
+        );
+        let foreign = foreign.unwrap();
+        program
+            .define(function, |mut body| {
+                assert_eq!(
+                    body.call::<I1>(target, &[true.into()]).err(),
+                    Some(BuildError::TypeMismatch {
+                        expected: Type::I1,
+                        actual: Type::I8
+                    })
+                );
+                let byte = body.value::<I8>(1).unwrap();
+                assert_eq!(
+                    body.call::<I8>(target, &[byte.into()]).err(),
+                    Some(BuildError::TypeMismatch {
+                        expected: Type::I1,
+                        actual: Type::I8
+                    })
+                );
+                assert_eq!(
+                    body.call::<I8>(target, &[foreign.into()]).err(),
+                    Some(BuildError::ForeignBody)
+                );
+                body.return_(7)
             })
-        );
-        let byte = body.value::<I8>(1).unwrap();
-        assert_eq!(
-            body.call::<I8>(target, &[byte.into()]).err(),
-            Some(BuildError::TypeMismatch {
-                expected: Type::I1,
-                actual: Type::I8
-            })
-        );
-        assert_eq!(
-            body.call::<I8>(target, &[foreign.into()]).err(),
-            Some(BuildError::ForeignBody)
-        );
-        body.return_(7).unwrap();
+            .unwrap();
         let bytes = program.compile().unwrap();
         assert!(Parser::new(0)
             .parse_all(&bytes)
@@ -233,20 +243,23 @@ mod tests {
             results: vec![Type::I32],
         };
         let helper = program.declare(signature.clone());
-        program.define(helper).unwrap().return_(7).unwrap();
+        program.define(helper, |body| body.return_(7)).unwrap();
         let function = program.declare(signature);
-        let mut body = program.define(function).unwrap();
-        let mut escaped = None;
-        body.if_(false, |mut branch| {
-            escaped = Some(branch.call::<I32>(helper, &[])?);
-            Ok(())
-        })
-        .unwrap();
-        let escaped = escaped.unwrap();
-        for value in [escaped.add(1), escaped.and(0).add(1)] {
-            assert_eq!(body.value(value).err(), Some(BuildError::OutOfScope));
-        }
-        body.return_(0).unwrap();
+        program
+            .define(function, |mut body| {
+                let mut escaped = None;
+                body.if_(false, |mut branch| {
+                    escaped = Some(branch.call::<I32>(helper, &[])?);
+                    Ok(())
+                })
+                .unwrap();
+                let escaped = escaped.unwrap();
+                for value in [escaped.add(1), escaped.and(0).add(1)] {
+                    assert_eq!(body.value(value).err(), Some(BuildError::OutOfScope));
+                }
+                body.return_(0)
+            })
+            .unwrap();
         assert!(program.compile().is_ok());
     }
 }

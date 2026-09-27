@@ -2,7 +2,7 @@
 
 use std::mem::{offset_of, size_of};
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, Val, I16, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Val, I16, I32, I8};
 
 use crate::{
     register::{Gpr32, Register, RegisterSelection, RegisterType},
@@ -53,7 +53,7 @@ impl CpuField for SegmentAttributes {
 }
 
 pub(in crate::state) fn load<T: CpuField>(
-    body: &mut FunctionBuilder<'_>,
+    body: &mut BlockBuilder<'_>,
     memory: Mem,
     displacement: impl Into<Val<I32>>,
     offset: u32,
@@ -63,7 +63,7 @@ pub(in crate::state) fn load<T: CpuField>(
 }
 
 pub(in crate::state) fn store<T: CpuField>(
-    body: &mut FunctionBuilder<'_>,
+    body: &mut BlockBuilder<'_>,
     memory: Mem,
     displacement: impl Into<Val<I32>>,
     offset: u32,

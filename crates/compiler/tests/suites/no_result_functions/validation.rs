@@ -16,23 +16,25 @@ fn ordinary_and_tail_calls_require_the_declared_result_presence() {
         signature: signature(&[], &[Type::I8]),
     });
     let run = program.declare(signature(&[], &[]));
-    let mut body = program.define(run).unwrap();
+    let result = program.define(run, |mut body| {
+        assert_eq!(
+            body.call::<I8>(void, &[]).err(),
+            Some(BuildError::ResultCount {
+                expected: 1,
+                actual: 0
+            })
+        );
+        assert_eq!(
+            body.call::<()>(value, &[]),
+            Err(BuildError::ResultCount {
+                expected: 0,
+                actual: 1
+            })
+        );
+        body.tail_call(value, &[])
+    });
     assert_eq!(
-        body.call::<I8>(void, &[]).err(),
-        Some(BuildError::ResultCount {
-            expected: 1,
-            actual: 0
-        })
-    );
-    assert_eq!(
-        body.call::<()>(value, &[]),
-        Err(BuildError::ResultCount {
-            expected: 0,
-            actual: 1
-        })
-    );
-    assert_eq!(
-        body.tail_call(value, &[]),
+        result,
         Err(BuildError::ResultCount {
             expected: 0,
             actual: 1
@@ -40,14 +42,14 @@ fn ordinary_and_tail_calls_require_the_declared_result_presence() {
     );
     let typed = program.declare(signature(&[], &[Type::I8]));
     assert_eq!(
-        program.define(typed).unwrap().tail_call(void, &[]),
+        program.define(typed, |body| body.tail_call(void, &[])),
         Err(BuildError::ResultCount {
             expected: 1,
             actual: 0
         })
     );
-    program.define(typed).unwrap().return_(7).unwrap();
-    program.define(run).unwrap().return_(()).unwrap();
+    program.define(typed, |body| body.return_(7)).unwrap();
+    program.define(run, |body| body.return_(())).unwrap();
     program.export("run", run).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
@@ -61,22 +63,22 @@ fn invalid_returns_leave_the_function_undefined_and_can_be_retried() {
     let mut program = Program::new();
     let void = program.declare(signature(&[], &[]));
     assert_eq!(
-        program.define(void).unwrap().return_(7),
+        program.define(void, |body| body.return_(7)),
         Err(BuildError::ResultCount {
             expected: 0,
             actual: 1
         })
     );
-    program.define(void).unwrap().return_(()).unwrap();
+    program.define(void, |body| body.return_(())).unwrap();
     let value = program.declare(signature(&[], &[Type::I8]));
     assert_eq!(
-        program.define(value).unwrap().return_(()),
+        program.define(value, |body| body.return_(())),
         Err(BuildError::ResultCount {
             expected: 1,
             actual: 0
         })
     );
-    program.define(value).unwrap().return_(7).unwrap();
+    program.define(value, |body| body.return_(7)).unwrap();
     program.export("run", void).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
@@ -91,30 +93,38 @@ fn invalid_void_calls_validate_all_arguments_without_retaining_imports() {
         signature: signature(&[Type::I8], &[]),
     });
     let discarded = program.declare(signature(&[], &[]));
-    let body = program.define(discarded).unwrap();
-    let foreign = body.value::<I8>(7).unwrap();
-    body.return_(()).unwrap();
+    let mut foreign = None;
+    program
+        .define(discarded, |body| {
+            foreign = Some(body.value::<I8>(7).unwrap());
+            body.return_(())
+        })
+        .unwrap();
+    let foreign = foreign.unwrap();
     let run = program.declare(signature(&[], &[]));
-    let mut body = program.define(run).unwrap();
-    assert_eq!(
-        body.call::<()>(target, &[]),
-        Err(BuildError::ArgumentCount {
-            expected: 1,
-            actual: 0
+    program
+        .define(run, |mut body| {
+            assert_eq!(
+                body.call::<()>(target, &[]),
+                Err(BuildError::ArgumentCount {
+                    expected: 1,
+                    actual: 0
+                })
+            );
+            assert_eq!(
+                body.call::<()>(target, &[7_u64.into()]),
+                Err(BuildError::TypeMismatch {
+                    expected: Type::I8,
+                    actual: Type::I64
+                })
+            );
+            assert_eq!(
+                body.call::<()>(target, &[foreign.into()]),
+                Err(BuildError::ForeignBody)
+            );
+            body.return_(())
         })
-    );
-    assert_eq!(
-        body.call::<()>(target, &[7_u64.into()]),
-        Err(BuildError::TypeMismatch {
-            expected: Type::I8,
-            actual: Type::I64
-        })
-    );
-    assert_eq!(
-        body.call::<()>(target, &[foreign.into()]),
-        Err(BuildError::ForeignBody)
-    );
-    body.return_(()).unwrap();
+        .unwrap();
     program.export("run", run).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
@@ -127,21 +137,21 @@ fn invalid_void_calls_validate_all_arguments_without_retaining_imports() {
 fn an_ignored_invalid_void_return_cannot_become_a_fallthrough_branch() {
     let mut program = Program::new();
     let run = program.declare(signature(&[], &[Type::I8]));
-    let mut body = program.define(run).unwrap();
-    assert_eq!(
-        body.if_(true, |arm| {
+    program
+        .define(run, |mut body| {
             assert_eq!(
-                arm.return_(()),
+                body.if_(true, |arm| {
+                    assert!(arm.return_(()).is_err());
+                    Ok(())
+                }),
                 Err(BuildError::ResultCount {
                     expected: 1,
                     actual: 0
                 })
             );
-            Ok(())
-        }),
-        Err(BuildError::IncompleteBranch)
-    );
-    body.return_(7).unwrap();
+            body.return_(7)
+        })
+        .unwrap();
     program.export("run", run).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();

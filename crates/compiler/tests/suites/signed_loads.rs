@@ -227,18 +227,25 @@ fn snapshot_across_call() -> TestModule {
     let memory = fixture.memory("state", CALL_BYTES);
     let run = fixture.program.declare(signature(&[], &[Type::I64; 2]));
     let overwrite = fixture.program.declare(signature(&[], &[]));
-    let mut body = fixture.program.define(run).unwrap();
-    let before = body.load::<I16>(memory, 0).unwrap();
-    body.call::<()>(overwrite, &[]).unwrap();
-    let after = body.load::<I16>(memory, 0).unwrap();
-    body.return_((
-        before.signed().extend::<I64>(),
-        after.signed().extend::<I64>(),
-    ))
-    .unwrap();
-    let mut body = fixture.program.define(overwrite).unwrap();
-    body.store::<I8>(memory, 1, 0).unwrap();
-    body.return_(()).unwrap();
+    fixture
+        .program
+        .define(run, |mut body| {
+            let before = body.load::<I16>(memory, 0).unwrap();
+            body.call::<()>(overwrite, &[]).unwrap();
+            let after = body.load::<I16>(memory, 0).unwrap();
+            body.return_((
+                before.signed().extend::<I64>(),
+                after.signed().extend::<I64>(),
+            ))
+        })
+        .unwrap();
+    fixture
+        .program
+        .define(overwrite, |mut body| {
+            body.store::<I8>(memory, 1, 0).unwrap();
+            body.return_(())
+        })
+        .unwrap();
     fixture.finish(run)
 }
 

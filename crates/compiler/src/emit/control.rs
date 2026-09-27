@@ -3,13 +3,13 @@ use wasm_encoder::{Encode, Instruction};
 
 use super::{wasm_type, ControlLabel, Scheduler};
 use crate::{
-    control::{Region, Site, Target},
+    control::{Block, Site, Target},
     place, Operation, Terminal,
 };
 
 impl Scheduler<'_> {
-    pub(super) fn region(&mut self, region: &Region, fallthrough: Option<Target>) {
-        let forwarding = match (&region.terminal, region.operations.last()) {
+    pub(super) fn block(&mut self, block: &Block, fallthrough: Option<Target>) {
+        let forwarding = match (&block.terminal, block.operations.last()) {
             (Some(Terminal::Branch { target, arguments }), Some(operation)) => {
                 let arguments = self.branch_arguments(*target, arguments);
                 let outputs = self.live_outputs(operation);
@@ -20,16 +20,16 @@ impl Scheduler<'_> {
             }
             _ => false,
         };
-        for (index, operation) in region.operations.iter().enumerate() {
+        for (index, operation) in block.operations.iter().enumerate() {
             let site = Site {
-                region: region.id,
+                block: block.id,
                 index,
             };
             if let Operation::BranchIf { condition, taken } = operation {
-                let continuation = region
+                let continuation = block
                     .terminal
                     .as_ref()
-                    .filter(|_| index + 1 == region.operations.len());
+                    .filter(|_| index + 1 == block.operations.len());
                 if self.conditional_branch(*condition, taken, site, continuation, fallthrough) {
                     return;
                 }
@@ -85,16 +85,16 @@ impl Scheduler<'_> {
                     }
                     .encode(&mut self.bytes);
                 }
-                Operation::Block { region, .. } => {
+                Operation::Block { block, .. } => {
                     let before = self.emitted.clone();
                     let target = Target::exit(site);
-                    if outputs.is_empty() && region.exits_to(target).next().is_none() {
+                    if outputs.is_empty() && block.exits_to(target).next().is_none() {
                         // An unreferenced unit block needs no Wasm label. Outward
                         // exits must still skip the enclosing body's continuation.
-                        self.region(region, None);
+                        self.block(block, None);
                     } else {
                         self.begin_control(Instruction::Block(block_type), Some(target), &outputs);
-                        self.region(region, Some(target));
+                        self.block(block, Some(target));
                         self.end_control();
                     }
                     // An outward exit can skip any capture in this child. Only
@@ -104,10 +104,10 @@ impl Scheduler<'_> {
                 Operation::Loop {
                     initial,
                     inputs,
-                    region,
+                    block,
                     ..
                 } => {
-                    self.loop_region(initial, inputs, region, site, &outputs);
+                    self.loop_block(initial, inputs, block, site, &outputs);
                 }
                 Operation::If {
                     branch,
@@ -120,11 +120,11 @@ impl Scheduler<'_> {
                         &outputs,
                     );
                     let before_arm = self.emitted.clone();
-                    self.region(branch, Some(Target::exit(site)));
+                    self.block(branch, Some(Target::exit(site)));
                     self.emitted.clone_from(&before_arm);
                     if let Some(other) = else_branch {
                         Instruction::Else.encode(&mut self.bytes);
-                        self.region(other, Some(Target::exit(site)));
+                        self.block(other, Some(Target::exit(site)));
                     }
                     self.end_control();
                     self.emitted = before_arm;
@@ -133,14 +133,14 @@ impl Scheduler<'_> {
                     self.switch(cases, default, site);
                 }
             }
-            if !(forwarding && index + 1 == region.operations.len()) {
+            if !(forwarding && index + 1 == block.operations.len()) {
                 // The last result is at the top of the Wasm operand stack.
                 for &output in outputs.iter().rev() {
                     self.completed(output, true);
                 }
             }
         }
-        if let Some(terminal) = &region.terminal {
+        if let Some(terminal) = &block.terminal {
             if let Terminal::Branch { target, arguments } = terminal {
                 if !forwarding {
                     for argument in self.branch_arguments(*target, arguments) {

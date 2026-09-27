@@ -1,14 +1,16 @@
 use wasm86_compiler::{BuildError, Program, Signature, Type, Val, I1, I32, I64, I8};
 
 #[test]
-fn dropping_a_body_leaves_its_function_unfinished() {
+fn a_function_cannot_fall_through() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    let body = program.define(function).unwrap();
-    drop(body);
+    assert_eq!(
+        program.define(function, |_| Ok(())),
+        Err(BuildError::MissingBody)
+    );
     assert!(matches!(program.compile(), Err(BuildError::MissingBody)));
 }
 
@@ -21,14 +23,19 @@ fn values_from_a_completed_body_are_rejected_by_another_builder() {
     };
     let first = program.declare(signature.clone());
     let second = program.declare(signature);
-    let body = program.define(first).unwrap();
-    let retained = body.value::<I32>(7).unwrap();
-    body.return_(&retained).unwrap();
-
-    let body = program.define(second).unwrap();
-    assert!(body.return_(&retained).is_err());
-    let body = program.define(second).unwrap();
-    body.return_(9).unwrap();
+    let mut retained = None;
+    program
+        .define(first, |body| {
+            let value = body.value::<I32>(7)?;
+            retained = Some(value.clone());
+            body.return_(value)
+        })
+        .unwrap();
+    assert_eq!(
+        program.define(second, |body| body.return_(retained.unwrap())),
+        Err(BuildError::ForeignBody)
+    );
+    program.define(second, |body| body.return_(9)).unwrap();
     program.compile().unwrap();
 }
 
@@ -39,46 +46,62 @@ fn restarting_a_body_rejects_its_old_values() {
         parameters: vec![],
         results: vec![Type::I64],
     });
-    let body = program.define(function).unwrap();
-    let retained = body.value::<I64>(7).unwrap();
-    drop(body);
-
-    let body = program.define(function).unwrap();
-    let result = body.value::<I64>(9).unwrap().add(&retained);
-    assert!(body.return_(&result).is_err());
+    let mut retained = None;
+    assert_eq!(
+        program.define(function, |body| {
+            retained = Some(body.value::<I64>(7)?);
+            Ok(())
+        }),
+        Err(BuildError::MissingBody)
+    );
+    assert_eq!(
+        program.define(function, |body| {
+            let result = body.value::<I64>(9)?.add(retained.as_ref().unwrap());
+            body.return_(result)
+        }),
+        Err(BuildError::ForeignBody)
+    );
     assert!(matches!(program.compile(), Err(BuildError::MissingBody)));
 }
 
 #[test]
 fn foreign_zero_is_rejected_without_poisoning_other_expressions() {
     let mut foreign_program = Program::new();
-    let foreign_function = foreign_program.declare(Signature {
-        parameters: vec![],
-        results: vec![Type::I32],
-    });
-    let foreign_body = foreign_program.define(foreign_function).unwrap();
-    let foreign_zero = foreign_body.value::<I32>(0).unwrap();
-
+    let mut foreign_zero = None;
+    foreign_program
+        .function(
+            Signature {
+                parameters: vec![],
+                results: vec![Type::I32],
+            },
+            |foreign_body| {
+                foreign_zero = Some(foreign_body.value::<I32>(0)?);
+                foreign_body.return_(0)
+            },
+        )
+        .unwrap();
+    let foreign_zero = foreign_zero.unwrap();
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![Type::I32],
         results: vec![Type::I32],
     });
-    let body = program.define(function).unwrap();
-    let own = body.parameter::<I32>(0).unwrap();
-    let folded = Val::<I32>::from(0).and(&foreign_zero);
-    assert_eq!(body.value(folded).err(), Some(BuildError::ForeignBody));
-    let invalid = own.add(&foreign_zero).add(0);
-    assert!(matches!(
-        body.return_(&invalid),
+    assert_eq!(
+        program.define(function, |body| {
+            let own = body.parameter::<I32>(0)?;
+            let folded = Val::<I32>::from(0).and(&foreign_zero);
+            assert_eq!(body.value(folded).err(), Some(BuildError::ForeignBody));
+            body.return_(own.add(&foreign_zero).add(0))
+        }),
         Err(BuildError::ForeignBody)
-    ));
-
-    let body = program.define(function).unwrap();
-    let own = body.parameter::<I32>(0).unwrap();
-    let _invalid = own.add(&foreign_zero);
-    let valid = own.add(11);
-    body.return_(&valid).unwrap();
+    );
+    program
+        .define(function, |body| {
+            let own = body.parameter::<I32>(0)?;
+            let _invalid = own.add(&foreign_zero);
+            body.return_(own.add(11))
+        })
+        .unwrap();
     program.compile().unwrap();
 }
 
@@ -89,26 +112,32 @@ fn parameter_and_return_types_must_match_the_signature() {
         parameters: vec![Type::I1],
         results: vec![Type::I1],
     });
-    let body = program.define(function).unwrap();
-    assert!(matches!(
-        body.parameter::<I8>(0),
-        Err(BuildError::TypeMismatch { .. })
-    ));
-    let other_type = body.value::<I8>(9).unwrap();
-    assert!(matches!(
-        body.return_(&other_type),
-        Err(BuildError::TypeMismatch { .. })
-    ));
-    let body = program.define(function).unwrap();
     assert_eq!(
-        body.return_(Val::<I8>::from(1)),
+        program.define(function, |body| {
+            assert!(matches!(
+                body.parameter::<I8>(0),
+                Err(BuildError::TypeMismatch { .. })
+            ));
+            let other_type = body.value::<I8>(9)?;
+            body.return_(other_type)
+        }),
         Err(BuildError::TypeMismatch {
             expected: Type::I1,
-            actual: Type::I8,
+            actual: Type::I8
         })
     );
-    let body = program.define(function).unwrap();
-    let result = body.parameter::<I1>(0).unwrap();
-    body.return_(&result).unwrap();
+    assert_eq!(
+        program.define(function, |body| body.return_(Val::<I8>::from(1))),
+        Err(BuildError::TypeMismatch {
+            expected: Type::I1,
+            actual: Type::I8
+        })
+    );
+    program
+        .define(function, |body| {
+            let result = body.parameter::<I1>(0)?;
+            body.return_(result)
+        })
+        .unwrap();
     program.compile().unwrap();
 }

@@ -145,22 +145,26 @@ fn effects(behavior: Effect) -> TestModule {
         fixture.callback("receive", shape.clone(), &RETURNED)
     } else {
         let helper = fixture.program.declare(shape.clone());
-        let mut body = fixture.program.define(helper).unwrap();
-        let input = body.parameter::<I32>(0).unwrap();
-        if matches!(behavior, Effect::Recursive) {
-            body.if_(input.eq(0), |arm| arm.return_((true, u64::MAX, 255)))
-                .unwrap();
-            body.tail_call(helper, &[input.sub(1).into()]).unwrap();
-        } else {
-            let calls = body.load::<I32>(memory, 4).unwrap();
-            body.store(memory, 4, calls.add(1)).unwrap();
-            body.store(memory, 8, input).unwrap();
-            if matches!(behavior, Effect::WriteThenTrap) {
-                body.trap().unwrap();
-            } else {
-                body.return_((true, u64::MAX, 255)).unwrap();
-            }
-        }
+        fixture
+            .program
+            .define(helper, |mut body| {
+                let input = body.parameter::<I32>(0).unwrap();
+                if matches!(behavior, Effect::Recursive) {
+                    body.if_(input.eq(0), |arm| arm.return_((true, u64::MAX, 255)))
+                        .unwrap();
+                    body.tail_call(helper, &[input.sub(1).into()])
+                } else {
+                    let calls = body.load::<I32>(memory, 4).unwrap();
+                    body.store(memory, 4, calls.add(1)).unwrap();
+                    body.store(memory, 8, input).unwrap();
+                    if matches!(behavior, Effect::WriteThenTrap) {
+                        body.trap()
+                    } else {
+                        body.return_((true, u64::MAX, 255))
+                    }
+                }
+            })
+            .unwrap();
         helper
     };
     let wrapper = fixture

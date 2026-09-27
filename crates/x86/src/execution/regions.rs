@@ -1,6 +1,6 @@
 //! Nested execution inherits a restart boundary and returns explicit values.
 
-use wasm86_compiler::{Arguments, BuildError, FunctionBuilder, Results, Val, I1};
+use wasm86_compiler::{Arguments, BlockBuilder, BuildError, Results, Val, I1};
 
 use super::ExecutionBuilder;
 
@@ -10,7 +10,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
     /// guest memory or CPU backing stores authored inside the child.
     fn nested_builder(
         &self,
-    ) -> impl for<'body> Fn(FunctionBuilder<'body>) -> ExecutionBuilder<'body, 'module> + use<'module>
+    ) -> impl for<'body> Fn(BlockBuilder<'body>) -> ExecutionBuilder<'body, 'module> + use<'module>
     {
         let state = self.state.clone();
         let memory = self.memory;

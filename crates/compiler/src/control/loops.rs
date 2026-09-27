@@ -2,9 +2,7 @@
 use std::marker::PhantomData;
 
 use super::{Label, Target};
-use crate::{
-    results, Arguments, BuildError, FunctionBuilder, Operation, Results, Value, ValueKind,
-};
+use crate::{results, Arguments, BlockBuilder, BuildError, Operation, Results, Value, ValueKind};
 
 /// The two destinations visible within a loop and its descendants.
 /// `again` supplies the next iteration's inputs; `exit` supplies the loop result.
@@ -14,7 +12,7 @@ pub struct LoopLabels<P: Results, R: Results> {
     pub exit: Label<R>,
 }
 
-impl FunctionBuilder<'_> {
+impl BlockBuilder<'_> {
     /// Builds a loop with separate logical input and result shapes.
     ///
     /// Initial values enter once. A branch to `labels.again` evaluates the entire
@@ -55,12 +53,12 @@ impl FunctionBuilder<'_> {
     pub fn loop_<P: Results, R: Results>(
         &mut self,
         initial: impl Into<Arguments>,
-        build: impl FnOnce(FunctionBuilder<'_>, LoopLabels<P, R>, P::Values) -> Result<(), BuildError>,
+        build: impl FnOnce(BlockBuilder<'_>, LoopLabels<P, R>, P::Values) -> Result<(), BuildError>,
     ) -> Result<R::Values, BuildError> {
         let input_types = results::types::<P>();
         let initial = self.result_arguments(initial, &input_types)?;
         let target = self.result_target::<R>();
-        let scope = self.arena.child_scope(self.region.id)?;
+        let scope = self.arena.child_scope(self.pending.id)?;
         let inputs = input_types
             .into_iter()
             .enumerate()
@@ -68,7 +66,7 @@ impl FunctionBuilder<'_> {
                 self.arena.intern(Value {
                     ty,
                     kind: ValueKind::LoopInput {
-                        region: scope,
+                        block: scope,
                         component,
                     },
                 })
@@ -88,16 +86,16 @@ impl FunctionBuilder<'_> {
                 shape: PhantomData,
             },
         };
-        let region = self.build_region(scope, Some(&target), |iteration| {
+        let block = self.build_block(scope, Some(&target), |iteration| {
             let current = results::bind::<P>(&iteration, &inputs);
             build(iteration, labels, current)
         })?;
-        let outputs = self.join_outputs(&target, [&region])?;
+        let outputs = self.join_outputs(&target, [&block])?;
         let values = results::bind::<R>(self, &outputs);
-        self.region.operations.push(Operation::Loop {
+        self.pending.operations.push(Operation::Loop {
             initial,
             inputs,
-            region,
+            block,
             outputs,
         });
         Ok(values)

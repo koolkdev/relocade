@@ -1,7 +1,7 @@
 //! Effective-address components with deferred register reads. Instruction
 //! semantics can add a displacement before resolving the effective offset.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32};
 
 use crate::{
     register::{Gpr32, Register},
@@ -93,7 +93,7 @@ pub(super) struct RegisterValue {
 impl RegisterTerm {
     fn read(
         self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         state: &mut State<'_>,
         bindings: &[RegisterValue],
     ) -> Result<Val<I32>, BuildError> {
@@ -126,7 +126,7 @@ impl RegisterTerm {
 }
 
 pub(super) fn resolve<V: Into<Val<I32>>>(
-    body: &mut FunctionBuilder<'_>,
+    body: &mut BlockBuilder<'_>,
     state: &mut State<'_>,
     address: EffectiveAddress<V>,
     bindings: &[RegisterValue],

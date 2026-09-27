@@ -1,9 +1,9 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, MemoryBytes, TestModule, Value};
-use wasm86_compiler::{Argument, BuildError, Func, FunctionBuilder, Type, I32};
+use wasm86_compiler::{Argument, BlockBuilder, BuildError, Func, Type, I32};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
-fn finish(body: FunctionBuilder<'_>, result: Option<Type>) -> Result<(), BuildError> {
+fn finish(body: BlockBuilder<'_>, result: Option<Type>) -> Result<(), BuildError> {
     match result {
         Some(Type::I32) => body.return_(7),
         None => body.return_(()),
@@ -12,7 +12,7 @@ fn finish(body: FunctionBuilder<'_>, result: Option<Type>) -> Result<(), BuildEr
 }
 
 fn call_unused(
-    body: &mut FunctionBuilder<'_>,
+    body: &mut BlockBuilder<'_>,
     target: Func,
     result: Option<Type>,
     arguments: &[Argument],
@@ -110,19 +110,23 @@ fn effectful_call(result: Option<Type>, behavior: Effect) -> TestModule {
         let helper = fixture
             .program
             .declare(signature(&[Type::I32], result.as_slice()));
-        let mut body = fixture.program.define(helper).unwrap();
-        let input = body.parameter::<I32>(0).unwrap();
-        if matches!(behavior, Effect::Recursive) {
-            body.if_(input.eq(0), |arm| finish(arm, result)).unwrap();
-            body.tail_call(helper, &[input.sub(1).into()]).unwrap();
-        } else {
-            body.store(state, 4, input).unwrap();
-            if matches!(behavior, Effect::WriteThenTrap) {
-                body.trap().unwrap();
-            } else {
-                finish(body, result).unwrap();
-            }
-        }
+        fixture
+            .program
+            .define(helper, |mut body| {
+                let input = body.parameter::<I32>(0).unwrap();
+                if matches!(behavior, Effect::Recursive) {
+                    body.if_(input.eq(0), |arm| finish(arm, result)).unwrap();
+                    body.tail_call(helper, &[input.sub(1).into()])
+                } else {
+                    body.store(state, 4, input).unwrap();
+                    if matches!(behavior, Effect::WriteThenTrap) {
+                        body.trap()
+                    } else {
+                        finish(body, result)
+                    }
+                }
+            })
+            .unwrap();
         helper
     };
     let wrapper = fixture

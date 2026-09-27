@@ -7,18 +7,18 @@ use std::collections::{HashMap, HashSet};
 
 use super::super::ValueArena;
 use crate::{
-    control::{Region, RegionTree, Site, Target},
+    control::{Block, BlockTree, Site, Target},
     Operation, Terminal,
 };
 
-pub(super) fn analyze(arena: &ValueArena, region: &Region) -> HashMap<Site, Vec<usize>> {
+pub(super) fn analyze(arena: &ValueArena, block: &Block) -> HashMap<Site, Vec<usize>> {
     let mut analysis = Analysis {
         arena,
         groups: Vec::new(),
-        tree: RegionTree::new(region),
+        tree: BlockTree::new(block),
         continuations: HashMap::new(),
     };
-    analysis.region(region, HashMap::new());
+    analysis.block(block, HashMap::new());
     let mut sites = HashMap::<Site, Vec<usize>>::new();
     for (index, group) in analysis.groups.iter().enumerate() {
         if group.parent == index && group.shared {
@@ -35,7 +35,7 @@ pub(super) fn analyze(arena: &ValueArena, region: &Region) -> HashMap<Site, Vec<
 struct Analysis<'a> {
     arena: &'a ValueArena,
     groups: Vec<UseGroup>,
-    tree: RegionTree<'a>,
+    tree: BlockTree<'a>,
     continuations: HashMap<Target, Live>,
 }
 
@@ -51,8 +51,8 @@ struct UseGroup {
 }
 
 impl Analysis<'_> {
-    fn region(&mut self, region: &Region, after: Live) -> Live {
-        let mut live = match &region.terminal {
+    fn block(&mut self, block: &Block, after: Live) -> Live {
+        let mut live = match &block.terminal {
             None => after,
             Some(Terminal::Branch { target, .. }) => {
                 // Loop backedges start another iteration. Only uses that can
@@ -61,19 +61,19 @@ impl Analysis<'_> {
             }
             Some(_) => HashMap::new(),
         };
-        if let Some(terminal) = &region.terminal {
+        if let Some(terminal) = &block.terminal {
             self.inputs(
                 terminal.inputs().iter().copied(),
                 Site {
-                    region: region.id,
-                    index: region.operations.len(),
+                    block: block.id,
+                    index: block.operations.len(),
                 },
                 &mut live,
             );
         }
-        for (index, operation) in region.operations.iter().enumerate().rev() {
+        for (index, operation) in block.operations.iter().enumerate().rev() {
             let site = Site {
-                region: region.id,
+                block: block.id,
                 index,
             };
             if operation.children().next().is_some() {
@@ -90,7 +90,7 @@ impl Analysis<'_> {
                     live.clone_from(&after);
                 }
                 for child in operation.children() {
-                    for (value, groups) in self.region(child, after.clone()) {
+                    for (value, groups) in self.block(child, after.clone()) {
                         let incoming = live.entry(value).or_default();
                         incoming.extend(groups);
                         for group in incoming.iter_mut() {
@@ -176,9 +176,9 @@ impl Analysis<'_> {
     }
 
     fn common(&self, a: Site, b: Site) -> Site {
-        let (a, b) = self.tree.common_region(a, b);
+        let (a, b) = self.tree.common_block(a, b);
         Site {
-            region: a.region,
+            block: a.block,
             index: a.index.min(b.index),
         }
     }

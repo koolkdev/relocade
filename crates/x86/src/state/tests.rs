@@ -48,18 +48,21 @@ fn named_writes_coalesce_without_crossing_indexed_writes() {
         parameters: vec![Type::I32],
         results: vec![Type::I32],
     });
-    let mut body = program.define(function).unwrap();
-    let index = body.parameter::<I32>(0).unwrap();
-    let mut state = State::new(&cpu);
-    state.write_register(&mut body, Gpr32::Eax, 0).unwrap();
-    state.write_register(&mut body, Gpr32::Eax, 1).unwrap();
-    state
-        .write_register(&mut body, Register::<I32>::indexed(index), 2)
+    program
+        .define(function, |mut body| {
+            let index = body.parameter::<I32>(0).unwrap();
+            let mut state = State::new(&cpu);
+            state.write_register(&mut body, Gpr32::Eax, 0).unwrap();
+            state.write_register(&mut body, Gpr32::Eax, 1).unwrap();
+            state
+                .write_register(&mut body, Register::<I32>::indexed(index), 2)
+                .unwrap();
+            state.write_register(&mut body, Gpr32::Eax, 3).unwrap();
+            state.write_register(&mut body, Gpr32::Eax, 4).unwrap();
+            state.publish(&mut body, 7, 1).unwrap();
+            body.return_(0)
+        })
         .unwrap();
-    state.write_register(&mut body, Gpr32::Eax, 3).unwrap();
-    state.write_register(&mut body, Gpr32::Eax, 4).unwrap();
-    state.publish(&mut body, 7, 1).unwrap();
-    body.return_(0).unwrap();
     let bytes = program.compile().unwrap();
     let mut stored = Vec::new();
     for payload in Parser::new(0).parse_all(&bytes) {
@@ -89,19 +92,22 @@ fn publishing_an_exit_keeps_pending_writes_for_the_continuation() {
         parameters: vec![Type::I1],
         results: vec![Type::I32],
     });
-    let mut body = program.define(function).unwrap();
-    let stop = body.parameter::<I1>(0).unwrap();
-    let mut state = State::new(&cpu);
-    state.write_register(&mut body, Gpr32::Eax, 42).unwrap();
-    body.if_(stop, |mut branch| {
-        state.publish(&mut branch, 0x1005, 1)?;
-        branch.return_(-1)
-    })
-    .unwrap();
-    state.write_register(&mut body, Gpr32::Eax, 43).unwrap();
-    state.write_register(&mut body, Gpr32::Ecx, 99).unwrap();
-    state.publish(&mut body, 0x100a, 2).unwrap();
-    body.return_(0).unwrap();
+    program
+        .define(function, |mut body| {
+            let stop = body.parameter::<I1>(0).unwrap();
+            let mut state = State::new(&cpu);
+            state.write_register(&mut body, Gpr32::Eax, 42).unwrap();
+            body.if_(stop, |mut branch| {
+                state.publish(&mut branch, 0x1005, 1)?;
+                branch.return_(-1)
+            })
+            .unwrap();
+            state.write_register(&mut body, Gpr32::Eax, 43).unwrap();
+            state.write_register(&mut body, Gpr32::Ecx, 99).unwrap();
+            state.publish(&mut body, 0x100a, 2).unwrap();
+            body.return_(0)
+        })
+        .unwrap();
     program.export("run", function).unwrap();
 
     let bytes = program.compile().unwrap();

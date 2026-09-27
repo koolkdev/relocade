@@ -3,7 +3,7 @@ mod backing;
 
 use std::mem::{offset_of, size_of};
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, Val, I1, I16, I32, I64};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I64};
 
 use crate::{
     ssa::{Location, StateFields, TrackedValue},
@@ -80,7 +80,7 @@ impl Registers {
 
     pub(super) fn slot(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         top: &Val<I32>,
         index: Val<I32>,
     ) -> Result<Slot, BuildError> {
@@ -123,7 +123,7 @@ impl Registers {
 
     pub(super) fn tag(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         slot: &Slot,
     ) -> Result<Val<I16>, BuildError> {
         let Some(relative) = slot.relative else {
@@ -149,7 +149,7 @@ impl Registers {
 
     pub(super) fn set_tag(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         slot: &Slot,
         tag: Val<I16>,
         enabled: &Val<I1>,
@@ -170,7 +170,7 @@ impl Registers {
 
     fn payload(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         relative: usize,
     ) -> Result<&mut Payload, BuildError> {
         let frame = self.frame.as_mut().unwrap();
@@ -187,7 +187,7 @@ impl Registers {
 
     pub(super) fn read(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         slot: &Slot,
     ) -> Result<ExtendedValue, BuildError> {
         match slot.relative {
@@ -198,7 +198,7 @@ impl Registers {
 
     pub(super) fn write(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         slot: &Slot,
         value: &ExtendedValue,
         tag: Val<I16>,
@@ -218,7 +218,7 @@ impl Registers {
     /// so its latest writes can be retained without their guards.
     pub(super) fn discard_write_guards(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
     ) -> Result<(), BuildError> {
         if let Some(frame) = &mut self.frame {
             for tag in frame.tags.iter_mut().flatten() {
@@ -238,7 +238,7 @@ impl Registers {
     /// Publishes the current values, including conditional writes, and forgets
     /// the slot mapping. FNCLEX/FNINIT and dynamic indexing need fresh tracking;
     /// none of them proves that an earlier conditional write was enabled.
-    pub(super) fn rebase(&mut self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+    pub(super) fn rebase(&mut self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.publish(body)?;
         self.frame = None;
         self.backing = Backing::new(self.memory);
@@ -246,12 +246,12 @@ impl Registers {
         Ok(())
     }
 
-    pub(super) fn initialize(&mut self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+    pub(super) fn initialize(&mut self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.rebase(body)?;
         self.backing.initialize(body)
     }
 
-    pub(super) fn publish(&self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+    pub(super) fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         let Some(frame) = &self.frame else {
             return self.backing.publish(body);
         };
@@ -289,7 +289,7 @@ impl Payload {
 
     fn define_fields(
         fields: &mut StateFields,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         value: &ExtendedValue,
     ) -> Result<(), BuildError> {
         let base = offset_of!(CpuState, x87.registers) as u32;
@@ -305,7 +305,7 @@ impl Payload {
         )
     }
 
-    fn read(&mut self, body: &mut FunctionBuilder<'_>) -> Result<ExtendedValue, BuildError> {
+    fn read(&mut self, body: &mut BlockBuilder<'_>) -> Result<ExtendedValue, BuildError> {
         let base = offset_of!(CpuState, x87.registers) as u32;
         let previous = ExtendedValue {
             significand: self.fields.read(
@@ -335,7 +335,7 @@ impl Payload {
     /// enabled, or publication chooses its value for an exit or tracking reset.
     fn write(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         value: &ExtendedValue,
         enabled: &Val<I1>,
     ) -> Result<(), BuildError> {
@@ -355,7 +355,7 @@ impl Payload {
         Ok(())
     }
 
-    fn publish(&self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+    fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         match &self.conditional_write {
             Some(write) => body.if_else(
                 &write.enabled,

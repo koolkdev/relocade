@@ -194,7 +194,7 @@ fn alternative_continuations_compute_only_after_their_guards_in_v8() {
 }
 
 #[test]
-fn three_demand_regions_retain_one_shared_calculation() {
+fn three_demand_groups_retain_one_shared_calculation() {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0; 8]);
     let module = fixture.function(
@@ -292,8 +292,8 @@ fn repeated_input_diamonds_have_two_copies_per_node_and_linear_growth() {
         assert!(!events[..branch]
             .iter()
             .any(|event| matches!(event, Event::Xor | Event::Add)));
-        for region in [&events[branch..end], &events[end..]] {
-            let arithmetic: Vec<_> = region
+        for path_events in [&events[branch..end], &events[end..]] {
+            let arithmetic: Vec<_> = path_events
                 .iter()
                 .copied()
                 .filter(|event| matches!(event, Event::Xor | Event::Add))
@@ -301,7 +301,7 @@ fn repeated_input_diamonds_have_two_copies_per_node_and_linear_growth() {
             // Each marker identifies one XOR node. Its repeated inputs merge in
             // one ADD, so cloning the expression tree would violate this bound.
             assert_eq!(arithmetic, [Event::Xor, Event::Add].repeat(depth));
-            let markers: Vec<_> = region
+            let markers: Vec<_> = path_events
                 .windows(2)
                 .filter_map(|pair| match pair {
                     [Event::Constant(marker), Event::Xor] => Some(*marker),

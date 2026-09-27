@@ -1,6 +1,6 @@
 //! Instruction reads translate CS offsets before consulting linear page mappings.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I32, I8};
 
 use crate::{
     memory::{DirectRange, Intent, Memory, PageCache},
@@ -24,14 +24,14 @@ impl<'module> InstructionFetch<'module> {
         }
     }
 
-    pub(super) fn eip(&self, body: &mut FunctionBuilder<'_>) -> Result<Val<I32>, BuildError> {
+    pub(super) fn eip(&self, body: &mut BlockBuilder<'_>) -> Result<Val<I32>, BuildError> {
         self.cpu.read_eip(body)
     }
 
     /// An unavailable window is not a fault: a shorter instruction may still fit.
     pub(super) fn check_direct_access(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         eip: &Val<I32>,
         bytes: u32,
         cache: Option<&mut PageCache>,
@@ -51,7 +51,7 @@ impl<'module> InstructionFetch<'module> {
     /// Exact reads check CS first, then the page containing that required byte.
     pub(super) fn byte(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         eip: &Val<I32>,
     ) -> Result<Val<I8>, BuildError> {
         let linear = self.segments.translate(

@@ -1,14 +1,14 @@
-//! Simplifies completed control regions before effects and value placement.
-use super::Region;
+//! Simplifies completed control blocks before effects and value placement.
+use super::Block;
 use crate::{Operation, Value, ValueKind};
 
-impl Region {
+impl Block {
     pub(crate) fn fold_constants(&mut self, values: &[Value]) {
         for operation in &mut self.operations {
             match operation {
-                Operation::Block { region, .. }
-                | Operation::Loop { region, .. }
-                | Operation::BranchIf { taken: region, .. } => region.fold_constants(values),
+                Operation::Block { block, .. }
+                | Operation::Loop { block, .. }
+                | Operation::BranchIf { taken: block, .. } => block.fold_constants(values),
                 Operation::If {
                     branch,
                     else_branch,
@@ -21,7 +21,7 @@ impl Region {
                 }
                 Operation::Switch { cases, default, .. } => {
                     for case in cases {
-                        case.region.fold_constants(values);
+                        case.block.fold_constants(values);
                     }
                     default.fold_constants(values);
                 }
@@ -45,14 +45,14 @@ impl Region {
                     outputs,
                     ..
                 } => {
-                    let region = if bits != 0 { Some(branch) } else { else_branch };
-                    match region {
-                        Some(region) => Operation::Block { region, outputs },
+                    let block = if bits != 0 { Some(branch) } else { else_branch };
+                    match block {
+                        Some(block) => Operation::Block { block, outputs },
                         None => Operation::Nop,
                     }
                 }
                 Operation::BranchIf { taken, .. } if bits != 0 => Operation::Block {
-                    region: taken,
+                    block: taken,
                     outputs: Vec::new(),
                 },
                 Operation::BranchIf { .. } => Operation::Nop,

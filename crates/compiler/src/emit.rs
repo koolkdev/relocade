@@ -86,7 +86,7 @@ pub(super) fn encode(
         events: Vec::new(),
         loop_ranges: Vec::new(),
     };
-    scheduler.region(&body.region, None);
+    scheduler.block(&body.block, None);
     Instruction::End.encode(&mut scheduler.bytes);
     scheduler.finish(parameter_count)
 }

@@ -2,7 +2,7 @@ use crate::fixture::Fixture;
 use crate::wasm::{TestModule, Value};
 
 use wasm86_compiler::{
-    FunctionBuilder, IntType, Program, Signature, Type, Val, I1, I16, I32, I64, I8,
+    BlockBuilder, IntType, Program, Signature, Type, Val, I1, I16, I32, I64, I8,
 };
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -97,7 +97,7 @@ fn signed_arithmetic_wraps_and_compares_at_logical_widths() {
         program: &mut Program,
         name: &str,
         parameters: &[Type],
-        build: impl FnOnce(&FunctionBuilder<'_>) -> Val<T>,
+        build: impl FnOnce(&BlockBuilder<'_>) -> Val<T>,
     ) {
         let function = program
             .function(

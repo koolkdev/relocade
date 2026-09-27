@@ -1,6 +1,6 @@
 //! Terminal publication selects one record without writing earlier payloads.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, Val, I1};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1};
 
 use crate::alu::AnyStatusSource;
 use crate::flags::FlagMask;
@@ -15,7 +15,7 @@ use super::{
 impl FlagState {
     pub(in crate::state) fn publish(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         cpu: &Cpu,
     ) -> Result<(), BuildError> {
         self.status.publish(body, cpu)?;
@@ -24,7 +24,7 @@ impl FlagState {
 }
 
 impl StatusState {
-    fn publish(&self, body: &mut FunctionBuilder<'_>, cpu: &Cpu) -> Result<(), BuildError> {
+    fn publish(&self, body: &mut BlockBuilder<'_>, cpu: &Cpu) -> Result<(), BuildError> {
         let memory = cpu.memory();
         if self.updates.is_empty() {
             return self.base.publish(body, memory);
@@ -75,11 +75,7 @@ impl StatusState {
         })
     }
 
-    fn publish_concrete(
-        &self,
-        body: &mut FunctionBuilder<'_>,
-        cpu: &Cpu,
-    ) -> Result<(), BuildError> {
+    fn publish_concrete(&self, body: &mut BlockBuilder<'_>, cpu: &Cpu) -> Result<(), BuildError> {
         // A publication arm must not put descendant-scoped reads into the live
         // state used by later instructions or exits.
         let mut base = self.base.clone();
@@ -90,7 +86,7 @@ impl StatusState {
 }
 
 impl StatusBase {
-    fn publish(&self, body: &mut FunctionBuilder<'_>, memory: Mem) -> Result<(), BuildError> {
+    fn publish(&self, body: &mut BlockBuilder<'_>, memory: Mem) -> Result<(), BuildError> {
         match self {
             Self::Stored(_) => Ok(()),
             Self::Local(source) => publish_source(body, memory, source),
@@ -99,7 +95,7 @@ impl StatusBase {
 }
 
 fn publish_source(
-    body: &mut FunctionBuilder<'_>,
+    body: &mut BlockBuilder<'_>,
     memory: Mem,
     source: &AnyStatusSource,
 ) -> Result<(), BuildError> {

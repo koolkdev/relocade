@@ -2,7 +2,7 @@
 //! ModRM forms are selected before fetching address bytes. Register operands
 //! continue locally; memory operands join their shared address decoder.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I32, I8};
 
 use crate::{
     decode::DecodeState,
@@ -17,12 +17,12 @@ use super::{cursor::RuntimeCursor, selectors::dispatch_modrm_form, InstructionDe
 
 impl<C> InstructionDecoder<'_, '_, C>
 where
-    C: Fn(FunctionBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
+    C: Fn(BlockBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
 {
     /// Decodes fields after exact opcode selection for forms without ModRM.
     pub(super) fn decode_opcode_operands(
         &self,
-        mut body: FunctionBuilder<'_>,
+        mut body: BlockBuilder<'_>,
         mut cursor: RuntimeCursor<'_>,
         opcode: u8,
         form: &ResolvedForm,
@@ -47,7 +47,7 @@ where
 
     pub(super) fn decode_modrm_operands(
         &self,
-        mut body: FunctionBuilder<'_>,
+        mut body: BlockBuilder<'_>,
         mut cursor: RuntimeCursor<'_>,
         state: DecodeState,
         opcode: u8,
@@ -92,7 +92,7 @@ where
 
     fn continue_memory_decoding(
         &self,
-        body: FunctionBuilder<'_>,
+        body: BlockBuilder<'_>,
         cursor: &RuntimeCursor<'_>,
         state: DecodeState,
         form_index: u32,
@@ -113,7 +113,7 @@ where
 
     fn complete_modrm_instruction(
         &self,
-        mut body: FunctionBuilder<'_>,
+        mut body: BlockBuilder<'_>,
         mut cursor: RuntimeCursor<'_>,
         modrm: &Val<I8>,
         form: &ResolvedForm,
@@ -137,7 +137,7 @@ where
     /// opcode and fixed ModRM bits and established a memory addressing mode.
     pub(super) fn decode_memory_operands(
         &self,
-        body: FunctionBuilder<'_>,
+        body: BlockBuilder<'_>,
         cursor: RuntimeCursor<'_>,
         state: DecodeState,
         form_index: &Val<I32>,

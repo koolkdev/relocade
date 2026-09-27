@@ -1,6 +1,6 @@
 //! Conversion from symbolic flags to stored records at publication.
 
-use wasm86_compiler::{AtLeast, BuildError, FunctionBuilder, Mem, MemoryInt, Val, I1, I32, I8};
+use wasm86_compiler::{AtLeast, BlockBuilder, BuildError, Mem, MemoryInt, Val, I1, I32, I8};
 
 use crate::alu::{ArithmeticOp, StatusSource};
 use crate::state::access::cpu_store;
@@ -66,7 +66,7 @@ impl<T: MemoryInt> FlagRecord<T> {
         }
     }
 
-    pub(super) fn write(self, body: &mut FunctionBuilder<'_>, memory: Mem) -> Result<(), BuildError>
+    pub(super) fn write(self, body: &mut BlockBuilder<'_>, memory: Mem) -> Result<(), BuildError>
     where
         I32: AtLeast<T>,
     {
@@ -108,7 +108,7 @@ impl<T: MemoryInt> FlagRecord<T> {
 }
 
 pub(super) fn write_concrete(
-    body: &mut FunctionBuilder<'_>,
+    body: &mut BlockBuilder<'_>,
     memory: Mem,
     status: [Val<I1>; 6],
 ) -> Result<(), BuildError> {

@@ -1,6 +1,6 @@
 mod read;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
 
 use crate::instruction::{
     DecodedFields, FieldWidth, ImmediateWidth, ResolvedForm, MAX_INSTRUCTION_BYTES,
@@ -40,7 +40,7 @@ impl Window {
 
 impl<'memory> RuntimeCursor<'memory> {
     pub(super) fn new(
-        body: &FunctionBuilder<'_>,
+        body: &BlockBuilder<'_>,
         fetch: InstructionFetch<'memory>,
         instruction_eip: &Val<I32>,
         physical_start: Option<&Val<I32>>,
@@ -110,7 +110,7 @@ impl<'memory> RuntimeCursor<'memory> {
 
     pub(super) fn read_immediates(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         form: &ResolvedForm,
         fields: &mut DecodedFields<Val<I32>>,
     ) -> Result<(), BuildError> {
@@ -124,7 +124,7 @@ impl<'memory> RuntimeCursor<'memory> {
 
     fn immediate(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         form: &ResolvedForm,
         field: ImmediateWidth,
     ) -> Result<Val<I32>, BuildError> {
@@ -136,7 +136,7 @@ impl<'memory> RuntimeCursor<'memory> {
 
     pub(super) fn integer(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         width: FieldWidth,
     ) -> Result<Val<I32>, BuildError> {
         match width {
@@ -148,7 +148,7 @@ impl<'memory> RuntimeCursor<'memory> {
 
     pub(super) fn displacement(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         mode: &Val<I8>,
         no_base: &Val<I1>,
         width: FieldWidth,

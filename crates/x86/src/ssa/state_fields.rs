@@ -3,7 +3,7 @@
 use super::TrackedValue;
 use std::marker::PhantomData;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, Val, I16, I32, I64, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Val, I16, I32, I64, I8};
 
 #[derive(Clone)]
 pub(crate) struct Location<T: SsaType> {
@@ -103,7 +103,7 @@ impl DefinitionValue {
 
     fn store(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         memory: Mem,
         base: &Val<I32>,
         offset: u32,
@@ -192,7 +192,7 @@ impl StateFields {
 
     pub(crate) fn read<T: SsaType>(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         location: Location<T>,
     ) -> Result<Val<T>, BuildError> {
         let offset = match location.address {
@@ -228,7 +228,7 @@ impl StateFields {
 
     pub(crate) fn define<T: SsaType>(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         location: Location<T>,
         value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
@@ -289,7 +289,7 @@ impl StateFields {
 
     fn flush(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         span: Span,
         replacing: bool,
     ) -> Result<(), BuildError> {
@@ -308,7 +308,7 @@ impl StateFields {
 
     /// Emits the current dirty definitions on a terminating path without changing
     /// the definitions used to construct other paths. This is not a backing rollback.
-    pub(crate) fn publish(&self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+    pub(crate) fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         for index in self.dirty() {
             let entry = &self.definitions[index];
             entry

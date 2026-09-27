@@ -1,6 +1,6 @@
 //! Shared continuation for the ordinary direct opcode path.
 
-use wasm86_compiler::{BuildError, Func, FunctionBuilder, Val, I1, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Func, Val, I1, I32, I8};
 
 use crate::{
     instruction::{DecodedInstruction, OpcodeMap, PrefixState},
@@ -15,12 +15,12 @@ use super::{
 impl RuntimeDecoder<'_> {
     pub(super) fn decode_cycle(
         &self,
-        mut body: FunctionBuilder<'_>,
+        mut body: BlockBuilder<'_>,
         cursor: RuntimeCursor<'_>,
         opcode: &Val<I8>,
         entry: Func,
         complete_instruction: &impl Fn(
-            FunctionBuilder<'_>,
+            BlockBuilder<'_>,
             DecodedInstruction<Val<I32>, Val<I32>>,
             Option<&DecodeContinuation>,
         ) -> Result<(), BuildError>,
@@ -40,7 +40,7 @@ impl RuntimeDecoder<'_> {
                     let continuation = DecodeContinuation::Cycle(next);
                     InstructionDecoder {
                         decoder: self,
-                        complete_instruction: |body: FunctionBuilder<'_>, instruction| {
+                        complete_instruction: |body: BlockBuilder<'_>, instruction| {
                             complete_instruction(body, instruction, Some(&continuation))
                         },
                         memory_continuation: None,
@@ -74,13 +74,13 @@ impl RuntimeDecoder<'_> {
 
 impl<C> InstructionDecoder<'_, '_, C>
 where
-    C: Fn(FunctionBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
+    C: Fn(BlockBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
 {
     /// Memory forms share their address decoder within the same iteration.
     /// Register forms complete through the enclosing instruction continuation.
     fn decode_direct(
         &self,
-        mut body: FunctionBuilder<'_>,
+        mut body: BlockBuilder<'_>,
         cursor: RuntimeCursor<'_>,
         opcode: &Val<I8>,
     ) -> Result<(), BuildError> {
@@ -101,7 +101,7 @@ where
                 opcode,
             )
         })?;
-        let decode_memory = |body: FunctionBuilder<'_>, map| {
+        let decode_memory = |body: BlockBuilder<'_>, map| {
             let cursor = RuntimeCursor::new(
                 &body,
                 self.decoder.fetch,

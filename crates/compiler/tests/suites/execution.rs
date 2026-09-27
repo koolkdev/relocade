@@ -289,7 +289,9 @@ fn exports_follow_declarations_and_can_alias_the_same_function() {
     let first = program.declare(signature.clone());
     let second = program.declare(signature);
     for (function, value) in [(second, 11), (first, 7)] {
-        program.define(function).unwrap().return_(value).unwrap();
+        program
+            .define(function, |body| body.return_(value))
+            .unwrap();
     }
     program.export("first", first).unwrap();
     program.export("second", second).unwrap();

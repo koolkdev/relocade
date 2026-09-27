@@ -43,21 +43,27 @@ fn transitive_mutation() -> TestModule {
     let run = fixture.program.declare(signature(&[], &[Type::I32]));
     let wrapper = fixture.program.declare(signature(&[], &[Type::I32]));
     let mutator = fixture.program.declare(signature(&[], &[Type::I32]));
-    let mut body = fixture.program.define(run).unwrap();
-    let before = body.load::<I32>(state, 0).unwrap();
-    let answer = body.call::<I32>(wrapper, &[]).unwrap();
-    body.store(state, 4, &answer).unwrap();
-    let after = body.load::<I32>(state, 0).unwrap();
-    body.return_(before.add(&after)).unwrap();
     fixture
         .program
-        .define(wrapper)
-        .unwrap()
-        .tail_call(mutator, &[])
+        .define(run, |mut body| {
+            let before = body.load::<I32>(state, 0).unwrap();
+            let answer = body.call::<I32>(wrapper, &[]).unwrap();
+            body.store(state, 4, &answer).unwrap();
+            let after = body.load::<I32>(state, 0).unwrap();
+            body.return_(before.add(&after))
+        })
         .unwrap();
-    let mut body = fixture.program.define(mutator).unwrap();
-    body.store::<I32>(state, 0, 9).unwrap();
-    body.return_(5).unwrap();
+    fixture
+        .program
+        .define(wrapper, |body| body.tail_call(mutator, &[]))
+        .unwrap();
+    fixture
+        .program
+        .define(mutator, |mut body| {
+            body.store::<I32>(state, 0, 9).unwrap();
+            body.return_(5)
+        })
+        .unwrap();
     fixture.finish(run)
 }
 
@@ -77,23 +83,31 @@ fn readonly_call(
     let state = fixture.memory("state", initial);
     let run = fixture.program.declare(signature(&[], &[Type::I32]));
     let reader = fixture.program.declare(signature(&[], &[Type::I32]));
-    let mut body = fixture.program.define(run).unwrap();
-    let before = body.call::<I32>(reader, &[]).unwrap();
-    if store_offset != 0 {
-        body.store::<I32>(state, 0, 1).unwrap();
-    }
-    body.store::<I32>(state, store_offset, 9).unwrap();
-    match result_use {
-        ReadUse::Discard => body.return_(7).unwrap(),
-        ReadUse::ReturnSnapshot => body.return_(&before).unwrap(),
-        ReadUse::AddFreshRead => {
-            let after = body.call::<I32>(reader, &[]).unwrap();
-            body.return_(before.add(&after)).unwrap();
-        }
-    }
-    let mut body = fixture.program.define(reader).unwrap();
-    let value = body.load::<I32>(state, offset).unwrap();
-    body.return_(&value).unwrap();
+    fixture
+        .program
+        .define(run, |mut body| {
+            let before = body.call::<I32>(reader, &[]).unwrap();
+            if store_offset != 0 {
+                body.store::<I32>(state, 0, 1).unwrap();
+            }
+            body.store::<I32>(state, store_offset, 9).unwrap();
+            match result_use {
+                ReadUse::Discard => body.return_(7),
+                ReadUse::ReturnSnapshot => body.return_(&before),
+                ReadUse::AddFreshRead => {
+                    let after = body.call::<I32>(reader, &[]).unwrap();
+                    body.return_(before.add(&after))
+                }
+            }
+        })
+        .unwrap();
+    fixture
+        .program
+        .define(reader, |mut body| {
+            let value = body.load::<I32>(state, offset).unwrap();
+            body.return_(&value)
+        })
+        .unwrap();
     fixture.finish(run)
 }
 
@@ -106,15 +120,23 @@ fn computed_helper_read(initial: &[u8]) -> TestModule {
     let reader = fixture
         .program
         .declare(signature(&[Type::I32], &[Type::I32]));
-    let mut body = fixture.program.define(run).unwrap();
-    let address = body.parameter::<I32>(0).unwrap();
-    let before = body.call::<I32>(reader, &[address.argument()]).unwrap();
-    body.store::<I32>(state, 0, 9).unwrap();
-    body.return_(&before).unwrap();
-    let mut body = fixture.program.define(reader).unwrap();
-    let address = body.parameter::<I32>(0).unwrap();
-    let loaded = body.load_at::<I32>(state, &address, 0).unwrap();
-    body.return_(&loaded).unwrap();
+    fixture
+        .program
+        .define(run, |mut body| {
+            let address = body.parameter::<I32>(0).unwrap();
+            let before = body.call::<I32>(reader, &[address.argument()]).unwrap();
+            body.store::<I32>(state, 0, 9).unwrap();
+            body.return_(&before)
+        })
+        .unwrap();
+    fixture
+        .program
+        .define(reader, |mut body| {
+            let address = body.parameter::<I32>(0).unwrap();
+            let loaded = body.load_at::<I32>(state, &address, 0).unwrap();
+            body.return_(&loaded)
+        })
+        .unwrap();
     fixture.finish(run)
 }
 
@@ -126,14 +148,22 @@ fn predicate_result() -> TestModule {
     let predicate = fixture
         .program
         .declare(signature(&[Type::I32], &[Type::I1]));
-    let mut body = fixture.program.define(run).unwrap();
-    let input = body.parameter::<I32>(0).unwrap();
-    let condition = body.call::<I1>(predicate, &[input.argument()]).unwrap();
-    body.if_(&condition, |branch| branch.return_(11)).unwrap();
-    body.return_(22).unwrap();
-    let body = fixture.program.define(predicate).unwrap();
-    let input = body.parameter::<I32>(0).unwrap();
-    body.return_(input.eq(7)).unwrap();
+    fixture
+        .program
+        .define(run, |mut body| {
+            let input = body.parameter::<I32>(0).unwrap();
+            let condition = body.call::<I1>(predicate, &[input.argument()]).unwrap();
+            body.if_(&condition, |branch| branch.return_(11)).unwrap();
+            body.return_(22)
+        })
+        .unwrap();
+    fixture
+        .program
+        .define(predicate, |body| {
+            let input = body.parameter::<I32>(0).unwrap();
+            body.return_(input.eq(7))
+        })
+        .unwrap();
     fixture.finish(run)
 }
 
@@ -144,20 +174,28 @@ fn branch_call() -> TestModule {
         .program
         .declare(signature(&[Type::I1], &[Type::I32]));
     let helper = fixture.program.declare(signature(&[], &[Type::I32]));
-    let mut body = fixture.program.define(run).unwrap();
-    let condition = body.parameter::<I1>(0).unwrap();
-    body.store::<I32>(state, 0, 1).unwrap();
-    body.if_(&condition, |mut branch| {
-        let _unused = branch.call::<I32>(helper, &[])?;
-        Ok(())
-    })
-    .unwrap();
-    body.store::<I32>(state, 4, 2).unwrap();
-    body.return_(17).unwrap();
-    let mut body = fixture.program.define(helper).unwrap();
-    body.store::<I32>(state, 8, 3).unwrap();
-    let trapped = body.load::<I32>(state, 65536).unwrap();
-    body.return_(&trapped).unwrap();
+    fixture
+        .program
+        .define(run, |mut body| {
+            let condition = body.parameter::<I1>(0).unwrap();
+            body.store::<I32>(state, 0, 1).unwrap();
+            body.if_(&condition, |mut branch| {
+                let _unused = branch.call::<I32>(helper, &[])?;
+                Ok(())
+            })
+            .unwrap();
+            body.store::<I32>(state, 4, 2).unwrap();
+            body.return_(17)
+        })
+        .unwrap();
+    fixture
+        .program
+        .define(helper, |mut body| {
+            body.store::<I32>(state, 8, 3).unwrap();
+            let trapped = body.load::<I32>(state, 65536).unwrap();
+            body.return_(&trapped)
+        })
+        .unwrap();
     fixture.finish(run)
 }
 
@@ -169,22 +207,28 @@ fn snapshot_with_a_tail_call_branch(store_offset: u32) -> TestModule {
         .declare(signature(&[Type::I1], &[Type::I32]));
     let wrapper = fixture.program.declare(signature(&[], &[Type::I32]));
     let mutator = fixture.program.declare(signature(&[], &[Type::I32]));
-    let mut body = fixture.program.define(run).unwrap();
-    let condition = body.parameter::<I1>(0).unwrap();
-    let before = body.load::<I32>(state, 4).unwrap();
-    body.store::<I32>(state, store_offset, 1).unwrap();
-    body.if_(&condition, |branch| branch.tail_call(wrapper, &[]))
-        .unwrap();
-    body.return_(&before).unwrap();
     fixture
         .program
-        .define(wrapper)
-        .unwrap()
-        .tail_call(mutator, &[])
+        .define(run, |mut body| {
+            let condition = body.parameter::<I1>(0).unwrap();
+            let before = body.load::<I32>(state, 4).unwrap();
+            body.store::<I32>(state, store_offset, 1).unwrap();
+            body.if_(&condition, |branch| branch.tail_call(wrapper, &[]))
+                .unwrap();
+            body.return_(&before)
+        })
         .unwrap();
-    let mut body = fixture.program.define(mutator).unwrap();
-    body.store::<I32>(state, 4, 9).unwrap();
-    body.return_(5).unwrap();
+    fixture
+        .program
+        .define(wrapper, |body| body.tail_call(mutator, &[]))
+        .unwrap();
+    fixture
+        .program
+        .define(mutator, |mut body| {
+            body.store::<I32>(state, 4, 9).unwrap();
+            body.return_(5)
+        })
+        .unwrap();
     fixture.finish(run)
 }
 
@@ -312,9 +356,12 @@ fn calls_depending_on_recursion_are_retained_when_unused() {
     let wrapper = program.declare(signature(&[], &[Type::I32]));
     let run = program.declare(signature(&[], &[Type::I32]));
     for (function, target) in [(recursive, recursive), (wrapper, recursive), (run, wrapper)] {
-        let mut body = program.define(function).unwrap();
-        let _unused = body.call::<I32>(target, &[]).unwrap();
-        body.return_(7).unwrap();
+        program
+            .define(function, |mut body| {
+                let _unused = body.call::<I32>(target, &[]).unwrap();
+                body.return_(7)
+            })
+            .unwrap();
     }
     program.export("run", run).unwrap();
     let code = inspect(&program.compile().unwrap());

@@ -1,6 +1,6 @@
-//! Structured regions, result joins and branch construction.
+//! Structured blocks, result joins and branch construction.
 use crate::{
-    results, Arguments, Body, BuildError, FunctionBuilder, Operation, Results, Terminal, Type,
+    results, Arguments, BlockBuilder, Body, BuildError, Operation, Results, Terminal, Type,
 };
 
 mod block;
@@ -12,28 +12,28 @@ mod tree;
 
 pub use block::Label;
 pub use loops::LoopLabels;
-pub(crate) use tree::RegionTree;
+pub(crate) use tree::BlockTree;
 
 pub(super) struct SwitchCase {
     pub(super) key: u32,
-    pub(super) region: Region,
+    pub(super) block: Block,
 }
 
 impl Body {
     pub(super) fn operation(&self, site: Site) -> &Operation {
         &self
-            .region
+            .block
             .walk()
-            .find(|region| region.id == site.region)
-            .expect("an operation result names an attached region")
+            .find(|block| block.id == site.block)
+            .expect("an operation result names an attached block")
             .operations[site.index]
     }
 }
 
 impl Operation {
-    pub(super) fn children(&self) -> impl DoubleEndedIterator<Item = &Region> {
+    pub(super) fn children(&self) -> impl DoubleEndedIterator<Item = &Block> {
         let (first, second, cases): (_, _, &[SwitchCase]) = match self {
-            Self::Block { region, .. } | Self::Loop { region, .. } => (Some(region), None, &[]),
+            Self::Block { block, .. } | Self::Loop { block, .. } => (Some(block), None, &[]),
             Self::BranchIf { taken, .. } => (Some(taken), None, &[]),
             Self::If {
                 branch,
@@ -45,7 +45,7 @@ impl Operation {
         };
         cases
             .iter()
-            .map(|case| &case.region)
+            .map(|case| &case.block)
             .chain(first)
             .chain(second)
     }
@@ -63,7 +63,7 @@ impl Operation {
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) struct Site {
-    pub(super) region: usize,
+    pub(super) block: usize,
     pub(super) index: usize,
 }
 
@@ -84,71 +84,54 @@ impl Target {
     }
 }
 
-pub(super) struct Region {
+pub(super) struct Block {
     pub(super) id: usize,
     pub(super) operations: Vec<Operation>,
     pub(super) terminal: Option<Terminal>,
 }
 
-impl Region {
-    pub(super) fn new(id: usize) -> Self {
-        Self {
-            id,
-            operations: Vec::new(),
-            terminal: None,
-        }
-    }
-
-    pub(super) fn walk(&self) -> Regions<'_> {
-        Regions(vec![self])
+impl Block {
+    pub(super) fn walk(&self) -> Blocks<'_> {
+        Blocks(vec![self])
     }
 
     pub(super) fn exits_to(&self, target: Target) -> impl Iterator<Item = (Site, &[usize])> {
-        self.walk()
-            .filter_map(move |region| match &region.terminal {
-                Some(Terminal::Branch {
-                    target: destination,
-                    arguments,
-                }) if *destination == target => Some((
-                    Site {
-                        region: region.id,
-                        index: region.operations.len(),
-                    },
-                    arguments.as_slice(),
-                )),
-                _ => None,
-            })
+        self.walk().filter_map(move |block| match &block.terminal {
+            Some(Terminal::Branch {
+                target: destination,
+                arguments,
+            }) if *destination == target => Some((
+                Site {
+                    block: block.id,
+                    index: block.operations.len(),
+                },
+                arguments.as_slice(),
+            )),
+            _ => None,
+        })
     }
 }
 
-pub(super) struct Regions<'a>(Vec<&'a Region>);
+pub(super) struct Blocks<'a>(Vec<&'a Block>);
 
-impl<'a> Iterator for Regions<'a> {
-    type Item = &'a Region;
+impl<'a> Iterator for Blocks<'a> {
+    type Item = &'a Block;
     fn next(&mut self) -> Option<Self::Item> {
-        let region = self.0.pop()?;
-        for operation in region.operations.iter().rev() {
+        let block = self.0.pop()?;
+        for operation in block.operations.iter().rev() {
             self.0.extend(operation.children().rev());
         }
-        Some(region)
+        Some(block)
     }
 }
 
 #[derive(Clone)]
 pub(super) struct JoinTarget {
     target: Target,
-    pub(super) types: Vec<Type>,
+    types: Vec<Type>,
 }
 
-pub(super) enum Destination<'a> {
-    Function,
-    Branch {
-        region: &'a mut Option<Region>,
-        target: Option<JoinTarget>,
-    },
-}
-
-impl FunctionBuilder<'_> {
+impl BlockBuilder<'_> {
     /// Supplies the direct result arm, block or loop's result, consuming its builder.
     /// The declared result shape determines native literals' logical types; typed
     /// values must match it. Scalar arguments stay scalar, and tuples follow the
@@ -157,24 +140,19 @@ impl FunctionBuilder<'_> {
     /// Execution continues after this control operation. Only a direct result
     /// arm, block or loop body may yield. From a nested branch, use [`Self::branch`]
     /// with the enclosing block's label or the loop's `exit` label.
-    pub fn yield_(mut self, arguments: impl Into<Arguments>) -> Result<(), BuildError> {
-        self.fallthrough = false;
-        let target = self.yield_target()?;
-        let arguments = self.result_arguments(arguments, &target.types)?;
-        self.complete(Terminal::Branch {
-            target: target.target,
-            arguments,
+    pub fn yield_(self, arguments: impl Into<Arguments>) -> Result<(), BuildError> {
+        self.terminate(|body| {
+            let target = body.yield_target()?;
+            let arguments = body.result_arguments(arguments, &target.types)?;
+            Ok(Terminal::Branch {
+                target: target.target,
+                arguments,
+            })
         })
     }
 
     fn yield_target(&self) -> Result<JoinTarget, BuildError> {
-        match &self.destination {
-            Destination::Branch {
-                target: Some(target),
-                ..
-            } => Ok(target.clone()),
-            _ => Err(BuildError::InvalidYield),
-        }
+        self.yield_target.clone().ok_or(BuildError::InvalidYield)
     }
 
     fn result_target<R: Results>(&self) -> JoinTarget {
@@ -187,37 +165,37 @@ impl FunctionBuilder<'_> {
     fn build_branch(
         &mut self,
         target: Option<&JoinTarget>,
-        build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
-    ) -> Result<Region, BuildError> {
-        let scope = self.arena.child_scope(self.region.id)?;
-        self.build_region(scope, target, build)
+        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
+    ) -> Result<Block, BuildError> {
+        let scope = self.arena.child_scope(self.pending.id)?;
+        self.build_block(scope, target, build)
     }
 
-    fn build_region(
+    fn build_block(
         &mut self,
         scope: usize,
         target: Option<&JoinTarget>,
-        build: impl FnOnce(FunctionBuilder<'_>) -> Result<(), BuildError>,
-    ) -> Result<Region, BuildError> {
-        let mut destination = None;
-        build(FunctionBuilder {
+        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
+    ) -> Result<Block, BuildError> {
+        let mut pending = crate::function::PendingBlock::new(scope);
+        build(BlockBuilder {
             program: self.program,
             function: self.function,
             arena: self.arena.clone(),
-            region: Region::new(scope),
-            destination: Destination::Branch {
-                region: &mut destination,
-                target: target.cloned(),
-            },
-            fallthrough: true,
+            pending: &mut pending,
+            yield_target: target.cloned(),
         })?;
-        destination.ok_or(BuildError::IncompleteBranch)
+        let block = pending.finish()?;
+        if block.terminal.is_none() && target.is_some_and(|target| !target.types.is_empty()) {
+            return Err(BuildError::MissingBranchValue);
+        }
+        Ok(block)
     }
 
     fn join_outputs<'a>(
         &self,
         target: &JoinTarget,
-        branches: impl IntoIterator<Item = &'a Region>,
+        branches: impl IntoIterator<Item = &'a Block>,
     ) -> Result<Vec<usize>, BuildError> {
         let incoming: Vec<_> = branches
             .into_iter()

@@ -240,10 +240,10 @@ impl ExpressionArena {
 
     pub(super) fn simplify_paths(
         &self,
-        region: &mut crate::control::Region,
+        block: &mut crate::control::Block,
     ) -> Result<(), BuildError> {
         let mut arena = self.0.borrow_mut();
-        paths::simplify(arena.as_mut().ok_or(BuildError::BodyClosed)?, region);
+        paths::simplify(arena.as_mut().ok_or(BuildError::BodyClosed)?, block);
         Ok(())
     }
 }
@@ -391,10 +391,10 @@ impl ValueArena {
     fn availability(&self, value: Value) -> Option<usize> {
         match value.kind {
             ValueKind::Constant(_) | ValueKind::Parameter(_) => Some(0),
-            ValueKind::LoopInput { region, .. } => Some(region),
+            ValueKind::LoopInput { block, .. } => Some(block),
             ValueKind::Load { site, .. }
             | ValueKind::OperationResult { site, .. }
-            | ValueKind::JoinResult { site, .. } => Some(site.region),
+            | ValueKind::JoinResult { site, .. } => Some(site.block),
             ValueKind::Binary(_, a, b)
             | ValueKind::Compare(_, a, b)
             | ValueKind::Shift {

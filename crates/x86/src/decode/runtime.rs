@@ -6,7 +6,7 @@ mod handlers;
 mod operands;
 mod selectors;
 
-use wasm86_compiler::{BuildError, Func, FunctionBuilder, Label, Program, Val, I1, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Func, Label, Program, Val, I1, I32, I8};
 
 use crate::{
     instruction::{DecodedInstruction, OpcodeMap, PrefixState},
@@ -33,7 +33,7 @@ pub(crate) enum DecodeContinuation {
 }
 
 impl DecodeContinuation {
-    pub(crate) fn resume(&self, body: FunctionBuilder<'_>) -> Result<(), BuildError> {
+    pub(crate) fn resume(&self, body: BlockBuilder<'_>) -> Result<(), BuildError> {
         match self {
             Self::Entry(function) => body.tail_call(*function, &[]),
             Self::Cycle(label) => body.branch(label, ()),
@@ -65,7 +65,7 @@ impl<'memory> RuntimeDecoder<'memory> {
         default_size: SegmentDefaultSize,
         loop_entry: Option<Func>,
         complete_instruction: impl Fn(
-            FunctionBuilder<'_>,
+            BlockBuilder<'_>,
             DecodedInstruction<Val<I32>, Val<I32>>,
             Option<&DecodeContinuation>,
         ) -> Result<(), BuildError>,
@@ -103,7 +103,7 @@ impl<'memory> RuntimeDecoder<'memory> {
                 InstructionDecoder {
                     decoder: &decoder,
                     memory_continuation: None,
-                    complete_instruction: |body: FunctionBuilder<'_>, instruction| {
+                    complete_instruction: |body: BlockBuilder<'_>, instruction| {
                         complete_instruction(body, instruction, continuation.as_ref())
                     },
                 }
@@ -120,7 +120,7 @@ impl<'memory> RuntimeDecoder<'memory> {
                     InstructionDecoder {
                         decoder: &decoder,
                         memory_continuation: None,
-                        complete_instruction: |body: FunctionBuilder<'_>, instruction| {
+                        complete_instruction: |body: BlockBuilder<'_>, instruction| {
                             complete_instruction(body, instruction, continuation.as_ref())
                         },
                     }
@@ -132,7 +132,7 @@ impl<'memory> RuntimeDecoder<'memory> {
 
     pub(crate) fn direct_window(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         instruction_eip: &Val<I32>,
     ) -> Result<DirectRange, BuildError> {
         // Fields beyond this window use checked fetch. Extending the common
@@ -144,7 +144,7 @@ impl<'memory> RuntimeDecoder<'memory> {
     /// `physical_start` supplies the proven contiguous instruction window.
     pub(crate) fn decode(
         &self,
-        mut body: FunctionBuilder<'_>,
+        mut body: BlockBuilder<'_>,
         instruction_eip: &Val<I32>,
         physical_start: Option<&Val<I32>>,
     ) -> Result<(), BuildError> {
@@ -165,7 +165,7 @@ impl<'memory> RuntimeDecoder<'memory> {
 impl DecodeState {
     fn return_unsupported(
         &self,
-        body: FunctionBuilder<'_>,
+        body: BlockBuilder<'_>,
         cursor: &RuntimeCursor<'_>,
         selector: &Val<I8>,
     ) -> Result<(), BuildError> {

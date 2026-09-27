@@ -3,7 +3,7 @@
 //! a frame lookup.
 
 use wasm86_compiler::{
-    BuildError, Func, FunctionBuilder, MemoryInt, Program, Signature, Type, I32, I8,
+    BlockBuilder, BuildError, Func, MemoryInt, Program, Signature, Type, I32, I8,
 };
 
 use super::{page_table::physical_address, Memory};
@@ -49,7 +49,7 @@ impl Memory {
 
     fn define_scattered_reader<T: MemoryInt>(
         &self,
-        mut body: FunctionBuilder<'_>,
+        mut body: BlockBuilder<'_>,
     ) -> Result<(), BuildError> {
         let linear = body.parameter::<I32>(0)?;
         let mut value = body.value::<T>(0)?;
@@ -64,7 +64,7 @@ impl Memory {
 
     fn define_scattered_writer<T: MemoryInt>(
         &self,
-        mut body: FunctionBuilder<'_>,
+        mut body: BlockBuilder<'_>,
     ) -> Result<(), BuildError> {
         let linear = body.parameter::<I32>(0)?;
         let value = body.parameter::<T>(1)?;

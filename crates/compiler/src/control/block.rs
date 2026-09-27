@@ -3,13 +3,13 @@ use std::marker::PhantomData;
 
 use super::{JoinTarget, Target};
 use crate::{
-    arena::ExpressionArena, Arguments, BuildError, FunctionBuilder, Operation, Results, Terminal,
-    Val, I1,
+    arena::ExpressionArena, Arguments, BlockBuilder, BuildError, Operation, Results, Terminal, Val,
+    I1,
 };
 
-/// A typed block exit, loop header or loop exit, usable within its control region
+/// A typed block exit, loop header or loop exit, usable within its control block
 /// and descendants. A label belongs to one function body. Leaving or discarding
-/// its region makes it unavailable; cloning a label does not extend that scope.
+/// its block makes it unavailable; cloning a label does not extend that scope.
 pub struct Label<R: Results> {
     pub(super) arena: ExpressionArena,
     pub(super) scope: usize,
@@ -28,7 +28,7 @@ impl<R: Results> Clone for Label<R> {
     }
 }
 
-impl FunctionBuilder<'_> {
+impl BlockBuilder<'_> {
     /// Builds a block with a typed result and an outward exit label.
     /// Descendants may pass values to the label with [`Self::branch`], skipping
     /// the remainder of the block. Its direct body may instead use [`Self::yield_`].
@@ -56,22 +56,22 @@ impl FunctionBuilder<'_> {
     /// ```
     pub fn block<R: Results>(
         &mut self,
-        build: impl FnOnce(FunctionBuilder<'_>, Label<R>) -> Result<(), BuildError>,
+        build: impl FnOnce(BlockBuilder<'_>, Label<R>) -> Result<(), BuildError>,
     ) -> Result<R::Values, BuildError> {
         let target = self.result_target::<R>();
-        let scope = self.arena.child_scope(self.region.id)?;
+        let scope = self.arena.child_scope(self.pending.id)?;
         let label = Label {
             arena: self.arena.clone(),
             scope,
             target: target.target,
             shape: PhantomData,
         };
-        let region = self.build_region(scope, Some(&target), |body| build(body, label))?;
-        let outputs = self.join_outputs(&target, [&region])?;
+        let block = self.build_block(scope, Some(&target), |body| build(body, label))?;
+        let outputs = self.join_outputs(&target, [&block])?;
         let values = crate::results::bind::<R>(self, &outputs);
-        self.region
+        self.pending
             .operations
-            .push(Operation::Block { region, outputs });
+            .push(Operation::Block { block, outputs });
         Ok(values)
     }
 
@@ -81,16 +81,17 @@ impl FunctionBuilder<'_> {
     /// literals and typed values as with [`Self::yield_`]. A parent, sibling or
     /// another body cannot use the label.
     pub fn branch<R: Results>(
-        mut self,
+        self,
         label: &Label<R>,
         arguments: impl Into<Arguments>,
     ) -> Result<(), BuildError> {
-        self.fallthrough = false;
-        let target = self.branch_target(label)?;
-        let arguments = self.result_arguments(arguments, &target.types)?;
-        self.complete(Terminal::Branch {
-            target: target.target,
-            arguments,
+        self.terminate(|body| {
+            let target = body.branch_target(label)?;
+            let arguments = body.result_arguments(arguments, &target.types)?;
+            Ok(Terminal::Branch {
+                target: target.target,
+                arguments,
+            })
         })
     }
 
@@ -113,7 +114,7 @@ impl FunctionBuilder<'_> {
         if !self.arena.same_body(&label.arena) {
             return Err(BuildError::ForeignBody);
         }
-        self.arena.require_scope(label.scope, self.region.id)?;
+        self.arena.require_scope(label.scope, self.pending.id)?;
         Ok(JoinTarget {
             target: label.target,
             types: crate::results::types::<R>(),

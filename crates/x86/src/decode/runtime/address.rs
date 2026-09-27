@@ -1,7 +1,7 @@
 //! Runtime address fields for 16-bit ModRM and 32-bit ModRM/SIB layouts.
 //! Register values remain part of shared instruction execution.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I32, I8};
 
 use crate::{
     address::{AddressSize, EffectiveAddress, IndexTerm, RegisterTerm},
@@ -15,12 +15,12 @@ use super::cursor::RuntimeCursor;
 /// Continues inside the selected layout with its address and consumed cursor.
 /// Only the 32-bit r/m=100 layout reads a SIB byte.
 pub(super) fn decode<'memory>(
-    mut body: FunctionBuilder<'_>,
+    mut body: BlockBuilder<'_>,
     cursor: RuntimeCursor<'memory>,
     modrm: &Val<I8>,
     size: AddressSize,
     complete: impl Fn(
-        FunctionBuilder<'_>,
+        BlockBuilder<'_>,
         RuntimeCursor<'memory>,
         EffectiveAddress<Val<I32>>,
     ) -> Result<(), BuildError>,
@@ -70,7 +70,7 @@ pub(super) fn decode<'memory>(
             },
         );
     }
-    let complete_layout = |mut body: FunctionBuilder<'_>,
+    let complete_layout = |mut body: BlockBuilder<'_>,
                            mut cursor: RuntimeCursor<'memory>,
                            sib: Option<Val<I8>>| {
         let base = match &sib {

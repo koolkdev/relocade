@@ -1,4 +1,4 @@
-//! Bounded recomputation of calculations across structured control regions.
+//! Bounded recomputation of calculations across structured control blocks.
 use std::collections::BTreeMap;
 
 use super::{representation, Demand, Phase, Point, Tree};
@@ -17,7 +17,7 @@ pub(super) fn groups(body: &Body, id: usize, demand: Demand, tree: &Tree<'_>) ->
             // Alternative arms within either operation do not add another site.
             // Operand demands retain their own sharing and snapshot policies.
             cheap_to_repeat(body, id)
-                .then(|| demand.control_regions(tree))
+                .then(|| demand.control_groups(tree))
                 .flatten()
         })
         .unwrap_or_else(|| vec![demand]);
@@ -33,7 +33,7 @@ fn exclusive_groups(demand: Demand, tree: &Tree<'_>) -> Vec<Demand> {
     while let Some(demand) = pending.pop() {
         if let Some(arms) = demand.exclusive_arms(tree) {
             // Descend through nested alternatives and single-child blocks.
-            // Every partition moves the existing demands into child regions.
+            // Every partition moves the existing demands into child blocks.
             pending.extend(arms.into_iter().rev());
         } else {
             groups.push(demand);
@@ -61,7 +61,7 @@ fn cheap_to_repeat(body: &Body, id: usize) -> bool {
 }
 
 #[derive(Eq, Ord, PartialEq, PartialOrd)]
-enum DemandRegion {
+enum DemandGroup {
     Main,
     Operation(usize),
 }
@@ -81,53 +81,53 @@ impl Demand {
         Some(arms.into_values().collect())
     }
 
-    fn control_regions(&self, tree: &Tree<'_>) -> Option<Vec<Self>> {
-        let mut regions = BTreeMap::<DemandRegion, Self>::new();
+    fn control_groups(&self, tree: &Tree<'_>) -> Option<Vec<Self>> {
+        let mut groups = BTreeMap::<DemandGroup, Self>::new();
         for &point in &self.points {
-            let region = tree.demand_region(point, self.first.site.region);
-            include(&mut regions, region, point, tree);
-            if regions.len() > 2 {
+            let group = tree.demand_group(point, self.first.site.block);
+            include(&mut groups, group, point, tree);
+            if groups.len() > 2 {
                 return None;
             }
         }
-        (regions.len() == 2).then(|| regions.into_values().collect())
+        (groups.len() == 2).then(|| groups.into_values().collect())
     }
 }
 
-fn include<K: Ord>(groups: &mut BTreeMap<K, Demand>, region: K, point: Point, tree: &Tree<'_>) {
-    if let Some(demand) = groups.get_mut(&region) {
+fn include<K: Ord>(groups: &mut BTreeMap<K, Demand>, key: K, point: Point, tree: &Tree<'_>) {
+    if let Some(demand) = groups.get_mut(&key) {
         demand.include(point, tree);
     } else {
-        groups.insert(region, Demand::at(point));
+        groups.insert(key, Demand::at(point));
     }
 }
 
 impl Tree<'_> {
     fn arm_containing(&self, point: Point, branch: Site) -> Option<usize> {
-        let mut region = point.site.region;
+        let mut block = point.site.block;
         loop {
-            let parent = self.0.parent(region)?;
+            let parent = self.0.parent(block)?;
             if parent == branch {
-                return Some(region);
+                return Some(block);
             }
-            region = parent.region;
+            block = parent.block;
         }
     }
 
-    fn demand_region(&self, point: Point, ancestor: usize) -> DemandRegion {
-        let mut region = point.site.region;
-        while region != ancestor {
+    fn demand_group(&self, point: Point, ancestor: usize) -> DemandGroup {
+        let mut block = point.site.block;
+        while block != ancestor {
             let parent = self
                 .0
-                .parent(region)
-                .expect("a demand descends from its common region");
-            if parent.region == ancestor {
+                .parent(block)
+                .expect("a demand descends from its common block");
+            if parent.block == ancestor {
                 // Alternative arms belong to one operation: only one can run.
                 // Blocks count too, since an outward exit can skip their suffix.
-                return DemandRegion::Operation(parent.index);
+                return DemandGroup::Operation(parent.index);
             }
-            region = parent.region;
+            block = parent.block;
         }
-        DemandRegion::Main
+        DemandGroup::Main
     }
 }

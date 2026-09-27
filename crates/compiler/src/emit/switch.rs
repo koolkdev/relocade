@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use wasm_encoder::{BlockType, Encode, Instruction, ValType};
 
 use super::{LocalOp, Scheduler};
-use crate::control::{Region, Site, SwitchCase, Target};
+use crate::control::{Block, Site, SwitchCase, Target};
 
 impl Scheduler<'_> {
     pub(super) fn open_switch(
@@ -27,20 +27,20 @@ impl Scheduler<'_> {
         }
     }
 
-    pub(super) fn switch(&mut self, cases: &[SwitchCase], default: &Region, site: Site) {
+    pub(super) fn switch(&mut self, cases: &[SwitchCase], default: &Block, site: Site) {
         self.dispatch_switch(cases);
         let before_arm = self.emitted.clone();
         for case in cases {
             self.end_control();
             self.emitted.clone_from(&before_arm);
-            self.region(&case.region, None);
-            if case.region.terminal.is_none() {
+            self.block(&case.block, None);
+            if case.block.terminal.is_none() {
                 self.branch_to(Target::exit(site));
             }
         }
         self.end_control();
         self.emitted.clone_from(&before_arm);
-        self.region(default, Some(Target::exit(site)));
+        self.block(default, Some(Target::exit(site)));
         self.end_control();
         self.emitted = before_arm;
     }

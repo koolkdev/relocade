@@ -1,6 +1,6 @@
 //! One current SSA value and whether it needs publication by its owner.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, IntType, Val};
+use wasm86_compiler::{BlockBuilder, BuildError, IntType, Val};
 
 /// Tracks a current definition and its dirty state on one straight-line build
 /// path. Cloning forks this bookkeeping; previously read SSA values stay valid.
@@ -14,7 +14,7 @@ pub(crate) struct TrackedValue<T: IntType> {
 impl<T: IntType> TrackedValue<T> {
     /// Captures a value already represented by its owner's external state.
     pub(crate) fn new(
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         value: impl Into<Val<T>>,
     ) -> Result<Self, BuildError> {
         Ok(Self {
@@ -25,7 +25,7 @@ impl<T: IntType> TrackedValue<T> {
 
     /// Introduces a value that its owner has not yet published.
     pub(crate) fn defined(
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         value: impl Into<Val<T>>,
     ) -> Result<Self, BuildError> {
         let mut tracked = Self::new(body, value)?;
@@ -33,7 +33,7 @@ impl<T: IntType> TrackedValue<T> {
         Ok(tracked)
     }
 
-    pub(crate) fn read(&self, body: &mut FunctionBuilder<'_>) -> Result<Val<T>, BuildError> {
+    pub(crate) fn read(&self, body: &mut BlockBuilder<'_>) -> Result<Val<T>, BuildError> {
         body.value(&self.value)
     }
 
@@ -49,7 +49,7 @@ impl<T: IntType> TrackedValue<T> {
     /// The returned flag lets an external owner order newly changed definitions.
     pub(crate) fn define(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         value: impl Into<Val<T>>,
     ) -> Result<bool, BuildError> {
         let value = body.value(value)?;

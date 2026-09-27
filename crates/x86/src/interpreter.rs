@@ -99,15 +99,17 @@ fn compile(profile: SegmentProfile, entry: InterpreterEntry) -> Result<CompiledM
         },
     )?;
 
-    let mut body = program.define(entry_function)?;
-    let start = cpu.read_eip(&mut body)?;
-    let direct = decoder.direct_window(&mut body, &start)?;
-    body.if_(&direct.unavailable, |arm| arm.tail_call(exact, &[]))?;
-    decoder.decode(body, &start, Some(&direct.physical))?;
+    program.define(entry_function, |mut body| {
+        let start = cpu.read_eip(&mut body)?;
+        let direct = decoder.direct_window(&mut body, &start)?;
+        body.if_(&direct.unavailable, |arm| arm.tail_call(exact, &[]))?;
+        decoder.decode(body, &start, Some(&direct.physical))
+    })?;
 
-    let mut body = program.define(exact)?;
-    let start = cpu.read_eip(&mut body)?;
-    decoder.decode(body, &start, None)?;
+    program.define(exact, |mut body| {
+        let start = cpu.read_eip(&mut body)?;
+        decoder.decode(body, &start, None)
+    })?;
 
     program.export(entry.name(), entry_function)?;
     Ok(CompiledModule {

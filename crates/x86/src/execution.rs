@@ -11,7 +11,7 @@ pub(crate) mod x87;
 pub(crate) use control::CodeTarget;
 pub(crate) use operands::WriteTarget;
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I1, I16, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
 
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
@@ -25,7 +25,7 @@ use crate::{address::AddressSize, exception::Exception};
 /// instructions. Instructions with partial progress, such as REP and POPA, also
 /// define completed effects while EIP and the instruction count stay at entry.
 pub(super) struct ExecutionBuilder<'body, 'module> {
-    body: FunctionBuilder<'body>,
+    body: BlockBuilder<'body>,
     state: State<'module>,
     memory: Option<&'module Memory>,
     segments: SegmentAccess<'module>,
@@ -40,7 +40,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
 
 impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     pub(super) fn new(
-        body: FunctionBuilder<'body>,
+        body: BlockBuilder<'body>,
         cpu: &'module Cpu,
         memory: Option<&'module Memory>,
         runtime: Runtime,
@@ -197,7 +197,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     /// Publishes completed work before the frontend dispatches or continues decoding.
     pub(super) fn complete(
         mut self,
-        continue_execution: impl FnOnce(FunctionBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
+        continue_execution: impl FnOnce(BlockBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         self.state
             .publish(&mut self.body, &self.eip, self.completed)?;

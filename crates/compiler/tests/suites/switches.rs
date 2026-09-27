@@ -103,32 +103,40 @@ fn selected_effects_and_snapshot() -> TestModule {
         &[Value::I32(41)],
     );
     let mutate = fixture.program.declare(signature(&[], &[Type::I32]));
-    let mut mutation = fixture.program.define(mutate).unwrap();
-    mutation.store::<I32>(state, 0, 13).unwrap();
-    mutation.return_(99).unwrap();
+    fixture
+        .program
+        .define(mutate, |mut mutation| {
+            mutation.store::<I32>(state, 0, 13).unwrap();
+            mutation.return_(99)
+        })
+        .unwrap();
     let run = fixture
         .program
         .declare(signature(&[Type::I32, Type::I32], &[Type::I32]));
-    let mut body = fixture.program.define(run).unwrap();
-    let selector = body.parameter::<I32>(0).unwrap();
-    let address = body.parameter::<I32>(1).unwrap();
-    let before = body.load::<I32>(state, 0).unwrap();
-    body.switch(&selector, &[0, 1, 2], |mut arm, key| match key {
-        Some(0) => arm.store::<I32>(state, 0, 9),
-        Some(1) => {
-            let value = arm.load_at::<I32>(state, &address, 0)?;
-            arm.store(state, 4, value)
-        }
-        Some(2) => {
-            let _unused = arm.call::<I32>(mutate, &[])?;
-            Ok(())
-        }
-        _ => arm.tail_call(receive, &[before.argument()]),
-    })
-    .unwrap();
-    let after = body.load::<I32>(state, 0).unwrap();
-    body.store::<I32>(state, 8, 11).unwrap();
-    body.return_(before.add(after)).unwrap();
+    fixture
+        .program
+        .define(run, |mut body| {
+            let selector = body.parameter::<I32>(0).unwrap();
+            let address = body.parameter::<I32>(1).unwrap();
+            let before = body.load::<I32>(state, 0).unwrap();
+            body.switch(&selector, &[0, 1, 2], |mut arm, key| match key {
+                Some(0) => arm.store::<I32>(state, 0, 9),
+                Some(1) => {
+                    let value = arm.load_at::<I32>(state, &address, 0)?;
+                    arm.store(state, 4, value)
+                }
+                Some(2) => {
+                    let _unused = arm.call::<I32>(mutate, &[])?;
+                    Ok(())
+                }
+                _ => arm.tail_call(receive, &[before.argument()]),
+            })
+            .unwrap();
+            let after = body.load::<I32>(state, 0).unwrap();
+            body.store::<I32>(state, 8, 11).unwrap();
+            body.return_(before.add(after))
+        })
+        .unwrap();
     fixture.finish(run)
 }
 
@@ -195,35 +203,39 @@ fn failed_switch_discards_effects() -> TestModule {
     let run = fixture
         .program
         .declare(signature(&[Type::I32], &[Type::I32]));
-    let mut body = fixture.program.define(run).unwrap();
-    let selector = body.parameter::<I32>(0).unwrap();
-    let mut visited_default = false;
-    let failed = body.switch(selector, &[0, 1], |mut arm, key| match key {
-        Some(0) => {
-            let receive = arm.program().import_function(FunctionImport {
-                module: "test".into(),
-                name: "receive".into(),
-                signature: signature(&[Type::I32], &[Type::I32]),
+    fixture
+        .program
+        .define(run, |mut body| {
+            let selector = body.parameter::<I32>(0).unwrap();
+            let mut visited_default = false;
+            let failed = body.switch(selector, &[0, 1], |mut arm, key| match key {
+                Some(0) => {
+                    let receive = arm.program().import_function(FunctionImport {
+                        module: "test".into(),
+                        name: "receive".into(),
+                        signature: signature(&[Type::I32], &[Type::I32]),
+                    });
+                    let _answer = arm.call::<I32>(receive, &[9.into()])?;
+                    arm.store::<I32>(state, 0, 9)
+                }
+                Some(1) => arm.return_(9u64),
+                _ => {
+                    visited_default = true;
+                    Ok(())
+                }
             });
-            let _answer = arm.call::<I32>(receive, &[9.into()])?;
-            arm.store::<I32>(state, 0, 9)
-        }
-        Some(1) => arm.return_(9u64),
-        _ => {
-            visited_default = true;
-            Ok(())
-        }
-    });
-    assert_eq!(
-        failed.err(),
-        Some(BuildError::TypeMismatch {
-            expected: Type::I32,
-            actual: Type::I64,
+            assert_eq!(
+                failed.err(),
+                Some(BuildError::TypeMismatch {
+                    expected: Type::I32,
+                    actual: Type::I64,
+                })
+            );
+            assert!(!visited_default);
+            body.store::<I32>(state, 4, 17).unwrap();
+            body.return_(31)
         })
-    );
-    assert!(!visited_default);
-    body.store::<I32>(state, 4, 17).unwrap();
-    body.return_(31).unwrap();
+        .unwrap();
     fixture.finish(run)
 }
 
@@ -337,21 +349,24 @@ fn values_from_completed_switch_arms_cannot_escape_their_scope() {
         shared: false,
     });
     let run = program.declare(signature(&[Type::I32], &[Type::I32]));
-    let mut body = program.define(run).unwrap();
-    let selector = body.parameter::<I32>(0).unwrap();
-    let mut child = None;
-    body.switch(selector, &[0], |mut arm, key| {
-        if key == Some(0) {
-            child = Some(arm.load::<I32>(state, 0)?);
-        }
-        Ok(())
-    })
-    .unwrap();
-    assert_eq!(
-        body.value::<I32>(child.unwrap()).err(),
-        Some(BuildError::OutOfScope)
-    );
-    body.return_(17).unwrap();
+    program
+        .define(run, |mut body| {
+            let selector = body.parameter::<I32>(0).unwrap();
+            let mut child = None;
+            body.switch(selector, &[0], |mut arm, key| {
+                if key == Some(0) {
+                    child = Some(arm.load::<I32>(state, 0)?);
+                }
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(
+                body.value::<I32>(child.unwrap()).err(),
+                Some(BuildError::OutOfScope)
+            );
+            body.return_(17)
+        })
+        .unwrap();
     program.export("run", run).unwrap();
     inspect_run(&program.compile().unwrap());
 }
@@ -366,43 +381,49 @@ fn empty_cases_build_only_the_default_and_need_no_table() {
 fn selectors_and_keys_are_validated_before_arm_construction() {
     let mut program = Program::new();
     let run = program.declare(signature(&[Type::I8], &[Type::I32]));
-    let mut body = program.define(run).unwrap();
-    let selector = body.parameter::<I8>(0).unwrap();
-    let mut calls = 0;
-    assert_eq!(
-        body.switch(&selector, &[1, 1], |_, _| {
-            calls += 1;
-            Ok(())
+    program
+        .define(run, |mut body| {
+            let selector = body.parameter::<I8>(0).unwrap();
+            let mut calls = 0;
+            assert_eq!(
+                body.switch(&selector, &[1, 1], |_, _| {
+                    calls += 1;
+                    Ok(())
+                })
+                .err(),
+                Some(BuildError::DuplicateSwitchCase { key: 1 })
+            );
+            assert_eq!(
+                body.switch(&selector, &[256], |_, _| {
+                    calls += 1;
+                    Ok(())
+                })
+                .err(),
+                Some(BuildError::SwitchCaseOutOfRange {
+                    key: 256,
+                    selector: Type::I8
+                })
+            );
+            let mut foreign_program = Program::new();
+            let foreign_run = foreign_program.declare(signature(&[Type::I32], &[Type::I32]));
+            foreign_program
+                .define(foreign_run, |foreign_body| {
+                    let foreign = foreign_body.parameter::<I32>(0).unwrap();
+                    assert_eq!(
+                        body.switch(foreign, &[1, 1], |_, _| {
+                            calls += 1;
+                            Ok(())
+                        })
+                        .err(),
+                        Some(BuildError::ForeignBody)
+                    );
+                    assert_eq!(calls, 0);
+                    foreign_body.return_(0)
+                })
+                .unwrap();
+            body.return_(17)
         })
-        .err(),
-        Some(BuildError::DuplicateSwitchCase { key: 1 })
-    );
-    assert_eq!(
-        body.switch(&selector, &[256], |_, _| {
-            calls += 1;
-            Ok(())
-        })
-        .err(),
-        Some(BuildError::SwitchCaseOutOfRange {
-            key: 256,
-            selector: Type::I8
-        })
-    );
-    let mut foreign_program = Program::new();
-    let foreign_run = foreign_program.declare(signature(&[Type::I32], &[Type::I32]));
-    let foreign_body = foreign_program.define(foreign_run).unwrap();
-    let foreign = foreign_body.parameter::<I32>(0).unwrap();
-    assert_eq!(
-        body.switch(foreign, &[1, 1], |_, _| {
-            calls += 1;
-            Ok(())
-        })
-        .err(),
-        Some(BuildError::ForeignBody)
-    );
-    assert_eq!(calls, 0);
-    foreign_body.return_(0).unwrap();
-    body.return_(17).unwrap();
+        .unwrap();
     program.export("run", run).unwrap();
     inspect_run(&program.compile().unwrap());
 }
@@ -411,23 +432,26 @@ fn selectors_and_keys_are_validated_before_arm_construction() {
 fn value_switches_require_a_yield_and_completed_arms() {
     let mut program = Program::new();
     let run = program.declare(signature(&[Type::I32], &[Type::I32]));
-    let mut body = program.define(run).unwrap();
-    let selector = body.parameter::<I32>(0).unwrap();
-    let incomplete = body.switch_value::<I32, _>(&selector, &[0], |arm, key| {
-        if key == Some(0) {
-            arm.yield_(7)
-        } else {
-            Ok(())
-        }
-    });
-    assert_eq!(incomplete.err(), Some(BuildError::IncompleteBranch));
-    let no_value = body.switch_value::<I8, _>(&selector, &[0], |arm, _| arm.return_(11));
-    assert_eq!(no_value.err(), Some(BuildError::MissingBranchValue));
-    assert_eq!(
-        body.switch(selector, &[0], |arm, _| arm.yield_(7)).err(),
-        Some(BuildError::InvalidYield)
-    );
-    body.return_(17).unwrap();
+    program
+        .define(run, |mut body| {
+            let selector = body.parameter::<I32>(0).unwrap();
+            let incomplete = body.switch_value::<I32, _>(&selector, &[0], |arm, key| {
+                if key == Some(0) {
+                    arm.yield_(7)
+                } else {
+                    Ok(())
+                }
+            });
+            assert_eq!(incomplete.err(), Some(BuildError::MissingBranchValue));
+            let no_value = body.switch_value::<I8, _>(&selector, &[0], |arm, _| arm.return_(11));
+            assert_eq!(no_value.err(), Some(BuildError::MissingBranchValue));
+            assert_eq!(
+                body.switch(selector, &[0], |arm, _| arm.yield_(7)).err(),
+                Some(BuildError::InvalidYield)
+            );
+            body.return_(17)
+        })
+        .unwrap();
     program.export("run", run).unwrap();
     inspect_run(&program.compile().unwrap());
 }

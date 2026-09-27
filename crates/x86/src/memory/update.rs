@@ -1,12 +1,12 @@
 //! Naturally aligned native atomics and private-memory unaligned updates.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, MemoryInt, Val, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Val, I32};
 
 use super::{Access, Intent, Memory};
 use crate::alu::OperandUpdate;
 
 fn native_update<T: MemoryInt>(
-    body: &mut FunctionBuilder<'_>,
+    body: &mut BlockBuilder<'_>,
     guest: Mem,
     physical: &Val<I32>,
     update: &OperandUpdate<T>,
@@ -49,7 +49,7 @@ impl Memory {
     /// does not inspect scattered backing. Translation preserves page offsets.
     pub(crate) fn atomic_update<T: MemoryInt>(
         &self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         access: &Access,
         update: &OperandUpdate<T>,
     ) -> Result<Val<T>, BuildError> {

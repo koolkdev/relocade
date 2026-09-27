@@ -64,12 +64,12 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
     }
     let mut used_memories = vec![false; program.memories.len()];
     for (_, body) in &defined {
-        for region in body.region.walk() {
-            if let Some(Terminal::TailCall(invocation)) = &region.terminal {
+        for block in body.block.walk() {
+            if let Some(Terminal::TailCall(invocation)) = &block.terminal {
                 used_functions[invocation.target.0] = true;
             }
             // Imports follow authored operations, including unused loads.
-            for operation in &region.operations {
+            for operation in &block.operations {
                 let location = match operation {
                     Operation::Nop
                     | Operation::Block { .. }

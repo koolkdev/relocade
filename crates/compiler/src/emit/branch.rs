@@ -3,7 +3,7 @@ use wasm_encoder::{BlockType, Encode, Instruction, ValType};
 
 use super::{LocalOp, Scheduler};
 use crate::{
-    control::{Region, Site, Target},
+    control::{Block, Site, Target},
     place, Terminal, ValueKind,
 };
 
@@ -12,7 +12,7 @@ impl Scheduler<'_> {
     pub(super) fn conditional_branch(
         &mut self,
         condition: usize,
-        taken: &Region,
+        taken: &Block,
         site: Site,
         continuation: Option<&Terminal>,
         fallthrough: Option<Target>,
@@ -73,7 +73,7 @@ impl Scheduler<'_> {
             // only on its taken path, rather than preparing a speculative tuple.
             self.begin_control(Instruction::If(BlockType::Empty), None, &[]);
             let before = self.emitted.clone();
-            self.region(taken, None);
+            self.block(taken, None);
             self.end_control();
             self.emitted = before;
         }

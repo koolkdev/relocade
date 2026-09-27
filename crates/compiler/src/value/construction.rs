@@ -80,12 +80,12 @@ impl Val<I1> {
     /// ```
     /// use wasm86_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
-    /// let function = program.declare(Signature {
+    /// let function = program.function(Signature {
     ///     parameters: vec![Type::I32], results: vec![Type::I32],
-    /// });
-    /// let body = program.define(function)?;
-    /// let value = body.parameter::<I32>(0)?;
-    /// body.return_(value.eq(0).select(7, value.add(1)))?;
+    /// }, |body| {
+    ///     let value = body.parameter::<I32>(0)?;
+    ///     body.return_(value.eq(0).select(7, value.add(1)))
+    /// })?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), wasm86_compiler::BuildError>(())
     /// ```

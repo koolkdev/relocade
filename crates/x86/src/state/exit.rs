@@ -1,4 +1,4 @@
-use wasm86_compiler::{BuildError, FunctionBuilder, Val, I32, I64, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I32, I64, I8};
 
 use crate::exception::{Exception, ExceptionVector};
 
@@ -15,7 +15,7 @@ const FLOATING_POINT: u64 = 256 << 48;
 /// Delivers an exception through the host ABI. CPU state must already describe
 /// its restart boundary. These host tags are not architectural vector numbers.
 pub(crate) fn exception(
-    body: FunctionBuilder<'_>,
+    body: BlockBuilder<'_>,
     exception: Exception<Val<I32>>,
 ) -> Result<(), BuildError> {
     let kind = match exception.vector() {
@@ -48,7 +48,7 @@ pub(crate) fn exception(
 }
 
 pub(crate) fn unsupported(
-    body: FunctionBuilder<'_>,
+    body: BlockBuilder<'_>,
     address: &Val<I32>,
     opcode: impl Into<Val<I8>>,
 ) -> Result<(), BuildError> {

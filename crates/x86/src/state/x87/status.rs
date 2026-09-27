@@ -1,6 +1,6 @@
 //! Live status fields use the same split backing layout as host snapshots.
 
-use wasm86_compiler::{BuildError, FunctionBuilder, Mem, Val, I1, I16, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I8};
 
 use crate::{
     ssa::{Location, StateFields},
@@ -35,7 +35,7 @@ impl Status {
     }
 
     /// Constructs the architectural word only for an instruction that observes it.
-    pub(super) fn word(&mut self, body: &mut FunctionBuilder<'_>) -> Result<Val<I16>, BuildError> {
+    pub(super) fn word(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I16>, BuildError> {
         let top = self.top(body)?;
         let mut word = top.truncate::<I16>().shl(11);
         for exception in Exception::ALL {
@@ -57,14 +57,14 @@ impl Status {
         body.value(word)
     }
 
-    pub(super) fn top(&mut self, body: &mut FunctionBuilder<'_>) -> Result<Val<I32>, BuildError> {
+    pub(super) fn top(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I32>, BuildError> {
         let top = self.fields.read(body, cpu_location!(x87.status.top))?;
         body.value(top.and(7).unsigned().extend::<I32>())
     }
 
     pub(super) fn set_top(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         top: Val<I32>,
         enabled: impl Into<Val<I1>>,
     ) -> Result<(), BuildError> {
@@ -78,7 +78,7 @@ impl Status {
 
     pub(super) fn set_c1(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         value: impl Into<Val<I1>>,
     ) -> Result<(), BuildError> {
         self.fields.define(
@@ -88,10 +88,7 @@ impl Status {
         )
     }
 
-    pub(super) fn pending(
-        &mut self,
-        body: &mut FunctionBuilder<'_>,
-    ) -> Result<Val<I1>, BuildError> {
+    pub(super) fn pending(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I1>, BuildError> {
         self.flag(body, cpu_location!(x87.status.error_summary))
     }
 
@@ -99,7 +96,7 @@ impl Status {
     /// masks. Delivery remains deferred until a waiting instruction observes ES.
     pub(super) fn update_pending_exception(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         control: &mut Control,
     ) -> Result<(), BuildError> {
         let mut pending = Val::<I1>::from(false);
@@ -118,7 +115,7 @@ impl Status {
     /// sticky flags do not create a new pending exception here.
     pub(super) fn record_exception(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         exception: Exception,
         raised: &Val<I1>,
         control: &mut Control,
@@ -130,7 +127,7 @@ impl Status {
 
     pub(super) fn record_stack_fault(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         raised: &Val<I1>,
     ) -> Result<(), BuildError> {
         self.record_sticky_flag(body, cpu_location!(x87.status.stack_fault), raised)
@@ -139,7 +136,7 @@ impl Status {
     /// Sets ES and B for a newly unmasked exception; delivery remains deferred.
     pub(super) fn record_pending_exception(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         unmasked: Val<I1>,
     ) -> Result<(), BuildError> {
         for location in [
@@ -157,7 +154,7 @@ impl Status {
 
     fn flag(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         location: Location<I8>,
     ) -> Result<Val<I1>, BuildError> {
         Ok(self.fields.read(body, location)?.truncate::<I1>())
@@ -165,7 +162,7 @@ impl Status {
 
     fn record_sticky_flag(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
         location: Location<I8>,
         raised: &Val<I1>,
     ) -> Result<(), BuildError> {
@@ -179,7 +176,7 @@ impl Status {
 
     pub(super) fn clear_exceptions(
         &mut self,
-        body: &mut FunctionBuilder<'_>,
+        body: &mut BlockBuilder<'_>,
     ) -> Result<(), BuildError> {
         for exception in Exception::ALL {
             self.fields.define(body, exception.status_location(), 0)?;
@@ -194,7 +191,7 @@ impl Status {
         Ok(())
     }
 
-    pub(super) fn initialize(&mut self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+    pub(super) fn initialize(&mut self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.clear_exceptions(body)?;
         for location in [
             cpu_location!(x87.status.top),
@@ -208,7 +205,7 @@ impl Status {
         Ok(())
     }
 
-    pub(super) fn publish(&self, body: &mut FunctionBuilder<'_>) -> Result<(), BuildError> {
+    pub(super) fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.fields.publish(body)
     }
 }
