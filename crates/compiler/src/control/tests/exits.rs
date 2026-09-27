@@ -43,20 +43,19 @@ fn conditional_exits_keep_their_edge_scope_and_adjacent_authored_sites() {
         panic!("the result belongs to the block");
     };
     assert_eq!(block.operations.len(), 4);
+    let load_sites: Vec<_> = body
+        .values
+        .iter()
+        .filter_map(|value| match value.definition {
+            ValueDefinition::Load { site } => Some((site.block, site.index)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(load_sites, vec![(block.id, 0), (block.id, 2)]);
     let mut edge_scopes = Vec::new();
-    for (index, operation) in block.operations.iter().enumerate() {
+    for operation in &block.operations {
         match operation {
-            Operation::Load(value) => {
-                let ValueDefinition::Load { site, .. } = body.values[*value].definition else {
-                    panic!("a load operation names its load value");
-                };
-                assert!(
-                    site == Site {
-                        block: block.id,
-                        index
-                    }
-                );
-            }
+            Operation::Load { .. } => {}
             Operation::BranchIf { taken, .. } => {
                 assert_ne!(taken.id, block.id);
                 assert!(taken.operations.is_empty());

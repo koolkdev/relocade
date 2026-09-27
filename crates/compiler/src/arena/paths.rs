@@ -87,7 +87,7 @@ impl Simplifier<'_> {
             match operation {
                 // Loads retain their authored addresses and snapshot identities. A
                 // fact about an earlier read never describes a fresh read after a write.
-                Operation::Nop | Operation::Load(_) | Operation::Fence => {}
+                Operation::Nop | Operation::Load { .. } | Operation::Fence => {}
                 Operation::Store { location, value } => {
                     path.value(self.arena, &mut location.base);
                     path.value(self.arena, value);

@@ -6,7 +6,7 @@ use crate::body::Site;
 
 impl Scheduler<'_> {
     pub(super) fn authored_call(&mut self, site: Site) {
-        let (invocation, outputs) = self.body.call(site);
+        let (invocation, outputs) = self.blocks.call(site);
         if outputs.first().is_some_and(|&output| self.emitted[output]) {
             return;
         }
@@ -17,7 +17,7 @@ impl Scheduler<'_> {
     }
 
     pub(super) fn finish_call(&mut self, site: Site, requested: Option<(usize, bool)>) {
-        let (invocation, outputs) = self.body.call(site);
+        let (invocation, outputs) = self.blocks.call(site);
         self.call(invocation.target);
         if let [output] = outputs {
             let capture = requested.is_none_or(|(_, capture)| capture);

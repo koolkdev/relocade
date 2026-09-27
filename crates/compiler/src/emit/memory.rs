@@ -71,7 +71,8 @@ impl Scheduler<'_> {
                     bits = self.body.values[original].ty.bits();
                     input = original;
                 }
-                ValueDefinition::Load { location, .. } => {
+                ValueDefinition::Load { site } => {
+                    let location = self.blocks.load_location(site);
                     // Cover the full original read; conversions must not change
                     // its access width or choose a different logical sign bit.
                     return (bits == location.bytes * 8).then_some(location);

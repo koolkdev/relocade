@@ -100,9 +100,8 @@ impl Analysis<'_> {
                 self.continuations.remove(&target);
             }
             match operation {
-                Operation::Load(value) => {
-                    let definition = self.arena.values[*value].definition;
-                    self.inputs(definition.inputs(), site, &mut live);
+                Operation::Load { location } => {
+                    self.inputs([location.base], site, &mut live);
                 }
                 Operation::Store { location, value } => {
                     self.inputs([location.base, *value], site, &mut live);

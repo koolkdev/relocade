@@ -1,8 +1,9 @@
-//! Block ancestry shared by value rewriting and placement.
+//! Indexed block ancestry and authored operations for compiler passes.
 
 use std::collections::HashMap;
 
-use super::{Block, Operation, Site};
+use super::{Block, Invocation, Operation, Site};
+use crate::memory::Location;
 
 struct BlockInfo<'a> {
     block: &'a Block,
@@ -54,6 +55,24 @@ impl<'a> BlockTree<'a> {
         self.0
             .get(&site.block)
             .map(|info| &info.block.operations[site.index])
+    }
+
+    pub(crate) fn load_location(&self, site: Site) -> Location {
+        let Some(Operation::Load { location }) = self.operation(site) else {
+            unreachable!("a load result names an attached load")
+        };
+        *location
+    }
+
+    pub(crate) fn call(&self, site: Site) -> (&'a Invocation, &'a [usize]) {
+        let Some(Operation::Call {
+            invocation,
+            outputs,
+        }) = self.operation(site)
+        else {
+            unreachable!("a call result names an attached invocation")
+        };
+        (invocation, outputs)
     }
 
     /// Lift both sites into their nearest common block, preserving input order.

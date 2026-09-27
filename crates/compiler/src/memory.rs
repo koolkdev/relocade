@@ -158,8 +158,8 @@ impl BlockBuilder<'_> {
         let base = self.operand(address)?;
         self.require_memory(memory)?;
         let location = Location::new::<T>(memory, base, offset);
-        let value = self.arena.load(T::TYPE, location, self.site())?;
-        self.pending.operations.push(Operation::Load(value));
+        let value = self.arena.load(T::TYPE, self.site())?;
+        self.pending.operations.push(Operation::Load { location });
         Ok(Val::new(self.arena.clone(), Ok(value)))
     }
 

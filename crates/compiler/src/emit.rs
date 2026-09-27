@@ -2,7 +2,7 @@
 use wasm_encoder::{Encode, Function, Instruction, ValType};
 
 use crate::{
-    body::{Body, Target, ValueDefinition},
+    body::{BlockTree, Body, Target, ValueDefinition},
     effects::Effects,
     locals,
     memory::Location,
@@ -57,6 +57,7 @@ struct ControlLabel {
 
 struct Scheduler<'a> {
     body: &'a Body,
+    blocks: BlockTree<'a>,
     memories: &'a [Option<u32>],
     functions: &'a [Option<u32>],
     effects: &'a [Effects],
@@ -77,14 +78,17 @@ pub(super) fn encode(
     effects: &[Effects],
     types: &mut Types,
 ) -> Function {
+    let blocks = BlockTree::new(&body.block);
+    let placement = place::plan(body, effects, &blocks);
     let mut scheduler = Scheduler {
         body,
+        blocks,
         memories,
         functions,
         effects,
         types,
         labels: Vec::new(),
-        placement: place::plan(body, effects),
+        placement,
         emitted: vec![false; body.values.len()],
         bytes: Vec::new(),
         events: Vec::new(),
@@ -293,11 +297,12 @@ impl Scheduler<'_> {
                 },
                 ValueDefinition::OperationResult { site, .. } => {
                     pending.push(Walk::FinishCall(id));
-                    for &argument in self.body.call(site).0.arguments.iter().rev() {
+                    for &argument in self.blocks.call(site).0.arguments.iter().rev() {
                         pending.push(Walk::Value(argument));
                     }
                 }
-                ValueDefinition::Load { location, .. } => {
+                ValueDefinition::Load { site } => {
+                    let location = self.blocks.load_location(site);
                     pending.push(Walk::FinishLoad {
                         result: id,
                         location,

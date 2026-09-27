@@ -15,7 +15,8 @@ pub(super) fn values(body: &Body, tree: &Tree<'_>) -> Vec<usize> {
             }
             let definition = body.values[id].definition;
             let operation = match definition {
-                ValueDefinition::JoinResult { site, .. }
+                ValueDefinition::Load { site }
+                | ValueDefinition::JoinResult { site, .. }
                 | ValueDefinition::OperationResult { site, .. } => tree.0.operation(site),
                 _ => None,
             };
@@ -34,8 +35,13 @@ pub(super) fn values(body: &Body, tree: &Tree<'_>) -> Vec<usize> {
                 continue;
             }
             pending.push((id, true));
-            pending.extend(definition.inputs().map(|input| (input, false)));
             match (definition, operation) {
+                (ValueDefinition::Expression(expression), _) => {
+                    pending.extend(expression.inputs().map(|&input| (input, false)));
+                }
+                (_, Some(Operation::Load { location })) => {
+                    pending.push((location.base, false));
+                }
                 (_, Some(Operation::Call { invocation, .. })) => {
                     pending.extend(invocation.arguments.iter().map(|&input| (input, false)));
                 }

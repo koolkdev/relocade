@@ -5,7 +5,6 @@ use std::rc::Rc;
 use crate::{
     body::{Site, Value, ValueDefinition},
     integer::{self, BitBounds, BitCountOp},
-    memory::Location,
     value::UnboundExpression,
     BuildError, Expression, Type,
 };
@@ -78,18 +77,13 @@ impl ExpressionArena {
         Ok(value)
     }
 
-    pub(super) fn load(
-        &self,
-        ty: Type,
-        location: Location,
-        site: Site,
-    ) -> Result<usize, BuildError> {
+    pub(super) fn load(&self, ty: Type, site: Site) -> Result<usize, BuildError> {
         self.with_open(|arena| {
             // Two reads of the same address may observe different stores. Each load
             // therefore gets its own value instead of entering the expression cache.
             arena.push(Value {
                 ty,
-                definition: ValueDefinition::Load { location, site },
+                definition: ValueDefinition::Load { site },
             })
         })
     }
@@ -391,7 +385,7 @@ impl ValueArena {
         match value.definition {
             ValueDefinition::Constant(_) | ValueDefinition::Parameter(_) => Some(0),
             ValueDefinition::LoopInput { block, .. } => Some(block),
-            ValueDefinition::Load { site, .. }
+            ValueDefinition::Load { site }
             | ValueDefinition::OperationResult { site, .. }
             | ValueDefinition::JoinResult { site, .. } => Some(site.block),
             ValueDefinition::Expression(expression) => {

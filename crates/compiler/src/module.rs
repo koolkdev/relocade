@@ -7,7 +7,7 @@ use wasm_encoder::{
 };
 
 use crate::{
-    body::{Operation, Terminal, ValueDefinition},
+    body::{Operation, Terminal},
     effects, emit, FunctionKind, Program,
 };
 
@@ -85,12 +85,8 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
                         used_functions[invocation.target.0] = true;
                         continue;
                     }
-                    Operation::Store { location, .. } => *location,
+                    Operation::Load { location } | Operation::Store { location, .. } => *location,
                     Operation::Atomic { access, .. } => access.location,
-                    Operation::Load(value) => match body.values[*value].definition {
-                        ValueDefinition::Load { location, .. } => location,
-                        _ => unreachable!("a load operation names its load value"),
-                    },
                 };
                 used_memories[location.memory.0] = true;
             }

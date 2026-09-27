@@ -16,28 +16,6 @@ pub(super) struct Body {
     pub(super) block: Block,
 }
 
-impl Body {
-    pub(super) fn operation(&self, site: Site) -> &Operation {
-        &self
-            .block
-            .walk()
-            .find(|block| block.id == site.block)
-            .expect("an operation result names an attached block")
-            .operations[site.index]
-    }
-
-    pub(super) fn call(&self, site: Site) -> (&Invocation, &[usize]) {
-        let Operation::Call {
-            invocation,
-            outputs,
-        } = self.operation(site)
-        else {
-            unreachable!("a call result names its invocation")
-        };
-        (invocation, outputs)
-    }
-}
-
 pub(super) enum Terminal {
     Trap,
     Branch {
@@ -61,7 +39,9 @@ impl Terminal {
 pub(super) enum Operation {
     // Keep authored sites stable when control folding removes an operation.
     Nop,
-    Load(usize),
+    Load {
+        location: Location,
+    },
     Store {
         location: Location,
         value: usize,
@@ -115,28 +95,9 @@ pub(super) enum ValueDefinition {
     Parameter(u32),
     LoopInput { block: usize, component: usize },
     Expression(Expression<usize>),
-    Load { location: Location, site: Site },
+    Load { site: Site },
     OperationResult { site: Site, component: usize },
     JoinResult { site: Site, component: usize },
-}
-
-impl ValueDefinition {
-    // Call and control-join inputs are stored separately from their result definitions.
-    pub(super) fn inputs(&self) -> impl DoubleEndedIterator<Item = usize> + '_ {
-        let expression = match self {
-            Self::Expression(expression) => Some(expression),
-            _ => None,
-        };
-        let address = match self {
-            Self::Load { location, .. } => Some(location.base),
-            _ => None,
-        };
-        expression
-            .into_iter()
-            .flat_map(Expression::inputs)
-            .copied()
-            .chain(address)
-    }
 }
 
 pub(super) struct SwitchCase {

@@ -53,7 +53,7 @@ impl Scheduler<'_> {
             self.emit_captures(site);
             match operation {
                 Operation::BranchIf { .. } => unreachable!("conditional exits emit above"),
-                Operation::Nop | Operation::Load(_) => {}
+                Operation::Nop | Operation::Load { .. } => {}
                 Operation::Fence => Instruction::AtomicFence.encode(&mut self.bytes),
                 Operation::Atomic { access, output } => {
                     for input in access.inputs() {

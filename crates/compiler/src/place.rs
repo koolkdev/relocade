@@ -42,7 +42,7 @@ impl Point {
     }
 }
 
-struct Tree<'a>(BlockTree<'a>);
+struct Tree<'a>(&'a BlockTree<'a>);
 
 impl Tree<'_> {
     fn common_bounds(&self, mut a: Point, mut b: Point) -> (Point, Point) {
@@ -254,8 +254,8 @@ struct Planner<'a> {
     value_order: Vec<usize>,
 }
 
-pub(super) fn plan(body: &Body, effects: &[Effects]) -> Placement {
-    let tree = Tree(BlockTree::new(&body.block));
+pub(super) fn plan(body: &Body, effects: &[Effects], blocks: &BlockTree<'_>) -> Placement {
+    let tree = Tree(blocks);
     let value_order = order::values(body, &tree);
     let mut planner = Planner {
         body,
@@ -328,7 +328,7 @@ impl Planner<'_> {
                         }
                     }
                     Operation::Nop
-                    | Operation::Load(_)
+                    | Operation::Load { .. }
                     | Operation::Block { .. }
                     | Operation::Fence => {}
                 }
@@ -370,16 +370,16 @@ impl Planner<'_> {
             if let ValueDefinition::OperationResult { site, component } = body.values[id].definition
             {
                 // Failed branch construction can leave values from a discarded block.
-                if self.tree.0.operation(site).is_none() {
+                let Some(operation) = self.tree.0.operation(site) else {
                     continue;
-                }
-                if matches!(body.operation(site), Operation::Atomic { .. }) {
+                };
+                if matches!(operation, Operation::Atomic { .. }) {
                     // Ordered memory results are produced at the authored site.
                     // A live value must survive until its consumers demand it.
                     self.saved[id] = self.demands[id].is_some();
                     continue;
                 }
-                let (_, outputs) = body.call(site);
+                let (_, outputs) = self.tree.0.call(site);
                 // Result groups follow every argument in the dependency order. Visit
                 // the last component after all consumers have supplied demand.
                 if component + 1 == outputs.len() {
@@ -410,13 +410,15 @@ impl Planner<'_> {
             for use_ in recompute::groups(body, id, use_, tree) {
                 saved[id] |= use_.points.len() > 1;
                 let mut anchor = use_.first;
-                if let ValueDefinition::Load { location, site } = body.values[id].definition {
+                if let ValueDefinition::Load { site } = body.values[id].definition {
+                    let location = tree.0.load_location(site);
                     anchor = tree.snapshot_anchor(
                         site,
                         anchor,
                         |other| location.may_overlap(other, body),
                         |target| effects[target.0].writes_location(location, body),
                     );
+                    demand(body, tree, demands, location.base, anchor);
                 }
                 if (!use_.at_first || anchor != use_.first)
                     && !matches!(
@@ -427,8 +429,10 @@ impl Planner<'_> {
                     capture_points[id].push(anchor);
                     saved[id] = true;
                 }
-                for input in body.values[id].definition.inputs() {
-                    demand(body, tree, demands, input, anchor);
+                if let ValueDefinition::Expression(expression) = body.values[id].definition {
+                    for &input in expression.inputs() {
+                        demand(body, tree, demands, input, anchor);
+                    }
                 }
             }
         }

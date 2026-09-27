@@ -108,12 +108,8 @@ fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
     for block in body.block.walk() {
         for operation in &block.operations {
             match operation {
-                Operation::Load(value) => {
-                    let ValueDefinition::Load { location, .. } = body.values[*value].definition
-                    else {
-                        unreachable!("a load operation names its load value")
-                    };
-                    include(&mut reads, [MemoryRange::from_location(location, body)]);
+                Operation::Load { location } => {
+                    include(&mut reads, [MemoryRange::from_location(*location, body)]);
                 }
                 Operation::Store { location, .. } => {
                     include(&mut writes, [MemoryRange::from_location(*location, body)])

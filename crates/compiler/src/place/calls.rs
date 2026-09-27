@@ -10,7 +10,7 @@ impl Planner<'_> {
         let demands = &mut self.demands;
         let captures = &mut self.capture_points;
         let saved = &mut self.saved;
-        let (invocation, outputs) = body.call(site);
+        let (invocation, outputs) = tree.0.call(site);
         let summary = &effects[invocation.target.0];
         let mut combined = summary
             .must_execute()
