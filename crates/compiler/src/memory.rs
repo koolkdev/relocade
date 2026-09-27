@@ -54,11 +54,22 @@ impl MemoryInt for I64 {
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub(super) struct Location {
+pub(super) struct Location<V = usize> {
     pub(super) memory: Mem,
-    pub(super) base: usize,
+    pub(super) base: V,
     pub(super) offset: u32,
     pub(super) bytes: u8,
+}
+
+impl<V> Location<V> {
+    pub(super) fn map<U>(self, map: impl FnOnce(V) -> U) -> Location<U> {
+        Location {
+            memory: self.memory,
+            base: map(self.base),
+            offset: self.offset,
+            bytes: self.bytes,
+        }
+    }
 }
 
 impl Location {

@@ -1,10 +1,9 @@
 //! Native Wasm loop parameters and result exits.
-use wasm_encoder::Instruction;
 
-use super::{wasm_type, Emitter};
+use super::{wasm_type, Instruction, Scheduler};
 use crate::body::{Block, Site, Target};
 
-impl Emitter<'_> {
+impl Scheduler<'_> {
     pub(super) fn loop_block(
         &mut self,
         initial: &[usize],
@@ -28,7 +27,7 @@ impl Emitter<'_> {
             outputs,
         );
         self.values(initial.iter().copied());
-        let before = self.planner.checkpoint();
+        let before = self.available.clone();
         let loop_type = self.types.control(&parameters, &results);
         self.begin_control(
             Instruction::Loop(loop_type),
@@ -42,6 +41,6 @@ impl Emitter<'_> {
         self.end_control();
         self.end_control();
         // Loop-local captures describe one iteration, not an outer definition.
-        self.planner.restore(&before);
+        self.available = before;
     }
 }

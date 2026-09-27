@@ -17,21 +17,53 @@ pub struct AtomicAccess<'body, 'program, T: MemoryInt> {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum AtomicKind {
+pub(crate) enum AtomicKind<V = usize> {
     Load,
-    Store { value: usize },
-    CompareExchange { expected: usize, replacement: usize },
-    Add(usize),
-    Subtract(usize),
-    And(usize),
-    Or(usize),
-    Xor(usize),
-    Exchange(usize),
+    Store { value: V },
+    CompareExchange { expected: V, replacement: V },
+    Add(V),
+    Subtract(V),
+    And(V),
+    Or(V),
+    Xor(V),
+    Exchange(V),
 }
 
-pub(crate) struct AtomicOperation {
-    pub(crate) location: Location,
-    pub(crate) operation: AtomicKind,
+#[derive(Clone, Copy)]
+pub(crate) struct AtomicOperation<V = usize> {
+    pub(crate) location: Location<V>,
+    pub(crate) operation: AtomicKind<V>,
+}
+
+impl<V> AtomicKind<V> {
+    fn map<U>(self, mut map: impl FnMut(V) -> U) -> AtomicKind<U> {
+        match self {
+            Self::Load => AtomicKind::Load,
+            Self::Store { value } => AtomicKind::Store { value: map(value) },
+            Self::CompareExchange {
+                expected,
+                replacement,
+            } => AtomicKind::CompareExchange {
+                expected: map(expected),
+                replacement: map(replacement),
+            },
+            Self::Add(value) => AtomicKind::Add(map(value)),
+            Self::Subtract(value) => AtomicKind::Subtract(map(value)),
+            Self::And(value) => AtomicKind::And(map(value)),
+            Self::Or(value) => AtomicKind::Or(map(value)),
+            Self::Xor(value) => AtomicKind::Xor(map(value)),
+            Self::Exchange(value) => AtomicKind::Exchange(map(value)),
+        }
+    }
+}
+
+impl<V> AtomicOperation<V> {
+    pub(crate) fn map<U>(self, mut map: impl FnMut(V) -> U) -> AtomicOperation<U> {
+        AtomicOperation {
+            location: self.location.map(&mut map),
+            operation: self.operation.map(map),
+        }
+    }
 }
 
 impl AtomicOperation {

@@ -1,13 +1,12 @@
-//! Structured control emission, live result stacks and lexical branch depths.
-use wasm_encoder::Instruction;
+//! Schedule authored effects and control with live result stacks and branch depths.
 
-use super::{wasm_type, ControlLabel, Emitter};
+use super::{wasm_type, ControlLabel, Instruction, Scheduler};
 use crate::{
     body::{Block, Operation, Site, Target, Terminal},
     place,
 };
 
-impl Emitter<'_> {
+impl Scheduler<'_> {
     pub(super) fn block(&mut self, block: &Block, fallthrough: Option<Target>) {
         let forwarding = match (&block.terminal, block.operations.last()) {
             (Some(Terminal::Branch { target, arguments }), Some(operation)) => {
@@ -46,40 +45,35 @@ impl Emitter<'_> {
             }
             // Keep the selector on the stack while common values are captured.
             match operation {
-                Operation::If { condition, .. } => self.emit_condition(*condition, false),
+                Operation::If { condition, .. } => self.condition(*condition, false),
                 Operation::Switch { selector, .. } => self.values([*selector]),
                 _ => {}
             }
-            self.emit_captures(site);
+            self.captures(site);
             match operation {
-                Operation::BranchIf { .. } => unreachable!("conditional exits emit above"),
+                Operation::BranchIf { .. } => unreachable!("conditional exits are scheduled above"),
                 Operation::Nop | Operation::Load { .. } => {}
-                Operation::Fence => self.code.instruction(Instruction::AtomicFence),
+                Operation::Fence => self.instructions.push(Instruction::Fence),
                 Operation::Atomic { access, output } => {
                     self.values(access.inputs());
-                    self.atomic_operation(access);
+                    self.instructions
+                        .push(Instruction::Atomic(access.map(|_| ())));
                     if let Some(output) = *output {
                         self.save_results(&[output]);
                     }
                 }
                 Operation::Call { invocation, .. } => {
                     if self.effects[invocation.target.0].must_execute() {
-                        self.authored_call(site);
+                        self.call(site);
                     }
                 }
                 Operation::Store { location, value } => {
                     self.values([location.base, *value]);
-                    let argument = self.memory_argument(*location);
-                    self.code.instruction(match location.bytes {
-                        1 => Instruction::I32Store8(argument),
-                        2 => Instruction::I32Store16(argument),
-                        4 => Instruction::I32Store(argument),
-                        8 => Instruction::I64Store(argument),
-                        _ => unreachable!("memory locations have a supported byte size"),
-                    });
+                    self.instructions
+                        .push(Instruction::Store(location.map(|_| ())));
                 }
                 Operation::Block { block, .. } => {
-                    let before = self.planner.checkpoint();
+                    let before = self.available.clone();
                     let target = Target::exit(site);
                     if outputs.is_empty() && block.exits_to(target).next().is_none() {
                         // An unreferenced unit block needs no Wasm label. Outward
@@ -92,7 +86,7 @@ impl Emitter<'_> {
                     }
                     // An outward exit can skip any capture in this child. Only
                     // the joined outputs are available after the block.
-                    self.planner.restore(&before);
+                    self.available = before;
                 }
                 Operation::Loop {
                     initial,
@@ -112,15 +106,15 @@ impl Emitter<'_> {
                         Some(Target::exit(site)),
                         &outputs,
                     );
-                    let before_arm = self.planner.checkpoint();
+                    let before_arm = self.available.clone();
                     self.block(branch, Some(Target::exit(site)));
-                    self.planner.restore(&before_arm);
+                    self.available.clone_from(&before_arm);
                     if let Some(other) = else_branch {
-                        self.code.instruction(Instruction::Else);
+                        self.instructions.push(Instruction::Else);
                         self.block(other, Some(Target::exit(site)));
                     }
                     self.end_control();
-                    self.planner.restore(&before_arm);
+                    self.available = before_arm;
                 }
                 Operation::Switch { cases, default, .. } => {
                     self.switch(cases, default, site);
@@ -141,16 +135,13 @@ impl Emitter<'_> {
                 return;
             }
             self.values(terminal.inputs().iter().copied());
-            self.code.instruction(match terminal {
+            self.instructions.push(match terminal {
                 Terminal::Branch { .. } => {
                     unreachable!("control transfers follow their own path and result shape")
                 }
                 Terminal::Return(_) => Instruction::Return,
-                Terminal::Trap => Instruction::Unreachable,
-                Terminal::TailCall(invocation) => Instruction::ReturnCall(
-                    self.functions[invocation.target.0]
-                        .expect("a tail-call target has a function index"),
-                ),
+                Terminal::Trap => Instruction::Trap,
+                Terminal::TailCall(invocation) => Instruction::TailCall(invocation.target),
             });
         }
     }
@@ -160,17 +151,17 @@ impl Emitter<'_> {
             .branch_outputs()
             .iter()
             .copied()
-            .filter(|&id| self.planner.has_local(id))
+            .filter(|&id| self.slots[id].is_some())
             .collect()
     }
 
     pub(super) fn begin_control(
         &mut self,
-        instruction: Instruction<'_>,
+        instruction: Instruction,
         target: Option<Target>,
         outputs: &[usize],
     ) {
-        self.code.instruction(instruction);
+        self.instructions.push(instruction);
         self.labels.push(ControlLabel {
             target,
             outputs: outputs.to_vec(),
@@ -181,6 +172,6 @@ impl Emitter<'_> {
         self.labels
             .pop()
             .expect("an ending control has an open label");
-        self.code.instruction(Instruction::End);
+        self.instructions.push(Instruction::End);
     }
 }

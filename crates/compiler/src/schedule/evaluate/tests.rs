@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
-use super::{Evaluation, LocalOp, ValuePlanner};
+use super::{Instruction, LocalOp, Scheduler};
 use crate::{
     body::{Block, BlockTree, Body, Invocation, Operation, Site, Value, ValueDefinition},
     integer::BinaryOp,
     memory::Location,
+    module::Types,
     Expression, Func, Mem, Type,
 };
 
@@ -22,9 +23,35 @@ fn body(values: &[(Type, ValueDefinition)], operations: Vec<Operation>) -> Body 
     }
 }
 
+fn scheduler<'a>(
+    body: &'a Body,
+    types: &'a mut Types,
+    slots: Vec<Option<usize>>,
+    captures: HashMap<Site, Vec<usize>>,
+) -> Scheduler<'a> {
+    let local_types = body
+        .values
+        .iter()
+        .zip(&slots)
+        .filter_map(|(value, slot)| slot.map(|_| crate::emit::wasm_type(value.ty)))
+        .collect();
+    Scheduler {
+        body,
+        blocks: BlockTree::new(&body.block),
+        effects: &[],
+        types,
+        labels: Vec::new(),
+        slots,
+        captures,
+        available: vec![false; body.values.len()],
+        instructions: Vec::new(),
+        local_types,
+    }
+}
+
 #[test]
 fn select_operands_share_results_before_any_lowering() {
-    use Evaluation::*;
+    use Instruction::*;
     let body = body(
         &[
             (Type::I32, ValueDefinition::Parameter(0)),
@@ -64,14 +91,16 @@ fn select_operands_share_results_before_any_lowering() {
         ],
         vec![],
     );
-    let mut planner = ValuePlanner::new(
+    let mut types = Types::default();
+    let mut planner = scheduler(
         &body,
-        BlockTree::new(&body.block),
+        &mut types,
         vec![None, None, Some(0), None, None, None, None],
         HashMap::new(),
     );
-    let before = planner.checkpoint();
-    let plan = planner.values([6]);
+    let before = planner.available.clone();
+    planner.values([6]);
+    let plan = std::mem::take(&mut planner.instructions);
     // True and false operands precede the condition. The second operand reuses
     // the first one's saved result even though no plan step has been lowered.
     assert!(matches!(
@@ -112,16 +141,20 @@ fn select_operands_share_results_before_any_lowering() {
             },
         ]
     ));
+    planner.instructions.clear();
+    planner.values([2]);
     assert!(matches!(
-        planner.values([2]).as_slice(),
+        planner.instructions.as_slice(),
         [Local {
             slot: 0,
             operation: LocalOp::Get
         }]
     ));
-    planner.restore(&before);
+    planner.available = before;
+    planner.instructions.clear();
+    planner.values([2]);
     assert!(matches!(
-        planner.values([2]).as_slice(),
+        planner.instructions.as_slice(),
         [
             Parameter(0),
             Constant { bits: 7, .. },
@@ -150,27 +183,34 @@ fn captures_save_without_leaving_an_operand_or_repeating_the_read() {
         ],
         vec![Operation::Load { location }],
     );
-    let mut planner = ValuePlanner::new(
+    let mut types = Types::default();
+    let mut planner = scheduler(
         &body,
-        BlockTree::new(&body.block),
+        &mut types,
         vec![None, Some(0)],
         HashMap::from([(site, vec![1])]),
     );
+    planner.instructions.clear();
+    planner.captures(site);
     assert!(matches!(
-        planner.captures(site).as_slice(),
+        planner.instructions.as_slice(),
         [
-            Evaluation::Parameter(0),
-            Evaluation::Load { .. },
-            Evaluation::Local {
+            Instruction::Parameter(0),
+            Instruction::Load { .. },
+            Instruction::Local {
                 slot: 0,
                 operation: LocalOp::Set
             }
         ]
     ));
-    assert!(planner.captures(site).is_empty());
+    planner.instructions.clear();
+    planner.captures(site);
+    assert!(planner.instructions.is_empty());
+    planner.instructions.clear();
+    planner.values([1]);
     assert!(matches!(
-        planner.values([1]).as_slice(),
-        [Evaluation::Local {
+        planner.instructions.as_slice(),
+        [Instruction::Local {
             slot: 0,
             operation: LocalOp::Get
         }]
@@ -201,28 +241,34 @@ fn signed_load_cover_keeps_the_access_and_saves_the_widened_result() {
         ],
         vec![Operation::Load { location }],
     );
-    let mut planner = ValuePlanner::new(
+    let mut types = Types::default();
+    let mut planner = scheduler(
         &body,
-        BlockTree::new(&body.block),
+        &mut types,
         vec![None, None, None, Some(0)],
         HashMap::new(),
     );
+    planner.instructions.clear();
+    planner.values([3, 3]);
     assert!(matches!(
-        planner.values([3, 3]).as_slice(),
+        planner.instructions.as_slice(),
         [
-            Evaluation::Parameter(0),
-            Evaluation::Load {
-                memory: Mem(2),
-                offset: 19,
-                bytes: 1,
+            Instruction::Parameter(0),
+            Instruction::Load {
+                location: Location {
+                    memory: Mem(2),
+                    base: (),
+                    offset: 19,
+                    bytes: 1
+                },
                 result_type: Type::I64,
                 signed: true
             },
-            Evaluation::Local {
+            Instruction::Local {
                 slot: 0,
                 operation: LocalOp::Tee
             },
-            Evaluation::Local {
+            Instruction::Local {
                 slot: 0,
                 operation: LocalOp::Get
             },
@@ -258,38 +304,43 @@ fn one_call_schedules_arguments_and_consumes_the_entire_result_tuple() {
             outputs: vec![2, 3, 4],
         }],
     );
-    let mut planner = ValuePlanner::new(
+    let mut types = Types::default();
+    let mut planner = scheduler(
         &body,
-        BlockTree::new(&body.block),
+        &mut types,
         vec![None, None, Some(0), None, Some(1)],
         HashMap::new(),
     );
+    planner.instructions.clear();
+    planner.values([4, 2]);
     assert!(matches!(
-        planner.values([4, 2]).as_slice(),
+        planner.instructions.as_slice(),
         [
-            Evaluation::Parameter(0),
-            Evaluation::Parameter(1),
-            Evaluation::Call(Func(2)),
-            Evaluation::Local {
+            Instruction::Parameter(0),
+            Instruction::Parameter(1),
+            Instruction::Call(Func(2)),
+            Instruction::Local {
                 slot: 1,
                 operation: LocalOp::Set
             },
-            Evaluation::Drop,
-            Evaluation::Local {
+            Instruction::Drop,
+            Instruction::Local {
                 slot: 0,
                 operation: LocalOp::Set
             },
-            Evaluation::Local {
+            Instruction::Local {
                 slot: 1,
                 operation: LocalOp::Get
             },
-            Evaluation::Local {
+            Instruction::Local {
                 slot: 0,
                 operation: LocalOp::Get
             },
         ]
     ));
-    assert!(planner.call(site).is_empty());
+    planner.instructions.clear();
+    planner.call(site);
+    assert!(planner.instructions.is_empty());
 }
 
 #[test]
@@ -311,21 +362,19 @@ fn zero_test_cover_keeps_logical_input_types_for_opcode_selection() {
         ],
         vec![],
     );
-    let mut planner = ValuePlanner::new(
-        &body,
-        BlockTree::new(&body.block),
-        vec![None; 3],
-        HashMap::new(),
-    );
+    let mut types = Types::default();
+    let mut planner = scheduler(&body, &mut types, vec![None; 3], HashMap::new());
+    planner.instructions.clear();
+    planner.values([2]);
     assert!(matches!(
-        planner.values([2]).as_slice(),
+        planner.instructions.as_slice(),
         [
-            Evaluation::Parameter(0),
-            Evaluation::Expression {
+            Instruction::Parameter(0),
+            Instruction::Expression {
                 result_type: Type::I32,
                 expression: Expression::SignExtend { input: Type::I8 }
             },
-            Evaluation::Expression {
+            Instruction::Expression {
                 result_type: Type::I1,
                 expression: Expression::ZeroTest {
                     input: Type::I8,

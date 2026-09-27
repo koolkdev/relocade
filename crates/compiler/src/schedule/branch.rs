@@ -1,14 +1,14 @@
 //! Conditional exits, live edge arguments and lexical branch depths.
-use wasm_encoder::{BlockType, Instruction, ValType};
+use wasm_encoder::{BlockType, ValType};
 
-use super::{Emitter, LocalOp};
+use super::{Instruction, LocalOp, Scheduler};
 use crate::{
     body::{Block, Site, Target, Terminal, ValueDefinition},
     place,
 };
 
-impl Emitter<'_> {
-    // Returns true only when the immediate terminal continuation was emitted too.
+impl Scheduler<'_> {
+    // Returns true only when the immediate terminal continuation was scheduled too.
     pub(super) fn conditional_branch(
         &mut self,
         condition: usize,
@@ -41,20 +41,20 @@ impl Emitter<'_> {
                 } else {
                     (*target, *otherwise)
                 };
-                self.emit_condition(condition, inverted);
+                self.condition(condition, inverted);
                 if live.is_empty() {
-                    self.emit_captures(site);
+                    self.captures(site);
                 } else {
                     // The condition precedes captures and tuple evaluation. The
                     // ordinary local allocator owns this saved predicate.
-                    let slot = self.code.temporary(ValType::I32);
-                    self.code.local(slot, LocalOp::Set);
-                    self.emit_captures(site);
+                    let slot = self.temporary(ValType::I32);
+                    self.local(slot, LocalOp::Set);
+                    self.captures(site);
                     self.values(live);
-                    self.code.local(slot, LocalOp::Get);
+                    self.local(slot, LocalOp::Get);
                 }
-                self.code
-                    .instruction(Instruction::BrIf(self.branch_depth(branch)));
+                self.instructions
+                    .push(Instruction::BranchIf(self.branch_depth(branch)));
                 // A false br_if retains the tuple for the other edge.
                 if Some(successor) != fallthrough {
                     self.branch_to(successor);
@@ -62,19 +62,19 @@ impl Emitter<'_> {
                 return true;
             }
         }
-        self.emit_condition(condition, false);
-        self.emit_captures(site);
+        self.condition(condition, false);
+        self.captures(site);
         if live.is_empty() {
-            self.code
-                .instruction(Instruction::BrIf(self.branch_depth(*target)));
+            self.instructions
+                .push(Instruction::BranchIf(self.branch_depth(*target)));
         } else {
             // A lone edge's arguments may trap or require snapshots. Demand them
             // only on its taken path, rather than preparing a speculative tuple.
             self.begin_control(Instruction::If(BlockType::Empty), None, &[]);
-            let before = self.planner.checkpoint();
+            let before = self.available.clone();
             self.block(taken, None);
             self.end_control();
-            self.planner.restore(&before);
+            self.available = before;
         }
         false
     }
@@ -101,8 +101,8 @@ impl Emitter<'_> {
     }
 
     pub(super) fn branch_to(&mut self, target: Target) {
-        self.code
-            .instruction(Instruction::Br(self.branch_depth(target)));
+        self.instructions
+            .push(Instruction::Branch(self.branch_depth(target)));
     }
 
     fn branch_depth(&self, target: Target) -> u32 {

@@ -1,73 +1,73 @@
-//! Memory instruction selection after read placement preserves authored snapshots.
+//! Select memory instructions after all address and value operands are scheduled.
 use wasm_encoder::{Instruction, MemArg};
 
-use super::Emitter;
 use crate::{
-    memory::{AtomicKind, AtomicOperation, Location},
-    Mem, Type,
+    memory::{AtomicKind, Location},
+    Type,
 };
 
-impl Emitter<'_> {
-    pub(super) fn atomic_operation(&mut self, access: &AtomicOperation) {
-        use AtomicKind::*;
-        let argument = self.memory_argument(access.location);
-        let instruction = match (access.operation, access.location.bytes) {
-            (Load, 1) => Instruction::I32AtomicLoad8U(argument),
-            (Load, 2) => Instruction::I32AtomicLoad16U(argument),
-            (Load, 4) => Instruction::I32AtomicLoad(argument),
-            (Load, 8) => Instruction::I64AtomicLoad(argument),
-            (Store { .. }, 1) => Instruction::I32AtomicStore8(argument),
-            (Store { .. }, 2) => Instruction::I32AtomicStore16(argument),
-            (Store { .. }, 4) => Instruction::I32AtomicStore(argument),
-            (Store { .. }, 8) => Instruction::I64AtomicStore(argument),
-            (CompareExchange { .. }, 1) => Instruction::I32AtomicRmw8CmpxchgU(argument),
-            (CompareExchange { .. }, 2) => Instruction::I32AtomicRmw16CmpxchgU(argument),
-            (CompareExchange { .. }, 4) => Instruction::I32AtomicRmwCmpxchg(argument),
-            (CompareExchange { .. }, 8) => Instruction::I64AtomicRmwCmpxchg(argument),
-            (Add(_), 1) => Instruction::I32AtomicRmw8AddU(argument),
-            (Add(_), 2) => Instruction::I32AtomicRmw16AddU(argument),
-            (Add(_), 4) => Instruction::I32AtomicRmwAdd(argument),
-            (Add(_), 8) => Instruction::I64AtomicRmwAdd(argument),
-            (Subtract(_), 1) => Instruction::I32AtomicRmw8SubU(argument),
-            (Subtract(_), 2) => Instruction::I32AtomicRmw16SubU(argument),
-            (Subtract(_), 4) => Instruction::I32AtomicRmwSub(argument),
-            (Subtract(_), 8) => Instruction::I64AtomicRmwSub(argument),
-            (And(_), 1) => Instruction::I32AtomicRmw8AndU(argument),
-            (And(_), 2) => Instruction::I32AtomicRmw16AndU(argument),
-            (And(_), 4) => Instruction::I32AtomicRmwAnd(argument),
-            (And(_), 8) => Instruction::I64AtomicRmwAnd(argument),
-            (Or(_), 1) => Instruction::I32AtomicRmw8OrU(argument),
-            (Or(_), 2) => Instruction::I32AtomicRmw16OrU(argument),
-            (Or(_), 4) => Instruction::I32AtomicRmwOr(argument),
-            (Or(_), 8) => Instruction::I64AtomicRmwOr(argument),
-            (Xor(_), 1) => Instruction::I32AtomicRmw8XorU(argument),
-            (Xor(_), 2) => Instruction::I32AtomicRmw16XorU(argument),
-            (Xor(_), 4) => Instruction::I32AtomicRmwXor(argument),
-            (Xor(_), 8) => Instruction::I64AtomicRmwXor(argument),
-            (Exchange(_), 1) => Instruction::I32AtomicRmw8XchgU(argument),
-            (Exchange(_), 2) => Instruction::I32AtomicRmw16XchgU(argument),
-            (Exchange(_), 4) => Instruction::I32AtomicRmwXchg(argument),
-            (Exchange(_), 8) => Instruction::I64AtomicRmwXchg(argument),
-            _ => unreachable!("ordered memory accesses retain their logical width"),
-        };
-        self.code.instruction(instruction);
-    }
-
-    pub(super) fn memory_argument(&self, location: Location) -> MemArg {
-        argument(
-            self.memories,
-            location.memory,
-            location.offset,
-            location.bytes,
-        )
+pub(super) fn atomic(
+    argument: MemArg,
+    bytes: u8,
+    operation: AtomicKind<()>,
+) -> Instruction<'static> {
+    use AtomicKind::*;
+    match (operation, bytes) {
+        (Load, 1) => Instruction::I32AtomicLoad8U(argument),
+        (Load, 2) => Instruction::I32AtomicLoad16U(argument),
+        (Load, 4) => Instruction::I32AtomicLoad(argument),
+        (Load, 8) => Instruction::I64AtomicLoad(argument),
+        (Store { .. }, 1) => Instruction::I32AtomicStore8(argument),
+        (Store { .. }, 2) => Instruction::I32AtomicStore16(argument),
+        (Store { .. }, 4) => Instruction::I32AtomicStore(argument),
+        (Store { .. }, 8) => Instruction::I64AtomicStore(argument),
+        (CompareExchange { .. }, 1) => Instruction::I32AtomicRmw8CmpxchgU(argument),
+        (CompareExchange { .. }, 2) => Instruction::I32AtomicRmw16CmpxchgU(argument),
+        (CompareExchange { .. }, 4) => Instruction::I32AtomicRmwCmpxchg(argument),
+        (CompareExchange { .. }, 8) => Instruction::I64AtomicRmwCmpxchg(argument),
+        (Add(_), 1) => Instruction::I32AtomicRmw8AddU(argument),
+        (Add(_), 2) => Instruction::I32AtomicRmw16AddU(argument),
+        (Add(_), 4) => Instruction::I32AtomicRmwAdd(argument),
+        (Add(_), 8) => Instruction::I64AtomicRmwAdd(argument),
+        (Subtract(_), 1) => Instruction::I32AtomicRmw8SubU(argument),
+        (Subtract(_), 2) => Instruction::I32AtomicRmw16SubU(argument),
+        (Subtract(_), 4) => Instruction::I32AtomicRmwSub(argument),
+        (Subtract(_), 8) => Instruction::I64AtomicRmwSub(argument),
+        (And(_), 1) => Instruction::I32AtomicRmw8AndU(argument),
+        (And(_), 2) => Instruction::I32AtomicRmw16AndU(argument),
+        (And(_), 4) => Instruction::I32AtomicRmwAnd(argument),
+        (And(_), 8) => Instruction::I64AtomicRmwAnd(argument),
+        (Or(_), 1) => Instruction::I32AtomicRmw8OrU(argument),
+        (Or(_), 2) => Instruction::I32AtomicRmw16OrU(argument),
+        (Or(_), 4) => Instruction::I32AtomicRmwOr(argument),
+        (Or(_), 8) => Instruction::I64AtomicRmwOr(argument),
+        (Xor(_), 1) => Instruction::I32AtomicRmw8XorU(argument),
+        (Xor(_), 2) => Instruction::I32AtomicRmw16XorU(argument),
+        (Xor(_), 4) => Instruction::I32AtomicRmwXor(argument),
+        (Xor(_), 8) => Instruction::I64AtomicRmwXor(argument),
+        (Exchange(_), 1) => Instruction::I32AtomicRmw8XchgU(argument),
+        (Exchange(_), 2) => Instruction::I32AtomicRmw16XchgU(argument),
+        (Exchange(_), 4) => Instruction::I32AtomicRmwXchg(argument),
+        (Exchange(_), 8) => Instruction::I64AtomicRmwXchg(argument),
+        _ => unreachable!("ordered memory accesses retain their logical width"),
     }
 }
 
-pub(super) fn argument(memories: &[Option<u32>], memory: Mem, offset: u32, bytes: u8) -> MemArg {
+pub(super) fn argument(memories: &[Option<u32>], location: Location<()>) -> MemArg {
     MemArg {
-        offset: u64::from(offset),
-        align: bytes.trailing_zeros(),
-        memory_index: memories[memory.0].expect("an authored memory is imported"),
+        offset: u64::from(location.offset),
+        align: location.bytes.trailing_zeros(),
+        memory_index: memories[location.memory.0].expect("an authored memory is imported"),
+    }
+}
+
+pub(super) fn store(argument: MemArg, bytes: u8) -> Instruction<'static> {
+    match bytes {
+        1 => Instruction::I32Store8(argument),
+        2 => Instruction::I32Store16(argument),
+        4 => Instruction::I32Store(argument),
+        8 => Instruction::I64Store(argument),
+        _ => unreachable!("memory locations have a supported byte size"),
     }
 }
 

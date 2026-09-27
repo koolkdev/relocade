@@ -1,12 +1,14 @@
-//! Bounded multiway dispatch and case-result emission.
-use std::borrow::Cow;
+//! Schedule bounded multiway dispatch and each case's results.
+use wasm_encoder::{BlockType, ValType};
 
-use wasm_encoder::{BlockType, Instruction, ValType};
+use super::{Instruction, LocalOp, Scheduler};
+use crate::{
+    body::{Block, Site, SwitchCase, Target},
+    integer::{BinaryOp, CompareOp},
+    Expression, Type,
+};
 
-use super::{Emitter, LocalOp};
-use crate::body::{Block, Site, SwitchCase, Target};
-
-impl Emitter<'_> {
+impl Scheduler<'_> {
     pub(super) fn open_switch(
         &mut self,
         cases: usize,
@@ -29,25 +31,25 @@ impl Emitter<'_> {
 
     pub(super) fn switch(&mut self, cases: &[SwitchCase], default: &Block, site: Site) {
         self.dispatch_switch(cases);
-        let before_arm = self.planner.checkpoint();
+        let before_arm = self.available.clone();
         for case in cases {
             self.end_control();
-            self.planner.restore(&before_arm);
+            self.available.clone_from(&before_arm);
             self.block(&case.block, None);
             if case.block.terminal.is_none() {
                 self.branch_to(Target::exit(site));
             }
         }
         self.end_control();
-        self.planner.restore(&before_arm);
+        self.available.clone_from(&before_arm);
         self.block(default, Some(Target::exit(site)));
         self.end_control();
-        self.planner.restore(&before_arm);
+        self.available = before_arm;
     }
 
     fn dispatch_switch(&mut self, cases: &[SwitchCase]) {
         let Some(first) = cases.first() else {
-            self.code.instruction(Instruction::Drop);
+            self.instructions.push(Instruction::Drop);
             return;
         };
         let default = u32::try_from(cases.len()).expect("case count fits the Wasm index space");
@@ -57,9 +59,18 @@ impl Emitter<'_> {
         let dense = span <= 4096 && span <= 8 * cases.len() as u64;
         let targets = if dense {
             if first.key != 0 {
-                self.code
-                    .instruction(Instruction::I32Const(first.key as i32));
-                self.code.instruction(Instruction::I32Sub);
+                self.instructions.push(Instruction::Constant {
+                    ty: Type::I32,
+                    bits: u64::from(first.key),
+                });
+                self.instructions.push(Instruction::Expression {
+                    result_type: Type::I32,
+                    expression: Expression::Binary {
+                        operator: BinaryOp::Sub,
+                        left: Type::I32,
+                        right: Type::I32,
+                    },
+                });
             }
             let mut targets = vec![default; span as usize];
             for (index, case) in cases.iter().enumerate() {
@@ -69,13 +80,13 @@ impl Emitter<'_> {
         } else {
             // A sparse selector is still evaluated once. Balanced comparisons
             // map it to a compact case index; no case body or default is copied.
-            let selector_slot = self.code.temporary(ValType::I32);
-            self.code.local(selector_slot, LocalOp::Set);
+            let selector_slot = self.temporary(ValType::I32);
+            self.local(selector_slot, LocalOp::Set);
             self.sparse_case_index(cases, 0, default, selector_slot);
             (0..default).collect()
         };
-        self.code
-            .instruction(Instruction::BrTable(Cow::Owned(targets), default));
+        self.instructions
+            .push(Instruction::BranchTable { targets, default });
     }
 
     fn sparse_case_index(
@@ -86,21 +97,37 @@ impl Emitter<'_> {
         selector_slot: usize,
     ) {
         let midpoint = cases.len() / 2;
-        self.code.local(selector_slot, LocalOp::Get);
-        self.code
-            .instruction(Instruction::I32Const(cases[midpoint].key as i32));
+        self.local(selector_slot, LocalOp::Get);
+        self.instructions.push(Instruction::Constant {
+            ty: Type::I32,
+            bits: u64::from(cases[midpoint].key),
+        });
+        self.instructions.push(Instruction::Expression {
+            result_type: Type::I1,
+            expression: Expression::Compare {
+                operator: if cases.len() == 1 {
+                    CompareOp::Eq
+                } else {
+                    CompareOp::LtUnsigned
+                },
+                left: Type::I32,
+                right: Type::I32,
+            },
+        });
+        self.begin_control(Instruction::If(BlockType::Result(ValType::I32)), None, &[]);
         if cases.len() == 1 {
-            self.code.instruction(Instruction::I32Eq);
-            self.begin_control(Instruction::If(BlockType::Result(ValType::I32)), None, &[]);
-            self.code
-                .instruction(Instruction::I32Const(first_index as i32));
-            self.code.instruction(Instruction::Else);
-            self.code.instruction(Instruction::I32Const(default as i32));
+            self.instructions.push(Instruction::Constant {
+                ty: Type::I32,
+                bits: u64::from(first_index),
+            });
+            self.instructions.push(Instruction::Else);
+            self.instructions.push(Instruction::Constant {
+                ty: Type::I32,
+                bits: u64::from(default),
+            });
         } else {
-            self.code.instruction(Instruction::I32LtU);
-            self.begin_control(Instruction::If(BlockType::Result(ValType::I32)), None, &[]);
             self.sparse_case_index(&cases[..midpoint], first_index, default, selector_slot);
-            self.code.instruction(Instruction::Else);
+            self.instructions.push(Instruction::Else);
             self.sparse_case_index(
                 &cases[midpoint..],
                 first_index + midpoint as u32,

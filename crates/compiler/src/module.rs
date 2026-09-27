@@ -8,7 +8,7 @@ use wasm_encoder::{
 
 use crate::{
     body::{Operation, Terminal},
-    effects, emit, FunctionKind, Program,
+    effects, emit, schedule, FunctionKind, Program,
 };
 
 /// Function and multi-result block signatures share one deterministic carrier table.
@@ -185,16 +185,15 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
     for (id, body) in defined {
         let parameters = u32::try_from(program.functions[id].signature.parameters.len())
             .expect("function parameter count fits the Wasm index space");
+        let schedule = schedule::plan(body, &effects, &mut types);
         code.function(&emit::encode(
-            body,
+            schedule,
             parameters,
             &memories,
             &function_indices,
-            &effects,
-            &mut types,
         ));
     }
-    // Emission interns only live multi-result block shapes. Attach the complete
+    // Scheduling interns only live multi-result block shapes. Attach the complete
     // type table first while preserving the existing function signature order.
     let mut module = Module::new();
     module.section(&types.section);

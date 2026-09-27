@@ -1,58 +1,15 @@
-//! Schedule value dependencies into an explicit Wasm operand-stack order.
-use std::collections::HashMap;
-
-use super::function::LocalOp;
+//! Schedule shared value dependencies in Wasm operand-stack order.
+use super::{Instruction, LocalOp, Scheduler};
 use crate::{
-    body::{BlockTree, Body, Site, ValueDefinition},
+    body::{Site, ValueDefinition},
     memory::Location,
-    place, Expression, Func, Mem, Type,
+    place, Expression, Type,
 };
 
 mod calls;
 mod selection;
 #[cfg(test)]
 mod tests;
-
-/// Operands come from preceding steps or an enclosing operation's result tuple.
-/// Expression inputs retain their logical types for opcode selection, not value
-/// IDs. Loads likewise consume an address already on the stack.
-pub(super) enum Evaluation {
-    Constant {
-        ty: Type,
-        bits: u64,
-    },
-    Parameter(u32),
-    Local {
-        slot: usize,
-        operation: LocalOp,
-    },
-    Expression {
-        result_type: Type,
-        expression: Expression<Type>,
-    },
-    Load {
-        memory: Mem,
-        offset: u32,
-        bytes: u8,
-        result_type: Type,
-        signed: bool,
-    },
-    Call(Func),
-    Drop,
-}
-
-/// Values already produced on entry to a control arm or loop.
-pub(super) struct Availability(Vec<bool>);
-
-/// Plans are consumed in request order. Planning a definition makes its saved
-/// value available to later requests, before any Wasm bytes are written.
-pub(super) struct ValuePlanner<'a> {
-    body: &'a Body,
-    blocks: BlockTree<'a>,
-    slots: Vec<Option<usize>>,
-    captures: HashMap<Site, Vec<usize>>,
-    available: Vec<bool>,
-}
 
 struct RequestedResult {
     value: usize,
@@ -73,83 +30,43 @@ enum Walk {
     FinishCall(usize),
 }
 
-impl<'a> ValuePlanner<'a> {
-    pub(super) fn new(
-        body: &'a Body,
-        blocks: BlockTree<'a>,
-        slots: Vec<Option<usize>>,
-        captures: HashMap<Site, Vec<usize>>,
-    ) -> Self {
-        Self {
-            body,
-            blocks,
-            slots,
-            captures,
-            available: vec![false; body.values.len()],
-        }
-    }
-
-    pub(super) fn has_local(&self, value: usize) -> bool {
-        self.slots[value].is_some()
-    }
-
-    pub(super) fn checkpoint(&self) -> Availability {
-        Availability(self.available.clone())
-    }
-
-    pub(super) fn restore(&mut self, checkpoint: &Availability) {
-        self.available.clone_from(&checkpoint.0);
-    }
-
-    pub(super) fn values(&mut self, inputs: impl IntoIterator<Item = usize>) -> Vec<Evaluation> {
-        let mut plan = Vec::new();
+impl Scheduler<'_> {
+    pub(super) fn values(&mut self, inputs: impl IntoIterator<Item = usize>) {
         for input in inputs {
-            self.evaluate(input, false, &mut plan);
+            self.evaluate(input, false);
         }
-        plan
     }
 
-    pub(super) fn captures(&mut self, site: Site) -> Vec<Evaluation> {
-        let mut plan = Vec::new();
+    pub(super) fn captures(&mut self, site: Site) {
         if let Some(captures) = self.captures.get(&site) {
             for index in 0..captures.len() {
                 let id = self.captures[&site][index];
                 if !self.available[id] {
-                    self.evaluate(id, true, &mut plan);
+                    self.evaluate(id, true);
                 }
             }
         }
-        plan
     }
 
     /// Consume the complete result tuple of an already scheduled operation.
     /// The last result is on top; unused components still need to be dropped.
-    pub(super) fn save_results(&mut self, outputs: &[usize]) -> Vec<Evaluation> {
-        let mut plan = Vec::new();
-        self.consume_results(outputs, &mut plan);
-        plan
-    }
-
-    fn consume_results(&mut self, outputs: &[usize], plan: &mut Vec<Evaluation>) {
+    pub(super) fn save_results(&mut self, outputs: &[usize]) {
         for &output in outputs.iter().rev() {
-            self.completed(output, true, plan);
-            if !self.has_local(output) {
-                plan.push(Evaluation::Drop);
+            self.completed(output, true);
+            if self.slots[output].is_none() {
+                self.instructions.push(Instruction::Drop);
             }
         }
     }
 
-    fn completed(&mut self, id: usize, capture: bool, plan: &mut Vec<Evaluation>) {
+    fn completed(&mut self, id: usize, capture: bool) {
         if let Some(slot) = self.slots[id] {
-            plan.push(Evaluation::Local {
-                slot,
-                operation: if capture { LocalOp::Set } else { LocalOp::Tee },
-            });
+            self.local(slot, if capture { LocalOp::Set } else { LocalOp::Tee });
         }
         self.available[id] = true;
     }
 
-    fn evaluate(&mut self, root: usize, capture: bool, plan: &mut Vec<Evaluation>) {
+    fn evaluate(&mut self, root: usize, capture: bool) {
         let mut pending = vec![Walk::Value(root)];
         while let Some(next) = pending.pop() {
             let id = match next {
@@ -159,7 +76,7 @@ impl<'a> ValuePlanner<'a> {
                     sign_extend_from,
                 } => {
                     if let Some(input) = sign_extend_from {
-                        plan.push(Evaluation::Expression {
+                        self.instructions.push(Instruction::Expression {
                             result_type: Type::I32,
                             expression: Expression::SignExtend { input },
                         });
@@ -168,11 +85,11 @@ impl<'a> ValuePlanner<'a> {
                     let ValueDefinition::Expression(expression) = value.definition else {
                         unreachable!("expression completion names an expression result")
                     };
-                    plan.push(Evaluation::Expression {
+                    self.instructions.push(Instruction::Expression {
                         result_type: value.ty,
                         expression: expression.map(|&input| self.body.values[input].ty),
                     });
-                    self.completed(result, capture && result == root, plan);
+                    self.completed(result, capture && result == root);
                     continue;
                 }
                 Walk::FinishLoad {
@@ -180,14 +97,12 @@ impl<'a> ValuePlanner<'a> {
                     location,
                     signed,
                 } => {
-                    plan.push(Evaluation::Load {
-                        memory: location.memory,
-                        offset: location.offset,
-                        bytes: location.bytes,
+                    self.instructions.push(Instruction::Load {
+                        location: location.map(|_| ()),
                         result_type: self.body.values[result].ty,
                         signed,
                     });
-                    self.completed(result, capture && result == root, plan);
+                    self.completed(result, capture && result == root);
                     continue;
                 }
                 Walk::FinishCall(id) => {
@@ -202,24 +117,22 @@ impl<'a> ValuePlanner<'a> {
                             value: id,
                             capture: capture && id == root,
                         }),
-                        plan,
                     );
                     continue;
                 }
             };
             if let Some(slot) = self.slots[id].filter(|_| self.available[id]) {
-                plan.push(Evaluation::Local {
-                    slot,
-                    operation: LocalOp::Get,
-                });
+                self.local(slot, LocalOp::Get);
                 continue;
             }
             match self.body.values[id].definition {
-                ValueDefinition::Constant(bits) => plan.push(Evaluation::Constant {
+                ValueDefinition::Constant(bits) => self.instructions.push(Instruction::Constant {
                     ty: self.body.values[id].ty,
                     bits,
                 }),
-                ValueDefinition::Parameter(index) => plan.push(Evaluation::Parameter(index)),
+                ValueDefinition::Parameter(index) => {
+                    self.instructions.push(Instruction::Parameter(index))
+                }
                 ValueDefinition::JoinResult { .. } => {
                     unreachable!("a used join was saved after its branch operation")
                 }

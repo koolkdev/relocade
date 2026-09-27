@@ -7,10 +7,7 @@ mod values;
 use std::collections::HashMap;
 
 use super::ValueArena;
-use crate::{
-    body::{Block, Operation, Site, Target, Terminal},
-    memory::AtomicKind,
-};
+use crate::body::{Block, Operation, Site, Target, Terminal};
 use facts::Facts;
 
 #[derive(Default)]
@@ -93,24 +90,10 @@ impl Simplifier<'_> {
                     path.value(self.arena, value);
                 }
                 Operation::Atomic { access, .. } => {
-                    path.value(self.arena, &mut access.location.base);
-                    match &mut access.operation {
-                        AtomicKind::Load => {}
-                        AtomicKind::Store { value }
-                        | AtomicKind::Add(value)
-                        | AtomicKind::Subtract(value)
-                        | AtomicKind::And(value)
-                        | AtomicKind::Or(value)
-                        | AtomicKind::Xor(value)
-                        | AtomicKind::Exchange(value) => path.value(self.arena, value),
-                        AtomicKind::CompareExchange {
-                            expected,
-                            replacement,
-                        } => {
-                            path.value(self.arena, expected);
-                            path.value(self.arena, replacement);
-                        }
-                    }
+                    *access = access.map(|mut value| {
+                        path.value(self.arena, &mut value);
+                        value
+                    });
                 }
                 Operation::Call { invocation, .. } => {
                     path.arguments(self.arena, &mut invocation.arguments)

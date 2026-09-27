@@ -39,6 +39,7 @@ mod memory;
 mod module;
 mod place;
 mod results;
+mod schedule;
 mod types;
 mod value;
 

@@ -1,10 +1,10 @@
 //! Select expressions that can share one Wasm instruction or truth operand.
 use wasm_encoder::ValType;
 
-use super::{Evaluation, ValuePlanner};
+use super::{Instruction, Scheduler};
 use crate::{body::ValueDefinition, emit::wasm_type, memory::Location, place, Expression, Type};
 
-impl ValuePlanner<'_> {
+impl Scheduler<'_> {
     pub(super) fn condition_input(&self, condition: usize) -> usize {
         let condition = place::representation(self.body, condition);
         let ValueDefinition::Expression(Expression::ZeroTest {
@@ -24,11 +24,7 @@ impl ValuePlanner<'_> {
         }
     }
 
-    pub(in crate::emit) fn condition(
-        &mut self,
-        condition: usize,
-        inverted: bool,
-    ) -> Vec<Evaluation> {
+    pub(in crate::schedule) fn condition(&mut self, condition: usize, inverted: bool) {
         let condition = self.condition_input(condition);
         if inverted {
             if let ValueDefinition::Expression(Expression::ZeroTest {
@@ -42,13 +38,14 @@ impl ValuePlanner<'_> {
                 if self.slots[condition].is_none()
                     && wasm_type(self.body.values[input].ty) == ValType::I32
                 {
-                    return self.values([input]);
+                    self.values([input]);
+                    return;
                 }
             }
         }
-        let mut plan = self.values([condition]);
+        self.values([condition]);
         if inverted {
-            plan.push(Evaluation::Expression {
+            self.instructions.push(Instruction::Expression {
                 result_type: Type::I1,
                 expression: Expression::ZeroTest {
                     input: Type::I32,
@@ -56,7 +53,6 @@ impl ValuePlanner<'_> {
                 },
             });
         }
-        plan
     }
 
     pub(super) fn signed_load_location(&self, mut input: usize) -> Option<Location> {

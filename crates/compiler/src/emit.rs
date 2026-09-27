@@ -1,25 +1,18 @@
-//! Structured control emission with explicit value-evaluation plans.
-use wasm_encoder::{Function, ValType};
+//! Lower a completed function schedule and encode its WebAssembly body.
+use std::borrow::Cow;
+
+use wasm_encoder::{Function, Instruction as Wasm, ValType};
 
 use crate::{
-    body::{BlockTree, Body, Site, Target},
-    effects::Effects,
-    module::Types,
-    place, Type,
+    schedule::{Instruction, Schedule},
+    Type,
 };
 
-mod branch;
-mod control;
-mod evaluation;
 mod function;
 mod integer;
-mod loops;
-mod lower;
 mod memory;
-mod switch;
 
-use evaluation::{Evaluation, ValuePlanner};
-use function::{FunctionEncoder, LocalOp};
+use function::FunctionEncoder;
 
 pub(super) fn wasm_type(ty: Type) -> ValType {
     match ty {
@@ -28,77 +21,68 @@ pub(super) fn wasm_type(ty: Type) -> ValType {
     }
 }
 
-struct ControlLabel {
-    target: Option<Target>,
-    outputs: Vec<usize>,
-}
-
-struct Emitter<'a> {
-    body: &'a Body,
-    memories: &'a [Option<u32>],
-    functions: &'a [Option<u32>],
-    effects: &'a [Effects],
-    types: &'a mut Types,
-    labels: Vec<ControlLabel>,
-    planner: ValuePlanner<'a>,
-    code: FunctionEncoder,
-}
-
 pub(super) fn encode(
-    body: &Body,
+    schedule: Schedule,
     parameter_count: u32,
     memories: &[Option<u32>],
     functions: &[Option<u32>],
-    effects: &[Effects],
-    types: &mut Types,
 ) -> Function {
-    let blocks = BlockTree::new(&body.block);
-    let place::Placement {
-        slots,
-        captures,
-        slot_types,
-    } = place::plan(body, effects, &blocks);
-    let mut emitter = Emitter {
-        body,
-        memories,
-        functions,
-        effects,
-        types,
-        labels: Vec::new(),
-        planner: ValuePlanner::new(body, blocks, slots, captures),
-        code: FunctionEncoder::new(parameter_count, slot_types),
-    };
-    emitter.block(&body.block, None);
-    emitter.code.finish()
-}
-
-impl Emitter<'_> {
-    fn values(&mut self, inputs: impl IntoIterator<Item = usize>) {
-        let plan = self.planner.values(inputs);
-        self.emit(plan);
+    let mut code = FunctionEncoder::new(parameter_count, schedule.local_types);
+    for instruction in schedule.instructions {
+        match instruction {
+            Instruction::Constant { ty, bits } => code.instruction(match ty {
+                Type::I1 | Type::I8 | Type::I16 | Type::I32 => Wasm::I32Const(bits as u32 as i32),
+                Type::I64 => Wasm::I64Const(bits as i64),
+            }),
+            Instruction::Parameter(index) => code.instruction(Wasm::LocalGet(index)),
+            Instruction::Local { slot, operation } => code.local(slot, operation),
+            Instruction::Expression {
+                result_type,
+                expression,
+            } => {
+                integer::emit(&mut code, result_type, expression);
+            }
+            Instruction::Load {
+                location,
+                result_type,
+                signed,
+            } => {
+                let argument = memory::argument(memories, location);
+                code.instruction(memory::load(argument, location.bytes, result_type, signed));
+            }
+            Instruction::Store(location) => {
+                let argument = memory::argument(memories, location);
+                code.instruction(memory::store(argument, location.bytes));
+            }
+            Instruction::Atomic(access) => {
+                let argument = memory::argument(memories, access.location);
+                code.instruction(memory::atomic(
+                    argument,
+                    access.location.bytes,
+                    access.operation,
+                ));
+            }
+            Instruction::Fence => code.instruction(Wasm::AtomicFence),
+            Instruction::Call(target) => code.instruction(Wasm::Call(
+                functions[target.0].expect("a call target has a function index"),
+            )),
+            Instruction::TailCall(target) => code.instruction(Wasm::ReturnCall(
+                functions[target.0].expect("a tail-call target has a function index"),
+            )),
+            Instruction::Block(ty) => code.instruction(Wasm::Block(ty)),
+            Instruction::Loop(ty) => code.instruction(Wasm::Loop(ty)),
+            Instruction::If(ty) => code.instruction(Wasm::If(ty)),
+            Instruction::Else => code.instruction(Wasm::Else),
+            Instruction::End => code.instruction(Wasm::End),
+            Instruction::Branch(depth) => code.instruction(Wasm::Br(depth)),
+            Instruction::BranchIf(depth) => code.instruction(Wasm::BrIf(depth)),
+            Instruction::BranchTable { targets, default } => {
+                code.instruction(Wasm::BrTable(Cow::Owned(targets), default));
+            }
+            Instruction::Drop => code.instruction(Wasm::Drop),
+            Instruction::Return => code.instruction(Wasm::Return),
+            Instruction::Trap => code.instruction(Wasm::Unreachable),
+        }
     }
-
-    fn emit_condition(&mut self, condition: usize, inverted: bool) {
-        let plan = self.planner.condition(condition, inverted);
-        self.emit(plan);
-    }
-
-    fn emit_captures(&mut self, site: Site) {
-        let plan = self.planner.captures(site);
-        self.emit(plan);
-    }
-
-    fn authored_call(&mut self, site: Site) {
-        let plan = self.planner.call(site);
-        self.emit(plan);
-    }
-
-    fn save_results(&mut self, outputs: &[usize]) {
-        let plan = self.planner.save_results(outputs);
-        self.emit(plan);
-    }
-
-    fn emit(&mut self, plan: Vec<Evaluation>) {
-        lower::values(&mut self.code, self.memories, self.functions, plan);
-    }
+    code.finish()
 }

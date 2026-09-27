@@ -2,13 +2,9 @@
 
 use wasm_encoder::{Encode, Function, Instruction, ValType};
 
-mod locals;
+use crate::schedule::LocalOp;
 
-pub(super) enum LocalOp {
-    Get,
-    Set,
-    Tee,
-}
+mod locals;
 
 struct LocalEvent {
     // Byte position before deferred local instructions are inserted.
@@ -71,12 +67,6 @@ impl FunctionEncoder {
             slot,
             operation,
         });
-    }
-
-    pub(super) fn temporary(&mut self, ty: ValType) -> usize {
-        let slot = self.slot_types.len();
-        self.slot_types.push(ty);
-        slot
     }
 
     pub(super) fn finish(mut self) -> Function {
