@@ -1,4 +1,4 @@
-//! Native Wasm loop parameters, result exits and backedge local lifetimes.
+//! Native Wasm loop parameters and result exits.
 use wasm_encoder::Instruction;
 
 use super::{wasm_type, Scheduler};
@@ -37,7 +37,6 @@ impl Scheduler<'_> {
             Some(Target::entry(site)),
             inputs,
         );
-        let start = self.events.len();
         // Both initial entry and backedges arrive with the complete input tuple
         // on the stack. Save in reverse order only after every input is evaluated.
         for &input in inputs.iter().rev() {
@@ -45,7 +44,6 @@ impl Scheduler<'_> {
         }
         self.block(block, Some(Target::exit(site)));
         self.end_control();
-        self.loop_ranges.push((start, self.events.len()));
         self.end_control();
         // Loop-local captures describe one iteration, not an outer definition.
         self.emitted = before;

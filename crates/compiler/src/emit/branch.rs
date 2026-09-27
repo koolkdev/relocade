@@ -1,5 +1,5 @@
 //! Conditional exits, live edge arguments and lexical branch depths.
-use wasm_encoder::{BlockType, Encode, Instruction, ValType};
+use wasm_encoder::{BlockType, Instruction, ValType};
 
 use super::{LocalOp, Scheduler};
 use crate::{
@@ -47,16 +47,16 @@ impl Scheduler<'_> {
                 } else {
                     // The condition precedes captures and tuple evaluation. The
                     // ordinary local allocator owns this saved predicate.
-                    let slot = self.placement.slot_types.len();
-                    self.placement.slot_types.push(ValType::I32);
-                    self.local(slot, LocalOp::Set);
+                    let slot = self.code.temporary(ValType::I32);
+                    self.code.local(slot, LocalOp::Set);
                     self.emit_captures(site);
                     for argument in live {
                         self.value(argument);
                     }
-                    self.local(slot, LocalOp::Get);
+                    self.code.local(slot, LocalOp::Get);
                 }
-                Instruction::BrIf(self.branch_depth(branch)).encode(&mut self.bytes);
+                self.code
+                    .instruction(Instruction::BrIf(self.branch_depth(branch)));
                 // A false br_if retains the tuple for the other edge.
                 if Some(successor) != fallthrough {
                     self.branch_to(successor);
@@ -67,7 +67,8 @@ impl Scheduler<'_> {
         self.emit_condition(condition, false);
         self.emit_captures(site);
         if live.is_empty() {
-            Instruction::BrIf(self.branch_depth(*target)).encode(&mut self.bytes);
+            self.code
+                .instruction(Instruction::BrIf(self.branch_depth(*target)));
         } else {
             // A lone edge's arguments may trap or require snapshots. Demand them
             // only on its taken path, rather than preparing a speculative tuple.
@@ -102,7 +103,8 @@ impl Scheduler<'_> {
     }
 
     pub(super) fn branch_to(&mut self, target: Target) {
-        Instruction::Br(self.branch_depth(target)).encode(&mut self.bytes);
+        self.code
+            .instruction(Instruction::Br(self.branch_depth(target)));
     }
 
     fn branch_depth(&self, target: Target) -> u32 {

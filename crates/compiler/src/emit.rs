@@ -1,10 +1,11 @@
-//! Instruction ordering and storage of shared expression results.
-use wasm_encoder::{Encode, Function, Instruction, ValType};
+//! Instruction ordering and lowering of shared expression results.
+use std::collections::HashMap;
+
+use wasm_encoder::{Function, Instruction, ValType};
 
 use crate::{
-    body::{BlockTree, Body, Target, ValueDefinition},
+    body::{BlockTree, Body, Site, Target, ValueDefinition},
     effects::Effects,
-    locals,
     memory::Location,
     module::Types,
     place, Expression, Type,
@@ -13,23 +14,13 @@ use crate::{
 mod branch;
 mod calls;
 mod control;
+mod function;
 mod integer;
 mod loops;
 mod memory;
 mod switch;
 
-struct LocalEvent {
-    // Position in the byte buffer, excluding local instructions inserted later.
-    offset: usize,
-    slot: usize,
-    operation: LocalOp,
-}
-
-enum LocalOp {
-    Get,
-    Set,
-    Tee,
-}
+use function::{FunctionEncoder, LocalOp};
 
 pub(super) fn wasm_type(ty: Type) -> ValType {
     match ty {
@@ -63,11 +54,10 @@ struct Scheduler<'a> {
     effects: &'a [Effects],
     types: &'a mut Types,
     labels: Vec<ControlLabel>,
-    placement: place::Placement,
+    slots: Vec<Option<usize>>,
+    captures: HashMap<Site, Vec<usize>>,
     emitted: Vec<bool>,
-    bytes: Vec<u8>,
-    events: Vec<LocalEvent>,
-    loop_ranges: Vec<(usize, usize)>,
+    code: FunctionEncoder,
 }
 
 pub(super) fn encode(
@@ -79,7 +69,11 @@ pub(super) fn encode(
     types: &mut Types,
 ) -> Function {
     let blocks = BlockTree::new(&body.block);
-    let placement = place::plan(body, effects, &blocks);
+    let place::Placement {
+        slots,
+        captures,
+        slot_types,
+    } = place::plan(body, effects, &blocks);
     let mut scheduler = Scheduler {
         body,
         blocks,
@@ -88,29 +82,20 @@ pub(super) fn encode(
         effects,
         types,
         labels: Vec::new(),
-        placement,
+        slots,
+        captures,
         emitted: vec![false; body.values.len()],
-        bytes: Vec::new(),
-        events: Vec::new(),
-        loop_ranges: Vec::new(),
+        code: FunctionEncoder::new(parameter_count, slot_types),
     };
     scheduler.block(&body.block, None);
-    Instruction::End.encode(&mut scheduler.bytes);
-    scheduler.finish(parameter_count)
+    scheduler.code.finish()
 }
 
 impl Scheduler<'_> {
-    fn local(&mut self, slot: usize, operation: LocalOp) {
-        self.events.push(LocalEvent {
-            offset: self.bytes.len(),
-            slot,
-            operation,
-        });
-    }
-
     fn completed(&mut self, id: usize, capture: bool) {
-        if let Some(slot) = self.placement.slots[id] {
-            self.local(slot, if capture { LocalOp::Set } else { LocalOp::Tee });
+        if let Some(slot) = self.slots[id] {
+            self.code
+                .local(slot, if capture { LocalOp::Set } else { LocalOp::Tee });
         }
         self.emitted[id] = true;
     }
@@ -130,8 +115,7 @@ impl Scheduler<'_> {
         };
         // Wasm truth consumers accept any nonzero i32. ZeroTest's input is zero
         // exactly when its logical value is zero; saved Booleans remain zero or one.
-        if self.placement.slots[condition].is_none()
-            && wasm_type(self.body.values[input].ty) == ValType::I32
+        if self.slots[condition].is_none() && wasm_type(self.body.values[input].ty) == ValType::I32
         {
             input
         } else {
@@ -150,7 +134,7 @@ impl Scheduler<'_> {
                 // Inverting an unshared i32 zero-test can use its operand as the
                 // Wasm truth value. Saved predicates must keep their original
                 // evaluation, and i64 tests must still produce an i32 condition.
-                if self.placement.slots[condition].is_none()
+                if self.slots[condition].is_none()
                     && wasm_type(self.body.values[input].ty) == ValType::I32
                 {
                     self.value(input);
@@ -160,7 +144,7 @@ impl Scheduler<'_> {
         }
         self.value(condition);
         if inverted {
-            Instruction::I32Eqz.encode(&mut self.bytes);
+            self.code.instruction(Instruction::I32Eqz);
         }
     }
 
@@ -194,34 +178,35 @@ impl Scheduler<'_> {
                 }
                 Walk::FinishZero(id, extension) => {
                     if let Some(ty) = extension {
-                        match ty {
+                        let instruction = match ty {
                             Type::I8 => Instruction::I32Extend8S,
                             Type::I16 => Instruction::I32Extend16S,
                             _ => {
                                 unreachable!("only byte and word masks have a sign-extension cover")
                             }
-                        }
-                        .encode(&mut self.bytes);
+                        };
+                        self.code.instruction(instruction);
                     }
                     self.operation(id);
                     self.completed(id, capture && id == root);
                     continue;
                 }
             };
-            if let Some(slot) = self.placement.slots[id].filter(|_| self.emitted[id]) {
-                self.local(slot, LocalOp::Get);
+            if let Some(slot) = self.slots[id].filter(|_| self.emitted[id]) {
+                self.code.local(slot, LocalOp::Get);
                 continue;
             }
             match self.body.values[id].definition {
-                ValueDefinition::Constant(bits) => match self.body.values[id].ty {
-                    Type::I1 | Type::I8 | Type::I16 | Type::I32 => {
-                        Instruction::I32Const(bits as u32 as i32)
-                    }
-                    Type::I64 => Instruction::I64Const(bits as i64),
+                ValueDefinition::Constant(bits) => {
+                    self.code.instruction(match self.body.values[id].ty {
+                        Type::I1 | Type::I8 | Type::I16 | Type::I32 => {
+                            Instruction::I32Const(bits as u32 as i32)
+                        }
+                        Type::I64 => Instruction::I64Const(bits as i64),
+                    })
                 }
-                .encode(&mut self.bytes),
                 ValueDefinition::Parameter(index) => {
-                    Instruction::LocalGet(index).encode(&mut self.bytes)
+                    self.code.instruction(Instruction::LocalGet(index))
                 }
                 ValueDefinition::JoinResult { .. } => {
                     unreachable!("a used join was saved after its branch operation")
@@ -282,9 +267,7 @@ impl Scheduler<'_> {
                             self.body.values[input].definition
                         {
                             let ty = self.body.values[input].ty;
-                            if matches!(ty, Type::I8 | Type::I16)
-                                && self.placement.slots[input].is_none()
-                            {
+                            if matches!(ty, Type::I8 | Type::I16) && self.slots[input].is_none() {
                                 // For a zero test alone, sign extension tests the same low
                                 // bits with one instruction. Shared masks remain unsigned.
                                 extension = Some(ty);
@@ -315,36 +298,8 @@ impl Scheduler<'_> {
     }
 
     fn call(&mut self, target: crate::Func) {
-        Instruction::Call(self.functions[target.0].expect("a call target has a function index"))
-            .encode(&mut self.bytes);
-    }
-
-    fn finish(self, parameter_count: u32) -> Function {
-        // Wasm local declarations precede instructions. Choose their types and indices
-        // from the completed access order, then insert local instructions into the
-        // buffered code.
-        let allocated = locals::allocate(
-            self.events.iter().map(|event| event.slot),
-            &self.placement.slot_types,
-            &self.loop_ranges,
-        );
-        let mut function = Function::new_with_locals_types(allocated.types);
-        let mut previous = 0;
-        for event in self.events {
-            function.raw(self.bytes[previous..event.offset].iter().copied());
-            previous = event.offset;
-            let local = parameter_count
-                .checked_add(
-                    allocated.indices[event.slot].expect("an emitted local access has an index"),
-                )
-                .expect("function locals fit the Wasm index space");
-            function.instruction(&match event.operation {
-                LocalOp::Get => Instruction::LocalGet(local),
-                LocalOp::Set => Instruction::LocalSet(local),
-                LocalOp::Tee => Instruction::LocalTee(local),
-            });
-        }
-        function.raw(self.bytes[previous..].iter().copied());
-        function
+        self.code.instruction(Instruction::Call(
+            self.functions[target.0].expect("a call target has a function index"),
+        ));
     }
 }

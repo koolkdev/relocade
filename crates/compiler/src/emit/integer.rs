@@ -1,5 +1,5 @@
 //! Lowering logical integer expressions to Wasm carrier operations.
-use wasm_encoder::{Encode, Instruction};
+use wasm_encoder::Instruction;
 
 use super::Scheduler;
 use crate::{
@@ -64,8 +64,9 @@ impl Scheduler<'_> {
                         if padding == 0 {
                             Instruction::I32Clz
                         } else {
-                            Instruction::I32Clz.encode(&mut self.bytes);
-                            Instruction::I32Const(i32::from(padding)).encode(&mut self.bytes);
+                            self.code.instruction(Instruction::I32Clz);
+                            self.code
+                                .instruction(Instruction::I32Const(i32::from(padding)));
                             Instruction::I32Sub
                         }
                     }
@@ -73,8 +74,9 @@ impl Scheduler<'_> {
                         if value.ty.bits() < 32 {
                             // The first bit above the logical value caps the zero case
                             // at its width without changing any nonzero count.
-                            Instruction::I32Const(1 << value.ty.bits()).encode(&mut self.bytes);
-                            Instruction::I32Or.encode(&mut self.bytes);
+                            self.code
+                                .instruction(Instruction::I32Const(1 << value.ty.bits()));
+                            self.code.instruction(Instruction::I32Or);
                         }
                         Instruction::I32Ctz
                     }
@@ -83,13 +85,13 @@ impl Scheduler<'_> {
             Expression::SignExtend { input } => {
                 match self.body.values[input].ty {
                     Type::I1 => {
-                        Instruction::I32Const(31).encode(&mut self.bytes);
-                        Instruction::I32Shl.encode(&mut self.bytes);
-                        Instruction::I32Const(31).encode(&mut self.bytes);
-                        Instruction::I32ShrS.encode(&mut self.bytes);
+                        self.code.instruction(Instruction::I32Const(31));
+                        self.code.instruction(Instruction::I32Shl);
+                        self.code.instruction(Instruction::I32Const(31));
+                        self.code.instruction(Instruction::I32ShrS);
                     }
-                    Type::I8 => Instruction::I32Extend8S.encode(&mut self.bytes),
-                    Type::I16 => Instruction::I32Extend16S.encode(&mut self.bytes),
+                    Type::I8 => self.code.instruction(Instruction::I32Extend8S),
+                    Type::I16 => self.code.instruction(Instruction::I32Extend16S),
                     Type::I32 => {}
                     Type::I64 => unreachable!("a signed extension widens its input"),
                 }
@@ -124,14 +126,15 @@ impl Scheduler<'_> {
                     Instruction::I32Eqz
                 };
                 if nonzero {
-                    test.encode(&mut self.bytes);
+                    self.code.instruction(test);
                     Instruction::I32Eqz
                 } else {
                     test
                 }
             }
             Expression::Normalize { .. } => {
-                Instruction::I32Const(value.ty.mask() as i32).encode(&mut self.bytes);
+                self.code
+                    .instruction(Instruction::I32Const(value.ty.mask() as i32));
                 Instruction::I32And
             }
             Expression::Convert { .. } => {
@@ -142,6 +145,6 @@ impl Scheduler<'_> {
                 }
             }
         };
-        instruction.encode(&mut self.bytes);
+        self.code.instruction(instruction);
     }
 }

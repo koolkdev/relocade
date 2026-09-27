@@ -1,5 +1,5 @@
 //! Structured control emission, live result stacks and lexical branch depths.
-use wasm_encoder::{Encode, Instruction};
+use wasm_encoder::Instruction;
 
 use super::{wasm_type, ControlLabel, Scheduler};
 use crate::{
@@ -54,7 +54,7 @@ impl Scheduler<'_> {
             match operation {
                 Operation::BranchIf { .. } => unreachable!("conditional exits emit above"),
                 Operation::Nop | Operation::Load { .. } => {}
-                Operation::Fence => Instruction::AtomicFence.encode(&mut self.bytes),
+                Operation::Fence => self.code.instruction(Instruction::AtomicFence),
                 Operation::Atomic { access, output } => {
                     for input in access.inputs() {
                         self.value(input);
@@ -62,8 +62,8 @@ impl Scheduler<'_> {
                     self.atomic_operation(access);
                     if let Some(output) = *output {
                         self.completed(output, true);
-                        if self.placement.slots[output].is_none() {
-                            Instruction::Drop.encode(&mut self.bytes);
+                        if self.slots[output].is_none() {
+                            self.code.instruction(Instruction::Drop);
                         }
                     }
                 }
@@ -76,14 +76,13 @@ impl Scheduler<'_> {
                     self.value(location.base);
                     self.value(*value);
                     let argument = self.memory_argument(*location);
-                    match location.bytes {
+                    self.code.instruction(match location.bytes {
                         1 => Instruction::I32Store8(argument),
                         2 => Instruction::I32Store16(argument),
                         4 => Instruction::I32Store(argument),
                         8 => Instruction::I64Store(argument),
                         _ => unreachable!("memory locations have a supported byte size"),
-                    }
-                    .encode(&mut self.bytes);
+                    });
                 }
                 Operation::Block { block, .. } => {
                     let before = self.emitted.clone();
@@ -123,7 +122,7 @@ impl Scheduler<'_> {
                     self.block(branch, Some(Target::exit(site)));
                     self.emitted.clone_from(&before_arm);
                     if let Some(other) = else_branch {
-                        Instruction::Else.encode(&mut self.bytes);
+                        self.code.instruction(Instruction::Else);
                         self.block(other, Some(Target::exit(site)));
                     }
                     self.end_control();
@@ -155,7 +154,7 @@ impl Scheduler<'_> {
             for &value in terminal.inputs() {
                 self.value(value);
             }
-            match terminal {
+            self.code.instruction(match terminal {
                 Terminal::Branch { .. } => {
                     unreachable!("control transfers follow their own path and result shape")
                 }
@@ -165,15 +164,14 @@ impl Scheduler<'_> {
                     self.functions[invocation.target.0]
                         .expect("a tail-call target has a function index"),
                 ),
-            }
-            .encode(&mut self.bytes);
+            });
         }
     }
 
     pub(super) fn emit_captures(&mut self, site: Site) {
-        if let Some(captures) = self.placement.captures.get(&site) {
+        if let Some(captures) = self.captures.get(&site) {
             for index in 0..captures.len() {
-                let id = self.placement.captures[&site][index];
+                let id = self.captures[&site][index];
                 if !self.emitted[id] {
                     self.evaluate(id, true);
                 }
@@ -186,7 +184,7 @@ impl Scheduler<'_> {
             .branch_outputs()
             .iter()
             .copied()
-            .filter(|&id| self.placement.slots[id].is_some())
+            .filter(|&id| self.slots[id].is_some())
             .collect()
     }
 
@@ -196,7 +194,7 @@ impl Scheduler<'_> {
         target: Option<Target>,
         outputs: &[usize],
     ) {
-        instruction.encode(&mut self.bytes);
+        self.code.instruction(instruction);
         self.labels.push(ControlLabel {
             target,
             outputs: outputs.to_vec(),
@@ -207,6 +205,6 @@ impl Scheduler<'_> {
         self.labels
             .pop()
             .expect("an ending control has an open label");
-        Instruction::End.encode(&mut self.bytes);
+        self.code.instruction(Instruction::End);
     }
 }

@@ -35,7 +35,6 @@ mod expression;
 mod fold;
 mod function;
 mod integer;
-mod locals;
 mod memory;
 mod module;
 mod place;

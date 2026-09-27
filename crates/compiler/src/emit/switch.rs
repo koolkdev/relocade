@@ -1,7 +1,7 @@
 //! Bounded multiway dispatch and case-result emission.
 use std::borrow::Cow;
 
-use wasm_encoder::{BlockType, Encode, Instruction, ValType};
+use wasm_encoder::{BlockType, Instruction, ValType};
 
 use super::{LocalOp, Scheduler};
 use crate::body::{Block, Site, SwitchCase, Target};
@@ -47,7 +47,7 @@ impl Scheduler<'_> {
 
     fn dispatch_switch(&mut self, cases: &[SwitchCase]) {
         let Some(first) = cases.first() else {
-            Instruction::Drop.encode(&mut self.bytes);
+            self.code.instruction(Instruction::Drop);
             return;
         };
         let default = u32::try_from(cases.len()).expect("case count fits the Wasm index space");
@@ -57,8 +57,9 @@ impl Scheduler<'_> {
         let dense = span <= 4096 && span <= 8 * cases.len() as u64;
         let targets = if dense {
             if first.key != 0 {
-                Instruction::I32Const(first.key as i32).encode(&mut self.bytes);
-                Instruction::I32Sub.encode(&mut self.bytes);
+                self.code
+                    .instruction(Instruction::I32Const(first.key as i32));
+                self.code.instruction(Instruction::I32Sub);
             }
             let mut targets = vec![default; span as usize];
             for (index, case) in cases.iter().enumerate() {
@@ -68,13 +69,13 @@ impl Scheduler<'_> {
         } else {
             // A sparse selector is still evaluated once. Balanced comparisons
             // map it to a compact case index; no case body or default is copied.
-            let selector_slot = self.placement.slot_types.len();
-            self.placement.slot_types.push(ValType::I32);
-            self.local(selector_slot, LocalOp::Set);
+            let selector_slot = self.code.temporary(ValType::I32);
+            self.code.local(selector_slot, LocalOp::Set);
             self.sparse_case_index(cases, 0, default, selector_slot);
             (0..default).collect()
         };
-        Instruction::BrTable(Cow::Owned(targets), default).encode(&mut self.bytes);
+        self.code
+            .instruction(Instruction::BrTable(Cow::Owned(targets), default));
     }
 
     fn sparse_case_index(
@@ -85,19 +86,21 @@ impl Scheduler<'_> {
         selector_slot: usize,
     ) {
         let midpoint = cases.len() / 2;
-        self.local(selector_slot, LocalOp::Get);
-        Instruction::I32Const(cases[midpoint].key as i32).encode(&mut self.bytes);
+        self.code.local(selector_slot, LocalOp::Get);
+        self.code
+            .instruction(Instruction::I32Const(cases[midpoint].key as i32));
         if cases.len() == 1 {
-            Instruction::I32Eq.encode(&mut self.bytes);
+            self.code.instruction(Instruction::I32Eq);
             self.begin_control(Instruction::If(BlockType::Result(ValType::I32)), None, &[]);
-            Instruction::I32Const(first_index as i32).encode(&mut self.bytes);
-            Instruction::Else.encode(&mut self.bytes);
-            Instruction::I32Const(default as i32).encode(&mut self.bytes);
+            self.code
+                .instruction(Instruction::I32Const(first_index as i32));
+            self.code.instruction(Instruction::Else);
+            self.code.instruction(Instruction::I32Const(default as i32));
         } else {
-            Instruction::I32LtU.encode(&mut self.bytes);
+            self.code.instruction(Instruction::I32LtU);
             self.begin_control(Instruction::If(BlockType::Result(ValType::I32)), None, &[]);
             self.sparse_case_index(&cases[..midpoint], first_index, default, selector_slot);
-            Instruction::Else.encode(&mut self.bytes);
+            self.code.instruction(Instruction::Else);
             self.sparse_case_index(
                 &cases[midpoint..],
                 first_index + midpoint as u32,
