@@ -1,10 +1,10 @@
 //! Native Wasm loop parameters and result exits.
 use wasm_encoder::Instruction;
 
-use super::{wasm_type, Scheduler};
+use super::{wasm_type, Emitter};
 use crate::body::{Block, Site, Target};
 
-impl Scheduler<'_> {
+impl Emitter<'_> {
     pub(super) fn loop_block(
         &mut self,
         initial: &[usize],
@@ -27,10 +27,8 @@ impl Scheduler<'_> {
             Some(Target::exit(site)),
             outputs,
         );
-        for &seed in initial {
-            self.value(seed);
-        }
-        let before = self.emitted.clone();
+        self.values(initial.iter().copied());
+        let before = self.planner.checkpoint();
         let loop_type = self.types.control(&parameters, &results);
         self.begin_control(
             Instruction::Loop(loop_type),
@@ -39,13 +37,11 @@ impl Scheduler<'_> {
         );
         // Both initial entry and backedges arrive with the complete input tuple
         // on the stack. Save in reverse order only after every input is evaluated.
-        for &input in inputs.iter().rev() {
-            self.completed(input, true);
-        }
+        self.save_results(inputs);
         self.block(block, Some(Target::exit(site)));
         self.end_control();
         self.end_control();
         // Loop-local captures describe one iteration, not an outer definition.
-        self.emitted = before;
+        self.planner.restore(&before);
     }
 }

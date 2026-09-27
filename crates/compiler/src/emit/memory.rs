@@ -1,14 +1,13 @@
 //! Memory instruction selection after read placement preserves authored snapshots.
 use wasm_encoder::{Instruction, MemArg};
 
-use super::Scheduler;
+use super::Emitter;
 use crate::{
-    body::ValueDefinition,
     memory::{AtomicKind, AtomicOperation, Location},
-    place, Expression, Type,
+    Mem, Type,
 };
 
-impl Scheduler<'_> {
+impl Emitter<'_> {
     pub(super) fn atomic_operation(&mut self, access: &AtomicOperation) {
         use AtomicKind::*;
         let argument = self.memory_argument(access.location);
@@ -54,56 +53,40 @@ impl Scheduler<'_> {
         self.code.instruction(instruction);
     }
 
-    pub(super) fn signed_load_location(&self, mut input: usize) -> Option<Location> {
-        let mut bits = self.body.values[input].ty.bits();
-        loop {
-            input = place::representation(self.body, input);
-            // Saved reads and signed values retain their sharing and snapshots.
-            if self.slots[input].is_some() {
-                return None;
-            }
-            match self.body.values[input].definition {
-                ValueDefinition::Expression(Expression::SignExtend { input: original })
-                    if self.body.values[original].ty.bits() <= bits =>
-                {
-                    // An unshared extension can be covered with the wider one.
-                    // Narrowing below its original sign would change the value.
-                    bits = self.body.values[original].ty.bits();
-                    input = original;
-                }
-                ValueDefinition::Load { site } => {
-                    let location = self.blocks.load_location(site);
-                    // Cover the full original read; conversions must not change
-                    // its access width or choose a different logical sign bit.
-                    return (bits == location.bytes * 8).then_some(location);
-                }
-                _ => return None,
-            }
-        }
-    }
-
     pub(super) fn memory_argument(&self, location: Location) -> MemArg {
-        MemArg {
-            offset: u64::from(location.offset),
-            align: location.bytes.trailing_zeros(),
-            memory_index: self.memories[location.memory.0].expect("an authored memory is imported"),
-        }
+        argument(
+            self.memories,
+            location.memory,
+            location.offset,
+            location.bytes,
+        )
     }
+}
 
-    pub(super) fn load(&mut self, location: Location, target: Type, signed: bool) {
-        let argument = self.memory_argument(location);
-        self.code
-            .instruction(match (target == Type::I64, location.bytes, signed) {
-                (false, 1, false) => Instruction::I32Load8U(argument),
-                (false, 1, true) => Instruction::I32Load8S(argument),
-                (false, 2, false) => Instruction::I32Load16U(argument),
-                (false, 2, true) => Instruction::I32Load16S(argument),
-                (false, 4, false) => Instruction::I32Load(argument),
-                (true, 1, true) => Instruction::I64Load8S(argument),
-                (true, 2, true) => Instruction::I64Load16S(argument),
-                (true, 4, true) => Instruction::I64Load32S(argument),
-                (true, 8, false) => Instruction::I64Load(argument),
-                _ => unreachable!("a load retains its type or widens with its original sign"),
-            });
+pub(super) fn argument(memories: &[Option<u32>], memory: Mem, offset: u32, bytes: u8) -> MemArg {
+    MemArg {
+        offset: u64::from(offset),
+        align: bytes.trailing_zeros(),
+        memory_index: memories[memory.0].expect("an authored memory is imported"),
+    }
+}
+
+pub(super) fn load(
+    argument: MemArg,
+    bytes: u8,
+    target: Type,
+    signed: bool,
+) -> Instruction<'static> {
+    match (target == Type::I64, bytes, signed) {
+        (false, 1, false) => Instruction::I32Load8U(argument),
+        (false, 1, true) => Instruction::I32Load8S(argument),
+        (false, 2, false) => Instruction::I32Load16U(argument),
+        (false, 2, true) => Instruction::I32Load16S(argument),
+        (false, 4, false) => Instruction::I32Load(argument),
+        (true, 1, true) => Instruction::I64Load8S(argument),
+        (true, 2, true) => Instruction::I64Load16S(argument),
+        (true, 4, true) => Instruction::I64Load32S(argument),
+        (true, 8, false) => Instruction::I64Load(argument),
+        _ => unreachable!("a load retains its type or widens with its original sign"),
     }
 }

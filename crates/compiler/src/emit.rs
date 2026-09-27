@@ -1,25 +1,24 @@
-//! Instruction ordering and lowering of shared expression results.
-use std::collections::HashMap;
-
-use wasm_encoder::{Function, Instruction, ValType};
+//! Structured control emission with explicit value-evaluation plans.
+use wasm_encoder::{Function, ValType};
 
 use crate::{
-    body::{BlockTree, Body, Site, Target, ValueDefinition},
+    body::{BlockTree, Body, Site, Target},
     effects::Effects,
-    memory::Location,
     module::Types,
-    place, Expression, Type,
+    place, Type,
 };
 
 mod branch;
-mod calls;
 mod control;
+mod evaluation;
 mod function;
 mod integer;
 mod loops;
+mod lower;
 mod memory;
 mod switch;
 
+use evaluation::{Evaluation, ValuePlanner};
 use function::{FunctionEncoder, LocalOp};
 
 pub(super) fn wasm_type(ty: Type) -> ValType {
@@ -29,36 +28,19 @@ pub(super) fn wasm_type(ty: Type) -> ValType {
     }
 }
 
-enum Walk {
-    Value(usize),
-    FinishExpression {
-        result: usize,
-        sign_extend_from: Option<Type>,
-    },
-    FinishLoad {
-        result: usize,
-        location: Location,
-        signed: bool,
-    },
-    FinishCall(usize),
-}
-
 struct ControlLabel {
     target: Option<Target>,
     outputs: Vec<usize>,
 }
 
-struct Scheduler<'a> {
+struct Emitter<'a> {
     body: &'a Body,
-    blocks: BlockTree<'a>,
     memories: &'a [Option<u32>],
     functions: &'a [Option<u32>],
     effects: &'a [Effects],
     types: &'a mut Types,
     labels: Vec<ControlLabel>,
-    slots: Vec<Option<usize>>,
-    captures: HashMap<Site, Vec<usize>>,
-    emitted: Vec<bool>,
+    planner: ValuePlanner<'a>,
     code: FunctionEncoder,
 }
 
@@ -76,246 +58,47 @@ pub(super) fn encode(
         captures,
         slot_types,
     } = place::plan(body, effects, &blocks);
-    let mut scheduler = Scheduler {
+    let mut emitter = Emitter {
         body,
-        blocks,
         memories,
         functions,
         effects,
         types,
         labels: Vec::new(),
-        slots,
-        captures,
-        emitted: vec![false; body.values.len()],
+        planner: ValuePlanner::new(body, blocks, slots, captures),
         code: FunctionEncoder::new(parameter_count, slot_types),
     };
-    scheduler.block(&body.block, None);
-    scheduler.code.finish()
+    emitter.block(&body.block, None);
+    emitter.code.finish()
 }
 
-impl Scheduler<'_> {
-    fn completed(&mut self, id: usize, capture: bool) {
-        if let Some(slot) = self.slots[id] {
-            self.code
-                .local(slot, if capture { LocalOp::Set } else { LocalOp::Tee });
-        }
-        self.emitted[id] = true;
-    }
-
-    fn value(&mut self, root: usize) {
-        self.evaluate(root, false);
-    }
-
-    fn condition_input(&self, condition: usize) -> usize {
-        let condition = place::representation(self.body, condition);
-        let ValueDefinition::Expression(Expression::ZeroTest {
-            input,
-            nonzero: true,
-        }) = self.body.values[condition].definition
-        else {
-            return condition;
-        };
-        // Wasm truth consumers accept any nonzero i32. ZeroTest's input is zero
-        // exactly when its logical value is zero; saved Booleans remain zero or one.
-        if self.slots[condition].is_none() && wasm_type(self.body.values[input].ty) == ValType::I32
-        {
-            input
-        } else {
-            condition
-        }
+impl Emitter<'_> {
+    fn values(&mut self, inputs: impl IntoIterator<Item = usize>) {
+        let plan = self.planner.values(inputs);
+        self.emit(plan);
     }
 
     fn emit_condition(&mut self, condition: usize, inverted: bool) {
-        let condition = self.condition_input(condition);
-        if inverted {
-            if let ValueDefinition::Expression(Expression::ZeroTest {
-                input,
-                nonzero: false,
-            }) = self.body.values[condition].definition
-            {
-                // Inverting an unshared i32 zero-test can use its operand as the
-                // Wasm truth value. Saved predicates must keep their original
-                // evaluation, and i64 tests must still produce an i32 condition.
-                if self.slots[condition].is_none()
-                    && wasm_type(self.body.values[input].ty) == ValType::I32
-                {
-                    self.value(input);
-                    return;
-                }
-            }
-        }
-        self.value(condition);
-        if inverted {
-            self.code.instruction(Instruction::I32Eqz);
-        }
+        let plan = self.planner.condition(condition, inverted);
+        self.emit(plan);
     }
 
-    fn evaluate(&mut self, root: usize, capture: bool) {
-        let mut pending = vec![Walk::Value(root)];
-        while let Some(next) = pending.pop() {
-            let id = match next {
-                Walk::Value(id) => place::representation(self.body, id),
-                Walk::FinishExpression {
-                    result,
-                    sign_extend_from,
-                } => {
-                    if let Some(input) = sign_extend_from {
-                        integer::emit(&mut self.code, Type::I32, Expression::SignExtend { input });
-                    }
-                    let value = self.body.values[result];
-                    let ValueDefinition::Expression(expression) = value.definition else {
-                        unreachable!("expression completion names an expression result")
-                    };
-                    integer::emit(
-                        &mut self.code,
-                        value.ty,
-                        expression.map(|&input| self.body.values[input].ty),
-                    );
-                    self.completed(result, capture && result == root);
-                    continue;
-                }
-                Walk::FinishLoad {
-                    result,
-                    location,
-                    signed,
-                } => {
-                    self.load(location, self.body.values[result].ty, signed);
-                    self.completed(result, capture && result == root);
-                    continue;
-                }
-                Walk::FinishCall(id) => {
-                    let ValueDefinition::OperationResult { site, .. } =
-                        self.body.values[id].definition
-                    else {
-                        unreachable!("call completion names a call result")
-                    };
-                    self.finish_call(site, Some((id, capture && id == root)));
-                    continue;
-                }
-            };
-            if let Some(slot) = self.slots[id].filter(|_| self.emitted[id]) {
-                self.code.local(slot, LocalOp::Get);
-                continue;
-            }
-            match self.body.values[id].definition {
-                ValueDefinition::Constant(bits) => {
-                    self.code.instruction(match self.body.values[id].ty {
-                        Type::I1 | Type::I8 | Type::I16 | Type::I32 => {
-                            Instruction::I32Const(bits as u32 as i32)
-                        }
-                        Type::I64 => Instruction::I64Const(bits as i64),
-                    })
-                }
-                ValueDefinition::Parameter(index) => {
-                    self.code.instruction(Instruction::LocalGet(index))
-                }
-                ValueDefinition::JoinResult { .. } => {
-                    unreachable!("a used join was saved after its branch operation")
-                }
-                ValueDefinition::LoopInput { .. } => {
-                    unreachable!("loop inputs are saved at the header")
-                }
-                ValueDefinition::Expression(expression) => match expression {
-                    Expression::Binary { left, right, .. }
-                    | Expression::Compare { left, right, .. }
-                    | Expression::Shift {
-                        value: left,
-                        count: right,
-                        ..
-                    }
-                    | Expression::Rotate {
-                        value: left,
-                        count: right,
-                        ..
-                    } => {
-                        pending.push(Walk::FinishExpression {
-                            result: id,
-                            sign_extend_from: None,
-                        });
-                        pending.push(Walk::Value(right));
-                        pending.push(Walk::Value(left));
-                    }
-                    Expression::Select {
-                        condition,
-                        when_true,
-                        when_false,
-                    } => {
-                        pending.push(Walk::FinishExpression {
-                            result: id,
-                            sign_extend_from: None,
-                        });
-                        pending.push(Walk::Value(self.condition_input(condition)));
-                        pending.push(Walk::Value(when_false));
-                        pending.push(Walk::Value(when_true));
-                    }
-                    Expression::Normalize { input }
-                    | Expression::Convert { input }
-                    | Expression::BitCount { input, .. } => {
-                        pending.push(Walk::FinishExpression {
-                            result: id,
-                            sign_extend_from: None,
-                        });
-                        pending.push(Walk::Value(input));
-                    }
-                    Expression::SignExtend { input } => {
-                        if let Some(location) = self.signed_load_location(input) {
-                            pending.push(Walk::FinishLoad {
-                                result: id,
-                                location,
-                                signed: true,
-                            });
-                            pending.push(Walk::Value(location.base));
-                        } else {
-                            pending.push(Walk::FinishExpression {
-                                result: id,
-                                sign_extend_from: None,
-                            });
-                            pending.push(Walk::Value(input));
-                        }
-                    }
-                    Expression::ZeroTest { input, .. } => {
-                        let mut input = place::representation(self.body, input);
-                        let mut sign_extend_from = None;
-                        if let ValueDefinition::Expression(Expression::Normalize { input: raw }) =
-                            self.body.values[input].definition
-                        {
-                            let ty = self.body.values[input].ty;
-                            if matches!(ty, Type::I8 | Type::I16) && self.slots[input].is_none() {
-                                // For a zero test alone, sign extension tests the same low
-                                // bits with one instruction. Shared masks remain unsigned.
-                                sign_extend_from = Some(ty);
-                                input = raw;
-                            }
-                        }
-                        pending.push(Walk::FinishExpression {
-                            result: id,
-                            sign_extend_from,
-                        });
-                        pending.push(Walk::Value(input));
-                    }
-                },
-                ValueDefinition::OperationResult { site, .. } => {
-                    pending.push(Walk::FinishCall(id));
-                    for &argument in self.blocks.call(site).0.arguments.iter().rev() {
-                        pending.push(Walk::Value(argument));
-                    }
-                }
-                ValueDefinition::Load { site } => {
-                    let location = self.blocks.load_location(site);
-                    pending.push(Walk::FinishLoad {
-                        result: id,
-                        location,
-                        signed: false,
-                    });
-                    pending.push(Walk::Value(location.base));
-                }
-            }
-        }
+    fn emit_captures(&mut self, site: Site) {
+        let plan = self.planner.captures(site);
+        self.emit(plan);
     }
 
-    fn call(&mut self, target: crate::Func) {
-        self.code.instruction(Instruction::Call(
-            self.functions[target.0].expect("a call target has a function index"),
-        ));
+    fn authored_call(&mut self, site: Site) {
+        let plan = self.planner.call(site);
+        self.emit(plan);
+    }
+
+    fn save_results(&mut self, outputs: &[usize]) {
+        let plan = self.planner.save_results(outputs);
+        self.emit(plan);
+    }
+
+    fn emit(&mut self, plan: Vec<Evaluation>) {
+        lower::values(&mut self.code, self.memories, self.functions, plan);
     }
 }

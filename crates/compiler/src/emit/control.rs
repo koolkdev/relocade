@@ -1,13 +1,13 @@
 //! Structured control emission, live result stacks and lexical branch depths.
 use wasm_encoder::Instruction;
 
-use super::{wasm_type, ControlLabel, Scheduler};
+use super::{wasm_type, ControlLabel, Emitter};
 use crate::{
     body::{Block, Operation, Site, Target, Terminal},
     place,
 };
 
-impl Scheduler<'_> {
+impl Emitter<'_> {
     pub(super) fn block(&mut self, block: &Block, fallthrough: Option<Target>) {
         let forwarding = match (&block.terminal, block.operations.last()) {
             (Some(Terminal::Branch { target, arguments }), Some(operation)) => {
@@ -47,7 +47,7 @@ impl Scheduler<'_> {
             // Keep the selector on the stack while common values are captured.
             match operation {
                 Operation::If { condition, .. } => self.emit_condition(*condition, false),
-                Operation::Switch { selector, .. } => self.value(*selector),
+                Operation::Switch { selector, .. } => self.values([*selector]),
                 _ => {}
             }
             self.emit_captures(site);
@@ -56,15 +56,10 @@ impl Scheduler<'_> {
                 Operation::Nop | Operation::Load { .. } => {}
                 Operation::Fence => self.code.instruction(Instruction::AtomicFence),
                 Operation::Atomic { access, output } => {
-                    for input in access.inputs() {
-                        self.value(input);
-                    }
+                    self.values(access.inputs());
                     self.atomic_operation(access);
                     if let Some(output) = *output {
-                        self.completed(output, true);
-                        if self.slots[output].is_none() {
-                            self.code.instruction(Instruction::Drop);
-                        }
+                        self.save_results(&[output]);
                     }
                 }
                 Operation::Call { invocation, .. } => {
@@ -73,8 +68,7 @@ impl Scheduler<'_> {
                     }
                 }
                 Operation::Store { location, value } => {
-                    self.value(location.base);
-                    self.value(*value);
+                    self.values([location.base, *value]);
                     let argument = self.memory_argument(*location);
                     self.code.instruction(match location.bytes {
                         1 => Instruction::I32Store8(argument),
@@ -85,7 +79,7 @@ impl Scheduler<'_> {
                     });
                 }
                 Operation::Block { block, .. } => {
-                    let before = self.emitted.clone();
+                    let before = self.planner.checkpoint();
                     let target = Target::exit(site);
                     if outputs.is_empty() && block.exits_to(target).next().is_none() {
                         // An unreferenced unit block needs no Wasm label. Outward
@@ -98,7 +92,7 @@ impl Scheduler<'_> {
                     }
                     // An outward exit can skip any capture in this child. Only
                     // the joined outputs are available after the block.
-                    self.emitted = before;
+                    self.planner.restore(&before);
                 }
                 Operation::Loop {
                     initial,
@@ -118,42 +112,35 @@ impl Scheduler<'_> {
                         Some(Target::exit(site)),
                         &outputs,
                     );
-                    let before_arm = self.emitted.clone();
+                    let before_arm = self.planner.checkpoint();
                     self.block(branch, Some(Target::exit(site)));
-                    self.emitted.clone_from(&before_arm);
+                    self.planner.restore(&before_arm);
                     if let Some(other) = else_branch {
                         self.code.instruction(Instruction::Else);
                         self.block(other, Some(Target::exit(site)));
                     }
                     self.end_control();
-                    self.emitted = before_arm;
+                    self.planner.restore(&before_arm);
                 }
                 Operation::Switch { cases, default, .. } => {
                     self.switch(cases, default, site);
                 }
             }
             if !(forwarding && index + 1 == block.operations.len()) {
-                // The last result is at the top of the Wasm operand stack.
-                for &output in outputs.iter().rev() {
-                    self.completed(output, true);
-                }
+                self.save_results(&outputs);
             }
         }
         if let Some(terminal) = &block.terminal {
             if let Terminal::Branch { target, arguments } = terminal {
                 if !forwarding {
-                    for argument in self.branch_arguments(*target, arguments) {
-                        self.value(argument);
-                    }
+                    self.values(self.branch_arguments(*target, arguments));
                 }
                 if Some(*target) != fallthrough {
                     self.branch_to(*target);
                 }
                 return;
             }
-            for &value in terminal.inputs() {
-                self.value(value);
-            }
+            self.values(terminal.inputs().iter().copied());
             self.code.instruction(match terminal {
                 Terminal::Branch { .. } => {
                     unreachable!("control transfers follow their own path and result shape")
@@ -168,23 +155,12 @@ impl Scheduler<'_> {
         }
     }
 
-    pub(super) fn emit_captures(&mut self, site: Site) {
-        if let Some(captures) = self.captures.get(&site) {
-            for index in 0..captures.len() {
-                let id = self.captures[&site][index];
-                if !self.emitted[id] {
-                    self.evaluate(id, true);
-                }
-            }
-        }
-    }
-
     fn live_outputs(&self, operation: &Operation) -> Vec<usize> {
         operation
             .branch_outputs()
             .iter()
             .copied()
-            .filter(|&id| self.slots[id].is_some())
+            .filter(|&id| self.planner.has_local(id))
             .collect()
     }
 

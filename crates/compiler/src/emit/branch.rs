@@ -1,13 +1,13 @@
 //! Conditional exits, live edge arguments and lexical branch depths.
 use wasm_encoder::{BlockType, Instruction, ValType};
 
-use super::{LocalOp, Scheduler};
+use super::{Emitter, LocalOp};
 use crate::{
     body::{Block, Site, Target, Terminal, ValueDefinition},
     place,
 };
 
-impl Scheduler<'_> {
+impl Emitter<'_> {
     // Returns true only when the immediate terminal continuation was emitted too.
     pub(super) fn conditional_branch(
         &mut self,
@@ -50,9 +50,7 @@ impl Scheduler<'_> {
                     let slot = self.code.temporary(ValType::I32);
                     self.code.local(slot, LocalOp::Set);
                     self.emit_captures(site);
-                    for argument in live {
-                        self.value(argument);
-                    }
+                    self.values(live);
                     self.code.local(slot, LocalOp::Get);
                 }
                 self.code
@@ -73,10 +71,10 @@ impl Scheduler<'_> {
             // A lone edge's arguments may trap or require snapshots. Demand them
             // only on its taken path, rather than preparing a speculative tuple.
             self.begin_control(Instruction::If(BlockType::Empty), None, &[]);
-            let before = self.emitted.clone();
+            let before = self.planner.checkpoint();
             self.block(taken, None);
             self.end_control();
-            self.emitted = before;
+            self.planner.restore(&before);
         }
         false
     }

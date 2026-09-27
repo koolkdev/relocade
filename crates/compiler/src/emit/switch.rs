@@ -3,10 +3,10 @@ use std::borrow::Cow;
 
 use wasm_encoder::{BlockType, Instruction, ValType};
 
-use super::{LocalOp, Scheduler};
+use super::{Emitter, LocalOp};
 use crate::body::{Block, Site, SwitchCase, Target};
 
-impl Scheduler<'_> {
+impl Emitter<'_> {
     pub(super) fn open_switch(
         &mut self,
         cases: usize,
@@ -29,20 +29,20 @@ impl Scheduler<'_> {
 
     pub(super) fn switch(&mut self, cases: &[SwitchCase], default: &Block, site: Site) {
         self.dispatch_switch(cases);
-        let before_arm = self.emitted.clone();
+        let before_arm = self.planner.checkpoint();
         for case in cases {
             self.end_control();
-            self.emitted.clone_from(&before_arm);
+            self.planner.restore(&before_arm);
             self.block(&case.block, None);
             if case.block.terminal.is_none() {
                 self.branch_to(Target::exit(site));
             }
         }
         self.end_control();
-        self.emitted.clone_from(&before_arm);
+        self.planner.restore(&before_arm);
         self.block(default, Some(Target::exit(site)));
         self.end_control();
-        self.emitted = before_arm;
+        self.planner.restore(&before_arm);
     }
 
     fn dispatch_switch(&mut self, cases: &[SwitchCase]) {
