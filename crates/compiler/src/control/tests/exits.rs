@@ -1,5 +1,5 @@
 use crate::{
-    body::{Operation, Site, Target, Terminal, ValueDefinition},
+    body::{BlockItem, Edge, Exit, Layout, Operation},
     BuildError, FunctionKind, MemoryImport, Program, Signature, Type, I1, I32,
 };
 
@@ -11,7 +11,7 @@ fn signature() -> Signature {
 }
 
 #[test]
-fn conditional_exits_keep_their_edge_scope_and_adjacent_authored_sites() {
+fn conditional_exits_keep_their_edge_scope_and_snapshot_producers() {
     let mut program = Program::new();
     let memory = program.import_memory(MemoryImport {
         module: "test".into(),
@@ -39,56 +39,52 @@ fn conditional_exits_keep_their_edge_scope_and_adjacent_authored_sites() {
     let FunctionKind::Defined(Some(body)) = &program.functions[function.0].kind else {
         panic!("the function is complete");
     };
-    let [Operation::Block { block, .. }] = body.block.operations.as_slice() else {
-        panic!("the result belongs to the block");
+    let [Layout::Scope {
+        body: layout,
+        after,
+        ..
+    }, Layout::Block(_)] = body.layout.as_slice()
+    else {
+        panic!("the result belongs to the scope's continuation");
     };
-    assert_eq!(block.operations.len(), 4);
-    let load_sites: Vec<_> = body
-        .values
-        .iter()
-        .filter_map(|value| match value.definition {
-            ValueDefinition::Load { site } => Some((site.block, site.index)),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(load_sites, vec![(block.id, 0), (block.id, 2)]);
-    let mut edge_scopes = Vec::new();
-    for operation in &block.operations {
-        match operation {
-            Operation::Load { .. } => {}
-            Operation::BranchIf { taken, .. } => {
-                assert_ne!(taken.id, block.id);
-                assert!(taken.operations.is_empty());
-                assert!(
-                    matches!(&taken.terminal, Some(Terminal::Branch { target, arguments })
-                    if *target == Target::exit(Site { block: body.block.id, index: 0 })
-                        && arguments.len() == 1)
-                );
-                edge_scopes.push(taken.id);
-            }
-            _ => panic!("the authored sequence contains loads and conditional exits"),
-        }
+    let [Layout::If {
+        branch: first,
+        taken: first_exit,
+        ..
+    }, Layout::If {
+        branch: second,
+        taken: second_exit,
+        ..
+    }, Layout::Block(_)] = layout.as_slice()
+    else {
+        panic!("two loads each precede a conditional exit");
+    };
+    let mut results = Vec::new();
+    for (source, taken) in [(first, first_exit), (second, second_exit)] {
+        let [BlockItem::Effect(effect)] = body.blocks[source.0].items.as_slice() else {
+            panic!("the branch observes its own read snapshot");
+        };
+        let effect = &body.effects[effect.0];
+        assert!(matches!(effect.operation, Operation::Load { .. }));
+        results.push(effect.results.clone());
+        let [Layout::Block(edge)] = taken.as_slice() else {
+            panic!("the taken arm is an edge");
+        };
+        assert_ne!(edge, source);
+        assert!(body.blocks[edge.0].items.is_empty());
+        assert!(
+            matches!(&body.blocks[edge.0].exit, Exit::Jump(edge) if edge.target == *after && edge.arguments == effect.results)
+        );
     }
-    assert_eq!(edge_scopes.len(), 2);
-    assert_ne!(edge_scopes[0], edge_scopes[1]);
-    let children: Vec<_> = block
-        .operations
-        .iter()
-        .enumerate()
-        .flat_map(|(index, operation)| operation.children().map(move |child| (index, child.id)))
-        .collect();
-    assert_eq!(children, vec![(1, edge_scopes[0]), (3, edge_scopes[1])]);
-    assert_eq!(block.walk().count(), 3);
+    assert_ne!(results[0], results[1]);
     assert_eq!(
-        block
-            .exits_to(Target::exit(Site {
-                block: body.block.id,
-                index: 0
-            }))
+        body.blocks
+            .iter()
+            .flat_map(|block| block.exit.edges())
+            .filter(|edge| edge.target == *after)
             .count(),
         3
     );
-    assert!(matches!(block.terminal, Some(Terminal::Branch { .. })));
     assert!(program.compile().is_ok());
 }
 
@@ -129,7 +125,7 @@ fn conditional_exit_errors_leave_the_parent_open_and_do_not_attach_an_edge() {
                                 Ok(())
                             })?;
                             let child_value = child_value.unwrap();
-                            let before = block.pending.operations.len();
+                            let before = (block.pending.current, block.pending.layout.len());
                             assert_eq!(
                                 block.branch_if(false, &exit, ()),
                                 Err(BuildError::ResultCount {
@@ -175,7 +171,7 @@ fn conditional_exit_errors_leave_the_parent_open_and_do_not_attach_an_edge() {
                                 block.branch_if(child_value.eq(0), &exit, 7),
                                 Err(BuildError::OutOfScope)
                             );
-                            assert_eq!(block.pending.operations.len(), before);
+                            assert_eq!((block.pending.current, block.pending.layout.len()), before);
                             block.if_(true, |mut arm| {
                                 assert_eq!(arm.yield_if(false, 7), Err(BuildError::InvalidYield));
                                 Ok(())
@@ -212,11 +208,11 @@ fn a_general_if_keeps_its_control_boundary_when_the_parent_completes() {
     let FunctionKind::Defined(Some(body)) = &program.functions[function.0].kind else {
         panic!("the function is complete");
     };
-    assert!(matches!(
-        body.block.operations.as_slice(),
-        [Operation::If { .. }]
-    ));
-    assert!(matches!(body.block.terminal, Some(Terminal::Return(_))));
+    let [Layout::If { join, .. }, Layout::Block(last)] = body.layout.as_slice() else {
+        panic!("a conditional has a separate continuation");
+    };
+    assert_eq!(join, last);
+    assert!(matches!(body.blocks[join.0].exit, Exit::Return(_)));
     assert!(program.compile().is_ok());
 }
 
@@ -227,20 +223,23 @@ fn a_nested_exit_keeps_the_conditional_label_it_targets() {
     program
         .define(function, |mut body| {
             let choose = body.parameter::<I1>(0).unwrap();
-            let target = Target::exit(body.site());
-            body.if_(choose, |mut taken| {
-                taken.block::<()>(|nested, _| {
-                    // This valid internal edge exits the If itself, a label the public
-                    // no-result builder does not expose.
-                    nested.terminate(|_| {
-                        Ok(Terminal::Branch {
-                            target,
-                            arguments: vec![],
+            body.if_value::<()>(
+                choose,
+                |mut taken| {
+                    let destination = taken.yield_target.as_ref().unwrap().target;
+                    taken.block::<()>(|nested, _| {
+                        // The nested block exits the surrounding conditional.
+                        nested.terminate(|_| {
+                            Ok(Exit::Jump(Edge {
+                                target: destination,
+                                arguments: vec![],
+                            }))
                         })
-                    })
-                })?;
-                taken.trap()
-            })
+                    })?;
+                    taken.trap()
+                },
+                |_| Ok(()),
+            )
             .unwrap();
             body.return_(7)
         })
@@ -248,11 +247,11 @@ fn a_nested_exit_keeps_the_conditional_label_it_targets() {
     let FunctionKind::Defined(Some(body)) = &program.functions[function.0].kind else {
         panic!("the function is complete");
     };
-    assert!(matches!(
-        body.block.operations.as_slice(),
-        [Operation::If { .. }]
-    ));
-    assert!(matches!(body.block.terminal, Some(Terminal::Return(_))));
+    let [Layout::If { join, .. }, Layout::Block(last)] = body.layout.as_slice() else {
+        panic!("a conditional has a separate continuation");
+    };
+    assert_eq!(join, last);
+    assert!(matches!(body.blocks[join.0].exit, Exit::Return(_)));
     let bytes = program.compile().unwrap();
     wasmparser::Validator::new().validate_all(&bytes).unwrap();
 }

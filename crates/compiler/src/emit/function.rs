@@ -2,7 +2,11 @@
 
 use wasm_encoder::{Encode, Function, Instruction, ValType};
 
-use crate::schedule::LocalOp;
+enum LocalOp {
+    Get,
+    Set,
+    Tee,
+}
 
 mod locals;
 
@@ -39,7 +43,21 @@ impl FunctionEncoder {
         }
     }
 
+    /// Local indices below `parameter_count` name parameters. Higher indices
+    /// name symbolic slots; finish() assigns their reusable physical locals.
     pub(super) fn instruction(&mut self, instruction: Instruction<'_>) {
+        let local = match &instruction {
+            Instruction::LocalGet(index) => Some((*index, LocalOp::Get)),
+            Instruction::LocalSet(index) => Some((*index, LocalOp::Set)),
+            Instruction::LocalTee(index) => Some((*index, LocalOp::Tee)),
+            _ => None,
+        };
+        if let Some((index, operation)) = local {
+            if index >= self.parameter_count {
+                self.local((index - self.parameter_count) as usize, operation);
+                return;
+            }
+        }
         match &instruction {
             Instruction::Block(_) | Instruction::If(_) => self.controls.push(ControlFrame::Block),
             Instruction::Loop(_) => self.controls.push(ControlFrame::Loop {
@@ -61,7 +79,7 @@ impl FunctionEncoder {
         instruction.encode(&mut self.bytes);
     }
 
-    pub(super) fn local(&mut self, slot: usize, operation: LocalOp) {
+    fn local(&mut self, slot: usize, operation: LocalOp) {
         self.events.push(LocalEvent {
             offset: self.bytes.len(),
             slot,

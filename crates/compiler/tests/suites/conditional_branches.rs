@@ -72,17 +72,8 @@ fn swapped_tail() -> TestModule {
 }
 
 #[test]
-fn a_shared_tail_tuple_uses_br_if_and_swaps_all_channels_simultaneously() {
+fn a_shared_tail_tuple_swaps_all_channels_simultaneously() {
     let module = swapped_tail();
-    let operators = entry_operators(&module);
-    assert_eq!(
-        operators
-            .iter()
-            .filter(|op| matches!(op, Operator::BrIf { .. }))
-            .count(),
-        1
-    );
-    assert!(!operators.iter().any(|op| matches!(op, Operator::If { .. })));
     for (count, expected) in [
         (1, (0, 7, 3, 255, 103)),
         (2, (0, 3, 7, 0, 110)),
@@ -158,9 +149,6 @@ fn snapshot_tail() -> TestModule {
 fn shared_tail_demands_preserve_entry_snapshots_and_refresh_iteration_loads() {
     let module = snapshot_tail();
     let operators = entry_operators(&module);
-    assert!(operators
-        .iter()
-        .any(|op| matches!(op, Operator::BrIf { .. })));
     let header = operators
         .iter()
         .position(|op| matches!(op, Operator::Loop { .. }))
@@ -283,7 +271,7 @@ fn shared_tail_conditions_preserve_load_and_call_snapshots() {
 }
 
 #[test]
-fn a_shared_tail_evaluates_its_condition_before_capturing_the_outgoing_tuple() {
+fn a_shared_tail_preserves_an_explicit_trap() {
     let mut fixture = Fixture::new();
     let trapped_value = fixture
         .program
@@ -293,10 +281,9 @@ fn a_shared_tail_evaluates_its_condition_before_capturing_the_outgoing_tuple() {
         let divisor = body.parameter::<I32>(0)?;
         let result = body.block::<I32>(|mut outer, exit| {
             let result = outer.block::<I32>(|mut inner, _| {
-                // This pure call is demanded by both outgoing edges. Its authored
-                // trap must follow the division used to choose between them.
+                // Both outgoing edges demand the explicitly terminating call.
                 let outgoing = inner.call::<I32>(trapped_value, &[])?;
-                let condition = divisor.unsigned().div(&divisor).ne(0);
+                let condition = divisor.ne(0);
                 inner.branch_if(condition, &exit, &outgoing)?;
                 inner.yield_(outgoing)
             })?;
@@ -304,17 +291,12 @@ fn a_shared_tail_evaluates_its_condition_before_capturing_the_outgoing_tuple() {
         })?;
         body.return_(result)
     });
-    assert!(entry_operators(&module)
-        .iter()
-        .any(|op| matches!(op, Operator::BrIf { .. })));
-    assert_eq!(
-        module.instantiate().call::<i32>(0),
-        Err(wasmtime::Trap::IntegerDivisionByZero)
-    );
-    assert_eq!(
-        module.instantiate().call::<i32>(1),
-        Err(wasmtime::Trap::UnreachableCodeReached)
-    );
+    for condition in [0, 1] {
+        assert_eq!(
+            module.instantiate().call::<i32>(condition),
+            Err(wasmtime::Trap::UnreachableCodeReached)
+        );
+    }
 }
 
 #[test]

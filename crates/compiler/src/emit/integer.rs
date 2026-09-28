@@ -1,16 +1,16 @@
 //! Lowering logical integer expressions to Wasm carrier operations.
 use wasm_encoder::Instruction;
 
-use super::function::FunctionEncoder;
 use crate::{
-    integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
+    integer::{low_mask, BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
     Expression, Type,
 };
 
 /// Operands are already on the stack in Wasm order. Their logical types select
 /// the instructions independently of the expression's result type. Conversions
 /// within one Wasm carrier have already been bypassed by representation selection.
-pub(super) fn emit(code: &mut FunctionEncoder, result_type: Type, expression: Expression<Type>) {
+pub(super) fn lower(result_type: Type, expression: Expression<Type>) -> Vec<Instruction<'static>> {
+    let mut code = Vec::new();
     let wide = result_type == Type::I64;
     let instruction = match expression {
         Expression::Binary { operator, .. } => match (operator, wide) {
@@ -61,8 +61,8 @@ pub(super) fn emit(code: &mut FunctionEncoder, result_type: Type, expression: Ex
                     if padding == 0 {
                         Instruction::I32Clz
                     } else {
-                        code.instruction(Instruction::I32Clz);
-                        code.instruction(Instruction::I32Const(i32::from(padding)));
+                        code.push(Instruction::I32Clz);
+                        code.push(Instruction::I32Const(i32::from(padding)));
                         Instruction::I32Sub
                     }
                 }
@@ -70,8 +70,8 @@ pub(super) fn emit(code: &mut FunctionEncoder, result_type: Type, expression: Ex
                     if result_type.bits() < 32 {
                         // The first bit above the logical value caps the zero case
                         // at its width without changing any nonzero count.
-                        code.instruction(Instruction::I32Const(1 << result_type.bits()));
-                        code.instruction(Instruction::I32Or);
+                        code.push(Instruction::I32Const(1 << result_type.bits()));
+                        code.push(Instruction::I32Or);
                     }
                     Instruction::I32Ctz
                 }
@@ -80,20 +80,20 @@ pub(super) fn emit(code: &mut FunctionEncoder, result_type: Type, expression: Ex
         Expression::SignExtend { input } => {
             match input {
                 Type::I1 => {
-                    code.instruction(Instruction::I32Const(31));
-                    code.instruction(Instruction::I32Shl);
-                    code.instruction(Instruction::I32Const(31));
-                    code.instruction(Instruction::I32ShrS);
+                    code.push(Instruction::I32Const(31));
+                    code.push(Instruction::I32Shl);
+                    code.push(Instruction::I32Const(31));
+                    code.push(Instruction::I32ShrS);
                 }
-                Type::I8 => code.instruction(Instruction::I32Extend8S),
-                Type::I16 => code.instruction(Instruction::I32Extend16S),
+                Type::I8 => code.push(Instruction::I32Extend8S),
+                Type::I16 => code.push(Instruction::I32Extend16S),
                 Type::I32 => {}
                 Type::I64 => unreachable!("a signed extension widens its input"),
             }
             if wide {
                 Instruction::I64ExtendI32S
             } else {
-                return;
+                return code;
             }
         }
         Expression::Compare { operator, left, .. } => {
@@ -121,15 +121,20 @@ pub(super) fn emit(code: &mut FunctionEncoder, result_type: Type, expression: Ex
                 Instruction::I32Eqz
             };
             if nonzero {
-                code.instruction(test);
+                code.push(test);
                 Instruction::I32Eqz
             } else {
                 test
             }
         }
-        Expression::Normalize { .. } => {
-            code.instruction(Instruction::I32Const(result_type.mask() as i32));
-            Instruction::I32And
+        Expression::LowBits { bits, .. } => {
+            if wide {
+                code.push(Instruction::I64Const(low_mask(bits) as i64));
+                Instruction::I64And
+            } else {
+                code.push(Instruction::I32Const(low_mask(bits) as i32));
+                Instruction::I32And
+            }
         }
         Expression::Convert { .. } => {
             if wide {
@@ -139,5 +144,6 @@ pub(super) fn emit(code: &mut FunctionEncoder, result_type: Type, expression: Ex
             }
         }
     };
-    code.instruction(instruction);
+    code.push(instruction);
+    code
 }

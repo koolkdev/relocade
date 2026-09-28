@@ -2,16 +2,16 @@
 use std::collections::HashMap;
 
 use wasm_encoder::{
-    BlockType, CodeSection, EntityType, ExportKind, ExportSection, FunctionSection, ImportSection,
-    MemoryType, Module, TypeSection, ValType,
+    CodeSection, EntityType, ExportKind, ExportSection, FunctionSection, ImportSection, MemoryType,
+    Module, TypeSection, ValType,
 };
 
 use crate::{
-    body::{Operation, Terminal},
-    effects, emit, schedule, FunctionKind, Program,
+    body::{BlockItem, Exit, Operation},
+    emit, place, FunctionKind, Program,
 };
 
-/// Function and multi-result block signatures share one deterministic carrier table.
+/// Logical function signatures share one deterministic Wasm carrier table.
 #[derive(Default)]
 pub(super) struct Types {
     section: TypeSection,
@@ -31,67 +31,37 @@ impl Types {
                 index
             })
     }
-
-    pub(super) fn block(&mut self, results: &[ValType]) -> BlockType {
-        self.control(&[], results)
-    }
-
-    pub(super) fn control(&mut self, parameters: &[ValType], results: &[ValType]) -> BlockType {
-        if !parameters.is_empty() {
-            return BlockType::FunctionType(self.function(parameters.to_vec(), results.to_vec()));
-        }
-        match results {
-            [] => BlockType::Empty,
-            [result] => BlockType::Result(*result),
-            _ => BlockType::FunctionType(self.function(Vec::new(), results.to_vec())),
-        }
-    }
 }
 
-pub(super) fn encode(program: &Program) -> Vec<u8> {
-    let defined: Vec<_> = program
-        .functions
-        .iter()
-        .enumerate()
-        .filter_map(|(id, declaration)| match &declaration.kind {
-            FunctionKind::Defined(body) => Some((
-                id,
-                body.as_ref().expect("compilation requires finished bodies"),
-            )),
-            FunctionKind::Imported { .. } => None,
-        })
-        .collect();
+pub(super) fn encode(mut program: Program) -> Vec<u8> {
+    let defined = place::module(&mut program);
     let mut used_functions = vec![false; program.functions.len()];
     for (_, function) in &program.exports {
         used_functions[function.0] = true;
     }
     let mut used_memories = vec![false; program.memories.len()];
     for (_, body) in &defined {
-        for block in body.block.walk() {
-            if let Some(Terminal::TailCall(invocation)) = &block.terminal {
-                used_functions[invocation.target.0] = true;
+        for memory in &body.memories {
+            used_memories[memory.0] = true;
+        }
+        let reachable = body.reachable();
+        for (index, block) in body.blocks.iter().enumerate() {
+            if !reachable[index] {
+                continue;
             }
-            // Imports follow authored operations, including unused loads.
-            for operation in &block.operations {
-                let location = match operation {
-                    Operation::Nop
-                    | Operation::Block { .. }
-                    | Operation::Loop { .. }
-                    | Operation::If { .. }
-                    | Operation::BranchIf { .. }
-                    | Operation::Fence
-                    | Operation::Switch { .. } => continue,
-                    Operation::Call { invocation, .. } => {
-                        used_functions[invocation.target.0] = true;
-                        continue;
+            if let Exit::TailCall { target, .. } = &block.exit {
+                used_functions[target.0] = true;
+            }
+            for item in &block.items {
+                if let BlockItem::Effect(effect) = item {
+                    if let Operation::Call { target, .. } = &body.effects[effect.0].operation {
+                        used_functions[target.0] = true;
                     }
-                    Operation::Load { location } | Operation::Store { location, .. } => *location,
-                    Operation::Atomic { access, .. } => access.location,
-                };
-                used_memories[location.memory.0] = true;
+                }
             }
         }
     }
+
     let imported: Vec<_> = program
         .functions
         .iter()
@@ -180,21 +150,18 @@ pub(super) fn encode(program: &Program) -> Vec<u8> {
             function_indices[function.0].expect("an exported function is retained"),
         );
     }
-    let effects = effects::infer(program);
     let mut code = CodeSection::new();
     for (id, body) in defined {
         let parameters = u32::try_from(program.functions[id].signature.parameters.len())
             .expect("function parameter count fits the Wasm index space");
-        let schedule = schedule::plan(body, &effects, &mut types);
         code.function(&emit::encode(
-            schedule,
+            body,
             parameters,
             &memories,
             &function_indices,
         ));
     }
-    // Scheduling interns only live multi-result block shapes. Attach the complete
-    // type table first while preserving the existing function signature order.
+    // Function signatures are interned in deterministic declaration order.
     let mut module = Module::new();
     module.section(&types.section);
     if !imports.is_empty() {

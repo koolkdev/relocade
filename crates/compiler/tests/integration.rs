@@ -57,6 +57,8 @@ mod signed_loads;
 mod switches;
 #[path = "suites/tail_calls.rs"]
 mod tail_calls;
+#[path = "suites/value_reuse.rs"]
+mod value_reuse;
 #[path = "suites/value_selection.rs"]
 mod value_selection;
 #[path = "suites/zero_tests.rs"]

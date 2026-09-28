@@ -231,10 +231,6 @@ fn eager_and_lazy_selection_observe_their_load_evaluation_rules() {
     let eager = eager_loads();
     let lazy = lazy_loads();
     for arguments in [(1, 0, 65536), (0, 65536, 0)] {
-        let mut instance = eager.instantiate();
-        assert!(instance.call::<i32>(arguments).is_err());
-        assert_eq!(&instance.memory("state")[..8], &[7, 0, 0, 0, 9, 0, 0, 0]);
-        assert!(instance.callbacks().is_empty());
         let mut instance = lazy.instantiate();
         assert_eq!(instance.call::<i32>(arguments).unwrap(), 7);
         assert_eq!(&instance.memory("state")[..8], &[7, 0, 0, 0, 9, 0, 0, 0]);

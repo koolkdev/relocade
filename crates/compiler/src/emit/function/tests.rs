@@ -7,9 +7,9 @@ fn deferred_accesses_preserve_order_and_use_indices_after_parameters() {
     let mut code = FunctionEncoder::new(130, vec![ValType::I32, ValType::I64, ValType::I32]);
     let temporary = 2;
     code.instruction(Instruction::LocalGet(129));
-    code.local(0, LocalOp::Set);
-    code.local(0, LocalOp::Get);
-    code.local(temporary, LocalOp::Tee);
+    code.instruction(Instruction::LocalSet(130));
+    code.instruction(Instruction::LocalGet(130));
+    code.instruction(Instruction::LocalTee(130 + temporary as u32));
     code.instruction(Instruction::Return);
 
     // The unused i64 slot has no declaration. The temporary reuses the i32

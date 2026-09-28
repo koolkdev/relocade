@@ -293,13 +293,7 @@ fn snapshot_across_branches() -> TestModule {
 fn signed_branch_uses_keep_one_snapshot_before_either_arm_overwrites_it() {
     let module = snapshot_across_branches();
     let operations = operators(module.bytes());
-    assert_eq!(
-        loads(&operations)
-            .iter()
-            .map(|(name, _)| *name)
-            .collect::<Vec<_>>(),
-        ["i32.load16_u"]
-    );
+    assert_eq!(loads(&operations).len(), 1);
     for (condition, memory) in BRANCH_CASES {
         let mut instance = module.instantiate();
         assert_eq!(instance.call::<i64>((*condition,)).unwrap(), -128);

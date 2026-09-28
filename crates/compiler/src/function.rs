@@ -1,7 +1,7 @@
 //! Function construction, pending blocks and definition publication.
 use crate::{
-    arena::ExpressionArena,
-    body::{Block, Operation, Site, Terminal, Value, ValueDefinition},
+    arena::FunctionArena,
+    body::{BlockId, Exit, Layout, Operation},
     control::JoinTarget,
     Argument, Arguments, BuildError, Func, FunctionKind, IntType, Program, Signature, Type, Val,
 };
@@ -25,7 +25,7 @@ use crate::{
 pub struct BlockBuilder<'program> {
     pub(super) program: &'program mut Program,
     pub(super) function: Func,
-    pub(super) arena: ExpressionArena,
+    pub(super) arena: FunctionArena,
     pub(super) pending: &'program mut PendingBlock,
     pub(super) yield_target: Option<JoinTarget>,
 }
@@ -34,36 +34,39 @@ pub struct BlockBuilder<'program> {
 // A failed terminal remains recorded even if the callback ignores its error.
 pub(super) struct PendingBlock {
     pub(super) id: usize,
-    pub(super) operations: Vec<Operation>,
+    pub(super) entry: BlockId,
+    pub(super) current: BlockId,
+    pub(super) layout: Vec<Layout>,
     ending: Ending,
 }
 
 enum Ending {
     Fallthrough,
-    Terminal(Terminal),
+    Terminal,
     Failed(BuildError),
 }
 
 impl PendingBlock {
-    pub(super) fn new(id: usize) -> Self {
+    pub(super) fn new(id: usize, block: BlockId) -> Self {
         Self {
             id,
-            operations: Vec::new(),
+            entry: block,
+            current: block,
+            layout: Vec::new(),
             ending: Ending::Fallthrough,
         }
     }
 
-    pub(super) fn finish(self) -> Result<Block, BuildError> {
-        let terminal = match self.ending {
-            Ending::Fallthrough => None,
-            Ending::Terminal(terminal) => Some(terminal),
-            Ending::Failed(error) => return Err(error),
-        };
-        Ok(Block {
-            id: self.id,
-            operations: self.operations,
-            terminal,
-        })
+    pub(super) fn finish(mut self) -> Result<Self, BuildError> {
+        if let Ending::Failed(error) = &self.ending {
+            return Err(error.clone());
+        }
+        self.layout.push(Layout::Block(self.current));
+        Ok(self)
+    }
+
+    pub(super) fn falls_through(&self) -> bool {
+        matches!(self.ending, Ending::Fallthrough)
     }
 }
 
@@ -129,9 +132,18 @@ impl Program {
         let mut definition = Definition {
             program: self,
             function,
-            arena: ExpressionArena::new(),
+            arena: FunctionArena::new(),
         };
-        let mut pending = PendingBlock::new(0);
+        for (component, ty) in definition.program.functions[function.0]
+            .signature
+            .parameters
+            .iter()
+            .copied()
+            .enumerate()
+        {
+            definition.arena.parameter(ty, component)?;
+        }
+        let mut pending = PendingBlock::new(0, BlockId(0));
         build(BlockBuilder {
             program: definition.program,
             function,
@@ -148,24 +160,23 @@ impl Program {
 struct Definition<'program> {
     program: &'program mut Program,
     function: Func,
-    arena: ExpressionArena,
+    arena: FunctionArena,
 }
 
 impl Definition<'_> {
-    fn publish(&mut self, block: Block) -> Result<(), BuildError> {
-        if block.terminal.is_none() {
+    fn publish(&mut self, block: PendingBlock) -> Result<(), BuildError> {
+        if block.falls_through() {
             return Err(BuildError::MissingBody);
         }
-        let values = self.arena.take().ok_or(BuildError::BodyClosed)?;
-        self.program.functions[self.function.0].kind =
-            FunctionKind::Defined(Some(crate::simplify::body(values, block)));
+        let body = self.arena.finish(block.layout)?;
+        self.program.functions[self.function.0].kind = FunctionKind::Defined(Some(body));
         Ok(())
     }
 }
 
 impl Drop for Definition<'_> {
     fn drop(&mut self) {
-        self.arena.take();
+        self.arena.close();
         self.program.functions[self.function.0].building = false;
     }
 }
@@ -199,10 +210,7 @@ impl BlockBuilder<'_> {
                 actual,
             });
         }
-        let value = self.arena.intern(Value {
-            ty: actual,
-            definition: ValueDefinition::Parameter(index),
-        })?;
+        let value = self.arena.parameter(actual, index as usize)?;
         Ok(Val::new(self.arena.clone(), Ok(value)))
     }
 
@@ -233,14 +241,14 @@ impl BlockBuilder<'_> {
             for argument in &mut arguments {
                 *argument = body.arena.normalize(*argument)?;
             }
-            Ok(Terminal::Return(arguments))
+            Ok(Exit::Return(arguments))
         })
     }
 
     /// Ends this execution path with a WebAssembly trap. This consumes the active
     /// builder and is valid for any function result type.
     pub fn trap(self) -> Result<(), BuildError> {
-        self.terminate(|_| Ok(Terminal::Trap))
+        self.terminate(|_| Ok(Exit::Trap))
     }
 
     pub(super) fn operand<T: IntType>(
@@ -259,20 +267,22 @@ impl BlockBuilder<'_> {
         value.into().resolve(&self.arena, expected, self.pending.id)
     }
 
-    pub(super) fn site(&self) -> Site {
-        Site {
-            block: self.pending.id,
-            index: self.pending.operations.len(),
-        }
+    pub(super) fn execute(
+        &mut self,
+        operation: Operation,
+        types: &[Type],
+    ) -> Result<Vec<usize>, BuildError> {
+        self.arena.execute(self.pending.current, operation, types)
     }
 
     pub(super) fn terminate(
         self,
-        make_terminal: impl FnOnce(&Self) -> Result<Terminal, BuildError>,
+        make_terminal: impl FnOnce(&Self) -> Result<Exit, BuildError>,
     ) -> Result<(), BuildError> {
         match make_terminal(&self) {
             Ok(terminal) => {
-                self.pending.ending = Ending::Terminal(terminal);
+                self.arena.exit(self.pending.current, terminal)?;
+                self.pending.ending = Ending::Terminal;
                 Ok(())
             }
             Err(error) => {

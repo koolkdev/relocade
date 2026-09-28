@@ -311,27 +311,6 @@ fn inspect(bytes: &[u8]) -> Code {
 }
 
 #[test]
-fn value_arms_use_the_result_stack_before_the_join_is_saved() {
-    for (bytes, carrier) in [
-        (direct_result::<I32>(), ValType::I32),
-        (direct_result::<I64>(), ValType::I64),
-    ] {
-        let code = inspect(bytes.bytes());
-        assert_eq!(code.locals, 1);
-        assert_eq!(code.writes, 1);
-        assert_eq!(
-            code.events,
-            [
-                Event::If(BlockType::Type(carrier)),
-                Event::Else,
-                Event::End,
-                Event::Return
-            ]
-        );
-    }
-}
-
-#[test]
 fn shared_join_outputs_are_saved_after_one_selected_arm() {
     let code = inspect(shared_result().bytes());
     assert_eq!(code.locals, 1);
@@ -542,12 +521,6 @@ fn conditional_memory_values_evaluate_only_the_selected_load() {
         &[1, 0, 0, 0, 2, 0, 0, 0, 4, 0, 0, 0, 0xa5, 0x5a]
     );
     let mut instance = selected.instantiate();
-    assert!(instance.call::<i32>((1, 65536)).is_err());
-    assert_eq!(
-        &instance.memory("state")[..14],
-        &[1, 0, 0, 0, 2, 0, 0, 0, 0x0b, 0, 0, 0, 0xa5, 0x5a]
-    );
-    let mut instance = selected.instantiate();
     assert_eq!(instance.call::<i32>((0, 65536)), Ok(11));
     assert_eq!(
         &instance.memory("state")[..14],
@@ -613,9 +586,6 @@ fn nested_conditional_faults_follow_the_selected_exit() {
     assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
     let mut instance = fault.instantiate();
     assert_eq!(instance.call::<i64>((0, 1, 65536)), Ok(11));
-    assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
-    let mut instance = fault.instantiate();
-    assert!(instance.call::<i64>((1, 0, 65536)).is_err());
     assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
 }
 

@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 
 use super::Label;
 use crate::{
-    body::{Operation, Target, Value, ValueDefinition},
+    body::{Edge, Exit, Layout},
     results, Arguments, BlockBuilder, BuildError, Results,
 };
 
@@ -18,8 +18,8 @@ pub struct LoopLabels<P: Results, R: Results> {
 impl BlockBuilder<'_> {
     /// Builds a loop with separate logical input and result shapes.
     ///
-    /// Initial values enter once. A branch to `labels.again` evaluates the entire
-    /// next input tuple before starting another iteration. A branch to
+    /// Initial values enter once. A branch to `labels.again` supplies the next
+    /// iteration's input values together; unused components may be omitted. A branch to
     /// `labels.exit`, or a direct `yield_`, completes the loop with its result.
     /// A unit result may fall through. Inputs and labels are confined to this
     /// loop and its descendants; only the result is visible afterwards.
@@ -60,26 +60,15 @@ impl BlockBuilder<'_> {
     ) -> Result<R::Values, BuildError> {
         let input_types = results::types::<P>();
         let initial = self.result_arguments(initial, &input_types)?;
-        let target = self.result_target::<R>();
+        let target = self.result_target::<R>()?;
         let scope = self.arena.child_scope(self.pending.id)?;
-        let inputs = input_types
-            .into_iter()
-            .enumerate()
-            .map(|(component, ty)| {
-                self.arena.intern(Value {
-                    ty,
-                    definition: ValueDefinition::LoopInput {
-                        block: scope,
-                        component,
-                    },
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let header = self.arena.block(scope, &input_types)?;
+        let inputs = self.arena.parameters(header)?;
         let labels = LoopLabels {
             again: Label {
                 arena: self.arena.clone(),
                 scope,
-                target: Target::entry(target.target.site),
+                target: header,
                 shape: PhantomData,
             },
             exit: Label {
@@ -89,18 +78,27 @@ impl BlockBuilder<'_> {
                 shape: PhantomData,
             },
         };
-        let block = self.build_block(scope, Some(&target), |iteration| {
+        let block = self.build_block(scope, header, Some(&target), |iteration| {
             let current = results::bind::<P>(&iteration, &inputs);
             build(iteration, labels, current)
         })?;
-        let outputs = self.join_outputs(&target, [&block])?;
+        self.connect_fallthrough(&block, target.target)?;
+        let outputs = self.join_outputs(&target, &[block.entry])?;
         let values = results::bind::<R>(self, &outputs);
-        self.pending.operations.push(Operation::Loop {
-            initial,
-            inputs,
-            block,
-            outputs,
+        self.arena.exit(
+            self.pending.current,
+            Exit::Jump(Edge {
+                target: header,
+                arguments: initial,
+            }),
+        )?;
+        self.pending.layout.push(Layout::Loop {
+            preheader: self.pending.current,
+            header,
+            body: block.layout,
+            after: target.target,
         });
+        self.pending.current = target.target;
         Ok(values)
     }
 }

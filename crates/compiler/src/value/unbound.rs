@@ -3,7 +3,7 @@
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use crate::{arena::ExpressionArena, expression::Constant, BuildError, Expression, Type};
+use crate::{arena::FunctionArena, expression::Constant, BuildError, Expression, Type};
 
 #[derive(Clone)]
 pub(crate) struct UnboundExpression(Rc<Node>);
@@ -26,7 +26,7 @@ impl UnboundExpression {
         Self(Rc::new(Node { ty, expression }))
     }
 
-    pub(crate) fn build(&self, arena: &ExpressionArena) -> Result<usize, BuildError> {
+    pub(crate) fn build(&self, arena: &FunctionArena) -> Result<usize, BuildError> {
         let expression = self.0.expression.try_map(|operand| match operand {
             Operand::Literal(constant) => arena.constant(constant.ty, constant.bits),
             Operand::Expression(expression) => arena.resolve_unbound(expression),

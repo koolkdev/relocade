@@ -3,7 +3,8 @@ use std::collections::HashSet;
 
 use super::JoinTarget;
 use crate::{
-    body::{Block, Operation, SwitchCase},
+    body::{Edge, Exit, Layout},
+    function::PendingBlock,
     AtLeast, BlockBuilder, BuildError, IntType, Results, Val, I32,
 };
 
@@ -28,12 +29,8 @@ impl BlockBuilder<'_> {
     {
         let selector = self.switch_selector(selector, cases)?;
         let (cases, default) = self.switch_arms(None, cases, build)?;
-        self.pending.operations.push(Operation::Switch {
-            selector,
-            cases,
-            default,
-            outputs: Vec::new(),
-        });
+        let continuation = self.arena.block(self.pending.id, &[])?;
+        self.attach_switch(selector, cases, default, continuation)?;
         Ok(())
     }
 
@@ -73,22 +70,16 @@ impl BlockBuilder<'_> {
         I32: AtLeast<S>,
     {
         let selector = self.switch_selector(selector, cases)?;
-        let target = self.result_target::<R>();
+        let target = self.result_target::<R>()?;
         let (cases, default) = self.switch_arms(Some(&target), cases, build)?;
-        let outputs = self.join_outputs(
-            &target,
-            cases
-                .iter()
-                .map(|case| &case.block)
-                .chain(std::iter::once(&default)),
-        )?;
+        let entries: Vec<_> = cases
+            .iter()
+            .map(|(_, block)| block.entry)
+            .chain(std::iter::once(default.entry))
+            .collect();
+        let outputs = self.join_outputs(&target, &entries)?;
         let values = crate::results::bind::<R>(self, &outputs);
-        self.pending.operations.push(Operation::Switch {
-            selector,
-            cases,
-            default,
-            outputs,
-        });
+        self.attach_switch(selector, cases, default, target.target)?;
         Ok(values)
     }
 
@@ -121,14 +112,59 @@ impl BlockBuilder<'_> {
         target: Option<&JoinTarget>,
         keys: &[u32],
         mut build: impl FnMut(BlockBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
-    ) -> Result<(Vec<SwitchCase>, Block), BuildError> {
+    ) -> Result<(Vec<(u32, PendingBlock)>, PendingBlock), BuildError> {
         let mut cases = Vec::with_capacity(keys.len());
         for &key in keys {
             let block = self.build_branch(target, |arm| build(arm, Some(key)))?;
-            cases.push(SwitchCase { key, block });
+            cases.push((key, block));
         }
         let default = self.build_branch(target, |arm| build(arm, None))?;
-        cases.sort_unstable_by_key(|case| case.key);
+        cases.sort_unstable_by_key(|(key, _)| *key);
         Ok((cases, default))
+    }
+    fn attach_switch(
+        &mut self,
+        selector: usize,
+        cases: Vec<(u32, PendingBlock)>,
+        default: PendingBlock,
+        join: crate::body::BlockId,
+    ) -> Result<(), BuildError> {
+        for (_, branch) in &cases {
+            self.connect_fallthrough(branch, join)?;
+        }
+        self.connect_fallthrough(&default, join)?;
+        self.arena.exit(
+            self.pending.current,
+            Exit::Switch {
+                selector,
+                cases: cases
+                    .iter()
+                    .map(|(key, block)| {
+                        (
+                            *key,
+                            Edge {
+                                target: block.entry,
+                                arguments: Vec::new(),
+                            },
+                        )
+                    })
+                    .collect(),
+                default: Edge {
+                    target: default.entry,
+                    arguments: Vec::new(),
+                },
+            },
+        )?;
+        self.pending.layout.push(Layout::Switch {
+            branch: self.pending.current,
+            cases: cases
+                .into_iter()
+                .map(|(key, block)| (key, block.layout))
+                .collect(),
+            default: default.layout,
+            join,
+        });
+        self.pending.current = join;
+        Ok(())
     }
 }

@@ -35,12 +35,10 @@ impl ValueTable {
             (BinaryOp::Mul, _, ValueDefinition::Constant(1)) => left,
             (BinaryOp::Mul, ValueDefinition::Constant(1), _) => right,
             (BinaryOp::And | BinaryOp::Or, _, _) if left == right => left,
-            (BinaryOp::And, _, ValueDefinition::Constant(bits)) if bits == a.ty.mask() => left,
-            (BinaryOp::And, ValueDefinition::Constant(bits), _) if bits == a.ty.mask() => right,
-            (BinaryOp::And | BinaryOp::Mul, _, ValueDefinition::Constant(0))
-            | (BinaryOp::And | BinaryOp::Mul, ValueDefinition::Constant(0), _) => {
-                self.constant(a.ty, 0)
-            }
+            (BinaryOp::And, _, ValueDefinition::Constant(mask)) => self.and_constant(left, mask),
+            (BinaryOp::And, ValueDefinition::Constant(mask), _) => self.and_constant(right, mask),
+            (BinaryOp::Mul, _, ValueDefinition::Constant(0))
+            | (BinaryOp::Mul, ValueDefinition::Constant(0), _) => self.constant(a.ty, 0),
             (BinaryOp::Or, _, ValueDefinition::Constant(bits)) if bits == a.ty.mask() => right,
             (BinaryOp::Or, ValueDefinition::Constant(bits), _) if bits == a.ty.mask() => left,
             _ => {
@@ -66,19 +64,11 @@ impl ValueTable {
         }
     }
 
-    fn add_constant(&mut self, mut input: usize, mut offset: u64) -> usize {
+    pub(super) fn add_constant(&mut self, mut input: usize, mut offset: u64) -> usize {
         let ty = self.values[input].ty;
         // Combine only consecutive offsets. Conversions and other operations
         // remain boundaries, and offsets wrap at the logical integer width.
-        while let ValueDefinition::Expression(Expression::Binary {
-            operator: BinaryOp::Add,
-            left: base,
-            right: constant,
-        }) = self.values[input].definition
-        {
-            let ValueDefinition::Constant(previous) = self.values[constant].definition else {
-                break;
-            };
+        while let Some((base, previous)) = self.constant_offset(input) {
             input = base;
             offset = ty.normalize(offset.wrapping_add(previous));
         }
@@ -90,6 +80,44 @@ impl ValueTable {
             ty,
             definition: ValueDefinition::Expression(Expression::Binary {
                 operator: BinaryOp::Add,
+                left: input,
+                right: constant,
+            }),
+        })
+    }
+
+    pub(super) fn constant_offset(&self, input: usize) -> Option<(usize, u64)> {
+        let ValueDefinition::Expression(Expression::Binary {
+            operator: BinaryOp::Add,
+            left,
+            right,
+        }) = self.values[input].definition
+        else {
+            return None;
+        };
+        match self.values[right].definition {
+            ValueDefinition::Constant(offset) => Some((left, offset)),
+            _ => None,
+        }
+    }
+
+    fn and_constant(&mut self, input: usize, mask: u64) -> usize {
+        let ty = self.values[input].ty;
+        if mask == ty.mask() {
+            return input;
+        }
+        let bits = mask.trailing_ones() as u8;
+        if mask == integer::low_mask(bits) {
+            return self.low_bits(input, bits);
+        }
+        if self.bounds[input].unsigned <= bits {
+            return input;
+        }
+        let constant = self.constant(ty, mask);
+        self.intern(Value {
+            ty,
+            definition: ValueDefinition::Expression(Expression::Binary {
+                operator: BinaryOp::And,
                 left: input,
                 right: constant,
             }),

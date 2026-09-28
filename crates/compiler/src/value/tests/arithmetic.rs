@@ -3,6 +3,112 @@ use crate::{
 };
 
 #[test]
+fn masks_preserving_every_possible_bit_share_the_original_value() {
+    fn check<T: IntType>() {
+        let mut program = Program::new();
+        program
+            .function(
+                Signature {
+                    parameters: vec![T::TYPE],
+                    results: vec![T::TYPE],
+                },
+                |body| {
+                    let input = body.parameter::<T>(0)?;
+                    let low = input.and(7);
+                    for mask in [7, 15, 127] {
+                        assert!(low.and(mask).same_expression(&low));
+                        assert!(Val::<T>::from(mask).and(&low).same_expression(&low));
+                    }
+                    // These masks can discard bit two or bit one, respectively.
+                    assert!(!low.and(3).same_expression(&low));
+                    assert!(!low.and(5).same_expression(&low));
+                    body.return_(low)
+                },
+            )
+            .unwrap();
+        program.compile().unwrap();
+    }
+    check::<I8>();
+    check::<I16>();
+    check::<I32>();
+    check::<I64>();
+}
+
+#[test]
+fn mask_folding_respects_carries_and_signed_upper_bits() {
+    let mut program = Program::new();
+    program
+        .function(
+            Signature {
+                parameters: vec![Type::I8],
+                results: vec![Type::I32],
+            },
+            |body| {
+                let byte = body.parameter::<I8>(0)?;
+                let signed = byte.signed().extend::<I32>();
+                assert!(!signed.and(255).same_expression(&signed));
+                let low = byte.unsigned().extend::<I32>().and(7);
+                let carried = low.add(1);
+                assert!(!carried.and(7).same_expression(&carried));
+                assert!(carried.and(15).same_expression(&carried));
+                body.return_(carried)
+            },
+        )
+        .unwrap();
+    program.compile().unwrap();
+}
+
+#[test]
+fn offsets_combine_across_masks_preserving_the_observed_low_bits() {
+    let mut program = Program::new();
+    program
+        .function(
+            Signature {
+                parameters: vec![Type::I32],
+                results: vec![Type::I32],
+            },
+            |body| {
+                let input = body.parameter::<I32>(0)?;
+                let low = input.and(7);
+                let pushed = low.add(7).and(7).truncate::<I8>();
+                let popped = pushed.unsigned().extend::<I32>().add(1).and(7);
+                assert!(popped.same_expression(&low));
+                let result = input.add(5).and(15).add(6).and(7);
+                assert!(result.same_expression(&input.add(3).and(7)));
+                let sparse = input.add(5).and(5).add(6).and(7);
+                assert!(!sparse.same_expression(&result));
+                body.return_(popped)
+            },
+        )
+        .unwrap();
+    program.compile().unwrap();
+}
+
+#[test]
+fn long_mask_chains_preserve_low_bit_sums() {
+    let mut program = Program::new();
+    program
+        .function(
+            Signature {
+                parameters: vec![Type::I32],
+                results: vec![Type::I32],
+            },
+            |body| {
+                let input = body.parameter::<I32>(0)?;
+                let mut value = input.clone();
+                for _ in 0..20_000 {
+                    value = value.add(2).and(0x17);
+                }
+                let result = value.add(1).and(7);
+                assert!(result.same_expression(&input.add(1).and(7)));
+                body.return_(result)
+            },
+        )
+        .unwrap();
+    program.compile().unwrap();
+}
+
+#[test]
 fn equivalent_constant_offsets_share_values_at_each_logical_width() {
     fn check<T: IntType>() {
         let mut program = Program::new();

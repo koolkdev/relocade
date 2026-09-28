@@ -13,8 +13,8 @@ fn shared_unbound_expressions_are_cached_per_body_and_released_when_closed() {
     };
     let retained = Rc::downgrade(&recipe.0);
     assert_eq!(retained.strong_count(), 1);
-    let first = ExpressionArena::new();
-    let second = ExpressionArena::new();
+    let first = FunctionArena::new();
+    let second = FunctionArena::new();
     for (arena, owners) in [(&first, 2), (&second, 3)] {
         for _ in 0..2 {
             let value = folded.checked_expression(arena, 0).unwrap();
@@ -43,7 +43,7 @@ fn unbound_identity_tracks_shared_nodes_and_admission_uses_body_canonicalization
     let separate = Val::<I32>::from(7).unsigned().div(0);
     assert!(first.same_expression(&copy));
     assert!(!first.same_expression(&separate));
-    let arena = ExpressionArena::new();
+    let arena = FunctionArena::new();
     let first = first.bind(&arena, 0).unwrap();
     let separate = separate.bind(&arena, 0).unwrap();
     assert!(first.same_expression(&separate));
@@ -60,7 +60,7 @@ fn unbound_operands_keep_their_types_across_comparisons_shifts_and_conversions()
     let shifted = wide_zero.or(1).shl(count);
     let extended = narrow.signed().extend::<I64>();
     let chosen = negative.select(shifted.clone(), extended.clone());
-    let arena = ExpressionArena::new();
+    let arena = FunctionArena::new();
     let expected = [
         (negative.checked_expression(&arena, 0).unwrap(), I1::TYPE, 1),
         (

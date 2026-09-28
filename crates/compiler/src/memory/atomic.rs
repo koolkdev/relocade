@@ -66,8 +66,8 @@ impl<V> AtomicOperation<V> {
     }
 }
 
-impl AtomicOperation {
-    pub(crate) fn inputs(&self) -> impl Iterator<Item = usize> {
+impl<V: Copy> AtomicOperation<V> {
+    pub(crate) fn inputs(&self) -> impl Iterator<Item = V> {
         let (first, second) = match self.operation {
             AtomicKind::Load => (None, None),
             AtomicKind::Store { value }
@@ -127,7 +127,8 @@ impl<'program> BlockBuilder<'program> {
     /// Orders memory effects in all imported memories, including accesses made
     /// by generated helpers. The fence remains present when no value is used.
     pub fn atomic_fence(&mut self) {
-        self.pending.operations.push(Operation::Fence);
+        self.execute(Operation::Fence, &[])
+            .expect("an active builder owns an open body");
     }
 }
 
@@ -140,13 +141,13 @@ impl<T: MemoryInt> AtomicAccess<'_, '_, T> {
     /// Writes the low bits at the operand's logical width.
     pub fn store(self, value: impl Into<Val<T>>) -> Result<(), BuildError> {
         let value = self.body.operand(value)?;
-        self.body.pending.operations.push(Operation::Atomic {
-            access: AtomicOperation {
+        self.body.execute(
+            Operation::Atomic(AtomicOperation {
                 location: self.location,
                 operation: AtomicKind::Store { value },
-            },
-            output: None,
-        });
+            }),
+            &[],
+        )?;
         Ok(())
     }
 
@@ -203,17 +204,13 @@ impl<T: MemoryInt> AtomicAccess<'_, '_, T> {
     }
 
     fn value(self, operation: AtomicKind) -> Result<Val<T>, BuildError> {
-        let output = self
-            .body
-            .arena
-            .operation_result(T::TYPE, self.body.site(), 0)?;
-        self.body.pending.operations.push(Operation::Atomic {
-            access: AtomicOperation {
+        let output = self.body.execute(
+            Operation::Atomic(AtomicOperation {
                 location: self.location,
                 operation,
-            },
-            output: Some(output),
-        });
+            }),
+            &[T::TYPE],
+        )?[0];
         Ok(Val::new(self.body.arena.clone(), Ok(output)))
     }
 }

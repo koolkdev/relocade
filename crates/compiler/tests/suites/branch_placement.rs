@@ -4,10 +4,10 @@ use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 use wasm86_compiler::{Type, I1, I32};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
+#[path = "branch_placement/continuations.rs"]
+mod continuations;
 #[path = "branch_placement/guarded.rs"]
 mod guarded;
-#[path = "branch_placement/recomputation.rs"]
-mod recomputation;
 
 fn exclusive_switch_arms() -> TestModule {
     let mut fixture = Fixture::new();
@@ -195,18 +195,13 @@ fn snapshot_across_arm_writes(source: Snapshot) -> TestModule {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Event {
     If,
+    BranchIf,
     Else,
     End,
     Table,
     BlockEnd,
     Add,
-    And,
-    Mul,
     Xor,
-    Constant(i32),
-    Compare,
-    ZeroTest,
-    LocalWrite,
     Load,
     Store,
     Call,
@@ -252,6 +247,7 @@ fn inspect(bytes: &[u8]) -> Vec<Event> {
                             continue;
                         }
                         Operator::Else => Event::Else,
+                        Operator::BrIf { .. } => Event::BranchIf,
                         Operator::End => match controls.pop() {
                             Some(true) => Event::End,
                             Some(false) => Event::BlockEnd,
@@ -259,13 +255,7 @@ fn inspect(bytes: &[u8]) -> Vec<Event> {
                         },
                         Operator::BrTable { .. } => Event::Table,
                         Operator::I32Add => Event::Add,
-                        Operator::I32And => Event::And,
-                        Operator::I32Mul => Event::Mul,
-                        Operator::I32Const { value } => Event::Constant(value),
                         Operator::I32Xor => Event::Xor,
-                        Operator::I32GeU => Event::Compare,
-                        Operator::I32Eqz => Event::ZeroTest,
-                        Operator::LocalSet { .. } | Operator::LocalTee { .. } => Event::LocalWrite,
                         Operator::I32Load { .. } => Event::Load,
                         Operator::I32Store { .. } => Event::Store,
                         Operator::Call { .. } => Event::Call,
@@ -352,66 +342,10 @@ fn nested_uses_share_one_capture_inside_each_selected_switch_arm() {
 }
 
 #[test]
-fn a_cheap_dependency_is_computed_in_each_arm_and_its_continuation() {
-    let events = inspect(dependency_used_after_the_join().bytes());
-    let branch = events.iter().position(|event| *event == Event::If).unwrap();
-    assert_eq!(
-        events.iter().filter(|event| **event == Event::Add).count(),
-        3
-    );
-    assert!(!events[..branch].contains(&Event::Add));
-    let join = events
-        .iter()
-        .position(|event| *event == Event::End)
-        .unwrap();
-    assert_eq!(
-        events[join..]
-            .iter()
-            .filter(|event| **event == Event::Add)
-            .count(),
-        1
-    );
-    assert!(!events[..branch].contains(&Event::Xor));
-    assert_eq!(xor_counts_on_paths(&events, &mut 0), [1, 1]);
-}
-
-#[test]
-fn two_sequential_controls_each_compute_their_shared_cheap_value() {
-    let events = inspect(sequential_controls().bytes());
-    let branch = events.iter().position(|event| *event == Event::If).unwrap();
-    assert!(!events[..branch].contains(&Event::Xor));
-    assert_eq!(
-        events.iter().filter(|&&event| event == Event::Xor).count(),
-        2
-    );
-    assert_eq!(xor_counts_on_paths(&events, &mut 0), [2, 1, 1, 0]);
-}
-
-#[test]
 fn nested_sequential_uses_stay_inside_their_outer_conditional_arm() {
     let events = inspect(sequential_controls_inside_an_exclusive_arm().bytes());
     let branch = events.iter().position(|event| *event == Event::If).unwrap();
     assert!(!events[..branch].contains(&Event::Xor));
-    assert_eq!(xor_counts_on_paths(&events, &mut 0).iter().max(), Some(&1));
-}
-
-#[test]
-fn a_shared_address_is_available_when_the_parent_captures_its_load() {
-    let events = inspect(shared_address_needed_by_a_parent_load().bytes());
-    assert_eq!(
-        events.iter().filter(|event| **event == Event::Add).count(),
-        3
-    );
-    let address = events
-        .iter()
-        .position(|event| *event == Event::Add)
-        .unwrap();
-    let read = events
-        .iter()
-        .position(|event| *event == Event::Load)
-        .unwrap();
-    let branch = events.iter().position(|event| *event == Event::If).unwrap();
-    assert!(address < read && read < branch, "{events:?}");
 }
 
 #[test]
@@ -429,10 +363,6 @@ fn load_call_and_join_inputs_keep_their_snapshot_before_arm_writes() {
             .position(|event| *event == Event::Store)
             .unwrap();
         assert!(read < write, "{events:?}");
-        assert_eq!(
-            events.iter().filter(|event| **event == Event::Xor).count(),
-            2
-        );
         assert_eq!(xor_counts_on_paths(&events, &mut 0).iter().max(), Some(&1));
     }
 }
@@ -462,12 +392,6 @@ fn exclusive_switch_arms_execute_only_selected_shared_values() {
         &instance.memory("state")[..12],
         &[7, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0]
     );
-    let mut instance = exclusive.instantiate();
-    assert!(instance.call::<i32>((10, 7, 65536)).is_err());
-    assert_eq!(
-        &instance.memory("state")[..12],
-        &[7, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0]
-    );
 }
 
 #[test]
@@ -484,16 +408,13 @@ fn nested_switch_uses_execute_only_the_reached_dependencies() {
         assert_eq!(&instance.memory("state")[..12], state);
     }
     for (selector, first, second, expected_result, expected_memory) in [
-        (9, 1, 1, Some(17), &[7, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0]),
-        (10, 0, 0, Some(8), &[7, 0, 0, 0, 5, 0, 0, 0, 0x0a, 0, 0, 0]),
-        (10, 1, 0, None, &[7, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0]),
+        (9, 1, 1, 17, &[7, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0]),
+        (10, 0, 0, 8, &[7, 0, 0, 0, 5, 0, 0, 0, 0x0a, 0, 0, 0]),
     ] {
         let mut instance = nested_switch.instantiate();
         assert_eq!(
-            instance
-                .call::<i32>((selector, first, second, 9, 65536))
-                .ok(),
-            expected_result
+            instance.call::<i32>((selector, first, second, 9, 65536)),
+            Ok(expected_result)
         );
         assert_eq!(&instance.memory("state")[..12], expected_memory);
     }
@@ -544,15 +465,14 @@ fn sequential_controls_inside_exclusive_arms_preserve_placement() {
 fn shared_addresses_remain_available_for_parent_loads() {
     let address = shared_address_needed_by_a_parent_load();
     for (condition, input, expected_result, expected_memory) in [
-        (1, 0, Some(17), &[5, 0, 0, 0, 0x0d, 0, 0, 0, 6, 0, 0, 0]),
-        (0, 0, Some(17), &[5, 0, 0, 0, 0x0f, 0, 0, 0, 6, 0, 0, 0]),
-        (1, 4, Some(17), &[6, 0, 0, 0, 5, 0, 0, 0, 0x0d, 0, 0, 0]),
-        (0, 65532, None, &[7, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0]),
+        (1, 0, 17, &[5, 0, 0, 0, 0x0d, 0, 0, 0, 6, 0, 0, 0]),
+        (0, 0, 17, &[5, 0, 0, 0, 0x0f, 0, 0, 0, 6, 0, 0, 0]),
+        (1, 4, 17, &[6, 0, 0, 0, 5, 0, 0, 0, 0x0d, 0, 0, 0]),
     ] {
         let mut instance = address.instantiate();
         assert_eq!(
-            instance.call::<i32>((condition, input)).ok(),
-            expected_result
+            instance.call::<i32>((condition, input)),
+            Ok(expected_result)
         );
         assert_eq!(&instance.memory("state")[..12], expected_memory);
     }

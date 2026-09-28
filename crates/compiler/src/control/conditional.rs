@@ -1,7 +1,8 @@
 //! Conditional execution and typed result selection.
 use super::JoinTarget;
 use crate::{
-    body::{Operation, Terminal},
+    body::{BlockId, Edge, Exit, Layout},
+    function::PendingBlock,
     Arguments, BlockBuilder, BuildError, Results, Val, I1,
 };
 
@@ -33,18 +34,15 @@ impl BlockBuilder<'_> {
         let condition = self.arena.normalize(condition)?;
         let taken = self.build_branch(None, |branch| {
             branch.terminate(|_| {
-                Ok(Terminal::Branch {
+                Ok(Exit::Jump(Edge {
                     target: target.target,
                     arguments,
-                })
+                }))
             })
         })?;
-        // The selected edge owns its argument demands, but has no result join
-        // of its own. Construction never changes the parent's fallthrough state.
-        self.pending
-            .operations
-            .push(Operation::BranchIf { condition, taken });
-        Ok(())
+        let continuation = self.arena.block(self.pending.id, &[])?;
+        let otherwise = self.build_branch(None, |_| Ok(()))?;
+        self.attach_conditional(condition, taken, otherwise, continuation)
     }
 
     /// Builds a branch that executes when the condition is true. A false condition
@@ -77,16 +75,7 @@ impl BlockBuilder<'_> {
         condition: impl Into<Val<I1>>,
         build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
-        let condition = self.operand(condition)?;
-        let branch = self.build_branch(None, build)?;
-        let condition = self.arena.normalize(condition)?;
-        self.pending.operations.push(Operation::If {
-            condition,
-            branch,
-            else_branch: None,
-            outputs: Vec::new(),
-        });
-        Ok(())
+        self.if_else(condition, build, |_| Ok(()))
     }
 
     /// Executes exactly one of two branches. Each branch may fall through,
@@ -120,13 +109,8 @@ impl BlockBuilder<'_> {
         let branch = self.build_branch(None, then_build)?;
         let else_branch = self.build_branch(None, else_build)?;
         let condition = self.arena.normalize(condition)?;
-        self.pending.operations.push(Operation::If {
-            condition,
-            branch,
-            else_branch: Some(else_branch),
-            outputs: Vec::new(),
-        });
-        Ok(())
+        let continuation = self.arena.block(self.pending.id, &[])?;
+        self.attach_conditional(condition, branch, else_branch, continuation)
     }
 
     /// Selects a typed result by executing one of two branches. Nonempty result
@@ -164,18 +148,45 @@ impl BlockBuilder<'_> {
         else_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<R::Values, BuildError> {
         let condition = self.operand(condition)?;
-        let target = self.result_target::<R>();
+        let target = self.result_target::<R>()?;
         let branch = self.build_branch(Some(&target), then_build)?;
         let else_branch = self.build_branch(Some(&target), else_build)?;
         let condition = self.arena.normalize(condition)?;
-        let outputs = self.join_outputs(&target, [&branch, &else_branch])?;
+        let outputs = self.join_outputs(&target, &[branch.entry, else_branch.entry])?;
         let values = crate::results::bind::<R>(self, &outputs);
-        self.pending.operations.push(Operation::If {
-            condition,
-            branch,
-            else_branch: Some(else_branch),
-            outputs,
-        });
+        self.attach_conditional(condition, branch, else_branch, target.target)?;
         Ok(values)
+    }
+    fn attach_conditional(
+        &mut self,
+        condition: usize,
+        taken: PendingBlock,
+        otherwise: PendingBlock,
+        join: BlockId,
+    ) -> Result<(), BuildError> {
+        self.connect_fallthrough(&taken, join)?;
+        self.connect_fallthrough(&otherwise, join)?;
+        self.arena.exit(
+            self.pending.current,
+            Exit::If {
+                condition,
+                taken: Edge {
+                    target: taken.entry,
+                    arguments: Vec::new(),
+                },
+                otherwise: Edge {
+                    target: otherwise.entry,
+                    arguments: Vec::new(),
+                },
+            },
+        )?;
+        self.pending.layout.push(Layout::If {
+            branch: self.pending.current,
+            taken: taken.layout,
+            otherwise: otherwise.layout,
+            join,
+        });
+        self.pending.current = join;
+        Ok(())
     }
 }

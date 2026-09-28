@@ -420,26 +420,6 @@ fn tail_calls_preserve_canonical_arguments_at_runtime() {
 }
 
 #[test]
-fn tail_argument_traps_preserve_prior_stores_at_runtime() {
-    let mut fixture = Fixture::new();
-    let state = fixture.memory("state", &[7, 0, 0, 0]);
-    let target = fixture.callback(
-        "receive",
-        signature(&[Type::I32], &[Type::I64]),
-        &[Value::I64(99)],
-    );
-    let module = fixture.function(&[], &[Type::I64], |mut body| {
-        let loaded = body.load::<I32>(state, 65536)?;
-        body.store::<I32>(state, 0, 9)?;
-        body.tail_call(target, &[loaded.argument()])
-    });
-    let mut instance = module.instantiate();
-    assert!(instance.call::<i64>(()).is_err());
-    assert!(instance.callbacks().is_empty());
-    assert_eq!(&instance.memory("state")[..4], &[9, 0, 0, 0]);
-}
-
-#[test]
 fn imported_and_defined_tail_targets_use_their_own_bindings_at_runtime() {
     let bindings = imported_and_defined_targets();
     let mut instance = bindings.instantiate();

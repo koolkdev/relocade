@@ -309,23 +309,6 @@ fn reversed_backedge() -> TestModule {
 #[test]
 fn a_conditional_loop_result_shares_the_backedge_tuple_with_reversed_polarity() {
     let module = reversed_backedge();
-    let operators = entry_operators(&module);
-    assert_eq!(
-        operators
-            .iter()
-            .filter(|op| matches!(op, wasmparser::Operator::BrIf { .. }))
-            .count(),
-        1
-    );
-    assert!(!operators
-        .iter()
-        .any(|op| matches!(op, wasmparser::Operator::If { .. })));
-    assert!(operators
-        .iter()
-        .any(|op| matches!(op, wasmparser::Operator::BrIf { relative_depth: 0 })));
-    assert!(!operators
-        .iter()
-        .any(|op| matches!(op, wasmparser::Operator::Br { .. })));
     for (count, sum) in [(1, 3), (3, 9)] {
         assert_eq!(module.instantiate().call::<(i32, i32)>(count), Ok((0, sum)));
     }

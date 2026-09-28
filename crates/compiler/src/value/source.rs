@@ -4,14 +4,14 @@ use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
 use super::{UnboundExpression, Val};
-use crate::{arena::ExpressionArena, BuildError, IntType, Type};
+use crate::{arena::FunctionArena, BuildError, IntType, Type};
 
 #[derive(Clone)]
 pub(super) enum ValueSource {
     Literal(u64),
     Unbound(UnboundExpression),
     Expression {
-        arena: ExpressionArena,
+        arena: FunctionArena,
         expression: Result<BoundExpression, BuildError>,
     },
 }
@@ -40,7 +40,7 @@ impl BoundExpression {
         self.required_scope.map(|scope| scope.get() - 1)
     }
 
-    pub(super) fn admit(self, arena: &ExpressionArena, scope: usize) -> Result<usize, BuildError> {
+    pub(super) fn admit(self, arena: &FunctionArena, scope: usize) -> Result<usize, BuildError> {
         arena.require_visible(self.required_scope(), scope)?;
         Ok(self.value)
     }
@@ -49,7 +49,7 @@ impl BoundExpression {
 impl ValueSource {
     pub(super) fn resolve(
         &self,
-        arena: &ExpressionArena,
+        arena: &FunctionArena,
         ty: Type,
     ) -> Result<BoundExpression, BuildError> {
         match self {
@@ -96,7 +96,7 @@ impl ValueSource {
 impl<T: IntType> Val<T> {
     // Authored parameters, reads, calls and joins begin with their runtime scope.
     // Expressions use `bound` to retain scopes that folding may discard.
-    pub(crate) fn new(arena: ExpressionArena, expression: Result<usize, BuildError>) -> Self {
+    pub(crate) fn new(arena: FunctionArena, expression: Result<usize, BuildError>) -> Self {
         let expression = expression.and_then(|value| {
             Ok(BoundExpression::new(
                 value,
@@ -107,7 +107,7 @@ impl<T: IntType> Val<T> {
     }
 
     pub(super) fn bound(
-        arena: ExpressionArena,
+        arena: FunctionArena,
         expression: Result<BoundExpression, BuildError>,
     ) -> Self {
         Self {
@@ -132,13 +132,13 @@ impl<T: IntType> Val<T> {
 
     pub(crate) fn checked_expression(
         &self,
-        arena: &ExpressionArena,
+        arena: &FunctionArena,
         scope: usize,
     ) -> Result<usize, BuildError> {
         self.source.resolve(arena, T::TYPE)?.admit(arena, scope)
     }
 
-    pub(crate) fn bind(&self, arena: &ExpressionArena, scope: usize) -> Result<Self, BuildError> {
+    pub(crate) fn bind(&self, arena: &FunctionArena, scope: usize) -> Result<Self, BuildError> {
         let expression = self.source.resolve(arena, T::TYPE)?;
         expression.admit(arena, scope)?;
         Ok(Self::bound(arena.clone(), Ok(expression)))

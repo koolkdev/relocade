@@ -2,7 +2,7 @@
 //!
 //! [`Program`] owns function and memory declarations. [`Val`] constructs integer
 //! expressions; [`Type`] specifies logical widths and their Wasm calling convention.
-//! [`BlockBuilder`] adds memory effects and structured control, using [`Results`]
+//! [`BlockBuilder`] adds memory effects, branches and loops, using [`Results`]
 //! for typed result shapes. [`Mem`] and [`MemoryImport`] describe external memory.
 //! Their API documentation covers value visibility, effect ordering and examples.
 //!
@@ -29,7 +29,6 @@ mod arena;
 mod body;
 mod call;
 mod control;
-mod effects;
 mod emit;
 mod expression;
 mod function;
@@ -38,14 +37,12 @@ mod memory;
 mod module;
 mod place;
 mod results;
-mod schedule;
-mod simplify;
 mod types;
 mod value;
 
 use std::fmt;
 
-use body::Body;
+use body::FunctionGraph;
 pub use call::FunctionImport;
 pub use control::{Label, LoopLabels};
 use expression::Expression;
@@ -153,7 +150,7 @@ struct Declaration {
 }
 
 enum FunctionKind {
-    Defined(Option<Body>),
+    Defined(Option<FunctionGraph>),
     Imported { module: String, name: String },
 }
 
@@ -195,6 +192,6 @@ impl Program {
         {
             return Err(BuildError::MissingBody);
         }
-        Ok(module::encode(&self))
+        Ok(module::encode(self))
     }
 }

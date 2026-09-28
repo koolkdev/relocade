@@ -32,13 +32,7 @@ impl Type {
     }
 
     pub(super) fn mask(self) -> u64 {
-        match self {
-            Self::I1 => 1,
-            Self::I8 => 0xff,
-            Self::I16 => 0xffff,
-            Self::I32 => 0xffff_ffff,
-            Self::I64 => u64::MAX,
-        }
+        crate::integer::low_mask(self.bits())
     }
 }
 

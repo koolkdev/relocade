@@ -2,6 +2,27 @@ use super::*;
 use wasm86_compiler::{I16, I64};
 
 #[test]
+fn masked_bit_facts_preserve_the_unobserved_high_bits() {
+    for expected_low in [0_u32, 3] {
+        let module = Fixture::new().function(&[Type::I32], &[Type::I32], |mut body| {
+            let input = body.parameter::<I32>(0)?;
+            body.if_(input.and(7).eq(expected_low), |arm| arm.return_(&input))?;
+            body.return_(99)
+        });
+        for input in [0_i32, 3, 8, 11, 256, 259, i32::MIN, i32::MIN + 3, -1] {
+            assert_eq!(
+                module.instantiate().call::<i32>(input),
+                Ok(if input & 7 == expected_low as i32 {
+                    input
+                } else {
+                    99
+                })
+            );
+        }
+    }
+}
+
+#[test]
 fn a_truncated_bit_fact_preserves_the_remaining_byte() {
     let module = Fixture::new().function(&[Type::I8], &[Type::I32], |mut body| {
         let byte = body.parameter::<I8>(0)?;

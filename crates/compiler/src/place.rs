@@ -1,482 +1,391 @@
-//! Placement of reads and shared values among structured effects.
+//! Place calculations directly in their function graph.
+//! Dominance owns availability; effects retain their authored snapshot ordering.
+use crate::{body::*, Expression, FunctionKind, Program};
 use std::collections::HashMap;
+mod dominance;
+mod effects;
+mod facts;
+mod joins;
+mod reads;
+mod shared;
+mod value;
+use dominance::Dominators;
+use effects::Effects;
+use facts::Facts;
+use joins::Joins;
 
-use wasm_encoder::ValType;
-
-use crate::{
-    body::{Block, BlockTree, Body, Operation, Site, Target, Terminal, ValueDefinition},
-    effects::Effects,
-    emit::wasm_type,
-    memory::Location,
-    Expression, Func,
-};
-
-mod calls;
-mod order;
-mod recompute;
-
-pub(super) struct Placement {
-    pub(super) slots: Vec<Option<usize>>,
-    pub(super) captures: HashMap<Site, Vec<usize>>,
-    pub(super) slot_types: Vec<ValType>,
-}
-
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
-enum Phase {
-    Main,
-    Header,
-}
-
-#[derive(Clone, Copy, Eq, PartialEq)]
-struct Point {
-    site: Site,
-    phase: Phase,
-}
-
-impl Point {
-    fn main(site: Site) -> Self {
-        Self {
-            site,
-            phase: Phase::Main,
-        }
-    }
-}
-
-struct Tree<'a>(&'a BlockTree<'a>);
-
-impl Tree<'_> {
-    fn common_bounds(&self, mut a: Point, mut b: Point) -> (Point, Point) {
-        let (a_site, b_site) = self.0.common_block(a.site, b.site);
-        for (point, site) in [(&mut a, a_site), (&mut b, b_site)] {
-            if point.site.block != site.block {
-                point.site = site;
-                point.phase = Phase::Header;
-            }
-        }
-        // A child cannot initialize values for its parent's other path. Common
-        // captures belong after the parent's selector, before entering the child.
-        if (a.site.index, a.phase) <= (b.site.index, b.phase) {
-            (a, b)
-        } else {
-            (b, a)
-        }
-    }
-
-    fn snapshot_anchor(
-        &self,
-        origin: Site,
-        use_: Point,
-        store: impl Fn(Location) -> bool,
-        call: impl Fn(Func) -> bool,
-    ) -> Point {
-        if self.clobbers(origin, use_.site, store, call) {
-            return Point::main(origin);
-        }
-        let mut anchor = use_;
-        let mut block = use_.site.block;
-        while block != origin.block {
-            let parent = self
-                .0
-                .parent(block)
-                .expect("a snapshot is visible at its demand");
-            if matches!(
-                self.0.block(parent.block).operations[parent.index],
-                Operation::Loop { .. }
-            ) {
-                // Preserve an authored snapshot once before the first crossed
-                // loop. Its enclosing guards and input scope remain intact.
-                anchor = Point::main(parent);
-            }
-            block = parent.block;
-        }
-        anchor
-    }
-
-    fn clobbers(
-        &self,
-        origin: Site,
-        use_: Site,
-        store: impl Fn(Location) -> bool,
-        call: impl Fn(Func) -> bool,
-    ) -> bool {
-        let mut path = Vec::new();
-        let mut scope = use_.block;
-        while scope != origin.block {
-            path.push(scope);
-            scope = self
-                .0
-                .parent(scope)
-                .expect("a read is visible at its demand")
-                .block;
-        }
-        let mut block = origin.block;
-        let mut start = origin.index + 1;
-        for child in path.into_iter().rev() {
-            let parent = self.0.parent(child).unwrap();
-            if self.writes_prefix(block, start, parent.index, &store, &call) {
-                return true;
-            }
-            // An outer snapshot used in a loop must also survive writes after
-            // that use: a backedge reaches the use again on the next iteration.
-            if matches!(
-                self.0.block(block).operations[parent.index],
-                Operation::Loop { .. }
-            ) && Self::block_may_write(self.0.block(child), &store, &call)
-            {
-                return true;
-            }
-            block = child;
-            start = 0;
-        }
-        self.writes_prefix(block, start, use_.index, &store, &call)
-    }
-
-    fn writes_prefix(
-        &self,
-        block: usize,
-        start: usize,
-        end: usize,
-        store: &impl Fn(Location) -> bool,
-        call: &impl Fn(Func) -> bool,
-    ) -> bool {
-        // Stop before the demand's operation or terminal. Its child blocks
-        // have not run yet and cannot clobber a selector's snapshot.
-        self.0.block(block).operations[start..end]
-            .iter()
-            .any(|operation| {
-                Self::writes_operation(operation, store, call)
-                    || operation
-                        .children()
-                        .any(|child| Self::block_may_write(child, store, call))
-            })
-    }
-
-    fn block_may_write(
-        block: &Block,
-        store: &impl Fn(Location) -> bool,
-        call: &impl Fn(Func) -> bool,
-    ) -> bool {
-        // A whole loop lifetime includes every nested operation and terminal.
-        // Returning tail calls can also write before exiting.
-        block.walk().any(|block| {
-            let operations_write = block
-                .operations
-                .iter()
-                .any(|operation| Self::writes_operation(operation, store, call));
-            let terminal_writes = match &block.terminal {
-                Some(Terminal::TailCall(invocation)) => call(invocation.target),
-                _ => false,
+pub(super) fn module(program: &mut Program) -> Vec<(usize, FunctionGraph)> {
+    let summaries = effects::infer(program);
+    program
+        .functions
+        .iter_mut()
+        .enumerate()
+        .filter_map(|(id, function)| {
+            let FunctionKind::Defined(body) = &mut function.kind else {
+                return None;
             };
-            operations_write || terminal_writes
+            let mut graph = body
+                .take()
+                .expect("defined function completed construction");
+            place(&mut graph, &summaries);
+            Some((id, graph))
         })
-    }
+        .collect()
+}
 
-    fn writes_operation(
-        operation: &Operation,
-        store: &impl Fn(Location) -> bool,
-        call: &impl Fn(Func) -> bool,
-    ) -> bool {
-        match operation {
-            Operation::Store { location, .. } => store(*location),
-            Operation::Call { invocation, .. } => call(invocation.target),
-            Operation::Atomic { .. } | Operation::Fence => true,
-            _ => false,
+fn successors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
+    graph
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(id, _)| {
+            if reachable[id] {
+                graph
+                    .outgoing(BlockId(id))
+                    .into_iter()
+                    .map(|edge| edge.target.0)
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        })
+        .collect()
+}
+fn predecessors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
+    let mut predecessors = vec![Vec::new(); graph.blocks.len()];
+    for (source, targets) in successors(graph, reachable).into_iter().enumerate() {
+        for target in targets {
+            if !predecessors[target].contains(&source) {
+                predecessors[target].push(source);
+            }
         }
     }
+    predecessors
 }
 
-#[derive(Clone)]
-struct Demand {
-    first: Point,
-    last: Point,
-    at_first: bool,
-    // Actual uses and physical captures, including repeated inputs at one point.
-    // Lifted common bounds never replace these origins.
-    points: Vec<Point>,
-}
-
-impl Demand {
-    fn at(point: Point) -> Self {
-        Self {
-            first: point,
-            last: point,
-            at_first: true,
-            points: vec![point],
+fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
+    let reachable = graph.reachable();
+    for (index, block) in graph.blocks.iter().enumerate() {
+        if !reachable[index] {
+            continue;
+        }
+        for item in &block.items {
+            let BlockItem::Effect(id) = item else {
+                continue;
+            };
+            let memory = match &graph.effects[id.0].operation {
+                Operation::Load { location } | Operation::Store { location, .. } => {
+                    Some(location.memory)
+                }
+                Operation::Atomic(access) => Some(access.location.memory),
+                _ => None,
+            };
+            if let Some(memory) = memory {
+                if !graph.memories.contains(&memory) {
+                    graph.memories.push(memory);
+                }
+            }
         }
     }
-
-    fn include(&mut self, point: Point, tree: &Tree<'_>) {
-        let (first, _) = tree.common_bounds(self.first, point);
-        let (_, last) = tree.common_bounds(self.last, point);
-        self.at_first = (first == self.first && self.at_first) || first == point;
-        self.first = first;
-        self.last = last;
-        self.points.push(point);
-    }
-}
-
-// A conversion within one Wasm type changes only the logical type. All its
-// uses must reach the producer so sharing neither adds a local nor repeats work.
-pub(super) fn representation(body: &Body, mut id: usize) -> usize {
-    while let ValueDefinition::Expression(Expression::Convert { input }) =
-        body.values[id].definition
-    {
-        if wasm_type(body.values[id].ty) != wasm_type(body.values[input].ty) {
-            break;
+    // Remove unused result channels before they can create false read demands.
+    remove_unused(graph, summaries);
+    reads::prepare(graph, summaries, &reachable);
+    let predecessors = predecessors(graph, &reachable);
+    let dominators =
+        Dominators::new(graph.entry.0, &successors(graph, &reachable), &predecessors);
+    let shared = shared::schedules(graph, &reachable, &dominators);
+    let mut children = vec![Vec::new(); graph.blocks.len()];
+    for (block, parent) in dominators.parent.iter().enumerate() {
+        if let Some(parent) = parent {
+            if *parent != block {
+                children[*parent].push(block);
+            }
         }
-        id = input;
     }
-    id
-}
-
-fn demand(
-    body: &Body,
-    tree: &Tree<'_>,
-    demands: &mut [Option<Demand>],
-    value: usize,
-    point: Point,
-) {
-    let value = representation(body, value);
-    if let Some(entry) = &mut demands[value] {
-        entry.include(point, tree);
-    } else {
-        demands[value] = Some(Demand::at(point));
+    // Joins can be allocated before their arms. Visit acyclic predecessors
+    // first so a join can reuse values already computed on its incoming edges.
+    for children in &mut children {
+        children.sort_by_key(|&block| dominators.rank[block]);
     }
-}
-
-struct Planner<'a> {
-    body: &'a Body,
-    effects: &'a [Effects],
-    tree: Tree<'a>,
-    demands: Vec<Option<Demand>>,
-    capture_points: Vec<Vec<Point>>,
-    saved: Vec<bool>,
-    value_order: Vec<usize>,
-}
-
-pub(super) fn plan(body: &Body, effects: &[Effects], blocks: &BlockTree<'_>) -> Placement {
-    let tree = Tree(blocks);
-    let value_order = order::values(body, &tree);
-    let mut planner = Planner {
-        body,
-        effects,
-        tree,
-        demands: vec![None; body.values.len()],
-        capture_points: vec![Vec::new(); body.values.len()],
-        saved: vec![false; body.values.len()],
-        value_order,
+    let original_exits: Vec<_> = graph
+        .blocks
+        .iter()
+        .map(|block| block.exit.clone())
+        .collect();
+    let joins = Joins::new(graph, &predecessors, dominators);
+    let mut placer = Placer {
+        graph,
+        facts: Facts::default(),
+        available: HashMap::new(),
+        available_log: Vec::new(),
+        expressions: HashMap::new(),
+        expression_log: Vec::new(),
+        specialized: HashMap::new(),
+        shared,
+        joins,
     };
-    planner.collect_demands();
-    planner.place_values();
-    planner.finish()
-}
-
-impl Planner<'_> {
-    fn collect_demands(&mut self) {
-        let body = self.body;
-        let tree = &self.tree;
-        let effects = self.effects;
-        let demands = &mut self.demands;
-        for block in body.block.walk() {
-            for (index, operation) in block.operations.iter().enumerate() {
-                let point = Point::main(Site {
-                    block: block.id,
-                    index,
-                });
-                match operation {
-                    Operation::Loop {
-                        initial, inputs, ..
-                    } => {
-                        // Keep every carried channel. Seeds and backedges are
-                        // rooted before the reverse value walk, which otherwise
-                        // assumes an acyclic expression graph.
-                        for &value in initial {
-                            demand(body, tree, demands, value, point);
-                        }
-                        for &input in inputs {
-                            self.saved[input] = true;
-                        }
-                    }
-                    Operation::Store { location, value } => {
-                        demand(body, tree, demands, location.base, point);
-                        demand(body, tree, demands, *value, point);
-                    }
-                    Operation::Atomic { access, .. } => {
-                        for input in access.inputs() {
-                            demand(body, tree, demands, input, point);
-                        }
-                    }
-                    Operation::If {
-                        condition: selector,
-                        ..
-                    }
-                    | Operation::BranchIf {
-                        condition: selector,
-                        ..
-                    }
-                    | Operation::Switch { selector, .. } => {
-                        demand(body, tree, demands, *selector, point)
-                    }
-                    Operation::Call {
-                        invocation,
-                        outputs,
-                    } => {
-                        if outputs.is_empty() && effects[invocation.target.0].must_execute() {
-                            for &argument in &invocation.arguments {
-                                demand(body, tree, demands, argument, point);
+    enum Visit {
+        Enter(usize),
+        Leave {
+            block: usize,
+            values: usize,
+            expressions: usize,
+            facts: Facts,
+        },
+    }
+    let mut work = vec![Visit::Enter(placer.graph.entry.0)];
+    while let Some(visit) = work.pop() {
+        match visit {
+            Visit::Enter(index) => {
+                let saved = placer.facts.clone();
+                let values = placer.available_log.len();
+                let expressions = placer.expression_log.len();
+                // A unique predecessor's selected edge supplies facts valid on
+                // every entrance. Dominator ancestry preserves them afterwards.
+                if predecessors[index].len() == 1 {
+                    let source = predecessors[index][0];
+                    match placer.graph.blocks[source].exit.clone() {
+                        Exit::If {
+                            condition,
+                            taken,
+                            otherwise,
+                        } if taken.target != otherwise.target => {
+                            placer.facts.assume(
+                                &placer.graph.values,
+                                condition,
+                                taken.target.0 == index,
+                            );
+                            if let Exit::If {
+                                condition: original,
+                                ..
+                            } = original_exits[source]
+                            {
+                                placer.facts.assume(
+                                    &placer.graph.values,
+                                    original,
+                                    taken.target.0 == index,
+                                );
                             }
                         }
+                        Exit::Switch {
+                            selector,
+                            cases,
+                            default,
+                        } if default.target.0 != index => {
+                            let keys: Vec<_> = cases
+                                .iter()
+                                .filter(|(_, edge)| edge.target.0 == index)
+                                .map(|(key, _)| *key)
+                                .collect();
+                            if keys.len() == 1 {
+                                placer.facts.equal(
+                                    &placer.graph.values,
+                                    selector,
+                                    u64::from(keys[0]),
+                                );
+                                if let Exit::Switch {
+                                    selector: original, ..
+                                } = original_exits[source]
+                                {
+                                    placer.facts.equal(
+                                        &placer.graph.values,
+                                        original,
+                                        u64::from(keys[0]),
+                                    );
+                                }
+                            }
+                        }
+                        _ => {}
                     }
-                    Operation::Nop
-                    | Operation::Load { .. }
-                    | Operation::Block { .. }
-                    | Operation::Fence => {}
                 }
+                for (recipe, value) in placer.joins.merge(placer.graph, index, &placer.available) {
+                    placer.define(recipe, value);
+                }
+                placer.block(BlockId(index));
+                placer.joins.record(
+                    index,
+                    placer.available_log[values..]
+                        .iter()
+                        .filter_map(|&(id, previous)| {
+                            let value = placer.available[&id];
+                            (previous != Some(value)).then_some((id, value))
+                        })
+                        .chain(placer.specialized.iter().filter_map(|(&id, residual)| {
+                            (!placer.available.contains_key(&id))
+                                .then(|| placer.available.get(residual).map(|&value| (id, value)))
+                                .flatten()
+                        })),
+                );
+                work.push(Visit::Leave {
+                    block: index,
+                    values,
+                    expressions,
+                    facts: saved,
+                });
+                work.extend(children[index].iter().rev().copied().map(Visit::Enter));
             }
-            if let Some(terminal) = &block.terminal {
-                if matches!(terminal, Terminal::Branch { target, .. } if !target.entry) {
-                    continue;
+            Visit::Leave {
+                block,
+                values,
+                expressions,
+                facts,
+            } => {
+                while placer.available_log.len() > values {
+                    let (id, previous) = placer.available_log.pop().unwrap();
+                    if let Some(previous) = previous {
+                        placer.available.insert(id, previous);
+                    } else {
+                        placer.available.remove(&id);
+                    }
                 }
-                for &value in terminal.inputs() {
-                    demand(
-                        body,
-                        tree,
-                        demands,
-                        value,
-                        Point::main(Site {
-                            block: block.id,
-                            index: block.operations.len(),
-                        }),
-                    );
+                while placer.expression_log.len() > expressions {
+                    let (key, previous) = placer.expression_log.pop().unwrap();
+                    if let Some(previous) = previous {
+                        placer.expressions.insert(key, previous);
+                    } else {
+                        placer.expressions.remove(&key);
+                    }
                 }
+                let completed = std::mem::replace(&mut placer.facts, facts);
+                placer.joins.complete(block, completed);
             }
         }
     }
+    remove_unused(placer.graph, summaries);
+}
 
-    fn place_values(&mut self) {
-        let body = self.body;
-        let effects = self.effects;
-        // Visit consumers before their inputs, including rewritten edge arguments.
-        // Recomputed expressions pass their actual placements to their inputs;
-        // snapshot producers retain their own sharing and clobber rules.
-        for index in (0..self.value_order.len()).rev() {
-            let id = self.value_order[index];
-            if matches!(
-                body.values[id].definition,
-                ValueDefinition::LoopInput { .. }
-            ) {
-                continue;
-            }
-            if let ValueDefinition::OperationResult { site, component } = body.values[id].definition
-            {
-                // Failed branch construction can leave values from a discarded block.
-                let Some(operation) = self.tree.0.operation(site) else {
-                    continue;
-                };
-                if matches!(operation, Operation::Atomic { .. }) {
-                    // Ordered memory results are produced at the authored site.
-                    // A live value must survive until its consumers demand it.
-                    self.saved[id] = self.demands[id].is_some();
-                    continue;
-                }
-                let (_, outputs) = self.tree.0.call(site);
-                // Result groups follow every argument in the dependency order. Visit
-                // the last component after all consumers have supplied demand.
-                if component + 1 == outputs.len() {
-                    self.place_call(site);
-                }
-                continue;
-            }
-            let tree = &self.tree;
-            let demands = &mut self.demands;
-            let capture_points = &mut self.capture_points;
-            let saved = &mut self.saved;
-            let Some(use_) = demands[id].clone() else {
-                continue;
+struct Placer<'a> {
+    graph: &'a mut FunctionGraph,
+    facts: Facts,
+    // A recipe and its executed value while that execution dominates the cursor.
+    available: HashMap<usize, usize>,
+    available_log: Vec<(usize, Option<usize>)>,
+    // Canonical operations on placed inputs available in the same dominance scope.
+    expressions: HashMap<Value, usize>,
+    expression_log: Vec<(Value, Option<usize>)>,
+    // Residual recipes under this block's facts; scheduling has not happened yet.
+    specialized: HashMap<usize, usize>,
+    shared: Vec<Vec<usize>>,
+    joins: Joins,
+}
+impl Placer<'_> {
+    fn block(&mut self, block: BlockId) {
+        self.specialized.clear();
+        let items = std::mem::take(&mut self.graph.blocks[block.0].items);
+        for item in items {
+            let BlockItem::Effect(id) = item else {
+                panic!("construction only places effects");
             };
-            if let ValueDefinition::JoinResult { site, component } = body.values[id].definition {
-                saved[id] = true;
-                let operation = &tree.0.block(site.block).operations[site.index];
-                // The branch operation stays at its authored site. A live output needs
-                // each incoming component only at its actual branch site, including
-                // exits nested within other control operations.
-                for arm in operation.children() {
-                    for (exit, arguments) in arm.exits_to(Target::exit(site)) {
-                        demand(body, tree, demands, arguments[component], Point::main(exit));
-                    }
-                }
-                continue;
+            let operation = self.graph.effects[id.0]
+                .operation
+                .clone()
+                .map(|value| self.materialize(value, block));
+            self.graph.effects[id.0].operation = operation;
+            self.graph.blocks[block.0].items.push(BlockItem::Effect(id));
+            for result in self.graph.effects[id.0].results.clone() {
+                self.define(result, result);
             }
-            for use_ in recompute::groups(body, id, use_, tree) {
-                saved[id] |= use_.points.len() > 1;
-                let mut anchor = use_.first;
-                if let ValueDefinition::Load { site } = body.values[id].definition {
-                    let location = tree.0.load_location(site);
-                    anchor = tree.snapshot_anchor(
-                        site,
-                        anchor,
-                        |other| location.may_overlap(other, body),
-                        |target| effects[target.0].writes_location(location, body),
-                    );
-                    demand(body, tree, demands, location.base, anchor);
-                }
-                if (!use_.at_first || anchor != use_.first)
-                    && !matches!(
-                        body.values[id].definition,
-                        ValueDefinition::Constant(_) | ValueDefinition::Parameter(_)
-                    )
-                {
-                    capture_points[id].push(anchor);
-                    saved[id] = true;
-                }
-                if let ValueDefinition::Expression(expression) = body.values[id].definition {
-                    for &input in expression.inputs() {
-                        demand(body, tree, demands, input, anchor);
-                    }
+        }
+        for value in std::mem::take(&mut self.shared[block.0]) {
+            self.materialize(value, block);
+        }
+        let mut exit = self.graph.blocks[block.0].exit.clone();
+        exit.map_inputs(|value| self.materialize(value, block));
+        self.graph.blocks[block.0].exit = exit;
+    }
+}
+
+fn remove_unused(graph: &mut FunctionGraph, summaries: &[Effects]) {
+    let reachable = graph.reachable();
+    let mut live_values = vec![false; graph.values.len()];
+    let mut live_effects = vec![false; graph.effects.len()];
+    let mut incoming = vec![Vec::new(); graph.values.len()];
+    let mut pending = Vec::new();
+    for (id, block) in graph.blocks.iter().enumerate() {
+        if !reachable[id] {
+            continue;
+        }
+        match &block.exit {
+            Exit::Return(values)
+            | Exit::TailCall {
+                arguments: values, ..
+            } => pending.extend(values),
+            Exit::If { condition, .. } => pending.push(*condition),
+            Exit::Switch { selector, .. } => pending.push(*selector),
+            _ => {}
+        }
+        for edge in graph.outgoing(BlockId(id)) {
+            for (&parameter, &argument) in graph.blocks[edge.target.0]
+                .parameters
+                .iter()
+                .zip(&edge.arguments)
+            {
+                incoming[parameter].push(argument);
+            }
+        }
+        for item in &block.items {
+            if let BlockItem::Effect(effect) = item {
+                if reads::observable(&graph.effects[effect.0].operation, summaries) {
+                    live_effects[effect.0] = true;
+                    pending.extend(graph.effects[effect.0].operation.inputs());
                 }
             }
         }
     }
-
-    fn finish(self) -> Placement {
-        let Self {
-            body,
-            capture_points,
-            saved,
-            value_order,
-            ..
-        } = self;
-        let mut slot_types = Vec::new();
-        let slots = body
-            .values
-            .iter()
-            .enumerate()
-            .map(|(id, value)| {
-                if saved[id]
-                    && !matches!(
-                        value.definition,
-                        ValueDefinition::Constant(_) | ValueDefinition::Parameter(_)
-                    )
-                {
-                    let slot = slot_types.len();
-                    slot_types.push(wasm_type(value.ty));
-                    Some(slot)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut captures: HashMap<_, Vec<_>> = HashMap::new();
-        // Captures at the same site must initialize dependencies before consumers.
-        for id in value_order {
-            for point in &capture_points[id] {
-                captures.entry(point.site).or_default().push(id);
-            }
+    while let Some(id) = pending.pop() {
+        if std::mem::replace(&mut live_values[id], true) {
+            continue;
         }
-        Placement {
-            slots,
-            captures,
-            slot_types,
+        match graph.values[id].definition {
+            ValueDefinition::Expression(expression) => pending.extend(expression.inputs().copied()),
+            ValueDefinition::Result { effect, .. } => {
+                if !std::mem::replace(&mut live_effects[effect.0], true) {
+                    pending.extend(graph.effects[effect.0].operation.inputs());
+                }
+            }
+            ValueDefinition::Parameter { .. } => pending.extend(incoming[id].iter().copied()),
+            _ => {}
+        }
+    }
+    let keep: Vec<Vec<bool>> = graph
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(id, block)| {
+            block
+                .parameters
+                .iter()
+                .map(|&parameter| id == graph.entry.0 || live_values[parameter])
+                .collect()
+        })
+        .collect();
+    for block in &mut graph.blocks {
+        block.items.retain(|item| match item {
+            BlockItem::Evaluate(id) => live_values[*id],
+            BlockItem::Effect(id) => live_effects[id.0],
+        });
+        let trim = |edge: &mut Edge| {
+            let mut index = 0;
+            edge.arguments.retain(|_| {
+                let keep = keep[edge.target.0][index];
+                index += 1;
+                keep
+            });
+        };
+        for edge in block.exit.edges_mut() {
+            trim(edge);
+        }
+    }
+    for (id, block) in graph.blocks.iter_mut().enumerate() {
+        if id == graph.entry.0 {
+            continue;
+        }
+        block.parameters.retain(|&parameter| live_values[parameter]);
+        for (component, &parameter) in block.parameters.iter().enumerate() {
+            graph.values.values[parameter].definition = ValueDefinition::Parameter {
+                block: BlockId(id),
+                component,
+            };
         }
     }
 }

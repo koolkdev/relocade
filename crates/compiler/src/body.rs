@@ -1,89 +1,25 @@
-//! Completed function bodies and their value and control relationships.
-//!
-//! Construction creates these records; compiler passes inspect or transform them.
-//! Builder state and Wasm encoding belong to their respective modules.
-
+//! Typed values, effects and explicit control edges owned by one function.
 use crate::{
-    memory::{AtomicOperation, Location},
+    memory::{AtomicOperation, Location, Mem},
     Expression, Func, Type,
 };
 
-mod tree;
-pub(super) use tree::BlockTree;
 mod values;
 pub(super) use values::ValueTable;
 
-pub(super) struct Body {
-    pub(super) values: Vec<Value>,
-    pub(super) block: Block,
+pub(super) struct FunctionGraph {
+    pub(super) values: ValueTable,
+    pub(super) effects: Vec<Effect>,
+    pub(super) blocks: Vec<Block>,
+    pub(super) layout: Vec<Layout>,
+    pub(super) entry: BlockId,
+    pub(super) memories: Vec<Mem>,
 }
 
-pub(super) enum Terminal {
-    Trap,
-    Branch {
-        target: Target,
-        arguments: Vec<usize>,
-    },
-    Return(Vec<usize>),
-    TailCall(Invocation),
-}
-
-impl Terminal {
-    pub(super) fn inputs(&self) -> &[usize] {
-        match self {
-            Self::Trap => &[],
-            Self::Return(arguments) | Self::Branch { arguments, .. } => arguments,
-            Self::TailCall(invocation) => &invocation.arguments,
-        }
-    }
-}
-
-pub(super) enum Operation {
-    // Keep authored sites stable when control folding removes an operation.
-    Nop,
-    Load {
-        location: Location,
-    },
-    Store {
-        location: Location,
-        value: usize,
-    },
-    Atomic {
-        access: AtomicOperation,
-        output: Option<usize>,
-    },
-    Fence,
-    Block {
-        block: Block,
-        outputs: Vec<usize>,
-    },
-    Loop {
-        initial: Vec<usize>,
-        inputs: Vec<usize>,
-        block: Block,
-        outputs: Vec<usize>,
-    },
-    If {
-        condition: usize,
-        branch: Block,
-        else_branch: Option<Block>,
-        outputs: Vec<usize>,
-    },
-    BranchIf {
-        condition: usize,
-        taken: Block,
-    },
-    Switch {
-        selector: usize,
-        cases: Vec<SwitchCase>,
-        default: Block,
-        outputs: Vec<usize>,
-    },
-    Call {
-        invocation: Invocation,
-        outputs: Vec<usize>,
-    },
-}
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(super) struct BlockId(pub(super) usize);
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(super) struct EffectId(pub(super) usize);
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) struct Value {
@@ -94,115 +30,303 @@ pub(super) struct Value {
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum ValueDefinition {
     Constant(u64),
-    Parameter(u32),
-    LoopInput { block: usize, component: usize },
     Expression(Expression<usize>),
-    Load { site: Site },
-    OperationResult { site: Site, component: usize },
-    JoinResult { site: Site, component: usize },
+    Parameter { block: BlockId, component: usize },
+    Result { effect: EffectId, component: usize },
 }
 
-pub(super) struct SwitchCase {
-    pub(super) key: u32,
-    pub(super) block: Block,
-}
-
-impl Operation {
-    pub(super) fn children(&self) -> impl DoubleEndedIterator<Item = &Block> {
-        let (first, second, cases): (_, _, &[SwitchCase]) = match self {
-            Self::Block { block, .. } | Self::Loop { block, .. } => (Some(block), None, &[]),
-            Self::BranchIf { taken, .. } => (Some(taken), None, &[]),
-            Self::If {
-                branch,
-                else_branch,
-                ..
-            } => (Some(branch), else_branch.as_ref(), &[]),
-            Self::Switch { cases, default, .. } => (Some(default), None, cases),
-            _ => (None, None, &[]),
-        };
-        cases
-            .iter()
-            .map(|case| &case.block)
-            .chain(first)
-            .chain(second)
-    }
-
-    pub(super) fn branch_outputs(&self) -> &[usize] {
-        match self {
-            Self::Block { outputs, .. }
-            | Self::Loop { outputs, .. }
-            | Self::If { outputs, .. }
-            | Self::Switch { outputs, .. } => outputs,
-            _ => &[],
-        }
-    }
-}
-
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub(super) struct Site {
-    pub(super) block: usize,
-    pub(super) index: usize,
-}
-
-/// A loop's header and result join occupy the same authored control site.
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub(super) struct Target {
-    pub(super) site: Site,
-    pub(super) entry: bool,
-}
-
-impl Target {
-    pub(super) fn exit(site: Site) -> Self {
-        Self { site, entry: false }
-    }
-
-    pub(super) fn entry(site: Site) -> Self {
-        Self { site, entry: true }
-    }
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum BlockItem {
+    Evaluate(usize),
+    Effect(EffectId),
 }
 
 pub(super) struct Block {
-    pub(super) id: usize,
-    pub(super) operations: Vec<Operation>,
-    pub(super) terminal: Option<Terminal>,
+    pub(super) parameters: Vec<usize>,
+    pub(super) items: Vec<BlockItem>,
+    pub(super) exit: Exit,
+    pub(super) scope: usize,
 }
 
-impl Block {
-    pub(super) fn walk(&self) -> Blocks<'_> {
-        Blocks(vec![self])
-    }
-
-    pub(super) fn exits_to(&self, target: Target) -> impl Iterator<Item = (Site, &[usize])> {
-        self.walk().filter_map(move |block| match &block.terminal {
-            Some(Terminal::Branch {
-                target: destination,
-                arguments,
-            }) if *destination == target => Some((
-                Site {
-                    block: block.id,
-                    index: block.operations.len(),
-                },
-                arguments.as_slice(),
-            )),
-            _ => None,
-        })
-    }
+pub(super) struct Effect {
+    pub(super) results: Vec<usize>,
+    pub(super) operation: Operation,
+    pub(super) origin: BlockId,
 }
 
-pub(super) struct Blocks<'a>(Vec<&'a Block>);
-
-impl<'a> Iterator for Blocks<'a> {
-    type Item = &'a Block;
-    fn next(&mut self) -> Option<Self::Item> {
-        let block = self.0.pop()?;
-        for operation in block.operations.iter().rev() {
-            self.0.extend(operation.children().rev());
-        }
-        Some(block)
-    }
+#[derive(Clone)]
+pub(super) enum Operation<V = usize> {
+    Load { location: Location<V> },
+    Store { location: Location<V>, value: V },
+    Call { target: Func, arguments: Vec<V> },
+    Atomic(AtomicOperation<V>),
+    Fence,
 }
 
-pub(super) struct Invocation {
-    pub(super) target: Func,
+#[derive(Clone)]
+pub(super) struct Edge {
+    pub(super) target: BlockId,
     pub(super) arguments: Vec<usize>,
+}
+
+#[derive(Clone, Default)]
+pub(super) enum Exit {
+    #[default]
+    Open,
+    Jump(Edge),
+    If {
+        condition: usize,
+        taken: Edge,
+        otherwise: Edge,
+    },
+    Switch {
+        selector: usize,
+        cases: Vec<(u32, Edge)>,
+        default: Edge,
+    },
+    Return(Vec<usize>),
+    TailCall {
+        target: Func,
+        arguments: Vec<usize>,
+    },
+    Trap,
+}
+
+/// Wasm nesting references the graph's blocks; it owns no effects or operands.
+pub(super) enum Layout {
+    Block(BlockId),
+    Scope {
+        preheader: BlockId,
+        body: Vec<Layout>,
+        after: BlockId,
+    },
+    If {
+        branch: BlockId,
+        taken: Vec<Layout>,
+        otherwise: Vec<Layout>,
+        join: BlockId,
+    },
+    Loop {
+        preheader: BlockId,
+        header: BlockId,
+        body: Vec<Layout>,
+        after: BlockId,
+    },
+    Switch {
+        branch: BlockId,
+        cases: Vec<(u32, Vec<Layout>)>,
+        default: Vec<Layout>,
+        join: BlockId,
+    },
+}
+
+impl FunctionGraph {
+    pub(super) fn new() -> Self {
+        Self {
+            values: ValueTable::default(),
+            effects: Vec::new(),
+            blocks: vec![Block {
+                parameters: Vec::new(),
+                items: Vec::new(),
+                exit: Exit::Open,
+                scope: 0,
+            }],
+            layout: Vec::new(),
+            entry: BlockId(0),
+            memories: Vec::new(),
+        }
+    }
+
+    pub(super) fn block(&mut self, scope: usize, types: &[Type]) -> BlockId {
+        let block = BlockId(self.blocks.len());
+        let parameters = types
+            .iter()
+            .enumerate()
+            .map(|(component, &ty)| {
+                self.values.push(Value {
+                    ty,
+                    definition: ValueDefinition::Parameter { block, component },
+                })
+            })
+            .collect();
+        self.blocks.push(Block {
+            parameters,
+            items: Vec::new(),
+            exit: Exit::Open,
+            scope,
+        });
+        block
+    }
+
+    pub(super) fn outgoing(&self, block: BlockId) -> Vec<&Edge> {
+        match &self.blocks[block.0].exit {
+            Exit::If {
+                condition,
+                taken,
+                otherwise,
+            } => match self.values[*condition].definition {
+                ValueDefinition::Constant(0) => vec![otherwise],
+                ValueDefinition::Constant(_) => vec![taken],
+                _ => vec![taken, otherwise],
+            },
+            Exit::Switch {
+                selector,
+                cases,
+                default,
+            } => match self.values[*selector].definition {
+                ValueDefinition::Constant(bits) => vec![cases
+                    .iter()
+                    .find(|(key, _)| u64::from(*key) == bits)
+                    .map_or(default, |(_, edge)| edge)],
+                _ => self.blocks[block.0].exit.edges(),
+            },
+            _ => self.blocks[block.0].exit.edges(),
+        }
+    }
+
+    pub(super) fn reachable(&self) -> Vec<bool> {
+        let mut seen = vec![false; self.blocks.len()];
+        let mut pending = vec![self.entry];
+        while let Some(block) = pending.pop() {
+            if std::mem::replace(&mut seen[block.0], true) {
+                continue;
+            }
+            pending.extend(self.outgoing(block).into_iter().map(|edge| edge.target));
+        }
+        seen
+    }
+}
+
+impl<V: Copy> Operation<V> {
+    pub(super) fn map<U>(&self, mut map: impl FnMut(V) -> U) -> Operation<U> {
+        match self {
+            Self::Load { location } => Operation::Load {
+                location: location.map(&mut map),
+            },
+            Self::Store { location, value } => Operation::Store {
+                location: location.map(&mut map),
+                value: map(*value),
+            },
+            Self::Call { target, arguments } => Operation::Call {
+                target: *target,
+                arguments: arguments.iter().copied().map(map).collect(),
+            },
+            Self::Atomic(access) => Operation::Atomic(access.map(map)),
+            Self::Fence => Operation::Fence,
+        }
+    }
+
+    pub(super) fn inputs(&self) -> impl DoubleEndedIterator<Item = V> + '_ {
+        let mut fixed = [None; 3];
+        let mut arguments: &[V] = &[];
+        match self {
+            Self::Load { location } => fixed[0] = Some(location.base),
+            Self::Store { location, value } => {
+                fixed[0] = Some(location.base);
+                fixed[1] = Some(*value);
+            }
+            Self::Call {
+                arguments: inputs, ..
+            } => arguments = inputs,
+            Self::Atomic(access) => {
+                for (slot, input) in fixed.iter_mut().zip(access.inputs()) {
+                    *slot = Some(input);
+                }
+            }
+            Self::Fence => {}
+        }
+        fixed.into_iter().flatten().chain(arguments.iter().copied())
+    }
+}
+
+impl Exit {
+    pub(super) fn edges_mut(&mut self) -> Vec<&mut Edge> {
+        match self {
+            Self::Jump(edge) => vec![edge],
+            Self::If {
+                taken, otherwise, ..
+            } => vec![taken, otherwise],
+            Self::Switch { cases, default, .. } => cases
+                .iter_mut()
+                .map(|(_, edge)| edge)
+                .chain(std::iter::once(default))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    pub(super) fn edges(&self) -> Vec<&Edge> {
+        match self {
+            Self::Jump(edge) => vec![edge],
+            Self::If {
+                taken, otherwise, ..
+            } => vec![taken, otherwise],
+            Self::Switch { cases, default, .. } => cases
+                .iter()
+                .map(|(_, edge)| edge)
+                .chain(std::iter::once(default))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+    pub(super) fn inputs(&self) -> Vec<usize> {
+        match self {
+            Self::Return(arguments) | Self::TailCall { arguments, .. } => arguments.clone(),
+            Self::If { condition, .. } => std::iter::once(*condition)
+                .chain(
+                    self.edges()
+                        .into_iter()
+                        .flat_map(|edge| edge.arguments.iter().copied()),
+                )
+                .collect(),
+            Self::Switch { selector, .. } => std::iter::once(*selector)
+                .chain(
+                    self.edges()
+                        .into_iter()
+                        .flat_map(|edge| edge.arguments.iter().copied()),
+                )
+                .collect(),
+            _ => self
+                .edges()
+                .into_iter()
+                .flat_map(|edge| edge.arguments.iter().copied())
+                .collect(),
+        }
+    }
+    pub(super) fn map_inputs(&mut self, mut map: impl FnMut(usize) -> usize) {
+        let mut edge = |edge: &mut Edge| {
+            for input in &mut edge.arguments {
+                *input = map(*input);
+            }
+        };
+        match self {
+            Self::Jump(value) => edge(value),
+            Self::If {
+                condition,
+                taken,
+                otherwise,
+            } => {
+                edge(taken);
+                edge(otherwise);
+                *condition = map(*condition);
+            }
+            Self::Switch {
+                selector,
+                cases,
+                default,
+            } => {
+                for (_, value) in cases {
+                    edge(value);
+                }
+                edge(default);
+                *selector = map(*selector);
+            }
+            Self::Return(arguments) | Self::TailCall { arguments, .. } => {
+                for input in arguments {
+                    *input = map(*input);
+                }
+            }
+            Self::Open | Self::Trap => {}
+        }
+    }
 }

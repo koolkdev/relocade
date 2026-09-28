@@ -46,12 +46,14 @@ pub(super) enum Expression<V> {
     Convert {
         input: V,
     },
-    Normalize {
+    LowBits {
         input: V,
+        bits: u8,
     },
 }
 
 impl<V> Expression<V> {
+    /// Inputs in execution and Wasm stack order: select's condition comes last.
     pub(super) fn inputs(&self) -> impl DoubleEndedIterator<Item = &V> {
         let inputs = match self {
             Self::Binary { left, right, .. } | Self::Compare { left, right, .. } => {
@@ -64,12 +66,12 @@ impl<V> Expression<V> {
                 condition,
                 when_true,
                 when_false,
-            } => [Some(condition), Some(when_true), Some(when_false)],
+            } => [Some(when_true), Some(when_false), Some(condition)],
             Self::SignExtend { input }
             | Self::BitCount { input, .. }
             | Self::ZeroTest { input, .. }
             | Self::Convert { input }
-            | Self::Normalize { input } => [Some(input), None, None],
+            | Self::LowBits { input, .. } => [Some(input), None, None],
         };
         inputs.into_iter().flatten()
     }
@@ -149,8 +151,9 @@ impl<V> Expression<V> {
             Self::Convert { input: value } => Expression::Convert {
                 input: input(value)?,
             },
-            Self::Normalize { input: value } => Expression::Normalize {
+            Self::LowBits { input: value, bits } => Expression::LowBits {
                 input: input(value)?,
+                bits: *bits,
             },
         })
     }
@@ -202,7 +205,7 @@ impl Expression<Constant> {
             Self::SignExtend { input } => integer::signed_value(input.ty, input.bits) as u64,
             Self::ZeroTest { input, nonzero } => u64::from((input.bits != 0) == nonzero),
             Self::Convert { input } => input.bits,
-            Self::Normalize { input } => input.ty.normalize(input.bits),
+            Self::LowBits { input, bits } => input.bits & integer::low_mask(bits),
         };
         Some(result.normalize(bits))
     }

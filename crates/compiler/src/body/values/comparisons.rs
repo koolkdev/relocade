@@ -46,6 +46,14 @@ impl ValueTable {
                 return self.constant(Type::I1, u64::from(result));
             }
         }
+        if matches!(operator, CompareOp::LtUnsigned | CompareOp::GeUnsigned) {
+            if b.definition == ValueDefinition::Constant(0) {
+                return self.constant(Type::I1, u64::from(operator == CompareOp::GeUnsigned));
+            }
+            if a.definition == ValueDefinition::Constant(0) {
+                return self.zero_test(right, operator == CompareOp::LtUnsigned);
+            }
+        }
         // Equality can use the signed carriers when both already repeat their
         // logical sign. Mixed signed/unsigned representations still need masks.
         let signed_operands = matches!(operator, CompareOp::LtSigned | CompareOp::GeSigned)
@@ -64,12 +72,10 @@ impl ValueTable {
                 }
                 return self.zero_test(input, operator == CompareOp::Ne);
             }
-            let masked = match (a.definition, b.definition) {
-                (_, ValueDefinition::Constant(mask)) => Some((left, mask)),
-                (ValueDefinition::Constant(mask), _) => Some((right, mask)),
-                _ => None,
-            };
-            if let Some((input, mask)) = masked {
+            if let Some((input, mask, _)) = constant_comparison {
+                if mask == 1 && self.bounds[input].unsigned <= 1 {
+                    return self.zero_test(input, operator == CompareOp::Eq);
+                }
                 if let ValueDefinition::Expression(Expression::Binary {
                     operator: BinaryOp::And,
                     left: x,

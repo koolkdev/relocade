@@ -2,9 +2,9 @@
 use std::ops::Range;
 
 use crate::{
-    body::{Body, Operation, Terminal, ValueDefinition},
+    body::{BlockItem, Exit, FunctionGraph, Operation, ValueDefinition},
     memory::{Location, Mem},
-    place, FunctionKind, Program,
+    FunctionKind, Program,
 };
 
 #[derive(Clone, Eq, PartialEq)]
@@ -14,8 +14,8 @@ pub(super) struct MemoryRange {
 }
 
 impl MemoryRange {
-    fn from_location(location: Location, body: &Body) -> Self {
-        let base = place::representation(body, location.base);
+    fn from_location(location: Location, body: &FunctionGraph) -> Self {
+        let base = body.values.representation(location.base);
         let bytes = match body.values[base].definition {
             ValueDefinition::Constant(base) => {
                 let start = base + u64::from(location.offset);
@@ -37,7 +37,7 @@ impl MemoryRange {
             }
     }
 
-    pub(super) fn overlaps_location(&self, location: Location, body: &Body) -> bool {
+    pub(super) fn overlaps_location(&self, location: Location, body: &FunctionGraph) -> bool {
         self.overlaps(&Self::from_location(location, body))
     }
 }
@@ -65,7 +65,7 @@ impl Effects {
         }
     }
 
-    pub(super) fn writes_location(&self, location: Location, body: &Body) -> bool {
+    pub(super) fn writes_location(&self, location: Location, body: &FunctionGraph) -> bool {
         match self {
             Self::Unknown => true,
             Self::Known {
@@ -100,32 +100,33 @@ fn include(target: &mut Vec<MemoryRange>, ranges: impl IntoIterator<Item = Memor
 
 // Summaries include authored reads even when local result demand can remove them.
 // This can restrict motion, but cannot hide a possible memory dependency.
-fn summarize(body: &Body, summaries: &[Option<Effects>]) -> Option<Effects> {
+fn summarize(body: &FunctionGraph, summaries: &[Option<Effects>]) -> Option<Effects> {
     let mut reads = Vec::new();
     let mut writes = Vec::new();
     let mut callees = Vec::new();
     let mut synchronizes = false;
-    for block in body.block.walk() {
-        for operation in &block.operations {
-            match operation {
+    let reachable = body.reachable();
+    for (index, block) in body.blocks.iter().enumerate() {
+        if !reachable[index] {
+            continue;
+        }
+        for item in &block.items {
+            let BlockItem::Effect(effect) = item else {
+                continue;
+            };
+            match &body.effects[effect.0].operation {
                 Operation::Load { location } => {
-                    include(&mut reads, [MemoryRange::from_location(*location, body)]);
+                    include(&mut reads, [MemoryRange::from_location(*location, body)])
                 }
                 Operation::Store { location, .. } => {
                     include(&mut writes, [MemoryRange::from_location(*location, body)])
                 }
-                Operation::Call { invocation, .. } => callees.push(invocation.target),
-                Operation::Atomic { .. } | Operation::Fence => synchronizes = true,
-                Operation::Nop
-                | Operation::Block { .. }
-                | Operation::Loop { .. }
-                | Operation::If { .. }
-                | Operation::BranchIf { .. }
-                | Operation::Switch { .. } => {}
+                Operation::Call { target, .. } => callees.push(*target),
+                Operation::Atomic(_) | Operation::Fence => synchronizes = true,
             }
         }
-        if let Some(Terminal::TailCall(invocation)) = &block.terminal {
-            callees.push(invocation.target);
+        if let Exit::TailCall { target, .. } = &block.exit {
+            callees.push(*target);
         }
     }
     for callee in callees {

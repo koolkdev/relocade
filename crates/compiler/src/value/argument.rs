@@ -1,7 +1,7 @@
 //! Adapts typed values and native literals to runtime function signatures.
 
 use super::{Val, ValueSource};
-use crate::{arena::ExpressionArena, BuildError, IntType, Type};
+use crate::{arena::FunctionArena, BuildError, IntType, Type};
 
 /// An integer value or literal supplied where a function signature determines its type.
 /// Typed values, including typed literals, keep their logical type and any body
@@ -23,7 +23,7 @@ enum Operand {
 impl Argument {
     pub(crate) fn resolve(
         &self,
-        arena: &ExpressionArena,
+        arena: &FunctionArena,
         expected: Type,
         scope: usize,
     ) -> Result<usize, BuildError> {

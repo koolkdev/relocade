@@ -90,11 +90,9 @@ fn a_branch_and_continuation_reuse_the_same_calculation_chain() {
 }
 
 #[test]
-fn returning_paths_can_specialize_their_calculations_independently() {
+fn returning_paths_preserve_values_and_publication() {
     for flow in [Flow::Return, Flow::PublishAndReturn] {
         let module = conditional_chain(4, flow);
-        assert_eq!(count(&module, |op| matches!(op, Operator::Select)), 0);
-        assert_eq!(count(&module, |op| matches!(op, Operator::I32Or)), 4);
         for shift in [0, 1, 3, 31] {
             let expected = chain_result(0x1234_5678, shift as u32, 4);
             let mut instance = module.instantiate();

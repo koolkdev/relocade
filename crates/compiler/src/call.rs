@@ -1,5 +1,5 @@
 use crate::{
-    body::{Invocation, Operation, Terminal},
+    body::{Exit, Operation},
     results, Argument, BlockBuilder, BuildError, Declaration, Func, FunctionKind, Program, Results,
     Signature, Type,
 };
@@ -63,8 +63,8 @@ impl BlockBuilder<'_> {
     /// ```
     pub fn tail_call(self, target: Func, arguments: &[Argument]) -> Result<(), BuildError> {
         self.terminate(|body| {
-            let invocation = body.resolve_call(target, arguments, &body.signature().results)?;
-            Ok(Terminal::TailCall(invocation))
+            let arguments = body.resolve_call(target, arguments, &body.signature().results)?;
+            Ok(Exit::TailCall { target, arguments })
         })
     }
 
@@ -75,12 +75,12 @@ impl BlockBuilder<'_> {
     /// Defined helpers without inferred writes, synchronization or unknown effects
     /// can run later or disappear when unused. Possible traps in the call or its
     /// argument computations move or disappear with it. Read snapshots remain
-    /// protected across overlapping writes and explicit atomic effects. Calls that
+    /// protected across overlapping writes and explicit atomic effects. A shared
+    /// result may keep its invocation before the paths that consume it. Calls that
     /// may write, synchronize, call imports or reach unresolved recursion execute
     /// in authored order, even when their result is unused. Every declared result
     /// is evaluated when a call runs, including components its caller discards.
-    /// Narrow results follow
-    /// the same zero-extended calling convention as tail calls.
+    /// Narrow results follow the same zero-extended calling convention as tail calls.
     ///
     /// ```
     /// use wasm86_compiler::{Program, Signature, Type, I32};
@@ -105,17 +105,9 @@ impl BlockBuilder<'_> {
         arguments: &[Argument],
     ) -> Result<R::Values, BuildError> {
         let types = results::types::<R>();
-        let invocation = self.resolve_call(target, arguments, &types)?;
-        let outputs = types
-            .iter()
-            .enumerate()
-            .map(|(component, &ty)| self.arena.operation_result(ty, self.site(), component))
-            .collect::<Result<Vec<_>, _>>()?;
+        let arguments = self.resolve_call(target, arguments, &types)?;
+        let outputs = self.execute(Operation::Call { target, arguments }, &types)?;
         let values = results::bind::<R>(self, &outputs);
-        self.pending.operations.push(Operation::Call {
-            invocation,
-            outputs,
-        });
         Ok(values)
     }
 
@@ -124,7 +116,7 @@ impl BlockBuilder<'_> {
         target: Func,
         arguments: &[Argument],
         expected: &[Type],
-    ) -> Result<Invocation, BuildError> {
+    ) -> Result<Vec<usize>, BuildError> {
         let signature = &self
             .program
             .functions
@@ -152,10 +144,7 @@ impl BlockBuilder<'_> {
         for value in &mut values {
             *value = self.arena.normalize(*value)?;
         }
-        Ok(Invocation {
-            target,
-            arguments: values,
-        })
+        Ok(values)
     }
 }
 

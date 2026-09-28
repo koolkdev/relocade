@@ -14,7 +14,7 @@ struct Case {
     inputs: &'static [(Value, i32)],
 }
 
-fn cases() -> [Case; 10] {
+fn cases() -> [Case; 12] {
     [
         Case {
             name: "masked32",
@@ -22,6 +22,20 @@ fn cases() -> [Case; 10] {
             build: |body| body.parameter::<I32>(0).unwrap().and(1).ne(0),
             needs_test: false,
             inputs: &[(Value::I32(0), 0), (Value::I32(2), 0), (Value::I32(3), 1)],
+        },
+        Case {
+            name: "masked_equal_one",
+            parameter: Type::I32,
+            build: |body| body.parameter::<I32>(0).unwrap().and(1).eq(1),
+            needs_test: false,
+            inputs: &[(Value::I32(0), 0), (Value::I32(2), 0), (Value::I32(3), 1)],
+        },
+        Case {
+            name: "masked_not_one",
+            parameter: Type::I64,
+            build: |body| body.parameter::<I64>(0).unwrap().and(1_u64).ne(1_u64),
+            needs_test: true,
+            inputs: &[(Value::I64(0), 1), (Value::I64(2), 1), (Value::I64(3), 0)],
         },
         Case {
             name: "shifted32",

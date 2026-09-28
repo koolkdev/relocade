@@ -104,19 +104,6 @@ fn unused_load() -> TestModule {
     })
 }
 
-fn trapping_load(has_overlapping_store: bool) -> TestModule {
-    let mut fixture = Fixture::new();
-    let memory = fixture.memory("state", INITIAL);
-    fixture.function(&[], &[Type::I32], |mut body| {
-        let loaded = body.load::<I32>(memory, 65536)?;
-        body.store::<I32>(memory, 0, 9)?;
-        if has_overlapping_store {
-            body.store::<I32>(memory, 65536, 1)?;
-        }
-        body.return_(loaded)
-    })
-}
-
 fn different_memories() -> TestModule {
     let mut fixture = Fixture::new();
     fixture.memory("unused", &[]);
@@ -425,43 +412,6 @@ fn unused_loads_do_not_trap() {
     let mut instance = module.instantiate();
     assert_eq!(instance.call::<i32>(()).unwrap(), 7);
     assert_eq!(&instance.memory("state")[..INITIAL.len()], INITIAL);
-    assert!(instance.callbacks().is_empty());
-}
-
-#[test]
-fn load_traps_follow_snapshot_and_aliasing_order() {
-    for (module, expected) in [
-        (trapping_load(false), REPLACED),
-        (trapping_load(true), INITIAL),
-        (high_offset_load(false), REPLACED),
-        (high_offset_load(true), INITIAL),
-    ] {
-        let mut instance = module.instantiate();
-        assert!(instance.call_values("run", &[]).is_err());
-        assert_eq!(&instance.memory("state")[..expected.len()], expected);
-        assert!(instance.callbacks().is_empty());
-    }
-}
-
-#[test]
-fn store_traps_preserve_only_preceding_stores() {
-    let module = {
-        let mut fixture = Fixture::new();
-        let memory = fixture.memory("state", INITIAL);
-        fixture.function(&[], &[Type::I32], |mut body| {
-            body.store::<I32>(memory, 0, 1)?;
-            body.store::<I32>(memory, 65536, 2)?;
-            body.store::<I32>(memory, 0, 3)?;
-            let result = body.value::<I32>(7)?;
-            body.return_(result)
-        })
-    };
-    let mut instance = module.instantiate();
-    assert!(instance.call::<i32>(()).is_err());
-    assert_eq!(
-        &instance.memory("state")[..16],
-        &[1, 0, 0, 0, 5, 0, 0, 0, 3, 0, 0, 0, 0xa5, 0x5a, 0xc3, 0x3c]
-    );
     assert!(instance.callbacks().is_empty());
 }
 

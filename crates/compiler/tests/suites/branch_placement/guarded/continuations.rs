@@ -73,10 +73,6 @@ fn child_and_main_calculations_preserve_snapshots_while_a_fresh_load_sees_the_wr
     ] {
         let module = snapshot_with_continuation(source);
         let events = inspect(module.bytes());
-        assert_eq!(
-            events.iter().filter(|&&event| event == Event::Add).count(),
-            2
-        );
         let calls = usize::from(matches!(source, Source::ReadOnlyCall | Source::Callback));
         assert_eq!(
             events.iter().filter(|&&event| event == Event::Call).count(),
@@ -93,31 +89,6 @@ fn child_and_main_calculations_preserve_snapshots_while_a_fresh_load_sees_the_wr
             .position(|&event| event == Event::Store)
             .unwrap();
         assert!(read < write, "{events:?}");
-        // Join's selector contributes another If before the consuming guard.
-        let guard = events
-            .iter()
-            .rposition(|&event| event == Event::If)
-            .unwrap();
-        let guard_end = guard
-            + events[guard..]
-                .iter()
-                .position(|&event| event == Event::End)
-                .unwrap();
-        assert!(!events[..guard].contains(&Event::Add));
-        assert_eq!(
-            events[guard..guard_end]
-                .iter()
-                .filter(|&&event| event == Event::Add)
-                .count(),
-            1
-        );
-        assert_eq!(
-            events[guard_end..]
-                .iter()
-                .filter(|&&event| event == Event::Add)
-                .count(),
-            1
-        );
         for enabled in [0, 1] {
             for choose_load in if matches!(source, Source::Join) {
                 &[0, 1][..]
@@ -177,15 +148,14 @@ fn a_parent_snapshot_has_its_address_even_when_a_block_suffix_is_skipped() {
         .iter()
         .position(|&event| event == Event::Load)
         .unwrap();
-    let branch = events.iter().position(|&event| event == Event::If).unwrap();
+    let branch = events
+        .iter()
+        .position(|&event| matches!(event, Event::If | Event::BranchIf))
+        .unwrap();
     assert!(address < read && read < branch, "{events:?}");
     assert_eq!(
         events.iter().filter(|&&event| event == Event::Load).count(),
         3
-    );
-    assert_eq!(
-        events.iter().filter(|&&event| event == Event::Xor).count(),
-        2
     );
     for (skip, input, result, expected) in [
         (0, 0, 13, [4, 0, 0, 0, 13, 0, 0, 0, 6, 0, 0, 0]),

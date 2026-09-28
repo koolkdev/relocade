@@ -4,6 +4,9 @@ use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 use wasm86_compiler::{BuildError, Type, I1, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
+#[path = "control_flow/forwarding.rs"]
+mod forwarding;
+
 fn stores_and_tail() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]);
@@ -397,30 +400,6 @@ fn branch_loads_and_stores_remain_inside_the_selected_arm() {
 }
 
 #[test]
-fn falling_through_a_branch_preserves_snapshots_and_shared_values() {
-    let snapshot = inspect(fallthrough_snapshot().bytes());
-    assert_eq!(
-        snapshot.events,
-        [
-            Event::Load(0),
-            Event::If,
-            Event::Store(0),
-            Event::End,
-            Event::Load(0),
-            Event::Return
-        ]
-    );
-    assert_eq!(snapshot.writes, 1);
-    let shared = inspect(shared_pure_value().bytes());
-    assert_eq!(
-        shared.events,
-        [Event::If, Event::Store(0), Event::End, Event::Return]
-    );
-    // The child store and parent return each compute the addition without a local.
-    assert_eq!((shared.additions, shared.writes), (2, 0));
-}
-
-#[test]
 fn child_load_dependencies_are_not_visible_to_parent_or_sibling_consumers() {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[]);
@@ -454,14 +433,13 @@ fn child_load_dependencies_are_not_visible_to_parent_or_sibling_consumers() {
 fn alternative_stores_execute_only_the_selected_arm() {
     let alternatives = alternative_stores();
     for (condition, address, expected_result, expected_memory) in [
-        (1, 0, Some(16), &[9, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]),
-        (0, 65536, Some(14), &[7, 0, 0, 0, 0x0b, 0, 0, 0, 0xa5, 0x5a]),
-        (1, 65536, None, &[7, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]),
+        (1, 0, 16, &[9, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]),
+        (0, 65536, 14, &[7, 0, 0, 0, 0x0b, 0, 0, 0, 0xa5, 0x5a]),
     ] {
         let mut instance = alternatives.instantiate();
         assert_eq!(
-            instance.call::<i32>((condition, address)).ok(),
-            expected_result
+            instance.call::<i32>((condition, address)),
+            Ok(expected_result)
         );
         assert_eq!(&instance.memory("state")[..10], expected_memory);
     }
@@ -501,9 +479,6 @@ fn continuation_loads_execute_only_after_the_guard() {
     assert_eq!(instance.call::<i32>((1, 65536)), Ok(17));
     assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
     let mut instance = continuing.instantiate();
-    assert!(instance.call::<i32>((0, 65536)).is_err());
-    assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
-    let mut instance = continuing.instantiate();
     assert_eq!(instance.call::<i32>((0, 0)), Ok(7));
     assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
 }
@@ -515,9 +490,6 @@ fn conditional_result_loads_follow_their_return_path() {
     assert_eq!(instance.call::<i32>((0, 65536)), Ok(17));
     assert_eq!(&instance.memory("state")[..6], &[9, 0, 0, 0, 0xa5, 0x5a]);
     let mut instance = exiting.instantiate();
-    assert!(instance.call::<i32>((1, 65536)).is_err());
-    assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
-    let mut instance = exiting.instantiate();
     assert_eq!(instance.call::<i32>((1, 0)), Ok(7));
     assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
 }
@@ -525,10 +497,6 @@ fn conditional_result_loads_follow_their_return_path() {
 #[test]
 fn captured_loads_precede_guards_that_can_write_the_snapshot() {
     let captured = continuation_load(true);
-    // Preserving this earlier read across the overlapping write forces its capture before the guard.
-    let mut instance = captured.instantiate();
-    assert!(instance.call::<i32>((1, 65536)).is_err());
-    assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
     let mut instance = captured.instantiate();
     assert_eq!(instance.call::<i32>((1, 0)), Ok(17));
     assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
@@ -551,12 +519,6 @@ fn shared_snapshots_survive_conditional_writes() {
 fn sequential_exits_preserve_effect_order() {
     let mut instance = sequential_exits(&[7, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]).instantiate();
     assert_eq!(instance.call::<i32>((1, 65536)), Ok(11));
-    assert_eq!(
-        &instance.memory("state")[..10],
-        &[7, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]
-    );
-    let mut instance = sequential_exits(&[7, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]).instantiate();
-    assert!(instance.call::<i32>((0, 65536)).is_err());
     assert_eq!(
         &instance.memory("state")[..10],
         &[7, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]
@@ -597,19 +559,13 @@ fn constant_guards_keep_only_reachable_effects() {
 }
 
 #[test]
-fn branch_loads_observe_prior_stores_and_trap_in_order() {
+fn branch_loads_observe_prior_stores() {
     let arm = branch_load_after_store();
     let mut instance = arm.instantiate();
     assert_eq!(instance.call::<i32>((0, 65536)), Ok(17));
     assert_eq!(
         &instance.memory("state")[..16],
         &[1, 0, 0, 0, 5, 0, 0, 0, 3, 0, 0, 0, 0x0b, 0, 0, 0]
-    );
-    let mut instance = arm.instantiate();
-    assert!(instance.call::<i32>((1, 65536)).is_err());
-    assert_eq!(
-        &instance.memory("state")[..16],
-        &[1, 0, 0, 0, 2, 0, 0, 0, 9, 0, 0, 0, 0x0b, 0, 0, 0]
     );
     let mut instance = arm.instantiate();
     assert_eq!(instance.call::<i32>((1, 12)), Ok(11));

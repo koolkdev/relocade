@@ -72,14 +72,9 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
     match value.definition {
         // Backedges may carry wider intermediate bits than their initial values.
         // Loop edges preserve those bits just like ordinary result joins.
-        ValueDefinition::LoopInput { .. } => carrier,
-        ValueDefinition::JoinResult { .. } => {
-            unreachable!("join bounds come from its yielding arms")
-        }
+        ValueDefinition::Parameter { .. } => carrier,
         ValueDefinition::Constant(bits) => (64 - bits.leading_zeros()) as u8,
-        ValueDefinition::Parameter(_)
-        | ValueDefinition::Load { .. }
-        | ValueDefinition::OperationResult { .. } => value.ty.bits(),
+        ValueDefinition::Result { .. } => value.ty.bits(),
         ValueDefinition::Expression(expression) => match expression {
             Expression::Binary {
                 operator,
@@ -134,7 +129,7 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
                 when_false,
                 ..
             } => inputs[when_true].unsigned.max(inputs[when_false].unsigned),
-            Expression::Normalize { input } => inputs[input].unsigned.min(value.ty.bits()),
+            Expression::LowBits { input, bits } => inputs[input].unsigned.min(bits),
             Expression::Convert { input } => inputs[input].unsigned.min(carrier),
             Expression::Compare { .. } | Expression::ZeroTest { .. } => 1,
         },

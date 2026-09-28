@@ -2,6 +2,8 @@
 
 #[path = "path_facts/boundaries.rs"]
 mod boundaries;
+#[path = "path_facts/guards.rs"]
+mod guards;
 #[path = "path_facts/representations.rs"]
 mod representations;
 #[path = "path_facts/sharing.rs"]

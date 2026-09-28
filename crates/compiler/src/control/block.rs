@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 
 use super::JoinTarget;
 use crate::{
-    arena::ExpressionArena,
-    body::{Operation, Target, Terminal},
+    arena::FunctionArena,
+    body::{BlockId, Edge, Exit, Layout},
     Arguments, BlockBuilder, BuildError, Results, Val, I1,
 };
 
@@ -12,9 +12,9 @@ use crate::{
 /// and descendants. A label belongs to one function body. Leaving or discarding
 /// its block makes it unavailable; cloning a label does not extend that scope.
 pub struct Label<R: Results> {
-    pub(super) arena: ExpressionArena,
+    pub(super) arena: FunctionArena,
     pub(super) scope: usize,
-    pub(super) target: Target,
+    pub(super) target: BlockId,
     pub(super) shape: PhantomData<fn() -> R>,
 }
 
@@ -59,7 +59,7 @@ impl BlockBuilder<'_> {
         &mut self,
         build: impl FnOnce(BlockBuilder<'_>, Label<R>) -> Result<(), BuildError>,
     ) -> Result<R::Values, BuildError> {
-        let target = self.result_target::<R>();
+        let target = self.result_target::<R>()?;
         let scope = self.arena.child_scope(self.pending.id)?;
         let label = Label {
             arena: self.arena.clone(),
@@ -67,18 +67,30 @@ impl BlockBuilder<'_> {
             target: target.target,
             shape: PhantomData,
         };
-        let block = self.build_block(scope, Some(&target), |body| build(body, label))?;
-        let outputs = self.join_outputs(&target, [&block])?;
+        let entry = self.arena.block(scope, &[])?;
+        let block = self.build_block(scope, entry, Some(&target), |body| build(body, label))?;
+        self.connect_fallthrough(&block, target.target)?;
+        let outputs = self.join_outputs(&target, &[block.entry])?;
         let values = crate::results::bind::<R>(self, &outputs);
-        self.pending
-            .operations
-            .push(Operation::Block { block, outputs });
+        self.arena.exit(
+            self.pending.current,
+            Exit::Jump(Edge {
+                target: block.entry,
+                arguments: Vec::new(),
+            }),
+        )?;
+        self.pending.layout.push(Layout::Scope {
+            preheader: self.pending.current,
+            body: block.layout,
+            after: target.target,
+        });
+        self.pending.current = target.target;
         Ok(values)
     }
 
     /// Passes values to an enclosing control label, consuming the active builder.
     /// A block or loop exit supplies its result; a loop header starts the next
-    /// iteration with the complete new input tuple. The label's shape validates
+    /// iteration with new input values together. The label's shape validates
     /// literals and typed values as with [`Self::yield_`]. A parent, sibling or
     /// another body cannot use the label.
     pub fn branch<R: Results>(
@@ -89,10 +101,10 @@ impl BlockBuilder<'_> {
         self.terminate(|body| {
             let target = body.branch_target(label)?;
             let arguments = body.result_arguments(arguments, &target.types)?;
-            Ok(Terminal::Branch {
+            Ok(Exit::Jump(Edge {
                 target: target.target,
                 arguments,
-            })
+            }))
         })
     }
 

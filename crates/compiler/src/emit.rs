@@ -1,88 +1,208 @@
-//! Lower a completed function schedule and encode its WebAssembly body.
-use std::borrow::Cow;
-
-use wasm_encoder::{Function, Instruction as Wasm, ValType};
-
+//! Forward Wasm encoding over placed graph IDs and operand-stack coverage.
 use crate::{
-    schedule::{Instruction, Schedule},
-    Type,
+    body::{BlockId, BlockItem, FunctionGraph, Operation, ValueDefinition},
+    Expression, Type,
 };
-
+use wasm_encoder::{Function, Instruction as Wasm, ValType};
+mod control;
 mod function;
 mod integer;
 mod memory;
-
-use function::FunctionEncoder;
+mod selection;
+mod switch;
+mod view;
+use selection::Selection;
 
 pub(super) fn wasm_type(ty: Type) -> ValType {
-    match ty {
-        Type::I1 | Type::I8 | Type::I16 | Type::I32 => ValType::I32,
-        Type::I64 => ValType::I64,
+    if ty == Type::I64 {
+        ValType::I64
+    } else {
+        ValType::I32
     }
 }
 
 pub(super) fn encode(
-    schedule: Schedule,
+    graph: FunctionGraph,
     parameter_count: u32,
     memories: &[Option<u32>],
     functions: &[Option<u32>],
 ) -> Function {
-    let mut code = FunctionEncoder::new(parameter_count, schedule.local_types);
-    for instruction in schedule.instructions {
-        match instruction {
-            Instruction::Constant { ty, bits } => code.instruction(match ty {
-                Type::I1 | Type::I8 | Type::I16 | Type::I32 => Wasm::I32Const(bits as u32 as i32),
-                Type::I64 => Wasm::I64Const(bits as i64),
-            }),
-            Instruction::Parameter(index) => code.instruction(Wasm::LocalGet(index)),
-            Instruction::Local { slot, operation } => code.local(slot, operation),
-            Instruction::Expression {
-                result_type,
-                expression,
-            } => {
-                integer::emit(&mut code, result_type, expression);
-            }
-            Instruction::Load {
-                location,
-                result_type,
-                signed,
-            } => {
-                let argument = memory::argument(memories, location);
-                code.instruction(memory::load(argument, location.bytes, result_type, signed));
-            }
-            Instruction::Store(location) => {
-                let argument = memory::argument(memories, location);
-                code.instruction(memory::store(argument, location.bytes));
-            }
-            Instruction::Atomic(access) => {
-                let argument = memory::argument(memories, access.location);
-                code.instruction(memory::atomic(
-                    argument,
-                    access.location.bytes,
-                    access.operation,
-                ));
-            }
-            Instruction::Fence => code.instruction(Wasm::AtomicFence),
-            Instruction::Call(target) => code.instruction(Wasm::Call(
-                functions[target.0].expect("a call target has a function index"),
-            )),
-            Instruction::TailCall(target) => code.instruction(Wasm::ReturnCall(
-                functions[target.0].expect("a tail-call target has a function index"),
-            )),
-            Instruction::Block(ty) => code.instruction(Wasm::Block(ty)),
-            Instruction::Loop(ty) => code.instruction(Wasm::Loop(ty)),
-            Instruction::If(ty) => code.instruction(Wasm::If(ty)),
-            Instruction::Else => code.instruction(Wasm::Else),
-            Instruction::End => code.instruction(Wasm::End),
-            Instruction::Branch(depth) => code.instruction(Wasm::Br(depth)),
-            Instruction::BranchIf(depth) => code.instruction(Wasm::BrIf(depth)),
-            Instruction::BranchTable { targets, default } => {
-                code.instruction(Wasm::BrTable(Cow::Owned(targets), default));
-            }
-            Instruction::Drop => code.instruction(Wasm::Drop),
-            Instruction::Return => code.instruction(Wasm::Return),
-            Instruction::Trap => code.instruction(Wasm::Unreachable),
+    let reachable = graph.reachable();
+    let selection = Selection::new(&graph, &reachable);
+    let view = view::OperandView::new(&graph, &selection, &reachable);
+    let mut locals = vec![None; graph.values.len()];
+    for &value in &graph.blocks[graph.entry.0].parameters {
+        let ValueDefinition::Parameter { component, .. } = graph.values[value].definition else {
+            panic!("entry parameters name parameter definitions")
+        };
+        locals[value] = Some(component as u32);
+    }
+    let mut slot_types = Vec::new();
+    for (index, value) in graph.values.iter().enumerate() {
+        if locals[index].is_none() && !matches!(value.definition, ValueDefinition::Constant(_)) {
+            locals[index] = Some(parameter_count + slot_types.len() as u32);
+            slot_types.push(wasm_type(value.ty));
         }
     }
-    code.finish()
+    let switch_local = parameter_count + slot_types.len() as u32;
+    slot_types.push(ValType::I32);
+    let mut writer = Writer {
+        graph: &graph,
+        memories,
+        functions,
+        selection,
+        view,
+        locals,
+        switch_local,
+        encoder: function::FunctionEncoder::new(parameter_count, slot_types),
+        labels: Vec::new(),
+        reachable,
+        terminal: false,
+    };
+    writer.layouts(&graph.layout, None);
+    if !writer.terminal {
+        writer.emit(Wasm::Unreachable);
+    }
+    writer.encoder.finish()
+}
+
+enum Pending {
+    Value(usize),
+    Item(BlockItem),
+    Finish(BlockItem),
+}
+struct Writer<'a> {
+    graph: &'a FunctionGraph,
+    memories: &'a [Option<u32>],
+    functions: &'a [Option<u32>],
+    selection: Selection,
+    view: view::OperandView,
+    locals: Vec<Option<u32>>,
+    switch_local: u32,
+    encoder: function::FunctionEncoder,
+    labels: Vec<Option<BlockId>>,
+    reachable: Vec<bool>,
+    terminal: bool,
+}
+impl Writer<'_> {
+    fn emit(&mut self, instruction: Wasm<'_>) {
+        self.terminal = matches!(
+            instruction,
+            Wasm::Return | Wasm::ReturnCall(_) | Wasm::Br(_) | Wasm::Unreachable
+        );
+        self.encoder.instruction(instruction);
+    }
+    fn local(&self, value: usize) -> u32 {
+        self.locals[value].expect("a nonconstant value has a symbolic local")
+    }
+    fn value(&mut self, value: usize) {
+        self.expand(Pending::Value(value));
+    }
+    fn item(&mut self, item: BlockItem) {
+        self.expand(Pending::Item(item));
+    }
+    fn expand(&mut self, first: Pending) {
+        let mut pending = vec![first];
+        while let Some(task) = pending.pop() {
+            match task {
+                Pending::Value(value) => {
+                    let value = self.selection.resolve(value);
+                    match self.graph.values[value].definition {
+                        ValueDefinition::Constant(bits) => {
+                            self.emit(if self.graph.values[value].ty == Type::I64 {
+                                Wasm::I64Const(bits as i64)
+                            } else {
+                                Wasm::I32Const(bits as i32)
+                            })
+                        }
+                        _ => {
+                            if let Some(item) =
+                                self.view.producer[value].filter(|&item| self.view.inline(item))
+                            {
+                                pending.push(Pending::Item(item));
+                            } else {
+                                self.emit(Wasm::LocalGet(self.local(value)));
+                            }
+                        }
+                    }
+                }
+                Pending::Item(item) => {
+                    pending.push(Pending::Finish(item));
+                    pending.extend(
+                        view::inputs(self.graph, item)
+                            .into_iter()
+                            .rev()
+                            .map(Pending::Value),
+                    );
+                }
+                Pending::Finish(item) => self.instruction(item),
+            }
+        }
+    }
+    fn block_items(&mut self, block: BlockId) {
+        for &item in &self.graph.blocks[block.0].items {
+            if !view::enabled(&self.selection, item) || self.view.inline(item) {
+                continue;
+            }
+            self.item(item);
+            for result in view::results(self.graph, &self.selection, item)
+                .into_iter()
+                .rev()
+            {
+                if self.view.uses[result] == 0 {
+                    self.emit(Wasm::Drop);
+                } else {
+                    self.emit(Wasm::LocalSet(self.local(result)));
+                }
+            }
+        }
+    }
+    fn instruction(&mut self, item: BlockItem) {
+        match item {
+            BlockItem::Evaluate(value) => {
+                let ValueDefinition::Expression(expression) = self.graph.values[value].definition
+                else {
+                    panic!("evaluate names an expression")
+                };
+                let ty = self.graph.values[value].ty;
+                let code = if self.selection.narrow_test[value] {
+                    integer::lower(Type::I32, Expression::SignExtend { input: ty })
+                } else {
+                    integer::lower(ty, expression.map(|&input| self.graph.values[input].ty))
+                };
+                for instruction in code {
+                    self.emit(instruction);
+                }
+            }
+            BlockItem::Effect(id) => {
+                let effect = &self.graph.effects[id.0];
+                let instruction = match &effect.operation {
+                    Operation::Load { location } => {
+                        let covered = self.selection.signed_load[id.0];
+                        let result = covered.unwrap_or(effect.results[0]);
+                        memory::load(
+                            memory::argument(self.memories, location.map(|_| ())),
+                            location.bytes,
+                            self.graph.values[result].ty,
+                            covered.is_some(),
+                        )
+                    }
+                    Operation::Store { location, .. } => memory::store(
+                        memory::argument(self.memories, location.map(|_| ())),
+                        location.bytes,
+                    ),
+                    Operation::Call { target, .. } => {
+                        Wasm::Call(self.functions[target.0].expect("a called function is retained"))
+                    }
+                    Operation::Atomic(access) => memory::atomic(
+                        memory::argument(self.memories, access.location.map(|_| ())),
+                        access.location.bytes,
+                        access.map(|_| ()).operation,
+                    ),
+                    Operation::Fence => Wasm::AtomicFence,
+                };
+                self.emit(instruction);
+            }
+        }
+    }
 }

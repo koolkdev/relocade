@@ -1,6 +1,6 @@
 use crate::{
-    body::{Body, Operation, ValueDefinition},
-    place, AtLeast, BlockBuilder, BuildError, Program, Val, I1, I16, I32, I64, I8,
+    body::{Operation, ValueDefinition, ValueTable},
+    AtLeast, BlockBuilder, BuildError, Program, Val, I1, I16, I32, I64, I8,
 };
 
 mod atomic;
@@ -82,20 +82,19 @@ impl Location {
         }
     }
 
-    pub(super) fn may_overlap(self, other: Self, body: &Body) -> bool {
+    pub(super) fn may_overlap(self, other: Self, table: &ValueTable) -> bool {
         if self.memory != other.memory {
             return false;
         }
-        let left = place::representation(body, self.base);
-        let right = place::representation(body, other.base);
-        let (left_start, right_start) =
-            match (body.values[left].definition, body.values[right].definition) {
-                (ValueDefinition::Constant(a), ValueDefinition::Constant(b)) => {
-                    (a + u64::from(self.offset), b + u64::from(other.offset))
-                }
-                _ if left == right => (u64::from(self.offset), u64::from(other.offset)),
-                _ => return true,
-            };
+        let left = table.representation(self.base);
+        let right = table.representation(other.base);
+        let (left_start, right_start) = match (table[left].definition, table[right].definition) {
+            (ValueDefinition::Constant(a), ValueDefinition::Constant(b)) => {
+                (a + u64::from(self.offset), b + u64::from(other.offset))
+            }
+            _ if left == right => (u64::from(self.offset), u64::from(other.offset)),
+            _ => return true,
+        };
         // Displacements add without wrapping, so equal bases preserve disjoint
         // spans. Different unknown bases may still name the same bytes.
         left_start < right_start + u64::from(other.bytes)
@@ -169,8 +168,7 @@ impl BlockBuilder<'_> {
         let base = self.operand(address)?;
         self.require_memory(memory)?;
         let location = Location::new::<T>(memory, base, offset);
-        let value = self.arena.load(T::TYPE, self.site())?;
-        self.pending.operations.push(Operation::Load { location });
+        let value = self.execute(Operation::Load { location }, &[T::TYPE])?[0];
         Ok(Val::new(self.arena.clone(), Ok(value)))
     }
 
@@ -199,10 +197,13 @@ impl BlockBuilder<'_> {
         let base = self.operand(address)?;
         let value = self.operand(value)?;
         self.require_memory(memory)?;
-        self.pending.operations.push(Operation::Store {
-            location: Location::new::<T>(memory, base, offset),
-            value,
-        });
+        self.execute(
+            Operation::Store {
+                location: Location::new::<T>(memory, base, offset),
+                value,
+            },
+            &[],
+        )?;
         Ok(())
     }
 
