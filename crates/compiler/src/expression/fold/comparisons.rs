@@ -1,13 +1,13 @@
 //! Comparison folding and logical-width normalization.
 
-use super::ValueTable;
+use super::Folder;
 use crate::{
-    body::{Value, ValueDefinition},
+    body::ValueDefinition,
     integer::{self, BinaryOp, CompareOp},
     Expression, Type,
 };
 
-impl ValueTable {
+impl Folder<'_> {
     pub(super) fn compare(&mut self, operator: CompareOp, left: usize, right: usize) -> usize {
         let a = self.values[left];
         let b = self.values[right];
@@ -16,10 +16,10 @@ impl ValueTable {
             (a.definition, b.definition)
         {
             let result = integer::compare(self.values[left].ty, operator, a, b);
-            return self.constant(Type::I1, u64::from(result));
+            return self.values.constant(Type::I1, u64::from(result));
         }
         if left == right {
-            return self.constant(
+            return self.values.constant(
                 Type::I1,
                 u64::from(matches!(
                     operator,
@@ -43,12 +43,14 @@ impl ValueTable {
                 constant_first,
                 &mut remaining,
             ) {
-                return self.constant(Type::I1, u64::from(result));
+                return self.values.constant(Type::I1, u64::from(result));
             }
         }
         if matches!(operator, CompareOp::LtUnsigned | CompareOp::GeUnsigned) {
             if b.definition == ValueDefinition::Constant(0) {
-                return self.constant(Type::I1, u64::from(operator == CompareOp::GeUnsigned));
+                return self
+                    .values
+                    .constant(Type::I1, u64::from(operator == CompareOp::GeUnsigned));
             }
             if a.definition == ValueDefinition::Constant(0) {
                 return self.zero_test(right, operator == CompareOp::LtUnsigned);
@@ -58,8 +60,8 @@ impl ValueTable {
         // logical sign. Mixed signed/unsigned representations still need masks.
         let signed_operands = matches!(operator, CompareOp::LtSigned | CompareOp::GeSigned)
             || (matches!(operator, CompareOp::Eq | CompareOp::Ne)
-                && self.bounds[left].signed <= a.ty.bits()
-                && self.bounds[right].signed <= b.ty.bits());
+                && self.values.bounds[left].signed <= a.ty.bits()
+                && self.values.bounds[right].signed <= b.ty.bits());
         if matches!(operator, CompareOp::Eq | CompareOp::Ne) {
             let input = match (a.definition, b.definition) {
                 (_, ValueDefinition::Constant(0)) => Some(left),
@@ -73,7 +75,7 @@ impl ValueTable {
                 return self.zero_test(input, operator == CompareOp::Ne);
             }
             if let Some((input, mask, _)) = constant_comparison {
-                if mask == 1 && self.bounds[input].unsigned <= 1 {
+                if mask == 1 && self.values.bounds[input].unsigned <= 1 {
                     return self.zero_test(input, operator == CompareOp::Eq);
                 }
                 if let ValueDefinition::Expression(Expression::Binary {
@@ -92,8 +94,8 @@ impl ValueTable {
                 }
             }
             if !signed_operands
-                && self.bounds[left].unsigned > a.ty.bits()
-                && self.bounds[right].unsigned > a.ty.bits()
+                && self.values.bounds[left].unsigned > a.ty.bits()
+                && self.values.bounds[right].unsigned > a.ty.bits()
             {
                 // Compare the low-bit difference once instead of masking both operands.
                 let difference = self.binary(BinaryOp::Xor, left, right);
@@ -108,14 +110,14 @@ impl ValueTable {
         } else {
             (self.normalize(left), self.normalize(right))
         };
-        self.intern(Value {
-            ty: Type::I1,
-            definition: ValueDefinition::Expression(Expression::Compare {
+        self.fold(
+            Type::I1,
+            Expression::Compare {
                 operator,
                 left,
                 right,
-            }),
-        })
+            },
+        )
     }
 
     fn compare_constant_choices(
@@ -163,18 +165,15 @@ impl ValueTable {
     }
 
     pub(super) fn zero_test(&mut self, input: usize, nonzero: bool) -> usize {
-        let input = if self.bounds[input].signed <= self.values[input].ty.bits() {
+        let input = if self.values.bounds[input].signed <= self.values[input].ty.bits() {
             input
         } else {
             self.normalize(input)
         };
         // A value already restricted to zero or one is its own nonzero test.
-        if nonzero && self.bounds[input].unsigned <= 1 {
+        if nonzero && self.values.bounds[input].unsigned <= 1 {
             return self.convert(input, Type::I1);
         }
-        self.intern(Value {
-            ty: Type::I1,
-            definition: ValueDefinition::Expression(Expression::ZeroTest { input, nonzero }),
-        })
+        self.fold(Type::I1, Expression::ZeroTest { input, nonzero })
     }
 }

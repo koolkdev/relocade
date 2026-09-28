@@ -1,5 +1,8 @@
 //! Pure expressions shared by unbound values and function bodies.
 
+mod fold;
+pub(crate) use fold::{build, map_inputs, normalize};
+
 use crate::{
     integer::{self, BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
     Type,

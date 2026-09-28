@@ -205,10 +205,10 @@ impl FunctionArena {
         ty: Type,
         expression: Expression<usize>,
     ) -> Result<usize, BuildError> {
-        self.with_open(|table| table.expression(ty, expression))
+        self.with_open(|table| crate::expression::build(table, ty, expression))
     }
     pub(super) fn normalize(&self, input: usize) -> Result<usize, BuildError> {
-        self.with_open(|table| table.normalize(input))
+        self.with_open(|table| crate::expression::normalize(table, input))
     }
     fn with_open(&self, build: impl FnOnce(&mut ValueTable) -> usize) -> Result<usize, BuildError> {
         self.with_graph(|graph| build(&mut graph.values))

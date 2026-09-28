@@ -1,13 +1,67 @@
-//! Binary folding and a shared representation for modular constant offsets.
+//! Binary normalization, algebraic identities and modular constant offsets.
 
-use super::ValueTable;
+use super::Folder;
 use crate::{
-    body::{Value, ValueDefinition},
+    body::ValueDefinition,
     integer::{self, BinaryOp},
-    Expression,
+    Expression, Type,
 };
 
-impl ValueTable {
+impl Folder<'_> {
+    // These identities preserve every physical bit, so construction and path
+    // specialization can use them without repeating logical normalization.
+    pub(super) fn binary_identity(
+        &mut self,
+        ty: Type,
+        operator: BinaryOp,
+        left: usize,
+        right: usize,
+    ) -> Option<usize> {
+        let a = self.values.representation(left);
+        let b = self.values.representation(right);
+        match (
+            operator,
+            self.values[a].definition,
+            self.values[b].definition,
+        ) {
+            (
+                BinaryOp::Or | BinaryOp::Xor | BinaryOp::Add | BinaryOp::Sub,
+                _,
+                ValueDefinition::Constant(0),
+            )
+            | (BinaryOp::Mul, _, ValueDefinition::Constant(1)) => Some(left),
+            (BinaryOp::Or | BinaryOp::Xor | BinaryOp::Add, ValueDefinition::Constant(0), _)
+            | (BinaryOp::Mul, ValueDefinition::Constant(1), _) => Some(right),
+            (BinaryOp::And | BinaryOp::Mul, _, ValueDefinition::Constant(0))
+            | (BinaryOp::And | BinaryOp::Mul, ValueDefinition::Constant(0), _) => {
+                Some(self.values.constant(ty, 0))
+            }
+            (BinaryOp::Sub | BinaryOp::Xor, _, _) if a == b => Some(self.values.constant(ty, 0)),
+            (BinaryOp::And | BinaryOp::Or, _, _) => {
+                if a == b {
+                    return Some(left);
+                }
+                for (input, other) in [(left, b), (right, a)] {
+                    if let ValueDefinition::Expression(Expression::Binary {
+                        operator: nested,
+                        left,
+                        right,
+                    }) = self.values[self.values.representation(input)].definition
+                    {
+                        if nested == operator
+                            && (self.values.representation(left) == other
+                                || self.values.representation(right) == other)
+                        {
+                            return Some(input);
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn binary(&mut self, operator: BinaryOp, left: usize, right: usize) -> usize {
         let a = self.values[left];
         let b = self.values[right];
@@ -16,9 +70,11 @@ impl ValueTable {
             (a.definition, b.definition)
         {
             if let Some(bits) = integer::binary(self.values[left].ty, operator, a, b) {
-                return self.constant(self.values[left].ty, bits);
+                return self.values.constant(self.values[left].ty, bits);
             }
         }
+        // These transformations interpret the logical width. Placement has
+        // already chosen its carrier operations and must not repeat them.
         match (operator, a.definition, b.definition) {
             (BinaryOp::Add, _, ValueDefinition::Constant(offset)) => {
                 self.add_constant(left, offset)
@@ -29,16 +85,8 @@ impl ValueTable {
             (BinaryOp::Sub, _, ValueDefinition::Constant(offset)) => {
                 self.add_constant(left, a.ty.normalize(0u64.wrapping_sub(offset)))
             }
-            (BinaryOp::Or | BinaryOp::Xor, _, ValueDefinition::Constant(0)) => left,
-            (BinaryOp::Sub | BinaryOp::Xor, _, _) if left == right => self.constant(a.ty, 0),
-            (BinaryOp::Or | BinaryOp::Xor, ValueDefinition::Constant(0), _) => right,
-            (BinaryOp::Mul, _, ValueDefinition::Constant(1)) => left,
-            (BinaryOp::Mul, ValueDefinition::Constant(1), _) => right,
-            (BinaryOp::And | BinaryOp::Or, _, _) if left == right => left,
             (BinaryOp::And, _, ValueDefinition::Constant(mask)) => self.and_constant(left, mask),
             (BinaryOp::And, ValueDefinition::Constant(mask), _) => self.and_constant(right, mask),
-            (BinaryOp::Mul, _, ValueDefinition::Constant(0))
-            | (BinaryOp::Mul, ValueDefinition::Constant(0), _) => self.constant(a.ty, 0),
             (BinaryOp::Or, _, ValueDefinition::Constant(bits)) if bits == a.ty.mask() => right,
             (BinaryOp::Or, ValueDefinition::Constant(bits), _) if bits == a.ty.mask() => left,
             _ => {
@@ -52,14 +100,14 @@ impl ValueTable {
                     ),
                     _ => (left, right),
                 };
-                self.intern(Value {
-                    ty: a.ty,
-                    definition: ValueDefinition::Expression(Expression::Binary {
+                self.fold(
+                    a.ty,
+                    Expression::Binary {
                         operator,
                         left,
                         right,
-                    }),
-                })
+                    },
+                )
             }
         }
     }
@@ -75,15 +123,15 @@ impl ValueTable {
         if offset == 0 {
             return input;
         }
-        let constant = self.constant(ty, offset);
-        self.intern(Value {
+        let constant = self.values.constant(ty, offset);
+        self.fold(
             ty,
-            definition: ValueDefinition::Expression(Expression::Binary {
+            Expression::Binary {
                 operator: BinaryOp::Add,
                 left: input,
                 right: constant,
-            }),
-        })
+            },
+        )
     }
 
     pub(super) fn constant_offset(&self, input: usize) -> Option<(usize, u64)> {
@@ -110,17 +158,17 @@ impl ValueTable {
         if mask == integer::low_mask(bits) {
             return self.low_bits(input, bits);
         }
-        if self.bounds[input].unsigned <= bits {
+        if self.values.bounds[input].unsigned <= bits {
             return input;
         }
-        let constant = self.constant(ty, mask);
-        self.intern(Value {
+        let constant = self.values.constant(ty, mask);
+        self.fold(
             ty,
-            definition: ValueDefinition::Expression(Expression::Binary {
+            Expression::Binary {
                 operator: BinaryOp::And,
                 left: input,
                 right: constant,
-            }),
-        })
+            },
+        )
     }
 }

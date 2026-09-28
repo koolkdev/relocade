@@ -3,6 +3,47 @@ use crate::{
 };
 
 #[test]
+fn repeated_bitwise_operands_share_the_combined_value() {
+    fn check<T: IntType>() {
+        let mut program = Program::new();
+        program
+            .function(
+                Signature {
+                    parameters: vec![T::TYPE, T::TYPE],
+                    results: vec![T::TYPE],
+                },
+                |body| {
+                    let a = body.parameter::<T>(0)?;
+                    let b = body.parameter::<T>(1)?;
+                    assert!(a.or(&a).same_expression(&a));
+                    assert!(a.and(&a).same_expression(&a));
+                    assert!(a.xor(&a).same_expression(&body.value::<T>(0)?));
+                    let union = a.or(&b);
+                    let intersection = a.and(&b);
+                    for operand in [&a, &b] {
+                        assert!(union.or(operand).same_expression(&union));
+                        assert!(operand.or(&union).same_expression(&union));
+                        assert!(intersection.and(operand).same_expression(&intersection));
+                        assert!(operand.and(&intersection).same_expression(&intersection));
+                    }
+                    assert!(!union.and(&a).same_expression(&union));
+                    assert!(!intersection.or(&b).same_expression(&intersection));
+                    let sparse_mask = a.and(0x55);
+                    assert!(sparse_mask.and(0x55).same_expression(&sparse_mask));
+                    body.return_(union)
+                },
+            )
+            .unwrap();
+        program.compile().unwrap();
+    }
+    check::<I1>();
+    check::<I8>();
+    check::<I16>();
+    check::<I32>();
+    check::<I64>();
+}
+
+#[test]
 fn masks_preserving_every_possible_bit_share_the_original_value() {
     fn check<T: IntType>() {
         let mut program = Program::new();

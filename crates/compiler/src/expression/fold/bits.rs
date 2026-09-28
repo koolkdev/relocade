@@ -1,19 +1,19 @@
 //! Logical width changes and the physical bits carried between observations.
-use super::ValueTable;
+use super::Folder;
 use crate::{
-    body::{Value, ValueDefinition},
+    body::ValueDefinition,
     integer::{self, BinaryOp},
     Expression, Type,
 };
 
-impl ValueTable {
+impl Folder<'_> {
     pub(super) fn low_bits(&mut self, input: usize, bits: u8) -> usize {
         let ty = self.values[input].ty;
         debug_assert!(bits <= ty.bits());
         if bits == 0 {
-            return self.constant(ty, 0);
+            return self.values.constant(ty, 0);
         }
-        if self.bounds[input].unsigned <= bits {
+        if self.values.bounds[input].unsigned <= bits {
             return input;
         }
         let mask = integer::low_mask(bits);
@@ -22,7 +22,7 @@ impl ValueTable {
         loop {
             match self.values[base].definition {
                 ValueDefinition::Constant(value) => {
-                    return self.constant(ty, value.wrapping_add(offset) & mask);
+                    return self.values.constant(ty, value.wrapping_add(offset) & mask);
                 }
                 ValueDefinition::Expression(Expression::LowBits { input, bits: kept })
                     if kept >= bits =>
@@ -68,13 +68,10 @@ impl ValueTable {
         }
         let base = self.convert(base, ty);
         let input = self.add_constant(base, offset);
-        if self.bounds[input].unsigned <= bits {
+        if self.values.bounds[input].unsigned <= bits {
             return input;
         }
-        self.intern(Value {
-            ty,
-            definition: ValueDefinition::Expression(Expression::LowBits { input, bits }),
-        })
+        self.fold(ty, Expression::LowBits { input, bits })
     }
 
     pub(super) fn convert(&mut self, input: usize, target: Type) -> usize {
@@ -83,17 +80,14 @@ impl ValueTable {
             return input;
         }
         if let ValueDefinition::Constant(bits) = source.definition {
-            return self.constant(target, bits);
+            return self.values.constant(target, bits);
         }
         let input = if source.ty.bits() < target.bits() {
             self.normalize(input)
         } else {
             input
         };
-        self.intern(Value {
-            ty: target,
-            definition: ValueDefinition::Expression(Expression::Convert { input }),
-        })
+        self.fold(target, Expression::Convert { input })
     }
 
     pub(super) fn sign_extend(&mut self, input: usize, target: Type) -> usize {
@@ -102,36 +96,26 @@ impl ValueTable {
             return input;
         }
         if let ValueDefinition::Constant(bits) = source.definition {
-            return self.constant(target, integer::signed_value(source.ty, bits) as u64);
+            return self
+                .values
+                .constant(target, integer::signed_value(source.ty, bits) as u64);
         }
-        let canonical = self.bounds[input].signed <= source.ty.bits();
+        let canonical = self.values.bounds[input].signed <= source.ty.bits();
         if canonical && target != Type::I64 {
             // Preserve the existing signed representation and its sharing when
             // only the logical type widens; unsigned convert() would mask it.
-            return self.intern(Value {
-                ty: target,
-                definition: ValueDefinition::Expression(Expression::Convert { input }),
-            });
+            return self.fold(target, Expression::Convert { input });
         }
         if canonical {
             let alias = if source.ty == Type::I32 {
                 input
             } else {
-                self.intern(Value {
-                    ty: Type::I32,
-                    definition: ValueDefinition::Expression(Expression::Convert { input }),
-                })
+                self.fold(Type::I32, Expression::Convert { input })
             };
             // Crossing into i64 still needs the signed carrier extension.
-            return self.intern(Value {
-                ty: target,
-                definition: ValueDefinition::Expression(Expression::SignExtend { input: alias }),
-            });
+            return self.fold(target, Expression::SignExtend { input: alias });
         }
-        self.intern(Value {
-            ty: target,
-            definition: ValueDefinition::Expression(Expression::SignExtend { input }),
-        })
+        self.fold(target, Expression::SignExtend { input })
     }
 
     pub(super) fn sign_extend_carrier(&mut self, input: usize) -> usize {

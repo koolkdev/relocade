@@ -5,7 +5,7 @@ impl Placer<'_> {
     pub(super) fn materialize(&mut self, root: usize, block: BlockId) -> usize {
         enum Work {
             Visit(usize),
-            Finish(usize, Expression<usize>),
+            Finish(usize),
             Select(usize, usize, usize, usize),
             Alias(usize, usize),
         }
@@ -36,7 +36,7 @@ impl Placer<'_> {
                             work.push(Work::Select(id, condition, when_true, when_false));
                             work.push(Work::Visit(condition));
                         } else {
-                            work.push(Work::Finish(id, expression));
+                            work.push(Work::Finish(id));
                             work.extend(expression.inputs().rev().map(|&v| Work::Visit(v)));
                         }
                     } else {
@@ -51,13 +51,7 @@ impl Placer<'_> {
                         work.push(Work::Alias(id, input));
                         work.push(Work::Visit(input));
                     } else {
-                        let expression = Expression::Select {
-                            condition,
-                            when_true,
-                            when_false,
-                        };
-                        self.specialized.insert(condition, condition);
-                        work.push(Work::Finish(id, expression));
+                        work.push(Work::Finish(id));
                         work.push(Work::Visit(when_false));
                         work.push(Work::Visit(when_true));
                     }
@@ -65,14 +59,9 @@ impl Placer<'_> {
                 Work::Alias(id, input) => {
                     self.specialized.insert(id, self.specialized[&input]);
                 }
-                Work::Finish(id, expression) => {
-                    let expression = expression.map(|v| self.specialized[v]);
-                    // Construction has already selected the physical carrier behavior.
-                    // Reapplying public conversion rules would turn a signed
-                    // carrier alias into an unsigned normalization.
-                    let result = self.graph.values.intern(Value {
-                        ty: self.graph.values[id].ty,
-                        definition: ValueDefinition::Expression(expression),
+                Work::Finish(id) => {
+                    let result = crate::expression::map_inputs(&mut self.graph.values, id, |v| {
+                        self.specialized[v]
                     });
                     self.specialized.insert(id, result);
                 }
