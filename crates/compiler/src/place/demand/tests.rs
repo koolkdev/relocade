@@ -67,13 +67,17 @@ impl Branches {
     }
 
     fn entry_schedule(&self) -> Vec<usize> {
+        self.schedules().remove(0)
+    }
+
+    fn schedules(&self) -> Vec<Vec<usize>> {
         let reachable = self.graph.reachable();
         let dominators = Dominators::new(
             0,
             &successors(&self.graph, &reachable),
             &predecessors(&self.graph, &reachable),
         );
-        schedules(&self.graph, &reachable, &dominators).remove(0)
+        schedules(&self.graph, &reachable, &dominators)
     }
 }
 
@@ -187,6 +191,152 @@ fn a_demand_before_the_backedge_covers_that_path() {
     };
     branches.graph.blocks[after.0].exit = Exit::Return(vec![increment]);
     assert_eq!(branches.entry_schedule(), [branches.product]);
+}
+
+fn branch_dominators() -> (Dominators, Dominators) {
+    // Dispatch selects one of two conditional regions or a bypass. Each region
+    // has a join before the common exit; only the first has an empty second arm.
+    let successors = [
+        vec![1, 4, 8],
+        vec![2, 3],
+        vec![3],
+        vec![9],
+        vec![5, 6],
+        vec![7],
+        vec![7],
+        vec![9],
+        vec![9],
+        vec![],
+    ];
+    dominance_trees(&successors)
+}
+
+fn dominance_trees(successors: &[Vec<usize>]) -> (Dominators, Dominators) {
+    let mut predecessors = vec![Vec::new(); successors.len()];
+    for (source, targets) in successors.iter().enumerate() {
+        for &target in targets {
+            predecessors[target].push(source);
+        }
+    }
+    (
+        Dominators::new(0, successors, &predecessors),
+        Dominators::new(successors.len() - 1, &predecessors, successors),
+    )
+}
+
+#[test]
+fn a_dispatch_bypass_does_not_prevent_sharing_within_its_cases() {
+    let (dominators, postdominators) = branch_dominators();
+    let mut demand = Demand {
+        common_block: Some(0),
+        multiple_blocks: true,
+        required_sites: HashSet::from([2, 3, 5, 7]),
+        retained_input: false,
+    };
+    let placements = demand.branch_placements(0, &dominators, &postdominators);
+    assert_eq!(
+        placements.into_iter().collect::<HashSet<_>>(),
+        HashSet::from([1, 4])
+    );
+    assert_eq!(demand.common_block, Some(0));
+    assert_eq!(demand.required_sites, HashSet::from([1, 4]));
+}
+
+#[test]
+fn partial_sharing_preserves_uncovered_demands() {
+    let (dominators, postdominators) = branch_dominators();
+    let mut demand = Demand {
+        common_block: Some(0),
+        multiple_blocks: true,
+        required_sites: HashSet::from([2, 3, 5, 6]),
+        retained_input: true,
+    };
+    assert_eq!(
+        demand.branch_placements(0, &dominators, &postdominators),
+        [1]
+    );
+    assert_eq!(demand.common_block, Some(0));
+    assert_eq!(demand.required_sites, HashSet::from([1, 5, 6]));
+}
+
+#[test]
+fn branch_sharing_cannot_precede_an_input_definition() {
+    let (dominators, postdominators) = branch_dominators();
+    let mut demand = Demand {
+        common_block: Some(0),
+        multiple_blocks: true,
+        required_sites: HashSet::from([2, 3, 5, 7]),
+        retained_input: false,
+    };
+    assert!(demand
+        .branch_placements(2, &dominators, &postdominators)
+        .is_empty());
+    assert_eq!(demand.required_sites, HashSet::from([2, 3, 5, 7]));
+}
+
+#[test]
+fn nested_branches_share_below_a_rejected_region() {
+    let (dominators, postdominators) = dominance_trees(&[
+        vec![1, 6, 7],
+        vec![2, 5],
+        vec![3, 4],
+        vec![4],
+        vec![8],
+        vec![8],
+        vec![8],
+        vec![8],
+        vec![],
+    ]);
+    let mut demand = Demand {
+        common_block: Some(0),
+        multiple_blocks: true,
+        required_sites: HashSet::from([3, 4, 5, 7]),
+        retained_input: false,
+    };
+    assert_eq!(
+        demand.branch_placements(0, &dominators, &postdominators),
+        [2]
+    );
+    assert_eq!(demand.required_sites, HashSet::from([2, 5, 7]));
+}
+
+#[test]
+fn a_backedge_can_bypass_a_subgroup_witness() {
+    let mut branches = Branches::new();
+    let optional = branches.graph.block(0, &[]);
+    let backedge = branches.graph.block(0, &[]);
+    let after = branches.graph.block(0, &[]);
+    branches.graph.blocks[branches.taken.0].exit = Exit::If {
+        condition: 2,
+        taken: edge(optional),
+        otherwise: edge(backedge),
+    };
+    branches.graph.blocks[optional.0].exit = Exit::Jump(edge(backedge));
+    branches.graph.blocks[backedge.0].exit = Exit::If {
+        condition: 0,
+        taken: edge(branches.taken),
+        otherwise: edge(after),
+    };
+    branches.graph.blocks[after.0].exit = Exit::Return(vec![branches.product]);
+    branches.graph.memories.push(Mem(0));
+    let base = branches.graph.values.constant(Type::I32, 0);
+    branches.graph.effects.push(Effect {
+        results: Vec::new(),
+        operation: Operation::Store {
+            location: Location {
+                memory: Mem(0),
+                base,
+                offset: 0,
+                bytes: 4,
+            },
+            value: branches.product,
+        },
+        origin: optional,
+    });
+    branches.graph.blocks[optional.0]
+        .items
+        .push(BlockItem::Effect(EffectId(0)));
+    assert!(branches.schedules().iter().all(Vec::is_empty));
 }
 
 #[test]

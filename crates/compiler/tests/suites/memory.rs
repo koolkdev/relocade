@@ -72,10 +72,10 @@ fn high_offset_load(has_overlapping_store: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", INITIAL);
     fixture.function(&[], &[Type::I64], |mut body| {
-        let loaded = body.load::<I64>(memory, u32::MAX)?;
+        let loaded = body.load::<I64>(memory, u32::MAX - 7)?;
         body.store::<I32>(memory, 0, 9)?;
         if has_overlapping_store {
-            // The range ends exceed u32::MAX, but these accesses still overlap.
+            // Both ranges end at 2^32. Their exclusive ends must not wrap to zero.
             body.store::<I8>(memory, u32::MAX, 1)?;
         }
         body.return_(loaded)
@@ -263,15 +263,15 @@ fn memory_ranges_do_not_wrap_at_the_largest_offset() {
     let disjoint = inspect(high_offset_load(false).bytes());
     assert_eq!(
         disjoint.accesses,
-        [Access::Store(4, 0), Access::Load(8, 4294967295)]
+        [Access::Store(4, 0), Access::Load(8, 4294967288)]
     );
     assert_eq!(disjoint.local_writes, 0);
     let overlapping = inspect(high_offset_load(true).bytes());
     assert_eq!(
         overlapping.accesses,
         [
-            Access::Load(8, 4294967295),
             Access::Store(4, 0),
+            Access::Load(8, 4294967288),
             Access::Store(1, 4294967295),
         ]
     );

@@ -310,15 +310,15 @@ fn loads_used_on_only_one_path_stay_on_that_path() {
 }
 
 #[test]
-fn overlapping_stores_preserve_a_snapshot_across_the_guard() {
+fn overlapping_stores_preserve_snapshots_on_paths_that_use_them() {
     let captured = inspect(continuation_load(true).bytes());
     assert_eq!(
         captured.events,
         [
-            Event::Load(0),
             Event::If,
             Event::Return,
             Event::End,
+            Event::Load(0),
             Event::Store(0),
             Event::Return
         ]

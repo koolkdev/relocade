@@ -199,19 +199,13 @@ fn mixed_signed_and_unsigned_uses_share_the_read_before_an_overlapping_store() {
         .filter_map(|operation| match operation {
             Operator::I32Load8U { .. } => Some("unsigned snapshot"),
             Operator::I32Store8 { .. } => Some("overwrite"),
-            Operator::I32Extend8S => Some("interpret snapshot sign"),
             Operator::I32Load8S { .. } => Some("fresh signed read"),
             _ => None,
         })
         .collect();
     assert_eq!(
         accesses,
-        [
-            "unsigned snapshot",
-            "overwrite",
-            "interpret snapshot sign",
-            "fresh signed read"
-        ]
+        ["unsigned snapshot", "overwrite", "fresh signed read"]
     );
     let mut instance = module.instantiate();
     assert_eq!(instance.call_values("run", &[]).unwrap(), MIXED_RESULT);

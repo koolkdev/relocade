@@ -45,33 +45,57 @@ fn conditional_edges_evaluate_only_their_selected_arguments() {
     }
 }
 
-fn unused_exit_argument() -> TestModule {
+fn carried_call_result() -> TestModule {
     let mut fixture = Fixture::new();
-    let trapped_value = fixture
+    let increment = fixture
         .program
-        .function(signature(&[], &[Type::I32]), |body| body.trap())
+        .function(signature(&[Type::I32], &[Type::I32]), |body| {
+            let value = body.parameter::<I32>(0)?;
+            body.return_(value.add(3))
+        })
         .unwrap();
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
-        let repeat = body.parameter::<I1>(0)?;
-        let result = body.loop_::<(I32, I32), (I32, I32)>((0, 0), |mut iteration, labels, _| {
-            let trapped = iteration.call::<I32>(trapped_value, &[])?;
-            let next = (trapped, 7);
-            iteration.branch_if(repeat, &labels.again, next.clone())?;
-            iteration.yield_(next)
-        })?;
+    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
+        let count = body.parameter::<I32>(0)?;
+        let result = body.loop_::<(I32, I32), (I32, I32)>(
+            (2, count),
+            |mut iteration, labels, (value, left)| {
+                let next = iteration.call::<I32>(increment, &[value.argument()])?;
+                iteration.branch_if(left.ne(0), &labels.again, (&next, left.sub(1)))?;
+                iteration.yield_((next, value))
+            },
+        )?;
         body.return_(result.1)
     })
 }
 
 #[test]
 fn an_argument_dead_on_exit_remains_lazy_even_when_the_backedge_needs_it() {
-    let module = unused_exit_argument();
-    entry_operators(&module);
-    assert_eq!(module.instantiate().call::<i32>(0), Ok(7));
-    assert_eq!(
-        module.instantiate().call::<i32>(1),
-        Err(wasmtime::Trap::UnreachableCodeReached)
-    );
+    let module = carried_call_result();
+    let operators = entry_operators(&module);
+    let mut controls = Vec::new();
+    let mut calls = 0;
+    for op in operators {
+        use wasmparser::Operator;
+        match op {
+            Operator::If { .. } => controls.push(true),
+            Operator::Block { .. } | Operator::Loop { .. } => controls.push(false),
+            Operator::End => {
+                controls.pop();
+            }
+            Operator::Call { .. } => {
+                assert!(
+                    controls.contains(&true),
+                    "the call belongs to the conditional backedge"
+                );
+                calls += 1;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(calls, 1);
+    for (count, expected) in [(0, 2), (1, 5), (4, 14)] {
+        assert_eq!(module.instantiate().call::<i32>(count), Ok(expected));
+    }
 }
 
 #[test]
@@ -370,10 +394,12 @@ fn conditional_exit_edges_execute_in_v8() {
             Observation::returned(&[Value::I32(expected)])
         );
     }
-    assert_eq!(
-        unused_exit_argument().run_v8(&Input::call("run", &[Value::I32(0)])),
-        Observation::returned(&[Value::I32(7)])
-    );
+    for (count, expected) in [(0, 2), (4, 14)] {
+        assert_eq!(
+            carried_call_result().run_v8(&Input::call("run", &[Value::I32(count)])),
+            Observation::returned(&[Value::I32(expected)])
+        );
+    }
     assert_eq!(
         tail_writes().run_v8(
             &Input::call("run", &[Value::I32(2)])

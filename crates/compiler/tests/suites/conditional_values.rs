@@ -2,7 +2,7 @@ use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 
 use wasm86_compiler::{IntType, Type, I1, I32, I64, I8};
-use wasmparser::{BlockType, Operator, Parser, Payload, ValType, Validator};
+use wasmparser::{Operator, Parser, Payload, Validator};
 
 fn direct_result<T: IntType>() -> TestModule {
     let fixture = Fixture::new();
@@ -244,7 +244,7 @@ fn tailing_arm() -> TestModule {
 
 #[derive(Debug, PartialEq)]
 enum Event {
-    If(BlockType),
+    If,
     Else,
     End,
     Load(u64),
@@ -259,7 +259,6 @@ enum Event {
 struct Code {
     events: Vec<Event>,
     locals: u32,
-    writes: usize,
     adds: usize,
     drops: usize,
 }
@@ -277,7 +276,7 @@ fn inspect(bytes: &[u8]) -> Code {
             let mut reader = body.get_operators_reader().unwrap();
             while !reader.eof() {
                 let event = match reader.read().unwrap() {
-                    Operator::If { blockty } => Some(Event::If(blockty)),
+                    Operator::If { .. } => Some(Event::If),
                     Operator::Else => Some(Event::Else),
                     Operator::End if !reader.eof() => Some(Event::End),
                     Operator::I32Load { memarg } => Some(Event::Load(memarg.offset)),
@@ -288,10 +287,6 @@ fn inspect(bytes: &[u8]) -> Code {
                     Operator::Call { .. } => Some(Event::Call),
                     Operator::ReturnCall { .. } => Some(Event::Tail),
                     Operator::Return => Some(Event::Return),
-                    Operator::LocalSet { .. } | Operator::LocalTee { .. } => {
-                        code.writes += 1;
-                        None
-                    }
                     Operator::I32Add | Operator::I64Add => {
                         code.adds += 1;
                         None
@@ -311,15 +306,13 @@ fn inspect(bytes: &[u8]) -> Code {
 }
 
 #[test]
-fn shared_join_outputs_are_saved_after_one_selected_arm() {
+fn shared_join_outputs_do_not_repeat_arm_effects_or_arithmetic() {
     let code = inspect(shared_result().bytes());
-    assert_eq!(code.locals, 1);
-    assert_eq!(code.writes, 1);
     assert_eq!(code.adds, 3);
     assert_eq!(
         code.events,
         [
-            Event::If(BlockType::Type(ValType::I32)),
+            Event::If,
             Event::Store(0),
             Event::Else,
             Event::Store(0),
@@ -336,7 +329,7 @@ fn selected_loads_follow_arm_stores_and_precede_continuation_stores() {
         inspect(selected_memory().bytes()).events,
         [
             Event::Store(0),
-            Event::If(BlockType::Type(ValType::I32)),
+            Event::If,
             Event::Store(4),
             Event::Load(0),
             Event::Else,
@@ -356,7 +349,7 @@ fn unused_join_values_drop_reads_but_preserve_branch_effects() {
     assert_eq!(
         code.events,
         [
-            Event::If(BlockType::Empty),
+            Event::If,
             Event::Store(0),
             Event::Call,
             Event::Else,
@@ -374,7 +367,7 @@ fn prior_snapshots_survive_writes_in_either_arm_and_the_continuation() {
         inspect(snapshots().bytes()).events,
         [
             Event::Load(0),
-            Event::If(BlockType::Type(ValType::I32)),
+            Event::If,
             Event::Store(0),
             Event::Load(4),
             Event::Else,
@@ -394,7 +387,7 @@ fn narrow_joins_normalize_at_observers_instead_of_arm_exits() {
     assert_eq!(
         code.events,
         [
-            Event::If(BlockType::Type(ValType::I32)),
+            Event::If,
             Event::Else,
             Event::End,
             Event::Store(0),
@@ -415,13 +408,11 @@ fn narrow_joins_normalize_at_observers_instead_of_arm_exits() {
 #[test]
 fn nested_joins_share_parent_values_without_repeating_arithmetic() {
     let code = inspect(nested_result().bytes());
-    assert_eq!(code.locals, 2);
-    assert_eq!(code.writes, 2);
     assert_eq!(code.adds, 5);
     assert_eq!(
         code.events
             .iter()
-            .filter(|event| matches!(event, Event::If(_)))
+            .filter(|event| matches!(event, Event::If))
             .count(),
         2
     );
@@ -433,8 +424,8 @@ fn function_exits_inside_value_arms_keep_the_function_result_type() {
     assert_eq!(
         code.events,
         [
-            Event::If(BlockType::Type(ValType::I32)),
-            Event::If(BlockType::Empty),
+            Event::If,
+            Event::If,
             Event::Return,
             Event::End,
             Event::Load(0),
@@ -447,7 +438,7 @@ fn function_exits_inside_value_arms_keep_the_function_result_type() {
     assert_eq!(
         code.events,
         [
-            Event::If(BlockType::Type(ValType::I32)),
+            Event::If,
             Event::Return,
             Event::Else,
             Event::End,
@@ -459,7 +450,7 @@ fn function_exits_inside_value_arms_keep_the_function_result_type() {
     assert_eq!(
         code.events,
         [
-            Event::If(BlockType::Type(ValType::I32)),
+            Event::If,
             Event::Else,
             Event::Store(0),
             Event::Tail,

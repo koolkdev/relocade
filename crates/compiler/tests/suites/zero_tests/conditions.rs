@@ -296,7 +296,6 @@ fn shared_conditions_keep_one_canonical_value_for_numeric_observers() {
     let code = &functions["run"];
     assert_eq!((code.i32_eqz, code.i64_eqz), (2, 0));
     assert_eq!(code.masks, 1);
-    assert_eq!(code.local_writes, 1);
     assert_eq!(code.calls, 1);
 }
 

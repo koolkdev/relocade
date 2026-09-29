@@ -41,6 +41,85 @@ impl Demand {
                 .extend(other.required_sites.iter().copied());
         }
     }
+
+    fn branch_placements(
+        &mut self,
+        required: usize,
+        dominators: &Dominators,
+        postdominators: &Dominators,
+    ) -> Vec<usize> {
+        let mut placements = Vec::new();
+        if self.required_sites.len() < 2 {
+            return placements;
+        }
+        // Required sites and their common ancestors form a compact dominator
+        // tree, avoiding repeated scans of sites through nested bypasses.
+        let mut blocks: Vec<_> = self.required_sites.iter().copied().collect();
+        blocks.sort_unstable_by_key(|&block| dominators.preorder(block));
+        for index in 1..blocks.len() {
+            blocks.push(dominators.common(blocks[index - 1], blocks[index]).unwrap());
+        }
+        blocks.sort_unstable_by_key(|&block| dominators.preorder(block));
+        blocks.dedup();
+
+        struct Group {
+            block: usize,
+            parent: Option<usize>,
+            required_count: usize,
+            has_witness: bool,
+        }
+        let mut groups: Vec<Group> = Vec::with_capacity(blocks.len());
+        let mut ancestors: Vec<usize> = Vec::new();
+        for block in blocks {
+            while ancestors
+                .last()
+                .is_some_and(|&parent| !dominators.dominates(groups[parent].block, block))
+            {
+                ancestors.pop();
+            }
+            let required_site = self.required_sites.contains(&block);
+            groups.push(Group {
+                block,
+                parent: ancestors.last().copied(),
+                required_count: usize::from(required_site),
+                has_witness: required_site,
+            });
+            ancestors.push(groups.len() - 1);
+        }
+        for index in (0..groups.len()).rev() {
+            let Some(parent) = groups[index].parent else {
+                continue;
+            };
+            // A child's witness also covers its parent exactly when every
+            // path from the parent reaches that child first.
+            let has_witness = groups[index].has_witness
+                && postdominators.dominates(groups[index].block, groups[parent].block);
+            let required_count = groups[index].required_count;
+            groups[parent].required_count += required_count;
+            groups[parent].has_witness |= has_witness;
+        }
+        let mut covering = None;
+        for group in groups {
+            if covering.is_some_and(|parent| dominators.dominates(parent, group.block)) {
+                self.required_sites.remove(&group.block);
+                continue;
+            }
+            covering = None;
+            // A retained consumer elsewhere cannot justify this group. Keep
+            // the single-site witness rule for placement within a branch.
+            if group.required_count > 1
+                && group.has_witness
+                && dominators.dominates(required, group.block)
+            {
+                placements.push(group.block);
+                self.required_sites.insert(group.block);
+                covering = Some(group.block);
+            }
+        }
+        // Keep the common block for all uses, including uncovered demands.
+        // Only the required sites move when a subgroup shares its calculation.
+        placements
+    }
 }
 
 pub(super) fn schedules(
@@ -145,6 +224,10 @@ pub(super) fn schedules(
             {
                 schedules[candidate].push(id);
                 sites = Demand::at(candidate);
+            } else if let Some(required) = requirements[id] {
+                for block in sites.branch_placements(required, dominators, &postdominators) {
+                    schedules[block].push(id);
+                }
             }
         }
         for &input in expression.inputs() {

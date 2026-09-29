@@ -132,4 +132,9 @@ impl Dominators {
     pub(super) fn dominates(&self, a: usize, b: usize) -> bool {
         self.parent[a].is_some() && self.parent[b].is_some() && self.encloses(a, b)
     }
+
+    /// Ordering key that keeps each dominator subtree contiguous.
+    pub(super) fn preorder(&self, block: usize) -> usize {
+        self.interval[block].0
+    }
 }

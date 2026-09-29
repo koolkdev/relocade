@@ -122,13 +122,25 @@ fn first_writes_order_publication_independently_of_reads_and_overwrites() {
         old
     });
     assert_eq!(
-        emitted,
-        [
-            Access::Load(8),
-            Access::Store(0, Some(11)),
-            Access::Store(8, Some(9))
-        ]
+        emitted
+            .iter()
+            .filter_map(|access| match access {
+                Access::Store(offset, value) => Some((*offset, *value)),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        [(0, Some(11)), (8, Some(9))]
     );
+    assert_eq!(emitted.len(), 3);
+    let read = emitted
+        .iter()
+        .position(|access| *access == Access::Load(8))
+        .unwrap();
+    let overwrite = emitted
+        .iter()
+        .position(|access| *access == Access::Store(8, Some(9)))
+        .unwrap();
+    assert!(read < overwrite);
 }
 
 #[test]

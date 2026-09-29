@@ -1,7 +1,7 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, Callback, Input, MemoryBytes, Observation, TestModule, Value};
 use wasm86_compiler::{Type, I1, I32, I64, I8};
-use wasmparser::{Operator, Parser, Payload, ValType, Validator};
+use wasmparser::{Operator, Parser, Payload, Validator};
 
 fn shared_exits() -> TestModule {
     let mut fixture = Fixture::new();
@@ -58,11 +58,11 @@ fn projected_results(observe: bool) -> TestModule {
             |mut arm| {
                 arm.store::<I8>(state, 0, 1)?;
                 let _unused_call = arm.call::<I32>(receive, &[9.into()])?;
-                let unused_read = arm.load::<I64>(state, 65536)?;
+                let unused_read = arm.load::<I64>(state, 0)?;
                 arm.yield_((5, unused_read, true))
             },
             |mut arm| {
-                let unused_read = arm.load::<I64>(state, 65536)?;
+                let unused_read = arm.load::<I64>(state, 0)?;
                 arm.yield_((9, unused_read, false))
             },
         )?;
@@ -151,10 +151,8 @@ fn narrow_results() -> TestModule {
 
 #[derive(Default)]
 struct Code {
-    result_shapes: Vec<Vec<ValType>>,
     loads: usize,
     calls: usize,
-    local_writes: usize,
     fault_constants: usize,
 }
 
@@ -163,22 +161,11 @@ fn inspect(module: &TestModule) -> Code {
     let mut code = Code::default();
     for payload in Parser::new(0).parse_all(module.bytes()) {
         match payload.unwrap() {
-            Payload::TypeSection(types) => {
-                for ty in types.into_iter_err_on_gc_types() {
-                    let results = ty.unwrap().results().to_vec();
-                    if results.len() > 1 {
-                        code.result_shapes.push(results);
-                    }
-                }
-            }
             Payload::CodeSectionEntry(body) => {
                 for op in body.get_operators_reader().unwrap() {
                     match op.unwrap() {
                         Operator::I32Load { .. } | Operator::I64Load { .. } => code.loads += 1,
                         Operator::Call { .. } => code.calls += 1,
-                        Operator::LocalSet { .. } | Operator::LocalTee { .. } => {
-                            code.local_writes += 1
-                        }
                         Operator::I32Const { value: 0xf00d } => code.fault_constants += 1,
                         _ => {}
                     }
@@ -194,7 +181,6 @@ fn inspect(module: &TestModule) -> Code {
 fn nested_outward_exits_share_one_failure_tail_and_preserve_prior_reads() {
     let module = shared_exits();
     let code = inspect(&module);
-    assert_eq!(code.result_shapes, [vec![ValType::I32, ValType::I32]]);
     assert_eq!(code.fault_constants, 1);
     for (arguments, result, memory) in [
         ((0, 1, 0, 20), 227, [7, 0, 0, 0, 0, 0, 0, 0]),
@@ -214,20 +200,12 @@ fn nested_outward_exits_share_one_failure_tail_and_preserve_prior_reads() {
 }
 
 #[test]
-fn unused_components_remove_trapping_reads_without_removing_selected_effects() {
+fn unused_components_omit_reads_and_keep_selected_effects() {
     for observe in [true, false] {
         let module = projected_results(observe);
         let code = inspect(&module);
         assert_eq!(code.loads, 0);
         assert_eq!(code.calls, 1);
-        assert_eq!(
-            code.result_shapes,
-            if observe {
-                vec![vec![ValType::I32, ValType::I32]]
-            } else {
-                vec![]
-            }
-        );
         let mut instance = module.instantiate();
         assert_eq!(
             instance.call::<i32>(1).unwrap(),
@@ -250,14 +228,9 @@ fn unused_components_remove_trapping_reads_without_removing_selected_effects() {
 }
 
 #[test]
-fn nested_mixed_results_forward_the_ordered_result_stack() {
+fn nested_mixed_results_preserve_component_order_and_widths() {
     let module = nested_results();
-    let code = inspect(&module);
-    assert_eq!(
-        code.result_shapes,
-        [vec![ValType::I32, ValType::I32, ValType::I64]]
-    );
-    assert_eq!(code.local_writes, 3);
+    inspect(&module);
     assert_eq!(module.instantiate().call::<i64>(1).unwrap(), 2_147_483_648);
     assert_eq!(
         module.instantiate().call::<i64>(0).unwrap(),

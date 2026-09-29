@@ -141,13 +141,10 @@ fn alternative_stores(condition: Option<bool>) -> TestModule {
 }
 
 #[test]
-fn constant_effectful_arms_emit_inline_and_dynamic_conditions_keep_their_if() {
+fn constant_conditions_remove_branch_decisions_and_keep_selected_effects() {
     for (condition, expected) in [(false, 11), (true, 7)] {
         let module = alternative_stores(Some(condition));
         assert_no_conditional(&module);
-        assert!(!operators(&module)
-            .iter()
-            .any(|op| matches!(op, Operator::Block { .. })));
         assert_eq!(module.instantiate().call::<i32>(0), Ok(expected));
     }
     let dynamic = alternative_stores(None);

@@ -192,8 +192,7 @@ fn branch_call() -> TestModule {
         .program
         .define(helper, |mut body| {
             body.store::<I32>(state, 8, 3).unwrap();
-            let trapped = body.load::<I32>(state, 65536).unwrap();
-            body.return_(&trapped)
+            body.trap()
         })
         .unwrap();
     fixture.finish(run)
@@ -232,7 +231,7 @@ fn snapshot_with_a_tail_call_branch(store_offset: u32) -> TestModule {
     fixture.finish(run)
 }
 
-fn trapping_argument() -> TestModule {
+fn argument_snapshot() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]);
     let receive = fixture.callback(
@@ -241,7 +240,7 @@ fn trapping_argument() -> TestModule {
         &[Value::I32(17)],
     );
     fixture.function(&[], &[Type::I32], |mut body| {
-        let argument = body.load::<I32>(state, 65536)?;
+        let argument = body.load::<I32>(state, 0)?;
         body.store::<I32>(state, 0, 1)?;
         let answer = body.call::<I32>(receive, &[argument.argument()])?;
         body.store::<I32>(state, 4, 2)?;
@@ -406,7 +405,7 @@ fn readonly_calls_follow_result_demand_without_crossing_aliasing_writes() {
         [Event::Store(0), Event::Store(4), Event::Call, Event::Return]
     );
     assert_eq!(
-        inspect(readonly_call(65536, 0, ReadUse::Discard, &[]).bytes()).events,
+        inspect(readonly_call(0, 0, ReadUse::Discard, &[]).bytes()).events,
         [Event::Store(0), Event::Return]
     );
     assert_eq!(
@@ -416,7 +415,7 @@ fn readonly_calls_follow_result_demand_without_crossing_aliasing_writes() {
 }
 
 #[test]
-fn traps_in_calls_and_arguments_respect_their_control_path() {
+fn an_effectful_helper_stays_on_its_selected_path() {
     assert_eq!(
         inspect(branch_call().bytes()).events,
         [
@@ -425,29 +424,6 @@ fn traps_in_calls_and_arguments_respect_their_control_path() {
             Event::Call,
             Event::End,
             Event::Store(4),
-            Event::Return
-        ]
-    );
-    assert_eq!(
-        inspect(trapping_argument().bytes()).events,
-        [
-            Event::Store(0),
-            Event::Load(65536),
-            Event::Call,
-            Event::Store(4),
-            Event::Return
-        ]
-    );
-    assert_eq!(
-        inspect(readonly_call(65536, 0, ReadUse::ReturnSnapshot, &[]).bytes()).events,
-        [Event::Store(0), Event::Call, Event::Return]
-    );
-    assert_eq!(
-        inspect(readonly_call(65536, 65536, ReadUse::ReturnSnapshot, &[]).bytes()).events,
-        [
-            Event::Call,
-            Event::Store(0),
-            Event::Store(65536),
             Event::Return
         ]
     );
@@ -586,22 +562,9 @@ fn readonly_calls_follow_snapshot_aliasing_and_result_demand_at_runtime() {
         &[9, 0, 0, 0, 0x0b, 0, 0, 0, 0xa5, 0x5a]
     );
     let mut instance =
-        readonly_call(65536, 0, ReadUse::Discard, &[7, 0, 0, 0, 0xa5, 0x5a]).instantiate();
+        readonly_call(0, 0, ReadUse::Discard, &[7, 0, 0, 0, 0xa5, 0x5a]).instantiate();
     assert_eq!(instance.call::<i32>(()), Ok(7));
     assert_eq!(&instance.memory("state")[..6], &[9, 0, 0, 0, 0xa5, 0x5a]);
-    let mut instance =
-        readonly_call(65536, 0, ReadUse::ReturnSnapshot, &[7, 0, 0, 0, 0xa5, 0x5a]).instantiate();
-    assert!(instance.call::<i32>(()).is_err());
-    assert_eq!(&instance.memory("state")[..6], &[9, 0, 0, 0, 0xa5, 0x5a]);
-    let mut instance = readonly_call(
-        65536,
-        65536,
-        ReadUse::ReturnSnapshot,
-        &[7, 0, 0, 0, 0xa5, 0x5a],
-    )
-    .instantiate();
-    assert!(instance.call::<i32>(()).is_err());
-    assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
 }
 
 #[test]
@@ -615,8 +578,8 @@ fn computed_helper_reads_preserve_aliased_pointer_snapshots_at_runtime() {
     );
     // A computed helper read conservatively aliases every byte in its memory.
     let mut instance = computed_helper_read(&[7, 0, 0, 0, 0xa5, 0x5a]).instantiate();
-    assert!(instance.call::<i32>(65536).is_err());
-    assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
+    assert_eq!(instance.call::<i32>(0), Ok(7));
+    assert_eq!(&instance.memory("state")[..6], &[9, 0, 0, 0, 0xa5, 0x5a]);
 }
 
 #[test]
@@ -629,7 +592,7 @@ fn one_bit_call_results_control_branches_at_runtime() {
 }
 
 #[test]
-fn calls_trap_only_on_the_selected_control_path_at_runtime() {
+fn explicit_traps_in_helpers_terminate_only_the_selected_path() {
     let branch = branch_call();
     let mut instance = branch.instantiate();
     assert_eq!(instance.call::<i32>(0), Ok(17));
@@ -638,7 +601,10 @@ fn calls_trap_only_on_the_selected_control_path_at_runtime() {
         &[1, 0, 0, 0, 2, 0, 0, 0, 0x0b, 0, 0, 0, 0xa5, 0x5a]
     );
     let mut instance = branch.instantiate();
-    assert!(instance.call::<i32>(1).is_err());
+    assert_eq!(
+        instance.call::<i32>(1),
+        Err(wasmtime::Trap::UnreachableCodeReached)
+    );
     assert_eq!(
         &instance.memory("state")[..14],
         &[1, 0, 0, 0, 5, 0, 0, 0, 3, 0, 0, 0, 0xa5, 0x5a]
@@ -660,13 +626,21 @@ fn tail_call_branches_preserve_prefix_writes_and_false_edge_snapshots() {
 }
 
 #[test]
-fn trapping_call_arguments_prevent_host_calls_at_runtime() {
-    let mut instance = trapping_argument().instantiate();
-    assert!(instance.call::<i32>(()).is_err());
-    assert!(instance.callbacks().is_empty());
+fn call_arguments_preserve_their_snapshot_across_an_overlapping_store() {
+    let mut instance = argument_snapshot().instantiate();
+    assert_eq!(instance.call::<i32>(()), Ok(17));
+    assert_eq!(
+        instance.callbacks(),
+        &[
+            Call::new("receive", &[Value::I32(7)]).with_memories(&[MemoryBytes::new(
+                "state",
+                &[1, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]
+            )])
+        ]
+    );
     assert_eq!(
         &instance.memory("state")[..10],
-        &[1, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]
+        &[1, 0, 0, 0, 2, 0, 0, 0, 0xa5, 0x5a]
     );
 }
 

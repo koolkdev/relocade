@@ -1,6 +1,8 @@
 use super::data;
 use crate::support::cases::{
-    test_cases, InstructionCase as Case,
+    test_cases,
+    FlagExpectation::Preserved,
+    Flags, InstructionCase as Case,
     Permissions::{ReadOnly, ReadWrite},
 };
 use wasm86_x86::{
@@ -94,7 +96,6 @@ fn restart_state() -> Vec<Case> {
         (&[0x50][..], 0x23),
         (&[0x66, 0x50], 0x22),
         (&[0x58], 0x20),
-        (&[0x9c], 0x23),
         (&[0x9d], 0x20),
         (&[0xe8, 0, 0, 0, 0], 0x23),
         (&[0xc3], 0x20),
@@ -111,6 +112,20 @@ fn restart_state() -> Vec<Case> {
             .stack_fault(0),
         );
     }
+    cases.push(
+        Case::new(
+            "SS limit fault during PUSHFD preserves stack and readable flags",
+            &[0x9c],
+            Flags::all(true),
+            Flags::all(Preserved),
+        )
+        .preserve_flag_record()
+        .segmented_only()
+        .segment(Segment::Ss, data(0x8000, 0x20))
+        .initial_register(Esp, 0x23)
+        .memory(0x8010, &[0xff; 32], ReadWrite)
+        .stack_fault(0),
+    );
     cases.push(
         Case::preserving_flags(
             "POP destination segment fault preserves the original ESP",
