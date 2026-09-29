@@ -198,9 +198,7 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
                         _ => {}
                     }
                 }
-                for (recipe, value) in placer.joins.merge(placer.graph, index, &placer.available) {
-                    placer.define(recipe, value);
-                }
+                placer.joins.prepare(placer.graph, index, &placer.available);
                 placer.block(BlockId(index));
                 placer.joins.record(
                     index,

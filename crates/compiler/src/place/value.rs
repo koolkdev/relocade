@@ -27,6 +27,11 @@ impl Placer<'_> {
                     } else if let Some(result) = self.available.get(&id).copied() {
                         self.specialized.insert(id, result);
                     } else if let ValueDefinition::Expression(expression) = value.definition {
+                        if let Some(result) = self.joins.available_at(self.graph, block.0, id) {
+                            self.define(id, result);
+                            self.specialized.insert(id, result);
+                            continue;
+                        }
                         if let Expression::Select {
                             condition,
                             when_true,

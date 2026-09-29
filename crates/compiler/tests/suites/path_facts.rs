@@ -6,6 +6,8 @@ mod bitwise;
 mod boundaries;
 #[path = "path_facts/guards.rs"]
 mod guards;
+#[path = "path_facts/joins.rs"]
+mod joins;
 #[path = "path_facts/representations.rs"]
 mod representations;
 #[path = "path_facts/sharing.rs"]
