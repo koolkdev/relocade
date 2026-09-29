@@ -1,5 +1,5 @@
 use super::*;
-use crate::Type;
+use crate::{integer::BinaryOp, Type};
 
 fn graph() -> FunctionGraph {
     let mut graph = FunctionGraph::new();

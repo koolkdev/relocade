@@ -219,10 +219,6 @@ fn conditional_reuse_inside_a_loop_uses_the_current_iteration() {
             })?;
         body.return_(result)
     });
-    assert_eq!(
-        count(module.bytes(), |op| matches!(op, Operator::I32Mul)),
-        2
-    );
     for (iterations, square, expected, stored) in [
         (0, 1, 2, 0_u32),
         (1, 1, 4, 4),

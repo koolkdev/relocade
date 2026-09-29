@@ -2,6 +2,7 @@
 //! Dominance owns availability; effects retain their authored snapshot ordering.
 use crate::{body::*, Expression, FunctionKind, Program};
 use std::collections::HashMap;
+mod demand;
 mod dominance;
 mod effects;
 mod facts;
@@ -94,7 +95,7 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
     reads::prepare(graph, summaries, &reachable);
     let predecessors = predecessors(graph, &reachable);
     let dominators = Dominators::new(graph.entry.0, &successors(graph, &reachable), &predecessors);
-    let shared = shared::schedules(graph, &reachable, &dominators);
+    let shared = demand::schedules(graph, &reachable, &dominators);
     let mut children = vec![Vec::new(); graph.blocks.len()];
     for (block, parent) in dominators.parent.iter().enumerate() {
         if let Some(parent) = parent {
