@@ -218,6 +218,15 @@ fn undefined_flags_policy() -> Vec<Case> {
 #[rustfmt::skip]
 fn division_sequences() -> Vec<Sequence> {
     vec![
+        Sequence::new("dword division consumes a cleared high half and then the prior remainder", Flags::all(true))
+            .initial_registers(&[(Eax, 0xffff_ffff), (Edx, 0x1234_5678), (Ecx, 0x8000_0000)])
+            .step(Step::new(&[0x31, 0xd2],
+                Flags { cf: Clear, pf: Set, af: Undefined, zf: Set, sf: Clear, of: Clear })
+                .register(Edx, 0))
+            .step(Step::new(&[0xf7, 0xf1], Flags::all(Undefined))
+                .register(Eax, 1).register(Edx, 0x7fff_ffff))
+            .step(Step::new(&[0xf7, 0xf1], Flags::all(Undefined))
+                .register(Eax, 0xffff_fffe).register(Edx, 1)),
         Sequence::new("consecutive divisions consume both prior results before a later overflow", Flags::all(true))
             .initial_registers(&[(Eax, 1), (Edx, 1), (Ebx, 3)])
             .step(Step::new(&[0xf7, 0xf3], Flags::all(Undefined))

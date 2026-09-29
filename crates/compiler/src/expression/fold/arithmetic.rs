@@ -1,4 +1,4 @@
-//! Binary normalization, algebraic identities and modular constant offsets.
+//! Binary normalization, algebraic rewrites and modular constant offsets.
 
 use super::Folder;
 use crate::{
@@ -8,9 +8,9 @@ use crate::{
 };
 
 impl Folder<'_> {
-    // These identities preserve every physical bit, so construction and path
+    // These rewrites preserve every result bit, so construction and path
     // specialization can use them without repeating logical normalization.
-    pub(super) fn binary_identity(
+    pub(super) fn fold_binary(
         &mut self,
         ty: Type,
         operator: BinaryOp,
@@ -24,6 +24,24 @@ impl Folder<'_> {
             self.values[a].definition,
             self.values[b].definition,
         ) {
+            (BinaryOp::DivUnsigned | BinaryOp::RemUnsigned, _, _)
+                if ty == Type::I64
+                    && self.values.bounds[left].unsigned <= 32
+                    && self.values.bounds[right].unsigned <= 32 =>
+            {
+                // Both operands and the result fit 32 unsigned bits. The caller
+                // restores the logical i64 type by zero-extending the result.
+                let left = self.convert(left, Type::I32);
+                let right = self.convert(right, Type::I32);
+                Some(self.fold(
+                    Type::I32,
+                    Expression::Binary {
+                        operator,
+                        left,
+                        right,
+                    },
+                ))
+            }
             (
                 BinaryOp::Or | BinaryOp::Xor | BinaryOp::Add | BinaryOp::Sub,
                 _,

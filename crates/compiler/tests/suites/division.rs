@@ -5,6 +5,8 @@ use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[path = "division/execution.rs"]
 mod execution;
+#[path = "division/narrowing.rs"]
+mod narrowing;
 #[path = "division/validation.rs"]
 mod validation;
 

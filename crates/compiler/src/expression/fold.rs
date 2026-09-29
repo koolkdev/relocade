@@ -18,7 +18,7 @@ pub(crate) fn build(values: &mut ValueTable, ty: Type, expression: Expression<us
     Folder { values }.expression(ty, expression)
 }
 
-/// Replace a calculation's inputs while preserving its type and carrier operations.
+/// Replace a calculation's inputs and fold without repeating logical normalization.
 pub(crate) fn map_inputs(
     values: &mut ValueTable,
     id: usize,
@@ -76,14 +76,23 @@ impl Folder<'_> {
         }
     }
 
-    // Construction and operand replacement share the carrier-preserving identities.
+    // Construction and operand replacement share rewrites that preserve every result bit.
     fn fold(&mut self, ty: Type, expression: Expression<usize>) -> usize {
         let input = match expression {
             Expression::Binary {
                 operator,
                 left,
                 right,
-            } => self.binary_identity(ty, operator, left, right),
+            } => self.fold_binary(ty, operator, left, right),
+            Expression::Convert { input: source } => match self.values[source].definition {
+                ValueDefinition::Expression(Expression::Convert { input })
+                    if self.values[input].ty == ty
+                        && self.values[source].ty.bits() >= ty.bits() =>
+                {
+                    Some(input)
+                }
+                _ => None,
+            },
             _ => None,
         };
         let expression = if let Some(input) = input {

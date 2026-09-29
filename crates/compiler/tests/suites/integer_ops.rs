@@ -290,6 +290,51 @@ fn conversion_roundtrips_preserve_narrow_values_without_redundant_work() {
 }
 
 #[test]
+fn inverse_carrier_conversions_fold_only_when_no_bits_are_lost() {
+    let round_trip = Fixture::new().expression(&[Type::I32], |body| {
+        body.parameter::<I32>(0)
+            .unwrap()
+            .unsigned()
+            .extend::<I64>()
+            .truncate::<I32>()
+    });
+    assert_eq!(inspect(round_trip.bytes()).conversions, 0);
+    for input in [0, i32::MIN, -1] {
+        assert_eq!(round_trip.instantiate().call::<i32>(input), Ok(input));
+    }
+
+    let lossy = Fixture::new().expression(&[Type::I64], |body| {
+        body.parameter::<I64>(0)
+            .unwrap()
+            .truncate::<I32>()
+            .unsigned()
+            .extend::<I64>()
+    });
+    for (input, expected) in [(0x1_0000_0000_i64, 0), (-1, 4_294_967_295)] {
+        assert_eq!(lossy.instantiate().call::<i64>(input), Ok(expected));
+    }
+}
+
+#[test]
+fn inverse_conversions_retain_logical_normalization() {
+    let module = Fixture::new().expression(&[Type::I32], |body| {
+        body.parameter::<I32>(0)
+            .unwrap()
+            .truncate::<I8>()
+            .add(1)
+            .unsigned()
+            .extend::<I64>()
+            .truncate::<I8>()
+            .unsigned()
+            .extend::<I32>()
+    });
+    assert_eq!(inspect(module.bytes()).conversions, 0);
+    for (input, expected) in [(0x1234_00ff, 0), (0x1234_007f, 128)] {
+        assert_eq!(module.instantiate().call::<i32>(input), Ok(expected));
+    }
+}
+
+#[test]
 fn same_width_conversions_emit_no_operations() {
     let module = Fixture::new().expression(&[Type::I32], |b| {
         b.parameter::<I32>(0)
