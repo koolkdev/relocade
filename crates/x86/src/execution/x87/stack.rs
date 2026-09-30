@@ -6,7 +6,8 @@ use crate::{
     address::MemoryAddress,
     instruction::X87StackIndex,
     memory::Intent,
-    state::{ExtendedValue, LoadSource},
+    state::LoadSource,
+    x87::{ExtendedBits, ExtendedValue},
 };
 
 use super::{check_pending_exception, record_instruction, record_memory, ExecutionBuilder};
@@ -17,10 +18,10 @@ pub(crate) fn load_extended(
 ) -> Result<(), BuildError> {
     check_pending_exception(execution)?;
     let operand = execution.memory_operand(address, 10, Intent::Read, &[])?;
-    let value = ExtendedValue {
+    let value = ExtendedValue::from_bits(ExtendedBits {
         significand: operand.read::<I64>(execution, 0)?,
         sign_exponent: operand.read::<I16>(execution, 8)?,
-    };
+    });
     record_memory(execution, &operand)?;
     execution
         .state
@@ -83,7 +84,7 @@ pub(crate) fn store_extended(
             .state
             .x87
             .stack_fault(&mut execution.body, &source.empty, false.into())?;
-    let value = source.value.or_indefinite(&source.empty);
+    let value = source.value.or_indefinite(&source.empty).bits();
     execution.if_value::<()>(
         &enabled,
         |arm| {

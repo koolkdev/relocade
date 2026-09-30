@@ -2,6 +2,8 @@
 
 #[path = "x87_store/effects.rs"]
 mod effects;
+#[path = "x87_store/loaded.rs"]
+mod loaded;
 #[path = "x87_store/range.rs"]
 mod range;
 

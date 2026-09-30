@@ -2,11 +2,12 @@
 
 use wasm86_compiler::{Val, I1, I16, I32, I64};
 
-use crate::state::ExtendedValue;
+use super::{
+    rounding::{RoundingInput, RoundingMode},
+    ExtendedBits, ExtendedValue,
+};
 
-use super::rounding::{RoundingInput, RoundingMode};
-
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum BinaryFormat {
     Binary32,
     Binary64,
@@ -14,8 +15,6 @@ pub(crate) enum BinaryFormat {
 
 pub(crate) struct BinaryOperand {
     pub(crate) value: ExtendedValue,
-    /// Tag of the expanded value; narrow subnormals become normal extended values.
-    pub(crate) tag: Val<I16>,
     pub(crate) signaling_nan: Val<I1>,
     pub(crate) denormal: Val<I1>,
 }
@@ -49,6 +48,41 @@ impl BinaryFormat {
         (1 << (self.exponent_bits() - 1)) - 1
     }
 
+    fn infinity(self) -> u64 {
+        ((1_u64 << self.exponent_bits()) - 1) << self.fraction_bits()
+    }
+
+    fn quiet_bit(self) -> u64 {
+        1 << (self.fraction_bits() - 1)
+    }
+
+    fn sign_bit(self) -> u64 {
+        1 << (self.fraction_bits() + self.exponent_bits())
+    }
+
+    pub(super) fn indefinite_bits(self) -> u64 {
+        self.sign_bit() | self.infinity() | self.quiet_bit()
+    }
+
+    fn denormal(self, bits: &Val<I64>) -> Val<I1> {
+        let magnitude = bits.and(self.sign_bit() - 1);
+        magnitude
+            .ne(0_u64)
+            .and(magnitude.unsigned().lt(1_u64 << self.fraction_bits()))
+    }
+
+    pub(super) fn tag(self, bits: &Val<I64>) -> Val<I16> {
+        let magnitude = bits.and(self.sign_bit() - 1);
+        // Narrow subnormals expand to normal extended values.
+        magnitude.eq(0_u64).select(
+            1_u32,
+            magnitude
+                .unsigned()
+                .ge(self.infinity())
+                .select(2_u32, 0_u32),
+        )
+    }
+
     pub(crate) fn bytes(self) -> u32 {
         match self {
             Self::Binary32 => 4,
@@ -59,6 +93,20 @@ impl BinaryFormat {
     /// The candidate quiets an SNaN, but its exception is resolved with the
     /// destination's stack fault before deciding whether to commit the load.
     pub(crate) fn decode(self, bits: &Val<I64>) -> BinaryOperand {
+        let nan = bits
+            .and(self.sign_bit() - 1)
+            .unsigned()
+            .ge(self.infinity() + 1);
+        let signaling_nan = nan.and(bits.and(self.quiet_bit()).eq(0_u64));
+        BinaryOperand {
+            value: ExtendedValue::from_binary(self, bits.or(nan.select(self.quiet_bit(), 0_u64))),
+            signaling_nan,
+            denormal: self.denormal(bits),
+        }
+    }
+
+    /// Expands post-load bits exactly; decode has already quieted any SNaN.
+    pub(super) fn expand(self, bits: &Val<I64>) -> ExtendedBits {
         let fraction_bits = self.fraction_bits();
         let exponent_bits = self.exponent_bits();
         let bias = self.bias();
@@ -73,16 +121,14 @@ impl BinaryFormat {
         let zero_exponent = exponent.eq(0_u64);
         let special = exponent.eq(exponent_mask);
         let nonzero_fraction = fraction.ne(0_u64);
-        let nan = special.and(&nonzero_fraction);
         let fraction = fraction.shl(63 - fraction_bits);
-        let signaling_nan = nan.and(fraction.and(1_u64 << 62).eq(0_u64));
 
         // Narrow subnormals are normal extended values. This exact expansion
         // uses neither the precision control nor the rounding control fields.
         let shift = fraction.clz();
         let significand = zero_exponent.select(
             fraction.shl(shift.truncate::<I32>()),
-            fraction.or(1_u64 << 63).or(nan.select(1_u64 << 62, 0_u64)),
+            fraction.or(1_u64 << 63),
         );
         let finite_exponent = zero_exponent.select(
             nonzero_fraction.select(Val::<I64>::from((16384 - bias) as u64).sub(shift), 0_u64),
@@ -91,28 +137,33 @@ impl BinaryFormat {
         let sign_exponent = sign.or(special
             .select(0x7fff_u64, finite_exponent)
             .truncate::<I16>());
-        BinaryOperand {
-            value: ExtendedValue {
-                significand,
-                sign_exponent,
-            },
-            tag: zero_exponent
-                .and(nonzero_fraction.eq(false))
-                .select(1_u32, special.select(2_u32, 0_u32)),
-            signaling_nan,
-            denormal: zero_exponent.and(nonzero_fraction),
+        ExtendedBits {
+            significand,
+            sign_exponent,
         }
     }
 
     /// Rounds the original extended value directly to the destination. PC is
     /// irrelevant to stores; no intermediate binary64 value is constructed.
     pub(crate) fn encode(self, value: &ExtendedValue, rounding: &RoundingMode) -> BinaryResult {
+        if let Some(bits) = value.exact_bits(self) {
+            return BinaryResult {
+                bits: bits.clone(),
+                invalid: false.into(),
+                overflow: false.into(),
+                // Exact subnormals still raise underflow when UM is clear.
+                tiny: self.denormal(bits),
+                inexact: false.into(),
+                incremented: false.into(),
+            };
+        }
+        let value = value.bits();
         let fraction_bits = self.fraction_bits();
         let precision = fraction_bits + 1;
         let shift = 64 - precision;
-        let infinity = ((1_u64 << self.exponent_bits()) - 1) << fraction_bits;
-        let quiet_bit = 1_u64 << (fraction_bits - 1);
-        let sign_bit = 1_u64 << (fraction_bits + self.exponent_bits());
+        let infinity = self.infinity();
+        let quiet_bit = self.quiet_bit();
+        let sign_bit = self.sign_bit();
 
         let significand = &value.significand;
         let exponent = value.sign_exponent.and(0x7fff).unsigned().extend::<I32>();

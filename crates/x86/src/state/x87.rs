@@ -4,14 +4,12 @@ mod control;
 mod registers;
 mod status;
 mod transfer;
-mod value;
 
 pub(crate) use transfer::LoadSource;
-pub(crate) use value::ExtendedValue;
 
 use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 
-use crate::ssa::StateFields;
+use crate::{ssa::StateFields, x87::ExtendedValue};
 
 use super::access::cpu_location;
 use control::Exception;

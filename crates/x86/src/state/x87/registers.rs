@@ -1,17 +1,19 @@
 //! Retains logical stack slots while preserving their physical backing and padding.
 mod backing;
+mod payload;
 
 use std::mem::{offset_of, size_of};
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I64};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 
 use crate::{
-    ssa::{Location, StateFields, TrackedValue},
+    ssa::TrackedValue,
     state::{CpuState, StoredX87Register},
+    x87::ExtendedValue,
 };
 
-use super::ExtendedValue;
 use backing::Backing;
+use payload::Payload;
 
 #[derive(Clone)]
 pub(super) struct Slot {
@@ -52,20 +54,6 @@ struct Tag {
     // Keep the last assignment, including an empty tag after FSTP ST0.
     // The exception check proves its guard before it replaces `current`.
     latest_write: Option<Val<I16>>,
-}
-
-/// `fields` holds the value before `conditional_write`, or the current value
-/// when there is no conditional write. Reads and publication honor its guard.
-#[derive(Clone)]
-struct Payload {
-    fields: StateFields,
-    conditional_write: Option<ConditionalWrite>,
-}
-
-#[derive(Clone)]
-struct ConditionalWrite {
-    enabled: Val<I1>,
-    value: ExtendedValue,
 }
 
 impl Registers {
@@ -227,9 +215,7 @@ impl Registers {
                 }
             }
             for payload in frame.payloads.iter_mut().flatten() {
-                if let Some(write) = payload.conditional_write.take() {
-                    Payload::define_fields(&mut payload.fields, body, &write.value)?;
-                }
+                payload.discard_write_guard();
             }
         }
         Ok(())
@@ -276,97 +262,5 @@ impl Registers {
             body.store(self.memory, offset_of!(CpuState, x87.tag_word) as u32, tags)?;
         }
         Ok(())
-    }
-}
-
-impl Payload {
-    fn new(memory: Mem, address: Val<I32>) -> Self {
-        Self {
-            fields: StateFields::with_base(memory, address),
-            conditional_write: None,
-        }
-    }
-
-    fn define_fields(
-        fields: &mut StateFields,
-        body: &mut BlockBuilder<'_>,
-        value: &ExtendedValue,
-    ) -> Result<(), BuildError> {
-        let base = offset_of!(CpuState, x87.registers) as u32;
-        fields.define(
-            body,
-            Location::<I64>::new(base + offset_of!(StoredX87Register, significand) as u32),
-            &value.significand,
-        )?;
-        fields.define(
-            body,
-            Location::<I16>::new(base + offset_of!(StoredX87Register, sign_exponent) as u32),
-            &value.sign_exponent,
-        )
-    }
-
-    fn read(&mut self, body: &mut BlockBuilder<'_>) -> Result<ExtendedValue, BuildError> {
-        let base = offset_of!(CpuState, x87.registers) as u32;
-        let previous = ExtendedValue {
-            significand: self.fields.read(
-                body,
-                Location::<I64>::new(base + offset_of!(StoredX87Register, significand) as u32),
-            )?,
-            sign_exponent: self.fields.read(
-                body,
-                Location::<I16>::new(base + offset_of!(StoredX87Register, sign_exponent) as u32),
-            )?,
-        };
-        Ok(match &self.conditional_write {
-            Some(write) => ExtendedValue {
-                significand: write
-                    .enabled
-                    .select(&write.value.significand, previous.significand),
-                sign_exponent: write
-                    .enabled
-                    .select(&write.value.sign_exponent, previous.sign_exponent),
-            },
-            None => previous,
-        })
-    }
-
-    /// A false `enabled` guard must establish a pending x87 exception (ES = 1).
-    /// Keep that guard until the pending-exception check proves the write was
-    /// enabled, or publication chooses its value for an exit or tracking reset.
-    fn write(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        value: &ExtendedValue,
-        enabled: &Val<I1>,
-    ) -> Result<(), BuildError> {
-        if let Some(write) = &self.conditional_write {
-            if !write.enabled.same_expression(enabled) {
-                // Equal guards let the later write replace the earlier one
-                // (for example, FXCH ST0). Different guards must retain the
-                // earlier conditional result as the new write's fallback.
-                let previous = self.read(body)?;
-                Self::define_fields(&mut self.fields, body, &previous)?;
-            }
-        }
-        self.conditional_write = Some(ConditionalWrite {
-            enabled: enabled.clone(),
-            value: value.clone(),
-        });
-        Ok(())
-    }
-
-    fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
-        match &self.conditional_write {
-            Some(write) => body.if_else(
-                &write.enabled,
-                |mut enabled_body| {
-                    let mut fields = self.fields.clone();
-                    Self::define_fields(&mut fields, &mut enabled_body, &write.value)?;
-                    fields.publish(&mut enabled_body)
-                },
-                |mut suppressed_body| self.fields.publish(&mut suppressed_body),
-            ),
-            None => self.fields.publish(body),
-        }
     }
 }

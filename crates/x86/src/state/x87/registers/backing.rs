@@ -1,15 +1,16 @@
 //! Physical x87 slots preserve their padding while values and tags move.
 
-use std::mem::{offset_of, size_of};
+use std::mem::size_of;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I64};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 
 use crate::{
     ssa::StateFields,
-    state::{access::cpu_location, CpuState, StoredX87Register},
+    state::{access::cpu_location, StoredX87Register},
+    x87::ExtendedValue,
 };
 
-use super::super::ExtendedValue;
+use super::payload;
 
 #[derive(Clone)]
 pub(super) struct Backing {
@@ -58,19 +59,7 @@ impl Backing {
         slot: &Val<I32>,
     ) -> Result<ExtendedValue, BuildError> {
         let address = slot.mul(size_of::<StoredX87Register>() as u32);
-        let base = offset_of!(CpuState, x87.registers) as u32;
-        Ok(ExtendedValue {
-            significand: body.load_at::<I64>(
-                self.memory,
-                &address,
-                base + offset_of!(StoredX87Register, significand) as u32,
-            )?,
-            sign_exponent: body.load_at::<I16>(
-                self.memory,
-                address,
-                base + offset_of!(StoredX87Register, sign_exponent) as u32,
-            )?,
-        })
+        payload::load(body, self.memory, &address)
     }
 
     pub(super) fn write(
@@ -82,20 +71,8 @@ impl Backing {
         enabled: &Val<I1>,
     ) -> Result<(), BuildError> {
         let address = slot.mul(size_of::<StoredX87Register>() as u32);
-        let base = offset_of!(CpuState, x87.registers) as u32;
         body.if_(enabled, |mut arm| {
-            arm.store_at::<I64>(
-                self.memory,
-                &address,
-                base + offset_of!(StoredX87Register, significand) as u32,
-                &value.significand,
-            )?;
-            arm.store_at::<I16>(
-                self.memory,
-                &address,
-                base + offset_of!(StoredX87Register, sign_exponent) as u32,
-                &value.sign_exponent,
-            )
+            payload::store(&mut arm, self.memory, &address, value)
         })?;
         self.set_tag(body, slot, tag, enabled)
     }

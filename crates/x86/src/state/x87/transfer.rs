@@ -1,10 +1,10 @@
 //! Transfer responses resolve stack and numerical exceptions before commitment.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I64};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I64};
 
-use crate::x87::{BinaryFormat, BinaryOperand};
+use crate::x87::{BinaryFormat, BinaryOperand, ExtendedValue};
 
-use super::{control::Exception, ExtendedValue, StackValue, X87State};
+use super::{control::Exception, StackValue, X87State};
 
 /// Source provenance determines which exceptions FLD can raise. Raw extended
 /// and register transfers do not classify SNaNs or denormals as operands.
@@ -12,15 +12,6 @@ pub(crate) enum LoadSource {
     Extended(ExtendedValue),
     Register(StackValue),
     Binary(BinaryOperand),
-}
-
-impl LoadSource {
-    fn decoded_tag(&self) -> Option<Val<I16>> {
-        match self {
-            Self::Binary(source) => Some(source.tag.clone()),
-            Self::Extended(_) | Self::Register(_) => None,
-        }
-    }
 }
 
 impl X87State {
@@ -84,7 +75,6 @@ impl X87State {
         body: &mut BlockBuilder<'_>,
         source: LoadSource,
     ) -> Result<(), BuildError> {
-        let decoded_tag = source.decoded_tag();
         let (value, source_empty, signaling_nan, denormal) = match source {
             LoadSource::Extended(value) => (value, false.into(), false.into(), false.into()),
             LoadSource::Register(source) => {
@@ -124,10 +114,7 @@ impl X87State {
         // FLD description). Only an unmasked invalid exception suppresses it.
         let enabled = unmasked_invalid.eq(false);
         let value = value.or_indefinite(&fault);
-        let tag = match decoded_tag {
-            Some(tag) => fault.select(2_u32, tag),
-            None => value.tag(),
-        };
+        let tag = value.tag();
         self.registers.write(body, &target, &value, tag, &enabled)?;
         self.registers.advance(-1);
         self.status.set_top(body, target.physical, enabled)
