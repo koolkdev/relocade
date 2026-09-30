@@ -54,8 +54,11 @@ impl Placer<'_> {
         for value in &mut values {
             value.can_defer = value.can_defer
                 && paths.iter_mut().any(|path| {
-                    let residual = path.specialize(self.graph, value.recipe, |_, id| {
-                        self.available.get(&id).copied()
+                    let residual = path.specialize(self.graph, value.recipe, |graph, id| {
+                        self.available
+                            .get(&id)
+                            .copied()
+                            .or_else(|| self.expressions.get(&graph.values[id]).copied())
                     });
                     !self.needs_evaluation(residual)
                 });

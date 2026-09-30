@@ -12,6 +12,8 @@ mod guards;
 mod joins;
 #[path = "path_facts/masks.rs"]
 mod masks;
+#[path = "path_facts/ranges.rs"]
+mod ranges;
 #[path = "path_facts/representations.rs"]
 mod representations;
 #[path = "path_facts/sharing.rs"]

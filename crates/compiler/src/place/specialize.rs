@@ -95,8 +95,17 @@ impl Specializer {
                     self.residuals.insert(id, self.residuals[&input]);
                 }
                 Work::Finish(id) => {
-                    let result =
+                    let mut result =
                         crate::expression::map_inputs(&mut graph.values, id, |v| self.residuals[v]);
+                    // Folding can expose an equivalent calculation whose placed
+                    // value already carries facts from an earlier guard.
+                    if let Some(available) = lookup(graph, result) {
+                        result = available;
+                    }
+                    if let Some(bits) = self.facts.constant(&graph.values, result) {
+                        let bits = graph.values.carrier_bits(result, bits);
+                        result = graph.values.carrier_constant(graph.values[result].ty, bits);
+                    }
                     self.residuals.insert(id, result);
                 }
             }

@@ -7,6 +7,9 @@ impl Placer<'_> {
             if let Some(&result) = self.available.get(&id) {
                 return Some(result);
             }
+            if let Some(&result) = self.expressions.get(&graph.values[id]) {
+                return Some(result);
+            }
             if !matches!(graph.values[id].definition, ValueDefinition::Expression(_)) {
                 return None;
             }
