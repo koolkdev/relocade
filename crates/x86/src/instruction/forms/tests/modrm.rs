@@ -83,6 +83,11 @@ fn x87_forms_reject_lock_and_undeclared_register_encodings() {
         [0xdf, 0x05],
         [0xdb, 0x05],
         [0xdf, 0x2d],
+        [0xdf, 0x15],
+        [0xdb, 0x15],
+        [0xdf, 0x1d],
+        [0xdb, 0x1d],
+        [0xdf, 0x3d],
     ] {
         let mut locked = vec![0xf0];
         locked.extend_from_slice(&bytes);

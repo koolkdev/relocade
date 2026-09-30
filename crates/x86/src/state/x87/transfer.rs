@@ -2,7 +2,7 @@
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I64};
 
-use crate::x87::{BinaryFormat, BinaryOperand, ExtendedValue};
+use crate::x87::{BinaryOperand, ConversionResult, ExtendedValue, RoundingMode};
 
 use super::{control::Exception, StackValue, X87State};
 
@@ -16,17 +16,17 @@ pub(crate) enum LoadSource {
 }
 
 impl X87State {
-    /// Resolves a narrow store after the destination's complete access guard.
+    /// Resolves a converted store after the destination's complete access guard.
     /// Precision exceptions commit the store and pop even when unmasked.
-    pub(crate) fn store_binary(
+    pub(crate) fn prepare_store(
         &mut self,
         body: &mut BlockBuilder<'_>,
-        format: BinaryFormat,
         pop: bool,
-    ) -> Result<BinaryStore, BuildError> {
+        convert: impl FnOnce(&ExtendedValue, &RoundingMode) -> ConversionResult,
+    ) -> Result<StoreResult, BuildError> {
         let source = self.read_stack(body, 0)?;
         let rounding = self.control.rounding(body)?;
-        let result = format.encode(&source.value.or_indefinite(&source.empty), &rounding);
+        let result = convert(&source.value.or_indefinite(&source.empty), &rounding);
         let invalid = source.empty.or(result.invalid);
         let unmasked_invalid =
             self.status
@@ -65,7 +65,7 @@ impl X87State {
         if pop {
             self.pop(body, &enabled)?;
         }
-        Ok(BinaryStore {
+        Ok(StoreResult {
             bits: result.bits,
             enabled,
         })
@@ -129,7 +129,8 @@ impl X87State {
     }
 }
 
-pub(crate) struct BinaryStore {
+/// Destination bits and write permission after resolving x87 exceptions.
+pub(crate) struct StoreResult {
     pub(crate) bits: Val<I64>,
     pub(crate) enabled: Val<I1>,
 }

@@ -98,6 +98,8 @@ mod undefined_instructions;
 mod x87_control;
 #[path = "suites/x87_integer_load.rs"]
 mod x87_integer_load;
+#[path = "suites/x87_integer_store.rs"]
+mod x87_integer_store;
 #[path = "suites/x87_load.rs"]
 mod x87_load;
 #[path = "suites/x87_stack.rs"]

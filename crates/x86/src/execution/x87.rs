@@ -9,7 +9,7 @@ pub(crate) use stack::{
     exchange_register, free_register, load_extended, load_register, rotate_stack, store_extended,
     store_register,
 };
-pub(crate) use store::store_binary;
+pub(crate) use store::{store_binary, store_integer};
 
 use wasm86_compiler::{BuildError, I16};
 

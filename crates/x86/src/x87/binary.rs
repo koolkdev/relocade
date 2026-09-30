@@ -4,7 +4,7 @@ use wasm86_compiler::{Val, I1, I16, I32, I64};
 
 use super::{
     rounding::{RoundingInput, RoundingMode},
-    ExtendedBits, ExtendedValue,
+    ConversionResult, ExtendedBits, ExtendedValue,
 };
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -17,16 +17,6 @@ pub(crate) struct BinaryOperand {
     pub(crate) value: ExtendedValue,
     pub(crate) signaling_nan: Val<I1>,
     pub(crate) denormal: Val<I1>,
-}
-
-/// Conversion evidence is independent of exception masks and stack occupancy.
-pub(crate) struct BinaryResult {
-    pub(crate) bits: Val<I64>,
-    pub(crate) invalid: Val<I1>,
-    pub(crate) overflow: Val<I1>,
-    pub(crate) tiny: Val<I1>,
-    pub(crate) inexact: Val<I1>,
-    pub(crate) incremented: Val<I1>,
 }
 
 impl BinaryFormat {
@@ -148,9 +138,9 @@ impl BinaryFormat {
 
     /// Rounds the original extended value directly to the destination. PC is
     /// irrelevant to stores; no intermediate binary64 value is constructed.
-    pub(crate) fn encode(self, value: &ExtendedValue, rounding: &RoundingMode) -> BinaryResult {
+    pub(crate) fn encode(self, value: &ExtendedValue, rounding: &RoundingMode) -> ConversionResult {
         if let Some(bits) = value.exact_bits(self) {
-            return BinaryResult {
+            return ConversionResult {
                 bits: bits.clone(),
                 invalid: false.into(),
                 overflow: false.into(),
@@ -220,7 +210,7 @@ impl BinaryFormat {
             sign_bit | infinity | quiet_bit,
             sign.or(special.select(special_bits, finite_bits)),
         );
-        BinaryResult {
+        ConversionResult {
             bits,
             invalid: unsupported.or(signaling_nan),
             overflow: overflow.clone(),

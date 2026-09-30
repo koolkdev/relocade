@@ -1,6 +1,6 @@
 //! Values retain exact narrow representations until an operation needs extended bits.
 
-use wasm86_compiler::{Val, I1, I16, I32, I64};
+use wasm86_compiler::{Val, I1, I16, I64};
 
 use super::BinaryFormat;
 
@@ -28,24 +28,6 @@ enum Representation {
 impl ExtendedValue {
     pub(crate) fn from_bits(bits: ExtendedBits) -> Self {
         Self(Representation::Extended(bits))
-    }
-
-    /// All signed 64-bit integers fit exactly, regardless of PC and RC.
-    pub(crate) fn from_signed_integer(integer: &Val<I64>) -> Self {
-        let negative = integer.signed().lt(0_u64);
-        // Wrapping negation preserves the unsigned magnitude of i64::MIN.
-        let magnitude = negative.select(Val::<I64>::from(0_u64).sub(integer), integer);
-        let shift = magnitude.clz().truncate::<I32>();
-        let exponent = magnitude
-            .eq(0_u64)
-            .select(0_u32, Val::<I32>::from(16383 + 63).sub(&shift));
-        Self::from_bits(ExtendedBits {
-            significand: magnitude.shl(shift),
-            sign_exponent: negative
-                .select(0x8000_u32, 0_u32)
-                .or(exponent)
-                .truncate::<I16>(),
-        })
     }
 
     pub(super) fn from_binary(format: BinaryFormat, bits: Val<I64>) -> Self {

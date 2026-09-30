@@ -188,8 +188,9 @@ must initialize CS with a valid return selector and provide its descriptor.
 The implemented controls are FNINIT, FNCLEX, FLDCW, FNSTCW, FNSTSW (memory and AX)
 and standalone FWAIT. Stack operations include FLD ST(i), FST/FSTP ST(i), FXCH,
 FFREE, FINCSTP and FDECSTP. Memory data transfers support FLD m32/m64/m80,
-FILD m16/m32/m64 integers, FST m32/m64 and FSTP m32/m64/m80; there is no FST m80
-encoding. Arithmetic remains unsupported.
+FILD m16/m32/m64 integers, FIST m16/m32, FISTP m16/m32/m64, FST m32/m64 and
+FSTP m32/m64/m80. There is no FIST m64 or FST m80 encoding. Arithmetic remains
+unsupported.
 Execution assumes an enabled FPU with native exception reporting, corresponding
 to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
 modeled by this user-mode environment.
@@ -248,6 +249,17 @@ Only stack overflow can raise a new x87 exception. A masked overflow pushes
 the indefinite value; an unmasked overflow preserves TOP and the destination,
 setting IE, SF, C1, ES and B for deferred delivery. See Intel's
 [FILD entry, Volume 2A](https://cdrdv2-public.intel.com/812383/253666-sdm-vol-2a.pdf).
+
+FIST/FISTP round the original extended value to a signed integer under RC,
+independently of PC, and test the rounded result against the destination range.
+NaNs, infinities, unsupported encodings and results outside that range raise IE.
+Masked invalid stores the destination's most-negative integer; unmasked invalid
+preserves memory and TOP. Integer stores do not raise DE, OE or UE. Valid
+inexact conversions set PE and use C1 to report an increase in magnitude; they
+complete the store and FISTP pop even when precision is unmasked. FIST preserves
+the full source value. Operand size is fixed by the opcode. See Intel's
+[FIST/FISTP entry, Volume 2A](https://cdrdv2-public.intel.com/812383/253666-sdm-vol-2a.pdf)
+and [Volume 1, section 8.5.6](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366521.pdf).
 
 FST/FSTP m32/m64 round the current extended value directly to the destination
 under RC, independently of PC. Signed zeros and infinities retain their signs;
