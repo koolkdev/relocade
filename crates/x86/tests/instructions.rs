@@ -96,6 +96,8 @@ mod unary_operations;
 mod undefined_instructions;
 #[path = "suites/x87_control.rs"]
 mod x87_control;
+#[path = "suites/x87_integer_load.rs"]
+mod x87_integer_load;
 #[path = "suites/x87_load.rs"]
 mod x87_load;
 #[path = "suites/x87_stack.rs"]

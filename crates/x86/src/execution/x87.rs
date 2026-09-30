@@ -4,7 +4,7 @@ mod load;
 mod stack;
 mod store;
 
-pub(crate) use load::load_binary;
+pub(crate) use load::{load_binary, load_integer};
 pub(crate) use stack::{
     exchange_register, free_register, load_extended, load_register, rotate_stack, store_extended,
     store_register,

@@ -33,10 +33,23 @@ fn guard_admission(engine: Engine) {
         (1, 0xffff, true),
         (0x3ff0_0000_0000_0000, 0x3fff, true),
     ];
-    for (opcode, width, cases) in [(0xd9, 4, single), (0xdd, 8, double)] {
-        let code = [opcode, 0x05, 0, 0x40, 0, 0];
+    // Integer bits never trigger operand exceptions, even when they resemble NaNs.
+    let integer = [
+        (0, 0xffff, false),
+        (u64::MAX, 0xffff, false),
+        (0x7ff0_0000_7f80_0001, 0xffff, false),
+        (1, 0x3fff, true),
+    ];
+    for (opcode, modrm, width, cases) in [
+        (0xd9, 0x05, 4, single.as_slice()),
+        (0xdd, 0x05, 8, double.as_slice()),
+        (0xdf, 0x05, 2, integer.as_slice()),
+        (0xdb, 0x05, 4, integer.as_slice()),
+        (0xdf, 0x2d, 8, integer.as_slice()),
+    ] {
+        let code = [opcode, modrm, 0, 0x40, 0, 0];
         let module = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
-        for (bits, tags, handoff) in cases {
+        for &(bits, tags, handoff) in cases {
             let mut image = stack_image(&code, 0, tags);
             image.map(4, 0x8000, false);
             image.data(0x8000, &bits.to_le_bytes()[..width]);
@@ -118,7 +131,7 @@ fn only_guarded_jit_entries_require_the_interpreter_import() {
 }
 
 #[test]
-fn binary_load_guards_admit_common_values_and_reject_exceptional_pushes() {
+fn load_guards_admit_common_values_and_reject_exceptional_pushes() {
     guard_admission(Engine::Wasmtime);
 }
 

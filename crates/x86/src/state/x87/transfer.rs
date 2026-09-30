@@ -6,10 +6,11 @@ use crate::x87::{BinaryFormat, BinaryOperand, ExtendedValue};
 
 use super::{control::Exception, StackValue, X87State};
 
-/// Source provenance determines which exceptions FLD can raise. Raw extended
-/// and register transfers do not classify SNaNs or denormals as operands.
+/// Load provenance determines operand exceptions independently of stack faults.
+/// Extended transfers and exact integer conversions supply a value directly;
+/// only narrow real loads classify SNaNs and denormals as operands.
 pub(crate) enum LoadSource {
-    Extended(ExtendedValue),
+    Value(ExtendedValue),
     Register(StackValue),
     Binary(BinaryOperand),
 }
@@ -84,7 +85,7 @@ impl X87State {
         source: LoadSource,
     ) -> Result<(), BuildError> {
         let (value, source_empty, signaling_nan, denormal) = match source {
-            LoadSource::Extended(value) => (value, false.into(), false.into(), false.into()),
+            LoadSource::Value(value) => (value, false.into(), false.into(), false.into()),
             LoadSource::Register(source) => {
                 (source.value, source.empty, false.into(), false.into())
             }

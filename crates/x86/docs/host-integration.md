@@ -188,8 +188,8 @@ must initialize CS with a valid return selector and provide its descriptor.
 The implemented controls are FNINIT, FNCLEX, FLDCW, FNSTCW, FNSTSW (memory and AX)
 and standalone FWAIT. Stack operations include FLD ST(i), FST/FSTP ST(i), FXCH,
 FFREE, FINCSTP and FDECSTP. Memory data transfers support FLD m32/m64/m80,
-FST m32/m64 and FSTP m32/m64/m80; there is no FST m80 encoding. Arithmetic
-remains unsupported.
+FILD m16/m32/m64 integers, FST m32/m64 and FSTP m32/m64/m80; there is no FST m80
+encoding. Arithmetic remains unsupported.
 Execution assumes an enabled FPU with native exception reporting, corresponding
 to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
 modeled by this user-mode environment.
@@ -240,6 +240,14 @@ waiting instruction reports #MF. This follows the instruction-specific
 clarification in Intel's [FLD entry, Volume 2](https://cdrdv2-public.intel.com/789581/325383-sdm-vol-2abcd.pdf),
 which is more specific than the older general description of unmasked
 denormal-operand exceptions. These exact conversions do not set PE, UE or OE.
+
+FILD converts signed 16-, 32- and 64-bit memory integers exactly, independently
+of PC and RC. The opcode fixes the width even with an operand-size prefix.
+Zero receives the zero tag; every other integer becomes a normal extended value.
+Only stack overflow can raise a new x87 exception. A masked overflow pushes
+the indefinite value; an unmasked overflow preserves TOP and the destination,
+setting IE, SF, C1, ES and B for deferred delivery. See Intel's
+[FILD entry, Volume 2A](https://cdrdv2-public.intel.com/812383/253666-sdm-vol-2a.pdf).
 
 FST/FSTP m32/m64 round the current extended value directly to the destination
 under RC, independently of PC. Signed zeros and infinities retain their signs;

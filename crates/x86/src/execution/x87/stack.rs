@@ -26,7 +26,7 @@ pub(crate) fn load_extended(
     execution
         .state
         .x87
-        .push(&mut execution.body, LoadSource::Extended(value))
+        .push(&mut execution.body, LoadSource::Value(value))
 }
 
 pub(crate) fn load_register(
