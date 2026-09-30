@@ -7,6 +7,7 @@ use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 use crate::{state::exit, CpuState};
 
+mod accesses;
 mod helpers;
 mod spans;
 

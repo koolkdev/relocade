@@ -135,6 +135,8 @@ pub(super) fn crosses_page(start: &Val<I32>, bytes: u32) -> Val<I1> {
     start.and(PAGE_OFFSET).unsigned().ge(PAGE_BYTES - bytes + 1)
 }
 
-pub(super) fn physical_address(entry: &Val<I32>, address: &Val<I32>) -> Val<I32> {
-    entry.and(FRAME_MASK).or(address.and(PAGE_OFFSET))
+/// Combines a backing frame with a linear page offset. Low backing bits are
+/// ignored, so either a page-table entry or a resolved address can supply it.
+pub(super) fn physical_address(backing: &Val<I32>, address: &Val<I32>) -> Val<I32> {
+    backing.and(FRAME_MASK).or(address.and(PAGE_OFFSET))
 }

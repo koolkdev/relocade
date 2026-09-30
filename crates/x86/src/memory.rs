@@ -1,9 +1,11 @@
 mod access;
+mod accesses;
 mod page_table;
 mod scattered;
 mod update;
 
 pub(crate) use access::{Access, DirectRange};
+pub(crate) use accesses::Accesses;
 pub(crate) use page_table::{PageCache, PageCacheInputs};
 
 use std::cell::Cell;

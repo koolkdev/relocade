@@ -56,6 +56,8 @@ mod interpreter_runs;
 mod interpreter_steps;
 #[path = "suites/logical_flags.rs"]
 mod logical_flags;
+#[path = "suites/memory_access_sequences.rs"]
+mod memory_access_sequences;
 #[path = "suites/memory_addressing.rs"]
 mod memory_addressing;
 #[path = "suites/mov_blocks.rs"]

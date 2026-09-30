@@ -13,7 +13,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
     ) -> impl for<'body> Fn(BlockBuilder<'body>) -> ExecutionBuilder<'body, 'module> + use<'module>
     {
         let state = self.state.clone();
-        let memory = self.memory;
+        let memory = self.memory.clone();
         let segments = self.segments;
         let segment_override = self.segment_override.clone();
         let address_size = self.address_size;
@@ -25,7 +25,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         move |body| ExecutionBuilder {
             body,
             state: state.clone(),
-            memory,
+            memory: memory.clone(),
             segments,
             segment_override: segment_override.clone(),
             address_size,

@@ -15,7 +15,7 @@ use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
 
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
-use crate::memory::{Access, Intent, Memory};
+use crate::memory::{Access, Accesses, Intent, Memory};
 use crate::runtime::Runtime;
 use crate::segment::{SegmentAccess, SegmentProfile, SegmentSelection};
 use crate::state::{exit, Cpu, State};
@@ -27,7 +27,7 @@ use crate::{address::AddressSize, exception::Exception};
 pub(super) struct ExecutionBuilder<'body, 'module> {
     body: BlockBuilder<'body>,
     state: State<'module>,
-    memory: Option<&'module Memory>,
+    memory: Option<Accesses<'module>>,
     segments: SegmentAccess<'module>,
     segment_override: SegmentOverride,
     address_size: AddressSize,
@@ -51,7 +51,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         Ok(Self {
             body,
             state: State::new(cpu),
-            memory,
+            memory: memory.map(Memory::accesses),
             segments: SegmentAccess::new(cpu, profile),
             segment_override: SegmentOverride::None,
             address_size: AddressSize::Bits32,
@@ -145,14 +145,13 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     fn checked(
         &mut self,
-        memory: &'module Memory,
         segment: &SegmentSelection,
         offset: &Val<I32>,
         bytes: u32,
         intent: Intent,
     ) -> Result<Access, BuildError> {
         let linear = self.translate(segment, offset, bytes, intent)?;
-        self.resolve_access(memory, &linear, bytes, intent)
+        self.resolve_access(&linear, bytes, intent)
     }
 
     fn translate(
@@ -177,21 +176,23 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     fn resolve_access(
         &mut self,
-        memory: &Memory,
         linear: &Val<I32>,
         bytes: u32,
         intent: Intent,
     ) -> Result<Access, BuildError> {
-        memory.resolve_access(
-            &mut self.body,
-            linear,
-            bytes,
-            intent,
-            |fault_body, exception| {
-                self.state
-                    .fault(fault_body, &self.eip, self.completed, exception)
-            },
-        )
+        self.memory
+            .as_mut()
+            .expect("a memory access declares guest memory")
+            .resolve(
+                &mut self.body,
+                linear,
+                bytes,
+                intent,
+                |fault_body, exception| {
+                    self.state
+                        .fault(fault_body, &self.eip, self.completed, exception)
+                },
+            )
     }
 
     /// Publishes completed work before the frontend dispatches or continues decoding.

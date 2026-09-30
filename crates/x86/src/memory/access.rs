@@ -13,6 +13,7 @@ pub(crate) struct DirectRange {
 }
 
 /// A complete span whose permissions have been checked before any guest transfer.
+#[derive(Clone)]
 pub(crate) struct Access {
     pub(super) linear: Val<I32>,
     pub(super) physical: Val<I32>,

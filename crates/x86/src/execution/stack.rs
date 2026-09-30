@@ -34,9 +34,10 @@ impl StackFrame {
         assert!(offset <= self.checked_bytes && T::BYTES <= self.checked_bytes - offset);
         let memory = execution
             .memory
-            .expect("a stack instruction declares guest memory");
-        let access =
-            execution.resolve_access(memory, &self.linear.add(offset), T::BYTES, self.intent)?;
+            .as_ref()
+            .expect("a stack instruction declares guest memory")
+            .memory();
+        let access = execution.resolve_access(&self.linear.add(offset), T::BYTES, self.intent)?;
         Ok(StackField {
             memory,
             access,
@@ -126,16 +127,7 @@ impl StackPointer {
         execution: &mut ExecutionBuilder<'_, '_>,
         bytes: u32,
     ) -> Result<(), BuildError> {
-        let memory = execution
-            .memory
-            .expect("a stack access declares guest memory");
-        execution.checked(
-            memory,
-            &Segment::Ss.into(),
-            &self.offset(),
-            bytes,
-            Intent::Write,
-        )?;
+        execution.checked(&Segment::Ss.into(), &self.offset(), bytes, Intent::Write)?;
         Ok(())
     }
 

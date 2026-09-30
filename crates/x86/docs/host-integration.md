@@ -302,6 +302,10 @@ code cache or automatic invalidation in these libraries. A checked snapshot
 producer stops before an invalid fetch, executes any valid instruction prefix,
 then handles the fault, for example by entering the interpreter at the failing EIP.
 
+Generated execution may reuse successful data-access checks while mappings remain
+stable. Each access still checks its segment and transfers current guest bytes;
+retained checks never cache guest contents or survive an entry's dispatch.
+
 The interpreter checks required instruction bytes through CS and paging at runtime.
 Its direct decoding loop may retain the current page-table entry until it leaves
 that decoder invocation. It still fetches live guest bytes and checks every access;

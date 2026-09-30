@@ -102,8 +102,12 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         bindings: &[RegisterValue],
     ) -> Result<MemoryOperand<'memory>, BuildError> {
         let offset = address::resolve(&mut self.body, &mut self.state, address.offset, bindings)?;
-        let memory = self.memory.expect("a memory operand declares guest memory");
-        let access = self.checked(memory, &address.segment, &offset, bytes, intent)?;
+        let memory = self
+            .memory
+            .as_ref()
+            .expect("a memory operand declares guest memory")
+            .memory();
+        let access = self.checked(&address.segment, &offset, bytes, intent)?;
         Ok(MemoryOperand {
             memory,
             access,
