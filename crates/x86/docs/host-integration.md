@@ -165,9 +165,9 @@ must initialize CS with a valid return selector and provide its descriptor.
 
 The implemented controls are FNINIT, FNCLEX, FLDCW, FNSTCW, FNSTSW (memory and AX)
 and standalone FWAIT. Stack operations include FLD ST(i), FST/FSTP ST(i), FXCH,
-FFREE, FINCSTP and FDECSTP. Memory data transfers support FLD m32/m64/m80 and
-FSTP m80; there is no FST m80 encoding. Arithmetic and binary32/binary64 stores
-remain unsupported.
+FFREE, FINCSTP and FDECSTP. Memory data transfers support FLD m32/m64/m80,
+FST m32/m64 and FSTP m32/m64/m80; there is no FST m80 encoding. Arithmetic
+remains unsupported.
 Execution assumes an enabled FPU with native exception reporting, corresponding
 to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
 modeled by this user-mode environment.
@@ -218,6 +218,26 @@ waiting instruction reports #MF. This follows the instruction-specific
 clarification in Intel's [FLD entry, Volume 2](https://cdrdv2-public.intel.com/789581/325383-sdm-vol-2abcd.pdf),
 which is more specific than the older general description of unmasked
 denormal-operand exceptions. These exact conversions do not set PE, UE or OE.
+
+FST/FSTP m32/m64 round the current extended value directly to the destination
+under RC, independently of PC. Signed zeros and infinities retain their signs;
+NaNs retain their sign and high payload bits. SNaNs set IE and are quieted when
+masked. Unsupported encodings set IE and produce negative indefinite when masked.
+An unmasked invalid exception suppresses the store and pop. True and pseudo
+denormals take underflow responses without setting DE.
+
+Range detection rounds to destination precision with an unbounded exponent.
+The masked subnormal result is rounded separately from the original value, so
+there is no extra rounding. A store can therefore produce minimum normal with
+UE and PE set. Masked underflow sets UE only when tiny and inexact; unmasked
+underflow reports exact tiny values too. Masked overflow returns signed infinity
+or maximum finite according to RC. Unmasked overflow or underflow suppresses
+the store and pop, clears C1 and does not newly set PE. Precision exceptions
+commit the rounded store and pop even when unmasked, leaving #MF pending for
+the next waiter. C1 records an increase in magnitude, including the infinity
+response to masked overflow. These rules follow the P4 FST/FSTP entry and
+Volume 1 sections 8.5.4–8.5.6; the unbounded-exponent wording is explicit in
+[Intel Volume 1, section 8.5.5](https://cdrdv2-public.intel.com/874241/253665-090-sdm-vol-1.pdf).
 
 Stack faults set IE and SF. C1 distinguishes overflow from underflow; a source
 underflow takes priority over a destination overflow. Masked faults substitute

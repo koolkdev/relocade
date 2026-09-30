@@ -5,6 +5,7 @@ use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I8};
 use crate::{
     ssa::{Location, StateFields},
     state::access::cpu_location,
+    x87::RoundingMode,
 };
 
 /// Maskable exceptions share bit positions in the architectural control and
@@ -51,6 +52,16 @@ impl Control {
         Self {
             fields: StateFields::new(memory),
         }
+    }
+
+    pub(super) fn rounding(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<RoundingMode, BuildError> {
+        Ok(RoundingMode::new(
+            self.fields
+                .read(body, cpu_location!(x87.control.rounding_control))?,
+        ))
     }
 
     pub(super) fn unmasked(

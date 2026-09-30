@@ -3,9 +3,13 @@
 mod control;
 mod load;
 mod stack;
+mod store;
 
 use super::*;
 
 pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
-    control::forms().chain(stack::forms()).chain(load::forms())
+    control::forms()
+        .chain(stack::forms())
+        .chain(load::forms())
+        .chain(store::forms())
 }

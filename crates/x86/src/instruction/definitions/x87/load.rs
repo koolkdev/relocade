@@ -1,7 +1,7 @@
 //! The opcode fixes the source format; the operand-size prefix does not change it.
 
 use super::*;
-use crate::{execution::x87::load_binary, state::BinaryFormat};
+use crate::{execution::x87::load_binary, x87::BinaryFormat};
 
 instruction_families! {
     FLD_BINARY32 {

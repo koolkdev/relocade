@@ -96,6 +96,8 @@ mod x87_control;
 mod x87_load;
 #[path = "suites/x87_stack.rs"]
 mod x87_stack;
+#[path = "suites/x87_store.rs"]
+mod x87_store;
 
 #[path = "suites/execution_sizes.rs"]
 mod execution_sizes;

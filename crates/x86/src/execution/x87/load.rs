@@ -2,11 +2,7 @@
 
 use wasm86_compiler::{BuildError, Val, I32, I64};
 
-use crate::{
-    address::MemoryAddress,
-    memory::Intent,
-    state::{BinaryFormat, LoadSource},
-};
+use crate::{address::MemoryAddress, memory::Intent, state::LoadSource, x87::BinaryFormat};
 
 use super::{check_pending_exception, record_memory, ExecutionBuilder};
 

@@ -7,9 +7,9 @@
 //! single-instruction entry.
 //! Both frontends share instruction semantics and return a [`CompiledModule`].
 //!
-//! The supported subset covers 16/32-bit protected-mode integer execution.
-//! Real mode, privilege transitions, interrupt delivery, floating point and SIMD
-//! are outside the current scope.
+//! The supported subset covers 16/32-bit protected-mode integer execution and
+//! x87 controls and real-value transfers. Real mode, privilege transitions,
+//! interrupt delivery, x87 arithmetic and SIMD are outside the current scope.
 //!
 //! [`CpuState`] exchanges backing state with the host. [`SegmentProfile`] describes
 //! entry assumptions, and [`DescriptorTables`] resolves host-managed selectors into
@@ -34,6 +34,7 @@ mod runtime;
 mod segment;
 mod ssa;
 mod state;
+mod x87;
 
 #[cfg(test)]
 extern crate self as wasm86_x86;
