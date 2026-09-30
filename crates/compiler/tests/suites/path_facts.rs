@@ -4,10 +4,14 @@
 mod bitwise;
 #[path = "path_facts/boundaries.rs"]
 mod boundaries;
+#[path = "path_facts/folding.rs"]
+mod folding;
 #[path = "path_facts/guards.rs"]
 mod guards;
 #[path = "path_facts/joins.rs"]
 mod joins;
+#[path = "path_facts/masks.rs"]
+mod masks;
 #[path = "path_facts/representations.rs"]
 mod representations;
 #[path = "path_facts/sharing.rs"]
@@ -21,6 +25,20 @@ use crate::{
 };
 use wasm86_compiler::{Type, I1, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
+
+fn check_result(module: &TestModule, arguments: &[Value], expected: &[Value], v8: bool) {
+    if v8 {
+        assert_eq!(
+            module.run_v8(&Input::call("run", arguments)),
+            Observation::returned(expected)
+        );
+    } else {
+        assert_eq!(
+            module.instantiate().call_values("run", arguments),
+            Ok(expected.to_vec())
+        );
+    }
+}
 
 fn count(module: &TestModule, predicate: impl Fn(&Operator<'_>) -> bool) -> usize {
     Validator::new().validate_all(module.bytes()).unwrap();

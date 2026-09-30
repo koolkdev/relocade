@@ -86,3 +86,24 @@ fn entering_another_block_discards_cached_availability() {
         choice
     );
 }
+
+#[test]
+fn exact_carrier_constants_survive_specialization_and_fact_inference() {
+    let mut graph = conditional_value();
+    let condition = graph.blocks[0].parameters[0];
+    let literal = graph.values.carrier_constant(crate::Type::I8, 256);
+    let view = graph.values.intern(Value {
+        ty: crate::Type::I32,
+        definition: ValueDefinition::Expression(Expression::Convert { input: literal }),
+    });
+    let mut specializer = Specializer::default().on_branch(&graph, condition, true);
+    assert_eq!(
+        specializer.specialize(&mut graph, literal, |_, _| None),
+        literal
+    );
+    let result = specializer.specialize(&mut graph, view, |_, _| None);
+    assert!(matches!(
+        graph.values[result].definition,
+        ValueDefinition::Constant(256)
+    ));
+}

@@ -17,6 +17,15 @@ pub enum Type {
 }
 
 impl Type {
+    /// The Wasm integer type carrying this logical value.
+    pub(super) fn carrier(self) -> Self {
+        if self == Self::I64 {
+            Self::I64
+        } else {
+            Self::I32
+        }
+    }
+
     pub(super) fn bits(self) -> u8 {
         match self {
             Self::I1 => 1,

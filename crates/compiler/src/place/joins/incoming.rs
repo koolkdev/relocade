@@ -48,10 +48,8 @@ impl IncomingValues {
                     .then_some(recipe);
             }
             if let Some(bits) = facts.constant(&graph.values, recipe) {
-                break Some(graph.values.intern(Value {
-                    ty: value.ty,
-                    definition: ValueDefinition::Constant(graph.values.carrier_bits(recipe, bits)),
-                }));
+                let bits = graph.values.carrier_bits(recipe, bits);
+                break Some(graph.values.carrier_constant(value.ty, bits));
             }
             recipe = match value.definition {
                 ValueDefinition::Expression(Expression::Select {
@@ -69,7 +67,7 @@ impl IncomingValues {
                     }
                 }
                 ValueDefinition::Expression(Expression::Convert { input })
-                    if (graph.values[input].ty == Type::I64) == (value.ty == Type::I64) =>
+                    if graph.values[input].ty.carrier() == value.ty.carrier() =>
                 {
                     input
                 }

@@ -169,6 +169,19 @@ pub(super) struct Constant {
 }
 
 impl Expression<Constant> {
+    /// Evaluate operations whose logical input normalization is already explicit.
+    pub(super) fn carrier_result(&self, result: Type) -> Option<u64> {
+        let expression = match *self {
+            // These operations explicitly interpret the source's logical width.
+            Self::SignExtend { .. } | Self::BitCount { .. } => *self,
+            _ => self.map(|input| Constant {
+                ty: input.ty.carrier(),
+                bits: input.ty.carrier().normalize(input.bits),
+            }),
+        };
+        expression.constant_result(result.carrier())
+    }
+
     pub(super) fn constant_result(&self, result: Type) -> Option<u64> {
         let bits = match *self {
             Self::Binary {

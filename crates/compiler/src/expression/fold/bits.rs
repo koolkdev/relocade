@@ -7,9 +7,11 @@ use crate::{
 };
 
 impl Folder<'_> {
-    pub(super) fn low_bits(&mut self, input: usize, bits: u8) -> usize {
-        let ty = self.values[input].ty;
-        debug_assert!(bits <= ty.bits());
+    /// The explicit mask defines the observed bits, including after operands
+    /// have been replaced by branch facts. Intermediate type views keep their
+    /// carrier bits; this fold does not normalize them to their logical widths.
+    pub(super) fn fold_low_bits(&mut self, ty: Type, input: usize, bits: u8) -> usize {
+        debug_assert!(bits <= ty.carrier().bits());
         if bits == 0 {
             return self.values.constant(ty, 0);
         }
@@ -22,7 +24,9 @@ impl Folder<'_> {
         loop {
             match self.values[base].definition {
                 ValueDefinition::Constant(value) => {
-                    return self.values.constant(ty, value.wrapping_add(offset) & mask);
+                    return self
+                        .values
+                        .carrier_constant(ty, value.wrapping_add(offset) & mask);
                 }
                 ValueDefinition::Expression(Expression::LowBits { input, bits: kept })
                     if kept >= bits =>
@@ -31,8 +35,7 @@ impl Folder<'_> {
                 }
                 ValueDefinition::Expression(Expression::Convert { input })
                     if self.values[input].ty.bits() >= bits
-                        && (self.values[base].ty == Type::I64)
-                            == (self.values[input].ty == Type::I64) =>
+                        && self.values[base].ty.carrier() == self.values[input].ty.carrier() =>
                 {
                     base = input;
                 }
@@ -66,21 +69,22 @@ impl Folder<'_> {
                 }
             }
         }
-        let base = self.convert(base, ty);
-        let input = self.add_constant(base, offset);
+        let base = if self.values[base].ty == ty {
+            base
+        } else {
+            self.fold(ty, Expression::Convert { input: base })
+        };
+        let input = self.add_constant(ty, base, offset, bits);
         if self.values.bounds[input].unsigned <= bits {
             return input;
         }
-        self.fold(ty, Expression::LowBits { input, bits })
+        self.intern(ty, Expression::LowBits { input, bits })
     }
 
     pub(super) fn convert(&mut self, input: usize, target: Type) -> usize {
         let source = self.values[input];
         if source.ty == target {
             return input;
-        }
-        if let ValueDefinition::Constant(bits) = source.definition {
-            return self.values.constant(target, bits);
         }
         let input = if source.ty.bits() < target.bits() {
             self.normalize(input)
@@ -95,41 +99,40 @@ impl Folder<'_> {
         if source.ty == target {
             return input;
         }
-        if let ValueDefinition::Constant(bits) = source.definition {
-            return self
-                .values
-                .constant(target, integer::signed_value(source.ty, bits) as u64);
-        }
+        self.fold(target, Expression::SignExtend { input })
+    }
+
+    pub(super) fn fold_sign_extend(&mut self, target: Type, input: usize) -> Option<usize> {
+        let source = self.values[input];
         let canonical = self.values.bounds[input].signed <= source.ty.bits();
         if canonical && target != Type::I64 {
             // Preserve the existing signed representation and its sharing when
             // only the logical type widens; unsigned convert() would mask it.
-            return self.fold(target, Expression::Convert { input });
+            return Some(input);
         }
-        if canonical {
-            let alias = if source.ty == Type::I32 {
-                input
-            } else {
-                self.fold(Type::I32, Expression::Convert { input })
-            };
+        if canonical && source.ty != Type::I32 {
+            let alias = self.fold(Type::I32, Expression::Convert { input });
             // Crossing into i64 still needs the signed carrier extension.
-            return self.fold(target, Expression::SignExtend { input: alias });
+            return Some(self.fold(target, Expression::SignExtend { input: alias }));
         }
-        self.fold(target, Expression::SignExtend { input })
+        None
     }
 
     pub(super) fn sign_extend_carrier(&mut self, input: usize) -> usize {
         // Interpret the logical sign before a signed carrier operation; narrow
         // arithmetic can leave upper bits that do not belong to the value.
-        let carrier = if self.values[input].ty == Type::I64 {
-            Type::I64
-        } else {
-            Type::I32
-        };
+        let carrier = self.values[input].ty.carrier();
         self.sign_extend(input, carrier)
     }
 
     pub(crate) fn normalize(&mut self, input: usize) -> usize {
-        self.low_bits(input, self.values[input].ty.bits())
+        let ty = self.values[input].ty;
+        self.fold(
+            ty,
+            Expression::LowBits {
+                input,
+                bits: ty.bits(),
+            },
+        )
     }
 }

@@ -16,17 +16,22 @@ pub(crate) struct ValueTable {
 
 impl ValueTable {
     /// Restore the carrier promised by construction after learning logical bits.
+    /// Literal values already contain the exact carrier and keep those bits.
     pub(crate) fn carrier_bits(&self, id: usize, logical_bits: u64) -> u64 {
         let ty = self.values[id].ty;
+        if let ValueDefinition::Constant(bits) = self.values[id].definition {
+            return ty.carrier().normalize(bits);
+        }
         let bits = logical_bits & ty.mask();
-        if ty.bits() < 32
+        let bits = if ty.bits() < 32
             && self.bounds[id].signed <= ty.bits()
             && bits & (1 << (ty.bits() - 1)) != 0
         {
             integer::signed_value(ty, bits) as u64
         } else {
             bits
-        }
+        };
+        ty.carrier().normalize(bits)
     }
 
     /// Conversions within a Wasm carrier preserve all physical bits.
@@ -34,7 +39,7 @@ impl ValueTable {
         while let ValueDefinition::Expression(Expression::Convert { input }) =
             self.values[id].definition
         {
-            if (self.values[id].ty == Type::I64) != (self.values[input].ty == Type::I64) {
+            if self.values[id].ty.carrier() != self.values[input].ty.carrier() {
                 break;
             }
             id = input;
@@ -43,9 +48,14 @@ impl ValueTable {
     }
 
     pub(crate) fn constant(&mut self, ty: Type, bits: u64) -> usize {
+        self.carrier_constant(ty, ty.normalize(bits))
+    }
+
+    /// Store a lowered result without discarding bits above its logical width.
+    pub(crate) fn carrier_constant(&mut self, ty: Type, bits: u64) -> usize {
         self.intern(Value {
             ty,
-            definition: ValueDefinition::Constant(ty.normalize(bits)),
+            definition: ValueDefinition::Constant(ty.carrier().normalize(bits)),
         })
     }
 

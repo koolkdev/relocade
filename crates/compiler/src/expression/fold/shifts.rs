@@ -8,19 +8,22 @@ use crate::{
 };
 
 impl Folder<'_> {
+    pub(super) fn fold_shift(&self, ty: Type, input: usize, count: usize) -> Option<usize> {
+        let zero_count = matches!(self.values[count].definition,
+            ValueDefinition::Constant(bits) if integer::shift_count(ty, bits as u32) == 0);
+        (zero_count || self.values.bounds[input].unsigned == 0).then_some(input)
+    }
+
+    pub(super) fn fold_rotate(&self, ty: Type, input: usize, count: usize) -> Option<usize> {
+        let identity_input = matches!(self.values[input].definition,
+            ValueDefinition::Constant(bits) if bits == 0 || bits == ty.carrier().mask());
+        self.fold_shift(ty, input, count)
+            .or(identity_input.then_some(input))
+    }
+
     pub(super) fn shift(&mut self, operator: ShiftOp, input: usize, count: usize) -> usize {
         let value = self.values[input];
-        if let ValueDefinition::Constant(bits) = self.values[count].definition {
-            let effective = integer::shift_count(value.ty, bits as u32);
-            if effective == 0 {
-                return input;
-            }
-            if let ValueDefinition::Constant(bits) = value.definition {
-                let bits = integer::shift(value.ty, operator, bits, effective);
-                return self.values.constant(value.ty, bits);
-            }
-        }
-        if matches!(value.definition, ValueDefinition::Constant(0)) {
+        if let Some(input) = self.fold_shift(value.ty, input, count) {
             return input;
         }
         let input = match operator {
@@ -45,22 +48,17 @@ impl Folder<'_> {
 
     pub(super) fn rotate(&mut self, operator: RotateOp, input: usize, count: usize) -> usize {
         let value = self.values[input];
-        if let ValueDefinition::Constant(bits) = self.values[count].definition {
-            let effective = integer::rotate_count(value.ty, bits as u32);
-            if effective == 0 {
-                return input;
-            }
-            if let ValueDefinition::Constant(bits) = value.definition {
-                let bits = integer::rotate(value.ty, operator, bits, effective);
-                return self.values.constant(value.ty, bits);
-            }
-        }
-        if value.ty == Type::I1
-            || matches!(value.definition, ValueDefinition::Constant(bits) if bits == 0 || bits == value.ty.mask())
-        {
+        if value.ty == Type::I1 {
             return input;
         }
         if matches!(value.ty, Type::I8 | Type::I16) {
+            if matches!(self.values[count].definition, ValueDefinition::Constant(bits)
+                if integer::rotate_count(value.ty, bits as u32) == 0)
+                || matches!(value.definition, ValueDefinition::Constant(bits)
+                    if bits == 0 || bits == value.ty.mask())
+            {
+                return input;
+            }
             let input = self.normalize(input);
             let width = u64::from(value.ty.bits());
             let mask = self.values.constant(Type::I32, width - 1);

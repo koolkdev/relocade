@@ -5,7 +5,7 @@
 
 use crate::{
     body::{Value, ValueDefinition, ValueTable},
-    integer::{self, BitCountOp},
+    integer::BitCountOp,
     Expression, Type,
 };
 
@@ -13,6 +13,11 @@ mod arithmetic;
 mod bits;
 mod comparisons;
 mod shifts;
+
+#[cfg(test)]
+mod tests;
+
+use super::Constant;
 
 pub(crate) fn build(values: &mut ValueTable, ty: Type, expression: Expression<usize>) -> usize {
     Folder { values }.expression(ty, expression)
@@ -42,6 +47,18 @@ struct Folder<'a> {
 impl Folder<'_> {
     // Inputs carry logical types; canonical operations may retain wider physical bits.
     fn expression(&mut self, ty: Type, expression: Expression<usize>) -> usize {
+        let expression = expression.map(|&input| {
+            let value = self.values[input];
+            match value.definition {
+                ValueDefinition::Constant(bits) => self.values.constant(value.ty, bits),
+                _ => input,
+            }
+        });
+        if let Some(constants) = self.constants(expression) {
+            if let Some(bits) = constants.constant_result(ty) {
+                return self.values.constant(ty, bits);
+            }
+        }
         match expression {
             Expression::Binary {
                 operator,
@@ -72,18 +89,51 @@ impl Folder<'_> {
             Expression::BitCount { operator, input } => self.bit_count(operator, input),
             Expression::ZeroTest { input, nonzero } => self.zero_test(input, nonzero),
             Expression::Convert { input } => self.convert(input, ty),
-            Expression::LowBits { input, bits } => self.low_bits(input, bits),
+            Expression::LowBits { .. } => self.fold(ty, expression),
         }
     }
 
     // Construction and operand replacement share rewrites that preserve every result bit.
     fn fold(&mut self, ty: Type, expression: Expression<usize>) -> usize {
+        if let Some(bits) = self
+            .constants(expression)
+            .and_then(|constants| constants.carrier_result(ty))
+        {
+            return self.values.carrier_constant(ty, bits);
+        }
         let input = match expression {
             Expression::Binary {
                 operator,
                 left,
                 right,
             } => self.fold_binary(ty, operator, left, right),
+            Expression::Shift { value, count, .. } => self.fold_shift(ty, value, count),
+            Expression::Rotate { value, count, .. } => self.fold_rotate(ty, value, count),
+            Expression::Compare {
+                operator,
+                left,
+                right,
+            } => self.fold_compare(operator, left, right),
+            Expression::ZeroTest { input, nonzero } => {
+                (nonzero && self.values.bounds[input].unsigned <= 1).then_some(input)
+            }
+            Expression::Select {
+                condition,
+                when_true,
+                when_false,
+            } => match self.values[condition].definition {
+                ValueDefinition::Constant(0) => Some(when_false),
+                ValueDefinition::Constant(_) => Some(when_true),
+                _ if self.values.representation(when_true)
+                    == self.values.representation(when_false) =>
+                {
+                    Some(when_true)
+                }
+                _ => None,
+            },
+            Expression::LowBits { input, bits } => Some(self.fold_low_bits(ty, input, bits)),
+            Expression::SignExtend { input } => self.fold_sign_extend(ty, input),
+            Expression::Convert { input } if self.values[input].ty == ty => Some(input),
             Expression::Convert { input: source } => match self.values[source].definition {
                 ValueDefinition::Expression(Expression::Convert { input })
                     if self.values[input].ty == ty
@@ -93,7 +143,7 @@ impl Folder<'_> {
                 }
                 _ => None,
             },
-            _ => None,
+            Expression::BitCount { .. } => None,
         };
         let expression = if let Some(input) = input {
             if self.values[input].ty == ty {
@@ -103,6 +153,23 @@ impl Folder<'_> {
         } else {
             expression
         };
+        self.intern(ty, expression)
+    }
+
+    fn constants(&self, expression: Expression<usize>) -> Option<Expression<Constant>> {
+        expression
+            .try_map(|&input| {
+                let value = self.values[input];
+                let ValueDefinition::Constant(bits) = value.definition else {
+                    return Err(());
+                };
+                Ok(Constant { ty: value.ty, bits })
+            })
+            .ok()
+    }
+
+    /// Finish a canonical node without re-entering the rewrite that produced it.
+    fn intern(&mut self, ty: Type, expression: Expression<usize>) -> usize {
         let id = self.values.intern(Value {
             ty,
             definition: ValueDefinition::Expression(expression),
@@ -116,12 +183,6 @@ impl Folder<'_> {
 
     fn select(&mut self, condition: usize, when_true: usize, when_false: usize) -> usize {
         let condition = self.normalize(condition);
-        match self.values[condition].definition {
-            ValueDefinition::Constant(0) => return when_false,
-            ValueDefinition::Constant(_) => return when_true,
-            _ if when_true == when_false => return when_true,
-            _ => {}
-        }
         self.fold(
             self.values[when_true].ty,
             Expression::Select {
@@ -134,11 +195,6 @@ impl Folder<'_> {
 
     fn bit_count(&mut self, operator: BitCountOp, input: usize) -> usize {
         let value = self.values[input];
-        if let ValueDefinition::Constant(bits) = value.definition {
-            return self
-                .values
-                .constant(value.ty, integer::bit_count(value.ty, operator, bits));
-        }
         let input = self.normalize(input);
         self.fold(value.ty, Expression::BitCount { operator, input })
     }

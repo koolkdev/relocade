@@ -58,10 +58,7 @@ impl Specializer {
                     let value = graph.values[id];
                     if let Some(bits) = self.facts.constant(&graph.values, id) {
                         let bits = graph.values.carrier_bits(id, bits);
-                        let result = graph.values.intern(Value {
-                            ty: value.ty,
-                            definition: ValueDefinition::Constant(bits),
-                        });
+                        let result = graph.values.carrier_constant(value.ty, bits);
                         self.residuals.insert(id, result);
                     } else if let Some(result) = lookup(graph, id) {
                         self.residuals.insert(id, result);

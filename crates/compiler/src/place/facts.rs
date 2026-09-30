@@ -68,7 +68,7 @@ impl Facts {
                     id,
                     Bits {
                         mask: value.ty.mask(),
-                        value: bits,
+                        value: value.ty.normalize(bits),
                     },
                 );
                 continue;
