@@ -1,11 +1,11 @@
 //! Independently selectable frontends, with the same cases in both engines.
 
-use wasm86_x86::SegmentProfile;
+use wasm86_x86::{CpuState, SegmentProfile};
 
 use super::{
     blocks::BlockModules,
     machine::{expected, Exit, Image, Step},
-    step::{Engine, TestModule},
+    step::{Engine, Event, TestModule},
 };
 
 #[cfg(test)]
@@ -19,8 +19,9 @@ pub(crate) enum Frontend {
 
 /// Executes a straight-line sequence against complete CPU and memory images.
 /// Each step describes one instruction and only the RAM changes made there.
-/// Runtime decoding observes every step; a snapshot block observes the final
-/// exit after composing all preceding changes in instruction order.
+/// Runtime decoding observes every step. A snapshot block observes its final
+/// exit or stops at a handoff, checking the complete independently authored
+/// prefix state. Linked interpreter completion is covered by integration tests.
 pub(crate) struct ImageSequences {
     engine: Engine,
     frontend: Frontend,
@@ -62,12 +63,37 @@ impl ImageSequences {
                 steps.len(),
             ),
         };
-        assert_eq!(
-            self.engine.observe(module, &image.input(), invocations),
-            wanted,
-            "{name}: {:?}",
-            self.frontend,
-        );
+        let actual = self.engine.observe(module, &image.input(), invocations);
+        if let (Frontend::Block, Some(Event::Interpret { snapshot })) =
+            (self.frontend, actual.events.first())
+        {
+            let cpu = CpuState::from_bytes(snapshot.cpu.as_slice().try_into().unwrap());
+            let completed = cpu
+                .instruction_count
+                .wrapping_sub(image.cpu.instruction_count) as usize;
+            assert!(
+                completed < steps.len(),
+                "{name}: handoff must precede an instruction"
+            );
+            let prefix = &steps[..completed];
+            assert!(prefix
+                .iter()
+                .all(|step| matches!(step.exit, Exit::Dispatch(_))));
+            let cpu = prefix.last().map_or(image.cpu, |step| step.cpu);
+            let ram = prefix
+                .iter()
+                .flat_map(|step| step.ram.iter().copied())
+                .collect::<Vec<_>>();
+            wanted = expected(
+                image,
+                &[Step {
+                    cpu,
+                    ram: &ram,
+                    exit: Exit::Interpret,
+                }],
+            );
+        }
+        assert_eq!(actual, wanted, "{name}: {:?}", self.frontend);
     }
 }
 

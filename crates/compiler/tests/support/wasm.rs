@@ -175,8 +175,9 @@ impl TestModule {
                 }
             }
         }
-        self.module.run_v8(
+        wasm86_test_support::run_v8(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/execute.mjs"),
+            &[&self.module],
             &V8Input {
                 call: input,
                 memory_imports,

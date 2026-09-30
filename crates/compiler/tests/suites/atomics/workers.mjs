@@ -11,7 +11,7 @@ if (workerData?.atomicWorker) {
   parentPort.postMessage(observed);
 }
 
-export default async function execute(module) {
+export default async function execute([module]) {
   const memory = new WebAssembly.Memory({ initial: 1, maximum: 1, shared: true });
   const start = new SharedArrayBuffer(4);
   const workers = [];

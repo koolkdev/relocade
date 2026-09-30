@@ -14,6 +14,9 @@ use crate::{
 ///
 /// The generated `block_<hex start_eip>() -> i64` entry executes the block and
 /// tail-calls host dispatch on success; guest faults return directly.
+/// A failed specialization guard publishes completed work and tail-calls
+/// `wasm86.interpret` at the current instruction. The interpreter handoff abandons
+/// the captured suffix; its execution boundary belongs to the host's policy.
 /// The host must satisfy the profile and snapshot-validity requirements documented
 /// by [`compile_block_from_bytes_with_profile`].
 ///
@@ -99,7 +102,8 @@ pub fn compile_block_from_bytes_with_profile(
         },
         |body| {
             let mut execution =
-                ExecutionBuilder::new(body, &cpu, memory.as_ref(), runtime, start_eip, profile)?;
+                ExecutionBuilder::new(body, &cpu, memory.as_ref(), runtime, start_eip, profile)?
+                    .with_specialization();
             for decoded_instruction in decoded_instructions {
                 execution.execute(decoded_instruction)?;
             }

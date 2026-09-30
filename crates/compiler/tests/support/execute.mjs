@@ -1,4 +1,4 @@
-export default function execute(module, input) {
+export default function execute([module], input) {
   const value = scalar => scalar.type === 'i64' ? BigInt(scalar.value) : scalar.value;
   const scalar = value => typeof value === 'bigint'
     ? { type: 'i64', value: value.toString() }

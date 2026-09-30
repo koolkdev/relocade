@@ -40,9 +40,10 @@ impl TestModule {
         let guest_before: Arc<[u8]> = guest.data(&store).into();
         // CPU-only observers without host mapping edits cannot change machine
         // memory. Avoid its four-megabyte copies at flag-observation checkpoints.
-        let observes_machine = module
-            .imports()
-            .any(|import| import.module() == "wasm86" && import.name() == "machine")
+        let observes_machine = self.interpreter.is_some()
+            || module
+                .imports()
+                .any(|import| import.module() == "wasm86" && import.name() == "machine")
             || input
                 .patches_before_calls
                 .iter()
@@ -122,6 +123,38 @@ impl TestModule {
                 },
             )
             .unwrap();
+        if let Some(interpreter) = self.interpreter {
+            let instance = linker
+                .instantiate(&mut store, interpreter.module.wasmtime())
+                .expect("instantiate the handoff interpreter");
+            let entry = instance
+                .get_func(&mut store, &interpreter.entry)
+                .expect("the interpreter entry is exported");
+            linker.define(&store, "wasm86", "interpret", entry).unwrap();
+        } else {
+            // This callback probes the restart boundary without executing it.
+            let handoff_guest_before = guest_before.clone();
+            let handoff_machine_before = machine_before.clone();
+            linker
+                .func_wrap(
+                    "wasm86",
+                    "interpret",
+                    move |mut caller: Caller<'_, ExecutionEvents>| {
+                        let snapshot = Snapshot {
+                            cpu: cpu.data(&caller)[..cpu_len].to_vec(),
+                            guest: observe_guest
+                                .then(|| changes(&handoff_guest_before, guest.data(&caller))),
+                        };
+                        let unchanged = handoff_machine_before
+                            .as_ref()
+                            .is_none_or(|before| &**before == machine.data(&caller));
+                        caller.data_mut().machine_unchanged &= unchanged;
+                        caller.data_mut().events.push(Event::Interpret { snapshot });
+                        dispatch_return
+                    },
+                )
+                .unwrap();
+        }
         let instance = linker
             .instantiate(&mut store, module)
             .expect("instantiate the test module");

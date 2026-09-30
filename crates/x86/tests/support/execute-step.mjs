@@ -1,4 +1,4 @@
-export default function execute(module, { entry, profile, invocations, input }) {
+export default function execute([module, interpreter], { entry, interpreter_entry, profile, invocations, input }) {
   const decode = ({ type, value }) => type === 'i64' ? BigInt(value) : value;
   const encode = value => typeof value === 'bigint'
     ? { type: 'i64', value: value.toString() } : { type: 'i32', value };
@@ -10,7 +10,7 @@ export default function execute(module, { entry, profile, invocations, input }) 
     for (const [offset, bytes] of patches) new Uint8Array(memory.buffer).set(bytes, offset);
   }
   const guestBefore = Buffer.from(new Uint8Array(guest.buffer));
-  const observesMachine = WebAssembly.Module.imports(module)
+  const observesMachine = interpreter !== undefined || WebAssembly.Module.imports(module)
     .some(resource => resource.module === 'wasm86' && resource.name === 'machine')
     || input.patches_before_calls.some(patches => patches.machine.length !== 0);
   const machineBefore = observesMachine ? Buffer.from(new Uint8Array(machine.buffer)) : null;
@@ -32,7 +32,7 @@ export default function execute(module, { entry, profile, invocations, input }) 
   const events = [];
   let resolutions = 0;
   let segmentQueries = 0;
-  const instance = new WebAssembly.Instance(module, {
+  const imports = {
     wasm86: {
       cpuState, guest, machine,
       querySegmentDescriptor: selector => {
@@ -55,8 +55,17 @@ export default function execute(module, { entry, profile, invocations, input }) 
         events.push({ kind: 'dispatch', eip, snapshot: snapshot() });
         return BigInt(input.dispatch_return);
       },
+      // Unlinked fixtures probe the boundary without executing the instruction.
+      interpret: () => {
+        events.push({ kind: 'interpret', snapshot: snapshot() });
+        return BigInt(input.dispatch_return);
+      },
     },
-  });
+  };
+  if (interpreter) {
+    imports.wasm86.interpret = new WebAssembly.Instance(interpreter, imports).exports[interpreter_entry];
+  }
+  const instance = new WebAssembly.Instance(module, imports);
   const args = input.arguments.map(decode);
   for (let call = 0; call < invocations; call++) {
     const patches = input.patches_before_calls[call];

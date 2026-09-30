@@ -1,12 +1,7 @@
-use std::{
-    path::Path,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        OnceLock,
-    },
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    OnceLock,
 };
-
-use serde::{de::DeserializeOwned, Serialize};
 
 #[cfg(test)]
 #[path = "module_tests.rs"]
@@ -38,15 +33,5 @@ impl Module {
         self.compiled.get_or_init(|| {
             wasmtime::Module::new(crate::engine(), &self.bytes).expect("compile test module")
         })
-    }
-
-    /// Call an adapter's default export `(module, input)` under TurboFan.
-    /// Compilation is shared; the adapter owns fresh execution state per call.
-    pub fn run_v8<T: Serialize + ?Sized, R: DeserializeOwned>(
-        &self,
-        adapter: &Path,
-        input: &T,
-    ) -> R {
-        crate::v8::run(adapter, self, input)
     }
 }

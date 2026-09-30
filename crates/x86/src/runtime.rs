@@ -13,6 +13,7 @@ use crate::{
 #[derive(Clone, Copy)]
 pub(crate) struct Runtime {
     dispatch: Func,
+    interpret: Func,
     resolve_segment: Func,
     query_segment_descriptor: Func,
 }
@@ -24,6 +25,14 @@ impl Runtime {
             name: "dispatch".into(),
             signature: Signature {
                 parameters: vec![Type::I32],
+                results: vec![Type::I64],
+            },
+        });
+        let interpret = program.import_function(FunctionImport {
+            module: "wasm86".into(),
+            name: "interpret".into(),
+            signature: Signature {
+                parameters: vec![],
                 results: vec![Type::I64],
             },
         });
@@ -52,6 +61,7 @@ impl Runtime {
         });
         Self {
             dispatch,
+            interpret,
             resolve_segment,
             query_segment_descriptor,
         }
@@ -59,6 +69,11 @@ impl Runtime {
 
     pub(crate) fn dispatch(self, body: BlockBuilder<'_>, eip: &Val<I32>) -> Result<(), BuildError> {
         body.tail_call(self.dispatch, &[eip.into()])
+    }
+
+    /// Enters ordinary execution at the already-published instruction boundary.
+    pub(crate) fn interpret(self, body: BlockBuilder<'_>) -> Result<(), BuildError> {
+        body.tail_call(self.interpret, &[])
     }
 
     /// Queries the current host descriptor view without loading a segment or

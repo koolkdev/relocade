@@ -9,26 +9,27 @@ use std::{
 use crate::Module;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-/// Execute an adapter's default export `(module, input)` under TurboFan.
-/// A bounded pool caches compiled modules within the test process. Each module
-/// stays on one worker; adapters create fresh execution state for each request.
-pub(super) fn run<T: Serialize + ?Sized, R: DeserializeOwned>(
+/// Execute an adapter's default export `(modules, input)` under TurboFan.
+/// The first module selects a worker; all modules share that worker's compilation
+/// cache. The adapter receives them in order and owns fresh instances per request.
+pub fn run_v8<T: Serialize + ?Sized, R: DeserializeOwned>(
     script: &Path,
-    module: &Module,
+    modules: &[&Module],
     input: &T,
 ) -> R {
+    let first = modules.first().expect("a V8 request needs a module");
     static WORKERS: OnceLock<Vec<Mutex<Option<Worker>>>> = OnceLock::new();
     let workers = WORKERS.get_or_init(|| {
         let count = std::thread::available_parallelism().map_or(1, |count| count.get().min(4));
         (0..count).map(|_| Mutex::new(None)).collect()
     });
-    let mut slot = workers[module.id % workers.len()]
+    let mut slot = workers[first.id % workers.len()]
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     // A transport/protocol panic drops this worker, so later independent tests
     // start cleanly. An adapter error is a complete response and keeps it usable.
     let mut worker = slot.take().unwrap_or_else(Worker::start);
-    let result = worker.run(script, module, input);
+    let result = worker.run(script, modules, input);
     *slot = Some(worker);
     drop(slot);
     result.unwrap_or_else(|error| panic!("{} failed: {error}", script.display()))
@@ -73,34 +74,50 @@ impl Worker {
     fn run<T: Serialize + ?Sized, R: DeserializeOwned>(
         &mut self,
         script: &Path,
-        module: &Module,
+        modules: &[&Module],
         input: &T,
     ) -> Result<R, String> {
         #[derive(Serialize)]
         struct Request<'a, T: ?Sized> {
             adapter: &'a Path,
-            module: usize,
-            wasm: Option<&'a Path>,
+            modules: Vec<ModuleSource<'a>>,
             input: &'a T,
         }
 
-        let cached = self.modules.contains(&module.id);
-        // Transfer bytes only on the first use. Keep the file alive until the
-        // worker has compiled it; subsequent requests carry just the module ID.
-        let file = (!cached).then(|| {
-            let mut file = tempfile::Builder::new()
-                .prefix("wasm86-")
-                .suffix(".wasm")
-                .tempfile()
-                .expect("create V8 test module");
-            file.write_all(module.bytes())
-                .expect("write V8 test module");
-            file
-        });
+        #[derive(Serialize)]
+        struct ModuleSource<'a> {
+            id: usize,
+            wasm: Option<&'a Path>,
+        }
+
+        // Transfer each uncached module once, keeping its file alive until the
+        // worker responds. Repeated entries retain their positions in the list.
+        let mut sent = HashSet::new();
+        let files = modules
+            .iter()
+            .map(|module| {
+                (!self.modules.contains(&module.id) && sent.insert(module.id)).then(|| {
+                    let mut file = tempfile::Builder::new()
+                        .prefix("wasm86-")
+                        .suffix(".wasm")
+                        .tempfile()
+                        .expect("create V8 test module");
+                    file.write_all(module.bytes())
+                        .expect("write V8 test module");
+                    file
+                })
+            })
+            .collect::<Vec<_>>();
         let request = Request {
             adapter: script,
-            module: module.id,
-            wasm: file.as_ref().map(|file| file.path()),
+            modules: modules
+                .iter()
+                .zip(&files)
+                .map(|(module, file)| ModuleSource {
+                    id: module.id,
+                    wasm: file.as_ref().map(|file| file.path()),
+                })
+                .collect(),
             input,
         };
         serde_json::to_writer(&mut self.input, &request).expect("serialize V8 test input");
@@ -119,7 +136,7 @@ impl Worker {
             .unwrap_or_else(|error| panic!("invalid V8 observation: {error}\n{line}"));
         match response {
             Response::Ok(value) => {
-                self.modules.insert(module.id);
+                self.modules.extend(modules.iter().map(|module| module.id));
                 Ok(value)
             }
             Response::Error(error) => Err(error),

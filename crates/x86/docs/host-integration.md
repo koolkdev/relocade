@@ -31,6 +31,27 @@ Straight-line `run` execution, REP work and chains of host dispatches have no fi
 bound. The snapshot compiler's instruction limit bounds compilation only; it is
 not an interpreter limit or a host responsiveness guarantee.
 
+## Interpreter handoff
+
+A snapshot block can guard an optimization assumption. If that guard fails, it
+publishes all completed instructions, leaves EIP at the current instruction without
+applying its effects or retiring it, and tail-calls `wasm86.interpret() -> i64`.
+Its result is returned unchanged. The captured suffix is abandoned; no compiled
+continuation or second copy of its instructions is required.
+
+The host must enter a compatible interpreter sharing the same CPU, guest and
+machine memories. It must attempt the current instruction before ordinary dispatch,
+so it cannot immediately select the same failing JIT entry. Guest faults and
+unsupported instructions retain their usual exits. A failed optimization guard
+is neither of those exits.
+
+An embedding can bind this import directly to an instance's `step` or `run` export.
+`step` resumes normal dispatch after one instruction; `run` continues to its own
+branch or segment-load boundary. Neither is constrained by the abandoned snapshot's
+instruction limit. The host chooses this policy and admits interpreter entries
+against their segment profile. Interpreter execution uses the shared instruction
+semantics without speculative guards and does not import `interpret` itself.
+
 ## Imported memories
 
 All imports belong to the `wasm86` module. Memories are distinct, unshared Wasm
@@ -46,8 +67,9 @@ Every interpreter imports all three memories, `dispatch`, `resolveSegment` and
 `querySegmentDescriptor`.
 Snapshot modules omit imports they do not use: memory instructions require guest
 RAM and the page table, segment loads require `resolveSegment`, and LAR/LSL/VERR/VERW
-require `querySegmentDescriptor`. Hosts should use the generated module's import
-list when instantiating it.
+require `querySegmentDescriptor`. Blocks with specialization guards require
+`interpret`. Hosts should use the generated module's import list when
+instantiating it.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical

@@ -21,6 +21,14 @@ pub(crate) fn load_binary(
         BinaryFormat::Binary64 => operand.read::<I64>(execution, 0)?,
     };
     let source = format.decode(&bits);
+    execution.specialize_on(|execution| {
+        let available = execution.state.x87.push_available(&mut execution.body)?;
+        Ok(source
+            .signaling_nan
+            .eq(false)
+            .and(source.denormal.eq(false))
+            .and(available))
+    })?;
     record_memory(execution, &operand)?;
     execution
         .state

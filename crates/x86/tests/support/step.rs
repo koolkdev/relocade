@@ -68,6 +68,9 @@ pub(crate) struct Snapshot {
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Event {
+    Interpret {
+        snapshot: Snapshot,
+    },
     QuerySegmentDescriptor {
         selector: i32,
     },
@@ -89,7 +92,7 @@ pub(crate) enum Event {
 pub(crate) struct Observation {
     pub(crate) events: Vec<Event>,
     pub(crate) guest_unchanged: bool,
-    /// True only if machine memory is unchanged at every dispatch and return.
+    /// True only if machine memory is unchanged at every observed boundary.
     pub(crate) machine_unchanged: bool,
 }
 
@@ -117,6 +120,7 @@ pub(crate) struct TestModule {
     module: Module,
     pub(crate) entry: String,
     profile: Option<SegmentProfile>,
+    interpreter: Option<&'static TestModule>,
 }
 
 impl TestModule {
@@ -125,6 +129,7 @@ impl TestModule {
             module: Module::new(&module.bytes),
             entry: module.entry.clone(),
             profile: module.segment_profile,
+            interpreter: None,
         }
     }
 
@@ -148,18 +153,33 @@ impl TestModule {
         module.get_or_init(|| Self::new(&crate::compile_interpreter_step(profile).unwrap()))
     }
 
+    /// Link the interpreter directly; unlinked fixtures stop at the handoff callback.
+    pub(crate) fn with_interpreter(mut self, interpreter: &'static Self) -> Self {
+        assert_eq!(self.profile, interpreter.profile);
+        self.interpreter = Some(interpreter);
+        self
+    }
+
     pub(crate) fn observe_v8(&self, input: &Input, invocations: usize) -> Observation {
         #[derive(Serialize)]
         struct Request<'a> {
             entry: &'a str,
+            interpreter_entry: Option<&'a str>,
             profile: Option<&'static str>,
             invocations: usize,
             input: &'a Input,
         }
-        self.module.run_v8(
+        let modules = std::iter::once(&self.module)
+            .chain(self.interpreter.map(|interpreter| &interpreter.module))
+            .collect::<Vec<_>>();
+        wasm86_test_support::run_v8(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/execute-step.mjs"),
+            &modules,
             &Request {
                 entry: &self.entry,
+                interpreter_entry: self
+                    .interpreter
+                    .map(|interpreter| interpreter.entry.as_str()),
                 profile: self.profile.map(|profile| match profile {
                     SegmentProfile::Flat32 => "flat32",
                     SegmentProfile::Segmented32 => "segmented32",

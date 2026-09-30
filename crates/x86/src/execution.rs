@@ -36,6 +36,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     runtime: Runtime,
     eip: Val<I32>,
     completed: u32,
+    can_specialize: bool,
 }
 
 impl<'body, 'module> ExecutionBuilder<'body, 'module> {
@@ -60,7 +61,14 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             runtime,
             eip,
             completed: 0,
+            can_specialize: false,
         })
+    }
+
+    /// Allows a compiled block to abandon speculation at an instruction boundary.
+    pub(super) fn with_specialization(mut self) -> Self {
+        self.can_specialize = true;
+        self
     }
 
     /// Executes an instruction whose required bytes have passed fetch checks.
@@ -81,6 +89,23 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.eip = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
         self.completed += 1;
         Ok(())
+    }
+
+    /// Guards a JIT assumption before any guest-visible instruction effect.
+    /// Failure publishes the current restart boundary and enters the interpreter.
+    /// Runtime decoding skips the guard and retains the ordinary semantics.
+    fn specialize_on(
+        &mut self,
+        condition: impl FnOnce(&mut Self) -> Result<Val<I1>, BuildError>,
+    ) -> Result<(), BuildError> {
+        if !self.can_specialize {
+            return Ok(());
+        }
+        let condition = condition(self)?;
+        self.body.if_(condition.eq(false), |mut body| {
+            self.state.publish(&mut body, &self.eip, self.completed)?;
+            self.runtime.interpret(body)
+        })
     }
 
     pub(crate) fn is_locked(&self) -> bool {

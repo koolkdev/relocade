@@ -81,6 +81,7 @@ impl Image {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Exit {
+    Interpret,
     Dispatch(u32),
     DivideError,
     BoundRangeExceeded,
@@ -150,6 +151,12 @@ pub(crate) fn expected(image: &Image, steps: &[Step<'_>]) -> Observation {
             ),
         };
         let outcome = match step.exit {
+            Exit::Interpret => {
+                events.push(Event::Interpret {
+                    snapshot: snapshot.clone(),
+                });
+                Outcome::Returned(vec![Argument::I64(i64::MIN)])
+            }
             Exit::Dispatch(eip) => {
                 events.push(Event::Dispatch {
                     eip: eip as i32,

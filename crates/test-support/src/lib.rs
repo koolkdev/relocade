@@ -10,6 +10,7 @@ use wasmtime::{Config, Engine};
 
 pub use module::Module;
 pub use shared_memory::SharedBytes;
+pub use v8::run_v8;
 pub use value::{decimal_i64, Outcome, Value};
 
 /// Share engine configuration and compilation resources within a test process.

@@ -7,13 +7,13 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
   let response;
   try {
     const request = JSON.parse(line);
-    if (request.wasm !== null) {
-      modules.set(request.module, new WebAssembly.Module(readFileSync(request.wasm)));
-    }
-    const module = modules.get(request.module);
-    if (!module) throw new Error(`unknown module ${request.module}`);
+    const compiled = request.modules.map(({ id, wasm }) => {
+      if (wasm !== null) modules.set(id, new WebAssembly.Module(readFileSync(wasm)));
+      if (!modules.has(id)) throw new Error(`unknown module ${id}`);
+      return modules.get(id);
+    });
     const { default: execute } = await import(pathToFileURL(request.adapter).href);
-    response = { status: 'ok', value: await execute(module, request.input) };
+    response = { status: 'ok', value: await execute(compiled, request.input) };
   } catch (error) {
     response = { status: 'error', value: error.stack ?? String(error) };
   }

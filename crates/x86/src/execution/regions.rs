@@ -34,6 +34,9 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             runtime,
             eip: eip.clone(),
             completed,
+            // A child can contain partial effects of the current instruction,
+            // so it cannot restart that instruction from its entry state.
+            can_specialize: false,
         }
     }
 

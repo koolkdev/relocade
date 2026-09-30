@@ -99,7 +99,10 @@ impl BinaryFormat {
             .ge(self.infinity() + 1);
         let signaling_nan = nan.and(bits.and(self.quiet_bit()).eq(0_u64));
         BinaryOperand {
-            value: ExtendedValue::from_binary(self, bits.or(nan.select(self.quiet_bit(), 0_u64))),
+            value: ExtendedValue::from_binary(
+                self,
+                bits.or(signaling_nan.select(self.quiet_bit(), 0_u64)),
+            ),
             signaling_nan,
             denormal: self.denormal(bits),
         }

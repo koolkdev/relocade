@@ -70,6 +70,14 @@ impl X87State {
         })
     }
 
+    pub(crate) fn push_available(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<Val<I1>, BuildError> {
+        let target = self.slot(body, 7)?;
+        Ok(self.registers.tag(body, &target)?.eq(3))
+    }
+
     pub(crate) fn push(
         &mut self,
         body: &mut BlockBuilder<'_>,
@@ -87,8 +95,7 @@ impl X87State {
                 source.denormal,
             ),
         };
-        let top = self.status.top(body)?;
-        let target = self.registers.slot(body, &top, 7.into())?;
+        let target = self.slot(body, 7)?;
         let full = self.registers.tag(body, &target)?.ne(3);
         let fault = source_empty.or(&full);
         // A missing source takes priority over an occupied push destination.

@@ -11,8 +11,9 @@ use super::Module;
 const COUNTER: &[u8] = b"\0asm\x01\0\0\0\x01\x06\x01\x60\x01\x7f\x01\x7f\x03\x02\x01\0\x06\x06\x01\x7f\x01\x41\0\x0b\x07\x07\x01\x03run\0\0\x0a\x0d\x01\x0b\0\x23\0\x20\0\x6a\x24\0\x23\0\x0b";
 
 fn run(module: &Module, input: Value) -> Value {
-    module.run_v8(
+    crate::run_v8(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("src/v8/test-adapter.mjs"),
+        &[module],
         &input,
     )
 }
@@ -52,4 +53,25 @@ fn v8_module_lifecycle_keeps_requests_independent() {
         run(&first, json!({ "delta": 2 })),
         json!({ "result": 2, "reused": false })
     );
+
+    // Ordered lists preserve duplicate module identity without sharing instances.
+    let first = Module::new(COUNTER);
+    let mut bytes = COUNTER.to_vec();
+    bytes[26] = 20;
+    let second = Module::new(&bytes);
+    for (delta, reused) in [(3, false), (7, true)] {
+        let result: Value = crate::run_v8(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("src/v8/test-adapter.mjs"),
+            &[&first, &second, &first],
+            &json!({ "delta": delta, "list": true }),
+        );
+        assert_eq!(
+            result,
+            json!([
+                { "result": delta, "reused": reused },
+                { "result": 20 + delta, "reused": reused },
+                { "result": delta, "reused": true },
+            ])
+        );
+    }
 }

@@ -138,8 +138,9 @@ fn independent_instances_share_one_atomic_modification_order() {
 fn v8_independent_instances_share_one_atomic_modification_order() {
     let fixture = counter();
     let module = Module::new(fixture.bytes());
-    let mut observed: Vec<u32> = module.run_v8(
+    let mut observed: Vec<u32> = wasm86_test_support::run_v8(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/suites/atomics/workers.mjs"),
+        &[&module],
         &(),
     );
     observed.sort_unstable();
