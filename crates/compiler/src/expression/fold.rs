@@ -117,6 +117,11 @@ impl Folder<'_> {
                 left,
                 right,
             } => self.fold_binary(ty, operator, left, right),
+            Expression::MultiplyWide {
+                signed,
+                left,
+                right,
+            } => self.fold_multiply_wide(signed, left, right, component),
             Expression::Shift { value, count, .. } => self.fold_shift(ty, value, count),
             Expression::Rotate { value, count, .. } => self.fold_rotate(ty, value, count),
             Expression::Compare {
@@ -151,7 +156,7 @@ impl Folder<'_> {
                 }
                 _ => None,
             },
-            Expression::BitCount { .. } | Expression::MultiplyWide { .. } => None,
+            Expression::BitCount { .. } => None,
         };
         let expression = if let Some(input) = input {
             if self.values[input].ty == ty {

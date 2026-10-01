@@ -1,6 +1,9 @@
 use super::*;
 use wasm86_compiler::{BuildError, Program, WasmFeatures};
 
+#[path = "wide/folding.rs"]
+mod folding;
+
 fn product(program: Program, signed: bool, order: &[usize]) -> TestModule {
     let mut fixture = Fixture::new();
     fixture.program = program;
@@ -201,35 +204,6 @@ fn native_target_product_lowering_follows_result_demand() {
                         .collect::<Vec<_>>()
                 );
             }
-        }
-    }
-}
-
-#[test]
-fn literal_and_admitted_wide_products_fold_in_result_order() {
-    for (signed, left, right, halves) in [
-        (false, u64::MAX, u64::MAX, [1, -2]),
-        (true, u64::MAX, u64::MAX, [1, 0]),
-        (true, 1 << 63, u64::MAX, [i64::MIN, 0]),
-        (true, 1 << 63, 2, [0, -1]),
-    ] {
-        for admitted in [false, true] {
-            let module = Fixture::new().function(&[], &[Type::I64; 2], |body| {
-                let left = if admitted {
-                    body.value::<I64>(left)?
-                } else {
-                    left.into()
-                };
-                let pair = if signed {
-                    left.signed().mul_wide(right)
-                } else {
-                    left.unsigned().mul_wide(right)
-                };
-                body.return_(pair)
-            });
-            assert!(matches!(operators(module.bytes()).as_slice(),
-                [Operator::I64Const { value: low }, Operator::I64Const { value: high }, Operator::Return, Operator::End]
-                    if [*low, *high] == halves));
         }
     }
 }

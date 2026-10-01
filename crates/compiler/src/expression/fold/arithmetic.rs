@@ -1,13 +1,58 @@
-//! Binary normalization, algebraic rewrites and modular constant offsets.
+//! Arithmetic normalization, algebraic rewrites and modular constant offsets.
 
 use super::Folder;
 use crate::{
     body::ValueDefinition,
-    integer::{self, BinaryOp},
+    integer::{self, BinaryOp, ShiftOp},
     Expression, Type,
 };
 
 impl Folder<'_> {
+    pub(super) fn fold_multiply_wide(
+        &mut self,
+        signed: bool,
+        left: usize,
+        right: usize,
+        component: usize,
+    ) -> Option<usize> {
+        let left_bounds = self.values.bounds[left];
+        let right_bounds = self.values.bounds[right];
+        let product_bits = if signed {
+            left_bounds.signed + right_bounds.signed
+        } else {
+            left_bounds.unsigned + right_bounds.unsigned
+        };
+        // A product that fits one carrier has only zero or sign bits above it.
+        // A factor restricted to zero or one also fits, even at full width.
+        if product_bits > 64 && left_bounds.unsigned > 1 && right_bounds.unsigned > 1 {
+            return None;
+        }
+        if component == 1 && !signed {
+            return Some(self.values.constant(Type::I64, 0));
+        }
+        let low = self.fold(
+            Type::I64,
+            Expression::Binary {
+                operator: BinaryOp::Mul,
+                left,
+                right,
+            },
+        );
+        Some(if component == 0 {
+            low
+        } else {
+            let count = self.values.constant(Type::I64, 63);
+            self.fold(
+                Type::I64,
+                Expression::Shift {
+                    operator: ShiftOp::RightSigned,
+                    value: low,
+                    count,
+                },
+            )
+        })
+    }
+
     // These rewrites preserve every result bit, so construction and path
     // specialization can use them without repeating logical normalization.
     pub(super) fn fold_binary(
