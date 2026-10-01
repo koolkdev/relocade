@@ -194,4 +194,26 @@ impl Folder<'_> {
         };
         self.fold(Type::I1, Expression::ZeroTest { input, nonzero })
     }
+
+    pub(super) fn fold_zero_test(&mut self, input: usize, nonzero: bool) -> Option<usize> {
+        if nonzero && self.values.bounds[input].unsigned <= 1 {
+            return Some(input);
+        }
+        if let ValueDefinition::Expression(Expression::Convert { input: source }) =
+            self.values[input].definition
+        {
+            // A carrier conversion that discards no set bits preserves zero.
+            // Logical narrowing still keeps its explicit normalization mask.
+            if self.values.bounds[source].unsigned <= self.values[input].ty.carrier().bits() {
+                return Some(self.fold(
+                    Type::I1,
+                    Expression::ZeroTest {
+                        input: source,
+                        nonzero,
+                    },
+                ));
+            }
+        }
+        None
+    }
 }

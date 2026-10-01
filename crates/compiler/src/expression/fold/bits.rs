@@ -2,11 +2,96 @@
 use super::Folder;
 use crate::{
     body::ValueDefinition,
-    integer::{self, BinaryOp},
+    integer::{self, BinaryOp, ShiftOp},
     Expression, Type,
 };
 
+struct MaskedBits {
+    input: usize,
+    mask: u64,
+}
+
 impl Folder<'_> {
+    /// Rejoining bits extracted from the same carrier only needs their union
+    /// mask. Match explicit masks and restored shifts, never logical type widths.
+    pub(super) fn rejoin_bits(&mut self, ty: Type, left: usize, right: usize) -> Option<usize> {
+        let left = self.restored_bits(left);
+        let right = self.restored_bits(right);
+        if left.input != right.input {
+            return None;
+        }
+        let mask = self.values.carrier_constant(ty, left.mask | right.mask);
+        Some(self.fold(
+            ty,
+            Expression::Binary {
+                operator: BinaryOp::And,
+                left: left.input,
+                right: mask,
+            },
+        ))
+    }
+
+    fn masked_bits(&self, input: usize) -> MaskedBits {
+        let input = self.values.representation(input);
+        let (input, mask) = match self.values[input].definition {
+            ValueDefinition::Expression(Expression::LowBits { input, bits }) => {
+                (input, integer::low_mask(bits))
+            }
+            ValueDefinition::Expression(Expression::Binary {
+                operator: BinaryOp::And,
+                left,
+                right,
+            }) => match (self.values[left].definition, self.values[right].definition) {
+                (_, ValueDefinition::Constant(mask)) => (left, mask),
+                (ValueDefinition::Constant(mask), _) => (right, mask),
+                _ => (input, self.values[input].ty.carrier().mask()),
+            },
+            _ => (input, self.values[input].ty.carrier().mask()),
+        };
+        MaskedBits {
+            input: self.values.representation(input),
+            mask,
+        }
+    }
+
+    fn restored_bits(&self, input: usize) -> MaskedBits {
+        let mut bits = self.masked_bits(input);
+        let ValueDefinition::Expression(Expression::Shift {
+            operator: ShiftOp::Left,
+            value,
+            count,
+        }) = self.values[bits.input].definition
+        else {
+            return bits;
+        };
+        let carrier = self.values[bits.input].ty.carrier();
+        let ValueDefinition::Constant(count) = self.values[count].definition else {
+            return bits;
+        };
+        let count = integer::shift_count(carrier, count as u32);
+        let shifted = self.masked_bits(value);
+        let ValueDefinition::Expression(Expression::Shift {
+            operator: ShiftOp::RightUnsigned,
+            value,
+            count: reverse,
+        }) = self.values[shifted.input].definition
+        else {
+            return bits;
+        };
+        let ValueDefinition::Constant(reverse) = self.values[reverse].definition else {
+            return bits;
+        };
+        if self.values[shifted.input].ty.carrier() != carrier
+            || integer::shift_count(carrier, reverse as u32) != count
+        {
+            return bits;
+        }
+        let source = self.masked_bits(value);
+        bits.input = source.input;
+        bits.mask &= (shifted.mask << count) & source.mask & carrier.mask();
+        bits
+    }
+
     /// The explicit mask defines the observed bits, including after operands
     /// have been replaced by branch facts. Intermediate type views keep their
     /// carrier bits; this fold does not normalize them to their logical widths.

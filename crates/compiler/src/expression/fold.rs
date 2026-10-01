@@ -114,9 +114,7 @@ impl Folder<'_> {
                 left,
                 right,
             } => self.fold_compare(operator, left, right),
-            Expression::ZeroTest { input, nonzero } => {
-                (nonzero && self.values.bounds[input].unsigned <= 1).then_some(input)
-            }
+            Expression::ZeroTest { input, nonzero } => self.fold_zero_test(input, nonzero),
             Expression::Select {
                 condition,
                 when_true,

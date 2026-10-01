@@ -44,6 +44,11 @@ impl Folder<'_> {
                 return masked;
             }
         }
+        if operator == BinaryOp::Or {
+            if let Some(input) = self.rejoin_bits(ty, left, right) {
+                return Some(input);
+            }
+        }
         match (
             operator,
             self.values[a].definition,

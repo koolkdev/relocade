@@ -5,6 +5,8 @@ use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[path = "integer_ops/addressing.rs"]
 mod addressing;
+#[path = "integer_ops/bit_fields.rs"]
+mod bit_fields;
 #[path = "integer_ops/offsets.rs"]
 mod offsets;
 #[path = "integer_ops/scalars.rs"]
