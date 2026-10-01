@@ -3,6 +3,9 @@
 mod fold;
 pub(crate) use fold::{build, map_inputs, normalize};
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     integer::{self, BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
     Type,
@@ -58,35 +61,26 @@ pub(super) enum Expression<V> {
 impl<V> Expression<V> {
     /// Inputs in execution and Wasm stack order: select's condition comes last.
     pub(super) fn inputs(&self) -> impl DoubleEndedIterator<Item = &V> {
-        let inputs = match self {
-            Self::Binary { left, right, .. } | Self::Compare { left, right, .. } => {
-                [Some(left), Some(right), None]
-            }
-            Self::Shift { value, count, .. } | Self::Rotate { value, count, .. } => {
-                [Some(value), Some(count), None]
-            }
-            Self::Select {
-                condition,
-                when_true,
-                when_false,
-            } => [Some(when_true), Some(when_false), Some(condition)],
-            Self::SignExtend { input }
-            | Self::BitCount { input, .. }
-            | Self::ZeroTest { input, .. }
-            | Self::Convert { input }
-            | Self::LowBits { input, .. } => [Some(input), None, None],
-        };
+        // Scalar expressions have at most three inputs. Mapping defines their
+        // order once, including for callers that only need to walk the inputs.
+        let mut inputs = [None; 3];
+        let mut count = 0;
+        self.map(|input| {
+            inputs[count] = Some(input);
+            count += 1;
+        });
         inputs.into_iter().flatten()
     }
 
-    pub(super) fn map<U>(&self, mut input: impl FnMut(&V) -> U) -> Expression<U> {
+    pub(super) fn map<'a, U>(&'a self, mut input: impl FnMut(&'a V) -> U) -> Expression<U> {
         self.try_map(|value| Ok::<_, std::convert::Infallible>(input(value)))
             .unwrap_or_else(|error| match error {})
     }
 
-    pub(super) fn try_map<U, E>(
-        &self,
-        mut input: impl FnMut(&V) -> Result<U, E>,
+    /// Visit each input in Wasm stack order, stopping at the first error.
+    pub(super) fn try_map<'a, U, E>(
+        &'a self,
+        mut input: impl FnMut(&'a V) -> Result<U, E>,
     ) -> Result<Expression<U>, E> {
         Ok(match self {
             Self::Binary {
@@ -121,9 +115,9 @@ impl<V> Expression<V> {
                 when_true,
                 when_false,
             } => Expression::Select {
-                condition: input(condition)?,
                 when_true: input(when_true)?,
                 when_false: input(when_false)?,
+                condition: input(condition)?,
             },
             Self::SignExtend { input: value } => Expression::SignExtend {
                 input: input(value)?,
