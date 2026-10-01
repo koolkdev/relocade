@@ -7,7 +7,7 @@ pub use argument::Argument;
 
 use std::marker::PhantomData;
 
-use source::ValueSource;
+pub(crate) use source::ValueSource;
 pub(crate) use unbound::UnboundExpression;
 
 use crate::{

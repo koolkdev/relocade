@@ -7,7 +7,7 @@ use super::{UnboundExpression, Val};
 use crate::{arena::FunctionArena, BuildError, IntType, Type};
 
 #[derive(Clone)]
-pub(super) enum ValueSource {
+pub(crate) enum ValueSource {
     Literal(u64),
     Unbound(UnboundExpression),
     Expression {
@@ -18,7 +18,7 @@ pub(super) enum ValueSource {
 
 /// Admission retains the original scope independently of the folded runtime node.
 #[derive(Clone, Copy)]
-pub(super) struct BoundExpression {
+pub(crate) struct BoundExpression {
     pub(super) value: usize,
     required_scope: Option<NonZeroUsize>,
 }
@@ -47,6 +47,21 @@ impl BoundExpression {
 }
 
 impl ValueSource {
+    // Parameters, reads, calls and joins use the scope of their own definition.
+    // Calculations retain their original operand scopes across folding.
+    pub(crate) fn from_definition(
+        arena: FunctionArena,
+        expression: Result<usize, BuildError>,
+    ) -> Self {
+        let expression = expression.and_then(|value| {
+            Ok(BoundExpression::new(
+                value,
+                Some(arena.definition_scope(value)?),
+            ))
+        });
+        Self::Expression { arena, expression }
+    }
+
     pub(super) fn resolve(
         &self,
         arena: &FunctionArena,
@@ -94,40 +109,30 @@ impl ValueSource {
 }
 
 impl<T: IntType> Val<T> {
-    // Authored parameters, reads, calls and joins begin with their runtime scope.
-    // Expressions use `bound` to retain scopes that folding may discard.
     pub(crate) fn new(arena: FunctionArena, expression: Result<usize, BuildError>) -> Self {
-        let expression = expression.and_then(|value| {
-            Ok(BoundExpression::new(
-                value,
-                Some(arena.definition_scope(value)?),
-            ))
-        });
-        Self::bound(arena, expression)
+        Self::from_source(ValueSource::from_definition(arena, expression))
+    }
+
+    pub(crate) fn from_source(source: ValueSource) -> Self {
+        Self {
+            source,
+            ty: PhantomData,
+        }
     }
 
     pub(super) fn bound(
         arena: FunctionArena,
         expression: Result<BoundExpression, BuildError>,
     ) -> Self {
-        Self {
-            source: ValueSource::Expression { arena, expression },
-            ty: PhantomData,
-        }
+        Self::from_source(ValueSource::Expression { arena, expression })
     }
 
     pub(super) fn literal(bits: u64) -> Self {
-        Self {
-            source: ValueSource::Literal(T::TYPE.normalize(bits)),
-            ty: PhantomData,
-        }
+        Self::from_source(ValueSource::Literal(T::TYPE.normalize(bits)))
     }
 
     pub(super) fn unbound(expression: UnboundExpression) -> Self {
-        Self {
-            source: ValueSource::Unbound(expression),
-            ty: PhantomData,
-        }
+        Self::from_source(ValueSource::Unbound(expression))
     }
 
     pub(crate) fn checked_expression(

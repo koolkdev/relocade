@@ -1,5 +1,5 @@
 //! Logical result shapes and signature-directed arguments.
-use crate::{Argument, BlockBuilder, BuildError, IntType, Type, Val};
+use crate::{value::ValueSource, Argument, BlockBuilder, BuildError, IntType, Type, Val};
 
 mod sealed {
     use super::*;
@@ -8,7 +8,8 @@ mod sealed {
 
     pub trait Values: Sized {
         fn types() -> Vec<Type>;
-        fn bind(body: &BlockBuilder<'_>, outputs: &mut dyn Iterator<Item = usize>) -> Self;
+        /// Requests scalar sources in result order, using their logical types.
+        fn bind(next: &mut dyn FnMut(Type) -> ValueSource) -> Self;
     }
 }
 
@@ -38,13 +39,8 @@ impl<T: IntType> sealed::Values for Val<T> {
         vec![T::TYPE]
     }
 
-    fn bind(body: &BlockBuilder<'_>, outputs: &mut dyn Iterator<Item = usize>) -> Self {
-        Val::new(
-            body.arena.clone(),
-            Ok(outputs
-                .next()
-                .expect("the declared result shape has an output")),
-        )
+    fn bind(next: &mut dyn FnMut(Type) -> ValueSource) -> Self {
+        Val::from_source(next(T::TYPE))
     }
 }
 
@@ -58,7 +54,7 @@ impl sealed::Values for () {
     fn types() -> Vec<Type> {
         vec![]
     }
-    fn bind(_: &BlockBuilder<'_>, _: &mut dyn Iterator<Item = usize>) {}
+    fn bind(_: &mut dyn FnMut(Type) -> ValueSource) {}
 }
 
 impl<R: Results, const N: usize> Results for [R; N] {
@@ -72,8 +68,8 @@ impl<V: sealed::Values, const N: usize> sealed::Values for [V; N] {
         V::types().repeat(N)
     }
 
-    fn bind(body: &BlockBuilder<'_>, outputs: &mut dyn Iterator<Item = usize>) -> Self {
-        std::array::from_fn(|_| V::bind(body, outputs))
+    fn bind(next: &mut dyn FnMut(Type) -> ValueSource) -> Self {
+        std::array::from_fn(|_| V::bind(next))
     }
 }
 
@@ -153,8 +149,8 @@ macro_rules! tuples {
                 types
             }
 
-            fn bind(body: &BlockBuilder<'_>, outputs: &mut dyn Iterator<Item = usize>) -> Self {
-                ($($shape::bind(body, outputs),)+)
+            fn bind(next: &mut dyn FnMut(Type) -> ValueSource) -> Self {
+                ($($shape::bind(next),)+)
             }
         }
 
@@ -182,5 +178,17 @@ pub(super) fn types<R: Results>() -> Vec<Type> {
 }
 
 pub(super) fn bind<R: Results>(body: &BlockBuilder<'_>, outputs: &[usize]) -> R::Values {
-    <R::Values as sealed::Values>::bind(body, &mut outputs.iter().copied())
+    let mut outputs = outputs.iter().copied();
+    bind_sources::<R>(|_| {
+        ValueSource::from_definition(
+            body.arena.clone(),
+            Ok(outputs
+                .next()
+                .expect("the declared result shape has an output")),
+        )
+    })
+}
+
+pub(crate) fn bind_sources<R: Results>(mut next: impl FnMut(Type) -> ValueSource) -> R::Values {
+    <R::Values as sealed::Values>::bind(&mut next)
 }
