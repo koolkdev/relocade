@@ -106,7 +106,7 @@ impl BlockBuilder<'_> {
     ) -> Result<R::Values, BuildError> {
         let types = results::types::<R>();
         let arguments = self.resolve_call(target, arguments, &types)?;
-        let outputs = self.execute(Operation::Call { target, arguments }, &types)?;
+        let outputs = self.execute(Operation::call(target, arguments), &types)?;
         let values = results::bind::<R>(self, &outputs);
         Ok(values)
     }

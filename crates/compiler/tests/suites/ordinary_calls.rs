@@ -8,13 +8,18 @@ fn ordered_imports() -> TestModule {
     let mut fixture = Fixture::new();
     let receive = fixture.callback(
         "receive",
-        signature(&[Type::I32, Type::I64], &[Type::I64]),
+        signature(&[Type::I32, Type::I64, Type::I32, Type::I64], &[Type::I64]),
         &[Value::I64(i64::MAX)],
     );
     fixture.function(&[Type::I32, Type::I64], &[Type::I64], |mut body| {
         let word = body.parameter::<I32>(0)?.add(1);
         let wide = body.parameter::<I64>(1)?.add(1);
-        let arguments = [word.argument(), wide.argument()];
+        let arguments = [
+            word.argument(),
+            wide.argument(),
+            word.argument(),
+            wide.argument(),
+        ];
         let first = body.call::<I64>(receive, &arguments)?;
         let _second = body.call::<I64>(receive, &arguments)?;
         body.return_(first.add(&first))
@@ -492,11 +497,17 @@ fn imported_calls_preserve_order_and_share_arguments_at_runtime() {
     let module = ordered_imports();
     let mut instance = module.instantiate();
     assert_eq!(instance.call::<i64>((i32::MAX, i64::MAX)).unwrap(), -2);
+    let arguments = [
+        Value::I32(i32::MIN),
+        Value::I64(i64::MIN),
+        Value::I32(i32::MIN),
+        Value::I64(i64::MIN),
+    ];
     assert_eq!(
         instance.callbacks(),
         [
-            Call::new("receive", &[Value::I32(i32::MIN), Value::I64(i64::MIN)]),
-            Call::new("receive", &[Value::I32(i32::MIN), Value::I64(i64::MIN)]),
+            Call::new("receive", &arguments),
+            Call::new("receive", &arguments),
         ],
     );
 }
@@ -650,11 +661,17 @@ fn v8_imported_calls_preserve_order_and_i64_values() {
     let module = ordered_imports();
     let input = Input::call("run", &[Value::I32(i32::MAX), Value::I64(i64::MAX)])
         .with_callbacks(&[Callback::new("receive", &[Value::I64(i64::MAX)])]);
+    let arguments = [
+        Value::I32(i32::MIN),
+        Value::I64(i64::MIN),
+        Value::I32(i32::MIN),
+        Value::I64(i64::MIN),
+    ];
     assert_eq!(
         module.run_v8(&input),
         Observation::returned(&[Value::I64(-2)]).with_callbacks(&[
-            Call::new("receive", &[Value::I32(i32::MIN), Value::I64(i64::MIN)]),
-            Call::new("receive", &[Value::I32(i32::MIN), Value::I64(i64::MIN)]),
+            Call::new("receive", &arguments),
+            Call::new("receive", &arguments),
         ]),
     );
 }

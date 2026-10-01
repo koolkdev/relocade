@@ -2,7 +2,7 @@
 
 use std::marker::PhantomData;
 
-use super::{Location, Mem, MemoryInt};
+use super::{Mem, MemoryAccess, MemoryInt};
 use crate::{body::Operation, BlockBuilder, BuildError, Val, I32};
 
 /// An atomic access at a fixed logical width and address. Atomic operations are
@@ -12,80 +12,28 @@ use crate::{body::Operation, BlockBuilder, BuildError, Val, I32};
 /// does not discard the access or its synchronization effects.
 pub struct AtomicAccess<'body, 'program, T: MemoryInt> {
     body: &'body mut BlockBuilder<'program>,
-    location: Location,
+    access: MemoryAccess,
+    address: usize,
     width: PhantomData<T>,
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum AtomicKind<V = usize> {
+pub(crate) enum AtomicKind {
     Load,
-    Store { value: V },
-    CompareExchange { expected: V, replacement: V },
-    Add(V),
-    Subtract(V),
-    And(V),
-    Or(V),
-    Xor(V),
-    Exchange(V),
+    Store,
+    CompareExchange,
+    Update(AtomicUpdate),
 }
 
+/// Read-modify-write operators that take one value and return the prior memory value.
 #[derive(Clone, Copy)]
-pub(crate) struct AtomicOperation<V = usize> {
-    pub(crate) location: Location<V>,
-    pub(crate) operation: AtomicKind<V>,
-}
-
-impl<V> AtomicKind<V> {
-    fn map<U>(self, mut map: impl FnMut(V) -> U) -> AtomicKind<U> {
-        match self {
-            Self::Load => AtomicKind::Load,
-            Self::Store { value } => AtomicKind::Store { value: map(value) },
-            Self::CompareExchange {
-                expected,
-                replacement,
-            } => AtomicKind::CompareExchange {
-                expected: map(expected),
-                replacement: map(replacement),
-            },
-            Self::Add(value) => AtomicKind::Add(map(value)),
-            Self::Subtract(value) => AtomicKind::Subtract(map(value)),
-            Self::And(value) => AtomicKind::And(map(value)),
-            Self::Or(value) => AtomicKind::Or(map(value)),
-            Self::Xor(value) => AtomicKind::Xor(map(value)),
-            Self::Exchange(value) => AtomicKind::Exchange(map(value)),
-        }
-    }
-}
-
-impl<V> AtomicOperation<V> {
-    pub(crate) fn map<U>(self, mut map: impl FnMut(V) -> U) -> AtomicOperation<U> {
-        AtomicOperation {
-            location: self.location.map(&mut map),
-            operation: self.operation.map(map),
-        }
-    }
-}
-
-impl<V: Copy> AtomicOperation<V> {
-    pub(crate) fn inputs(&self) -> impl Iterator<Item = V> {
-        let (first, second) = match self.operation {
-            AtomicKind::Load => (None, None),
-            AtomicKind::Store { value }
-            | AtomicKind::Add(value)
-            | AtomicKind::Subtract(value)
-            | AtomicKind::And(value)
-            | AtomicKind::Or(value)
-            | AtomicKind::Xor(value)
-            | AtomicKind::Exchange(value) => (Some(value), None),
-            AtomicKind::CompareExchange {
-                expected,
-                replacement,
-            } => (Some(expected), Some(replacement)),
-        };
-        [Some(self.location.base), first, second]
-            .into_iter()
-            .flatten()
-    }
+pub(crate) enum AtomicUpdate {
+    Add,
+    Subtract,
+    And,
+    Or,
+    Xor,
+    Exchange,
 }
 
 impl<'program> BlockBuilder<'program> {
@@ -119,7 +67,8 @@ impl<'program> BlockBuilder<'program> {
         self.require_memory(memory)?;
         Ok(AtomicAccess {
             body: self,
-            location: Location::new::<T>(memory, base, offset),
+            access: MemoryAccess::new::<T>(memory, offset),
+            address: base,
             width: PhantomData,
         })
     }
@@ -127,7 +76,7 @@ impl<'program> BlockBuilder<'program> {
     /// Orders memory effects in all imported memories, including accesses made
     /// by generated helpers. The fence remains present when no value is used.
     pub fn atomic_fence(&mut self) {
-        self.execute(Operation::Fence, &[])
+        self.execute(Operation::fence(), &[])
             .expect("an active builder owns an open body");
     }
 }
@@ -135,17 +84,15 @@ impl<'program> BlockBuilder<'program> {
 impl<T: MemoryInt> AtomicAccess<'_, '_, T> {
     /// Reads the operand at its logical width.
     pub fn load(self) -> Result<Val<T>, BuildError> {
-        self.value(AtomicKind::Load)
+        let operation = Operation::atomic_load(self.access, self.address);
+        self.value(operation)
     }
 
     /// Writes the low bits at the operand's logical width.
     pub fn store(self, value: impl Into<Val<T>>) -> Result<(), BuildError> {
         let value = self.body.operand(value)?;
         self.body.execute(
-            Operation::Atomic(AtomicOperation {
-                location: self.location,
-                operation: AtomicKind::Store { value },
-            }),
+            Operation::atomic_store(self.access, self.address, value),
             &[],
         )?;
         Ok(())
@@ -159,58 +106,55 @@ impl<T: MemoryInt> AtomicAccess<'_, '_, T> {
     ) -> Result<Val<T>, BuildError> {
         let expected = self.body.operand(expected)?;
         let replacement = self.body.operand(replacement)?;
-        self.value(AtomicKind::CompareExchange {
-            expected,
-            replacement,
-        })
+        let operation =
+            Operation::atomic_compare_exchange(self.access, self.address, expected, replacement);
+        self.value(operation)
     }
 
     /// Adds modulo the operand width and returns the previous value.
     #[allow(clippy::should_implement_trait)]
     pub fn add(self, value: impl Into<Val<T>>) -> Result<Val<T>, BuildError> {
-        let value = self.body.operand(value)?;
-        self.value(AtomicKind::Add(value))
+        self.update(AtomicUpdate::Add, value)
     }
 
     /// Subtracts modulo the operand width and returns the previous value.
     #[allow(clippy::should_implement_trait)]
     pub fn sub(self, value: impl Into<Val<T>>) -> Result<Val<T>, BuildError> {
-        let value = self.body.operand(value)?;
-        self.value(AtomicKind::Subtract(value))
+        self.update(AtomicUpdate::Subtract, value)
     }
 
     /// Applies bitwise AND and returns the previous value.
     pub fn and(self, value: impl Into<Val<T>>) -> Result<Val<T>, BuildError> {
-        let value = self.body.operand(value)?;
-        self.value(AtomicKind::And(value))
+        self.update(AtomicUpdate::And, value)
     }
 
     /// Applies bitwise OR and returns the previous value.
     pub fn or(self, value: impl Into<Val<T>>) -> Result<Val<T>, BuildError> {
-        let value = self.body.operand(value)?;
-        self.value(AtomicKind::Or(value))
+        self.update(AtomicUpdate::Or, value)
     }
 
     /// Applies bitwise XOR and returns the previous value.
     pub fn xor(self, value: impl Into<Val<T>>) -> Result<Val<T>, BuildError> {
-        let value = self.body.operand(value)?;
-        self.value(AtomicKind::Xor(value))
+        self.update(AtomicUpdate::Xor, value)
     }
 
     /// Replaces the value and returns the previous value.
     pub fn exchange(self, value: impl Into<Val<T>>) -> Result<Val<T>, BuildError> {
-        let value = self.body.operand(value)?;
-        self.value(AtomicKind::Exchange(value))
+        self.update(AtomicUpdate::Exchange, value)
     }
 
-    fn value(self, operation: AtomicKind) -> Result<Val<T>, BuildError> {
-        let output = self.body.execute(
-            Operation::Atomic(AtomicOperation {
-                location: self.location,
-                operation,
-            }),
-            &[T::TYPE],
-        )?[0];
+    fn update(
+        self,
+        operator: AtomicUpdate,
+        value: impl Into<Val<T>>,
+    ) -> Result<Val<T>, BuildError> {
+        let value = self.body.operand(value)?;
+        let operation = Operation::atomic_update(self.access, operator, self.address, value);
+        self.value(operation)
+    }
+
+    fn value(self, operation: Operation) -> Result<Val<T>, BuildError> {
+        let output = self.body.execute(operation, &[T::TYPE])?[0];
         Ok(Val::new(self.body.arena.clone(), Ok(output)))
     }
 }

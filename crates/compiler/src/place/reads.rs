@@ -31,9 +31,9 @@ impl Demand {
 }
 
 pub(super) fn observable(operation: &Operation, summaries: &[Effects]) -> bool {
-    match operation {
-        Operation::Load { .. } => false,
-        Operation::Call { target, .. } => summaries[target.0].must_execute(),
+    match operation.kind() {
+        OperationKind::Load { .. } => false,
+        OperationKind::Call { target } => summaries[target.0].must_execute(),
         _ => true,
     }
 }
@@ -206,26 +206,31 @@ fn blocks_read(
         return false;
     };
     let source = &graph.effects[read.0].operation;
-    match (&graph.effects[other.0].operation, source) {
-        (Operation::Atomic(_) | Operation::Fence, _) => true,
-        (
-            Operation::Store {
-                location: write, ..
-            },
-            Operation::Load { location: read },
-        ) => write.may_overlap(*read, &graph.values),
-        (Operation::Call { target, .. }, Operation::Load { location }) => {
-            summaries[target.0].writes_location(*location, graph)
-        }
-        (Operation::Store { location, .. }, Operation::Call { target, .. }) => {
+    let other = &graph.effects[other.0].operation;
+    match (other.kind(), source.kind()) {
+        (OperationKind::Atomic { .. } | OperationKind::Fence, _) => true,
+        (OperationKind::Store { .. }, OperationKind::Load { .. }) => other
+            .location()
+            .expect("a store has a memory location")
+            .may_overlap(
+                source.location().expect("a load has a memory location"),
+                &graph.values,
+            ),
+        (OperationKind::Call { target }, OperationKind::Load { .. }) => summaries[target.0]
+            .writes_location(
+                source.location().expect("a load has a memory location"),
+                graph,
+            ),
+        (OperationKind::Store { .. }, OperationKind::Call { target }) => {
+            let location = other.location().expect("a store has a memory location");
             match &summaries[target.0] {
                 Effects::Known { reads, .. } => reads
                     .iter()
-                    .any(|read| read.overlaps_location(*location, graph)),
+                    .any(|read| read.overlaps_location(location, graph)),
                 Effects::Unknown => true,
             }
         }
-        (Operation::Call { target: writer, .. }, Operation::Call { target: reader, .. }) => {
+        (OperationKind::Call { target: writer }, OperationKind::Call { target: reader }) => {
             match &summaries[reader.0] {
                 Effects::Known { reads, .. } => summaries[writer.0].writes_reads(reads),
                 Effects::Unknown => true,

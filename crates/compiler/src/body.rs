@@ -1,10 +1,9 @@
 //! Typed values, effects and explicit control edges owned by one function.
-use crate::{
-    memory::{AtomicOperation, Location, Mem},
-    Expression, Func, Type,
-};
+use crate::{memory::Mem, Expression, Func, Type};
 
+mod operation;
 mod values;
+pub(super) use operation::{Operation, OperationKind};
 pub(super) use values::ValueTable;
 
 pub(super) struct FunctionGraph {
@@ -52,15 +51,6 @@ pub(super) struct Effect {
     pub(super) results: Vec<usize>,
     pub(super) operation: Operation,
     pub(super) origin: BlockId,
-}
-
-#[derive(Clone)]
-pub(super) enum Operation<V = usize> {
-    Load { location: Location<V> },
-    Store { location: Location<V>, value: V },
-    Call { target: Func, arguments: Vec<V> },
-    Atomic(AtomicOperation<V>),
-    Fence,
 }
 
 #[derive(Clone)]
@@ -194,48 +184,6 @@ impl FunctionGraph {
             pending.extend(self.outgoing(block).into_iter().map(|edge| edge.target));
         }
         seen
-    }
-}
-
-impl<V: Copy> Operation<V> {
-    pub(super) fn map<U>(&self, mut map: impl FnMut(V) -> U) -> Operation<U> {
-        match self {
-            Self::Load { location } => Operation::Load {
-                location: location.map(&mut map),
-            },
-            Self::Store { location, value } => Operation::Store {
-                location: location.map(&mut map),
-                value: map(*value),
-            },
-            Self::Call { target, arguments } => Operation::Call {
-                target: *target,
-                arguments: arguments.iter().copied().map(map).collect(),
-            },
-            Self::Atomic(access) => Operation::Atomic(access.map(map)),
-            Self::Fence => Operation::Fence,
-        }
-    }
-
-    pub(super) fn inputs(&self) -> impl DoubleEndedIterator<Item = V> + '_ {
-        let mut fixed = [None; 3];
-        let mut arguments: &[V] = &[];
-        match self {
-            Self::Load { location } => fixed[0] = Some(location.base),
-            Self::Store { location, value } => {
-                fixed[0] = Some(location.base);
-                fixed[1] = Some(*value);
-            }
-            Self::Call {
-                arguments: inputs, ..
-            } => arguments = inputs,
-            Self::Atomic(access) => {
-                for (slot, input) in fixed.iter_mut().zip(access.inputs()) {
-                    *slot = Some(input);
-                }
-            }
-            Self::Fence => {}
-        }
-        fixed.into_iter().flatten().chain(arguments.iter().copied())
     }
 }
 

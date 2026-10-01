@@ -1,6 +1,6 @@
 //! Forward Wasm encoding over placed graph IDs and operand-stack coverage.
 use crate::{
-    body::{BlockId, BlockItem, FunctionGraph, Operation, ValueDefinition},
+    body::{BlockId, BlockItem, FunctionGraph, OperationKind, ValueDefinition},
     Expression, Type,
 };
 use wasm_encoder::{Function, Instruction as Wasm, ValType};
@@ -176,30 +176,29 @@ impl Writer<'_> {
             }
             BlockItem::Effect(id) => {
                 let effect = &self.graph.effects[id.0];
-                let instruction = match &effect.operation {
-                    Operation::Load { location } => {
+                let instruction = match effect.operation.kind() {
+                    OperationKind::Load { access } => {
                         let covered = self.selection.signed_load[id.0];
                         let result = covered.unwrap_or(effect.results[0]);
                         memory::load(
-                            memory::argument(self.memories, location.map(|_| ())),
-                            location.bytes,
+                            memory::argument(self.memories, access),
+                            access.bytes,
                             self.graph.values[result].ty,
                             covered.is_some(),
                         )
                     }
-                    Operation::Store { location, .. } => memory::store(
-                        memory::argument(self.memories, location.map(|_| ())),
-                        location.bytes,
-                    ),
-                    Operation::Call { target, .. } => {
+                    OperationKind::Store { access } => {
+                        memory::store(memory::argument(self.memories, access), access.bytes)
+                    }
+                    OperationKind::Call { target } => {
                         Wasm::Call(self.functions[target.0].expect("a called function is retained"))
                     }
-                    Operation::Atomic(access) => memory::atomic(
-                        memory::argument(self.memories, access.location.map(|_| ())),
-                        access.location.bytes,
-                        access.map(|_| ()).operation,
+                    OperationKind::Atomic { access, operator } => memory::atomic(
+                        memory::argument(self.memories, access),
+                        access.bytes,
+                        operator,
                     ),
-                    Operation::Fence => Wasm::AtomicFence,
+                    OperationKind::Fence => Wasm::AtomicFence,
                 };
                 self.emit(instruction);
             }

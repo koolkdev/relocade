@@ -2,7 +2,7 @@
 use std::ops::Range;
 
 use crate::{
-    body::{BlockItem, Exit, FunctionGraph, Operation, ValueDefinition},
+    body::{BlockItem, Exit, FunctionGraph, OperationKind, ValueDefinition},
     memory::{Location, Mem},
     FunctionKind, Program,
 };
@@ -114,15 +114,24 @@ fn summarize(body: &FunctionGraph, summaries: &[Option<Effects>]) -> Option<Effe
             let BlockItem::Effect(effect) = item else {
                 continue;
             };
-            match &body.effects[effect.0].operation {
-                Operation::Load { location } => {
-                    include(&mut reads, [MemoryRange::from_location(*location, body)])
-                }
-                Operation::Store { location, .. } => {
-                    include(&mut writes, [MemoryRange::from_location(*location, body)])
-                }
-                Operation::Call { target, .. } => callees.push(*target),
-                Operation::Atomic(_) | Operation::Fence => synchronizes = true,
+            let operation = &body.effects[effect.0].operation;
+            match operation.kind() {
+                OperationKind::Load { .. } => include(
+                    &mut reads,
+                    [MemoryRange::from_location(
+                        operation.location().expect("a load has a memory location"),
+                        body,
+                    )],
+                ),
+                OperationKind::Store { .. } => include(
+                    &mut writes,
+                    [MemoryRange::from_location(
+                        operation.location().expect("a store has a memory location"),
+                        body,
+                    )],
+                ),
+                OperationKind::Call { target } => callees.push(target),
+                OperationKind::Atomic { .. } | OperationKind::Fence => synchronizes = true,
             }
         }
         if let Exit::TailCall { target, .. } = &block.exit {

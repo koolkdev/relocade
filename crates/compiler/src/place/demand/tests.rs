@@ -1,5 +1,5 @@
 use super::*;
-use crate::{memory::Location, Mem, Type};
+use crate::{memory::MemoryAccess, Mem, Type};
 
 struct Branches {
     graph: FunctionGraph,
@@ -107,15 +107,15 @@ fn a_single_site_witness_still_shares_publication_only_values() {
     let base = branches.graph.values.constant(Type::I32, 0);
     branches.graph.effects.push(Effect {
         results: Vec::new(),
-        operation: Operation::Store {
-            location: Location {
+        operation: Operation::store(
+            MemoryAccess {
                 memory,
-                base,
                 offset: 0,
                 bytes: 4,
             },
-            value: branches.product,
-        },
+            base,
+            branches.product,
+        ),
         origin: branches.taken,
     });
     branches.graph.blocks[branches.taken.0]
@@ -322,15 +322,15 @@ fn a_backedge_can_bypass_a_subgroup_witness() {
     let base = branches.graph.values.constant(Type::I32, 0);
     branches.graph.effects.push(Effect {
         results: Vec::new(),
-        operation: Operation::Store {
-            location: Location {
+        operation: Operation::store(
+            MemoryAccess {
                 memory: Mem(0),
-                base,
                 offset: 0,
                 bytes: 4,
             },
-            value: branches.product,
-        },
+            base,
+            branches.product,
+        ),
         origin: optional,
     });
     branches.graph.blocks[optional.0]

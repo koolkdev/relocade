@@ -5,7 +5,7 @@ use crate::{
 
 mod atomic;
 pub use atomic::AtomicAccess;
-pub(super) use atomic::{AtomicKind, AtomicOperation};
+pub(super) use atomic::{AtomicKind, AtomicUpdate};
 
 /// An imported memory. Use only with the program that declared it.
 /// Distinct declarations must be bound to distinct WebAssembly memory objects.
@@ -53,35 +53,43 @@ impl MemoryInt for I64 {
     const BYTES: u32 = 8;
 }
 
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub(super) struct Location<V = usize> {
+/// Memory attributes independent of the address supplied by an operation.
+#[derive(Clone, Copy)]
+pub(super) struct MemoryAccess {
     pub(super) memory: Mem,
-    pub(super) base: V,
     pub(super) offset: u32,
     pub(super) bytes: u8,
 }
 
-impl<V> Location<V> {
-    pub(super) fn map<U>(self, map: impl FnOnce(V) -> U) -> Location<U> {
+impl MemoryAccess {
+    fn new<T: MemoryInt>(memory: Mem, offset: u32) -> Self {
+        Self {
+            memory,
+            offset,
+            bytes: T::BYTES as u8,
+        }
+    }
+
+    pub(super) fn at(self, base: usize) -> Location {
         Location {
             memory: self.memory,
-            base: map(self.base),
+            base,
             offset: self.offset,
             bytes: self.bytes,
         }
     }
 }
 
-impl Location {
-    fn new<T: MemoryInt>(memory: Mem, base: usize, offset: u32) -> Self {
-        Self {
-            memory,
-            base,
-            offset,
-            bytes: T::BYTES as u8,
-        }
-    }
+/// A memory access with its current address input, used for overlap analysis.
+#[derive(Clone, Copy)]
+pub(super) struct Location {
+    pub(super) memory: Mem,
+    pub(super) base: usize,
+    pub(super) offset: u32,
+    pub(super) bytes: u8,
+}
 
+impl Location {
     pub(super) fn may_overlap(self, other: Self, table: &ValueTable) -> bool {
         if self.memory != other.memory {
             return false;
@@ -167,8 +175,8 @@ impl BlockBuilder<'_> {
     ) -> Result<Val<T>, BuildError> {
         let base = self.operand(address)?;
         self.require_memory(memory)?;
-        let location = Location::new::<T>(memory, base, offset);
-        let value = self.execute(Operation::Load { location }, &[T::TYPE])?[0];
+        let access = MemoryAccess::new::<T>(memory, offset);
+        let value = self.execute(Operation::load(access, base), &[T::TYPE])?[0];
         Ok(Val::new(self.arena.clone(), Ok(value)))
     }
 
@@ -198,10 +206,7 @@ impl BlockBuilder<'_> {
         let value = self.operand(value)?;
         self.require_memory(memory)?;
         self.execute(
-            Operation::Store {
-                location: Location::new::<T>(memory, base, offset),
-                value,
-            },
+            Operation::store(MemoryAccess::new::<T>(memory, offset), base, value),
             &[],
         )?;
         Ok(())

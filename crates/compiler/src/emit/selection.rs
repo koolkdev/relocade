@@ -1,7 +1,7 @@
 //! Instruction covers over the placed graph's value and effect identities.
 use super::wasm_type;
 use crate::{
-    body::{BlockItem, Exit, FunctionGraph, Operation, ValueDefinition},
+    body::{BlockItem, Exit, FunctionGraph, OperationKind, ValueDefinition},
     Expression, Type,
 };
 
@@ -54,7 +54,7 @@ impl Selection {
                         for input in effect.operation.inputs() {
                             this.uses[input] += 1;
                         }
-                        if !matches!(effect.operation, Operation::Load { .. }) {
+                        if !matches!(effect.operation.kind(), OperationKind::Load { .. }) {
                             region += 1;
                         }
                     }
@@ -174,10 +174,11 @@ impl Selection {
                     input = original;
                 }
                 ValueDefinition::Result { effect, .. } => {
-                    let Operation::Load { location } = graph.effects[effect.0].operation else {
+                    let OperationKind::Load { access } = graph.effects[effect.0].operation.kind()
+                    else {
                         return;
                     };
-                    if bits != location.bytes * 8 || self.regions[input] != self.regions[result] {
+                    if bits != access.bytes * 8 || self.regions[input] != self.regions[result] {
                         return;
                     }
                     self.signed_load[effect.0] = Some(result);

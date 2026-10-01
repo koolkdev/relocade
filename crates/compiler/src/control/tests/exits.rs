@@ -1,5 +1,5 @@
 use crate::{
-    body::{BlockItem, Edge, Exit, Layout, Operation},
+    body::{BlockItem, Edge, Exit, Layout, OperationKind},
     BuildError, FunctionKind, MemoryImport, Program, Signature, Type, I1, I32,
 };
 
@@ -65,7 +65,10 @@ fn conditional_exits_keep_their_edge_scope_and_snapshot_producers() {
             panic!("the branch observes its own read snapshot");
         };
         let effect = &body.effects[effect.0];
-        assert!(matches!(effect.operation, Operation::Load { .. }));
+        assert!(matches!(
+            effect.operation.kind(),
+            OperationKind::Load { .. }
+        ));
         results.push(effect.results.clone());
         let [Layout::Block(edge)] = taken.as_slice() else {
             panic!("the taken arm is an edge");

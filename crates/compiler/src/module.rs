@@ -7,7 +7,7 @@ use wasm_encoder::{
 };
 
 use crate::{
-    body::{BlockItem, Exit, Operation},
+    body::{BlockItem, Exit, OperationKind},
     emit, place, FunctionKind, Program,
 };
 
@@ -54,7 +54,8 @@ pub(super) fn encode(mut program: Program) -> Vec<u8> {
             }
             for item in &block.items {
                 if let BlockItem::Effect(effect) = item {
-                    if let Operation::Call { target, .. } = &body.effects[effect.0].operation {
+                    if let OperationKind::Call { target } = body.effects[effect.0].operation.kind()
+                    {
                         used_functions[target.0] = true;
                     }
                 }

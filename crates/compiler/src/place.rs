@@ -76,16 +76,9 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
             let BlockItem::Effect(id) = item else {
                 continue;
             };
-            let memory = match &graph.effects[id.0].operation {
-                Operation::Load { location } | Operation::Store { location, .. } => {
-                    Some(location.memory)
-                }
-                Operation::Atomic(access) => Some(access.location.memory),
-                _ => None,
-            };
-            if let Some(memory) = memory {
-                if !graph.memories.contains(&memory) {
-                    graph.memories.push(memory);
+            if let Some(location) = graph.effects[id.0].operation.location() {
+                if !graph.memories.contains(&location.memory) {
+                    graph.memories.push(location.memory);
                 }
             }
         }
@@ -282,7 +275,7 @@ impl Placer<'_> {
             let operation = self.graph.effects[id.0]
                 .operation
                 .clone()
-                .map(|value| self.materialize(value, block));
+                .map_inputs(|value| self.materialize(value, block));
             self.graph.effects[id.0].operation = operation;
             self.graph.blocks[block.0].items.push(BlockItem::Effect(id));
             for result in self.graph.effects[id.0].results.clone() {
