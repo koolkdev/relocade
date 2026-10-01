@@ -1,14 +1,19 @@
-//! Instruction covers over the placed graph's value and effect identities.
+//! Choose Wasm instruction forms using placed uses and effect boundaries.
+//!
+//! Value normalization and folding live in expression::fold. These replacements
+//! may depend on a result being unused or only observed as zero/nonzero.
+//! Selection leaves the graph's value definitions intact.
 use super::wasm_type;
 use crate::{
     body::{BlockItem, Exit, FunctionGraph, OperationKind, ValueDefinition},
+    integer::BinaryOp,
     Expression, Type,
 };
 
 pub(super) struct Selection {
-    pub(super) skipped: Vec<bool>,
+    skipped: Vec<bool>,
     pub(super) signed_load: Vec<Option<usize>>,
-    pub(super) narrow_test: Vec<bool>,
+    zero_test_masks: Vec<bool>,
     aliases: Vec<Option<usize>>,
     uses: Vec<usize>,
     regions: Vec<usize>,
@@ -19,7 +24,7 @@ impl Selection {
         let mut this = Self {
             skipped: vec![false; count],
             signed_load: vec![None; graph.effects.len()],
-            narrow_test: vec![false; count],
+            zero_test_masks: vec![false; count],
             aliases: vec![None; count],
             uses: vec![0; count],
             regions: vec![0; count],
@@ -99,7 +104,7 @@ impl Selection {
                         && matches!(graph.values[input].ty, Type::I8 | Type::I16)
                         && matches!(graph.values[input].definition, ValueDefinition::Expression(Expression::LowBits { bits, .. }) if bits == graph.values[input].ty.bits())
                     {
-                        this.narrow_test[input] = true;
+                        this.zero_test_masks[input] = true;
                     }
                 }
                 _ => {}
@@ -113,6 +118,33 @@ impl Selection {
             BlockItem::Effect(_) => true,
         }
     }
+    /// Select for the placed consumers, preserving ordered inputs and a prefix
+    /// of the original results. Result enumeration uses this same expression.
+    pub(super) fn expression(&self, graph: &FunctionGraph, value: usize) -> Expression<Type> {
+        let ValueDefinition::Expression(expression) = graph.values[value].definition else {
+            panic!("evaluate names an expression")
+        };
+        match expression.map(|&input| graph.values[input].ty) {
+            Expression::LowBits { .. } if self.zero_test_masks[value] => {
+                // Masking and sign extension agree on zero, although their
+                // nonzero carriers can differ. No other use observes this value.
+                Expression::SignExtend {
+                    input: graph.values[value].ty,
+                }
+            }
+            Expression::MultiplyWide { left, right, .. }
+                if self.uses[graph.values.expression_result(value, 1)] == 0 =>
+            {
+                // Signed and unsigned multiplication have the same low half.
+                Expression::Binary {
+                    operator: BinaryOp::Mul,
+                    left,
+                    right,
+                }
+            }
+            expression => expression,
+        }
+    }
     pub(super) fn results<'a>(
         &self,
         graph: &'a FunctionGraph,
@@ -122,9 +154,17 @@ impl Selection {
             BlockItem::Effect(effect) => self.signed_load[effect.0],
             BlockItem::Evaluate(_) => None,
         };
+        let count = match *producer {
+            BlockItem::Evaluate(value) => self
+                .expression(graph, value)
+                .result_types(graph.values[value].ty)
+                .len(),
+            BlockItem::Effect(_) => graph.results(*producer).len(),
+        };
         replacement.into_iter().chain(
             graph
                 .results(*producer)
+                .take(count)
                 .filter(move |_| replacement.is_none()),
         )
     }

@@ -1,7 +1,7 @@
 //! Forward Wasm encoding over placed graph IDs and operand-stack coverage.
 use crate::{
     body::{BlockId, BlockItem, FunctionGraph, OperationKind, ValueDefinition},
-    Expression, Type, WasmFeatures,
+    Type, WasmFeatures,
 };
 use wasm_encoder::{Function, Instruction as Wasm, ValType};
 mod control;
@@ -155,16 +155,8 @@ impl Writer<'_> {
     fn instruction(&mut self, item: BlockItem) {
         match item {
             BlockItem::Evaluate(value) => {
-                let ValueDefinition::Expression(expression) = self.graph.values[value].definition
-                else {
-                    panic!("evaluate names an expression")
-                };
                 let ty = self.graph.values[value].ty;
-                if self.selection.narrow_test[value] {
-                    self.integer(Type::I32, Expression::SignExtend { input: ty });
-                } else {
-                    self.integer(ty, expression.map(|&input| self.graph.values[input].ty));
-                }
+                self.integer(ty, self.selection.expression(self.graph, value));
             }
             BlockItem::Effect(id) => {
                 let effect = &self.graph.effects[id.0];

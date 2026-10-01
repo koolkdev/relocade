@@ -87,17 +87,29 @@ fn wide_products_preserve_both_halves_at_limb_and_sign_boundaries() {
 
 #[test]
 fn wide_result_order_and_independent_demand_keep_one_producer() {
-    for order in [&[0, 1][..], &[1, 0], &[0], &[1], &[1, 0, 1, 0], &[]] {
+    for order in [
+        &[0, 1][..],
+        &[1, 0],
+        &[0],
+        &[0, 0],
+        &[1],
+        &[1, 0, 1, 0],
+        &[],
+    ] {
         let module = product(Program::new(), false, order);
         Validator::new_with_features(
             wasmparser::WasmFeatures::default() & !wasmparser::WasmFeatures::WIDE_ARITHMETIC,
         )
         .validate_all(module.bytes())
         .unwrap();
-        // The portable product uses four limb multiplications, shared by all uses.
+        // Only a demanded high half needs the portable limb calculation.
         assert_eq!(
             multiplications(&module),
-            if order.is_empty() { 0 } else { 4 }
+            if order.contains(&1) {
+                4
+            } else {
+                usize::from(!order.is_empty())
+            }
         );
         let halves = [-2, 1]; // (2^64 - 1) * 2
         assert_eq!(
@@ -114,9 +126,17 @@ fn wide_result_order_and_independent_demand_keep_one_producer() {
 }
 
 #[test]
-fn native_wide_products_use_the_requested_opcode_without_portable_scratch_work() {
+fn native_target_product_lowering_follows_result_demand() {
     for signed in [false, true] {
-        for order in [&[0, 1][..], &[1, 0], &[0], &[1], &[1, 0, 1, 0], &[]] {
+        for order in [
+            &[0, 1][..],
+            &[1, 0],
+            &[0],
+            &[0, 0],
+            &[1],
+            &[1, 0, 1, 0],
+            &[],
+        ] {
             let module = product(
                 Program::with_features(WasmFeatures {
                     wide_arithmetic: true,
@@ -129,7 +149,11 @@ fn native_wide_products_use_the_requested_opcode_without_portable_scratch_work()
                 .iter()
                 .filter(|op| matches!(op, Operator::I64MulWideS | Operator::I64MulWideU))
                 .collect();
-            assert_eq!(wide.len(), usize::from(!order.is_empty()));
+            assert_eq!(wide.len(), usize::from(order.contains(&1)));
+            assert_eq!(
+                multiplications(&module),
+                usize::from(!order.is_empty() && !order.contains(&1))
+            );
             assert!(wide.iter().all(|op| matches!(
                 (signed, op),
                 (true, Operator::I64MulWideS) | (false, Operator::I64MulWideU)
@@ -140,6 +164,7 @@ fn native_wide_products_use_the_requested_opcode_without_portable_scratch_work()
                     | Operator::LocalSet { .. }
                     | Operator::LocalTee { .. }
                     | Operator::Drop
+                    | Operator::I64Mul
                     | Operator::I64MulWideS
                     | Operator::I64MulWideU
                     | Operator::Return
@@ -161,7 +186,7 @@ fn native_wide_products_use_the_requested_opcode_without_portable_scratch_work()
                 )
                 .validate_all(module.bytes())
                 .is_ok(),
-                order.is_empty()
+                !order.contains(&1)
             );
             let mut instance = module.instantiate();
             for (left, right) in [(u64::MAX, 2), (1 << 63, u64::MAX), (u64::MAX, u64::MAX)] {
@@ -210,16 +235,18 @@ fn literal_and_admitted_wide_products_fold_in_result_order() {
 }
 
 #[test]
-fn high_product_demand_retains_its_read_snapshot() {
-    let mut fixture = Fixture::new();
-    let state = fixture.memory("state", &[0xff; 8]);
-    let module = fixture.function(&[], &[Type::I64], |mut body| {
-        let before = body.load::<I64>(state, 0)?;
-        let (_, high) = before.unsigned().mul_wide(2);
-        body.store::<I64>(state, 0, 0)?;
-        body.return_(high)
-    });
-    assert_eq!(module.instantiate().call::<i64>(()), Ok(1));
+fn each_product_half_retains_its_read_snapshot() {
+    for (component, expected) in [(0, -2), (1, 1)] {
+        let mut fixture = Fixture::new();
+        let state = fixture.memory("state", &[0xff; 8]);
+        let module = fixture.function(&[], &[Type::I64], |mut body| {
+            let before = body.load::<I64>(state, 0)?;
+            let (low, high) = before.unsigned().mul_wide(2);
+            body.store::<I64>(state, 0, 0)?;
+            body.return_([low, high][component].clone())
+        });
+        assert_eq!(module.instantiate().call::<i64>(()), Ok(expected));
+    }
 }
 
 #[test]
@@ -269,6 +296,8 @@ fn separately_placed_wide_components_do_not_escape_their_branch() {
             body.return_(result)
         },
     );
+    // The low-only arm uses one multiply; the high arm keeps four limb products.
+    assert_eq!(multiplications(&module), 5);
     for (condition, expected) in [(0, -2), (1, 1)] {
         assert_eq!(
             module.instantiate().call::<i64>((condition, -1_i64, 2_i64)),
@@ -294,7 +323,7 @@ fn wide_results_specialize_independently_under_operand_facts() {
     assert_eq!(module.instantiate().call::<(i64, i64)>(7_i64), Ok((0, 0)));
 }
 
-fn iterated_products() -> TestModule {
+fn iterated_products(keep_high: bool) -> TestModule {
     Fixture::new().function(&[Type::I32, Type::I64], &[Type::I64; 2], |mut body| {
         let count = body.parameter::<I32>(0)?;
         let seed = body.parameter::<I64>(1)?;
@@ -303,7 +332,8 @@ fn iterated_products() -> TestModule {
             |mut iteration, labels, (left, low, high)| {
                 iteration.if_(left.eq(0), |done| done.branch(&labels.exit, (&low, &high)))?;
                 let (next_low, next_high) = low.unsigned().mul_wide(u64::MAX);
-                iteration.branch(&labels.again, (left.sub(1), next_low, high.add(next_high)))
+                let high = if keep_high { high.add(next_high) } else { high };
+                iteration.branch(&labels.again, (left.sub(1), next_low, high))
             },
         )?;
         body.return_(pair)
@@ -311,24 +341,16 @@ fn iterated_products() -> TestModule {
 }
 
 #[test]
-fn wide_lowering_temporaries_preserve_loop_carried_values() {
-    let module = iterated_products();
-    assert_eq!(
-        module.instantiate().call::<(i64, i64)>((0, 3_i64)),
-        Ok((3, 0))
-    );
-    assert_eq!(
-        module.instantiate().call::<(i64, i64)>((1, 3_i64)),
-        Ok((-3, 2))
-    );
-    assert_eq!(
-        module.instantiate().call::<(i64, i64)>((2, 3_i64)),
-        Ok((3, -2))
-    );
-    assert_eq!(
-        module.instantiate().call::<(i64, i64)>((3, 3_i64)),
-        Ok((-3, 0))
-    );
+fn wide_product_demand_preserves_loop_carried_values() {
+    for keep_high in [false, true] {
+        let module = iterated_products(keep_high);
+        for (count, low, high) in [(0, 3, 0), (1, -3, 2), (2, 3, -2), (3, -3, 0)] {
+            assert_eq!(
+                module.instantiate().call::<(i64, i64)>((count, 3_i64)),
+                Ok((low, if keep_high { high } else { 0 }))
+            );
+        }
+    }
 }
 
 #[test]
@@ -354,7 +376,7 @@ fn every_wide_result_retains_operand_visibility_after_folding() {
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn wide_products_and_loop_temporaries_execute_in_v8() {
     for signed in [false, true] {
-        for order in [&[0, 1][..], &[1, 0], &[1]] {
+        for order in [&[0, 1][..], &[1, 0], &[0], &[0, 0], &[1]] {
             let module = product(Program::new(), signed, order);
             for (left, right) in [
                 (u64::MAX, u64::MAX),
@@ -377,8 +399,11 @@ fn wide_products_and_loop_temporaries_execute_in_v8() {
             }
         }
     }
-    assert_eq!(
-        iterated_products().run_v8(&Input::call("run", &[Value::I32(3), Value::I64(3)])),
-        Observation::returned(&[Value::I64(-3), Value::I64(0)])
-    );
+    for keep_high in [false, true] {
+        assert_eq!(
+            iterated_products(keep_high)
+                .run_v8(&Input::call("run", &[Value::I32(2), Value::I64(3)])),
+            Observation::returned(&[Value::I64(3), Value::I64(if keep_high { -2 } else { 0 })])
+        );
+    }
 }

@@ -55,12 +55,15 @@ impl FunctionGraph {
     pub(crate) fn results(
         &self,
         producer: BlockItem,
-    ) -> impl DoubleEndedIterator<Item = usize> + '_ {
-        let (values, effects) = match producer {
-            BlockItem::Evaluate(value) => (self.values.expression_results(value), &[][..]),
-            BlockItem::Effect(effect) => (0..0, self.effects[effect.0].results.as_slice()),
+    ) -> impl ExactSizeIterator<Item = usize> + DoubleEndedIterator + '_ {
+        let count = match producer {
+            BlockItem::Evaluate(value) => self.values.expression_results(value).len(),
+            BlockItem::Effect(effect) => self.effects[effect.0].results.len(),
         };
-        values.chain(effects.iter().copied())
+        (0..count).map(move |component| match producer {
+            BlockItem::Evaluate(value) => self.values.expression_result(value, component),
+            BlockItem::Effect(effect) => self.effects[effect.0].results[component],
+        })
     }
 }
 
