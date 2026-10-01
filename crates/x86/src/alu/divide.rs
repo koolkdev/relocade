@@ -1,8 +1,6 @@
 //! Integer division values and numeric conditions for guest divide error.
 
-use wasm86_compiler::{Val, I1};
-
-use super::DoubleWidth;
+use wasm86_compiler::{DoubleWidth, Val, I1};
 
 #[derive(Clone, Copy)]
 pub(crate) enum DivideOp {

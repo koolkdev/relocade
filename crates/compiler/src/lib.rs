@@ -49,7 +49,7 @@ use expression::Expression;
 pub use function::BlockBuilder;
 pub use memory::{AtomicAccess, Mem, MemoryImport, MemoryInt};
 pub use results::{Arguments, Results};
-pub use types::{AtLeast, IntType, Type, I1, I16, I32, I64, I8};
+pub use types::{AtLeast, DoubleWidth, IntType, Type, I1, I16, I32, I64, I8};
 pub use value::{Argument, Signed, Unsigned, Val};
 
 /// A function's ordered logical parameter and result types.

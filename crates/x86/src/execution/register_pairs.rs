@@ -1,12 +1,9 @@
 //! Concatenated GPR values retain each register's independent architectural view.
 
-use wasm86_compiler::{BuildError, Val};
+use wasm86_compiler::{BuildError, DoubleWidth, Val};
 
 use super::ExecutionBuilder;
-use crate::{
-    alu::DoubleWidth,
-    register::{Gpr32, Register, RegisterType},
-};
+use crate::register::{Gpr32, Register, RegisterType};
 
 impl ExecutionBuilder<'_, '_> {
     /// Reads high:low as one unsigned bit pattern, extending each half separately.

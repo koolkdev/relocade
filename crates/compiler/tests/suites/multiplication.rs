@@ -7,6 +7,8 @@ use wasmparser::{Operator, Parser, Payload, Validator};
 mod observations;
 #[path = "multiplication/wide.rs"]
 mod wide;
+#[path = "multiplication/widening.rs"]
+mod widening;
 
 fn operators(bytes: &[u8]) -> Vec<Operator<'_>> {
     Validator::new_with_features(

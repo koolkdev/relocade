@@ -1,5 +1,7 @@
 use super::*;
-use crate::alu::{AnyStatusSource, DoubleWidth, MultiplyOp, StatusSource};
+use wasm86_compiler::DoubleWidth;
+
+use crate::alu::{AnyStatusSource, MultiplyOp, StatusSource};
 use crate::register::{Gpr32, RegisterType};
 
 instruction_families! {

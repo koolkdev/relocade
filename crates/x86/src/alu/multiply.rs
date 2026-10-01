@@ -1,8 +1,8 @@
 //! Full integer products and signed or unsigned overflow at the operand width.
 
-use wasm86_compiler::Val;
+use wasm86_compiler::{DoubleWidth, Val};
 
-use super::{AluResult, DoubleWidth};
+use super::AluResult;
 use crate::alu::{AnyStatusSource, StatusSource};
 use crate::flags::FlagChange;
 
@@ -18,14 +18,8 @@ impl MultiplyOp {
         StatusSource<T>: Into<AnyStatusSource>,
     {
         let result = match self {
-            Self::Signed => left
-                .signed()
-                .extend::<T::Double>()
-                .mul(right.signed().extend::<T::Double>()),
-            Self::Unsigned => left
-                .unsigned()
-                .extend::<T::Double>()
-                .mul(right.unsigned().extend::<T::Double>()),
+            Self::Signed => left.signed().mul_wide(right),
+            Self::Unsigned => left.unsigned().mul_wide(right),
         };
         let overflow = match self {
             Self::Signed => result.ne(result.truncate::<T>().signed().extend::<T::Double>()),

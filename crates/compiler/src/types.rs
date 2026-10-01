@@ -114,3 +114,23 @@ at_least!(I8: I1, I8);
 at_least!(I16: I1, I8, I16);
 at_least!(I32: I1, I8, I16, I32);
 at_least!(I64: I1, I8, I16, I32, I64);
+
+/// An integer type with a supported scalar type exactly twice as wide.
+///
+/// I8 widens to I16, I16 to I32, and I32 to I64. I1 and I64 have no supported
+/// double-width scalar type. Both types support memory access at their logical width.
+pub trait DoubleWidth: crate::MemoryInt {
+    type Double: crate::MemoryInt + AtLeast<Self> + AtLeast<I16>;
+}
+
+impl DoubleWidth for I8 {
+    type Double = I16;
+}
+
+impl DoubleWidth for I16 {
+    type Double = I32;
+}
+
+impl DoubleWidth for I32 {
+    type Double = I64;
+}

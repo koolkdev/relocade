@@ -29,26 +29,9 @@ pub(crate) use status::{AnyStatusSource, StatusSource};
 pub(crate) use unary::UnaryOp;
 pub(crate) use update::OperandUpdate;
 
-use wasm86_compiler::{AtLeast, MemoryInt, Val, I1, I16, I32, I64, I8};
+use wasm86_compiler::{MemoryInt, Val, I1};
 
 use crate::flags::{FlagChange, StatusFlag};
-
-/// Full products and division dividends have twice the operand's logical width.
-pub(crate) trait DoubleWidth: MemoryInt {
-    type Double: MemoryInt + AtLeast<Self> + AtLeast<I16>;
-}
-
-impl DoubleWidth for I8 {
-    type Double = I16;
-}
-
-impl DoubleWidth for I16 {
-    type Double = I32;
-}
-
-impl DoubleWidth for I32 {
-    type Double = I64;
-}
 
 pub(crate) struct AluResult<T: MemoryInt> {
     pub(crate) result: Val<T>,

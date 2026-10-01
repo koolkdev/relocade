@@ -1,6 +1,8 @@
 use super::*;
+use wasm86_compiler::DoubleWidth;
+
 use crate::{
-    alu::{DivideOp, DoubleWidth},
+    alu::DivideOp,
     exception::Exception,
     register::{Gpr32, RegisterType},
 };

@@ -12,7 +12,7 @@ pub(crate) use unbound::UnboundExpression;
 
 use crate::{
     integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
-    AtLeast, Expression, IntType, I1, I32, I64,
+    AtLeast, DoubleWidth, Expression, IntType, I1, I32, I64,
 };
 
 /// A literal, unbound calculation or function-body integer expression, checked by Rust.
@@ -310,6 +310,15 @@ impl<T: IntType> Unsigned<'_, T> {
     }
 }
 
+impl<T: DoubleWidth> Unsigned<'_, T> {
+    /// Returns the full unsigned product in a scalar of twice the operand width:
+    /// I8 produces I16, I16 produces I32, and I32 produces I64.
+    pub fn mul_wide(&self, other: impl Into<Val<T>>) -> Val<T::Double> {
+        self.extend::<T::Double>()
+            .mul(other.into().unsigned().extend::<T::Double>())
+    }
+}
+
 impl Unsigned<'_, I64> {
     /// Returns the low and high 64-bit halves of the full unsigned product.
     pub fn mul_wide(&self, other: impl Into<Val<I64>>) -> (Val<I64>, Val<I64>) {
@@ -366,6 +375,15 @@ impl<T: IntType> Signed<'_, T> {
         Val::expression(Expression::SignExtend {
             input: self.0.into(),
         })
+    }
+}
+
+impl<T: DoubleWidth> Signed<'_, T> {
+    /// Returns the full two's-complement product in a scalar of twice the operand
+    /// width: I8 produces I16, I16 produces I32, and I32 produces I64.
+    pub fn mul_wide(&self, other: impl Into<Val<T>>) -> Val<T::Double> {
+        self.extend::<T::Double>()
+            .mul(other.into().signed().extend::<T::Double>())
     }
 }
 
