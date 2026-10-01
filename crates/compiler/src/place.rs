@@ -321,7 +321,7 @@ fn remove_unused(graph: &mut FunctionGraph, summaries: &[Effects]) {
             if let BlockItem::Effect(effect) = item {
                 if reads::observable(&graph.effects[effect.0].operation, summaries) {
                     live_effects[effect.0] = true;
-                    pending.extend(graph.effects[effect.0].operation.inputs());
+                    pending.extend(graph.inputs(*item));
                 }
             }
         }
@@ -330,15 +330,18 @@ fn remove_unused(graph: &mut FunctionGraph, summaries: &[Effects]) {
         if std::mem::replace(&mut live_values[id], true) {
             continue;
         }
-        match graph.values[id].definition {
-            ValueDefinition::Expression(expression) => pending.extend(expression.inputs().copied()),
-            ValueDefinition::Result { effect, .. } => {
-                if !std::mem::replace(&mut live_effects[effect.0], true) {
-                    pending.extend(graph.effects[effect.0].operation.inputs());
+        if let Some(producer) = graph.producer_of(id) {
+            if let BlockItem::Effect(effect) = producer {
+                if std::mem::replace(&mut live_effects[effect.0], true) {
+                    continue;
                 }
             }
-            ValueDefinition::Parameter { .. } => pending.extend(incoming[id].iter().copied()),
-            _ => {}
+            pending.extend(graph.inputs(producer));
+        } else if matches!(
+            graph.values[id].definition,
+            ValueDefinition::Parameter { .. }
+        ) {
+            pending.extend(incoming[id].iter().copied());
         }
     }
     let keep: Vec<Vec<bool>> = graph

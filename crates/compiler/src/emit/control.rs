@@ -172,11 +172,7 @@ impl Writer<'_> {
                 return false;
             };
             let body = &self.graph.blocks[block.0];
-            if body
-                .items
-                .iter()
-                .any(|&item| super::view::enabled(&self.selection, item))
-            {
+            if body.items.iter().any(|&item| self.selection.enabled(item)) {
                 return false;
             }
             let Exit::Jump(edge) = &body.exit else {

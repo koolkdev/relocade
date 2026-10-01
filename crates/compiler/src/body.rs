@@ -2,8 +2,10 @@
 use crate::{memory::Mem, Expression, Func, Type};
 
 mod operation;
+mod producer;
 mod values;
 pub(super) use operation::{Operation, OperationKind};
+pub(super) use producer::{BlockItem, Effect, EffectId};
 pub(super) use values::ValueTable;
 
 pub(super) struct FunctionGraph {
@@ -17,8 +19,6 @@ pub(super) struct FunctionGraph {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(super) struct BlockId(pub(super) usize);
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(super) struct EffectId(pub(super) usize);
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) struct Value {
@@ -34,23 +34,11 @@ pub(super) enum ValueDefinition {
     Result { effect: EffectId, component: usize },
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub(super) enum BlockItem {
-    Evaluate(usize),
-    Effect(EffectId),
-}
-
 pub(super) struct Block {
     pub(super) parameters: Vec<usize>,
     pub(super) items: Vec<BlockItem>,
     pub(super) exit: Exit,
     pub(super) scope: usize,
-}
-
-pub(super) struct Effect {
-    pub(super) results: Vec<usize>,
-    pub(super) operation: Operation,
-    pub(super) origin: BlockId,
 }
 
 #[derive(Clone)]

@@ -128,12 +128,7 @@ impl Writer<'_> {
                 }
                 Pending::Item(item) => {
                     pending.push(Pending::Finish(item));
-                    pending.extend(
-                        view::inputs(self.graph, item)
-                            .into_iter()
-                            .rev()
-                            .map(Pending::Value),
-                    );
+                    pending.extend(self.graph.inputs(item).rev().map(Pending::Value));
                 }
                 Pending::Finish(item) => self.instruction(item),
             }
@@ -141,14 +136,11 @@ impl Writer<'_> {
     }
     fn block_items(&mut self, block: BlockId) {
         for &item in &self.graph.blocks[block.0].items {
-            if !view::enabled(&self.selection, item) || self.view.inline(item) {
+            if !self.selection.enabled(item) || self.view.inline(item) {
                 continue;
             }
             self.item(item);
-            for result in view::results(self.graph, &self.selection, item)
-                .into_iter()
-                .rev()
-            {
+            for result in self.selection.results(self.graph, &item).rev() {
                 if self.view.uses[result] == 0 {
                     self.emit(Wasm::Drop);
                 } else {

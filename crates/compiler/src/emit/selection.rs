@@ -31,32 +31,20 @@ impl Selection {
                 continue;
             }
             region += 1;
-            for item in &block.items {
-                match *item {
-                    BlockItem::Evaluate(value) => {
-                        this.regions[value] = region;
-                        order.push(value);
-                        let ValueDefinition::Expression(expression) =
-                            graph.values[value].definition
-                        else {
-                            panic!("evaluate names an expression")
-                        };
-                        for &input in expression.inputs() {
-                            this.uses[input] += 1;
-                        }
-                    }
-                    BlockItem::Effect(effect) => {
-                        let effect = &graph.effects[effect.0];
-                        for &value in &effect.results {
-                            this.regions[value] = region;
-                            order.push(value);
-                        }
-                        for input in effect.operation.inputs() {
-                            this.uses[input] += 1;
-                        }
-                        if !matches!(effect.operation.kind(), OperationKind::Load { .. }) {
-                            region += 1;
-                        }
+            for &item in &block.items {
+                for &value in graph.results(&item) {
+                    this.regions[value] = region;
+                    order.push(value);
+                }
+                for input in graph.inputs(item) {
+                    this.uses[input] += 1;
+                }
+                if let BlockItem::Effect(effect) = item {
+                    if !matches!(
+                        graph.effects[effect.0].operation.kind(),
+                        OperationKind::Load { .. }
+                    ) {
+                        region += 1;
                     }
                 }
             }
@@ -118,6 +106,28 @@ impl Selection {
             }
         }
         this
+    }
+    pub(super) fn enabled(&self, producer: BlockItem) -> bool {
+        match producer {
+            BlockItem::Evaluate(value) => !self.skipped[value],
+            BlockItem::Effect(_) => true,
+        }
+    }
+    pub(super) fn results<'a>(
+        &self,
+        graph: &'a FunctionGraph,
+        producer: &'a BlockItem,
+    ) -> impl DoubleEndedIterator<Item = usize> + 'a {
+        let replacement = match *producer {
+            BlockItem::Effect(effect) => self.signed_load[effect.0],
+            BlockItem::Evaluate(_) => None,
+        };
+        let original = if replacement.is_some() {
+            &[]
+        } else {
+            graph.results(producer)
+        };
+        replacement.into_iter().chain(original.iter().copied())
     }
     pub(super) fn resolve(&self, mut value: usize) -> usize {
         while let Some(alias) = self.aliases[value] {
