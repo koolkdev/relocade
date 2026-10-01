@@ -30,8 +30,14 @@ pub(super) struct Value {
 pub(super) enum ValueDefinition {
     Constant(u64),
     Expression(Expression<usize>),
-    Parameter { block: BlockId, component: usize },
-    Result { effect: EffectId, component: usize },
+    Parameter {
+        block: BlockId,
+        component: usize,
+    },
+    Result {
+        producer: BlockItem,
+        component: usize,
+    },
 }
 
 pub(super) struct Block {

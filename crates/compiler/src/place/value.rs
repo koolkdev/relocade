@@ -7,12 +7,10 @@ impl Placer<'_> {
             if let Some(&result) = self.available.get(&id) {
                 return Some(result);
             }
-            if let Some(&result) = self.expressions.get(&graph.values[id]) {
+            if let Some(result) = placed_expression(&self.expressions, &graph.values, id) {
                 return Some(result);
             }
-            if !matches!(graph.values[id].definition, ValueDefinition::Expression(_)) {
-                return None;
-            }
+            graph.values.expression(id)?;
             let result = self.joins.available_at(graph, block.0, id)?;
             self.available_log
                 .push((id, self.available.insert(id, result)));
@@ -27,9 +25,12 @@ impl Placer<'_> {
             if self.available.contains_key(&id) {
                 continue;
             }
-            let value = self.graph.values[id];
-            let ValueDefinition::Expression(expression) = value.definition else {
-                if let ValueDefinition::Result { effect, .. } = value.definition {
+            let Some(result) = self.graph.values.expression(id) else {
+                if let ValueDefinition::Result {
+                    producer: BlockItem::Effect(effect),
+                    ..
+                } = self.graph.values[id].definition
+                {
                     panic!(
                         "effect result {id} from {} unavailable in block {}",
                         effect.0, block.0
@@ -37,6 +38,7 @@ impl Placer<'_> {
                 }
                 continue;
             };
+            let expression = result.expression;
             if !ready {
                 work.push((id, true));
                 work.extend(expression.inputs().rev().map(|&v| (v, false)));
@@ -44,7 +46,7 @@ impl Placer<'_> {
             }
             let expression = expression.map(|v| self.available.get(v).copied().unwrap_or(*v));
             let key = Value {
-                ty: value.ty,
+                ty: self.graph.values[result.producer].ty,
                 definition: ValueDefinition::Expression(expression),
             };
             let placed = if let Some(&placed) = self.expressions.get(&key) {
@@ -56,10 +58,19 @@ impl Placer<'_> {
                     .push(BlockItem::Evaluate(placed));
                 self.expression_log
                     .push((key, self.expressions.insert(key, placed)));
-                self.define(placed, placed);
                 placed
             };
-            self.define(id, placed);
+            // Publishing the whole group records an execution, independently
+            // of any facts or aliases already known for individual components.
+            for (recipe, output) in self
+                .graph
+                .values
+                .expression_results(result.producer)
+                .zip(self.graph.values.expression_results(placed))
+            {
+                self.define(output, output);
+                self.define(recipe, output);
+            }
         }
         let result = self.available.get(&residual).copied().unwrap_or(residual);
         self.define(root, result);
@@ -70,4 +81,15 @@ impl Placer<'_> {
         self.available_log
             .push((id, self.available.insert(id, result)));
     }
+}
+
+/// CSE is keyed by the producer's operation; a result keeps its own component.
+pub(super) fn placed_expression(
+    expressions: &HashMap<Value, usize>,
+    values: &ValueTable,
+    id: usize,
+) -> Option<usize> {
+    let result = values.expression(id)?;
+    let &producer = expressions.get(&values[result.producer])?;
+    Some(values.expression_result(producer, result.component))
 }

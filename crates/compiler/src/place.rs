@@ -292,6 +292,7 @@ impl Placer<'_> {
 fn remove_unused(graph: &mut FunctionGraph, summaries: &[Effects]) {
     let reachable = graph.reachable();
     let mut live_values = vec![false; graph.values.len()];
+    let mut live_calculations = vec![false; graph.values.len()];
     let mut live_effects = vec![false; graph.effects.len()];
     let mut incoming = vec![Vec::new(); graph.values.len()];
     let mut pending = Vec::new();
@@ -331,10 +332,12 @@ fn remove_unused(graph: &mut FunctionGraph, summaries: &[Effects]) {
             continue;
         }
         if let Some(producer) = graph.producer_of(id) {
-            if let BlockItem::Effect(effect) = producer {
-                if std::mem::replace(&mut live_effects[effect.0], true) {
-                    continue;
-                }
+            let live = match producer {
+                BlockItem::Evaluate(root) => &mut live_calculations[root],
+                BlockItem::Effect(effect) => &mut live_effects[effect.0],
+            };
+            if std::mem::replace(live, true) {
+                continue;
             }
             pending.extend(graph.inputs(producer));
         } else if matches!(
@@ -358,7 +361,7 @@ fn remove_unused(graph: &mut FunctionGraph, summaries: &[Effects]) {
         .collect();
     for block in &mut graph.blocks {
         block.items.retain(|item| match item {
-            BlockItem::Evaluate(id) => live_values[*id],
+            BlockItem::Evaluate(id) => live_calculations[*id],
             BlockItem::Effect(id) => live_effects[id.0],
         });
         let trim = |edge: &mut Edge| {

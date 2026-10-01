@@ -108,7 +108,10 @@ impl FunctionArena {
                 .map(|(component, &ty)| {
                     graph.values.push(Value {
                         ty,
-                        definition: ValueDefinition::Result { effect, component },
+                        definition: ValueDefinition::Result {
+                            producer: BlockItem::Effect(effect),
+                            component,
+                        },
                     })
                 })
                 .collect();
@@ -167,10 +170,16 @@ impl FunctionArena {
     pub(super) fn definition_scope(&self, value: usize) -> Result<usize, BuildError> {
         self.with_graph(|graph| match graph.values[value].definition {
             ValueDefinition::Parameter { block, .. } => graph.blocks[block.0].scope,
-            ValueDefinition::Result { effect, .. } => {
-                graph.blocks[graph.effects[effect.0].origin.0].scope
-            }
-            ValueDefinition::Constant(_) | ValueDefinition::Expression(_) => {
+            ValueDefinition::Result {
+                producer: BlockItem::Effect(effect),
+                ..
+            } => graph.blocks[graph.effects[effect.0].origin.0].scope,
+            ValueDefinition::Constant(_)
+            | ValueDefinition::Expression(_)
+            | ValueDefinition::Result {
+                producer: BlockItem::Evaluate(_),
+                ..
+            } => {
                 unreachable!("calculated handles retain their original operand scopes")
             }
         })
@@ -204,8 +213,9 @@ impl FunctionArena {
         &self,
         ty: Type,
         expression: Expression<usize>,
+        component: usize,
     ) -> Result<usize, BuildError> {
-        self.with_open(|table| crate::expression::build(table, ty, expression))
+        self.with_open(|table| crate::expression::build(table, ty, expression, component))
     }
     pub(super) fn normalize(&self, input: usize) -> Result<usize, BuildError> {
         self.with_open(|table| crate::expression::normalize(table, input))

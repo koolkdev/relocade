@@ -122,6 +122,14 @@ impl Demand {
     }
 }
 
+// Sites from all components accumulate at their producer, while each result
+// keeps its own use bit so specialization can discard them independently.
+#[derive(Clone, Default)]
+struct ResultDemand {
+    sites: Demand,
+    used: bool,
+}
+
 pub(super) fn schedules(
     graph: &FunctionGraph,
     reachable: &[bool],
@@ -163,7 +171,14 @@ pub(super) fn schedules(
         requirements[id] = match value.definition {
             ValueDefinition::Constant(_) => Some(graph.entry.0),
             ValueDefinition::Parameter { block, .. } => Some(block.0),
-            ValueDefinition::Result { effect, .. } => locations[effect.0],
+            ValueDefinition::Result {
+                producer: BlockItem::Effect(effect),
+                ..
+            } => locations[effect.0],
+            ValueDefinition::Result {
+                producer: BlockItem::Evaluate(producer),
+                ..
+            } => requirements[producer],
             ValueDefinition::Expression(expression) => {
                 let mut requirement = Some(graph.entry.0);
                 for &input in expression.inputs() {
@@ -179,13 +194,13 @@ pub(super) fn schedules(
     }
     // Only required sites need individual identities. Other demands contribute
     // their common dominator and whether they span more than one block.
-    let mut demands = vec![Demand::default(); graph.values.len()];
-    let demand = |value: usize, sites: &Demand, retained: bool, demands: &mut [Demand]| {
-        if matches!(
-            graph.values[value].definition,
-            ValueDefinition::Expression(_)
-        ) {
-            demands[value].merge(sites, retained, dominators);
+    let mut demands = vec![ResultDemand::default(); graph.values.len()];
+    let demand = |value: usize, sites: &Demand, retained: bool, demands: &mut [ResultDemand]| {
+        if let Some(result) = graph.values.expression(value) {
+            demands[value].used |= sites.common_block.is_some();
+            demands[result.producer]
+                .sites
+                .merge(sites, retained, dominators);
         }
     };
     for (block, data) in graph.blocks.iter().enumerate() {
@@ -209,7 +224,7 @@ pub(super) fn schedules(
         let ValueDefinition::Expression(expression) = graph.values[id].definition else {
             continue;
         };
-        let mut sites = std::mem::take(&mut demands[id]);
+        let mut sites = std::mem::take(&mut demands[id].sites);
         if sites.multiple_blocks {
             let candidate = sites.common_block.unwrap();
             // Limit collective coverage to retained calculation inputs, to avoid
@@ -222,11 +237,21 @@ pub(super) fn schedules(
                     || (sites.retained_input
                         && coverage.all_paths_reach(candidate, &sites.required_sites)))
             {
-                schedules[candidate].push(id);
+                schedules[candidate].extend(
+                    graph
+                        .values
+                        .expression_results(id)
+                        .filter(|&result| demands[result].used),
+                );
                 sites = Demand::at(candidate);
             } else if let Some(required) = requirements[id] {
                 for block in sites.branch_placements(required, dominators, &postdominators) {
-                    schedules[block].push(id);
+                    schedules[block].extend(
+                        graph
+                            .values
+                            .expression_results(id)
+                            .filter(|&result| demands[result].used),
+                    );
                 }
             }
         }
@@ -249,7 +274,10 @@ pub(super) fn schedules(
                 }
                 _ => false,
             };
-            demands[input].retained_input |= required && sites.common_block.is_some();
+            if let Some(result) = graph.values.expression(input) {
+                demands[result.producer].sites.retained_input |=
+                    required && sites.common_block.is_some();
+            }
             demand(input, &sites, required, &mut demands);
         }
     }

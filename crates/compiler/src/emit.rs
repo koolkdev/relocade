@@ -157,13 +157,10 @@ impl Writer<'_> {
                     panic!("evaluate names an expression")
                 };
                 let ty = self.graph.values[value].ty;
-                let code = if self.selection.narrow_test[value] {
-                    integer::lower(Type::I32, Expression::SignExtend { input: ty })
+                if self.selection.narrow_test[value] {
+                    self.integer(Type::I32, Expression::SignExtend { input: ty });
                 } else {
-                    integer::lower(ty, expression.map(|&input| self.graph.values[input].ty))
-                };
-                for instruction in code {
-                    self.emit(instruction);
+                    self.integer(ty, expression.map(|&input| self.graph.values[input].ty));
                 }
             }
             BlockItem::Effect(id) => {

@@ -104,10 +104,7 @@ impl Joins {
                 for (&recipe, &value) in &self.blocks[block].values {
                     if !base.contains_key(&recipe) {
                         delta.entry(recipe).or_insert(value);
-                        if matches!(
-                            graph.values[recipe].definition,
-                            ValueDefinition::Expression(_)
-                        ) {
+                        if graph.values.expression(recipe).is_some() {
                             candidates.insert(recipe);
                         }
                     }

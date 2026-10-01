@@ -83,14 +83,14 @@ pub(super) fn prepare(graph: &mut FunctionGraph, summaries: &[Effects], reachabl
         }
     }
     while let Some(value) = work.pop_front() {
-        match graph.values[value].definition {
-            ValueDefinition::Expression(expression) => {
+        match graph.producer_of(value) {
+            Some(producer @ BlockItem::Evaluate(_)) => {
                 let demand = demands[value];
-                for &input in expression.inputs() {
+                for input in graph.inputs(producer) {
                     update(input, demand, &mut demands, &mut work);
                 }
             }
-            ValueDefinition::Result { effect, .. } => {
+            Some(BlockItem::Effect(effect)) => {
                 let merged = effects[effect.0].union(demands[value]);
                 if merged == effects[effect.0] {
                     continue;

@@ -4,7 +4,7 @@ use super::{
     unbound::{Operand as UnboundOperand, UnboundExpression},
     Val,
 };
-use crate::{expression::Constant, Expression, IntType, Type, I1};
+use crate::{expression::Constant, results, Expression, IntType, Results, Type, I1};
 
 pub(super) struct Operand {
     ty: Type,
@@ -31,53 +31,84 @@ impl<T: IntType> From<Val<T>> for Operand {
 
 impl<T: IntType> Val<T> {
     pub(super) fn expression(expression: Expression<Operand>) -> Self {
-        let constants = expression.try_map(|operand| match operand.source {
+        expression_results::<T>(expression)
+    }
+}
+
+/// Bind a semantic operation's outputs to the same typed shapes as calls and joins.
+pub(super) fn expression_results<R: Results>(expression: Expression<Operand>) -> R::Values {
+    let arena = expression
+        .inputs()
+        .find_map(|operand| match &operand.source {
+            ValueSource::Expression { arena, .. } => Some(arena.clone()),
+            _ => None,
+        });
+    if let Some(arena) = arena {
+        // Every original input contributes ownership and visibility before
+        // folding can discard it, including either arm of a constant select.
+        let mut required_scope = Some(0);
+        let bound = expression.try_map(|operand| {
+            let input = operand.source.resolve(&arena, operand.ty)?;
+            required_scope = arena.merge_scopes(required_scope, input.required_scope())?;
+            Ok(input.value)
+        });
+        let mut component = 0;
+        results::bind_sources::<R>(|ty| {
+            let expression = bound.clone().and_then(|expression| {
+                Ok(BoundExpression::new(
+                    arena.expression(ty, expression, component)?,
+                    required_scope,
+                ))
+            });
+            component += 1;
+            ValueSource::Expression {
+                arena: arena.clone(),
+                expression,
+            }
+        })
+    } else {
+        unbound_results::<R>(expression)
+    }
+}
+
+fn unbound_results<R: Results>(expression: Expression<Operand>) -> R::Values {
+    let constants = expression
+        .try_map(|operand| match operand.source {
             ValueSource::Literal(bits) => Ok(Constant {
                 ty: operand.ty,
                 bits,
             }),
             _ => Err(()),
-        });
-        if let Ok(constants) = constants {
-            if let Some(bits) = constants.constant_result(T::TYPE) {
-                return Self::literal(bits);
-            }
-        }
-        let arena = expression
-            .inputs()
-            .find_map(|operand| match &operand.source {
-                ValueSource::Expression { arena, .. } => Some(arena.clone()),
-                _ => None,
-            });
-        if let Some(arena) = arena {
-            // Every original input contributes ownership and visibility before
-            // folding can discard it, including either arm of a constant select.
-            let mut required_scope = Some(0);
-            let bound = expression
-                .try_map(|operand| {
-                    let input = operand.source.resolve(&arena, operand.ty)?;
-                    required_scope = arena.merge_scopes(required_scope, input.required_scope())?;
-                    Ok(input.value)
-                })
-                .and_then(|expression| {
-                    Ok(BoundExpression::new(
-                        arena.expression(T::TYPE, expression)?,
-                        required_scope,
-                    ))
-                });
-            Self::bound(arena, bound)
+        })
+        .ok();
+    let mut recipe: Option<UnboundExpression> = None;
+    let mut component = 0;
+    results::bind_sources::<R>(|ty| {
+        let result = if let Some(bits) =
+            constants.and_then(|constants| constants.constant_result(ty, component))
+        {
+            ValueSource::Literal(bits)
         } else {
-            let expression = expression.map(|operand| match &operand.source {
-                ValueSource::Literal(bits) => UnboundOperand::Literal(Constant {
-                    ty: operand.ty,
-                    bits: *bits,
-                }),
-                ValueSource::Unbound(expression) => UnboundOperand::Expression(expression.clone()),
-                ValueSource::Expression { .. } => unreachable!("a body operand supplies its arena"),
+            let recipe = recipe.get_or_insert_with(|| {
+                let expression = expression.map(|operand| match &operand.source {
+                    ValueSource::Literal(bits) => UnboundOperand::Literal(Constant {
+                        ty: operand.ty,
+                        bits: *bits,
+                    }),
+                    ValueSource::Unbound(expression) => {
+                        UnboundOperand::Expression(expression.clone())
+                    }
+                    ValueSource::Expression { .. } => {
+                        unreachable!("a body operand supplies its arena")
+                    }
+                });
+                UnboundExpression::new(ty, expression)
             });
-            Self::unbound(UnboundExpression::new(T::TYPE, expression))
-        }
-    }
+            ValueSource::Unbound(recipe.result(component))
+        };
+        component += 1;
+        result
+    })
 }
 
 impl Val<I1> {

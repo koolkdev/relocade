@@ -249,3 +249,52 @@ fn sharing_analysis_resolves_ancestor_joins_before_caching_values() {
     assert_eq!(placer.graph.blocks[join.0].parameters, [parameter]);
     assert!(placer.graph.blocks[uses[0].0].items.is_empty());
 }
+
+#[test]
+fn knowing_one_component_does_not_make_its_sibling_available() {
+    let mut graph = graph();
+    let input = graph.values.push(Value {
+        ty: Type::I64,
+        definition: ValueDefinition::Parameter {
+            block: graph.entry,
+            component: 2,
+        },
+    });
+    graph.blocks[0].parameters.push(input);
+    let low = expression(
+        &mut graph,
+        Type::I64,
+        Expression::MultiplyWide {
+            signed: false,
+            left: input,
+            right: input,
+        },
+    );
+    let high = graph.values.expression_result(low, 1);
+    let condition = expression(
+        &mut graph,
+        Type::I1,
+        Expression::ZeroTest {
+            input: low,
+            nonzero: false,
+        },
+    );
+    let mut placer = placer(&mut graph);
+    placer
+        .specializer
+        .facts_mut()
+        .assume(&placer.graph.values, condition, true);
+    let folded = placer.materialize(low, BlockId(0));
+    assert!(matches!(
+        placer.graph.values[folded].definition,
+        ValueDefinition::Constant(0)
+    ));
+    assert!(placer.graph.blocks[0].items.is_empty());
+    let placed = placer.materialize(high, BlockId(0));
+    assert!(placer.graph.values.expression(placed).is_some());
+    assert_eq!(placer.graph.blocks[0].items.len(), 1);
+    assert!(placer.graph.producer_of(placed) == Some(placer.graph.blocks[0].items[0]));
+    assert_eq!(placer.materialize(high, BlockId(0)), placed);
+    assert_eq!(placer.materialize(low, BlockId(0)), folded);
+    assert_eq!(placer.graph.blocks[0].items.len(), 1);
+}

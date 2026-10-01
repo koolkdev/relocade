@@ -1,7 +1,7 @@
 //! Stored values, deduplication and physical representation facts.
 use std::collections::HashMap;
 
-use super::{Value, ValueDefinition};
+use super::{BlockItem, Value, ValueDefinition};
 use crate::{
     integer::{self, BitBounds},
     Expression, Type,
@@ -14,7 +14,48 @@ pub(crate) struct ValueTable {
     interned: HashMap<Value, usize>,
 }
 
+/// One component of a pure expression, whether stored inline or as a projection.
+#[derive(Clone, Copy)]
+pub(crate) struct ExpressionResult {
+    pub(crate) producer: usize,
+    pub(crate) expression: Expression<usize>,
+    pub(crate) component: usize,
+}
+
 impl ValueTable {
+    pub(crate) fn expression(&self, id: usize) -> Option<ExpressionResult> {
+        let (producer, component) = match self.values[id].definition {
+            ValueDefinition::Expression(_) => (id, 0),
+            ValueDefinition::Result {
+                producer: BlockItem::Evaluate(producer),
+                component,
+            } => (producer, component),
+            _ => return None,
+        };
+        let ValueDefinition::Expression(expression) = self.values[producer].definition else {
+            panic!("a pure result names its expression producer")
+        };
+        Some(ExpressionResult {
+            producer,
+            expression,
+            component,
+        })
+    }
+
+    /// Pure results are allocated together, with the expression in the first slot.
+    pub(crate) fn expression_results(&self, producer: usize) -> std::ops::Range<usize> {
+        let ValueDefinition::Expression(expression) = self.values[producer].definition else {
+            panic!("a pure producer stores its expression")
+        };
+        producer..producer + expression.result_types(self.values[producer].ty).len()
+    }
+
+    pub(crate) fn expression_result(&self, producer: usize, component: usize) -> usize {
+        self.expression_results(producer)
+            .nth(component)
+            .expect("the expression declares this result")
+    }
+
     /// Restore the carrier promised by construction after learning logical bits.
     /// Literal values already contain the exact carrier and keep those bits.
     pub(crate) fn carrier_bits(&self, id: usize, logical_bits: u64) -> u64 {
@@ -68,6 +109,17 @@ impl ValueTable {
         let index = self.values.len();
         self.bounds.push(bounds);
         self.values.push(value);
+        if let ValueDefinition::Expression(expression) = value.definition {
+            for (component, ty) in expression.result_types(value.ty).enumerate().skip(1) {
+                self.push(Value {
+                    ty,
+                    definition: ValueDefinition::Result {
+                        producer: BlockItem::Evaluate(index),
+                        component,
+                    },
+                });
+            }
+        }
         index
     }
 

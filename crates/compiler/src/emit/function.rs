@@ -43,6 +43,13 @@ impl FunctionEncoder {
         }
     }
 
+    /// Allocate lowering scratch storage in the same lifetime pool as graph values.
+    pub(super) fn temporary(&mut self, ty: ValType) -> u32 {
+        let slot = self.parameter_count + self.slot_types.len() as u32;
+        self.slot_types.push(ty);
+        slot
+    }
+
     /// Local indices below `parameter_count` name parameters. Higher indices
     /// name symbolic slots; finish() assigns their reusable physical locals.
     pub(super) fn instruction(&mut self, instruction: Instruction<'_>) {

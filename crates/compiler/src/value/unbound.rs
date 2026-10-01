@@ -6,7 +6,10 @@ use std::rc::Rc;
 use crate::{arena::FunctionArena, expression::Constant, BuildError, Expression, Type};
 
 #[derive(Clone)]
-pub(crate) struct UnboundExpression(Rc<Node>);
+pub(crate) struct UnboundExpression {
+    node: Rc<Node>,
+    component: usize,
+}
 
 struct Node {
     ty: Type,
@@ -23,21 +26,32 @@ pub(super) enum Operand {
 
 impl UnboundExpression {
     pub(super) fn new(ty: Type, expression: Expression<Operand>) -> Self {
-        Self(Rc::new(Node { ty, expression }))
+        Self {
+            node: Rc::new(Node { ty, expression }),
+            component: 0,
+        }
+    }
+
+    pub(super) fn result(&self, component: usize) -> Self {
+        debug_assert!(component < self.node.expression.result_types(self.node.ty).len());
+        Self {
+            node: self.node.clone(),
+            component,
+        }
     }
 
     pub(crate) fn build(&self, arena: &FunctionArena) -> Result<usize, BuildError> {
-        let expression = self.0.expression.try_map(|operand| match operand {
+        let expression = self.node.expression.try_map(|operand| match operand {
             Operand::Literal(constant) => arena.constant(constant.ty, constant.bits),
             Operand::Expression(expression) => arena.resolve_unbound(expression),
         })?;
-        arena.expression(self.0.ty, expression)
+        arena.expression(self.node.ty, expression, self.component)
     }
 }
 
 impl PartialEq for UnboundExpression {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
+        Rc::ptr_eq(&self.node, &other.node) && self.component == other.component
     }
 }
 
@@ -45,7 +59,8 @@ impl Eq for UnboundExpression {}
 
 impl Hash for UnboundExpression {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        Rc::as_ptr(&self.0).hash(state);
+        Rc::as_ptr(&self.node).hash(state);
+        self.component.hash(state);
     }
 }
 

@@ -110,7 +110,7 @@ fn construction_interprets_logical_bits_of_carrier_constants() {
             0,
         ),
     ] {
-        let result = build(&mut values, ty, expression);
+        let result = build(&mut values, ty, expression, 0);
         assert_constant(&values, result, expected);
     }
 }
@@ -135,13 +135,14 @@ fn offsets_and_explicit_masks_keep_their_observed_width() {
             left: input,
             right: offset,
         },
+        0,
     );
     let expression = Expression::Binary {
         operator: BinaryOp::Add,
         left: first,
         right: one,
     };
-    assert_eq!(build(&mut values, Type::I8, expression), input);
+    assert_eq!(build(&mut values, Type::I8, expression, 0), input);
     let carried = refold(&mut values, Type::I8, expression);
     let ValueDefinition::Expression(Expression::Binary { left, right, .. }) =
         values[carried].definition

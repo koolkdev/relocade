@@ -32,7 +32,7 @@ impl Selection {
             }
             region += 1;
             for &item in &block.items {
-                for &value in graph.results(&item) {
+                for value in graph.results(item) {
                     this.regions[value] = region;
                     order.push(value);
                 }
@@ -122,12 +122,11 @@ impl Selection {
             BlockItem::Effect(effect) => self.signed_load[effect.0],
             BlockItem::Evaluate(_) => None,
         };
-        let original = if replacement.is_some() {
-            &[]
-        } else {
-            graph.results(producer)
-        };
-        replacement.into_iter().chain(original.iter().copied())
+        replacement.into_iter().chain(
+            graph
+                .results(*producer)
+                .filter(move |_| replacement.is_none()),
+        )
     }
     pub(super) fn resolve(&self, mut value: usize) -> usize {
         while let Some(alias) = self.aliases[value] {
@@ -183,7 +182,10 @@ impl Selection {
                     bits = graph.values[original].ty.bits();
                     input = original;
                 }
-                ValueDefinition::Result { effect, .. } => {
+                ValueDefinition::Result {
+                    producer: BlockItem::Effect(effect),
+                    ..
+                } => {
                     let OperationKind::Load { access } = graph.effects[effect.0].operation.kind()
                     else {
                         return;

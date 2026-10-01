@@ -310,6 +310,18 @@ impl<T: IntType> Unsigned<'_, T> {
     }
 }
 
+impl Unsigned<'_, I64> {
+    /// Returns the low and high 64-bit halves of the full unsigned product.
+    pub fn mul_wide(&self, other: impl Into<Val<I64>>) -> (Val<I64>, Val<I64>) {
+        let other = other.into();
+        construction::expression_results::<(I64, I64)>(Expression::MultiplyWide {
+            signed: false,
+            left: self.0.into(),
+            right: other.into(),
+        })
+    }
+}
+
 /// A signed interpretation of a borrowed integer value.
 pub struct Signed<'a, T: IntType>(&'a Val<T>);
 
@@ -353,6 +365,18 @@ impl<T: IntType> Signed<'_, T> {
     pub fn extend<To: AtLeast<T>>(&self) -> Val<To> {
         Val::expression(Expression::SignExtend {
             input: self.0.into(),
+        })
+    }
+}
+
+impl Signed<'_, I64> {
+    /// Returns the low and high 64-bit halves of the full two's-complement product.
+    pub fn mul_wide(&self, other: impl Into<Val<I64>>) -> (Val<I64>, Val<I64>) {
+        let other = other.into();
+        construction::expression_results::<(I64, I64)>(Expression::MultiplyWide {
+            signed: true,
+            left: self.0.into(),
+            right: other.into(),
         })
     }
 }

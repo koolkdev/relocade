@@ -2,7 +2,7 @@
 
 use super::{shift_count, BinaryOp, BitCountOp, ShiftOp};
 use crate::{
-    body::{Value, ValueDefinition},
+    body::{BlockItem, Value, ValueDefinition},
     Expression, Type,
 };
 
@@ -74,7 +74,14 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
         // Loop edges preserve those bits just like ordinary result joins.
         ValueDefinition::Parameter { .. } => carrier,
         ValueDefinition::Constant(bits) => (64 - bits.leading_zeros()) as u8,
-        ValueDefinition::Result { .. } => value.ty.bits(),
+        ValueDefinition::Result {
+            producer: BlockItem::Effect(_),
+            ..
+        } => value.ty.bits(),
+        ValueDefinition::Result {
+            producer: BlockItem::Evaluate(_),
+            ..
+        } => carrier,
         ValueDefinition::Expression(expression) => match expression {
             Expression::Binary {
                 operator,
@@ -116,7 +123,9 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
                     ShiftOp::RightSigned => carrier,
                 },
             },
-            Expression::Rotate { .. } | Expression::SignExtend { .. } => carrier,
+            Expression::Rotate { .. }
+            | Expression::SignExtend { .. }
+            | Expression::MultiplyWide { .. } => carrier,
             Expression::BitCount { operator, input } => {
                 let maximum = match operator {
                     BitCountOp::Ones => inputs[input].unsigned,

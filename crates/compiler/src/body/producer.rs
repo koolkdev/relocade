@@ -7,7 +7,7 @@ use crate::Expression;
 pub(crate) struct EffectId(pub(crate) usize);
 
 /// A producer handle; placing it in a block schedules that execution.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(crate) enum BlockItem {
     Evaluate(usize),
     Effect(EffectId),
@@ -25,7 +25,7 @@ impl FunctionGraph {
     pub(crate) fn producer_of(&self, value: usize) -> Option<BlockItem> {
         match self.values[value].definition {
             ValueDefinition::Expression(_) => Some(BlockItem::Evaluate(value)),
-            ValueDefinition::Result { effect, .. } => Some(BlockItem::Effect(effect)),
+            ValueDefinition::Result { producer, .. } => Some(producer),
             ValueDefinition::Constant(_) | ValueDefinition::Parameter { .. } => None,
         }
     }
@@ -52,11 +52,15 @@ impl FunctionGraph {
     }
 
     /// Results in their declared order, before instruction selection covers them.
-    pub(crate) fn results<'a>(&'a self, producer: &'a BlockItem) -> &'a [usize] {
-        match producer {
-            BlockItem::Evaluate(value) => std::slice::from_ref(value),
-            BlockItem::Effect(effect) => &self.effects[effect.0].results,
-        }
+    pub(crate) fn results(
+        &self,
+        producer: BlockItem,
+    ) -> impl DoubleEndedIterator<Item = usize> + '_ {
+        let (values, effects) = match producer {
+            BlockItem::Evaluate(value) => (self.values.expression_results(value), &[][..]),
+            BlockItem::Effect(effect) => (0..0, self.effects[effect.0].results.as_slice()),
+        };
+        values.chain(effects.iter().copied())
     }
 }
 

@@ -55,10 +55,9 @@ impl Placer<'_> {
             value.can_defer = value.can_defer
                 && paths.iter_mut().any(|path| {
                     let residual = path.specialize(self.graph, value.recipe, |graph, id| {
-                        self.available
-                            .get(&id)
-                            .copied()
-                            .or_else(|| self.expressions.get(&graph.values[id]).copied())
+                        self.available.get(&id).copied().or_else(|| {
+                            value::placed_expression(&self.expressions, &graph.values, id)
+                        })
                     });
                     !self.needs_evaluation(residual)
                 });
@@ -98,8 +97,9 @@ impl Placer<'_> {
             if !needed.insert(value) || self.available.contains_key(&value) {
                 continue;
             }
-            if let ValueDefinition::Expression(expression) = self.graph.values[value].definition {
-                pending.extend(expression.inputs().copied());
+            if let Some(result) = self.graph.values.expression(value) {
+                needed.insert(result.producer);
+                pending.extend(result.expression.inputs().copied());
             }
         }
         needed

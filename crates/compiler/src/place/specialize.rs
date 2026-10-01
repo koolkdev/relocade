@@ -62,7 +62,8 @@ impl Specializer {
                         self.residuals.insert(id, result);
                     } else if let Some(result) = lookup(graph, id) {
                         self.residuals.insert(id, result);
-                    } else if let ValueDefinition::Expression(expression) = value.definition {
+                    } else if let Some(result) = graph.values.expression(id) {
+                        let expression = result.expression;
                         if let Expression::Select {
                             condition,
                             when_true,

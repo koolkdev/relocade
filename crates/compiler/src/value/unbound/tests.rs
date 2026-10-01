@@ -11,7 +11,7 @@ fn shared_unbound_expressions_are_cached_per_body_and_released_when_closed() {
     let ValueSource::Unbound(recipe) = &folded.source else {
         panic!("the expression remains unbound before admission");
     };
-    let retained = Rc::downgrade(&recipe.0);
+    let retained = Rc::downgrade(&recipe.node);
     assert_eq!(retained.strong_count(), 1);
     let first = FunctionArena::new();
     let second = FunctionArena::new();
@@ -86,4 +86,43 @@ fn unbound_operands_keep_their_types_across_comparisons_shifts_and_conversions()
             matches!(values[id].definition, ValueDefinition::Constant(actual) if actual == bits)
         );
     }
+}
+
+#[test]
+fn unbound_wide_components_share_storage_but_keep_distinct_identities_and_cache_entries() {
+    let left = Val::<I64>::from(7).unsigned().div(0).and(0).or(u64::MAX);
+    let (low, high) = left.unsigned().mul_wide(u64::MAX);
+    assert!(!low.same_expression(&high));
+    assert!(high.same_expression(&high.clone()));
+    let ValueSource::Unbound(recipe) = &high.source else {
+        panic!("unresolved operands retain an unbound recipe")
+    };
+    let retained = Rc::downgrade(&recipe.node);
+    for reverse in [false, true] {
+        let arena = FunctionArena::new();
+        let results = if reverse {
+            [&high, &low]
+        } else {
+            [&low, &high]
+        };
+        let ids = results.map(|result| result.checked_expression(&arena, 0).unwrap());
+        assert_ne!(ids[0], ids[1]);
+        for (result, id) in results.into_iter().zip(ids) {
+            assert_eq!(result.checked_expression(&arena, 0).unwrap(), id);
+        }
+        let values = arena.take().unwrap();
+        let expected = if reverse {
+            [u64::MAX - 1, 1]
+        } else {
+            [1, u64::MAX - 1]
+        };
+        for (id, expected) in ids.into_iter().zip(expected) {
+            assert!(
+                matches!(values[id].definition, ValueDefinition::Constant(bits) if bits == expected)
+            );
+        }
+    }
+    drop(low);
+    drop(high);
+    assert!(retained.upgrade().is_none());
 }

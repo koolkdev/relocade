@@ -19,8 +19,13 @@ mod tests;
 
 use super::Constant;
 
-pub(crate) fn build(values: &mut ValueTable, ty: Type, expression: Expression<usize>) -> usize {
-    Folder { values }.expression(ty, expression)
+pub(crate) fn build(
+    values: &mut ValueTable,
+    ty: Type,
+    expression: Expression<usize>,
+    component: usize,
+) -> usize {
+    Folder { values }.expression(ty, expression, component)
 }
 
 /// Replace a calculation's inputs and fold without repeating logical normalization.
@@ -30,10 +35,10 @@ pub(crate) fn map_inputs(
     input: impl FnMut(&usize) -> usize,
 ) -> usize {
     let value = values[id];
-    let ValueDefinition::Expression(expression) = value.definition else {
+    let Some(result) = values.expression(id) else {
         return id;
     };
-    Folder { values }.fold(value.ty, expression.map(input))
+    Folder { values }.fold_result(value.ty, result.expression.map(input), result.component)
 }
 
 pub(crate) fn normalize(values: &mut ValueTable, input: usize) -> usize {
@@ -46,7 +51,7 @@ struct Folder<'a> {
 
 impl Folder<'_> {
     // Inputs carry logical types; canonical operations may retain wider physical bits.
-    fn expression(&mut self, ty: Type, expression: Expression<usize>) -> usize {
+    fn expression(&mut self, ty: Type, expression: Expression<usize>, component: usize) -> usize {
         let expression = expression.map(|&input| {
             let value = self.values[input];
             match value.definition {
@@ -55,7 +60,7 @@ impl Folder<'_> {
             }
         });
         if let Some(constants) = self.constants(expression) {
-            if let Some(bits) = constants.constant_result(ty) {
+            if let Some(bits) = constants.constant_result(ty, component) {
                 return self.values.constant(ty, bits);
             }
         }
@@ -90,14 +95,19 @@ impl Folder<'_> {
             Expression::ZeroTest { input, nonzero } => self.zero_test(input, nonzero),
             Expression::Convert { input } => self.convert(input, ty),
             Expression::LowBits { .. } => self.fold(ty, expression),
+            Expression::MultiplyWide { .. } => self.fold_result(ty, expression, component),
         }
     }
 
-    // Construction and operand replacement share rewrites that preserve every result bit.
     fn fold(&mut self, ty: Type, expression: Expression<usize>) -> usize {
+        self.fold_result(ty, expression, 0)
+    }
+
+    // Construction and operand replacement share rewrites that preserve every result bit.
+    fn fold_result(&mut self, ty: Type, expression: Expression<usize>, component: usize) -> usize {
         if let Some(bits) = self
             .constants(expression)
-            .and_then(|constants| constants.carrier_result(ty))
+            .and_then(|constants| constants.carrier_result(ty, component))
         {
             return self.values.carrier_constant(ty, bits);
         }
@@ -141,7 +151,7 @@ impl Folder<'_> {
                 }
                 _ => None,
             },
-            Expression::BitCount { .. } => None,
+            Expression::BitCount { .. } | Expression::MultiplyWide { .. } => None,
         };
         let expression = if let Some(input) = input {
             if self.values[input].ty == ty {
@@ -151,7 +161,7 @@ impl Folder<'_> {
         } else {
             expression
         };
-        self.intern(ty, expression)
+        self.intern_result(ty, expression, component)
     }
 
     fn constants(&self, expression: Expression<usize>) -> Option<Expression<Constant>> {
@@ -166,12 +176,22 @@ impl Folder<'_> {
             .ok()
     }
 
-    /// Finish a canonical node without re-entering the rewrite that produced it.
+    /// Finish a canonical scalar without re-entering the rewrite that produced it.
     fn intern(&mut self, ty: Type, expression: Expression<usize>) -> usize {
+        self.intern_result(ty, expression, 0)
+    }
+
+    fn intern_result(
+        &mut self,
+        ty: Type,
+        expression: Expression<usize>,
+        component: usize,
+    ) -> usize {
         let id = self.values.intern(Value {
             ty,
             definition: ValueDefinition::Expression(expression),
         });
+        let id = self.values.expression_result(id, component);
         if self.values.bounds[id].unsigned == 0 {
             self.values.constant(ty, 0)
         } else {

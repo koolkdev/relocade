@@ -131,10 +131,6 @@ impl<T: IntType> Val<T> {
         Self::from_source(ValueSource::Literal(T::TYPE.normalize(bits)))
     }
 
-    pub(super) fn unbound(expression: UnboundExpression) -> Self {
-        Self::from_source(ValueSource::Unbound(expression))
-    }
-
     pub(crate) fn checked_expression(
         &self,
         arena: &FunctionArena,

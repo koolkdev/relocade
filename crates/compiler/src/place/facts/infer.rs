@@ -35,10 +35,11 @@ impl Facts {
                 cache.insert(id, known);
                 continue;
             }
-            let ValueDefinition::Expression(expression) = value.definition else {
+            let Some(result) = table.expression(id) else {
                 cache.insert(id, known);
                 continue;
             };
+            let expression = result.expression;
             // Resolve the selector first so known paths do not walk discarded
             // state histories merely to rediscover the chosen value.
             if let Expression::Select {
@@ -184,7 +185,7 @@ impl Facts {
                     bits: table.carrier_bits(input, bits.value),
                 })
             }) {
-                if let Some(result) = constants.constant_result(value.ty) {
+                if let Some(result) = constants.constant_result(value.ty, result.component) {
                     bits = Bits {
                         mask: value.ty.mask(),
                         value: result,
