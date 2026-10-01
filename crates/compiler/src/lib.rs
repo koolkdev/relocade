@@ -135,12 +135,22 @@ impl fmt::Display for BuildError {
 
 impl std::error::Error for BuildError {}
 
+/// Optional WebAssembly extensions the destination engine supports.
+/// These capabilities affect lowering, independently of logical value types.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct WasmFeatures {
+    /// Allow native `i64.mul_wide_s` and `i64.mul_wide_u` instructions.
+    /// Disabled by default; enable only for engines supporting wide arithmetic.
+    pub wide_arithmetic: bool,
+}
+
 /// The declarations, completed function bodies and exports of a module.
 #[derive(Default)]
 pub struct Program {
     functions: Vec<Declaration>,
     exports: Vec<(String, Func)>,
     memories: Vec<MemoryImport>,
+    features: WasmFeatures,
 }
 
 struct Declaration {
@@ -157,6 +167,15 @@ enum FunctionKind {
 impl Program {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Constructs a program for a destination with the specified capabilities.
+    /// `new()` uses portable lowering for optional extensions.
+    pub fn with_features(features: WasmFeatures) -> Self {
+        Self {
+            features,
+            ..Self::default()
+        }
     }
 
     /// Declares a function that must be defined before compilation.

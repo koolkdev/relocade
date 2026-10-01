@@ -1,8 +1,10 @@
 use super::*;
-use wasm86_compiler::BuildError;
+use wasm86_compiler::{BuildError, Program, WasmFeatures};
 
-fn product(signed: bool, order: &[usize]) -> TestModule {
-    Fixture::new().function(&[Type::I64; 2], &vec![Type::I64; order.len()], |body| {
+fn product(program: Program, signed: bool, order: &[usize]) -> TestModule {
+    let mut fixture = Fixture::new();
+    fixture.program = program;
+    fixture.function(&[Type::I64; 2], &vec![Type::I64; order.len()], |body| {
         let left = body.parameter::<I64>(0)?;
         let right = body.parameter::<I64>(1)?;
         let (low, high) = if signed {
@@ -50,28 +52,35 @@ fn wide_products_preserve_both_halves_at_limb_and_sign_boundaries() {
         0x8000_0000_0000_0001,
         u64::MAX,
     ];
-    for signed in [false, true] {
-        let module = product(signed, &[0, 1]);
-        let mut instance = module.instantiate();
-        let mut check = |left, right| {
-            let [low, high] = expected(left, right, signed);
-            assert_eq!(
-                instance.call::<(i64, i64)>((left as i64, right as i64)),
-                Ok((low, high)),
-                "{left:#x} * {right:#x}, signed={signed}"
-            );
-        };
-        for left in boundaries {
-            for right in boundaries {
-                check(left, right);
+    for features in [
+        WasmFeatures::default(),
+        WasmFeatures {
+            wide_arithmetic: true,
+        },
+    ] {
+        for signed in [false, true] {
+            let module = product(Program::with_features(features), signed, &[0, 1]);
+            let mut instance = module.instantiate();
+            let mut check = |left, right| {
+                let [low, high] = expected(left, right, signed);
+                assert_eq!(
+                    instance.call::<(i64, i64)>((left as i64, right as i64)),
+                    Ok((low, high)),
+                    "{left:#x} * {right:#x}, signed={signed}, features={features:?}"
+                );
+            };
+            for left in boundaries {
+                for right in boundaries {
+                    check(left, right);
+                }
             }
-        }
-        let mut bits = 0x1234_5678_9abc_def0_u64;
-        for _ in 0..1024 {
-            bits ^= bits << 13;
-            bits ^= bits >> 7;
-            bits ^= bits << 17;
-            check(bits, bits.rotate_left(29).wrapping_add(0xdead_beef));
+            let mut bits = 0x1234_5678_9abc_def0_u64;
+            for _ in 0..1024 {
+                bits ^= bits << 13;
+                bits ^= bits >> 7;
+                bits ^= bits << 17;
+                check(bits, bits.rotate_left(29).wrapping_add(0xdead_beef));
+            }
         }
     }
 }
@@ -79,7 +88,12 @@ fn wide_products_preserve_both_halves_at_limb_and_sign_boundaries() {
 #[test]
 fn wide_result_order_and_independent_demand_keep_one_producer() {
     for order in [&[0, 1][..], &[1, 0], &[0], &[1], &[1, 0, 1, 0], &[]] {
-        let module = product(false, order);
+        let module = product(Program::new(), false, order);
+        Validator::new_with_features(
+            wasmparser::WasmFeatures::default() & !wasmparser::WasmFeatures::WIDE_ARITHMETIC,
+        )
+        .validate_all(module.bytes())
+        .unwrap();
         // The portable product uses four limb multiplications, shared by all uses.
         assert_eq!(
             multiplications(&module),
@@ -96,6 +110,73 @@ fn wide_result_order_and_independent_demand_keep_one_producer() {
                 .map(|&index| Value::I64(halves[index]))
                 .collect::<Vec<_>>()
         );
+    }
+}
+
+#[test]
+fn native_wide_products_use_the_requested_opcode_without_portable_scratch_work() {
+    for signed in [false, true] {
+        for order in [&[0, 1][..], &[1, 0], &[0], &[1], &[1, 0, 1, 0], &[]] {
+            let module = product(
+                Program::with_features(WasmFeatures {
+                    wide_arithmetic: true,
+                }),
+                signed,
+                order,
+            );
+            let ops = operators(module.bytes());
+            let wide: Vec<_> = ops
+                .iter()
+                .filter(|op| matches!(op, Operator::I64MulWideS | Operator::I64MulWideU))
+                .collect();
+            assert_eq!(wide.len(), usize::from(!order.is_empty()));
+            assert!(wide.iter().all(|op| matches!(
+                (signed, op),
+                (true, Operator::I64MulWideS) | (false, Operator::I64MulWideU)
+            )));
+            assert!(ops.iter().all(|op| matches!(
+                op,
+                Operator::LocalGet { .. }
+                    | Operator::LocalSet { .. }
+                    | Operator::LocalTee { .. }
+                    | Operator::Drop
+                    | Operator::I64MulWideS
+                    | Operator::I64MulWideU
+                    | Operator::Return
+                    | Operator::End
+            )));
+            assert!(
+                ops.iter()
+                    .filter(|op| matches!(
+                        op,
+                        Operator::LocalSet { .. } | Operator::LocalTee { .. }
+                    ))
+                    .count()
+                    <= usize::from(order.contains(&0)) + usize::from(order.contains(&1))
+            );
+            assert_eq!(
+                Validator::new_with_features(
+                    wasmparser::WasmFeatures::default()
+                        & !wasmparser::WasmFeatures::WIDE_ARITHMETIC,
+                )
+                .validate_all(module.bytes())
+                .is_ok(),
+                order.is_empty()
+            );
+            let mut instance = module.instantiate();
+            for (left, right) in [(u64::MAX, 2), (1 << 63, u64::MAX), (u64::MAX, u64::MAX)] {
+                let halves = expected(left, right, signed);
+                assert_eq!(
+                    instance
+                        .call_values("run", &[Value::I64(left as i64), Value::I64(right as i64)])
+                        .unwrap(),
+                    order
+                        .iter()
+                        .map(|&index| Value::I64(halves[index]))
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
     }
 }
 
@@ -274,7 +355,7 @@ fn every_wide_result_retains_operand_visibility_after_folding() {
 fn wide_products_and_loop_temporaries_execute_in_v8() {
     for signed in [false, true] {
         for order in [&[0, 1][..], &[1, 0], &[1]] {
-            let module = product(signed, order);
+            let module = product(Program::new(), signed, order);
             for (left, right) in [
                 (u64::MAX, u64::MAX),
                 (1 << 63, 2),

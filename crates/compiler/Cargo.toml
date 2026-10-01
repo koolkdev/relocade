@@ -11,5 +11,5 @@ wasm-encoder.workspace = true
 [dev-dependencies]
 serde.workspace = true
 wasm86-test-support.workspace = true
-wasmparser = { version = "=0.224.1", default-features = false, features = ["std", "validate"] }
+wasmparser = { version = "=0.224.1", default-features = false, features = ["features", "std", "validate"] }
 wasmtime.workspace = true

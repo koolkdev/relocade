@@ -22,6 +22,7 @@ pub fn engine() -> &'static Engine {
         config
             .wasm_multi_memory(true)
             .wasm_tail_call(true)
+            .wasm_wide_arithmetic(true)
             .wasm_threads(true);
         Engine::new(&config).expect("the test Wasm features must be supported")
     })

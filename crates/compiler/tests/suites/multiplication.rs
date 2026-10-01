@@ -9,7 +9,11 @@ mod observations;
 mod wide;
 
 fn operators(bytes: &[u8]) -> Vec<Operator<'_>> {
-    Validator::new().validate_all(bytes).unwrap();
+    Validator::new_with_features(
+        wasmparser::WasmFeatures::default() | wasmparser::WasmFeatures::WIDE_ARITHMETIC,
+    )
+    .validate_all(bytes)
+    .unwrap();
     Parser::new(0)
         .parse_all(bytes)
         .filter_map(|payload| match payload.unwrap() {

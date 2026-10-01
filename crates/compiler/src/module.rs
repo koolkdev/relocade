@@ -160,6 +160,7 @@ pub(super) fn encode(mut program: Program) -> Vec<u8> {
             parameters,
             &memories,
             &function_indices,
+            program.features,
         ));
     }
     // Function signatures are interned in deterministic declaration order.

@@ -39,8 +39,16 @@ impl Writer<'_> {
                 (BinaryOp::Xor, true) => Instruction::I64Xor,
             },
             Expression::MultiplyWide { signed, .. } => {
-                self.multiply_wide(signed);
-                return;
+                if self.features.wide_arithmetic {
+                    if signed {
+                        Instruction::I64MulWideS
+                    } else {
+                        Instruction::I64MulWideU
+                    }
+                } else {
+                    self.multiply_wide(signed);
+                    return;
+                }
             }
             Expression::Shift { operator, .. } => match (operator, wide) {
                 (ShiftOp::Left, false) => Instruction::I32Shl,

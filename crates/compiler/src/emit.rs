@@ -1,7 +1,7 @@
 //! Forward Wasm encoding over placed graph IDs and operand-stack coverage.
 use crate::{
     body::{BlockId, BlockItem, FunctionGraph, OperationKind, ValueDefinition},
-    Expression, Type,
+    Expression, Type, WasmFeatures,
 };
 use wasm_encoder::{Function, Instruction as Wasm, ValType};
 mod control;
@@ -26,6 +26,7 @@ pub(super) fn encode(
     parameter_count: u32,
     memories: &[Option<u32>],
     functions: &[Option<u32>],
+    features: WasmFeatures,
 ) -> Function {
     let reachable = graph.reachable();
     let selection = Selection::new(&graph, &reachable);
@@ -50,6 +51,7 @@ pub(super) fn encode(
         graph: &graph,
         memories,
         functions,
+        features,
         selection,
         view,
         locals,
@@ -75,6 +77,7 @@ struct Writer<'a> {
     graph: &'a FunctionGraph,
     memories: &'a [Option<u32>],
     functions: &'a [Option<u32>],
+    features: WasmFeatures,
     selection: Selection,
     view: view::OperandView,
     locals: Vec<Option<u32>>,
