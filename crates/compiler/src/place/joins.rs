@@ -78,12 +78,7 @@ impl Joins {
     }
 
     /// Freeze eligible incoming paths on entry, in dominator traversal order.
-    pub(super) fn prepare(
-        &mut self,
-        graph: &FunctionGraph,
-        join: usize,
-        base: &HashMap<usize, usize>,
-    ) {
+    pub(super) fn prepare(&mut self, graph: &FunctionGraph, join: usize, base: &Availability) {
         let sources = &self.predecessors[join];
         // An unfinished incoming block can be a loop backedge. Completing it
         // later must not make another iteration's value available on entry.
@@ -102,7 +97,7 @@ impl Joins {
             let mut block = source;
             while block != common {
                 for (&recipe, &value) in &self.blocks[block].values {
-                    if !base.contains_key(&recipe) {
+                    if base.get(recipe).is_none() {
                         delta.entry(recipe).or_insert(value);
                         if graph.values.expression(recipe).is_some() {
                             candidates.insert(recipe);
@@ -126,7 +121,8 @@ impl Joins {
         });
     }
 
-    pub(super) fn available_at(
+    /// Resolve incoming values, adding a parameter and edge arguments when needed.
+    pub(super) fn resolve(
         &mut self,
         graph: &mut FunctionGraph,
         block: usize,

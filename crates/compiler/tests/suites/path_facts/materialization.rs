@@ -81,6 +81,52 @@ fn computed_inputs(v8: bool) {
     }
 }
 
+fn switched_byte(v8: bool) {
+    let module = Fixture::new().function(
+        &[Type::I1, Type::I32],
+        &[Type::I32, Type::I32],
+        |mut body| {
+            let mode = body.parameter::<I1>(0)?;
+            let input = body.parameter::<I32>(1)?;
+            let offset = mode.select(input.add(256), input.add(512));
+            let byte = offset.truncate::<I8>();
+            body.if_(mode, |arm| arm.return_((&input, 7)))?;
+            body.switch(&byte, &[0, 129, 255], |arm, key| {
+                let result = match key {
+                    Some(_) => byte.signed().extend::<I32>(),
+                    None => byte.unsigned().extend::<I32>(),
+                };
+                arm.return_((&offset, result))
+            })?;
+            body.return_((0, 0))
+        },
+    );
+    for input in [0_i32, 1, 129, 255, 256, 385, -1, i32::MIN, i32::MAX] {
+        for mode in [0, 1] {
+            let offset = input.wrapping_add(512);
+            let byte = offset as u8;
+            let expected = if mode != 0 {
+                [input, 7]
+            } else {
+                [
+                    offset,
+                    if matches!(byte, 0 | 129 | 255) {
+                        i32::from(byte as i8)
+                    } else {
+                        i32::from(byte)
+                    },
+                ]
+            };
+            check_result(
+                &module,
+                &[Value::I32(mode), Value::I32(input)],
+                &expected.map(Value::I32),
+                v8,
+            );
+        }
+    }
+}
+
 #[test]
 fn masks_exposed_by_specialization_reuse_the_guarded_value() {
     guarded_masks(false);
@@ -92,8 +138,14 @@ fn computed_inputs_survive_specialization_in_later_guards() {
 }
 
 #[test]
+fn switch_facts_preserve_wider_sources_of_specialized_bytes() {
+    switched_byte(false);
+}
+
+#[test]
 #[ignore = "requires Node.js with V8"]
 fn v8_materialized_values_preserve_branch_results() {
     guarded_masks(true);
     computed_inputs(true);
+    switched_byte(true);
 }

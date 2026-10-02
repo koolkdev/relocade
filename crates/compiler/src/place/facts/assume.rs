@@ -22,6 +22,15 @@ impl Facts {
             if bits.mask == 0 {
                 continue;
             }
+            // Stored assumptions can decide this request without walking its
+            // expression history again after an inference-cache invalidation.
+            if self
+                .known
+                .get(&id)
+                .is_some_and(|known| known.conflicts(bits) || bits.mask & !known.mask == 0)
+            {
+                continue;
+            }
             let previous = self.bits(table, id);
             // Contradictory facts describe an unreachable arm. Keeping the old
             // facts is sufficient: its constant controlling branch is folded away.

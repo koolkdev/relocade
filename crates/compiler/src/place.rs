@@ -2,6 +2,7 @@
 //! Dominance owns availability; effects retain their authored snapshot ordering.
 use crate::{body::*, Expression, FunctionKind, Program};
 use std::collections::HashMap;
+mod availability;
 mod demand;
 mod dominance;
 mod effects;
@@ -11,6 +12,7 @@ mod reads;
 mod shared;
 mod specialize;
 mod value;
+use availability::{Availability, Checkpoint};
 use dominance::Dominators;
 use effects::Effects;
 use facts::Facts;
@@ -102,19 +104,11 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
     for children in &mut children {
         children.sort_by_key(|&block| dominators.rank[block]);
     }
-    let original_exits: Vec<_> = graph
-        .blocks
-        .iter()
-        .map(|block| block.exit.clone())
-        .collect();
     let joins = Joins::new(graph, &predecessors, dominators);
     let mut placer = Placer {
         graph,
         specializer: Specializer::default(),
-        available: HashMap::new(),
-        available_log: Vec::new(),
-        expressions: HashMap::new(),
-        expression_log: Vec::new(),
+        available: Availability::default(),
         shared,
         joins,
     };
@@ -122,8 +116,7 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
         Enter(usize),
         Leave {
             block: usize,
-            values: usize,
-            expressions: usize,
+            checkpoint: Checkpoint,
             facts: Box<Facts>,
         },
     }
@@ -132,8 +125,7 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
         match visit {
             Visit::Enter(index) => {
                 let saved = placer.specializer.begin_block();
-                let values = placer.available_log.len();
-                let expressions = placer.expression_log.len();
+                let checkpoint = placer.available.checkpoint();
                 // A unique predecessor's selected edge supplies facts valid on
                 // every entrance. Dominator ancestry preserves them afterwards.
                 if predecessors[index].len() == 1 {
@@ -144,22 +136,12 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
                             taken,
                             otherwise,
                         } if taken.target != otherwise.target => {
-                            placer.specializer.facts_mut().assume(
+                            placer.specializer.assume(
                                 &placer.graph.values,
+                                &placer.available,
                                 condition,
                                 taken.target.0 == index,
                             );
-                            if let Exit::If {
-                                condition: original,
-                                ..
-                            } = original_exits[source]
-                            {
-                                placer.specializer.facts_mut().assume(
-                                    &placer.graph.values,
-                                    original,
-                                    taken.target.0 == index,
-                                );
-                            }
                         }
                         Exit::Switch {
                             selector,
@@ -172,21 +154,12 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
                                 .map(|(key, _)| *key)
                                 .collect();
                             if keys.len() == 1 {
-                                placer.specializer.facts_mut().equal(
+                                placer.specializer.equal(
                                     &placer.graph.values,
+                                    &placer.available,
                                     selector,
                                     u64::from(keys[0]),
                                 );
-                                if let Exit::Switch {
-                                    selector: original, ..
-                                } = original_exits[source]
-                                {
-                                    placer.specializer.facts_mut().equal(
-                                        &placer.graph.values,
-                                        original,
-                                        u64::from(keys[0]),
-                                    );
-                                }
                             }
                         }
                         _ => {}
@@ -194,45 +167,22 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
                 }
                 placer.joins.prepare(placer.graph, index, &placer.available);
                 placer.block(BlockId(index));
-                placer.joins.record(
-                    index,
-                    placer.available_log[values..]
-                        .iter()
-                        .filter_map(|&(id, previous)| {
-                            let value = placer.available[&id];
-                            (previous != Some(value)).then_some((id, value))
-                        }),
-                );
+                placer
+                    .joins
+                    .record(index, placer.available.bindings_since(checkpoint));
                 work.push(Visit::Leave {
                     block: index,
-                    values,
-                    expressions,
+                    checkpoint,
                     facts: Box::new(saved),
                 });
                 work.extend(children[index].iter().rev().copied().map(Visit::Enter));
             }
             Visit::Leave {
                 block,
-                values,
-                expressions,
+                checkpoint,
                 facts,
             } => {
-                while placer.available_log.len() > values {
-                    let (id, previous) = placer.available_log.pop().unwrap();
-                    if let Some(previous) = previous {
-                        placer.available.insert(id, previous);
-                    } else {
-                        placer.available.remove(&id);
-                    }
-                }
-                while placer.expression_log.len() > expressions {
-                    let (key, previous) = placer.expression_log.pop().unwrap();
-                    if let Some(previous) = previous {
-                        placer.expressions.insert(key, previous);
-                    } else {
-                        placer.expressions.remove(&key);
-                    }
-                }
+                placer.available.restore(checkpoint);
                 let completed = std::mem::replace(placer.specializer.facts_mut(), *facts);
                 placer.joins.complete(block, completed);
             }
@@ -244,12 +194,7 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
 struct Placer<'a> {
     graph: &'a mut FunctionGraph,
     specializer: Specializer,
-    // A recipe and its executed value while that execution dominates the cursor.
-    available: HashMap<usize, usize>,
-    available_log: Vec<(usize, Option<usize>)>,
-    // Canonical operations on placed inputs available in the same dominance scope.
-    expressions: HashMap<Value, usize>,
-    expression_log: Vec<(Value, Option<usize>)>,
+    available: Availability,
     shared: Vec<Vec<usize>>,
     joins: Joins,
 }
@@ -267,14 +212,13 @@ impl Placer<'_> {
             self.graph.effects[id.0].operation = operation;
             self.graph.blocks[block.0].items.push(BlockItem::Effect(id));
             for result in self.graph.effects[id.0].results.clone() {
-                self.define(result, result);
+                self.available.bind(result, result);
             }
         }
         self.materialize_shared(block);
         let mut exit = self.graph.blocks[block.0].exit.clone();
         exit.map_inputs(|value| self.materialize(value, block));
         self.graph.blocks[block.0].exit = exit;
-        self.record_materialized_aliases();
     }
 }
 

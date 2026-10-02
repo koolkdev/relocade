@@ -58,14 +58,15 @@ impl Clone for Facts {
 }
 
 impl Facts {
-    pub(super) fn equal(&mut self, table: &ValueTable, id: usize, value: u64) {
-        self.record(
-            id,
-            Bits {
-                mask: table[id].ty.mask(),
-                value,
-            },
-        );
+    pub(super) fn assume_bits(&mut self, id: usize, mask: u64, value: u64) {
+        let previous = self.known.get(&id).copied().unwrap_or_default();
+        let bits = Bits {
+            mask,
+            value: value & mask,
+        };
+        if !previous.conflicts(bits) {
+            self.record(id, previous.union(bits));
+        }
     }
 
     fn record(&mut self, id: usize, bits: Bits) {

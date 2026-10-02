@@ -70,10 +70,7 @@ fn placer(graph: &mut FunctionGraph) -> Placer<'_> {
     Placer {
         graph,
         specializer: Specializer::default(),
-        available: HashMap::new(),
-        available_log: Vec::new(),
-        expressions: HashMap::new(),
-        expression_log: Vec::new(),
+        available: Availability::default(),
         shared,
         joins,
     }
@@ -118,12 +115,16 @@ fn a_branch_can_eliminate_work_without_placing_its_preview() {
             placer.materialize(when_false, BlockId(0));
         }
         let before_items = placer.graph.blocks[0].items.len();
-        let before_bindings = placer.available.clone();
+        let before_bindings = placer.available.checkpoint();
         let mut scheduled = vec![choice];
         placer.defer_eliminated(BlockId(0), &mut scheduled);
         assert!(scheduled.is_empty());
         assert_eq!(placer.graph.blocks[0].items.len(), before_items);
-        assert_eq!(placer.available, before_bindings);
+        assert!(placer
+            .available
+            .bindings_since(before_bindings)
+            .next()
+            .is_none());
         assert!(placer.graph.blocks[1..]
             .iter()
             .all(|b| b.parameters.is_empty() && b.items.is_empty()));

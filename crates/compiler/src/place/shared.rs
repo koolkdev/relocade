@@ -49,17 +49,17 @@ impl Placer<'_> {
 
         // Previews share the current availability but have separate facts and
         // residual caches. They neither schedule work nor create joined values.
-        let mut paths =
-            [false, true].map(|truth| self.specializer.on_branch(self.graph, condition, truth));
+        let mut paths = [false, true].map(|truth| {
+            self.specializer
+                .on_branch(&self.graph.values, &self.available, condition, truth)
+        });
         for value in &mut values {
             value.can_defer = value.can_defer
                 && paths.iter_mut().any(|path| {
                     let residual = path.specialize(self.graph, value.recipe, |graph, id| {
-                        self.available.get(&id).copied().or_else(|| {
-                            value::placed_expression(&self.expressions, &graph.values, id)
-                        })
+                        self.available.lookup(&graph.values, id)
                     });
-                    !self.needs_evaluation(residual)
+                    !self.needs_evaluation(residual.value)
                 });
         }
 
@@ -82,7 +82,7 @@ impl Placer<'_> {
 
     fn needs_evaluation(&self, value: usize) -> bool {
         let value = self.graph.values.representation(value);
-        !self.available.contains_key(&value)
+        self.available.get(value).is_none()
             && !matches!(
                 self.graph.values[value].definition,
                 ValueDefinition::Constant(_) | ValueDefinition::Parameter { .. }
@@ -94,7 +94,7 @@ impl Placer<'_> {
         let mut needed = HashSet::new();
         while let Some(value) = pending.pop() {
             let value = self.graph.values.representation(value);
-            if !needed.insert(value) || self.available.contains_key(&value) {
+            if !needed.insert(value) || self.available.get(value).is_some() {
                 continue;
             }
             if let Some(result) = self.graph.values.expression(value) {

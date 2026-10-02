@@ -10,11 +10,17 @@ pub(super) struct Specializer {
     residuals: HashMap<usize, usize>,
 }
 
-impl Specializer {
-    pub(super) fn residuals(&self) -> impl Iterator<Item = (&usize, &usize)> {
-        self.residuals.iter()
-    }
+pub(super) struct Alias {
+    pub(super) recipe: usize,
+    pub(super) residual: usize,
+}
 
+pub(super) struct Specialization {
+    pub(super) value: usize,
+    pub(super) aliases: Vec<Alias>,
+}
+
+impl Specializer {
     pub(super) fn begin_block(&mut self) -> Facts {
         self.residuals.clear();
         self.facts.clone()
@@ -25,23 +31,68 @@ impl Specializer {
         &mut self.facts
     }
 
-    pub(super) fn on_branch(&self, graph: &FunctionGraph, condition: usize, truth: bool) -> Self {
-        let mut facts = self.facts.clone();
-        facts.assume(&graph.values, condition, truth);
-        Self {
-            facts,
+    pub(super) fn on_branch(
+        &self,
+        values: &ValueTable,
+        available: &Availability,
+        condition: usize,
+        truth: bool,
+    ) -> Self {
+        let mut branch = Self {
+            facts: self.facts.clone(),
             residuals: HashMap::new(),
+        };
+        branch.assume(values, available, condition, truth);
+        branch
+    }
+
+    pub(super) fn assume(
+        &mut self,
+        values: &ValueTable,
+        available: &Availability,
+        condition: usize,
+        truth: bool,
+    ) {
+        // A constant supplies no new runtime observation. Do not replay its
+        // shared alias history, including on the discarded edge.
+        if matches!(values[condition].definition, ValueDefinition::Constant(_)) {
+            return;
+        }
+        let mut sources = available.sources(values, condition, 1);
+        // Learning earlier recipes first reduces invalidation of inference
+        // cached for later residuals.
+        sources.sort_unstable_by_key(|source| source.recipe);
+        let facts = self.facts_mut();
+        for source in sources {
+            facts.assume(values, source.recipe, truth);
         }
     }
 
-    /// Lookup results must be available in this block or preview's dominance
-    /// scope. Cache entries belong to that scope and its current facts.
+    pub(super) fn equal(
+        &mut self,
+        values: &ValueTable,
+        available: &Availability,
+        selector: usize,
+        value: u64,
+    ) {
+        if matches!(values[selector].definition, ValueDefinition::Constant(_)) {
+            return;
+        }
+        let facts = self.facts_mut();
+        for source in available.sources(values, selector, values[selector].ty.mask()) {
+            facts.assume_bits(source.recipe, source.mask, value);
+        }
+    }
+
+    /// Resolve to values usable in the current dominance scope. Placement may
+    /// create join parameters here; branch previews query existing values only.
+    /// Each new rewrite reports its alias independently of the memo's lifetime.
     pub(super) fn specialize(
         &mut self,
         graph: &mut FunctionGraph,
         root: usize,
-        mut lookup: impl FnMut(&mut FunctionGraph, usize) -> Option<usize>,
-    ) -> usize {
+        mut resolve: impl FnMut(&mut FunctionGraph, usize) -> Option<usize>,
+    ) -> Specialization {
         enum Work {
             Visit(usize),
             Finish(usize),
@@ -49,6 +100,7 @@ impl Specializer {
             Alias(usize, usize),
         }
         let mut work = vec![Work::Visit(root)];
+        let mut aliases = Vec::new();
         while let Some(task) = work.pop() {
             match task {
                 Work::Visit(id) => {
@@ -59,9 +111,9 @@ impl Specializer {
                     if let Some(bits) = self.facts.constant(&graph.values, id) {
                         let bits = graph.values.carrier_bits(id, bits);
                         let result = graph.values.carrier_constant(value.ty, bits);
-                        self.residuals.insert(id, result);
-                    } else if let Some(result) = lookup(graph, id) {
-                        self.residuals.insert(id, result);
+                        self.record(id, result, &mut aliases);
+                    } else if let Some(result) = resolve(graph, id) {
+                        self.record(id, result, &mut aliases);
                     } else if let Some(result) = graph.values.expression(id) {
                         let expression = result.expression;
                         if let Expression::Select {
@@ -93,7 +145,7 @@ impl Specializer {
                     }
                 }
                 Work::Alias(id, input) => {
-                    self.residuals.insert(id, self.residuals[&input]);
+                    self.record(id, self.residuals[&input], &mut aliases);
                 }
                 Work::Finish(id) => {
                     let original = graph.values.expression(id).unwrap();
@@ -106,20 +158,30 @@ impl Specializer {
                     let rewritten = graph.values.expression_result(producer, original.component);
                     // Reuse the operation on its replaced inputs before folding
                     // can rebuild an equivalent recipe around those inputs.
-                    let mut result = if let Some(available) = lookup(graph, rewritten) {
+                    let mut result = if let Some(available) = resolve(graph, rewritten) {
                         available
                     } else {
                         let folded = crate::expression::refold(&mut graph.values, rewritten);
-                        lookup(graph, folded).unwrap_or(folded)
+                        resolve(graph, folded).unwrap_or(folded)
                     };
                     if let Some(bits) = self.facts.constant(&graph.values, result) {
                         let bits = graph.values.carrier_bits(result, bits);
                         result = graph.values.carrier_constant(graph.values[result].ty, bits);
                     }
-                    self.residuals.insert(id, result);
+                    self.record(id, result, &mut aliases);
                 }
             }
         }
-        self.residuals[&root]
+        Specialization {
+            value: self.residuals[&root],
+            aliases,
+        }
+    }
+
+    fn record(&mut self, recipe: usize, residual: usize, aliases: &mut Vec<Alias>) {
+        self.residuals.insert(recipe, residual);
+        if recipe != residual {
+            aliases.push(Alias { recipe, residual });
+        }
     }
 }
