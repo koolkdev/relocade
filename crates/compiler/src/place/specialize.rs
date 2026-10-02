@@ -108,10 +108,7 @@ impl Specializer {
                     if self.residuals.contains_key(&id) {
                         continue;
                     }
-                    let value = graph.values[id];
-                    if let Some(bits) = self.facts.constant(&graph.values, id) {
-                        let bits = graph.values.carrier_bits(id, bits);
-                        let result = graph.values.carrier_constant(value.ty, bits);
+                    if let Some(result) = self.known_constant(&mut graph.values, id) {
                         self.record(id, result, &mut aliases);
                     } else if let Some(result) = resolve(graph, id, &self.facts) {
                         self.record(id, result, &mut aliases);
@@ -157,19 +154,23 @@ impl Specializer {
                         ),
                     });
                     let rewritten = graph.values.expression_result(producer, original.component);
-                    // Reuse the operation on its replaced inputs before folding
-                    // can rebuild an equivalent recipe around those inputs.
-                    let mut result = if let Some(available) = resolve(graph, rewritten, &self.facts)
-                    {
-                        available
-                    } else {
-                        let folded = crate::expression::refold(&mut graph.values, rewritten);
-                        resolve(graph, folded, &self.facts).unwrap_or(folded)
-                    };
-                    if let Some(bits) = self.facts.constant(&graph.values, result) {
-                        let bits = graph.values.carrier_bits(result, bits);
-                        result = graph.values.carrier_constant(graph.values[result].ty, bits);
-                    }
+                    // Rewriting can expose a fact that a joined parameter would
+                    // hide. Otherwise, prefer reuse before refolding can rebuild
+                    // an equivalent recipe around those inputs.
+                    let result =
+                        if let Some(constant) = self.known_constant(&mut graph.values, rewritten) {
+                            constant
+                        } else if let Some(available) = resolve(graph, rewritten, &self.facts) {
+                            available
+                        } else {
+                            let folded = crate::expression::refold(&mut graph.values, rewritten);
+                            self.known_constant(&mut graph.values, folded)
+                                .or_else(|| resolve(graph, folded, &self.facts))
+                                .unwrap_or(folded)
+                        };
+                    let result = self
+                        .known_constant(&mut graph.values, result)
+                        .unwrap_or(result);
                     self.record(id, result, &mut aliases);
                 }
             }
@@ -178,6 +179,12 @@ impl Specializer {
             value: self.residuals[&root],
             aliases,
         }
+    }
+
+    fn known_constant(&self, values: &mut ValueTable, value: usize) -> Option<usize> {
+        let bits = self.facts.constant(values, value)?;
+        let bits = values.carrier_bits(value, bits);
+        Some(values.carrier_constant(values[value].ty, bits))
     }
 
     fn record(&mut self, recipe: usize, residual: usize, aliases: &mut Vec<Alias>) {

@@ -1,5 +1,6 @@
 //! Reuse across repeated guards preserves skipped paths and iteration inputs.
 use super::*;
+use wasm86_compiler::I64;
 
 fn guarded_divisions(independent: bool) -> TestModule {
     Fixture::new().function(
@@ -162,6 +163,7 @@ fn v8_guarded_values_preserve_conditions_and_loop_iterations() {
         }
     }
     check_converging_recipes(true);
+    check_rewritten_predicate(true);
 }
 
 fn converging_recipes() -> TestModule {
@@ -215,4 +217,74 @@ fn check_converging_recipes(v8: bool) {
 #[test]
 fn distinct_recipes_share_the_residual_proved_by_their_guards() {
     check_converging_recipes(false);
+}
+
+fn check_rewritten_predicate(v8: bool) {
+    let initial: Vec<_> = [17_i32, 19]
+        .into_iter()
+        .flat_map(i32::to_le_bytes)
+        .collect();
+    for through_conversion in [false, true] {
+        let mut fixture = Fixture::new();
+        let memory = fixture.memory("state", &initial);
+        let module = fixture.function(
+            &[Type::I1, Type::I1, Type::I32],
+            &[Type::I32],
+            |mut body| {
+                let active = body.parameter::<I1>(0)?;
+                let invalid = body.parameter::<I1>(1)?;
+                let input = body.parameter::<I32>(2)?;
+                let masked_input = input.and(0x7fff);
+                let conditional_zero = if through_conversion {
+                    invalid
+                        .select(0xffff_u64, masked_input.unsigned().extend::<I64>())
+                        .eq(0_u64)
+                } else {
+                    invalid.select(0xffff, &input).and(0x7fff).eq(0)
+                };
+                // Both paths observe the masked input before a join can retain
+                // its zero test. The later guard proves that test false.
+                body.store(memory, 4, &masked_input)?;
+                body.if_(&active, |mut arm| {
+                    arm.store(memory, 0, masked_input.eq(0).unsigned().extend::<I32>())
+                })?;
+                body.if_(
+                    active.and(invalid.eq(false)).and(masked_input.ne(0)),
+                    |arm| arm.return_(conditional_zero.select(input.clz(), 11)),
+                )?;
+                body.return_(13)
+            },
+        );
+        assert_eq!(count(&module, |op| matches!(op, Operator::I32Clz)), 0);
+        for (arguments, result, stores) in [
+            ([0, 0, 5], 13, [17_i32, 5]),
+            ([1, 0, 0], 13, [1, 0]),
+            ([1, 0, 5], 11, [0, 5]),
+            ([1, 1, 5], 13, [0, 5]),
+            ([1, 0, 0x8000], 13, [1, 0]),
+            ([1, 0, -1], 11, [0, 0x7fff]),
+        ] {
+            let expected: Vec<_> = stores.into_iter().flat_map(i32::to_le_bytes).collect();
+            if v8 {
+                assert_eq!(
+                    module.run_v8(
+                        &Input::call("run", &arguments.map(Value::I32))
+                            .with_memories(&[MemoryBytes::new("state", &initial)])
+                    ),
+                    Observation::returned(&[Value::I32(result)])
+                        .with_memories(&[MemoryBytes::new("state", &expected)])
+                );
+            } else {
+                let [active, invalid, input] = arguments;
+                let mut instance = module.instantiate();
+                assert_eq!(instance.call::<i32>((active, invalid, input)), Ok(result));
+                assert_eq!(&instance.memory("state")[..8], expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn rewritten_predicates_fold_before_joined_value_reuse() {
+    check_rewritten_predicate(false);
 }
