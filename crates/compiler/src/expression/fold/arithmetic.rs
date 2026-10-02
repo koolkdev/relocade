@@ -94,6 +94,14 @@ impl Folder<'_> {
                 return Some(input);
             }
         }
+        if matches!(operator, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor)
+            && self.complementary_predicates(left, right)
+        {
+            return Some(
+                self.values
+                    .carrier_constant(ty, u64::from(operator != BinaryOp::And)),
+            );
+        }
         match (
             operator,
             self.values[a].definition,

@@ -28,6 +28,33 @@ impl ConstantComparison {
 }
 
 impl Folder<'_> {
+    pub(super) fn complementary_predicates(&self, left: usize, right: usize) -> bool {
+        let left = self.values.representation(left);
+        let right = self.values.representation(right);
+        for (predicate, other) in [(left, right), (right, left)] {
+            let ValueDefinition::Expression(Expression::ZeroTest { input, nonzero }) =
+                self.values[predicate].definition
+            else {
+                continue;
+            };
+            let input = self.values.representation(input);
+            if let ValueDefinition::Expression(Expression::ZeroTest {
+                input: other_input,
+                nonzero: other_nonzero,
+            }) = self.values[other].definition
+            {
+                if input == self.values.representation(other_input) && nonzero != other_nonzero {
+                    return true;
+                }
+            }
+            // Logical I1 alone is insufficient: a type view can carry upper bits.
+            if !nonzero && input == other && self.values.bounds[other].unsigned <= 1 {
+                return true;
+            }
+        }
+        false
+    }
+
     pub(super) fn compare(&mut self, operator: CompareOp, left: usize, right: usize) -> usize {
         let a = self.values[left];
         let b = self.values[right];
@@ -182,6 +209,12 @@ impl Folder<'_> {
                 let when_false = self.compare_choices(when_false, comparison, remaining)?;
                 (when_true == when_false).then_some(when_true)
             }
+            _ if self.values.bounds[input].unsigned <= 1 => {
+                // Canonical predicates retain the same choices after a 0/1
+                // selection has folded away, including through type views.
+                let zero = comparison.evaluate(0);
+                (zero == comparison.evaluate(1)).then_some(zero)
+            }
             _ => None,
         }
     }
@@ -198,6 +231,23 @@ impl Folder<'_> {
     pub(super) fn fold_zero_test(&mut self, input: usize, nonzero: bool) -> Option<usize> {
         if nonzero && self.values.bounds[input].unsigned <= 1 {
             return Some(input);
+        }
+        if let ValueDefinition::Expression(Expression::ZeroTest {
+            input: source,
+            nonzero: inner_nonzero,
+        }) = self.values[input].definition
+        {
+            return Some(self.fold(
+                Type::I1,
+                Expression::ZeroTest {
+                    input: source,
+                    nonzero: if nonzero {
+                        inner_nonzero
+                    } else {
+                        !inner_nonzero
+                    },
+                },
+            ));
         }
         if let ValueDefinition::Expression(Expression::Convert { input: source }) =
             self.values[input].definition

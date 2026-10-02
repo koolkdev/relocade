@@ -1,5 +1,7 @@
 use crate::fixture::Fixture;
 use crate::wasm::{TestModule, Value};
+#[path = "zero_tests/booleans.rs"]
+mod booleans;
 #[path = "zero_tests/conditions.rs"]
 mod conditions;
 #[path = "zero_tests/conversions.rs"]

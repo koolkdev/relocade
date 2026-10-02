@@ -12,6 +12,7 @@ use crate::{
 mod arithmetic;
 mod bits;
 mod comparisons;
+mod select;
 mod shifts;
 
 #[cfg(test)]
@@ -130,16 +131,7 @@ impl Folder<'_> {
                 condition,
                 when_true,
                 when_false,
-            } => match self.values[condition].definition {
-                ValueDefinition::Constant(0) => Some(when_false),
-                ValueDefinition::Constant(_) => Some(when_true),
-                _ if self.values.representation(when_true)
-                    == self.values.representation(when_false) =>
-                {
-                    Some(when_true)
-                }
-                _ => None,
-            },
+            } => self.fold_select(condition, when_true, when_false),
             Expression::LowBits { input, bits } => Some(self.fold_low_bits(ty, input, bits)),
             Expression::SignExtend { input } => self.fold_sign_extend(ty, input),
             Expression::Convert { input } if self.values[input].ty == ty => Some(input),
@@ -198,18 +190,6 @@ impl Folder<'_> {
         } else {
             id
         }
-    }
-
-    fn select(&mut self, condition: usize, when_true: usize, when_false: usize) -> usize {
-        let condition = self.normalize(condition);
-        self.fold(
-            self.values[when_true].ty,
-            Expression::Select {
-                condition,
-                when_true,
-                when_false,
-            },
-        )
     }
 
     fn bit_count(&mut self, operator: BitCountOp, input: usize) -> usize {

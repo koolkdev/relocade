@@ -207,3 +207,72 @@ fn constant_folding_keeps_division_traps_and_narrow_signed_results() {
     );
     assert_constant(&values, result, 128);
 }
+
+#[test]
+fn boolean_folds_do_not_discard_upper_carrier_bits() {
+    let mut values = ValueTable::default();
+    let input = values.push(Value {
+        ty: Type::I1,
+        definition: ValueDefinition::Parameter {
+            block: BlockId(0),
+            component: 0,
+        },
+    });
+    let zero_test = refold(
+        &mut values,
+        Type::I1,
+        Expression::ZeroTest {
+            input,
+            nonzero: false,
+        },
+    );
+    for (when_true, when_false) in [(1, 0), (0, 1)] {
+        let when_true = values.constant(Type::I64, when_true);
+        let when_false = values.constant(Type::I64, when_false);
+        let numeric_bit = refold(
+            &mut values,
+            Type::I64,
+            Expression::Select {
+                condition: input,
+                when_true,
+                when_false,
+            },
+        );
+        // A nonzero carrier such as 2 must still yield a canonical numeric bit.
+        assert_eq!(values[numeric_bit].ty, Type::I64);
+        assert_eq!(values.bounds[numeric_bit].unsigned, 1);
+    }
+    for operator in [BinaryOp::Or, BinaryOp::Xor] {
+        let result = refold(
+            &mut values,
+            Type::I1,
+            Expression::Binary {
+                operator,
+                left: input,
+                right: zero_test,
+            },
+        );
+        // For carrier input 2 these produce 2, despite the logical I1 type.
+        assert!(!matches!(
+            values[result].definition,
+            ValueDefinition::Constant(_)
+        ));
+        assert_eq!(values.bounds[result].unsigned, 32);
+    }
+    let one_with_upper_bits = values.carrier_constant(Type::I8, 0x101);
+    let zero = values.constant(Type::I8, 0);
+    let byte_choice = refold(
+        &mut values,
+        Type::I8,
+        Expression::Select {
+            condition: zero_test,
+            when_true: one_with_upper_bits,
+            when_false: zero,
+        },
+    );
+    assert_eq!(values.bounds[byte_choice].unsigned, 9);
+    assert!(matches!(
+        values[byte_choice].definition,
+        ValueDefinition::Expression(Expression::Select { .. })
+    ));
+}
