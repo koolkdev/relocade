@@ -25,6 +25,14 @@ impl ExtendedBits {
             .ne(0)
             .and(self.significand.and(1_u64 << 63).eq(0_u64))
     }
+
+    pub(super) fn normal(&self) -> Val<I1> {
+        let exponent = self.exponent_field();
+        exponent
+            .ne(0)
+            .and(exponent.ne(0x7fff))
+            .and(self.significand.and(1_u64 << 63).ne(0_u64))
+    }
 }
 
 #[derive(Clone)]
@@ -67,6 +75,10 @@ impl ExtendedValue {
         }
     }
 
+    pub(crate) fn normal(&self) -> Val<I1> {
+        self.bits().normal()
+    }
+
     pub(crate) fn or_indefinite(&self, invalid: &Val<I1>) -> Self {
         match &self.0 {
             Representation::Binary { format, bits } => {
@@ -101,11 +113,7 @@ impl ExtendedValue {
             Representation::Extended(bits) => {
                 let exponent = bits.sign_exponent.and(0x7fff);
                 let zero = exponent.eq(0).and(bits.significand.eq(0_u64));
-                let normal = exponent
-                    .ne(0)
-                    .and(exponent.ne(0x7fff))
-                    .and(bits.significand.unsigned().shr(63).ne(0_u64));
-                zero.select(1_u32, normal.select(0_u32, 2_u32))
+                zero.select(1_u32, bits.normal().select(0_u32, 2_u32))
             }
         }
     }

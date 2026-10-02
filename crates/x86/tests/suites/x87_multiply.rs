@@ -4,6 +4,8 @@
 mod exceptions;
 #[path = "x87_multiply/rounding.rs"]
 mod rounding;
+#[path = "x87_multiply/specialization.rs"]
+mod specialization;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},

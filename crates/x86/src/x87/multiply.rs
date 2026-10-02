@@ -37,7 +37,11 @@ impl Operand {
     }
 
     fn normalized(&self) -> (Val<I64>, Val<I32>) {
-        let shift = self.bits.significand.clz().truncate::<I32>();
+        // Only denormal operands need normalization. Other supported operands
+        // already have their significand; special responses ignore this magnitude.
+        let shift = self
+            .denormal
+            .select(self.bits.significand.clz().truncate::<I32>(), 0);
         let exponent = self.exponent.eq(0).select(1, &self.exponent);
         (
             self.bits.significand.shl(&shift),

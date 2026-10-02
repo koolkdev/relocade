@@ -21,6 +21,9 @@ impl RoundedValue {
 }
 
 pub(crate) struct ArithmeticResult {
+    /// The finite result needs no range response.
+    /// Precision loss and its rounding-direction evidence remain observable.
+    pub(crate) in_range: Val<I1>,
     pub(crate) invalid: Val<I1>,
     pub(crate) denormal: Val<I1>,
     pub(crate) overflow: Val<I1>,
@@ -98,6 +101,7 @@ impl FiniteMagnitude {
             incremented: rounded.incremented,
         };
         ArithmeticResult {
+            in_range: below_normal.or(&overflow).or(&tiny).eq(false),
             invalid: false.into(),
             denormal: false.into(),
             overflow,
