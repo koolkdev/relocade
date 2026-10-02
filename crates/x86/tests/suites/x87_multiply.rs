@@ -180,5 +180,51 @@ fn live_products(engine: Engine, frontend: Frontend) {
     );
 }
 
+fn freed_product_stack_fault(engine: Engine, frontend: Frontend) {
+    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    // FMUL establishes a normal value. FFREE changes occupancy without changing
+    // its payload; FST must replace both its value and classification on fault.
+    let code = [
+        0xd8, 0xc9, // FMUL ST0, ST1
+        0xdd, 0xc0, // FFREE ST0
+        0xdd, 0xd0, // FST ST0
+        0xdd, 0x1d, 0, 0x40, 0, 0, // FSTP m64real
+    ];
+    let mut image = stack_image(&code, 0, 0xfff0);
+    image.map(4, 0x8000, true);
+    write_value(&mut image.cpu, 0, (LEADING, 0x4000)); // 2
+    write_value(&mut image.cpu, 1, (0xc000_0000_0000_0000, 0x4000)); // 3
+    let mut product = complete_x87(image.cpu, 2, 0x00c9);
+    product.x87.status.c1 = 0;
+    write_value(&mut product, 0, (0xc000_0000_0000_0000, 0x4001)); // 6
+    let mut freed = complete_x87(product, 2, 0x05c0);
+    freed.x87.tag_word |= 3;
+    let mut indefinite = complete_x87(freed, 2, 0x05d0);
+    indefinite.x87.status.invalid = 1;
+    indefinite.x87.status.stack_fault = 1;
+    write_value(&mut indefinite, 0, INDEFINITE);
+    let mut stored = complete_x87(indefinite, 6, 0x051d);
+    stored.x87.status.top = 1;
+    stored.x87.tag_word |= 3;
+    stored.x87.data_offset = 0x4000;
+    stored.x87.data_selector = 0x23;
+    checks.check(
+        "a freed normal product becomes indefinite on masked stack fault",
+        &code,
+        &image,
+        &[
+            dispatch(product),
+            dispatch(freed),
+            dispatch(indefinite),
+            Step {
+                cpu: stored,
+                ram: &[(0x8000, &0xfff8_0000_0000_0000_u64.to_le_bytes())],
+                exit: Exit::Dispatch(stored.eip),
+            },
+        ],
+    );
+}
+
 test_frontends!(forms, register_forms);
 test_frontends!(live_values, live_products);
+test_frontends!(freed_product, freed_product_stack_fault);

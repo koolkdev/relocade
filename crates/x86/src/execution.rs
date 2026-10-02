@@ -91,18 +91,29 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         Ok(())
     }
 
-    /// Guards a JIT assumption before any guest-visible instruction effect.
-    /// Failure publishes the current restart boundary and enters the interpreter.
-    /// Runtime decoding skips the guard and retains the ordinary semantics.
-    fn specialize_on(
+    /// Builds JIT guards, then refines local candidates for their continuation.
+    /// Runtime decoding and nested regions skip the callback and retain the
+    /// ordinary semantics. Keep current-instruction effects after this scope.
+    fn specialize(
         &mut self,
-        condition: impl FnOnce(&mut Self) -> Result<Val<I1>, BuildError>,
+        build: impl FnOnce(&mut Self) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
-        if !self.can_specialize {
-            return Ok(());
+        if self.can_specialize {
+            build(self)
+        } else {
+            Ok(())
         }
-        let condition = condition(self)?;
-        self.body.if_(condition.eq(false), |mut body| {
+    }
+
+    /// Requires an assumption inside `specialize`, before instruction effects.
+    /// Failure publishes the current restart boundary and enters the interpreter;
+    /// the continuing path can use the assumption for subsequent refinements.
+    fn specialize_on(&mut self, condition: impl Into<Val<I1>>) -> Result<(), BuildError> {
+        assert!(
+            self.can_specialize,
+            "this path does not permit specialization"
+        );
+        self.body.if_(condition.into().eq(false), |mut body| {
             self.state.publish(&mut body, &self.eip, self.completed)?;
             self.runtime.interpret(body)
         })

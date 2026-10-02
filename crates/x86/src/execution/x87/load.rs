@@ -26,13 +26,15 @@ pub(crate) fn load_binary(
         BinaryFormat::Binary64 => operand.read::<I64>(execution, 0)?,
     };
     let source = format.decode(&bits);
-    execution.specialize_on(|execution| {
-        let available = execution.state.x87.push_available(&mut execution.body)?;
-        Ok(source
-            .signaling_nan
-            .eq(false)
-            .and(source.denormal.eq(false))
-            .and(available))
+    execution.specialize(|jit| {
+        let available = jit.state.x87.push_available(&mut jit.body)?;
+        jit.specialize_on(
+            source
+                .signaling_nan
+                .eq(false)
+                .and(source.denormal.eq(false))
+                .and(available),
+        )
     })?;
     record_memory(execution, &operand)?;
     execution
@@ -51,7 +53,10 @@ where
     check_pending_exception(execution)?;
     let operand = execution.memory_operand(address, T::BYTES, Intent::Read, &[])?;
     let integer = operand.read::<T>(execution, 0)?.signed().extend::<I64>();
-    execution.specialize_on(|execution| execution.state.x87.push_available(&mut execution.body))?;
+    execution.specialize(|jit| {
+        let available = jit.state.x87.push_available(&mut jit.body)?;
+        jit.specialize_on(available)
+    })?;
     let value = ExtendedValue::from_signed_integer(&integer);
     record_memory(execution, &operand)?;
     execution

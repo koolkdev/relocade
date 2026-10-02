@@ -22,15 +22,20 @@ pub(crate) fn multiply_register(
         ProductDestination::Top => (0.into(), other.offset()),
         ProductDestination::Other => (other.offset(), 0.into()),
     };
-    let arithmetic = execution.state.x87.prepare_binary_register(
+    let mut arithmetic = execution.state.x87.prepare_binary_register(
         &mut execution.body,
         destination,
         source,
         pop,
         x87::multiply,
     )?;
-    execution.specialize_on(|_| Ok(arithmetic.normal_operands()))?;
-    execution.specialize_on(|_| Ok(arithmetic.in_range()))?;
+    execution.specialize(|jit| {
+        jit.specialize_on(arithmetic.normal_operands())?;
+        jit.specialize_on(arithmetic.in_range())?;
+        // Normal operands and an in-range product permit only precision loss.
+        arithmetic.assume_normal_result();
+        Ok(())
+    })?;
     record_instruction(execution)?;
     arithmetic.commit(&mut execution.body, &mut execution.state.x87)
 }

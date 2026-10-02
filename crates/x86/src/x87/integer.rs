@@ -30,7 +30,7 @@ impl ExtendedValue {
         let value = self.bits();
         let exponent = value.exponent_field();
         let negative = value.negative();
-        let unsupported = value.unsupported();
+        let unsupported = self.unsupported();
         // E=0 uses the same exponent as E=1, including pseudo-denormals.
         // No signed destination can contain a magnitude of 2^64 or more.
         let exponent = exponent.eq(0).select(1_u32, exponent);

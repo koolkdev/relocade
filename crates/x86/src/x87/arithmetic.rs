@@ -4,6 +4,7 @@ use wasm86_compiler::{Val, I1, I16, I32, I64, I8};
 
 use super::{rounding::RoundingInput, ExtendedBits, ExtendedValue, RoundingMode};
 
+#[derive(Clone)]
 pub(crate) struct RoundedValue {
     pub(crate) value: ExtendedValue,
     pub(crate) inexact: Val<I1>,
@@ -33,6 +34,19 @@ pub(crate) struct ArithmeticResult {
 }
 
 impl ArithmeticResult {
+    /// The continuing path must have a normal result and no invalid, denormal
+    /// operand or range response. Precision loss and rounding direction remain
+    /// observable, including when the precision exception is unmasked.
+    pub(crate) fn assume_normal_result(&mut self) {
+        self.masked.value = self.masked.value.clone().assume_normal();
+        self.adjusted = self.masked.clone();
+        self.in_range = true.into();
+        self.invalid = false.into();
+        self.denormal = false.into();
+        self.overflow = false.into();
+        self.tiny = false.into();
+    }
+
     /// Unmasked register range exceptions commit the precision-rounded value
     /// with an adjusted exponent, retaining that value's precision evidence.
     pub(crate) fn resolve_range(&self, unmasked: &Val<I1>) -> RoundedValue {

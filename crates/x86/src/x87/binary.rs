@@ -150,6 +150,10 @@ impl BinaryFormat {
                 incremented: false.into(),
             };
         }
+        let unsupported = value.unsupported();
+        let special = value.special_exponent();
+        let nan = value.nan();
+        let signaling_nan = value.signaling_nan();
         let value = value.bits();
         let fraction_bits = self.fraction_bits();
         let precision = fraction_bits + 1;
@@ -162,10 +166,6 @@ impl BinaryFormat {
         let exponent = value.exponent_field();
         let negative = value.negative();
         let sign = negative.select(sign_bit, 0_u64);
-        let unsupported = value.unsupported();
-        let special = exponent.eq(0x7fff);
-        let nan = special.and(significand.and(0x7fff_ffff_ffff_ffff_u64).ne(0_u64));
-        let signaling_nan = nan.and(significand.and(1_u64 << 62).eq(0_u64));
         let finite = unsupported.or(&special).eq(false);
 
         // E=0 encodings use the same exponent as E=1, including pseudo-denormals.

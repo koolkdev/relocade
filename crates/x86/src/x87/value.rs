@@ -1,4 +1,9 @@
-//! Values retain exact narrow representations until an operation needs extended bits.
+//! Values retain exact representations and established numerical classification.
+
+mod classification;
+
+#[cfg(test)]
+mod tests;
 
 use wasm86_compiler::{Val, I1, I16, I32, I64};
 
@@ -20,13 +25,7 @@ impl ExtendedBits {
         self.sign_exponent.and(0x8000).ne(0)
     }
 
-    pub(super) fn unsupported(&self) -> Val<I1> {
-        self.exponent_field()
-            .ne(0)
-            .and(self.significand.and(1_u64 << 63).eq(0_u64))
-    }
-
-    pub(super) fn normal(&self) -> Val<I1> {
+    fn normal(&self) -> Val<I1> {
         let exponent = self.exponent_field();
         exponent
             .ne(0)
@@ -36,7 +35,12 @@ impl ExtendedBits {
 }
 
 #[derive(Clone)]
-pub(crate) struct ExtendedValue(Representation);
+pub(crate) struct ExtendedValue {
+    representation: Representation,
+    // When present, this predicate is exactly equivalent to being normal.
+    // False leaves the other value classes unspecified.
+    normal: Option<Val<I1>>,
+}
 
 #[derive(Clone)]
 enum Representation {
@@ -51,15 +55,21 @@ enum Representation {
 
 impl ExtendedValue {
     pub(crate) fn from_bits(bits: ExtendedBits) -> Self {
-        Self(Representation::Extended(bits))
+        Self {
+            representation: Representation::Extended(bits),
+            normal: None,
+        }
     }
 
     pub(super) fn from_binary(format: BinaryFormat, bits: Val<I64>) -> Self {
-        Self(Representation::Binary { format, bits })
+        Self {
+            representation: Representation::Binary { format, bits },
+            normal: None,
+        }
     }
 
     pub(super) fn exact_bits(&self, format: BinaryFormat) -> Option<&Val<I64>> {
-        match &self.0 {
+        match &self.representation {
             Representation::Binary {
                 format: source,
                 bits,
@@ -69,18 +79,14 @@ impl ExtendedValue {
     }
 
     pub(crate) fn bits(&self) -> ExtendedBits {
-        match &self.0 {
+        match &self.representation {
             Representation::Extended(bits) => bits.clone(),
             Representation::Binary { format, bits } => format.expand(bits),
         }
     }
 
-    pub(crate) fn normal(&self) -> Val<I1> {
-        self.bits().normal()
-    }
-
     pub(crate) fn or_indefinite(&self, invalid: &Val<I1>) -> Self {
-        match &self.0 {
+        let mut value = match &self.representation {
             Representation::Binary { format, bits } => {
                 Self::from_binary(*format, invalid.select(format.indefinite_bits(), bits))
             }
@@ -88,33 +94,60 @@ impl ExtendedValue {
                 significand: invalid.select(0xc000_0000_0000_0000_u64, &bits.significand),
                 sign_exponent: invalid.select(0xffff_u32, &bits.sign_exponent),
             }),
-        }
+        };
+        value.normal = self
+            .normal
+            .as_ref()
+            .map(|normal| invalid.eq(false).and(normal));
+        value
     }
 
     /// A conditional value keeps a narrow representation only when both arms
     /// have it. Mixed representations remain exact through their extended bits.
     pub(crate) fn select(&self, condition: &Val<I1>, otherwise: &Self) -> Self {
-        if let Representation::Binary { format, bits } = &self.0 {
-            if let Some(other_bits) = otherwise.exact_bits(*format) {
-                return Self::from_binary(*format, condition.select(bits, other_bits));
+        let representation = match (&self.representation, &otherwise.representation) {
+            (
+                Representation::Binary { format, bits },
+                Representation::Binary {
+                    format: other_format,
+                    bits: other_bits,
+                },
+            ) if format == other_format => Representation::Binary {
+                format: *format,
+                bits: condition.select(bits, other_bits),
+            },
+            _ => {
+                let true_bits = self.bits();
+                let false_bits = otherwise.bits();
+                Representation::Extended(ExtendedBits {
+                    significand: condition.select(true_bits.significand, false_bits.significand),
+                    sign_exponent: condition
+                        .select(true_bits.sign_exponent, false_bits.sign_exponent),
+                })
             }
+        };
+        Self {
+            representation,
+            normal: self
+                .normal
+                .as_ref()
+                .zip(otherwise.normal.as_ref())
+                .map(|(left, right)| condition.select(left, right)),
         }
-        let true_bits = self.bits();
-        let false_bits = otherwise.bits();
-        Self::from_bits(ExtendedBits {
-            significand: condition.select(true_bits.significand, false_bits.significand),
-            sign_exponent: condition.select(true_bits.sign_exponent, false_bits.sign_exponent),
-        })
     }
 
     pub(crate) fn tag(&self) -> Val<I16> {
-        match &self.0 {
-            Representation::Binary { format, bits } => format.tag(bits),
-            Representation::Extended(bits) => {
-                let exponent = bits.sign_exponent.and(0x7fff);
-                let zero = exponent.eq(0).and(bits.significand.eq(0_u64));
-                zero.select(1_u32, bits.normal().select(0_u32, 2_u32))
+        match &self.representation {
+            Representation::Binary { format, bits } => {
+                let tag = format.tag(bits);
+                match &self.normal {
+                    Some(normal) => normal.select(0_u32, tag),
+                    None => tag,
+                }
             }
+            Representation::Extended(_) => self
+                .zero()
+                .select(1_u32, self.normal().select(0_u32, 2_u32)),
         }
     }
 }

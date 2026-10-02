@@ -16,23 +16,22 @@ struct Operand {
     nan: Val<I1>,
     signaling_nan: Val<I1>,
     denormal: Val<I1>,
+    unsupported: Val<I1>,
 }
 
 impl Operand {
     fn new(value: &ExtendedValue) -> Self {
         let bits = value.bits();
         let exponent = bits.exponent_field();
-        let fraction = bits.significand.and(0x7fff_ffff_ffff_ffff_u64);
-        let special = exponent.eq(0x7fff);
-        let nan = special.and(fraction.ne(0_u64));
         Self {
-            zero: exponent.eq(0).and(bits.significand.eq(0_u64)),
-            infinity: special.and(fraction.eq(0_u64)),
-            signaling_nan: nan.and(bits.significand.and(1_u64 << 62).eq(0_u64)),
-            denormal: exponent.eq(0).and(bits.significand.ne(0_u64)),
+            zero: value.zero(),
+            infinity: value.infinity(),
+            signaling_nan: value.signaling_nan(),
+            denormal: value.denormal(),
+            unsupported: value.unsupported(),
             bits,
             exponent,
-            nan,
+            nan: value.nan(),
         }
     }
 
@@ -79,7 +78,7 @@ pub(crate) fn multiply(
     };
     let mut result = magnitude.round(precision, rounding);
 
-    let unsupported = left.bits.unsupported().or(right.bits.unsupported());
+    let unsupported = left.unsupported.or(&right.unsupported);
     let nan = left.nan.or(&right.nan);
     let infinity = left.infinity.or(&right.infinity);
     let zero = left.zero.or(&right.zero);

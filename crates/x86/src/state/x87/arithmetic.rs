@@ -64,6 +64,14 @@ impl RegisterArithmetic {
         self.result.in_range.clone()
     }
 
+    /// Requires guards proving a nonempty stack and a normal result with only
+    /// a possible precision exception. Normal inputs alone are insufficient:
+    /// the operation must also establish its result's class and range.
+    pub(crate) fn assume_normal_result(&mut self) {
+        self.stack_fault = false.into();
+        self.result.assume_normal_result();
+    }
+
     /// Commits the arithmetic response after the instruction's restart guards.
     pub(crate) fn commit(
         self,
