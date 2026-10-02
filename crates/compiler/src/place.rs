@@ -100,7 +100,7 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
         }
     }
     // Joins can be allocated before their arms. Visit acyclic predecessors
-    // first so a join can reuse values already computed on its incoming edges.
+    // first so a join can retain facts and reuse computed incoming values.
     for children in &mut children {
         children.sort_by_key(|&block| dominators.rank[block]);
     }
@@ -165,7 +165,9 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
                         _ => {}
                     }
                 }
-                placer.joins.prepare(placer.graph, index, &placer.available);
+                if let Some(facts) = placer.joins.prepare(placer.graph, index, &placer.available) {
+                    *placer.specializer.facts_mut() = facts;
+                }
                 placer.block(BlockId(index));
                 placer
                     .joins

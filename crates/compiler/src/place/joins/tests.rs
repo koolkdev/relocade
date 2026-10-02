@@ -96,7 +96,9 @@ fn a_descendant_demand_adds_one_parameter_at_the_owning_join() {
         joins.record(block.0, [(recipe, value), (unused, value)].into_iter());
         joins.complete(block.0, Facts::default());
     }
-    joins.prepare(&graph, arms.join.0, &Availability::default());
+    joins
+        .prepare(&graph, arms.join.0, &Availability::default())
+        .unwrap();
     assert!(graph.blocks[arms.join.0].parameters.is_empty());
     let result = joins
         .resolve(&mut graph, uses.left.0, recipe, &Facts::default())
@@ -134,7 +136,9 @@ fn an_indexed_join_cannot_supply_a_sibling_branch() {
         joins.record(block.0, [(recipe, value)].into_iter());
         joins.complete(block.0, Facts::default());
     }
-    joins.prepare(&graph, inner.join.0, &Availability::default());
+    joins
+        .prepare(&graph, inner.join.0, &Availability::default())
+        .unwrap();
     assert!(joins
         .resolve(&mut graph, inner.join.0, recipe, &Facts::default())
         .is_some());
@@ -175,7 +179,9 @@ fn a_nearer_join_is_preferred_but_a_failed_merge_keeps_ancestor_reuse() {
             }
             joins.complete(block.0, Facts::default());
         }
-        joins.prepare(&graph, arms.join.0, &Availability::default());
+        joins
+            .prepare(&graph, arms.join.0, &Availability::default())
+            .unwrap();
     }
     let near_result = joins
         .resolve(&mut graph, inner.join.0, nearby, &Facts::default())
@@ -221,7 +227,7 @@ fn incoming_aliases_resolve_from_the_saved_common_ancestor() {
     }
     let mut available = Availability::default();
     available.bind(number, ancestor);
-    joins.prepare(&graph, arms.join.0, &available);
+    joins.prepare(&graph, arms.join.0, &available).unwrap();
     joins.record(uses.left.0, [(number, child)].into_iter());
     let result = joins
         .resolve(&mut graph, uses.left.0, alias, &Facts::default())
@@ -250,7 +256,9 @@ fn identical_incoming_carriers_can_reuse_a_value_with_a_different_logical_type()
     for source in [arms.left, arms.right] {
         joins.complete(source.0, Facts::default());
     }
-    joins.prepare(&graph, arms.join.0, &Availability::default());
+    joins
+        .prepare(&graph, arms.join.0, &Availability::default())
+        .unwrap();
     let result = joins
         .resolve(&mut graph, arms.join.0, byte, &Facts::default())
         .unwrap();
@@ -287,7 +295,9 @@ fn guarded_join_reuse_stays_with_matching_facts() {
         facts.assume(&graph.values, 0, truth);
         joins.complete(block.0, facts);
     }
-    joins.prepare(&graph, arms.join.0, &Availability::default());
+    joins
+        .prepare(&graph, arms.join.0, &Availability::default())
+        .unwrap();
     let mut taken = Facts::default();
     taken.assume(&graph.values, 0, true);
     let mut otherwise = Facts::default();

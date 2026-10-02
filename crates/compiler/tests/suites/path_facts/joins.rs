@@ -1,7 +1,9 @@
-//! Values reused after a join remain scoped to paths that pass through it.
+//! Incoming facts and values remain scoped to paths that pass through a join.
 use super::*;
 use crate::wasm::MemoryBytes;
 
+#[path = "joins/facts.rs"]
+mod facts;
 #[path = "joins/guarded.rs"]
 mod guarded;
 

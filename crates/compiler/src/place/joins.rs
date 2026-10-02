@@ -1,4 +1,4 @@
-//! Reuse incoming values at a join when a calculation needs them.
+//! Preserve common facts and reuse incoming values at completed joins.
 use super::*;
 use crate::{integer::BitBounds, Type};
 use std::collections::HashSet;
@@ -88,13 +88,18 @@ impl Joins {
         }
     }
 
-    /// Freeze eligible incoming paths on entry, in dominator traversal order.
-    pub(super) fn prepare(&mut self, graph: &FunctionGraph, join: usize, base: &Availability) {
+    /// Freeze eligible incoming paths and return their common facts on entry.
+    pub(super) fn prepare(
+        &mut self,
+        graph: &FunctionGraph,
+        join: usize,
+        base: &Availability,
+    ) -> Option<Facts> {
         if self.predecessors[join].len() < 2 {
-            return;
+            return None;
         }
         // Placement can fold exits after the original dominance analysis.
-        // Require values only from paths that can still enter this join.
+        // Only paths that can still enter constrain the join's facts and values.
         let reachable = graph.reachable();
         let sources: Vec<_> = self.predecessors[join]
             .iter()
@@ -108,13 +113,17 @@ impl Joins {
             })
             .collect();
         // An unfinished incoming block can be a loop backedge. Completing it
-        // later must not make another iteration's value available on entry.
+        // later must not make another iteration's facts or values valid on entry.
         if sources.is_empty()
             || sources
                 .iter()
                 .any(|&source| self.blocks[source].facts.is_none())
         {
-            return;
+            return None;
+        }
+        let mut facts = self.blocks[sources[0]].facts.as_ref().unwrap().clone();
+        for &source in &sources[1..] {
+            facts.retain_common(self.blocks[source].facts.as_ref().unwrap());
         }
         let common = self.dominators.parent[join].unwrap();
         let mut incoming = Vec::new();
@@ -136,7 +145,7 @@ impl Joins {
             incoming.push(IncomingValues::new(source, delta));
         }
         if candidates.is_empty() {
-            return;
+            return Some(facts);
         }
         for recipe in candidates {
             if recipe >= self.joins_by_recipe.len() {
@@ -149,6 +158,7 @@ impl Joins {
             incoming,
             results: HashMap::new(),
         });
+        Some(facts)
     }
 
     /// Resolve incoming values, adding a parameter and edge arguments when needed.

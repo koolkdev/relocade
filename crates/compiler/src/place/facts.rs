@@ -8,6 +8,7 @@ use crate::body::{ValueDefinition, ValueTable};
 mod assume;
 mod comparisons;
 mod infer;
+mod merge;
 mod range;
 use comparisons::Comparisons;
 use range::Range;
@@ -92,7 +93,7 @@ impl Facts {
             return Some(bits);
         }
         // Construction already folded path-independent constants.
-        if self.known.is_empty() {
+        if self.known.is_empty() && self.ranges.is_empty() && self.comparisons.is_empty() {
             return None;
         }
         let bits = self.bits(table, id);

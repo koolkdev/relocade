@@ -48,6 +48,15 @@ pub(super) struct Comparisons {
 }
 
 impl Comparisons {
+    pub(super) fn is_empty(&self) -> bool {
+        self.outcomes.is_empty()
+    }
+
+    pub(super) fn retain_common(&mut self, other: &Self) {
+        self.outcomes
+            .retain(|key, truth| other.outcomes.get(key) == Some(truth));
+    }
+
     /// Return the first possibly affected value for inference-cache invalidation.
     pub(super) fn assume(
         &mut self,
