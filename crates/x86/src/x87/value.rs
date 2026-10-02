@@ -1,6 +1,6 @@
 //! Values retain exact narrow representations until an operation needs extended bits.
 
-use wasm86_compiler::{Val, I1, I16, I64};
+use wasm86_compiler::{Val, I1, I16, I32, I64};
 
 use super::BinaryFormat;
 
@@ -9,6 +9,22 @@ use super::BinaryFormat;
 pub(crate) struct ExtendedBits {
     pub(crate) significand: Val<I64>,
     pub(crate) sign_exponent: Val<I16>,
+}
+
+impl ExtendedBits {
+    pub(super) fn exponent_field(&self) -> Val<I32> {
+        self.sign_exponent.and(0x7fff).unsigned().extend::<I32>()
+    }
+
+    pub(super) fn negative(&self) -> Val<I1> {
+        self.sign_exponent.and(0x8000).ne(0)
+    }
+
+    pub(super) fn unsupported(&self) -> Val<I1> {
+        self.exponent_field()
+            .ne(0)
+            .and(self.significand.and(1_u64 << 63).eq(0_u64))
+    }
 }
 
 #[derive(Clone)]

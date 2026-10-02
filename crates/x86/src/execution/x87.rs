@@ -1,9 +1,11 @@
 //! x87 operations share pending-exception checks and instruction/data-pointer tracking.
 
+mod arithmetic;
 mod load;
 mod stack;
 mod store;
 
+pub(crate) use arithmetic::{multiply_register, ProductDestination};
 pub(crate) use load::{load_binary, load_integer};
 pub(crate) use stack::{
     exchange_register, free_register, load_extended, load_register, rotate_stack, store_extended,

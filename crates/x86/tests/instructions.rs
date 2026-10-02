@@ -102,6 +102,8 @@ mod x87_integer_load;
 mod x87_integer_store;
 #[path = "suites/x87_load.rs"]
 mod x87_load;
+#[path = "suites/x87_multiply.rs"]
+mod x87_multiply;
 #[path = "suites/x87_stack.rs"]
 mod x87_stack;
 #[path = "suites/x87_store.rs"]

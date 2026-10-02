@@ -64,6 +64,11 @@ impl Control {
         ))
     }
 
+    pub(super) fn precision(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I8>, BuildError> {
+        self.fields
+            .read(body, cpu_location!(x87.control.precision_control))
+    }
+
     pub(super) fn unmasked(
         &mut self,
         body: &mut BlockBuilder<'_>,

@@ -14,23 +14,33 @@ pub(super) struct RoundingInput {
 }
 
 impl RoundingInput {
-    /// Divides an unsigned integer by 2^distance. Counts at or beyond the word
-    /// width retain their mathematical meaning despite Wasm's modular shifts.
-    pub(super) fn shift_right(value: &Val<I64>, distance: impl Into<Val<I32>>) -> Self {
+    pub(super) fn exact(integer: Val<I64>) -> Self {
+        Self {
+            integer,
+            guard: false.into(),
+            sticky: false.into(),
+        }
+    }
+
+    /// Divides the unrounded magnitude by 2^distance, retaining earlier
+    /// fractional evidence. Counts beyond a word do not wrap like Wasm shifts.
+    pub(super) fn shift_right(&self, distance: impl Into<Val<I32>>) -> Self {
         let distance = distance.into();
+        let value = &self.integer;
+        let shifted = distance.ne(0);
         let below_word = distance.unsigned().lt(64);
         let integer = below_word.select(value.unsigned().shr(&distance), 0_u64);
-        let guard = distance
-            .ne(0)
+        let guard = shifted
             .and(distance.unsigned().lt(65))
-            .and(value.unsigned().shr(distance.sub(1)).and(1_u64).ne(0_u64));
+            .and(value.unsigned().shr(distance.sub(1)).and(1_u64).ne(0_u64))
+            .or(shifted.eq(false).and(&self.guard));
         let lower_mask = Val::<I64>::from(1_u64).shl(distance.sub(1)).sub(1_u64);
-        let sticky = distance.ne(0).and(
-            distance
+        let sticky = self.sticky.or(shifted.and(
+            self.guard.or(distance
                 .unsigned()
                 .ge(65)
-                .select(value.ne(0_u64), value.and(lower_mask).ne(0_u64)),
-        );
+                .select(value.ne(0_u64), value.and(lower_mask).ne(0_u64))),
+        ));
         Self {
             integer,
             guard,

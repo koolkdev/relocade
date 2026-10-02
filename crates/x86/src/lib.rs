@@ -8,8 +8,9 @@
 //! Both frontends share instruction semantics and return a [`CompiledModule`].
 //!
 //! The supported subset covers 16/32-bit protected-mode integer execution and
-//! x87 controls and real-value transfers. Real mode, privilege transitions,
-//! interrupt delivery, x87 arithmetic and SIMD are outside the current scope.
+//! x87 controls, value transfers and register FMUL/FMULP. Other x87 arithmetic,
+//! real mode, privilege transitions, interrupt delivery and SIMD are outside the
+//! current scope.
 //!
 //! [`CpuState`] exchanges backing state with the host. [`SegmentProfile`] describes
 //! entry assumptions, and [`DescriptorTables`] resolves host-managed selectors into

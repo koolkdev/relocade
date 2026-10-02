@@ -28,18 +28,16 @@ impl ExtendedValue {
         rounding: &RoundingMode,
     ) -> ConversionResult {
         let value = self.bits();
-        let exponent = value.sign_exponent.and(0x7fff).unsigned().extend::<I32>();
-        let negative = value.sign_exponent.and(0x8000).ne(0);
-        let unsupported = exponent
-            .ne(0)
-            .and(value.significand.and(1_u64 << 63).eq(0_u64));
+        let exponent = value.exponent_field();
+        let negative = value.negative();
+        let unsupported = value.unsupported();
         // E=0 uses the same exponent as E=1, including pseudo-denormals.
         // No signed destination can contain a magnitude of 2^64 or more.
         let exponent = exponent.eq(0).select(1_u32, exponent);
         let too_large = exponent.unsigned().ge(16383 + 64);
         let distance = too_large.select(0_u32, Val::<I32>::from(16383 + 63).sub(exponent));
         let rounded = rounding.round(
-            RoundingInput::shift_right(&value.significand, distance),
+            RoundingInput::exact(value.significand).shift_right(distance),
             &negative,
         );
         let sign_bit = 1_u64 << (T::BYTES * 8 - 1);

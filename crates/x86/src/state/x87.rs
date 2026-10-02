@@ -1,5 +1,6 @@
 //! x87 state owns stack positions, status updates and publication at guest exits.
 
+mod arithmetic;
 mod control;
 mod registers;
 mod status;

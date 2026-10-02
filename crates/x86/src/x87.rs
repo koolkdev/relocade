@@ -1,11 +1,15 @@
-//! Numerical x87 conversions produce values and evidence, without state effects.
+//! Numerical x87 operations produce values and evidence, without state effects.
 
+mod arithmetic;
 mod binary;
 mod integer;
+mod multiply;
 mod rounding;
 mod value;
 
+pub(crate) use arithmetic::ArithmeticResult;
 pub(crate) use binary::{BinaryFormat, BinaryOperand};
+pub(crate) use multiply::multiply;
 pub(crate) use rounding::RoundingMode;
 pub(crate) use value::{ExtendedBits, ExtendedValue};
 

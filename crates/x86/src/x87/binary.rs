@@ -159,10 +159,10 @@ impl BinaryFormat {
         let sign_bit = self.sign_bit();
 
         let significand = &value.significand;
-        let exponent = value.sign_exponent.and(0x7fff).unsigned().extend::<I32>();
-        let negative = value.sign_exponent.and(0x8000).ne(0);
+        let exponent = value.exponent_field();
+        let negative = value.negative();
         let sign = negative.select(sign_bit, 0_u64);
-        let unsupported = exponent.ne(0).and(significand.and(1_u64 << 63).eq(0_u64));
+        let unsupported = value.unsupported();
         let special = exponent.eq(0x7fff);
         let nan = special.and(significand.and(0x7fff_ffff_ffff_ffff_u64).ne(0_u64));
         let signaling_nan = nan.and(significand.and(1_u64 << 62).eq(0_u64));
@@ -172,8 +172,8 @@ impl BinaryFormat {
         // Every nonzero extended subnormal is far below either narrow format.
         let exponent = exponent.eq(0).select(1_u32, exponent);
         let minimum_exponent = 16384 - self.bias();
-        let precision_rounded =
-            rounding.round(RoundingInput::shift_right(significand, shift), &negative);
+        let input = RoundingInput::exact(significand.clone());
+        let precision_rounded = rounding.round(input.shift_right(shift), &negative);
         let carry = precision_rounded.integer.eq(1_u64 << precision);
         let rounded_exponent = exponent.add(carry.unsigned().extend::<I32>());
         // Intel tests tininess after precision rounding with an unbounded
@@ -190,7 +190,7 @@ impl BinaryFormat {
             Val::<I32>::from(minimum_exponent + shift).sub(&exponent),
             shift,
         );
-        let stored = rounding.round(RoundingInput::shift_right(significand, distance), &negative);
+        let stored = rounding.round(input.shift_right(distance), &negative);
         // Adding the retained leading bit also propagates a rounding carry.
         let exponent_field = below_normal.select(0_u32, exponent.sub(minimum_exponent));
         let finite_bits = exponent_field
