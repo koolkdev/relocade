@@ -2,7 +2,7 @@
 use super::*;
 
 pub(super) struct IncomingValues {
-    source: usize,
+    pub(super) source: usize,
     values: HashMap<usize, usize>,
     resolved: HashMap<usize, Option<usize>>,
 }

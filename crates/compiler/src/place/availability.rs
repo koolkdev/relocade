@@ -90,14 +90,19 @@ impl Availability {
         }
     }
 
+    /// Bind a recipe to a value already usable in this scope.
     pub(super) fn bind(&mut self, recipe: usize, value: usize) {
-        if self.get(recipe) == Some(value) {
-            return;
+        // A join may supply an execution from a scope already left behind.
+        // Its value is reusable too, independently of this recipe's alias.
+        if self.get(value) != Some(value) {
+            self.publish(value, value);
         }
-        if recipe != value {
+        // Publishing the value may already bind the recipe through aliases.
+        // Keep that path's width limits instead of adding a shortcut.
+        if recipe != value && self.get(recipe) != Some(value) {
             self.link(recipe, value);
+            self.publish(recipe, value);
         }
-        self.publish(recipe, value);
     }
 
     fn publish(&mut self, recipe: usize, value: usize) {
@@ -183,7 +188,6 @@ impl Availability {
             .expression_results(producer)
             .zip(graph.values.expression_results(placed))
         {
-            self.bind(output, output);
             self.bind(recipe, output);
         }
     }

@@ -21,6 +21,7 @@ fn aliases_wait_for_execution_and_survive_in_each_dominated_branch() {
 fn aliases_of_executed_values_are_available_immediately() {
     let mut available = Availability::default();
     available.bind(2, 3);
+    assert_eq!(available.get(3), Some(3));
     available.record_aliases([Alias {
         recipe: 1,
         residual: 2,
@@ -104,6 +105,11 @@ fn execution_reuse_and_aliases_end_together_at_scope_exit() {
 
 #[test]
 fn publishing_an_alias_chain_keeps_intermediate_width_limits_for_facts() {
+    enum BindingOrder {
+        ResidualBeforeAlias,
+        ResidualAfterAlias,
+        OriginalAfterAliases,
+    }
     let mut values = ValueTable::default();
     let inputs: Vec<_> = [crate::Type::I32, crate::Type::I8, crate::Type::I32]
         .into_iter()
@@ -121,17 +127,29 @@ fn publishing_an_alias_chain_keeps_intermediate_width_limits_for_facts() {
     let [original, narrow, executed] = inputs[..] else {
         unreachable!()
     };
-    for already_executed in [false, true] {
+    for order in [
+        BindingOrder::ResidualBeforeAlias,
+        BindingOrder::ResidualAfterAlias,
+        BindingOrder::OriginalAfterAliases,
+    ] {
         let mut available = Availability::default();
-        if already_executed {
+        if matches!(order, BindingOrder::ResidualBeforeAlias) {
             available.bind(narrow, executed);
         }
         available.record_aliases([Alias {
             recipe: original,
             residual: narrow,
         }]);
-        if !already_executed {
-            available.bind(narrow, executed);
+        match order {
+            BindingOrder::ResidualBeforeAlias => {}
+            BindingOrder::ResidualAfterAlias => available.bind(narrow, executed),
+            BindingOrder::OriginalAfterAliases => {
+                available.record_aliases([Alias {
+                    recipe: narrow,
+                    residual: executed,
+                }]);
+                available.bind(original, executed);
+            }
         }
         assert_eq!(available.get(original), Some(executed));
         let known = available

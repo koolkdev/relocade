@@ -79,10 +79,26 @@ impl Joins {
 
     /// Freeze eligible incoming paths on entry, in dominator traversal order.
     pub(super) fn prepare(&mut self, graph: &FunctionGraph, join: usize, base: &Availability) {
-        let sources = &self.predecessors[join];
+        if self.predecessors[join].len() < 2 {
+            return;
+        }
+        // Placement can fold exits after the original dominance analysis.
+        // Require values only from paths that can still enter this join.
+        let reachable = graph.reachable();
+        let sources: Vec<_> = self.predecessors[join]
+            .iter()
+            .copied()
+            .filter(|&source| {
+                reachable[source]
+                    && graph
+                        .outgoing(BlockId(source))
+                        .iter()
+                        .any(|edge| edge.target.0 == join)
+            })
+            .collect();
         // An unfinished incoming block can be a loop backedge. Completing it
         // later must not make another iteration's value available on entry.
-        if sources.len() < 2
+        if sources.is_empty()
             || sources
                 .iter()
                 .any(|&source| self.blocks[source].facts.is_none())
@@ -92,7 +108,7 @@ impl Joins {
         let common = self.dominators.parent[join].unwrap();
         let mut incoming = Vec::new();
         let mut candidates = HashSet::new();
-        for &source in sources {
+        for source in sources {
             let mut delta = HashMap::new();
             let mut block = source;
             while block != common {
@@ -148,8 +164,11 @@ impl Joins {
             let arguments = inputs
                 .incoming
                 .iter_mut()
-                .map(|source| source.resolve(graph, recipe, inputs.common, self))
-                .collect::<Option<Vec<_>>>();
+                .map(|source| {
+                    let value = source.resolve(graph, recipe, inputs.common, self)?;
+                    Some((source.source, value))
+                })
+                .collect::<Option<HashMap<_, _>>>();
             let result = arguments.and_then(|args| self.join_arguments(graph, join, recipe, &args));
             inputs.results.insert(recipe, result);
             self.inputs[join] = Some(inputs);
@@ -181,10 +200,10 @@ impl Joins {
         graph: &mut FunctionGraph,
         join: usize,
         recipe: usize,
-        arguments: &[usize],
+        arguments: &HashMap<usize, usize>,
     ) -> Option<usize> {
         let bounds = arguments
-            .iter()
+            .values()
             .map(|&value| graph.values.bounds[value])
             .reduce(BitBounds::union)
             .unwrap();
@@ -193,13 +212,14 @@ impl Joins {
         if bounds.unsigned > promised.unsigned
             || bounds.signed > promised.signed
             || arguments
-                .iter()
+                .values()
                 .any(|&value| (graph.values[value].ty == Type::I64) != (ty == Type::I64))
         {
             return None;
         }
-        if arguments.iter().all(|&value| value == arguments[0]) {
-            return Some(arguments[0]);
+        let first = *arguments.values().next().unwrap();
+        if arguments.values().all(|&value| value == first) {
+            return Some(first);
         }
         let component = graph.blocks[join].parameters.len();
         let parameter = graph.values.push_with_bounds(
@@ -214,10 +234,9 @@ impl Joins {
         );
         graph.blocks[join].parameters.push(parameter);
         for &source in &self.incoming[join] {
-            let argument = self.predecessors[join]
-                .iter()
-                .position(|&predecessor| predecessor == source)
-                .map(|index| arguments[index])
+            let argument = arguments
+                .get(&source)
+                .copied()
                 // Inactive edges still have well-formed tuples. Their
                 // values are never consumed by the reachable join.
                 .unwrap_or_else(|| graph.values.constant(ty, 0));

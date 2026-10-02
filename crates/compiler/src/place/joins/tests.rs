@@ -1,6 +1,8 @@
 use super::*;
 use crate::integer::BinaryOp;
 
+mod predecessors;
+
 fn graph() -> FunctionGraph {
     let mut graph = FunctionGraph::new();
     for (component, ty) in [Type::I1, Type::I32].into_iter().enumerate() {
@@ -178,29 +180,6 @@ fn a_nearer_join_is_preferred_but_a_failed_merge_keeps_ancestor_reuse() {
 }
 
 #[test]
-fn completing_a_backedge_does_not_reopen_entry_eligibility() {
-    let mut graph = graph();
-    let header = graph.block(0, &[]);
-    let after = graph.block(0, &[]);
-    graph.blocks[0].exit = Exit::Jump(edge(header));
-    graph.blocks[header.0].exit = Exit::If {
-        condition: 0,
-        taken: edge(header),
-        otherwise: edge(after),
-    };
-    graph.blocks[after.0].exit = Exit::Return(vec![1]);
-    let recipe = square(&mut graph);
-    let mut joins = joins(&graph);
-    joins.complete(0, Facts::default());
-    joins.prepare(&graph, header.0, &Availability::default());
-    let value = placed(&mut graph, header, recipe);
-    joins.record(header.0, [(recipe, value)].into_iter());
-    joins.complete(header.0, Facts::default());
-    assert_eq!(joins.resolve(&mut graph, after.0, recipe), None);
-    assert!(graph.blocks[header.0].parameters.is_empty());
-}
-
-#[test]
 fn incoming_aliases_resolve_from_the_saved_common_ancestor() {
     let mut graph = graph();
     let arms = Diamond::new(&mut graph, BlockId(0));
@@ -240,26 +219,6 @@ fn incoming_aliases_resolve_from_the_saved_common_ancestor() {
         [ancestor]
     );
     assert_eq!(joins.resolve(&mut graph, uses.right.0, alias), Some(result));
-}
-
-#[test]
-fn a_missing_incoming_value_is_not_recomputed_or_merged() {
-    let mut graph = graph();
-    let arms = Diamond::new(&mut graph, BlockId(0));
-    let recipe = square(&mut graph);
-    let mut joins = joins(&graph);
-    let value = placed(&mut graph, arms.left, recipe);
-    joins.record(arms.left.0, [(recipe, value)].into_iter());
-    joins.complete(arms.left.0, Facts::default());
-    joins.complete(arms.right.0, Facts::default());
-    joins.prepare(&graph, arms.join.0, &Availability::default());
-    let count = graph.values.len();
-    for _ in 0..2 {
-        assert_eq!(joins.resolve(&mut graph, arms.join.0, recipe), None);
-    }
-    assert_eq!(graph.values.len(), count);
-    assert!(graph.blocks[arms.join.0].parameters.is_empty());
-    assert!(graph.blocks[arms.right.0].items.is_empty());
 }
 
 #[test]
