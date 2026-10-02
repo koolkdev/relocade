@@ -160,18 +160,15 @@ fn inspect(module: &TestModule) -> Code {
     Validator::new().validate_all(module.bytes()).unwrap();
     let mut code = Code::default();
     for payload in Parser::new(0).parse_all(module.bytes()) {
-        match payload.unwrap() {
-            Payload::CodeSectionEntry(body) => {
-                for op in body.get_operators_reader().unwrap() {
-                    match op.unwrap() {
-                        Operator::I32Load { .. } | Operator::I64Load { .. } => code.loads += 1,
-                        Operator::Call { .. } => code.calls += 1,
-                        Operator::I32Const { value: 0xf00d } => code.fault_constants += 1,
-                        _ => {}
-                    }
+        if let Payload::CodeSectionEntry(body) = payload.unwrap() {
+            for op in body.get_operators_reader().unwrap() {
+                match op.unwrap() {
+                    Operator::I32Load { .. } | Operator::I64Load { .. } => code.loads += 1,
+                    Operator::Call { .. } => code.calls += 1,
+                    Operator::I32Const { value: 0xf00d } => code.fault_constants += 1,
+                    _ => {}
                 }
             }
-            _ => {}
         }
     }
     code

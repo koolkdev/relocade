@@ -28,17 +28,13 @@ pub(crate) fn build(
     Folder { values }.expression(ty, expression, component)
 }
 
-/// Replace a calculation's inputs and fold without repeating logical normalization.
-pub(crate) fn map_inputs(
-    values: &mut ValueTable,
-    id: usize,
-    input: impl FnMut(&usize) -> usize,
-) -> usize {
+/// Fold a stored carrier operation without repeating logical normalization.
+pub(crate) fn refold(values: &mut ValueTable, id: usize) -> usize {
     let value = values[id];
     let Some(result) = values.expression(id) else {
         return id;
     };
-    Folder { values }.fold_result(value.ty, result.expression.map(input), result.component)
+    Folder { values }.fold_result(value.ty, result.expression, result.component)
 }
 
 pub(crate) fn normalize(values: &mut ValueTable, input: usize) -> usize {

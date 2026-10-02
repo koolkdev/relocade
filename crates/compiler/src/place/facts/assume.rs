@@ -39,6 +39,12 @@ impl Facts {
                 right,
             } = expression
             {
+                if let Some(first) =
+                    self.comparisons
+                        .assume(table, operator, left, right, bits.value != 0)
+                {
+                    self.invalidate_from(first);
+                }
                 self.assume_comparison(table, operator, left, right, bits.value != 0);
             }
             match expression {

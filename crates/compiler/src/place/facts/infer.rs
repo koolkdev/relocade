@@ -40,6 +40,23 @@ impl Facts {
                 continue;
             };
             let expression = result.expression;
+            if let Expression::Compare {
+                operator,
+                left,
+                right,
+            } = expression
+            {
+                if let Some(truth) = self.comparisons.get(table, operator, left, right) {
+                    cache.insert(
+                        id,
+                        Bits {
+                            mask: 1,
+                            value: u64::from(truth),
+                        },
+                    );
+                    continue;
+                }
+            }
             // Resolve the selector first so known paths do not walk discarded
             // state histories merely to rediscover the chosen value.
             if let Expression::Select {

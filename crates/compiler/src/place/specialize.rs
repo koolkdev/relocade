@@ -96,13 +96,22 @@ impl Specializer {
                     self.residuals.insert(id, self.residuals[&input]);
                 }
                 Work::Finish(id) => {
-                    let mut result =
-                        crate::expression::map_inputs(&mut graph.values, id, |v| self.residuals[v]);
-                    // Folding can expose an equivalent calculation whose placed
-                    // value already carries facts from an earlier guard.
-                    if let Some(available) = lookup(graph, result) {
-                        result = available;
-                    }
+                    let original = graph.values.expression(id).unwrap();
+                    let producer = graph.values.intern(Value {
+                        ty: graph.values[original.producer].ty,
+                        definition: ValueDefinition::Expression(
+                            original.expression.map(|v| self.residuals[v]),
+                        ),
+                    });
+                    let rewritten = graph.values.expression_result(producer, original.component);
+                    // Reuse the operation on its replaced inputs before folding
+                    // can rebuild an equivalent recipe around those inputs.
+                    let mut result = if let Some(available) = lookup(graph, rewritten) {
+                        available
+                    } else {
+                        let folded = crate::expression::refold(&mut graph.values, rewritten);
+                        lookup(graph, folded).unwrap_or(folded)
+                    };
                     if let Some(bits) = self.facts.constant(&graph.values, result) {
                         let bits = graph.values.carrier_bits(result, bits);
                         result = graph.values.carrier_constant(graph.values[result].ty, bits);

@@ -4,6 +4,8 @@
 mod bitwise;
 #[path = "path_facts/boundaries.rs"]
 mod boundaries;
+#[path = "path_facts/comparisons.rs"]
+mod comparisons;
 #[path = "path_facts/folding.rs"]
 mod folding;
 #[path = "path_facts/guards.rs"]
@@ -12,6 +14,8 @@ mod guards;
 mod joins;
 #[path = "path_facts/masks.rs"]
 mod masks;
+#[path = "path_facts/materialization.rs"]
+mod materialization;
 #[path = "path_facts/ranges.rs"]
 mod ranges;
 #[path = "path_facts/representations.rs"]

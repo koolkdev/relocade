@@ -2,6 +2,24 @@
 use super::*;
 
 impl Placer<'_> {
+    /// Keep bindings for intermediate recipes before the next block discards
+    /// its predecessor's specialization cache. Only executed residuals qualify.
+    pub(super) fn record_materialized_aliases(&mut self) {
+        let aliases: Vec<_> = self
+            .specializer
+            .residuals()
+            .filter_map(|(&recipe, residual)| {
+                if self.available.contains_key(&recipe) {
+                    return None;
+                }
+                self.available.get(residual).map(|&value| (recipe, value))
+            })
+            .collect();
+        for (recipe, value) in aliases {
+            self.define(recipe, value);
+        }
+    }
+
     pub(super) fn specialize(&mut self, root: usize, block: BlockId) -> usize {
         self.specializer.specialize(self.graph, root, |graph, id| {
             if let Some(&result) = self.available.get(&id) {

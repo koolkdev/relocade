@@ -1,4 +1,4 @@
-//! Path facts about logical bits and normalized unsigned intervals.
+//! Path facts about logical bits, unsigned intervals and comparison outcomes.
 //! Facts about a truncated value do not erase its other carrier bits.
 
 use std::{cell::RefCell, collections::HashMap};
@@ -6,8 +6,10 @@ use std::{cell::RefCell, collections::HashMap};
 use crate::body::{ValueDefinition, ValueTable};
 
 mod assume;
+mod comparisons;
 mod infer;
 mod range;
+use comparisons::Comparisons;
 use range::Range;
 
 #[derive(Clone, Copy, Default)]
@@ -40,6 +42,7 @@ impl Bits {
 pub(super) struct Facts {
     known: HashMap<usize, Bits>,
     ranges: HashMap<usize, Range>,
+    comparisons: Comparisons,
     computed: RefCell<HashMap<usize, Bits>>,
 }
 
@@ -48,6 +51,7 @@ impl Clone for Facts {
         Self {
             known: self.known.clone(),
             ranges: self.ranges.clone(),
+            comparisons: self.comparisons.clone(),
             computed: RefCell::default(),
         }
     }

@@ -1,7 +1,7 @@
 //! Pure expressions shared by unbound values and function bodies.
 
 mod fold;
-pub(crate) use fold::{build, map_inputs, normalize};
+pub(crate) use fold::{build, normalize, refold};
 
 #[cfg(test)]
 mod tests;

@@ -11,7 +11,7 @@ fn refold(values: &mut ValueTable, ty: Type, expression: Expression<usize>) -> u
         ty,
         definition: ValueDefinition::Expression(expression),
     });
-    map_inputs(values, id, |&input| input)
+    super::refold(values, id)
 }
 
 fn assert_constant(values: &ValueTable, id: usize, expected: u64) {

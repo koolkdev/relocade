@@ -124,7 +124,7 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
             block: usize,
             values: usize,
             expressions: usize,
-            facts: Facts,
+            facts: Box<Facts>,
         },
     }
     let mut work = vec![Visit::Enter(placer.graph.entry.0)];
@@ -201,25 +201,13 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
                         .filter_map(|&(id, previous)| {
                             let value = placer.available[&id];
                             (previous != Some(value)).then_some((id, value))
-                        })
-                        .chain(
-                            placer
-                                .specializer
-                                .residuals()
-                                .filter_map(|(&id, residual)| {
-                                    (!placer.available.contains_key(&id))
-                                        .then(|| {
-                                            placer.available.get(residual).map(|&value| (id, value))
-                                        })
-                                        .flatten()
-                                }),
-                        ),
+                        }),
                 );
                 work.push(Visit::Leave {
                     block: index,
                     values,
                     expressions,
-                    facts: saved,
+                    facts: Box::new(saved),
                 });
                 work.extend(children[index].iter().rev().copied().map(Visit::Enter));
             }
@@ -245,7 +233,7 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
                         placer.expressions.remove(&key);
                     }
                 }
-                let completed = std::mem::replace(placer.specializer.facts_mut(), facts);
+                let completed = std::mem::replace(placer.specializer.facts_mut(), *facts);
                 placer.joins.complete(block, completed);
             }
         }
@@ -286,6 +274,7 @@ impl Placer<'_> {
         let mut exit = self.graph.blocks[block.0].exit.clone();
         exit.map_inputs(|value| self.materialize(value, block));
         self.graph.blocks[block.0].exit = exit;
+        self.record_materialized_aliases();
     }
 }
 
