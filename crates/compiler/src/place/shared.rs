@@ -56,7 +56,7 @@ impl Placer<'_> {
         for value in &mut values {
             value.can_defer = value.can_defer
                 && paths.iter_mut().any(|path| {
-                    let residual = path.specialize(self.graph, value.recipe, |graph, id| {
+                    let residual = path.specialize(self.graph, value.recipe, |graph, id, _| {
                         self.available.lookup(&graph.values, id)
                     });
                     !self.needs_evaluation(residual.value)

@@ -1,4 +1,4 @@
-//! Reuse requires completed values from every incoming path that can execute.
+//! Incoming paths must be complete before their values or facts can justify reuse.
 use super::*;
 
 #[test]
@@ -20,7 +20,10 @@ fn completing_a_backedge_does_not_reopen_entry_eligibility() {
     let value = placed(&mut graph, header, recipe);
     joins.record(header.0, [(recipe, value)].into_iter());
     joins.complete(header.0, Facts::default());
-    assert_eq!(joins.resolve(&mut graph, after.0, recipe), None);
+    assert_eq!(
+        joins.resolve(&mut graph, after.0, recipe, &Facts::default()),
+        None
+    );
     assert!(graph.blocks[header.0].parameters.is_empty());
 }
 
@@ -37,7 +40,10 @@ fn a_missing_incoming_value_is_not_recomputed_or_merged() {
     joins.prepare(&graph, arms.join.0, &Availability::default());
     let count = graph.values.len();
     for _ in 0..2 {
-        assert_eq!(joins.resolve(&mut graph, arms.join.0, recipe), None);
+        assert_eq!(
+            joins.resolve(&mut graph, arms.join.0, recipe, &Facts::default()),
+            None
+        );
     }
     assert_eq!(graph.values.len(), count);
     assert!(graph.blocks[arms.join.0].parameters.is_empty());
@@ -60,7 +66,10 @@ fn a_discarded_predecessor_does_not_need_a_value_or_completed_facts() {
         otherwise: edge(arms.right),
     };
     joins.prepare(&graph, arms.join.0, &Availability::default());
-    assert_eq!(joins.resolve(&mut graph, arms.join.0, recipe), Some(value));
+    assert_eq!(
+        joins.resolve(&mut graph, arms.join.0, recipe, &Facts::default()),
+        Some(value)
+    );
     assert!(graph.blocks[arms.join.0].parameters.is_empty());
 }
 
@@ -78,7 +87,10 @@ fn a_join_inside_a_discarded_arm_has_no_incoming_values() {
         otherwise: edge(outer.right),
     };
     joins.prepare(&graph, inner.join.0, &Availability::default());
-    assert_eq!(joins.resolve(&mut graph, inner.join.0, recipe), None);
+    assert_eq!(
+        joins.resolve(&mut graph, inner.join.0, recipe, &Facts::default()),
+        None
+    );
     assert!(graph.blocks[inner.join.0].parameters.is_empty());
 }
 
@@ -107,7 +119,10 @@ fn a_folded_switch_excludes_an_inactive_edge_from_a_reachable_source() {
         *input = selector;
     }
     joins.prepare(&graph, after.0, &Availability::default());
-    assert_eq!(joins.resolve(&mut graph, after.0, recipe), Some(value));
+    assert_eq!(
+        joins.resolve(&mut graph, after.0, recipe, &Facts::default()),
+        Some(value)
+    );
 }
 
 #[test]
@@ -132,7 +147,9 @@ fn surviving_predecessors_keep_their_arguments_when_an_arm_is_removed() {
         otherwise: edge(inner.right),
     };
     joins.prepare(&graph, outer.join.0, &Availability::default());
-    let result = joins.resolve(&mut graph, outer.join.0, recipe).unwrap();
+    let result = joins
+        .resolve(&mut graph, outer.join.0, recipe, &Facts::default())
+        .unwrap();
     assert_eq!(graph.blocks[outer.join.0].parameters, [result]);
     assert_eq!(
         graph.blocks[outer.right.0].exit.edges()[0].arguments,

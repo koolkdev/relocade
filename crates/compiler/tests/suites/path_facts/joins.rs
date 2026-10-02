@@ -2,6 +2,9 @@
 use super::*;
 use crate::wasm::MemoryBytes;
 
+#[path = "joins/guarded.rs"]
+mod guarded;
+
 #[derive(Clone, Copy)]
 enum Use {
     Descendant,

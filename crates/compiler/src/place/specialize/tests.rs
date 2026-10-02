@@ -38,18 +38,18 @@ fn branch_previews_have_independent_facts_and_residuals() {
     let condition = graph.blocks[0].parameters[0];
     let mut live = Specializer::default();
     assert_eq!(
-        live.specialize(&mut graph, choice, |_, _| None).value,
+        live.specialize(&mut graph, choice, |_, _, _| None).value,
         choice
     );
     for (truth, expected) in [(false, 11), (true, 7)] {
         let mut preview = live.on_branch(&graph.values, &Availability::default(), condition, truth);
-        let result = preview.specialize(&mut graph, choice, |_, _| None).value;
+        let result = preview.specialize(&mut graph, choice, |_, _, _| None).value;
         assert!(
             matches!(graph.values[result].definition, ValueDefinition::Constant(bits) if bits == expected)
         );
     }
     assert_eq!(
-        live.specialize(&mut graph, choice, |_, _| None).value,
+        live.specialize(&mut graph, choice, |_, _, _| None).value,
         choice
     );
     assert!(graph.blocks[0].items.is_empty());
@@ -64,7 +64,7 @@ fn reported_aliases_survive_the_memo_and_leave_with_their_scope() {
     let scope = available.checkpoint();
     let mut specializer =
         Specializer::default().on_branch(&graph.values, &available, condition, true);
-    let result = specializer.specialize(&mut graph, choice, |_, _| None);
+    let result = specializer.specialize(&mut graph, choice, |_, _, _| None);
     assert!(result
         .aliases
         .iter()
@@ -85,7 +85,7 @@ fn changing_facts_invalidates_previous_folds() {
     let mut specializer = Specializer::default();
     assert_eq!(
         specializer
-            .specialize(&mut graph, choice, |_, _| None)
+            .specialize(&mut graph, choice, |_, _, _| None)
             .value,
         choice
     );
@@ -93,7 +93,7 @@ fn changing_facts_invalidates_previous_folds() {
         .facts_mut()
         .assume(&graph.values, condition, true);
     let result = specializer
-        .specialize(&mut graph, choice, |_, _| None)
+        .specialize(&mut graph, choice, |_, _, _| None)
         .value;
     assert!(matches!(
         graph.values[result].definition,
@@ -110,14 +110,14 @@ fn entering_another_block_discards_cached_availability() {
     let mut specializer = Specializer::default();
     assert_eq!(
         specializer
-            .specialize(&mut graph, choice, |_, _| Some(placed))
+            .specialize(&mut graph, choice, |_, _, _| Some(placed))
             .value,
         placed
     );
     specializer.begin_block();
     assert_eq!(
         specializer
-            .specialize(&mut graph, choice, |_, _| None)
+            .specialize(&mut graph, choice, |_, _, _| None)
             .value,
         choice
     );
@@ -136,11 +136,13 @@ fn exact_carrier_constants_survive_specialization_and_fact_inference() {
         Specializer::default().on_branch(&graph.values, &Availability::default(), condition, true);
     assert_eq!(
         specializer
-            .specialize(&mut graph, literal, |_, _| None)
+            .specialize(&mut graph, literal, |_, _, _| None)
             .value,
         literal
     );
-    let result = specializer.specialize(&mut graph, view, |_, _| None).value;
+    let result = specializer
+        .specialize(&mut graph, view, |_, _, _| None)
+        .value;
     assert!(matches!(
         graph.values[result].definition,
         ValueDefinition::Constant(256)
@@ -164,7 +166,7 @@ fn branch_facts_follow_executed_conditions_to_their_source_recipes() {
     let mut specializer = Specializer::default();
     specializer.assume(&graph.values, &available, observed, true);
     let result = specializer
-        .specialize(&mut graph, choice, |_, _| None)
+        .specialize(&mut graph, choice, |_, _, _| None)
         .value;
     assert!(matches!(
         graph.values[result].definition,

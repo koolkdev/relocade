@@ -3,15 +3,17 @@ use super::*;
 
 impl Placer<'_> {
     pub(super) fn specialize(&mut self, root: usize, block: BlockId) -> usize {
-        let specialized = self.specializer.specialize(self.graph, root, |graph, id| {
-            if let Some(result) = self.available.lookup(&graph.values, id) {
-                return Some(result);
-            }
-            graph.values.expression(id)?;
-            let result = self.joins.resolve(graph, block.0, id)?;
-            self.available.bind(id, result);
-            Some(result)
-        });
+        let specialized = self
+            .specializer
+            .specialize(self.graph, root, |graph, id, facts| {
+                if let Some(result) = self.available.lookup(&graph.values, id) {
+                    return Some(result);
+                }
+                graph.values.expression(id)?;
+                let result = self.joins.resolve(graph, block.0, id, facts)?;
+                self.available.bind(id, result);
+                Some(result)
+            });
         self.available.record_aliases(specialized.aliases);
         specialized.value
     }

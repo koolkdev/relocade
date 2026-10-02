@@ -98,13 +98,15 @@ fn a_descendant_demand_adds_one_parameter_at_the_owning_join() {
     }
     joins.prepare(&graph, arms.join.0, &Availability::default());
     assert!(graph.blocks[arms.join.0].parameters.is_empty());
-    let result = joins.resolve(&mut graph, uses.left.0, recipe).unwrap();
+    let result = joins
+        .resolve(&mut graph, uses.left.0, recipe, &Facts::default())
+        .unwrap();
     assert!(matches!(
         graph.values[result].definition,
         ValueDefinition::Parameter { block, component: 0 } if block == arms.join
     ));
     assert_eq!(
-        joins.resolve(&mut graph, uses.right.0, recipe),
+        joins.resolve(&mut graph, uses.right.0, recipe, &Facts::default()),
         Some(result)
     );
     assert_eq!(graph.blocks[arms.join.0].parameters, [result]);
@@ -133,9 +135,17 @@ fn an_indexed_join_cannot_supply_a_sibling_branch() {
         joins.complete(block.0, Facts::default());
     }
     joins.prepare(&graph, inner.join.0, &Availability::default());
-    assert!(joins.resolve(&mut graph, inner.join.0, recipe).is_some());
-    assert_eq!(joins.resolve(&mut graph, outer.right.0, recipe), None);
-    assert_eq!(joins.resolve(&mut graph, outer.join.0, recipe), None);
+    assert!(joins
+        .resolve(&mut graph, inner.join.0, recipe, &Facts::default())
+        .is_some());
+    assert_eq!(
+        joins.resolve(&mut graph, outer.right.0, recipe, &Facts::default()),
+        None
+    );
+    assert_eq!(
+        joins.resolve(&mut graph, outer.join.0, recipe, &Facts::default()),
+        None
+    );
 }
 
 #[test]
@@ -167,12 +177,16 @@ fn a_nearer_join_is_preferred_but_a_failed_merge_keeps_ancestor_reuse() {
         }
         joins.prepare(&graph, arms.join.0, &Availability::default());
     }
-    let near_result = joins.resolve(&mut graph, inner.join.0, nearby).unwrap();
+    let near_result = joins
+        .resolve(&mut graph, inner.join.0, nearby, &Facts::default())
+        .unwrap();
     assert_eq!(graph.blocks[inner.join.0].parameters, [near_result]);
     assert!(graph.blocks[outer.join.0].parameters.is_empty());
-    let ancestor_result = joins.resolve(&mut graph, inner.join.0, fallback).unwrap();
+    let ancestor_result = joins
+        .resolve(&mut graph, inner.join.0, fallback, &Facts::default())
+        .unwrap();
     assert_eq!(
-        joins.resolve(&mut graph, inner.join.0, fallback),
+        joins.resolve(&mut graph, inner.join.0, fallback, &Facts::default()),
         Some(ancestor_result)
     );
     assert_eq!(graph.blocks[outer.join.0].parameters, [ancestor_result]);
@@ -209,7 +223,9 @@ fn incoming_aliases_resolve_from_the_saved_common_ancestor() {
     available.bind(number, ancestor);
     joins.prepare(&graph, arms.join.0, &available);
     joins.record(uses.left.0, [(number, child)].into_iter());
-    let result = joins.resolve(&mut graph, uses.left.0, alias).unwrap();
+    let result = joins
+        .resolve(&mut graph, uses.left.0, alias, &Facts::default())
+        .unwrap();
     assert_eq!(graph.values[result].ty, Type::I8);
     // Logical narrowing keeps the physical i32 bits, including the upper bits.
     assert_eq!(graph.values.bounds[result].unsigned, 32);
@@ -218,7 +234,10 @@ fn incoming_aliases_resolve_from_the_saved_common_ancestor() {
         graph.blocks[arms.right.0].exit.edges()[0].arguments,
         [ancestor]
     );
-    assert_eq!(joins.resolve(&mut graph, uses.right.0, alias), Some(result));
+    assert_eq!(
+        joins.resolve(&mut graph, uses.right.0, alias, &Facts::default()),
+        Some(result)
+    );
 }
 
 #[test]
@@ -232,7 +251,9 @@ fn identical_incoming_carriers_can_reuse_a_value_with_a_different_logical_type()
         joins.complete(source.0, Facts::default());
     }
     joins.prepare(&graph, arms.join.0, &Availability::default());
-    let result = joins.resolve(&mut graph, arms.join.0, byte).unwrap();
+    let result = joins
+        .resolve(&mut graph, arms.join.0, byte, &Facts::default())
+        .unwrap();
     assert_eq!(result, 1);
     assert_eq!(graph.values[result].ty, Type::I32);
     assert_eq!(graph.values[byte].ty, Type::I8);
@@ -248,5 +269,47 @@ fn identical_incoming_carriers_can_reuse_a_value_with_a_different_logical_type()
     assert_eq!(
         specializer.facts_mut().constant(&graph.values, result),
         Some(0x1234)
+    );
+}
+
+#[test]
+fn guarded_join_reuse_stays_with_matching_facts() {
+    let mut graph = graph();
+    let arms = Diamond::new(&mut graph, BlockId(0));
+    let uses = Diamond::new(&mut graph, arms.join);
+    let mut joins = joins(&graph);
+    // Specialization can introduce this recipe after the join index was created.
+    let recipe = square(&mut graph);
+    let value = placed(&mut graph, arms.left, recipe);
+    joins.record(arms.left.0, [(recipe, value)].into_iter());
+    for (block, truth) in [(arms.left, true), (arms.right, false)] {
+        let mut facts = Facts::default();
+        facts.assume(&graph.values, 0, truth);
+        joins.complete(block.0, facts);
+    }
+    joins.prepare(&graph, arms.join.0, &Availability::default());
+    let mut taken = Facts::default();
+    taken.assume(&graph.values, 0, true);
+    let mut otherwise = Facts::default();
+    otherwise.assume(&graph.values, 0, false);
+    assert_eq!(
+        joins.resolve(&mut graph, arms.join.0, recipe, &Facts::default()),
+        None
+    );
+    let parameter = joins
+        .resolve(&mut graph, uses.left.0, recipe, &taken)
+        .unwrap();
+    assert_eq!(graph.blocks[arms.join.0].parameters, [parameter]);
+    assert_eq!(
+        joins.resolve(&mut graph, uses.left.0, recipe, &taken),
+        Some(parameter)
+    );
+    assert_eq!(
+        joins.resolve(&mut graph, uses.right.0, recipe, &otherwise),
+        None
+    );
+    assert_eq!(
+        joins.resolve(&mut graph, arms.join.0, recipe, &Facts::default()),
+        None
     );
 }

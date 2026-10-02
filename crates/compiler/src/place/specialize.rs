@@ -84,14 +84,15 @@ impl Specializer {
         }
     }
 
-    /// Resolve to values usable in the current dominance scope. Placement may
-    /// create join parameters here; branch previews query existing values only.
+    /// Resolve to values usable under the current path facts and dominance scope.
+    /// Placement may create join parameters here; branch previews query existing
+    /// values only. The resolver borrows these facts without changing them.
     /// Each new rewrite reports its alias independently of the memo's lifetime.
     pub(super) fn specialize(
         &mut self,
         graph: &mut FunctionGraph,
         root: usize,
-        mut resolve: impl FnMut(&mut FunctionGraph, usize) -> Option<usize>,
+        mut resolve: impl FnMut(&mut FunctionGraph, usize, &Facts) -> Option<usize>,
     ) -> Specialization {
         enum Work {
             Visit(usize),
@@ -112,7 +113,7 @@ impl Specializer {
                         let bits = graph.values.carrier_bits(id, bits);
                         let result = graph.values.carrier_constant(value.ty, bits);
                         self.record(id, result, &mut aliases);
-                    } else if let Some(result) = resolve(graph, id) {
+                    } else if let Some(result) = resolve(graph, id, &self.facts) {
                         self.record(id, result, &mut aliases);
                     } else if let Some(result) = graph.values.expression(id) {
                         let expression = result.expression;
@@ -158,11 +159,12 @@ impl Specializer {
                     let rewritten = graph.values.expression_result(producer, original.component);
                     // Reuse the operation on its replaced inputs before folding
                     // can rebuild an equivalent recipe around those inputs.
-                    let mut result = if let Some(available) = resolve(graph, rewritten) {
+                    let mut result = if let Some(available) = resolve(graph, rewritten, &self.facts)
+                    {
                         available
                     } else {
                         let folded = crate::expression::refold(&mut graph.values, rewritten);
-                        resolve(graph, folded).unwrap_or(folded)
+                        resolve(graph, folded, &self.facts).unwrap_or(folded)
                     };
                     if let Some(bits) = self.facts.constant(&graph.values, result) {
                         let bits = graph.values.carrier_bits(result, bits);

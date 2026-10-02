@@ -58,6 +58,13 @@ impl Clone for Facts {
 }
 
 impl Facts {
+    /// Whether known logical bits prove that these paths cannot coincide.
+    pub(super) fn conflicts_with(&self, table: &ValueTable, other: &Self) -> bool {
+        self.known
+            .iter()
+            .any(|(&id, &bits)| bits.conflicts(other.bits(table, id)))
+    }
+
     pub(super) fn assume_bits(&mut self, id: usize, mask: u64, value: u64) {
         let previous = self.known.get(&id).copied().unwrap_or_default();
         let bits = Bits {

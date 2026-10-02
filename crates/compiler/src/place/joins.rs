@@ -10,15 +10,30 @@ mod tests;
 
 #[derive(Default)]
 struct BlockValues {
-    // Only original-value bindings established here, relative to the dominator.
+    // Bindings established here, including residual recipes, relative to the dominator.
     values: HashMap<usize, usize>,
     facts: Option<Facts>,
+}
+
+struct JoinedValue {
+    value: usize,
+    // This value is only a placeholder for the recipe on these incoming paths.
+    // Every use must prove they cannot coincide with its own path facts.
+    excluded: Vec<usize>,
 }
 
 struct JoinInputs {
     common: usize,
     incoming: Vec<IncomingValues>,
-    results: HashMap<usize, Option<usize>>,
+    results: HashMap<usize, JoinedValue>,
+}
+
+/// Validated arguments, including placeholders restricted to excluded paths.
+struct JoinArguments {
+    ty: Type,
+    bounds: BitBounds,
+    values: HashMap<usize, usize>,
+    excluded: Vec<usize>,
 }
 
 pub(super) struct Joins {
@@ -29,7 +44,6 @@ pub(super) struct Joins {
     needs_facts: Vec<bool>,
     inputs: Vec<Option<JoinInputs>>,
     joins_by_recipe: Vec<Vec<usize>>,
-    original_values: usize,
 }
 
 impl Joins {
@@ -61,14 +75,11 @@ impl Joins {
             needs_facts,
             inputs: (0..count).map(|_| None).collect(),
             joins_by_recipe: vec![Vec::new(); graph.values.len()],
-            original_values: graph.values.len(),
         }
     }
 
     pub(super) fn record(&mut self, block: usize, values: impl Iterator<Item = (usize, usize)>) {
-        self.blocks[block]
-            .values
-            .extend(values.filter(|&(recipe, _)| recipe < self.original_values));
+        self.blocks[block].values.extend(values);
     }
 
     pub(super) fn complete(&mut self, block: usize, facts: Facts) {
@@ -128,6 +139,9 @@ impl Joins {
             return;
         }
         for recipe in candidates {
+            if recipe >= self.joins_by_recipe.len() {
+                self.joins_by_recipe.resize_with(recipe + 1, Vec::new);
+            }
             self.joins_by_recipe[recipe].push(join);
         }
         self.inputs[join] = Some(JoinInputs {
@@ -138,46 +152,61 @@ impl Joins {
     }
 
     /// Resolve incoming values, adding a parameter and edge arguments when needed.
+    /// Missing paths may carry a placeholder only when the use's facts exclude them.
     pub(super) fn resolve(
         &mut self,
         graph: &mut FunctionGraph,
         block: usize,
         recipe: usize,
+        facts: &Facts,
     ) -> Option<usize> {
-        if recipe >= self.original_values {
-            return None;
+        let candidates = self.joins_by_recipe.get(recipe)?;
+        // Prefer a previously constructed value before adding another parameter.
+        for &join in candidates.iter().rev() {
+            if !self.dominators.dominates(join, block) {
+                continue;
+            }
+            if let Some(result) = self.inputs[join].as_ref().unwrap().results.get(&recipe) {
+                if result.usable_under(&graph.values, &self.blocks, facts) {
+                    return Some(result.value);
+                }
+            }
         }
         // Only joins with a recorded incoming value can supply this recipe.
         // Reverse traversal tries nearer ancestors first and excludes siblings.
-        for index in (0..self.joins_by_recipe[recipe].len()).rev() {
+        for index in (0..candidates.len()).rev() {
             let join = self.joins_by_recipe[recipe][index];
             if !self.dominators.dominates(join, block) {
                 continue;
             }
-            if let Some(&result) = self.inputs[join].as_ref().unwrap().results.get(&recipe) {
-                if result.is_some() {
-                    return result;
-                }
+            // The first pass already checked this cached value's path requirements.
+            if self.inputs[join]
+                .as_ref()
+                .unwrap()
+                .results
+                .contains_key(&recipe)
+            {
                 continue;
             }
             let mut inputs = self.inputs[join].take().unwrap();
-            let arguments = inputs
-                .incoming
-                .iter_mut()
-                .map(|source| {
-                    let value = source.resolve(graph, recipe, inputs.common, self)?;
-                    Some((source.source, value))
-                })
-                .collect::<Option<HashMap<_, _>>>();
-            let result = arguments.and_then(|args| self.join_arguments(graph, join, recipe, &args));
-            inputs.results.insert(recipe, result);
+            let arguments = inputs.resolve_arguments(graph, recipe, facts, self);
             self.inputs[join] = Some(inputs);
-            if let Some(value) = result {
-                // A child can be the first requester. Record the binding at
-                // its owning join so other dominated uses can also find it.
+            let Some(arguments) = arguments else {
+                continue;
+            };
+            let result = arguments.materialize(graph, BlockId(join), &self.incoming[join]);
+            let value = result.value;
+            // A guarded value represents this recipe only at justified
+            // uses. Unconditional values also belong to the owning join.
+            if result.excluded.is_empty() {
                 self.blocks[join].values.insert(recipe, value);
-                return Some(value);
             }
+            self.inputs[join]
+                .as_mut()
+                .unwrap()
+                .results
+                .insert(recipe, result);
+            return Some(value);
         }
         None
     }
@@ -194,58 +223,126 @@ impl Joins {
             block = parent;
         }
     }
+}
 
-    fn join_arguments(
-        &self,
+impl JoinedValue {
+    fn usable_under(&self, values: &ValueTable, blocks: &[BlockValues], facts: &Facts) -> bool {
+        self.excluded.iter().all(|&source| {
+            blocks[source]
+                .facts
+                .as_ref()
+                .unwrap()
+                .conflicts_with(values, facts)
+        })
+    }
+}
+
+impl JoinInputs {
+    /// Resolve and validate every incoming argument before changing the join.
+    fn resolve_arguments(
+        &mut self,
         graph: &mut FunctionGraph,
-        join: usize,
         recipe: usize,
-        arguments: &HashMap<usize, usize>,
-    ) -> Option<usize> {
-        let bounds = arguments
+        facts: &Facts,
+        joins: &Joins,
+    ) -> Option<JoinArguments> {
+        let ty = graph.values[recipe].ty;
+        let mut values = HashMap::new();
+        let mut excluded = Vec::new();
+        for source in &mut self.incoming {
+            let value = if let Some(value) = source.resolve(graph, recipe, self.common, joins) {
+                value
+            } else if joins.blocks[source.source]
+                .facts
+                .as_ref()
+                .unwrap()
+                .conflicts_with(&graph.values, facts)
+            {
+                excluded.push(source.source);
+                graph.values.constant(ty, 0)
+            } else {
+                return None;
+            };
+            values.insert(source.source, value);
+        }
+        if !excluded.is_empty()
+            && !self.incoming.iter().any(|source| {
+                !excluded.contains(&source.source)
+                    && !joins.blocks[source.source]
+                        .facts
+                        .as_ref()
+                        .unwrap()
+                        .conflicts_with(&graph.values, facts)
+            })
+        {
+            return None;
+        }
+        let bounds = values
             .values()
             .map(|&value| graph.values.bounds[value])
             .reduce(BitBounds::union)
             .unwrap();
         let promised = graph.values.bounds[recipe];
-        let ty = graph.values[recipe].ty;
         if bounds.unsigned > promised.unsigned
             || bounds.signed > promised.signed
-            || arguments
+            || values
                 .values()
                 .any(|&value| (graph.values[value].ty == Type::I64) != (ty == Type::I64))
         {
             return None;
         }
-        let first = *arguments.values().next().unwrap();
-        if arguments.values().all(|&value| value == first) {
-            return Some(first);
+        Some(JoinArguments {
+            ty,
+            bounds,
+            values,
+            excluded,
+        })
+    }
+}
+
+impl JoinArguments {
+    fn materialize(
+        self,
+        graph: &mut FunctionGraph,
+        join: BlockId,
+        incoming: &[usize],
+    ) -> JoinedValue {
+        let first = *self.values.values().next().unwrap();
+        if self.values.values().all(|&value| value == first) {
+            return JoinedValue {
+                value: first,
+                excluded: self.excluded,
+            };
         }
-        let component = graph.blocks[join].parameters.len();
+        let component = graph.blocks[join.0].parameters.len();
         let parameter = graph.values.push_with_bounds(
             Value {
-                ty,
+                ty: self.ty,
                 definition: ValueDefinition::Parameter {
-                    block: BlockId(join),
+                    block: join,
                     component,
                 },
             },
-            bounds,
+            self.bounds,
         );
-        graph.blocks[join].parameters.push(parameter);
-        for &source in &self.incoming[join] {
-            let argument = arguments
+        graph.blocks[join.0].parameters.push(parameter);
+        for &source in incoming {
+            let argument = self
+                .values
                 .get(&source)
                 .copied()
                 // Inactive edges still have well-formed tuples. Their
                 // values are never consumed by the reachable join.
-                .unwrap_or_else(|| graph.values.constant(ty, 0));
+                .unwrap_or_else(|| graph.values.constant(self.ty, 0));
             for edge in graph.blocks[source].exit.edges_mut() {
-                if edge.target.0 == join {
+                if edge.target == join {
                     edge.arguments.push(argument);
                 }
             }
         }
-        Some(parameter)
+        JoinedValue {
+            value: parameter,
+            excluded: self.excluded,
+        }
     }
 }
