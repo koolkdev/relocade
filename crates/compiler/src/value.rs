@@ -1,5 +1,6 @@
 mod argument;
 mod construction;
+mod floating;
 mod source;
 mod unbound;
 
@@ -12,10 +13,10 @@ pub(crate) use unbound::UnboundExpression;
 
 use crate::{
     integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
-    AtLeast, DoubleWidth, Expression, IntType, I1, I32, I64,
+    AtLeast, DoubleWidth, Expression, IntType, ValueType, I1, I32, I64,
 };
 
-/// A literal, unbound calculation or function-body integer expression, checked by Rust.
+/// A literal, unbound calculation or function-body scalar expression, checked by Rust.
 ///
 /// Native literals use ordinary conversions, such as `Val::<I1>::from(false)` or
 /// `Val::<I32>::from(7)`. Literals and calculations containing only literals can
@@ -25,6 +26,8 @@ use crate::{
 /// preserves the branch visibility required by every original operand.
 /// Signed i32 inputs sign-extend and unsigned u32 inputs zero-extend; both keep
 /// only the logical low bits in narrower types. A u64 input requires I64.
+/// An f64 input requires F64 and retains its IEEE encoding. Integer and floating
+/// literals do not implicitly convert to each other's numerical types.
 ///
 /// Operations construct values immediately. Cloning an expression shares its
 /// storage. Construction errors are reported when a value is checked, stored,
@@ -38,12 +41,12 @@ use crate::{
 /// let value = Val::<I8>::from(false);
 /// ```
 #[derive(Clone)]
-pub struct Val<T: IntType> {
+pub struct Val<T: ValueType> {
     source: ValueSource,
     ty: PhantomData<T>,
 }
 
-impl<T: IntType> From<&Val<T>> for Val<T> {
+impl<T: ValueType> From<&Val<T>> for Val<T> {
     fn from(value: &Val<T>) -> Self {
         value.clone()
     }
@@ -73,7 +76,7 @@ impl From<bool> for Val<I1> {
     }
 }
 
-impl<T: IntType> Val<T> {
+impl<T: ValueType> Val<T> {
     /// Returns whether values share a successful representation. Two literals
     /// share their normalized bits; body expressions share their body and node.
     /// Clones of an unbound calculation share its construction recipe.
@@ -90,7 +93,9 @@ impl<T: IntType> Val<T> {
     pub fn argument(&self) -> Argument {
         self.into()
     }
+}
 
+impl<T: IntType> Val<T> {
     /// Adds an integer value or literal of the same type, wrapping on overflow.
     ///
     /// Different integer types cannot be mixed, even when both use Wasm i32:

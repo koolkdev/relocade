@@ -1,5 +1,5 @@
 //! Logical result shapes and signature-directed arguments.
-use crate::{value::ValueSource, Argument, BlockBuilder, BuildError, IntType, Type, Val};
+use crate::{value::ValueSource, Argument, BlockBuilder, BuildError, Type, Val, ValueType};
 
 mod sealed {
     use super::*;
@@ -15,7 +15,7 @@ mod sealed {
 
 /// The logical shape of call and control results, and of loop inputs.
 ///
-/// An integer marker such as `I32` produces `Val<I32>`. `()` produces no values.
+/// A scalar marker such as `I32` or `F64` produces its typed `Val`. `()` produces no values.
 /// Tuples of up to eight shapes produce corresponding tuples of typed values;
 /// arrays repeat a shape, and shapes may be nested. Components retain their
 /// logical types even when several types use the same WebAssembly carrier.
@@ -28,13 +28,13 @@ pub trait Results: sealed::Shape {
     type Values: sealed::Values;
 }
 
-impl<T: IntType> Results for T {
+impl<T: ValueType> Results for T {
     type Values = Val<T>;
 }
 
-impl<T: IntType> sealed::Shape for T {}
+impl<T: ValueType> sealed::Shape for T {}
 
-impl<T: IntType> sealed::Values for Val<T> {
+impl<T: ValueType> sealed::Values for Val<T> {
     fn types() -> Vec<Type> {
         vec![T::TYPE]
     }

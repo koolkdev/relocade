@@ -5,8 +5,8 @@ use crate::{
 };
 use wasm_encoder::{Function, Instruction as Wasm, ValType};
 mod control;
+mod expression;
 mod function;
-mod integer;
 mod memory;
 mod selection;
 mod switch;
@@ -14,10 +14,10 @@ mod view;
 use selection::Selection;
 
 pub(super) fn wasm_type(ty: Type) -> ValType {
-    if ty == Type::I64 {
-        ValType::I64
-    } else {
-        ValType::I32
+    match ty.carrier() {
+        Type::I64 => ValType::I64,
+        Type::F64 => ValType::F64,
+        _ => ValType::I32,
     }
 }
 
@@ -112,10 +112,10 @@ impl Writer<'_> {
                     let value = self.selection.resolve(value);
                     match self.graph.values[value].definition {
                         ValueDefinition::Constant(bits) => {
-                            self.emit(if self.graph.values[value].ty == Type::I64 {
-                                Wasm::I64Const(bits as i64)
-                            } else {
-                                Wasm::I32Const(bits as i32)
+                            self.emit(match self.graph.values[value].ty.carrier() {
+                                Type::I64 => Wasm::I64Const(bits as i64),
+                                Type::F64 => Wasm::F64Const(wasm_encoder::Ieee64::new(bits)),
+                                _ => Wasm::I32Const(bits as i32),
                             })
                         }
                         _ => {
@@ -156,7 +156,7 @@ impl Writer<'_> {
         match item {
             BlockItem::Evaluate(value) => {
                 let ty = self.graph.values[value].ty;
-                self.integer(ty, self.selection.expression(self.graph, value));
+                self.expression(ty, self.selection.expression(self.graph, value));
             }
             BlockItem::Effect(id) => {
                 let effect = &self.graph.effects[id.0];
@@ -172,7 +172,12 @@ impl Writer<'_> {
                         )
                     }
                     OperationKind::Store { access } => {
-                        memory::store(memory::argument(self.memories, access), access.bytes)
+                        let value = effect.operation.inputs().next_back().unwrap();
+                        memory::store(
+                            memory::argument(self.memories, access),
+                            access.bytes,
+                            self.graph.values[value].ty,
+                        )
                     }
                     OperationKind::Call { target } => {
                         Wasm::Call(self.functions[target.0].expect("a called function is retained"))

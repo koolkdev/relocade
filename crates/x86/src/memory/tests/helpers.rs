@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use wasm86_compiler::MemoryType;
 use wasmparser::{ExternalKind, FuncType, ValType};
 
 use super::*;

@@ -35,6 +35,9 @@ impl Folder<'_> {
         if self.values.representation(when_true) == self.values.representation(when_false) {
             return Some(when_true);
         }
+        if !self.values[when_true].ty.is_integer() {
+            return None;
+        }
         let nonzero = match (
             self.values[when_true].definition,
             self.values[when_false].definition,

@@ -1,9 +1,5 @@
 use crate::Type;
 
-mod bounds;
-
-pub(super) use bounds::BitBounds;
-
 pub(super) fn low_mask(bits: u8) -> u64 {
     u64::MAX.checked_shr(64 - u32::from(bits)).unwrap_or(0)
 }

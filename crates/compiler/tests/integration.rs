@@ -25,6 +25,8 @@ mod control_flow;
 mod division;
 #[path = "suites/execution.rs"]
 mod execution;
+#[path = "suites/floating.rs"]
+mod floating;
 #[path = "suites/function_bodies.rs"]
 mod function_bodies;
 #[path = "suites/generated_code.rs"]

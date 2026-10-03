@@ -1,6 +1,6 @@
 use crate::{
     body::{Operation, ValueDefinition, ValueTable},
-    AtLeast, BlockBuilder, BuildError, Program, Val, I1, I16, I32, I64, I8,
+    AtLeast, BlockBuilder, BuildError, Program, Val, ValueType, F64, I1, I16, I32, I64, I8,
 };
 
 mod atomic;
@@ -35,23 +35,36 @@ pub struct MemoryImport {
 ///     let bit = body.load::<I1>(memory, 0);
 /// }
 /// ```
-pub trait MemoryInt: AtLeast<I1> + AtLeast<I8> {
+pub trait MemoryInt: MemoryType + AtLeast<I1> + AtLeast<I8> {}
+
+/// A scalar type stored in a whole number of bytes. Floating loads and stores
+/// preserve the exact encoding, including signed zeros and NaN payloads.
+pub trait MemoryType: ValueType {
     /// The number of bytes read or written by an access of this type.
     const BYTES: u32;
 }
 
-impl MemoryInt for I8 {
+impl MemoryType for I8 {
     const BYTES: u32 = 1;
 }
-impl MemoryInt for I16 {
+impl MemoryType for I16 {
     const BYTES: u32 = 2;
 }
-impl MemoryInt for I32 {
+impl MemoryType for I32 {
     const BYTES: u32 = 4;
 }
-impl MemoryInt for I64 {
+impl MemoryType for I64 {
     const BYTES: u32 = 8;
 }
+
+impl MemoryType for F64 {
+    const BYTES: u32 = 8;
+}
+
+impl MemoryInt for I8 {}
+impl MemoryInt for I16 {}
+impl MemoryInt for I32 {}
+impl MemoryInt for I64 {}
 
 /// Memory attributes independent of the address supplied by an operation.
 #[derive(Clone, Copy)]
@@ -62,7 +75,7 @@ pub(super) struct MemoryAccess {
 }
 
 impl MemoryAccess {
-    fn new<T: MemoryInt>(memory: Mem, offset: u32) -> Self {
+    fn new<T: MemoryType>(memory: Mem, offset: u32) -> Self {
         Self {
             memory,
             offset,
@@ -136,12 +149,12 @@ impl Program {
 }
 
 impl BlockBuilder<'_> {
-    /// Reads an integer at a fixed byte offset in little-endian memory.
+    /// Reads a scalar at a fixed byte offset in little-endian memory.
     /// Each call creates a separate read. Reusing its value preserves that read's
     /// snapshot across overlapping stores and explicit atomic effects. A used
     /// read may run later, past stores to other bytes; an unused read and its
     /// possible trap are omitted.
-    pub fn load<T: MemoryInt>(&mut self, memory: Mem, offset: u32) -> Result<Val<T>, BuildError> {
+    pub fn load<T: MemoryType>(&mut self, memory: Mem, offset: u32) -> Result<Val<T>, BuildError> {
         self.load_at(memory, 0, offset)
     }
 
@@ -167,7 +180,7 @@ impl BlockBuilder<'_> {
     /// let bytes = program.compile()?;
     /// # Ok::<(), wasm86_compiler::BuildError>(())
     /// ```
-    pub fn load_at<T: MemoryInt>(
+    pub fn load_at<T: MemoryType>(
         &mut self,
         memory: Mem,
         address: impl Into<Val<I32>>,
@@ -180,9 +193,9 @@ impl BlockBuilder<'_> {
         Ok(Val::new(self.arena.clone(), Ok(value)))
     }
 
-    /// Writes the value's low bits in little-endian byte order. Stores execute
+    /// Writes the value's encoding in little-endian byte order. Stores execute
     /// in the order they are constructed and access exactly the type's byte size.
-    pub fn store<T: MemoryInt>(
+    pub fn store<T: MemoryType>(
         &mut self,
         memory: Mem,
         offset: u32,
@@ -195,7 +208,7 @@ impl BlockBuilder<'_> {
     /// with the same nonwrapping displacement rule as [`Self::load_at`].
     /// Stores keep their order. When both operands still need evaluation,
     /// the address is evaluated first.
-    pub fn store_at<T: MemoryInt>(
+    pub fn store_at<T: MemoryType>(
         &mut self,
         memory: Mem,
         address: impl Into<Val<I32>>,

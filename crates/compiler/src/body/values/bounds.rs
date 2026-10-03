@@ -1,8 +1,9 @@
-//! Conservative bit widths of emitted values, including unused logical upper bits.
+//! Conservative widths of physical encodings, including unused logical upper bits.
+//! For floating values these describe encoding bits, not numerical magnitude.
 
-use super::{shift_count, BinaryOp, BitCountOp, ShiftOp};
 use crate::{
     body::{BlockItem, Value, ValueDefinition},
+    integer::{shift_count, BinaryOp, BitCountOp, ShiftOp},
     Expression, Type,
 };
 
@@ -23,7 +24,7 @@ impl BitBounds {
     }
 
     pub(crate) fn for_value(value: Value, values: &[Value], inputs: &[Self]) -> Self {
-        let carrier = if value.ty == Type::I64 { 64 } else { 32 };
+        let carrier = value.ty.carrier().bits();
         let unsigned = unsigned_bits(value, values, inputs);
         // A zero-extended value needs one more bit for a nonnegative sign. At
         // full carrier width no narrower signed representation is established.
@@ -68,7 +69,7 @@ impl BitBounds {
 }
 
 fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
-    let carrier = if value.ty == Type::I64 { 64 } else { 32 };
+    let carrier = value.ty.carrier().bits();
     match value.definition {
         // Backedges may carry wider intermediate bits than their initial values.
         // Loop edges preserve those bits just like ordinary result joins.
@@ -125,7 +126,9 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
             },
             Expression::Rotate { .. }
             | Expression::SignExtend { .. }
-            | Expression::MultiplyWide { .. } => carrier,
+            | Expression::MultiplyWide { .. }
+            | Expression::FloatBinary { .. }
+            | Expression::FloatUnary { .. } => carrier,
             Expression::BitCount { operator, input } => {
                 let maximum = match operator {
                     BitCountOp::Ones => inputs[input].unsigned,
@@ -139,8 +142,12 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
                 ..
             } => inputs[when_true].unsigned.max(inputs[when_false].unsigned),
             Expression::LowBits { input, bits } => inputs[input].unsigned.min(bits),
-            Expression::Convert { input } => inputs[input].unsigned.min(carrier),
-            Expression::Compare { .. } | Expression::ZeroTest { .. } => 1,
+            Expression::Convert { input } | Expression::Reinterpret { input } => {
+                inputs[input].unsigned.min(carrier)
+            }
+            Expression::Compare { .. }
+            | Expression::FloatCompare { .. }
+            | Expression::ZeroTest { .. } => 1,
         },
     }
 }

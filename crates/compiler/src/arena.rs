@@ -1,10 +1,9 @@
 //! Shared graph construction, lexical visibility and unbound-expression admission.
 use crate::{
     body::{
-        BlockId, BlockItem, Effect, EffectId, Exit, FunctionGraph, Layout, Operation, Value,
-        ValueDefinition, ValueTable,
+        BitBounds, BlockId, BlockItem, Effect, EffectId, Exit, FunctionGraph, Layout, Operation,
+        Value, ValueDefinition, ValueTable,
     },
-    integer::BitBounds,
     value::UnboundExpression,
     BuildError, Expression, Type,
 };
@@ -67,7 +66,7 @@ impl FunctionArena {
             // Parameters are initialized in signature order before consumers build values.
             assert_eq!(graph.blocks[0].parameters.len(), component);
             let unsigned = ty.bits();
-            let carrier = if ty == Type::I64 { 64 } else { 32 };
+            let carrier = ty.carrier().bits();
             let value = graph.values.push_with_bounds(
                 Value {
                     ty,

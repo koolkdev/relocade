@@ -1,7 +1,7 @@
-/// Logical integer types used by values and function signatures.
+/// Logical scalar types used by values and function signatures.
 ///
-/// These describe integer bit patterns. Operations choose signed or unsigned
-/// interpretation; WebAssembly storage is chosen during emission.
+/// Integer operations choose signed or unsigned interpretation. F64 uses strict
+/// IEEE binary64 arithmetic. WebAssembly storage is chosen during emission.
 ///
 /// At function boundaries, I1, I8 and I16 use zero-extended Wasm i32 values.
 /// Callers must supply arguments in 0..=1, 0..=255 and 0..=65535 respectively.
@@ -14,16 +14,23 @@ pub enum Type {
     I16,
     I32,
     I64,
+    F64,
 }
 
 impl Type {
-    /// The Wasm integer type carrying this logical value.
+    /// The Wasm scalar type carrying this logical value.
     pub(super) fn carrier(self) -> Self {
-        if self == Self::I64 {
-            Self::I64
-        } else {
-            Self::I32
+        match self {
+            Self::I1 | Self::I8 | Self::I16 | Self::I32 => Self::I32,
+            Self::I64 | Self::F64 => self,
         }
+    }
+
+    pub(super) fn is_integer(self) -> bool {
+        matches!(
+            self,
+            Self::I1 | Self::I8 | Self::I16 | Self::I32 | Self::I64
+        )
     }
 
     pub(super) fn bits(self) -> u8 {
@@ -32,7 +39,7 @@ impl Type {
             Self::I8 => 8,
             Self::I16 => 16,
             Self::I32 => 32,
-            Self::I64 => 64,
+            Self::I64 | Self::F64 => 64,
         }
     }
 
@@ -49,10 +56,13 @@ mod sealed {
     pub trait Sealed {}
 }
 
-/// A supported integer type known at compile time.
-pub trait IntType: Copy + sealed::Sealed + 'static {
+/// A supported scalar type known at compile time.
+pub trait ValueType: Copy + sealed::Sealed + 'static {
     const TYPE: Type;
 }
+
+/// An integer type supporting bit operations and signed or unsigned views.
+pub trait IntType: ValueType {}
 
 /// A logical one-bit integer type.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -74,31 +84,68 @@ pub struct I32;
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct I64;
 
+/// An IEEE binary64 floating-point type, carried by WebAssembly f64.
+///
+/// Floating values use the same parameters, calls, memory and result shapes as
+/// integers. Their arithmetic uses scalar Wasm rounding and NaN behavior.
+///
+/// ```
+/// use wasm86_compiler::{Program, Signature, Type, F64};
+/// let mut program = Program::new();
+/// let scale = program.function(Signature {
+///     parameters: vec![Type::F64], results: vec![Type::F64],
+/// }, |body| {
+///     let value = body.parameter::<F64>(0)?;
+///     body.return_(value.mul(0.5))
+/// })?;
+/// program.export("scale", scale)?;
+/// let bytes = program.compile()?;
+/// # Ok::<(), wasm86_compiler::BuildError>(())
+/// ```
+/// Integer bit operations require an explicit encoding view:
+/// ```compile_fail
+/// use wasm86_compiler::{Val, F64};
+/// let bits = Val::<F64>::from(1.0).and(7);
+/// ```
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct F64;
+
 impl sealed::Sealed for I1 {}
 impl sealed::Sealed for I8 {}
 impl sealed::Sealed for I16 {}
 impl sealed::Sealed for I32 {}
 impl sealed::Sealed for I64 {}
+impl sealed::Sealed for F64 {}
 
-impl IntType for I1 {
+impl ValueType for I1 {
     const TYPE: Type = Type::I1;
 }
 
-impl IntType for I8 {
+impl ValueType for I8 {
     const TYPE: Type = Type::I8;
 }
 
-impl IntType for I16 {
+impl ValueType for I16 {
     const TYPE: Type = Type::I16;
 }
 
-impl IntType for I32 {
+impl ValueType for I32 {
     const TYPE: Type = Type::I32;
 }
 
-impl IntType for I64 {
+impl ValueType for I64 {
     const TYPE: Type = Type::I64;
 }
+
+impl ValueType for F64 {
+    const TYPE: Type = Type::F64;
+}
+
+impl IntType for I1 {}
+impl IntType for I8 {}
+impl IntType for I16 {}
+impl IntType for I32 {}
+impl IntType for I64 {}
 
 /// Integer types whose bit count is at least that of `Other`.
 /// Extension and truncation use this relation to check their direction in Rust.

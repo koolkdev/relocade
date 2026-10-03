@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
 use super::{UnboundExpression, Val};
-use crate::{arena::FunctionArena, BuildError, IntType, Type};
+use crate::{arena::FunctionArena, BuildError, Type, ValueType};
 
 #[derive(Clone)]
 pub(crate) enum ValueSource {
@@ -108,7 +108,7 @@ impl ValueSource {
     }
 }
 
-impl<T: IntType> Val<T> {
+impl<T: ValueType> Val<T> {
     pub(crate) fn new(arena: FunctionArena, expression: Result<usize, BuildError>) -> Self {
         Self::from_source(ValueSource::from_definition(arena, expression))
     }

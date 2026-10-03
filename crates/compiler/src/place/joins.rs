@@ -1,6 +1,6 @@
 //! Preserve common facts and reuse incoming values at completed joins.
 use super::*;
-use crate::{integer::BitBounds, Type};
+use crate::{body::BitBounds, Type};
 use std::collections::HashSet;
 
 mod incoming;
@@ -309,7 +309,7 @@ impl JoinInputs {
             || bounds.signed > promised.signed
             || values
                 .values()
-                .any(|&value| (graph.values[value].ty == Type::I64) != (ty == Type::I64))
+                .any(|&value| graph.values[value].ty.carrier() != ty.carrier())
         {
             return None;
         }

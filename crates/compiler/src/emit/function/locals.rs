@@ -40,7 +40,7 @@ pub(super) fn allocate(
     let mut types = Vec::new();
     let mut indices = vec![None; slot_types.len()];
     let mut active = BinaryHeap::<Reverse<(usize, u32)>>::new();
-    let mut free = [BinaryHeap::<Reverse<u32>>::new(), BinaryHeap::new()];
+    let mut free: [BinaryHeap<Reverse<u32>>; 3] = std::array::from_fn(|_| BinaryHeap::new());
     // A local must retain its value through its last access. After that, another
     // value of the same type can use it, even if the old value is still on the stack.
     for (first, last, slot) in intervals {
@@ -69,7 +69,8 @@ fn type_index(ty: ValType) -> usize {
     match ty {
         ValType::I32 => 0,
         ValType::I64 => 1,
-        _ => unreachable!("only integer carriers reach local allocation"),
+        ValType::F64 => 2,
+        _ => unreachable!("only supported scalar carriers reach local allocation"),
     }
 }
 
@@ -80,7 +81,7 @@ mod tests {
 
     #[test]
     fn disjoint_lifetimes_reuse_a_local_of_the_same_type() {
-        for ty in [ValType::I32, ValType::I64] {
+        for ty in [ValType::I32, ValType::I64, ValType::F64] {
             let allocated = allocate([0, 0, 1, 1], &[ty, ty], &[]);
             assert_eq!(allocated.indices[0], allocated.indices[1]);
             assert_eq!(allocated.types.len(), 1);

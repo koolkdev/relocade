@@ -3,7 +3,7 @@ use crate::{
     arena::FunctionArena,
     body::{BlockId, Exit, Layout, Operation},
     control::JoinTarget,
-    Argument, Arguments, BuildError, Func, FunctionKind, IntType, Program, Signature, Type, Val,
+    Argument, Arguments, BuildError, Func, FunctionKind, Program, Signature, Type, Val, ValueType,
 };
 
 /// Builds a function body or child block. Its parent owns the block and attaches
@@ -198,7 +198,7 @@ impl BlockBuilder<'_> {
     /// Selects a parameter by its zero-based position in the signature.
     /// The requested type must match the declared parameter type. Callers must
     /// supply narrow arguments zero-extended, as required by [`Type`].
-    pub fn parameter<T: IntType>(&self, index: u32) -> Result<Val<T>, BuildError> {
+    pub fn parameter<T: ValueType>(&self, index: u32) -> Result<Val<T>, BuildError> {
         let actual = *self
             .signature()
             .parameters
@@ -226,7 +226,7 @@ impl BlockBuilder<'_> {
     ///     let value = body.value::<I32>(1_u64);
     /// }
     /// ```
-    pub fn value<T: IntType>(&self, operand: impl Into<Val<T>>) -> Result<Val<T>, BuildError> {
+    pub fn value<T: ValueType>(&self, operand: impl Into<Val<T>>) -> Result<Val<T>, BuildError> {
         operand.into().bind(&self.arena, self.pending.id)
     }
 
@@ -251,7 +251,7 @@ impl BlockBuilder<'_> {
         self.terminate(|_| Ok(Exit::Trap))
     }
 
-    pub(super) fn operand<T: IntType>(
+    pub(super) fn operand<T: ValueType>(
         &self,
         value: impl Into<Val<T>>,
     ) -> Result<usize, BuildError> {

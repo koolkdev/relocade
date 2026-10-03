@@ -2,10 +2,10 @@
 use std::collections::HashMap;
 
 use super::{BlockItem, Value, ValueDefinition};
-use crate::{
-    integer::{self, BitBounds},
-    Expression, Type,
-};
+use crate::{integer, Expression, Type};
+
+mod bounds;
+pub(crate) use bounds::BitBounds;
 
 #[derive(Default)]
 pub(crate) struct ValueTable {

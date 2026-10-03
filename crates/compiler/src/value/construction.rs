@@ -4,14 +4,14 @@ use super::{
     unbound::{Operand as UnboundOperand, UnboundExpression},
     Val,
 };
-use crate::{expression::Constant, results, Expression, IntType, Results, Type, I1};
+use crate::{expression::Constant, results, Expression, Results, Type, ValueType, I1};
 
 pub(super) struct Operand {
     ty: Type,
     source: ValueSource,
 }
 
-impl<T: IntType> From<&Val<T>> for Operand {
+impl<T: ValueType> From<&Val<T>> for Operand {
     fn from(value: &Val<T>) -> Self {
         Self {
             ty: T::TYPE,
@@ -20,7 +20,7 @@ impl<T: IntType> From<&Val<T>> for Operand {
     }
 }
 
-impl<T: IntType> From<Val<T>> for Operand {
+impl<T: ValueType> From<Val<T>> for Operand {
     fn from(value: Val<T>) -> Self {
         Self {
             ty: T::TYPE,
@@ -29,7 +29,7 @@ impl<T: IntType> From<Val<T>> for Operand {
     }
 }
 
-impl<T: IntType> Val<T> {
+impl<T: ValueType> Val<T> {
     pub(super) fn expression(expression: Expression<Operand>) -> Self {
         expression_results::<T>(expression)
     }
@@ -130,7 +130,7 @@ impl Val<I1> {
     /// let bytes = program.compile()?;
     /// # Ok::<(), wasm86_compiler::BuildError>(())
     /// ```
-    pub fn select<T: IntType>(
+    pub fn select<T: ValueType>(
         &self,
         when_true: impl Into<Val<T>>,
         when_false: impl Into<Val<T>>,

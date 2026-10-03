@@ -91,7 +91,11 @@ impl Folder<'_> {
             Expression::BitCount { operator, input } => self.bit_count(operator, input),
             Expression::ZeroTest { input, nonzero } => self.zero_test(input, nonzero),
             Expression::Convert { input } => self.convert(input, ty),
-            Expression::LowBits { .. } => self.fold(ty, expression),
+            Expression::LowBits { .. }
+            | Expression::FloatBinary { .. }
+            | Expression::FloatUnary { .. }
+            | Expression::FloatCompare { .. }
+            | Expression::Reinterpret { .. } => self.fold(ty, expression),
             Expression::MultiplyWide { .. } => self.fold_result(ty, expression, component),
         }
     }
@@ -144,7 +148,20 @@ impl Folder<'_> {
                 }
                 _ => None,
             },
-            Expression::BitCount { .. } => None,
+            Expression::Reinterpret { input } => match self.values[input].definition {
+                ValueDefinition::Expression(Expression::Reinterpret { input: original })
+                    if self.values[original].ty == ty =>
+                {
+                    Some(original)
+                }
+                _ => None,
+            },
+            // Integer identities and comparison complements do not hold for
+            // floating-point values, including NaNs and signed zeros.
+            Expression::FloatBinary { .. }
+            | Expression::FloatUnary { .. }
+            | Expression::FloatCompare { .. }
+            | Expression::BitCount { .. } => None,
         };
         let expression = if let Some(input) = input {
             if self.values[input].ty == ty {

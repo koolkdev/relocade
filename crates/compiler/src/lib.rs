@@ -1,6 +1,6 @@
 //! Guest-independent construction of typed WebAssembly functions.
 //!
-//! [`Program`] owns function and memory declarations. [`Val`] constructs integer
+//! [`Program`] owns function and memory declarations. [`Val`] constructs scalar
 //! expressions; [`Type`] specifies logical widths and their Wasm calling convention.
 //! [`BlockBuilder`] adds memory effects, branches and loops, using [`Results`]
 //! for typed result shapes. [`Mem`] and [`MemoryImport`] describe external memory.
@@ -31,6 +31,7 @@ mod call;
 mod control;
 mod emit;
 mod expression;
+mod floating;
 mod function;
 mod integer;
 mod memory;
@@ -47,9 +48,9 @@ pub use call::FunctionImport;
 pub use control::{Label, LoopLabels};
 use expression::Expression;
 pub use function::BlockBuilder;
-pub use memory::{AtomicAccess, Mem, MemoryImport, MemoryInt};
+pub use memory::{AtomicAccess, Mem, MemoryImport, MemoryInt, MemoryType};
 pub use results::{Arguments, Results};
-pub use types::{AtLeast, DoubleWidth, IntType, Type, I1, I16, I32, I64, I8};
+pub use types::{AtLeast, DoubleWidth, IntType, Type, ValueType, F64, I1, I16, I32, I64, I8};
 pub use value::{Argument, Signed, Unsigned, Val};
 
 /// A function's ordered logical parameter and result types.

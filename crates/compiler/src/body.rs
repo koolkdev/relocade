@@ -6,7 +6,7 @@ mod producer;
 mod values;
 pub(super) use operation::{Operation, OperationKind};
 pub(super) use producer::{BlockItem, Effect, EffectId};
-pub(super) use values::ValueTable;
+pub(super) use values::{BitBounds, ValueTable};
 
 pub(super) struct FunctionGraph {
     pub(super) values: ValueTable,

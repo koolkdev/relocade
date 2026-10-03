@@ -58,13 +58,14 @@ pub(super) fn argument(memories: &[Option<u32>], access: MemoryAccess) -> MemArg
     }
 }
 
-pub(super) fn store(argument: MemArg, bytes: u8) -> Instruction<'static> {
-    match bytes {
-        1 => Instruction::I32Store8(argument),
-        2 => Instruction::I32Store16(argument),
-        4 => Instruction::I32Store(argument),
-        8 => Instruction::I64Store(argument),
-        _ => unreachable!("memory locations have a supported byte size"),
+pub(super) fn store(argument: MemArg, bytes: u8, value_type: Type) -> Instruction<'static> {
+    match (value_type.carrier(), bytes) {
+        (Type::I32, 1) => Instruction::I32Store8(argument),
+        (Type::I32, 2) => Instruction::I32Store16(argument),
+        (Type::I32, 4) => Instruction::I32Store(argument),
+        (Type::I64, 8) => Instruction::I64Store(argument),
+        (Type::F64, 8) => Instruction::F64Store(argument),
+        _ => unreachable!("a store retains its carrier and storage width"),
     }
 }
 
@@ -74,16 +75,17 @@ pub(super) fn load(
     target: Type,
     signed: bool,
 ) -> Instruction<'static> {
-    match (target == Type::I64, bytes, signed) {
-        (false, 1, false) => Instruction::I32Load8U(argument),
-        (false, 1, true) => Instruction::I32Load8S(argument),
-        (false, 2, false) => Instruction::I32Load16U(argument),
-        (false, 2, true) => Instruction::I32Load16S(argument),
-        (false, 4, false) => Instruction::I32Load(argument),
-        (true, 1, true) => Instruction::I64Load8S(argument),
-        (true, 2, true) => Instruction::I64Load16S(argument),
-        (true, 4, true) => Instruction::I64Load32S(argument),
-        (true, 8, false) => Instruction::I64Load(argument),
+    match (target.carrier(), bytes, signed) {
+        (Type::I32, 1, false) => Instruction::I32Load8U(argument),
+        (Type::I32, 1, true) => Instruction::I32Load8S(argument),
+        (Type::I32, 2, false) => Instruction::I32Load16U(argument),
+        (Type::I32, 2, true) => Instruction::I32Load16S(argument),
+        (Type::I32, 4, false) => Instruction::I32Load(argument),
+        (Type::I64, 1, true) => Instruction::I64Load8S(argument),
+        (Type::I64, 2, true) => Instruction::I64Load16S(argument),
+        (Type::I64, 4, true) => Instruction::I64Load32S(argument),
+        (Type::I64, 8, false) => Instruction::I64Load(argument),
+        (Type::F64, 8, false) => Instruction::F64Load(argument),
         _ => unreachable!("a load retains its type or widens with its original sign"),
     }
 }

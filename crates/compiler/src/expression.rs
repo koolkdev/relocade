@@ -7,12 +7,30 @@ pub(crate) use fold::{build, normalize, refold};
 mod tests;
 
 use crate::{
+    floating,
     integer::{self, BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
     Type,
 };
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum Expression<V> {
+    FloatBinary {
+        operator: floating::BinaryOp,
+        left: V,
+        right: V,
+    },
+    FloatUnary {
+        operator: floating::UnaryOp,
+        input: V,
+    },
+    FloatCompare {
+        operator: floating::CompareOp,
+        left: V,
+        right: V,
+    },
+    Reinterpret {
+        input: V,
+    },
     Binary {
         operator: BinaryOp,
         left: V,
@@ -98,6 +116,34 @@ impl<V> Expression<V> {
         mut input: impl FnMut(&'a V) -> Result<U, E>,
     ) -> Result<Expression<U>, E> {
         Ok(match self {
+            Self::FloatBinary {
+                operator,
+                left,
+                right,
+            } => Expression::FloatBinary {
+                operator: *operator,
+                left: input(left)?,
+                right: input(right)?,
+            },
+            Self::FloatUnary {
+                operator,
+                input: value,
+            } => Expression::FloatUnary {
+                operator: *operator,
+                input: input(value)?,
+            },
+            Self::FloatCompare {
+                operator,
+                left,
+                right,
+            } => Expression::FloatCompare {
+                operator: *operator,
+                left: input(left)?,
+                right: input(right)?,
+            },
+            Self::Reinterpret { input: value } => Expression::Reinterpret {
+                input: input(value)?,
+            },
             Self::Binary {
                 operator,
                 left,
@@ -203,6 +249,18 @@ impl Expression<Constant> {
     pub(super) fn constant_result(&self, result: Type, component: usize) -> Option<u64> {
         debug_assert!(component < self.result_types(result).len());
         let bits = match *self {
+            Self::FloatBinary {
+                operator,
+                left,
+                right,
+            } => floating::binary(operator, left.bits, right.bits)?,
+            Self::FloatUnary { operator, input } => floating::unary(operator, input.bits),
+            Self::FloatCompare {
+                operator,
+                left,
+                right,
+            } => u64::from(floating::compare(operator, left.bits, right.bits)),
+            Self::Reinterpret { input } => input.bits,
             Self::Binary {
                 operator,
                 left,

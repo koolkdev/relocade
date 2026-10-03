@@ -212,6 +212,9 @@ impl Folder<'_> {
 
     pub(crate) fn normalize(&mut self, input: usize) -> usize {
         let ty = self.values[input].ty;
+        if !ty.is_integer() {
+            return input;
+        }
         self.fold(
             ty,
             Expression::LowBits {

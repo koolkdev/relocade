@@ -1,10 +1,11 @@
-//! Lowering logical integer expressions to Wasm carrier operations.
+//! Lowering pure scalar expressions to their Wasm carrier operations.
 use super::Writer;
 use wasm_encoder::Instruction;
 
 mod wide;
 
 use crate::{
+    floating,
     integer::{low_mask, BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
     Expression, Type,
 };
@@ -13,9 +14,32 @@ impl Writer<'_> {
     /// Operands are already on the stack in Wasm order. Their logical types select
     /// the instructions independently of the expression's result type. Conversions
     /// within one Wasm carrier have already been bypassed by representation selection.
-    pub(super) fn integer(&mut self, result_type: Type, expression: Expression<Type>) {
+    pub(super) fn expression(&mut self, result_type: Type, expression: Expression<Type>) {
         let wide = result_type == Type::I64;
         let instruction = match expression {
+            Expression::FloatBinary { operator, .. } => match operator {
+                floating::BinaryOp::Add => Instruction::F64Add,
+                floating::BinaryOp::Sub => Instruction::F64Sub,
+                floating::BinaryOp::Mul => Instruction::F64Mul,
+                floating::BinaryOp::Div => Instruction::F64Div,
+            },
+            Expression::FloatUnary { operator, .. } => match operator {
+                floating::UnaryOp::Abs => Instruction::F64Abs,
+                floating::UnaryOp::Neg => Instruction::F64Neg,
+            },
+            Expression::FloatCompare { operator, .. } => match operator {
+                floating::CompareOp::Eq => Instruction::F64Eq,
+                floating::CompareOp::Ne => Instruction::F64Ne,
+                floating::CompareOp::Lt => Instruction::F64Lt,
+                floating::CompareOp::Le => Instruction::F64Le,
+                floating::CompareOp::Gt => Instruction::F64Gt,
+                floating::CompareOp::Ge => Instruction::F64Ge,
+            },
+            Expression::Reinterpret { input } => match (input, result_type) {
+                (Type::I64, Type::F64) => Instruction::F64ReinterpretI64,
+                (Type::F64, Type::I64) => Instruction::I64ReinterpretF64,
+                _ => unreachable!("bitcasts preserve width and change scalar type"),
+            },
             Expression::Binary { operator, .. } => match (operator, wide) {
                 (BinaryOp::Add, false) => Instruction::I32Add,
                 (BinaryOp::Add, true) => Instruction::I64Add,
@@ -103,7 +127,9 @@ impl Writer<'_> {
                     Type::I8 => self.emit(Instruction::I32Extend8S),
                     Type::I16 => self.emit(Instruction::I32Extend16S),
                     Type::I32 => {}
-                    Type::I64 => unreachable!("a signed extension widens its input"),
+                    Type::I64 | Type::F64 => {
+                        unreachable!("a signed extension widens an integer input")
+                    }
                 }
                 if wide {
                     Instruction::I64ExtendI32S
