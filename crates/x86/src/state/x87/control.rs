@@ -8,10 +8,7 @@ use crate::{
     x87::RoundingMode,
 };
 
-pub(crate) enum X87ModeFields {
-    Rounding,
-    PrecisionAndRounding,
-}
+use super::X87Specialization;
 
 /// Maskable exceptions share bit positions in the architectural control and
 /// status words. Stack fault is a status condition, not a seventh exception mask.
@@ -74,19 +71,19 @@ impl Control {
             .read(body, cpu_location!(x87.control.precision_control))
     }
 
-    pub(super) fn matches_mode(
+    pub(super) fn matches_controls(
         &mut self,
         body: &mut BlockBuilder<'_>,
         expected: &StoredX87Control,
-        fields: X87ModeFields,
+        specialization: X87Specialization,
     ) -> Result<Val<I1>, BuildError> {
         let rounding = self
             .fields
             .read(body, cpu_location!(x87.control.rounding_control))?;
         let matches = rounding.and(3).eq(u32::from(expected.rounding_control & 3));
-        Ok(match fields {
-            X87ModeFields::Rounding => matches,
-            X87ModeFields::PrecisionAndRounding => matches.and(
+        Ok(match specialization {
+            X87Specialization::Rounding => matches,
+            X87Specialization::Arithmetic => matches.and(
                 self.precision(body)?
                     .and(3)
                     .eq(u32::from(expected.precision_control & 3)),

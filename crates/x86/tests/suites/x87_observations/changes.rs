@@ -49,8 +49,13 @@ fn loaded_controls(engine: Engine) {
 
 fn initialized_controls(engine: Engine) {
     let code = [0xdb, 0xe3, 0xd9, 0x05, 0, 0x40, 0, 0, 0xd8, 0xc8];
-    for (pc, rc) in [(3, 0), (2, 2)] {
-        let compiled = compiler(pc, rc).compile(0x1000, &code, 3).unwrap();
+    for (pc, rc, precision_set) in [(3, 0, false), (2, 2, false), (3, 0, true)] {
+        let compiler = if precision_set {
+            masked_precision_compiler(pc, rc)
+        } else {
+            compiler(pc, rc)
+        };
+        let compiled = compiler.compile(0x1000, &code, 3).unwrap();
         let block = TestModule::new(&compiled);
         let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
         let mut image = stack_image(&code, 3, 0);
@@ -78,7 +83,7 @@ fn initialized_controls(engine: Engine) {
         write_value(&mut loaded, 7, (LEADING, 0x4000));
         let mut result = complete_x87(loaded, 2, 0x00c8);
         write_value(&mut result, 7, (LEADING, 0x4001));
-        if pc == 3 && rc == 0 {
+        if pc == 3 && rc == 0 && !precision_set {
             assert_eq!(
                 engine.observe(&block, &image.input(), 1),
                 expected(&image, &[dispatch(result)])
@@ -118,6 +123,7 @@ fn exceptions_precede_mode_mismatch(engine: Engine) {
             error: 2,
         },
     );
+    image.cpu.x87.control.precision_mask = 0;
     image.cpu.x87.status.error_summary = 1;
     image.cpu.x87.status.busy = 1;
     image.check_unchanged_exit(
@@ -127,8 +133,8 @@ fn exceptions_precede_mode_mismatch(engine: Engine) {
         Exit::FloatingPoint,
     );
 
-    // Masks remain dynamic: an unmasked #P commits the specialized result and
-    // leaves the next waiting instruction to deliver #MF.
+    // A PE-clear observation keeps masks dynamic: an unmasked #P commits the
+    // result and leaves the next waiting instruction to deliver #MF.
     let code = [0xd8, 0xc9, 0x9b];
     let block = TestModule::new(&compiler(3, 2).compile(0x1000, &code, 2).unwrap());
     let mut image = stack_image(&code, 0, 0xfff0);

@@ -1,8 +1,10 @@
-//! Observed modes specialize current SSA controls without changing guest state.
+//! Observed x87 state specializes current SSA values without replacing guest state.
 
-#[path = "x87_modes/changes.rs"]
+#[path = "x87_observations/changes.rs"]
 mod changes;
-#[path = "x87_modes/shape.rs"]
+#[path = "x87_observations/precision.rs"]
+mod precision;
+#[path = "x87_observations/shape.rs"]
 mod shape;
 
 use crate::support::{
@@ -14,11 +16,22 @@ use wasm86_x86::{BlockCompiler, CpuState, SegmentProfile};
 
 const LEADING: u64 = 1 << 63;
 
-fn compiler(pc: u8, rc: u8) -> BlockCompiler {
+fn observed_cpu(pc: u8, rc: u8) -> CpuState {
     let mut observed = CpuState::default();
     // Observations and runtime backing need agree only on the logical bits.
     observed.x87.control.precision_control = pc | 0x80;
     observed.x87.control.rounding_control = rc | 0x80;
+    observed
+}
+
+fn compiler(pc: u8, rc: u8) -> BlockCompiler {
+    BlockCompiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed_cpu(pc, rc))
+}
+
+fn masked_precision_compiler(pc: u8, rc: u8) -> BlockCompiler {
+    let mut observed = observed_cpu(pc, rc);
+    observed.x87.control.precision_mask = 0x81;
+    observed.x87.status.precision = 0x41;
     BlockCompiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
 }
 
@@ -99,11 +112,15 @@ fn arithmetic_modes(engine: Engine) {
 fn converted_stores_use_only_rounding(engine: Engine) {
     let code = [0xd9, 0x15, 0, 0x40, 0, 0, 0xdb, 0x15, 4, 0x40, 0, 0];
     for rc in 0..4 {
-        let block = TestModule::new(&compiler(0, rc).compile(0x1000, &code, 2).unwrap());
+        let block = TestModule::new(
+            &masked_precision_compiler(0, rc)
+                .compile(0x1000, &code, 2)
+                .unwrap(),
+        );
         let mut image = stack_image(&code, 0, 0xfffc);
         image.cpu.x87.control.rounding_control = rc;
         image.cpu.x87.status.precision = 0;
-        // Runtime PC64 differs from observed PC24. Both stores use RC alone.
+        // Runtime PC64 and clear PE differ from the observations. Both stores use RC alone.
         write_value(&mut image.cpu, 0, (0xc000_0000_0000_0001, 0x3fff));
         image.map(4, 0x8000, true);
         let mut result = complete_x87(image.cpu, 6, 0x0115);
@@ -130,18 +147,22 @@ fn converted_stores_use_only_rounding(engine: Engine) {
 
 fn memory_arithmetic_uses_observed_modes(engine: Engine) {
     let code = [0xd8, 0x05, 0, 0x40, 0, 0]; // FADD m32
-    let block = TestModule::new(&compiler(0, 2).compile(0x1000, &code, 1).unwrap());
+    let block = TestModule::new(
+        &masked_precision_compiler(0, 2)
+            .compile(0x1000, &code, 1)
+            .unwrap(),
+    );
     let mut image = stack_image(&code, 0, 0xfffc);
     image.cpu.x87.control.precision_control = 0;
     image.cpu.x87.control.rounding_control = 2;
-    image.cpu.x87.status.precision = 0;
+    image.cpu.x87.status.precision = 0x81;
     write_value(&mut image.cpu, 0, (LEADING, 0x3fff));
     image.map(4, 0x8000, false);
     image.data(0x8000, &0x3300_0000_u32.to_le_bytes()); // 2^-25
     let mut result = complete_x87(image.cpu, 6, 0x0005);
     result.x87.data_offset = 0x4000;
     result.x87.data_selector = 0x23;
-    result.x87.status.precision = 1;
+    result.x87.status.precision = 0x81;
     result.x87.status.c1 = 1;
     write_value(&mut result, 0, (LEADING + (1 << 40), 0x3fff)); // PC24: 1 + 2^-23
     assert_eq!(

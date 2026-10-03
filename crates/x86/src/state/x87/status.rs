@@ -39,7 +39,7 @@ impl Status {
         let top = self.top(body)?;
         let mut word = top.truncate::<I16>().shl(11);
         for exception in Exception::ALL {
-            let bit = self.flag(body, exception.status_location())?;
+            let bit = self.exception_raised(body, exception)?;
             word = word.or(bit.unsigned().extend::<I16>().shl(exception as u32));
         }
         for (location, shift) in [
@@ -92,6 +92,14 @@ impl Status {
         self.flag(body, cpu_location!(x87.status.error_summary))
     }
 
+    pub(super) fn exception_raised(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        exception: Exception,
+    ) -> Result<Val<I1>, BuildError> {
+        self.flag(body, exception.status_location())
+    }
+
     /// Recomputes ES and B from existing exception flags and the control word's
     /// masks. Delivery remains deferred until a waiting instruction observes ES.
     pub(super) fn update_pending_exception(
@@ -101,7 +109,7 @@ impl Status {
     ) -> Result<(), BuildError> {
         let mut pending = Val::<I1>::from(false);
         for exception in Exception::ALL {
-            let raised = self.flag(body, exception.status_location())?;
+            let raised = self.exception_raised(body, exception)?;
             pending = pending.or(raised.and(control.unmasked(body, exception)?));
         }
         let pending = pending.unsigned().extend::<I8>();

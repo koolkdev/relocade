@@ -44,7 +44,9 @@ fn blocks_without_mode_consumers_are_byte_identical() {
     for &code in cases {
         let ordinary =
             compile_block_from_bytes_with_profile(0x1000, code, 1, SegmentProfile::Flat32).unwrap();
-        let observed = compiler(0, 2).compile(0x1000, code, 1).unwrap();
+        let observed = masked_precision_compiler(0, 2)
+            .compile(0x1000, code, 1)
+            .unwrap();
         assert!(ordinary.bytes == observed.bytes, "{code:x?}");
     }
 }
@@ -104,4 +106,55 @@ fn known_controls_need_no_mode_guard() {
     assert!(!operators(&observed).any(
         |op| matches!(op, Operator::I32Load8U { memarg } if matches!(memarg.offset, 158 | 159))
     ));
+}
+
+#[test]
+fn only_masked_set_precision_adds_status_guards() {
+    let code = [0xd8, 0xc9].repeat(8);
+    let modes_only = compiler(3, 0).compile(0x1000, &code, 8).unwrap();
+    for (mask, flag) in [(0x80, 0x80), (0x80, 0x81), (0x81, 0x80)] {
+        let mut observed = observed_cpu(3, 0);
+        observed.x87.control.precision_mask = mask;
+        observed.x87.status.precision = flag;
+        let module = BlockCompiler::new(SegmentProfile::Flat32)
+            .specialize_on_cpu(&observed)
+            .compile(0x1000, &code, 8)
+            .unwrap();
+        assert!(module.bytes == modes_only.bytes);
+    }
+}
+
+#[test]
+fn masked_set_precision_reuses_its_guard_and_original_byte() {
+    for pc in [2, 3] {
+        for opcode in [0xc1, 0xc9, 0xe1, 0xf1] {
+            let count = 8;
+            let module = masked_precision_compiler(pc, 0)
+                .compile(0x1000, &[0xd8, opcode].repeat(count), count as u32)
+                .unwrap();
+            // PM and PE join the existing mode guard; they do not add a guard
+            // per instruction. Unchanged controls and status are read once.
+            assert_eq!(interpreter_calls(&module), count + 2);
+            let ops: Vec<_> = operators(&module).collect();
+            for offset in [157, 158, 159, 185] {
+                assert_eq!(ops.iter().filter(|op| matches!(op, Operator::I32Load8U { memarg } if memarg.offset == offset)).count(), 1);
+            }
+            let pe_load = ops
+                .iter()
+                .position(|op| matches!(op, Operator::I32Load8U { memarg } if memarg.offset == 185))
+                .unwrap();
+            let Operator::LocalSet { local_index: pe } = ops[pe_load + 1] else {
+                panic!("the observed PE byte remains available through the block");
+            };
+            // Every publication reuses the observed byte, including its unused
+            // bits. The sequence must not accumulate PE OR calculations.
+            for (index, op) in ops.iter().enumerate() {
+                if matches!(op, Operator::I32Store8 { memarg } if memarg.offset == 185) {
+                    assert!(
+                        matches!(ops[index - 1], Operator::LocalGet { local_index } if local_index == pe)
+                    );
+                }
+            }
+        }
+    }
 }

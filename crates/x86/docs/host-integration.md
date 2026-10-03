@@ -56,7 +56,8 @@ semantics without speculative guards and does not import `interpret` itself.
 
 `BlockCompiler::new(profile).specialize_on_cpu(&cpu)` copies a CPU snapshot as
 optional input for guarded specialization. Instruction semantics choose which
-observed fields to use; currently these are x87 precision and rounding controls.
+observed fields to use; currently these are x87 precision and rounding controls,
+plus the precision exception mask and flag when both are set.
 Its `compile` method accepts the same EIP, byte snapshot and instruction limit as
 the existing snapshot functions. Those functions continue to compile with dynamic
 modes. Later changes to the supplied `CpuState` do not change the captured snapshot.
@@ -66,7 +67,16 @@ arithmetic checks PC and RC, while rounded stores check RC alone. A block withou
 these consumers has no additional guard. Successful guards let the compiler fold
 the unused mode choices and remove repeated checks of unchanged values. FLDCW and
 FNINIT establish new control values; subsequent consumers check or fold those
-values normally. Other CPU fields, including exception masks, stay dynamic.
+values normally.
+
+When the snapshot has precision exceptions masked and PE already set, arithmetic
+also guards those two bits. The compiler can then remove repeated precision
+exception calculations, while numerical rounding and C1 updates retain their
+usual behavior.
+Other observations keep exception masks and flags dynamic; rounded stores still
+guard RC alone. FNCLEX and FNINIT clear PE, so a later arithmetic consumer may
+hand off to the interpreter even when PC and RC still match. Pending exceptions
+take priority over any specialization mismatch, including after FLDCW unmasks PE.
 
 The observation creates no new host admission requirement. A mismatch uses the
 ordinary interpreter handoff at the consuming instruction, after its pending

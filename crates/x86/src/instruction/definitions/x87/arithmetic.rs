@@ -5,7 +5,7 @@ use crate::{
     address::MemoryAddress,
     instruction::X87StackIndex,
     memory::Intent,
-    state::{x87::X87ModeFields, Arithmetic, ArithmeticSource},
+    state::{x87::X87Specialization, Arithmetic, ArithmeticSource},
     x87::{self, BinaryFormat, BinaryOperation},
 };
 
@@ -182,7 +182,7 @@ fn calculate(
     operation: BinaryOperation,
 ) -> Result<x87::ArithmeticResult, BuildError> {
     execution.specialize(|jit| {
-        jit.specialize_x87_mode(X87ModeFields::PrecisionAndRounding)?;
+        jit.specialize_x87(X87Specialization::Arithmetic)?;
         jit.specialize_on(arithmetic.precision_only_operands(operation))?;
         arithmetic.assume_present();
         Ok(())
