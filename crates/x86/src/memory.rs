@@ -135,6 +135,16 @@ impl Memory {
     ) -> Result<Val<T>, BuildError> {
         body.load_at::<T>(self.guest, physical, offset)
     }
+
+    /// The caller must prove this entire write is writable and contiguous.
+    pub(super) fn store<T: MemoryInt>(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        physical: &Val<I32>,
+        value: &Val<T>,
+    ) -> Result<(), BuildError> {
+        body.store_at::<T>(self.guest, physical, 0, value)
+    }
 }
 
 #[cfg(test)]
