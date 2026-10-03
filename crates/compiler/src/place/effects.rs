@@ -2,7 +2,7 @@
 use std::ops::Range;
 
 use crate::{
-    body::{BlockItem, Exit, FunctionGraph, OperationKind, ValueDefinition},
+    body::{BlockItem, Exit, FunctionGraph, Operation, OperationKind, ValueDefinition},
     memory::{Location, Mem},
     FunctionKind, Program,
 };
@@ -14,6 +14,32 @@ pub(super) struct MemoryRange {
 }
 
 impl MemoryRange {
+    fn from_span(memory: Mem, base: usize, bytes: usize, body: &FunctionGraph) -> Self {
+        let base = body.values.representation(base);
+        let bytes = body.values.representation(bytes);
+        let bytes = match (body.values[base].definition, body.values[bytes].definition) {
+            (ValueDefinition::Constant(base), ValueDefinition::Constant(bytes)) => {
+                Some(base..base + bytes)
+            }
+            _ => None,
+        };
+        Self { memory, bytes }
+    }
+
+    pub(super) fn bulk_write(operation: &Operation, body: &FunctionGraph) -> Option<Self> {
+        let memory = match operation.kind() {
+            OperationKind::MemoryFill { memory } => memory,
+            OperationKind::MemoryCopy {
+                destination_memory, ..
+            } => destination_memory,
+            _ => return None,
+        };
+        let mut inputs = operation.inputs();
+        let destination = inputs.next().unwrap();
+        let bytes = inputs.next_back().unwrap();
+        Some(Self::from_span(memory, destination, bytes, body))
+    }
+
     fn from_location(location: Location, body: &FunctionGraph) -> Self {
         let base = body.values.representation(location.base);
         let bytes = match body.values[base].definition {
@@ -29,7 +55,7 @@ impl MemoryRange {
         }
     }
 
-    fn overlaps(&self, other: &Self) -> bool {
+    pub(super) fn overlaps(&self, other: &Self) -> bool {
         self.memory == other.memory
             && match (&self.bytes, &other.bytes) {
                 (Some(a), Some(b)) => a.start < b.end && b.start < a.end,
@@ -130,6 +156,23 @@ fn summarize(body: &FunctionGraph, summaries: &[Option<Effects>]) -> Option<Effe
                         body,
                     )],
                 ),
+                OperationKind::MemoryFill { .. } => include(
+                    &mut writes,
+                    [MemoryRange::bulk_write(operation, body).unwrap()],
+                ),
+                OperationKind::MemoryCopy { source_memory, .. } => {
+                    let mut inputs = operation.inputs();
+                    let bytes = inputs.next_back().unwrap();
+                    let source = inputs.next_back().unwrap();
+                    include(
+                        &mut reads,
+                        [MemoryRange::from_span(source_memory, source, bytes, body)],
+                    );
+                    include(
+                        &mut writes,
+                        [MemoryRange::bulk_write(operation, body).unwrap()],
+                    );
+                }
                 OperationKind::Call { target } => callees.push(target),
                 OperationKind::Atomic { .. } | OperationKind::Fence => synchronizes = true,
             }

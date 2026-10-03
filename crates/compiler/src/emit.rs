@@ -174,6 +174,18 @@ impl Writer<'_> {
                     OperationKind::Store { access } => {
                         memory::store(memory::argument(self.memories, access), access.bytes)
                     }
+                    OperationKind::MemoryFill { memory } => Wasm::MemoryFill(
+                        self.memories[memory.0].expect("a filled memory is retained"),
+                    ),
+                    OperationKind::MemoryCopy {
+                        destination_memory,
+                        source_memory,
+                    } => Wasm::MemoryCopy {
+                        dst_mem: self.memories[destination_memory.0]
+                            .expect("a copied memory is retained"),
+                        src_mem: self.memories[source_memory.0]
+                            .expect("a copied memory is retained"),
+                    },
                     OperationKind::Call { target } => {
                         Wasm::Call(self.functions[target.0].expect("a called function is retained"))
                     }
