@@ -230,8 +230,8 @@ fn every_mask_reads_every_record_kind_without_changing_cpu_bytes() {
 fn subset_readers_share_matching_masks_and_return_separate_flags() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    for bits in [0b011110_u8, 0b011110, 0b000001] {
-        program
+    for (index, bits) in [0b011110_u8, 0b011110, 0b000001].into_iter().enumerate() {
+        let function = program
             .function(
                 Signature {
                     parameters: vec![],
@@ -242,6 +242,9 @@ fn subset_readers_share_matching_masks_and_return_separate_flags() {
                     body.return_(flags.into_iter().flatten().collect::<Vec<_>>())
                 },
             )
+            .unwrap();
+        program
+            .export(&format!("consumer_{index}"), function)
             .unwrap();
     }
     let bytes = program.compile().unwrap();
@@ -288,7 +291,7 @@ fn subset_readers_share_matching_masks_and_return_separate_flags() {
 fn a_carry_only_consumer_needs_no_flag_unpacking() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    program
+    let function = program
         .function(
             Signature {
                 parameters: vec![],
@@ -300,6 +303,7 @@ fn a_carry_only_consumer_needs_no_flag_unpacking() {
             },
         )
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
     let operations = Parser::new(0)
@@ -343,7 +347,7 @@ fn a_carry_only_consumer_needs_no_flag_unpacking() {
 fn an_empty_mask_needs_no_reader_or_cpu_memory() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    program
+    let function = program
         .function(
             Signature {
                 parameters: vec![],
@@ -356,6 +360,7 @@ fn an_empty_mask_needs_no_reader_or_cpu_memory() {
             },
         )
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
     let mut operations = Vec::new();

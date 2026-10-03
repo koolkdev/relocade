@@ -170,7 +170,11 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
                         _ => {}
                     }
                 }
-                if let Some(facts) = placer.joins.prepare(placer.graph, index, &placer.available) {
+                if let Some(facts) =
+                    placer
+                        .joins
+                        .prepare(placer.graph, index, &mut placer.available)
+                {
                     *placer.specializer.facts_mut() = facts;
                 }
                 placer.block(BlockId(index));

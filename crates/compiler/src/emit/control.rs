@@ -57,12 +57,7 @@ impl Writer<'_> {
                         } else {
                             (other_edge, otherwise)
                         };
-                        self.emit(Wasm::Block(BlockType::Empty));
-                        self.labels.push(Some(*join));
-                        self.edge(edge, arm.first().map(start).or(Some(*join)));
-                        self.layouts(arm, Some(*join));
-                        self.labels.pop();
-                        self.emit(Wasm::End);
+                        self.selected_arm(*branch, edge, arm, *join);
                         continue;
                     }
                     let (condition, inverted) =
@@ -129,12 +124,7 @@ impl Writer<'_> {
                             Some(index) => (&edges[index].1, &cases[index].1),
                             None => (default_edge, default),
                         };
-                        self.emit(Wasm::Block(BlockType::Empty));
-                        self.labels.push(Some(*join));
-                        self.edge(edge, arm.first().map(start).or(Some(*join)));
-                        self.layouts(arm, Some(*join));
-                        self.labels.pop();
-                        self.emit(Wasm::End);
+                        self.selected_arm(*branch, edge, arm, *join);
                         continue;
                     }
                     self.emit(Wasm::Block(BlockType::Empty));
@@ -161,6 +151,28 @@ impl Writer<'_> {
                     self.emit(Wasm::End);
                 }
             }
+        }
+    }
+    /// A selected arm needs a label only when an entrance to its join cannot
+    /// fall through from the final block. Early outward branches keep the label.
+    fn selected_arm(&mut self, branch: BlockId, edge: &Edge, arm: &[Layout], join: BlockId) {
+        let fallthrough = match arm.last() {
+            None => Some(branch),
+            Some(Layout::Block(block)) => Some(*block),
+            _ => None,
+        };
+        let needs_label = self.incoming[join.0]
+            .iter()
+            .any(|&source| Some(source) != fallthrough);
+        if needs_label {
+            self.emit(Wasm::Block(BlockType::Empty));
+            self.labels.push(Some(join));
+        }
+        self.edge(edge, arm.first().map(start).or(Some(join)));
+        self.layouts(arm, Some(join));
+        if needs_label {
+            self.labels.pop();
+            self.emit(Wasm::End);
         }
     }
     fn empty_arm(&self, edge: &Edge, layout: &[Layout], join: BlockId) -> bool {
