@@ -23,6 +23,8 @@ mod conditional_repetition;
 mod repeated_loads;
 #[path = "strings/repetition.rs"]
 mod repetition;
+#[path = "strings/resolved.rs"]
+mod resolved;
 #[path = "strings/restart.rs"]
 mod restart;
 

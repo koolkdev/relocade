@@ -8,7 +8,9 @@ use repetition::Repetition;
 
 use super::*;
 use crate::{
+    execution::StringOperand,
     flags::Flag,
+    memory::Intent,
     register::{Gpr32, RegisterType},
     segment::Segment,
 };
@@ -121,13 +123,13 @@ where
 {
     let indices = [Gpr32::Esi, Gpr32::Edi];
     let stride = element_stride::<T>(execution)?;
-    repetition.execute(execution, indices, |execution| {
-        let value = execution
-            .memory_at_register::<T>(Gpr32::Esi, execution.data_segment())
-            .read(execution)?;
-        execution
-            .memory_at_register::<T>(Gpr32::Edi, Segment::Es.into())
-            .write(execution, value)?;
+    let operands = [
+        StringOperand::new(Gpr32::Esi, execution.data_segment(), Intent::Read),
+        StringOperand::new(Gpr32::Edi, Segment::Es.into(), Intent::Write),
+    ];
+    repetition.execute::<T, 2>(execution, operands, |execution, operands| {
+        let value = operands[0].read::<T>(execution)?;
+        operands[1].write(execution, &value)?;
         advance_indices(execution, &indices, &stride)
     })
 }
@@ -142,10 +144,13 @@ where
     let indices = [Gpr32::Edi];
     let stride = element_stride::<T>(execution)?;
     let value = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
-    repetition.execute(execution, indices, |execution| {
-        execution
-            .memory_at_register::<T>(Gpr32::Edi, Segment::Es.into())
-            .write(execution, &value)?;
+    let operands = [StringOperand::new(
+        Gpr32::Edi,
+        Segment::Es.into(),
+        Intent::Write,
+    )];
+    repetition.execute::<T, 1>(execution, operands, |execution, operands| {
+        operands[0].write(execution, &value)?;
         advance_indices(execution, &indices, &stride)
     })
 }
@@ -158,32 +163,38 @@ where
     I32: AtLeast<T>,
 {
     if matches!(repetition, Repetition::Once) {
-        return load_element::<T>(execution);
+        let operand = StringOperand::new(Gpr32::Esi, execution.data_segment(), Intent::Read);
+        return load_element::<T>(execution, &operand);
     }
     let initial = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
-    let (_, value) = repetition::repeat::<T, 1>(
+    let (_, value) = repetition::repeat::<T, T, 1>(
         execution,
-        [Gpr32::Esi],
+        [StringOperand::new(
+            Gpr32::Esi,
+            execution.data_segment(),
+            Intent::Read,
+        )],
         initial,
         |_| false.into(),
-        |iteration, previous| {
+        |iteration, previous, operands| {
             // A later fault must retain the last completed load.
             TypedLocation::<T>::register(Gpr32::Eax).write(iteration, previous)?;
-            load_element::<T>(iteration)?;
+            load_element::<T>(iteration, &operands[0])?;
             TypedLocation::<T>::register(Gpr32::Eax).read(iteration)
         },
     )?;
     TypedLocation::<T>::register(Gpr32::Eax).write(execution, value)
 }
 
-fn load_element<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
+fn load_element<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    operand: &StringOperand,
+) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
 {
     let stride = element_stride::<T>(execution)?;
-    let value = execution
-        .memory_at_register::<T>(Gpr32::Esi, execution.data_segment())
-        .read(execution)?;
+    let value = operand.read::<T>(execution)?;
     TypedLocation::<T>::register(Gpr32::Eax).write(execution, value)?;
     advance_indices(execution, &[Gpr32::Esi], &stride)
 }
