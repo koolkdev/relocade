@@ -112,6 +112,9 @@ impl Specializer {
                         self.record(id, result, &mut aliases);
                     } else if let Some(result) = resolve(graph, id, &self.facts) {
                         self.record(id, result, &mut aliases);
+                    } else if let Some(input) = self.facts.bitwise_identity(&graph.values, id) {
+                        work.push(Work::Alias(id, input));
+                        work.push(Work::Visit(input));
                     } else if let Some(result) = graph.values.expression(id) {
                         let expression = result.expression;
                         if let Expression::Select {
@@ -162,6 +165,10 @@ impl Specializer {
                             constant
                         } else if let Some(available) = resolve(graph, rewritten, &self.facts) {
                             available
+                        } else if let Some(input) =
+                            self.facts.bitwise_identity(&graph.values, rewritten)
+                        {
+                            input
                         } else {
                             let folded = crate::expression::refold(&mut graph.values, rewritten);
                             self.known_constant(&mut graph.values, folded)

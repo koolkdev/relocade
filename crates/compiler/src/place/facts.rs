@@ -3,7 +3,11 @@
 
 use std::{cell::RefCell, collections::HashMap};
 
-use crate::body::{ValueDefinition, ValueTable};
+use crate::{
+    body::{ValueDefinition, ValueTable},
+    integer::{low_mask, BinaryOp},
+    Expression,
+};
 
 mod assume;
 mod comparisons;
@@ -99,5 +103,35 @@ impl Facts {
         let bits = self.bits(table, id);
         let mask = table.values[id].ty.mask();
         (bits.mask & mask == mask).then_some(bits.value & mask)
+    }
+
+    /// An operand whose known bits make the other bitwise operand redundant.
+    /// Unlike a logical constant, an identity must preserve the entire carrier.
+    pub(super) fn bitwise_identity(&self, table: &ValueTable, id: usize) -> Option<usize> {
+        let ValueDefinition::Expression(Expression::Binary {
+            operator,
+            left,
+            right,
+        }) = table[id].definition
+        else {
+            return None;
+        };
+        if !matches!(operator, BinaryOp::And | BinaryOp::Or) {
+            return None;
+        }
+        let mask = table[id].ty.carrier().mask();
+        let a = self.bits(table, left);
+        let b = self.bits(table, right);
+        // Logical facts leave upper carrier bits unknown. Only physical bounds
+        // can prove those bits zero; a narrow logical type cannot.
+        let left_zeros = (a.mask & !a.value) | (mask & !low_mask(table.bounds[left].unsigned));
+        let right_zeros = (b.mask & !b.value) | (mask & !low_mask(table.bounds[right].unsigned));
+        match operator {
+            BinaryOp::Or if mask & !right_zeros & !a.value == 0 => Some(left),
+            BinaryOp::Or if mask & !left_zeros & !b.value == 0 => Some(right),
+            BinaryOp::And if mask & !b.value & !left_zeros == 0 => Some(left),
+            BinaryOp::And if mask & !a.value & !right_zeros == 0 => Some(right),
+            _ => None,
+        }
     }
 }

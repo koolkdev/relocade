@@ -207,3 +207,129 @@ fn observing_a_narrow_replacement_does_not_define_the_sources_upper_bits() {
     });
     assert_eq!(specializer.facts.constant(&values, bit), Some(1));
 }
+
+#[test]
+fn bitwise_absorption_cannot_discard_unknown_carrier_bits() {
+    use crate::{integer::BinaryOp, Type};
+
+    for operator in [BinaryOp::Or, BinaryOp::And] {
+        for reversed in [false, true] {
+            let mut graph = FunctionGraph::new();
+            let inputs: Vec<_> = (0..2)
+                .map(|component| {
+                    let wide = graph.values.push(Value {
+                        ty: Type::I32,
+                        definition: ValueDefinition::Parameter {
+                            block: graph.entry,
+                            component,
+                        },
+                    });
+                    graph.values.intern(Value {
+                        ty: Type::I8,
+                        definition: ValueDefinition::Expression(Expression::Convert {
+                            input: wide,
+                        }),
+                    })
+                })
+                .collect();
+            let (left, right) = if reversed {
+                (inputs[1], inputs[0])
+            } else {
+                (inputs[0], inputs[1])
+            };
+            let result = graph.values.intern(Value {
+                ty: Type::I8,
+                definition: ValueDefinition::Expression(Expression::Binary {
+                    operator,
+                    left,
+                    right,
+                }),
+            });
+            let mut specializer = Specializer::default();
+            // The low bytes alone would permit absorption. Both narrow views
+            // still have unknown upper i32 bits, which the operation must keep.
+            specializer.facts_mut().assume_bits(inputs[0], 3, 3);
+            specializer.facts_mut().assume_bits(inputs[1], 0xfc, 0);
+            assert_eq!(graph.values.bounds[left].unsigned, 32);
+            assert_eq!(graph.values.bounds[right].unsigned, 32);
+            assert_eq!(
+                specializer
+                    .specialize(&mut graph, result, |_, _, _| None)
+                    .value,
+                result
+            );
+        }
+    }
+}
+
+#[test]
+fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
+    use crate::{integer::BinaryOp, Type};
+
+    let mut graph = FunctionGraph::new();
+    let inputs: Vec<_> = (0..3)
+        .map(|component| {
+            graph.values.push(Value {
+                ty: Type::I32,
+                definition: ValueDefinition::Parameter {
+                    block: graph.entry,
+                    component,
+                },
+            })
+        })
+        .collect();
+    let bit = graph.values.intern(Value {
+        ty: Type::I1,
+        definition: ValueDefinition::Expression(Expression::LowBits {
+            input: inputs[0],
+            bits: 1,
+        }),
+    });
+    let choice = graph.values.intern(Value {
+        ty: Type::I32,
+        definition: ValueDefinition::Expression(Expression::Select {
+            condition: bit,
+            when_true: inputs[1],
+            when_false: inputs[2],
+        }),
+    });
+    let update = graph.values.intern(Value {
+        ty: Type::I32,
+        definition: ValueDefinition::Expression(Expression::LowBits {
+            input: inputs[0],
+            bits: 1,
+        }),
+    });
+    let result = graph.values.intern(Value {
+        ty: Type::I32,
+        definition: ValueDefinition::Expression(Expression::Binary {
+            operator: BinaryOp::Or,
+            left: choice,
+            right: update,
+        }),
+    });
+    let mut available = Availability::default();
+    let scope = available.checkpoint();
+    let mut live = Specializer::default();
+    let mut branch = live.on_branch(&graph.values, &available, bit, true);
+    branch.facts_mut().assume_bits(inputs[1], 1, 1);
+    let absorbed = branch.specialize(&mut graph, result, |_, _, _| None);
+    assert_eq!(absorbed.value, inputs[1]);
+    assert!(absorbed
+        .aliases
+        .iter()
+        .any(|alias| alias.recipe == choice && alias.residual == inputs[1]));
+    available.record_aliases(absorbed.aliases);
+    available.bind(inputs[1], inputs[1]);
+    assert_eq!(available.get(result), Some(inputs[1]));
+    available.restore(scope);
+    assert_eq!(available.get(result), None);
+    let unproven = live.specialize(&mut graph, result, |_, _, _| None).value;
+    assert!(matches!(
+        graph.values[unproven].definition,
+        ValueDefinition::Expression(Expression::Binary {
+            operator: BinaryOp::Or,
+            ..
+        })
+    ));
+}

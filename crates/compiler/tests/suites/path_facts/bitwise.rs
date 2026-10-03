@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_compiler::I64;
+use wasm86_compiler::{IntType, I64};
 
 #[test]
 fn known_disjuncts_simplify_a_select_condition() {
@@ -124,5 +124,92 @@ fn bitwise_identities_preserve_narrow_signed_and_unsigned_observations() {
                 Ok(expected)
             );
         }
+    }
+}
+
+fn absorbed_updates<T: IntType>() -> TestModule {
+    Fixture::new().function(&[T::TYPE, T::TYPE], &[T::TYPE; 4], |mut body| {
+        let previous = body.parameter::<T>(0)?;
+        let input = body.parameter::<T>(1)?;
+        let computed = input.mul(7);
+        let set = computed.and(5);
+        let clear = computed.or(!10);
+        body.if_(previous.and(15).ne(5), |arm| arm.return_((0, 0, 0, 0)))?;
+        body.return_((
+            previous.or(&set),
+            set.or(&previous),
+            previous.and(&clear),
+            clear.and(previous),
+        ))
+    })
+}
+
+fn absorbed_results(v8: bool) {
+    for (ty, module) in [
+        (Type::I32, absorbed_updates::<I32>()),
+        (Type::I64, absorbed_updates::<I64>()),
+    ] {
+        assert_eq!(
+            count(&module, |op| matches!(
+                op,
+                Operator::I32Mul | Operator::I64Mul | Operator::I32Or | Operator::I64Or
+            )),
+            0
+        );
+        // Only the guard's mask survives; neither AND result needs calculation.
+        assert_eq!(
+            count(&module, |op| matches!(
+                op,
+                Operator::I32And | Operator::I64And
+            )),
+            1
+        );
+        let value = |bits: i64| match ty {
+            Type::I32 => Value::I32(bits as i32),
+            _ => Value::I64(bits),
+        };
+        for previous in [0, 5, 15, 0x105, -11, i64::MIN + 5] {
+            for input in [0, 1, -1, i64::MAX] {
+                let expected = if previous & 15 == 5 { previous } else { 0 };
+                check_result(
+                    &module,
+                    &[value(previous), value(input)],
+                    &[value(expected); 4],
+                    v8,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn known_bits_absorb_updates_in_either_operand_order() {
+    absorbed_results(false);
+}
+
+#[test]
+#[ignore = "requires Node.js with V8"]
+fn v8_known_bits_absorb_updates_in_either_operand_order() {
+    absorbed_results(true);
+}
+
+#[test]
+fn absorbing_a_sticky_update_preserves_the_byte_and_the_update_call() {
+    use crate::{fixture::signature, wasm::Call};
+
+    let mut fixture = Fixture::new();
+    let raised = fixture.callback("raised", signature(&[], &[Type::I1]), &[Value::I32(1)]);
+    let module = fixture.function(&[Type::I8], &[Type::I8], |mut body| {
+        let previous = body.parameter::<I8>(0)?;
+        let update = body.call::<I1>(raised, &[])?;
+        body.if_(previous.truncate::<I1>().eq(false), |arm| arm.return_(0))?;
+        body.return_(previous.or(update.unsigned().extend::<I8>()))
+    });
+    assert_eq!(count(&module, |op| matches!(op, Operator::I32Or)), 0);
+    for previous in [0, 1, 0x81, 0xfe, 0xff] {
+        let mut instance = module.instantiate();
+        let expected = if previous & 1 != 0 { previous } else { 0 };
+        assert_eq!(instance.call::<i32>(previous), Ok(expected));
+        assert_eq!(instance.callbacks(), &[Call::new("raised", &[])]);
     }
 }
