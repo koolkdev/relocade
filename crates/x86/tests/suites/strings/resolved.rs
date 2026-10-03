@@ -236,17 +236,9 @@ fn v8_failed_range_preflight_completes_through_the_linked_interpreter() {
 }
 
 #[test]
-fn jit_repeated_loops_have_no_page_checks_or_checked_fallback_loop() {
-    for code in [
-        &[0xf3, 0xa4][..],
-        &[0xf3, 0xab],
-        &[0xf3, 0xad],
-        &[0xf3, 0xa7],
-        &[0xf2, 0xaf],
-        &[0xb9, 3, 0, 0, 0, 0xf3, 0xa4],
-    ] {
-        let module =
-            compile_block_from_bytes(0x1000, code, if code[0] == 0xb9 { 2 } else { 1 }).unwrap();
+fn jit_relative_scalar_loops_have_no_page_checks_or_checked_fallback_loop() {
+    for code in [&[0xf3, 0xad], &[0xf3, 0xa7], &[0xf2, 0xaf]] {
+        let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
         let mut machine_memory = None;
         let mut memories = 0;
         let mut function = 0;

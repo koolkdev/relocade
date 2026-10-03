@@ -207,6 +207,18 @@ fn blocks_read(
     };
     let source = &graph.effects[read.0].operation;
     let other = &graph.effects[other.0].operation;
+    if let Some(write) = effects::MemoryRange::bulk_write(other, graph) {
+        return match source.kind() {
+            OperationKind::Load { .. } => {
+                write.overlaps_location(source.location().unwrap(), graph)
+            }
+            OperationKind::Call { target } => match &summaries[target.0] {
+                Effects::Known { reads, .. } => reads.iter().any(|read| write.overlaps(read)),
+                Effects::Unknown => true,
+            },
+            _ => false,
+        };
+    }
     match (other.kind(), source.kind()) {
         (OperationKind::Atomic { .. } | OperationKind::Fence, _) => true,
         (OperationKind::Store { .. }, OperationKind::Load { .. }) => other

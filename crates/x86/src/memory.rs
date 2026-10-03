@@ -1,5 +1,6 @@
 mod access;
 mod accesses;
+mod bulk;
 mod page_table;
 mod scattered;
 mod update;
