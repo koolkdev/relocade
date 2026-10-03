@@ -9,6 +9,7 @@ use crate::{state::exit, CpuState};
 
 mod accesses;
 mod helpers;
+mod ranges;
 mod spans;
 
 fn define_read<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str)
@@ -28,7 +29,8 @@ where
                     &address,
                     T::BYTES,
                     Intent::Read,
-                    exit::exception,
+                    None,
+                    Some(&mut exit::exception),
                 )?;
                 let value = memory.read::<T>(&mut body, &access, 0)?;
                 body.return_(value.unsigned().extend::<I64>())
@@ -53,7 +55,8 @@ fn define_write<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str
                     &address,
                     T::BYTES,
                     Intent::Write,
-                    exit::exception,
+                    None,
+                    Some(&mut exit::exception),
                 )?;
                 memory.write(&mut body, &access, 0, &value)?;
                 body.return_(7)
@@ -89,8 +92,14 @@ fn access_fault_handlers_must_terminate_the_denied_path() {
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
-                memory
-                    .resolve_access(&mut body, &address, T::BYTES, Intent::Write, |_, _| Ok(()))?;
+                memory.resolve_access(
+                    &mut body,
+                    &address,
+                    T::BYTES,
+                    Intent::Write,
+                    None,
+                    Some(&mut |_, _| Ok(())),
+                )?;
                 body.return_(7)
             },
         );

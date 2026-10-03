@@ -39,7 +39,7 @@ impl<'memory> Accesses<'memory> {
         start: &Val<I32>,
         bytes: u32,
         intent: Intent,
-        on_fault: impl FnOnce(BlockBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
+        mut on_fault: impl FnMut(BlockBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
     ) -> Result<Access, BuildError> {
         assert!((1..=PAGE_BYTES).contains(&bytes));
         let required = intent.required_permissions();
@@ -52,11 +52,11 @@ impl<'memory> Accesses<'memory> {
             .find(|access| {
                 access.intent.required_permissions() & required == required
                     && access.linear.same_expression(start)
-                    && access.bytes >= bytes
+                    && access.bytes.is_some_and(|checked| checked >= bytes)
             })
         {
             return Ok(Access {
-                bytes,
+                bytes: Some(bytes),
                 intent,
                 ..access.clone()
             });
@@ -78,22 +78,29 @@ impl<'memory> Accesses<'memory> {
                 fits,
                 |hit| hit.yield_((false, physical_address(&anchor.physical, start))),
                 |mut miss| {
-                    let access = self
-                        .memory
-                        .resolve_access(&mut miss, start, bytes, intent, on_fault)?;
+                    let access = self.memory.resolve_access(
+                        &mut miss,
+                        start,
+                        bytes,
+                        intent,
+                        None,
+                        Some(&mut on_fault),
+                    )?;
                     miss.yield_((access.scattered, access.physical))
                 },
             )?;
             Access {
                 linear: start.clone(),
                 physical,
+                unavailable: scattered.clone(),
                 scattered,
                 intent,
-                bytes,
+                bytes: Some(bytes),
+                denied: body.value(false)?,
             }
         } else {
             self.memory
-                .resolve_access(body, start, bytes, intent, on_fault)?
+                .resolve_access(body, start, bytes, intent, None, Some(&mut on_fault))?
         };
         let retained = match intent {
             Intent::Read | Intent::Fetch => &mut self.read_anchor,

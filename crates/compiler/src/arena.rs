@@ -39,6 +39,12 @@ impl FunctionArena {
     pub(super) fn constant(&self, ty: Type, bits: u64) -> Result<usize, BuildError> {
         self.with_open(|table| table.constant(ty, bits))
     }
+    pub(super) fn constant_bits(&self, value: usize) -> Result<Option<u64>, BuildError> {
+        self.with_graph(|graph| match graph.values[value].definition {
+            ValueDefinition::Constant(bits) => Some(bits & graph.values[value].ty.mask()),
+            _ => None,
+        })
+    }
     pub(crate) fn resolve_unbound(
         &self,
         expression: &UnboundExpression,

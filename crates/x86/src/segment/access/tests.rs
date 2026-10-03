@@ -8,6 +8,7 @@ use crate::{
 use wasm86_compiler::{Program, Signature, Type, Val, I32, I64};
 use wasmparser::Validator;
 
+mod ranges;
 mod runtime;
 
 fn translation(

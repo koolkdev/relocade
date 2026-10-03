@@ -4,7 +4,7 @@ mod page_table;
 mod scattered;
 mod update;
 
-pub(crate) use access::{Access, DirectRange};
+pub(crate) use access::Access;
 pub(crate) use accesses::Accesses;
 pub(crate) use page_table::{PageCache, PageCacheInputs};
 
@@ -84,7 +84,7 @@ impl Memory {
         offset: u32,
     ) -> Result<Val<T>, BuildError> {
         access.check_field::<T>(offset);
-        if access.bytes == 1 {
+        if access.bytes == Some(1) {
             return self.load(body, &access.physical, 0);
         }
         body.if_value::<T>(
@@ -113,7 +113,7 @@ impl Memory {
             matches!(access.intent, Intent::Write),
             "store requires a write access"
         );
-        if access.bytes == 1 {
+        if access.bytes == Some(1) {
             return body.store_at::<T>(self.guest, &access.physical, 0, value);
         }
         body.if_else(
