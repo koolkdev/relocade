@@ -27,15 +27,22 @@ pub(crate) fn multiply_register(
         destination,
         source,
         pop,
-        x87::multiply,
     )?;
+    let mut product = arithmetic.calculate(x87::multiply);
     execution.specialize(|jit| {
-        jit.specialize_on(arithmetic.normal_operands())?;
-        jit.specialize_on(arithmetic.in_range())?;
-        // Normal operands and an in-range product permit only precision loss.
-        arithmetic.assume_normal_result();
+        let candidate = product.rounding_candidate(&mut jit.body)?;
+        // The candidate accepts two normal operands with an in-range product,
+        // or zero with a normal/zero partner. Empty slots can retain valid bits,
+        // so stack presence must also be established.
+        jit.specialize_on(arithmetic.operands_present().and(candidate.valid))?;
+        arithmetic.assume_present();
+        product.result = x87::ArithmeticResult::from_rounding(candidate.rounded);
         Ok(())
     })?;
     record_instruction(execution)?;
-    arithmetic.commit(&mut execution.body, &mut execution.state.x87)
+    arithmetic.commit(
+        &mut execution.body,
+        &mut execution.state.x87,
+        product.result,
+    )
 }

@@ -1,17 +1,59 @@
 //! Register arithmetic rounds precision and range from the same exact magnitude.
 
-use wasm86_compiler::{Val, I1, I16, I32, I64, I8};
+use wasm86_compiler::{Results, Val, I1, I16, I32, I64, I8};
 
-use super::{rounding::RoundingInput, ExtendedBits, ExtendedValue, RoundingMode};
+use super::{
+    rounding::RoundingInput, value::Classification, ExtendedBits, ExtendedValue, RoundingMode,
+};
 
+/// An extended result and the rounding evidence needed for #P and C1.
 #[derive(Clone)]
 pub(crate) struct RoundedValue {
     pub(crate) value: ExtendedValue,
+    /// Rounding lost information from the exact mathematical result.
     pub(crate) inexact: Val<I1>,
+    /// Rounding increased the magnitude above its truncated value.
     pub(crate) incremented: Val<I1>,
 }
 
+/// Logical components at a compiler value join: bits and rounding evidence.
+pub(super) type RoundedShape = (I64, I16, I1, I1);
+
+/// The rounded bits are usable when `valid` is true. Operand exceptions remain
+/// the operation's responsibility; a range candidate alone does not exclude them.
+pub(crate) struct ArithmeticCandidate {
+    pub(crate) valid: Val<I1>,
+    pub(crate) rounded: RoundedValue,
+}
+
 impl RoundedValue {
+    pub(super) fn components(&self) -> <RoundedShape as Results>::Values {
+        let bits = self.value.bits();
+        (
+            bits.significand,
+            bits.sign_exponent,
+            self.inexact.clone(),
+            self.incremented.clone(),
+        )
+    }
+
+    /// The caller must establish the class wherever these joined bits are used.
+    pub(super) fn from_components(
+        components: <RoundedShape as Results>::Values,
+        class: Classification,
+    ) -> Self {
+        let (significand, sign_exponent, inexact, incremented) = components;
+        Self {
+            value: ExtendedValue::from_bits(ExtendedBits {
+                significand,
+                sign_exponent,
+            })
+            .assume_class(class),
+            inexact,
+            incremented,
+        }
+    }
+
     pub(super) fn select(&self, condition: &Val<I1>, otherwise: &Self) -> Self {
         Self {
             value: self.value.select(condition, &otherwise.value),
@@ -22,9 +64,9 @@ impl RoundedValue {
 }
 
 pub(crate) struct ArithmeticResult {
-    /// The finite result needs no range response.
+    /// The precision-rounded result before any range response.
     /// Precision loss and its rounding-direction evidence remain observable.
-    pub(crate) in_range: Val<I1>,
+    pub(super) in_range: ArithmeticCandidate,
     pub(crate) invalid: Val<I1>,
     pub(crate) denormal: Val<I1>,
     pub(crate) overflow: Val<I1>,
@@ -34,17 +76,22 @@ pub(crate) struct ArithmeticResult {
 }
 
 impl ArithmeticResult {
-    /// The continuing path must have a normal result and no invalid, denormal
-    /// operand or range response. Precision loss and rounding direction remain
-    /// observable, including when the precision exception is unmasked.
-    pub(crate) fn assume_normal_result(&mut self) {
-        self.masked.value = self.masked.value.clone().assume_normal();
-        self.adjusted = self.masked.clone();
-        self.in_range = true.into();
-        self.invalid = false.into();
-        self.denormal = false.into();
-        self.overflow = false.into();
-        self.tiny = false.into();
+    /// Builds a response whose only possible arithmetic exception is inexact (#P).
+    /// The caller must exclude operand and range exceptions first. The rounding
+    /// evidence still controls C1 and the masked or unmasked #P response.
+    pub(crate) fn from_rounding(rounded: RoundedValue) -> Self {
+        Self {
+            in_range: ArithmeticCandidate {
+                valid: true.into(),
+                rounded: rounded.clone(),
+            },
+            invalid: false.into(),
+            denormal: false.into(),
+            overflow: false.into(),
+            tiny: false.into(),
+            masked: rounded.clone(),
+            adjusted: rounded,
+        }
     }
 
     /// Unmasked register range exceptions commit the precision-rounded value
@@ -76,10 +123,21 @@ impl FiniteMagnitude {
         let overflow = exponent.signed().ge(16384);
         let tiny = exponent.signed().lt(-16382);
         let sign = self.negative.select(0x8000_u32, 0_u32);
+        let below_normal = self.exponent.signed().lt(-16382);
+        let in_range = ArithmeticCandidate {
+            valid: below_normal.or(&overflow).or(&tiny).eq(false),
+            rounded: RoundedValue {
+                value: ExtendedValue::from_bits(ExtendedBits {
+                    significand: significand.clone(),
+                    sign_exponent: sign.or(exponent.add(16383)).truncate::<I16>(),
+                }),
+                inexact: rounded.inexact.clone(),
+                incremented: rounded.incremented.clone(),
+            },
+        };
 
         // Masked underflow uses the original magnitude on the subnormal grid,
         // never the already precision-rounded significand above.
-        let below_normal = self.exponent.signed().lt(-16382);
         let distance = below_normal.select(
             discarded.add(Val::<I32>::from(-16382).sub(&self.exponent)),
             &discarded,
@@ -115,7 +173,7 @@ impl FiniteMagnitude {
             incremented: rounded.incremented,
         };
         ArithmeticResult {
-            in_range: below_normal.or(&overflow).or(&tiny).eq(false),
+            in_range,
             invalid: false.into(),
             denormal: false.into(),
             overflow,

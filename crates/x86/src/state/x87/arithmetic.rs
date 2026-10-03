@@ -10,66 +10,62 @@ pub(crate) struct RegisterArithmetic {
     destination: Val<I32>,
     pop: bool,
     stack_fault: Val<I1>,
-    normal_operands: Val<I1>,
-    result: ArithmeticResult,
+    left: ExtendedValue,
+    right: ExtendedValue,
+    precision: Val<I8>,
+    rounding: RoundingMode,
 }
 
 impl X87State {
-    /// Reads the old stack and constructs pure arithmetic before any effects.
+    /// Captures the old operands and controls before any instruction effects.
     pub(crate) fn prepare_binary_register(
         &mut self,
         body: &mut BlockBuilder<'_>,
         destination: Val<I32>,
         source: Val<I32>,
         pop: bool,
-        calculate: impl FnOnce(
-            &ExtendedValue,
-            &ExtendedValue,
-            Val<I8>,
-            &RoundingMode,
-        ) -> ArithmeticResult,
     ) -> Result<RegisterArithmetic, BuildError> {
         // Both operands use the old TOP, including when they alias each other.
         let left = self.read_stack(body, &destination)?;
         let right = self.read_stack(body, source)?;
         let stack_fault = left.empty.or(&right.empty);
-        let normal_operands = stack_fault
-            .eq(false)
-            .and(left.value.normal())
-            .and(right.value.normal());
         let precision = self.control.precision(body)?;
         let rounding = self.control.rounding(body)?;
-        let result = calculate(
-            &left.value.or_indefinite(&stack_fault),
-            &right.value.or_indefinite(&stack_fault),
-            precision,
-            &rounding,
-        );
+        let left = left.value.or_indefinite(&stack_fault);
+        let right = right.value.or_indefinite(&stack_fault);
         Ok(RegisterArithmetic {
             destination,
             pop,
             stack_fault,
-            normal_operands,
-            result,
+            left,
+            right,
+            precision,
+            rounding,
         })
     }
 }
 
 impl RegisterArithmetic {
-    pub(crate) fn normal_operands(&self) -> Val<I1> {
-        self.normal_operands.clone()
+    /// Numerical operations consume values and controls without changing state.
+    pub(crate) fn calculate<R>(
+        &self,
+        calculate: impl FnOnce(&ExtendedValue, &ExtendedValue, Val<I8>, &RoundingMode) -> R,
+    ) -> R {
+        calculate(
+            &self.left,
+            &self.right,
+            self.precision.clone(),
+            &self.rounding,
+        )
     }
 
-    pub(crate) fn in_range(&self) -> Val<I1> {
-        self.result.in_range.clone()
+    pub(crate) fn operands_present(&self) -> Val<I1> {
+        self.stack_fault.eq(false)
     }
 
-    /// Requires guards proving a nonempty stack and a normal result with only
-    /// a possible precision exception. Normal inputs alone are insufficient:
-    /// the operation must also establish its result's class and range.
-    pub(crate) fn assume_normal_result(&mut self) {
+    /// Requires a guard establishing `operands_present()` on the continuing path.
+    pub(crate) fn assume_present(&mut self) {
         self.stack_fault = false.into();
-        self.result.assume_normal_result();
     }
 
     /// Commits the arithmetic response after the instruction's restart guards.
@@ -77,12 +73,12 @@ impl RegisterArithmetic {
         self,
         body: &mut BlockBuilder<'_>,
         state: &mut X87State,
+        result: ArithmeticResult,
     ) -> Result<(), BuildError> {
         let Self {
             destination,
             pop,
             stack_fault,
-            result,
             ..
         } = self;
         let invalid = stack_fault.or(&result.invalid);

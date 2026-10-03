@@ -8,6 +8,7 @@ mod tests;
 use wasm86_compiler::{Val, I1, I16, I32, I64};
 
 use super::BinaryFormat;
+pub(super) use classification::Classification;
 
 /// Raw extended encodings include unsupported values and signaling NaNs.
 #[derive(Clone)]
@@ -37,9 +38,9 @@ impl ExtendedBits {
 #[derive(Clone)]
 pub(crate) struct ExtendedValue {
     representation: Representation,
-    // When present, this predicate is exactly equivalent to being normal.
-    // False leaves the other value classes unspecified.
-    normal: Option<Val<I1>>,
+    // An exact class established by construction or a successful guard.
+    // Unknown encodings retain their bits rather than acquiring a guessed class.
+    class: Option<Classification>,
 }
 
 #[derive(Clone)]
@@ -57,14 +58,14 @@ impl ExtendedValue {
     pub(crate) fn from_bits(bits: ExtendedBits) -> Self {
         Self {
             representation: Representation::Extended(bits),
-            normal: None,
+            class: None,
         }
     }
 
     pub(super) fn from_binary(format: BinaryFormat, bits: Val<I64>) -> Self {
         Self {
             representation: Representation::Binary { format, bits },
-            normal: None,
+            class: None,
         }
     }
 
@@ -95,10 +96,10 @@ impl ExtendedValue {
                 sign_exponent: invalid.select(0xffff_u32, &bits.sign_exponent),
             }),
         };
-        value.normal = self
-            .normal
+        value.class = self
+            .class
             .as_ref()
-            .map(|normal| invalid.eq(false).and(normal));
+            .map(|class| Classification::quiet_nan().select(invalid, class));
         value
     }
 
@@ -128,23 +129,21 @@ impl ExtendedValue {
         };
         Self {
             representation,
-            normal: self
-                .normal
+            class: self
+                .class
                 .as_ref()
-                .zip(otherwise.normal.as_ref())
-                .map(|(left, right)| condition.select(left, right)),
+                .zip(otherwise.class.as_ref())
+                .map(|(left, right)| left.select(condition, right)),
         }
     }
 
     pub(crate) fn tag(&self) -> Val<I16> {
+        if let Some(class) = &self.class {
+            // The three established classes have the same codes as their tags.
+            return class.0.unsigned().extend::<I16>();
+        }
         match &self.representation {
-            Representation::Binary { format, bits } => {
-                let tag = format.tag(bits);
-                match &self.normal {
-                    Some(normal) => normal.select(0_u32, tag),
-                    None => tag,
-                }
-            }
+            Representation::Binary { format, bits } => format.tag(bits),
             Representation::Extended(_) => self
                 .zero()
                 .select(1_u32, self.normal().select(0_u32, 2_u32)),

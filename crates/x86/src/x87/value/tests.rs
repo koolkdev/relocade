@@ -25,12 +25,12 @@ fn class_flags(value: &ExtendedValue) -> Val<I32> {
 }
 
 #[test]
-fn known_normal_values_reuse_classification_after_selection() {
+fn known_normal_and_zero_values_reuse_classification_after_selection() {
     let mut program = Program::new();
     let function = program
         .function(
             Signature {
-                parameters: vec![Type::I64, Type::I16, Type::I1],
+                parameters: vec![Type::I64, Type::I16, Type::I1, Type::I1],
                 results: vec![Type::I16, Type::I1, Type::I32],
             },
             |body| {
@@ -38,13 +38,20 @@ fn known_normal_values_reuse_classification_after_selection() {
                     significand: body.parameter::<I64>(0)?,
                     sign_exponent: body.parameter::<I16>(1)?,
                 })
-                .assume_normal();
+                .assume_class(Classification::normal());
                 let negative = ExtendedValue::from_bits(ExtendedBits {
                     significand: body.parameter::<I64>(0)?,
                     sign_exponent: body.parameter::<I16>(1)?.xor(0x8000),
                 })
-                .assume_normal();
-                let value = normal.select(&body.parameter::<I1>(2)?, &negative);
+                .assume_class(Classification::normal());
+                let zero = ExtendedValue::from_bits(ExtendedBits {
+                    significand: 0_u64.into(),
+                    sign_exponent: 0x8000.into(),
+                })
+                .assume_class(Classification::zero());
+                let value = normal
+                    .select(&body.parameter::<I1>(2)?, &negative)
+                    .select(&body.parameter::<I1>(3)?, &zero);
                 body.return_((value.tag(), value.normal(), class_flags(&value)))
             },
         )
@@ -56,7 +63,7 @@ fn known_normal_values_reuse_classification_after_selection() {
             for operator in body.get_operators_reader().unwrap() {
                 assert!(
                     !matches!(operator.unwrap(), Operator::LocalGet { local_index: 0 | 1 }),
-                    "classification must not read the known-normal value's bits"
+                    "classification must not read the known value's bits"
                 );
             }
         }
@@ -64,12 +71,12 @@ fn known_normal_values_reuse_classification_after_selection() {
 }
 
 #[test]
-fn indefinite_and_unknown_values_do_not_inherit_normal_classification() {
+fn known_classes_survive_selection_and_indefinite_replacement() {
     let mut program = Program::new();
     let function = program
         .function(
             Signature {
-                parameters: vec![Type::I64, Type::I16, Type::I1, Type::I1],
+                parameters: vec![Type::I64, Type::I16, Type::I1, Type::I1, Type::I1],
                 results: vec![
                     Type::I16,
                     Type::I1,
@@ -84,14 +91,21 @@ fn indefinite_and_unknown_values_do_not_inherit_normal_classification() {
                     significand: (1_u64 << 63).into(),
                     sign_exponent: 0x3fff.into(),
                 })
-                .assume_normal();
-                let candidate = normal.or_indefinite(&body.parameter::<I1>(2)?);
+                .assume_class(Classification::normal());
+                let zero = ExtendedValue::from_bits(ExtendedBits {
+                    significand: 0_u64.into(),
+                    sign_exponent: 0x8000.into(),
+                })
+                .assume_class(Classification::zero());
+                let candidate = zero
+                    .select(&body.parameter::<I1>(2)?, &normal)
+                    .or_indefinite(&body.parameter::<I1>(3)?);
                 let unknown = ExtendedValue::from_bits(ExtendedBits {
                     significand: body.parameter::<I64>(0)?,
                     sign_exponent: body.parameter::<I16>(1)?,
                 });
-                let value = candidate.select(&body.parameter::<I1>(3)?, &unknown);
-                let known = candidate.select(&body.parameter::<I1>(3)?, &normal);
+                let value = candidate.select(&body.parameter::<I1>(4)?, &unknown);
+                let known = candidate.select(&body.parameter::<I1>(4)?, &normal);
                 body.return_((
                     value.tag(),
                     value.normal(),
@@ -121,38 +135,51 @@ fn indefinite_and_unknown_values_do_not_inherit_normal_classification() {
         (0x8000_0000_0000_0001, 0x7fff, 2, 0b0110100),
         (1, 0x3fff, 2, 0b1000000),
     ] {
-        for invalid in [false, true] {
-            for use_candidate in [false, true] {
-                let (tag, classes) = match (use_candidate, invalid) {
-                    (true, false) => (0, 0),
-                    (true, true) => (2, 0b0010100),
-                    (false, _) => (tag, classes),
-                };
-                let input = step::Input {
-                    arguments: vec![
-                        step::Argument::I64(significand as i64),
-                        step::Argument::I32(exponent),
-                        step::Argument::I32(i32::from(invalid)),
-                        step::Argument::I32(i32::from(use_candidate)),
-                    ],
-                    ..step::Input::new(&[])
-                };
-                let known_indefinite = invalid && use_candidate;
-                let expected = vec![step::Event::Return {
-                    outcome: step::Outcome::Returned(vec![
-                        step::Argument::I32(tag),
-                        step::Argument::I32(i32::from(tag == 0)),
-                        step::Argument::I32(classes),
-                        step::Argument::I32(if known_indefinite { 2 } else { 0 }),
-                        step::Argument::I32(i32::from(!known_indefinite)),
-                        step::Argument::I32(if known_indefinite { 0b0010100 } else { 0 }),
-                    ]),
-                    snapshot: step::Snapshot {
-                        cpu: vec![],
-                        guest: None,
-                    },
-                }];
-                assert_eq!(module.observe(&input, 1).events, expected);
+        for zero in [false, true] {
+            for invalid in [false, true] {
+                for use_candidate in [false, true] {
+                    let (tag, classes) = match (use_candidate, invalid) {
+                        (true, false) => {
+                            if zero {
+                                (1, 1)
+                            } else {
+                                (0, 0)
+                            }
+                        }
+                        (true, true) => (2, 0b0010100),
+                        (false, _) => (tag, classes),
+                    };
+                    let input = step::Input {
+                        arguments: vec![
+                            step::Argument::I64(significand as i64),
+                            step::Argument::I32(exponent),
+                            step::Argument::I32(i32::from(zero)),
+                            step::Argument::I32(i32::from(invalid)),
+                            step::Argument::I32(i32::from(use_candidate)),
+                        ],
+                        ..step::Input::new(&[])
+                    };
+                    let (known_tag, known_classes) = match (use_candidate, invalid, zero) {
+                        (true, true, _) => (2, 0b0010100),
+                        (true, false, true) => (1, 1),
+                        _ => (0, 0),
+                    };
+                    let expected = vec![step::Event::Return {
+                        outcome: step::Outcome::Returned(vec![
+                            step::Argument::I32(tag),
+                            step::Argument::I32(i32::from(tag == 0)),
+                            step::Argument::I32(classes),
+                            step::Argument::I32(known_tag),
+                            step::Argument::I32(i32::from(known_tag == 0)),
+                            step::Argument::I32(known_classes),
+                        ]),
+                        snapshot: step::Snapshot {
+                            cpu: vec![],
+                            guest: None,
+                        },
+                    }];
+                    assert_eq!(module.observe(&input, 1).events, expected);
+                }
             }
         }
     }
