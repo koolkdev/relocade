@@ -59,9 +59,8 @@ pub(super) fn divide(
     }
 }
 
-/// A normalized two-digit divisor bounds each quotient estimate to at most
-/// two above the exact digit. Corrections are pure selections, so value
-/// placement can omit the entire calculation on an exact-zero result path.
+/// A normalized two-digit divisor. Calculations remain pure values, so placement
+/// can omit the entire division on an exact-zero result path.
 struct Divisor {
     significand: Val<I64>,
     high: Val<I64>,
@@ -82,22 +81,24 @@ impl Divisor {
         }
     }
 
+    /// Divides `high * RADIX + low`, requiring `high < self.significand` and
+    /// `low < RADIX`. The returned remainder preserves the first bound.
     fn digit(&self, high: Val<I64>, low: Val<I64>) -> QuotientDigit {
-        let mut quotient = high.unsigned().div(&self.high);
-        let mut remainder = high.sub(quotient.mul(&self.high));
-        for _ in 0..2 {
-            // Once the provisional remainder reaches the radix, the digit
-            // fits. Testing that bound also keeps the cross-product in u64.
-            let too_large = remainder.unsigned().lt(RADIX).and(
-                quotient.unsigned().ge(RADIX).or(remainder
-                    .shl(32)
-                    .or(&low)
-                    .unsigned()
-                    .lt(quotient.mul(&self.low))),
-            );
-            quotient = quotient.sub(too_large.unsigned().extend::<I64>());
-            remainder = remainder.add(too_large.select(&self.high, 0_u64));
-        }
+        // Normalization gives self.high >= RADIX/2, bounding the estimate by
+        // RADIX+1. Even its product with self.low fits in u64.
+        let estimate = high.unsigned().div(&self.high);
+        let high_remainder = high.sub(estimate.mul(&self.high));
+        let low_product = estimate.mul(&self.low);
+        let partial_dividend = high_remainder.shl(32).or(&low);
+        let excess = low_product.sub(&partial_dividend);
+        let too_large = partial_dividend.unsigned().lt(&low_product);
+        // A positive excess needs one decrement, or two when it exceeds the
+        // divisor. Equality needs only one; the excess is strictly below twice
+        // the divisor because it fits in u64 and the divisor is normalized.
+        let needs_second = too_large.and(self.significand.unsigned().lt(&excess));
+        let quotient = estimate
+            .sub(too_large.unsigned().extend::<I64>())
+            .sub(needs_second.unsigned().extend::<I64>());
         QuotientDigit {
             remainder: high.shl(32).or(low).sub(quotient.mul(&self.significand)),
             quotient,

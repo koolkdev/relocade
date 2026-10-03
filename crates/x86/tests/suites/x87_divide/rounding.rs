@@ -53,6 +53,10 @@ fn quotients(engine: Engine, frontend: Frontend) {
     // This pair requires both low-digit corrections; the boundary grid above
     // also includes a pair requiring both high-digit corrections.
     pairs.push((0xf8b9_405f_ddd8_e52a, 0x85cd_a95d_e4e5_4775));
+    // Near-equal operands can make the provisional digit exceed u32::MAX.
+    pairs.push((0x8000_0000_ffff_fffd, 0x8000_0000_ffff_ffff));
+    // Exact 1.5 must stay exact when the provisional excess equals the divisor.
+    pairs.push((0xc000_0001_7fff_fffd, 0x8000_0000_ffff_fffe));
     let mut seed = 0x79c8_45a1_932e_f607_u64;
     for _ in 0..96 {
         seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
