@@ -7,13 +7,14 @@ mod status;
 mod transfer;
 
 pub(crate) use arithmetic::{Arithmetic, ArithmeticSource};
+pub(crate) use control::X87ModeFields;
 pub(crate) use transfer::LoadSource;
 
 use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 
 use crate::{ssa::StateFields, x87::ExtendedValue};
 
-use super::access::cpu_location;
+use super::{access::cpu_location, StoredX87Control};
 use control::Exception;
 
 #[derive(Clone)]
@@ -85,6 +86,14 @@ pub(crate) struct X87Access<'state, 'body> {
 }
 
 impl X87Access<'_, '_> {
+    pub(crate) fn mode_matches(
+        &mut self,
+        expected: &StoredX87Control,
+        fields: X87ModeFields,
+    ) -> Result<Val<I1>, BuildError> {
+        self.state.control.matches_mode(self.body, expected, fields)
+    }
+
     pub(crate) fn control_word(&mut self) -> Result<Val<I16>, BuildError> {
         self.state.control.word(self.body)
     }

@@ -5,7 +5,7 @@ mod flags;
 mod layout;
 #[cfg(test)]
 mod observation;
-mod x87;
+pub(crate) mod x87;
 
 pub(super) use cpu::Cpu;
 pub use layout::{

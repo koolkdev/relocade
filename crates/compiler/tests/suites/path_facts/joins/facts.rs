@@ -51,6 +51,33 @@ fn common_comparison() -> TestModule {
     )
 }
 
+fn check_constant_results(v8: bool) {
+    let module = Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+        let branch = body.parameter::<I1>(0)?;
+        let mode = body.parameter::<I32>(1)?;
+        body.if_(mode.and(3).ne(3), |exit| exit.return_(7))?;
+        let joined_flag = body.if_value::<I1>(
+            branch,
+            |arm| arm.yield_(mode.and(3).eq(0)),
+            |arm| arm.yield_(false),
+        )?;
+        body.return_(joined_flag.select::<I32>(11, 13))
+    });
+    assert_eq!(count(&module, |op| matches!(op, Operator::Select)), 0);
+    assert_eq!(
+        count(&module, |op| matches!(op, Operator::LocalSet { .. })),
+        0
+    );
+    for (branch, mode, expected) in [(0, 3, 13), (1, 3, 13), (1, 7, 13), (0, 0, 7), (1, 2, 7)] {
+        check_result(
+            &module,
+            &[Value::I32(branch), Value::I32(mode)],
+            &[Value::I32(expected)],
+            v8,
+        );
+    }
+}
+
 fn check_common_bits(v8: bool) {
     let module = common_bits();
     assert_eq!(count(&module, |op| matches!(op, Operator::Select)), 0);
@@ -116,8 +143,14 @@ fn joined_comparisons_preserve_common_outcomes() {
 }
 
 #[test]
+fn a_guard_makes_both_result_arms_constant() {
+    check_constant_results(false);
+}
+
+#[test]
 #[ignore = "requires Node.js with V8"]
 fn v8_common_join_facts_preserve_results() {
+    check_constant_results(true);
     check_common_bits(true);
     check_common_ranges(true);
     check_common_comparison(true);

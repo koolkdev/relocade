@@ -2,7 +2,7 @@ use wasm86_compiler::{Program, Signature, Type};
 
 use crate::{
     decode, execution::ExecutionBuilder, memory::Memory, runtime::Runtime, state::Cpu, BlockError,
-    CompiledModule, SegmentProfile,
+    CompiledModule, CpuState, SegmentProfile,
 };
 
 /// Compiles a byte snapshot under [`SegmentProfile::Flat32`].
@@ -68,53 +68,105 @@ pub fn compile_block_from_bytes_with_profile(
     instruction_limit: u32,
     profile: SegmentProfile,
 ) -> Result<CompiledModule, BlockError> {
-    if instruction_limit == 0 {
-        return Err(BlockError::ZeroInstructionLimit);
-    }
+    BlockCompiler::new(profile).compile(start_eip, bytes, instruction_limit)
+}
 
-    let mut decoded_instructions = Vec::new();
-    let mut remaining_bytes = bytes;
-    let mut next_eip = start_eip;
-    for _ in 0..instruction_limit {
-        let (decoded_instruction, rest) =
-            decode::snapshot(remaining_bytes, next_eip, profile.code_default_size())?;
-        next_eip = decoded_instruction.fallthrough_eip;
-        remaining_bytes = rest;
-        let ends_block = decoded_instruction.instruction.ends_block();
-        decoded_instructions.push(decoded_instruction);
-        if ends_block {
-            break;
+/// Compiles snapshot blocks with optional observations for guarded specialization.
+/// Segment and instruction-fetch admission follow
+/// [`compile_block_from_bytes_with_profile`]; observations are checked by the block.
+pub struct BlockCompiler {
+    profile: SegmentProfile,
+    observed_cpu: Option<CpuState>,
+}
+
+impl BlockCompiler {
+    pub fn new(profile: SegmentProfile) -> Self {
+        Self {
+            profile,
+            observed_cpu: None,
         }
     }
 
-    let mut program = Program::new();
-    let cpu = Cpu::declare(&mut program);
-    let memory = decoded_instructions
-        .iter()
-        .any(|decoded_instruction| decoded_instruction.instruction.uses_memory())
-        .then(|| Memory::declare(&mut program))
-        .transpose()?;
-    let runtime = Runtime::declare(&mut program);
-    let function = program.function(
-        Signature {
-            parameters: vec![],
-            results: vec![Type::I64],
-        },
-        |body| {
-            let mut execution =
-                ExecutionBuilder::new(body, &cpu, memory.as_ref(), runtime, start_eip, profile)?
-                    .with_specialization();
-            for decoded_instruction in decoded_instructions {
-                execution.execute(decoded_instruction)?;
+    /// Copies a CPU snapshot for guarded specialization. Instruction semantics
+    /// choose which observations to use and check current values before effects;
+    /// a mismatch enters the interpreter. Repeated checks of unchanged values
+    /// fold away. See the [observed-state contract](crate#observed-cpu-state)
+    /// for the current consumers.
+    ///
+    /// ```
+    /// use wasm86_x86::{BlockCompiler, CpuState, SegmentProfile};
+    /// let cpu = CpuState::default();
+    /// let compiler = BlockCompiler::new(SegmentProfile::Flat32).specialize_on_cpu(&cpu);
+    /// let block = compiler.compile(0x1000, &[0xd8, 0xc9], 1)?;
+    /// # Ok::<(), wasm86_x86::BlockError>(())
+    /// ```
+    pub fn specialize_on_cpu(mut self, cpu: &CpuState) -> Self {
+        self.observed_cpu = Some(*cpu);
+        self
+    }
+
+    /// Compiles through the ordinary block boundary with this configuration.
+    pub fn compile(
+        &self,
+        start_eip: u32,
+        bytes: &[u8],
+        instruction_limit: u32,
+    ) -> Result<CompiledModule, BlockError> {
+        let profile = self.profile;
+        if instruction_limit == 0 {
+            return Err(BlockError::ZeroInstructionLimit);
+        }
+
+        let mut decoded_instructions = Vec::new();
+        let mut remaining_bytes = bytes;
+        let mut next_eip = start_eip;
+        for _ in 0..instruction_limit {
+            let (decoded_instruction, rest) =
+                decode::snapshot(remaining_bytes, next_eip, profile.code_default_size())?;
+            next_eip = decoded_instruction.fallthrough_eip;
+            remaining_bytes = rest;
+            let ends_block = decoded_instruction.instruction.ends_block();
+            decoded_instructions.push(decoded_instruction);
+            if ends_block {
+                break;
             }
-            execution.complete(|body, eip| runtime.dispatch(body, eip))
-        },
-    )?;
-    let entry = format!("block_{start_eip:x}");
-    program.export(&entry, function)?;
-    Ok(CompiledModule {
-        bytes: program.compile()?,
-        entry,
-        segment_profile: Some(profile),
-    })
+        }
+
+        let mut program = Program::new();
+        let cpu = Cpu::declare(&mut program);
+        let memory = decoded_instructions
+            .iter()
+            .any(|decoded_instruction| decoded_instruction.instruction.uses_memory())
+            .then(|| Memory::declare(&mut program))
+            .transpose()?;
+        let runtime = Runtime::declare(&mut program);
+        let function = program.function(
+            Signature {
+                parameters: vec![],
+                results: vec![Type::I64],
+            },
+            |body| {
+                let mut execution = ExecutionBuilder::new(
+                    body,
+                    &cpu,
+                    memory.as_ref(),
+                    runtime,
+                    start_eip,
+                    profile,
+                )?
+                .with_specialization(self.observed_cpu.as_ref());
+                for decoded_instruction in decoded_instructions {
+                    execution.execute(decoded_instruction)?;
+                }
+                execution.complete(|body, eip| runtime.dispatch(body, eip))
+            },
+        )?;
+        let entry = format!("block_{start_eip:x}");
+        program.export(&entry, function)?;
+        Ok(CompiledModule {
+            bytes: program.compile()?,
+            entry,
+            segment_profile: Some(profile),
+        })
+    }
 }

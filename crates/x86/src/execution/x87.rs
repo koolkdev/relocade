@@ -3,7 +3,7 @@
 use wasm86_compiler::{BuildError, I32, I64};
 
 use crate::{
-    state::X87Access,
+    state::{x87::X87ModeFields, X87Access},
     x87::{BinaryFormat, BinaryOperand},
     Segment,
 };
@@ -26,6 +26,17 @@ impl MemoryOperand<'_> {
 }
 
 impl<'body> ExecutionBuilder<'body, '_> {
+    /// Checks observed controls inside `specialize`, before instruction effects.
+    /// The state owner supplies current SSA values; ordinary compiler facts
+    /// remove repeated guards and specialize every use of those values.
+    pub(crate) fn specialize_x87_mode(&mut self, fields: X87ModeFields) -> Result<(), BuildError> {
+        if let Some(observed) = self.observed_cpu {
+            let matches = self.x87().mode_matches(&observed.x87.control, fields)?;
+            self.specialize_on(matches)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn x87(&mut self) -> X87Access<'_, 'body> {
         self.state.x87.access(&mut self.body)
     }

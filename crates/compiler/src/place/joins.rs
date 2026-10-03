@@ -125,6 +125,18 @@ impl Joins {
         for &source in &sources[1..] {
             facts.retain_common(self.blocks[source].facts.as_ref().unwrap());
         }
+        for (component, &parameter) in graph.blocks[join].parameters.iter().enumerate() {
+            let arguments = sources.iter().flat_map(|&source| {
+                let facts = self.blocks[source].facts.as_ref().unwrap();
+                graph
+                    .outgoing(BlockId(source))
+                    .into_iter()
+                    .filter_map(move |edge| {
+                        (edge.target.0 == join).then(|| (facts, edge.arguments[component]))
+                    })
+            });
+            facts.merge_parameter(&graph.values, parameter, arguments);
+        }
         let common = self.dominators.parent[join].unwrap();
         let mut incoming = Vec::new();
         let mut candidates = HashSet::new();

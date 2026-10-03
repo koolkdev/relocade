@@ -52,6 +52,28 @@ instruction limit. The host chooses this policy and admits interpreter entries
 against their segment profile. Interpreter execution uses the shared instruction
 semantics without speculative guards and does not import `interpret` itself.
 
+## Observed CPU state
+
+`BlockCompiler::new(profile).specialize_on_cpu(&cpu)` copies a CPU snapshot as
+optional input for guarded specialization. Instruction semantics choose which
+observed fields to use; currently these are x87 precision and rounding controls.
+Its `compile` method accepts the same EIP, byte snapshot and instruction limit as
+the existing snapshot functions. Those functions continue to compile with dynamic
+modes. Later changes to the supplied `CpuState` do not change the captured snapshot.
+
+The generated block checks a mode only where an instruction consumes it:
+arithmetic checks PC and RC, while rounded stores check RC alone. A block without
+these consumers has no additional guard. Successful guards let the compiler fold
+the unused mode choices and remove repeated checks of unchanged values. FLDCW and
+FNINIT establish new control values; subsequent consumers check or fold those
+values normally. Other CPU fields, including exception masks, stay dynamic.
+
+The observation creates no new host admission requirement. A mismatch uses the
+ordinary interpreter handoff at the consuming instruction, after its pending
+exception and memory-access checks. A host can reuse a block under another mode;
+the guard preserves correctness, though frequently mismatching modes may warrant
+compiling another block. No CPU state is replaced with the observed snapshot.
+
 ## Imported memories
 
 All imports belong to the `wasm86` module. Memories are distinct, unshared Wasm

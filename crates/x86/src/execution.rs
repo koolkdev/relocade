@@ -19,7 +19,7 @@ use crate::memory::{Access, Accesses, Intent, Memory};
 use crate::runtime::Runtime;
 use crate::segment::{SegmentAccess, SegmentProfile, SegmentSelection};
 use crate::state::{exit, Cpu, State};
-use crate::{address::AddressSize, exception::Exception};
+use crate::{address::AddressSize, exception::Exception, CpuState};
 
 /// Builds one execution path. State definitions and progress describe completed
 /// instructions. Instructions with partial progress, such as REP and POPA, also
@@ -37,6 +37,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     eip: Val<I32>,
     completed: u32,
     can_specialize: bool,
+    observed_cpu: Option<&'module CpuState>,
 }
 
 impl<'body, 'module> ExecutionBuilder<'body, 'module> {
@@ -62,12 +63,14 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             eip,
             completed: 0,
             can_specialize: false,
+            observed_cpu: None,
         })
     }
 
     /// Allows a compiled block to abandon speculation at an instruction boundary.
-    pub(super) fn with_specialization(mut self) -> Self {
+    pub(super) fn with_specialization(mut self, observed_cpu: Option<&'module CpuState>) -> Self {
         self.can_specialize = true;
+        self.observed_cpu = observed_cpu;
         self
     }
 

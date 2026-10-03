@@ -5,6 +5,7 @@ use crate::{
     address::MemoryAddress,
     instruction::X87StackIndex,
     memory::Intent,
+    state::x87::X87ModeFields,
     x87::{BinaryFormat, ConversionResult, ExtendedValue, RoundingMode},
 };
 use wasm86_compiler::{MemoryInt, I64};
@@ -95,6 +96,7 @@ where
 {
     execution.check_x87_exception()?;
     let operand = execution.memory_operand(address, T::BYTES, Intent::Write, &[])?;
+    execution.specialize(|jit| jit.specialize_x87_mode(X87ModeFields::Rounding))?;
     execution.record_x87_memory(&operand)?;
     let store = execution.x87().resolve_store(pop, convert)?;
     execution.if_value::<()>(

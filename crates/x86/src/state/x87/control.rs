@@ -4,9 +4,14 @@ use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I8};
 
 use crate::{
     ssa::{Location, StateFields},
-    state::access::cpu_location,
+    state::{access::cpu_location, StoredX87Control},
     x87::RoundingMode,
 };
+
+pub(crate) enum X87ModeFields {
+    Rounding,
+    PrecisionAndRounding,
+}
 
 /// Maskable exceptions share bit positions in the architectural control and
 /// status words. Stack fault is a status condition, not a seventh exception mask.
@@ -67,6 +72,26 @@ impl Control {
     pub(super) fn precision(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I8>, BuildError> {
         self.fields
             .read(body, cpu_location!(x87.control.precision_control))
+    }
+
+    pub(super) fn matches_mode(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        expected: &StoredX87Control,
+        fields: X87ModeFields,
+    ) -> Result<Val<I1>, BuildError> {
+        let rounding = self
+            .fields
+            .read(body, cpu_location!(x87.control.rounding_control))?;
+        let matches = rounding.and(3).eq(u32::from(expected.rounding_control & 3));
+        Ok(match fields {
+            X87ModeFields::Rounding => matches,
+            X87ModeFields::PrecisionAndRounding => matches.and(
+                self.precision(body)?
+                    .and(3)
+                    .eq(u32::from(expected.precision_control & 3)),
+            ),
+        })
     }
 
     pub(super) fn unmasked(

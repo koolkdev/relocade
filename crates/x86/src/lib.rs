@@ -54,7 +54,7 @@ mod instruction_tests;
 
 use std::fmt;
 
-pub use block::{compile_block_from_bytes, compile_block_from_bytes_with_profile};
+pub use block::{compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompiler};
 pub use exception::{Exception, ExceptionVector};
 pub use interpreter::{compile_interpreter, compile_interpreter_step};
 pub use register::Gpr32;

@@ -1,6 +1,7 @@
 use super::*;
 use crate::integer::BinaryOp;
 
+mod parameters;
 mod predecessors;
 
 fn graph() -> FunctionGraph {

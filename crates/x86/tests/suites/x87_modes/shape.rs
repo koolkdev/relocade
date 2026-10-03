@@ -1,0 +1,107 @@
+//! Observations add guards only to their consumers, once per unchanged value.
+use super::*;
+use wasm86_x86::{compile_block_from_bytes_with_profile, CompiledModule};
+use wasmparser::{Operator, Parser, Payload, TypeRef};
+
+fn operators(module: &CompiledModule) -> impl Iterator<Item = Operator<'_>> {
+    Parser::new(0)
+        .parse_all(&module.bytes)
+        .filter_map(|payload| match payload.unwrap() {
+            Payload::CodeSectionEntry(body) => Some(body.get_operators_reader().unwrap()),
+            _ => None,
+        })
+        .flat_map(|reader| reader.into_iter().map(Result::unwrap))
+}
+
+fn interpreter_calls(module: &CompiledModule) -> usize {
+    let mut function = 0;
+    for payload in Parser::new(0).parse_all(&module.bytes) {
+        if let Payload::ImportSection(imports) = payload.unwrap() {
+            for import in imports {
+                let import = import.unwrap();
+                if matches!(import.ty, TypeRef::Func(_)) {
+                    if import.module == "wasm86" && import.name == "interpret" {
+                        return operators(module).filter(|op| matches!(op, Operator::ReturnCall { function_index } if *function_index == function)).count();
+                    }
+                    function += 1;
+                }
+            }
+        }
+    }
+    0
+}
+
+#[test]
+fn blocks_without_mode_consumers_are_byte_identical() {
+    let cases: &[&[u8]] = &[
+        &[0xb8, 7, 0, 0, 0],          // MOV EAX, 7
+        &[0xd9, 0x05, 0, 0x40, 0, 0], // FLD m32
+        &[0xdf, 0x2d, 0, 0x40, 0, 0], // FILD m64
+        &[0xdb, 0x3d, 0, 0x40, 0, 0], // FSTP m80
+        &[0xdd, 0xd9],                // FSTP ST1
+        &[0xd9, 0x3d, 0, 0x40, 0, 0], // FNSTCW
+    ];
+    for &code in cases {
+        let ordinary =
+            compile_block_from_bytes_with_profile(0x1000, code, 1, SegmentProfile::Flat32).unwrap();
+        let observed = compiler(0, 2).compile(0x1000, code, 1).unwrap();
+        assert!(ordinary.bytes == observed.bytes, "{code:x?}");
+    }
+}
+
+#[test]
+fn existing_snapshot_functions_keep_dynamic_modes() {
+    for profile in [
+        SegmentProfile::Flat32,
+        SegmentProfile::Segmented32,
+        SegmentProfile::Segmented16,
+    ] {
+        let code = [0xd8, 0xc9];
+        let ordinary = compile_block_from_bytes_with_profile(0x1000, &code, 1, profile).unwrap();
+        let configured = BlockCompiler::new(profile)
+            .compile(0x1000, &code, 1)
+            .unwrap();
+        assert!(ordinary.bytes == configured.bytes, "{profile:?}");
+    }
+}
+
+#[test]
+fn unchanged_modes_add_one_guard_to_an_arithmetic_sequence() {
+    for pc in 0..4 {
+        for rc in 0..4 {
+            for opcode in [0xc1, 0xc9, 0xe1] {
+                for count in [1, 8] {
+                    let module = compiler(pc, rc)
+                        .compile(0x1000, &[0xd8, opcode].repeat(count), count as u32)
+                        .unwrap();
+                    // One mode guard, one operand guard, and one result guard per operation.
+                    assert_eq!(interpreter_calls(&module), count + 2);
+                    for offset in [158, 159] {
+                        assert_eq!(operators(&module).filter(|op| matches!(op, Operator::I32Load8U { memarg } if memarg.offset == offset)).count(), 1);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn known_controls_need_no_mode_guard() {
+    let code = [0xdb, 0xe3, 0xd9, 0x05, 0, 0x40, 0, 0, 0xd8, 0xc8]; // FNINIT; FLD m32; FMUL ST0, ST0
+    let ordinary = BlockCompiler::new(SegmentProfile::Flat32)
+        .compile(0x1000, &code, 3)
+        .unwrap();
+    let observed = compiler(3, 0).compile(0x1000, &code, 3).unwrap();
+    assert_eq!(interpreter_calls(&ordinary), interpreter_calls(&observed));
+    assert_eq!(
+        operators(&ordinary)
+            .filter(|op| matches!(op, Operator::If { .. }))
+            .count(),
+        operators(&observed)
+            .filter(|op| matches!(op, Operator::If { .. }))
+            .count()
+    );
+    assert!(!operators(&observed).any(
+        |op| matches!(op, Operator::I32Load8U { memarg } if matches!(memarg.offset, 158 | 159))
+    ));
+}
