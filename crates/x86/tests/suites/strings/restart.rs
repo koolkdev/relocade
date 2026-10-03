@@ -12,7 +12,8 @@ use wasm86_x86::compile_block_from_bytes;
 
 fn restart_after_source_page_repair(engine: Engine, opcode: u8) {
     let code = [0xf3, opcode];
-    let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
+    let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap())
+        .with_interpreter(TestModule::interpreter());
     for module in [TestModule::interpreter(), &block] {
         let mut machine = Machine::new(&code);
         machine.cpu.flags = record(0xfe);
@@ -73,7 +74,8 @@ fn restart_comparisons_after_page_repair(engine: Engine) {
     let observer = TestModule::new(&crate::state::compile_flag_observer().unwrap());
     for (opcode, prefix) in [(0xa6, 0xf3), (0xae, 0xf2)] {
         let code = [prefix, opcode];
-        let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
+        let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap())
+            .with_interpreter(TestModule::interpreter());
         for module in [TestModule::interpreter(), &block] {
             let mut machine = Machine::new(&code);
             machine.cpu.flags = record(0xfe);

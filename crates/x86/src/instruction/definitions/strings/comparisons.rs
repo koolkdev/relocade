@@ -14,27 +14,31 @@ impl ComparisonRepetition {
     fn execute<T: RegisterType, const N: usize>(
         self,
         execution: &mut ExecutionBuilder<'_, '_>,
-        indices: [Gpr32; N],
+        memory: [StringOperand; N],
         stride: &Val<I32>,
-        operands: impl FnOnce(&mut ExecutionBuilder<'_, '_>) -> Result<[Val<T>; 2], BuildError>,
+        operands: impl Fn(
+            &mut ExecutionBuilder<'_, '_>,
+            &[StringOperand; N],
+        ) -> Result<[Val<T>; 2], BuildError>,
     ) -> Result<(), BuildError>
     where
         I32: AtLeast<T>,
         StatusSource<T>: Into<AnyStatusSource>,
     {
+        let indices: [Gpr32; N] = std::array::from_fn(|index| memory[index].index);
         if matches!(self, Self::Once) {
-            let [left, right] = operands(execution)?;
+            let [left, right] = operands(execution, &memory)?;
             execution.write_flags(ArithmeticOp::Subtract.apply(left, right).flags)?;
             return advance_indices(execution, &indices, stride);
         }
 
-        let (count, (_, [left, right])) = repetition::repeat::<(I1, [T; 2]), N>(
+        let (count, (_, [left, right])) = repetition::repeat::<T, (I1, [T; 2]), N>(
             execution,
-            indices,
+            memory,
             (false.into(), [0.into(), 0.into()]),
             |(done, _)| done.clone(),
-            |iteration, _| {
-                let [left, right] = operands(iteration)?;
+            |iteration, _, memory| {
+                let [left, right] = operands(iteration, memory)?;
                 advance_indices(iteration, &indices, stride)?;
                 let done = match self {
                     Self::Equal => left.ne(&right),
@@ -65,14 +69,14 @@ where
     StatusSource<T>: Into<AnyStatusSource>,
 {
     let stride = element_stride::<T>(execution)?;
-    repetition.execute(execution, [Gpr32::Esi, Gpr32::Edi], &stride, |execution| {
-        let left = execution
-            .memory_at_register::<T>(Gpr32::Esi, execution.data_segment())
-            .read(execution)?;
-        let right = execution
-            .memory_at_register::<T>(Gpr32::Edi, Segment::Es.into())
-            .read(execution)?;
-        Ok([left, right])
+    let memory = [
+        StringOperand::new(Gpr32::Esi, execution.data_segment(), Intent::Read),
+        StringOperand::new(Gpr32::Edi, Segment::Es.into(), Intent::Read),
+    ];
+    repetition.execute(execution, memory, &stride, |execution, memory| {
+        let left = memory[0].read::<T>(execution)?;
+        let right = memory[1].read::<T>(execution)?;
+        Ok([left.clone(), right])
     })
 }
 
@@ -86,10 +90,13 @@ where
 {
     let stride = element_stride::<T>(execution)?;
     let left = TypedLocation::<T>::register(Gpr32::Eax).read(execution)?;
-    repetition.execute(execution, [Gpr32::Edi], &stride, |execution| {
-        let right = execution
-            .memory_at_register::<T>(Gpr32::Edi, Segment::Es.into())
-            .read(execution)?;
-        Ok([left, right])
+    let memory = [StringOperand::new(
+        Gpr32::Edi,
+        Segment::Es.into(),
+        Intent::Read,
+    )];
+    repetition.execute(execution, memory, &stride, |execution, memory| {
+        let right = memory[0].read::<T>(execution)?;
+        Ok([left.clone(), right])
     })
 }

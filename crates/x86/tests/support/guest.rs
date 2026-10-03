@@ -227,11 +227,16 @@ impl Machine {
         };
         let mut executions = Vec::new();
         let mut dispatches = Vec::new();
+        let mut handoff = None;
         for event in &observation.events {
             if matches!(
                 event,
                 Event::ResolveSegment { .. } | Event::QuerySegmentDescriptor { .. }
             ) {
+                continue;
+            }
+            if let Event::Interpret { snapshot } = event {
+                assert!(handoff.replace(state(snapshot)).is_none());
                 continue;
             }
             let Event::Return { outcome, snapshot } = event else {
@@ -258,8 +263,19 @@ impl Machine {
                     }
                 }
             };
+            let (state, exit) = match handoff.take() {
+                Some(restart) => {
+                    assert_eq!(
+                        restart,
+                        state(snapshot),
+                        "the handoff callback preserves its state"
+                    );
+                    (restart, Exit::Interpret)
+                }
+                None => (state(snapshot), exit),
+            };
             executions.push(Execution {
-                state: state(snapshot),
+                state,
                 exit,
                 dispatches: std::mem::take(&mut dispatches),
                 machine_unchanged: observation.machine_unchanged,

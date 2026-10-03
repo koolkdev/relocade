@@ -7,6 +7,7 @@ use crate::support::{
         ExpectedExit, ExpectedFlags, ExpectedState, FlagExpectation, Flags,
     },
     execution::Frontend,
+    guest::Exit,
     step::{Engine, TestModule},
 };
 
@@ -40,11 +41,35 @@ pub(crate) fn check(cases: &[SequenceCase], engine: Engine, frontend: Frontend) 
                 let execution = machine.run(block, engine);
                 let context = format!("{} [{engine:?}, {profile:?} block]", case.name);
                 let mut final_state = FinalExpectation::new(case);
-                for checkpoint in &case.checkpoints {
+                let completed = if execution.exit == Exit::Interpret {
+                    let completed = execution
+                        .state
+                        .cpu
+                        .instruction_count
+                        .wrapping_sub(initial.cpu.instruction_count)
+                        as usize;
+                    assert!(
+                        completed < case.checkpoints.len(),
+                        "{context}: handoff precedes an instruction"
+                    );
+                    completed
+                } else {
+                    case.checkpoints.len()
+                };
+                for checkpoint in &case.checkpoints[..completed] {
+                    assert!(
+                        execution.exit != Exit::Interpret
+                            || matches!(checkpoint.expected.exit, ExpectedExit::Fallthrough)
+                    );
                     final_state.append(checkpoint);
                 }
                 final_state.complete_flags();
-                expectations::check_checkpoint(
+                let check = if execution.exit == Exit::Interpret {
+                    expectations::check_handoff
+                } else {
+                    expectations::check_checkpoint
+                };
+                check(
                     &final_state.expected,
                     final_state.boundary,
                     &initial,

@@ -4,6 +4,7 @@ use super::{expectations, observation::FlagObservations, InstructionCase};
 use crate::support::{
     blocks::BlockModules,
     execution::Frontend,
+    guest::Exit,
     step::{Engine, TestModule},
 };
 
@@ -34,6 +35,20 @@ pub(crate) fn check(cases: &[InstructionCase], engine: Engine, frontend: Fronten
             };
             let context = format!("{} [{engine:?}, {profile:?} {frontend:?}]", case.name);
             let execution = machine.run(module, engine);
+            if execution.exit == Exit::Interpret {
+                assert!(matches!(frontend, Frontend::Block));
+                expectations::check_handoff(
+                    &super::ExpectedState::new(super::ExpectedFlags::Preserved),
+                    expectations::Boundary {
+                        eip: initial.cpu.eip,
+                        retired: 0,
+                    },
+                    &initial,
+                    &execution,
+                    &context,
+                );
+                continue;
+            }
             expectations::check_state(case, &initial, &execution, &context);
             flags.after(
                 execution.state.cpu,
