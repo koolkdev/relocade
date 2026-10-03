@@ -2,6 +2,7 @@
 
 mod add;
 mod binary;
+mod divide;
 mod integer;
 mod multiply;
 mod operand;
@@ -21,4 +22,6 @@ pub(crate) enum BinaryOperation {
     Subtract,
     ReverseSubtract,
     Multiply,
+    Divide,
+    ReverseDivide,
 }

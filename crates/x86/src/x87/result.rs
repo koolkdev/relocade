@@ -82,6 +82,17 @@ impl RoundedValue {
         }
     }
 
+    pub(super) fn infinity(negative: Val<I1>) -> Self {
+        Self {
+            value: ExtendedValue::from_bits(ExtendedBits {
+                significand: (1_u64 << 63).into(),
+                sign_exponent: negative.select::<I16>(0xffff, 0x7fff),
+            }),
+            inexact: false.into(),
+            incremented: false.into(),
+        }
+    }
+
     pub(super) fn components(&self) -> <RoundedShape as Results>::Values {
         let bits = self.value.bits();
         (
@@ -126,6 +137,7 @@ pub(crate) struct ArithmeticResult {
     pub(super) in_range: ArithmeticCandidate,
     pub(crate) invalid: Val<I1>,
     pub(crate) denormal: Val<I1>,
+    pub(crate) zero_divide: Val<I1>,
     pub(crate) overflow: Val<I1>,
     pub(crate) tiny: Val<I1>,
     pub(super) masked: RoundedValue,
@@ -143,6 +155,7 @@ impl ArithmeticResult {
         self.tiny = condition.eq(false).and(&self.tiny);
         self.invalid = condition.or(&self.invalid);
         self.denormal = condition.eq(false).and(&self.denormal);
+        self.zero_divide = condition.eq(false).and(&self.zero_divide);
         self
     }
 
@@ -166,6 +179,7 @@ impl ArithmeticResult {
             },
             invalid: false.into(),
             denormal: false.into(),
+            zero_divide: false.into(),
             overflow: false.into(),
             tiny: false.into(),
             masked: rounded.clone(),

@@ -1,6 +1,6 @@
 //! Binary operands share normalization, NaN selection and exception priority.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I64, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64, I8};
 
 use super::{
     result::RoundedValue, ArithmeticResult, BinaryArithmetic, BinaryOperand, BinaryOperation,
@@ -93,10 +93,15 @@ impl BinaryOperands {
         }
     }
 
-    /// Normal or zero values with no source denormal exception. Narrow
-    /// denormals expand to normal binary80 but still require a #D response.
-    pub(crate) fn precision_only(&self) -> Val<I1> {
-        self.precision_only.clone()
+    /// Normal or zero values with no operand exception for this operation.
+    /// Division also excludes a zero divisor. Narrow denormals expand to
+    /// normal binary80 but still require a #D response.
+    pub(crate) fn precision_only(&self, operation: BinaryOperation) -> Val<I1> {
+        match operation {
+            BinaryOperation::Divide => self.precision_only.and(self.right.zero.eq(false)),
+            BinaryOperation::ReverseDivide => self.precision_only.and(self.left.zero.eq(false)),
+            _ => self.precision_only.clone(),
+        }
     }
 
     pub(crate) fn calculate(
@@ -108,20 +113,22 @@ impl BinaryOperands {
     ) -> Result<BinaryArithmetic, BuildError> {
         match operation {
             BinaryOperation::Multiply => Ok(super::multiply::multiply(self, precision, rounding)),
+            BinaryOperation::Divide | BinaryOperation::ReverseDivide => {
+                Ok(super::divide::divide(self, operation, precision, rounding))
+            }
             BinaryOperation::Add | BinaryOperation::Subtract | BinaryOperation::ReverseSubtract => {
                 super::add::add(body, self, operation, precision, rounding)
             }
         }
     }
 
-    /// Applies shared operand responses after the operation supplies its invalid
-    /// combination and infinity sign. Original NaN signs are never negated by
-    /// subtraction, and equal payloads retain the destination operand's sign.
+    /// Resolves NaNs and operand exceptions after the operation supplies its
+    /// zero/infinity responses and invalid combination. NaN selection retains
+    /// the original destination/source order even for reversed arithmetic.
     pub(super) fn finish(
         &self,
         mut result: ArithmeticResult,
         invalid_operation: Val<I1>,
-        infinity_negative: Val<I1>,
     ) -> ArithmeticResult {
         let Self { left, right, .. } = self;
         let indefinite = left
@@ -130,7 +137,6 @@ impl BinaryOperands {
             .or(invalid_operation);
         let invalid = indefinite.or(left.signaling_nan.or(&right.signaling_nan));
         let nan = left.nan.or(&right.nan);
-        let infinity = left.infinity.or(&right.infinity);
 
         // A QNaN wins over an SNaN. Within either class the larger significand
         // wins; an equal-significand tie keeps the destination as local policy.
@@ -144,19 +150,18 @@ impl BinaryOperands {
         let nan_sign = left_nan.select(&left.bits.sign_exponent, &right.bits.sign_exponent);
         let special = RoundedValue {
             value: ExtendedValue::from_bits(ExtendedBits {
-                significand: nan.select(nan_significand.or(1_u64 << 62), 1_u64 << 63),
-                sign_exponent: nan.select(
-                    nan_sign,
-                    infinity_negative.select::<I16>(0x8000, 0).or(0x7fff),
-                ),
+                significand: nan_significand.or(1_u64 << 62),
+                sign_exponent: nan_sign,
             })
             .or_indefinite(&indefinite),
             inexact: false.into(),
             incremented: false.into(),
         };
-        result.replace_when(&nan.or(&indefinite).or(infinity), &special);
+        result.replace_when(&nan.or(&indefinite), &special);
+        result.zero_divide = invalid.or(&nan).eq(false).and(&result.zero_divide);
         result.denormal = invalid
             .or(nan)
+            .or(&result.zero_divide)
             .eq(false)
             .and(left.denormal.or(&right.denormal));
         result.invalid = invalid;

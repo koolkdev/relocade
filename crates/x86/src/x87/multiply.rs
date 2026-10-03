@@ -6,7 +6,7 @@ use super::{
     operand::BinaryOperands,
     result::{BinaryArithmetic, RoundedValue},
     rounding::{FiniteMagnitude, RoundingInput},
-    RoundingMode,
+    BinaryOperation, RoundingMode,
 };
 
 pub(super) fn multiply(
@@ -38,10 +38,14 @@ pub(super) fn multiply(
     };
     let mut result = magnitude.round(precision, rounding);
     result.replace_when(&zero_product, &zero);
+    result.replace_when(
+        &left.infinity.or(&right.infinity),
+        &RoundedValue::infinity(negative),
+    );
     let invalid_operation = left.infinity.or(&right.infinity).and(&zero_product);
     BinaryArithmetic {
-        result: operands.finish(result, invalid_operation, negative),
-        operands_valid: operands.precision_only(),
+        result: operands.finish(result, invalid_operation),
+        operands_valid: operands.precision_only(BinaryOperation::Multiply),
         round_magnitude: zero_product.eq(false),
         zero,
     }

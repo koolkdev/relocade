@@ -90,6 +90,7 @@ impl FiniteMagnitude {
             in_range,
             invalid: false.into(),
             denormal: false.into(),
+            zero_divide: false.into(),
             overflow,
             tiny,
             masked,

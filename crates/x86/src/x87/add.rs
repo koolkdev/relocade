@@ -40,10 +40,14 @@ pub(super) fn add(
     let mut result = magnitude.round(precision, rounding);
     result.replace_when(&exact_zero, &zero);
     let infinity_negative = left.infinity.select(left_negative, right_negative);
+    result.replace_when(
+        &left.infinity.or(&right.infinity),
+        &RoundedValue::infinity(infinity_negative),
+    );
     let invalid_operation = left.infinity.and(&right.infinity).and(subtract_magnitudes);
     Ok(BinaryArithmetic {
-        result: operands.finish(result, invalid_operation, infinity_negative),
-        operands_valid: operands.precision_only(),
+        result: operands.finish(result, invalid_operation),
+        operands_valid: operands.precision_only(operation),
         round_magnitude: exact_zero.eq(false),
         zero,
     })

@@ -212,9 +212,10 @@ and standalone FWAIT. Stack operations include FLD ST(i), FST/FSTP ST(i), FXCH,
 FFREE, FINCSTP and FDECSTP. Memory data transfers support FLD m32/m64/m80,
 FILD m16/m32/m64 integers, FIST m16/m32, FISTP m16/m32/m64, FST m32/m64 and
 FSTP m32/m64/m80. Register arithmetic supports FADD/FADDP, FSUB/FSUBP,
-FSUBR/FSUBRP and FMUL/FMULP. FADD, FSUB, FSUBR and FMUL also accept binary32/64
-memory sources. There is no FIST m64 or FST m80 encoding. Integer memory
-arithmetic and other arithmetic families remain unsupported.
+FSUBR/FSUBRP, FMUL/FMULP, FDIV/FDIVP and FDIVR/FDIVRP. FADD, FSUB, FSUBR and
+FMUL also accept binary32/64 memory sources. There is no FIST m64 or FST m80
+encoding. Division memory forms, integer memory arithmetic and other arithmetic
+families remain unsupported.
 Execution assumes an enabled FPU with native exception reporting, corresponding
 to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
 modeled by this user-mode environment.
@@ -271,6 +272,15 @@ applying PC and RC to the result. The original source classification still
 determines invalid and denormal exceptions, even when a narrow subnormal expands
 to a normal extended value. An unmasked invalid or denormal exception suppresses
 the destination update and leaves #MF pending for the next waiting instruction.
+
+Register division uses the same PC/RC rounding and deferred exception handling.
+Finite nonzero values divided by signed zero set ZE; masked zero divide stores
+infinity with the operands' exclusive-OR sign, while unmasked zero divide
+preserves the destination and TOP. Zero divided by zero and infinity divided by
+infinity set IE instead. NaN and unsupported-encoding responses precede zero
+divide, and zero divide precedes a denormal-operand response. Thus a denormal
+dividend divided by zero sets ZE without DE. These priorities follow Intel's
+[P4 Volume 1, sections 4.9.2 and 8.5.3](https://kib.kiev.ua/x86docs/Intel/SDMs/253665-014.pdf).
 
 FILD converts signed 16-, 32- and 64-bit memory integers exactly, independently
 of PC and RC. The opcode fixes the width even with an operand-size prefix.

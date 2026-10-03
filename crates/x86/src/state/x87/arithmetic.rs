@@ -70,16 +70,15 @@ impl Arithmetic {
             .calculate(body, operation, self.precision.clone(), &self.rounding)
     }
 
-    /// Present normal or zero operands with no source denormal evidence need
-    /// no invalid or denormal response.
+    /// Present operands admitted for this operation need no pre-operation response.
     /// The result still needs a separate range check before precision-only use.
-    pub(crate) fn precision_only_operands(&self) -> Val<I1> {
+    pub(crate) fn precision_only_operands(&self, operation: BinaryOperation) -> Val<I1> {
         self.stack_fault
             .eq(false)
-            .and(self.operands.precision_only())
+            .and(self.operands.precision_only(operation))
     }
 
-    /// Requires a guard establishing `precision_only_operands()` on this path.
+    /// Requires the operation's `precision_only_operands` guard on this path.
     pub(crate) fn assume_present(&mut self) {
         self.stack_fault = false.into();
     }
@@ -108,6 +107,12 @@ impl X87Access<'_, '_> {
             &result.invalid,
             &mut state.control,
         )?;
+        let unmasked_zero_divide = state.status.record_exception(
+            body,
+            Exception::ZeroDivide,
+            &result.zero_divide,
+            &mut state.control,
+        )?;
         let unmasked_denormal = state.status.record_exception(
             body,
             Exception::Denormal,
@@ -115,7 +120,9 @@ impl X87Access<'_, '_> {
             &mut state.control,
         )?;
         state.status.record_stack_fault(body, &stack_fault)?;
-        let suppressed = unmasked_invalid.or(unmasked_denormal);
+        let suppressed = unmasked_invalid
+            .or(unmasked_zero_divide)
+            .or(unmasked_denormal);
         let enabled = suppressed.eq(false);
         let overflow = enabled.and(&result.overflow);
         let unmasked_overflow = state.status.record_exception(

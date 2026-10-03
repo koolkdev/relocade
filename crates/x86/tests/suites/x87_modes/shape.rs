@@ -69,7 +69,7 @@ fn existing_snapshot_functions_keep_dynamic_modes() {
 fn unchanged_modes_add_one_guard_to_an_arithmetic_sequence() {
     for pc in 0..4 {
         for rc in 0..4 {
-            for opcode in [0xc1, 0xc9, 0xe1] {
+            for opcode in [0xc1, 0xc9, 0xe1, 0xf1] {
                 for count in [1, 8] {
                     let module = compiler(pc, rc)
                         .compile(0x1000, &[0xd8, opcode].repeat(count), count as u32)

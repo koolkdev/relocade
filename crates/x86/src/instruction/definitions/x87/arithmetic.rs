@@ -90,6 +90,30 @@ instruction_families! {
         execute: binary_register(BinaryOperation::Multiply, Destination::Other, true);
         forms { 0xDE @ 0xC8 + rm => operands(st); }
     }
+    FDIV_TOP {
+        execute: binary_register(BinaryOperation::Divide, Destination::Top, false);
+        forms { 0xD8 @ 0xF0 + rm => operands(st); }
+    }
+    FDIV_REGISTER {
+        execute: binary_register(BinaryOperation::Divide, Destination::Other, false);
+        forms { 0xDC @ 0xF8 + rm => operands(st); }
+    }
+    FDIVP_REGISTER {
+        execute: binary_register(BinaryOperation::Divide, Destination::Other, true);
+        forms { 0xDE @ 0xF8 + rm => operands(st); }
+    }
+    FDIVR_TOP {
+        execute: binary_register(BinaryOperation::ReverseDivide, Destination::Top, false);
+        forms { 0xD8 @ 0xF8 + rm => operands(st); }
+    }
+    FDIVR_REGISTER {
+        execute: binary_register(BinaryOperation::ReverseDivide, Destination::Other, false);
+        forms { 0xDC @ 0xF0 + rm => operands(st); }
+    }
+    FDIVRP_REGISTER {
+        execute: binary_register(BinaryOperation::ReverseDivide, Destination::Other, true);
+        forms { 0xDE @ 0xF0 + rm => operands(st); }
+    }
 }
 
 enum Destination {
@@ -143,7 +167,7 @@ fn calculate(
 ) -> Result<x87::ArithmeticResult, BuildError> {
     execution.specialize(|jit| {
         jit.specialize_x87_mode(X87ModeFields::PrecisionAndRounding)?;
-        jit.specialize_on(arithmetic.precision_only_operands())?;
+        jit.specialize_on(arithmetic.precision_only_operands(operation))?;
         arithmetic.assume_present();
         Ok(())
     })?;
