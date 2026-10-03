@@ -76,8 +76,8 @@ fn auxiliary_carry_is_a_nibble_test_without_a_full_flag_image() {
 #[test]
 fn signed_cmp_conditions_use_original_operands_without_computing_flags() {
     let mut program = Program::new();
-    for condition in [Condition::L, Condition::GE] {
-        program
+    for (name, condition) in [("less", Condition::L), ("greater_equal", Condition::GE)] {
+        let function = program
             .function(
                 Signature {
                     parameters: vec![Type::I32; 2],
@@ -98,6 +98,7 @@ fn signed_cmp_conditions_use_original_operands_without_computing_flags() {
                 },
             )
             .unwrap();
+        program.export(name, function).unwrap();
     }
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();

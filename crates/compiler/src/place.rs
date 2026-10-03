@@ -143,12 +143,14 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
                 if !placer.reachable[index] {
                     continue;
                 }
-                let incoming =
-                    placer
-                        .joins
-                        .prepare(placer.graph, &placer.reachable, index, &placer.available);
-                let scope = placer.specializer.begin_block(incoming);
                 let checkpoint = placer.available.checkpoint();
+                let incoming = placer.joins.prepare(
+                    placer.graph,
+                    &placer.reachable,
+                    index,
+                    &mut placer.available,
+                );
+                let scope = placer.specializer.begin_block(incoming);
                 // A unique predecessor's selected edge supplies facts valid on
                 // every entrance. Dominator ancestry preserves them afterwards.
                 if predecessors[index].len() == 1 {
