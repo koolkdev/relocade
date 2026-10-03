@@ -28,6 +28,46 @@ fn child_constant(body: &mut BlockBuilder<'_>, memory: Mem) -> Val<I32> {
 }
 
 #[test]
+fn constant_queries_check_logical_width_folding_and_branch_visibility() {
+    let (mut program, memory) = memory_program();
+    let mut retained = None;
+    program
+        .function(
+            Signature {
+                parameters: vec![Type::I32],
+                results: vec![],
+            },
+            |mut body| {
+                let input = body.parameter::<I32>(0)?;
+                assert_eq!(body.constant_bits(&input)?, None);
+                assert_eq!(body.constant_bits(input.mul(0).add(17))?, Some(17));
+                assert_eq!(body.constant_bits::<crate::I8>(0x1ff)?, Some(255));
+                assert_eq!(body.constant_bits::<I32>(-1)?, Some(u64::from(u32::MAX)));
+                let child = child_constant(&mut body, memory);
+                assert_eq!(body.constant_bits(&child), Err(BuildError::OutOfScope));
+                retained = Some(input);
+                body.return_(())
+            },
+        )
+        .unwrap();
+    program
+        .function(
+            Signature {
+                parameters: vec![],
+                results: vec![],
+            },
+            |body| {
+                assert_eq!(
+                    body.constant_bits(retained.as_ref().unwrap()),
+                    Err(BuildError::ForeignBody)
+                );
+                body.return_(())
+            },
+        )
+        .unwrap();
+}
+
+#[test]
 fn fold_chains_keep_original_visibility_and_runtime_identity() {
     let (mut program, memory) = memory_program();
     let function = program.declare(Signature {

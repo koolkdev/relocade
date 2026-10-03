@@ -1,12 +1,17 @@
 //! Instruction reads translate CS offsets before consulting linear page mappings.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 
 use crate::{
-    memory::{DirectRange, Intent, Memory, PageCache},
+    memory::{Intent, Memory, PageCache},
     segment::{Segment, SegmentAccess, SegmentProfile},
     state::{exit, Cpu},
 };
+
+pub(crate) struct FetchWindow {
+    pub(crate) unavailable: Val<I1>,
+    pub(crate) physical: Val<I32>,
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct InstructionFetch<'module> {
@@ -29,23 +34,27 @@ impl<'module> InstructionFetch<'module> {
     }
 
     /// An unavailable window is not a fault: a shorter instruction may still fit.
-    pub(super) fn check_direct_access(
+    pub(super) fn probe_window(
         &self,
         body: &mut BlockBuilder<'_>,
         eip: &Val<I32>,
         bytes: u32,
         cache: Option<&mut PageCache>,
-    ) -> Result<DirectRange, BuildError> {
+    ) -> Result<FetchWindow, BuildError> {
         let segment = self
             .segments
             .check(body, &Segment::Cs.into(), eip, bytes, Intent::Fetch)?;
-        let mut direct =
+        let access =
             self.memory
-                .check_direct_access(body, &segment.linear, bytes, Intent::Fetch, cache)?;
+                .resolve_access(body, &segment.linear, bytes, Intent::Fetch, cache, None)?;
+        let mut unavailable = access.unavailable;
         if let Some(denied) = segment.denied {
-            direct.unavailable = denied.or(direct.unavailable);
+            unavailable = denied.or(unavailable);
         }
-        Ok(direct)
+        Ok(FetchWindow {
+            unavailable,
+            physical: access.physical,
+        })
     }
 
     /// Exact reads check CS first, then the page containing that required byte.
@@ -62,9 +71,14 @@ impl<'module> InstructionFetch<'module> {
             Intent::Fetch,
             exit::exception,
         )?;
-        let access =
-            self.memory
-                .resolve_access(body, &linear, 1, Intent::Fetch, exit::exception)?;
+        let access = self.memory.resolve_access(
+            body,
+            &linear,
+            1,
+            Intent::Fetch,
+            None,
+            Some(&mut exit::exception),
+        )?;
         self.memory.read(body, &access, 0)
     }
 }

@@ -230,6 +230,17 @@ impl BlockBuilder<'_> {
         operand.into().bind(&self.arena, self.pending.id)
     }
 
+    /// Returns the logical bits when construction has already folded a value
+    /// to a constant. Runtime values and facts learned later during placement
+    /// return `None`. Ownership and branch visibility are checked as for `value`.
+    pub fn constant_bits<T: IntType>(
+        &self,
+        operand: impl Into<Val<T>>,
+    ) -> Result<Option<u64>, BuildError> {
+        let value = self.operand(operand)?;
+        self.arena.constant_bits(value)
+    }
+
     /// Returns values from the function, consuming the active builder.
     /// The signature determines literal types; typed values must match it.
     /// Scalars, tuples, arrays and vectors supply ordered results; `()` supplies none.

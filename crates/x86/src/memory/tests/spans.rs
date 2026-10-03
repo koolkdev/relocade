@@ -12,8 +12,14 @@ fn field_module() -> TestModule {
             },
             |mut body| {
                 let start = body.parameter::<I32>(0)?;
-                let access =
-                    memory.resolve_access(&mut body, &start, 6, Intent::Write, exit::exception)?;
+                let access = memory.resolve_access(
+                    &mut body,
+                    &start,
+                    6,
+                    Intent::Write,
+                    None,
+                    Some(&mut exit::exception),
+                )?;
                 let word = memory.read::<I16>(&mut body, &access, 0)?;
                 let dword = memory.read::<I32>(&mut body, &access, 2)?;
                 let byte = memory.read::<I8>(&mut body, &access, 5)?;
@@ -123,8 +129,14 @@ fn wide_field_modules() -> [TestModule; 2] {
                 },
                 |mut body| {
                     let start = body.parameter::<I32>(0)?;
-                    let access =
-                        memory.resolve_access(&mut body, &start, 10, intent, exit::exception)?;
+                    let access = memory.resolve_access(
+                        &mut body,
+                        &start,
+                        10,
+                        intent,
+                        None,
+                        Some(&mut exit::exception),
+                    )?;
                     match intent {
                         Intent::Read => {
                             let qword = memory.read::<I64>(&mut body, &access, 0)?;

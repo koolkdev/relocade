@@ -56,7 +56,7 @@ impl Memory {
         assert!(matches!(access.intent, Intent::Write));
         assert_eq!(
             access.bytes,
-            T::BYTES,
+            Some(T::BYTES),
             "an atomic update covers its complete checked operand"
         );
         if T::BYTES == 1 {
