@@ -42,6 +42,22 @@ instruction_families! {
         execute: binary_memory(BinaryOperation::Multiply, BinaryFormat::Binary64);
         forms { 0xDC / 1 => operands(mem); }
     }
+    FDIV_BINARY32 {
+        execute: binary_memory(BinaryOperation::Divide, BinaryFormat::Binary32);
+        forms { 0xD8 / 6 => operands(mem); }
+    }
+    FDIV_BINARY64 {
+        execute: binary_memory(BinaryOperation::Divide, BinaryFormat::Binary64);
+        forms { 0xDC / 6 => operands(mem); }
+    }
+    FDIVR_BINARY32 {
+        execute: binary_memory(BinaryOperation::ReverseDivide, BinaryFormat::Binary32);
+        forms { 0xD8 / 7 => operands(mem); }
+    }
+    FDIVR_BINARY64 {
+        execute: binary_memory(BinaryOperation::ReverseDivide, BinaryFormat::Binary64);
+        forms { 0xDC / 7 => operands(mem); }
+    }
     FADD_TOP {
         execute: binary_register(BinaryOperation::Add, Destination::Top, false);
         forms { 0xD8 @ 0xC0 + rm => operands(st); }

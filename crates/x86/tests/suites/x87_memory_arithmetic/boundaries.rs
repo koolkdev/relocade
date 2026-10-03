@@ -80,11 +80,15 @@ fn live_values(engine: Engine) {
     let code = [
         three32.instruction(0, 0x4000),
         three64.instruction(5, 0x4008),
+        three32.instruction(7, 0x4000),
         minus_zero.instruction(1, 0x4010),
+        three64.instruction(6, 0x4008),
         three64.instruction(4, 0x4008),
+        three32.instruction(6, 0x4000),
+        three64.instruction(7, 0x4008),
     ]
     .concat();
-    let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 4).unwrap());
+    let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 8).unwrap());
     let mut image = initial_image(&code, three32, (LEADING, 0xc000));
     image.data(0x8008, &three64.bytes());
     image.data(0x8010, &minus_zero.bytes());
@@ -92,8 +96,12 @@ fn live_values(engine: Engine) {
     for (source, extension, address, value) in [
         (three32, 0, 0x4000, (LEADING, 0x3fff)),
         (three64, 5, 0x4008, (LEADING, 0x4000)),
+        (three32, 7, 0x4000, (0xc000_0000_0000_0000, 0x3fff)),
         (minus_zero, 1, 0x4010, (0, 0x8000)),
+        (three64, 6, 0x4008, (0, 0x8000)),
         (three64, 4, 0x4008, (0xc000_0000_0000_0000, 0xc000)),
+        (three32, 6, 0x4000, (LEADING, 0xbfff)),
+        (three64, 7, 0x4008, (0xc000_0000_0000_0000, 0xc000)),
     ] {
         result = completed_memory(result, source, extension);
         result.x87.data_offset = address;
@@ -110,7 +118,7 @@ fn restart_state(engine: Engine) {
     let denormal = Source::Single(1);
     let code = [
         three.instruction(0, 0x4000),
-        denormal.instruction(1, 0x4008),
+        denormal.instruction(7, 0x4008),
     ]
     .concat();
     let compiled = compile_block_from_bytes(0x1000, &code, 2).unwrap();
@@ -131,7 +139,7 @@ fn restart_state(engine: Engine) {
             },]
         )
     );
-    let mut second = completed_memory(first, denormal, 1);
+    let mut second = completed_memory(first, denormal, 7);
     second.x87.data_offset = 0x4008;
     second.x87.status.denormal = 1;
     write_value(&mut second, 3, (LEADING, 0x3f6a));

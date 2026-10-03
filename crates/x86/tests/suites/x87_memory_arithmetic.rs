@@ -2,6 +2,8 @@
 
 #[path = "x87_memory_arithmetic/boundaries.rs"]
 mod boundaries;
+#[path = "x87_memory_arithmetic/division.rs"]
+mod division;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
