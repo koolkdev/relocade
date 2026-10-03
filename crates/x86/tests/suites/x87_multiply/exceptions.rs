@@ -40,8 +40,9 @@ fn operand_classes(engine: Engine, frontend: Frontend) {
         (infinity, (1, 0), infinity, 2),
     ] {
         // Overflow and precision are unmasked, exposing spurious numerical flags.
-        check_product(
+        check_arithmetic(
             &mut checks,
+            [0xde, 0xc9],
             "operand classes and priority",
             Case {
                 left,
@@ -61,8 +62,9 @@ fn operand_classes(engine: Engine, frontend: Frontend) {
         // If continued, this denormal operand would also produce tiny/inexact.
         ((1, 0), (LEADING + 1, 1), 2),
     ] {
-        check_product(
+        check_arithmetic(
             &mut checks,
+            [0xde, 0xc9],
             "unmasked operand exception suppresses value and pop",
             Case {
                 left,
@@ -73,8 +75,9 @@ fn operand_classes(engine: Engine, frontend: Frontend) {
             },
         );
     }
-    check_product(
+    check_arithmetic(
         &mut checks,
+        [0xde, 0xc9],
         "unmasked precision still commits and pops",
         Case {
             left: (LEADING + 1, 0x3fff),

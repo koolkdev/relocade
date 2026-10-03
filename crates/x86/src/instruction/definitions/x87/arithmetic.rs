@@ -1,55 +1,98 @@
-//! Register multiplication reads ST(i) before an optional pop.
+//! Register arithmetic captures both operands before an optional pop.
 
 use super::*;
-use crate::{instruction::X87StackIndex, x87};
+use crate::{
+    instruction::X87StackIndex,
+    x87::{self, BinaryOperation},
+};
 
 instruction_families! {
+    FADD_TOP {
+        execute: binary_register(BinaryOperation::Add, Destination::Top, false);
+        forms { 0xD8 @ 0xC0 + rm => operands(st); }
+    }
+    FADD_REGISTER {
+        execute: binary_register(BinaryOperation::Add, Destination::Other, false);
+        forms { 0xDC @ 0xC0 + rm => operands(st); }
+    }
+    FADDP_REGISTER {
+        execute: binary_register(BinaryOperation::Add, Destination::Other, true);
+        forms { 0xDE @ 0xC0 + rm => operands(st); }
+    }
+    FSUB_TOP {
+        execute: binary_register(BinaryOperation::Subtract, Destination::Top, false);
+        forms { 0xD8 @ 0xE0 + rm => operands(st); }
+    }
+    FSUB_REGISTER {
+        execute: binary_register(BinaryOperation::Subtract, Destination::Other, false);
+        forms { 0xDC @ 0xE8 + rm => operands(st); }
+    }
+    FSUBP_REGISTER {
+        execute: binary_register(BinaryOperation::Subtract, Destination::Other, true);
+        forms { 0xDE @ 0xE8 + rm => operands(st); }
+    }
+    FSUBR_TOP {
+        execute: binary_register(BinaryOperation::ReverseSubtract, Destination::Top, false);
+        forms { 0xD8 @ 0xE8 + rm => operands(st); }
+    }
+    FSUBR_REGISTER {
+        execute: binary_register(BinaryOperation::ReverseSubtract, Destination::Other, false);
+        forms { 0xDC @ 0xE0 + rm => operands(st); }
+    }
+    FSUBRP_REGISTER {
+        execute: binary_register(BinaryOperation::ReverseSubtract, Destination::Other, true);
+        forms { 0xDE @ 0xE0 + rm => operands(st); }
+    }
     FMUL_TOP {
-        execute: multiply_register(ProductDestination::Top, false);
+        execute: binary_register(BinaryOperation::Multiply, Destination::Top, false);
         forms { 0xD8 @ 0xC8 + rm => operands(st); }
     }
     FMUL_REGISTER {
-        execute: multiply_register(ProductDestination::Other, false);
+        execute: binary_register(BinaryOperation::Multiply, Destination::Other, false);
         forms { 0xDC @ 0xC8 + rm => operands(st); }
     }
     FMULP_REGISTER {
-        execute: multiply_register(ProductDestination::Other, true);
+        execute: binary_register(BinaryOperation::Multiply, Destination::Other, true);
         forms { 0xDE @ 0xC8 + rm => operands(st); }
     }
 }
 
-enum ProductDestination {
+enum Destination {
     Top,
     Other,
 }
 
-fn multiply_register(
+fn binary_register(
     execution: &mut ExecutionBuilder<'_, '_>,
     other: X87StackIndex,
-    destination: ProductDestination,
+    operation: BinaryOperation,
+    destination: Destination,
     pop: bool,
 ) -> Result<(), BuildError> {
     execution.check_x87_exception()?;
     let (destination, source) = match destination {
-        ProductDestination::Top => (0.into(), other.offset()),
-        ProductDestination::Other => (other.offset(), 0.into()),
+        Destination::Top => (0.into(), other.offset()),
+        Destination::Other => (other.offset(), 0.into()),
     };
     let mut arithmetic = execution
         .x87()
         .prepare_binary_register(destination, source, pop)?;
-    let mut product = arithmetic.calculate(x87::multiply);
     execution.specialize(|jit| {
-        let candidate = jit.compute(|body| product.rounding_candidate(body))?;
-        // The candidate accepts two normal operands with an in-range product,
-        // or zero with a normal/zero partner. Empty slots can retain valid bits,
-        // so stack presence must also be established.
-        jit.specialize_on(arithmetic.operands_present().and(candidate.valid))?;
+        jit.specialize_on(arithmetic.precision_only_operands())?;
         arithmetic.assume_present();
-        product.result = x87::ArithmeticResult::from_rounding(candidate.rounded);
+        Ok(())
+    })?;
+    let mut calculation = execution.compute(|body| arithmetic.calculate(body, operation))?;
+    execution.specialize(|jit| {
+        let candidate = jit.compute(|body| calculation.rounding_candidate(body))?;
+        // Operand admission precedes arithmetic; this guard excludes result
+        // range exceptions while retaining exact-zero results.
+        jit.specialize_on(candidate.valid)?;
+        calculation.result = x87::ArithmeticResult::from_rounding(candidate.rounded);
         Ok(())
     })?;
     execution.record_x87_instruction()?;
     execution
         .x87()
-        .commit_arithmetic(arithmetic, product.result)
+        .commit_arithmetic(arithmetic, calculation.result)
 }

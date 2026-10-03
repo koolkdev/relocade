@@ -37,7 +37,9 @@ impl FiniteMagnitude {
         let sign = self.negative.select(0x8000_u32, 0_u32);
         let below_normal = self.exponent.signed().lt(-16382);
         let in_range = ArithmeticCandidate {
-            valid: below_normal.or(&overflow).or(&tiny).eq(false),
+            // Rounding can only keep or increase the exponent, so the lower
+            // bound before rounding also proves it afterwards.
+            valid: below_normal.or(&overflow).eq(false),
             rounded: RoundedValue {
                 value: ExtendedValue::from_bits(ExtendedBits {
                     significand: significand.clone(),

@@ -1,8 +1,10 @@
 //! Register arithmetic resolves exceptions before committing its value and pop.
 
-use wasm86_compiler::{BuildError, Val, I1, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 
-use crate::x87::{ArithmeticResult, ExtendedValue, RoundingMode};
+use crate::x87::{
+    ArithmeticResult, BinaryArithmetic, BinaryOperands, BinaryOperation, RoundingMode,
+};
 
 use super::{control::Exception, X87Access};
 
@@ -10,8 +12,7 @@ pub(crate) struct RegisterArithmetic {
     destination: Val<I32>,
     pop: bool,
     stack_fault: Val<I1>,
-    left: ExtendedValue,
-    right: ExtendedValue,
+    operands: BinaryOperands,
     precision: Val<I8>,
     rounding: RoundingMode,
 }
@@ -36,8 +37,7 @@ impl X87Access<'_, '_> {
             destination,
             pop,
             stack_fault,
-            left,
-            right,
+            operands: BinaryOperands::new(&left, &right),
             precision,
             rounding,
         })
@@ -46,23 +46,24 @@ impl X87Access<'_, '_> {
 
 impl RegisterArithmetic {
     /// Numerical operations consume values and controls without changing state.
-    pub(crate) fn calculate<R>(
+    pub(crate) fn calculate(
         &self,
-        calculate: impl FnOnce(&ExtendedValue, &ExtendedValue, Val<I8>, &RoundingMode) -> R,
-    ) -> R {
-        calculate(
-            &self.left,
-            &self.right,
-            self.precision.clone(),
-            &self.rounding,
-        )
+        body: &mut BlockBuilder<'_>,
+        operation: BinaryOperation,
+    ) -> Result<BinaryArithmetic, BuildError> {
+        self.operands
+            .calculate(body, operation, self.precision.clone(), &self.rounding)
     }
 
-    pub(crate) fn operands_present(&self) -> Val<I1> {
-        self.stack_fault.eq(false)
+    /// Present normal or zero operands need no invalid or denormal response.
+    /// The result still needs a separate range check before precision-only use.
+    pub(crate) fn precision_only_operands(&self) -> Val<I1> {
+        self.stack_fault
+            .eq(false)
+            .and(self.operands.normal_or_zero())
     }
 
-    /// Requires a guard establishing `operands_present()` on the continuing path.
+    /// Requires a guard establishing `precision_only_operands()` on this path.
     pub(crate) fn assume_present(&mut self) {
         self.stack_fault = false.into();
     }

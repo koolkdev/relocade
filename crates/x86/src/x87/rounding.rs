@@ -67,6 +67,11 @@ impl RoundingMode {
         Self(control.and(3))
     }
 
+    /// Exact cancellation produces -0 only when rounding toward minus infinity.
+    pub(super) fn cancellation_negative(&self) -> Val<I1> {
+        self.0.eq(1)
+    }
+
     fn away_from_zero(&self, negative: &Val<I1>) -> Val<I1> {
         self.0
             .eq(1)

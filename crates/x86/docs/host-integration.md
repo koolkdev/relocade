@@ -189,8 +189,9 @@ The implemented controls are FNINIT, FNCLEX, FLDCW, FNSTCW, FNSTSW (memory and A
 and standalone FWAIT. Stack operations include FLD ST(i), FST/FSTP ST(i), FXCH,
 FFREE, FINCSTP and FDECSTP. Memory data transfers support FLD m32/m64/m80,
 FILD m16/m32/m64 integers, FIST m16/m32, FISTP m16/m32/m64, FST m32/m64 and
-FSTP m32/m64/m80. There is no FIST m64 or FST m80 encoding. Arithmetic remains
-unsupported.
+FSTP m32/m64/m80. Register arithmetic supports FADD/FADDP, FSUB/FSUBP,
+FSUBR/FSUBRP and FMUL/FMULP. There is no FIST m64 or FST m80 encoding. Memory
+arithmetic and other arithmetic families remain unsupported.
 Execution assumes an enabled FPU with native exception reporting, corresponding
 to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
 modeled by this user-mode environment.

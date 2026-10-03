@@ -94,6 +94,8 @@ mod table_lookups;
 mod unary_operations;
 #[path = "suites/undefined_instructions.rs"]
 mod undefined_instructions;
+#[path = "suites/x87_add.rs"]
+mod x87_add;
 #[path = "suites/x87_control.rs"]
 mod x87_control;
 #[path = "suites/x87_integer_load.rs"]

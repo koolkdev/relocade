@@ -1,6 +1,6 @@
 //! Numerical results carry values and exception evidence to the x87 state owner.
 
-use wasm86_compiler::{Results, Val, I1, I16, I64};
+use wasm86_compiler::{BlockBuilder, BuildError, Results, Val, I1, I16, I64};
 
 use super::{value::Classification, ExtendedBits, ExtendedValue};
 
@@ -24,7 +24,56 @@ pub(crate) struct ArithmeticCandidate {
     pub(crate) rounded: RoundedValue,
 }
 
+/// A complete binary response and its candidate for precision-only execution.
+pub(crate) struct BinaryArithmetic {
+    pub(crate) result: ArithmeticResult,
+    pub(super) operands_valid: Val<I1>,
+    /// Distinguishes a nonzero magnitude from exact zero after operand admission.
+    /// The range check still belongs to the unrounded magnitude's candidate.
+    pub(super) round_magnitude: Val<I1>,
+    pub(super) zero: RoundedValue,
+}
+
+impl BinaryArithmetic {
+    /// Joins magnitude and exact-zero paths before their shared precision response.
+    /// Admission excludes operand exceptions; invalid ranges need the full response.
+    pub(crate) fn rounding_candidate(
+        &self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<ArithmeticCandidate, BuildError> {
+        let (valid, components) = body.if_value::<(I1, RoundedShape)>(
+            &self.round_magnitude,
+            |body| {
+                body.yield_((
+                    &self.result.in_range.valid,
+                    self.result.in_range.rounded.components(),
+                ))
+            },
+            |body| body.yield_((true, self.zero.components())),
+        )?;
+        Ok(ArithmeticCandidate {
+            valid: self.operands_valid.and(valid),
+            rounded: RoundedValue::from_components(
+                components,
+                Classification::normal().select(&self.round_magnitude, &Classification::zero()),
+            ),
+        })
+    }
+}
+
 impl RoundedValue {
+    pub(super) fn zero(negative: Val<I1>) -> Self {
+        Self {
+            value: ExtendedValue::from_bits(ExtendedBits {
+                significand: 0_u64.into(),
+                sign_exponent: negative.select(0x8000_u32, 0_u32),
+            })
+            .assume_class(Classification::zero()),
+            inexact: false.into(),
+            incremented: false.into(),
+        }
+    }
+
     pub(super) fn components(&self) -> <RoundedShape as Results>::Values {
         let bits = self.value.bits();
         (
@@ -63,8 +112,9 @@ impl RoundedValue {
 
 /// A register result whose range response is selected after applying exception masks.
 pub(crate) struct ArithmeticResult {
-    /// The precision-rounded result before any range response.
-    /// Precision loss and its rounding-direction evidence remain observable.
+    /// A precision-rounded candidate independent of the final masked/adjusted
+    /// responses. The calculation owns operand admission; this range test alone
+    /// does not exclude operand exceptions.
     pub(super) in_range: ArithmeticCandidate,
     pub(crate) invalid: Val<I1>,
     pub(crate) denormal: Val<I1>,
@@ -75,6 +125,15 @@ pub(crate) struct ArithmeticResult {
 }
 
 impl ArithmeticResult {
+    /// Exact zero and special operands replace the final range responses.
+    /// The magnitude candidate remains independent for specialization.
+    pub(super) fn replace_when(&mut self, condition: &Val<I1>, rounded: &RoundedValue) {
+        self.masked = rounded.select(condition, &self.masked);
+        self.adjusted = rounded.select(condition, &self.adjusted);
+        self.overflow = condition.eq(false).and(&self.overflow);
+        self.tiny = condition.eq(false).and(&self.tiny);
+    }
+
     /// Builds a response whose only possible arithmetic exception is inexact (#P).
     /// The caller must exclude operand and range exceptions first. The rounding
     /// evidence still controls C1 and the masked or unmasked #P response.

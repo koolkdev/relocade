@@ -12,84 +12,17 @@ use crate::support::{
     machine::{Exit, Step},
     step::Engine,
     x87::{
-        complete_x87, dispatch, set_control, stack_image, status, write_register_bits, INDEFINITE,
+        arithmetic::{check_arithmetic, ArithmeticCase as Case},
+        complete_x87, dispatch, set_control, stack_image, status, write_register_bits, write_value,
+        INDEFINITE,
     },
 };
-use wasm86_x86::{CpuState, SegmentProfile};
+use wasm86_x86::SegmentProfile;
 
 const LEADING: u64 = 1 << 63;
 const PE: u16 = 0x20;
 const C1: u16 = 0x200;
 const PENDING: u16 = 0x8080;
-
-#[derive(Debug)]
-struct Case {
-    left: (u64, u16),
-    right: (u64, u16),
-    control: u16,
-    result: Option<(u64, u16)>,
-    flags: u16,
-}
-
-fn tag(value: (u64, u16)) -> u16 {
-    match (value.0, value.1 & 0x7fff) {
-        (0, 0) => 1,
-        (_, 0 | 0x7fff) => 2,
-        (significand, _) if significand < LEADING => 2,
-        _ => 0,
-    }
-}
-
-fn write_value(cpu: &mut CpuState, slot: usize, value: (u64, u16)) {
-    write_register_bits(cpu, slot, value);
-    cpu.x87.tag_word = (cpu.x87.tag_word & !(3 << (slot * 2))) | (tag(value) << (slot * 2));
-}
-
-// Numerical and exception cases use FMULP ST1, ST0 to check write/pop together.
-// The form tests below own all other destinations and aliases.
-fn check_product(checks: &mut ImageSequences, name: &str, case: Case) {
-    let code = [0xde, 0xc9, 0xdf, 0xe0, 0x9b];
-    let mut image = stack_image(&code, 7, 0x3ffc);
-    image.cpu.x87.status.precision = 0;
-    set_control(&mut image.cpu.x87.control, case.control);
-    write_value(&mut image.cpu, 0, case.left);
-    write_value(&mut image.cpu, 7, case.right);
-    let mut product = complete_x87(image.cpu, 2, 0x06c9);
-    product.x87.status = status(0x4500 | case.flags);
-    if let Some(result) = case.result {
-        write_value(&mut product, 0, result);
-        product.x87.tag_word |= 0xc000;
-    } else {
-        product.x87.status.top = 7;
-    }
-    let mut observed = product;
-    observed.registers.eax =
-        0x1111_0000 | u32::from(0x4500 | case.flags) | (u32::from(product.x87.status.top) << 11);
-    observed.eip += 2;
-    observed.instruction_count += 1;
-    let mut waited = observed;
-    let exit = if case.flags & PENDING != 0 {
-        Exit::FloatingPoint
-    } else {
-        waited.eip += 1;
-        waited.instruction_count += 1;
-        Exit::Dispatch(waited.eip)
-    };
-    checks.check(
-        &format!("{name}: {case:x?}"),
-        &code,
-        &image,
-        &[
-            dispatch(product),
-            dispatch(observed),
-            Step {
-                cpu: waited,
-                ram: &[],
-                exit,
-            },
-        ],
-    );
-}
 
 fn register_forms(engine: Engine, frontend: Frontend) {
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);

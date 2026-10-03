@@ -8,7 +8,8 @@
 //! Both frontends share instruction semantics and return a [`CompiledModule`].
 //!
 //! The supported subset covers 16/32-bit protected-mode integer execution and
-//! x87 controls, value transfers and register FMUL/FMULP. Other x87 arithmetic,
+//! x87 controls, value transfers and register add/subtract/multiply (including
+//! reversed and pop forms). Other x87 arithmetic,
 //! real mode, privilege transitions, interrupt delivery and SIMD are outside the
 //! current scope.
 //!

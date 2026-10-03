@@ -1,5 +1,7 @@
 //! Architectural x87 fixtures share raw values, stack images and status expectations.
 
+pub(crate) mod arithmetic;
+
 use wasm86_x86::{CpuState, StoredX87Control, StoredX87Status};
 
 use super::machine::{Exit, Image, Step};
@@ -97,4 +99,18 @@ pub(crate) fn real80(value: (u64, u16)) -> [u8; 10] {
     bytes[..8].copy_from_slice(&value.0.to_le_bytes());
     bytes[8..].copy_from_slice(&value.1.to_le_bytes());
     bytes
+}
+
+fn tag(value: (u64, u16)) -> u16 {
+    match (value.0, value.1 & 0x7fff) {
+        (0, 0) => 1,
+        (_, 0 | 0x7fff) => 2,
+        (significand, _) if significand < (1_u64 << 63) => 2,
+        _ => 0,
+    }
+}
+
+pub(crate) fn write_value(cpu: &mut CpuState, slot: usize, value: (u64, u16)) {
+    write_register_bits(cpu, slot, value);
+    cpu.x87.tag_word = (cpu.x87.tag_word & !(3 << (slot * 2))) | (tag(value) << (slot * 2));
 }

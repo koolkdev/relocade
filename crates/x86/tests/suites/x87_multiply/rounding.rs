@@ -38,8 +38,9 @@ fn precision_and_rounding(engine: Engine, frontend: Frontend) {
                     let carry = rounded == 2_u128.pow(precision);
                     let significand = ((rounded >> u32::from(carry)) << (64 - precision)) as u64;
                     let exponent = 0x3fff + (bits - 127) as u16 + u16::from(carry);
-                    check_product(
+                    check_arithmetic(
                         &mut checks,
+                        [0xde, 0xc9],
                         "exact product rounded to PC/RC",
                         Case {
                             left: (left, if negative { 0xbfff } else { 0x3fff }),
@@ -75,8 +76,9 @@ fn exponent_range(engine: Engine, frontend: Frontend) {
                     } else {
                         ((u64::MAX << (64 - precision), 0x7ffe | sign), 8 | PE)
                     };
-                    check_product(
+                    check_arithmetic(
                         &mut checks,
+                        [0xde, 0xc9],
                         "overflow response",
                         Case {
                             left: (LEADING, 0x7ffe | sign),
@@ -92,8 +94,9 @@ fn exponent_range(engine: Engine, frontend: Frontend) {
         // Exact tiny results only raise UE when it is unmasked. Reduced PC
         // retains the extended exponent range, not the binary32/64 range.
         for masked in [false, true] {
-            check_product(
+            check_arithmetic(
                 &mut checks,
+                [0xde, 0xc9],
                 "exact tiny product",
                 Case {
                     left: (LEADING, 1),
@@ -114,8 +117,9 @@ fn exponent_range(engine: Engine, frontend: Frontend) {
         // precision rounding first would turn it into an even tie at zero.
         for rc in 0..4 {
             let increment = rc == 0 || rc == 2;
-            check_product(
+            check_arithmetic(
                 &mut checks,
+                [0xde, 0xc9],
                 "direct subnormal rounding avoids a double round",
                 Case {
                     left: (LEADING + 1, 1),
@@ -153,8 +157,9 @@ fn exponent_range(engine: Engine, frontend: Frontend) {
         // The smallest possible product stays tiny without a wrapped shift.
         ((1, 0), (1, 0), (0, 0), 2 | 0x10 | PE),
     ] {
-        check_product(
+        check_arithmetic(
             &mut checks,
+            [0xde, 0xc9],
             "underflow boundaries",
             Case {
                 left,
@@ -165,8 +170,9 @@ fn exponent_range(engine: Engine, frontend: Frontend) {
             },
         );
     }
-    check_product(
+    check_arithmetic(
         &mut checks,
+        [0xde, 0xc9],
         "unmasked tiny response retains precision evidence before denormalization",
         Case {
             left: (u64::MAX, 1),
@@ -176,8 +182,9 @@ fn exponent_range(engine: Engine, frontend: Frontend) {
             flags: 0x10 | PENDING,
         },
     );
-    check_product(
+    check_arithmetic(
         &mut checks,
+        [0xde, 0xc9],
         "adjusted overflow retains its rounding increment",
         Case {
             left: (LEADING + 1, 0x7ffe),

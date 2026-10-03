@@ -13,8 +13,8 @@ Development prioritizes missing P4 instructions and architectural behavior.
 The current scope is a partial 16/32-bit protected-mode integer instruction set,
 including segment loads, near/far transfers, string repetition, x87 controls,
 stack operations, integer transfers, binary32/binary64/binary80 transfers and
-register FMUL/FMULP. Other x87 arithmetic, real mode, privilege transitions,
-interrupt delivery and SIMD are not implemented.
+register FADD/FADDP, FSUB/FSUBP, FSUBR/FSUBRP and FMUL/FMULP. Other x87 arithmetic,
+real mode, privilege transitions, interrupt delivery and SIMD are not implemented.
 The project is under development; the crates are not published.
 
 | Crate | Responsibility |
