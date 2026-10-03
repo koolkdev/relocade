@@ -3,10 +3,8 @@
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I64, I8};
 
 use super::{
-    arithmetic::{
-        ArithmeticCandidate, ArithmeticResult, FiniteMagnitude, RoundedShape, RoundedValue,
-    },
-    rounding::RoundingInput,
+    result::{ArithmeticCandidate, ArithmeticResult, RoundedShape, RoundedValue},
+    rounding::{FiniteMagnitude, RoundingInput},
     value::Classification,
     ExtendedBits, ExtendedValue, RoundingMode,
 };

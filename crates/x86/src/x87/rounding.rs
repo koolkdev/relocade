@@ -1,4 +1,8 @@
-//! Integer rounding retains the discarded fraction independently of its result.
+//! Rounding preserves discarded-fraction evidence across shifts and formats.
+
+mod extended;
+
+pub(super) use extended::FiniteMagnitude;
 
 use wasm86_compiler::{Val, I1, I32, I64, I8};
 
