@@ -61,166 +61,11 @@ impl X87State {
         }
     }
 
-    pub(crate) fn control_word(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-    ) -> Result<Val<I16>, BuildError> {
-        self.control.word(body)
-    }
-
-    pub(crate) fn status_word(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-    ) -> Result<Val<I16>, BuildError> {
-        self.status.word(body)
-    }
-
-    pub(crate) fn initialize(&mut self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
-        // FNINIT marks the stack empty without changing register payloads.
-        self.control.load_word(body, 0x037f.into())?;
-        self.status.initialize(body)?;
-        self.registers.initialize(body)?;
-        self.metadata.define(body, cpu_location!(x87.opcode), 0)?;
-        self.metadata
-            .define(body, cpu_location!(x87.instruction_offset), 0)?;
-        self.metadata
-            .define(body, cpu_location!(x87.data_offset), 0)?;
-        self.metadata
-            .define(body, cpu_location!(x87.instruction_selector), 0)?;
-        self.metadata
-            .define(body, cpu_location!(x87.data_selector), 0)
-    }
-
-    pub(crate) fn clear_exceptions(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-    ) -> Result<(), BuildError> {
-        // C0/C1/C2/C3 are undefined for FNCLEX; retain them and the unchanged TOP.
-        // Clearing ES does not prove that a suppressed write succeeded. Publish
-        // its conditional result and discard the old slot mapping before resuming.
-        self.registers.rebase(body)?;
-        self.status.clear_exceptions(body)
-    }
-
-    pub(crate) fn load_control_word(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        control: Val<I16>,
-    ) -> Result<(), BuildError> {
-        self.control.load_word(body, control)?;
-        self.status
-            .update_pending_exception(body, &mut self.control)
-    }
-
-    fn slot(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        index: impl Into<Val<I32>>,
-    ) -> Result<registers::Slot, BuildError> {
-        let top = self.status.top(body)?;
-        self.registers.slot(body, &top, index.into())
-    }
-
-    pub(crate) fn read_stack(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        index: impl Into<Val<I32>>,
-    ) -> Result<StackValue, BuildError> {
-        let slot = self.slot(body, index)?;
-        Ok(StackValue {
-            empty: self.registers.tag(body, &slot)?.eq(3),
-            value: self.registers.read(body, &slot)?,
-        })
-    }
-
-    /// Records a stack fault and returns whether its data and stack effects commit.
-    /// An unmasked fault becomes pending; its producer still retires normally.
-    pub(crate) fn stack_fault(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        fault: &Val<I1>,
-        overflow: Val<I1>,
-    ) -> Result<Val<I1>, BuildError> {
-        let unmasked =
-            self.status
-                .record_exception(body, Exception::Invalid, fault, &mut self.control)?;
-        self.status.record_stack_fault(body, fault)?;
-        self.status
-            .record_pending_exception(body, unmasked.clone())?;
-        self.status.set_c1(body, overflow)?;
-        Ok(unmasked.eq(false))
-    }
-
-    pub(crate) fn write_stack(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        index: impl Into<Val<I32>>,
-        value: &ExtendedValue,
-        enabled: &Val<I1>,
-    ) -> Result<(), BuildError> {
-        let slot = self.slot(body, index)?;
-        self.registers
-            .write(body, &slot, value, value.tag(), enabled)
-    }
-
-    pub(crate) fn pop(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        enabled: &Val<I1>,
-    ) -> Result<(), BuildError> {
-        let top = self.status.top(body)?;
-        let slot = self.registers.slot(body, &top, 0.into())?;
-        self.registers.set_tag(body, &slot, 3.into(), enabled)?;
-        self.registers.advance(1);
-        self.status.set_top(body, top.add(1), enabled)
-    }
-
-    pub(crate) fn free(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        index: impl Into<Val<I32>>,
-    ) -> Result<(), BuildError> {
-        let slot = self.slot(body, index)?;
-        self.registers.set_tag(body, &slot, 3.into(), &true.into())
-    }
-
-    pub(crate) fn rotate(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        increment: bool,
-    ) -> Result<(), BuildError> {
-        let top = self.status.top(body)?;
-        self.status
-            .set_top(body, top.add(if increment { 1 } else { u32::MAX }), true)?;
-        self.registers.advance(if increment { 1 } else { -1 });
-        self.status.set_c1(body, false)
-    }
-
-    pub(crate) fn record_instruction(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        offset: &Val<I32>,
-        selector: Val<I16>,
-        opcode: &Val<I16>,
-    ) -> Result<(), BuildError> {
-        self.metadata
-            .define(body, cpu_location!(x87.instruction_offset), offset)?;
-        self.metadata
-            .define(body, cpu_location!(x87.instruction_selector), selector)?;
-        self.metadata
-            .define(body, cpu_location!(x87.opcode), opcode)
-    }
-
-    pub(crate) fn record_data(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        offset: &Val<I32>,
-        selector: Val<I16>,
-    ) -> Result<(), BuildError> {
-        self.metadata
-            .define(body, cpu_location!(x87.data_offset), offset)?;
-        self.metadata
-            .define(body, cpu_location!(x87.data_selector), selector)
+    pub(crate) fn access<'state, 'body>(
+        &'state mut self,
+        body: &'state mut BlockBuilder<'body>,
+    ) -> X87Access<'state, 'body> {
+        X87Access { state: self, body }
     }
 
     pub(crate) fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
@@ -228,5 +73,166 @@ impl X87State {
         self.status.publish(body)?;
         self.registers.publish(body)?;
         self.metadata.publish(body)
+    }
+}
+
+/// Builds x87 state operations in the current execution body. Register tracking,
+/// exception responses and publication remain owned by the underlying state.
+pub(crate) struct X87Access<'state, 'body> {
+    state: &'state mut X87State,
+    body: &'state mut BlockBuilder<'body>,
+}
+
+impl X87Access<'_, '_> {
+    pub(crate) fn control_word(&mut self) -> Result<Val<I16>, BuildError> {
+        self.state.control.word(self.body)
+    }
+
+    pub(crate) fn status_word(&mut self) -> Result<Val<I16>, BuildError> {
+        self.state.status.word(self.body)
+    }
+
+    pub(crate) fn initialize(&mut self) -> Result<(), BuildError> {
+        // FNINIT marks the stack empty without changing register payloads.
+        self.state.control.load_word(self.body, 0x037f.into())?;
+        self.state.status.initialize(self.body)?;
+        self.state.registers.initialize(self.body)?;
+        self.state
+            .metadata
+            .define(self.body, cpu_location!(x87.opcode), 0)?;
+        self.state
+            .metadata
+            .define(self.body, cpu_location!(x87.instruction_offset), 0)?;
+        self.state
+            .metadata
+            .define(self.body, cpu_location!(x87.data_offset), 0)?;
+        self.state
+            .metadata
+            .define(self.body, cpu_location!(x87.instruction_selector), 0)?;
+        self.state
+            .metadata
+            .define(self.body, cpu_location!(x87.data_selector), 0)
+    }
+
+    pub(crate) fn clear_exceptions(&mut self) -> Result<(), BuildError> {
+        // C0/C1/C2/C3 are undefined for FNCLEX; retain them and the unchanged TOP.
+        // Clearing ES does not prove that a suppressed write succeeded. Publish
+        // its conditional result and discard the old slot mapping before resuming.
+        self.state.registers.rebase(self.body)?;
+        self.state.status.clear_exceptions(self.body)
+    }
+
+    pub(crate) fn load_control_word(&mut self, control: Val<I16>) -> Result<(), BuildError> {
+        self.state.control.load_word(self.body, control)?;
+        self.state
+            .status
+            .update_pending_exception(self.body, &mut self.state.control)
+    }
+
+    fn slot(&mut self, index: impl Into<Val<I32>>) -> Result<registers::Slot, BuildError> {
+        let top = self.state.status.top(self.body)?;
+        self.state.registers.slot(self.body, &top, index.into())
+    }
+
+    pub(crate) fn read_stack(
+        &mut self,
+        index: impl Into<Val<I32>>,
+    ) -> Result<StackValue, BuildError> {
+        let slot = self.slot(index)?;
+        Ok(StackValue {
+            empty: self.state.registers.tag(self.body, &slot)?.eq(3),
+            value: self.state.registers.read(self.body, &slot)?,
+        })
+    }
+
+    /// Records a stack fault and returns whether its data and stack effects commit.
+    /// An unmasked fault becomes pending; its producer still retires normally.
+    pub(crate) fn stack_fault(
+        &mut self,
+        fault: &Val<I1>,
+        overflow: Val<I1>,
+    ) -> Result<Val<I1>, BuildError> {
+        let unmasked = self.state.status.record_exception(
+            self.body,
+            Exception::Invalid,
+            fault,
+            &mut self.state.control,
+        )?;
+        self.state.status.record_stack_fault(self.body, fault)?;
+        self.state
+            .status
+            .record_pending_exception(self.body, unmasked.clone())?;
+        self.state.status.set_c1(self.body, overflow)?;
+        Ok(unmasked.eq(false))
+    }
+
+    pub(crate) fn write_stack(
+        &mut self,
+        index: impl Into<Val<I32>>,
+        value: &ExtendedValue,
+        enabled: &Val<I1>,
+    ) -> Result<(), BuildError> {
+        let slot = self.slot(index)?;
+        self.state
+            .registers
+            .write(self.body, &slot, value, value.tag(), enabled)
+    }
+
+    pub(crate) fn pop(&mut self, enabled: &Val<I1>) -> Result<(), BuildError> {
+        let top = self.state.status.top(self.body)?;
+        let slot = self.state.registers.slot(self.body, &top, 0.into())?;
+        self.state
+            .registers
+            .set_tag(self.body, &slot, 3.into(), enabled)?;
+        self.state.registers.advance(1);
+        self.state.status.set_top(self.body, top.add(1), enabled)
+    }
+
+    pub(crate) fn free(&mut self, index: impl Into<Val<I32>>) -> Result<(), BuildError> {
+        let slot = self.slot(index)?;
+        self.state
+            .registers
+            .set_tag(self.body, &slot, 3.into(), &true.into())
+    }
+
+    pub(crate) fn rotate(&mut self, increment: bool) -> Result<(), BuildError> {
+        let top = self.state.status.top(self.body)?;
+        self.state.status.set_top(
+            self.body,
+            top.add(if increment { 1 } else { u32::MAX }),
+            true,
+        )?;
+        self.state.registers.advance(if increment { 1 } else { -1 });
+        self.state.status.set_c1(self.body, false)
+    }
+
+    pub(crate) fn record_instruction(
+        &mut self,
+        offset: &Val<I32>,
+        selector: Val<I16>,
+        opcode: &Val<I16>,
+    ) -> Result<(), BuildError> {
+        self.state
+            .metadata
+            .define(self.body, cpu_location!(x87.instruction_offset), offset)?;
+        self.state
+            .metadata
+            .define(self.body, cpu_location!(x87.instruction_selector), selector)?;
+        self.state
+            .metadata
+            .define(self.body, cpu_location!(x87.opcode), opcode)
+    }
+
+    pub(crate) fn record_data(
+        &mut self,
+        offset: &Val<I32>,
+        selector: Val<I16>,
+    ) -> Result<(), BuildError> {
+        self.state
+            .metadata
+            .define(self.body, cpu_location!(x87.data_offset), offset)?;
+        self.state
+            .metadata
+            .define(self.body, cpu_location!(x87.data_selector), selector)
     }
 }

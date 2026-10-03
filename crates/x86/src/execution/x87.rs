@@ -1,96 +1,47 @@
-//! x87 operations share pending-exception checks and instruction/data-pointer tracking.
+//! x87 execution supplies restart checks and instruction/data-pointer tracking.
 
-mod arithmetic;
-mod load;
-mod stack;
-mod store;
+use wasm86_compiler::BuildError;
 
-pub(crate) use arithmetic::{multiply_register, ProductDestination};
-pub(crate) use load::{load_binary, load_integer};
-pub(crate) use stack::{
-    exchange_register, free_register, load_extended, load_register, rotate_stack, store_extended,
-    store_register,
-};
-pub(crate) use store::{store_binary, store_integer};
-
-use wasm86_compiler::{BuildError, I16};
-
-use crate::{instruction::TypedLocation, Segment};
+use crate::{state::X87Access, Segment};
 
 use super::{memory::MemoryOperand, ExecutionBuilder};
 
-fn record_instruction(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
-    let selector = execution
-        .state
-        .read_segment_selector(&mut execution.body, &Segment::Cs.into())?;
-    let opcode = execution
-        .x87_opcode
-        .as_ref()
-        .expect("x87 forms retain their opcode");
-    execution
-        .state
-        .x87
-        .record_instruction(&mut execution.body, &execution.eip, selector, opcode)
-}
+impl<'body> ExecutionBuilder<'body, '_> {
+    pub(crate) fn x87(&mut self) -> X87Access<'_, 'body> {
+        self.state.x87.access(&mut self.body)
+    }
 
-fn record_memory(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    operand: &MemoryOperand<'_>,
-) -> Result<(), BuildError> {
-    record_instruction(execution)?;
-    let selector = execution
-        .state
-        .read_segment_selector(&mut execution.body, operand.segment())?;
-    execution
-        .state
-        .x87
-        .record_data(&mut execution.body, operand.offset(), selector)
-}
+    /// Records a data instruction after its memory and specialization guards.
+    /// Control instructions do not update these saved instruction fields.
+    pub(crate) fn record_x87_instruction(&mut self) -> Result<(), BuildError> {
+        let selector = self
+            .state
+            .read_segment_selector(&mut self.body, &Segment::Cs.into())?;
+        let opcode = self
+            .x87_opcode
+            .as_ref()
+            .expect("x87 forms retain their opcode");
+        self.state
+            .x87
+            .access(&mut self.body)
+            .record_instruction(&self.eip, selector, opcode)
+    }
 
-/// Checks for a deferred x87 exception before executing FWAIT or an instruction
-/// that checks exceptions on entry (called a "waiting instruction" by Intel).
-pub(crate) fn check_pending_exception(
-    execution: &mut ExecutionBuilder<'_, '_>,
-) -> Result<(), BuildError> {
-    execution
-        .state
-        .check_x87(&mut execution.body, &execution.eip, execution.completed)
-}
+    pub(crate) fn record_x87_memory(
+        &mut self,
+        operand: &MemoryOperand<'_>,
+    ) -> Result<(), BuildError> {
+        self.record_x87_instruction()?;
+        let selector = self
+            .state
+            .read_segment_selector(&mut self.body, operand.segment())?;
+        self.x87().record_data(operand.offset(), selector)
+    }
 
-pub(crate) fn initialize(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
-    execution.state.x87.initialize(&mut execution.body)
-}
-
-pub(crate) fn clear_exceptions(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
-    execution.state.x87.clear_exceptions(&mut execution.body)
-}
-
-pub(crate) fn load_control(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    source: TypedLocation<I16>,
-) -> Result<(), BuildError> {
-    // The emulator resolves an already pending exception before the operand
-    // access. No new control or summary bits commit if that access faults.
-    check_pending_exception(execution)?;
-    let control = source.read(execution)?;
-    execution
-        .state
-        .x87
-        .load_control_word(&mut execution.body, control)
-}
-
-pub(crate) fn store_control(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    destination: TypedLocation<I16>,
-) -> Result<(), BuildError> {
-    let control = execution.state.x87.control_word(&mut execution.body)?;
-    destination.write(execution, control)
-}
-
-pub(crate) fn store_status(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    destination: TypedLocation<I16>,
-) -> Result<(), BuildError> {
-    let status = execution.state.x87.status_word(&mut execution.body)?;
-    destination.write(execution, status)
+    /// Delivers a pending exception at this instruction's restart boundary.
+    /// Called by FWAIT and x87 instructions that check exceptions on entry.
+    pub(crate) fn check_x87_exception(&mut self) -> Result<(), BuildError> {
+        self.state
+            .check_x87(&mut self.body, &self.eip, self.completed)
+    }
 }

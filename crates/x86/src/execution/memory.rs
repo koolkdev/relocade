@@ -12,7 +12,7 @@ use crate::{
 
 /// A resolved operand whose complete span passed segment and page checks.
 /// Fields share that proof, so a later field cannot fault after an earlier write.
-pub(super) struct MemoryOperand<'memory> {
+pub(crate) struct MemoryOperand<'memory> {
     memory: &'memory Memory,
     access: Access,
     offset: Val<I32>,
@@ -29,7 +29,7 @@ impl MemoryOperand<'_> {
         &self.segment
     }
 
-    pub(super) fn read<T: MemoryInt>(
+    pub(crate) fn read<T: MemoryInt>(
         &self,
         execution: &mut ExecutionBuilder<'_, '_>,
         offset: u32,
@@ -38,7 +38,7 @@ impl MemoryOperand<'_> {
             .read::<T>(&mut execution.body, &self.access, offset)
     }
 
-    pub(super) fn write<T: MemoryInt>(
+    pub(crate) fn write<T: MemoryInt>(
         &self,
         execution: &mut ExecutionBuilder<'_, '_>,
         offset: u32,
@@ -94,7 +94,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
     }
 
     /// Resolves an address once and checks every field before any transfer.
-    pub(super) fn memory_operand(
+    pub(crate) fn memory_operand(
         &mut self,
         address: MemoryAddress<impl Into<Val<I32>>>,
         bytes: u32,

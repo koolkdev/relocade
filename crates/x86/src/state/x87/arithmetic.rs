@@ -1,10 +1,10 @@
 //! Register arithmetic resolves exceptions before committing its value and pop.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
+use wasm86_compiler::{BuildError, Val, I1, I32, I8};
 
 use crate::x87::{ArithmeticResult, ExtendedValue, RoundingMode};
 
-use super::{control::Exception, X87State};
+use super::{control::Exception, X87Access};
 
 pub(crate) struct RegisterArithmetic {
     destination: Val<I32>,
@@ -16,21 +16,20 @@ pub(crate) struct RegisterArithmetic {
     rounding: RoundingMode,
 }
 
-impl X87State {
+impl X87Access<'_, '_> {
     /// Captures the old operands and controls before any instruction effects.
     pub(crate) fn prepare_binary_register(
         &mut self,
-        body: &mut BlockBuilder<'_>,
         destination: Val<I32>,
         source: Val<I32>,
         pop: bool,
     ) -> Result<RegisterArithmetic, BuildError> {
         // Both operands use the old TOP, including when they alias each other.
-        let left = self.read_stack(body, &destination)?;
-        let right = self.read_stack(body, source)?;
+        let left = self.read_stack(&destination)?;
+        let right = self.read_stack(source)?;
         let stack_fault = left.empty.or(&right.empty);
-        let precision = self.control.precision(body)?;
-        let rounding = self.control.rounding(body)?;
+        let precision = self.state.control.precision(self.body)?;
+        let rounding = self.state.control.rounding(self.body)?;
         let left = left.value.or_indefinite(&stack_fault);
         let right = right.value.or_indefinite(&stack_fault);
         Ok(RegisterArithmetic {
@@ -67,20 +66,22 @@ impl RegisterArithmetic {
     pub(crate) fn assume_present(&mut self) {
         self.stack_fault = false.into();
     }
+}
 
+impl X87Access<'_, '_> {
     /// Commits the arithmetic response after the instruction's restart guards.
-    pub(crate) fn commit(
-        self,
-        body: &mut BlockBuilder<'_>,
-        state: &mut X87State,
+    pub(crate) fn commit_arithmetic(
+        &mut self,
+        arithmetic: RegisterArithmetic,
         result: ArithmeticResult,
     ) -> Result<(), BuildError> {
-        let Self {
+        let RegisterArithmetic {
             destination,
             pop,
             stack_fault,
             ..
-        } = self;
+        } = arithmetic;
+        let Self { state, body } = self;
         let invalid = stack_fault.or(&result.invalid);
         let unmasked_invalid = state.status.record_exception(
             body,
@@ -133,9 +134,9 @@ impl RegisterArithmetic {
         )?;
         // Unlike memory stores, unmasked range and precision exceptions commit
         // register results, including the pop and any adjusted exponent.
-        state.write_stack(body, destination, &rounded.value, &enabled)?;
+        self.write_stack(destination, &rounded.value, &enabled)?;
         if pop {
-            state.pop(body, &enabled)?;
+            self.pop(&enabled)?;
         }
         Ok(())
     }

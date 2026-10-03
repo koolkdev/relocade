@@ -6,7 +6,7 @@ mod regions;
 mod register_pairs;
 mod segments;
 mod stack;
-pub(crate) mod x87;
+mod x87;
 
 pub(crate) use control::CodeTarget;
 pub(crate) use operands::WriteTarget;
@@ -94,7 +94,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     /// Builds JIT guards, then refines local candidates for their continuation.
     /// Runtime decoding and nested regions skip the callback and retain the
     /// ordinary semantics. Keep current-instruction effects after this scope.
-    fn specialize(
+    pub(crate) fn specialize(
         &mut self,
         build: impl FnOnce(&mut Self) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
@@ -108,7 +108,10 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     /// Requires an assumption inside `specialize`, before instruction effects.
     /// Failure publishes the current restart boundary and enters the interpreter;
     /// the continuing path can use the assumption for subsequent refinements.
-    fn specialize_on(&mut self, condition: impl Into<Val<I1>>) -> Result<(), BuildError> {
+    pub(crate) fn specialize_on(
+        &mut self,
+        condition: impl Into<Val<I1>>,
+    ) -> Result<(), BuildError> {
         assert!(
             self.can_specialize,
             "this path does not permit specialization"
@@ -121,6 +124,16 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     pub(crate) fn is_locked(&self) -> bool {
         self.locked
+    }
+
+    /// Builds compiler values, including pure control-flow joins, in the current
+    /// body. The callback must leave it open and must not change guest state or
+    /// memory. Use execution regions for branches with architectural effects.
+    pub(crate) fn compute<R>(
+        &mut self,
+        build: impl FnOnce(&mut BlockBuilder<'body>) -> Result<R, BuildError>,
+    ) -> Result<R, BuildError> {
+        build(&mut self.body)
     }
 
     /// Defines a flag change while preserving flags omitted from its write mask.
