@@ -44,14 +44,7 @@ fn load_binary(
 ) -> Result<(), BuildError> {
     execution.check_x87_exception()?;
     let operand = execution.memory_operand(address, format.bytes(), Intent::Read, &[])?;
-    let bits = match format {
-        BinaryFormat::Binary32 => operand
-            .read::<I32>(execution, 0)?
-            .unsigned()
-            .extend::<I64>(),
-        BinaryFormat::Binary64 => operand.read::<I64>(execution, 0)?,
-    };
-    let source = format.decode(&bits);
+    let source = operand.read_x87_binary(execution, format)?;
     execution.specialize(|jit| {
         let available = jit.x87().push_available()?;
         jit.specialize_on(

@@ -3,13 +3,13 @@
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I64, I8};
 
 use super::{
-    result::RoundedValue, ArithmeticResult, BinaryArithmetic, BinaryOperation, ExtendedBits,
-    ExtendedValue, RoundingMode,
+    result::RoundedValue, ArithmeticResult, BinaryArithmetic, BinaryOperand, BinaryOperation,
+    ExtendedBits, ExtendedValue, RoundingMode,
 };
 
 pub(super) struct Operand {
     pub(super) bits: ExtendedBits,
-    pub(super) normal: Val<I1>,
+    normal_or_zero: Val<I1>,
     pub(super) zero: Val<I1>,
     pub(super) infinity: Val<I1>,
     nan: Val<I1>,
@@ -22,7 +22,7 @@ impl Operand {
     fn new(value: &ExtendedValue) -> Self {
         Self {
             bits: value.bits(),
-            normal: value.normal(),
+            normal_or_zero: value.normal().or(value.zero()),
             zero: value.zero(),
             infinity: value.infinity(),
             nan: value.nan(),
@@ -32,11 +32,26 @@ impl Operand {
         }
     }
 
+    fn from_binary(source: &BinaryOperand) -> Self {
+        Self {
+            bits: source.expanded_bits(),
+            // Every finite narrow value expands to normal binary80 or zero.
+            // A narrow denormal still carries #D evidence for this operation.
+            normal_or_zero: source.finite(),
+            zero: source.zero(),
+            infinity: source.infinity(),
+            nan: source.nan(),
+            signaling_nan: source.signaling_nan.clone(),
+            denormal: source.denormal.clone(),
+            unsupported: false.into(),
+        }
+    }
+
     pub(super) fn normalized(&self) -> (Val<I64>, Val<I32>) {
         // Normal and zero inputs retain their significands. Other classes use
         // denormal normalization; special-operand responses discard that result.
         // The admission predicate also lets an earlier guard remove this work.
-        let ordinary = self.normal.or(&self.zero);
+        let ordinary = &self.normal_or_zero;
         let shift = ordinary.select(0, self.bits.significand.clz().truncate::<I32>());
         let exponent = ordinary.select(self.bits.exponent_field(), 1);
         (
@@ -49,21 +64,39 @@ impl Operand {
 pub(crate) struct BinaryOperands {
     pub(super) left: Operand,
     pub(super) right: Operand,
+    precision_only: Val<I1>,
 }
 
 impl BinaryOperands {
     pub(crate) fn new(left: &ExtendedValue, right: &ExtendedValue) -> Self {
+        let left = Operand::new(left);
+        let right = Operand::new(right);
+        let precision_only = left.normal_or_zero.and(&right.normal_or_zero);
         Self {
-            left: Operand::new(left),
-            right: Operand::new(right),
+            left,
+            right,
+            precision_only,
         }
     }
 
-    pub(crate) fn normal_or_zero(&self) -> Val<I1> {
-        self.left
-            .normal
-            .or(&self.left.zero)
-            .and(self.right.normal.or(&self.right.zero))
+    pub(crate) fn from_binary(left: &ExtendedValue, right: &BinaryOperand) -> Self {
+        let left = Operand::new(left);
+        let right = Operand::from_binary(right);
+        let precision_only = left
+            .normal_or_zero
+            .and(&right.normal_or_zero)
+            .and(right.denormal.eq(false));
+        Self {
+            left,
+            right,
+            precision_only,
+        }
+    }
+
+    /// Normal or zero values with no source denormal exception. Narrow
+    /// denormals expand to normal binary80 but still require a #D response.
+    pub(crate) fn precision_only(&self) -> Val<I1> {
+        self.precision_only.clone()
     }
 
     pub(crate) fn calculate(
@@ -90,7 +123,7 @@ impl BinaryOperands {
         invalid_operation: Val<I1>,
         infinity_negative: Val<I1>,
     ) -> ArithmeticResult {
-        let Self { left, right } = self;
+        let Self { left, right, .. } = self;
         let indefinite = left
             .unsupported
             .or(&right.unsupported)

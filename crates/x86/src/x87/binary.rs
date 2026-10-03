@@ -1,5 +1,9 @@
 //! Exact binary32/64 expansion and directly rounded narrowing of extended values.
 
+mod operand;
+
+pub(crate) use operand::BinaryOperand;
+
 use wasm86_compiler::{Val, I1, I16, I32, I64};
 
 use super::{
@@ -11,12 +15,6 @@ use super::{
 pub(crate) enum BinaryFormat {
     Binary32,
     Binary64,
-}
-
-pub(crate) struct BinaryOperand {
-    pub(crate) value: ExtendedValue,
-    pub(crate) signaling_nan: Val<I1>,
-    pub(crate) denormal: Val<I1>,
 }
 
 impl BinaryFormat {
@@ -80,25 +78,7 @@ impl BinaryFormat {
         }
     }
 
-    /// The candidate quiets an SNaN, but its exception is resolved with the
-    /// destination's stack fault before deciding whether to commit the load.
-    pub(crate) fn decode(self, bits: &Val<I64>) -> BinaryOperand {
-        let nan = bits
-            .and(self.sign_bit() - 1)
-            .unsigned()
-            .ge(self.infinity() + 1);
-        let signaling_nan = nan.and(bits.and(self.quiet_bit()).eq(0_u64));
-        BinaryOperand {
-            value: ExtendedValue::from_binary(
-                self,
-                bits.or(signaling_nan.select(self.quiet_bit(), 0_u64)),
-            ),
-            signaling_nan,
-            denormal: self.denormal(bits),
-        }
-    }
-
-    /// Expands post-load bits exactly; decode has already quieted any SNaN.
+    /// Expands the encoding exactly, preserving an SNaN's quiet bit and payload.
     pub(super) fn expand(self, bits: &Val<I64>) -> ExtendedBits {
         let fraction_bits = self.fraction_bits();
         let exponent_bits = self.exponent_bits();
@@ -113,19 +93,19 @@ impl BinaryFormat {
             .shl(15);
         let zero_exponent = exponent.eq(0_u64);
         let special = exponent.eq(exponent_mask);
-        let nonzero_fraction = fraction.ne(0_u64);
+        let denormal = self.denormal(bits);
         let fraction = fraction.shl(63 - fraction_bits);
 
         // Narrow subnormals are normal extended values. This exact expansion
         // uses neither the precision control nor the rounding control fields.
         let shift = fraction.clz();
-        let significand = zero_exponent.select(
+        let significand = denormal.select(
             fraction.shl(shift.truncate::<I32>()),
-            fraction.or(1_u64 << 63),
+            fraction.or(zero_exponent.select(0_u64, 1_u64 << 63)),
         );
-        let finite_exponent = zero_exponent.select(
-            nonzero_fraction.select(Val::<I64>::from((16384 - bias) as u64).sub(shift), 0_u64),
-            exponent.add((16383 - bias) as u64),
+        let finite_exponent = denormal.select(
+            Val::<I64>::from((16384 - bias) as u64).sub(shift),
+            zero_exponent.select(0_u64, exponent.add((16383 - bias) as u64)),
         );
         let sign_exponent = sign.or(special
             .select(0x7fff_u64, finite_exponent)

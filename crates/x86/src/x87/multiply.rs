@@ -15,7 +15,7 @@ pub(super) fn multiply(
     rounding: &RoundingMode,
 ) -> BinaryArithmetic {
     const LEADING: u64 = 1 << 63;
-    let BinaryOperands { left, right } = operands;
+    let BinaryOperands { left, right, .. } = operands;
     let zero_product = left.zero.or(&right.zero);
     let negative = left.bits.negative().xor(right.bits.negative());
     let zero = RoundedValue::zero(negative.clone());
@@ -41,7 +41,7 @@ pub(super) fn multiply(
     let invalid_operation = left.infinity.or(&right.infinity).and(&zero_product);
     BinaryArithmetic {
         result: operands.finish(result, invalid_operation, negative),
-        operands_valid: operands.normal_or_zero(),
+        operands_valid: operands.precision_only(),
         round_magnitude: zero_product.eq(false),
         zero,
     }

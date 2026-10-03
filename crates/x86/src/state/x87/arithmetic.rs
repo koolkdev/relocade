@@ -1,14 +1,20 @@
-//! Register arithmetic resolves exceptions before committing its value and pop.
+//! Arithmetic resolves exceptions before committing its register result and pop.
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 
 use crate::x87::{
-    ArithmeticResult, BinaryArithmetic, BinaryOperands, BinaryOperation, RoundingMode,
+    ArithmeticResult, BinaryArithmetic, BinaryOperand, BinaryOperands, BinaryOperation,
+    RoundingMode,
 };
 
 use super::{control::Exception, X87Access};
 
-pub(crate) struct RegisterArithmetic {
+pub(crate) enum ArithmeticSource {
+    Register(Val<I32>),
+    Binary(BinaryOperand),
+}
+
+pub(crate) struct Arithmetic {
     destination: Val<I32>,
     pop: bool,
     stack_fault: Val<I1>,
@@ -19,32 +25,41 @@ pub(crate) struct RegisterArithmetic {
 
 impl X87Access<'_, '_> {
     /// Captures the old operands and controls before any instruction effects.
-    pub(crate) fn prepare_binary_register(
+    pub(crate) fn prepare_binary(
         &mut self,
         destination: Val<I32>,
-        source: Val<I32>,
+        source: ArithmeticSource,
         pop: bool,
-    ) -> Result<RegisterArithmetic, BuildError> {
+    ) -> Result<Arithmetic, BuildError> {
         // Both operands use the old TOP, including when they alias each other.
         let left = self.read_stack(&destination)?;
-        let right = self.read_stack(source)?;
-        let stack_fault = left.empty.or(&right.empty);
+        let (operands, stack_fault) = match source {
+            ArithmeticSource::Register(index) => {
+                let right = self.read_stack(index)?;
+                (
+                    BinaryOperands::new(&left.value, &right.value),
+                    left.empty.or(right.empty),
+                )
+            }
+            ArithmeticSource::Binary(source) => (
+                BinaryOperands::from_binary(&left.value, &source),
+                left.empty,
+            ),
+        };
         let precision = self.state.control.precision(self.body)?;
         let rounding = self.state.control.rounding(self.body)?;
-        let left = left.value.or_indefinite(&stack_fault);
-        let right = right.value.or_indefinite(&stack_fault);
-        Ok(RegisterArithmetic {
+        Ok(Arithmetic {
             destination,
             pop,
             stack_fault,
-            operands: BinaryOperands::new(&left, &right),
+            operands,
             precision,
             rounding,
         })
     }
 }
 
-impl RegisterArithmetic {
+impl Arithmetic {
     /// Numerical operations consume values and controls without changing state.
     pub(crate) fn calculate(
         &self,
@@ -55,12 +70,13 @@ impl RegisterArithmetic {
             .calculate(body, operation, self.precision.clone(), &self.rounding)
     }
 
-    /// Present normal or zero operands need no invalid or denormal response.
+    /// Present normal or zero operands with no source denormal evidence need
+    /// no invalid or denormal response.
     /// The result still needs a separate range check before precision-only use.
     pub(crate) fn precision_only_operands(&self) -> Val<I1> {
         self.stack_fault
             .eq(false)
-            .and(self.operands.normal_or_zero())
+            .and(self.operands.precision_only())
     }
 
     /// Requires a guard establishing `precision_only_operands()` on this path.
@@ -73,21 +89,23 @@ impl X87Access<'_, '_> {
     /// Commits the arithmetic response after the instruction's restart guards.
     pub(crate) fn commit_arithmetic(
         &mut self,
-        arithmetic: RegisterArithmetic,
+        arithmetic: Arithmetic,
         result: ArithmeticResult,
     ) -> Result<(), BuildError> {
-        let RegisterArithmetic {
+        let Arithmetic {
             destination,
             pop,
             stack_fault,
             ..
         } = arithmetic;
         let Self { state, body } = self;
-        let invalid = stack_fault.or(&result.invalid);
+        // Stack faults override all numerical responses, including #D from a
+        // narrow source that expanded to a normal binary80 value.
+        let result = result.or_indefinite(&stack_fault);
         let unmasked_invalid = state.status.record_exception(
             body,
             Exception::Invalid,
-            &invalid,
+            &result.invalid,
             &mut state.control,
         )?;
         let unmasked_denormal = state.status.record_exception(

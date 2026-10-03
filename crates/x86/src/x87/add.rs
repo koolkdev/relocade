@@ -18,7 +18,7 @@ pub(super) fn add(
     precision: Val<I8>,
     rounding: &RoundingMode,
 ) -> Result<BinaryArithmetic, BuildError> {
-    let BinaryOperands { left, right } = operands;
+    let BinaryOperands { left, right, .. } = operands;
     // Only numerical signs change. NaN propagation still sees the original
     // destination and source, even for reverse subtraction.
     let left_negative = left
@@ -43,7 +43,7 @@ pub(super) fn add(
     let invalid_operation = left.infinity.and(&right.infinity).and(subtract_magnitudes);
     Ok(BinaryArithmetic {
         result: operands.finish(result, invalid_operation, infinity_negative),
-        operands_valid: operands.normal_or_zero(),
+        operands_valid: operands.precision_only(),
         round_magnitude: exact_zero.eq(false),
         zero,
     })

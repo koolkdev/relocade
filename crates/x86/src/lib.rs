@@ -8,10 +8,10 @@
 //! Both frontends share instruction semantics and return a [`CompiledModule`].
 //!
 //! The supported subset covers 16/32-bit protected-mode integer execution and
-//! x87 controls, value transfers and register add/subtract/multiply (including
-//! reversed and pop forms). Other x87 arithmetic,
-//! real mode, privilege transitions, interrupt delivery and SIMD are outside the
-//! current scope.
+//! x87 controls, value transfers and add/subtract/multiply with register or
+//! binary32/64 memory operands, including reversed and register-pop forms.
+//! Other x87 arithmetic, real mode, privilege transitions, interrupt delivery
+//! and SIMD are outside the current scope.
 //!
 //! [`CpuState`] exchanges backing state with the host. [`SegmentProfile`] describes
 //! entry assumptions, and [`DescriptorTables`] resolves host-managed selectors into

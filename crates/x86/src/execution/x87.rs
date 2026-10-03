@@ -1,10 +1,29 @@
 //! x87 execution supplies restart checks and instruction/data-pointer tracking.
 
-use wasm86_compiler::BuildError;
+use wasm86_compiler::{BuildError, I32, I64};
 
-use crate::{state::X87Access, Segment};
+use crate::{
+    state::X87Access,
+    x87::{BinaryFormat, BinaryOperand},
+    Segment,
+};
 
 use super::{memory::MemoryOperand, ExecutionBuilder};
+
+impl MemoryOperand<'_> {
+    /// Reads the opcode-defined real format after the complete span was checked.
+    pub(crate) fn read_x87_binary(
+        &self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        format: BinaryFormat,
+    ) -> Result<BinaryOperand, BuildError> {
+        let bits = match format {
+            BinaryFormat::Binary32 => self.read::<I32>(execution, 0)?.unsigned().extend::<I64>(),
+            BinaryFormat::Binary64 => self.read::<I64>(execution, 0)?,
+        };
+        Ok(format.decode(&bits))
+    }
+}
 
 impl<'body> ExecutionBuilder<'body, '_> {
     pub(crate) fn x87(&mut self) -> X87Access<'_, 'body> {

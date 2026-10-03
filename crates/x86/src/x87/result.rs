@@ -62,6 +62,14 @@ impl BinaryArithmetic {
 }
 
 impl RoundedValue {
+    fn or_indefinite(&self, condition: &Val<I1>) -> Self {
+        Self {
+            value: self.value.or_indefinite(condition),
+            inexact: condition.eq(false).and(&self.inexact),
+            incremented: condition.eq(false).and(&self.incremented),
+        }
+    }
+
     pub(super) fn zero(negative: Val<I1>) -> Self {
         Self {
             value: ExtendedValue::from_bits(ExtendedBits {
@@ -125,6 +133,19 @@ pub(crate) struct ArithmeticResult {
 }
 
 impl ArithmeticResult {
+    /// Replaces the final response with invalid-operation indefinite. State
+    /// uses this for stack faults before recording any numerical exceptions;
+    /// the independent rounding candidate is no longer consumed at that point.
+    pub(crate) fn or_indefinite(mut self, condition: &Val<I1>) -> Self {
+        self.masked = self.masked.or_indefinite(condition);
+        self.adjusted = self.adjusted.or_indefinite(condition);
+        self.overflow = condition.eq(false).and(&self.overflow);
+        self.tiny = condition.eq(false).and(&self.tiny);
+        self.invalid = condition.or(&self.invalid);
+        self.denormal = condition.eq(false).and(&self.denormal);
+        self
+    }
+
     /// Exact zero and special operands replace the final range responses.
     /// The magnitude candidate remains independent for specialization.
     pub(super) fn replace_when(&mut self, condition: &Val<I1>, rounded: &RoundedValue) {

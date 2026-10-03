@@ -94,7 +94,7 @@ impl X87Access<'_, '_> {
                 (source.value, source.empty, false.into(), false.into())
             }
             LoadSource::Binary(source) => (
-                source.value,
+                source.loaded_value(),
                 false.into(),
                 source.signaling_nan,
                 source.denormal,

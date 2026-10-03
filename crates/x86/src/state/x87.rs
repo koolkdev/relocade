@@ -6,6 +6,7 @@ mod registers;
 mod status;
 mod transfer;
 
+pub(crate) use arithmetic::{Arithmetic, ArithmeticSource};
 pub(crate) use transfer::LoadSource;
 
 use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};

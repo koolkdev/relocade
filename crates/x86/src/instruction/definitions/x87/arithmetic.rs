@@ -1,12 +1,47 @@
-//! Register arithmetic captures both operands before an optional pop.
+//! Binary arithmetic combines an x87 destination with a register or real memory source.
 
 use super::*;
 use crate::{
+    address::MemoryAddress,
     instruction::X87StackIndex,
-    x87::{self, BinaryOperation},
+    memory::Intent,
+    state::{Arithmetic, ArithmeticSource},
+    x87::{self, BinaryFormat, BinaryOperation},
 };
 
 instruction_families! {
+    FADD_BINARY32 {
+        execute: binary_memory(BinaryOperation::Add, BinaryFormat::Binary32);
+        forms { 0xD8 / 0 => operands(mem); }
+    }
+    FADD_BINARY64 {
+        execute: binary_memory(BinaryOperation::Add, BinaryFormat::Binary64);
+        forms { 0xDC / 0 => operands(mem); }
+    }
+    FSUB_BINARY32 {
+        execute: binary_memory(BinaryOperation::Subtract, BinaryFormat::Binary32);
+        forms { 0xD8 / 4 => operands(mem); }
+    }
+    FSUB_BINARY64 {
+        execute: binary_memory(BinaryOperation::Subtract, BinaryFormat::Binary64);
+        forms { 0xDC / 4 => operands(mem); }
+    }
+    FSUBR_BINARY32 {
+        execute: binary_memory(BinaryOperation::ReverseSubtract, BinaryFormat::Binary32);
+        forms { 0xD8 / 5 => operands(mem); }
+    }
+    FSUBR_BINARY64 {
+        execute: binary_memory(BinaryOperation::ReverseSubtract, BinaryFormat::Binary64);
+        forms { 0xDC / 5 => operands(mem); }
+    }
+    FMUL_BINARY32 {
+        execute: binary_memory(BinaryOperation::Multiply, BinaryFormat::Binary32);
+        forms { 0xD8 / 1 => operands(mem); }
+    }
+    FMUL_BINARY64 {
+        execute: binary_memory(BinaryOperation::Multiply, BinaryFormat::Binary64);
+        forms { 0xDC / 1 => operands(mem); }
+    }
     FADD_TOP {
         execute: binary_register(BinaryOperation::Add, Destination::Top, false);
         forms { 0xD8 @ 0xC0 + rm => operands(st); }
@@ -74,9 +109,38 @@ fn binary_register(
         Destination::Top => (0.into(), other.offset()),
         Destination::Other => (other.offset(), 0.into()),
     };
-    let mut arithmetic = execution
-        .x87()
-        .prepare_binary_register(destination, source, pop)?;
+    let mut arithmetic =
+        execution
+            .x87()
+            .prepare_binary(destination, ArithmeticSource::Register(source), pop)?;
+    let result = calculate(execution, &mut arithmetic, operation)?;
+    execution.record_x87_instruction()?;
+    execution.x87().commit_arithmetic(arithmetic, result)
+}
+
+fn binary_memory(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    address: MemoryAddress<Val<I32>>,
+    operation: BinaryOperation,
+    format: BinaryFormat,
+) -> Result<(), BuildError> {
+    execution.check_x87_exception()?;
+    let operand = execution.memory_operand(address, format.bytes(), Intent::Read, &[])?;
+    let source = operand.read_x87_binary(execution, format)?;
+    let mut arithmetic =
+        execution
+            .x87()
+            .prepare_binary(0.into(), ArithmeticSource::Binary(source), false)?;
+    let result = calculate(execution, &mut arithmetic, operation)?;
+    execution.record_x87_memory(&operand)?;
+    execution.x87().commit_arithmetic(arithmetic, result)
+}
+
+fn calculate(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    arithmetic: &mut Arithmetic,
+    operation: BinaryOperation,
+) -> Result<x87::ArithmeticResult, BuildError> {
     execution.specialize(|jit| {
         jit.specialize_on(arithmetic.precision_only_operands())?;
         arithmetic.assume_present();
@@ -91,8 +155,5 @@ fn binary_register(
         calculation.result = x87::ArithmeticResult::from_rounding(candidate.rounded);
         Ok(())
     })?;
-    execution.record_x87_instruction()?;
-    execution
-        .x87()
-        .commit_arithmetic(arithmetic, calculation.result)
+    Ok(calculation.result)
 }

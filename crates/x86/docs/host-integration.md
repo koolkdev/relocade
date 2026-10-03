@@ -190,7 +190,8 @@ and standalone FWAIT. Stack operations include FLD ST(i), FST/FSTP ST(i), FXCH,
 FFREE, FINCSTP and FDECSTP. Memory data transfers support FLD m32/m64/m80,
 FILD m16/m32/m64 integers, FIST m16/m32, FISTP m16/m32/m64, FST m32/m64 and
 FSTP m32/m64/m80. Register arithmetic supports FADD/FADDP, FSUB/FSUBP,
-FSUBR/FSUBRP and FMUL/FMULP. There is no FIST m64 or FST m80 encoding. Memory
+FSUBR/FSUBRP and FMUL/FMULP. FADD, FSUB, FSUBR and FMUL also accept binary32/64
+memory sources. There is no FIST m64 or FST m80 encoding. Integer memory
 arithmetic and other arithmetic families remain unsupported.
 Execution assumes an enabled FPU with native exception reporting, corresponding
 to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
@@ -243,6 +244,12 @@ clarification in Intel's [FLD entry, Volume 2](https://cdrdv2-public.intel.com/7
 which is more specific than the older general description of unmasked
 denormal-operand exceptions. These exact conversions do not set PE, UE or OE.
 
+Arithmetic with binary32/64 memory sources expands the input exactly before
+applying PC and RC to the result. The original source classification still
+determines invalid and denormal exceptions, even when a narrow subnormal expands
+to a normal extended value. An unmasked invalid or denormal exception suppresses
+the destination update and leaves #MF pending for the next waiting instruction.
+
 FILD converts signed 16-, 32- and 64-bit memory integers exactly, independently
 of PC and RC. The opcode fixes the width even with an operand-size prefix.
 Zero receives the zero tag; every other integer becomes a normal extended value.
@@ -290,18 +297,18 @@ An unmasked stack fault suppresses data and stack changes, records pending
 status, and retires its producer. Integer and no-wait instructions can continue;
 the next waiting instruction reports #MF. Reporting it does not clear the status.
 
-The complete memory operand passes segment and page checks before a
-transfer changes data, stack state or numerical pointers. This implementation
+The complete memory operand passes segment and page checks before an x87 data
+instruction changes data, stack state or numerical pointers. This implementation
 checks these accesses before generating a new stack or source exception. A
 preexisting pending exception is checked first. Faulting stores do not write an
 earlier portion of the value or pop the stack.
 
-Stack and data-transfer instructions record their instruction offset, selector
+Stack, arithmetic and data-transfer instructions record their instruction offset, selector
 and opcode. Memory forms also record their effective offset and segment selector;
 register forms preserve the otherwise undefined data pointer. Opcode recording
 uses the Pentium 4 compatibility-mode policy, keeping the last x87 opcode valid
-after every such instruction. Operand-size prefixes do not change the width of
-these transfers; address-size and segment prefixes retain their ordinary meaning.
+after every such instruction. The opcode fixes these memory operands' widths;
+address-size and segment prefixes retain their ordinary meaning.
 
 Status fields remain separate in generated execution and in the host snapshot.
 FNSTSW assembles the architectural status word when requested; exits publish
