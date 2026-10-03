@@ -88,14 +88,19 @@ impl Joins {
         }
     }
 
-    /// Freeze eligible incoming paths and return their common facts on entry.
+    /// Prepare incoming facts and forward sole-edge results before placing consumers.
     pub(super) fn prepare(
         &mut self,
         graph: &FunctionGraph,
         join: usize,
-        base: &Availability,
+        available: &mut Availability,
     ) -> Option<Facts> {
         if self.predecessors[join].len() < 2 {
+            if let [source] = self.predecessors[join].as_slice() {
+                if *source != join && self.dominators.dominates(*source, join) {
+                    forward_parameters(graph, join, &[*source], available);
+                }
+            }
             return None;
         }
         // Placement can fold exits after the original dominance analysis.
@@ -137,6 +142,9 @@ impl Joins {
             });
             facts.merge_parameter(&graph.values, parameter, arguments);
         }
+        // An incoming block's arguments have already been placed. When folding
+        // leaves one edge, consumers can use them directly instead of a join.
+        forward_parameters(graph, join, &sources, available);
         let common = self.dominators.parent[join].unwrap();
         let mut incoming = Vec::new();
         let mut candidates = HashSet::new();
@@ -145,7 +153,7 @@ impl Joins {
             let mut block = source;
             while block != common {
                 for (&recipe, &value) in &self.blocks[block].values {
-                    if base.get(recipe).is_none() {
+                    if available.get(recipe).is_none() {
                         delta.entry(recipe).or_insert(value);
                         if graph.values.expression(recipe).is_some() {
                             candidates.insert(recipe);
@@ -244,6 +252,30 @@ impl Joins {
             }
             block = parent;
         }
+    }
+}
+
+fn forward_parameters(
+    graph: &FunctionGraph,
+    join: usize,
+    sources: &[usize],
+    available: &mut Availability,
+) {
+    if graph.blocks[join].parameters.is_empty() {
+        return;
+    }
+    let mut edges = sources
+        .iter()
+        .flat_map(|&source| graph.outgoing(BlockId(source)))
+        .filter(|edge| edge.target.0 == join);
+    let Some(edge) = edges.next() else {
+        return;
+    };
+    if edges.next().is_some() {
+        return;
+    }
+    for (&parameter, &argument) in graph.blocks[join].parameters.iter().zip(&edge.arguments) {
+        available.bind(parameter, argument);
     }
 }
 

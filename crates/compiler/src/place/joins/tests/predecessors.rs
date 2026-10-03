@@ -22,7 +22,7 @@ fn a_join_keeps_common_facts_without_any_value_candidates() {
         joins.complete(block.0, facts);
     }
     let facts = joins
-        .prepare(&graph, arms.join.0, &Availability::default())
+        .prepare(&graph, arms.join.0, &mut Availability::default())
         .unwrap();
     assert_eq!(facts.constant(&graph.values, low_bit), Some(1));
     assert_eq!(facts.constant(&graph.values, 1), None);
@@ -57,7 +57,7 @@ fn every_reachable_predecessor_must_prove_a_common_fact() {
     }
     joins.complete(bypass.0, Facts::default());
     let facts = joins
-        .prepare(&graph, arms.join.0, &Availability::default())
+        .prepare(&graph, arms.join.0, &mut Availability::default())
         .unwrap();
     assert_eq!(facts.constant(&graph.values, 1), None);
 }
@@ -78,7 +78,7 @@ fn completing_a_backedge_does_not_reopen_entry_eligibility() {
     let mut joins = joins(&graph);
     joins.complete(0, Facts::default());
     assert!(joins
-        .prepare(&graph, header.0, &Availability::default())
+        .prepare(&graph, header.0, &mut Availability::default())
         .is_none());
     let value = placed(&mut graph, header, recipe);
     joins.record(header.0, [(recipe, value)].into_iter());
@@ -101,7 +101,7 @@ fn a_missing_incoming_value_is_not_recomputed_or_merged() {
     joins.complete(arms.left.0, Facts::default());
     joins.complete(arms.right.0, Facts::default());
     joins
-        .prepare(&graph, arms.join.0, &Availability::default())
+        .prepare(&graph, arms.join.0, &mut Availability::default())
         .unwrap();
     let count = graph.values.len();
     for _ in 0..2 {
@@ -131,7 +131,7 @@ fn a_discarded_predecessor_does_not_need_a_value_or_completed_facts() {
         otherwise: edge(arms.right),
     };
     joins
-        .prepare(&graph, arms.join.0, &Availability::default())
+        .prepare(&graph, arms.join.0, &mut Availability::default())
         .unwrap();
     assert_eq!(
         joins.resolve(&mut graph, arms.join.0, recipe, &Facts::default()),
@@ -154,7 +154,7 @@ fn a_join_inside_a_discarded_arm_has_no_incoming_values() {
         otherwise: edge(outer.right),
     };
     assert!(joins
-        .prepare(&graph, inner.join.0, &Availability::default())
+        .prepare(&graph, inner.join.0, &mut Availability::default())
         .is_none());
     assert_eq!(
         joins.resolve(&mut graph, inner.join.0, recipe, &Facts::default()),
@@ -188,7 +188,7 @@ fn a_folded_switch_excludes_an_inactive_edge_from_a_reachable_source() {
         *input = selector;
     }
     joins
-        .prepare(&graph, after.0, &Availability::default())
+        .prepare(&graph, after.0, &mut Availability::default())
         .unwrap();
     assert_eq!(
         joins.resolve(&mut graph, after.0, recipe, &Facts::default()),
@@ -218,7 +218,7 @@ fn surviving_predecessors_keep_their_arguments_when_an_arm_is_removed() {
         otherwise: edge(inner.right),
     };
     joins
-        .prepare(&graph, outer.join.0, &Availability::default())
+        .prepare(&graph, outer.join.0, &mut Availability::default())
         .unwrap();
     let result = joins
         .resolve(&mut graph, outer.join.0, recipe, &Facts::default())

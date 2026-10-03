@@ -45,6 +45,8 @@ mod no_result_functions;
 mod ordinary_calls;
 #[path = "suites/path_facts.rs"]
 mod path_facts;
+#[path = "suites/refined_control.rs"]
+mod refined_control;
 #[path = "suites/rotations.rs"]
 mod rotations;
 #[path = "suites/shifts.rs"]

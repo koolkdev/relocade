@@ -22,7 +22,7 @@ use wasmparser::{Operator, Parser, Payload, Validator};
 fn a_terminating_publication_retains_the_earlier_flag_recipe() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    program
+    let function = program
         .function(
             Signature {
                 parameters: vec![Type::I1],
@@ -48,6 +48,7 @@ fn a_terminating_publication_retains_the_earlier_flag_recipe() {
             },
         )
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
     let stores = flag_stores(&bytes);
@@ -98,7 +99,7 @@ fn flag_stores(bytes: &[u8]) -> Vec<(usize, u64, i32)> {
 fn changing_flag_sources_keeps_payloads_before_kind_and_earlier_exits() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    program
+    let function = program
         .function(
             Signature {
                 parameters: vec![Type::I1; 2],
@@ -132,6 +133,7 @@ fn changing_flag_sources_keeps_payloads_before_kind_and_earlier_exits() {
             },
         )
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
     assert_eq!(
@@ -153,7 +155,7 @@ fn changing_flag_sources_keeps_payloads_before_kind_and_earlier_exits() {
 fn carry_sources_publish_all_concrete_flags_before_the_kind() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    program
+    let function = program
         .function(
             Signature {
                 parameters: vec![Type::I1],
@@ -184,6 +186,7 @@ fn carry_sources_publish_all_concrete_flags_before_the_kind() {
             },
         )
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
     assert_eq!(
@@ -219,7 +222,7 @@ fn invalid_flag_sources_leave_the_previous_source_unchanged() {
             let foreign = foreign_body.parameter::<I32>(0).unwrap();
             let mut program = Program::new();
             let cpu = Cpu::declare(&mut program);
-            program
+            let function = program
                 .function(
                     Signature {
                         parameters: vec![],
@@ -289,6 +292,7 @@ fn invalid_flag_sources_leave_the_previous_source_unchanged() {
                     },
                 )
                 .unwrap();
+            program.export("run", function).unwrap();
             let bytes = program.compile().unwrap();
             Validator::new().validate_all(&bytes).unwrap();
             assert_eq!(flag_stores(&bytes), [(0, 4, 7), (0, 8, 5), (0, 0, 10)]);
@@ -309,7 +313,7 @@ fn invalid_explicit_flags_leave_the_previous_source_unchanged() {
             let foreign_flag = foreign_body.parameter::<I1>(0).unwrap();
             let mut program = Program::new();
             let cpu = Cpu::declare(&mut program);
-            program
+            let function = program
                 .function(
                     Signature {
                         parameters: vec![],
@@ -363,6 +367,7 @@ fn invalid_explicit_flags_leave_the_previous_source_unchanged() {
                     },
                 )
                 .unwrap();
+            program.export("run", function).unwrap();
             let bytes = program.compile().unwrap();
             Validator::new().validate_all(&bytes).unwrap();
             assert_eq!(flag_stores(&bytes), [(0, 4, 7), (0, 8, 5), (0, 0, 10)]);

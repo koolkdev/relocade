@@ -240,7 +240,7 @@ fn sharing_analysis_resolves_ancestor_joins_before_caching_values() {
     }
     placer
         .joins
-        .prepare(placer.graph, join.0, &placer.available);
+        .prepare(placer.graph, join.0, &mut placer.available);
     let mut scheduled = vec![product];
     // A descendant first asks for the value while inspecting its early work.
     // Its specializer must cache the ancestor's joined value, not the recipe.

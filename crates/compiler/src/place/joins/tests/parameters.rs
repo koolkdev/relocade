@@ -49,7 +49,7 @@ fn argument_facts_transfer_common_bits_without_value_candidates() {
             joins.complete(source.0, facts);
         }
         let facts = joins
-            .prepare(&graph, arms.join.0, &Availability::default())
+            .prepare(&graph, arms.join.0, &mut Availability::default())
             .unwrap();
         assert_eq!(facts.constant(&graph.values, low), expected_low_bits);
         assert_eq!(facts.constant(&graph.values, result), expected_value);
@@ -86,7 +86,7 @@ fn two_edges_from_one_predecessor_must_agree_unless_one_is_discarded() {
             }
         }
         let facts = joins
-            .prepare(&graph, arms.join.0, &Availability::default())
+            .prepare(&graph, arms.join.0, &mut Availability::default())
             .unwrap();
         assert_eq!(facts.constant(&graph.values, result), discard.then_some(5));
     }
@@ -116,6 +116,58 @@ fn a_loop_parameter_does_not_inherit_its_initial_constant() {
     let mut joins = joins(&graph);
     joins.complete(0, Facts::default());
     assert!(joins
-        .prepare(&graph, header.0, &Availability::default())
+        .prepare(&graph, header.0, &mut Availability::default())
         .is_none());
+}
+
+#[test]
+fn one_completed_incoming_edge_makes_its_placed_argument_available_at_the_join() {
+    let mut graph = graph();
+    let arms = Diamond::new(&mut graph, BlockId(0));
+    let result = parameter(&mut graph, arms.join, Type::I32);
+    let recipe = square(&mut graph);
+    let argument = placed(&mut graph, arms.left, recipe);
+    let unused = graph.values.constant(Type::I32, 99);
+    graph.blocks[arms.left.0].exit.edges_mut()[0]
+        .arguments
+        .push(argument);
+    graph.blocks[arms.right.0].exit.edges_mut()[0]
+        .arguments
+        .push(unused);
+    let mut joins = joins(&graph);
+    joins.complete(arms.left.0, Facts::default());
+    // Model a branch folded after the original dominance analysis. The unused
+    // arm is deliberately not completed and cannot constrain this join.
+    let yes = graph.values.constant(Type::I1, 1);
+    if let Exit::If { condition, .. } = &mut graph.blocks[0].exit {
+        *condition = yes;
+    }
+    let mut available = Availability::default();
+    joins.prepare(&graph, arms.join.0, &mut available).unwrap();
+    assert_eq!(available.get(result), Some(argument));
+    assert_eq!(available.get(argument), Some(argument));
+}
+
+#[test]
+fn two_live_edges_from_a_single_predecessor_keep_their_parameter() {
+    let mut graph = graph();
+    let join = graph.block(0, &[Type::I32]);
+    let result = graph.blocks[join.0].parameters[0];
+    let seven = graph.values.constant(Type::I32, 7);
+    graph.blocks[0].exit = Exit::If {
+        condition: 0,
+        taken: Edge {
+            target: join,
+            arguments: vec![1],
+        },
+        otherwise: Edge {
+            target: join,
+            arguments: vec![seven],
+        },
+    };
+    graph.blocks[join.0].exit = Exit::Return(vec![result]);
+    let mut joins = joins(&graph);
+    let mut available = Availability::default();
+    assert!(joins.prepare(&graph, join.0, &mut available).is_none());
+    assert_eq!(available.get(result), None);
 }
