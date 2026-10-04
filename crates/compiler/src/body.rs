@@ -1,6 +1,7 @@
 //! Typed values, effects and explicit control edges owned by one function.
 use crate::{memory::Mem, Expression, Func, Type};
 
+mod compact;
 mod operation;
 mod producer;
 mod values;
@@ -143,28 +144,10 @@ impl FunctionGraph {
     }
 
     pub(super) fn outgoing(&self, block: BlockId) -> Vec<&Edge> {
-        match &self.blocks[block.0].exit {
-            Exit::If {
-                condition,
-                taken,
-                otherwise,
-            } => match self.values[*condition].definition {
-                ValueDefinition::Constant(0) => vec![otherwise],
-                ValueDefinition::Constant(_) => vec![taken],
-                _ => vec![taken, otherwise],
-            },
-            Exit::Switch {
-                selector,
-                cases,
-                default,
-            } => match self.values[*selector].definition {
-                ValueDefinition::Constant(bits) => vec![cases
-                    .iter()
-                    .find(|(key, _)| u64::from(*key) == bits)
-                    .map_or(default, |(_, edge)| edge)],
-                _ => self.blocks[block.0].exit.edges(),
-            },
-            _ => self.blocks[block.0].exit.edges(),
+        let exit = &self.blocks[block.0].exit;
+        match exit.constant_edge_index(&self.values) {
+            Some(index) => vec![exit.edge(index)],
+            None => exit.edges(),
         }
     }
 
@@ -182,6 +165,39 @@ impl FunctionGraph {
 }
 
 impl Exit {
+    /// The sole executable edge when a conditional exit has a constant selector.
+    pub(super) fn constant_edge_index(&self, values: &ValueTable) -> Option<usize> {
+        match self {
+            Self::If { condition, .. } => match values[*condition].definition {
+                ValueDefinition::Constant(bits) => Some(usize::from(bits == 0)),
+                _ => None,
+            },
+            Self::Switch {
+                selector, cases, ..
+            } => match values[*selector].definition {
+                ValueDefinition::Constant(bits) => Some(
+                    cases
+                        .iter()
+                        .position(|(key, _)| u64::from(*key) == bits)
+                        .unwrap_or(cases.len()),
+                ),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn edge(&self, index: usize) -> &Edge {
+        match self {
+            Self::If {
+                taken, otherwise, ..
+            } => [taken, otherwise][index],
+            Self::Switch { cases, default, .. } if index == cases.len() => default,
+            Self::Switch { cases, .. } => &cases[index].1,
+            _ => unreachable!("only conditional exits select an edge by index"),
+        }
+    }
+
     pub(super) fn edges_mut(&mut self) -> Vec<&mut Edge> {
         match self {
             Self::Jump(edge) => vec![edge],

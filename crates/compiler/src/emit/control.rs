@@ -1,6 +1,6 @@
 //! Lexical Wasm labels reference the graph's blocks and edge argument tuples.
 use super::{Wasm, Writer};
-use crate::body::{BlockId, Edge, Exit, Layout, ValueDefinition};
+use crate::body::{BlockId, Edge, Exit, Layout};
 use wasm_encoder::BlockType;
 
 impl Writer<'_> {
@@ -49,10 +49,11 @@ impl Writer<'_> {
                     else {
                         panic!("conditional layout references a conditional exit")
                     };
-                    if let ValueDefinition::Constant(bits) =
-                        self.graph.values[*condition].definition
+                    if let Some(index) = self.graph.blocks[branch.0]
+                        .exit
+                        .constant_edge_index(&self.graph.values)
                     {
-                        let (edge, arm) = if bits != 0 {
+                        let (edge, arm) = if index == 0 {
                             (taken_edge, taken)
                         } else {
                             (other_edge, otherwise)
@@ -122,12 +123,14 @@ impl Writer<'_> {
                     else {
                         panic!("switch layout references a switch exit")
                     };
-                    if let ValueDefinition::Constant(bits) = self.graph.values[*selector].definition
+                    if let Some(index) = self.graph.blocks[branch.0]
+                        .exit
+                        .constant_edge_index(&self.graph.values)
                     {
-                        let choice = edges.iter().position(|(key, _)| u64::from(*key) == bits);
-                        let (edge, arm) = match choice {
-                            Some(index) => (&edges[index].1, &cases[index].1),
-                            None => (default_edge, default),
+                        let (edge, arm) = if index < edges.len() {
+                            (&edges[index].1, &cases[index].1)
+                        } else {
+                            (default_edge, default)
                         };
                         self.emit(Wasm::Block(BlockType::Empty));
                         self.labels.push(Some(*join));

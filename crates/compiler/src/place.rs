@@ -8,6 +8,7 @@ mod dominance;
 mod effects;
 mod facts;
 mod joins;
+mod liveness;
 mod reads;
 mod shared;
 mod specialize;
@@ -73,7 +74,8 @@ fn predecessors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
 fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
     // Release placement's facts and bindings before pruning the finished graph.
     place_calculations(graph, summaries);
-    remove_unused(graph, summaries);
+    let live_values = liveness::prune(graph, summaries);
+    graph.compact(live_values);
 }
 
 fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
@@ -94,7 +96,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
         }
     }
     // Remove unused result channels before they can create false read demands.
-    remove_unused(graph, summaries);
+    liveness::prune(graph, summaries);
     reads::prepare(graph, summaries, &reachable);
     let predecessors = predecessors(graph, &reachable);
     let dominators = Dominators::new(graph.entry.0, &successors(graph, &reachable), &predecessors);
@@ -250,107 +252,6 @@ impl Placer<'_> {
             // Folding only removes edges, so existing dominance stays valid.
             // Placement and joins must stop using paths those edges kept alive.
             self.reachable = self.graph.reachable();
-        }
-    }
-}
-
-fn remove_unused(graph: &mut FunctionGraph, summaries: &[Effects]) {
-    let reachable = graph.reachable();
-    let mut live_values = vec![false; graph.values.len()];
-    let mut live_calculations = vec![false; graph.values.len()];
-    let mut live_effects = vec![false; graph.effects.len()];
-    let mut incoming = vec![Vec::new(); graph.values.len()];
-    let mut pending = Vec::new();
-    for (id, block) in graph.blocks.iter().enumerate() {
-        if !reachable[id] {
-            continue;
-        }
-        match &block.exit {
-            Exit::Return(values)
-            | Exit::TailCall {
-                arguments: values, ..
-            } => pending.extend(values),
-            Exit::If { condition, .. } => pending.push(*condition),
-            Exit::Switch { selector, .. } => pending.push(*selector),
-            _ => {}
-        }
-        for edge in graph.outgoing(BlockId(id)) {
-            for (&parameter, &argument) in graph.blocks[edge.target.0]
-                .parameters
-                .iter()
-                .zip(&edge.arguments)
-            {
-                incoming[parameter].push(argument);
-            }
-        }
-        for item in &block.items {
-            if let BlockItem::Effect(effect) = item {
-                if reads::observable(&graph.effects[effect.0].operation, summaries) {
-                    live_effects[effect.0] = true;
-                    pending.extend(graph.inputs(*item));
-                }
-            }
-        }
-    }
-    while let Some(id) = pending.pop() {
-        if std::mem::replace(&mut live_values[id], true) {
-            continue;
-        }
-        if let Some(producer) = graph.producer_of(id) {
-            let live = match producer {
-                BlockItem::Evaluate(root) => &mut live_calculations[root],
-                BlockItem::Effect(effect) => &mut live_effects[effect.0],
-            };
-            if std::mem::replace(live, true) {
-                continue;
-            }
-            pending.extend(graph.inputs(producer));
-        } else if matches!(
-            graph.values[id].definition,
-            ValueDefinition::Parameter { .. }
-        ) {
-            pending.extend(incoming[id].iter().copied());
-        }
-    }
-    let keep: Vec<Vec<bool>> = graph
-        .blocks
-        .iter()
-        .enumerate()
-        .map(|(id, block)| {
-            block
-                .parameters
-                .iter()
-                .map(|&parameter| id == graph.entry.0 || live_values[parameter])
-                .collect()
-        })
-        .collect();
-    for block in &mut graph.blocks {
-        block.items.retain(|item| match item {
-            BlockItem::Evaluate(id) => live_calculations[*id],
-            BlockItem::Effect(id) => live_effects[id.0],
-        });
-        let trim = |edge: &mut Edge| {
-            let mut index = 0;
-            edge.arguments.retain(|_| {
-                let keep = keep[edge.target.0][index];
-                index += 1;
-                keep
-            });
-        };
-        for edge in block.exit.edges_mut() {
-            trim(edge);
-        }
-    }
-    for (id, block) in graph.blocks.iter_mut().enumerate() {
-        if id == graph.entry.0 {
-            continue;
-        }
-        block.parameters.retain(|&parameter| live_values[parameter]);
-        for (component, &parameter) in block.parameters.iter().enumerate() {
-            graph.values.values[parameter].definition = ValueDefinition::Parameter {
-                block: BlockId(id),
-                component,
-            };
         }
     }
 }

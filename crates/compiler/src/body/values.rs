@@ -6,6 +6,8 @@ use crate::{integer, Expression, Type};
 
 mod bounds;
 pub(crate) use bounds::BitBounds;
+#[cfg(test)]
+mod tests;
 
 #[derive(Default)]
 pub(crate) struct ValueTable {
@@ -23,6 +25,36 @@ pub(crate) struct ExpressionResult {
 }
 
 impl ValueTable {
+    pub(super) fn compact(&mut self, remapping: &super::compact::Remapping) {
+        // No more construction or folding follows finalization. Old interning
+        // keys contain old IDs and must not retain their allocation afterwards.
+        self.interned = HashMap::new();
+        let mut retained = remapping.values.iter();
+        self.values.retain_mut(|value| {
+            if retained.next().unwrap().is_none() {
+                return false;
+            }
+            value.definition = match value.definition {
+                ValueDefinition::Expression(expression) => {
+                    ValueDefinition::Expression(expression.map(|&input| remapping.value(input)))
+                }
+                ValueDefinition::Result {
+                    producer,
+                    component,
+                } => ValueDefinition::Result {
+                    producer: remapping.producer(producer),
+                    component,
+                },
+                definition => definition,
+            };
+            true
+        });
+        let mut retained = remapping.values.iter();
+        self.bounds.retain(|_| retained.next().unwrap().is_some());
+        self.values.shrink_to_fit();
+        self.bounds.shrink_to_fit();
+    }
+
     pub(crate) fn expression(&self, id: usize) -> Option<ExpressionResult> {
         let (producer, component) = match self.values[id].definition {
             ValueDefinition::Expression(_) => (id, 0),

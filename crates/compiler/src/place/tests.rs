@@ -38,7 +38,7 @@ fn square(graph: &mut FunctionGraph) -> usize {
 
 fn assert_return_unchanged(graph: &FunctionGraph, block: BlockId, recipe: usize) {
     // Visiting this exit would specialize its input under the enclosing guard.
-    // Final cleanup removes calculations, but cannot undo that exit rewrite.
+    // Inspect placement before finalization reclaims discarded block contents.
     let Exit::Return(values) = &graph.blocks[block.0].exit else {
         panic!("the discarded block retains its return");
     };
@@ -86,7 +86,7 @@ fn a_folded_if_skips_its_discarded_subtree_and_keeps_the_join() {
     graph.blocks[join.0].exit = Exit::Return(vec![sum]);
     assert!(graph.reachable().iter().all(|&reachable| reachable));
 
-    place(&mut graph, &[]);
+    place_calculations(&mut graph, &[]);
 
     assert_return_unchanged(&graph, descendant, conditional_product);
     let reachable = graph.reachable();
@@ -134,7 +134,7 @@ fn a_folded_switch_skips_discarded_cases_and_default() {
     graph.blocks[join.0].exit = Exit::Return(vec![number]);
     assert!(graph.reachable().iter().all(|&reachable| reachable));
 
-    place(&mut graph, &[]);
+    place_calculations(&mut graph, &[]);
 
     assert_return_unchanged(&graph, discarded_case, sum);
     assert_return_unchanged(&graph, discarded_default, sum);
@@ -189,7 +189,7 @@ fn a_loop_backedge_does_not_keep_a_discarded_region_alive() {
     graph.blocks[after.0].exit = Exit::Return(vec![number]);
     assert!(graph.reachable().iter().all(|&reachable| reachable));
 
-    place(&mut graph, &[]);
+    place_calculations(&mut graph, &[]);
 
     let Exit::If { condition, .. } = graph.blocks[header.0].exit else {
         panic!("the discarded loop retains its conditional exit");
