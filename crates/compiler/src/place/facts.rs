@@ -1,7 +1,8 @@
 //! Path facts about logical bits, unsigned intervals and comparison outcomes.
 //! Facts about a truncated value do not erase its other carrier bits.
 
-use std::{cell::RefCell, collections::HashMap};
+use rustc_hash::FxHashMap;
+use std::cell::RefCell;
 
 use crate::{
     body::{ValueDefinition, ValueTable},
@@ -45,10 +46,11 @@ impl Bits {
 
 #[derive(Default)]
 pub(super) struct Facts {
-    known: HashMap<usize, Bits>,
-    ranges: HashMap<usize, Range>,
+    // These sparse maps hash compiler-assigned value IDs, never guest values.
+    known: FxHashMap<usize, Bits>,
+    ranges: FxHashMap<usize, Range>,
     comparisons: Comparisons,
-    computed: RefCell<HashMap<usize, Bits>>,
+    computed: RefCell<FxHashMap<usize, Bits>>,
 }
 
 impl Clone for Facts {
