@@ -71,6 +71,12 @@ fn predecessors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
 }
 
 fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
+    // Release placement's facts and bindings before pruning the finished graph.
+    place_calculations(graph, summaries);
+    remove_unused(graph, summaries);
+}
+
+fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
     let reachable = graph.reachable();
     for (index, block) in graph.blocks.iter().enumerate() {
         if !reachable[index] {
@@ -197,7 +203,6 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
             }
         }
     }
-    remove_unused(placer.graph, summaries);
 }
 
 struct Placer<'a> {
