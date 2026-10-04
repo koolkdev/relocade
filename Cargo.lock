@@ -743,6 +743,7 @@ dependencies = [
 name = "wasm86-compiler"
 version = "0.0.0"
 dependencies = [
+ "hashbrown 0.15.5",
  "rustc-hash",
  "serde",
  "wasm-encoder 0.254.0",

@@ -1,5 +1,6 @@
 //! Stored values, deduplication and physical representation facts.
-use std::collections::HashMap;
+use hashbrown::HashTable;
+use std::{collections::hash_map::RandomState, hash::BuildHasher};
 
 use super::{BlockItem, Value, ValueDefinition};
 use crate::{integer, Expression, Type};
@@ -13,7 +14,9 @@ mod tests;
 pub(crate) struct ValueTable {
     pub(crate) values: Vec<Value>,
     pub(crate) bounds: Vec<BitBounds>,
-    interned: HashMap<Value, usize>,
+    // Canonical keys live in `values` and stay unchanged until compaction.
+    interned: HashTable<usize>,
+    hash_builder: RandomState,
 }
 
 /// One component of a pure expression, whether stored inline or as a projection.
@@ -26,9 +29,9 @@ pub(crate) struct ExpressionResult {
 
 impl ValueTable {
     pub(super) fn compact(&mut self, remapping: &super::compact::Remapping) {
-        // No more construction or folding follows finalization. Old interning
-        // keys contain old IDs and must not retain their allocation afterwards.
-        self.interned = HashMap::new();
+        // No more construction or folding follows finalization. Release the
+        // lookup table before changing the values and IDs that supply its keys.
+        self.interned = HashTable::new();
         let mut retained = remapping.values.iter();
         self.values.retain_mut(|value| {
             if retained.next().unwrap().is_none() {
@@ -156,11 +159,17 @@ impl ValueTable {
     }
 
     pub(crate) fn intern(&mut self, value: Value) -> usize {
-        if let Some(&index) = self.interned.get(&value) {
+        let hash = self.hash_builder.hash_one(value);
+        if let Some(&index) = self
+            .interned
+            .find(hash, |&index| self.values[index] == value)
+        {
             return index;
         }
         let index = self.push(value);
-        self.interned.insert(value, index);
+        self.interned.insert_unique(hash, index, |&index| {
+            self.hash_builder.hash_one(self.values[index])
+        });
         index
     }
 }
