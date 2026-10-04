@@ -95,7 +95,7 @@ fn a_descendant_demand_adds_one_parameter_at_the_owning_join() {
     let right = placed(&mut graph, arms.right, recipe);
     for (block, value) in [(arms.left, left), (arms.right, right)] {
         joins.record(block.0, [(recipe, value), (unused, value)].into_iter());
-        joins.complete(block.0, Facts::default());
+        joins.complete(block.0, &Facts::default());
     }
     joins
         .prepare(&graph, arms.join.0, &Availability::default())
@@ -135,7 +135,7 @@ fn an_indexed_join_cannot_supply_a_sibling_branch() {
     for block in [inner.left, inner.right] {
         let value = placed(&mut graph, block, recipe);
         joins.record(block.0, [(recipe, value)].into_iter());
-        joins.complete(block.0, Facts::default());
+        joins.complete(block.0, &Facts::default());
     }
     joins
         .prepare(&graph, inner.join.0, &Availability::default())
@@ -178,7 +178,7 @@ fn a_nearer_join_is_preferred_but_a_failed_merge_keeps_ancestor_reuse() {
                 let value = placed(&mut graph, block, fallback);
                 joins.record(block.0, [(fallback, value)].into_iter());
             }
-            joins.complete(block.0, Facts::default());
+            joins.complete(block.0, &Facts::default());
         }
         joins
             .prepare(&graph, arms.join.0, &Availability::default())
@@ -224,7 +224,7 @@ fn incoming_aliases_resolve_from_the_saved_common_ancestor() {
     for (block, condition) in [(arms.left, true), (arms.right, false)] {
         let mut facts = Facts::default();
         facts.assume(&graph.values, 0, condition);
-        joins.complete(block.0, facts);
+        joins.complete(block.0, &facts);
     }
     let mut available = Availability::default();
     available.bind(number, ancestor);
@@ -255,7 +255,7 @@ fn identical_incoming_carriers_can_reuse_a_value_with_a_different_logical_type()
     let mut joins = joins(&graph);
     joins.record(arms.left.0, [(byte, 1)].into_iter());
     for source in [arms.left, arms.right] {
-        joins.complete(source.0, Facts::default());
+        joins.complete(source.0, &Facts::default());
     }
     joins
         .prepare(&graph, arms.join.0, &Availability::default())
@@ -294,7 +294,7 @@ fn guarded_join_reuse_stays_with_matching_facts() {
     for (block, truth) in [(arms.left, true), (arms.right, false)] {
         let mut facts = Facts::default();
         facts.assume(&graph.values, 0, truth);
-        joins.complete(block.0, facts);
+        joins.complete(block.0, &facts);
     }
     joins
         .prepare(&graph, arms.join.0, &Availability::default())

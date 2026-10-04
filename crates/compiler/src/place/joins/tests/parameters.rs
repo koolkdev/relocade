@@ -46,7 +46,7 @@ fn argument_facts_transfer_common_bits_without_value_candidates() {
             if let Some(value) = value {
                 facts.assume_bits(argument, u32::MAX.into(), value);
             }
-            joins.complete(source.0, facts);
+            joins.complete(source.0, &facts);
         }
         let facts = joins
             .prepare(&graph, arms.join.0, &Availability::default())
@@ -77,7 +77,7 @@ fn two_edges_from_one_predecessor_must_agree_unless_one_is_discarded() {
         graph.blocks[arms.right.0].exit = Exit::Jump(incoming(five));
         let mut joins = joins(&graph);
         for source in [arms.left, arms.right] {
-            joins.complete(source.0, Facts::default());
+            joins.complete(source.0, &Facts::default());
         }
         if discard {
             let yes = graph.values.constant(Type::I1, 1);
@@ -114,7 +114,7 @@ fn a_loop_parameter_does_not_inherit_its_initial_constant() {
         },
     };
     let mut joins = joins(&graph);
-    joins.complete(0, Facts::default());
+    joins.complete(0, &Facts::default());
     assert!(joins
         .prepare(&graph, header.0, &Availability::default())
         .is_none());

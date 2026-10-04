@@ -70,11 +70,12 @@ fn reported_aliases_survive_the_memo_and_leave_with_their_scope() {
         .iter()
         .any(|alias| alias.recipe == choice && alias.residual == result.value));
     available.record_aliases(result.aliases);
-    specializer.begin_block();
+    let block = specializer.begin_block(None);
     available.bind(result.value, result.value);
     assert_eq!(available.get(choice), Some(result.value));
     available.restore(scope);
     assert_eq!(available.get(choice), None);
+    specializer.end_block(block);
 }
 
 #[test]
@@ -114,7 +115,59 @@ fn entering_another_block_discards_cached_availability() {
             .value,
         placed
     );
-    specializer.begin_block();
+    let block = specializer.begin_block(None);
+    assert_eq!(
+        specializer
+            .specialize(&mut graph, choice, |_, _, _| None)
+            .value,
+        choice
+    );
+    specializer.end_block(block);
+}
+
+#[test]
+fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
+    let mut graph = conditional_value();
+    let choice = returned(&graph);
+    let condition = graph.blocks[0].parameters[0];
+    let mut specializer = Specializer::default();
+    let inherited = specializer.begin_block(None);
+    specializer
+        .facts_mut()
+        .assume(&graph.values, condition, true);
+    let result = specializer
+        .specialize(&mut graph, choice, |_, _, _| None)
+        .value;
+    assert!(matches!(
+        graph.values[result].definition,
+        ValueDefinition::Constant(7)
+    ));
+
+    let mut incoming = Facts::default();
+    incoming.assume(&graph.values, condition, false);
+    let replaced = specializer.begin_block(Some(incoming));
+    let child = specializer.begin_block(None);
+    let result = specializer
+        .specialize(&mut graph, choice, |_, _, _| None)
+        .value;
+    assert!(matches!(
+        graph.values[result].definition,
+        ValueDefinition::Constant(11)
+    ));
+    specializer.end_block(child);
+    assert_eq!(
+        specializer.facts().constant(&graph.values, condition),
+        Some(0)
+    );
+    specializer.end_block(replaced);
+    let result = specializer
+        .specialize(&mut graph, choice, |_, _, _| None)
+        .value;
+    assert!(matches!(
+        graph.values[result].definition,
+        ValueDefinition::Constant(7)
+    ));
+    specializer.end_block(inherited);
     assert_eq!(
         specializer
             .specialize(&mut graph, choice, |_, _, _| None)

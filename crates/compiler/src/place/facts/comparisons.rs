@@ -1,5 +1,5 @@
 //! Remember comparison outcomes independently of their result identities.
-use std::collections::{hash_map::Entry, HashMap};
+use super::scoped_map::{Checkpoint, ScopedMap};
 
 use crate::{body::ValueTable, integer::CompareOp};
 
@@ -44,10 +44,17 @@ impl Comparison {
 
 #[derive(Clone, Default)]
 pub(super) struct Comparisons {
-    outcomes: HashMap<Comparison, bool>,
+    outcomes: ScopedMap<Comparison, bool>,
 }
 
 impl Comparisons {
+    pub(super) fn checkpoint(&mut self) -> Checkpoint {
+        self.outcomes.checkpoint()
+    }
+    pub(super) fn restore(&mut self, checkpoint: Checkpoint) {
+        self.outcomes.restore(checkpoint);
+    }
+
     pub(super) fn is_empty(&self) -> bool {
         self.outcomes.is_empty()
     }
@@ -67,8 +74,8 @@ impl Comparisons {
         truth: bool,
     ) -> Option<usize> {
         let (key, inverted) = Comparison::canonical(table, operator, left, right);
-        if let Entry::Vacant(entry) = self.outcomes.entry(key) {
-            entry.insert(truth ^ inverted);
+        if !self.outcomes.contains_key(&key) {
+            self.outcomes.insert(key, truth ^ inverted);
             // The opposite predicate may have been constructed before this one.
             Some(key.left.min(key.right))
         } else {

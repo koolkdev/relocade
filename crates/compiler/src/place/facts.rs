@@ -15,10 +15,15 @@ mod comparisons;
 mod infer;
 mod merge;
 mod range;
+mod scoped_map;
 use comparisons::Comparisons;
 use range::Range;
+use scoped_map::ScopedMap;
 
-#[derive(Clone, Copy, Default)]
+#[cfg(test)]
+mod tests;
+
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
 struct Bits {
     mask: u64,
     value: u64,
@@ -47,10 +52,16 @@ impl Bits {
 #[derive(Default)]
 pub(super) struct Facts {
     // These sparse maps hash compiler-assigned value IDs, never guest values.
-    known: FxHashMap<usize, Bits>,
-    ranges: FxHashMap<usize, Range>,
+    known: ScopedMap<usize, Bits>,
+    ranges: ScopedMap<usize, Range>,
     comparisons: Comparisons,
     computed: RefCell<FxHashMap<usize, Bits>>,
+}
+
+pub(super) struct Checkpoint {
+    known: scoped_map::Checkpoint,
+    ranges: scoped_map::Checkpoint,
+    comparisons: scoped_map::Checkpoint,
 }
 
 impl Clone for Facts {
@@ -65,6 +76,23 @@ impl Clone for Facts {
 }
 
 impl Facts {
+    /// Save a nested path scope without copying its inherited facts.
+    pub(super) fn checkpoint(&mut self) -> Checkpoint {
+        Checkpoint {
+            known: self.known.checkpoint(),
+            ranges: self.ranges.checkpoint(),
+            comparisons: self.comparisons.checkpoint(),
+        }
+    }
+
+    /// Restore the most recent scope and discard inferences from its changed facts.
+    pub(super) fn restore(&mut self, checkpoint: Checkpoint) {
+        self.known.restore(checkpoint.known);
+        self.ranges.restore(checkpoint.ranges);
+        self.comparisons.restore(checkpoint.comparisons);
+        self.computed = RefCell::default();
+    }
+
     /// Whether known logical bits prove that these paths cannot coincide.
     pub(super) fn conflicts_with(&self, table: &ValueTable, other: &Self) -> bool {
         self.known

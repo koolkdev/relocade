@@ -17,7 +17,7 @@ use dominance::Dominators;
 use effects::Effects;
 use facts::Facts;
 use joins::Joins;
-use specialize::Specializer;
+use specialize::{BlockScope, Specializer};
 
 pub(super) fn module(program: &mut Program) -> Vec<(usize, FunctionGraph)> {
     let summaries = effects::infer(program);
@@ -117,14 +117,15 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
         Leave {
             block: usize,
             checkpoint: Checkpoint,
-            facts: Box<Facts>,
+            scope: BlockScope,
         },
     }
     let mut work = vec![Visit::Enter(placer.graph.entry.0)];
     while let Some(visit) = work.pop() {
         match visit {
             Visit::Enter(index) => {
-                let saved = placer.specializer.begin_block();
+                let incoming = placer.joins.prepare(placer.graph, index, &placer.available);
+                let scope = placer.specializer.begin_block(incoming);
                 let checkpoint = placer.available.checkpoint();
                 // A unique predecessor's selected edge supplies facts valid on
                 // every entrance. Dominator ancestry preserves them afterwards.
@@ -165,9 +166,6 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
                         _ => {}
                     }
                 }
-                if let Some(facts) = placer.joins.prepare(placer.graph, index, &placer.available) {
-                    *placer.specializer.facts_mut() = facts;
-                }
                 placer.block(BlockId(index));
                 placer
                     .joins
@@ -175,18 +173,18 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
                 work.push(Visit::Leave {
                     block: index,
                     checkpoint,
-                    facts: Box::new(saved),
+                    scope,
                 });
                 work.extend(children[index].iter().rev().copied().map(Visit::Enter));
             }
             Visit::Leave {
                 block,
                 checkpoint,
-                facts,
+                scope,
             } => {
                 placer.available.restore(checkpoint);
-                let completed = std::mem::replace(placer.specializer.facts_mut(), *facts);
-                placer.joins.complete(block, completed);
+                placer.joins.complete(block, placer.specializer.facts());
+                placer.specializer.end_block(scope);
             }
         }
     }

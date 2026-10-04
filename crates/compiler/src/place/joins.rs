@@ -82,9 +82,10 @@ impl Joins {
         self.blocks[block].values.extend(values);
     }
 
-    pub(super) fn complete(&mut self, block: usize, facts: Facts) {
+    pub(super) fn complete(&mut self, block: usize, facts: &Facts) {
         if self.needs_facts[block] {
-            self.blocks[block].facts = Some(facts);
+            // These facts outlive the block's active path scope.
+            self.blocks[block].facts = Some(facts.clone());
         }
     }
 
@@ -131,9 +132,8 @@ impl Joins {
                 graph
                     .outgoing(BlockId(source))
                     .into_iter()
-                    .filter_map(move |edge| {
-                        (edge.target.0 == join).then(|| (facts, edge.arguments[component]))
-                    })
+                    .filter(move |edge| edge.target.0 == join)
+                    .map(move |edge| (facts, edge.arguments[component]))
             });
             facts.merge_parameter(&graph.values, parameter, arguments);
         }

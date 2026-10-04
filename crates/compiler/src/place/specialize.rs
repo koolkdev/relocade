@@ -10,6 +10,12 @@ pub(super) struct Specializer {
     residuals: HashMap<usize, usize>,
 }
 
+/// Restore inherited facts by undoing changes; suspend them when a join replaces them.
+pub(super) enum BlockScope {
+    Inherited(facts::Checkpoint),
+    Replaced(Box<Facts>),
+}
+
 pub(super) struct Alias {
     pub(super) recipe: usize,
     pub(super) residual: usize,
@@ -21,9 +27,26 @@ pub(super) struct Specialization {
 }
 
 impl Specializer {
-    pub(super) fn begin_block(&mut self) -> Facts {
+    pub(super) fn begin_block(&mut self, incoming: Option<Facts>) -> BlockScope {
         self.residuals.clear();
-        self.facts.clone()
+        match incoming {
+            Some(facts) => {
+                BlockScope::Replaced(Box::new(std::mem::replace(&mut self.facts, facts)))
+            }
+            None => BlockScope::Inherited(self.facts.checkpoint()),
+        }
+    }
+
+    pub(super) fn end_block(&mut self, scope: BlockScope) {
+        self.residuals.clear();
+        match scope {
+            BlockScope::Inherited(checkpoint) => self.facts.restore(checkpoint),
+            BlockScope::Replaced(previous) => self.facts = *previous,
+        }
+    }
+
+    pub(super) fn facts(&self) -> &Facts {
+        &self.facts
     }
 
     pub(super) fn facts_mut(&mut self) -> &mut Facts {
