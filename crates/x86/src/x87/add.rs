@@ -3,7 +3,7 @@
 use wasm86_compiler::{BlockBuilder, BuildError, Results, Val, I1, I32, I64, I8};
 
 use super::{
-    operand::{BinaryOperands, Operand},
+    operand::{AddendSigns, BinaryOperands, Operand},
     result::{BinaryArithmetic, RoundedValue},
     rounding::{FiniteMagnitude, RoundingInput},
     BinaryOperation, RoundingMode,
@@ -19,16 +19,10 @@ pub(super) fn add(
     rounding: &RoundingMode,
 ) -> Result<BinaryArithmetic, BuildError> {
     let BinaryOperands { left, right, .. } = operands;
-    // Only numerical signs change. NaN propagation still sees the original
-    // destination and source, even for reverse subtraction.
-    let left_negative = left
-        .bits
-        .negative()
-        .xor(matches!(operation, BinaryOperation::ReverseSubtract));
-    let right_negative = right
-        .bits
-        .negative()
-        .xor(matches!(operation, BinaryOperation::Subtract));
+    let AddendSigns {
+        left_negative,
+        right_negative,
+    } = operands.addend_signs(operation);
     let subtract_magnitudes = left_negative.xor(&right_negative);
     let aligned = AlignedMagnitudes::new(body, left, right)?;
     let negative = aligned.left_larger.select(&left_negative, &right_negative);

@@ -69,6 +69,12 @@ impl Operand {
     }
 }
 
+/// Effective numerical signs leave the original operands intact for NaN priority.
+pub(super) struct AddendSigns {
+    pub(super) left_negative: Val<I1>,
+    pub(super) right_negative: Val<I1>,
+}
+
 pub(crate) struct BinaryOperands {
     pub(super) left: Operand,
     pub(super) right: Operand,
@@ -98,6 +104,22 @@ impl BinaryOperands {
             left,
             right,
             precision_only,
+        }
+    }
+
+    /// Addition and both subtraction directions share this sign policy.
+    pub(super) fn addend_signs(&self, operation: BinaryOperation) -> AddendSigns {
+        AddendSigns {
+            left_negative: self
+                .left
+                .bits
+                .negative()
+                .xor(matches!(operation, BinaryOperation::ReverseSubtract)),
+            right_negative: self
+                .right
+                .bits
+                .negative()
+                .xor(matches!(operation, BinaryOperation::Subtract)),
         }
     }
 
