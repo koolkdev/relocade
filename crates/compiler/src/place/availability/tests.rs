@@ -92,15 +92,80 @@ fn execution_reuse_and_aliases_end_together_at_scope_exit() {
     let high = graph.values.expression_result(product, 1);
     let mut available = Availability::default();
     let parent = available.checkpoint();
+    let count = graph.values.len();
     available.evaluate(&mut graph, BlockId(0), product);
     let placed_low = available.get(product).unwrap();
     let placed_high = available.get(high).unwrap();
+    assert_eq!(graph.values.len(), count);
+    assert_eq!(placed_low, product);
+    assert_eq!(placed_high, high);
     assert_eq!(available.lookup(&graph.values, high), Some(placed_high));
     assert_ne!(placed_low, placed_high);
+    available.evaluate(&mut graph, BlockId(0), product);
+    assert_eq!(graph.values.len(), count);
     assert_eq!(graph.blocks[0].items.len(), 1);
     available.restore(parent);
     assert_eq!(available.lookup(&graph.values, product), None);
     assert_eq!(available.lookup(&graph.values, high), None);
+
+    let sibling = graph.block(0, &[]);
+    available.evaluate(&mut graph, sibling, product);
+    let sibling_low = available.get(product).unwrap();
+    let sibling_high = available.get(high).unwrap();
+    assert_eq!(graph.values.len(), count + 2);
+    assert_ne!(sibling_low, placed_low);
+    assert_ne!(sibling_high, placed_high);
+    assert_eq!(graph.values.expression_result(sibling_low, 1), sibling_high);
+    assert_eq!(graph.blocks[sibling.0].items.len(), 1);
+}
+
+#[test]
+fn rebinding_inputs_preserves_the_recipe_for_a_later_unchanged_placement() {
+    let mut graph = FunctionGraph::new();
+    for component in 0..2 {
+        let parameter = graph.values.push(Value {
+            ty: crate::Type::I64,
+            definition: ValueDefinition::Parameter {
+                block: graph.entry,
+                component,
+            },
+        });
+        graph.blocks[0].parameters.push(parameter);
+    }
+    let [input, replacement] = graph.blocks[0].parameters[..] else {
+        unreachable!()
+    };
+    let recipe = Value {
+        ty: crate::Type::I64,
+        definition: ValueDefinition::Expression(Expression::Binary {
+            operator: crate::integer::BinaryOp::Mul,
+            left: input,
+            right: input,
+        }),
+    };
+    let product = graph.values.intern(recipe);
+    let mut available = Availability::default();
+    let parent = available.checkpoint();
+    let count = graph.values.len();
+    available.bind(input, replacement);
+    available.evaluate(&mut graph, BlockId(0), product);
+    let placed = available.get(product).unwrap();
+    assert_ne!(placed, product);
+    assert_eq!(graph.values.len(), count + 1);
+    assert!(graph.values[product] == recipe);
+    assert_eq!(
+        graph
+            .inputs(BlockItem::Evaluate(placed))
+            .collect::<Vec<_>>(),
+        [replacement, replacement]
+    );
+
+    available.restore(parent);
+    let sibling = graph.block(0, &[]);
+    available.evaluate(&mut graph, sibling, product);
+    assert_eq!(available.get(product), Some(product));
+    assert_eq!(graph.values.len(), count + 1);
+    assert!(graph.values[product] == recipe);
 }
 
 #[test]

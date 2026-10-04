@@ -9,6 +9,9 @@ mod tests;
 pub(super) struct Availability {
     // Value-table IDs are dense and stable throughout placement.
     bindings: Vec<Option<usize>>,
+    // A producer can retain its original ID for its first unchanged placement.
+    // This history survives scope exit: later executions need distinct IDs.
+    placed: Vec<bool>,
     expressions: HashMap<Value, usize>,
     // A residual may execute after specialization reports its original recipes.
     // Keep these links until scope exit, including after publishing a binding.
@@ -175,7 +178,17 @@ impl Availability {
         let placed = if let Some(&placed) = self.expressions.get(&operation) {
             placed
         } else {
-            let placed = graph.values.push(operation);
+            let placed = if operation == graph.values[producer]
+                && !self.placed.get(producer).copied().unwrap_or(false)
+            {
+                producer
+            } else {
+                graph.values.push(operation)
+            };
+            if placed >= self.placed.len() {
+                self.placed.resize(placed + 1, false);
+            }
+            self.placed[placed] = true;
             graph.blocks[block.0]
                 .items
                 .push(BlockItem::Evaluate(placed));

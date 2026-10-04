@@ -1,4 +1,4 @@
-//! Discarded control flow must not create placed calculations.
+//! Placement must leave discarded control flow unvisited.
 use super::*;
 use crate::{integer::BinaryOp, Type};
 
@@ -36,17 +36,13 @@ fn square(graph: &mut FunctionGraph) -> usize {
     })
 }
 
-fn assert_no_placed_copy(graph: &FunctionGraph, recipe: usize) {
-    // Final cleanup removes scheduled work but retains its value entries.
-    // Inspect those entries so compiling and then discarding a copy still fails.
-    assert_eq!(
-        graph
-            .values
-            .iter()
-            .filter(|&&value| value == graph.values[recipe])
-            .count(),
-        1
-    );
+fn assert_return_unchanged(graph: &FunctionGraph, block: BlockId, recipe: usize) {
+    // Visiting this exit would specialize its input under the enclosing guard.
+    // Final cleanup removes calculations, but cannot undo that exit rewrite.
+    let Exit::Return(values) = &graph.blocks[block.0].exit else {
+        panic!("the discarded block retains its return");
+    };
+    assert_eq!(values, &[recipe]);
 }
 
 #[test]
@@ -69,8 +65,16 @@ fn a_folded_if_skips_its_discarded_subtree_and_keeps_the_join() {
         otherwise: edge(discarded),
     };
     let product = square(&mut graph);
+    let conditional_product = graph.values.intern(Value {
+        ty: Type::I32,
+        definition: ValueDefinition::Expression(Expression::Select {
+            condition,
+            when_true: number,
+            when_false: product,
+        }),
+    });
     graph.blocks[discarded.0].exit = Exit::Jump(edge(descendant));
-    graph.blocks[descendant.0].exit = Exit::Return(vec![product]);
+    graph.blocks[descendant.0].exit = Exit::Return(vec![conditional_product]);
     let sum = graph.values.intern(Value {
         ty: Type::I32,
         definition: ValueDefinition::Expression(Expression::Binary {
@@ -84,7 +88,7 @@ fn a_folded_if_skips_its_discarded_subtree_and_keeps_the_join() {
 
     place(&mut graph, &[]);
 
-    assert_no_placed_copy(&graph, product);
+    assert_return_unchanged(&graph, descendant, conditional_product);
     let reachable = graph.reachable();
     assert!(!reachable[discarded.0]);
     assert!(!reachable[descendant.0]);
@@ -117,14 +121,23 @@ fn a_folded_switch_skips_discarded_cases_and_default() {
         default: edge(discarded_default),
     };
     let product = square(&mut graph);
-    graph.blocks[discarded_case.0].exit = Exit::Return(vec![product]);
-    graph.blocks[discarded_default.0].exit = Exit::Return(vec![product]);
+    let sum = graph.values.intern(Value {
+        ty: Type::I32,
+        definition: ValueDefinition::Expression(Expression::Binary {
+            operator: BinaryOp::Add,
+            left: product,
+            right: selector,
+        }),
+    });
+    graph.blocks[discarded_case.0].exit = Exit::Return(vec![sum]);
+    graph.blocks[discarded_default.0].exit = Exit::Return(vec![sum]);
     graph.blocks[join.0].exit = Exit::Return(vec![number]);
     assert!(graph.reachable().iter().all(|&reachable| reachable));
 
     place(&mut graph, &[]);
 
-    assert_no_placed_copy(&graph, product);
+    assert_return_unchanged(&graph, discarded_case, sum);
+    assert_return_unchanged(&graph, discarded_default, sum);
     let reachable = graph.reachable();
     assert!(!reachable[discarded_case.0]);
     assert!(!reachable[discarded_default.0]);
@@ -151,11 +164,20 @@ fn a_loop_backedge_does_not_keep_a_discarded_region_alive() {
         otherwise: edge(header),
     };
     let product = square(&mut graph);
-    let repeat = graph.values.intern(Value {
+    let nonzero = graph.values.intern(Value {
         ty: Type::I1,
         definition: ValueDefinition::Expression(Expression::ZeroTest {
             input: product,
             nonzero: true,
+        }),
+    });
+    let zero = graph.values.constant(Type::I1, 0);
+    let repeat = graph.values.intern(Value {
+        ty: Type::I1,
+        definition: ValueDefinition::Expression(Expression::Select {
+            condition,
+            when_true: nonzero,
+            when_false: zero,
         }),
     });
     graph.blocks[header.0].exit = Exit::If {
@@ -169,7 +191,10 @@ fn a_loop_backedge_does_not_keep_a_discarded_region_alive() {
 
     place(&mut graph, &[]);
 
-    assert_no_placed_copy(&graph, product);
+    let Exit::If { condition, .. } = graph.blocks[header.0].exit else {
+        panic!("the discarded loop retains its conditional exit");
+    };
+    assert_eq!(condition, repeat);
     let reachable = graph.reachable();
     assert!(!reachable[header.0]);
     assert!(!reachable[backedge.0]);
