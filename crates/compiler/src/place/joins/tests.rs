@@ -216,7 +216,7 @@ fn a_nearer_join_is_preferred_but_a_failed_merge_keeps_ancestor_reuse() {
 }
 
 #[test]
-fn incoming_aliases_resolve_from_the_saved_common_ancestor() {
+fn incoming_aliases_keep_their_predecessor_scope() {
     let mut graph = graph();
     let arms = Diamond::new(&mut graph, BlockId(0));
     let uses = Diamond::new(&mut graph, arms.join);

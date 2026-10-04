@@ -23,7 +23,6 @@ struct JoinedValue {
 }
 
 struct JoinInputs {
-    common: usize,
     incoming: Vec<IncomingValues>,
     results: HashMap<usize, JoinedValue>,
 }
@@ -141,20 +140,16 @@ impl Joins {
         let mut incoming = Vec::new();
         let mut candidates = HashSet::new();
         for source in sources {
-            let mut delta = HashMap::new();
             let mut block = source;
             while block != common {
-                for (&recipe, &value) in &self.blocks[block].values {
-                    if base.get(recipe).is_none() {
-                        delta.entry(recipe).or_insert(value);
-                        if graph.values.expression(recipe).is_some() {
-                            candidates.insert(recipe);
-                        }
+                for &recipe in self.blocks[block].values.keys() {
+                    if base.get(recipe).is_none() && graph.values.expression(recipe).is_some() {
+                        candidates.insert(recipe);
                     }
                 }
                 block = self.dominators.parent[block].unwrap();
             }
-            incoming.push(IncomingValues::new(source, delta));
+            incoming.push(IncomingValues::new(source));
         }
         if candidates.is_empty() {
             return Some(facts);
@@ -166,7 +161,6 @@ impl Joins {
             self.joins_by_recipe[recipe].push(join);
         }
         self.inputs[join] = Some(JoinInputs {
-            common,
             incoming,
             results: HashMap::new(),
         });
@@ -272,7 +266,7 @@ impl JoinInputs {
         let mut values = HashMap::new();
         let mut excluded = Vec::new();
         for source in &mut self.incoming {
-            let value = if let Some(value) = source.resolve(graph, recipe, self.common, joins) {
+            let value = if let Some(value) = source.resolve(graph, recipe, joins) {
                 value
             } else if joins.blocks[source.source]
                 .facts

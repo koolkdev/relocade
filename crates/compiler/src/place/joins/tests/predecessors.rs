@@ -2,6 +2,108 @@
 use super::*;
 
 #[test]
+fn incoming_values_use_the_nearest_binding_on_each_predecessor_path() {
+    let mut graph = graph();
+    let arms = Diamond::new(&mut graph, BlockId(0));
+    let nearer = graph.block(0, &[]);
+    let left_source = graph.block(0, &[]);
+    graph.blocks[arms.left.0].exit = Exit::Jump(edge(nearer));
+    graph.blocks[nearer.0].exit = Exit::Jump(edge(left_source));
+    graph.blocks[left_source.0].exit = Exit::Jump(edge(arms.join));
+    let recipe = square(&mut graph);
+    let mut joins = joins(&graph);
+    let distant_value = placed(&mut graph, arms.left, recipe);
+    let nearer_value = placed(&mut graph, nearer, recipe);
+    let right_value = placed(&mut graph, arms.right, recipe);
+    for (block, value) in [
+        (arms.left, distant_value),
+        (nearer, nearer_value),
+        (arms.right, right_value),
+    ] {
+        joins.record(block.0, [(recipe, value)].into_iter());
+    }
+    for source in [left_source, arms.right] {
+        joins.complete(source.0, &Facts::default());
+    }
+    joins
+        .prepare(
+            &graph,
+            &graph.reachable(),
+            arms.join.0,
+            &Availability::default(),
+        )
+        .unwrap();
+    let result = joins
+        .resolve(&mut graph, arms.join.0, recipe, &Facts::default())
+        .unwrap();
+    assert_eq!(graph.blocks[arms.join.0].parameters, [result]);
+    assert_eq!(
+        graph.blocks[left_source.0].exit.edges()[0].arguments,
+        [nearer_value]
+    );
+    assert_eq!(
+        graph.blocks[arms.right.0].exit.edges()[0].arguments,
+        [right_value]
+    );
+    assert!(graph.blocks[left_source.0].items.is_empty());
+}
+
+#[test]
+fn incoming_aliases_see_a_common_ancestor_binding_requested_after_preparation() {
+    let mut graph = graph();
+    let earlier = Diamond::new(&mut graph, BlockId(0));
+    let later = Diamond::new(&mut graph, earlier.join);
+    let number = square(&mut graph);
+    let choice = expression(
+        &mut graph,
+        Type::I32,
+        Expression::Select {
+            condition: 0,
+            when_true: 1,
+            when_false: number,
+        },
+    );
+    let alias = expression(&mut graph, Type::I8, Expression::Convert { input: choice });
+    let mut joins = joins(&graph);
+    let facts = Facts::default();
+    for source in [earlier.left, earlier.right] {
+        let value = placed(&mut graph, source, number);
+        joins.record(source.0, [(number, value)].into_iter());
+        joins.complete(source.0, &facts);
+    }
+    joins.record(later.left.0, [(alias, 1)].into_iter());
+    for (source, truth) in [(later.left, true), (later.right, false)] {
+        let mut branch_facts = Facts::default();
+        branch_facts.assume(&graph.values, 0, truth);
+        joins.complete(source.0, &branch_facts);
+    }
+    let reachable = graph.reachable();
+    let available = Availability::default();
+    joins
+        .prepare(&graph, &reachable, earlier.join.0, &available)
+        .unwrap();
+    joins
+        .prepare(&graph, &reachable, later.join.0, &available)
+        .unwrap();
+
+    // Both requests come from the current consuming block. The first publishes
+    // an ancestor result needed to resolve the later join's incoming alias.
+    let ancestor_value = joins
+        .resolve(&mut graph, later.join.0, number, &facts)
+        .unwrap();
+    let alias_value = joins
+        .resolve(&mut graph, later.join.0, alias, &facts)
+        .unwrap();
+    assert_eq!(graph.blocks[earlier.join.0].parameters, [ancestor_value]);
+    assert_eq!(graph.blocks[later.join.0].parameters, [alias_value]);
+    assert_eq!(graph.blocks[later.left.0].exit.edges()[0].arguments, [1]);
+    assert_eq!(
+        graph.blocks[later.right.0].exit.edges()[0].arguments,
+        [ancestor_value]
+    );
+}
+
+#[test]
 fn completed_facts_survive_rollback_of_the_incoming_paths() {
     let mut graph = graph();
     let arms = Diamond::new(&mut graph, BlockId(0));

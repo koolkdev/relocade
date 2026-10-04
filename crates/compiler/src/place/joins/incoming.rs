@@ -1,17 +1,15 @@
-//! Resolve a recipe using one predecessor's values and branch facts.
+//! Resolve recipes against shared predecessor records and that path's facts.
 use super::*;
 
 pub(super) struct IncomingValues {
     pub(super) source: usize,
-    values: HashMap<usize, usize>,
     resolved: HashMap<usize, Option<usize>>,
 }
 
 impl IncomingValues {
-    pub(super) fn new(source: usize, values: HashMap<usize, usize>) -> Self {
+    pub(super) fn new(source: usize) -> Self {
         Self {
             source,
-            values,
             resolved: HashMap::new(),
         }
     }
@@ -20,7 +18,6 @@ impl IncomingValues {
         &mut self,
         graph: &mut FunctionGraph,
         mut recipe: usize,
-        common: usize,
         joins: &Joins,
     ) -> Option<usize> {
         let facts = joins.blocks[self.source].facts.as_ref().unwrap();
@@ -30,14 +27,9 @@ impl IncomingValues {
                 break result;
             }
             path.push(recipe);
-            // Incoming bindings win over the shared ancestor's bindings.
-            // Start fallback at the saved common dominator, never at the use.
-            if let Some(value) = self
-                .values
-                .get(&recipe)
-                .copied()
-                .or_else(|| joins.recorded_value(common, recipe))
-            {
+            // Search the completed predecessor and its dominator ancestors.
+            // The consuming block's active bindings cannot describe this path.
+            if let Some(value) = joins.recorded_value(self.source, recipe) {
                 break Some(value);
             }
             let value = graph.values[recipe];
