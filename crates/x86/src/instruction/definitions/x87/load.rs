@@ -82,7 +82,7 @@ where
 {
     execution.check_x87_exception()?;
     let operand = execution.memory_operand(address, T::BYTES, Intent::Read, &[])?;
-    let integer = operand.read::<T>(execution, 0)?.signed().extend::<I64>();
+    let integer = operand.read::<T>(execution, 0)?;
     execution.specialize(|jit| {
         let available = jit.x87().push_available()?;
         jit.specialize_on(available)

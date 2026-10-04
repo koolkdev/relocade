@@ -1,5 +1,8 @@
 //! FILD converts signed integers exactly and shares the x87 push response.
 
+#[path = "x87_integer_load/arithmetic.rs"]
+mod arithmetic;
+
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit, Image, Step},
@@ -123,10 +126,13 @@ fn exact_conversions(engine: Engine, frontend: Frontend) {
     for precision in [0, 0x0200, 0x0300] {
         for rounding in [0, 0x0400, 0x0800, 0x0c00] {
             for (source, value) in [
+                (Dword(0x0100_0001), (0x8000_0080_0000_0000, 0x4017)),
+                (Dword(-0x0100_0001), (0x8000_0080_0000_0000, 0xc017)),
                 (Qword(i64::MAX), (0xffff_ffff_ffff_fffe, 0x403d)),
                 (Qword(-i64::MAX), (0xffff_ffff_ffff_fffe, 0xc03d)),
             ] {
-                // Precision is unmasked: the 64-bit significand remains exact.
+                // Precision is unmasked: FILD never rounds to PC, including
+                // a 32-bit integer whose low bit exceeds single precision.
                 check_conversion(&mut checks, source, value, 0x005f | precision | rounding);
             }
         }
@@ -190,8 +196,13 @@ fn source_width_and_faults(engine: Engine, frontend: Frontend) {
 }
 
 fn stack_overflow(engine: Engine, frontend: Frontend) {
+    for source in [Source::Dword(i32::MIN), Source::Qword(i64::MIN)] {
+        check_stack_overflow(engine, frontend, source);
+    }
+}
+
+fn check_stack_overflow(engine: Engine, frontend: Frontend, source: Source) {
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
-    let source = Source::Qword(i64::MIN);
     let instruction = source.instruction(0x4000);
     let code = [instruction.clone(), vec![0x9b]].concat();
     let linked = TestModule::new(&compile_block_from_bytes(0x1000, &instruction, 1).unwrap())
