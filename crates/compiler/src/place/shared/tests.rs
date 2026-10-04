@@ -69,6 +69,7 @@ fn placer(graph: &mut FunctionGraph) -> Placer<'_> {
     let shared = vec![Vec::new(); graph.blocks.len()];
     Placer {
         graph,
+        reachable,
         specializer: Specializer::default(),
         available: Availability::default(),
         shared,
@@ -240,7 +241,7 @@ fn sharing_analysis_resolves_ancestor_joins_before_caching_values() {
     }
     placer
         .joins
-        .prepare(placer.graph, join.0, &placer.available);
+        .prepare(placer.graph, &placer.reachable, join.0, &placer.available);
     let mut scheduled = vec![product];
     // A descendant first asks for the value while inspecting its early work.
     // Its specializer must cache the ancestor's joined value, not the recipe.

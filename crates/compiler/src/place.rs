@@ -11,6 +11,8 @@ mod joins;
 mod reads;
 mod shared;
 mod specialize;
+#[cfg(test)]
+mod tests;
 mod value;
 use availability::{Availability, Checkpoint};
 use dominance::Dominators;
@@ -107,6 +109,7 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
     let joins = Joins::new(graph, &predecessors, dominators);
     let mut placer = Placer {
         graph,
+        reachable,
         specializer: Specializer::default(),
         available: Availability::default(),
         shared,
@@ -124,7 +127,13 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
     while let Some(visit) = work.pop() {
         match visit {
             Visit::Enter(index) => {
-                let incoming = placer.joins.prepare(placer.graph, index, &placer.available);
+                if !placer.reachable[index] {
+                    continue;
+                }
+                let incoming =
+                    placer
+                        .joins
+                        .prepare(placer.graph, &placer.reachable, index, &placer.available);
                 let scope = placer.specializer.begin_block(incoming);
                 let checkpoint = placer.available.checkpoint();
                 // A unique predecessor's selected edge supplies facts valid on
@@ -193,6 +202,7 @@ fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
 
 struct Placer<'a> {
     graph: &'a mut FunctionGraph,
+    reachable: Vec<bool>,
     specializer: Specializer,
     available: Availability,
     shared: Vec<Vec<usize>>,
@@ -216,9 +226,26 @@ impl Placer<'_> {
             }
         }
         self.materialize_shared(block);
+        let previous_targets: Vec<_> = self
+            .graph
+            .outgoing(block)
+            .into_iter()
+            .map(|edge| edge.target)
+            .collect();
         let mut exit = self.graph.blocks[block.0].exit.clone();
         exit.map_inputs(|value| self.materialize(value, block));
         self.graph.blocks[block.0].exit = exit;
+        if self
+            .graph
+            .outgoing(block)
+            .into_iter()
+            .map(|edge| edge.target)
+            .ne(previous_targets)
+        {
+            // Folding only removes edges, so existing dominance stays valid.
+            // Placement and joins must stop using paths those edges kept alive.
+            self.reachable = self.graph.reachable();
+        }
     }
 }
 

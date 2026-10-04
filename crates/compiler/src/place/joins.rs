@@ -93,6 +93,7 @@ impl Joins {
     pub(super) fn prepare(
         &mut self,
         graph: &FunctionGraph,
+        reachable: &[bool],
         join: usize,
         base: &Availability,
     ) -> Option<Facts> {
@@ -101,7 +102,6 @@ impl Joins {
         }
         // Placement can fold exits after the original dominance analysis.
         // Only paths that can still enter constrain the join's facts and values.
-        let reachable = graph.reachable();
         let sources: Vec<_> = self.predecessors[join]
             .iter()
             .copied()

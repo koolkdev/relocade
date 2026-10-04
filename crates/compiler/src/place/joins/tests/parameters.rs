@@ -49,7 +49,12 @@ fn argument_facts_transfer_common_bits_without_value_candidates() {
             joins.complete(source.0, &facts);
         }
         let facts = joins
-            .prepare(&graph, arms.join.0, &Availability::default())
+            .prepare(
+                &graph,
+                &graph.reachable(),
+                arms.join.0,
+                &Availability::default(),
+            )
             .unwrap();
         assert_eq!(facts.constant(&graph.values, low), expected_low_bits);
         assert_eq!(facts.constant(&graph.values, result), expected_value);
@@ -86,7 +91,12 @@ fn two_edges_from_one_predecessor_must_agree_unless_one_is_discarded() {
             }
         }
         let facts = joins
-            .prepare(&graph, arms.join.0, &Availability::default())
+            .prepare(
+                &graph,
+                &graph.reachable(),
+                arms.join.0,
+                &Availability::default(),
+            )
             .unwrap();
         assert_eq!(facts.constant(&graph.values, result), discard.then_some(5));
     }
@@ -116,6 +126,11 @@ fn a_loop_parameter_does_not_inherit_its_initial_constant() {
     let mut joins = joins(&graph);
     joins.complete(0, &Facts::default());
     assert!(joins
-        .prepare(&graph, header.0, &Availability::default())
+        .prepare(
+            &graph,
+            &graph.reachable(),
+            header.0,
+            &Availability::default()
+        )
         .is_none());
 }
