@@ -1,14 +1,16 @@
 //! Values retain exact representations and established numerical classification.
 
 mod classification;
+mod precision53;
 
 #[cfg(test)]
 mod tests;
 
-use wasm86_compiler::{Val, I1, I16, I32, I64};
+use wasm86_compiler::{Val, F64, I1, I16, I32, I64};
 
 use super::BinaryFormat;
 pub(super) use classification::Classification;
+pub(super) use precision53::Precision53;
 
 /// Raw extended encodings include unsupported values and signaling NaNs.
 #[derive(Clone)]
@@ -46,6 +48,7 @@ pub(crate) struct ExtendedValue {
 #[derive(Clone)]
 enum Representation {
     Extended(ExtendedBits),
+    Precision53(Precision53),
     // These are the post-load bits: SNaNs have already been quieted. Expanding
     // them reproduces the entire extended value, including the NaN payload.
     Binary {
@@ -69,6 +72,31 @@ impl ExtendedValue {
         }
     }
 
+    pub(super) fn from_precision53(value: Precision53) -> Self {
+        Self {
+            representation: Representation::Precision53(value),
+            class: None,
+        }
+    }
+
+    /// An exact normalized significand when the representation already proves
+    /// at most 53 significant bits. The architectural sign and exponent stay separate.
+    pub(super) fn precision53_significand(&self) -> Option<Val<F64>> {
+        match &self.representation {
+            Representation::Precision53(value) => Some(value.significand().clone()),
+            Representation::Binary { .. } => {
+                Some(Precision53::from_bits(&self.bits()).significand().clone())
+            }
+            Representation::Extended(_) => None,
+        }
+    }
+
+    /// Requires a normalized or zero significand with its low 11 bits clear.
+    pub(super) fn assume_precision53(mut self) -> Self {
+        self.representation = Representation::Precision53(Precision53::from_bits(&self.bits()));
+        self
+    }
+
     pub(super) fn exact_bits(&self, format: BinaryFormat) -> Option<&Val<I64>> {
         match &self.representation {
             Representation::Binary {
@@ -82,12 +110,16 @@ impl ExtendedValue {
     pub(crate) fn bits(&self) -> ExtendedBits {
         match &self.representation {
             Representation::Extended(bits) => bits.clone(),
+            Representation::Precision53(value) => value.bits(),
             Representation::Binary { format, bits } => format.expand(bits),
         }
     }
 
     pub(crate) fn or_indefinite(&self, invalid: &Val<I1>) -> Self {
         let mut value = match &self.representation {
+            Representation::Precision53(value) => {
+                Self::from_precision53(value.or_indefinite(invalid))
+            }
             Representation::Binary { format, bits } => {
                 Self::from_binary(*format, invalid.select(format.indefinite_bits(), bits))
             }
@@ -103,10 +135,13 @@ impl ExtendedValue {
         value
     }
 
-    /// A conditional value keeps a narrow representation only when both arms
-    /// have it. Mixed representations remain exact through their extended bits.
+    /// Matching representations survive selection. Mixed representations remain
+    /// exact through their extended bits.
     pub(crate) fn select(&self, condition: &Val<I1>, otherwise: &Self) -> Self {
         let representation = match (&self.representation, &otherwise.representation) {
+            (Representation::Precision53(value), Representation::Precision53(other)) => {
+                Representation::Precision53(value.select(condition, other))
+            }
             (
                 Representation::Binary { format, bits },
                 Representation::Binary {
@@ -144,7 +179,7 @@ impl ExtendedValue {
         }
         match &self.representation {
             Representation::Binary { format, bits } => format.tag(bits),
-            Representation::Extended(_) => self
+            Representation::Extended(_) | Representation::Precision53(_) => self
                 .zero()
                 .select(1_u32, self.normal().select(0_u32, 2_u32)),
         }

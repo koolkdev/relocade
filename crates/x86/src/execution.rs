@@ -108,7 +108,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         }
     }
 
-    /// Requires an assumption inside `specialize`, before instruction effects.
+    /// Requires an assumption on a specializing path, before instruction effects.
     /// Failure publishes the current restart boundary and enters the interpreter;
     /// the continuing path can use the assumption for subsequent refinements.
     pub(crate) fn specialize_on(

@@ -3,7 +3,7 @@
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 
 use crate::x87::{
-    ArithmeticResult, BinaryArithmetic, BinaryOperand, BinaryOperands, BinaryOperation,
+    ArithmeticCandidate, ArithmeticResult, BinaryOperand, BinaryOperands, BinaryOperation,
     RoundingMode,
 };
 
@@ -60,14 +60,32 @@ impl X87Access<'_, '_> {
 }
 
 impl Arithmetic {
+    /// Numerical selection may use PC53/nearest only after execution guards it.
+    pub(crate) fn rounding_candidate(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        operation: BinaryOperation,
+        nearest_53: bool,
+    ) -> Result<ArithmeticCandidate, BuildError> {
+        self.operands.rounding_candidate(
+            body,
+            operation,
+            self.precision.clone(),
+            &self.rounding,
+            nearest_53,
+        )
+    }
+
     /// Numerical operations consume values and controls without changing state.
     pub(crate) fn calculate(
         &self,
         body: &mut BlockBuilder<'_>,
         operation: BinaryOperation,
-    ) -> Result<BinaryArithmetic, BuildError> {
-        self.operands
-            .calculate(body, operation, self.precision.clone(), &self.rounding)
+    ) -> Result<ArithmeticResult, BuildError> {
+        Ok(self
+            .operands
+            .calculate(body, operation, self.precision.clone(), &self.rounding)?
+            .result)
     }
 
     /// Present operands admitted for this operation need no pre-operation response.

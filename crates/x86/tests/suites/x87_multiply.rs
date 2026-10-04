@@ -2,6 +2,8 @@
 
 #[path = "x87_multiply/exceptions.rs"]
 mod exceptions;
+#[path = "x87_multiply/native.rs"]
+mod native;
 #[path = "x87_multiply/rounding.rs"]
 mod rounding;
 #[path = "x87_multiply/specialization.rs"]

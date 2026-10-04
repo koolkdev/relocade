@@ -5,8 +5,8 @@ use crate::{
     address::MemoryAddress,
     instruction::X87StackIndex,
     memory::Intent,
-    state::{x87::X87Specialization, Arithmetic, ArithmeticSource},
-    x87::{self, BinaryFormat, BinaryOperation},
+    state::ArithmeticSource,
+    x87::{BinaryFormat, BinaryOperation},
 };
 
 instruction_families! {
@@ -153,7 +153,7 @@ fn binary_register(
         execution
             .x87()
             .prepare_binary(destination, ArithmeticSource::Register(source), pop)?;
-    let result = calculate(execution, &mut arithmetic, operation)?;
+    let result = execution.calculate_x87_arithmetic(&mut arithmetic, operation)?;
     execution.record_x87_instruction()?;
     execution.x87().commit_arithmetic(arithmetic, result)
 }
@@ -171,30 +171,7 @@ fn binary_memory(
         execution
             .x87()
             .prepare_binary(0.into(), ArithmeticSource::Binary(source), false)?;
-    let result = calculate(execution, &mut arithmetic, operation)?;
+    let result = execution.calculate_x87_arithmetic(&mut arithmetic, operation)?;
     execution.record_x87_memory(&operand)?;
     execution.x87().commit_arithmetic(arithmetic, result)
-}
-
-fn calculate(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    arithmetic: &mut Arithmetic,
-    operation: BinaryOperation,
-) -> Result<x87::ArithmeticResult, BuildError> {
-    execution.specialize(|jit| {
-        jit.specialize_x87(X87Specialization::Arithmetic)?;
-        jit.specialize_on(arithmetic.precision_only_operands(operation))?;
-        arithmetic.assume_present();
-        Ok(())
-    })?;
-    let mut calculation = execution.compute(|body| arithmetic.calculate(body, operation))?;
-    execution.specialize(|jit| {
-        let candidate = jit.compute(|body| calculation.rounding_candidate(body))?;
-        // Operand admission precedes arithmetic; this guard excludes result
-        // range exceptions while retaining exact-zero results.
-        jit.specialize_on(candidate.valid)?;
-        calculation.result = x87::ArithmeticResult::from_rounding(candidate.rounded);
-        Ok(())
-    })?;
-    Ok(calculation.result)
 }

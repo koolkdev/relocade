@@ -1,14 +1,16 @@
-//! Binary operands share normalization, NaN selection and exception priority.
+//! Binary operands select arithmetic and share normalization and exception priority.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64, I8};
 
 use super::{
-    result::RoundedValue, ArithmeticResult, BinaryArithmetic, BinaryOperand, BinaryOperation,
-    ExtendedBits, ExtendedValue, RoundingMode,
+    result::RoundedValue, value::Precision53, ArithmeticCandidate, ArithmeticResult,
+    BinaryArithmetic, BinaryOperand, BinaryOperation, ExtendedBits, ExtendedValue, RoundingMode,
 };
 
 pub(super) struct Operand {
     pub(super) bits: ExtendedBits,
+    // Retain this exact view without changing the original exception evidence.
+    pub(super) precision53_significand: Option<Val<F64>>,
     normal_or_zero: Val<I1>,
     pub(super) zero: Val<I1>,
     pub(super) infinity: Val<I1>,
@@ -22,6 +24,7 @@ impl Operand {
     fn new(value: &ExtendedValue) -> Self {
         Self {
             bits: value.bits(),
+            precision53_significand: value.precision53_significand(),
             normal_or_zero: value.normal().or(value.zero()),
             zero: value.zero(),
             infinity: value.infinity(),
@@ -35,6 +38,11 @@ impl Operand {
     fn from_binary(source: &BinaryOperand) -> Self {
         Self {
             bits: source.expanded_bits(),
+            precision53_significand: Some(
+                Precision53::from_bits(&source.expanded_bits())
+                    .significand()
+                    .clone(),
+            ),
             // Every finite narrow value expands to normal binary80 or zero.
             // A narrow denormal still carries #D evidence for this operation.
             normal_or_zero: source.finite(),
@@ -120,6 +128,38 @@ impl BinaryOperands {
                 super::add::add(body, self, operation, precision, rounding)
             }
         }
+    }
+
+    /// Chooses a calculation without changing JIT coverage for wider operands.
+    /// `nearest_53` is a fact established by the caller's control guard. The
+    /// returned candidate still needs admission before its rounded value is used.
+    pub(crate) fn rounding_candidate(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        operation: BinaryOperation,
+        precision: Val<I8>,
+        rounding: &RoundingMode,
+        nearest_53: bool,
+    ) -> Result<ArithmeticCandidate, BuildError> {
+        let nearest_53_product = nearest_53 && matches!(operation, BinaryOperation::Multiply);
+        let calculation = if nearest_53_product {
+            if let (Some(left), Some(right)) = (
+                &self.left.precision53_significand,
+                &self.right.precision53_significand,
+            ) {
+                return Ok(super::native::multiply(self, left, right));
+            }
+            super::multiply::multiply(self, 2.into(), &RoundingMode::new(0.into()))
+        } else {
+            self.calculate(body, operation, precision, rounding)?
+        };
+        let mut candidate = calculation.rounding_candidate(body)?;
+        if nearest_53_product {
+            // PC53 proves an exact native view for later consumers. Keeping
+            // the integer view avoids conversion work until one needs it.
+            candidate.rounded.value = candidate.rounded.value.assume_precision53();
+        }
+        Ok(candidate)
     }
 
     /// Resolves NaNs and operand exceptions after the operation supplies its

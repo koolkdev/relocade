@@ -50,6 +50,18 @@ This is a public repository. Commit messages use `component: title`.
 - Review execution policies across interpreter and JIT. Distinguish compilation
   bounds, runtime stopping guarantees and host responsiveness; behavior in one
   reference frontend does not settle the shared contract.
+- Optimize the JIT for common workloads. Move rare cases to the interpreter when
+  doing so materially improves common-path speed or substantially reduces generated
+  code size, even if the JIT already supports those cases. Keep common cases compiled.
+  Justify rarity from expected or measured workloads, measure the speed or code-size
+  benefit, and test precise restart and interpreter correctness for excluded cases.
+- Use `specialize_on` when a failed condition should restart the current instruction
+  in the interpreter. Build JIT-only guards and refinements through `specialize`,
+  or within an execution owner that already gates specialization. Guard before
+  current-instruction effects and apply refinements only on the continuing path.
+  Use runtime branching when both outcomes belong in the JIT, such as choosing
+  between fast and general calculations for common inputs. If compile-time facts
+  already determine the calculation, select it at compile time.
 - Treat growing argument lists and repeated context forwarding as an ownership
   problem. Give the responsible builder or reader the operations and lifecycle it
   manages; do not merely move loose parameters into an inert context structure.
