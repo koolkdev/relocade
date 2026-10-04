@@ -141,20 +141,16 @@ impl BinaryOperands {
         rounding: &RoundingMode,
         nearest_53: bool,
     ) -> Result<ArithmeticCandidate, BuildError> {
-        let nearest_53_product = nearest_53 && matches!(operation, BinaryOperation::Multiply);
-        let calculation = if nearest_53_product {
-            if let (Some(left), Some(right)) = (
-                &self.left.precision53_significand,
-                &self.right.precision53_significand,
-            ) {
-                return Ok(super::native::multiply(self, left, right));
+        let calculation = if nearest_53 {
+            if let Some(candidate) = super::native::calculate(self, operation) {
+                return Ok(candidate);
             }
-            super::multiply::multiply(self, 2.into(), &RoundingMode::new(0.into()))
+            self.calculate(body, operation, 2.into(), &RoundingMode::new(0.into()))?
         } else {
             self.calculate(body, operation, precision, rounding)?
         };
         let mut candidate = calculation.rounding_candidate(body)?;
-        if nearest_53_product {
+        if nearest_53 {
             // PC53 proves an exact native view for later consumers. Keeping
             // the integer view avoids conversion work until one needs it.
             candidate.rounded.value = candidate.rounded.value.assume_precision53();
