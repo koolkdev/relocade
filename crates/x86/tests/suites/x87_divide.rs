@@ -1,7 +1,9 @@
-//! Register division keeps operand order, exact rounding and exception responses.
+//! Division keeps operand order, exact rounding and exception responses.
 
 #[path = "x87_divide/exceptions.rs"]
 mod exceptions;
+#[path = "x87_divide/narrow.rs"]
+mod narrow;
 #[path = "x87_divide/native.rs"]
 mod native;
 #[path = "x87_divide/rounding.rs"]

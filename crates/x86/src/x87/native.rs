@@ -13,7 +13,7 @@ fn integer_significand(value: &Val<F64>) -> Val<I64> {
     value.to_bits().and((1_u64 << 52) - 1).or(1_u64 << 52)
 }
 
-/// Requires PC53/nearest. Wider operands keep their integer calculation.
+/// Requires PC53/nearest. Wider operands keep the general calculation.
 pub(super) fn calculate(
     operands: &BinaryOperands,
     operation: BinaryOperation,

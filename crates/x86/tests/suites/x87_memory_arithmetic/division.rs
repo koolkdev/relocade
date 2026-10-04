@@ -89,19 +89,21 @@ fn source_exceptions(engine: Engine, frontend: Frontend) {
         (Source::Double(1), (LEADING, 0x3bcd)),
     ] {
         for control in [0x037f, 0x037d] {
-            check_case(
-                &mut checks,
-                "expanded normal retains the memory source denormal exception",
-                Case {
-                    source,
-                    extension: 7,
-                    left: (LEADING, 0x3fff),
-                    control,
-                    result: (control & 2 != 0).then_some(expanded),
-                    flags: 2,
-                    empty: false,
-                },
-            );
+            for (extension, result) in [(6, (LEADING, 0x7ffe - expanded.1)), (7, expanded)] {
+                check_case(
+                    &mut checks,
+                    "expanded normal retains the memory source denormal exception",
+                    Case {
+                        source,
+                        extension,
+                        left: (LEADING, 0x3fff),
+                        control,
+                        result: (control & 2 != 0).then_some(result),
+                        flags: 2,
+                        empty: false,
+                    },
+                );
+            }
         }
         for control in [0x037d, 0x0379] {
             check_case(
@@ -127,20 +129,42 @@ fn source_exceptions(engine: Engine, frontend: Frontend) {
         ),
     ] {
         for control in [0x037b, 0x037a] {
-            check_case(
-                &mut checks,
-                "memory signaling NaN takes priority over a zero divisor",
-                Case {
-                    source,
-                    extension: 7,
-                    left: (0, 0),
-                    control,
-                    result: (control & 1 != 0).then_some(quieted),
-                    flags: 1,
-                    empty: false,
-                },
-            );
+            for extension in [6, 7] {
+                check_case(
+                    &mut checks,
+                    "memory signaling NaN determines the zero partner's response",
+                    Case {
+                        source,
+                        extension,
+                        left: (0, 0),
+                        control,
+                        result: (control & 1 != 0).then_some(quieted),
+                        flags: 1,
+                        empty: false,
+                    },
+                );
+            }
         }
+    }
+    for (left, source, result, flags) in [
+        ((0, 0), 0, INDEFINITE, 1),
+        ((0, 0x3fff), 0x3ff0_0000_0000_0000, INDEFINITE, 1),
+        ((LEADING, 0x7fff), 0x7ff0_0000_0000_0000, INDEFINITE, 1),
+        ((LEADING, 0x3fff), 0x7ff0_0000_0000_0000, (0, 0), 0),
+    ] {
+        check_case(
+            &mut checks,
+            "special operands replace the unused quotient calculation",
+            Case {
+                source: Source::Double(source),
+                extension: 6,
+                left,
+                control: 0x037f,
+                result: Some(result),
+                flags,
+                empty: false,
+            },
+        );
     }
 }
 

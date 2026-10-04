@@ -1,16 +1,15 @@
-//! Exact radix-2^32 division supplies a floor quotient and rounding evidence.
+//! Division shares normalization, rounding and architectural exception responses.
 
-use wasm86_compiler::{Val, I1, I32, I64, I8};
+mod quotient;
+
+use wasm86_compiler::{Val, I32, I8};
 
 use super::{
     operand::BinaryOperands,
     result::{BinaryArithmetic, RoundedValue},
-    rounding::{FiniteMagnitude, RoundingInput},
+    rounding::FiniteMagnitude,
     BinaryOperation, RoundingMode,
 };
-
-const LEADING: u64 = 1 << 63;
-const RADIX: u64 = 1 << 32;
 
 pub(super) fn divide(
     operands: &BinaryOperands,
@@ -27,15 +26,16 @@ pub(super) fn divide(
     let zero = RoundedValue::zero(negative.clone());
     let (numerator, numerator_exponent) = dividend.normalized();
     let (denominator, denominator_exponent) = divisor.normalized();
-    // Non-numerical operands use a harmless normalized divisor. Their class
-    // responses replace the quotient; guest zero division must not trap in Wasm.
-    let divisor_digits = Divisor::new(denominator.or(LEADING));
-    let below_one = numerator.unsigned().lt(&divisor_digits.significand);
+    let quotient = quotient::calculate(
+        &numerator,
+        denominator,
+        divisor.precision53_significand.is_some(),
+    );
     let magnitude = FiniteMagnitude {
-        significand: divisor_digits.quotient(&numerator, &below_one),
+        significand: quotient.significand,
         exponent: numerator_exponent
             .sub(denominator_exponent)
-            .sub(below_one.unsigned().extend::<I32>()),
+            .sub(quotient.below_one.unsigned().extend::<I32>()),
         negative: negative.clone(),
     };
     let mut result = magnitude.round(precision, rounding);
@@ -56,72 +56,5 @@ pub(super) fn divide(
         operands_valid: operands.precision_only(operation),
         round_magnitude: dividend.zero.eq(false),
         zero,
-    }
-}
-
-/// A normalized two-digit divisor. Calculations remain pure values, so placement
-/// can omit the entire division on an exact-zero result path.
-struct Divisor {
-    significand: Val<I64>,
-    high: Val<I64>,
-    low: Val<I64>,
-}
-
-struct QuotientDigit {
-    quotient: Val<I64>,
-    remainder: Val<I64>,
-}
-
-impl Divisor {
-    fn new(significand: Val<I64>) -> Self {
-        Self {
-            high: significand.unsigned().shr(32),
-            low: significand.and(RADIX - 1),
-            significand,
-        }
-    }
-
-    /// Divides `high * RADIX + low`, requiring `high < self.significand` and
-    /// `low < RADIX`. The returned remainder preserves the first bound.
-    fn digit(&self, high: Val<I64>, low: Val<I64>) -> QuotientDigit {
-        // Normalization gives self.high >= RADIX/2, bounding the estimate by
-        // RADIX+1. Even its product with self.low fits in u64.
-        let estimate = high.unsigned().div(&self.high);
-        let high_remainder = high.sub(estimate.mul(&self.high));
-        let low_product = estimate.mul(&self.low);
-        let partial_dividend = high_remainder.shl(32).or(&low);
-        let excess = low_product.sub(&partial_dividend);
-        let too_large = partial_dividend.unsigned().lt(&low_product);
-        // A positive excess needs one decrement, or two when it exceeds the
-        // divisor. Equality needs only one; the excess is strictly below twice
-        // the divisor because it fits in u64 and the divisor is normalized.
-        let needs_second = too_large.and(self.significand.unsigned().lt(&excess));
-        let quotient = estimate
-            .sub(too_large.unsigned().extend::<I64>())
-            .sub(needs_second.unsigned().extend::<I64>());
-        QuotientDigit {
-            remainder: high.shl(32).or(low).sub(quotient.mul(&self.significand)),
-            quotient,
-        }
-    }
-
-    fn quotient(&self, numerator: &Val<I64>, below_one: &Val<I1>) -> RoundingInput {
-        // N = numerator << (63 + below_one). Split N into its high word and
-        // two radix digits. The high word is strictly less than the divisor.
-        let high = below_one.select(numerator, numerator.unsigned().shr(1));
-        let low = below_one.select(0_u64, numerator.and(1_u64).shl(31));
-        let upper = self.digit(high, low);
-        let lower = self.digit(upper.remainder, 0_u64.into());
-        let complement = self.significand.sub(&lower.remainder);
-        RoundingInput {
-            integer: upper.quotient.shl(32).or(lower.quotient),
-            // Compare r with B-r to avoid overflowing 2*r. At exactly half,
-            // guard is set and sticky is clear for ties-to-even rounding.
-            guard: lower.remainder.unsigned().ge(&complement),
-            sticky: lower
-                .remainder
-                .ne(0_u64)
-                .and(lower.remainder.ne(complement)),
-        }
     }
 }

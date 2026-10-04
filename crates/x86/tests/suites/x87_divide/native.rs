@@ -105,7 +105,7 @@ fn rounding_forms_and_signed_zero(engine: Engine) {
 }
 
 fn range_and_restarts(engine: Engine) {
-    // The first integer-JIT division proves PC53 for the native second division.
+    // The first division establishes PC53 precision for the native second division.
     let code = [0xdc, 0x35, 0, 0x40, 0, 0, 0xdc, 0x35, 8, 0x40, 0, 0];
     let module = native_module(&code, 2);
     let linked = TestModule::new(&compiler().compile(0x1000, &code, 2).unwrap())
