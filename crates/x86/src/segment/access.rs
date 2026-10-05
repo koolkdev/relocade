@@ -49,12 +49,13 @@ impl<'cpu> SegmentAccess<'cpu> {
     /// The entry's profile must remain compatible until a terminal segment load.
     /// Flat address defaults and named data segments need no cache reads or
     /// segment guards. Explicit runtime overrides use the complete checked path.
+    /// The span must be nonempty.
     pub(crate) fn translate(
         &self,
         body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
         offset: &Val<I32>,
-        bytes: u32,
+        bytes: impl Into<Val<I32>>,
         intent: Intent,
         on_fault: impl Fn(BlockBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
     ) -> Result<Val<I32>, BuildError> {
@@ -88,15 +89,21 @@ impl<'cpu> SegmentAccess<'cpu> {
     /// Probes permissions and an offset span without raising an exception.
     /// Fetch windows may fall back to smaller reads; transfers only need the
     /// target predicate, without checking its page or using its linear address.
+    /// The span must be nonempty.
     pub(crate) fn check(
         &self,
         body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
         offset: &Val<I32>,
-        bytes: u32,
+        bytes: impl Into<Val<I32>>,
         intent: Intent,
     ) -> Result<SegmentCheck, BuildError> {
-        assert!(bytes > 0);
+        let bytes = body.value(bytes)?;
+        assert_ne!(
+            body.constant_bits(&bytes)?,
+            Some(0),
+            "a segment span must be nonempty"
+        );
         match (self.profile, segment, intent) {
             (
                 SegmentProfile::Flat32,
@@ -119,7 +126,7 @@ impl<'cpu> SegmentAccess<'cpu> {
                 let cache = self.cpu.read_segment(body, segment)?;
                 Ok(SegmentCheck {
                     linear: cache.base.add(offset),
-                    denied: Some(cache.access_denied(offset, bytes, intent)),
+                    denied: Some(cache.access_denied(offset, &bytes, intent)),
                 })
             }
         }
@@ -131,7 +138,7 @@ impl SegmentValues {
         self.attributes.and(u32::from(mask)).ne(0)
     }
 
-    fn access_denied(&self, offset: &Val<I32>, bytes: u32, intent: Intent) -> Val<I1> {
+    fn access_denied(&self, offset: &Val<I32>, bytes: &Val<I32>, intent: Intent) -> Val<I1> {
         let usable = self.bit(SegmentAttributes::USABLE);
         let code = self.bit(SegmentAttributes::CODE);
         let readable_or_writable = self.bit(SegmentAttributes::READ_WRITE);
@@ -141,7 +148,7 @@ impl SegmentValues {
             Intent::Write => code.eq(0).and(&readable_or_writable),
             Intent::Fetch => code.clone(),
         };
-        let last = offset.add(bytes - 1);
+        let last = offset.add(bytes.sub(1));
         let no_wrap = last.unsigned().ge(offset);
         // Full-size expand-up segments permit wrapping offsets in this emulator.
         // Finite limits must cover every byte without offset arithmetic wrapping.

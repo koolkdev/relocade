@@ -16,7 +16,7 @@ impl Memory {
         offset: u32,
     ) -> Result<Val<T>, BuildError> {
         access.check_field::<T>(offset);
-        if access.bytes == 1 {
+        if access.constant_bytes == Some(1) {
             return self.load(body, &access.physical, 0);
         }
         body.if_value::<T>(
@@ -45,7 +45,7 @@ impl Memory {
             matches!(access.intent, Intent::Write),
             "store requires a write access"
         );
-        if access.bytes == 1 {
+        if access.constant_bytes == Some(1) {
             return body.store_at::<T>(self.guest, &access.physical, 0, value);
         }
         body.if_else(

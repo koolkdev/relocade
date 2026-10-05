@@ -10,6 +10,7 @@ use crate::{state::exit, CpuState};
 mod accesses;
 mod helpers;
 mod probes;
+mod ranges;
 mod spans;
 
 fn define_read<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str)

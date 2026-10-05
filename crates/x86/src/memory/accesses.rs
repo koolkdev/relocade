@@ -52,11 +52,13 @@ impl<'memory> Accesses<'memory> {
             .find(|access| {
                 access.intent.required_permissions() & required == required
                     && access.linear.same_expression(start)
-                    && access.bytes >= bytes
+                    && access
+                        .constant_bytes
+                        .is_some_and(|checked| checked >= bytes)
             })
         {
             return Ok(Access {
-                bytes,
+                constant_bytes: Some(bytes),
                 intent,
                 ..access.clone()
             });
@@ -95,7 +97,7 @@ impl<'memory> Accesses<'memory> {
                 denied: body.value(false)?,
                 unavailable: scattered,
                 intent,
-                bytes,
+                constant_bytes: Some(bytes),
             }
         } else {
             self.memory
