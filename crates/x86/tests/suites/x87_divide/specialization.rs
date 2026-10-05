@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use wasm86_x86::{compile_block_from_bytes, BlockCompiler, CpuState};
+use wasm86_x86::{compile_block_from_bytes, Compiler, CpuState};
 
 fn controls(engine: Engine) {
     let code = [0xde, 0xf9];
@@ -13,9 +13,9 @@ fn controls(engine: Engine) {
             observed.x87.control.precision_control = pc;
             observed.x87.control.rounding_control = rc;
             let specialized = TestModule::new(
-                &BlockCompiler::new(SegmentProfile::Flat32)
+                &Compiler::new(SegmentProfile::Flat32)
                     .specialize_on_cpu(&observed)
-                    .compile(0x1000, &code, 1)
+                    .compile_block(0x1000, &code, 1)
                     .unwrap(),
             );
             for negative in [false, true] {

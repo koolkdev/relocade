@@ -45,25 +45,9 @@ fn blocks_without_mode_consumers_are_byte_identical() {
         let ordinary =
             compile_block_from_bytes_with_profile(0x1000, code, 1, SegmentProfile::Flat32).unwrap();
         let observed = masked_precision_compiler(0, 2)
-            .compile(0x1000, code, 1)
+            .compile_block(0x1000, code, 1)
             .unwrap();
         assert!(ordinary.bytes == observed.bytes, "{code:x?}");
-    }
-}
-
-#[test]
-fn existing_snapshot_functions_keep_dynamic_modes() {
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
-    ] {
-        let code = [0xd8, 0xc9];
-        let ordinary = compile_block_from_bytes_with_profile(0x1000, &code, 1, profile).unwrap();
-        let configured = BlockCompiler::new(profile)
-            .compile(0x1000, &code, 1)
-            .unwrap();
-        assert!(ordinary.bytes == configured.bytes, "{profile:?}");
     }
 }
 
@@ -74,7 +58,7 @@ fn unchanged_modes_add_one_guard_to_an_arithmetic_sequence() {
             for opcode in [0xc1, 0xc9, 0xe1, 0xf1] {
                 for count in [1, 8] {
                     let module = compiler(pc, rc)
-                        .compile(0x1000, &[0xd8, opcode].repeat(count), count as u32)
+                        .compile_block(0x1000, &[0xd8, opcode].repeat(count), count as u32)
                         .unwrap();
                     // One mode guard, one operand guard, and one result guard per operation.
                     assert_eq!(interpreter_calls(&module), count + 2);
@@ -90,10 +74,10 @@ fn unchanged_modes_add_one_guard_to_an_arithmetic_sequence() {
 #[test]
 fn known_controls_need_no_mode_guard() {
     let code = [0xdb, 0xe3, 0xd9, 0x05, 0, 0x40, 0, 0, 0xd8, 0xc8]; // FNINIT; FLD m32; FMUL ST0, ST0
-    let ordinary = BlockCompiler::new(SegmentProfile::Flat32)
-        .compile(0x1000, &code, 3)
+    let ordinary = Compiler::new(SegmentProfile::Flat32)
+        .compile_block(0x1000, &code, 3)
         .unwrap();
-    let observed = compiler(3, 0).compile(0x1000, &code, 3).unwrap();
+    let observed = compiler(3, 0).compile_block(0x1000, &code, 3).unwrap();
     assert_eq!(interpreter_calls(&ordinary), interpreter_calls(&observed));
     assert_eq!(
         operators(&ordinary)
@@ -111,14 +95,14 @@ fn known_controls_need_no_mode_guard() {
 #[test]
 fn only_masked_set_precision_adds_status_guards() {
     let code = [0xd8, 0xc9].repeat(8);
-    let modes_only = compiler(3, 0).compile(0x1000, &code, 8).unwrap();
+    let modes_only = compiler(3, 0).compile_block(0x1000, &code, 8).unwrap();
     for (mask, flag) in [(0x80, 0x80), (0x80, 0x81), (0x81, 0x80)] {
         let mut observed = observed_cpu(3, 0);
         observed.x87.control.precision_mask = mask;
         observed.x87.status.precision = flag;
-        let module = BlockCompiler::new(SegmentProfile::Flat32)
+        let module = Compiler::new(SegmentProfile::Flat32)
             .specialize_on_cpu(&observed)
-            .compile(0x1000, &code, 8)
+            .compile_block(0x1000, &code, 8)
             .unwrap();
         assert!(module.bytes == modes_only.bytes);
     }
@@ -130,7 +114,7 @@ fn masked_set_precision_reuses_its_guard_and_original_byte() {
         for opcode in [0xc1, 0xc9, 0xe1, 0xf1] {
             let count = 8;
             let module = masked_precision_compiler(pc, 0)
-                .compile(0x1000, &[0xd8, opcode].repeat(count), count as u32)
+                .compile_block(0x1000, &[0xd8, opcode].repeat(count), count as u32)
                 .unwrap();
             // PM and PE join the existing mode guard; they do not add a guard
             // per instruction. Unchanged controls and status are read once.

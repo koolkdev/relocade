@@ -6,6 +6,7 @@
 //! through a block boundary, and [`compile_interpreter_step`] generates a
 //! single-instruction entry.
 //! Both frontends share instruction semantics and return a [`CompiledModule`].
+//! [`Compiler`] configures both frontends with one segment profile.
 //!
 //! The supported subset covers 16/32-bit protected-mode integer execution and
 //! x87 controls, value transfers and add/subtract/multiply with register or
@@ -23,13 +24,12 @@
 
 mod address;
 mod alu;
-mod block;
+mod compile;
 mod decode;
 mod exception;
 mod execution;
 mod flags;
 mod instruction;
-mod interpreter;
 mod memory;
 mod register;
 mod runtime;
@@ -54,9 +54,11 @@ mod instruction_tests;
 
 use std::fmt;
 
-pub use block::{compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompiler};
+pub use compile::{
+    compile_block_from_bytes, compile_block_from_bytes_with_profile, compile_interpreter,
+    compile_interpreter_step, Compiler,
+};
 pub use exception::{Exception, ExceptionVector};
-pub use interpreter::{compile_interpreter, compile_interpreter_step};
 pub use register::Gpr32;
 pub use segment::{
     DescriptorTables, PrivilegeLevel, Segment, SegmentAttributes, SegmentDefaultSize,

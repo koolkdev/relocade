@@ -2,17 +2,17 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule, x87::set_control};
-use wasm86_x86::{BlockCompiler, CpuState};
+use wasm86_x86::{Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
 
-fn compiler() -> BlockCompiler {
+fn compiler() -> Compiler {
     let mut observed = CpuState::default();
     observed.x87.control.precision_control = 2;
-    BlockCompiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
+    Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
 }
 
 fn native_module(code: &[u8], count: u32) -> TestModule {
-    let module = TestModule::new(&compiler().compile(0x1000, code, count).unwrap());
+    let module = TestModule::new(&compiler().compile_block(0x1000, code, count).unwrap());
     assert!(Parser::new(0).parse_all(module.bytes()).any(|payload| {
         matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if body.get_operators_reader().unwrap()
             .into_iter().any(|op| matches!(op.unwrap(), Operator::F64Add)))
@@ -187,7 +187,7 @@ fn range_and_restart(engine: Engine) {
             0xdc, 0x0d, 0, 0x40, 0, 0, 0xd9, 0xc9, 0xdc, 0x0d, 0, 0x40, 0, 0, 0xd8, opcode,
         ];
         let module = native_module(&code, 4);
-        let linked = TestModule::new(&compiler().compile(0x1000, &code, 4).unwrap())
+        let linked = TestModule::new(&compiler().compile_block(0x1000, &code, 4).unwrap())
             .with_interpreter(TestModule::interpreter());
         let mut image = stack_image(&code, 0, 0xfff0);
         set_control(&mut image.cpu.x87.control, 0x027f);

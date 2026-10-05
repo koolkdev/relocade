@@ -12,7 +12,7 @@ use crate::support::{
     step::{Engine, TestModule},
     x87::{complete_x87, dispatch, set_control, stack_image, write_value},
 };
-use wasm86_x86::{BlockCompiler, CpuState, SegmentProfile};
+use wasm86_x86::{Compiler, CpuState, SegmentProfile};
 
 const LEADING: u64 = 1 << 63;
 
@@ -24,15 +24,15 @@ fn observed_cpu(pc: u8, rc: u8) -> CpuState {
     observed
 }
 
-fn compiler(pc: u8, rc: u8) -> BlockCompiler {
-    BlockCompiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed_cpu(pc, rc))
+fn compiler(pc: u8, rc: u8) -> Compiler {
+    Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed_cpu(pc, rc))
 }
 
-fn masked_precision_compiler(pc: u8, rc: u8) -> BlockCompiler {
+fn masked_precision_compiler(pc: u8, rc: u8) -> Compiler {
     let mut observed = observed_cpu(pc, rc);
     observed.x87.control.precision_mask = 0x81;
     observed.x87.status.precision = 0x41;
-    BlockCompiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
+    Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
 }
 
 fn arithmetic_modes(engine: Engine) {
@@ -47,7 +47,7 @@ fn arithmetic_modes(engine: Engine) {
             for multiply in [false, true] {
                 let opcode = if multiply { 0xc9 } else { 0xc1 };
                 let code = [0xd8, opcode].repeat(8);
-                let block = TestModule::new(&compiler.compile(0x1000, &code, 8).unwrap());
+                let block = TestModule::new(&compiler.compile_block(0x1000, &code, 8).unwrap());
                 for negative in [false, true] {
                     let sign = if negative { 0x8000 } else { 0 };
                     let incremented = if negative { rc == 1 } else { rc == 2 };
@@ -92,7 +92,7 @@ fn arithmetic_modes(engine: Engine) {
                 }
             }
             let code = [0xd8, 0xe1];
-            let block = TestModule::new(&compiler.compile(0x1000, &code, 1).unwrap());
+            let block = TestModule::new(&compiler.compile_block(0x1000, &code, 1).unwrap());
             let mut image = stack_image(&code, 0, 0xfff0);
             image.cpu.x87.control.precision_control = pc;
             image.cpu.x87.control.rounding_control = rc;
@@ -114,7 +114,7 @@ fn converted_stores_use_only_rounding(engine: Engine) {
     for rc in 0..4 {
         let block = TestModule::new(
             &masked_precision_compiler(0, rc)
-                .compile(0x1000, &code, 2)
+                .compile_block(0x1000, &code, 2)
                 .unwrap(),
         );
         let mut image = stack_image(&code, 0, 0xfffc);
@@ -149,7 +149,7 @@ fn memory_arithmetic_uses_observed_modes(engine: Engine) {
     let code = [0xd8, 0x05, 0, 0x40, 0, 0]; // FADD m32
     let block = TestModule::new(
         &masked_precision_compiler(0, 2)
-            .compile(0x1000, &code, 1)
+            .compile_block(0x1000, &code, 1)
             .unwrap(),
     );
     let mut image = stack_image(&code, 0, 0xfffc);
@@ -173,7 +173,7 @@ fn memory_arithmetic_uses_observed_modes(engine: Engine) {
 
 fn mismatch_restarts_at_the_consumer(engine: Engine) {
     let code = [0xb8, 7, 0, 0, 0, 0xd8, 0xc9];
-    let compiled = compiler(3, 0).compile(0x1000, &code, 2).unwrap();
+    let compiled = compiler(3, 0).compile_block(0x1000, &code, 2).unwrap();
     let block = TestModule::new(&compiled);
     let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
     for (pc, rc) in [(0, 0), (3, 1)] {

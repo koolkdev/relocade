@@ -2,17 +2,21 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use wasm86_x86::{BlockCompiler, CpuState};
+use wasm86_x86::{Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
 
-fn compiler() -> BlockCompiler {
+fn compiler() -> Compiler {
     let mut observed = CpuState::default();
     observed.x87.control.precision_control = 2;
-    BlockCompiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
+    Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
 }
 
 fn native_module(code: &[u8], instruction_count: u32) -> TestModule {
-    let module = TestModule::new(&compiler().compile(0x1000, code, instruction_count).unwrap());
+    let module = TestModule::new(
+        &compiler()
+            .compile_block(0x1000, code, instruction_count)
+            .unwrap(),
+    );
     assert!(Parser::new(0).parse_all(module.bytes()).any(|payload| {
         matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if body.get_operators_reader().unwrap()
             .into_iter().any(|op| matches!(op.unwrap(), Operator::F64Div)))
@@ -108,7 +112,7 @@ fn range_and_restarts(engine: Engine) {
     // The first division establishes PC53 precision for the native second division.
     let code = [0xdc, 0x35, 0, 0x40, 0, 0, 0xdc, 0x35, 8, 0x40, 0, 0];
     let module = native_module(&code, 2);
-    let linked = TestModule::new(&compiler().compile(0x1000, &code, 2).unwrap())
+    let linked = TestModule::new(&compiler().compile_block(0x1000, &code, 2).unwrap())
         .with_interpreter(TestModule::interpreter());
     for (input, divisor, result_bits, flags, restart) in [
         (
@@ -255,7 +259,7 @@ fn arithmetic_precision_evidence(engine: Engine) {
 
 fn wider_operands_stay_in_jit(engine: Engine) {
     let code = [0xd8, 0xf1];
-    let module = TestModule::new(&compiler().compile(0x1000, &code, 1).unwrap());
+    let module = TestModule::new(&compiler().compile_block(0x1000, &code, 1).unwrap());
     let numerator = LEADING + 0x7ff;
     let denominator = LEADING + 1;
     let mut image = stack_image(&code, 0, 0xfff0);
@@ -277,7 +281,7 @@ fn wider_operands_stay_in_jit(engine: Engine) {
 fn reverse_zero_divisor_restarts(engine: Engine) {
     let code = [0xdc, 0x35, 0, 0x40, 0, 0, 0xdc, 0x3d, 8, 0x40, 0, 0];
     let module = native_module(&code, 2);
-    let linked = TestModule::new(&compiler().compile(0x1000, &code, 2).unwrap())
+    let linked = TestModule::new(&compiler().compile_block(0x1000, &code, 2).unwrap())
         .with_interpreter(TestModule::interpreter());
     let mut image = stack_image(&code, 0, 0xfffc);
     set_control(&mut image.cpu.x87.control, 0x027f);

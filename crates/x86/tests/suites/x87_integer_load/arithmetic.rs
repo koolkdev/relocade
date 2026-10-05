@@ -1,7 +1,7 @@
 //! Integer loads preserve exact inputs for the first arithmetic operation.
 
 use super::*;
-use wasm86_x86::BlockCompiler;
+use wasm86_x86::Compiler;
 use wasmparser::{Operator, Parser, Payload};
 
 fn integer_products(engine: Engine) {
@@ -43,9 +43,9 @@ fn integer_products(engine: Engine) {
         let mut observed = CpuState::default();
         set_control(&mut observed.x87.control, 0x027f);
         let module = TestModule::new(
-            &BlockCompiler::new(SegmentProfile::Flat32)
+            &Compiler::new(SegmentProfile::Flat32)
                 .specialize_on_cpu(&observed)
-                .compile(0x1000, &code, 2)
+                .compile_block(0x1000, &code, 2)
                 .unwrap(),
         );
         let native = Parser::new(0).parse_all(module.bytes()).any(|payload| {

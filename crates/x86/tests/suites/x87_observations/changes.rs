@@ -5,7 +5,7 @@ use crate::support::x87::status;
 
 fn loaded_controls(engine: Engine) {
     let code = [0xd8, 0xc9, 0xd9, 0x2d, 0, 0x40, 0, 0, 0xd8, 0xc9];
-    let compiled = compiler(3, 0).compile(0x1000, &code, 3).unwrap();
+    let compiled = compiler(3, 0).compile_block(0x1000, &code, 3).unwrap();
     let block = TestModule::new(&compiled);
     let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
     for word in [0x037f, 0x036f, 0x007f, 0x0b7f] {
@@ -55,7 +55,7 @@ fn initialized_controls(engine: Engine) {
         } else {
             compiler(pc, rc)
         };
-        let compiled = compiler.compile(0x1000, &code, 3).unwrap();
+        let compiled = compiler.compile_block(0x1000, &code, 3).unwrap();
         let block = TestModule::new(&compiled);
         let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
         let mut image = stack_image(&code, 3, 0);
@@ -110,7 +110,7 @@ fn initialized_controls(engine: Engine) {
 
 fn exceptions_precede_mode_mismatch(engine: Engine) {
     let code = [0xd9, 0x1d, 0xfd, 0x4f, 0, 0]; // FSTP m32 crosses into an absent page.
-    let compiled = compiler(0, 2).compile(0x1000, &code, 1).unwrap();
+    let compiled = compiler(0, 2).compile_block(0x1000, &code, 1).unwrap();
     let block = TestModule::new(&compiled);
     let mut image = stack_image(&code, 0, 0xffff);
     image.map(4, 0x8000, true);
@@ -136,7 +136,7 @@ fn exceptions_precede_mode_mismatch(engine: Engine) {
     // A PE-clear observation keeps masks dynamic: an unmasked #P commits the
     // result and leaves the next waiting instruction to deliver #MF.
     let code = [0xd8, 0xc9, 0x9b];
-    let block = TestModule::new(&compiler(3, 2).compile(0x1000, &code, 2).unwrap());
+    let block = TestModule::new(&compiler(3, 2).compile_block(0x1000, &code, 2).unwrap());
     let mut image = stack_image(&code, 0, 0xfff0);
     set_control(&mut image.cpu.x87.control, 0x0b5f);
     image.cpu.x87.status.precision = 0;

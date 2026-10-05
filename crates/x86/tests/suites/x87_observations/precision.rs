@@ -6,7 +6,7 @@ fn matched_arithmetic(engine: Engine) {
     for (pc, rc, significand, c1) in [(3, 0, LEADING + 9, 0), (2, 2, LEADING + (8 << 11), 1)] {
         let block = TestModule::new(
             &masked_precision_compiler(pc, rc)
-                .compile(0x1000, &code, 8)
+                .compile_block(0x1000, &code, 8)
                 .unwrap(),
         );
         let mut image = stack_image(&code, 0, 0xfff0);
@@ -33,7 +33,7 @@ fn matched_arithmetic(engine: Engine) {
         let code = [0xd8, opcode];
         let block = TestModule::new(
             &masked_precision_compiler(3, 0)
-                .compile(0x1000, &code, 1)
+                .compile_block(0x1000, &code, 1)
                 .unwrap(),
         );
         let mut image = stack_image(&code, 0, 0xfff0);
@@ -53,7 +53,7 @@ fn matched_arithmetic(engine: Engine) {
 fn mismatch_restarts_before_arithmetic(engine: Engine) {
     let code = [0xb8, 7, 0, 0, 0, 0xd8, 0xc9]; // MOV; FMUL
     let compiled = masked_precision_compiler(3, 0)
-        .compile(0x1000, &code, 2)
+        .compile_block(0x1000, &code, 2)
         .unwrap();
     let block = TestModule::new(&compiled);
     let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
@@ -96,7 +96,7 @@ fn mismatch_restarts_before_arithmetic(engine: Engine) {
 fn clearing_precision_invalidates_the_guard(engine: Engine) {
     let code = [0xd8, 0xc9, 0xdb, 0xe2, 0xd8, 0xc9]; // FMUL; FNCLEX; FMUL
     let compiled = masked_precision_compiler(3, 0)
-        .compile(0x1000, &code, 3)
+        .compile_block(0x1000, &code, 3)
         .unwrap();
     let block = TestModule::new(&compiled);
     let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
@@ -133,7 +133,7 @@ fn faults_precede_precision_mismatch(engine: Engine) {
     let code = [0xd8, 0xc9, 0xd9, 0x2d, 0, 0x40, 0, 0, 0xd8, 0xc9];
     let block = TestModule::new(
         &masked_precision_compiler(3, 0)
-            .compile(0x1000, &code, 3)
+            .compile_block(0x1000, &code, 3)
             .unwrap(),
     );
     let mut image = stack_image(&code, 0, 0xfff0);
@@ -163,7 +163,7 @@ fn faults_precede_precision_mismatch(engine: Engine) {
     let code = [0xd8, 0x05, 0, 0x40, 0, 0]; // FADD from an absent page.
     let block = TestModule::new(
         &masked_precision_compiler(3, 0)
-            .compile(0x1000, &code, 1)
+            .compile_block(0x1000, &code, 1)
             .unwrap(),
     );
     let mut image = stack_image(&code, 0, 0xfffc);

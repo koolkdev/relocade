@@ -7,7 +7,7 @@ mod range;
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use wasm86_x86::{BlockCompiler, CpuState};
+use wasm86_x86::{Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
 
 fn assert_native_multiply(module: &TestModule) {
@@ -17,10 +17,10 @@ fn assert_native_multiply(module: &TestModule) {
     }), "the fixture must reach native multiplication");
 }
 
-fn compiler() -> BlockCompiler {
+fn compiler() -> Compiler {
     let mut observed = CpuState::default();
     observed.x87.control.precision_control = 2;
-    BlockCompiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
+    Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
 }
 
 fn rounding_and_forms(engine: Engine) {
@@ -31,7 +31,7 @@ fn rounding_and_forms(engine: Engine) {
     ] {
         let mut code = vec![0xdd, 0x05, 0, 0x40, 0, 0, 0xdd, 0x05, 8, 0x40, 0, 0];
         code.extend(operation);
-        let module = TestModule::new(&compiler().compile(0x1000, &code, 3).unwrap());
+        let module = TestModule::new(&compiler().compile_block(0x1000, &code, 3).unwrap());
         assert_native_multiply(&module);
         for (left, right, product, pe, c1) in [
             (LEADING, LEADING, (LEADING, 0x3fff), 0, 0),
@@ -105,7 +105,7 @@ fn signed_zeros(engine: Engine) {
     let code = [
         0xdd, 0x05, 0, 0x40, 0, 0, 0xdd, 0x05, 8, 0x40, 0, 0, 0xd8, 0xc9,
     ];
-    let module = TestModule::new(&compiler().compile(0x1000, &code, 3).unwrap());
+    let module = TestModule::new(&compiler().compile_block(0x1000, &code, 3).unwrap());
     assert_native_multiply(&module);
     for (left, right) in [
         ((0, 0), (LEADING, 0x3fff)),
@@ -151,7 +151,7 @@ fn live_load_multiply_store(engine: Engine) {
             0xd8, 0xc8, // FMUL ST0, ST0
             0xdd, 0x1d, 8, 0x40, 0, 0, // FSTP m64
         ];
-        let module = TestModule::new(&compiler().compile(0x1000, &code, 4).unwrap());
+        let module = TestModule::new(&compiler().compile_block(0x1000, &code, 4).unwrap());
         let mut image = stack_image(&code, 0, 0xffff);
         set_control(&mut image.cpu.x87.control, 0x027f);
         image.map(4, 0x8000, true);

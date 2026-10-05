@@ -6,7 +6,7 @@ fn native_extended_range(engine: Engine) {
     // An exact multiplication by one establishes the native significand before
     // the second operation exercises the extended exponent boundaries.
     let code = [0xdc, 0x0d, 0, 0x40, 0, 0, 0xdc, 0x0d, 8, 0x40, 0, 0];
-    let compiled = compiler().compile(0x1000, &code, 2).unwrap();
+    let compiled = compiler().compile_block(0x1000, &code, 2).unwrap();
     let module = TestModule::new(&compiled);
     assert_native_multiply(&module);
     let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());

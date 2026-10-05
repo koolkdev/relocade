@@ -2,8 +2,10 @@ use wasm86_compiler::{Program, Signature, Type};
 
 use crate::{
     decode, execution::ExecutionBuilder, memory::Memory, runtime::Runtime, state::Cpu, BlockError,
-    CompiledModule, CpuState, SegmentProfile,
+    CompiledModule, SegmentProfile,
 };
+
+use super::Compiler;
 
 /// Compiles a byte snapshot under [`SegmentProfile::Flat32`].
 ///
@@ -68,45 +70,14 @@ pub fn compile_block_from_bytes_with_profile(
     instruction_limit: u32,
     profile: SegmentProfile,
 ) -> Result<CompiledModule, BlockError> {
-    BlockCompiler::new(profile).compile(start_eip, bytes, instruction_limit)
+    Compiler::new(profile).compile_block(start_eip, bytes, instruction_limit)
 }
 
-/// Compiles snapshot blocks with optional observations for guarded specialization.
-/// Segment and instruction-fetch admission follow
-/// [`compile_block_from_bytes_with_profile`]; observations are checked by the block.
-pub struct BlockCompiler {
-    profile: SegmentProfile,
-    observed_cpu: Option<CpuState>,
-}
-
-impl BlockCompiler {
-    pub fn new(profile: SegmentProfile) -> Self {
-        Self {
-            profile,
-            observed_cpu: None,
-        }
-    }
-
-    /// Copies a CPU snapshot for guarded specialization. Instruction semantics
-    /// choose which observations to use and check current values before effects;
-    /// a mismatch enters the interpreter. Repeated checks of unchanged values
-    /// fold away. See the [observed-state contract](crate#observed-cpu-state)
-    /// for the current consumers.
-    ///
-    /// ```
-    /// use wasm86_x86::{BlockCompiler, CpuState, SegmentProfile};
-    /// let cpu = CpuState::default();
-    /// let compiler = BlockCompiler::new(SegmentProfile::Flat32).specialize_on_cpu(&cpu);
-    /// let block = compiler.compile(0x1000, &[0xd8, 0xc9], 1)?;
-    /// # Ok::<(), wasm86_x86::BlockError>(())
-    /// ```
-    pub fn specialize_on_cpu(mut self, cpu: &CpuState) -> Self {
-        self.observed_cpu = Some(*cpu);
-        self
-    }
-
-    /// Compiles through the ordinary block boundary with this configuration.
-    pub fn compile(
+impl Compiler {
+    /// Compiles a snapshot through the boundary described by
+    /// [`compile_block_from_bytes`], with this compiler's segment profile and
+    /// observations. Fetch admission follows [`compile_block_from_bytes_with_profile`].
+    pub fn compile_block(
         &self,
         start_eip: u32,
         bytes: &[u8],

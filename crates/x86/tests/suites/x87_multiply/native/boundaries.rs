@@ -4,7 +4,7 @@ use super::*;
 
 fn wider_values_stay_in_jit(engine: Engine) {
     let code = [0xd8, 0xc9];
-    let module = TestModule::new(&compiler().compile(0x1000, &code, 1).unwrap());
+    let module = TestModule::new(&compiler().compile_block(0x1000, &code, 1).unwrap());
     for (left, right, product, pe) in [
         // PC53 does not narrow operands already held in extended registers.
         (
@@ -48,7 +48,7 @@ fn wider_values_stay_in_jit(engine: Engine) {
 
 fn register_subnormal_range_does_not_raise_denormal(engine: Engine) {
     let code = [0xdb, 0xe2, 0xd8, 0xc8, 0xd8, 0xc8]; // FNCLEX; square twice
-    let module = TestModule::new(&compiler().compile(0x1000, &code, 3).unwrap());
+    let module = TestModule::new(&compiler().compile_block(0x1000, &code, 3).unwrap());
     assert_native_multiply(&module);
     let mut image = stack_image(&code, 7, 0x3fff);
     set_control(&mut image.cpu.x87.control, 0x027f);
@@ -71,7 +71,7 @@ fn register_subnormal_range_does_not_raise_denormal(engine: Engine) {
 
 fn memory_operand_exceptions_still_restart(engine: Engine) {
     let code = [0xdc, 0x0d, 0, 0x40, 0, 0];
-    let compiled = compiler().compile(0x1000, &code, 1).unwrap();
+    let compiled = compiler().compile_block(0x1000, &code, 1).unwrap();
     let module = TestModule::new(&compiled);
     let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
     for (bits, product, invalid, denormal) in [
@@ -119,7 +119,7 @@ fn completed_product_survives_later_exits(engine: Engine) {
         // native arithmetic before a later instruction exits.
         let mut code = vec![0xdc, 0x0d, 0, 0x40, 0, 0, 0xdc, 0x0d, 8, 0x40, 0, 0];
         code.extend(tail);
-        let module = TestModule::new(&compiler().compile(0x1000, &code, 3).unwrap());
+        let module = TestModule::new(&compiler().compile_block(0x1000, &code, 3).unwrap());
         let mut image = stack_image(&code, 0, 0xffc0);
         set_control(
             &mut image.cpu.x87.control,
