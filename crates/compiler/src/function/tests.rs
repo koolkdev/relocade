@@ -1,5 +1,50 @@
-use crate::{BuildError, MemoryImport, Program, Signature, Type, I1, I32};
+use crate::{BuildError, MemoryImport, Program, Signature, Type, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
+
+#[test]
+fn constant_queries_report_construction_folds_without_changing_code() {
+    fn compile(query: bool) -> Vec<u8> {
+        let mut program = Program::new();
+        let function = program
+            .function(
+                Signature {
+                    parameters: vec![Type::I32],
+                    results: vec![Type::I32],
+                },
+                |mut body| {
+                    let input = body.parameter::<I32>(0)?;
+                    if query {
+                        assert_eq!(body.constant_bits::<I1>(3)?, Some(1));
+                        assert_eq!(body.constant_bits::<I8>(0x1ff)?, Some(255));
+                        assert_eq!(body.constant_bits::<I16>(-1)?, Some(65535));
+                        assert_eq!(body.constant_bits::<I32>(-1)?, Some(0xffff_ffff));
+                        assert_eq!(body.constant_bits::<I64>(u64::MAX)?, Some(u64::MAX));
+                        let narrow = body.value::<I32>(0x1ff)?.truncate::<I8>();
+                        assert_eq!(body.constant_bits(narrow)?, Some(255));
+                        assert_eq!(body.constant_bits(input.mul(0).add(17))?, Some(17));
+                        assert_eq!(body.constant_bits(&input)?, None);
+                        assert_eq!(body.constant_bits(input.add(1))?, None);
+                    }
+                    body.if_(input.eq(17), |branch| {
+                        if query {
+                            // The guard becomes a constant fact only during placement.
+                            assert_eq!(branch.constant_bits(&input)?, None);
+                        }
+                        branch.return_(&input)
+                    })?;
+                    body.return_(input.add(1))
+                },
+            )
+            .unwrap();
+        program.export("run", function).unwrap();
+        program.compile().unwrap()
+    }
+
+    let without_queries = compile(false);
+    let with_queries = compile(true);
+    Validator::new().validate_all(&with_queries).unwrap();
+    assert_eq!(with_queries, without_queries);
+}
 
 #[test]
 fn unwinding_a_definition_closes_its_values_and_allows_retry() {

@@ -3,7 +3,8 @@ use crate::{
     arena::FunctionArena,
     body::{BlockId, Exit, Layout, Operation},
     control::JoinTarget,
-    Argument, Arguments, BuildError, Func, FunctionKind, Program, Signature, Type, Val, ValueType,
+    Argument, Arguments, BuildError, Func, FunctionKind, IntType, Program, Signature, Type, Val,
+    ValueType,
 };
 
 /// Builds a function body or child block. Its parent owns the block and attaches
@@ -228,6 +229,18 @@ impl BlockBuilder<'_> {
     /// ```
     pub fn value<T: ValueType>(&self, operand: impl Into<Val<T>>) -> Result<Val<T>, BuildError> {
         operand.into().bind(&self.arena, self.pending.id)
+    }
+
+    /// Returns the zero-extended logical bits of an integer constant known during
+    /// construction. Admits literals and calculations with the same ownership and
+    /// branch visibility checks as [`Self::value`]. Runtime values and constants
+    /// discovered later during placement return `None`.
+    pub fn constant_bits<T: IntType>(
+        &self,
+        operand: impl Into<Val<T>>,
+    ) -> Result<Option<u64>, BuildError> {
+        let value = self.operand(operand)?;
+        self.arena.constant_bits(value)
     }
 
     /// Returns values from the function, consuming the active builder.
