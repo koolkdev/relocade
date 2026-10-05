@@ -209,7 +209,8 @@ fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmti
                     &address,
                     I64::BYTES,
                     Intent::Write,
-                    exit::exception,
+                    None,
+                    Some(&mut exit::exception),
                 )?;
                 let before = memory.read::<I64>(&mut body, &access, 0)?;
                 memory.write(&mut body, &access, 0, &replacement)?;

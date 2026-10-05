@@ -21,7 +21,8 @@ fn aligned_complete_updates_need_no_scattered_access_helpers() {
                     &0x4000.into(),
                     8,
                     Intent::Write,
-                    crate::state::exit::exception,
+                    None,
+                    Some(&mut crate::state::exit::exception),
                 )?;
                 let previous = memory.atomic_update(
                     &mut body,

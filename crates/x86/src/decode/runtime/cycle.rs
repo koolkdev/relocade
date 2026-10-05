@@ -50,7 +50,7 @@ impl RuntimeDecoder<'_> {
                 // Each completed instruction publishes before this shared fetch.
                 // A helper transfer leaves the activation and discards its cache.
                 let start = self.fetch.eip(&mut iteration)?;
-                let direct = self.fetch.check_direct_access(
+                let direct = self.fetch.probe_window(
                     &mut iteration,
                     &start,
                     DIRECT_FETCH_BYTES,

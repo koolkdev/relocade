@@ -1,19 +1,16 @@
 mod access;
 mod accesses;
 mod page_table;
-mod scattered;
+mod transfer;
 mod update;
 
-pub(crate) use access::{Access, DirectRange};
+pub(crate) use access::Access;
 pub(crate) use accesses::Accesses;
 pub(crate) use page_table::{PageCache, PageCacheInputs};
 
 use std::cell::Cell;
 
-use wasm86_compiler::{
-    BlockBuilder, BuildError, Func, Mem, MemoryImport, MemoryInt, Program, Signature, Type, Val,
-    I32,
-};
+use wasm86_compiler::{BuildError, Func, Mem, MemoryImport, Program, Signature, Type};
 
 use page_table::{PageTable, PRESENT, WRITABLE};
 
@@ -75,65 +72,6 @@ impl Memory {
             scattered_readers: std::array::from_fn(|_| Cell::new(None)),
             scattered_writers: std::array::from_fn(|_| Cell::new(None)),
         })
-    }
-
-    pub(super) fn read<T: MemoryInt>(
-        &self,
-        body: &mut BlockBuilder<'_>,
-        access: &Access,
-        offset: u32,
-    ) -> Result<Val<T>, BuildError> {
-        access.check_field::<T>(offset);
-        if access.bytes == 1 {
-            return self.load(body, &access.physical, 0);
-        }
-        body.if_value::<T>(
-            &access.scattered,
-            |mut arm| {
-                let reader = self.scattered_reader::<T>(arm.program())?;
-                let value = arm.call::<T>(reader, &[access.linear.add(offset).into()])?;
-                arm.yield_(value)
-            },
-            |mut arm| {
-                let value = self.load::<T>(&mut arm, &access.physical, offset)?;
-                arm.yield_(value)
-            },
-        )
-    }
-
-    pub(super) fn write<T: MemoryInt>(
-        &self,
-        body: &mut BlockBuilder<'_>,
-        access: &Access,
-        offset: u32,
-        value: &Val<T>,
-    ) -> Result<(), BuildError> {
-        access.check_field::<T>(offset);
-        assert!(
-            matches!(access.intent, Intent::Write),
-            "store requires a write access"
-        );
-        if access.bytes == 1 {
-            return body.store_at::<T>(self.guest, &access.physical, 0, value);
-        }
-        body.if_else(
-            &access.scattered,
-            |mut arm| {
-                let writer = self.scattered_writer::<T>(arm.program())?;
-                arm.call::<()>(writer, &[access.linear.add(offset).into(), value.into()])
-            },
-            |mut arm| arm.store_at::<T>(self.guest, &access.physical, offset, value),
-        )
-    }
-
-    /// The caller must prove this entire read is present and physically contiguous.
-    pub(super) fn load<T: MemoryInt>(
-        &self,
-        body: &mut BlockBuilder<'_>,
-        physical: &Val<I32>,
-        offset: u32,
-    ) -> Result<Val<T>, BuildError> {
-        body.load_at::<T>(self.guest, physical, offset)
     }
 }
 

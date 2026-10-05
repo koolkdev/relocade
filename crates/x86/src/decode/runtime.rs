@@ -10,7 +10,6 @@ use wasm86_compiler::{BlockBuilder, BuildError, Func, Label, Program, Val, I1, I
 
 use crate::{
     instruction::{DecodedInstruction, OpcodeMap, PrefixState},
-    memory::DirectRange,
     segment::SegmentDefaultSize,
     state::exit,
 };
@@ -21,6 +20,7 @@ pub(crate) use fetch::InstructionFetch;
 
 use self::{
     cursor::{RuntimeCursor, DIRECT_FETCH_BYTES},
+    fetch::FetchWindow,
     handlers::{DecodeHandlers, DecodePoint},
 };
 
@@ -134,11 +134,11 @@ impl<'memory> RuntimeDecoder<'memory> {
         &self,
         body: &mut BlockBuilder<'_>,
         instruction_eip: &Val<I32>,
-    ) -> Result<DirectRange, BuildError> {
+    ) -> Result<FetchWindow, BuildError> {
         // Fields beyond this window use checked fetch. Extending the common
         // proof for longer forms would burden shorter instructions.
         self.fetch
-            .check_direct_access(body, instruction_eip, DIRECT_FETCH_BYTES, None)
+            .probe_window(body, instruction_eip, DIRECT_FETCH_BYTES, None)
     }
 
     /// `physical_start` supplies the proven contiguous instruction window.
