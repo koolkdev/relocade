@@ -44,7 +44,7 @@ impl BinaryFormat {
         1 << (self.fraction_bits() - 1)
     }
 
-    fn sign_bit(self) -> u64 {
+    pub(super) fn sign_bit(self) -> u64 {
         1 << (self.fraction_bits() + self.exponent_bits())
     }
 

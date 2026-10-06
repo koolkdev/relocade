@@ -3,6 +3,8 @@ use crate::{test_step as step, CompiledModule};
 use wasm86_compiler::{Program, Signature, Type};
 use wasmparser::{Operator, Parser, Payload};
 
+mod sign;
+
 fn non_normal_classes(value: &ExtendedValue) -> [Val<I1>; 7] {
     [
         value.zero(),
