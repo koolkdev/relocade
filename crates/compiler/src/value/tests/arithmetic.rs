@@ -126,6 +126,50 @@ fn offsets_combine_across_masks_preserving_the_observed_low_bits() {
 }
 
 #[test]
+fn low_masks_discard_only_disjoint_bitwise_inputs() {
+    fn check<T: IntType>() {
+        let mut program = Program::new();
+        program
+            .function(
+                Signature {
+                    parameters: vec![T::TYPE, T::TYPE],
+                    results: vec![T::TYPE],
+                },
+                |body| {
+                    let input = body.parameter::<T>(0)?;
+                    let other = body.parameter::<T>(1)?;
+                    let high = other.and(0x80);
+                    let expected = input.add(5).and(0x7f);
+                    for combined in [
+                        input.or(&high),
+                        high.or(&input),
+                        input.xor(&high),
+                        high.xor(&input),
+                    ] {
+                        assert!(combined.add(5).and(0x7f).same_expression(&expected));
+                    }
+                    let overlapping = other.and(0xc0);
+                    assert!(!input
+                        .or(&overlapping)
+                        .and(0x7f)
+                        .same_expression(&input.and(0x7f)));
+                    assert!(!input
+                        .xor(overlapping)
+                        .and(0x7f)
+                        .same_expression(&input.and(0x7f)));
+                    body.return_(expected)
+                },
+            )
+            .unwrap();
+        program.compile().unwrap();
+    }
+    check::<I8>();
+    check::<I16>();
+    check::<I32>();
+    check::<I64>();
+}
+
+#[test]
 fn long_mask_chains_preserve_low_bit_sums() {
     let mut program = Program::new();
     program

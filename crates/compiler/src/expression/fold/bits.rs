@@ -140,6 +140,21 @@ impl Folder<'_> {
                     }
                     base = input;
                 }
+                ValueDefinition::Expression(Expression::Binary {
+                    operator: BinaryOp::Or | BinaryOp::Xor,
+                    left,
+                    right,
+                }) => {
+                    // Disjoint masked bits cannot affect the low result,
+                    // including after an accumulated modular offset.
+                    base = if self.masked_bits(left).mask & mask == 0 {
+                        right
+                    } else if self.masked_bits(right).mask & mask == 0 {
+                        left
+                    } else {
+                        break;
+                    };
+                }
                 _ => {
                     // Carries above the observed width are irrelevant. Offset
                     // arithmetic must itself retain every observed bit.
