@@ -212,6 +212,9 @@ fn inactive_edge_occurrences_release_arguments_even_when_their_target_is_live() 
                 matches!(graph.values[edge.arguments[0]].definition, ValueDefinition::Constant(bits) if bits == expected)
             );
         }
+        // Finalization can compact again after replacing equivalent values.
+        graph.compact(vec![true; graph.values.len()]);
+        assert_eq!(graph.values.len(), 5);
     }
 }
 
