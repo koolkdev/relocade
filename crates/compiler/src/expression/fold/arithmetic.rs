@@ -138,6 +138,7 @@ impl Folder<'_> {
             (BinaryOp::Mul, _, ValueDefinition::Constant(0))
             | (BinaryOp::Mul, ValueDefinition::Constant(0), _) => Some(self.values.constant(ty, 0)),
             (BinaryOp::Sub | BinaryOp::Xor, _, _) if a == b => Some(self.values.constant(ty, 0)),
+            (BinaryOp::Xor, _, _) => self.fold_xor(ty, a, b),
             (BinaryOp::And | BinaryOp::Or, _, _) => {
                 if a == b {
                     return Some(left);

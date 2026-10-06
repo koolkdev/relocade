@@ -11,6 +11,8 @@ mod bit_fields;
 mod offsets;
 #[path = "integer_ops/scalars.rs"]
 mod scalars;
+#[path = "integer_ops/xor.rs"]
+mod xor;
 
 #[derive(Default, Debug)]
 struct Code {
