@@ -4,15 +4,16 @@ use super::{
     liveness::Retained,
 };
 
-/// Stable-order indices for the retained values and effects.
+/// Retained definitions and final indices for all references, including replacements.
 pub(in crate::body) struct Remapping {
-    pub(in crate::body) values: Vec<Option<usize>>,
+    pub(in crate::body) retained_values: Vec<bool>,
+    values: Vec<Option<usize>>,
     effects: Vec<Option<usize>>,
 }
 
 impl Remapping {
-    fn new(values: Vec<bool>, effects: Vec<bool>) -> Self {
-        fn indices(retained: Vec<bool>) -> Vec<Option<usize>> {
+    fn new(retained: Retained) -> Self {
+        fn indices(retained: impl IntoIterator<Item = bool>) -> Vec<Option<usize>> {
             let mut next = 0;
             retained
                 .into_iter()
@@ -26,8 +27,9 @@ impl Remapping {
                 .collect()
         }
         Self {
-            values: indices(values),
-            effects: indices(effects),
+            values: indices(retained.values.iter().copied()),
+            retained_values: retained.values,
+            effects: indices(retained.effects),
         }
     }
 
@@ -42,6 +44,27 @@ impl Remapping {
                 self.effects[effect.0].expect("a retained result has a retained effect"),
             )),
         }
+    }
+}
+
+impl FunctionGraph {
+    /// Redirect uses and reclaim scalar definitions removed from the schedule.
+    /// Each replacement names its final surviving value; unchanged IDs name themselves.
+    /// The already compacted graph keeps its effects and control flow.
+    pub(crate) fn replace_values(&mut self, replacements: Vec<usize>) {
+        let mut remapping = Remapping::new(Retained {
+            values: replacements
+                .iter()
+                .enumerate()
+                .map(|(id, &replacement)| id == replacement)
+                .collect(),
+            effects: vec![true; self.effects.len()],
+        });
+        // Final representatives retain their own index throughout this rewrite.
+        for (id, replacement) in replacements.into_iter().enumerate() {
+            remapping.values[id] = remapping.values[replacement];
+        }
+        remap(self, remapping);
     }
 }
 
@@ -68,7 +91,10 @@ pub(super) fn compact(graph: &mut FunctionGraph, reachable: &[bool], mut retaine
         }
     }
 
-    let remapping = Remapping::new(retained.values, retained.effects);
+    remap(graph, Remapping::new(retained));
+}
+
+fn remap(graph: &mut FunctionGraph, remapping: Remapping) {
     graph.values.compact(&remapping);
     graph.effects = std::mem::take(&mut graph.effects)
         .into_iter()

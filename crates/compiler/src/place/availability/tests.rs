@@ -104,6 +104,7 @@ fn execution_reuse_and_aliases_end_together_at_scope_exit() {
     available.evaluate(&mut graph, BlockId(0), product);
     assert_eq!(graph.values.len(), count);
     assert_eq!(graph.blocks[0].items.len(), 1);
+    assert!(!available.has_copies);
     available.restore(parent);
     assert_eq!(available.lookup(&graph.values, product), None);
     assert_eq!(available.lookup(&graph.values, high), None);
@@ -117,6 +118,7 @@ fn execution_reuse_and_aliases_end_together_at_scope_exit() {
     assert_ne!(sibling_high, placed_high);
     assert_eq!(graph.values.expression_result(sibling_low, 1), sibling_high);
     assert_eq!(graph.blocks[sibling.0].items.len(), 1);
+    assert!(available.has_copies);
 }
 
 #[test]
@@ -152,6 +154,7 @@ fn rebinding_inputs_preserves_the_recipe_for_a_later_unchanged_placement() {
     let placed = available.get(product).unwrap();
     assert_ne!(placed, product);
     assert_eq!(graph.values.len(), count + 1);
+    assert!(available.has_copies);
     assert!(graph.values[product] == recipe);
     assert_eq!(
         graph
@@ -161,6 +164,7 @@ fn rebinding_inputs_preserves_the_recipe_for_a_later_unchanged_placement() {
     );
 
     available.restore(parent);
+    assert!(available.has_copies);
     let sibling = graph.block(0, &[]);
     available.evaluate(&mut graph, sibling, product);
     assert_eq!(available.get(product), Some(product));

@@ -160,6 +160,87 @@ fn complete_result_groups_and_stored_bounds_survive_compaction() {
 }
 
 #[test]
+fn replacements_redirect_uses_and_preserve_complete_producer_results() {
+    for (surviving, replaced) in [(2, 3), (3, 2)] {
+        let mut graph = graph(&[Type::I64, Type::I64]);
+        let expression = Value {
+            ty: Type::I64,
+            definition: ValueDefinition::Expression(Expression::Binary {
+                operator: BinaryOp::Add,
+                left: 0,
+                right: 1,
+            }),
+        };
+        graph.values.push(expression);
+        graph.values.push(expression);
+        let wide = graph.values.push(Value {
+            ty: Type::I64,
+            definition: ValueDefinition::Expression(Expression::MultiplyWide {
+                signed: false,
+                left: replaced,
+                right: 1,
+            }),
+        });
+        let call = effect(
+            &mut graph,
+            Operation::call(Func(0), vec![replaced, wide + 1]),
+            &[Type::I64, Type::I32],
+        );
+        let join = graph.block(0, &[Type::I64, Type::I32]);
+        graph.blocks[0].items = vec![
+            BlockItem::Evaluate(surviving),
+            BlockItem::Evaluate(wide),
+            BlockItem::Effect(call),
+        ];
+        graph.blocks[0].exit = Exit::Jump(Edge {
+            target: join,
+            arguments: vec![replaced, 7],
+        });
+        graph.blocks[join.0].exit = Exit::Return(vec![8, 9, replaced]);
+        let mut replacements: Vec<_> = (0..graph.values.len()).collect();
+        replacements[replaced] = surviving;
+
+        graph.replace_values(replacements);
+
+        assert_eq!(graph.values.len(), 9);
+        assert!(
+            graph.blocks[0].items
+                == [
+                    BlockItem::Evaluate(2),
+                    BlockItem::Evaluate(3),
+                    BlockItem::Effect(EffectId(0)),
+                ]
+        );
+        assert_eq!(
+            graph.inputs(BlockItem::Evaluate(3)).collect::<Vec<_>>(),
+            [2, 1]
+        );
+        assert_eq!(
+            graph.results(BlockItem::Evaluate(3)).collect::<Vec<_>>(),
+            [3, 4]
+        );
+        assert!(matches!(
+            graph.values[4].definition,
+            ValueDefinition::Result {
+                producer: BlockItem::Evaluate(3),
+                component: 1,
+            }
+        ));
+        assert_eq!(
+            graph.effects[0].operation.inputs().collect::<Vec<_>>(),
+            [2, 4]
+        );
+        assert_eq!(graph.effects[0].results, [5, 6]);
+        assert_eq!(graph.outgoing(graph.entry)[0].arguments, [2, 6]);
+        assert_eq!(graph.blocks[join.0].parameters, [7, 8]);
+        assert!(matches!(&graph.blocks[join.0].exit, Exit::Return(values) if values == &[7, 8, 2]));
+
+        graph.compact(|_| true);
+        assert_eq!(graph.values.len(), 9);
+    }
+}
+
+#[test]
 fn folded_edges_release_discarded_arguments_even_when_their_target_is_live() {
     for (ty, bits, active) in [
         (Type::I1, 1, 0),

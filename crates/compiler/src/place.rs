@@ -3,12 +3,14 @@
 use crate::{body::*, Expression, FunctionKind, Program};
 use std::collections::HashMap;
 mod availability;
+mod coverage;
 mod demand;
 mod dominance;
 mod effects;
 mod facts;
 mod joins;
 mod reads;
+mod reuse;
 mod shared;
 mod specialize;
 #[cfg(test)]
@@ -72,11 +74,22 @@ fn predecessors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
 
 fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
     // Release placement's facts and bindings before pruning the finished graph.
-    place_calculations(graph, summaries);
+    let placement = place_calculations(graph, summaries);
     graph.compact(|operation| effects::observable(operation, summaries));
+    if placement.has_copies {
+        if let Some(replacements) = reuse::share(graph, placement.dominators) {
+            graph.replace_values(replacements);
+        }
+    }
 }
 
-fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
+struct Placement {
+    has_copies: bool,
+    // Reusable only when specialization left the control-flow edges unchanged.
+    dominators: Option<Dominators>,
+}
+
+fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) -> Placement {
     let reachable = graph.reachable();
     for (index, block) in graph.blocks.iter().enumerate() {
         if !reachable[index] {
@@ -127,6 +140,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
         available: Availability::default(),
         shared,
         joins,
+        changed_edges: false,
     };
     enum Visit {
         Enter(usize),
@@ -212,6 +226,11 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
             }
         }
     }
+    let has_copies = placer.available.has_copies;
+    Placement {
+        has_copies,
+        dominators: (has_copies && !placer.changed_edges).then(|| placer.joins.into_dominators()),
+    }
 }
 
 struct Placer<'a> {
@@ -221,6 +240,7 @@ struct Placer<'a> {
     available: Availability,
     shared: Vec<Vec<usize>>,
     joins: Joins,
+    changed_edges: bool,
 }
 impl Placer<'_> {
     fn block(&mut self, block: BlockId) {
@@ -256,9 +276,11 @@ impl Placer<'_> {
             .map(|edge| edge.target)
             .ne(previous_targets)
         {
-            // Folding only removes edges, so existing dominance stays valid.
+            // Folding only removes edges, so the old tree remains conservative.
             // Placement and joins must stop using paths those edges kept alive.
+            // Sharing rebuilds the tree to find newly available placements.
             self.reachable = self.graph.reachable();
+            self.changed_edges = true;
         }
     }
 }

@@ -338,20 +338,3 @@ fn a_backedge_can_bypass_a_subgroup_witness() {
         .push(BlockItem::Effect(EffectId(0)));
     assert!(branches.schedules().iter().all(Vec::is_empty));
 }
-
-#[test]
-fn coverage_queries_do_not_reuse_previous_demands() {
-    let successors = [vec![1, 2], vec![3], vec![3], Vec::new()];
-    let mut coverage = Coverage::new(&successors, 3);
-    assert!(coverage.all_paths_reach(0, &HashSet::from([1, 2])));
-    assert!(!coverage.all_paths_reach(0, &HashSet::from([1])));
-    assert!(coverage.all_paths_reach(0, &HashSet::from([1, 2])));
-    assert!(!coverage.all_paths_reach(0, &HashSet::new()));
-}
-
-#[test]
-fn converging_paths_can_reuse_an_explored_tail() {
-    let successors = [vec![1, 2], vec![3], vec![3], vec![4], vec![5], Vec::new()];
-    let mut coverage = Coverage::new(&successors, 5);
-    assert!(coverage.all_paths_reach(0, &HashSet::from([4])));
-}
