@@ -34,13 +34,29 @@ impl Types {
 }
 
 pub(super) fn encode(mut program: Program) -> Vec<u8> {
-    let defined = place::module(&mut program);
+    let placement = place::Placement::new(&program);
+    let mut defined = Vec::new();
     let mut used_functions = vec![false; program.functions.len()];
-    for (_, function) in &program.exports {
-        used_functions[function.0] = true;
-    }
+    let mut pending: Vec<_> = program
+        .exports
+        .iter()
+        .map(|(_, function)| function.0)
+        .collect();
     let mut used_memories = vec![false; program.memories.len()];
-    for (_, body) in &defined {
+    // Place exports first, then follow their surviving calls. Helpers used only
+    // by discarded branches never enter placement. Mark before visiting callees
+    // so recursive cycles are processed once.
+    while let Some(id) = pending.pop() {
+        if std::mem::replace(&mut used_functions[id], true) {
+            continue;
+        }
+        let FunctionKind::Defined(body) = &mut program.functions[id].kind else {
+            continue;
+        };
+        let mut body = body
+            .take()
+            .expect("defined function completed construction");
+        placement.function(&mut body);
         for memory in &body.memories {
             used_memories[memory.0] = true;
         }
@@ -50,18 +66,21 @@ pub(super) fn encode(mut program: Program) -> Vec<u8> {
                 continue;
             }
             if let Exit::TailCall { target, .. } = &block.exit {
-                used_functions[target.0] = true;
+                pending.push(target.0);
             }
             for item in &block.items {
                 if let BlockItem::Effect(effect) = item {
                     if let OperationKind::Call { target } = body.effects[effect.0].operation.kind()
                     {
-                        used_functions[target.0] = true;
+                        pending.push(target.0);
                     }
                 }
             }
         }
+        defined.push((id, body));
     }
+    // Discovery order must not change function indices or signature interning.
+    defined.sort_unstable_by_key(|(id, _)| *id);
 
     let imported: Vec<_> = program
         .functions

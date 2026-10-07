@@ -180,7 +180,8 @@ impl Program {
     }
 
     /// Declares a function that must be defined before compilation.
-    /// Definitions are emitted in declaration order, including unexported functions.
+    /// Exported definitions and helpers reachable from them are emitted in
+    /// declaration order. Unused definitions are omitted after specialization.
     pub fn declare(&mut self, signature: Signature) -> Func {
         let function = Func(self.functions.len());
         self.functions.push(Declaration {
