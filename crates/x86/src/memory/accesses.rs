@@ -6,9 +6,10 @@ use super::page_table::{physical_address, FRAME_MASK, PAGE_BYTES};
 use super::{Access, Intent, Memory};
 use crate::exception::Exception;
 
-/// Mappings must stay fixed until this execution path leaves generated code.
+/// Virtual mappings must stay fixed until this execution path leaves generated code.
 /// Clones inherit dominating proofs; proofs from a child must not escape its region.
 /// Guest bytes are always transferred anew, including through physical aliases.
+/// Physical accesses retain no routing proofs because MMIO callbacks may remap them.
 #[derive(Clone)]
 pub(crate) struct Accesses<'memory> {
     memory: &'memory Memory,
@@ -42,6 +43,16 @@ impl<'memory> Accesses<'memory> {
         mut on_fault: impl FnMut(BlockBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
     ) -> Result<Access, BuildError> {
         assert!((1..=PAGE_BYTES).contains(&bytes));
+        if !self.memory.has_stable_mappings() {
+            return self.memory.resolve_access(
+                body,
+                start,
+                bytes,
+                intent,
+                None,
+                Some(&mut on_fault),
+            );
+        }
         let required = intent.required_permissions();
         // An identical checked span also covers narrower accesses, even when
         // the original span crosses a page or has scattered physical backing.
