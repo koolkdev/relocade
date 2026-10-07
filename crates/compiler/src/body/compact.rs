@@ -1,5 +1,5 @@
 //! Reclaim unused storage after placement has released its value-ID caches.
-use super::{BlockItem, EffectId, Exit, FunctionGraph};
+use super::{BlockItem, EffectId, Exit, FunctionGraph, ValueDefinition};
 
 #[cfg(test)]
 mod tests;
@@ -67,8 +67,13 @@ impl FunctionGraph {
                 // Inactive edges retain well-formed tuples without keeping the
                 // discarded calculations that originally supplied their values.
                 for argument in &mut edge.arguments {
-                    let ty = self.values[*argument].ty;
-                    *argument = self.values.constant(ty, 0);
+                    if !matches!(
+                        self.values[*argument].definition,
+                        ValueDefinition::Constant(0)
+                    ) {
+                        let ty = self.values[*argument].ty;
+                        *argument = self.values.constant(ty, 0);
+                    }
                     live_values.resize(self.values.len(), false);
                     live_values[*argument] = true;
                 }
