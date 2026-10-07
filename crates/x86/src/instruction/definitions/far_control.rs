@@ -195,7 +195,7 @@ where
     let selector = frame.field::<I16>(execution, T::BYTES)?.read(execution)?;
     let flags = frame.field::<T>(execution, 2 * T::BYTES)?.read(execution)?;
     let target = resolve_return_target(execution, offset, &selector)?;
-    execution.write_flags(image::stack_change(&flags))?;
+    image::write_stack_image(execution, &flags)?;
     frame.commit(execution, 0)?;
     target.commit(execution)
 }

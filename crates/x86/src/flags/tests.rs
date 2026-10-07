@@ -16,6 +16,7 @@ fn complete_masks_cover_unique_flags_without_extending_status_sources() {
         Flag::NT,
         Flag::AC,
         Flag::ID,
+        Flag::IF,
     ];
     assert!(Flag::ALL == flags);
     assert_eq!(StatusFlag::ALL.len(), 6);

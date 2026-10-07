@@ -35,8 +35,9 @@ pub struct StoredStatusSource {
 }
 
 /// Named backing bytes for the represented x86 flags, in snapshot order.
-/// Each flag uses its low bit. Status bytes can be stale while a status source
-/// is active; snapshots retain every byte without interpreting or normalizing it.
+/// Each flag uses its low bit; IOPL uses its low two bits. Status bytes can be
+/// stale while a status source is active; snapshots retain every byte without
+/// interpreting or normalizing it.
 /// This byte record is not the architectural EFLAGS bit encoding.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -52,8 +53,10 @@ pub struct FlagBytes {
     pub nt: u8,
     pub ac: u8,
     pub id: u8,
-    /// Snapshot padding, not an architectural flag.
-    pub reserved: u8,
+    pub if_: u8,
+    pub iopl: u8,
+    /// Snapshot padding, not architectural flags.
+    pub reserved: [u8; 3],
 }
 
 /// Flag backing state, including inactive source operands and stale flag bytes.
@@ -119,7 +122,7 @@ pub struct CpuState {
     pub registers: Registers,
     pub eip: u32,
     pub segments: Segments,
-    pub reserved: [u8; 12],
+    pub reserved: [u8; 8],
     pub instruction_count: u32,
     pub reserved_tail: [u8; 4],
     pub x87: StoredX87,

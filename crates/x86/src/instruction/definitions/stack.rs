@@ -40,7 +40,6 @@ instruction_families! {
     PUSHF {
         execute: push_flags::<_>;
         effects: [memory_write];
-        real_mode: Unsupported;
         forms {
             0x9C => word_or_dword();
         }
@@ -48,7 +47,6 @@ instruction_families! {
     POPF {
         execute: pop_flags::<_>;
         effects: [memory_read];
-        real_mode: Unsupported;
         forms {
             0x9D => word_or_dword();
         }
@@ -151,12 +149,8 @@ fn push_flags<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Resu
 where
     I32: AtLeast<T>,
 {
-    let image = match T::BYTES {
-        2 => image::WORD.pack(execution.read_flags(image::WORD.flags())?),
-        4 => image::DWORD.pack(execution.read_flags(image::DWORD.flags())?),
-        _ => unreachable!("stack flag images use word or dword operands"),
-    };
-    execution.push(image.truncate::<T>(), T::BYTES)
+    let image = image::read_stack_image::<T>(execution)?;
+    execution.push(image, T::BYTES)
 }
 
 fn pop_flags<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
@@ -166,5 +160,5 @@ where
     let frame = execution.pop_frame(T::BYTES, T::BYTES)?;
     let flags = frame.field::<T>(execution, 0)?.read(execution)?;
     frame.commit(execution, 0)?;
-    execution.write_flags(image::stack_change(&flags))
+    image::write_stack_image(execution, &flags)
 }
