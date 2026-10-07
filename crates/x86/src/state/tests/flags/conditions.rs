@@ -55,7 +55,7 @@ fn stored_condition_resolver_is_shared_by_repeated_inverse_queries_and_bodies() 
 fn stored_signed_cmp_conditions_compare_in_the_consumer_and_guard_the_fallback() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    program
+    let function = program
         .function(
             Signature {
                 parameters: vec![],
@@ -68,6 +68,7 @@ fn stored_signed_cmp_conditions_compare_in_the_consumer_and_guard_the_fallback()
             },
         )
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
     let mut body_index = 0;
@@ -122,7 +123,7 @@ fn stored_signed_cmp_conditions_compare_in_the_consumer_and_guard_the_fallback()
 fn stored_logical_equality_reads_only_the_result_in_the_consumer() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    program
+    let function = program
         .function(
             Signature {
                 parameters: vec![],
@@ -135,6 +136,7 @@ fn stored_logical_equality_reads_only_the_result_in_the_consumer() {
             },
         )
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
     let mut left_reads = 0;

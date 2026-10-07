@@ -1,9 +1,18 @@
 //! Remove unneeded executions and parameters before reclaiming graph storage.
-use super::*;
+use super::super::{BlockId, BlockItem, Edge, Exit, FunctionGraph, Operation, ValueDefinition};
 
-/// Return referenced values; storage also retains complete producer result groups.
-pub(super) fn prune(graph: &mut FunctionGraph, summaries: &[Effects]) -> Vec<bool> {
-    let reachable = graph.reachable();
+/// Liveness of referenced values and required operation executions.
+/// Compaction also retains unused results belonging to a live producer.
+pub(super) struct Retained {
+    pub(super) values: Vec<bool>,
+    pub(super) effects: Vec<bool>,
+}
+
+pub(super) fn prune(
+    graph: &mut FunctionGraph,
+    reachable: &[bool],
+    observable: impl Fn(&Operation) -> bool,
+) -> Retained {
     let mut live_values = vec![false; graph.values.len()];
     let mut live_calculations = vec![false; graph.values.len()];
     let mut live_effects = vec![false; graph.effects.len()];
@@ -33,7 +42,7 @@ pub(super) fn prune(graph: &mut FunctionGraph, summaries: &[Effects]) -> Vec<boo
         }
         for item in &block.items {
             if let BlockItem::Effect(effect) = item {
-                if effects::observable(&graph.effects[effect.0].operation, summaries) {
+                if observable(&graph.effects[effect.0].operation) {
                     live_effects[effect.0] = true;
                     pending.extend(graph.inputs(*item));
                 }
@@ -101,5 +110,8 @@ pub(super) fn prune(graph: &mut FunctionGraph, summaries: &[Effects]) -> Vec<boo
             };
         }
     }
-    live_values
+    Retained {
+        values: live_values,
+        effects: live_effects,
+    }
 }

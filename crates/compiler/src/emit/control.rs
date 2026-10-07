@@ -6,7 +6,7 @@ use wasm_encoder::BlockType;
 impl Writer<'_> {
     pub(super) fn layouts(&mut self, layout: &[Layout], fallthrough: Option<BlockId>) {
         for (index, item) in layout.iter().enumerate() {
-            let next = layout.get(index + 1).map(start).or(fallthrough);
+            let next = layout.get(index + 1).map(Layout::entry).or(fallthrough);
             match item {
                 Layout::Block(block) => {
                     if !self.reachable[block.0] {
@@ -26,7 +26,7 @@ impl Writer<'_> {
                     self.block_items(*preheader);
                     self.emit(Wasm::Block(BlockType::Empty));
                     self.labels.push(Some(*after));
-                    self.exit(*preheader, body.first().map(start).or(Some(*after)));
+                    self.exit(*preheader, body.first().map(Layout::entry).or(Some(*after)));
                     self.layouts(body, Some(*after));
                     self.labels.pop();
                     self.emit(Wasm::End);
@@ -49,23 +49,6 @@ impl Writer<'_> {
                     else {
                         panic!("conditional layout references a conditional exit")
                     };
-                    if let Some(index) = self.graph.blocks[branch.0]
-                        .exit
-                        .constant_edge_index(&self.graph.values)
-                    {
-                        let (edge, arm) = if index == 0 {
-                            (taken_edge, taken)
-                        } else {
-                            (other_edge, otherwise)
-                        };
-                        self.emit(Wasm::Block(BlockType::Empty));
-                        self.labels.push(Some(*join));
-                        self.edge(edge, arm.first().map(start).or(Some(*join)));
-                        self.layouts(arm, Some(*join));
-                        self.labels.pop();
-                        self.emit(Wasm::End);
-                        continue;
-                    }
                     let (condition, inverted) =
                         self.selection.condition(self.graph, *condition, false);
                     self.value(condition);
@@ -74,11 +57,14 @@ impl Writer<'_> {
                     }
                     self.emit(Wasm::If(BlockType::Empty));
                     self.labels.push(Some(*join));
-                    self.edge(taken_edge, taken.first().map(start).or(Some(*join)));
+                    self.edge(taken_edge, taken.first().map(Layout::entry).or(Some(*join)));
                     self.layouts(taken, Some(*join));
                     if !self.empty_arm(other_edge, otherwise, *join) {
                         self.emit(Wasm::Else);
-                        self.edge(other_edge, otherwise.first().map(start).or(Some(*join)));
+                        self.edge(
+                            other_edge,
+                            otherwise.first().map(Layout::entry).or(Some(*join)),
+                        );
                         self.layouts(otherwise, Some(*join));
                     }
                     self.labels.pop();
@@ -123,23 +109,6 @@ impl Writer<'_> {
                     else {
                         panic!("switch layout references a switch exit")
                     };
-                    if let Some(index) = self.graph.blocks[branch.0]
-                        .exit
-                        .constant_edge_index(&self.graph.values)
-                    {
-                        let (edge, arm) = if index < edges.len() {
-                            (&edges[index].1, &cases[index].1)
-                        } else {
-                            (default_edge, default)
-                        };
-                        self.emit(Wasm::Block(BlockType::Empty));
-                        self.labels.push(Some(*join));
-                        self.edge(edge, arm.first().map(start).or(Some(*join)));
-                        self.layouts(arm, Some(*join));
-                        self.labels.pop();
-                        self.emit(Wasm::End);
-                        continue;
-                    }
                     self.emit(Wasm::Block(BlockType::Empty));
                     self.labels.push(Some(*join));
                     for _ in 0..=cases.len() {
@@ -152,13 +121,16 @@ impl Writer<'_> {
                         assert_eq!(key, edge_key);
                         self.labels.pop();
                         self.emit(Wasm::End);
-                        self.edge(edge, body.first().map(start).or(Some(*join)));
+                        self.edge(edge, body.first().map(Layout::entry).or(Some(*join)));
                         self.layouts(body, Some(*join));
                         self.emit(Wasm::Br(self.depth(*join)));
                     }
                     self.labels.pop();
                     self.emit(Wasm::End);
-                    self.edge(default_edge, default.first().map(start).or(Some(*join)));
+                    self.edge(
+                        default_edge,
+                        default.first().map(Layout::entry).or(Some(*join)),
+                    );
                     self.layouts(default, Some(*join));
                     self.labels.pop();
                     self.emit(Wasm::End);
@@ -167,7 +139,9 @@ impl Writer<'_> {
         }
     }
     fn empty_arm(&self, edge: &Edge, layout: &[Layout], join: BlockId) -> bool {
-        if !edge.arguments.is_empty() || edge.target != layout.first().map(start).unwrap_or(join) {
+        if !edge.arguments.is_empty()
+            || edge.target != layout.first().map(Layout::entry).unwrap_or(join)
+        {
             return false;
         }
         for (index, item) in layout.iter().enumerate() {
@@ -182,7 +156,7 @@ impl Writer<'_> {
                 return false;
             };
             if !edge.arguments.is_empty()
-                || edge.target != layout.get(index + 1).map(start).unwrap_or(join)
+                || edge.target != layout.get(index + 1).map(Layout::entry).unwrap_or(join)
             {
                 return false;
             }
@@ -234,12 +208,5 @@ impl Writer<'_> {
         if Some(edge.target) != fallthrough {
             self.emit(Wasm::Br(self.depth(edge.target)));
         }
-    }
-}
-fn start(layout: &Layout) -> BlockId {
-    match layout {
-        Layout::Block(block) => *block,
-        Layout::Scope { preheader, .. } | Layout::Loop { preheader, .. } => *preheader,
-        Layout::If { branch, .. } | Layout::Switch { branch, .. } => *branch,
     }
 }

@@ -34,13 +34,27 @@ impl Types {
 }
 
 pub(super) fn encode(mut program: Program) -> Vec<u8> {
-    let defined = place::module(&mut program);
+    let mut defined = place::module(&mut program);
     let mut used_functions = vec![false; program.functions.len()];
-    for (_, function) in &program.exports {
-        used_functions[function.0] = true;
+    let mut bodies = vec![None; program.functions.len()];
+    for (id, body) in &defined {
+        bodies[*id] = Some(body);
     }
+    let mut pending: Vec<_> = program
+        .exports
+        .iter()
+        .map(|(_, function)| function.0)
+        .collect();
     let mut used_memories = vec![false; program.memories.len()];
-    for (_, body) in &defined {
+    // Exports are the roots. Calls in retained, reachable blocks keep their
+    // transitive helpers, including recursive cycles, and memory imports alive.
+    while let Some(id) = pending.pop() {
+        if std::mem::replace(&mut used_functions[id], true) {
+            continue;
+        }
+        let Some(body) = bodies[id] else {
+            continue;
+        };
         for memory in &body.memories {
             used_memories[memory.0] = true;
         }
@@ -50,18 +64,19 @@ pub(super) fn encode(mut program: Program) -> Vec<u8> {
                 continue;
             }
             if let Exit::TailCall { target, .. } = &block.exit {
-                used_functions[target.0] = true;
+                pending.push(target.0);
             }
             for item in &block.items {
                 if let BlockItem::Effect(effect) = item {
                     if let OperationKind::Call { target } = body.effects[effect.0].operation.kind()
                     {
-                        used_functions[target.0] = true;
+                        pending.push(target.0);
                     }
                 }
             }
         }
     }
+    defined.retain(|(id, _)| used_functions[*id]);
 
     let imported: Vec<_> = program
         .functions

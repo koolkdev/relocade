@@ -12,7 +12,7 @@ use wasmparser::{Operator, Parser, Payload};
 fn zero_progress_exits_do_not_read_or_write_instruction_count() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    program
+    let function = program
         .function(
             Signature {
                 parameters: vec![],
@@ -25,6 +25,7 @@ fn zero_progress_exits_do_not_read_or_write_instruction_count() {
             },
         )
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     wasmparser::Validator::new().validate_all(&bytes).unwrap();
     for payload in Parser::new(0).parse_all(&bytes) {
@@ -63,6 +64,7 @@ fn named_writes_coalesce_without_crossing_indexed_writes() {
             body.return_(0)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     let mut stored = Vec::new();
     for payload in Parser::new(0).parse_all(&bytes) {

@@ -271,7 +271,7 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
             let foreign = foreign_body.parameter::<I32>(0).unwrap();
             let mut program = Program::new();
             let cpu = Cpu::declare(&mut program);
-            program
+            let function = program
                 .function(
                     Signature {
                         parameters: vec![Type::I1],
@@ -349,6 +349,7 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
                     },
                 )
                 .unwrap();
+            program.export("run", function).unwrap();
             let bytes = program.compile().unwrap();
             Validator::new().validate_all(&bytes).unwrap();
             assert_eq!(super::flag_stores(&bytes), [(2, 4, 42), (2, 0, 3)]);
@@ -361,7 +362,7 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
 fn conditional_publication_keeps_constant_control_depth_as_history_grows() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    program
+    let function = program
         .function(
             Signature {
                 parameters: vec![Type::I32],
@@ -384,6 +385,7 @@ fn conditional_publication_keeps_constant_control_depth_as_history_grows() {
             },
         )
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
     let mut depth = 0;

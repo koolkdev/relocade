@@ -105,7 +105,6 @@ struct Repeat<P: Results, const N: usize> {
     available: Val<I1>,
     resolved: [StringOperand; N],
     checked: [StringOperand; N],
-    jit: bool,
 }
 
 impl<P: Results, const N: usize> Repeat<P, N>
@@ -121,9 +120,7 @@ where
         let indices = std::array::from_fn(|index| operands[index].index);
         let initial_indices = read_indices(execution, indices)?;
         let (available, resolved) = execution.resolve_strings::<T, N>(&operands, &count)?;
-        let jit = execution
-            .specialize(|jit| jit.specialize_on(&available))?
-            .is_some();
+        execution.specialize(|jit| jit.specialize_on(&available))?;
         Ok(Self {
             count,
             indices,
@@ -132,7 +129,6 @@ where
             available,
             resolved,
             checked: operands,
-            jit,
         })
     }
 
@@ -170,13 +166,8 @@ where
         direct: impl FnOnce(&mut ExecutionBuilder<'_, '_>) -> Result<LoopProgress<P, N>, BuildError>,
         checked: impl FnOnce(&mut ExecutionBuilder<'_, '_>) -> Result<LoopProgress<P, N>, BuildError>,
     ) -> Result<(Val<I32>, P::Values), BuildError> {
-        // Only a JIT instruction boundary can hand off. The interpreter contains
-        // the ordinary checked path beside the path using the complete range proof.
-        let (remaining, final_indices, result) = if self.jit {
-            direct(execution)?
-        } else {
-            execution.if_value::<(I32, [I32; N], P)>(&self.available, direct, checked)?
-        };
+        let (remaining, final_indices, result) =
+            execution.if_value::<(I32, [I32; N], P)>(&self.available, direct, checked)?;
         execution.write_address_register(Gpr32::Ecx, remaining)?;
         write_indices(execution, self.indices, final_indices)?;
         Ok((self.count.clone(), result))

@@ -440,7 +440,6 @@ fn function_exits_inside_value_arms_keep_the_function_result_type() {
         [
             Event::If,
             Event::Return,
-            Event::Else,
             Event::End,
             Event::Store(0),
             Event::Return,

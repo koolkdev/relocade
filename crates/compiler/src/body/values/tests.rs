@@ -79,7 +79,7 @@ fn finalization_releases_the_interning_allocation() {
     graph.blocks[0].exit = Exit::Return(vec![result]);
     assert!(graph.values.interned.capacity() > 0);
 
-    graph.compact(vec![false, true]);
+    graph.compact(|_| false);
 
     assert_eq!(graph.values.interned.capacity(), 0);
     assert_eq!(graph.values.len(), 1);

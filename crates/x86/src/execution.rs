@@ -99,15 +99,14 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     /// Builds JIT guards, then refines local candidates for their continuation.
     /// Runtime decoding and nested regions skip the callback and retain the
     /// ordinary semantics. Keep current-instruction effects after this scope.
-    /// Returns the callback's result when this path permits specialization.
-    pub(crate) fn specialize<R>(
+    pub(crate) fn specialize(
         &mut self,
-        build: impl FnOnce(&mut Self) -> Result<R, BuildError>,
-    ) -> Result<Option<R>, BuildError> {
+        build: impl FnOnce(&mut Self) -> Result<(), BuildError>,
+    ) -> Result<(), BuildError> {
         if self.can_specialize {
-            build(self).map(Some)
+            build(self)
         } else {
-            Ok(None)
+            Ok(())
         }
     }
 
