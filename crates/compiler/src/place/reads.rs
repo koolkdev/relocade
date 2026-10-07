@@ -30,14 +30,6 @@ impl Demand {
     }
 }
 
-pub(super) fn observable(operation: &Operation, summaries: &[Effects]) -> bool {
-    match operation.kind() {
-        OperationKind::Load { .. } => false,
-        OperationKind::Call { target } => summaries[target.0].must_execute(),
-        _ => true,
-    }
-}
-
 pub(super) fn prepare(graph: &mut FunctionGraph, summaries: &[Effects], reachable: &[bool]) {
     let mut demands = vec![Demand::None; graph.values.len()];
     let mut effects = vec![Demand::None; graph.effects.len()];
@@ -63,7 +55,7 @@ pub(super) fn prepare(graph: &mut FunctionGraph, summaries: &[Effects], reachabl
                 continue;
             };
             positions[id.0] = position;
-            if observable(&graph.effects[id.0].operation, summaries) {
+            if effects::observable(&graph.effects[id.0].operation, summaries) {
                 effects[id.0] = demand;
                 for input in graph.effects[id.0].operation.inputs() {
                     update(input, demand, &mut demands, &mut work);
@@ -116,7 +108,7 @@ pub(super) fn prepare(graph: &mut FunctionGraph, summaries: &[Effects], reachabl
     let mut moves = vec![Vec::new(); graph.blocks.len()];
     let mut remove = vec![false; graph.effects.len()];
     for (index, producer) in graph.effects.iter().enumerate() {
-        if observable(&producer.operation, summaries) {
+        if effects::observable(&producer.operation, summaries) {
             continue;
         }
         match effects[index] {
@@ -207,35 +199,5 @@ fn blocks_read(
     };
     let source = &graph.effects[read.0].operation;
     let other = &graph.effects[other.0].operation;
-    match (other.kind(), source.kind()) {
-        (OperationKind::Atomic { .. } | OperationKind::Fence, _) => true,
-        (OperationKind::Store { .. }, OperationKind::Load { .. }) => other
-            .location()
-            .expect("a store has a memory location")
-            .may_overlap(
-                source.location().expect("a load has a memory location"),
-                &graph.values,
-            ),
-        (OperationKind::Call { target }, OperationKind::Load { .. }) => summaries[target.0]
-            .writes_location(
-                source.location().expect("a load has a memory location"),
-                graph,
-            ),
-        (OperationKind::Store { .. }, OperationKind::Call { target }) => {
-            let location = other.location().expect("a store has a memory location");
-            match &summaries[target.0] {
-                Effects::Known { reads, .. } => reads
-                    .iter()
-                    .any(|read| read.overlaps_location(location, graph)),
-                Effects::Unknown => true,
-            }
-        }
-        (OperationKind::Call { target: writer }, OperationKind::Call { target: reader }) => {
-            match &summaries[reader.0] {
-                Effects::Known { reads, .. } => summaries[writer.0].writes_reads(reads),
-                Effects::Unknown => true,
-            }
-        }
-        _ => false,
-    }
+    effects::blocks_read(other, source, graph, summaries)
 }

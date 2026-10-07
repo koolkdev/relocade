@@ -1,59 +1,28 @@
 //! Memory footprints used when placing calls and reads.
-use std::ops::Range;
+mod operations;
+mod ranges;
+#[cfg(test)]
+mod tests;
+use operations::Accesses;
+use ranges::MemoryRange;
 
 use crate::{
-    body::{BlockItem, Exit, FunctionGraph, OperationKind, ValueDefinition},
-    memory::{Location, Mem},
+    body::{BlockItem, Exit, FunctionGraph, Operation, OperationKind},
     FunctionKind, Program,
 };
 
-#[derive(Clone, Eq, PartialEq)]
-pub(super) struct MemoryRange {
-    memory: Mem,
-    bytes: Option<Range<u64>>,
-}
-
-impl MemoryRange {
-    fn from_location(location: Location, body: &FunctionGraph) -> Self {
-        let base = body.values.representation(location.base);
-        let bytes = match body.values[base].definition {
-            ValueDefinition::Constant(base) => {
-                let start = base + u64::from(location.offset);
-                Some(start..start + u64::from(location.bytes))
-            }
-            _ => None,
-        };
-        Self {
-            memory: location.memory,
-            bytes,
-        }
-    }
-
-    fn overlaps(&self, other: &Self) -> bool {
-        self.memory == other.memory
-            && match (&self.bytes, &other.bytes) {
-                (Some(a), Some(b)) => a.start < b.end && b.start < a.end,
-                _ => true,
-            }
-    }
-
-    pub(super) fn overlaps_location(&self, location: Location, body: &FunctionGraph) -> bool {
-        self.overlaps(&Self::from_location(location, body))
-    }
-}
-
-pub(super) enum Effects {
+pub(super) enum Effects<R = Vec<MemoryRange>> {
     // A host or unresolved recursive call can have observable effects even in a
     // module with no memory declarations. Empty read/write lists cannot express it.
     Unknown,
     Known {
-        reads: Vec<MemoryRange>,
-        writes: Vec<MemoryRange>,
+        reads: R,
+        writes: R,
         synchronizes: bool,
     },
 }
 
-impl Effects {
+impl<R: AsRef<[MemoryRange]>> Effects<R> {
     pub(super) fn must_execute(&self) -> bool {
         match self {
             Self::Unknown => true,
@@ -61,37 +30,74 @@ impl Effects {
                 writes,
                 synchronizes,
                 ..
-            } => *synchronizes || !writes.is_empty(),
+            } => *synchronizes || !writes.as_ref().is_empty(),
         }
     }
 
-    pub(super) fn writes_location(&self, location: Location, body: &FunctionGraph) -> bool {
+    fn borrowed(&self) -> Effects<Accesses<'_>> {
+        match self {
+            Self::Unknown => Effects::Unknown,
+            Self::Known {
+                reads,
+                writes,
+                synchronizes,
+            } => Effects::Known {
+                reads: Accesses::Borrowed(reads.as_ref()),
+                writes: Accesses::Borrowed(writes.as_ref()),
+                synchronizes: *synchronizes,
+            },
+        }
+    }
+
+    fn blocks_read<S: AsRef<[MemoryRange]>>(&self, reader: &Effects<S>) -> bool {
+        let Effects::Known { reads, .. } = reader else {
+            return true;
+        };
+        let reads = reads.as_ref();
+        if reads.is_empty() {
+            return false;
+        }
         match self {
             Self::Unknown => true,
             Self::Known {
-                synchronizes: true, ..
-            } => true,
-            Self::Known { writes, .. } => writes
-                .iter()
-                .any(|range| range.overlaps_location(location, body)),
-        }
-    }
-
-    pub(super) fn writes_reads(&self, reads: &[MemoryRange]) -> bool {
-        match self {
-            Self::Unknown => !reads.is_empty(),
-            Self::Known {
-                synchronizes: true, ..
-            } => !reads.is_empty(),
-            Self::Known { writes, .. } => writes
-                .iter()
-                .any(|write| reads.iter().any(|read| write.overlaps(read))),
+                writes,
+                synchronizes,
+                ..
+            } => {
+                *synchronizes
+                    || writes
+                        .as_ref()
+                        .iter()
+                        .any(|write| reads.iter().any(|read| write.overlaps(read)))
+            }
         }
     }
 }
 
+pub(super) fn observable(operation: &Operation, summaries: &[Effects]) -> bool {
+    match operation.kind() {
+        OperationKind::Load { .. } => false,
+        OperationKind::Call { target } => summaries[target.0].must_execute(),
+        _ => true,
+    }
+}
+
+pub(super) fn blocks_read(
+    writer: &Operation,
+    reader: &Operation,
+    body: &FunctionGraph,
+    summaries: &[Effects],
+) -> bool {
+    if !observable(writer, summaries) {
+        return false;
+    }
+    operations::describe(writer, body, summaries)
+        .blocks_read(&operations::describe(reader, body, summaries))
+}
+
 fn include(target: &mut Vec<MemoryRange>, ranges: impl IntoIterator<Item = MemoryRange>) {
     for range in ranges {
+        let range = range.for_caller();
         if !target.contains(&range) {
             target.push(range);
         }
@@ -115,24 +121,21 @@ fn summarize(body: &FunctionGraph, summaries: &[Option<Effects>]) -> Option<Effe
                 continue;
             };
             let operation = &body.effects[effect.0].operation;
-            match operation.kind() {
-                OperationKind::Load { .. } => include(
-                    &mut reads,
-                    [MemoryRange::from_location(
-                        operation.location().expect("a load has a memory location"),
-                        body,
-                    )],
-                ),
-                OperationKind::Store { .. } => include(
-                    &mut writes,
-                    [MemoryRange::from_location(
-                        operation.location().expect("a store has a memory location"),
-                        body,
-                    )],
-                ),
-                OperationKind::Call { target } => callees.push(target),
-                OperationKind::Atomic { .. } | OperationKind::Fence => synchronizes = true,
+            if let OperationKind::Call { target } = operation.kind() {
+                callees.push(target);
+                continue;
             }
+            let Effects::Known {
+                reads: operation_reads,
+                writes: operation_writes,
+                synchronizes: operation_synchronizes,
+            } = operations::direct(operation, body)
+            else {
+                unreachable!("direct operations have known effects")
+            };
+            synchronizes |= operation_synchronizes;
+            include(&mut reads, operation_reads.as_ref().iter().cloned());
+            include(&mut writes, operation_writes.as_ref().iter().cloned());
         }
         if let Exit::TailCall { target, .. } = &block.exit {
             callees.push(*target);

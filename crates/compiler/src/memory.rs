@@ -1,5 +1,5 @@
 use crate::{
-    body::{Operation, ValueDefinition, ValueTable},
+    body::Operation,
     AtLeast, BlockBuilder, BuildError, Program, Val, ValueType, F64, I1, I16, I32, I64, I8,
 };
 
@@ -100,27 +100,6 @@ pub(super) struct Location {
     pub(super) base: usize,
     pub(super) offset: u32,
     pub(super) bytes: u8,
-}
-
-impl Location {
-    pub(super) fn may_overlap(self, other: Self, table: &ValueTable) -> bool {
-        if self.memory != other.memory {
-            return false;
-        }
-        let left = table.representation(self.base);
-        let right = table.representation(other.base);
-        let (left_start, right_start) = match (table[left].definition, table[right].definition) {
-            (ValueDefinition::Constant(a), ValueDefinition::Constant(b)) => {
-                (a + u64::from(self.offset), b + u64::from(other.offset))
-            }
-            _ if left == right => (u64::from(self.offset), u64::from(other.offset)),
-            _ => return true,
-        };
-        // Displacements add without wrapping, so equal bases preserve disjoint
-        // spans. Different unknown bases may still name the same bytes.
-        left_start < right_start + u64::from(other.bytes)
-            && right_start < left_start + u64::from(self.bytes)
-    }
 }
 
 impl Program {

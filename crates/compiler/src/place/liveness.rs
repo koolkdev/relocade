@@ -33,7 +33,7 @@ pub(super) fn prune(graph: &mut FunctionGraph, summaries: &[Effects]) -> Vec<boo
         }
         for item in &block.items {
             if let BlockItem::Effect(effect) = item {
-                if reads::observable(&graph.effects[effect.0].operation, summaries) {
+                if effects::observable(&graph.effects[effect.0].operation, summaries) {
                     live_effects[effect.0] = true;
                     pending.extend(graph.inputs(*item));
                 }
