@@ -2,6 +2,7 @@ mod access;
 mod accesses;
 mod bulk;
 mod page_table;
+mod physical_map;
 mod transfer;
 mod update;
 mod virtual_memory;
@@ -9,6 +10,7 @@ mod virtual_memory;
 pub(crate) use access::Access;
 pub(crate) use accesses::Accesses;
 pub(crate) use page_table::{PageCache, PageCacheInputs};
+pub use physical_map::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 
 use crate::{alu::OperandUpdate, ExecutionProfile};
 use access::FaultHandler;
