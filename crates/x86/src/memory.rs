@@ -1,5 +1,6 @@
 mod access;
 mod accesses;
+mod bulk;
 mod page_table;
 mod transfer;
 mod update;
@@ -122,6 +123,33 @@ impl Memory {
     ) -> Result<(), BuildError> {
         match self {
             Self::Virtual(memory) => memory.store(body, backing, value),
+        }
+    }
+
+    pub(crate) fn copy(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        destination: &Val<I32>,
+        source: &Val<I32>,
+        bytes: &Val<I32>,
+    ) -> Result<(), BuildError> {
+        match self {
+            Self::Virtual(memory) => memory.copy(body, destination, source, bytes),
+        }
+    }
+
+    pub(crate) fn fill<T: MemoryInt>(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        destination: &Val<I32>,
+        value: &Val<T>,
+        bytes: &Val<I32>,
+    ) -> Result<(), BuildError>
+    where
+        I32: wasm86_compiler::AtLeast<T>,
+    {
+        match self {
+            Self::Virtual(memory) => memory.fill(body, destination, value, bytes),
         }
     }
 }

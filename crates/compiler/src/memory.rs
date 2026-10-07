@@ -1,9 +1,10 @@
 use crate::{
-    body::Operation,
-    AtLeast, BlockBuilder, BuildError, Program, Val, ValueType, F64, I1, I16, I32, I64, I8,
+    body::Operation, AtLeast, BlockBuilder, BuildError, Program, Val, ValueType, F64, I1, I16, I32,
+    I64, I8,
 };
 
 mod atomic;
+mod bulk;
 pub use atomic::AtomicAccess;
 pub(super) use atomic::{AtomicKind, AtomicUpdate};
 
@@ -269,6 +270,21 @@ mod tests {
                     Some(BuildError::ForeignBody)
                 );
                 let local = body.value::<I32>(7).unwrap();
+                for [destination, value, bytes] in [
+                    [&foreign, &local, &local],
+                    [&local, &foreign, &local],
+                    [&local, &local, &foreign],
+                ] {
+                    assert_eq!(
+                        body.memory_fill(memory, destination, value, bytes),
+                        Err(BuildError::ForeignBody)
+                    );
+                    assert_eq!(
+                        body.memory_copy(memory, destination, memory, value, bytes),
+                        Err(BuildError::ForeignBody)
+                    );
+                }
+
                 for (expected, replacement) in [(&foreign, &local), (&local, &foreign)] {
                     assert_eq!(
                         body.atomic::<I32>(memory, 0, 0)
