@@ -160,7 +160,8 @@ at_least!(I1: I1);
 at_least!(I8: I1, I8);
 at_least!(I16: I1, I8, I16);
 at_least!(I32: I1, I8, I16, I32);
-at_least!(I64: I1, I8, I16, I32, I64);
+// Every supported integer fits in I64, including an otherwise generic IntType.
+impl<T: IntType> AtLeast<T> for I64 {}
 
 /// An integer type with a supported scalar type exactly twice as wide.
 ///

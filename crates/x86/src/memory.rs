@@ -2,6 +2,7 @@ mod access;
 mod accesses;
 mod bulk;
 mod page_table;
+mod physical;
 mod physical_map;
 mod transfer;
 mod update;
@@ -15,12 +16,21 @@ pub use physical_map::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 use crate::{alu::OperandUpdate, ExecutionProfile};
 use access::FaultHandler;
 use page_table::{PRESENT, WRITABLE};
+use physical::PhysicalMemory;
 use virtual_memory::VirtualMemory;
-use wasm86_compiler::{BlockBuilder, BuildError, MemoryInt, Program, Val, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, MemoryInt, Program, Val, I1, I32};
 
 /// Selects the generated memory model once, during module construction.
 pub(crate) enum Memory {
     Virtual(VirtualMemory),
+    #[cfg_attr(not(test), allow(dead_code))]
+    Physical(PhysicalMemory),
+}
+
+/// A non-faulting probe result. Backing is usable only when the span is available.
+pub(crate) struct DirectRange {
+    pub(crate) unavailable: Val<I1>,
+    pub(crate) physical: Val<I32>,
 }
 
 #[derive(Clone, Copy)]
@@ -47,6 +57,12 @@ impl Intent {
 }
 
 impl Memory {
+    /// Virtual mappings stay fixed during an entry. Physical MMIO callbacks can
+    /// remap backing, so their execution paths cannot retain mapping proofs.
+    pub(crate) fn has_stable_mappings(&self) -> bool {
+        matches!(self, Self::Virtual(_))
+    }
+
     pub(crate) fn declare(
         program: &mut Program,
         profile: ExecutionProfile,
@@ -55,7 +71,7 @@ impl Memory {
             ExecutionProfile::Protected(_) => VirtualMemory::declare(program).map(Self::Virtual),
         }
     }
-    /// Resolves a complete segment-checked span, optionally reporting architectural faults.
+    /// Resolves a segment-checked span. Physical routing remains live until each transfer.
     pub(crate) fn resolve_access(
         &self,
         body: &mut BlockBuilder<'_>,
@@ -69,6 +85,21 @@ impl Memory {
             Self::Virtual(memory) => {
                 memory.resolve_access(body, start, bytes, intent, cache, on_fault)
             }
+            Self::Physical(_) => {
+                let bytes = body.value(bytes)?;
+                let constant_bytes = body.constant_bits(&bytes)?.map(|bytes| bytes as u32);
+                if on_fault.is_some() {
+                    assert_ne!(constant_bytes, Some(0), "a faulting span must be nonempty");
+                }
+                Ok(Access {
+                    linear: start.clone(),
+                    physical: body.value(0)?,
+                    denied: bytes.eq(0),
+                    unavailable: body.value(true)?,
+                    intent,
+                    constant_bytes,
+                })
+            }
         }
     }
 
@@ -80,6 +111,7 @@ impl Memory {
     ) -> Result<Val<T>, BuildError> {
         match self {
             Self::Virtual(memory) => memory.read(body, access, offset),
+            Self::Physical(memory) => memory.read(body, access, offset),
         }
     }
 
@@ -92,6 +124,7 @@ impl Memory {
     ) -> Result<(), BuildError> {
         match self {
             Self::Virtual(memory) => memory.write(body, access, offset, value),
+            Self::Physical(memory) => memory.write(body, access, offset, value),
         }
     }
 
@@ -103,6 +136,7 @@ impl Memory {
     ) -> Result<Val<T>, BuildError> {
         match self {
             Self::Virtual(memory) => memory.atomic_update(body, access, update),
+            Self::Physical(memory) => memory.atomic_update(body, access, update),
         }
     }
 
@@ -114,6 +148,7 @@ impl Memory {
     ) -> Result<Val<T>, BuildError> {
         match self {
             Self::Virtual(memory) => memory.load(body, backing, offset),
+            Self::Physical(memory) => memory.load(body, backing, offset),
         }
     }
 
@@ -125,6 +160,7 @@ impl Memory {
     ) -> Result<(), BuildError> {
         match self {
             Self::Virtual(memory) => memory.store(body, backing, value),
+            Self::Physical(memory) => memory.store(body, backing, value),
         }
     }
 
@@ -137,6 +173,7 @@ impl Memory {
     ) -> Result<(), BuildError> {
         match self {
             Self::Virtual(memory) => memory.copy(body, destination, source, bytes),
+            Self::Physical(_) => unreachable!("bulk transfers require stable mappings"),
         }
     }
 
@@ -152,6 +189,7 @@ impl Memory {
     {
         match self {
             Self::Virtual(memory) => memory.fill(body, destination, value, bytes),
+            Self::Physical(_) => unreachable!("bulk transfers require stable mappings"),
         }
     }
 }

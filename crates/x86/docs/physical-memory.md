@@ -1,7 +1,15 @@
-# Physical memory map
+# Physical memory
 
-`PhysicalMemoryMap` constructs routing metadata independently of execution.
-The available execution profiles use virtual memory.
+The generated physical memory backend routes RAM, ROM, holes and MMIO through
+Wasm. Only MMIO calls the host. The available execution profiles use virtual
+memory; physical transfers are exercised directly through the internal backend.
+
+## Physical page map
+
+The host supplies two distinct, unshared Wasm memories in the `wasm86` module:
+`guest` for backing bytes and `physicalMap` for routing metadata. Both imports
+have a minimum size of one 64-KiB Wasm page. The host allocates enough memory for
+all mapped backing. The routing table fits in one Wasm page.
 
 `PhysicalMemoryMap` contains 272 entries for complete 4-KiB physical pages below
 0x110000. This covers the highest ordinary real-mode address, 0x10ffef, formed by
@@ -39,5 +47,50 @@ byte for host inspection, adjusting direct offsets to that byte.
 
 `to_bytes()` produces a fixed 2176-byte image without a header. Each entry has a
 little-endian u32 kind (0 = unmapped, 1 = RAM, 2 = ROM, 3 = MMIO), followed by a u32
-backing-page offset. Unmapped and MMIO offsets are zero. Within the image,
-physical page `p` has its kind at `p * 8` and backing offset at `p * 8 + 4`.
+backing-page offset. Unmapped and MMIO offsets are zero. Install the image at
+offset zero in `physicalMap`; physical page `p` has its kind at `p * 8` and backing
+offset at `p * 8 + 4`. Runtime mapping changes update the installed Wasm table.
+
+## MMIO callbacks
+
+Both functions belong to the `wasm86` import module:
+
+| Import | Wasm signature |
+| --- | --- |
+| `readMmio` | `(address: i32, bytes: i32) -> i64` |
+| `writeMmio` | `(address: i32, bytes: i32, value: i64) -> ()` |
+
+Addresses use an unsigned i32 carrier within the real-mode physical range.
+`bytes` is a count from 1 through 8; the whole request lies in MMIO.
+Values use little-endian order in the low `bytes * 8` bits. Upper read-result bits
+are ignored; upper write-value bits are zero. The i64 is a value container, not an
+eight-byte device access.
+
+Each transferred operand field retains its width when its whole span is MMIO,
+including across adjacent MMIO pages. A span crossing different routing kinds
+is split at the page boundary. A four-byte field can therefore leave a three-byte
+MMIO portion. The host adapter applies its bus and device rules to each request;
+one callback need not correspond to one hardware bus transaction. Wider structured
+operands transfer their constituent fields separately.
+
+Callbacks complete synchronously and execute even when a read result is unused.
+They may change backing bytes and installed routing. The next transfer, including
+the remaining portion of a split access, reads the current routing. An already
+issued MMIO request covers its entire selected span. Callbacks must not inspect or
+modify CPU backing state or reenter guest execution. There is no retry result;
+unexpected host or Wasm traps are implementation errors.
+
+Execution assumes one guest CPU with private backing. The host must not advance
+other CPUs or bus masters during an entry. Locked updates use a read followed by
+a write under this contract; the ABI does not expose a lock boundary for
+concurrent DMA or another processor.
+
+## Generated access
+
+Callers establish physical table bounds before lookup. A small inline check
+handles direct accesses within one RAM/ROM page. Routing, splitting and partial
+transfer assembly share one reader and one writer per module, created only when
+used. Helpers are Wasm functions; host calls occur only in their MMIO branches.
+
+Physical access records retain the checked span. Each transfer reads live routing,
+so retained mapping proofs are limited to virtual memory.

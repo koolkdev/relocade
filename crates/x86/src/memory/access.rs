@@ -13,7 +13,8 @@ pub(super) type FaultHandler<'handler> = dyn for<'body> FnMut(BlockBuilder<'body
 
 /// Resolution of a complete span before any guest transfer. Denied spans are
 /// always unavailable for direct transfer. Otherwise, `unavailable` identifies
-/// scattered backing. Non-faulting callers must guard transfers with `!denied`.
+/// scattered virtual backing or physical routing resolved at transfer time.
+/// Non-faulting callers must guard transfers with `!denied`.
 #[derive(Clone)]
 pub(crate) struct Access {
     pub(super) linear: Val<I32>,

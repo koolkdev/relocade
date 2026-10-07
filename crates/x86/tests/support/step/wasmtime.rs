@@ -4,15 +4,18 @@ use ::wasmtime::{Caller, Linker, Memory, MemoryType, Store, Trap};
 use std::sync::Arc;
 
 use super::{
-    changes, Argument, Event, Input, Observation, Outcome, SegmentQuery, SegmentResolution,
-    Snapshot, TestModule,
+    changes, Argument, Event, Input, MmioUpdate, Observation, Outcome, SegmentQuery,
+    SegmentResolution, Snapshot, TestModule,
 };
+
+mod physical;
 
 struct ExecutionEvents {
     events: Vec<Event>,
     machine_unchanged: bool,
     segment_resolutions: std::vec::IntoIter<SegmentResolution>,
     segment_queries: std::vec::IntoIter<SegmentQuery>,
+    mmio_updates: std::vec::IntoIter<MmioUpdate>,
 }
 
 impl TestModule {
@@ -26,6 +29,7 @@ impl TestModule {
                 machine_unchanged: true,
                 segment_resolutions: input.segment_resolutions.clone().into_iter(),
                 segment_queries: input.segment_queries.clone().into_iter(),
+                mmio_updates: input.mmio_updates.clone().into_iter(),
             },
         );
         let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
@@ -123,6 +127,19 @@ impl TestModule {
                 },
             )
             .unwrap();
+        if std::iter::once(module)
+            .chain(
+                self.interpreter
+                    .map(|interpreter| interpreter.module.wasmtime()),
+            )
+            .any(|module| {
+                module
+                    .imports()
+                    .any(|import| import.module() == "wasm86" && import.name() == "physicalMap")
+            })
+        {
+            physical::register(&mut linker, &mut store, guest, input);
+        }
         if let Some(interpreter) = self.interpreter {
             let instance = linker
                 .instantiate(&mut store, interpreter.module.wasmtime())
@@ -208,6 +225,7 @@ impl TestModule {
             0,
             "unused segment queries"
         );
+        assert_eq!(store.data().mmio_updates.len(), 0, "unused MMIO updates");
         let guest_unchanged = &*guest_before == guest.data(&store);
         let machine_unchanged = store.data().machine_unchanged;
         Observation {

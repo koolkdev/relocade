@@ -17,6 +17,10 @@ pub(crate) struct Input {
     pub(crate) cpu: Vec<u8>,
     pub(crate) guest: Vec<(u32, Vec<u8>)>,
     pub(crate) machine: Vec<(u32, Vec<u8>)>,
+    pub(crate) physical_pages: Vec<(u32, u32, bool)>,
+    pub(crate) mmio_pages: Vec<(u32, u32)>,
+    pub(crate) mmio_updates: Vec<MmioUpdate>,
+    pub(crate) observe_mmio: bool,
     pub(crate) arguments: Vec<Argument>,
     pub(crate) observe_guest: bool,
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
@@ -32,6 +36,10 @@ impl Input {
             cpu: cpu.to_vec(),
             guest: Vec::new(),
             machine: Vec::new(),
+            physical_pages: Vec::new(),
+            mmio_pages: Vec::new(),
+            mmio_updates: Vec::new(),
+            observe_mmio: false,
             arguments: Vec::new(),
             observe_guest: false,
             segment_resolutions: Vec::new(),
@@ -40,6 +48,13 @@ impl Input {
             dispatch_return: i64::MIN,
         }
     }
+}
+
+/// Device changes applied after the corresponding MMIO transfer completes.
+#[derive(Clone, Default, Serialize)]
+pub(crate) struct MmioUpdate {
+    pub(crate) guest: Vec<(u32, Vec<u8>)>,
+    pub(crate) map: Vec<(u32, Vec<u8>)>,
 }
 
 /// Host memory edits applied immediately before an entry invocation.
@@ -68,6 +83,14 @@ pub(crate) struct Snapshot {
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Event {
+    MmioRead {
+        address: u32,
+        bytes: u32,
+    },
+    MmioWrite {
+        address: u32,
+        value: Vec<u8>,
+    },
     Interpret {
         snapshot: Snapshot,
     },
