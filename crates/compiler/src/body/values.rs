@@ -28,7 +28,7 @@ pub(crate) struct ExpressionResult {
 }
 
 impl ValueTable {
-    pub(super) fn compact(&mut self, remapping: &super::compact::Remapping) {
+    pub(super) fn compact(&mut self, remapping: &super::prune::Remapping) {
         // No more construction or folding follows finalization. Release the
         // lookup table before changing the values and IDs that supply its keys.
         self.interned = HashTable::new();

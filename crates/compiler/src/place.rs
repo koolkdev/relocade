@@ -8,7 +8,6 @@ mod dominance;
 mod effects;
 mod facts;
 mod joins;
-mod liveness;
 mod reads;
 mod shared;
 mod specialize;
@@ -74,9 +73,7 @@ fn predecessors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
 fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
     // Release placement's facts and bindings before pruning the finished graph.
     place_calculations(graph, summaries);
-    graph.simplify_control();
-    let live_values = liveness::prune(graph, summaries);
-    graph.compact(live_values);
+    graph.compact(|operation| effects::observable(operation, summaries));
 }
 
 fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
@@ -102,7 +99,9 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
         }
     }
     // Remove unused result channels before they can create false read demands.
-    liveness::prune(graph, summaries);
+    graph.prune_unused(&reachable, |operation| {
+        effects::observable(operation, summaries)
+    });
     reads::prepare(graph, summaries, &reachable);
     let predecessors = predecessors(graph, &reachable);
     let dominators = Dominators::new(graph.entry.0, &successors(graph, &reachable), &predecessors);

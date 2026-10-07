@@ -1,32 +1,27 @@
 //! Resolve constant exits and keep lexical nesting consistent with live edges.
-use super::{BlockId, Exit, FunctionGraph, Layout};
+use super::super::{BlockId, Exit, FunctionGraph, Layout};
 
 #[cfg(test)]
 mod tests;
 
-impl FunctionGraph {
-    /// Finish control selection before liveness removes discarded operands.
-    /// The emitter receives only dynamic decisions and scopes needed by branches.
-    pub(crate) fn simplify_control(&mut self) {
-        let layout = std::mem::take(&mut self.layout);
-        self.layout = Control::new(self).simplify(layout);
-        for block in &mut self.blocks {
-            if let Some(index) = block.exit.constant_edge_index(&self.values) {
-                block.exit = Exit::Jump(block.exit.edge(index).clone());
-            }
+pub(super) fn simplify(graph: &mut FunctionGraph, reachable: &[bool]) {
+    let layout = std::mem::take(&mut graph.layout);
+    graph.layout = Control::new(graph, reachable).simplify(layout);
+    for block in &mut graph.blocks {
+        if let Some(index) = block.exit.constant_edge_index(&graph.values) {
+            block.exit = Exit::Jump(block.exit.edge(index).clone());
         }
     }
 }
 
 struct Control<'a> {
     graph: &'a FunctionGraph,
-    reachable: Vec<bool>,
+    reachable: &'a [bool],
     incoming: Vec<Vec<BlockId>>,
 }
 
 impl<'a> Control<'a> {
-    fn new(graph: &'a FunctionGraph) -> Self {
-        let reachable = graph.reachable();
+    fn new(graph: &'a FunctionGraph, reachable: &'a [bool]) -> Self {
         let mut incoming = vec![Vec::new(); graph.blocks.len()];
         for (source, &live) in reachable.iter().enumerate() {
             if live {

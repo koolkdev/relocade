@@ -74,7 +74,7 @@ fn resolved_conditionals_and_switches_keep_only_the_surviving_layout() {
         };
         graph.layout = vec![layout, Layout::Block(join)];
 
-        graph.simplify_control();
+        graph.compact(|_| true);
 
         assert!(matches!(&graph.blocks[0].exit, Exit::Jump(edge) if edge.target == arms[arm]));
         assert!(
@@ -131,7 +131,7 @@ fn scopes_keep_early_branch_labels_and_flatten_a_final_entrance() {
             Layout::Block(after),
         ];
 
-        graph.simplify_control();
+        graph.compact(|_| true);
 
         if early {
             assert!(matches!(graph.layout[0], Layout::Scope { .. }));

@@ -1,10 +1,9 @@
 //! Typed values, effects and explicit control edges owned by one function.
 use crate::{memory::Mem, Expression, Func, Type};
 
-mod compact;
-mod control;
 mod operation;
 mod producer;
+mod prune;
 mod values;
 pub(super) use operation::{Operation, OperationKind};
 pub(super) use producer::{BlockItem, Effect, EffectId};
