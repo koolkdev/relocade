@@ -117,7 +117,14 @@ export default function execute([module, interpreter], { entry, interpreter_entr
         && (attributes(segment) & 15) === kind;
     };
     const codeBig = (attributes(1) & 16) !== 0;
-    const compatible = codeBig === (profile !== 'segmented16')
+    const real = segment => {
+      const offset = 60 + segment * 12;
+      return cpu.getUint32(offset, true) === cpu.getUint16(offset + 8, true) * 16
+        && cpu.getUint32(offset + 4, true) === 0xffff
+        && attributes(segment) === (segment === 1 ? 7 : 5);
+    };
+    const compatible = codeBig === !['segmented16', 'real16'].includes(profile)
+      && (profile !== 'real16' || [0, 1, 2, 3, 4, 5].every(real))
       && (profile !== 'flat32' || (flat(1, 7) && [0, 2, 3].every(s => flat(s, 5))
         && (attributes(2) & 16) !== 0));
     if (!compatible) throw new Error(`${entry} requires compatible ${profile} segment state`);

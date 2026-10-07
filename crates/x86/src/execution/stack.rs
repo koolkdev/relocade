@@ -23,9 +23,9 @@ pub(crate) struct StackFrame {
 }
 
 impl StackFrame {
-    /// Proves a typed field's page access inside the segment-checked frame.
-    /// Callers prove every write field before storing any of them; field order
-    /// determines which page fault wins when several fields are inaccessible.
+    /// Prepares a typed field inside the segment-checked frame. Protected mode
+    /// also checks its page access. Callers prepare every write field before
+    /// storing any of them; field order determines which page fault wins.
     pub(crate) fn field<'module, T: RegisterType>(
         &self,
         execution: &mut ExecutionBuilder<'_, 'module>,

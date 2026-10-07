@@ -96,7 +96,7 @@ impl Compiler {
                 decode::snapshot(remaining_bytes, next_eip, profile.code_default_size())?;
             next_eip = decoded_instruction.fallthrough_eip;
             remaining_bytes = rest;
-            let ends_block = decoded_instruction.instruction.ends_block();
+            let ends_block = decoded_instruction.instruction.ends_block(profile);
             decoded_instructions.push(decoded_instruction);
             if ends_block {
                 break;

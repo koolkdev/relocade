@@ -19,6 +19,26 @@ pub struct StoredSegment {
 }
 
 impl StoredSegment {
+    /// Canonical ordinary real-mode cache. Zero is a usable segment value.
+    /// This is host initialization, not a protected-to-real mode transition.
+    pub const fn real_mode(segment: Segment, selector: u16) -> Self {
+        Self {
+            base: (selector as u32) << 4,
+            limit: 0xffff,
+            selector,
+            attributes: SegmentAttributes::new(
+                match segment {
+                    Segment::Cs => SegmentKind::Code { readable: true },
+                    _ => SegmentKind::Data {
+                        writable: true,
+                        expand_down: false,
+                    },
+                },
+                SegmentDefaultSize::Bits16,
+            ),
+        }
+    }
+
     pub const fn flat_code32(selector: u16) -> Self {
         Self {
             base: 0,
@@ -70,6 +90,20 @@ pub struct Segments {
 }
 
 impl Segments {
+    /// Initializes ordinary real-mode caches with zero visible segment values.
+    /// The host may replace individual caches with [`StoredSegment::real_mode`].
+    pub const fn real_mode() -> Self {
+        let data = StoredSegment::real_mode(Segment::Ds, 0);
+        Self {
+            es: data,
+            cs: StoredSegment::real_mode(Segment::Cs, 0),
+            ss: data,
+            ds: data,
+            fs: data,
+            gs: data,
+        }
+    }
+
     /// Initializes flat caches with zero visible selectors. This host setup is
     /// neither a processor reset image nor a protected-mode segment-load operation.
     pub const fn flat32() -> Self {

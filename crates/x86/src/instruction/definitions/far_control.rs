@@ -1,10 +1,11 @@
 //! Far jumps, calls and returns end the current execution entry.
 //!
-//! Frame compatibility policy: all operand-sized slots must fit SS, but paging
-//! and transfers cover only their values, including two selector bytes. Dword
-//! selector padding stays untouched. This combines RET's full-slot capacity check
-//! with P6 selector-transfer behavior; their descriptions leave the access extent
-//! ambiguous. See Intel SDM Volume 3B, section 22.31.1:
+//! Protected CALL and all returns require complete operand-sized slots in SS.
+//! Real CALL checks only the transferred span. Backing checks and transfers cover
+//! the values, including two selector bytes; dword selector padding stays untouched.
+//! This combines RET's full-slot capacity check with P6 selector-transfer behavior;
+//! their descriptions leave the access extent ambiguous. See Intel SDM Volume 3B,
+//! section 22.31.1:
 //! <https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-3b-part-2-manual.pdf#page=575>.
 
 use super::*;
@@ -57,6 +58,7 @@ instruction_families! {
     IRET {
         execute: return_interrupt::<_>;
         effects: [memory_read, control_transfer, segment_load];
+        real_mode: Unsupported;
         forms { 0xCF => word_or_dword(); }
     }
 }
@@ -140,9 +142,15 @@ where
     I32: AtLeast<T>,
 {
     let target = CodeTarget::resolve(execution, offset, &selector)?;
-    let frame = execution.push_frame(2 * T::BYTES, 2 * T::BYTES)?;
+    // Real-mode CALL checks the transferred offset and selector. A dword
+    // selector slot still reserves four bytes, but its high word is untouched.
+    let checked_bytes = if execution.profile() == crate::ExecutionProfile::Real16 {
+        T::BYTES + 2
+    } else {
+        2 * T::BYTES
+    };
+    let frame = execution.push_frame(2 * T::BYTES, checked_bytes)?;
     target.check_limit(execution)?;
-    // Both slots must fit SS. The selector's unused high word is not touched.
     // Prove both fields in push order before writing either of them.
     let selector_slot = frame.field::<I16>(execution, T::BYTES)?;
     let offset_slot = frame.field::<T>(execution, 0)?;
@@ -201,14 +209,16 @@ fn resolve_return_target<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
-    // Returns cannot go inward. With CPL fixed at 3, only RPL 3 is valid.
-    // After this check the direct-CS resolver implements the return policy.
-    execution.fault_if(
-        selector.and(3).ne(3),
-        Exception::GeneralProtection {
-            error_code: selector.unsigned().extend::<I32>().and(0xfffc),
-        },
-    )?;
+    if execution.profile() != crate::ExecutionProfile::Real16 {
+        // Protected-mode returns cannot go inward. With CPL fixed at 3, only
+        // RPL 3 is valid; real-mode segment values have no privilege bits.
+        execution.fault_if(
+            selector.and(3).ne(3),
+            Exception::GeneralProtection {
+                error_code: selector.unsigned().extend::<I32>().and(0xfffc),
+            },
+        )?;
+    }
     let target = CodeTarget::resolve(execution, offset, selector)?;
     target.check_limit(execution)?;
     Ok(target)

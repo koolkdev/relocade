@@ -61,9 +61,12 @@ where
     )?;
 
     let allocated = pointer.with_offset(display_end.sub(allocation.unsigned().extend::<I32>()));
-    // ENTER probes a write at the allocated pointer without storing. Earlier
-    // pushes remain visible if this check or a display copy faults.
-    allocated.check_write(execution, T::BYTES)?;
+    // Protected-mode ENTER probes the allocation without storing. Real16's
+    // 16-bit SP always fits its 64 KiB SS, and unused allocation needs no backing.
+    // Earlier pushes remain visible if a check or display copy faults.
+    if execution.profile() != crate::ExecutionProfile::Real16 {
+        allocated.check_write(execution, T::BYTES)?;
+    }
     TypedLocation::<T>::register(Gpr32::Ebp).write(execution, frame_pointer.truncate::<T>())?;
     allocated.commit(execution)
 }

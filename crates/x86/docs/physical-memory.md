@@ -1,8 +1,9 @@
 # Physical memory
 
-The generated physical memory backend routes RAM, ROM, holes and MMIO through
-Wasm. Only MMIO calls the host. The available execution profiles use virtual
-memory; physical transfers are exercised directly through the internal backend.
+`ExecutionProfile::Real16` translates segment offsets to physical addresses, then
+uses generated Wasm to route accesses. RAM and ROM reads use `guest` backing;
+only MMIO accesses call the host. Ordinary real mode does not raise a page fault
+for an absent physical mapping. A20 remains enabled in this profile.
 
 ## Physical page map
 
@@ -85,12 +86,23 @@ other CPUs or bus masters during an entry. Locked updates use a read followed by
 a write under this contract; the ABI does not expose a lock boundary for
 concurrent DMA or another processor.
 
-## Generated access
+## Generated access and fetch
 
-Callers establish physical table bounds before lookup. A small inline check
-handles direct accesses within one RAM/ROM page. Routing, splitting and partial
-transfer assembly share one reader and one writer per module, created only when
-used. Helpers are Wasm functions; host calls occur only in their MMIO branches.
+Segment checks establish physical table bounds before lookup, including for
+speculative fetch windows. A small inline check handles direct accesses within
+one RAM/ROM page. Routing,
+splitting and partial transfer assembly share one reader and one writer per
+module, created only when used. Helpers are Wasm functions; host calls occur only
+in their MMIO branches. Separate snapshot modules each contain their own helpers.
 
-Physical access records retain the checked span. Each transfer reads live routing,
-so retained mapping proofs are limited to virtual memory.
+The interpreter checks CS and probes RAM/ROM for a direct fetch window without
+calling a device. Windows stop at page boundaries; unavailable windows use exact
+reads of required bytes. Actual MMIO instruction fetches use one-byte requests
+in decoder order, without reading ahead. This is the emulator's functional fetch
+contract, not a model of a particular CPU's prefetch bus transactions. Physical
+routing is rechecked after each instruction and is not held in the protected
+interpreter's page cache.
+
+Snapshot blocks use compiled bytes under the ordinary host validity contract.
+Code and mapping changes must preserve that contract throughout execution; the
+interpreter can observe code remapping at the next instruction.

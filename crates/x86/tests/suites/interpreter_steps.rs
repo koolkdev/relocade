@@ -168,6 +168,7 @@ fn missing_successor_fields_preserve_completed_instruction_progress() {
             cpu: state(start),
             guest: vec![(0x3000 + (start & 0xfff), code.to_vec())],
             machine: vec![(4, vec![1, 0x30, 0, 0])],
+            physical_pages: vec![],
         };
         let mut completed = image.cpu;
         completed.registers.eax = 42;
@@ -261,6 +262,7 @@ fn missing_instruction_bytes_and_unsupported_opcodes_preserve_entry_state() {
             cpu: state(start),
             guest,
             machine,
+            physical_pages: vec![],
         };
         image.check_unchanged_exit(Engine::Wasmtime, TestModule::interpreter(), name, exit);
     }
@@ -272,6 +274,7 @@ fn interpreter_reads_live_bytes_while_a_snapshot_keeps_its_compiled_instruction(
         cpu: state(0x1000),
         guest: vec![(0x3000, vec![0xbf, 7, 0, 0, 0])],
         machine: vec![(4, vec![1, 0x30, 0, 0])],
+        physical_pages: vec![],
     };
     let snapshot =
         TestModule::new(&compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1).unwrap());

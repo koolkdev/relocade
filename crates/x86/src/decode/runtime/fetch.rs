@@ -1,4 +1,4 @@
-//! Instruction reads translate CS offsets before consulting linear page mappings.
+//! Instruction reads translate and check CS before accessing the selected memory model.
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 
@@ -50,20 +50,21 @@ impl<'module> InstructionFetch<'module> {
         let segment = self
             .segments
             .check(body, &Segment::Cs.into(), eip, bytes, Intent::Fetch)?;
-        let access =
-            self.memory
-                .resolve_access(body, &segment.linear, bytes, Intent::Fetch, cache, None)?;
-        let mut unavailable = access.unavailable;
-        if let Some(denied) = segment.denied {
-            unavailable = denied.or(unavailable);
-        }
+        let direct = self.memory.check_direct_access(
+            body,
+            &segment.linear,
+            bytes,
+            Intent::Fetch,
+            segment.denied,
+            cache,
+        )?;
         Ok(FetchWindow {
-            unavailable,
-            physical: access.physical,
+            unavailable: direct.unavailable,
+            physical: direct.physical,
         })
     }
 
-    /// Exact reads check CS first, then the page containing that required byte.
+    /// Exact reads check CS first, then transfer only the required byte.
     pub(super) fn byte(
         &self,
         body: &mut BlockBuilder<'_>,

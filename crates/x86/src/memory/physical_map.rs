@@ -129,7 +129,7 @@ impl PhysicalMemoryMap {
     /// Serializes 272 entries of eight bytes each, without a header. Each entry
     /// contains a little-endian u32 kind (0 = unmapped, 1 = RAM, 2 = ROM, 3 = MMIO)
     /// followed by a u32 backing-page offset. Unmapped and MMIO offsets are zero.
-    /// Physical page `p` starts at byte `p * 8` within the 2176-byte image.
+    /// The host installs the 2176-byte image at offset zero in `physicalMap`.
     /// This format uses explicit fields, independent of Rust's enum layout.
     pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
         let mut bytes = [0; Self::BYTE_LEN];

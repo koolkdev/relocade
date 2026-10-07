@@ -11,7 +11,7 @@ mod x87;
 
 pub(crate) use control::CodeTarget;
 pub(crate) use operands::WriteTarget;
-pub(crate) use strings::StringOperand;
+pub(crate) use strings::{ResolvedStrings, StringOperand};
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
 
@@ -129,6 +129,10 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     pub(crate) fn is_locked(&self) -> bool {
         self.locked
+    }
+
+    pub(crate) fn profile(&self) -> ExecutionProfile {
+        self.segments.profile()
     }
 
     /// Builds compiler values, including pure control-flow joins, in the current

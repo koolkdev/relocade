@@ -26,6 +26,10 @@ impl<'cpu> SegmentAccess<'cpu> {
         Self { cpu, profile }
     }
 
+    pub(crate) fn profile(&self) -> ExecutionProfile {
+        self.profile
+    }
+
     /// Returns the D/B bit, using the profile when it proves the attribute.
     pub(crate) fn is_segment_big(
         &self,
@@ -39,6 +43,7 @@ impl<'cpu> SegmentAccess<'cpu> {
             Segment::Ss if self.profile == ExecutionProfile::Protected(SegmentProfile::Flat32) => {
                 body.value(1)
             }
+            _ if self.profile == ExecutionProfile::Real16 => body.value(0),
             _ => Ok(self
                 .cpu
                 .read_segment(body, &segment.into())?
@@ -126,7 +131,16 @@ impl<'cpu> SegmentAccess<'cpu> {
                 let cache = self.cpu.read_segment(body, segment)?;
                 Ok(SegmentCheck {
                     linear: cache.base.add(offset),
-                    denied: Some(cache.access_denied(offset, &bytes, intent)),
+                    denied: Some(if self.profile == ExecutionProfile::Real16 {
+                        // Canonical real-mode caches have a 64 KiB limit. Type
+                        // permissions do not apply, including writes through CS.
+                        bytes
+                            .unsigned()
+                            .ge(0x10001u32)
+                            .or(offset.unsigned().ge(Val::<I32>::from(0x10001).sub(&bytes)))
+                    } else {
+                        cache.access_denied(offset, &bytes, intent)
+                    }),
                 })
             }
         }

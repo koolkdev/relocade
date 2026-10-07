@@ -4,13 +4,14 @@ macro_rules! instruction_families {
     ($($family:ident {
         execute: $handler:ident $(::<$size:tt>)? $(($($argument:expr),* $(,)?))?;
         $(effects: [$($effect:ident),* $(,)?];)?
+        $(real_mode: $real_mode:ident;)?
         forms $rows:tt
     })+) => {
         pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
             use crate::instruction::forms::declarations::*;
             // Runtime decoder tables identify forms across catalog traversals.
             static FAMILIES: &[&[&[Form]]] = &[$(
-                declaration_family!([$handler $(::<$size>)?; $($($argument),*)?] [$($($effect),*)?] $rows)
+                declaration_family!([$handler $(::<$size>)?; $($($argument),*)?] [$($($effect),*)?] [$($real_mode)?] $rows)
             ),+];
             FAMILIES.iter().flat_map(|rows| rows.iter().flat_map(|forms| forms.iter()))
         }
@@ -18,7 +19,7 @@ macro_rules! instruction_families {
 }
 
 macro_rules! declaration_family {
-    ($call:tt $effects:tt {
+    ($call:tt $effects:tt $real_mode:tt {
         $($($prefix:ident)? $opcode:literal $($extended:literal)? $(+ $pattern:ident)? $(/ $extension:literal)? $(@ $modrm:literal $(+ $modrm_range:ident)?)? =>
             $width:ident $operands:tt $(| $other_width:ident $other_operands:tt)? $($lockable:ident)?;
         )+
@@ -39,6 +40,7 @@ macro_rules! declaration_family {
                         $effects [$($pattern)?] $call $width $operands $(| $other_width $other_operands)?
                     ),
                     effects: declaration_effects!($effects),
+                    real_mode: declaration_opcode!(@real_mode $real_mode),
                     lockable: declaration_opcode!(@lockable $($lockable)?),
                 }.form()
             };
@@ -58,6 +60,12 @@ macro_rules! declaration_effects {
 }
 
 macro_rules! declaration_opcode {
+    (@real_mode []) => {
+        crate::instruction::RealModeSupport::Supported
+    };
+    (@real_mode [$mode:ident]) => {
+        crate::instruction::RealModeSupport::$mode
+    };
     (@lockable lockable) => {
         true
     };

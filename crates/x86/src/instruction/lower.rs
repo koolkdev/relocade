@@ -1,6 +1,6 @@
 use wasm86_compiler::{BuildError, Val, I32};
 
-use super::{handlers::HandlerCall, map_location, map_operand, Instruction};
+use super::{handlers::HandlerCall, map_location, map_operand, Instruction, RealModeSupport};
 use crate::execution::ExecutionBuilder;
 
 pub(crate) fn lower(
@@ -8,6 +8,19 @@ pub(crate) fn lower(
     instruction: Instruction<impl Into<Val<I32>>>,
     fallthrough_eip: Val<I32>,
 ) -> Result<Val<I32>, BuildError> {
+    if execution.profile() == crate::ExecutionProfile::Real16 {
+        match instruction.real_mode {
+            RealModeSupport::Supported => {}
+            RealModeSupport::InvalidOpcode => {
+                execution.fault_if(true, crate::Exception::InvalidOpcode)?;
+                return Ok(fallthrough_eip);
+            }
+            RealModeSupport::Unsupported => {
+                execution.unsupported_if(true, u32::from(instruction.diagnostic_opcode))?;
+                return Ok(fallthrough_eip);
+            }
+        }
+    }
     match instruction.call {
         HandlerCall::Nullary { handler } => {
             handler(execution, instruction.condition, fallthrough_eip)

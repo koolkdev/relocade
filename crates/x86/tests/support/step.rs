@@ -169,10 +169,12 @@ impl TestModule {
         static FLAT: OnceLock<TestModule> = OnceLock::new();
         static SEGMENTED: OnceLock<TestModule> = OnceLock::new();
         static SEGMENTED16: OnceLock<TestModule> = OnceLock::new();
+        static REAL16: OnceLock<TestModule> = OnceLock::new();
         let module = match profile {
             ExecutionProfile::Protected(SegmentProfile::Flat32) => &FLAT,
             ExecutionProfile::Protected(SegmentProfile::Segmented32) => &SEGMENTED,
             ExecutionProfile::Protected(SegmentProfile::Segmented16) => &SEGMENTED16,
+            ExecutionProfile::Real16 => &REAL16,
         };
         module.get_or_init(|| Self::new(&crate::compile_interpreter_step(profile).unwrap()))
     }
@@ -208,6 +210,7 @@ impl TestModule {
                     ExecutionProfile::Protected(SegmentProfile::Flat32) => "flat32",
                     ExecutionProfile::Protected(SegmentProfile::Segmented32) => "segmented32",
                     ExecutionProfile::Protected(SegmentProfile::Segmented16) => "segmented16",
+                    ExecutionProfile::Real16 => "real16",
                 }),
                 invocations,
                 input,
