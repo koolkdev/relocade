@@ -2,6 +2,7 @@
 use crate::{memory::Mem, Expression, Func, Type};
 
 mod compact;
+mod control;
 mod operation;
 mod producer;
 mod values;
@@ -103,6 +104,16 @@ pub(super) enum Layout {
         default: Vec<Layout>,
         join: BlockId,
     },
+}
+
+impl Layout {
+    pub(super) fn entry(&self) -> BlockId {
+        match self {
+            Self::Block(block) => *block,
+            Self::Scope { preheader, .. } | Self::Loop { preheader, .. } => *preheader,
+            Self::If { branch, .. } | Self::Switch { branch, .. } => *branch,
+        }
+    }
 }
 
 impl FunctionGraph {

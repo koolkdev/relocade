@@ -161,7 +161,7 @@ fn complete_result_groups_and_stored_bounds_survive_compaction() {
 }
 
 #[test]
-fn inactive_edge_occurrences_release_arguments_even_when_their_target_is_live() {
+fn folded_edges_release_discarded_arguments_even_when_their_target_is_live() {
     for (ty, bits, active) in [
         (Type::I1, 1, 0),
         (Type::I1, 0, 1),
@@ -198,23 +198,24 @@ fn inactive_edge_occurrences_release_arguments_even_when_their_target_is_live() 
         };
         graph.blocks[join.0].exit = Exit::Return(vec![1]);
 
-        graph.compact(vec![false, true, true, true, false]);
+        graph.simplify_control();
+        graph.compact(vec![false, true, false, true, false]);
 
-        assert_eq!(graph.values.len(), 5);
+        assert_eq!(graph.values.len(), 3);
         assert!(graph.effects.is_empty());
         assert_eq!(graph.blocks[join.0].parameters, [1]);
-        assert_eq!(graph.outgoing(BlockId(0))[0].arguments, [3]);
-        for (index, edge) in graph.blocks[0].exit.edges().into_iter().enumerate() {
-            assert_eq!(edge.target, join);
-            assert_eq!(edge.arguments.len(), 1);
-            let expected = if index == active { 42 } else { 0 };
-            assert!(
-                matches!(graph.values[edge.arguments[0]].definition, ValueDefinition::Constant(bits) if bits == expected)
-            );
-        }
+        let Exit::Jump(edge) = &graph.blocks[0].exit else {
+            panic!("a resolved exit retains exactly one edge")
+        };
+        assert_eq!(edge.target, join);
+        assert_eq!(edge.arguments, [2]);
+        assert!(matches!(
+            graph.values[2].definition,
+            ValueDefinition::Constant(42)
+        ));
         // Finalization can compact again after replacing equivalent values.
         graph.compact(vec![true; graph.values.len()]);
-        assert_eq!(graph.values.len(), 5);
+        assert_eq!(graph.values.len(), 3);
     }
 }
 

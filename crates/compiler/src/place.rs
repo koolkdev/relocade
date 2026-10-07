@@ -74,6 +74,7 @@ fn predecessors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
 fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
     // Release placement's facts and bindings before pruning the finished graph.
     place_calculations(graph, summaries);
+    graph.simplify_control();
     let live_values = liveness::prune(graph, summaries);
     graph.compact(live_values);
 }

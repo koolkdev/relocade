@@ -29,14 +29,6 @@ pub(super) fn encode(
     features: WasmFeatures,
 ) -> Function {
     let reachable = graph.reachable();
-    let mut incoming = vec![Vec::new(); graph.blocks.len()];
-    for (source, &live) in reachable.iter().enumerate() {
-        if live {
-            for edge in graph.outgoing(BlockId(source)) {
-                incoming[edge.target.0].push(BlockId(source));
-            }
-        }
-    }
     let selection = Selection::new(&graph, &reachable);
     let view = view::OperandView::new(&graph, &selection, &reachable);
     let mut locals = vec![None; graph.values.len()];
@@ -67,7 +59,6 @@ pub(super) fn encode(
         encoder: function::FunctionEncoder::new(parameter_count, slot_types),
         labels: Vec::new(),
         reachable,
-        incoming,
         terminal: false,
     };
     writer.layouts(&graph.layout, None);
@@ -94,7 +85,6 @@ struct Writer<'a> {
     encoder: function::FunctionEncoder,
     labels: Vec<Option<BlockId>>,
     reachable: Vec<bool>,
-    incoming: Vec<Vec<BlockId>>,
     terminal: bool,
 }
 impl Writer<'_> {

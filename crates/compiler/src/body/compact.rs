@@ -1,5 +1,5 @@
 //! Reclaim unused storage after placement has released its value-ID caches.
-use super::{BlockItem, EffectId, Exit, FunctionGraph, ValueDefinition};
+use super::{BlockItem, EffectId, Exit, FunctionGraph};
 
 #[cfg(test)]
 mod tests;
@@ -46,7 +46,7 @@ impl Remapping {
 }
 
 impl FunctionGraph {
-    /// Reclaim storage after pruning schedules and parameters. All value and
+    /// Reclaim storage after control simplification and liveness. All value and
     /// effect references are remapped; block IDs and lexical layout stay stable.
     pub(crate) fn compact(&mut self, mut live_values: Vec<bool>) {
         let reachable = self.reachable();
@@ -55,28 +55,6 @@ impl FunctionGraph {
                 block.items = Vec::new();
                 block.parameters = Vec::new();
                 block.exit = Exit::Trap;
-                continue;
-            }
-            let Some(active) = block.exit.constant_edge_index(&self.values) else {
-                continue;
-            };
-            for (index, edge) in block.exit.edges_mut().into_iter().enumerate() {
-                if index == active {
-                    continue;
-                }
-                // Inactive edges retain well-formed tuples without keeping the
-                // discarded calculations that originally supplied their values.
-                for argument in &mut edge.arguments {
-                    if !matches!(
-                        self.values[*argument].definition,
-                        ValueDefinition::Constant(0)
-                    ) {
-                        let ty = self.values[*argument].ty;
-                        *argument = self.values.constant(ty, 0);
-                    }
-                    live_values.resize(self.values.len(), false);
-                    live_values[*argument] = true;
-                }
             }
         }
 
