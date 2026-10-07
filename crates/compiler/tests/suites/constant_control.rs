@@ -275,7 +275,7 @@ fn selected_function_exits_preserve_live_and_unused_result_joins() {
 }
 
 #[test]
-fn enclosing_results_are_validated_before_their_only_authored_edge_is_removed() {
+fn enclosing_results_allow_a_skipped_incoming_edge() {
     let module = Fixture::new().function(&[], &[Type::I32], |mut body| {
         let result = body.block::<I32>(|mut block, exit| {
             block.if_(false, |arm| arm.branch(&exit, 23))?;

@@ -218,7 +218,7 @@ fn cancelling_offsets_retain_the_original_operand_scope() {
         .define(function, |mut body| {
             let input = body.parameter::<I32>(0).unwrap();
             let mut retained = None;
-            body.if_(false, |mut child| {
+            body.if_(true, |mut child| {
                 let offset = child.load::<I32>(memory, 0)?.and(0).add(4);
                 let result = input.add(offset).sub(4);
                 assert!(result.same_expression(&input));

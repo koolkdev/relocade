@@ -259,7 +259,7 @@ fn invalid_flag_sources_leave_the_previous_source_unchanged() {
                             Err(BuildError::ForeignBody)
                         );
                         let mut child_value = None;
-                        body.if_(false, |mut arm| {
+                        body.if_(true, |mut arm| {
                             child_value = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?);
                             Ok(())
                         })?;
@@ -322,7 +322,7 @@ fn invalid_explicit_flags_leave_the_previous_source_unchanged() {
                             .flags;
                         state.write_flags(&mut body, current)?;
                         let mut child_flag = None;
-                        body.if_(false, |mut arm| {
+                        body.if_(true, |mut arm| {
                             child_flag =
                                 Some(cpu_load!(&mut arm, cpu.memory(), flags.bytes.cf)?.ne(0));
                             Ok(())

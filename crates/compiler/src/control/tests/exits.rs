@@ -123,7 +123,7 @@ fn conditional_exit_errors_leave_the_parent_open_and_do_not_attach_an_edge() {
                         .block::<I32>(|mut block, exit| {
                             escaped_label = Some(exit.clone());
                             let mut child_value = None;
-                            block.if_(false, |mut child| {
+                            block.if_(true, |mut child| {
                                 child_value = Some(child.load::<I32>(memory, 0)?);
                                 Ok(())
                             })?;

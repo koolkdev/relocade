@@ -9,6 +9,9 @@ use crate::{
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
+mod path;
+pub(super) use path::Path;
+
 #[derive(Clone)]
 pub(super) struct FunctionArena(Rc<RefCell<Option<Construction>>>);
 struct Construction {
@@ -150,9 +153,6 @@ impl FunctionArena {
                     }
                 }
             }
-            if incoming.is_empty() && !graph.blocks[target.0].parameters.is_empty() {
-                return Err(BuildError::MissingBranchValue);
-            }
             for (component, &parameter) in graph.blocks[target.0].parameters.iter().enumerate() {
                 if let Some(bounds) = incoming
                     .iter()
@@ -162,8 +162,10 @@ impl FunctionArena {
                     graph.values.bounds[parameter] = bounds;
                 }
             }
-            Ok(graph.blocks[target.0].parameters.clone())
-        })?
+            // A join with no incoming edges is unreachable. Its parameters are
+            // valid only in that unreachable continuation and need no producer.
+            graph.blocks[target.0].parameters.clone()
+        })
     }
     pub(super) fn child_scope(&self, parent: usize) -> Result<usize, BuildError> {
         let mut arena = self.0.borrow_mut();
