@@ -1,7 +1,8 @@
 use super::*;
 use crate::{
     body::{
-        BitBounds, BlockId, Edge, Effect, Layout, Operation, OperationKind, Value, ValueDefinition,
+        BitBounds, BlockId, BlockItem, Edge, Effect, EffectId, Exit, Layout, Operation,
+        OperationKind, Value, ValueDefinition,
     },
     integer::BinaryOp,
     memory::{Mem, MemoryAccess},
@@ -107,9 +108,7 @@ fn complete_result_groups_and_stored_bounds_survive_compaction() {
     graph.blocks[0].exit = Exit::Return(vec![9]);
     graph.memories.push(Mem(0));
 
-    graph.compact(vec![
-        false, true, false, true, false, false, true, false, false, true,
-    ]);
+    graph.compact(|_| true);
 
     assert_eq!(graph.values.len(), 7);
     assert_eq!(graph.effects.len(), 2);
@@ -161,7 +160,7 @@ fn complete_result_groups_and_stored_bounds_survive_compaction() {
 }
 
 #[test]
-fn inactive_edge_occurrences_release_arguments_even_when_their_target_is_live() {
+fn folded_edges_release_discarded_arguments_even_when_their_target_is_live() {
     for (ty, bits, active) in [
         (Type::I1, 1, 0),
         (Type::I1, 0, 1),
@@ -198,28 +197,29 @@ fn inactive_edge_occurrences_release_arguments_even_when_their_target_is_live() 
         };
         graph.blocks[join.0].exit = Exit::Return(vec![1]);
 
-        graph.compact(vec![false, true, true, true, false]);
+        graph.compact(|_| true);
 
-        assert_eq!(graph.values.len(), 5);
+        assert_eq!(graph.values.len(), 3);
         assert!(graph.effects.is_empty());
         assert_eq!(graph.blocks[join.0].parameters, [1]);
-        assert_eq!(graph.outgoing(BlockId(0))[0].arguments, [3]);
-        for (index, edge) in graph.blocks[0].exit.edges().into_iter().enumerate() {
-            assert_eq!(edge.target, join);
-            assert_eq!(edge.arguments.len(), 1);
-            let expected = if index == active { 42 } else { 0 };
-            assert!(
-                matches!(graph.values[edge.arguments[0]].definition, ValueDefinition::Constant(bits) if bits == expected)
-            );
-        }
-        // Finalization can compact again after replacing equivalent values.
-        graph.compact(vec![true; graph.values.len()]);
-        assert_eq!(graph.values.len(), 5);
+        let Exit::Jump(edge) = &graph.blocks[0].exit else {
+            panic!("a resolved exit retains exactly one edge")
+        };
+        assert_eq!(edge.target, join);
+        assert_eq!(edge.arguments, [2]);
+        assert!(matches!(
+            graph.values[2].definition,
+            ValueDefinition::Constant(42)
+        ));
+
+        graph.compact(|_| true);
+        assert_eq!(graph.values.len(), 3);
+        assert_eq!(graph.outgoing(graph.entry)[0].arguments, [2]);
     }
 }
 
 #[test]
-fn unreachable_blocks_release_their_contents_but_keep_layout_anchors() {
+fn unreachable_blocks_release_their_contents_and_layout() {
     let mut graph = graph(&[Type::I32]);
     let discarded = graph.block(0, &[Type::I32]);
     let read = effect(&mut graph, load(1), &[Type::I32]);
@@ -231,7 +231,7 @@ fn unreachable_blocks_release_their_contents_but_keep_layout_anchors() {
     graph.blocks[0].exit = Exit::Return(vec![0]);
     graph.layout = vec![Layout::Block(BlockId(0)), Layout::Block(discarded)];
 
-    graph.compact(vec![true, false, false]);
+    graph.compact(|_| true);
 
     assert_eq!(graph.values.len(), 1);
     assert!(graph.effects.is_empty());
@@ -240,9 +240,10 @@ fn unreachable_blocks_release_their_contents_but_keep_layout_anchors() {
     assert_eq!(graph.blocks[discarded.0].items.capacity(), 0);
     assert_eq!(graph.blocks[discarded.0].parameters.capacity(), 0);
     assert!(matches!(graph.blocks[discarded.0].exit, Exit::Trap));
-    assert!(
-        matches!(graph.layout.as_slice(), [Layout::Block(BlockId(0)), Layout::Block(block)] if *block == discarded)
-    );
+    assert!(matches!(
+        graph.layout.as_slice(),
+        [Layout::Block(BlockId(0))]
+    ));
 }
 
 #[test]
@@ -258,15 +259,60 @@ fn loop_parameters_and_parallel_backedge_arguments_are_remapped_together() {
         target: header,
         arguments: vec![4, 3],
     });
+    let observe = effect(&mut graph, Operation::call(Func(0), vec![3]), &[]);
+    graph.effects[observe.0].origin = header;
+    graph.blocks[header.0]
+        .items
+        .push(BlockItem::Effect(observe));
 
-    graph.compact(vec![true, true, false, true, true]);
+    graph.compact(|_| true);
 
     assert_eq!(graph.values.len(), 4);
     assert_eq!(graph.blocks[header.0].parameters, [2, 3]);
     assert_eq!(graph.outgoing(header)[0].arguments, [3, 2]);
+    assert_eq!(graph.effects[0].operation.inputs().collect::<Vec<_>>(), [2]);
     for (component, value) in [2, 3].into_iter().enumerate() {
         assert!(
             matches!(graph.values[value].definition, ValueDefinition::Parameter { block, component: actual } if block == header && actual == component)
         );
     }
+}
+
+#[test]
+fn pruning_unused_result_channels_preserves_ids_until_compaction() {
+    let mut graph = graph(&[Type::I32]);
+    let join = graph.block(0, &[Type::I32, Type::I32]);
+    let kept = graph.values.constant(Type::I32, 17);
+    let read = effect(&mut graph, load(0), &[Type::I32]);
+    let unused = graph.effects[read.0].results[0];
+    graph.blocks[0].items.push(BlockItem::Effect(read));
+    graph.blocks[0].exit = Exit::Jump(Edge {
+        target: join,
+        arguments: vec![kept, unused],
+    });
+    graph.blocks[join.0].exit = Exit::Return(vec![1]);
+
+    graph.prune_unused(&graph.reachable(), |_| false);
+
+    assert!(graph.blocks[0].items.is_empty());
+    assert_eq!(graph.blocks[join.0].parameters, [1]);
+    assert_eq!(graph.outgoing(graph.entry)[0].arguments, [kept]);
+    assert_eq!(graph.values.len(), 5);
+    assert_eq!(graph.effects.len(), 1);
+    assert_eq!(graph.effects[read.0].results, [unused]);
+    assert!(matches!(
+        graph.values[kept].definition,
+        ValueDefinition::Constant(17)
+    ));
+
+    graph.compact(|_| false);
+
+    assert_eq!(graph.values.len(), 3);
+    assert!(graph.effects.is_empty());
+    assert_eq!(graph.blocks[join.0].parameters, [1]);
+    assert_eq!(graph.outgoing(graph.entry)[0].arguments, [2]);
+    assert!(matches!(
+        graph.values[2].definition,
+        ValueDefinition::Constant(17)
+    ));
 }

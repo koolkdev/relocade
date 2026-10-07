@@ -102,7 +102,7 @@ fn a_descendant_demand_adds_one_parameter_at_the_owning_join() {
             &graph,
             &graph.reachable(),
             arms.join.0,
-            &Availability::default(),
+            &mut Availability::default(),
         )
         .unwrap();
     assert!(graph.blocks[arms.join.0].parameters.is_empty());
@@ -147,7 +147,7 @@ fn an_indexed_join_cannot_supply_a_sibling_branch() {
             &graph,
             &graph.reachable(),
             inner.join.0,
-            &Availability::default(),
+            &mut Availability::default(),
         )
         .unwrap();
     assert!(joins
@@ -195,7 +195,7 @@ fn a_nearer_join_is_preferred_but_a_failed_merge_keeps_ancestor_reuse() {
                 &graph,
                 &graph.reachable(),
                 arms.join.0,
-                &Availability::default(),
+                &mut Availability::default(),
             )
             .unwrap();
     }
@@ -244,7 +244,7 @@ fn incoming_aliases_keep_their_predecessor_scope() {
     let mut available = Availability::default();
     available.bind(number, ancestor);
     joins
-        .prepare(&graph, &graph.reachable(), arms.join.0, &available)
+        .prepare(&graph, &graph.reachable(), arms.join.0, &mut available)
         .unwrap();
     joins.record(uses.left.0, [(number, child)].into_iter());
     let result = joins
@@ -279,7 +279,7 @@ fn identical_incoming_carriers_can_reuse_a_value_with_a_different_logical_type()
             &graph,
             &graph.reachable(),
             arms.join.0,
-            &Availability::default(),
+            &mut Availability::default(),
         )
         .unwrap();
     let result = joins
@@ -323,7 +323,7 @@ fn guarded_join_reuse_stays_with_matching_facts() {
             &graph,
             &graph.reachable(),
             arms.join.0,
-            &Availability::default(),
+            &mut Availability::default(),
         )
         .unwrap();
     let mut taken = Facts::default();

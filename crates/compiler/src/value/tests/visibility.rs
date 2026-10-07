@@ -238,7 +238,7 @@ fn returns_and_tail_calls_check_folded_argument_visibility() {
 #[test]
 fn legal_child_folds_discard_dead_loads_and_joins_gain_parent_visibility() {
     let (mut program, memory) = memory_program();
-    program
+    let function = program
         .function(
             Signature {
                 parameters: vec![Type::I1],
@@ -270,6 +270,7 @@ fn legal_child_folds_discard_dead_loads_and_joins_gain_parent_visibility() {
             },
         )
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
     let mut constants = vec![];

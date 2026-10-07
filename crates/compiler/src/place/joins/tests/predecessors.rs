@@ -30,7 +30,7 @@ fn incoming_values_use_the_nearest_binding_on_each_predecessor_path() {
             &graph,
             &graph.reachable(),
             arms.join.0,
-            &Availability::default(),
+            &mut Availability::default(),
         )
         .unwrap();
     let result = joins
@@ -78,12 +78,12 @@ fn incoming_aliases_see_a_common_ancestor_binding_requested_after_preparation() 
         joins.complete(source.0, &branch_facts);
     }
     let reachable = graph.reachable();
-    let available = Availability::default();
+    let mut available = Availability::default();
     joins
-        .prepare(&graph, &reachable, earlier.join.0, &available)
+        .prepare(&graph, &reachable, earlier.join.0, &mut available)
         .unwrap();
     joins
-        .prepare(&graph, &reachable, later.join.0, &available)
+        .prepare(&graph, &reachable, later.join.0, &mut available)
         .unwrap();
 
     // Both requests come from the current consuming block. The first publishes
@@ -121,7 +121,7 @@ fn completed_facts_survive_rollback_of_the_incoming_paths() {
             &graph,
             &graph.reachable(),
             arms.join.0,
-            &Availability::default(),
+            &mut Availability::default(),
         )
         .unwrap();
     assert_eq!(merged.constant(&graph.values, 1), Some(5));
@@ -152,7 +152,7 @@ fn a_join_keeps_common_facts_without_any_value_candidates() {
             &graph,
             &graph.reachable(),
             arms.join.0,
-            &Availability::default(),
+            &mut Availability::default(),
         )
         .unwrap();
     assert_eq!(facts.constant(&graph.values, low_bit), Some(1));
@@ -192,7 +192,7 @@ fn every_reachable_predecessor_must_prove_a_common_fact() {
             &graph,
             &graph.reachable(),
             arms.join.0,
-            &Availability::default(),
+            &mut Availability::default(),
         )
         .unwrap();
     assert_eq!(facts.constant(&graph.values, 1), None);
@@ -218,7 +218,7 @@ fn completing_a_backedge_does_not_reopen_entry_eligibility() {
             &graph,
             &graph.reachable(),
             header.0,
-            &Availability::default()
+            &mut Availability::default()
         )
         .is_none());
     let value = placed(&mut graph, header, recipe);
@@ -246,7 +246,7 @@ fn a_missing_incoming_value_is_not_recomputed_or_merged() {
             &graph,
             &graph.reachable(),
             arms.join.0,
-            &Availability::default(),
+            &mut Availability::default(),
         )
         .unwrap();
     let count = graph.values.len();
@@ -281,7 +281,7 @@ fn a_discarded_predecessor_does_not_need_a_value_or_completed_facts() {
             &graph,
             &graph.reachable(),
             arms.join.0,
-            &Availability::default(),
+            &mut Availability::default(),
         )
         .unwrap();
     assert_eq!(
@@ -309,7 +309,7 @@ fn a_join_inside_a_discarded_arm_has_no_incoming_values() {
             &graph,
             &graph.reachable(),
             inner.join.0,
-            &Availability::default()
+            &mut Availability::default()
         )
         .is_none());
     assert_eq!(
@@ -348,7 +348,7 @@ fn a_folded_switch_excludes_an_inactive_edge_from_a_reachable_source() {
             &graph,
             &graph.reachable(),
             after.0,
-            &Availability::default(),
+            &mut Availability::default(),
         )
         .unwrap();
     assert_eq!(
@@ -383,7 +383,7 @@ fn surviving_predecessors_keep_their_arguments_when_an_arm_is_removed() {
             &graph,
             &graph.reachable(),
             outer.join.0,
-            &Availability::default(),
+            &mut Availability::default(),
         )
         .unwrap();
     let result = joins
