@@ -11,7 +11,6 @@ const SEGMENT_NOT_PRESENT: u64 = 32 << 48;
 const BOUND_RANGE_EXCEEDED: u64 = 64 << 48;
 const INVALID_OPCODE: u64 = 128 << 48;
 const FLOATING_POINT: u64 = 256 << 48;
-
 /// Delivers an exception through the host ABI. CPU state must already describe
 /// its restart boundary. These host tags are not architectural vector numbers.
 pub(crate) fn exception(

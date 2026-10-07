@@ -3,7 +3,7 @@
 use wasm86_compiler::{Arguments, BuildError, Results, Val, I1, I32};
 
 use crate::{
-    execution::{ExecutionBuilder, StringOperand},
+    execution::{ExecutionBuilder, ResolvedStrings, StringOperand},
     register::{Gpr32, RegisterType},
 };
 
@@ -42,8 +42,8 @@ impl Repetition {
         let done = |_: &()| false.into();
         repeat.execute(
             execution,
-            |direct| {
-                let completed = complete(direct, &repeat.resolved, &repeat.count)?;
+            |direct, operands| {
+                let completed = complete(direct, operands, &repeat.count)?;
                 direct.if_value::<(I32, [I32; N], ())>(
                     completed,
                     |completed| {
@@ -56,7 +56,7 @@ impl Repetition {
                             (),
                         ))
                     },
-                    |scalar| repeat.loop_(scalar, &repeat.resolved, &done, &step),
+                    |scalar| repeat.loop_(scalar, operands, &done, &step),
                 )
             },
             |checked| repeat.loop_(checked, &repeat.checked, &done, &step),
@@ -88,7 +88,7 @@ where
     let repeat = Repeat::<P, N>::new::<T>(execution, operands, initial)?;
     repeat.execute(
         execution,
-        |direct| repeat.loop_(direct, &repeat.resolved, &done, &element),
+        |direct, operands| repeat.loop_(direct, operands, &done, &element),
         |checked| repeat.loop_(checked, &repeat.checked, &done, &element),
     )
 }
@@ -102,8 +102,7 @@ struct Repeat<P: Results, const N: usize> {
     indices: [Gpr32; N],
     initial_indices: [Val<I32>; N],
     initial: P::Values,
-    available: Val<I1>,
-    resolved: [StringOperand; N],
+    resolved: Option<ResolvedStrings<N>>,
     checked: [StringOperand; N],
 }
 
@@ -119,14 +118,15 @@ where
         let count = execution.read_address_register(Gpr32::Ecx)?;
         let indices = std::array::from_fn(|index| operands[index].index);
         let initial_indices = read_indices(execution, indices)?;
-        let (available, resolved) = execution.resolve_strings::<T, N>(&operands, &count)?;
-        execution.specialize(|jit| jit.specialize_on(&available))?;
+        let resolved = execution.resolve_strings::<T, N>(&operands, &count)?;
+        if let Some(resolved) = &resolved {
+            execution.specialize(|jit| jit.specialize_on(&resolved.available))?;
+        }
         Ok(Self {
             count,
             indices,
             initial_indices,
             initial,
-            available,
             resolved,
             checked: operands,
         })
@@ -163,11 +163,20 @@ where
     fn execute(
         &self,
         execution: &mut ExecutionBuilder<'_, '_>,
-        direct: impl FnOnce(&mut ExecutionBuilder<'_, '_>) -> Result<LoopProgress<P, N>, BuildError>,
+        direct: impl FnOnce(
+            &mut ExecutionBuilder<'_, '_>,
+            &[StringOperand; N],
+        ) -> Result<LoopProgress<P, N>, BuildError>,
         checked: impl FnOnce(&mut ExecutionBuilder<'_, '_>) -> Result<LoopProgress<P, N>, BuildError>,
     ) -> Result<(Val<I32>, P::Values), BuildError> {
-        let (remaining, final_indices, result) =
-            execution.if_value::<(I32, [I32; N], P)>(&self.available, direct, checked)?;
+        let (remaining, final_indices, result) = match &self.resolved {
+            Some(resolved) => execution.if_value::<(I32, [I32; N], P)>(
+                &resolved.available,
+                |execution| direct(execution, &resolved.operands),
+                checked,
+            )?,
+            None => checked(execution)?,
+        };
         execution.write_address_register(Gpr32::Ecx, remaining)?;
         write_indices(execution, self.indices, final_indices)?;
         Ok((self.count.clone(), result))

@@ -24,6 +24,12 @@ pub(crate) struct StringOperand {
     relative: Option<RelativeRange>,
 }
 
+/// String operands whose direct backing may be used when the range is available.
+pub(crate) struct ResolvedStrings<const N: usize> {
+    pub(crate) available: Val<I1>,
+    pub(crate) operands: [StringOperand; N],
+}
+
 #[derive(Clone)]
 struct RelativeRange {
     offset_start: Val<I32>,
@@ -93,11 +99,15 @@ impl ExecutionBuilder<'_, '_> {
     /// Non-faulting preflight. Zero count skips all operand checks. Oversized or
     /// wrapping offset spans, denied permissions and scattered backing need the
     /// checked interpreter loop to determine actual progress and fault priority.
+    /// Memory models with live mappings keep per-element resolution in both frontends.
     pub(crate) fn resolve_strings<T: RegisterType, const N: usize>(
         &mut self,
         operands: &[StringOperand; N],
         count: &Val<I32>,
-    ) -> Result<(Val<I1>, [StringOperand; N]), BuildError> {
+    ) -> Result<Option<ResolvedStrings<N>>, BuildError> {
+        if !self.memory.as_ref().unwrap().memory().has_stable_mappings() {
+            return Ok(None);
+        }
         let bytes = count.mul(T::BYTES);
         let backward = self.read_flag(Flag::DF)?;
         let mut eligible = self
@@ -171,6 +181,9 @@ impl ExecutionBuilder<'_, '_> {
             }),
             ..operands[index].clone()
         });
-        Ok((available, resolved))
+        Ok(Some(ResolvedStrings {
+            available,
+            operands: resolved,
+        }))
     }
 }

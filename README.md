@@ -1,6 +1,6 @@
 # wasm86
 
-Rust components for executing x86 user-mode code in WebAssembly.
+Rust components for executing x86 code in WebAssembly.
 
 `wasm86-x86` generates snapshot blocks and an interpreter that share instruction
 semantics. Blocks decode supplied bytes at compilation time; the generated
@@ -11,7 +11,10 @@ The project aims for Pentium 4 (P4) user-mode instruction-set parity.
 Development prioritizes missing P4 instructions and architectural behavior.
 
 The implementation currently covers part of the 16/32-bit protected-mode user
-instruction set. The project is under development; the crates are not published.
+instruction set and ordinary real-mode execution. Real mode supports segment
+loads and near/far transfers; FLAGS stack transfers, INT/IRET and mode transitions
+remain outside that subset. The project is under development; the crates are not
+published.
 
 | Crate | Responsibility |
 | --- | --- |
@@ -35,8 +38,9 @@ fn main() -> Result<(), wasm86_x86::BlockError> {
 
 For an executable embedding, follow the
 [host integration contract](crates/x86/docs/host-integration.md): imported memories,
-dispatch and fault exits, segment resolution, and entry validity. It is also
-included in the x86 crate's generated API documentation.
+dispatch and fault exits, segment resolution, and entry validity. Real16 uses
+the [physical-memory contract](crates/x86/docs/physical-memory.md) for host transfers.
+Both contracts are included in the x86 crate's generated API documentation.
 
 ## Build and test
 

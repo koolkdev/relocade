@@ -1,4 +1,4 @@
-//! x86 user-mode execution entries generated as WebAssembly.
+//! x86 execution entries generated as WebAssembly.
 //!
 //! [`compile_block_from_bytes`] decodes a supplied snapshot under flat 32-bit
 //! assumptions. [`compile_block_from_bytes_with_profile`] selects explicit execution
@@ -8,11 +8,9 @@
 //! Both frontends share instruction semantics and return a [`CompiledModule`].
 //! [`Compiler`] configures both frontends with one execution profile.
 //!
-//! The supported subset covers 16/32-bit protected-mode integer execution and
-//! x87 controls, value transfers and add/subtract/multiply with register or
-//! binary32/64 memory operands, including reversed and register-pop forms.
-//! Other x87 arithmetic, real mode, privilege transitions, interrupt delivery
-//! and SIMD are outside the current scope.
+//! The supported subset covers 16/32-bit protected-mode and ordinary real-mode
+//! integer execution, plus selected x87 operations. Privilege transitions,
+//! interrupt delivery and SIMD are outside the current scope.
 //!
 //! [`CpuState`] exchanges backing state with the host. [`ExecutionProfile`] describes
 //! entry assumptions, and [`DescriptorTables`] resolves host-managed selectors into

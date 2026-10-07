@@ -20,6 +20,31 @@ pub(super) fn segmented_code_pages(engine: Engine, module: &TestModule) {
     code_pages(engine, module, 0x3123, 0x6000);
 }
 
+pub(super) fn segment_end(engine: Engine, module: &TestModule) {
+    let mut image = Image::empty();
+    image.cpu.eip = 0x1ff8;
+    image.cpu.segments.cs.limit = 0x2001;
+    image.map(1, 0x3000, false);
+    image.map(2, 0x4000, false);
+    image.data(0x3ff8, &[0xb0, 42, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90]);
+    image.data(0x4000, &[0x90, 0x90]);
+    let mut cpu = image.cpu;
+    cpu.registers.eax = 0x1111_112a;
+    cpu.eip = 0x2002;
+    cpu.instruction_count = 8;
+    check(
+        engine,
+        module,
+        "cached fetch windows fall back and execute every remaining CS byte",
+        &image,
+        Step {
+            cpu,
+            ram: &[],
+            exit: Exit::GeneralProtection { error: 0 },
+        },
+    );
+}
+
 fn code_pages(engine: Engine, module: &TestModule, cs_base: u32, next_frame: u32) {
     let code = [
         0xb8, 42, 0, 0, 0, // MOV EAX,42

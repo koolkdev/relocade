@@ -6,6 +6,7 @@ use super::*;
 use crate::address::RegisterValue;
 use crate::flags::image;
 use crate::register::{Gpr32, RegisterType};
+use crate::ExecutionProfile;
 
 instruction_families! {
     PUSH {
@@ -39,6 +40,7 @@ instruction_families! {
     PUSHF {
         execute: push_flags::<_>;
         effects: [memory_write];
+        real_mode: Unsupported;
         forms {
             0x9C => word_or_dword();
         }
@@ -46,6 +48,7 @@ instruction_families! {
     POPF {
         execute: pop_flags::<_>;
         effects: [memory_read];
+        real_mode: Unsupported;
         forms {
             0x9D => word_or_dword();
         }
@@ -102,6 +105,20 @@ where
     I32: AtLeast<T>,
 {
     let mut pointer = execution.stack_pointer()?;
+    if matches!(execution.profile(), ExecutionProfile::Real16) {
+        // PUSHA/PUSHAD specify #GP for these real-mode entry stack offsets,
+        // before the ordinary per-push checks and stores.
+        let sp = pointer.offset();
+        execution.fault_if(
+            sp.and(1)
+                .ne(0)
+                .and(sp.unsigned().ge(7))
+                .and(sp.unsigned().lt(16)),
+            crate::Exception::GeneralProtection {
+                error_code: 0.into(),
+            },
+        )?;
+    }
     for register in Gpr32::ALL {
         // ESP stays at its entry value until all eight pushes succeed.
         let value = TypedLocation::<T>::register(register).read(execution)?;

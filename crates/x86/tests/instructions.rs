@@ -72,6 +72,8 @@ mod near_control;
 mod no_ops;
 #[path = "suites/operand_fetch.rs"]
 mod operand_fetch;
+#[path = "suites/real_mode.rs"]
+mod real_mode;
 #[path = "suites/relative_branches.rs"]
 mod relative_branches;
 #[path = "suites/rotates.rs"]

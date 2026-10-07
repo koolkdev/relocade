@@ -59,6 +59,14 @@ pub(super) enum OperandBinding {
 
 type HandlerBinding = HandlerCall<LocationBinding, OperandBinding>;
 
+/// Availability is checked after decoding, before any operand access or effect.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum RealModeSupport {
+    Supported,
+    InvalidOpcode,
+    Unsupported,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct Form {
     pub(super) opcode: u8,
@@ -73,6 +81,7 @@ pub(crate) struct Form {
     pub(super) condition: Option<Condition>,
     pub(super) implicit_memory: bool,
     pub(super) ends_block: bool,
+    pub(super) real_mode: RealModeSupport,
 }
 
 impl Form {

@@ -98,16 +98,20 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | Import | Minimum pages | Contents |
 | --- | ---: | --- |
 | `cpuState` | 1 | CPU backing image at byte zero. |
-| `guest` | 1 | Physical guest RAM. |
-| `machine` | 64 | Linear-to-physical page table at byte zero. |
+| `guest` | 1 | Guest backing bytes for the selected memory model. |
+| `machine` | 64 | Protected-mode linear-to-backing page table at byte zero. |
+| `physicalMap` | 1 | Real16 physical routing table at byte zero. |
 
-Every interpreter imports all three memories, `dispatch`, `resolveSegment` and
-`querySegmentDescriptor`.
-Snapshot modules omit imports they do not use: memory instructions require guest
-RAM and the page table, segment loads require `resolveSegment`, and LAR/LSL/VERR/VERW
-require `querySegmentDescriptor`. Blocks with specialization guards require
-`interpret`. Hosts should use the generated module's import list when
-instantiating it.
+Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
+`resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
+`cpuState`, `guest`, `physicalMap`, `dispatch` and the MMIO callbacks. They use
+generated RAM/ROM accesses and do not call descriptor callbacks. The physical
+memory contract below describes routing and callback widths.
+Snapshot modules omit imports they do not use: protected-mode memory instructions
+require guest backing and the page table, protected-mode segment loads require
+`resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks
+with specialization guards require `interpret`. Hosts should use the generated
+module's import list when instantiating it.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical
@@ -115,20 +119,21 @@ frame address in `guest`; other bits are ignored. Reads and instruction fetches
 require presence. Every present frame must have valid physical backing. Violating
 that invariant is a host error, not a guest page fault.
 
-Segment translation precedes paging. Linear addresses wrap at 32 bits, and a span
+Segment translation precedes this protected-mode backing-map lookup.
+Linear addresses wrap at 32 bits, and a span
 crossing linear zero uses the mappings on both sides. All pages of a data store
 are permission-checked before any byte is written, including scattered backing.
 Read-modify-write destinations require write permission even when their value
 will remain unchanged. Faults identify the first denied byte.
 
 LOCK is supported on eligible memory-destination forms, including CMPXCHG8B.
-Naturally aligned operands use native Wasm atomic read-modify-write operations;
+In protected mode, naturally aligned operands use native Wasm atomic read-modify-write operations;
 memory XCHG does so with or without LOCK. NEG uses a compare-exchange retry loop.
 Alignment is determined after segment translation. All operand bytes pass write
 checks before the update, including a failed comparison. Ordinary loads, stores
 and unlocked updates retain ordinary Wasm accesses; no extra fences are inserted.
 
-Unaligned locked operands use checked reads and writes under the private-memory
+Unaligned protected-mode locked operands use checked reads and writes under the private-memory
 contract, which prevents guest interleaving. The current imports do not support
 concurrent access to shared guest RAM. Such access will require coordination for
 unaligned locked operands as well as the surrounding ordinary accesses.
@@ -197,7 +202,7 @@ is active. Control and system flags always use their stored bytes. Valid source
 kinds are an internal invariant; a host setting concrete status flags must also
 select kind zero.
 
-Architectural flag transfers use a fixed CPL3/IOPL0 model with IF set and
+Protected-mode architectural flag transfers use a fixed CPL3/IOPL0 model with IF set and
 VM/RF/VIF/VIP clear. Word stack images restore the represented low flags;
 dword images also restore AC and ID. IRETD restores RF on hardware, but RF is
 unrepresented here along with debug delivery. TF and AC are stored without
@@ -218,8 +223,8 @@ and initializes x87 control fields to represent `037F`, status to zero and the
 tag word to `FFFF` (all eight registers empty).
 Other fields are zero. It is a host execution configuration, not a processor
 reset or a segment-load operation. `filled` and `from_bytes` preserve literal
-images; an all-zero image has unusable segment caches. Hosts using far CALL/RET
-must initialize CS with a valid return selector and provide its descriptor.
+images; an all-zero image has unusable segment caches. Hosts using protected-mode far CALL/RET must initialize CS with a valid return
+selector and provide its descriptor.
 
 ## x87 environment and stack
 
@@ -345,8 +350,9 @@ An unmasked stack fault suppresses data and stack changes, records pending
 status, and retires its producer. Integer and no-wait instructions can continue;
 the next waiting instruction reports #MF. Reporting it does not clear the status.
 
-The complete memory operand passes segment and page checks before an x87 data
-instruction changes data, stack state or numerical pointers. This implementation
+The complete memory operand passes segment checks and, in protected mode, page
+checks before an x87 data instruction changes data, stack state or numerical
+pointers. This implementation
 checks these accesses before generating a new stack or source exception. A
 preexisting pending exception is checked first. Faulting stores do not write an
 earlier portion of the value or pop the stack.
@@ -368,7 +374,7 @@ unused bits and ES/B. Changing a field may normalize that field's unused bits.
 The host must admit each entry against `CompiledModule::execution_profile` before
 executing it, including when following a direct dispatch link.
 
-`ExecutionProfile::Protected(SegmentProfile)` selects protected-mode execution at compilation
+`ExecutionProfile` selects `Protected(SegmentProfile)` or `Real16` at compilation
 time. `SegmentProfile` supplies protected-mode code defaults and segment assumptions.
 
 | Profile | Compilation assumptions |
@@ -376,6 +382,7 @@ time. `SegmentProfile` supplies protected-mode code defaults and segment assumpt
 | `Protected(Flat32)` | Usable, flat readable CS and writable expand-up DS/ES/SS; zero bases, full u32 limits, CS.D=1 and SS.B=1. FS/GS are runtime inputs. |
 | `Protected(Segmented32)` | CS.D=1; segment access and SS.B are checked or read at runtime. |
 | `Protected(Segmented16)` | CS.D=0; segment access and SS.B are checked or read at runtime. |
+| `Real16` | Ordinary real mode with canonical caches: selector × 16 bases, FFFF limits, 16-bit CS/SS defaults and A20 enabled. |
 
 `ExecutionProfile::is_compatible_with` tests those assumptions. Selectors, reserved
 attribute bits and ordinary DS/ES D/B bits do not determine flat compatibility.
@@ -406,24 +413,71 @@ code cache or automatic invalidation in these libraries. A checked snapshot
 producer stops before an invalid fetch, executes any valid instruction prefix,
 then handles the fault, for example by entering the interpreter at the failing EIP.
 
-Generated execution may reuse successful data-access checks while mappings remain
-stable. Each access still checks its segment and transfers current guest bytes;
-retained checks never cache guest contents or survive an entry's dispatch.
+Protected-mode execution may reuse successful data-access checks while mappings
+remain stable. Each access still checks its segment and transfers current guest
+bytes; retained checks never cache guest contents or survive an entry's dispatch.
 
-The interpreter checks required instruction bytes through CS and paging at runtime.
-Its direct decoding loop may retain the current page-table entry until it leaves
+The interpreter checks required instruction bytes through CS and the backing map
+at runtime. The protected-mode direct decoding loop may retain the current
+page-table entry until it leaves
 that decoder invocation. It still fetches live guest bytes and checks every access;
 no mapping cache survives a host dispatch or a new interpreter entry. The host may
 therefore remap code pages between entries under the existing validity rules.
-CS checks precede page checks for each byte. It fetches all fields of a supported
+CS checks precede mapping checks. Real16 uses direct RAM/ROM windows and exact
+required-byte reads when a direct window is unavailable. Physical routing is
+rechecked after each instruction, including after MMIO callbacks that remap code. It fetches all fields of a supported
 form before data access, but rejects an unsupported group extension before reading
 unneeded fields. Requiring byte sixteen raises #GP(0); an earlier unavailable
 required byte faults first. It never fetches a branch destination as part of the
 transferring instruction.
 
+## Ordinary real mode
+
+Select `ExecutionProfile::Real16` and initialize caches with `Segments::real_mode()`.
+Use `StoredSegment::real_mode(segment, value)` for a nonzero segment register.
+This configuration is host-selected execution, not a processor reset or an emulated
+CR0 transition. The CPU backing layout is unchanged.
+
+```rust
+use wasm86_x86::{CpuState, ExecutionProfile, Segment, Segments, StoredSegment};
+
+let mut cpu = CpuState::default();
+cpu.segments = Segments::real_mode();
+cpu.segments.cs = StoredSegment::real_mode(Segment::Cs, 0x1234);
+assert!(ExecutionProfile::Real16.is_compatible_with(&cpu.segments));
+```
+
+All sixteen segment-value bits participate in `value << 4`; zero is valid and
+there are no selector privilege checks or descriptor callbacks. Loads install
+canonical caches. This is valid because the profile already requires canonical
+limits and attributes; it does not model retained hidden state after switching
+from protected mode. Mode transitions and unreal-mode caches remain unsupported.
+
+Operand/address overrides select 32-bit operands/addresses while SS still uses SP.
+Every transferred span must fit the 64 KiB segment: SS failures report #SS(0),
+others #GP(0). Real-mode type permissions allow data writes through CS overrides.
+Addresses above 1 MiB remain distinct; A20 masking is not modeled. Far JMP/CALL/RET
+commit CS and dispatch, with target fetch belonging to the next entry. Real CALL
+checks the transferred offset plus selector; a dword selector slot reserves four
+bytes but transfers only its low word. RET checks both complete stack slots.
+
+ARPL/LAR/LSL/VERR/VERW raise #UD before operand access. PUSHF/POPF/IRET currently
+return the unsupported exit before reading flags or stack. Both cases terminate
+snapshot compilation; both decoders read the selected form's physical encoding
+before mode rejection. INT and real-mode interrupt delivery are not implemented.
+PUSHA/PUSHAD honor the specified #GP for low odd SP values 7 through 15. Stack
+faults are reported to the host; exception delivery, double faults and shutdown
+are outside this execution model. ENTER checks actual transfers without requiring
+backing for its unused allocation; Real16's SP always fits its canonical SS.
+
+These rules follow Intel's Pentium 4 [Volume 3, §15.1 and §9.9.2](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366821.pdf)
+and the instruction entries in [Volume 2A](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf)
+and [Volume 2B](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366721.pdf).
+RET's two-slot capacity follows the corrected [Volume 2 RET entry](https://cdrdv2-public.intel.com/774492/325383-sdm-vol-2abcd.pdf).
+
 ## Segment resolver
 
-Segment loads call `wasm86.resolveSegment(segment: i32, selector: i32)`, returning
+Protected-mode segment loads call `wasm86.resolveSegment(segment: i32, selector: i32)`, returning
 six Wasm i32 results: `(status, error_code, base, limit, selector, attributes)`.
 Segment indices are ES=0, CS=1, SS=2, DS=3, FS=4 and GS=5. Selector inputs and
 selector/attribute outputs use zero-extended 16-bit values.
@@ -434,7 +488,7 @@ Unknown statuses or invalid success records violate the host contract. Wasm owns
 the instruction's remaining checks, cache commitment, retirement and fault exit.
 In particular, resolving CS does not validate a transfer's target offset.
 
-RETF and IRET require a return selector with RPL 3 before resolving CS. IRET
+Protected-mode RETF and IRET require a return selector with RPL 3 before resolving CS. IRET
 checks all three slots and reads their values before resolving the selector.
 It commits CS, EIP, flags and the stack pointer only after all checks succeed.
 An entry NT flag of one requests an unsupported task return before ordinary stack
@@ -492,14 +546,16 @@ load a segment or fault for a rejected selector. Table edits affect the next que
 while loaded caches remain unchanged. Guest operand reads can still fault before
 the callback runs.
 
-## Fault and unsupported exits
+## Fault and host exits
 
 A guest fault returns directly without calling dispatch. Earlier completed
 instructions remain published; EIP identifies the faulting instruction, which
 does not retire. Its entry CPU state is preserved except for the partial progress
 described below.
 
-Each checked guest-memory write is complete or absent. Instructions with ordered
+Architectural checks for a complete operand precede its writes. In protected mode
+this includes every page's write permission; Real16 transfers follow the physical
+map's RAM/ROM/MMIO/unmapped routing. Instructions with ordered
 multiple writes, such as ENTER and PUSHA, retain completed writes if a later access
 faults. REP faults retain completed elements, current indices and the remaining
 count, with EIP at the instruction's first prefix. REP LODS also retains the last
@@ -509,7 +565,7 @@ flags; zero-count execution preserves them. A successful REP retires once.
 
 POPA also retains registers restored before a later fault. ESP and EIP remain at
 instruction entry and the instruction does not retire. Every slot is checked
-against SS and paging in order, including the discarded SP/ESP slot, whose value
+against SS and, in protected mode, paging in order, including the discarded SP/ESP slot, whose value
 is not read. This models observed partial progress; Intel documents incomplete
 register restoration on POPAD faults without specifying every CPU's exact pattern.
 
@@ -552,6 +608,6 @@ instruction's restart EIP, including its prefixes. Snapshot construction reports
 runtime exits. Truncated byte input alone cannot establish a guest fetch fault.
 
 Faults are reported to the host. Guest IDT delivery, privilege transitions,
-interrupt/debug delivery, real-mode transfers and SS-load inhibition are not
+interrupt/debug delivery, mode transitions and SS-load inhibition are not
 modeled. Native Wasm traps from broken backing or internal arithmetic invariants
 are implementation errors, outside this guest-fault protocol.

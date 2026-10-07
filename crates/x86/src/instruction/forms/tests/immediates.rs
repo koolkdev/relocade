@@ -37,7 +37,11 @@ fn two_immediates_bind_in_encoded_order_with_independent_physical_widths() {
             crate::decode::snapshot(bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, fallthrough);
-        assert!(decoded.instruction.ends_block());
+        assert!(decoded
+            .instruction
+            .ends_block(crate::ExecutionProfile::Protected(
+                crate::SegmentProfile::Flat32
+            )));
         assert!(!decoded.instruction.uses_memory());
         assert!(matches!(decoded.instruction.call, HandlerCall::Binary {
             left: Operand::Immediate(actual), right: Operand::Immediate(0xf327), ..
@@ -59,6 +63,7 @@ fn immediates_bind_after_location_operands() {
                 OperandSpec::Immediate(ImmediateWidth::Word),
             ];
             let form = Declaration {
+                real_mode: crate::instruction::RealModeSupport::Supported,
                 opcode: Opcode {
                     map: OpcodeMap::Primary,
                     byte: 0x00,
@@ -141,7 +146,11 @@ fn immediate_encoding_keeps_fixed_widths_and_signed_bytes_distinct() {
             crate::decode::snapshot(bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, fallthrough);
-        assert!(decoded.instruction.ends_block());
+        assert!(decoded
+            .instruction
+            .ends_block(crate::ExecutionProfile::Protected(
+                crate::SegmentProfile::Flat32
+            )));
         assert!(decoded.instruction.uses_memory());
         assert!(matches!(
             decoded.instruction.call,

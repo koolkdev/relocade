@@ -70,7 +70,7 @@ impl BlockKey {
                 "snapshot instruction {eip:#x}..={last:#x} exceeds CS limit {:#x}",
                 cs.limit
             );
-            if decoded.instruction.ends_block() {
+            if decoded.instruction.ends_block(self.profile) {
                 break;
             }
             eip = decoded.fallthrough_eip;
