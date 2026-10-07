@@ -16,7 +16,7 @@ pub(crate) use operand::BinaryOperands;
 use result::BinaryArithmetic;
 pub(crate) use result::{ArithmeticCandidate, ArithmeticResult, ConversionResult};
 pub(crate) use rounding::RoundingMode;
-pub(crate) use value::{ExtendedBits, ExtendedValue};
+pub(crate) use value::{ExtendedBits, ExtendedValue, SignOperation};
 
 #[derive(Clone, Copy)]
 pub(crate) enum BinaryOperation {

@@ -112,6 +112,8 @@ mod x87_memory_arithmetic;
 mod x87_multiply;
 #[path = "suites/x87_observations.rs"]
 mod x87_observations;
+#[path = "suites/x87_sign.rs"]
+mod x87_sign;
 #[path = "suites/x87_stack.rs"]
 mod x87_stack;
 #[path = "suites/x87_store.rs"]

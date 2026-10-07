@@ -6,11 +6,27 @@ mod precision53;
 #[cfg(test)]
 mod tests;
 
-use wasm86_compiler::{Val, F64, I1, I16, I32, I64};
+use wasm86_compiler::{IntType, Val, F64, I1, I16, I32, I64};
 
 use super::BinaryFormat;
 pub(super) use classification::Classification;
 pub(super) use precision53::Precision53;
+
+#[derive(Clone, Copy)]
+pub(crate) enum SignOperation {
+    Negate,
+    Absolute,
+}
+
+impl SignOperation {
+    fn apply<T: IntType>(self, bits: &Val<T>, sign_bit: impl Into<Val<T>>) -> Val<T> {
+        let sign_bit = sign_bit.into();
+        match self {
+            Self::Negate => bits.xor(sign_bit),
+            Self::Absolute => bits.and(sign_bit.xor(-1)),
+        }
+    }
+}
 
 /// Raw extended encodings include unsupported values and signaling NaNs.
 #[derive(Clone)]
@@ -112,6 +128,28 @@ impl ExtendedValue {
             Representation::Extended(bits) => bits.clone(),
             Representation::Precision53(value) => value.bits(),
             Representation::Binary { format, bits } => format.expand(bits),
+        }
+    }
+
+    /// Sign-only changes retain the numerical class and exact representation,
+    /// including a cached native PC53 significand.
+    pub(crate) fn change_sign(&self, operation: SignOperation) -> Self {
+        let representation = match &self.representation {
+            Representation::Extended(bits) => Representation::Extended(ExtendedBits {
+                significand: bits.significand.clone(),
+                sign_exponent: operation.apply(&bits.sign_exponent, 0x8000),
+            }),
+            Representation::Precision53(value) => {
+                Representation::Precision53(value.change_sign(operation))
+            }
+            Representation::Binary { format, bits } => Representation::Binary {
+                format: *format,
+                bits: operation.apply(bits, format.sign_bit()),
+            },
+        };
+        Self {
+            representation,
+            class: self.class.clone(),
         }
     }
 

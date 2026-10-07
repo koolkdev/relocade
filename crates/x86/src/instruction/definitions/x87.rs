@@ -3,6 +3,7 @@
 mod arithmetic;
 mod control;
 mod load;
+mod sign;
 mod stack;
 mod store;
 
@@ -13,5 +14,6 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
         .chain(arithmetic::forms())
         .chain(stack::forms())
         .chain(load::forms())
+        .chain(sign::forms())
         .chain(store::forms())
 }
