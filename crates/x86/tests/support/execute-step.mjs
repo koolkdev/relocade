@@ -1,3 +1,5 @@
+import physicalMemory from './physical-memory.mjs';
+
 export default function execute([module, interpreter], { entry, interpreter_entry, profile, invocations, input }) {
   const decode = ({ type, value }) => type === 'i64' ? BigInt(value) : value;
   const encode = value => typeof value === 'bigint'
@@ -10,7 +12,8 @@ export default function execute([module, interpreter], { entry, interpreter_entr
     for (const [offset, bytes] of patches) new Uint8Array(memory.buffer).set(bytes, offset);
   }
   const guestBefore = Buffer.from(new Uint8Array(guest.buffer));
-  const observesMachine = interpreter !== undefined || WebAssembly.Module.imports(module)
+  const moduleImports = WebAssembly.Module.imports(module);
+  const observesMachine = interpreter !== undefined || moduleImports
     .some(resource => resource.module === 'wasm86' && resource.name === 'machine')
     || input.patches_before_calls.some(patches => patches.machine.length !== 0);
   const machineBefore = observesMachine ? Buffer.from(new Uint8Array(machine.buffer)) : null;
@@ -32,9 +35,13 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   const events = [];
   let resolutions = 0;
   let segmentQueries = 0;
+  const physical = [module, interpreter].filter(Boolean)
+    .some(module => WebAssembly.Module.imports(module).some(resource => resource.module === 'wasm86' && resource.name === 'physicalMap'))
+    ? physicalMemory(guest, input, events) : null;
   const imports = {
     wasm86: {
       cpuState, guest, machine,
+      ...physical?.imports,
       querySegmentDescriptor: selector => {
         const reply = input.segment_queries[segmentQueries++];
         if (!reply || reply.selector !== selector) {
@@ -90,6 +97,8 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   if (segmentQueries !== input.segment_queries.length) {
     throw new Error('unused segment queries');
   }
+  if (physical) physical.checkComplete();
+  else if (input.mmio_updates.length !== 0) throw new Error('unused MMIO updates');
   return {
     events,
     guest_unchanged: guestBefore.equals(Buffer.from(guest.buffer)),
