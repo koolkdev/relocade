@@ -9,8 +9,8 @@ use crate::{
     Segment,
 };
 
-/// A resolved CS with an offset that still requires a limit check.
-/// Instructions schedule that check relative to their other fault checks.
+/// A resolved CS and offset. Callers must validate its limit before commitment,
+/// scheduling that check relative to their other architectural checks.
 pub(crate) struct CodeTarget {
     offset: Val<I32>,
     segment: ResolvedSegment,

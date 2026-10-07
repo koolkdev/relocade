@@ -61,7 +61,6 @@ pub(super) struct Instruction<V> {
     implicit_memory: bool,
     ends_block: bool,
     real_mode: RealModeSupport,
-    diagnostic_opcode: u8,
     pub(super) address_size: AddressSize,
     pub(super) segment_override: SegmentOverride,
     pub(super) locked: bool,

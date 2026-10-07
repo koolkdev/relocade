@@ -8,6 +8,8 @@ mod fetch;
 mod flags;
 #[path = "real_mode/handoff.rs"]
 mod handoff;
+#[path = "real_mode/interrupt_return.rs"]
+mod interrupt_return;
 #[path = "real_mode/memory.rs"]
 mod memory;
 #[path = "real_mode/segments.rs"]

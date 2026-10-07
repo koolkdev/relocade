@@ -58,7 +58,6 @@ instruction_families! {
     IRET {
         execute: return_interrupt::<_>;
         effects: [memory_read, control_transfer, segment_load];
-        real_mode: Unsupported;
         forms { 0xCF => word_or_dword(); }
     }
 }
@@ -186,15 +185,30 @@ fn return_interrupt<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
-    // NT selects a task return before stack access. Task switching uses the
-    // unsupported-execution exit.
-    let nested_task = execution.read_flag(Flag::NT)?;
-    execution.unsupported_if(nested_task, 0xcf)?;
+    match execution.profile() {
+        ExecutionProfile::Protected(_) => {
+            // Only protected mode interprets entry NT as a task return.
+            let nested_task = execution.read_flag(Flag::NT)?;
+            execution.unsupported_if(nested_task, 0xcf)?;
+        }
+        ExecutionProfile::Real16 => {}
+    }
     let frame = execution.pop_frame(3 * T::BYTES, 3 * T::BYTES)?;
     let offset = frame.field::<T>(execution, 0)?.read(execution)?;
+    match execution.profile() {
+        ExecutionProfile::Real16 => {
+            // IRETD checks EIP before reading CS or FLAGS. Both current and
+            // destination Real16 code segments have the canonical 64 KiB limit.
+            execution.jump(offset.unsigned().extend::<I32>())?;
+        }
+        ExecutionProfile::Protected(_) => {}
+    }
     let selector = frame.field::<I16>(execution, T::BYTES)?.read(execution)?;
     let flags = frame.field::<T>(execution, 2 * T::BYTES)?.read(execution)?;
-    let target = resolve_return_target(execution, offset, &selector)?;
+    let target = match execution.profile() {
+        ExecutionProfile::Real16 => CodeTarget::resolve(execution, offset, &selector)?,
+        ExecutionProfile::Protected(_) => resolve_return_target(execution, offset, &selector)?,
+    };
     image::write_stack_image(execution, &flags)?;
     frame.commit(execution, 0)?;
     target.commit(execution)

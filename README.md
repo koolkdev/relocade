@@ -12,9 +12,9 @@ Development prioritizes missing P4 instructions and architectural behavior.
 
 The implementation currently covers part of the 16/32-bit protected-mode user
 instruction set and ordinary real-mode execution. Real mode supports segment
-loads, FLAGS stack transfers and near/far transfers; INT/IRET and mode transitions
-remain outside that subset. The project is under development; the crates are not
-published.
+loads, FLAGS stack transfers, near/far transfers and interrupt returns. INT,
+interrupt delivery and mode transitions remain outside that subset. The project is
+under development; the crates are not published.
 
 | Crate | Responsibility |
 | --- | --- |
