@@ -13,7 +13,8 @@ use crate::support::{
     step::{Engine, TestModule},
 };
 use wasm86_x86::{
-    compile_block_from_bytes, Gpr32::*, Segment, SegmentAttributes, SegmentProfile, StoredSegment,
+    compile_block_from_bytes, ExecutionProfile, Gpr32::*, Segment, SegmentAttributes,
+    SegmentProfile, StoredSegment,
 };
 
 fn faulting_forms() -> Vec<Case> {
@@ -86,7 +87,9 @@ fn instruction_fetch_faults(engine: Engine) {
     image.cpu.segments.cs.limit = 0x1000;
     image.check_unchanged_exit(
         engine,
-        TestModule::interpreter_with_profile(SegmentProfile::Segmented32),
+        TestModule::interpreter_with_profile(ExecutionProfile::Protected(
+            SegmentProfile::Segmented32,
+        )),
         "the second opcode byte must be inside CS before UD2 can execute",
         Exit::GeneralProtection { error: 0 },
     );

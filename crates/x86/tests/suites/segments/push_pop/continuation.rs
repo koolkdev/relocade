@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn changed_stack_width(engine: Engine) {
     for old_big in [false, true] {
@@ -45,7 +46,7 @@ fn changed_stack_width(engine: Engine) {
         cpu.instruction_count = 0;
         check_one(
             engine,
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Ss, 0x27)],
@@ -61,7 +62,7 @@ fn changed_stack_width(engine: Engine) {
         cpu.instruction_count = 1;
         check_one(
             engine,
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code[1..],
             &image,
             &[],
@@ -120,7 +121,12 @@ fn terminal_pops(engine: Engine) {
         );
         let mut blocks = BlockModules::default();
         for module in [
-            blocks.get(&image.cpu, &code, 2, SegmentProfile::Flat32),
+            blocks.get(
+                &image.cpu,
+                &code,
+                2,
+                ExecutionProfile::Protected(SegmentProfile::Flat32),
+            ),
             TestModule::interpreter(),
         ] {
             assert_eq!(engine.observe(module, &input, 1), wanted);
@@ -161,7 +167,7 @@ fn stack_roundtrip(engine: Engine) {
     cpu.segments.es = StoredSegment::unusable(3);
     cpu.eip = 0x1002;
     cpu.instruction_count = 1;
-    assert!(!SegmentProfile::Flat32.is_compatible_with(&cpu.segments));
+    assert!(!ExecutionProfile::Protected(SegmentProfile::Flat32).is_compatible_with(&cpu.segments));
     let last = || Step {
         cpu,
         ram,
@@ -175,7 +181,12 @@ fn stack_roundtrip(engine: Engine) {
     wanted.events.insert(2, event.clone());
     assert_eq!(engine.observe(TestModule::interpreter(), &input, 2), wanted);
     let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, &code, 2, SegmentProfile::Flat32);
+    let block = blocks.get(
+        &image.cpu,
+        &code,
+        2,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    );
     let mut wanted = expected(&image, &[last()]);
     wanted.events.insert(0, event);
     assert_eq!(engine.observe(block, &input, 1), wanted);

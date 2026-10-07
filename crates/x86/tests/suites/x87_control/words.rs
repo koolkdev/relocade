@@ -1,9 +1,14 @@
 //! Conversion between independent backing fields and architectural control words.
 
 use super::*;
+use crate::SegmentProfile;
 
 fn control_field_packing(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(
+        engine,
+        frontend,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    );
     let code = [0xd9, 0x3d, 1, 0x40, 0, 0];
     for (fields, bytes) in [
         (
@@ -58,7 +63,11 @@ fn control_field_packing(engine: Engine, frontend: Frontend) {
 }
 
 fn load_control_fields(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(
+        engine,
+        frontend,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    );
     let code = [
         0xd9, 0x2d, 0, 0x40, 0, 0, // FLDCW [4000]
         0xd9, 0x3d, 2, 0x40, 0, 0, // FNSTCW [4002]

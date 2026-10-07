@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 use crate::{
     test_step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule},
     CpuState, SegmentAttributes, SegmentDefaultSize, SegmentKind, StoredSegment,
@@ -42,7 +43,7 @@ fn check_segment_indices(engine: Engine) {
     cpu.segments.gs = StoredSegment::unusable(0x63);
     for intent in [Intent::Read, Intent::Write] {
         let module = TestModule::new(&translation(
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             intent,
             Some(SegmentSelection::Indexed),
         ));
@@ -65,7 +66,7 @@ fn check_segment_indices(engine: Engine) {
         }
     }
     let read = TestModule::new(&translation(
-        SegmentProfile::Flat32,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
         Intent::Read,
         Some(SegmentSelection::Indexed),
     ));
@@ -74,7 +75,7 @@ fn check_segment_indices(engine: Engine) {
         SegmentDefaultSize::Bits32,
     );
     let segmented_read = TestModule::new(&translation(
-        SegmentProfile::Segmented32,
+        ExecutionProfile::Protected(SegmentProfile::Segmented32),
         Intent::Read,
         Some(SegmentSelection::Indexed),
     ));
@@ -84,7 +85,7 @@ fn check_segment_indices(engine: Engine) {
     expect_address(engine, &read, cpu, 4, 2 << 48);
 
     let address_default = TestModule::new(&translation(
-        SegmentProfile::Segmented32,
+        ExecutionProfile::Protected(SegmentProfile::Segmented32),
         Intent::Read,
         Some(default_segment),
     ));

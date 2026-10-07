@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 #[test]
@@ -26,7 +27,7 @@ fn complete_fields(engine: Engine) {
         cpu.instruction_count = 0;
         check_one(
             engine,
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
@@ -73,7 +74,9 @@ fn missing_fields(engine: Engine) {
             };
             image.check_unchanged_exit(
                 engine,
-                TestModule::interpreter_with_profile(SegmentProfile::Segmented32),
+                TestModule::interpreter_with_profile(ExecutionProfile::Protected(
+                    SegmentProfile::Segmented32,
+                )),
                 &format!("far JMP fields {code:02x?}, available {available}, CS limit {limit:x}"),
                 exit,
             );
@@ -115,7 +118,7 @@ fn length_boundary(engine: Engine) {
                 cpu.instruction_count = 0;
                 check_one(
                     engine,
-                    SegmentProfile::Flat32,
+                    ExecutionProfile::Protected(SegmentProfile::Flat32),
                     &code,
                     &image,
                     &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],

@@ -110,7 +110,11 @@ where
     I64: AtLeast<T>,
 {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program).unwrap();
+    let memory = Memory::declare(
+        &mut program,
+        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+    )
+    .unwrap();
     for name in ["read_a", "read_b"] {
         define_read::<T>(&mut program, &memory, name);
     }
@@ -171,7 +175,11 @@ fn scattered_helpers_are_shared_across_functions_at_each_requested_width() {
 #[test]
 fn read_only_accesses_do_not_build_writers_or_other_widths() {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program).unwrap();
+    let memory = Memory::declare(
+        &mut program,
+        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+    )
+    .unwrap();
     define_read::<I16>(&mut program, &memory, "read");
     let module = Module::inspect(&program.compile().unwrap());
     let readers = module.transfer_helpers(false);
@@ -183,7 +191,11 @@ fn read_only_accesses_do_not_build_writers_or_other_widths() {
 #[test]
 fn byte_accesses_do_not_build_transfer_helpers() {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program).unwrap();
+    let memory = Memory::declare(
+        &mut program,
+        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+    )
+    .unwrap();
     define_read::<I8>(&mut program, &memory, "read");
     define_write::<I8>(&mut program, &memory, "write");
     let module = Module::inspect(&program.compile().unwrap());
@@ -194,7 +206,11 @@ fn byte_accesses_do_not_build_transfer_helpers() {
 #[test]
 fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmtime() {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program).unwrap();
+    let memory = Memory::declare(
+        &mut program,
+        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+    )
+    .unwrap();
     let function = program
         .function(
             Signature {
@@ -227,7 +243,7 @@ fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmti
         .unwrap();
     program.export("replace", function).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "replace".into(),
     });

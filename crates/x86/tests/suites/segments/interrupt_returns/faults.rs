@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn stack_faults(engine: Engine) {
     for word in [false, true] {
@@ -22,7 +23,7 @@ fn stack_faults(engine: Engine) {
             ),
             (if word { 0x4ffc } else { 0x4ffa }, 0x4fff, true, 0, true),
         ] {
-            let profile = SegmentProfile::Segmented32;
+            let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
             let mut image = image(&code, profile);
             image.cpu.registers.esp = start;
             image.cpu.segments.ss.limit = limit;
@@ -147,7 +148,7 @@ fn selector_faults(engine: Engine) {
     ] {
         for word in [false, true] {
             let code = if word { vec![0x66, 0xcf] } else { vec![0xcf] };
-            let profile = SegmentProfile::Flat32;
+            let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
             let mut image = image(&code, profile);
             image.data(0x8000, &frame(word, 0x200, selector, 0));
             let mut tables = DescriptorTables::default();
@@ -191,16 +192,16 @@ fn return_selector_and_target_faults_preserve_flags_stack_pointer_and_loaded_cs(
 
 fn nested_task(engine: Engine) {
     for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+        ExecutionProfile::Protected(SegmentProfile::Segmented32),
+        ExecutionProfile::Protected(SegmentProfile::Segmented16),
     ] {
         for nt in [1, 0xff] {
             let code = [0x66, 0x67, 0xcf];
             let mut image = image(&code, profile);
             image.cpu.flags.bytes.nt = nt;
             image.cpu.registers.esp = 0x4000;
-            if profile != SegmentProfile::Flat32 {
+            if profile != ExecutionProfile::Protected(SegmentProfile::Flat32) {
                 image.cpu.segments.ss = crate::StoredSegment::unusable(0);
             }
             check_one(

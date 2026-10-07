@@ -1,8 +1,8 @@
 use super::data;
 use crate::{
-    CpuState, DescriptorTables, Exception::*, PrivilegeLevel::*, Segment, SegmentAttributes,
-    SegmentDefaultSize::*, SegmentDescriptor, SegmentDescriptorKind::*, SegmentProfile,
-    StoredSegment,
+    CpuState, DescriptorTables, Exception::*, ExecutionProfile, PrivilegeLevel::*, Segment,
+    SegmentAttributes, SegmentDefaultSize::*, SegmentDescriptor, SegmentDescriptorKind::*,
+    SegmentProfile, StoredSegment,
 };
 
 #[test]
@@ -165,8 +165,10 @@ fn direct_code_resolution_uses_call_jump_rules_and_normalizes_cs_rpl() {
                     assert_eq!(result, Ok(expected));
                     let mut cpu = CpuState::default();
                     cpu.segments.cs = expected;
-                    assert!(SegmentProfile::Segmented16.is_compatible_with(&cpu.segments));
-                    assert!(!SegmentProfile::Segmented32.is_compatible_with(&cpu.segments));
+                    assert!(ExecutionProfile::Protected(SegmentProfile::Segmented16)
+                        .is_compatible_with(&cpu.segments));
+                    assert!(!ExecutionProfile::Protected(SegmentProfile::Segmented32)
+                        .is_compatible_with(&cpu.segments));
                 } else {
                     assert_eq!(result, Err(GeneralProtection { error_code: 0x20 }));
                 }

@@ -4,19 +4,19 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{Engine, TestModule},
 };
-use wasm86_x86::{SegmentDefaultSize, SegmentProfile, StoredSegment};
+use wasm86_x86::{ExecutionProfile, SegmentDefaultSize, SegmentProfile, StoredSegment};
 
 fn valid_prefix_then_fetch_fault(engine: Engine) {
     let mut blocks = BlockModules::default();
     for (size, profile, modrm) in [
         (
             SegmentDefaultSize::Bits16,
-            SegmentProfile::Segmented16,
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
             0x46,
         ),
         (
             SegmentDefaultSize::Bits32,
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             0x45,
         ),
     ] {

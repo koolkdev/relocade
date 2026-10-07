@@ -23,8 +23,8 @@ use crate::support::{
     step::{Engine, Event, SegmentResolution, TestModule},
 };
 use wasm86_x86::{
-    DescriptorTables, PrivilegeLevel, Segment, SegmentDefaultSize, SegmentDescriptor,
-    SegmentDescriptorKind, SegmentProfile, StoredSegment,
+    DescriptorTables, ExecutionProfile, PrivilegeLevel, Segment, SegmentDefaultSize,
+    SegmentDescriptor, SegmentDescriptorKind, StoredSegment,
 };
 
 fn immediate(word: bool, offset: u32, selector: u16) -> Vec<u8> {

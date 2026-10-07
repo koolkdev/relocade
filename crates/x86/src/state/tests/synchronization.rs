@@ -53,7 +53,7 @@ fn synchronized_registers(source: IndexSource) -> crate::CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     crate::CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }
@@ -179,7 +179,7 @@ fn synchronized_byte_registers() -> crate::CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     crate::CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }
@@ -283,7 +283,7 @@ fn synchronized_word_registers() -> crate::CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     crate::CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }

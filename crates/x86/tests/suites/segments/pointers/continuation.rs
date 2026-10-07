@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn stack_load(engine: Engine) {
     for usable_pointer in [false, true] {
@@ -27,7 +28,7 @@ fn stack_load(engine: Engine) {
         cpu.instruction_count = 0;
         check_one(
             engine,
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Ss, 0x27)],
@@ -46,7 +47,7 @@ fn stack_load(engine: Engine) {
         }
         check_one(
             engine,
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code[3..],
             &image,
             &[],
@@ -108,7 +109,12 @@ fn terminal_loads(engine: Engine) {
         );
         let mut blocks = BlockModules::default();
         for module in [
-            blocks.get(&image.cpu, &code, 2, SegmentProfile::Flat32),
+            blocks.get(
+                &image.cpu,
+                &code,
+                2,
+                ExecutionProfile::Protected(SegmentProfile::Flat32),
+            ),
             TestModule::interpreter(),
         ] {
             assert_eq!(engine.observe(module, &input, 1), wanted);
@@ -139,7 +145,7 @@ fn null_and_fetch_boundary(engine: Engine) {
     cpu.instruction_count = 0;
     check_one(
         engine,
-        SegmentProfile::Flat32,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
         &[SegmentResolution::new(

@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn registers(engine: Engine) {
     let mut tables = DescriptorTables::default();
@@ -12,28 +13,28 @@ fn registers(engine: Engine) {
     );
     for (profile, code, destination, source, value) in [
         (
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &[0x0f, 0x02, 0xc8][..],
             Gpr32::Ecx,
             Gpr32::Eax,
             0x00d0_f300,
         ),
         (
-            SegmentProfile::Segmented16,
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
             &[0x0f, 0x02, 0xff][..],
             Gpr32::Edi,
             Gpr32::Edi,
             0xabcd_f300,
         ),
         (
-            SegmentProfile::Segmented16,
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
             &[0x66, 0x0f, 0x03, 0xf6][..],
             Gpr32::Esi,
             Gpr32::Esi,
             0x1234_5fff,
         ),
         (
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &[0x66, 0x0f, 0x03, 0xd9][..],
             Gpr32::Ebx,
             Gpr32::Ecx,
@@ -74,7 +75,7 @@ fn register_queries_honor_destination_width_and_preserve_aliases_on_failure() {
 fn memory_sources(engine: Engine) {
     let mut tables = DescriptorTables::default();
     tables.insert(0xf327, descriptor(0, SegmentDefaultSize::Bits32));
-    let profile = SegmentProfile::Segmented32;
+    let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
     for operand_override in [false, true] {
         let word = operand_override;
         for (opcode, value) in [(2, 0x0040_f300), (3, 0xffff)] {
@@ -107,7 +108,7 @@ fn memory_sources(engine: Engine) {
         }
     }
     for (opcode, value) in [(2, 0x0040_f300), (3, 0xffff)] {
-        let profile = SegmentProfile::Segmented32;
+        let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
         let code = [0x64, 0x67, 0x0f, opcode, 0x42, 0]; // (E)AX,FS:[BP+SI].
         let mut image = image(&code, profile);
         image.cpu.registers.ebp = 0xabcd_fffe;
@@ -149,7 +150,7 @@ fn source_faults(engine: Engine) {
                 vec![0x0f, opcode, 3]
             };
             for segment_denied in [false, true] {
-                let profile = SegmentProfile::Segmented32;
+                let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
                 let mut image = image(&code, profile);
                 image.cpu.registers.ebx = 0xfff;
                 image.cpu.registers.esp = 0xfff;

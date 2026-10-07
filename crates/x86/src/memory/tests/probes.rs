@@ -3,7 +3,11 @@ use crate::test_step::Engine;
 
 fn probe_module(constant_bytes: Option<u32>, intent: Intent) -> TestModule {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program).unwrap();
+    let memory = Memory::declare(
+        &mut program,
+        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+    )
+    .unwrap();
     let function = program
         .function(
             Signature {
@@ -28,7 +32,7 @@ fn probe_module(constant_bytes: Option<u32>, intent: Intent) -> TestModule {
         .unwrap();
     program.export("probe", function).unwrap();
     TestModule::new(&crate::CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "probe".into(),
     })

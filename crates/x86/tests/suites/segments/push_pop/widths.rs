@@ -1,14 +1,35 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn selector_widths(engine: Engine) {
     // Every fixed form appears once; shared stack tests own the full size matrix.
     for (push, forms) in [(true, &PUSH[..]), (false, &POP[..])] {
         for (index, &(segment, opcode)) in forms.iter().enumerate() {
             let (profile, big, override_size, slot) = [
-                (SegmentProfile::Segmented32, true, false, 4),
-                (SegmentProfile::Segmented32, false, true, 2),
-                (SegmentProfile::Segmented16, true, false, 2),
-                (SegmentProfile::Segmented16, false, true, 4),
+                (
+                    ExecutionProfile::Protected(SegmentProfile::Segmented32),
+                    true,
+                    false,
+                    4,
+                ),
+                (
+                    ExecutionProfile::Protected(SegmentProfile::Segmented32),
+                    false,
+                    true,
+                    2,
+                ),
+                (
+                    ExecutionProfile::Protected(SegmentProfile::Segmented16),
+                    true,
+                    false,
+                    2,
+                ),
+                (
+                    ExecutionProfile::Protected(SegmentProfile::Segmented16),
+                    false,
+                    true,
+                    4,
+                ),
             ][index % 4];
             let mut code = vec![];
             if override_size {
@@ -86,19 +107,19 @@ fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
 
 fn unread_slot_bytes(engine: Engine) {
     for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+        ExecutionProfile::Protected(SegmentProfile::Segmented32),
+        ExecutionProfile::Protected(SegmentProfile::Segmented16),
     ] {
         for push in [false, true] {
             let mut code = vec![];
-            if profile == SegmentProfile::Segmented16 {
+            if profile == ExecutionProfile::Protected(SegmentProfile::Segmented16) {
                 code.push(0x66);
             }
             code.push(if push { 0x1e } else { 0x1f }); // PUSH/POP DS, dword slot.
             let mut image = Image::new(&code);
             code_defaults(&mut image, profile);
-            let flat = profile == SegmentProfile::Flat32;
+            let flat = profile == ExecutionProfile::Protected(SegmentProfile::Flat32);
             if !flat {
                 image.cpu.segments.ss = data(0x4000, 0xfff);
             }
@@ -178,7 +199,7 @@ fn split_selector(engine: Engine) {
         };
         check_one(
             engine,
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
             &resolutions,

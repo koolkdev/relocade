@@ -2,7 +2,7 @@
 
 use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Val, I32};
 
-use super::{Access, Intent, Memory};
+use super::{access::Access, Intent, VirtualMemory};
 use crate::alu::OperandUpdate;
 
 fn native_update<T: MemoryInt>(
@@ -43,7 +43,7 @@ fn native_update<T: MemoryInt>(
     }
 }
 
-impl Memory {
+impl VirtualMemory {
     /// Returns the value observed by this complete read-modify-write operation.
     /// Naturally aligned scalar operands fit one page, so their native path
     /// does not inspect scattered backing. Translation preserves page offsets.

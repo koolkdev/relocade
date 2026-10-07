@@ -6,9 +6,9 @@ mod interpreter;
 pub use block::{compile_block_from_bytes, compile_block_from_bytes_with_profile};
 pub use interpreter::{compile_interpreter, compile_interpreter_step};
 
-use crate::{CpuState, SegmentProfile};
+use crate::{CpuState, ExecutionProfile};
 
-/// Generates snapshot blocks and interpreter entries under one segment profile.
+/// Generates snapshot blocks and interpreter entries under one execution profile.
 /// CPU observations specialize snapshot blocks; interpreters read live state.
 ///
 /// ```
@@ -22,15 +22,15 @@ use crate::{CpuState, SegmentProfile};
 /// # Ok::<(), wasm86_x86::BlockError>(())
 /// ```
 pub struct Compiler {
-    profile: SegmentProfile,
+    profile: ExecutionProfile,
     observed_cpu: Option<CpuState>,
 }
 
 impl Compiler {
     /// Selects the segment assumptions for every entry compiled by this owner.
-    pub fn new(profile: SegmentProfile) -> Self {
+    pub fn new(profile: impl Into<ExecutionProfile>) -> Self {
         Self {
-            profile,
+            profile: profile.into(),
             observed_cpu: None,
         }
     }

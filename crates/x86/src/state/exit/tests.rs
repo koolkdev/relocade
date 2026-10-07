@@ -95,7 +95,7 @@ fn check_host_exit_words(engine: Engine) {
         ("unsupported", 0xf3, 0x89ab_cdef, 0x0008_00f3_89ab_cdef),
     ] {
         let module = TestModule::new(&CompiledModule {
-            segment_profile: None,
+            execution_profile: None,
             bytes: bytes.clone(),
             entry: name.into(),
         });

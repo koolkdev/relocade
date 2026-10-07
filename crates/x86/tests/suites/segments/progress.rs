@@ -3,7 +3,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{Engine, TestModule},
 };
-use wasm86_x86::{compile_block_from_bytes, SegmentProfile};
+use wasm86_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile};
 
 fn check_progress(engine: Engine) {
     // MOV EAX,1; ADD EAX,1; MOV [EBX],EAX; MOV ECX,FS:[EDX].
@@ -80,7 +80,9 @@ fn segment_fault_publishes_prior_progress_in_v8() {
 }
 
 fn code_boundaries(engine: Engine) {
-    let module = TestModule::interpreter_with_profile(SegmentProfile::Segmented32);
+    let module = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
+        SegmentProfile::Segmented32,
+    ));
     for bytes in [&[0x90][..], &[0x74, 0x7f]] {
         let mut image = Image::empty();
         image.cpu.flags.status_source.kind = 0;

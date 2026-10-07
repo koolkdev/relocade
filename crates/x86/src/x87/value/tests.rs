@@ -121,7 +121,7 @@ fn known_classes_survive_selection_and_indefinite_replacement() {
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "classify".into(),
-        segment_profile: None,
+        execution_profile: None,
     });
     // Predicate bits: zero, denormal, special exponent, infinity, NaN, SNaN,
     // unsupported. Expectations come directly from these extended encodings.
@@ -220,7 +220,7 @@ fn precision53_views_agree_after_selection_and_indefinite_replacement() {
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "views".into(),
-        segment_profile: None,
+        execution_profile: None,
     });
     for (significand, exponent, coefficient) in [
         (0_u64, 0x8000, 0_u64),

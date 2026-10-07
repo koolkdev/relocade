@@ -1,4 +1,5 @@
 use super::{CallPatches, Engine, Input, TestModule};
+use crate::SegmentProfile;
 use wasm86_compiler::{MemoryImport, Program, Signature, Type, I32};
 
 fn check_transient_machine_write(engine: Engine) {
@@ -25,7 +26,7 @@ fn check_transient_machine_write(engine: Engine) {
         .unwrap();
     program.export("toggle", toggle).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "toggle".into(),
     });
@@ -60,7 +61,7 @@ fn check_host_memory_edits(engine: Engine) {
         .unwrap();
     program.export("entry", entry).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "entry".into(),
     });
@@ -112,11 +113,17 @@ fn v8_observes_host_edits_without_module_memory_imports() {
 
 fn check_entry_contexts(engine: Engine) {
     use super::{Argument, Event, Observation, Outcome, Snapshot};
-    use crate::{compile_block_from_bytes, CpuState, SegmentProfile, Segments};
+    use crate::{compile_block_from_bytes, CpuState, ExecutionProfile, Segments};
 
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &[0x90], 1).unwrap());
-    assert_eq!(module.profile, Some(SegmentProfile::Flat32));
-    for profile in [SegmentProfile::Flat32, SegmentProfile::Segmented32] {
+    assert_eq!(
+        module.profile,
+        Some(ExecutionProfile::Protected(SegmentProfile::Flat32))
+    );
+    for profile in [
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+        ExecutionProfile::Protected(SegmentProfile::Segmented32),
+    ] {
         assert_eq!(
             TestModule::interpreter_with_profile(profile).profile,
             Some(profile)

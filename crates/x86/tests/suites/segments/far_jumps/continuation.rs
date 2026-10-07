@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn new_code_defaults(engine: Engine) {
     for next_word in [false, true] {
@@ -36,7 +37,7 @@ fn new_code_defaults(engine: Engine) {
         cpu.instruction_count = 0;
         check_one(
             engine,
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, 0x1b)],
@@ -54,9 +55,9 @@ fn new_code_defaults(engine: Engine) {
         check_one(
             engine,
             if next_word {
-                SegmentProfile::Segmented16
+                ExecutionProfile::Protected(SegmentProfile::Segmented16)
             } else {
-                SegmentProfile::Segmented32
+                ExecutionProfile::Protected(SegmentProfile::Segmented32)
             },
             next_code,
             &image,
@@ -86,7 +87,7 @@ fn destination_paging(engine: Engine) {
     cpu.instruction_count = 0;
     check_one(
         engine,
-        SegmentProfile::Flat32,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
         &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
@@ -99,7 +100,9 @@ fn destination_paging(engine: Engine) {
     image.cpu = cpu;
     assert_eq!(
         engine.observe(
-            TestModule::interpreter_with_profile(SegmentProfile::Segmented32),
+            TestModule::interpreter_with_profile(ExecutionProfile::Protected(
+                SegmentProfile::Segmented32
+            )),
             &image.input(),
             1
         ),
@@ -163,8 +166,15 @@ fn terminal_jump(engine: Engine) {
         );
         let mut blocks = BlockModules::default();
         for module in [
-            blocks.get(&image.cpu, &code, 2, SegmentProfile::Segmented32),
-            TestModule::interpreter_with_profile(SegmentProfile::Segmented32),
+            blocks.get(
+                &image.cpu,
+                &code,
+                2,
+                ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            ),
+            TestModule::interpreter_with_profile(ExecutionProfile::Protected(
+                SegmentProfile::Segmented32,
+            )),
         ] {
             assert_eq!(engine.observe(module, &input, 1), wanted);
         }

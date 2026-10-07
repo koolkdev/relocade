@@ -16,12 +16,12 @@ use crate::support::{
     step::{Engine, Event, SegmentQuery, TestModule},
 };
 use crate::{
-    CpuState, DescriptorTables, Gpr32, Segment, SegmentDefaultSize, SegmentDescriptor,
-    SegmentDescriptorKind, SegmentProfile,
+    CpuState, DescriptorTables, ExecutionProfile, Gpr32, Segment, SegmentDefaultSize,
+    SegmentDescriptor, SegmentDescriptorKind, SegmentProfile,
 };
 
 fn descriptor_results(engine: Engine) {
-    let profile = SegmentProfile::Flat32;
+    let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     let mut tables = DescriptorTables::default();
     let writable = descriptor(0, SegmentDefaultSize::Bits32);
     tables.insert(0, writable);

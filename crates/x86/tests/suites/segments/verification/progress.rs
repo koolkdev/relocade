@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn lazy_flags(engine: Engine) {
     let mut tables = DescriptorTables::default();
@@ -14,7 +15,7 @@ fn lazy_flags(engine: Engine) {
     );
     for (extension, result) in [(4, true), (5, false)] {
         let code = [0x0f, 0x00, 0xc0 | (extension << 3)];
-        let profile = SegmentProfile::Flat32;
+        let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
         let mut image = image(&code, profile);
         image.cpu.registers.eax = 0x27;
         image.cpu.flags.status_source.kind = 10;
@@ -48,7 +49,7 @@ fn verification_replaces_zf_while_preserving_other_pending_arithmetic_flags() {
 }
 
 fn continuing_block(engine: Engine) {
-    let profile = SegmentProfile::Segmented16;
+    let profile = ExecutionProfile::Protected(SegmentProfile::Segmented16);
     // VERR AX; SETZ DL; VERW AX; SETZ BL.
     let code = [
         0x0f, 0x00, 0xe0, 0x0f, 0x94, 0xc2, 0x0f, 0x00, 0xe8, 0x0f, 0x94, 0xc3,
@@ -118,7 +119,7 @@ fn verification_continues_in_the_same_block_and_later_instructions_observe_zf() 
 }
 
 fn table_changes(engine: Engine) {
-    let profile = SegmentProfile::Flat32;
+    let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     let code = [0x0f, 0x00, 0xe8]; // VERW AX.
     let mut image = image(&code, profile);
     image.cpu.registers.eax = 0x27;
@@ -173,7 +174,7 @@ fn the_same_entry_observes_table_edits_while_the_loaded_cache_stays_unchanged() 
 }
 
 fn later_fault(engine: Engine) {
-    let profile = SegmentProfile::Flat32;
+    let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     // VERR AX; MOV ECX,[EBX] (unmapped).
     let code = [0x0f, 0x00, 0xe0, 0x8b, 0x0b];
     let mut image = image(&code, profile);

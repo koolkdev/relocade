@@ -8,8 +8,8 @@ use crate::support::{
     step::{Engine, Event, SegmentResolution, TestModule},
 };
 use wasm86_x86::{
-    compile_interpreter, Segment, SegmentAttributes, SegmentDefaultSize, SegmentKind,
-    SegmentProfile, StoredSegment,
+    compile_interpreter, ExecutionProfile, Segment, SegmentAttributes, SegmentDefaultSize,
+    SegmentKind, SegmentProfile, StoredSegment,
 };
 
 fn check(engine: Engine, module: &TestModule, name: &str, image: &Image, step: Step<'_>) {
@@ -250,7 +250,9 @@ fn terminal_segment_load(engine: Engine, module: &TestModule) {
 }
 
 fn segmented_execution(engine: Engine) {
-    let module = TestModule::new(&compile_interpreter(SegmentProfile::Segmented16).unwrap());
+    let module = TestModule::new(
+        &compile_interpreter(ExecutionProfile::Protected(SegmentProfile::Segmented16)).unwrap(),
+    );
     let mut image = Image::new(&[
         0x66, 0xb8, 0x78, 0x56, 0x34, 0x12, 0xb8, 0xcd, 0xab, 0x67, 0x8b, 0x03, 0x8b, 0x07, 0xeb, 0,
     ]);
@@ -279,7 +281,9 @@ fn segmented_execution(engine: Engine) {
         },
     );
 
-    let module = TestModule::new(&compile_interpreter(SegmentProfile::Segmented32).unwrap());
+    let module = TestModule::new(
+        &compile_interpreter(ExecutionProfile::Protected(SegmentProfile::Segmented32)).unwrap(),
+    );
     let mut image = Image::new(&[0xb8, 42, 0, 0, 0, 0x90]);
     fetch::segmented_code_pages(engine, &module);
     image.cpu.segments.cs.limit = 0x1004;
@@ -301,7 +305,9 @@ fn segmented_execution(engine: Engine) {
 }
 
 fn check_runs(engine: Engine) {
-    let module = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
+    let module = TestModule::new(
+        &compile_interpreter(ExecutionProfile::Protected(SegmentProfile::Flat32)).unwrap(),
+    );
     execution_boundaries(engine, &module);
     fetch::check_fetch(engine, &module);
     repetition_progress(engine, &module);

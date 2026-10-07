@@ -2,7 +2,7 @@ use wasm86_compiler::{Program, Signature, Type};
 
 use crate::{
     decode, execution::ExecutionBuilder, memory::Memory, runtime::Runtime, state::Cpu, BlockError,
-    CompiledModule, SegmentProfile,
+    CompiledModule, ExecutionProfile, SegmentProfile,
 };
 
 use super::Compiler;
@@ -41,7 +41,7 @@ pub fn compile_block_from_bytes(
     )
 }
 
-/// Compiles a byte snapshot under the selected segment profile.
+/// Compiles a byte snapshot under the selected execution profile.
 /// The stopping boundary and exported entry follow [`compile_block_from_bytes`].
 /// The profile determines instruction defaults; size prefixes independently
 /// select the opposite operand or address width.
@@ -61,21 +61,21 @@ pub fn compile_block_from_bytes(
 /// let block = compile_block_from_bytes_with_profile(
 ///     0x1000, &[0xb8, 0x34, 0x12], 1, SegmentProfile::Segmented16,
 /// )?;
-/// assert_eq!(block.segment_profile, Some(SegmentProfile::Segmented16));
+/// assert_eq!(block.execution_profile, Some(SegmentProfile::Segmented16.into()));
 /// # Ok::<(), wasm86_x86::BlockError>(())
 /// ```
 pub fn compile_block_from_bytes_with_profile(
     start_eip: u32,
     bytes: &[u8],
     instruction_limit: u32,
-    profile: SegmentProfile,
+    profile: impl Into<ExecutionProfile>,
 ) -> Result<CompiledModule, BlockError> {
     Compiler::new(profile).compile_block(start_eip, bytes, instruction_limit)
 }
 
 impl Compiler {
     /// Compiles a snapshot through the boundary described by
-    /// [`compile_block_from_bytes`], with this compiler's segment profile and
+    /// [`compile_block_from_bytes`], with this compiler's execution profile and
     /// observations. Fetch admission follows [`compile_block_from_bytes_with_profile`].
     pub fn compile_block(
         &self,
@@ -108,7 +108,7 @@ impl Compiler {
         let memory = decoded_instructions
             .iter()
             .any(|decoded_instruction| decoded_instruction.instruction.uses_memory())
-            .then(|| Memory::declare(&mut program))
+            .then(|| Memory::declare(&mut program, profile))
             .transpose()?;
         let runtime = Runtime::declare(&mut program);
         let function = program.function(
@@ -137,7 +137,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry,
-            segment_profile: Some(profile),
+            execution_profile: Some(profile),
         })
     }
 }

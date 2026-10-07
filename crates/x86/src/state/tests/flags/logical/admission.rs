@@ -109,7 +109,7 @@ fn rejected_mixed_changes_leave_status_and_direction_history_intact() {
                 .unwrap();
             program.export("run", function).unwrap();
             let module = TestModule::new(&CompiledModule {
-                segment_profile: None,
+                execution_profile: None,
                 bytes: program.compile().unwrap(),
                 entry: "run".into(),
             });

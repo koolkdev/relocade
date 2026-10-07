@@ -1,10 +1,11 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn earlier_progress(engine: Engine) {
     for nested_task in [false, true] {
         // ADD EAX,1; prefixed IRETD; unsupported trailing byte beyond the block end.
         let code = [0x83, 0xc0, 1, 0x67, 0xcf, 0xf4];
-        let profile = SegmentProfile::Flat32;
+        let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
         let mut image = image(&code, profile);
         image.cpu.flags.status_source.kind = 0;
         image.cpu.flags.status_source.left = 0;
@@ -61,7 +62,7 @@ fn an_unsupported_or_faulting_return_publishes_only_earlier_completed_instructio
 
 fn dispatch_and_fetch(engine: Engine) {
     let code = [0xcf, 0xf4];
-    let profile = SegmentProfile::Segmented32;
+    let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
     let mut image = image(&code, profile);
     image.cpu.segments.cs.limit = 0x1000;
     image.data(0x8000, &frame(false, 0x200, 0x27, 0x4000));
@@ -100,7 +101,9 @@ fn dispatch_and_fetch(engine: Engine) {
         assert_eq!(engine.observe(module, &input, 1), wanted);
     }
     image.cpu = cpu;
-    let step = TestModule::interpreter_with_profile(SegmentProfile::Segmented16);
+    let step = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
+        SegmentProfile::Segmented16,
+    ));
     // Destination fetch belongs to the next entry, even when restored NT is set.
     image.check_unchanged_exit(
         engine,
@@ -129,7 +132,7 @@ fn returned_cs_and_nt_apply_at_the_next_entry_after_retirement() {
 fn flags_from_instructions(engine: Engine) {
     // POPFD loads NT; IRET must observe that definition before any stack access.
     let code = [0x9d, 0xcf];
-    let profile = SegmentProfile::Flat32;
+    let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     let mut image = image(&code, profile);
     image.cpu.registers.esp = 0x4ffc;
     image.map(4, 0xa000, false);
@@ -174,7 +177,7 @@ fn nt_defined_by_popf_in_the_same_block_selects_the_task_return_path() {
 fn fetch_boundary(engine: Engine) {
     for (length, suffix) in [(1, 0xcf), (15, 0xcf), (16, 0xcf)] {
         let code = [vec![0x67; length - 1], vec![suffix]].concat();
-        let mut image = image(&[], SegmentProfile::Flat32);
+        let mut image = image(&[], ExecutionProfile::Protected(SegmentProfile::Flat32));
         image.cpu.eip = 0x1ff1;
         image.data(0x3ff1, &code[..length.min(15)]);
         image.cpu.flags.bytes.nt = 1;
@@ -186,7 +189,7 @@ fn fetch_boundary(engine: Engine) {
         if length <= 15 {
             check_one(
                 engine,
-                SegmentProfile::Flat32,
+                ExecutionProfile::Protected(SegmentProfile::Flat32),
                 &code,
                 &image,
                 &[],
@@ -209,7 +212,7 @@ fn fetch_boundary(engine: Engine) {
             );
         }
     }
-    let mut image = image(&[], SegmentProfile::Flat32);
+    let mut image = image(&[], ExecutionProfile::Protected(SegmentProfile::Flat32));
     image.cpu.eip = 0x1fff;
     image.cpu.flags.bytes.nt = 1;
     image.data(0x3fff, &[0x66]);

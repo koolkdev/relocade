@@ -1,19 +1,28 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn widths_and_profiles(engine: Engine) {
     for (profile, code, word) in [
         (
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &[0xea, 0x78, 0x56, 0x34, 0x92, 0x24, 0xf3][..],
             false,
         ),
         (
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &[0x66, 0xea, 0x78, 0x56, 0x24, 0xf3],
             true,
         ),
-        (SegmentProfile::Segmented16, &[0xff, 0x28], true),
-        (SegmentProfile::Segmented16, &[0x66, 0xff, 0x28], false),
+        (
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
+            &[0xff, 0x28],
+            true,
+        ),
+        (
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
+            &[0x66, 0xff, 0x28],
+            false,
+        ),
     ] {
         let mut image = Image::new(code);
         code_defaults(&mut image, profile);
@@ -90,7 +99,7 @@ fn accepted_descriptors(engine: Engine) {
         cpu.instruction_count = 0;
         check_one(
             engine,
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, selector)],
@@ -109,7 +118,10 @@ fn execute_only_and_conforming_code_accept_table_selection_and_normalize_cs_rpl(
 }
 
 fn target_limits(engine: Engine) {
-    for profile in [SegmentProfile::Flat32, SegmentProfile::Segmented32] {
+    for profile in [
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+        ExecutionProfile::Protected(SegmentProfile::Segmented32),
+    ] {
         for (old_limit, new_limit, target) in [
             (u32::MAX, 0, 0),
             (u32::MAX, 0x200, 0x200),
@@ -117,7 +129,9 @@ fn target_limits(engine: Engine) {
             (0x1006, 0x4000, 0x3000),
             (0x1006, 0x200, 0x201),
         ] {
-            if profile == SegmentProfile::Flat32 && old_limit != u32::MAX {
+            if profile == ExecutionProfile::Protected(SegmentProfile::Flat32)
+                && old_limit != u32::MAX
+            {
                 continue;
             }
             let code = immediate(false, target, 0x27);

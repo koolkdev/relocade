@@ -6,13 +6,13 @@ use crate::support::{
     step::{Engine, Event, SegmentResolution, TestModule},
 };
 use wasm86_x86::{
-    SegmentAttributes, SegmentDefaultSize, SegmentDescriptor, SegmentDescriptorKind, SegmentKind,
-    SegmentLimit, SegmentProfile, StoredSegment,
+    ExecutionProfile, SegmentAttributes, SegmentDefaultSize, SegmentDescriptor,
+    SegmentDescriptorKind, SegmentKind, SegmentLimit, SegmentProfile, StoredSegment,
 };
 
 pub(super) fn check_one(
     engine: Engine,
-    profile: SegmentProfile,
+    profile: ExecutionProfile,
     code: &[u8],
     image: &Image,
     resolutions: &[SegmentResolution],
@@ -54,8 +54,8 @@ pub(super) fn descriptor(base: u32, size: SegmentDefaultSize) -> SegmentDescript
     )
 }
 
-pub(super) fn code_defaults(image: &mut Image, profile: SegmentProfile) {
-    if profile == SegmentProfile::Segmented16 {
+pub(super) fn code_defaults(image: &mut Image, profile: ExecutionProfile) {
+    if profile == ExecutionProfile::Protected(SegmentProfile::Segmented16) {
         image.cpu.segments.cs.attributes = SegmentAttributes::new(
             SegmentKind::Code { readable: true },
             SegmentDefaultSize::Bits16,

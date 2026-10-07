@@ -3,13 +3,13 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{Engine, TestModule},
 };
-use wasm86_x86::{compile_block_from_bytes, SegmentProfile};
+use wasm86_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile};
 
 fn changed_runtime_cache(engine: Engine) {
     let code = [0x64, 0x8b, 0x03];
     let compiled = compile_block_from_bytes(0x1000, &code, 1).unwrap();
-    let profile = compiled.segment_profile.unwrap();
-    assert_eq!(profile, SegmentProfile::Flat32);
+    let profile = compiled.execution_profile.unwrap();
+    assert_eq!(profile, ExecutionProfile::Protected(SegmentProfile::Flat32));
     let block = TestModule::new(&compiled);
     let mut image = Image::new(&code);
     image.cpu.registers.ebx = 0x20;
@@ -50,7 +50,8 @@ fn changed_runtime_cache(engine: Engine) {
     }
     image.cpu.segments.ds.base = 0x6000;
     assert!(!profile.is_compatible_with(&image.cpu.segments));
-    assert!(SegmentProfile::Segmented32.is_compatible_with(&image.cpu.segments));
+    assert!(ExecutionProfile::Protected(SegmentProfile::Segmented32)
+        .is_compatible_with(&image.cpu.segments));
 }
 
 #[test]

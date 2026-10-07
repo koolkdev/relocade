@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn round_trip(engine: Engine) {
     for word in [false, true] {
@@ -19,7 +20,7 @@ fn round_trip(engine: Engine) {
         let saved_address = if word { 0x8004 } else { 0x8000 };
         check_one(
             engine,
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &call,
             &image,
             &[SegmentResolution::new(&table, Segment::Cs, 0x27)],
@@ -37,7 +38,7 @@ fn round_trip(engine: Engine) {
         cpu.instruction_count = 1;
         check_one(
             engine,
-            SegmentProfile::Segmented16,
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
             &return_code,
             &image,
             &[SegmentResolution::new(&table, Segment::Cs, 0x1b)],
@@ -69,7 +70,7 @@ fn return_frame_width(engine: Engine) {
         image.data(0x8000, saved);
         check_one(
             engine,
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
             &[],
@@ -110,7 +111,7 @@ fn saved_fallthrough(engine: Engine) {
         };
         check_one(
             engine,
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
             &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
@@ -171,8 +172,15 @@ fn dispatch_boundary(engine: Engine) {
         );
         let mut blocks = BlockModules::default();
         for module in [
-            blocks.get(&image.cpu, &code, 2, SegmentProfile::Segmented32),
-            TestModule::interpreter_with_profile(SegmentProfile::Segmented32),
+            blocks.get(
+                &image.cpu,
+                &code,
+                2,
+                ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            ),
+            TestModule::interpreter_with_profile(ExecutionProfile::Protected(
+                SegmentProfile::Segmented32,
+            )),
         ] {
             assert_eq!(engine.observe(module, &input, 1), wanted);
         }
@@ -183,7 +191,9 @@ fn dispatch_boundary(engine: Engine) {
         }
         assert_eq!(
             engine.observe(
-                TestModule::interpreter_with_profile(SegmentProfile::Segmented32),
+                TestModule::interpreter_with_profile(ExecutionProfile::Protected(
+                    SegmentProfile::Segmented32
+                )),
                 &image.input(),
                 1
             ),

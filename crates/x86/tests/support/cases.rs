@@ -11,7 +11,8 @@ mod tests;
 use super::guest::Mapping;
 use crate::flags::Flag;
 use wasm86_x86::{
-    CpuState, Gpr32, Segment, SegmentDefaultSize, SegmentProfile, StoredFlags, StoredSegment,
+    CpuState, ExecutionProfile, Gpr32, Segment, SegmentDefaultSize, SegmentProfile, StoredFlags,
+    StoredSegment,
 };
 
 pub(crate) use super::guest::Permissions;
@@ -25,12 +26,13 @@ pub(crate) struct InstructionCase {
 }
 
 pub(super) enum Profiles {
+    /// Both applicable protected-mode profiles.
     All,
     Segmented,
 }
 
 impl Profiles {
-    pub(super) fn for_cpu(&self, cpu: &CpuState) -> impl Iterator<Item = SegmentProfile> {
+    pub(super) fn for_cpu(&self, cpu: &CpuState) -> impl Iterator<Item = ExecutionProfile> {
         let segmented = match cpu.segments.cs.attributes.default_size() {
             SegmentDefaultSize::Bits16 => SegmentProfile::Segmented16,
             SegmentDefaultSize::Bits32 => SegmentProfile::Segmented32,
@@ -41,6 +43,7 @@ impl Profiles {
         ]
         .into_iter()
         .flatten()
+        .map(ExecutionProfile::Protected)
     }
 }
 

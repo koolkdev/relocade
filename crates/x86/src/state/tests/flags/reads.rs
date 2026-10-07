@@ -98,7 +98,7 @@ fn mixed_history(local_base: bool) -> CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }
@@ -190,7 +190,7 @@ fn cached_reads_and_writes() -> CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }

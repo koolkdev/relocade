@@ -4,11 +4,11 @@ use super::page_table::{
     crosses_page, physical_address, scattered_backing, FRAME_MASK, LATER_DENIAL, PAGE_BYTES,
     SCATTERED,
 };
-use super::{Intent, Memory, PageCache};
+use super::{Intent, PageCache, VirtualMemory};
 use crate::exception::Exception;
 use wasm86_compiler::{BlockBuilder, BuildError, MemoryInt, Val, I1, I32};
 
-type FaultHandler<'handler> = dyn for<'body> FnMut(BlockBuilder<'body>, Exception<Val<I32>>) -> Result<(), BuildError>
+pub(super) type FaultHandler<'handler> = dyn for<'body> FnMut(BlockBuilder<'body>, Exception<Val<I32>>) -> Result<(), BuildError>
     + 'handler;
 
 /// Resolution of a complete span before any guest transfer. Denied spans are
@@ -42,7 +42,7 @@ impl Access {
     }
 }
 
-impl Memory {
+impl VirtualMemory {
     /// Resolves a complete linear byte span, including wrapping at 2^32.
     /// Segment validation and its fault precedence belong to the caller.
     /// A fault handler must terminate the denied path. Without one, denial is

@@ -4,8 +4,8 @@ use crate::support::{
     step::Engine,
 };
 use wasm86_x86::{
-    DescriptorTables, Segment, SegmentDefaultSize, SegmentDescriptor, SegmentDescriptorKind,
-    SegmentLimit, SegmentProfile,
+    DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
+    SegmentDescriptorKind, SegmentLimit, SegmentProfile,
 };
 
 fn loaded_cache_lifetime(engine: Engine, frontend: Frontend) {
@@ -38,7 +38,7 @@ fn loaded_cache_lifetime(engine: Engine, frontend: Frontend) {
     image.map(10, 0x9000, false);
     image.data(0x8200, &[0x44, 0x33, 0x22, 0x11]);
     image.data(0x9200, &[0x88, 0x77, 0x66, 0x55]);
-    let profile = SegmentProfile::Segmented32;
+    let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
     let mut sequences = ImageSequences::new(engine, frontend, profile);
     for (fs, value) in [(old, 0x1122_3344), (reloaded, 0x5566_7788)] {
         image.cpu.segments.fs = fs;

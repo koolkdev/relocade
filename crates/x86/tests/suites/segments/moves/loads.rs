@@ -1,35 +1,36 @@
 use super::super::selector_cases::loaded;
 use super::*;
 use crate::register::Gpr32;
+use crate::SegmentProfile;
 
 fn register_loads(engine: Engine) {
     for (profile, code, segment, source) in [
         (
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &[0x8e, 0xc7][..],
             Segment::Es,
             Gpr32::Edi,
         ),
         (
-            SegmentProfile::Segmented16,
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
             &[0x66, 0x8e, 0xd4][..],
             Segment::Ss,
             Gpr32::Esp,
         ),
         (
-            SegmentProfile::Segmented16,
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
             &[0x8e, 0xd9][..],
             Segment::Ds,
             Gpr32::Ecx,
         ),
         (
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &[0x66, 0x8e, 0xe2][..],
             Segment::Fs,
             Gpr32::Edx,
         ),
         (
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &[0x8e, 0xeb][..],
             Segment::Gs,
             Gpr32::Ebx,
@@ -83,7 +84,7 @@ fn old_memory_cache(engine: Engine) {
         cpu.instruction_count = 0;
         check_one(
             engine,
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
             &[SegmentResolution::new(&tables, segment, 0xf327)],
@@ -102,14 +103,19 @@ fn memory_sources_use_two_bytes_through_the_old_ds_or_ss_cache() {
 }
 
 fn overridden_source(engine: Engine) {
-    for profile in [SegmentProfile::Flat32, SegmentProfile::Segmented16] {
+    for profile in [
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+        ExecutionProfile::Protected(SegmentProfile::Segmented16),
+    ] {
         // MOV FS,GS:[BX+SI] / GS:[EBX+ESI], with GS replacing an earlier DS override.
         let mut code = vec![0x3e, 0x65, 0x67, 0x8e];
-        code.extend(if profile == SegmentProfile::Flat32 {
-            &[0x20][..]
-        } else {
-            &[0x24, 0x33]
-        });
+        code.extend(
+            if profile == ExecutionProfile::Protected(SegmentProfile::Flat32) {
+                &[0x20][..]
+            } else {
+                &[0x24, 0x33]
+            },
+        );
         let mut image = Image::new(&code);
         code_defaults(&mut image, profile);
         image.cpu.registers.ebx = 0xf00;
