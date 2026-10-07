@@ -1,6 +1,6 @@
 //! Place calculations directly in their function graph.
 //! Dominance owns availability; effects retain their authored snapshot ordering.
-use crate::{body::*, Expression, FunctionKind, Program};
+use crate::{body::*, Expression, Program};
 use std::collections::HashMap;
 mod availability;
 mod demand;
@@ -22,23 +22,24 @@ use facts::Facts;
 use joins::Joins;
 use specialize::{BlockScope, Specializer};
 
-pub(super) fn module(program: &mut Program) -> Vec<(usize, FunctionGraph)> {
-    let summaries = effects::infer(program);
-    program
-        .functions
-        .iter_mut()
-        .enumerate()
-        .filter_map(|(id, function)| {
-            let FunctionKind::Defined(body) = &mut function.kind else {
-                return None;
-            };
-            let mut graph = body
-                .take()
-                .expect("defined function completed construction");
-            place(&mut graph, &summaries);
-            Some((id, graph))
-        })
-        .collect()
+/// Shared call effects are inferred before any authored body is placed.
+pub(super) struct Placement {
+    summaries: Vec<Effects>,
+}
+
+impl Placement {
+    pub(super) fn new(program: &Program) -> Self {
+        Self {
+            summaries: effects::infer(program),
+        }
+    }
+
+    pub(super) fn function(&self, graph: &mut FunctionGraph) {
+        // Release placement's facts and bindings before pruning the finished graph.
+        place_calculations(graph, &self.summaries);
+        let live_values = liveness::prune(graph, &self.summaries);
+        graph.compact(live_values);
+    }
 }
 
 fn successors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
@@ -69,13 +70,6 @@ fn predecessors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
         }
     }
     predecessors
-}
-
-fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
-    // Release placement's facts and bindings before pruning the finished graph.
-    place_calculations(graph, summaries);
-    let live_values = liveness::prune(graph, summaries);
-    graph.compact(live_values);
 }
 
 fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {

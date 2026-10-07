@@ -29,6 +29,8 @@ mod execution;
 mod floating;
 #[path = "suites/function_bodies.rs"]
 mod function_bodies;
+#[path = "suites/function_retention.rs"]
+mod function_retention;
 #[path = "suites/generated_code.rs"]
 mod generated_code;
 #[path = "suites/integer_ops.rs"]
