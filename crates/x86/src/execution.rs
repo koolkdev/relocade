@@ -6,10 +6,12 @@ mod regions;
 mod register_pairs;
 mod segments;
 mod stack;
+mod strings;
 mod x87;
 
 pub(crate) use control::CodeTarget;
 pub(crate) use operands::WriteTarget;
+pub(crate) use strings::StringOperand;
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
 
@@ -97,14 +99,15 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     /// Builds JIT guards, then refines local candidates for their continuation.
     /// Runtime decoding and nested regions skip the callback and retain the
     /// ordinary semantics. Keep current-instruction effects after this scope.
-    pub(crate) fn specialize(
+    /// Returns the callback's result when this path permits specialization.
+    pub(crate) fn specialize<R>(
         &mut self,
-        build: impl FnOnce(&mut Self) -> Result<(), BuildError>,
-    ) -> Result<(), BuildError> {
+        build: impl FnOnce(&mut Self) -> Result<R, BuildError>,
+    ) -> Result<Option<R>, BuildError> {
         if self.can_specialize {
-            build(self)
+            build(self).map(Some)
         } else {
-            Ok(())
+            Ok(None)
         }
     }
 

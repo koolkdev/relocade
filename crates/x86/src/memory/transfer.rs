@@ -68,6 +68,16 @@ impl Memory {
         body.load_at::<T>(self.guest, physical, offset)
     }
 
+    /// The caller must prove this entire write is writable and contiguous.
+    pub(crate) fn store<T: MemoryInt>(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        physical: &Val<I32>,
+        value: &Val<T>,
+    ) -> Result<(), BuildError> {
+        body.store_at::<T>(self.guest, physical, 0, value)
+    }
+
     fn scattered_reader<T: MemoryInt>(&self, program: &mut Program) -> Result<Func, BuildError> {
         let slot = &self.scattered_readers[width_index::<T>()];
         if let Some(function) = slot.get() {
