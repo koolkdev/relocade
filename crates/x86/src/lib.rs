@@ -20,6 +20,7 @@
 //! modules follows below.
 //!
 #![doc = include_str!("../docs/host-integration.md")]
+#![doc = include_str!("../docs/physical-memory.md")]
 #![forbid(unsafe_code)]
 
 mod address;
@@ -60,6 +61,7 @@ pub use compile::{
     compile_interpreter_step, Compiler,
 };
 pub use exception::{Exception, ExceptionVector};
+pub use memory::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub use profile::ExecutionProfile;
 pub use register::Gpr32;
 pub use segment::{
