@@ -3,7 +3,7 @@ use crate::{
 };
 
 #[test]
-fn repeated_bitwise_operands_share_the_combined_value() {
+fn bitwise_identities_reuse_existing_values() {
     fn check<T: IntType>() {
         let mut program = Program::new();
         program
@@ -25,6 +25,20 @@ fn repeated_bitwise_operands_share_the_combined_value() {
                         assert!(operand.or(&union).same_expression(&union));
                         assert!(intersection.and(operand).same_expression(&intersection));
                         assert!(operand.and(&intersection).same_expression(&intersection));
+                    }
+                    for (first, second) in [(&a, &b), (&b, &a)] {
+                        let toggled = first.xor(second);
+                        assert!(toggled.xor(first).same_expression(second));
+                        assert!(first.xor(&toggled).same_expression(second));
+                        assert!(toggled.xor(second).same_expression(first));
+                        assert!(second.xor(&toggled).same_expression(first));
+                    }
+                    let combined = a.xor(0x66);
+                    for toggled in [a.xor(0x55), Val::<T>::from(0x55).xor(&a)] {
+                        assert!(toggled.xor(0x33).same_expression(&combined));
+                        assert!(Val::<T>::from(0x33)
+                            .xor(&toggled)
+                            .same_expression(&combined));
                     }
                     assert!(!union.and(&a).same_expression(&union));
                     assert!(!intersection.or(&b).same_expression(&intersection));

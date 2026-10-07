@@ -22,6 +22,51 @@ fn assert_constant(values: &ValueTable, id: usize, expected: u64) {
 }
 
 #[test]
+fn xor_mask_combination_preserves_carrier_bits_during_refolding() {
+    for ty in [Type::I1, Type::I8, Type::I16] {
+        let mut values = ValueTable::default();
+        let input = values.push(Value {
+            ty: Type::I32,
+            definition: ValueDefinition::Parameter {
+                block: BlockId(0),
+                component: 0,
+            },
+        });
+        let view = refold(&mut values, ty, Expression::Convert { input });
+        let high_bit = 1_u64 << ty.bits();
+        let first_mask = values.carrier_constant(ty, high_bit | 1);
+        let second_mask = values.constant(ty, 1);
+        let xor = |left, right| Expression::Binary {
+            operator: BinaryOp::Xor,
+            left,
+            right,
+        };
+
+        // Construction interprets a constant at its logical width, so both
+        // masks mean one. Refolding must retain their distinct carrier bits.
+        let constructed = build(&mut values, ty, xor(view, first_mask), 0);
+        assert_eq!(
+            build(&mut values, ty, xor(constructed, second_mask), 0),
+            view
+        );
+        let first = refold(&mut values, ty, xor(view, first_mask));
+        let combined = refold(&mut values, ty, xor(first, second_mask));
+        let ValueDefinition::Expression(Expression::Binary {
+            operator: BinaryOp::Xor,
+            left,
+            right,
+        }) = values[combined].definition
+        else {
+            panic!("the upper carrier bit still needs toggling")
+        };
+        assert_eq!(values.representation(left), input);
+        assert_constant(&values, right, high_bit);
+        let restored = refold(&mut values, ty, xor(first, first_mask));
+        assert_eq!(values.representation(restored), input);
+    }
+}
+
+#[test]
 fn refolded_constants_retain_carrier_bits_and_unsigned_extension() {
     let mut values = ValueTable::default();
     let byte = values.constant(Type::I8, 255);

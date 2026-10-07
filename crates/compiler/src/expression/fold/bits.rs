@@ -12,6 +12,47 @@ struct MaskedBits {
 }
 
 impl Folder<'_> {
+    /// XOR cancels repeated operands and combines adjacent constant masks.
+    /// Inputs already identify their carrier representations.
+    pub(super) fn fold_xor(&mut self, ty: Type, left: usize, right: usize) -> Option<usize> {
+        for (nested, other) in [(left, right), (right, left)] {
+            let ValueDefinition::Expression(Expression::Binary {
+                operator: BinaryOp::Xor,
+                left: inner_left,
+                right: inner_right,
+            }) = self.values[nested].definition
+            else {
+                continue;
+            };
+            let a = self.values.representation(inner_left);
+            let b = self.values.representation(inner_right);
+            if b == other {
+                return Some(inner_left);
+            }
+            if a == other {
+                return Some(inner_right);
+            }
+            let ValueDefinition::Constant(outer_mask) = self.values[other].definition else {
+                continue;
+            };
+            let (base, inner_mask) = match (self.values[a].definition, self.values[b].definition) {
+                (_, ValueDefinition::Constant(mask)) => (inner_left, mask),
+                (ValueDefinition::Constant(mask), _) => (inner_right, mask),
+                _ => continue,
+            };
+            let mask = self.values.carrier_constant(ty, inner_mask ^ outer_mask);
+            return Some(self.fold(
+                ty,
+                Expression::Binary {
+                    operator: BinaryOp::Xor,
+                    left: base,
+                    right: mask,
+                },
+            ));
+        }
+        None
+    }
+
     /// Rejoining bits extracted from the same carrier only needs their union
     /// mask. Match explicit masks and restored shifts, never logical type widths.
     pub(super) fn rejoin_bits(&mut self, ty: Type, left: usize, right: usize) -> Option<usize> {
