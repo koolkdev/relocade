@@ -16,7 +16,7 @@ pub(crate) use prefixes::{Group1Prefix, Prefix, PrefixState, SegmentOverride};
 use crate::address::{AddressSize, EffectiveAddress, MemoryAddress};
 use crate::flags::Condition;
 use crate::register::RegisterOperand;
-use crate::Segment;
+use crate::{ExecutionProfile, Segment};
 use wasm86_compiler::{Val, I16, I32};
 
 pub(super) const MAX_INSTRUCTION_BYTES: u32 = 15;
@@ -60,6 +60,8 @@ pub(super) struct Instruction<V> {
     condition: Option<Condition>,
     implicit_memory: bool,
     ends_block: bool,
+    real_mode: RealModeSupport,
+    diagnostic_opcode: u8,
     pub(super) address_size: AddressSize,
     pub(super) segment_override: SegmentOverride,
     pub(super) locked: bool,
@@ -89,8 +91,10 @@ impl<V: Into<Val<I32>>> X87Opcode<V> {
 }
 
 impl<V> Instruction<V> {
-    pub(super) fn ends_block(&self) -> bool {
+    pub(super) fn ends_block(&self, profile: ExecutionProfile) -> bool {
         self.ends_block
+            || (matches!(profile, ExecutionProfile::Real16)
+                && self.real_mode != RealModeSupport::Supported)
     }
 
     pub(super) fn uses_memory(&self) -> bool {

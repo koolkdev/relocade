@@ -24,7 +24,6 @@ pub(crate) struct PhysicalMemory {
 }
 
 impl PhysicalMemory {
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn declare(program: &mut Program) -> Self {
         let backing = program.import_memory(MemoryImport {
             module: "wasm86".into(),

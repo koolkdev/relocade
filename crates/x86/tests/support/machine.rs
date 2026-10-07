@@ -6,6 +6,7 @@ pub(crate) struct Image {
     pub(crate) cpu: CpuState,
     pub(crate) guest: Vec<(u32, Vec<u8>)>,
     pub(crate) machine: Vec<(u32, Vec<u8>)>,
+    pub(crate) physical_pages: Vec<(u32, u32, bool)>,
 }
 
 impl Image {
@@ -36,11 +37,13 @@ impl Image {
             cpu,
             guest: vec![],
             machine: vec![],
+            physical_pages: vec![],
         }
     }
     pub(crate) fn map(&mut self, page: u32, frame: u32, writable: bool) {
         let entry = frame | 1 | if writable { 2 } else { 0 };
         self.machine.push((page * 4, entry.to_le_bytes().to_vec()));
+        self.physical_pages.push((page, frame, writable));
     }
     pub(crate) fn data(&mut self, offset: u32, bytes: &[u8]) {
         self.guest.push((offset, bytes.to_vec()));
@@ -49,6 +52,7 @@ impl Image {
         Input {
             guest: self.guest.clone(),
             machine: self.machine.clone(),
+            physical_pages: self.physical_pages.clone(),
             observe_guest: true,
             ..Input::new(&self.cpu.to_bytes())
         }

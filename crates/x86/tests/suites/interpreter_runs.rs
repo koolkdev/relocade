@@ -286,6 +286,7 @@ fn segmented_execution(engine: Engine) {
     );
     let mut image = Image::new(&[0xb8, 42, 0, 0, 0, 0x90]);
     fetch::segmented_code_pages(engine, &module);
+    fetch::segment_end(engine, &module);
     image.cpu.segments.cs.limit = 0x1004;
     let mut cpu = image.cpu;
     cpu.registers.eax = 42;

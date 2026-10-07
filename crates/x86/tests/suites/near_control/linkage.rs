@@ -12,6 +12,7 @@ fn image_after_execution(image: &Image, observation: &Observation) -> Image {
         cpu: CpuState::from_bytes(snapshot.cpu.as_slice().try_into().unwrap()),
         guest: image.guest.clone(),
         machine: image.machine.clone(),
+        physical_pages: image.physical_pages.clone(),
     };
     for &(offset, value) in snapshot.guest.as_ref().unwrap() {
         after.data(offset, &[value]);

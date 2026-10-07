@@ -7,6 +7,7 @@ use super::{PageTable, PAGE_SHIFT};
 /// Transport shape for compiler loop inputs. Its fields are interpreted here.
 pub(crate) type PageCacheInputs = [I32; 2];
 
+#[derive(Clone)]
 pub(crate) struct PageCache {
     index: Val<I32>,
     entry: Val<I32>,

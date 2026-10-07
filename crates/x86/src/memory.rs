@@ -23,7 +23,6 @@ use wasm86_compiler::{BlockBuilder, BuildError, MemoryInt, Program, Val, I1, I32
 /// Selects the generated memory model once, during module construction.
 pub(crate) enum Memory {
     Virtual(VirtualMemory),
-    #[cfg_attr(not(test), allow(dead_code))]
     Physical(PhysicalMemory),
 }
 
@@ -69,8 +68,61 @@ impl Memory {
     ) -> Result<Self, BuildError> {
         match profile {
             ExecutionProfile::Protected(_) => VirtualMemory::declare(program).map(Self::Virtual),
+            ExecutionProfile::Real16 => Ok(Self::Physical(PhysicalMemory::declare(program))),
         }
     }
+    /// Probes direct backing after the caller's eligibility check. A true
+    /// `denied` condition skips lookup and preserves the cache without faulting.
+    /// With `None`, the caller has already established the span's eligibility.
+    pub(crate) fn check_direct_access(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        start: &Val<I32>,
+        bytes: u32,
+        intent: Intent,
+        denied: Option<Val<I1>>,
+        cache: Option<&mut PageCache>,
+    ) -> Result<DirectRange, BuildError> {
+        let probe = |body: &mut BlockBuilder<'_>, cache: Option<&mut PageCache>| match self {
+            Self::Virtual(memory) => {
+                let access = memory.resolve_access(body, start, bytes, intent, cache, None)?;
+                Ok(DirectRange {
+                    unavailable: access.unavailable,
+                    physical: access.physical,
+                })
+            }
+            // MMIO callbacks can change routing during an entry. Physical
+            // lookups always read live metadata rather than the loop page cache.
+            Self::Physical(memory) => memory.check_direct_access(body, start, bytes, intent),
+        };
+        let Some(denied) = denied else {
+            return probe(body, cache);
+        };
+        let mut next_cache = cache.as_deref().cloned();
+        let initial_cache = next_cache
+            .clone()
+            .map(PageCache::into_inputs)
+            .unwrap_or_else(|| PageCache::EMPTY.map(Into::into));
+        let (unavailable, physical, cache_inputs) = body.if_value::<(I1, I32, PageCacheInputs)>(
+            denied,
+            |denied| denied.yield_((true, 0, initial_cache.clone())),
+            |mut allowed| {
+                let direct = probe(&mut allowed, next_cache.as_mut())?;
+                let inputs = next_cache
+                    .map(PageCache::into_inputs)
+                    .unwrap_or_else(|| initial_cache.clone());
+                allowed.yield_((direct.unavailable, direct.physical, inputs))
+            },
+        )?;
+        if let Some(cache) = cache {
+            *cache = PageCache::from_inputs(cache_inputs);
+        }
+        Ok(DirectRange {
+            unavailable,
+            physical,
+        })
+    }
+
     /// Resolves a segment-checked span. Physical routing remains live until each transfer.
     pub(crate) fn resolve_access(
         &self,

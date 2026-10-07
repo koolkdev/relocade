@@ -10,7 +10,7 @@ use crate::{
     segment::SegmentSelection,
 };
 
-/// A resolved operand whose complete span passed segment and page checks.
+/// A resolved operand whose complete span passed its architectural access checks.
 /// Fields share that proof, so a later field cannot fault after an earlier write.
 pub(crate) struct MemoryOperand<'memory> {
     memory: &'memory Memory,
