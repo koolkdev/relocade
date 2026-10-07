@@ -26,8 +26,16 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
       - name: Run workspace tests
         run: cargo test --workspace --locked
+
+      - name: Run V8 tests
+        run: cargo test --workspace --locked -- --ignored
