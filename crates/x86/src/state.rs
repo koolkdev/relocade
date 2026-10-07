@@ -17,7 +17,7 @@ pub(crate) use observation::compile_flag_observer;
 pub(crate) use x87::{Arithmetic, ArithmeticSource, LoadSource, X87Access};
 
 use access::{cpu_load, cpu_store, register_location};
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
 
 use crate::{
     exception::Exception,
@@ -118,6 +118,19 @@ impl<'cpu> State<'cpu> {
         change: impl Into<FlagChange>,
     ) -> Result<(), BuildError> {
         self.flags.apply(body, change.into())
+    }
+
+    /// IOPL is a two-bit field, separate from the Boolean flags.
+    pub(crate) fn read_iopl(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I8>, BuildError> {
+        self.flags.read_iopl(body)
+    }
+
+    pub(crate) fn write_iopl(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        value: Val<I8>,
+    ) -> Result<(), BuildError> {
+        self.flags.write_iopl(body, value)
     }
 
     pub(crate) fn condition(

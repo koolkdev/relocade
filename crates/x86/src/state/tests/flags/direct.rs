@@ -18,6 +18,7 @@ fn initial_cpu() -> CpuState {
     cpu.flags.bytes.nt = 0x7f;
     cpu.flags.bytes.ac = 0x80;
     cpu.flags.bytes.id = 0xa5;
+    cpu.flags.bytes.if_ = 0xfe;
     cpu.eip = 0x1000;
     cpu.instruction_count = u32::MAX;
     cpu
@@ -25,7 +26,7 @@ fn initial_cpu() -> CpuState {
 
 #[test]
 fn computed_direct_values_publish_only_their_canonical_byte() {
-    for (index, flag) in [Flag::TF, Flag::DF, Flag::NT, Flag::AC, Flag::ID]
+    for (index, flag) in [Flag::TF, Flag::DF, Flag::NT, Flag::AC, Flag::ID, Flag::IF]
         .into_iter()
         .enumerate()
     {
@@ -61,6 +62,7 @@ fn computed_direct_values_publish_only_their_canonical_byte() {
                 &mut expected.flags.bytes.nt,
                 &mut expected.flags.bytes.ac,
                 &mut expected.flags.bytes.id,
+                &mut expected.flags.bytes.if_,
             ][index] = bit;
             expected.eip = 0x1001;
             expected.instruction_count = 0;
@@ -205,7 +207,7 @@ fn direct_publication_survives_register_aliases_and_status_changes() {
         for (index, parent, value, before) in [
             (0, Gpr32::Eax, 0x1122_33bb, 0x44),
             (4, Gpr32::Eax, 0x1122_cc44, 0x33),
-            (7, Gpr32::Ebx, 0x2726_da24, 0x25),
+            (7, Gpr32::Ebx, 0x2b2a_d628, 0x29),
         ] {
             let mut expected = initial;
             expected.flags.bytes.tf = 1;
@@ -235,5 +237,55 @@ fn direct_publication_survives_register_aliases_and_status_changes() {
             expected.instruction_count = 3;
             assert_result(&module, &initial, &[index], &expected, before);
         }
+    }
+}
+
+#[test]
+fn iopl_reads_and_definitions_use_two_bits_without_touching_other_flags() {
+    let mut program = Program::new();
+    let cpu = Cpu::declare(&mut program);
+    let function = program
+        .function(
+            Signature {
+                parameters: vec![Type::I8],
+                results: vec![Type::I64],
+            },
+            |mut body| {
+                let value = body.parameter::<I8>(0)?;
+                let mut state = State::new(&cpu);
+                let before = state.read_iopl(&mut body)?;
+                state.write_iopl(&mut body, value)?;
+                let after = state.read_iopl(&mut body)?;
+                state.publish(&mut body, 0x1001, 1)?;
+                body.return_(
+                    before
+                        .unsigned()
+                        .extend::<I64>()
+                        .shl(8)
+                        .or(after.unsigned().extend::<I64>()),
+                )
+            },
+        )
+        .unwrap();
+    program.export("run", function).unwrap();
+    let module = TestModule::new(&CompiledModule {
+        execution_profile: None,
+        bytes: program.compile().unwrap(),
+        entry: "run".into(),
+    });
+    let mut initial = initial_cpu();
+    initial.flags.bytes.iopl = 0xfe;
+    for (input, logical) in [(0, 0), (1, 1), (2, 2), (3, 3), (0x80, 0), (0xff, 3)] {
+        let mut expected = initial;
+        expected.flags.bytes.iopl = logical;
+        expected.eip = 0x1001;
+        expected.instruction_count = 0;
+        assert_result(
+            &module,
+            &initial,
+            &[input],
+            &expected,
+            0x200 | i64::from(logical),
+        );
     }
 }

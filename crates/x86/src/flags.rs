@@ -45,6 +45,7 @@ pub(crate) enum Flag {
     NT,
     AC,
     ID,
+    IF,
 }
 
 impl Flag {
@@ -54,7 +55,7 @@ impl Flag {
     pub(crate) const ZF: Self = Self::Status(StatusFlag::ZF);
     pub(crate) const SF: Self = Self::Status(StatusFlag::SF);
     pub(crate) const OF: Self = Self::Status(StatusFlag::OF);
-    pub(crate) const ALL: [Self; 11] = [
+    pub(crate) const ALL: [Self; 12] = [
         Self::CF,
         Self::PF,
         Self::AF,
@@ -66,6 +67,7 @@ impl Flag {
         Self::NT,
         Self::AC,
         Self::ID,
+        Self::IF,
     ];
 
     pub(crate) const fn index(self) -> usize {
@@ -76,6 +78,7 @@ impl Flag {
             Self::NT => StatusFlag::ALL.len() + 2,
             Self::AC => StatusFlag::ALL.len() + 3,
             Self::ID => StatusFlag::ALL.len() + 4,
+            Self::IF => StatusFlag::ALL.len() + 5,
         }
     }
 }

@@ -15,14 +15,14 @@ pub(crate) fn image(code: &[u8]) -> Image {
         of: 1,
         ..image.cpu.flags.bytes
     };
-    // DF is unrelated to these binary operations and SETcc; the last byte remains a canary.
+    // DF is unrelated to these binary operations and SETcc; padding remains a canary.
     image.cpu.flags.bytes = FlagBytes {
         tf: 0,
         df: 1,
         nt: 0,
         ac: 0,
         id: 0,
-        reserved: 0xa5,
+        reserved: [0xa5; 3],
         ..image.cpu.flags.bytes
     };
     image
