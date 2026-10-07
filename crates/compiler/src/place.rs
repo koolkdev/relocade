@@ -88,9 +88,14 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
             let BlockItem::Effect(id) = item else {
                 continue;
             };
-            if let Some(location) = graph.effects[id.0].operation.location() {
-                if !graph.memories.contains(&location.memory) {
-                    graph.memories.push(location.memory);
+            for memory in graph.effects[id.0]
+                .operation
+                .memories()
+                .into_iter()
+                .flatten()
+            {
+                if !graph.memories.contains(&memory) {
+                    graph.memories.push(memory);
                 }
             }
         }

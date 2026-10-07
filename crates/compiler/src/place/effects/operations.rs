@@ -34,6 +34,28 @@ pub(super) fn direct(operation: &Operation, body: &FunctionGraph) -> Effects<Acc
                 body,
             ));
         }
+        OperationKind::MemoryFill { memory } => {
+            let mut inputs = operation.inputs();
+            let destination = inputs.next().unwrap();
+            let bytes = inputs.next_back().unwrap();
+            writes = Accesses::One(MemoryRange::from_span(memory, destination, bytes, body));
+        }
+        OperationKind::MemoryCopy {
+            destination_memory,
+            source_memory,
+        } => {
+            let mut inputs = operation.inputs();
+            let destination = inputs.next().unwrap();
+            let source = inputs.next().unwrap();
+            let bytes = inputs.next().unwrap();
+            reads = Accesses::One(MemoryRange::from_span(source_memory, source, bytes, body));
+            writes = Accesses::One(MemoryRange::from_span(
+                destination_memory,
+                destination,
+                bytes,
+                body,
+            ));
+        }
         OperationKind::Atomic { .. } | OperationKind::Fence => synchronizes = true,
         OperationKind::Call { .. } => unreachable!("calls use their function's effect summary"),
     }

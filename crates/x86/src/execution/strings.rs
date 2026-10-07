@@ -1,5 +1,7 @@
 //! Complete string spans permit relative accesses within a repeated element loop.
 
+mod bulk;
+
 use wasm86_compiler::{BuildError, Val, I1, I32};
 
 use super::ExecutionBuilder;

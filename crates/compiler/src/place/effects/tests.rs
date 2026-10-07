@@ -27,20 +27,55 @@ fn access(memory: Mem, offset: u32) -> MemoryAccess {
 }
 
 #[test]
-fn scalar_writes_preserve_relative_alias_precision() {
+fn scalar_and_bulk_writes_share_relative_alias_precision() {
     let mut graph = FunctionGraph::new();
     let base = parameter(&mut graph);
     let other_base = parameter(&mut graph);
+    let four = graph.values.constant(Type::I32, 4);
     let value = graph.values.constant(Type::I32, 7);
-    let writer = Operation::store(access(Mem(0), 0), base, value);
-    for (offset, conflict) in [(0, true), (2, true), (4, false)] {
-        let reader = Operation::load(access(Mem(0), offset), base);
-        assert_eq!(blocks_read(&writer, &reader, &graph, &[]), conflict);
+    let writers = [
+        Operation::store(access(Mem(0), 0), base, value),
+        Operation::memory_fill(Mem(0), base, value, four),
+        Operation::memory_copy(Mem(0), Mem(1), base, other_base, four),
+    ];
+    for writer in writers {
+        for (offset, conflict) in [(0, true), (2, true), (4, false)] {
+            let reader = Operation::load(access(Mem(0), offset), base);
+            assert_eq!(blocks_read(&writer, &reader, &graph, &[]), conflict);
+        }
+        let distinct_memory = Operation::load(access(Mem(1), 0), base);
+        assert!(!blocks_read(&writer, &distinct_memory, &graph, &[]));
+        let unknown_alias = Operation::load(access(Mem(0), 8), other_base);
+        assert!(blocks_read(&writer, &unknown_alias, &graph, &[]));
     }
-    let distinct_memory = Operation::load(access(Mem(1), 0), base);
-    assert!(!blocks_read(&writer, &distinct_memory, &graph, &[]));
-    let unknown_alias = Operation::load(access(Mem(0), 8), other_base);
-    assert!(blocks_read(&writer, &unknown_alias, &graph, &[]));
+}
+
+#[test]
+fn zero_lengths_and_unknown_lengths_have_distinct_dependencies() {
+    let mut graph = FunctionGraph::new();
+    let destination = parameter(&mut graph);
+    let length = parameter(&mut graph);
+    let zero = graph.values.constant(Type::I32, 0);
+    let reader = Operation::load(access(Mem(0), 0), zero);
+    for (bytes, conflict) in [(zero, false), (length, true)] {
+        let writer = Operation::memory_fill(Mem(0), destination, zero, bytes);
+        assert_eq!(blocks_read(&writer, &reader, &graph, &[]), conflict);
+        assert!(observable(&writer, &[]));
+
+        let mut writes = Vec::new();
+        include(
+            &mut writes,
+            [MemoryRange::from_span(Mem(0), destination, bytes, &graph)],
+        );
+        let summaries = [Effects::Known {
+            reads: Vec::new(),
+            writes,
+            synchronizes: false,
+        }];
+        let call = Operation::call(Func(0), Vec::new());
+        assert_eq!(blocks_read(&call, &reader, &graph, &summaries), conflict);
+        assert!(observable(&call, &summaries));
+    }
 }
 
 #[test]

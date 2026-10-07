@@ -127,11 +127,16 @@ where
         StringOperand::new(Gpr32::Esi, execution.data_segment(), Intent::Read),
         StringOperand::new(Gpr32::Edi, Segment::Es.into(), Intent::Write),
     ];
-    repetition.execute::<T, 2>(execution, operands, |execution, operands| {
-        let value = operands[0].read::<T>(execution)?;
-        operands[1].write(execution, &value)?;
-        advance_indices(execution, &indices, &stride)
-    })
+    repetition.execute::<T, 2>(
+        execution,
+        operands,
+        |execution, operands| {
+            let value = operands[0].read::<T>(execution)?;
+            operands[1].write(execution, &value)?;
+            advance_indices(execution, &indices, &stride)
+        },
+        |execution, operands, count| execution.rep_movs::<T>(&operands[0], &operands[1], count),
+    )
 }
 
 fn store_elements<T: RegisterType>(
@@ -149,10 +154,15 @@ where
         Segment::Es.into(),
         Intent::Write,
     )];
-    repetition.execute::<T, 1>(execution, operands, |execution, operands| {
-        operands[0].write(execution, &value)?;
-        advance_indices(execution, &indices, &stride)
-    })
+    repetition.execute::<T, 1>(
+        execution,
+        operands,
+        |execution, operands| {
+            operands[0].write(execution, &value)?;
+            advance_indices(execution, &indices, &stride)
+        },
+        |execution, operands, count| execution.rep_stos::<T>(&operands[0], &value, count),
+    )
 }
 
 fn load_elements<T: RegisterType>(

@@ -33,6 +33,15 @@ impl MemoryRange {
         }
     }
 
+    pub(super) fn from_span(memory: Mem, base: usize, bytes: usize, body: &FunctionGraph) -> Self {
+        let bytes = body.values.representation(bytes);
+        let bytes = match body.values[bytes].definition {
+            ValueDefinition::Constant(bytes) => Some(bytes),
+            _ => None,
+        };
+        Self::new(memory, base, 0, bytes, body)
+    }
+
     pub(super) fn from_location(location: Location, body: &FunctionGraph) -> Self {
         Self::new(
             location.memory,
