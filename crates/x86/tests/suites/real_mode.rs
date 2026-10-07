@@ -4,6 +4,8 @@
 mod control;
 #[path = "real_mode/fetch.rs"]
 mod fetch;
+#[path = "real_mode/flags.rs"]
+mod flags;
 #[path = "real_mode/handoff.rs"]
 mod handoff;
 #[path = "real_mode/memory.rs"]

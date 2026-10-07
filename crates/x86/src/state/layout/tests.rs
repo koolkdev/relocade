@@ -9,9 +9,9 @@ use crate::Gpr32;
 #[test]
 fn cpu_layout_matches_the_external_byte_contract() {
     assert_eq!(CpuState::BYTE_LEN, 328);
-    assert_eq!(size_of::<StoredFlags>(), 24);
+    assert_eq!(size_of::<StoredFlags>(), 28);
     assert_eq!(size_of::<StoredStatusSource>(), 12);
-    assert_eq!(size_of::<FlagBytes>(), 12);
+    assert_eq!(size_of::<FlagBytes>(), 16);
     assert_eq!(offset_of!(StoredFlags, status_source), 0);
     assert_eq!(offset_of!(StoredFlags, bytes), 12);
     assert_eq!(size_of::<Registers>(), 32);
@@ -32,6 +32,8 @@ fn cpu_layout_matches_the_external_byte_contract() {
             offset_of!(CpuState, flags.bytes.nt),
             offset_of!(CpuState, flags.bytes.ac),
             offset_of!(CpuState, flags.bytes.id),
+            offset_of!(CpuState, flags.bytes.if_),
+            offset_of!(CpuState, flags.bytes.iopl),
             offset_of!(CpuState, flags.bytes.reserved),
             offset_of!(CpuState, registers.eax),
             offset_of!(CpuState, registers.ecx),
@@ -47,8 +49,8 @@ fn cpu_layout_matches_the_external_byte_contract() {
             offset_of!(CpuState, reserved_tail),
         ],
         [
-            0, 1, 4, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 28, 32, 36, 40, 44, 48,
-            52, 56, 132, 144, 148
+            0, 1, 4, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 28, 32, 36, 40, 44,
+            48, 52, 56, 60, 136, 144, 148
         ],
     );
 }
@@ -79,30 +81,32 @@ fn decoding_preserves_little_endian_values_and_every_reserved_byte() {
             cpu.flags.bytes.nt,
             cpu.flags.bytes.ac,
             cpu.flags.bytes.id,
-            cpu.flags.bytes.reserved
+            cpu.flags.bytes.if_,
+            cpu.flags.bytes.iopl,
         ],
-        [18, 19, 20, 21, 22, 23]
+        [18, 19, 20, 21, 22, 23, 24]
     );
     assert_eq!(
         cpu.registers,
         Registers {
-            eax: 0x1b1a_1918,
-            ecx: 0x1f1e_1d1c,
-            edx: 0x2322_2120,
-            ebx: 0x2726_2524,
-            esp: 0x2b2a_2928,
-            ebp: 0x2f2e_2d2c,
-            esi: 0x3332_3130,
-            edi: 0x3736_3534,
+            eax: 0x1f1e_1d1c,
+            ecx: 0x2322_2120,
+            edx: 0x2726_2524,
+            ebx: 0x2b2a_2928,
+            esp: 0x2f2e_2d2c,
+            ebp: 0x3332_3130,
+            esi: 0x3736_3534,
+            edi: 0x3b3a_3938,
         }
     );
-    assert_eq!(cpu.eip, 0x3b3a_3938);
+    assert_eq!(cpu.eip, 0x3f3e_3d3c);
     assert_eq!(
         cpu.reserved,
-        std::array::from_fn(|index| (132 + index) as u8)
+        std::array::from_fn(|index| (136 + index) as u8)
     );
     assert_eq!(cpu.instruction_count, 0x9392_9190);
     assert_eq!(cpu.reserved_tail, [148, 149, 150, 151]);
+    assert_eq!(cpu.flags.bytes.reserved, [25, 26, 27]);
     assert_eq!(cpu.to_bytes(), bytes);
 }
 
@@ -115,12 +119,16 @@ fn encoding_changes_only_the_named_fields_including_noncanonical_flags() {
     cpu.flags.status_source.kind = 0xff;
     cpu.flags.bytes.cf = 0x80;
     cpu.flags.bytes.df = 0xfe;
+    cpu.flags.bytes.if_ = 0x82;
+    cpu.flags.bytes.iopl = 0xff;
     let mut expected = [0xa5; CpuState::BYTE_LEN];
     expected[0] = 0xff;
     expected[12] = 0x80;
     expected[19] = 0xfe;
-    expected[36..40].copy_from_slice(&[0x78, 0x56, 0x34, 0x92]);
-    expected[56..60].copy_from_slice(&[2, 0x10, 0, 0]);
+    expected[23] = 0x82;
+    expected[24] = 0xff;
+    expected[40..44].copy_from_slice(&[0x78, 0x56, 0x34, 0x92]);
+    expected[60..64].copy_from_slice(&[2, 0x10, 0, 0]);
     expected[144..148].fill(0);
     assert_eq!(cpu.to_bytes(), expected);
     assert_eq!(CpuState::from_bytes(expected), cpu);

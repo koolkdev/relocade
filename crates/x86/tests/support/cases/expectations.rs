@@ -247,7 +247,8 @@ fn check_effects(
             actual.cpu.flags.bytes.nt,
             actual.cpu.flags.bytes.ac,
             actual.cpu.flags.bytes.id,
-            actual.cpu.flags.bytes.reserved
+            actual.cpu.flags.bytes.if_,
+            actual.cpu.flags.bytes.iopl,
         ],
         [
             expected_record.bytes.tf,
@@ -255,9 +256,14 @@ fn check_effects(
             expected_record.bytes.nt,
             expected_record.bytes.ac,
             expected_record.bytes.id,
-            expected_record.bytes.reserved
+            expected_record.bytes.if_,
+            expected_record.bytes.iopl,
         ],
-        "{context}: control and system flags and reserved byte"
+        "{context}: control and system flags"
+    );
+    assert_eq!(
+        actual.cpu.flags.bytes.reserved, expected_record.bytes.reserved,
+        "{context}: reserved flag bytes"
     );
     assert_eq!(
         actual.cpu.flags.status_source.reserved, initial.cpu.flags.status_source.reserved,

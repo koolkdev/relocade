@@ -4,7 +4,7 @@ mod publication;
 mod queries;
 pub(super) mod record;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, I1, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Val, I1, I8};
 
 use crate::{
     alu::{AnyStatusSource, StatusSource},
@@ -36,6 +36,7 @@ fn direct_location(flag: Flag) -> Option<Location<I8>> {
         Flag::NT => cpu_location!(flags.bytes.nt),
         Flag::AC => cpu_location!(flags.bytes.ac),
         Flag::ID => cpu_location!(flags.bytes.id),
+        Flag::IF => cpu_location!(flags.bytes.if_),
     })
 }
 
@@ -65,6 +66,22 @@ impl FlagState {
             status: StatusState::default(),
             direct: StateFields::new(memory),
         }
+    }
+
+    pub(super) fn read_iopl(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I8>, BuildError> {
+        Ok(self
+            .direct
+            .read(body, cpu_location!(flags.bytes.iopl))?
+            .and(3))
+    }
+
+    pub(super) fn write_iopl(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        value: Val<I8>,
+    ) -> Result<(), BuildError> {
+        self.direct
+            .define(body, cpu_location!(flags.bytes.iopl), value.and(3))
     }
 
     /// Admit the whole change before modifying either status or direct flag state.

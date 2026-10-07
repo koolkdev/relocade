@@ -142,23 +142,18 @@ fn restart_comparisons_after_page_repair(engine: Engine) {
             let before = before_resume.cpu.flags.bytes;
             let after = actual.state.cpu.flags.bytes;
             assert_eq!(
-                [
-                    after.tf,
-                    after.df,
-                    after.nt,
-                    after.ac,
-                    after.id,
-                    after.reserved
-                ],
+                [after.tf, after.df, after.nt, after.ac, after.id, after.if_, after.iopl],
                 [
                     before.tf,
                     before.df,
                     before.nt,
                     before.ac,
                     before.id,
-                    before.reserved
+                    before.if_,
+                    before.iopl
                 ]
             );
+            assert_eq!(after.reserved, before.reserved);
             // The logical result is checked above; compare every other CPU and memory field.
             expected.cpu.flags = actual.state.cpu.flags;
             assert_eq!(actual.state, expected);

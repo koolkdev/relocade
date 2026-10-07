@@ -135,7 +135,7 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
         .iter()
         .any(|(name, ty)| name == "dispatch" && matches!(ty, TypeRef::Func(1))));
     assert_eq!(loads, [144]);
-    assert_eq!(stores, [52, 24, 56, 144]);
+    assert_eq!(stores, [56, 28, 60, 144]);
     assert_eq!(additions, 1);
     assert_eq!(tails, [0]);
 }
@@ -366,15 +366,15 @@ fn register_copies_forward_values_and_omit_redundant_backing_accesses() {
     // Both destinations copy the same initial EAX value.
     assert_eq!(
         accesses(&[0x89, 0xc1, 0x8b, 0xd0], 2),
-        (vec![24, 144], vec![28, 32, 56, 144])
+        (vec![28, 144], vec![32, 36, 60, 144])
     );
     assert_eq!(
         accesses(&[0xb8, 42, 0, 0, 0, 0x89, 0xc1, 0x8b, 0xd1, 0x89, 0xd3], 4),
-        (vec![144], vec![24, 28, 32, 36, 56, 144])
+        (vec![144], vec![28, 32, 36, 40, 60, 144])
     );
     // EAX<-EAX and ECX<-ECX retire without changing any register.
     assert_eq!(
         accesses(&[0x89, 0xc0, 0x8b, 0xc9], 2),
-        (vec![144], vec![56, 144])
+        (vec![144], vec![60, 144])
     );
 }

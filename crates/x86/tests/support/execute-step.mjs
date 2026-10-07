@@ -109,16 +109,16 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   function checkProfile() {
     if (profile === null) return;
     const cpu = new DataView(cpuState.buffer);
-    const attributes = segment => cpu.getUint16(60 + segment * 12 + 10, true);
+    const attributes = segment => cpu.getUint16(64 + segment * 12 + 10, true);
     const flat = (segment, kind) => {
-      const offset = 60 + segment * 12;
+      const offset = 64 + segment * 12;
       return cpu.getUint32(offset, true) === 0
         && cpu.getUint32(offset + 4, true) === 0xffffffff
         && (attributes(segment) & 15) === kind;
     };
     const codeBig = (attributes(1) & 16) !== 0;
     const real = segment => {
-      const offset = 60 + segment * 12;
+      const offset = 64 + segment * 12;
       return cpu.getUint32(offset, true) === cpu.getUint16(offset + 8, true) * 16
         && cpu.getUint32(offset + 4, true) === 0xffff
         && attributes(segment) === (segment === 1 ? 7 : 5);

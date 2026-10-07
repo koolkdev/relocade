@@ -30,7 +30,9 @@ impl CpuState {
                     nt: bytes[offset_of!(CpuState, flags.bytes.nt)],
                     ac: bytes[offset_of!(CpuState, flags.bytes.ac)],
                     id: bytes[offset_of!(CpuState, flags.bytes.id)],
-                    reserved: bytes[offset_of!(CpuState, flags.bytes.reserved)],
+                    if_: bytes[offset_of!(CpuState, flags.bytes.if_)],
+                    iopl: bytes[offset_of!(CpuState, flags.bytes.iopl)],
+                    reserved: read(&bytes, offset_of!(CpuState, flags.bytes.reserved)),
                 },
             },
             registers: Registers {
@@ -90,7 +92,13 @@ impl CpuState {
         bytes[offset_of!(CpuState, flags.bytes.nt)] = self.flags.bytes.nt;
         bytes[offset_of!(CpuState, flags.bytes.ac)] = self.flags.bytes.ac;
         bytes[offset_of!(CpuState, flags.bytes.id)] = self.flags.bytes.id;
-        bytes[offset_of!(CpuState, flags.bytes.reserved)] = self.flags.bytes.reserved;
+        bytes[offset_of!(CpuState, flags.bytes.if_)] = self.flags.bytes.if_;
+        bytes[offset_of!(CpuState, flags.bytes.iopl)] = self.flags.bytes.iopl;
+        write(
+            &mut bytes,
+            offset_of!(CpuState, flags.bytes.reserved),
+            &self.flags.bytes.reserved,
+        );
         for (offset, value) in [
             (offset_of!(CpuState, registers.eax), self.registers.eax),
             (offset_of!(CpuState, registers.ecx), self.registers.ecx),

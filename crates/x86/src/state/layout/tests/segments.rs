@@ -3,7 +3,7 @@ use std::mem::{offset_of, size_of};
 use crate::{CpuState, Segment, SegmentAttributes, Segments, StoredSegment};
 
 #[test]
-fn segment_records_fill_the_reserved_slots_without_moving_other_fields() {
+fn segment_records_match_the_external_byte_contract() {
     assert_eq!(size_of::<SegmentAttributes>(), 2);
     assert_eq!(size_of::<StoredSegment>(), 12);
     assert_eq!(size_of::<Segments>(), 72);
@@ -25,7 +25,7 @@ fn segment_records_fill_the_reserved_slots_without_moving_other_fields() {
             offset_of!(CpuState, segments.fs),
             offset_of!(CpuState, segments.gs),
         ],
-        [60, 72, 84, 96, 108, 120]
+        [64, 76, 88, 100, 112, 124]
     );
 }
 
@@ -34,12 +34,12 @@ fn decoding_retains_every_segment_field_and_unknown_attribute_bit() {
     let bytes = std::array::from_fn(|index| index as u8);
     let cpu = CpuState::from_bytes(bytes);
     let expected = [
-        (Segment::Es, 0x3f3e_3d3c, 0x4342_4140, 0x4544, 0x4746),
-        (Segment::Cs, 0x4b4a_4948, 0x4f4e_4d4c, 0x5150, 0x5352),
-        (Segment::Ss, 0x5756_5554, 0x5b5a_5958, 0x5d5c, 0x5f5e),
-        (Segment::Ds, 0x6362_6160, 0x6766_6564, 0x6968, 0x6b6a),
-        (Segment::Fs, 0x6f6e_6d6c, 0x7372_7170, 0x7574, 0x7776),
-        (Segment::Gs, 0x7b7a_7978, 0x7f7e_7d7c, 0x8180, 0x8382),
+        (Segment::Es, 0x4342_4140, 0x4746_4544, 0x4948, 0x4b4a),
+        (Segment::Cs, 0x4f4e_4d4c, 0x5352_5150, 0x5554, 0x5756),
+        (Segment::Ss, 0x5b5a_5958, 0x5f5e_5d5c, 0x6160, 0x6362),
+        (Segment::Ds, 0x6766_6564, 0x6b6a_6968, 0x6d6c, 0x6f6e),
+        (Segment::Fs, 0x7372_7170, 0x7776_7574, 0x7978, 0x7b7a),
+        (Segment::Gs, 0x7f7e_7d7c, 0x8382_8180, 0x8584, 0x8786),
     ];
     for (segment, base, limit, selector, attributes) in expected {
         assert_eq!(
@@ -59,12 +59,12 @@ fn decoding_retains_every_segment_field_and_unknown_attribute_bit() {
 #[test]
 fn encoding_a_named_segment_changes_only_its_twelve_bytes() {
     for (segment, offset) in [
-        (Segment::Es, 60),
-        (Segment::Cs, 72),
-        (Segment::Ss, 84),
-        (Segment::Ds, 96),
-        (Segment::Fs, 108),
-        (Segment::Gs, 120),
+        (Segment::Es, 64),
+        (Segment::Cs, 76),
+        (Segment::Ss, 88),
+        (Segment::Ds, 100),
+        (Segment::Fs, 112),
+        (Segment::Gs, 124),
     ] {
         let mut cpu = CpuState::filled(0xa5);
         cpu.segments[segment] = StoredSegment {
@@ -87,12 +87,12 @@ fn cpu_default_installs_flat_caches_while_literal_zero_images_stay_zero() {
     let cpu = CpuState::default();
     let mut expected = [0; 152];
     for (offset, attributes) in [
-        (60, 0x15),
-        (72, 0x17),
-        (84, 0x15),
-        (96, 0x15),
-        (108, 0x15),
-        (120, 0x15),
+        (64, 0x15),
+        (76, 0x17),
+        (88, 0x15),
+        (100, 0x15),
+        (112, 0x15),
+        (124, 0x15),
     ] {
         expected[offset..offset + 12]
             .copy_from_slice(&[0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff, 0, 0, attributes, 0]);

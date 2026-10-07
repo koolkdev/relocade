@@ -72,7 +72,7 @@ fn named_writes_coalesce_without_crossing_indexed_writes() {
             let mut previous_constant = None;
             for operation in code.get_operators_reader().unwrap() {
                 let operation = operation.unwrap();
-                if matches!(operation, Operator::I32Store { memarg } if memarg.offset == 24) {
+                if matches!(operation, Operator::I32Store { memarg } if memarg.offset == 28) {
                     stored.push(previous_constant.expect("register store has its literal value"));
                 }
                 previous_constant = match operation {
@@ -123,7 +123,7 @@ fn publishing_an_exit_keeps_pending_writes_for_the_continuation() {
             let mut previous_constant = None;
             for operation in code.get_operators_reader().unwrap() {
                 let operation = operation.unwrap();
-                if matches!(operation, Operator::I32Store { memarg } if memarg.offset == 24) {
+                if matches!(operation, Operator::I32Store { memarg } if memarg.offset == 28) {
                     eax_values.push((depth, previous_constant.expect("EAX has a literal value")));
                 }
                 previous_constant = match operation {
@@ -142,7 +142,7 @@ fn publishing_an_exit_keeps_pending_writes_for_the_continuation() {
             }
         }
     }
-    assert_eq!(exit_stores, [24, 56, 144]);
-    assert_eq!(continuation_stores, [24, 28, 56, 144]);
+    assert_eq!(exit_stores, [28, 60, 144]);
+    assert_eq!(continuation_stores, [28, 32, 60, 144]);
     assert_eq!(eax_values, [(1, 42), (0, 43)]);
 }

@@ -151,11 +151,11 @@ payloads, raw segment attributes and x87 encodings. The image is
 | Byte offset | Contents |
 | ---: | --- |
 | 0 | 12-byte `StoredStatusSource`: kind, three reserved bytes, two u32 operands. |
-| 12 | 12-byte `FlagBytes`: CF, PF, AF, ZF, SF, OF, TF, DF, NT, AC, ID, reserved. |
-| 24 | Eight u32 registers: EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI. |
-| 56 | u32 EIP. |
-| 60 | Six 12-byte segment records: ES, CS, SS, DS, FS, GS. |
-| 132 | Twelve reserved bytes. |
+| 12 | 16-byte `FlagBytes`: CF, PF, AF, ZF, SF, OF, TF, DF, NT, AC, ID, IF, IOPL, three reserved bytes. |
+| 28 | Eight u32 registers: EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI. |
+| 60 | u32 EIP. |
+| 64 | Six 12-byte segment records: ES, CS, SS, DS, FS, GS. |
+| 136 | Eight reserved bytes. |
 | 144 | u32 completed-instruction count. |
 | 148 | Four reserved bytes. |
 | 152 | Twelve-byte `StoredX87Control`: six mask bytes, PC, RC, IC, padding byte, u16 reserved bits. |
@@ -198,15 +198,17 @@ the low bits of the six stored status bytes. Subtraction kinds 1/5/9, addition
 kinds 2/6/10 and logic kinds 3/7/11 derive byte/word/dword status flags from the
 payload. Arithmetic stores its original zero-extended operands; logic stores its
 result in the first operand. The stored status bytes can be stale while a source
-is active. Control and system flags always use their stored bytes. Valid source
-kinds are an internal invariant; a host setting concrete status flags must also
+is active. Control and system flags always use their stored bytes. IF uses bit 0
+of `if_`; IOPL uses bits 0–1 of `iopl`. Other bits are retained by snapshot conversion.
+Valid source kinds are an internal invariant; a host setting concrete status flags must also
 select kind zero.
 
 Protected-mode architectural flag transfers use a fixed CPL3/IOPL0 model with IF set and
 VM/RF/VIF/VIP clear. Word stack images restore the represented low flags;
 dword images also restore AC and ID. IRETD restores RF on hardware, but RF is
-unrepresented here along with debug delivery. TF and AC are stored without
-enabling debug traps or alignment checks.
+unrepresented here along with debug delivery. Real16 transfers also read and write
+IF and IOPL. TF, IF and AC are stored without enabling debug traps, interrupt
+delivery or alignment checks.
 
 ```rust
 use wasm86_x86::CpuState;
@@ -461,10 +463,14 @@ commit CS and dispatch, with target fetch belonging to the next entry. Real CALL
 checks the transferred offset plus selector; a dword selector slot reserves four
 bytes but transfers only its low word. RET checks both complete stack slots.
 
-ARPL/LAR/LSL/VERR/VERW raise #UD before operand access. PUSHF/POPF/IRET currently
-return the unsupported exit before reading flags or stack. Both cases terminate
-snapshot compilation; both decoders read the selected form's physical encoding
-before mode rejection. INT and real-mode interrupt delivery are not implemented.
+PUSHF/POPF transfer word or dword images through SS:SP. Real16 POPF restores IF
+and IOPL regardless of their entry values; only dword transfers change AC and ID.
+Reserved and unrepresented image bits are ignored.
+
+ARPL/LAR/LSL/VERR/VERW raise #UD before operand access. IRET currently returns the
+unsupported exit before reading flags or stack. Both cases terminate snapshot
+compilation; both decoders read the selected form's physical encoding before mode
+rejection. INT and real-mode interrupt delivery are not implemented.
 PUSHA/PUSHAD honor the specified #GP for low odd SP values 7 through 15. Stack
 faults are reported to the host; exception delivery, double faults and shutdown
 are outside this execution model. ENTER checks actual transfers without requiring
