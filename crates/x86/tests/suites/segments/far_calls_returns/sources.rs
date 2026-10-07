@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn aliased_sources(engine: Engine) {
     for word in [false, true] {
@@ -30,7 +31,7 @@ fn aliased_sources(engine: Engine) {
             let saved = pointer(word, 0x1000 + code.len() as u32, 0x1b);
             check_one(
                 engine,
-                SegmentProfile::Segmented32,
+                ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
                 &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
@@ -94,7 +95,7 @@ fn source_faults(engine: Engine) {
             }
             check_one(
                 engine,
-                SegmentProfile::Segmented32,
+                ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
                 &[],
@@ -126,7 +127,7 @@ fn overrides_on_return(engine: Engine) {
     cpu.instruction_count = 0;
     check_one(
         engine,
-        SegmentProfile::Flat32,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
         &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],

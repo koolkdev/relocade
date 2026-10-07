@@ -1,22 +1,27 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn registers(engine: Engine) {
     let mut tables = DescriptorTables::default();
     tables.insert(0xffff, descriptor(0, SegmentDefaultSize::Bits16));
     for (profile, code, source) in [
-        (SegmentProfile::Flat32, &[0x0f, 0x00, 0xe7][..], Gpr32::Edi),
         (
-            SegmentProfile::Segmented16,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            &[0x0f, 0x00, 0xe7][..],
+            Gpr32::Edi,
+        ),
+        (
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
             &[0x66, 0x0f, 0x00, 0xec][..],
             Gpr32::Esp,
         ),
         (
-            SegmentProfile::Segmented16,
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
             &[0x0f, 0x00, 0xe2][..],
             Gpr32::Edx,
         ),
         (
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &[0x66, 0x0f, 0x00, 0xe9][..],
             Gpr32::Ecx,
         ),
@@ -47,7 +52,7 @@ fn register_forms_use_low_words_in_both_code_sizes_with_or_without_overrides() {
 fn memory_sources(engine: Engine) {
     let mut tables = DescriptorTables::default();
     tables.insert(0xf327, descriptor(0, SegmentDefaultSize::Bits32));
-    let profile = SegmentProfile::Segmented32;
+    let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
     for operand_override in [false, true] {
         for extension in [4, 5] {
             let mut code = if operand_override { vec![0x66] } else { vec![] };
@@ -74,7 +79,7 @@ fn memory_sources(engine: Engine) {
         }
     }
     for extension in [4, 5] {
-        let profile = SegmentProfile::Segmented32;
+        let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
         let code = [0x64, 0x67, 0x0f, 0x00, 0x40 | (extension << 3) | 2, 0]; // FS:[BP+SI].
         let mut image = image(&code, profile);
         image.cpu.registers.ebp = 0xabcd_fffe;
@@ -112,7 +117,7 @@ fn source_faults(engine: Engine) {
         (vec![0x0f, 0x00, 0x2c, 0x24], true),
     ] {
         for segment_denied in [false, true] {
-            let profile = SegmentProfile::Segmented32;
+            let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
             let mut image = image(&code, profile);
             image.cpu.registers.ebx = 0xfff;
             image.cpu.registers.esp = 0xfff;

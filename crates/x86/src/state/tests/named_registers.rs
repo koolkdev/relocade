@@ -90,7 +90,7 @@ fn named_views<T: RegisterType>() -> CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }
@@ -225,7 +225,7 @@ fn mixed_byte_views() -> CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }

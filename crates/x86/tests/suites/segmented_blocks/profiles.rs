@@ -3,8 +3,8 @@ use crate::support::{
     step::{Engine, TestModule},
 };
 use wasm86_x86::{
-    compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockError, SegmentAttributes,
-    SegmentProfile, StoredSegment,
+    compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockError, ExecutionProfile,
+    SegmentAttributes, SegmentProfile, StoredSegment,
 };
 
 #[test]
@@ -16,25 +16,44 @@ fn default_block_entry_matches_explicit_flat_compilation() {
         &[0x67, 0xf3, 0xa4],
     ] {
         let default = compile_block_from_bytes(0x1000, bytes, 1).unwrap();
-        let explicit =
-            compile_block_from_bytes_with_profile(0x1000, bytes, 1, SegmentProfile::Flat32)
-                .unwrap();
+        let explicit = compile_block_from_bytes_with_profile(
+            0x1000,
+            bytes,
+            1,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
+        )
+        .unwrap();
         assert_eq!(default.bytes, explicit.bytes);
         assert_eq!(default.entry, explicit.entry);
-        assert_eq!(default.segment_profile, Some(SegmentProfile::Flat32));
-        assert_eq!(explicit.segment_profile, default.segment_profile);
+        assert_eq!(
+            default.execution_profile,
+            Some(ExecutionProfile::Protected(SegmentProfile::Flat32))
+        );
+        assert_eq!(explicit.execution_profile, default.execution_profile);
     }
 }
 
 #[test]
 fn snapshot_field_bounds_follow_the_selected_code_defaults() {
     let word = [0xb8, 0x34, 0x12];
-    let module =
-        compile_block_from_bytes_with_profile(0x1000, &word, 1, SegmentProfile::Segmented16)
-            .unwrap();
-    assert_eq!(module.segment_profile, Some(SegmentProfile::Segmented16));
+    let module = compile_block_from_bytes_with_profile(
+        0x1000,
+        &word,
+        1,
+        ExecutionProfile::Protected(SegmentProfile::Segmented16),
+    )
+    .unwrap();
+    assert_eq!(
+        module.execution_profile,
+        Some(ExecutionProfile::Protected(SegmentProfile::Segmented16))
+    );
     assert!(matches!(
-        compile_block_from_bytes_with_profile(0x1000, &word, 1, SegmentProfile::Segmented32),
+        compile_block_from_bytes_with_profile(
+            0x1000,
+            &word,
+            1,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32)
+        ),
         Err(BlockError::TruncatedInstruction {
             address: 0x1000,
             available: 3
@@ -45,7 +64,7 @@ fn snapshot_field_bounds_follow_the_selected_code_defaults() {
             0x1000,
             &[0x66, 0xb8, 0x34, 0x12],
             1,
-            SegmentProfile::Segmented16
+            ExecutionProfile::Protected(SegmentProfile::Segmented16)
         ),
         Err(BlockError::TruncatedInstruction {
             address: 0x1000,
@@ -54,10 +73,18 @@ fn snapshot_field_bounds_follow_the_selected_code_defaults() {
     ));
     let overlong = [vec![0x66; 12], vec![0xb8, 0x78, 0x56, 0x34, 0x12]].concat();
     assert!(matches!(
-        compile_block_from_bytes_with_profile(0x1000, &overlong, 1, SegmentProfile::Segmented16),
+        compile_block_from_bytes_with_profile(
+            0x1000,
+            &overlong,
+            1,
+            ExecutionProfile::Protected(SegmentProfile::Segmented16)
+        ),
         Err(BlockError::InstructionTooLong { address: 0x1000 }),
     ));
-    for profile in [SegmentProfile::Segmented16, SegmentProfile::Segmented32] {
+    for profile in [
+        ExecutionProfile::Protected(SegmentProfile::Segmented16),
+        ExecutionProfile::Protected(SegmentProfile::Segmented32),
+    ] {
         assert!(
             compile_block_from_bytes_with_profile(0x1000, &[0xeb, 0, 0x0f], 5, profile).is_ok()
         );
@@ -77,9 +104,13 @@ fn snapshot_field_bounds_follow_the_selected_code_defaults() {
 
 fn runtime_stack_attributes(engine: Engine) {
     let bytes = [0x50, 0x5b];
-    let compiled =
-        compile_block_from_bytes_with_profile(0x1000, &bytes, 2, SegmentProfile::Segmented32)
-            .unwrap();
+    let compiled = compile_block_from_bytes_with_profile(
+        0x1000,
+        &bytes,
+        2,
+        ExecutionProfile::Protected(SegmentProfile::Segmented32),
+    )
+    .unwrap();
     let block = TestModule::new(&compiled);
     for (big, page) in [(false, 0xc), (true, 0x1234c)] {
         let mut image = Image::new(&bytes);
@@ -91,7 +122,8 @@ fn runtime_stack_attributes(engine: Engine) {
             ..StoredSegment::flat_data32(0x23)
         };
         image.map(page, 0x8000, true);
-        assert!(SegmentProfile::Segmented32.is_compatible_with(&image.cpu.segments));
+        assert!(ExecutionProfile::Protected(SegmentProfile::Segmented32)
+            .is_compatible_with(&image.cpu.segments));
         let mut cpu = image.cpu;
         cpu.registers.ebx = 0x1234_5678;
         cpu.eip = 0x1002;

@@ -4,7 +4,7 @@
 mod tests;
 
 use std::collections::HashMap;
-use wasm86_x86::{compile_block_from_bytes_with_profile, CpuState, SegmentKind, SegmentProfile};
+use wasm86_x86::{compile_block_from_bytes_with_profile, CpuState, ExecutionProfile, SegmentKind};
 use wasmparser::Validator;
 
 use super::step::TestModule;
@@ -14,7 +14,7 @@ struct BlockKey {
     start: u32,
     bytes: Vec<u8>,
     limit: u32,
-    profile: SegmentProfile,
+    profile: ExecutionProfile,
 }
 
 #[derive(Default)]
@@ -26,8 +26,9 @@ impl BlockModules {
         cpu: &CpuState,
         bytes: &[u8],
         limit: u32,
-        profile: SegmentProfile,
+        profile: impl Into<ExecutionProfile>,
     ) -> &TestModule {
+        let profile = profile.into();
         let key = BlockKey {
             start: cpu.eip,
             bytes: bytes.to_vec(),
@@ -40,7 +41,7 @@ impl BlockModules {
         self.0.entry(key).or_insert_with_key(|key| {
             let module = compile_block_from_bytes_with_profile(key.start, bytes, limit, profile)
                 .unwrap_or_else(|error| panic!("compiling {key:?}: {error:?}"));
-            assert_eq!(module.segment_profile, Some(profile));
+            assert_eq!(module.execution_profile, Some(profile));
             Validator::new()
                 .validate_all(&module.bytes)
                 .unwrap_or_else(|error| panic!("validating {key:?}: {error}"));

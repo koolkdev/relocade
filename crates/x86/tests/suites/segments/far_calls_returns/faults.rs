@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn call_fault_order(engine: Engine) {
     for (present, stack_limit, target_limit, exit) in [
@@ -37,7 +38,7 @@ fn call_fault_order(engine: Engine) {
             );
             check_one(
                 engine,
-                SegmentProfile::Segmented32,
+                ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
                 &[SegmentResolution::new(&table, Segment::Cs, 0x27)],
@@ -130,7 +131,7 @@ fn frame_page_faults(engine: Engine) {
                 };
                 check_one(
                     engine,
-                    SegmentProfile::Flat32,
+                    ExecutionProfile::Protected(SegmentProfile::Flat32),
                     &code,
                     &image,
                     &resolutions,
@@ -257,7 +258,7 @@ fn return_selectors(engine: Engine) {
             };
             check_one(
                 engine,
-                SegmentProfile::Flat32,
+                ExecutionProfile::Protected(SegmentProfile::Flat32),
                 &code,
                 &image,
                 &resolutions,
@@ -329,7 +330,12 @@ fn earlier_progress(engine: Engine) {
         wanted.events.insert(4, event.clone());
         assert_eq!(engine.observe(TestModule::interpreter(), &input, 3), wanted);
         let mut blocks = BlockModules::default();
-        let module = blocks.get(&image.cpu, &code, 3, SegmentProfile::Flat32);
+        let module = blocks.get(
+            &image.cpu,
+            &code,
+            3,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
+        );
         let mut wanted = expected(&image, &[fault()]);
         wanted.events.insert(0, event);
         assert_eq!(engine.observe(module, &input, 1), wanted);

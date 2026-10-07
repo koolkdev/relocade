@@ -3,25 +3,21 @@ mod accesses;
 mod page_table;
 mod transfer;
 mod update;
+mod virtual_memory;
 
 pub(crate) use access::Access;
 pub(crate) use accesses::Accesses;
 pub(crate) use page_table::{PageCache, PageCacheInputs};
 
-use std::cell::Cell;
+use crate::{alu::OperandUpdate, ExecutionProfile};
+use access::FaultHandler;
+use page_table::{PRESENT, WRITABLE};
+use virtual_memory::VirtualMemory;
+use wasm86_compiler::{BlockBuilder, BuildError, MemoryInt, Program, Val, I32};
 
-use wasm86_compiler::{BuildError, Func, Mem, MemoryImport, Program, Signature, Type};
-
-use page_table::{PageTable, PRESENT, WRITABLE};
-
-/// Owns generated access helpers for one module. Frontends discard this owner
-/// and its program together when construction fails.
-pub(super) struct Memory {
-    guest: Mem,
-    table: PageTable,
-    range_resolver: Func,
-    scattered_readers: [Cell<Option<Func>>; 4],
-    scattered_writers: [Cell<Option<Func>>; 4],
+/// Selects the generated memory model once, during module construction.
+pub(crate) enum Memory {
+    Virtual(VirtualMemory),
 }
 
 #[derive(Clone, Copy)]
@@ -38,7 +34,6 @@ impl Intent {
             Self::Write => PRESENT | WRITABLE,
         }
     }
-
     fn base_error_code(self) -> u32 {
         match self {
             Self::Fetch => 16,
@@ -49,29 +44,85 @@ impl Intent {
 }
 
 impl Memory {
-    pub(super) fn declare(program: &mut Program) -> Result<Self, BuildError> {
-        let guest = program.import_memory(MemoryImport {
-            module: "wasm86".into(),
-            name: "guest".into(),
-            minimum: 1,
-            maximum: None,
-            shared: false,
-        });
-        let table = PageTable::declare(program);
-        let range_resolver = program.function(
-            Signature {
-                parameters: vec![Type::I32, Type::I32, Type::I32, Type::I32],
-                results: vec![Type::I32],
-            },
-            |body| table.define_range_resolver(body),
-        )?;
-        Ok(Self {
-            guest,
-            table,
-            range_resolver,
-            scattered_readers: std::array::from_fn(|_| Cell::new(None)),
-            scattered_writers: std::array::from_fn(|_| Cell::new(None)),
-        })
+    pub(crate) fn declare(
+        program: &mut Program,
+        profile: ExecutionProfile,
+    ) -> Result<Self, BuildError> {
+        match profile {
+            ExecutionProfile::Protected(_) => VirtualMemory::declare(program).map(Self::Virtual),
+        }
+    }
+    /// Resolves a complete segment-checked span, optionally reporting architectural faults.
+    pub(crate) fn resolve_access(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        start: &Val<I32>,
+        bytes: impl Into<Val<I32>>,
+        intent: Intent,
+        cache: Option<&mut PageCache>,
+        on_fault: Option<&mut FaultHandler<'_>>,
+    ) -> Result<Access, BuildError> {
+        match self {
+            Self::Virtual(memory) => {
+                memory.resolve_access(body, start, bytes, intent, cache, on_fault)
+            }
+        }
+    }
+
+    pub(crate) fn read<T: MemoryInt>(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        access: &Access,
+        offset: u32,
+    ) -> Result<Val<T>, BuildError> {
+        match self {
+            Self::Virtual(memory) => memory.read(body, access, offset),
+        }
+    }
+
+    pub(crate) fn write<T: MemoryInt>(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        access: &Access,
+        offset: u32,
+        value: &Val<T>,
+    ) -> Result<(), BuildError> {
+        match self {
+            Self::Virtual(memory) => memory.write(body, access, offset, value),
+        }
+    }
+
+    pub(crate) fn atomic_update<T: MemoryInt>(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        access: &Access,
+        update: &OperandUpdate<T>,
+    ) -> Result<Val<T>, BuildError> {
+        match self {
+            Self::Virtual(memory) => memory.atomic_update(body, access, update),
+        }
+    }
+
+    pub(crate) fn load<T: MemoryInt>(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        backing: &Val<I32>,
+        offset: u32,
+    ) -> Result<Val<T>, BuildError> {
+        match self {
+            Self::Virtual(memory) => memory.load(body, backing, offset),
+        }
+    }
+
+    pub(crate) fn store<T: MemoryInt>(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        backing: &Val<I32>,
+        value: &Val<T>,
+    ) -> Result<(), BuildError> {
+        match self {
+            Self::Virtual(memory) => memory.store(body, backing, value),
+        }
     }
 }
 

@@ -7,7 +7,7 @@ use crate::{
 fn dynamic_spans(engine: Engine) {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let access = SegmentAccess::new(&cpu, SegmentProfile::Segmented32);
+    let access = SegmentAccess::new(&cpu, SegmentProfile::Segmented32.into());
     let function = program
         .function(
             Signature {
@@ -35,7 +35,7 @@ fn dynamic_spans(engine: Engine) {
     let module = TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "probe".into(),
-        segment_profile: Some(SegmentProfile::Segmented32),
+        execution_profile: Some(SegmentProfile::Segmented32.into()),
     });
     use SegmentDefaultSize::{Bits16, Bits32};
     for (down, size, limit, cases) in [

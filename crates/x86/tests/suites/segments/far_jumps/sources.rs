@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn source_spans(engine: Engine) {
     for (word, split) in [
@@ -35,7 +36,7 @@ fn source_spans(engine: Engine) {
         cpu.instruction_count = 0;
         check_one(
             engine,
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
@@ -80,7 +81,7 @@ fn old_address_state(engine: Engine) {
         cpu.instruction_count = 0;
         check_one(
             engine,
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
@@ -120,7 +121,7 @@ fn address_boundaries(engine: Engine) {
         cpu.instruction_count = 0;
         check_one(
             engine,
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],

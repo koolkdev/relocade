@@ -6,9 +6,9 @@ use wasm86_compiler::{
     BlockBuilder, BuildError, Func, MemoryInt, Program, Signature, Type, Val, I32, I8,
 };
 
-use super::{page_table::physical_address, Access, Intent, Memory};
+use super::{page_table::physical_address, Access, Intent, VirtualMemory};
 
-impl Memory {
+impl VirtualMemory {
     pub(crate) fn read<T: MemoryInt>(
         &self,
         body: &mut BlockBuilder<'_>,

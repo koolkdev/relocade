@@ -404,7 +404,7 @@ fn flags_after_register_synchronization() -> crate::CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     crate::CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }

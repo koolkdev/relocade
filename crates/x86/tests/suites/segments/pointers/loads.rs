@@ -1,10 +1,19 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn registers_and_widths(engine: Engine) {
     for (segment, opcode) in FORMS {
         for (profile, word, destination) in [
-            (SegmentProfile::Flat32, false, Gpr32::Ebx),
-            (SegmentProfile::Segmented16, true, Gpr32::Edi),
+            (
+                ExecutionProfile::Protected(SegmentProfile::Flat32),
+                false,
+                Gpr32::Ebx,
+            ),
+            (
+                ExecutionProfile::Protected(SegmentProfile::Segmented16),
+                true,
+                Gpr32::Edi,
+            ),
         ] {
             let mut code = opcode.to_vec();
             code.push(((destination as u8) << 3) | if word { 0 } else { 3 });
@@ -93,7 +102,7 @@ fn source_spans(engine: Engine) {
         cpu.instruction_count = 0;
         check_one(
             engine,
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Fs, 0xf327)],
@@ -141,7 +150,7 @@ fn old_address_state(engine: Engine) {
         cpu.instruction_count = 0;
         check_one(
             engine,
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             code,
             &image,
             &[SegmentResolution::new(&tables, segment, 0xf327)],
@@ -179,7 +188,7 @@ fn address_boundaries(engine: Engine) {
         cpu.instruction_count = 0;
         check_one(
             engine,
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Gs, 0xf327)],

@@ -4,8 +4,9 @@ use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 
 use crate::{
     memory::{Intent, Memory, PageCache},
-    segment::{Segment, SegmentAccess, SegmentProfile},
+    segment::{Segment, SegmentAccess},
     state::{exit, Cpu},
+    ExecutionProfile,
 };
 
 /// A speculative instruction window. Only an available window permits direct reads.
@@ -22,7 +23,11 @@ pub(crate) struct InstructionFetch<'module> {
 }
 
 impl<'module> InstructionFetch<'module> {
-    pub(crate) fn new(cpu: &'module Cpu, memory: &'module Memory, profile: SegmentProfile) -> Self {
+    pub(crate) fn new(
+        cpu: &'module Cpu,
+        memory: &'module Memory,
+        profile: ExecutionProfile,
+    ) -> Self {
         Self {
             memory,
             cpu,

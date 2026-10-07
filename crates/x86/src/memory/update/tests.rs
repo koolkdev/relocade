@@ -1,6 +1,7 @@
+use crate::memory::Memory;
 use std::sync::Barrier;
 
-use super::{native_update, Intent, Memory, OperandUpdate};
+use super::{native_update, Intent, OperandUpdate};
 use wasm86_compiler::{MemoryImport, Program, Signature, Type, I32, I64};
 use wasm86_test_support::{engine, Module, SharedBytes};
 use wasmparser::{Operator, Parser, Payload};
@@ -8,7 +9,11 @@ use wasmparser::{Operator, Parser, Payload};
 #[test]
 fn aligned_complete_updates_need_no_scattered_access_helpers() {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program).unwrap();
+    let memory = Memory::declare(
+        &mut program,
+        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+    )
+    .unwrap();
     let update = program
         .function(
             Signature {

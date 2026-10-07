@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 #[test]
 fn snapshot_helpers_use_unobserved_configuration() {
@@ -38,7 +39,7 @@ fn interpreter_entries_keep_the_profile_and_ignore_cpu_observations() {
         ),
     ] {
         assert_eq!(configured.entry, name);
-        assert_eq!(configured.segment_profile, Some(profile));
+        assert_eq!(configured.execution_profile, Some(profile.into()));
         assert!(ordinary.bytes == configured.bytes, "{name}");
     }
 }

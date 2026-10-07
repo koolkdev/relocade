@@ -45,7 +45,7 @@ fn conditional_fault(completed: u32) -> CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }

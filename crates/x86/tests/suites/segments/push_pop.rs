@@ -17,8 +17,8 @@ use crate::support::{
     step::{Engine, Event, SegmentResolution, TestModule},
 };
 use wasm86_x86::{
-    DescriptorTables, Segment, SegmentAttributes, SegmentDefaultSize, SegmentDescriptor,
-    SegmentKind, SegmentProfile, StoredSegment,
+    DescriptorTables, ExecutionProfile, Segment, SegmentAttributes, SegmentDefaultSize,
+    SegmentDescriptor, SegmentKind, StoredSegment,
 };
 
 // Literal encoding order supplies an independent oracle for fixed segment operands.

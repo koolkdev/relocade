@@ -16,10 +16,14 @@ use crate::support::{
         stack_image as initial_image, status, write_register_bits, INDEFINITE,
     },
 };
-use wasm86_x86::{SegmentProfile, StoredX87Status};
+use wasm86_x86::{ExecutionProfile, SegmentProfile, StoredX87Status};
 
 fn register_moves(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(
+        engine,
+        frontend,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    );
     // Source indices are resolved before a push or pop changes TOP.
     for (name, code, top, tags, source, destination, final_top, final_tags, opcode) in [
         (
@@ -112,7 +116,11 @@ fn register_moves(engine: Engine, frontend: Frontend) {
 }
 
 fn raw_register_copies(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(
+        engine,
+        frontend,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    );
     let code = [0xd9, 0xc0, 0xdd, 0xd3, 0xd9, 0xcb];
     for (name, bits, original_tags, pushed_tags, copied_tags) in [
         ("signed zero", (0, 0x8000), 0xfffd, 0x7ffd, 0x7fdd),
@@ -159,7 +167,11 @@ fn raw_register_copies(engine: Engine, frontend: Frontend) {
 }
 
 fn stack_controls(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(
+        engine,
+        frontend,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    );
     let code = [0xdd, 0xc3, 0xd9, 0xf7, 0xd9, 0xf6];
     let image = initial_image(&code, 7, 0);
     let mut freed = complete(image.cpu, 2, 0x05c3);

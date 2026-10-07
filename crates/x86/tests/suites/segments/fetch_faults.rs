@@ -3,10 +3,12 @@ use crate::support::{
     machine::{Exit, Image},
     step::{Engine, TestModule},
 };
-use wasm86_x86::{SegmentAttributes, SegmentProfile};
+use wasm86_x86::{ExecutionProfile, SegmentAttributes, SegmentProfile};
 
 fn fault_order(engine: Engine) {
-    let module = TestModule::interpreter_with_profile(SegmentProfile::Segmented32);
+    let module = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
+        SegmentProfile::Segmented32,
+    ));
     for (bytes, eip, limit, fault) in [
         // MOV EAX,imm32: a missing second immediate byte precedes a later CS fault.
         (
@@ -111,7 +113,9 @@ fn v8_required_bytes_preserve_cs_page_and_length_fault_order() {
 }
 
 fn invalid_instruction_spans(engine: Engine) {
-    let module = TestModule::interpreter_with_profile(SegmentProfile::Segmented32);
+    let module = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
+        SegmentProfile::Segmented32,
+    ));
     for bytes in [
         vec![0x90],
         vec![0xb8, 0x78, 0x56, 0x34, 0x12],

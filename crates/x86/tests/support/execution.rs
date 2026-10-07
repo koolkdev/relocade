@@ -1,6 +1,6 @@
 //! Independently selectable frontends, with the same cases in both engines.
 
-use wasm86_x86::{CpuState, SegmentProfile};
+use wasm86_x86::{CpuState, ExecutionProfile};
 
 use super::{
     blocks::BlockModules,
@@ -25,16 +25,20 @@ pub(crate) enum Frontend {
 pub(crate) struct ImageSequences {
     engine: Engine,
     frontend: Frontend,
-    profile: SegmentProfile,
+    profile: ExecutionProfile,
     blocks: BlockModules,
 }
 
 impl ImageSequences {
-    pub(crate) fn new(engine: Engine, frontend: Frontend, profile: SegmentProfile) -> Self {
+    pub(crate) fn new(
+        engine: Engine,
+        frontend: Frontend,
+        profile: impl Into<ExecutionProfile>,
+    ) -> Self {
         Self {
             engine,
             frontend,
-            profile,
+            profile: profile.into(),
             blocks: BlockModules::default(),
         }
     }

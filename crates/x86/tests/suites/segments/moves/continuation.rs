@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn changed_stack_width(engine: Engine) {
     let code = [0x8e, 0xd0, 0x51]; // MOV SS,EAX; PUSH ECX.
@@ -20,7 +21,7 @@ fn changed_stack_width(engine: Engine) {
     cpu.instruction_count = 0;
     check_one(
         engine,
-        SegmentProfile::Flat32,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
         &[SegmentResolution::new(&tables, Segment::Ss, 0x27)],
@@ -38,7 +39,7 @@ fn changed_stack_width(engine: Engine) {
     cpu.instruction_count = 1;
     check_one(
         engine,
-        SegmentProfile::Segmented32,
+        ExecutionProfile::Protected(SegmentProfile::Segmented32),
         &code[2..],
         &image,
         &[],
@@ -69,7 +70,7 @@ fn terminal_null_load(engine: Engine) {
     cpu.segments.ds = StoredSegment::unusable(3);
     cpu.eip += 2;
     cpu.instruction_count = 0;
-    assert!(!SegmentProfile::Flat32.is_compatible_with(&cpu.segments));
+    assert!(!ExecutionProfile::Protected(SegmentProfile::Flat32).is_compatible_with(&cpu.segments));
     let mut wanted = expected(
         &image,
         &[Step {
@@ -87,7 +88,12 @@ fn terminal_null_load(engine: Engine) {
     );
     let mut blocks = BlockModules::default();
     for module in [
-        blocks.get(&image.cpu, &code, 2, SegmentProfile::Flat32),
+        blocks.get(
+            &image.cpu,
+            &code,
+            2,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
+        ),
         TestModule::interpreter(),
     ] {
         assert_eq!(engine.observe(module, &input, 1), wanted);
@@ -104,7 +110,7 @@ fn terminal_null_load(engine: Engine) {
     cpu.instruction_count = 1;
     check_one(
         engine,
-        SegmentProfile::Segmented32,
+        ExecutionProfile::Protected(SegmentProfile::Segmented32),
         &read,
         &next,
         &[],

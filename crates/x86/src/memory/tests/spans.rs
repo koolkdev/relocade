@@ -3,7 +3,11 @@ use crate::test_step::Engine;
 
 fn field_module() -> TestModule {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program).unwrap();
+    let memory = Memory::declare(
+        &mut program,
+        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+    )
+    .unwrap();
     let function = program
         .function(
             Signature {
@@ -40,7 +44,7 @@ fn field_module() -> TestModule {
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
     TestModule::new(&crate::CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes,
         entry: "fields".into(),
     })
@@ -116,7 +120,11 @@ const REPLACEMENT_FIELDS: [u8; 10] = [0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 
 
 fn wide_field_modules() -> [TestModule; 2] {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program).unwrap();
+    let memory = Memory::declare(
+        &mut program,
+        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+    )
+    .unwrap();
     for (name, intent) in [
         ("read_fields", Intent::Read),
         ("write_fields", Intent::Write),
@@ -170,7 +178,7 @@ fn wide_field_modules() -> [TestModule; 2] {
     Validator::new().validate_all(&bytes).unwrap();
     ["read_fields", "write_fields"].map(|entry| {
         TestModule::new(&crate::CompiledModule {
-            segment_profile: None,
+            execution_profile: None,
             bytes: bytes.clone(),
             entry: entry.into(),
         })

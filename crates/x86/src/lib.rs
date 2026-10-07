@@ -1,12 +1,12 @@
 //! x86 user-mode execution entries generated as WebAssembly.
 //!
 //! [`compile_block_from_bytes`] decodes a supplied snapshot under flat 32-bit
-//! assumptions. [`compile_block_from_bytes_with_profile`] selects explicit segment
+//! assumptions. [`compile_block_from_bytes_with_profile`] selects explicit execution
 //! assumptions; [`compile_interpreter`] generates runtime instruction decoding
 //! through a block boundary, and [`compile_interpreter_step`] generates a
 //! single-instruction entry.
 //! Both frontends share instruction semantics and return a [`CompiledModule`].
-//! [`Compiler`] configures both frontends with one segment profile.
+//! [`Compiler`] configures both frontends with one execution profile.
 //!
 //! The supported subset covers 16/32-bit protected-mode integer execution and
 //! x87 controls, value transfers and add/subtract/multiply with register or
@@ -14,7 +14,7 @@
 //! Other x87 arithmetic, real mode, privilege transitions, interrupt delivery
 //! and SIMD are outside the current scope.
 //!
-//! [`CpuState`] exchanges backing state with the host. [`SegmentProfile`] describes
+//! [`CpuState`] exchanges backing state with the host. [`ExecutionProfile`] describes
 //! entry assumptions, and [`DescriptorTables`] resolves host-managed selectors into
 //! loaded caches. The shared contract for instantiating and entering generated
 //! modules follows below.
@@ -31,6 +31,7 @@ mod execution;
 mod flags;
 mod instruction;
 mod memory;
+mod profile;
 mod register;
 mod runtime;
 mod segment;
@@ -59,6 +60,7 @@ pub use compile::{
     compile_interpreter_step, Compiler,
 };
 pub use exception::{Exception, ExceptionVector};
+pub use profile::ExecutionProfile;
 pub use register::Gpr32;
 pub use segment::{
     DescriptorTables, PrivilegeLevel, Segment, SegmentAttributes, SegmentDefaultSize,
@@ -74,12 +76,12 @@ pub use state::{
 pub struct CompiledModule {
     pub bytes: Vec<u8>,
     pub entry: String,
-    /// Required segment assumptions for x86 execution entries. The host must
+    /// Required execution assumptions for x86 execution entries. The host must
     /// establish compatibility before entry and invalidate dependent code and
     /// links when assumptions break. A terminal segment load may change compatibility
     /// before publication and dispatch. Snapshot instruction-fetch validity is separate.
-    /// Modules that do not execute x86 instructions have no segment profile.
-    pub segment_profile: Option<SegmentProfile>,
+    /// Modules that do not execute x86 instructions have no execution profile.
+    pub execution_profile: Option<ExecutionProfile>,
 }
 
 /// A failure to construct a block, not an exception raised by guest execution.

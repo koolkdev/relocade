@@ -4,12 +4,9 @@ use crate::state::{Segments, StoredSegment};
 
 use super::{SegmentDefaultSize, SegmentKind};
 
-/// Segment assumptions under which a compiled entry may execute.
-/// Compatibility does not validate instruction-fetch spans, code bytes or mappings and
-/// does not perform cache invalidation. The execution owner must invalidate
-/// dependent entries and dispatch links when these assumptions cease to hold.
-/// A terminal segment load may break compatibility at its cache commit; only
-/// publication and dispatch may follow before the next entry is admitted.
+/// Protected-mode segment assumptions fixed when an entry is compiled.
+/// Used by [`crate::ExecutionProfile::Protected`]; 16-bit code defaults do not
+/// select real mode. Entry validity and invalidation follow [`crate::ExecutionProfile`].
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SegmentProfile {
     /// Flat readable code CS, writable expand-up DS/ES/SS, 32-bit CS defaults and

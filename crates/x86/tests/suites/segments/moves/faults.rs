@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn resolver_faults(engine: Engine) {
     for (segment, selector, present_slot, exit) in [
@@ -37,7 +38,7 @@ fn resolver_faults(engine: Engine) {
         }
         check_one(
             engine,
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
             &[SegmentResolution::new(&tables, segment, selector)],
@@ -74,7 +75,7 @@ fn source_faults(engine: Engine) {
         // An empty response script also proves the resolver was never called.
         check_one(
             engine,
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
             &[],
@@ -94,7 +95,7 @@ fn source_faults(engine: Engine) {
     image.data(0xa000, &[0x5a]);
     check_one(
         engine,
-        SegmentProfile::Flat32,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
         &[],
@@ -174,7 +175,12 @@ fn earlier_progress(engine: Engine) {
     wanted.events.insert(6, event.clone());
     assert_eq!(engine.observe(TestModule::interpreter(), &input, 4), wanted);
     let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, &code, 4, SegmentProfile::Flat32);
+    let block = blocks.get(
+        &image.cpu,
+        &code,
+        4,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    );
     let mut wanted = expected(&image, &[fault()]);
     wanted.events.insert(0, event);
     assert_eq!(engine.observe(block, &input, 1), wanted);

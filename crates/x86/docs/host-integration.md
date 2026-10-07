@@ -7,7 +7,7 @@ the threads extension's atomic instructions, including on unshared memories.
 
 ## Entries and dispatch
 
-`CompiledModule` contains the Wasm bytes, exported entry name and required segment
+`CompiledModule` contains the Wasm bytes, exported entry name and required execution
 profile. Snapshot entries are named `block_<hex start_eip>`; interpreter entries
 are named `run` or `step`. All have the Wasm signature `() -> i64`.
 
@@ -365,19 +365,25 @@ unused bits and ES/B. Changing a field may normalize that field's unused bits.
 
 ## Entry validity
 
-The host must admit each entry against `CompiledModule::segment_profile` before
+The host must admit each entry against `CompiledModule::execution_profile` before
 executing it, including when following a direct dispatch link.
+
+`ExecutionProfile::Protected(SegmentProfile)` selects protected-mode execution at compilation
+time. `SegmentProfile` supplies protected-mode code defaults and segment assumptions.
 
 | Profile | Compilation assumptions |
 | --- | --- |
-| `Flat32` | Usable, flat readable CS and writable expand-up DS/ES/SS; zero bases, full u32 limits, CS.D=1 and SS.B=1. FS/GS are runtime inputs. |
-| `Segmented32` | CS.D=1; segment access and SS.B are checked or read at runtime. |
-| `Segmented16` | CS.D=0; segment access and SS.B are checked or read at runtime. |
+| `Protected(Flat32)` | Usable, flat readable CS and writable expand-up DS/ES/SS; zero bases, full u32 limits, CS.D=1 and SS.B=1. FS/GS are runtime inputs. |
+| `Protected(Segmented32)` | CS.D=1; segment access and SS.B are checked or read at runtime. |
+| `Protected(Segmented16)` | CS.D=0; segment access and SS.B are checked or read at runtime. |
 
-`SegmentProfile::is_compatible_with` tests those assumptions. Selectors, reserved
+`ExecutionProfile::is_compatible_with` tests those assumptions. Selectors, reserved
 attribute bits and ordinary DS/ES D/B bits do not determine flat compatibility.
 Segmented profiles can admit unusable caches or restrictive limits so execution
-can report their guest faults. They describe protected-mode defaults, not real mode.
+can report their guest faults. All `Protected` entries execute at CPL3, including
+those with 16-bit code defaults. The host selects the execution mode; cache
+compatibility alone cannot distinguish it. Keep the complete profile in entry
+and dispatch-link keys, and invalidate dependencies when it changes.
 
 Flat entries omit checks and base reads where the segment is known to satisfy the
 profile. Interpreter memory operands with an explicit segment override use checked

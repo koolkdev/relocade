@@ -11,8 +11,8 @@ use crate::support::{
     x87::{set_control, status},
 };
 use wasm86_x86::{
-    compile_block_from_bytes, BlockError, CpuState, SegmentProfile, StoredX87Control,
-    StoredX87Status,
+    compile_block_from_bytes, BlockError, CpuState, ExecutionProfile, SegmentProfile,
+    StoredX87Control, StoredX87Status,
 };
 
 fn initial_image(code: &[u8]) -> Image {
@@ -60,7 +60,11 @@ fn initialized(mut cpu: CpuState) -> CpuState {
 }
 
 fn reset_and_clear(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(
+        engine,
+        frontend,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    );
     for (name, code) in [
         ("FNINIT", &[0xdb, 0xe3, 0x9b][..]),
         ("FNCLEX", &[0xdb, 0xe2, 0x9b][..]),
@@ -93,7 +97,11 @@ fn reset_and_clear(engine: Engine, frontend: Frontend) {
 }
 
 fn no_wait_stores(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(
+        engine,
+        frontend,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    );
     for (name, store, stored) in [
         (
             "FNSTCW m16",
@@ -141,7 +149,11 @@ fn no_wait_stores(engine: Engine, frontend: Frontend) {
 }
 
 fn status_field_packing(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(
+        engine,
+        frontend,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    );
     let code = [0xdf, 0xe0];
     for (name, fields, word) in [
         (
@@ -197,7 +209,11 @@ fn status_field_packing(engine: Engine, frontend: Frontend) {
 }
 
 fn load_control_and_pending(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(
+        engine,
+        frontend,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    );
     // FLDCW m16; FNSTSW AX; FWAIT.
     let code = [0xd9, 0x2d, 1, 0x40, 0, 0, 0xdf, 0xe0, 0x9b];
     for flag in [1_u16, 2, 4, 8, 16, 32] {
@@ -332,7 +348,11 @@ fn load_control_and_pending(engine: Engine, frontend: Frontend) {
 }
 
 fn waiting_boundaries(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(
+        engine,
+        frontend,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    );
     let code = [0x9b, 0xdb, 0xe3];
     let image = initial_image(&code);
     let waited = retire(image.cpu, 1);
@@ -381,7 +401,11 @@ fn repeated_delivery(engine: Engine) {
 }
 
 fn memory_faults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(
+        engine,
+        frontend,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    );
     for (name, opcode, modrm, error) in [
         ("FLDCW", 0xd9, 0x2d, 0),
         ("FNSTCW", 0xd9, 0x3d, 2),
@@ -415,7 +439,11 @@ fn memory_faults(engine: Engine, frontend: Frontend) {
     let code = [0xd9, 0x2d, 0, 0x40, 0, 0];
     let mut image = initial_image(&code);
     image.cpu.segments.ds.limit = 0x4000;
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented32);
+    let mut checks = ImageSequences::new(
+        engine,
+        frontend,
+        ExecutionProfile::Protected(SegmentProfile::Segmented32),
+    );
     checks.check(
         "the complete two-byte control operand must fit the segment",
         &code,

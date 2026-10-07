@@ -3,7 +3,7 @@ mod tests;
 
 use std::{path::Path, sync::OnceLock};
 
-use crate::SegmentProfile;
+use crate::{ExecutionProfile, SegmentProfile};
 use serde::{Deserialize, Serialize};
 use wasm86_test_support::Module;
 pub(crate) use wasm86_test_support::{Outcome, Value as Argument};
@@ -119,7 +119,7 @@ impl Engine {
 pub(crate) struct TestModule {
     module: Module,
     pub(crate) entry: String,
-    profile: Option<SegmentProfile>,
+    profile: Option<ExecutionProfile>,
     interpreter: Option<&'static TestModule>,
 }
 
@@ -128,27 +128,28 @@ impl TestModule {
         Self {
             module: Module::new(&module.bytes),
             entry: module.entry.clone(),
-            profile: module.segment_profile,
+            profile: module.execution_profile,
             interpreter: None,
         }
     }
 
     pub(crate) fn interpreter() -> &'static Self {
-        Self::interpreter_with_profile(SegmentProfile::Flat32)
+        Self::interpreter_with_profile(ExecutionProfile::Protected(SegmentProfile::Flat32))
     }
 
     pub(crate) fn bytes(&self) -> &[u8] {
         self.module.bytes()
     }
 
-    pub(crate) fn interpreter_with_profile(profile: SegmentProfile) -> &'static Self {
+    pub(crate) fn interpreter_with_profile(profile: impl Into<ExecutionProfile>) -> &'static Self {
+        let profile = profile.into();
         static FLAT: OnceLock<TestModule> = OnceLock::new();
         static SEGMENTED: OnceLock<TestModule> = OnceLock::new();
         static SEGMENTED16: OnceLock<TestModule> = OnceLock::new();
         let module = match profile {
-            SegmentProfile::Flat32 => &FLAT,
-            SegmentProfile::Segmented32 => &SEGMENTED,
-            SegmentProfile::Segmented16 => &SEGMENTED16,
+            ExecutionProfile::Protected(SegmentProfile::Flat32) => &FLAT,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32) => &SEGMENTED,
+            ExecutionProfile::Protected(SegmentProfile::Segmented16) => &SEGMENTED16,
         };
         module.get_or_init(|| Self::new(&crate::compile_interpreter_step(profile).unwrap()))
     }
@@ -181,9 +182,9 @@ impl TestModule {
                     .interpreter
                     .map(|interpreter| interpreter.entry.as_str()),
                 profile: self.profile.map(|profile| match profile {
-                    SegmentProfile::Flat32 => "flat32",
-                    SegmentProfile::Segmented32 => "segmented32",
-                    SegmentProfile::Segmented16 => "segmented16",
+                    ExecutionProfile::Protected(SegmentProfile::Flat32) => "flat32",
+                    ExecutionProfile::Protected(SegmentProfile::Segmented32) => "segmented32",
+                    ExecutionProfile::Protected(SegmentProfile::Segmented16) => "segmented16",
                 }),
                 invocations,
                 input,

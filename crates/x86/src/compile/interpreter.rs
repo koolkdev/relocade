@@ -6,7 +6,7 @@ use crate::{
     memory::Memory,
     runtime::Runtime,
     state::Cpu,
-    CompiledModule, SegmentProfile,
+    CompiledModule, ExecutionProfile,
 };
 
 use super::Compiler;
@@ -31,12 +31,14 @@ use super::Compiler;
 /// assert_eq!(module.entry, "run");
 /// # Ok::<(), wasm86_compiler::BuildError>(())
 /// ```
-pub fn compile_interpreter(profile: SegmentProfile) -> Result<CompiledModule, BuildError> {
+pub fn compile_interpreter(
+    profile: impl Into<ExecutionProfile>,
+) -> Result<CompiledModule, BuildError> {
     Compiler::new(profile).compile_interpreter()
 }
 
 /// Generates `step() -> i64`, which fetches and executes one supported instruction
-/// at the current CS-relative EIP under the selected segment profile.
+/// at the current CS-relative EIP under the selected execution profile.
 /// Success publishes state, retires the instruction and tail-calls host dispatch.
 /// Guest faults and unsupported forms return directly without retiring it.
 /// REP executes all elements before dispatch and retains completed elements on a fault.
@@ -53,7 +55,9 @@ pub fn compile_interpreter(profile: SegmentProfile) -> Result<CompiledModule, Bu
 /// assert_eq!(module.entry, "step");
 /// # Ok::<(), wasm86_compiler::BuildError>(())
 /// ```
-pub fn compile_interpreter_step(profile: SegmentProfile) -> Result<CompiledModule, BuildError> {
+pub fn compile_interpreter_step(
+    profile: impl Into<ExecutionProfile>,
+) -> Result<CompiledModule, BuildError> {
     Compiler::new(profile).compile_interpreter_step()
 }
 
@@ -74,13 +78,13 @@ impl InterpreterEntry {
 
 impl Compiler {
     /// Generates the runtime-decoded block entry described by [`compile_interpreter`]
-    /// with this compiler's segment profile. CPU observations are not used.
+    /// with this compiler's execution profile. CPU observations are not used.
     pub fn compile_interpreter(&self) -> Result<CompiledModule, BuildError> {
         self.compile_runtime(InterpreterEntry::Run)
     }
 
     /// Generates the single-instruction entry described by [`compile_interpreter_step`]
-    /// with this compiler's segment profile. CPU observations are not used.
+    /// with this compiler's execution profile. CPU observations are not used.
     pub fn compile_interpreter_step(&self) -> Result<CompiledModule, BuildError> {
         self.compile_runtime(InterpreterEntry::Step)
     }
@@ -89,7 +93,7 @@ impl Compiler {
         let profile = self.profile;
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
-        let memory = Memory::declare(&mut program)?;
+        let memory = Memory::declare(&mut program, profile)?;
         let runtime = Runtime::declare(&mut program);
         let signature = Signature {
             parameters: vec![],
@@ -137,7 +141,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry: entry.name().into(),
-            segment_profile: Some(profile),
+            execution_profile: Some(profile),
         })
     }
 }

@@ -6,7 +6,11 @@ use crate::test_step::{CallPatches, Engine};
 
 fn write_then_read() -> TestModule {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program).unwrap();
+    let memory = Memory::declare(
+        &mut program,
+        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+    )
+    .unwrap();
     let function = program
         .function(
             Signature {
@@ -29,7 +33,7 @@ fn write_then_read() -> TestModule {
         .unwrap();
     program.export("write_then_read", function).unwrap();
     TestModule::new(&crate::CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "write_then_read".into(),
     })
@@ -104,7 +108,11 @@ fn consecutive_accesses(engine: Engine) {
 fn same_address_updates(engine: Engine) {
     for first_write in [false, true] {
         let mut program = Program::new();
-        let memory = Memory::declare(&mut program).unwrap();
+        let memory = Memory::declare(
+            &mut program,
+            crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        )
+        .unwrap();
         let function = program
             .function(
                 Signature {
@@ -133,7 +141,7 @@ fn same_address_updates(engine: Engine) {
             .unwrap();
         program.export("update", function).unwrap();
         let module = TestModule::new(&crate::CompiledModule {
-            segment_profile: None,
+            execution_profile: None,
             bytes: program.compile().unwrap(),
             entry: "update".into(),
         });
@@ -193,7 +201,11 @@ fn same_address_updates(engine: Engine) {
 
 fn page_changes_and_reentry(engine: Engine) {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program).unwrap();
+    let memory = Memory::declare(
+        &mut program,
+        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+    )
+    .unwrap();
     let function = program
         .function(
             Signature {
@@ -219,7 +231,7 @@ fn page_changes_and_reentry(engine: Engine) {
         .unwrap();
     program.export("sum", function).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
-        segment_profile: None,
+        execution_profile: None,
         bytes: program.compile().unwrap(),
         entry: "sum".into(),
     });

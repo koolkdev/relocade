@@ -1,4 +1,5 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn source_faults(engine: Engine) {
     for stack_source in [false, true] {
@@ -63,7 +64,7 @@ fn source_faults(engine: Engine) {
                 );
                 check_one(
                     engine,
-                    SegmentProfile::Segmented32,
+                    ExecutionProfile::Protected(SegmentProfile::Segmented32),
                     &code,
                     &image,
                     &[],
@@ -135,7 +136,7 @@ fn descriptor_faults(engine: Engine) {
             }
             check_one(
                 engine,
-                SegmentProfile::Flat32,
+                ExecutionProfile::Protected(SegmentProfile::Flat32),
                 &code,
                 &image,
                 &[SegmentResolution::new(&tables, Segment::Cs, selector)],
@@ -212,7 +213,12 @@ fn earlier_progress(engine: Engine) {
         wanted.events.insert(4, event.clone());
         assert_eq!(engine.observe(TestModule::interpreter(), &input, 3), wanted);
         let mut blocks = BlockModules::default();
-        let block = blocks.get(&image.cpu, &code, 3, SegmentProfile::Flat32);
+        let block = blocks.get(
+            &image.cpu,
+            &code,
+            3,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
+        );
         let mut wanted = expected(&image, &[fault()]);
         wanted.events.insert(0, event);
         assert_eq!(engine.observe(block, &input, 1), wanted);

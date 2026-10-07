@@ -1,9 +1,9 @@
 use super::SegmentAccess;
 use crate::{
     memory::Intent,
-    segment::{Segment, SegmentProfile, SegmentSelection},
+    segment::{Segment, SegmentSelection},
     state::{exit, Cpu},
-    CompiledModule,
+    CompiledModule, ExecutionProfile, SegmentProfile,
 };
 use wasm86_compiler::{Program, Signature, Type, Val, I32, I64};
 use wasmparser::Validator;
@@ -12,7 +12,7 @@ mod ranges;
 mod runtime;
 
 fn translation(
-    profile: SegmentProfile,
+    profile: ExecutionProfile,
     intent: Intent,
     selection: Option<fn(Val<I32>) -> SegmentSelection>,
 ) -> CompiledModule {
@@ -49,7 +49,7 @@ fn translation(
     CompiledModule {
         bytes,
         entry: "translate".into(),
-        segment_profile: Some(profile),
+        execution_profile: Some(profile),
     }
 }
 
@@ -60,14 +60,22 @@ fn default_segment(choice: Val<I32>) -> SegmentSelection {
 #[test]
 fn flat_data_segments_and_address_defaults_generate_only_the_effective_offset() {
     for intent in [Intent::Read, Intent::Write] {
-        let expected = translation(SegmentProfile::Flat32, intent, None);
+        let expected = translation(
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            intent,
+            None,
+        );
         for selection in [
             (|_| Segment::Ds.into()) as fn(Val<I32>) -> SegmentSelection,
             |_| Segment::Es.into(),
             |_| Segment::Ss.into(),
             default_segment,
         ] {
-            let actual = translation(SegmentProfile::Flat32, intent, Some(selection));
+            let actual = translation(
+                ExecutionProfile::Protected(SegmentProfile::Flat32),
+                intent,
+                Some(selection),
+            );
             assert_eq!(actual.bytes, expected.bytes);
         }
     }
@@ -77,8 +85,18 @@ fn flat_data_segments_and_address_defaults_generate_only_the_effective_offset() 
 fn flat_code_reads_and_fetches_generate_only_the_effective_offset() {
     for intent in [Intent::Read, Intent::Fetch] {
         assert_eq!(
-            translation(SegmentProfile::Flat32, intent, Some(|_| Segment::Cs.into())).bytes,
-            translation(SegmentProfile::Flat32, intent, None).bytes,
+            translation(
+                ExecutionProfile::Protected(SegmentProfile::Flat32),
+                intent,
+                Some(|_| Segment::Cs.into())
+            )
+            .bytes,
+            translation(
+                ExecutionProfile::Protected(SegmentProfile::Flat32),
+                intent,
+                None
+            )
+            .bytes,
         );
     }
 }

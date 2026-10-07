@@ -1,5 +1,6 @@
 use super::*;
 use crate::support::encoding::check_length;
+use crate::SegmentProfile;
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 fn encodings() -> Vec<Vec<u8>> {
@@ -97,7 +98,7 @@ fn complete_fields(engine: Engine) {
         };
         check_one(
             engine,
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
             &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
@@ -152,7 +153,7 @@ fn length_and_register_modes(engine: Engine) {
                 };
                 check_one(
                     engine,
-                    SegmentProfile::Flat32,
+                    ExecutionProfile::Protected(SegmentProfile::Flat32),
                     &code,
                     &image,
                     &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],

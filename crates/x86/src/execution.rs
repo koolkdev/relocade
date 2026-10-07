@@ -19,9 +19,9 @@ use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
 use crate::memory::{Access, Accesses, Intent, Memory};
 use crate::runtime::Runtime;
-use crate::segment::{SegmentAccess, SegmentProfile, SegmentSelection};
+use crate::segment::{SegmentAccess, SegmentSelection};
 use crate::state::{exit, Cpu, State};
-use crate::{address::AddressSize, exception::Exception, CpuState};
+use crate::{address::AddressSize, exception::Exception, CpuState, ExecutionProfile};
 
 /// Builds one execution path. State definitions and progress describe completed
 /// instructions. Instructions with partial progress, such as REP and POPA, also
@@ -49,7 +49,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         memory: Option<&'module Memory>,
         runtime: Runtime,
         start: impl Into<Val<I32>>,
-        profile: SegmentProfile,
+        profile: ExecutionProfile,
     ) -> Result<Self, BuildError> {
         let eip = body.value(start)?;
         Ok(Self {

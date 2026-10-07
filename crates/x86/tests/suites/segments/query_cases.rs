@@ -6,9 +6,9 @@ use crate::support::{
     machine::{expected, Image, Step},
     step::{Engine, Event, SegmentQuery, TestModule},
 };
-use crate::{CpuState, SegmentProfile};
+use crate::{CpuState, ExecutionProfile};
 
-pub(super) fn image(code: &[u8], profile: SegmentProfile) -> Image {
+pub(super) fn image(code: &[u8], profile: ExecutionProfile) -> Image {
     let mut image = Image::new(code);
     code_defaults(&mut image, profile);
     image.cpu.flags.status_source.kind = 0;
@@ -31,7 +31,7 @@ pub(super) fn completed(image: &Image, len: usize, zf: bool) -> CpuState {
 
 pub(super) fn check_one(
     engine: Engine,
-    profile: SegmentProfile,
+    profile: ExecutionProfile,
     code: &[u8],
     image: &Image,
     queries: &[SegmentQuery],

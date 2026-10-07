@@ -12,7 +12,7 @@ use crate::support::{
     step::{Engine, Event, SegmentResolution, TestModule},
 };
 use crate::{
-    CpuState, DescriptorTables, Segment, SegmentDefaultSize, SegmentDescriptor,
+    CpuState, DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
     SegmentDescriptorKind, SegmentProfile,
 };
 
@@ -27,7 +27,7 @@ fn frame(word: bool, offset: u32, selector: u16, flags: u32) -> Vec<u8> {
     bytes
 }
 
-fn image(code: &[u8], profile: SegmentProfile) -> Image {
+fn image(code: &[u8], profile: ExecutionProfile) -> Image {
     let mut image = Image::new(code);
     code_defaults(&mut image, profile);
     image.cpu.segments.cs.selector = 0x1b;
@@ -70,15 +70,30 @@ fn cleared_flags(mut cpu: CpuState, word: bool) -> CpuState {
 
 fn widths(engine: Engine) {
     for (profile, code, word, stack_big) in [
-        (SegmentProfile::Flat32, &[0xcf][..], false, true),
         (
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            &[0xcf][..],
+            false,
+            true,
+        ),
+        (
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &[0x66, 0x64, 0x67, 0xcf],
             true,
             false,
         ),
-        (SegmentProfile::Segmented16, &[0xcf], true, true),
-        (SegmentProfile::Segmented16, &[0x66, 0xcf], false, false),
+        (
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
+            &[0xcf],
+            true,
+            true,
+        ),
+        (
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
+            &[0x66, 0xcf],
+            false,
+            false,
+        ),
     ] {
         let mut image = image(code, profile);
         image.cpu.registers.esp = 0xabcd_9000;
@@ -136,7 +151,7 @@ fn flag_images(engine: Engine) {
         (true, 0xffff),
     ] {
         let code = if word { vec![0x66, 0xcf] } else { vec![0xcf] };
-        let profile = SegmentProfile::Flat32;
+        let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
         let mut image = image(&code, profile);
         image.data(0x8000, &frame(word, 0x200, 0x27, bits));
         let mut cpu = cleared_flags(image.cpu, word);
@@ -187,7 +202,7 @@ fn frame_boundaries(engine: Engine) {
         (false, 0xffff_fffc, u32::MAX, true, true, 8),
     ] {
         let code = if word { vec![0x66, 0xcf] } else { vec![0xcf] };
-        let profile = SegmentProfile::Segmented32;
+        let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
         let mut image = image(&code, profile);
         image.cpu.segments.ss = loaded(0x23, 0, limit, if stack_big { 21 } else { 5 });
         image.cpu.registers.esp = if stack_big {

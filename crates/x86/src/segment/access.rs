@@ -2,11 +2,9 @@
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
-use crate::{exception::Exception, memory::Intent, state::Cpu};
+use crate::{exception::Exception, memory::Intent, state::Cpu, ExecutionProfile, SegmentProfile};
 
-use super::{
-    Segment, SegmentAttributes, SegmentDefaultSize, SegmentProfile, SegmentSelection, SegmentValues,
-};
+use super::{Segment, SegmentAttributes, SegmentDefaultSize, SegmentSelection, SegmentValues};
 
 #[cfg(test)]
 mod tests;
@@ -20,11 +18,11 @@ pub(crate) struct SegmentCheck {
 #[derive(Clone, Copy)]
 pub(crate) struct SegmentAccess<'cpu> {
     cpu: &'cpu Cpu,
-    profile: SegmentProfile,
+    profile: ExecutionProfile,
 }
 
 impl<'cpu> SegmentAccess<'cpu> {
-    pub(crate) fn new(cpu: &'cpu Cpu, profile: SegmentProfile) -> Self {
+    pub(crate) fn new(cpu: &'cpu Cpu, profile: ExecutionProfile) -> Self {
         Self { cpu, profile }
     }
 
@@ -38,7 +36,9 @@ impl<'cpu> SegmentAccess<'cpu> {
             Segment::Cs => body.value(u32::from(
                 self.profile.code_default_size() == SegmentDefaultSize::Bits32,
             )),
-            Segment::Ss if self.profile == SegmentProfile::Flat32 => body.value(1),
+            Segment::Ss if self.profile == ExecutionProfile::Protected(SegmentProfile::Flat32) => {
+                body.value(1)
+            }
             _ => Ok(self
                 .cpu
                 .read_segment(body, &segment.into())?
@@ -106,7 +106,7 @@ impl<'cpu> SegmentAccess<'cpu> {
         );
         match (self.profile, segment, intent) {
             (
-                SegmentProfile::Flat32,
+                ExecutionProfile::Protected(SegmentProfile::Flat32),
                 SegmentSelection::Named(Segment::Cs),
                 Intent::Read | Intent::Fetch,
             ) => Ok(SegmentCheck {
@@ -114,7 +114,7 @@ impl<'cpu> SegmentAccess<'cpu> {
                 denied: None,
             }),
             (
-                SegmentProfile::Flat32,
+                ExecutionProfile::Protected(SegmentProfile::Flat32),
                 SegmentSelection::Named(Segment::Ds | Segment::Es | Segment::Ss)
                 | SegmentSelection::AddressDefault(_),
                 Intent::Read | Intent::Write,

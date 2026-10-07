@@ -108,6 +108,9 @@ pub(super) fn scattered_backing(first_frame: &Val<I32>, next_entry: &Val<I32>) -
 }
 
 pub(super) fn crosses_page(start: &Val<I32>, bytes: u32) -> Val<I1> {
+    if bytes == 1 {
+        return false.into();
+    }
     start.and(PAGE_OFFSET).unsigned().ge(PAGE_BYTES - bytes + 1)
 }
 

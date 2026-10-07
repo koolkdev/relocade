@@ -1,42 +1,53 @@
 use super::*;
+use crate::SegmentProfile;
 
 fn call_widths(engine: Engine) {
     // Each immediate/indirect form covers the four operand-width/SS.B combinations.
     for (profile, code, word, stack_big) in [
         (
-            SegmentProfile::Flat32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
             &[0x9a, 0x78, 0x56, 0x34, 0x92, 0x24, 0][..],
             false,
             true,
         ),
         (
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &[0x66, 0x9a, 0x78, 0x56, 0x24, 0],
             true,
             false,
         ),
         (
-            SegmentProfile::Segmented16,
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
             &[0x9a, 0x78, 0x56, 0x24, 0],
             true,
             true,
         ),
         (
-            SegmentProfile::Segmented16,
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
             &[0x66, 0x9a, 0x78, 0x56, 0x34, 0x92, 0x24, 0],
             false,
             false,
         ),
-        (SegmentProfile::Flat32, &[0xff, 0x1b], false, true),
         (
-            SegmentProfile::Segmented32,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            &[0xff, 0x1b],
+            false,
+            true,
+        ),
+        (
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &[0x66, 0xff, 0x1b],
             true,
             false,
         ),
-        (SegmentProfile::Segmented16, &[0xff, 0x18], true, true),
         (
-            SegmentProfile::Segmented16,
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
+            &[0xff, 0x18],
+            true,
+            true,
+        ),
+        (
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
             &[0x66, 0xff, 0x18],
             false,
             false,
@@ -48,7 +59,7 @@ fn call_widths(engine: Engine) {
         image.cpu.registers.esp = 0x1234_9008;
         image.cpu.registers.ebx = 0x4000;
         image.cpu.registers.esi = 0;
-        let base = if profile == SegmentProfile::Flat32 {
+        let base = if profile == ExecutionProfile::Protected(SegmentProfile::Flat32) {
             0
         } else {
             0x10000
@@ -103,10 +114,30 @@ fn call_forms_keep_operand_width_code_defaults_and_stack_width_independent() {
 
 fn return_widths(engine: Engine) {
     for (profile, operand_override, word, stack_big) in [
-        (SegmentProfile::Flat32, false, false, true),
-        (SegmentProfile::Segmented32, true, true, false),
-        (SegmentProfile::Segmented16, false, true, true),
-        (SegmentProfile::Segmented16, true, false, false),
+        (
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            false,
+            false,
+            true,
+        ),
+        (
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            true,
+            true,
+            false,
+        ),
+        (
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
+            false,
+            true,
+            true,
+        ),
+        (
+            ExecutionProfile::Protected(SegmentProfile::Segmented16),
+            true,
+            false,
+            false,
+        ),
     ] {
         for cleanup in [None, Some(0xffff)] {
             let code = ret(operand_override, cleanup);
@@ -235,7 +266,7 @@ fn frame_boundaries(engine: Engine) {
             };
             check_one(
                 engine,
-                SegmentProfile::Segmented32,
+                ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
                 &resolutions,

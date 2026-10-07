@@ -69,7 +69,11 @@ fn define_write<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str
 
 fn accesses() -> Vec<u8> {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program).unwrap();
+    let memory = Memory::declare(
+        &mut program,
+        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+    )
+    .unwrap();
     define_read::<I8>(&mut program, &memory, "read8");
     define_write::<I8>(&mut program, &memory, "write8");
     define_read::<I16>(&mut program, &memory, "read16");
@@ -85,7 +89,11 @@ fn accesses() -> Vec<u8> {
 fn access_fault_handlers_must_terminate_the_denied_path() {
     fn reject_fallthrough<T: MemoryInt>() {
         let mut program = Program::new();
-        let memory = Memory::declare(&mut program).unwrap();
+        let memory = Memory::declare(
+            &mut program,
+            crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        )
+        .unwrap();
         let result = program.function(
             Signature {
                 parameters: vec![Type::I32],
@@ -300,12 +308,12 @@ fn memory_widths_execute_in_wasmtime() {
     let bytes = accesses();
     for case in WIDTHS {
         let read = TestModule::new(&crate::CompiledModule {
-            segment_profile: None,
+            execution_profile: None,
             bytes: bytes.clone(),
             entry: format!("read{}", case.name),
         });
         let write = TestModule::new(&crate::CompiledModule {
-            segment_profile: None,
+            execution_profile: None,
             bytes: bytes.clone(),
             entry: format!("write{}", case.name),
         });
@@ -375,12 +383,12 @@ fn aligned_and_unaligned_single_page_transfers_ignore_unrelated_pte_bits() {
     let bytes = accesses();
     for case in WIDTHS.iter().filter(|case| !case.second.is_empty()) {
         let read = TestModule::new(&crate::CompiledModule {
-            segment_profile: None,
+            execution_profile: None,
             bytes: bytes.clone(),
             entry: format!("read{}", case.name),
         });
         let write = TestModule::new(&crate::CompiledModule {
-            segment_profile: None,
+            execution_profile: None,
             bytes: bytes.clone(),
             entry: format!("write{}", case.name),
         });
@@ -434,7 +442,7 @@ fn wrapping_writes_report_read_only_first_page_faults() {
         ),
     ] {
         let write = TestModule::new(&crate::CompiledModule {
-            segment_profile: None,
+            execution_profile: None,
             bytes: bytes.clone(),
             entry: entry.into(),
         });
@@ -461,12 +469,12 @@ fn multi_byte_accesses_wrap_between_real_page_mappings() {
         let read = TestModule::new(&crate::CompiledModule {
             bytes: bytes.clone(),
             entry: format!("read{}", case.name),
-            segment_profile: None,
+            execution_profile: None,
         });
         let write = TestModule::new(&crate::CompiledModule {
             bytes: bytes.clone(),
             entry: format!("write{}", case.name),
-            segment_profile: None,
+            execution_profile: None,
         });
         let payload = [case.first, case.second].concat();
         let mut input = Input {

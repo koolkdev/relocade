@@ -3,7 +3,7 @@ use crate::support::{
     machine::{Exit, Image, Step},
     step::Engine,
 };
-use wasm86_x86::SegmentProfile;
+use wasm86_x86::{ExecutionProfile, SegmentProfile};
 
 fn overlapping_prefix_writes(engine: Engine, frontend: Frontend) {
     // MOV dword [4000],44332211; MOV word [4001],6655; NOP.
@@ -23,7 +23,12 @@ fn overlapping_prefix_writes(engine: Engine, frontend: Frontend) {
     let mut last = second;
     last.eip = 0x1014;
     last.instruction_count = 2;
-    ImageSequences::new(engine, frontend, SegmentProfile::Flat32).check(
+    ImageSequences::new(
+        engine,
+        frontend,
+        ExecutionProfile::Protected(SegmentProfile::Flat32),
+    )
+    .check(
         "a final empty patch retains and composes both earlier overlapping writes",
         &code,
         &image,
