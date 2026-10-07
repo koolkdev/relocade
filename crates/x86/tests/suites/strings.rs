@@ -17,6 +17,8 @@ use wasm86_x86::{
     compile_block_from_bytes, BlockError, CpuState, Gpr32::*, StoredFlags, StoredStatusSource,
 };
 
+#[path = "strings/bulk.rs"]
+mod bulk;
 #[path = "strings/conditional_repetition.rs"]
 mod conditional_repetition;
 #[path = "strings/repeated_loads.rs"]

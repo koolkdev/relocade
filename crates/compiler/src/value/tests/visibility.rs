@@ -163,6 +163,15 @@ fn every_operand_and_argument_boundary_checks_folded_visibility() {
                 body.load_at::<I32>(memory, &value, 0).err(),
                 Some(BuildError::OutOfScope)
             );
+
+            assert_eq!(
+                body.memory_fill(memory, 0, &value, 1),
+                Err(BuildError::OutOfScope)
+            );
+            assert_eq!(
+                body.memory_copy(memory, 0, memory, 0, &value),
+                Err(BuildError::OutOfScope)
+            );
             assert_eq!(
                 body.atomic::<I32>(memory, &value, 0).err(),
                 Some(BuildError::OutOfScope)

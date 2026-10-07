@@ -65,3 +65,6 @@ mod value_reuse;
 mod value_selection;
 #[path = "suites/zero_tests.rs"]
 mod zero_tests;
+
+#[path = "suites/bulk_memory.rs"]
+mod bulk_memory;

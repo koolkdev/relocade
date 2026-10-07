@@ -2,7 +2,7 @@
 
 use crate::{
     memory::{AtomicKind, AtomicUpdate, Location, MemoryAccess},
-    Func,
+    Func, Mem,
 };
 
 #[derive(Clone)]
@@ -18,6 +18,13 @@ pub(crate) enum OperationKind {
     },
     Store {
         access: MemoryAccess,
+    },
+    MemoryFill {
+        memory: Mem,
+    },
+    MemoryCopy {
+        destination_memory: Mem,
+        source_memory: Mem,
     },
     Call {
         target: Func,
@@ -36,6 +43,29 @@ impl Operation {
 
     pub(crate) fn store(access: MemoryAccess, address: usize, value: usize) -> Self {
         Self::new(OperationKind::Store { access }, [address, value])
+    }
+
+    pub(crate) fn memory_fill(memory: Mem, destination: usize, value: usize, bytes: usize) -> Self {
+        Self::new(
+            OperationKind::MemoryFill { memory },
+            [destination, value, bytes],
+        )
+    }
+
+    pub(crate) fn memory_copy(
+        destination_memory: Mem,
+        source_memory: Mem,
+        destination: usize,
+        source: usize,
+        bytes: usize,
+    ) -> Self {
+        Self::new(
+            OperationKind::MemoryCopy {
+                destination_memory,
+                source_memory,
+            },
+            [destination, source, bytes],
+        )
     }
 
     pub(crate) fn call(target: Func, arguments: Vec<usize>) -> Self {
@@ -124,7 +154,24 @@ impl Operation {
             OperationKind::Load { access }
             | OperationKind::Store { access }
             | OperationKind::Atomic { access, .. } => Some(access.at(self.inputs.as_slice()[0])),
-            OperationKind::Call { .. } | OperationKind::Fence => None,
+            OperationKind::Call { .. }
+            | OperationKind::Fence
+            | OperationKind::MemoryFill { .. }
+            | OperationKind::MemoryCopy { .. } => None,
+        }
+    }
+
+    pub(crate) fn memories(&self) -> [Option<Mem>; 2] {
+        match self.kind {
+            OperationKind::Load { access }
+            | OperationKind::Store { access }
+            | OperationKind::Atomic { access, .. } => [Some(access.memory), None],
+            OperationKind::MemoryFill { memory } => [Some(memory), None],
+            OperationKind::MemoryCopy {
+                destination_memory,
+                source_memory,
+            } => [Some(destination_memory), Some(source_memory)],
+            _ => [None, None],
         }
     }
 }
