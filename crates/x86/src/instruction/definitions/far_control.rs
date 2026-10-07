@@ -15,7 +15,7 @@ use crate::{
     execution::CodeTarget,
     flags::{image, Flag},
     register::RegisterType,
-    Segment,
+    ExecutionProfile, Segment,
 };
 
 instruction_families! {
@@ -144,10 +144,9 @@ where
     let target = CodeTarget::resolve(execution, offset, &selector)?;
     // Real-mode CALL checks the transferred offset and selector. A dword
     // selector slot still reserves four bytes, but its high word is untouched.
-    let checked_bytes = if execution.profile() == crate::ExecutionProfile::Real16 {
-        T::BYTES + 2
-    } else {
-        2 * T::BYTES
+    let checked_bytes = match execution.profile() {
+        ExecutionProfile::Real16 => T::BYTES + 2,
+        ExecutionProfile::Protected(_) => 2 * T::BYTES,
     };
     let frame = execution.push_frame(2 * T::BYTES, checked_bytes)?;
     target.check_limit(execution)?;
@@ -209,7 +208,7 @@ fn resolve_return_target<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
-    if execution.profile() != crate::ExecutionProfile::Real16 {
+    if matches!(execution.profile(), ExecutionProfile::Protected(_)) {
         // Protected-mode returns cannot go inward. With CPL fixed at 3, only
         // RPL 3 is valid; real-mode segment values have no privilege bits.
         execution.fault_if(

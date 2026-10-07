@@ -5,7 +5,7 @@ use wasm86_compiler::{BuildError, Val, I1, I16, I32};
 use super::ExecutionBuilder;
 use crate::{
     address::MemoryAddress, memory::Intent, register::RegisterType, segment::SegmentValues,
-    Segment, SegmentDescriptorInfo,
+    ExecutionProfile, Segment, SegmentDescriptorInfo,
 };
 
 /// A resolved segment cache and its destination, not yet installed in CPU state.
@@ -52,21 +52,24 @@ impl ExecutionBuilder<'_, '_> {
         segment: Segment,
         selector: &Val<I16>,
     ) -> Result<ResolvedSegment, BuildError> {
-        let values = if self.profile() == crate::ExecutionProfile::Real16 {
-            // Real16 admits only canonical caches. Retained descriptor limits
-            // and attributes across mode transitions require a different profile.
-            let cache = crate::StoredSegment::real_mode(segment, 0);
-            SegmentValues {
-                base: selector.unsigned().extend::<I32>().shl(4),
-                limit: cache.limit.into(),
-                selector: selector.clone(),
-                attributes: u32::from(cache.attributes.bits()).into(),
+        let values = match self.profile() {
+            ExecutionProfile::Real16 => {
+                // Real16 admits only canonical caches. Retained descriptor limits
+                // and attributes across mode transitions require a different profile.
+                let cache = crate::StoredSegment::real_mode(segment, 0);
+                SegmentValues {
+                    base: selector.unsigned().extend::<I32>().shl(4),
+                    limit: cache.limit.into(),
+                    selector: selector.clone(),
+                    attributes: u32::from(cache.attributes.bits()).into(),
+                }
             }
-        } else {
-            self.runtime
-                .resolve_segment(&mut self.body, segment, selector, |body, exception| {
-                    self.state.fault(body, &self.eip, self.completed, exception)
-                })?
+            ExecutionProfile::Protected(_) => self.runtime.resolve_segment(
+                &mut self.body,
+                segment,
+                selector,
+                |body, exception| self.state.fault(body, &self.eip, self.completed, exception),
+            )?,
         };
         Ok(ResolvedSegment { segment, values })
     }

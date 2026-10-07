@@ -36,15 +36,13 @@ impl<'cpu> SegmentAccess<'cpu> {
         body: &mut BlockBuilder<'_>,
         segment: Segment,
     ) -> Result<Val<I1>, BuildError> {
-        match segment {
-            Segment::Cs => body.value(u32::from(
-                self.profile.code_default_size() == SegmentDefaultSize::Bits32,
+        match (self.profile, segment) {
+            (ExecutionProfile::Protected(profile), Segment::Cs) => body.value(u32::from(
+                profile.code_default_size() == SegmentDefaultSize::Bits32,
             )),
-            Segment::Ss if self.profile == ExecutionProfile::Protected(SegmentProfile::Flat32) => {
-                body.value(1)
-            }
-            _ if self.profile == ExecutionProfile::Real16 => body.value(0),
-            _ => Ok(self
+            (ExecutionProfile::Protected(SegmentProfile::Flat32), Segment::Ss) => body.value(1),
+            (ExecutionProfile::Real16, _) => body.value(0),
+            (ExecutionProfile::Protected(_), _) => Ok(self
                 .cpu
                 .read_segment(body, &segment.into())?
                 .bit(SegmentAttributes::DEFAULT_BIG)),
@@ -129,18 +127,20 @@ impl<'cpu> SegmentAccess<'cpu> {
             }),
             _ => {
                 let cache = self.cpu.read_segment(body, segment)?;
-                Ok(SegmentCheck {
-                    linear: cache.base.add(offset),
-                    denied: Some(if self.profile == ExecutionProfile::Real16 {
+                let denied = match self.profile {
+                    ExecutionProfile::Real16 => {
                         // Canonical real-mode caches have a 64 KiB limit. Type
                         // permissions do not apply, including writes through CS.
                         bytes
                             .unsigned()
                             .ge(0x10001u32)
                             .or(offset.unsigned().ge(Val::<I32>::from(0x10001).sub(&bytes)))
-                    } else {
-                        cache.access_denied(offset, &bytes, intent)
-                    }),
+                    }
+                    ExecutionProfile::Protected(_) => cache.access_denied(offset, &bytes, intent),
+                };
+                Ok(SegmentCheck {
+                    linear: cache.base.add(offset),
+                    denied: Some(denied),
                 })
             }
         }

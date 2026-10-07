@@ -6,6 +6,7 @@ use super::*;
 use crate::address::RegisterValue;
 use crate::flags::image;
 use crate::register::{Gpr32, RegisterType};
+use crate::ExecutionProfile;
 
 instruction_families! {
     PUSH {
@@ -104,7 +105,7 @@ where
     I32: AtLeast<T>,
 {
     let mut pointer = execution.stack_pointer()?;
-    if execution.profile() == crate::ExecutionProfile::Real16 {
+    if matches!(execution.profile(), ExecutionProfile::Real16) {
         // PUSHA/PUSHAD specify #GP for these real-mode entry stack offsets,
         // before the ordinary per-push checks and stores.
         let sp = pointer.offset();
