@@ -15,10 +15,6 @@ pub(crate) fn lower(
                 execution.fault_if(true, crate::Exception::InvalidOpcode)?;
                 return Ok(fallthrough_eip);
             }
-            RealModeSupport::Unsupported => {
-                execution.unsupported_if(true, u32::from(instruction.diagnostic_opcode))?;
-                return Ok(fallthrough_eip);
-            }
         }
     }
     match instruction.call {
