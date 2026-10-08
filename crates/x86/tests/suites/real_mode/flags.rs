@@ -203,6 +203,7 @@ fn interrupt_controls(engine: Engine, frontend: Frontend) {
             image.cpu.flags = CpuState::filled(fill).flags;
             let mut cpu = retired(&image, code.len());
             cpu.flags.bytes.if_ = result;
+            cpu.interrupt_shadow = u8::from(opcode == 0xfb && fill & 1 == 0);
             cases.check(
                 "CLI/STI write only IF and preserve opaque status and IOPL",
                 &code,
@@ -232,7 +233,9 @@ fn interrupt_histories(engine: Engine, frontend: Frontend) {
     image.map(2, 0x8000, true);
     let mut set = retired(&image, 1);
     set.flags.bytes.if_ = 1;
+    set.interrupt_shadow = 1;
     let mut pushed_set = set;
+    pushed_set.interrupt_shadow = 0;
     pushed_set.eip += 1;
     pushed_set.instruction_count += 1;
     pushed_set.registers.esp = 0xabcd_2002;

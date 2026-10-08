@@ -155,7 +155,8 @@ payloads, raw segment attributes and x87 encodings. The image is
 | 28 | Eight u32 registers: EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI. |
 | 60 | u32 EIP. |
 | 64 | Six 12-byte segment records: ES, CS, SS, DS, FS, GS. |
-| 136 | Eight reserved bytes. |
+| 136 | Interrupt shadow: low bit inhibits maskable interrupts. |
+| 137 | Seven reserved bytes. |
 | 144 | u32 completed-instruction count. |
 | 148 | Four reserved bytes. |
 | 152 | Twelve-byte `StoredX87Control`: six mask bytes, PC, RC, IC, padding byte, u16 reserved bits. |
@@ -468,9 +469,25 @@ and IOPL regardless of their entry values; only dword transfers change AC and ID
 Reserved and unrepresented image bits are ignored.
 
 CLI/STI clear or set IF in Real16 and raise #GP(0) in protected profiles, which
-fix CPL3/IOPL0. IF changes are immediately visible to PUSHF. External interrupt
-delivery and STI's one-instruction inhibition are not modeled; IF alone must not
-be used by the host to decide when to inject interrupts.
+fix CPL3/IOPL0. IF changes are immediately visible to PUSHF. Real16 tracks the
+one-instruction delay in `CpuState::interrupt_shadow` (low bit, byte 136), using
+one formerly reserved byte without moving later fields. STI arms it only when
+old IF was zero; successful MOV SS and POP SS arm it, while LSS does not.
+
+Shared instruction retirement clears an incoming delay or installs the delay
+armed by that instruction. No instruction-count comparison or per-instruction
+shadow load is needed. A fault, unsupported instruction, or interpreter handoff
+before retirement preserves the current shadow, except that #MF clears it even
+without retirement. Beginning architectural event
+delivery clears it, including when vectoring subsequently faults. Hosts handling
+an exception themselves must clear it when they start delivery, not merely when
+an execution entry returns a fault. Real16 software INT does this internally.
+
+External interrupt entry is not supplied yet. Hosts must consider IF and this
+shadow together. REP currently runs until completion or a fault, without polling
+for pending external interrupts; this host scheduling boundary is coarser than
+x86's interruptible REP execution. Protected execution does not maintain this
+Real16 delivery state.
 
 IRET/IRETD check all three stack slots before restoring IP/EIP, CS and FLAGS.
 IRETD rejects an EIP above `0xffff` before reading the CS and FLAGS fields. The

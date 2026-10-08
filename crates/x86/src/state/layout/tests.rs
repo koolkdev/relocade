@@ -44,13 +44,14 @@ fn cpu_layout_matches_the_external_byte_contract() {
             offset_of!(CpuState, registers.esi),
             offset_of!(CpuState, registers.edi),
             offset_of!(CpuState, eip),
+            offset_of!(CpuState, interrupt_shadow),
             offset_of!(CpuState, reserved),
             offset_of!(CpuState, instruction_count),
             offset_of!(CpuState, reserved_tail),
         ],
         [
             0, 1, 4, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 28, 32, 36, 40, 44,
-            48, 52, 56, 60, 136, 144, 148
+            48, 52, 56, 60, 136, 137, 144, 148
         ],
     );
 }
@@ -100,9 +101,10 @@ fn decoding_preserves_little_endian_values_and_every_reserved_byte() {
         }
     );
     assert_eq!(cpu.eip, 0x3f3e_3d3c);
+    assert_eq!(cpu.interrupt_shadow, 136);
     assert_eq!(
         cpu.reserved,
-        std::array::from_fn(|index| (136 + index) as u8)
+        std::array::from_fn(|index| (137 + index) as u8)
     );
     assert_eq!(cpu.instruction_count, 0x9392_9190);
     assert_eq!(cpu.reserved_tail, [148, 149, 150, 151]);

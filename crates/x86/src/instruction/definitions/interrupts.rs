@@ -62,6 +62,7 @@ fn enter_interrupt(
     vector: Val<I8>,
     fallthrough: Val<I32>,
 ) -> Result<Val<I32>, BuildError> {
+    execution.clear_interrupt_shadow();
     // Real-mode INT always saves three words, including with a 66 prefix.
     let frame = execution.push_frame(6, 6)?;
     let flags_slot = frame.field::<I16>(execution, 4)?;

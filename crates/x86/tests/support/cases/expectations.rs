@@ -221,6 +221,10 @@ fn check_effects(
         "{context}: loaded segment registers"
     );
     assert_eq!(
+        actual.cpu.interrupt_shadow, initial.cpu.interrupt_shadow,
+        "{context}: protected execution preserves interrupt-delivery state"
+    );
+    assert_eq!(
         actual.cpu.reserved, initial.cpu.reserved,
         "{context}: reserved CPU bytes"
     );

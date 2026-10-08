@@ -54,6 +54,7 @@ impl CpuState {
                 fs: read_segment(&bytes, offset_of!(CpuState, segments.fs)),
                 gs: read_segment(&bytes, offset_of!(CpuState, segments.gs)),
             },
+            interrupt_shadow: bytes[offset_of!(CpuState, interrupt_shadow)],
             reserved: read(&bytes, offset_of!(CpuState, reserved)),
             instruction_count: read_u32(&bytes, offset_of!(CpuState, instruction_count)),
             reserved_tail: read(&bytes, offset_of!(CpuState, reserved_tail)),
@@ -126,6 +127,7 @@ impl CpuState {
         ] {
             write_segment(&mut bytes, offset, segment);
         }
+        bytes[offset_of!(CpuState, interrupt_shadow)] = self.interrupt_shadow;
         write(&mut bytes, offset_of!(CpuState, reserved), &self.reserved);
         write(
             &mut bytes,

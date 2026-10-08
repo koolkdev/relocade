@@ -102,7 +102,8 @@ impl<'body> ExecutionBuilder<'body, '_> {
     /// Delivers a pending exception at this instruction's restart boundary.
     /// Called by FWAIT and x87 instructions that check exceptions on entry.
     pub(crate) fn check_x87_exception(&mut self) -> Result<(), BuildError> {
+        let profile = self.profile();
         self.state
-            .check_x87(&mut self.body, &self.eip, self.completed)
+            .check_x87(&mut self.body, &self.eip, self.completed, profile)
     }
 }

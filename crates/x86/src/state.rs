@@ -2,6 +2,7 @@ mod access;
 mod cpu;
 pub(super) mod exit;
 mod flags;
+mod interrupts;
 mod layout;
 #[cfg(test)]
 mod observation;
@@ -32,6 +33,7 @@ pub(super) struct State<'cpu> {
     cpu: &'cpu Cpu,
     registers: StateFields,
     flags: flags::FlagState,
+    pub(super) interrupts: interrupts::InterruptState,
     pub(super) x87: x87::X87State,
 }
 
@@ -41,6 +43,7 @@ impl<'cpu> State<'cpu> {
             cpu,
             registers: StateFields::new(cpu.memory()),
             flags: flags::FlagState::new(cpu.memory()),
+            interrupts: interrupts::InterruptState::default(),
             x87: x87::X87State::new(cpu.memory()),
         }
     }
@@ -166,6 +169,7 @@ impl<'cpu> State<'cpu> {
         completed: u32,
     ) -> Result<(), BuildError> {
         self.flags.publish(body, self.cpu)?;
+        self.interrupts.publish(body, self.cpu)?;
         self.x87.publish(body)?;
         self.registers.publish(body)?;
         cpu_store!(body, self.cpu.memory(), eip, next_eip)?;

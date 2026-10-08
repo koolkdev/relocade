@@ -10,6 +10,8 @@ mod flags;
 mod handoff;
 #[path = "real_mode/interrupt_return.rs"]
 mod interrupt_return;
+#[path = "real_mode/interrupt_shadow.rs"]
+mod interrupt_shadow;
 #[path = "real_mode/interrupts.rs"]
 mod interrupts;
 #[path = "real_mode/memory.rs"]

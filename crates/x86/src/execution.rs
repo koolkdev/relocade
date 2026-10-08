@@ -1,5 +1,6 @@
 mod address;
 mod control;
+mod interrupts;
 mod memory;
 mod operands;
 mod regions;
@@ -92,7 +93,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             .take()
             .map(|opcode| opcode.bits());
         self.eip = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
-        self.completed += 1;
+        self.retire_instruction();
         Ok(())
     }
 

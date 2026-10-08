@@ -182,7 +182,11 @@ fn load_selector(
 ) -> Result<(), BuildError> {
     let selector = source.read(execution)?;
     let resolved = execution.resolve_segment(segment, &selector)?;
-    resolved.commit(execution)
+    resolved.commit(execution)?;
+    if segment == Segment::Ss {
+        execution.inhibit_interrupts(true);
+    }
+    Ok(())
 }
 
 fn push_selector<T: RegisterType>(
@@ -203,7 +207,11 @@ fn pop_selector<T: RegisterType>(
     // Resolve before changing ESP; commit its old-SS pointer before replacing
     // the cache, since the new SS may have a different base or stack width.
     frame.commit(execution, 0)?;
-    resolved.commit(execution)
+    resolved.commit(execution)?;
+    if segment == Segment::Ss {
+        execution.inhibit_interrupts(true);
+    }
+    Ok(())
 }
 
 fn load_pointer<T: RegisterType>(

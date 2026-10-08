@@ -14,6 +14,7 @@ fn loads(engine: Engine, frontend: Frontend) {
         image.cpu.registers.eax = 0xabcd_0000 | u32::from(value);
         let mut cpu = retired(&image, code.len());
         cpu.segments[segment] = cache(segment, value);
+        cpu.interrupt_shadow = u8::from(segment == Segment::Ss);
         cases.check(
             "MOV segment accepts all low-word bits without a resolver",
             &code,
@@ -57,6 +58,7 @@ fn stack_and_pointers(engine: Engine, frontend: Frontend) {
     let mut cpu = retired(&image, code.len());
     cpu.registers.esp = 0xabcd_0012;
     cpu.segments.ss = cache(Segment::Ss, 0);
+    cpu.interrupt_shadow = 1;
     cases.check(
         "POP SS reads and advances the old stack",
         &code,

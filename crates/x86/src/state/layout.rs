@@ -122,7 +122,10 @@ pub struct CpuState {
     pub registers: Registers,
     pub eip: u32,
     pub segments: Segments,
-    pub reserved: [u8; 8],
+    /// Low bit blocks maskable interrupts until the next instruction retires.
+    /// Real16 execution maintains this byte; host exception delivery clears it.
+    pub interrupt_shadow: u8,
+    pub reserved: [u8; 7],
     pub instruction_count: u32,
     pub reserved_tail: [u8; 4],
     pub x87: StoredX87,

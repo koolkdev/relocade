@@ -46,10 +46,16 @@ impl super::State<'_> {
         body: &mut BlockBuilder<'_>,
         restart_eip: &Val<I32>,
         completed: u32,
+        profile: crate::ExecutionProfile,
     ) -> Result<(), BuildError> {
         let pending = self.x87.status.pending(body)?;
         body.if_(pending, |fault_body| {
-            self.fault(
+            let mut fault_state = self.clone();
+            // #MF removes STI/MOV-SS inhibition even before exception delivery.
+            if profile == crate::ExecutionProfile::Real16 {
+                fault_state.interrupts.clear();
+            }
+            fault_state.fault(
                 fault_body,
                 restart_eip,
                 completed,
