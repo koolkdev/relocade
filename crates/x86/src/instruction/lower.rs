@@ -9,7 +9,7 @@ pub(crate) fn lower(
     fallthrough_eip: Val<I32>,
 ) -> Result<Val<I32>, BuildError> {
     if let Some(exception) = instruction.availability.fault(execution.profile()) {
-        execution.fault_if(true, exception)?;
+        execution.fault(exception)?;
         return Ok(fallthrough_eip);
     }
     match instruction.call {

@@ -14,5 +14,5 @@ instruction_families! {
 }
 
 fn raise_invalid_opcode(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
-    execution.fault_if(true, Exception::InvalidOpcode)
+    execution.fault(Exception::InvalidOpcode)
 }
