@@ -26,8 +26,8 @@ The host chooses whether dispatch enters more code or returns control. Interpret
 It uses the same instruction boundary as snapshot compilation: conditional branches end
 execution on both outcomes. Earlier instructions remain published if a later
 instruction faults or is unsupported. Each instruction fetches live guest bytes
-and starts with fresh prefix state. REP completes its repetition and continues
-to the next instruction in both frontends.
+and starts with fresh prefix state. REP completes its repetition; port strings
+dispatch and other strings continue to the next instruction in both frontends.
 
 Interpreter `step` executes one instruction before dispatch, including all elements
 of a supported REP instruction. Neither interpreter entry has an execution budget.
@@ -92,7 +92,7 @@ compiling another block. No CPU state is replaced with the observed snapshot.
 
 ## Port I/O
 
-Real16 IN/OUT use synchronous `wasm86` imports:
+Real16 IN/OUT and INS/OUTS use synchronous `wasm86` imports:
 
 | Import | Wasm signature |
 | --- | --- |
@@ -114,7 +114,20 @@ entry against device changes. Devices and any pending interrupts belong to the h
 Protected profiles fix CPL3/IOPL0 and expose no TSS I/O permission bitmap grants;
 port instructions raise #GP(0) after decoding and before device effects. LOCK
 uses the shared unsupported-encoding exit. Operand-size overrides choose
-word/dword transfers independently of the port address. Segment and address-size overrides do not affect scalar I/O.
+word/dword transfers independently of the port address. Segment and address-size
+overrides do not affect scalar I/O.
+
+INS stores at ES:(E)DI, ignoring segment overrides. OUTS reads DS:(E)SI with the
+usual source override. REP uses the address-sized CX/ECX count; zero count performs
+no transfer. Each element keeps its byte/word/dword port width and advances its
+index by that width according to DF. The destination is checked before an INS
+port read; OUTS completes its memory read before writing the port. Physical routing
+is resolved at each actual transfer, including after a port callback.
+
+A fault leaves the completed elements in memory/devices, the remaining count and
+current index in CPU backing, and EIP at the string instruction. Successful REP
+retires once and dispatches after its final element. There is no device batching
+or asynchronous interrupt polling within the repetition.
 
 ## Imported memories
 
