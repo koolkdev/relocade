@@ -21,6 +21,7 @@ pub(crate) struct Input {
     pub(crate) mmio_pages: Vec<(u32, u32)>,
     pub(crate) mmio_updates: Vec<MmioUpdate>,
     pub(crate) observe_mmio: bool,
+    pub(crate) port_reads: Vec<u32>,
     pub(crate) arguments: Vec<Argument>,
     pub(crate) observe_guest: bool,
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
@@ -40,6 +41,7 @@ impl Input {
             mmio_pages: Vec::new(),
             mmio_updates: Vec::new(),
             observe_mmio: false,
+            port_reads: Vec::new(),
             arguments: Vec::new(),
             observe_guest: false,
             segment_resolutions: Vec::new(),
@@ -83,6 +85,15 @@ pub(crate) struct Snapshot {
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Event {
+    PortRead {
+        port: u32,
+        bytes: u32,
+    },
+    PortWrite {
+        port: u32,
+        bytes: u32,
+        value: u32,
+    },
     MmioRead {
         address: u32,
         bytes: u32,
