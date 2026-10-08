@@ -3,9 +3,8 @@
 use super::*;
 use crate::{
     address::MemoryAddress,
+    execution::X87Operand,
     instruction::X87StackIndex,
-    memory::Intent,
-    state::ArithmeticSource,
     x87::{BinaryFormat, BinaryOperation},
 };
 
@@ -144,18 +143,11 @@ fn binary_register(
     destination: Destination,
     pop: bool,
 ) -> Result<(), BuildError> {
-    execution.check_x87_exception()?;
     let (destination, source) = match destination {
         Destination::Top => (0.into(), other.offset()),
         Destination::Other => (other.offset(), 0.into()),
     };
-    let mut arithmetic =
-        execution
-            .x87()
-            .prepare_binary(destination, ArithmeticSource::Register(source), pop)?;
-    let result = execution.calculate_x87_arithmetic(&mut arithmetic, operation)?;
-    execution.record_x87_instruction()?;
-    execution.x87().commit_arithmetic(arithmetic, result)
+    execution.arithmetic_x87(destination, X87Operand::Register(source), operation, pop)
 }
 
 fn binary_memory(
@@ -164,14 +156,10 @@ fn binary_memory(
     operation: BinaryOperation,
     format: BinaryFormat,
 ) -> Result<(), BuildError> {
-    execution.check_x87_exception()?;
-    let operand = execution.memory_operand(address, format.bytes(), Intent::Read, &[])?;
-    let source = operand.read_x87_binary(execution, format)?;
-    let mut arithmetic =
-        execution
-            .x87()
-            .prepare_binary(0.into(), ArithmeticSource::Binary(source), false)?;
-    let result = execution.calculate_x87_arithmetic(&mut arithmetic, operation)?;
-    execution.record_x87_memory(&operand)?;
-    execution.x87().commit_arithmetic(arithmetic, result)
+    execution.arithmetic_x87(
+        0.into(),
+        X87Operand::BinaryMemory { address, format },
+        operation,
+        false,
+    )
 }
