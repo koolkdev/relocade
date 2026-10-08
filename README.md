@@ -42,6 +42,11 @@ dispatch and fault exits, segment resolution, and entry validity. Real16 uses
 the [physical-memory contract](crates/x86/docs/physical-memory.md) for host transfers.
 Both contracts are included in the x86 crate's generated API documentation.
 
+The proposed [runtime orchestrator](docs/runtime-orchestrator.md) builds on these
+entries with interpretation, hot-block compilation and static/dynamic linking.
+It describes the intended architecture and required extensions, not an available
+runtime API.
+
 ## Build and test
 
 The ordinary tests execute Wasm in Wasmtime and do not require Node.js.
