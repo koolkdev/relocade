@@ -15,6 +15,7 @@ use super::Compiler;
 /// branch or segment load completes, then tail-calls host dispatch.
 /// Conditional branches dispatch on both outcomes without fetching the successor.
 /// Guest faults and unsupported forms return directly with earlier work published.
+/// Real16 HLT retires and returns halted; re-entry while halted performs no fetch.
 ///
 /// Each instruction reads live guest bytes and starts with fresh prefix state.
 /// The host must establish profile compatibility before entry, as described by
@@ -41,6 +42,7 @@ pub fn compile_interpreter(
 /// at the current CS-relative EIP under the selected execution profile.
 /// Success publishes state, retires the instruction and tail-calls host dispatch.
 /// Guest faults and unsupported forms return directly without retiring it.
+/// Real16 HLT retires and returns halted; re-entry while halted performs no fetch.
 /// REP executes all elements before dispatch and retains completed elements on a fault.
 /// This entry has no execution budget.
 ///
@@ -100,7 +102,7 @@ impl Compiler {
             results: vec![Type::I64],
         };
         let entry_function = program.declare(signature.clone());
-        let exact = program.declare(signature);
+        let exact = program.declare(signature.clone());
         let fetch = InstructionFetch::new(&cpu, &memory, profile);
         let decoder = RuntimeDecoder::new(
             &mut program,
@@ -138,7 +140,15 @@ impl Compiler {
             decoder.decode(body, &start, None)
         })?;
 
-        program.export(entry.name(), entry_function)?;
+        // Internal decoder continuations bypass the public admission guard.
+        let public_entry = match profile {
+            ExecutionProfile::Real16 => program.function(signature, |mut body| {
+                cpu.check_running(&mut body)?;
+                body.tail_call(entry_function, &[])
+            })?,
+            ExecutionProfile::Protected(_) => entry_function,
+        };
+        program.export(entry.name(), public_entry)?;
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry: entry.name().into(),

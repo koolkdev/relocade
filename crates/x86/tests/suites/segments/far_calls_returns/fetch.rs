@@ -22,7 +22,7 @@ fn encodings() -> Vec<Vec<u8>> {
 fn snapshot_forms_require_every_field_and_end_the_block() {
     for code in encodings() {
         let complete = check_length(&code);
-        let trailing = [&code[..], &[0xf4]].concat();
+        let trailing = [&code[..], &[0xf1]].concat();
         assert_eq!(
             compile_block_from_bytes(0x1000, &trailing, u32::MAX)
                 .unwrap()

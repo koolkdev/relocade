@@ -167,7 +167,7 @@ fn protected_interrupt_controls_stop_before_snapshot_successors() {
     ] {
         for code in [&[0xfa][..], &[0x66, 0x67, 0x64, 0xfb]] {
             let complete = compile_block_from_bytes_with_profile(0x1000, code, 1, profile).unwrap();
-            for suffix in [&[][..], &[0x0f], &[0xf4], &[0xb0, 0x7f]] {
+            for suffix in [&[][..], &[0x0f], &[0xf1], &[0xb0, 0x7f]] {
                 assert_eq!(
                     compile_block_from_bytes_with_profile(
                         0x1000,

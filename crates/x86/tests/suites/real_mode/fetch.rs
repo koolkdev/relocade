@@ -163,7 +163,7 @@ fn runs(engine: Engine) {
     let module = run_module();
     for (code, exit, next) in [
         (
-            &[0xb8, 0x34, 0x12, 0x8e, 0xd8, 0xf4][..],
+            &[0xb8, 0x34, 0x12, 0x8e, 0xd8, 0xf1][..],
             Exit::Dispatch(0x1005),
             0x1005,
         ),

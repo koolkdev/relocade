@@ -233,7 +233,7 @@ fn snapshots_require_complete_forms_and_stop_at_the_transfer() {
         &[0x66, 0xc2, 0xc3, 0xff],
     ] {
         let complete = check_length(code);
-        let trailing = [code, &[0xf4, 0x66, 0x0f]].concat();
+        let trailing = [code, &[0xf1, 0x66, 0x0f]].concat();
         assert_eq!(
             compile_block_from_bytes(0x1000, &trailing, u32::MAX)
                 .unwrap()

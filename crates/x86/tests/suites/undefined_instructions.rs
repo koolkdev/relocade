@@ -54,7 +54,7 @@ fn faulting_forms() -> Vec<Case> {
 fn complete_encoding_ends_snapshot_compilation() {
     for code in [&[0x0f, 0x0b][..], &[0x66, 0x67, 0x64, 0x0f, 0x0b]] {
         let complete = check_length(code);
-        for suffix in [&[][..], &[0x0f], &[0xf4], &[0xb0, 0x7f]] {
+        for suffix in [&[][..], &[0x0f], &[0xf1], &[0xb0, 0x7f]] {
             assert_eq!(
                 compile_block_from_bytes(0x1000, &[code, suffix].concat(), u32::MAX)
                     .unwrap()

@@ -4,6 +4,17 @@ use super::*;
 use crate::{flags::image, Segment};
 
 impl ExecutionBuilder<'_, '_> {
+    pub(crate) fn halt(&mut self) {
+        debug_assert_eq!(self.profile(), ExecutionProfile::Real16);
+        self.state.halted = Some(true);
+    }
+
+    /// An accepted event wakes the CPU before any delivery fault can occur.
+    pub(crate) fn wake(&mut self) {
+        debug_assert_eq!(self.profile(), ExecutionProfile::Real16);
+        self.state.halted = Some(false);
+    }
+
     pub(super) fn retire_instruction(&mut self) {
         if self.profile() == ExecutionProfile::Real16 {
             self.state.interrupts.retire();

@@ -67,13 +67,15 @@ pub(super) enum Availability {
     ProtectedOnly,
     /// Requires CPL <= IOPL; supported protected profiles fix CPL3/IOPL0.
     IoPrivileged,
+    /// Requires CPL0, independently of IOPL.
+    Privileged,
 }
 
 impl Availability {
     pub(super) fn fault(self, profile: ExecutionProfile) -> Option<Exception<Val<I32>>> {
         match (self, profile) {
             (Self::ProtectedOnly, ExecutionProfile::Real16) => Some(Exception::InvalidOpcode),
-            (Self::IoPrivileged, ExecutionProfile::Protected(_)) => {
+            (Self::IoPrivileged | Self::Privileged, ExecutionProfile::Protected(_)) => {
                 Some(Exception::GeneralProtection {
                     error_code: 0.into(),
                 })

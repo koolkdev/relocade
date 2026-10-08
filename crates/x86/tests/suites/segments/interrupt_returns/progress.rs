@@ -4,7 +4,7 @@ use crate::SegmentProfile;
 fn earlier_progress(engine: Engine) {
     for nested_task in [false, true] {
         // ADD EAX,1; prefixed IRETD; unsupported trailing byte beyond the block end.
-        let code = [0x83, 0xc0, 1, 0x67, 0xcf, 0xf4];
+        let code = [0x83, 0xc0, 1, 0x67, 0xcf, 0xf1];
         let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
         let mut image = image(&code, profile);
         image.cpu.flags.status_source.kind = 0;
@@ -61,7 +61,7 @@ fn an_unsupported_or_faulting_return_publishes_only_earlier_completed_instructio
 }
 
 fn dispatch_and_fetch(engine: Engine) {
-    let code = [0xcf, 0xf4];
+    let code = [0xcf, 0xf1];
     let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
     let mut image = image(&code, profile);
     image.cpu.segments.cs.limit = 0x1000;

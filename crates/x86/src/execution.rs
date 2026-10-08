@@ -280,6 +280,9 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     ) -> Result<(), BuildError> {
         self.state
             .publish(&mut self.body, &self.eip, self.completed)?;
+        if self.state.halted == Some(true) {
+            return exit::halted(self.body);
+        }
         continue_execution(self.body, &self.eip)
     }
 }

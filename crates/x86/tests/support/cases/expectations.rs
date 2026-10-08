@@ -225,6 +225,10 @@ fn check_effects(
         "{context}: protected execution preserves interrupt-delivery state"
     );
     assert_eq!(
+        actual.cpu.halted, initial.cpu.halted,
+        "{context}: protected execution preserves halted state"
+    );
+    assert_eq!(
         actual.cpu.reserved, initial.cpu.reserved,
         "{context}: reserved CPU bytes"
     );

@@ -12,6 +12,11 @@ const BOUND_RANGE_EXCEEDED: u64 = 64 << 48;
 const INVALID_OPCODE: u64 = 128 << 48;
 const FLOATING_POINT: u64 = 256 << 48;
 const INTERRUPT_BLOCKED: u64 = 512 << 48;
+const HALTED: u64 = 1024 << 48;
+
+pub(crate) fn halted(body: BlockBuilder<'_>) -> Result<(), BuildError> {
+    body.return_(HALTED)
+}
 
 /// The queued host interrupt remains pending; guest state is unchanged.
 pub(crate) fn interrupt_blocked(body: BlockBuilder<'_>) -> Result<(), BuildError> {

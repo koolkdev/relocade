@@ -6,6 +6,8 @@ mod control;
 mod fetch;
 #[path = "real_mode/flags.rs"]
 mod flags;
+#[path = "real_mode/halt.rs"]
+mod halt;
 #[path = "real_mode/handoff.rs"]
 mod handoff;
 #[path = "real_mode/interrupt_delivery.rs"]

@@ -34,6 +34,7 @@ pub(super) struct State<'cpu> {
     registers: StateFields,
     flags: flags::FlagState,
     pub(super) interrupts: interrupts::InterruptState,
+    pub(super) halted: Option<bool>,
     pub(super) x87: x87::X87State,
 }
 
@@ -44,6 +45,7 @@ impl<'cpu> State<'cpu> {
             registers: StateFields::new(cpu.memory()),
             flags: flags::FlagState::new(cpu.memory()),
             interrupts: interrupts::InterruptState::default(),
+            halted: None,
             x87: x87::X87State::new(cpu.memory()),
         }
     }
@@ -170,6 +172,9 @@ impl<'cpu> State<'cpu> {
     ) -> Result<(), BuildError> {
         self.flags.publish(body, self.cpu)?;
         self.interrupts.publish(body, self.cpu)?;
+        if let Some(halted) = self.halted {
+            cpu_store!(body, self.cpu.memory(), halted, u32::from(halted))?;
+        }
         self.x87.publish(body)?;
         self.registers.publish(body)?;
         cpu_store!(body, self.cpu.memory(), eip, next_eip)?;

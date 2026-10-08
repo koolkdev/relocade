@@ -227,7 +227,7 @@ fn forms_consume_one_displacement_and_end_the_block() {
     for opcode in OPCODES {
         for code in [vec![opcode, 0x66], vec![0x66, opcode, 0xe3]] {
             let complete = check_length(&code);
-            let trailing = [&code[..], &[0xf4, 0x66, 0x0f]].concat();
+            let trailing = [&code[..], &[0xf1, 0x66, 0x0f]].concat();
             assert_eq!(
                 compile_block_from_bytes(0x1000, &trailing, u32::MAX)
                     .unwrap()

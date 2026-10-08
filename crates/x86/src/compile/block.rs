@@ -14,6 +14,8 @@ use super::Compiler;
 /// bytes after the boundary are ignored. The limit must be nonzero. Incomplete,
 /// unsupported or overlong instructions within that boundary return [`BlockError`].
 ///
+/// HLT ends the block and, in Real16, returns halted after retirement.
+///
 /// The generated `block_<hex start_eip>() -> i64` entry executes the block and
 /// tail-calls host dispatch on success; guest faults return directly.
 /// A failed specialization guard publishes completed work and tail-calls
@@ -116,7 +118,10 @@ impl Compiler {
                 parameters: vec![],
                 results: vec![Type::I64],
             },
-            |body| {
+            |mut body| {
+                if profile == ExecutionProfile::Real16 {
+                    cpu.check_running(&mut body)?;
+                }
                 let mut execution = ExecutionBuilder::new(
                     body,
                     &cpu,

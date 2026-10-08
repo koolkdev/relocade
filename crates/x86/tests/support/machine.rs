@@ -32,6 +32,7 @@ impl Image {
         cpu.eip = 0x1000;
         cpu.instruction_count = u32::MAX;
         cpu.interrupt_shadow = 0;
+        cpu.halted = 0;
         cpu.segments = Segments::flat32();
         cpu.reserved_tail.fill(0);
         Self {

@@ -22,6 +22,8 @@ count, then tail-calls `wasm86.dispatch(next_eip: i32) -> i64`. Its result is re
 unchanged. EIP and dispatch arguments are offsets relative to CS, and EIP and count
 use 32-bit wrapping arithmetic. A taken transfer checks its segment target before
 committing instruction effects; fetching the destination belongs to the next entry.
+Real16 HLT publishes its completed instruction and returns the halted status
+directly. Re-entering a halted Real16 CPU returns that status before any fetch.
 
 The host chooses whether dispatch enters more code or returns control. Interpreter
 `run` continues inside Wasm until a branch or segment load completes. It uses
@@ -158,7 +160,8 @@ payloads, raw segment attributes and x87 encodings. The image is
 | 60 | u32 EIP. |
 | 64 | Six 12-byte segment records: ES, CS, SS, DS, FS, GS. |
 | 136 | Interrupt shadow: low bit inhibits maskable interrupts. |
-| 137 | Seven reserved bytes. |
+| 137 | Halted: low bit stops Real16 instruction execution. |
+| 138 | Six reserved bytes. |
 | 144 | u32 completed-instruction count. |
 | 148 | Four reserved bytes. |
 | 152 | Twelve-byte `StoredX87Control`: six mask bytes, PC, RC, IC, padding byte, u16 reserved bits. |
@@ -527,7 +530,7 @@ vector pending and retry at a later host boundary.
 
 Otherwise delivery is accepted. It uses the same three-word frame and canonical
 IVT as software INT, saving the current IP rather than an instruction fallthrough.
-It clears inhibition, IF, TF and AC, loads CS:IP, and dispatches. The instruction
+It wakes a halted CPU, clears inhibition, IF, TF and AC, loads CS:IP, and dispatches. The instruction
 count is unchanged. A delivery fault returns the ordinary fault tag, with EIP at
 the interrupted boundary and permitted vectoring effects published. Consume the
 pending vector on every accepted outcome, including a delivery fault; the host
@@ -537,6 +540,27 @@ after accepted entry, since it would falsely report that the vector is pending.
 This entry does not poll inside blocks or REP, inject guest faults or NMIs, relocate
 the IVT, or model nested-fault escalation. Hosts choose execution boundaries and
 their scheduling policy; `step` provides a boundary after each whole instruction.
+
+### Halt and resume
+
+HLT is supported in Real16 and raises #GP(0) in the protected CPL3 profiles,
+independently of IOPL. It preserves flags, advances EIP past the instruction,
+retires once, expires any interrupt shadow, and sets `CpuState::halted` to one.
+It ends the block and returns tag 1024 (`0x0400_0000_0000_0000`) without dispatch.
+
+Public Real16 snapshot, step and run entries check the low halted bit before
+effects or fetching. While set, they return the halted status with all state
+unchanged. The interpreter checks once at public entry; internal decoding
+continuations add no halt polling. Protected execution ignores this Real16 byte.
+
+An accepted host maskable interrupt clears halted state before vectoring, even
+if delivery then faults. A blocked interrupt preserves it. The saved IP points
+after HLT, so IRET resumes at the following instruction. In particular, STI; HLT
+expires STI's delay as it halts, allowing an enabled interrupt to wake it.
+If IF is clear, maskable interrupts cannot wake the CPU. The host owns reset and
+can establish a new CPU image with halted clear; NMI and other wake sources are
+outside the current model. The host waits or schedules devices after a halted
+exit; Wasm does not spin or sleep.
 
 ARPL/LAR/LSL/VERR/VERW raise #UD before operand access and terminate snapshot
 compilation. Both decoders read the selected form's physical encoding before
@@ -661,6 +685,7 @@ exception vector numbers:
 | Invalid opcode | 128 | Zero | Zero |
 | Floating-point error | 256 | Zero | Zero |
 | Host interrupt blocked | 512 | Zero | Zero |
+| Halted | 1024 | Zero | Zero |
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the

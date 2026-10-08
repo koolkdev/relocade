@@ -26,7 +26,7 @@ fn execution_boundaries(engine: Engine, module: &TestModule) {
         0xb4, 0x9a, // MOV AH,9A
         0x0f, 0x1f, 0x44, 0x00, 0x7f, // NOP [EAX+EAX+7F]
         0x89, 0xc1, // MOV ECX,EAX
-        0xeb, 0, 0xf4, // JMP to unsupported successor
+        0xeb, 0, 0xf1, // JMP to unsupported successor
     ]);
     let mut cpu = image.cpu;
     cpu.registers.eax = 0x1234_9a78;
@@ -139,7 +139,7 @@ fn execution_boundaries(engine: Engine, module: &TestModule) {
 
 fn repetition_progress(engine: Engine, module: &TestModule) {
     for count in [0, 2] {
-        let mut image = Image::new(&[0xb8, 42, 0, 0, 0, 0xf3, 0xa4, 0x89, 0xcb, 0xeb, 0, 0xf4]);
+        let mut image = Image::new(&[0xb8, 42, 0, 0, 0, 0xf3, 0xa4, 0x89, 0xcb, 0xeb, 0, 0xf1]);
         image.cpu.flags.bytes.df = 0;
         image.cpu.registers.ecx = count;
         image.cpu.registers.esi = 0x8000;
@@ -204,7 +204,7 @@ fn repetition_progress(engine: Engine, module: &TestModule) {
 }
 
 fn terminal_segment_load(engine: Engine, module: &TestModule) {
-    let image = Image::new(&[0xb8, 0x23, 0, 0, 0, 0x8e, 0xd8, 0xf4]);
+    let image = Image::new(&[0xb8, 0x23, 0, 0, 0, 0x8e, 0xd8, 0xf1]);
     let ds = StoredSegment {
         base: 0x2000,
         ..StoredSegment::flat_data32(0x23)

@@ -224,7 +224,7 @@ const ENCODINGS: &[&[u8]] = &[
 fn branch_forms_require_the_displacement_and_end_the_block() {
     for &code in ENCODINGS {
         let complete = check_length(code);
-        let trailing = [code, &[0xb8, 0, 0, 0, 0, 0xf4]].concat();
+        let trailing = [code, &[0xb8, 0, 0, 0, 0, 0xf1]].concat();
         assert_eq!(
             compile_block_from_bytes(0x1000, &trailing, 99)
                 .unwrap()
@@ -271,7 +271,7 @@ fn snapshot_limits_preserve_the_prefix_and_stop_at_the_first_branch() {
     ] {
         let code = [&prefix[..], branch].concat();
         let complete = compile_block_from_bytes(0x1000, &code, 2).unwrap();
-        let trailing = [&code[..], &[0xf4, 0x66, 0x0f]].concat();
+        let trailing = [&code[..], &[0xf1, 0x66, 0x0f]].concat();
         assert_eq!(
             compile_block_from_bytes(0x1000, &trailing, u32::MAX)
                 .unwrap()

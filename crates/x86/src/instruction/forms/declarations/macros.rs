@@ -139,6 +139,9 @@ macro_rules! declaration_effect {
     (unconditional_fault) => {
         Effect::UnconditionalFault
     };
+    (halt) => {
+        Effect::Halt
+    };
 }
 
 macro_rules! operand_spec {

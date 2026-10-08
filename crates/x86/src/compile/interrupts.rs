@@ -11,7 +11,7 @@ use crate::{
 /// Generates `deliver_interrupt(vector: i32) -> i64` for a host-selected Real16
 /// maskable interrupt. The vector must be in 0..=255 and CPU state must be published.
 /// IF clear or interrupt inhibition returns `0x0200_0000_0000_0000` unchanged.
-/// Otherwise the interrupt is accepted: save current IP, CS and FLAGS, enter the
+/// Otherwise the interrupt is accepted: wake the CPU, save current IP, CS and FLAGS, enter the
 /// canonical IVT, and dispatch without retiring an instruction. Delivery faults
 /// use the ordinary guest-fault exits. The host consumes an accepted vector even
 /// when delivery faults; only the blocked result leaves it pending.
@@ -37,6 +37,7 @@ pub fn compile_real_mode_interrupt() -> Result<CompiledModule, BuildError> {
             let eip = cpu.read_eip(&mut body)?;
             let mut execution =
                 ExecutionBuilder::new(body, &cpu, Some(&memory), runtime, &eip, profile)?;
+            execution.wake();
             let target = execution.enter_real_mode_interrupt(vector, eip)?;
             execution.dispatch(target)
         },

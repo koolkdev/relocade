@@ -207,9 +207,9 @@ fn completed_progress_at_faults(engine: Engine, module: &TestModule) {
         (
             "next opcode is unsupported",
             0x1000,
-            &[0xf4][..],
+            &[0xf1][..],
             0x1005,
-            Exit::Other(0x0008_00f4_0000_1005),
+            Exit::Other(0x0008_00f1_0000_1005),
         ),
     ] {
         let mut image = Image::empty();

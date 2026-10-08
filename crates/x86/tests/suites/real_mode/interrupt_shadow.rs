@@ -184,14 +184,14 @@ fn floating_point(engine: Engine, frontend: Frontend) {
 test_frontends!(interrupt_shadow_floating_point_fault, floating_point);
 
 fn unsupported_and_fetch(engine: Engine) {
-    let mut image = image(&[0xf4]);
+    let mut image = image(&[0xf1]);
     image.cpu.interrupt_shadow = 1;
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
     image.check_unchanged_exit(
         engine,
         module,
         "unsupported host exit does not retire",
-        Exit::Other(0x0008_00f4_0000_1000),
+        Exit::Other(0x0008_00f1_0000_1000),
     );
     image.cpu.eip = 0x10000;
     image.check_unchanged_exit(
