@@ -8,27 +8,27 @@ use crate::{
 instruction_families! {
     ARPL {
         execute: adjust_rpl;
-        real_mode: InvalidOpcode;
+        availability: ProtectedOnly;
         forms { 0x63 => word(rm, modrm_reg); }
     }
     LAR {
         execute: load_access_rights;
-        real_mode: InvalidOpcode;
+        availability: ProtectedOnly;
         forms { 0x0F 0x02 => word_or_dword(modrm_reg, rm16); }
     }
     LSL {
         execute: load_limit;
-        real_mode: InvalidOpcode;
+        availability: ProtectedOnly;
         forms { 0x0F 0x03 => word_or_dword(modrm_reg, rm16); }
     }
     VERR {
         execute: verify_read;
-        real_mode: InvalidOpcode;
+        availability: ProtectedOnly;
         forms { 0x0F 0x00 /4 => word(rm); }
     }
     VERW {
         execute: verify_write;
-        real_mode: InvalidOpcode;
+        availability: ProtectedOnly;
         forms { 0x0F 0x00 /5 => word(rm); }
     }
     MOV_FROM_SEGMENT {

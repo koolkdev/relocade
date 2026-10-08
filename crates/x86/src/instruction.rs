@@ -60,7 +60,7 @@ pub(super) struct Instruction<V> {
     condition: Option<Condition>,
     implicit_memory: bool,
     ends_block: bool,
-    real_mode: RealModeSupport,
+    availability: Availability,
     pub(super) address_size: AddressSize,
     pub(super) segment_override: SegmentOverride,
     pub(super) locked: bool,
@@ -91,9 +91,7 @@ impl<V: Into<Val<I32>>> X87Opcode<V> {
 
 impl<V> Instruction<V> {
     pub(super) fn ends_block(&self, profile: ExecutionProfile) -> bool {
-        self.ends_block
-            || (matches!(profile, ExecutionProfile::Real16)
-                && self.real_mode != RealModeSupport::Supported)
+        self.ends_block || self.availability.fault(profile).is_some()
     }
 
     pub(super) fn uses_memory(&self) -> bool {
