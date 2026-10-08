@@ -478,9 +478,25 @@ return commits all state and dispatches; target fetch belongs to the next entry.
 Entry NT does not select a task return in real mode. Word returns preserve AC/ID;
 dword returns restore them, with RF still unrepresented as described above.
 
+INT imm8, INT3 and taken INTO use the conventional 256-entry interrupt vector
+table at linear address zero. Each entry contains a word IP followed by a word
+CS. IDTR relocation and shortened table limits are not modeled. Entry checks the
+complete six-byte stack frame, pushes FLAGS, CS and the following IP, then loads
+the vector through physical-memory routing. Operand/address/segment overrides do
+not alter these word transfers. Stack writes precede vector reads, including when
+the stack aliases the table. IF does not mask software interrupts. Entry clears
+IF, TF and AC, preserves other flags and dispatches with the new CS:IP; target
+fetch belongs to the next entry. INTO with OF clear dispatches to its fallthrough
+without touching the stack or vector table.
+
+Protected INT/INT3/INTO delivery returns the unsupported-instruction exit before
+effects. The forms are decoded before that exit, so INT requires its immediate
+byte in both modes. This stage does not add protected interrupt gates or host
+interrupt injection.
+
 ARPL/LAR/LSL/VERR/VERW raise #UD before operand access and terminate snapshot
 compilation. Both decoders read the selected form's physical encoding before
-mode rejection. INT and real-mode interrupt delivery are not implemented.
+mode rejection.
 PUSHA/PUSHAD honor the specified #GP for low odd SP values 7 through 15. Stack
 faults are reported to the host; exception delivery, double faults and shutdown
 are outside this execution model. ENTER checks actual transfers without requiring
@@ -624,7 +640,8 @@ construction reports `BlockError` for unsupported encodings; state-dependent
 unsupported paths remain
 runtime exits. Truncated byte input alone cannot establish a guest fetch fault.
 
-Faults are reported to the host. Guest IDT delivery, privilege transitions,
-interrupt/debug delivery, mode transitions and SS-load inhibition are not
-modeled. Native Wasm traps from broken backing or internal arithmetic invariants
-are implementation errors, outside this guest-fault protocol.
+Faults are reported to the host. Automatic delivery of guest faults, protected
+interrupt gates, privilege transitions, external interrupt/debug delivery, mode
+transitions and SS-load inhibition are not modeled. Native Wasm traps from broken
+backing or internal arithmetic invariants are implementation errors, outside this
+guest-fault protocol.

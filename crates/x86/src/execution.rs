@@ -201,6 +201,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         })
     }
 
+    /// Stops unsupported execution at the current instruction's restart boundary.
+    pub(crate) fn unsupported(&mut self, opcode: impl Into<Val<I8>>) -> Result<(), BuildError> {
+        self.unsupported_if(true, opcode)
+    }
+
     /// Stops an unsupported execution path without retiring the instruction.
     /// Earlier completed work is published at the current restart boundary.
     /// Call before defining any effects of the current instruction.
