@@ -16,11 +16,17 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         let nested = self.nested_builder();
         self.body.if_(condition, |body| {
             let mut arm = nested(body);
-            arm.eip = transfer(&mut arm)?;
+            let target = transfer(&mut arm)?;
             arm.retire_instruction();
-            let runtime = arm.runtime;
-            arm.complete(|body, eip| runtime.dispatch(body, eip))
+            arm.dispatch(target)
         })
+    }
+
+    /// Publishes a completed transfer and dispatches without retiring an instruction.
+    pub(crate) fn dispatch(mut self, target: Val<I32>) -> Result<(), BuildError> {
+        self.eip = target;
+        let runtime = self.runtime;
+        self.complete(|body, eip| runtime.dispatch(body, eip))
     }
 
     /// Child register definitions do not merge into the parent. Callers return

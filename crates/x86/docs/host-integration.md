@@ -10,6 +10,8 @@ the threads extension's atomic instructions, including on unshared memories.
 `CompiledModule` contains the Wasm bytes, exported entry name and required execution
 profile. Snapshot entries are named `block_<hex start_eip>`; interpreter entries
 are named `run` or `step`. All have the Wasm signature `() -> i64`.
+`compile_real_mode_interrupt()` generates the separate host event entry
+`deliver_interrupt(vector: i32) -> i64`, described under interrupt delivery below.
 
 `Compiler::new(profile)` uses one segment profile for `compile_block`,
 `compile_interpreter` and `compile_interpreter_step`. The free compilation functions
@@ -483,8 +485,7 @@ delivery clears it, including when vectoring subsequently faults. Hosts handling
 an exception themselves must clear it when they start delivery, not merely when
 an execution entry returns a fault. Real16 software INT does this internally.
 
-External interrupt entry is not supplied yet. Hosts must consider IF and this
-shadow together. REP currently runs until completion or a fault, without polling
+REP currently runs until completion or a fault, without polling
 for pending external interrupts; this host scheduling boundary is coarser than
 x86's interruptible REP execution. Protected execution does not maintain this
 Real16 delivery state.
@@ -508,8 +509,34 @@ without touching the stack or vector table.
 
 Protected INT/INT3/INTO delivery returns the unsupported-instruction exit before
 effects. The forms are decoded before that exit, so INT requires its immediate
-byte in both modes. This stage does not add protected interrupt gates or host
-interrupt injection.
+byte in both modes. Protected interrupt gates remain outside the supported subset.
+
+### Host maskable interrupts
+
+`compile_real_mode_interrupt()` generates an entry for a host-selected vector
+in `0..=255`. Instantiate it with the same CPU, physical map and guest backing as
+Real16 execution, plus the usual MMIO and dispatch imports. Call it only at a
+published host boundary, under compatible Real16 segments; dispatch is one such
+boundary, so execution need not fully return first.
+The host owns pending interrupts, device priority and interrupt-controller state.
+
+The entry reads IF and `interrupt_shadow` from their low backing bits. If IF is
+clear or inhibition is active, it returns tag 512 (`0x0200_0000_0000_0000`)
+without changing CPU state or memory, calling devices, or dispatching. Leave the
+vector pending and retry at a later host boundary.
+
+Otherwise delivery is accepted. It uses the same three-word frame and canonical
+IVT as software INT, saving the current IP rather than an instruction fallthrough.
+It clears inhibition, IF, TF and AC, loads CS:IP, and dispatches. The instruction
+count is unchanged. A delivery fault returns the ordinary fault tag, with EIP at
+the interrupted boundary and permitted vectoring effects published. Consume the
+pending vector on every accepted outcome, including a delivery fault; the host
+then handles that fault. Tag 512 is reserved and must not be returned by dispatch
+after accepted entry, since it would falsely report that the vector is pending.
+
+This entry does not poll inside blocks or REP, inject guest faults or NMIs, relocate
+the IVT, or model nested-fault escalation. Hosts choose execution boundaries and
+their scheduling policy; `step` provides a boundary after each whole instruction.
 
 ARPL/LAR/LSL/VERR/VERW raise #UD before operand access and terminate snapshot
 compilation. Both decoders read the selected form's physical encoding before
@@ -633,6 +660,7 @@ exception vector numbers:
 | BOUND range exceeded | 64 | Zero | Zero |
 | Invalid opcode | 128 | Zero | Zero |
 | Floating-point error | 256 | Zero | Zero |
+| Host interrupt blocked | 512 | Zero | Zero |
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the
@@ -658,7 +686,7 @@ unsupported paths remain
 runtime exits. Truncated byte input alone cannot establish a guest fetch fault.
 
 Faults are reported to the host. Automatic delivery of guest faults, protected
-interrupt gates, privilege transitions, external interrupt/debug delivery, mode
-transitions and SS-load inhibition are not modeled. Native Wasm traps from broken
+interrupt gates, privilege transitions, NMI/debug delivery and mode transitions
+are not modeled. Native Wasm traps from broken
 backing or internal arithmetic invariants are implementation errors, outside this
 guest-fault protocol.

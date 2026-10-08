@@ -1,6 +1,7 @@
 //! CPU backing and the generated readers owned by that backing.
 
 mod flags;
+mod interrupts;
 mod segments;
 
 use std::cell::Cell;

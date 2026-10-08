@@ -2,9 +2,11 @@
 
 mod block;
 mod interpreter;
+mod interrupts;
 
 pub use block::{compile_block_from_bytes, compile_block_from_bytes_with_profile};
 pub use interpreter::{compile_interpreter, compile_interpreter_step};
+pub use interrupts::compile_real_mode_interrupt;
 
 use crate::{CpuState, ExecutionProfile};
 

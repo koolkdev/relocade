@@ -10,7 +10,7 @@
 //!
 //! The supported subset covers 16/32-bit protected-mode and ordinary real-mode
 //! integer execution, plus selected x87 operations. Privilege transitions,
-//! external interrupt delivery and SIMD are outside the current scope.
+//! protected interrupt delivery and SIMD are outside the current scope.
 //!
 //! [`CpuState`] exchanges backing state with the host. [`ExecutionProfile`] describes
 //! entry assumptions, and [`DescriptorTables`] resolves host-managed selectors into
@@ -56,7 +56,7 @@ use std::fmt;
 
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, compile_interpreter,
-    compile_interpreter_step, Compiler,
+    compile_interpreter_step, compile_real_mode_interrupt, Compiler,
 };
 pub use exception::{Exception, ExceptionVector};
 pub use memory::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
@@ -80,7 +80,7 @@ pub struct CompiledModule {
     /// establish compatibility before entry and invalidate dependent code and
     /// links when assumptions break. A terminal segment load may change compatibility
     /// before publication and dispatch. Snapshot instruction-fetch validity is separate.
-    /// Modules that do not execute x86 instructions have no execution profile.
+    /// Modules without profile-dependent architectural semantics have no execution profile.
     pub execution_profile: Option<ExecutionProfile>,
 }
 

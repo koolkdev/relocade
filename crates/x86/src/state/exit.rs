@@ -11,6 +11,13 @@ const SEGMENT_NOT_PRESENT: u64 = 32 << 48;
 const BOUND_RANGE_EXCEEDED: u64 = 64 << 48;
 const INVALID_OPCODE: u64 = 128 << 48;
 const FLOATING_POINT: u64 = 256 << 48;
+const INTERRUPT_BLOCKED: u64 = 512 << 48;
+
+/// The queued host interrupt remains pending; guest state is unchanged.
+pub(crate) fn interrupt_blocked(body: BlockBuilder<'_>) -> Result<(), BuildError> {
+    body.return_(INTERRUPT_BLOCKED)
+}
+
 /// Delivers an exception through the host ABI. CPU state must already describe
 /// its restart boundary. These host tags are not architectural vector numbers.
 pub(crate) fn exception(
