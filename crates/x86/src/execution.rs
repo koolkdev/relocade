@@ -16,7 +16,7 @@ pub(crate) use control::CodeTarget;
 pub(crate) use memory::OperandSpan;
 pub(crate) use operands::WriteTarget;
 pub(crate) use strings::{ResolvedStrings, StringOperand};
-pub(crate) use x87::{X87Operand, X87Operands};
+pub(crate) use x87::{X87MemoryFormat, X87Operand, X87Operands};
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
 
