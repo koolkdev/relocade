@@ -1,12 +1,11 @@
-//! Execution operands describe access; state operands retain resolved evidence.
+//! Operand reads preserve source exception evidence and checked memory provenance.
 
-use wasm86_compiler::{BuildError, Val, I32, I64};
+use wasm86_compiler::{BuildError, Val, I1, I32, I64};
 
 use crate::{
     address::MemoryAddress,
     memory::Intent,
-    state::ArithmeticSource,
-    x87::{BinaryFormat, BinaryOperand},
+    x87::{BinaryFormat, BinaryOperand, BinaryOperands},
 };
 
 use super::super::{memory::MemoryOperand, ExecutionBuilder};
@@ -22,27 +21,37 @@ pub(crate) enum X87Operand {
     },
 }
 
-pub(super) struct ResolvedX87Operand<'memory> {
-    pub(super) source: ArithmeticSource,
+pub(super) struct X87Operands<'memory> {
+    pub(super) values: BinaryOperands,
+    pub(super) stack_fault: Val<I1>,
     pub(super) memory: Option<MemoryOperand<'memory>>,
 }
 
 impl<'memory> ExecutionBuilder<'_, 'memory> {
     /// The complete operation checks pending exceptions before resolving a source.
-    pub(super) fn resolve_x87_operand(
+    pub(super) fn read_x87_operands(
         &mut self,
+        destination: Val<I32>,
         operand: X87Operand,
-    ) -> Result<ResolvedX87Operand<'memory>, BuildError> {
+    ) -> Result<X87Operands<'memory>, BuildError> {
         match operand {
-            X87Operand::Register(index) => Ok(ResolvedX87Operand {
-                source: ArithmeticSource::Register(index),
-                memory: None,
-            }),
+            X87Operand::Register(index) => {
+                // Both operands use the entry TOP, including when they alias.
+                let left = self.x87().read_stack(destination)?;
+                let right = self.x87().read_stack(index)?;
+                Ok(X87Operands {
+                    values: BinaryOperands::new(&left.value, &right.value),
+                    stack_fault: left.empty.or(right.empty),
+                    memory: None,
+                })
+            }
             X87Operand::BinaryMemory { address, format } => {
                 let memory = self.memory_operand(address, format.bytes(), Intent::Read, &[])?;
-                let source = ArithmeticSource::Binary(memory.read_x87_binary(self, format)?);
-                Ok(ResolvedX87Operand {
-                    source,
+                let source = memory.read_x87_binary(self, format)?;
+                let left = self.x87().read_stack(destination)?;
+                Ok(X87Operands {
+                    values: BinaryOperands::from_binary(&left.value, &source),
+                    stack_fault: left.empty,
                     memory: Some(memory),
                 })
             }
