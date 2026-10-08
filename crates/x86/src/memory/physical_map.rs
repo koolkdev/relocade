@@ -69,12 +69,15 @@ impl PhysicalMapping {
 #[derive(Debug)]
 pub struct PhysicalMemoryMap {
     pages: [PhysicalMapping; Self::PAGE_COUNT],
+    a20_enabled: bool,
 }
 
 impl PhysicalMemoryMap {
     pub const PAGE_BYTES: u32 = 1 << PAGE_SHIFT;
     pub const PAGE_COUNT: usize = 272;
-    pub const BYTE_LEN: usize = Self::PAGE_COUNT * 8;
+    /// The trailing address-mask word; page-entry offsets are independent of A20.
+    pub const A20_MASK_OFFSET: usize = Self::PAGE_COUNT * 8;
+    pub const BYTE_LEN: usize = Self::A20_MASK_OFFSET + 4;
 
     /// Constructs a table from inclusive physical ranges. Empty input leaves all
     /// pages unmapped; later regions replace earlier overlapping regions.
@@ -112,13 +115,34 @@ impl PhysicalMemoryMap {
                 *page = mapping.advance((index as u32) << PAGE_SHIFT);
             }
         }
-        Ok(Self { pages })
+        Ok(Self {
+            pages,
+            a20_enabled: true,
+        })
     }
 
-    /// Resolves one physical byte for inspection, adjusting direct offsets to
-    /// that byte. Addresses outside the table return [`PhysicalMapping::Unmapped`].
+    /// Selects the platform A20 gate. New maps enable it. The host installs the
+    /// updated serialized mask before the next transfer that should observe it.
+    pub fn set_a20_enabled(&mut self, enabled: bool) {
+        self.a20_enabled = enabled;
+    }
+
+    fn address_mask(&self) -> u32 {
+        if self.a20_enabled {
+            u32::MAX
+        } else {
+            !(1 << 20)
+        }
+    }
+
+    /// Applies A20 and resolves one byte, adjusting direct offsets to that byte.
+    /// Input addresses outside the table return [`PhysicalMapping::Unmapped`].
     /// This lookup performs no memory transfer or fault check.
     pub fn get(&self, address: u32) -> PhysicalMapping {
+        if address >= Self::PAGE_COUNT as u32 * Self::PAGE_BYTES {
+            return PhysicalMapping::Unmapped;
+        }
+        let address = address & self.address_mask();
         self.pages
             .get((address >> PAGE_SHIFT) as usize)
             .copied()
@@ -126,10 +150,11 @@ impl PhysicalMemoryMap {
             .advance(address & PAGE_MASK)
     }
 
-    /// Serializes 272 entries of eight bytes each, without a header. Each entry
+    /// Serializes 272 entries of eight bytes each, followed by the A20 mask. Each entry
     /// contains a little-endian u32 kind (0 = unmapped, 1 = RAM, 2 = ROM, 3 = MMIO)
     /// followed by a u32 backing-page offset. Unmapped and MMIO offsets are zero.
-    /// The host installs the 2176-byte image at offset zero in `physicalMap`.
+    /// The trailing u32 is FFFFFFFF when A20 is enabled and FFEFFFFF otherwise.
+    /// The host installs the 2180-byte image at offset zero in `physicalMap`.
     /// This format uses explicit fields, independent of Rust's enum layout.
     pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
         let mut bytes = [0; Self::BYTE_LEN];
@@ -143,6 +168,7 @@ impl PhysicalMemoryMap {
             entry[..4].copy_from_slice(&kind.to_le_bytes());
             entry[4..].copy_from_slice(&backing.to_le_bytes());
         }
+        bytes[Self::A20_MASK_OFFSET..].copy_from_slice(&self.address_mask().to_le_bytes());
         bytes
     }
 }

@@ -13,7 +13,7 @@ pub enum ExecutionProfile {
     /// Protected mode at CPL3 under the selected segment assumptions.
     Protected(SegmentProfile),
     /// Ordinary real mode: 16-bit defaults, selector-shifted bases, 64 KiB limits
-    /// and A20 enabled. The host establishes canonical caches with
+    /// and host-controlled A20. The host establishes canonical caches with
     /// [`Segments::real_mode`]; retained protected-mode caches are not admitted.
     Real16,
 }

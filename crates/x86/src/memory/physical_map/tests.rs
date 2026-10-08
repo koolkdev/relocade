@@ -8,7 +8,9 @@ fn empty_regions_produce_a_complete_unmapped_table() {
     for address in [0, 0xa0000, 0x10ffef, 0x110000, u32::MAX] {
         assert_eq!(map.get(address), Unmapped);
     }
-    assert_eq!(map.to_bytes(), [0; 2176]);
+    let bytes = map.to_bytes();
+    assert!(bytes[..2176].iter().all(|&byte| byte == 0));
+    assert_eq!(&bytes[2176..], &[0xff; 4]);
 }
 
 #[test]
@@ -228,11 +230,56 @@ fn serialization_has_fixed_little_endian_entries_without_a_header() {
     ])
     .unwrap();
     let bytes = map.to_bytes();
-    assert_eq!(bytes.len(), 2176);
+    assert_eq!(bytes.len(), 2180);
     assert_eq!(
         &bytes[..24],
         &[3, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0x50, 0x34, 0x12, 2, 0, 0, 0, 0, 0x90, 0, 0,]
     );
     assert!(bytes[24..2168].iter().all(|&byte| byte == 0));
-    assert_eq!(&bytes[2168..], &[1, 0, 0, 0, 0, 0xf0, 0xff, 0xff]);
+    assert_eq!(&bytes[2168..2176], &[1, 0, 0, 0, 0, 0xf0, 0xff, 0xff]);
+    assert_eq!(&bytes[2176..], &[0xff; 4]);
+}
+
+#[test]
+fn a20_gate_aliases_addresses_without_replacing_mappings() {
+    let mut map = PhysicalMemoryMap::new([
+        (
+            0..=0xfff,
+            Ram {
+                backing_offset: 0x2000,
+            },
+        ),
+        (
+            0x100000..=0x100fff,
+            Rom {
+                backing_offset: 0x5000,
+            },
+        ),
+    ])
+    .unwrap();
+    assert_eq!(
+        map.get(0x100123),
+        Rom {
+            backing_offset: 0x5123
+        }
+    );
+    let enabled = map.to_bytes();
+    map.set_a20_enabled(false);
+    assert_eq!(
+        map.get(0x100123),
+        Ram {
+            backing_offset: 0x2123
+        }
+    );
+    assert_eq!(
+        map.get(0x123),
+        Ram {
+            backing_offset: 0x2123
+        }
+    );
+    assert_eq!(map.get(u32::MAX), Unmapped);
+    assert_eq!(&map.to_bytes()[..2176], &enabled[..2176]);
+    assert_eq!(&map.to_bytes()[2176..], &[0xff, 0xff, 0xef, 0xff]);
+    map.set_a20_enabled(true);
+    assert_eq!(map.to_bytes(), enabled);
 }

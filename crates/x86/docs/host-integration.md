@@ -384,7 +384,7 @@ time. `SegmentProfile` supplies protected-mode code defaults and segment assumpt
 | `Protected(Flat32)` | Usable, flat readable CS and writable expand-up DS/ES/SS; zero bases, full u32 limits, CS.D=1 and SS.B=1. FS/GS are runtime inputs. |
 | `Protected(Segmented32)` | CS.D=1; segment access and SS.B are checked or read at runtime. |
 | `Protected(Segmented16)` | CS.D=0; segment access and SS.B are checked or read at runtime. |
-| `Real16` | Ordinary real mode with canonical caches: selector × 16 bases, FFFF limits, 16-bit CS/SS defaults and A20 enabled. |
+| `Real16` | Ordinary real mode with canonical caches: selector × 16 bases, FFFF limits, 16-bit CS/SS defaults; the physical map controls A20. |
 
 `ExecutionProfile::is_compatible_with` tests those assumptions. Selectors, reserved
 attribute bits and ordinary DS/ES D/B bits do not determine flat compatibility.
@@ -458,7 +458,8 @@ from protected mode. Mode transitions and unreal-mode caches remain unsupported.
 Operand/address overrides select 32-bit operands/addresses while SS still uses SP.
 Every transferred span must fit the 64 KiB segment: SS failures report #SS(0),
 others #GP(0). Real-mode type permissions allow data writes through CS overrides.
-Addresses above 1 MiB remain distinct; A20 masking is not modeled. Far JMP/CALL/RET
+The physical map enables A20 by default. Disabling its gate clears address bit 20
+before RAM, ROM or MMIO routing; see [physical memory](physical-memory.md). Far JMP/CALL/RET
 commit CS and dispatch, with target fetch belonging to the next entry. Real CALL
 checks the transferred offset plus selector; a dword selector slot reserves four
 bytes but transfers only its low word. RET checks both complete stack slots.

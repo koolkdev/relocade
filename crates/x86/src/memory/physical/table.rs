@@ -14,6 +14,8 @@ pub(super) struct PhysicalTable {
 
 pub(super) struct Entry {
     pub(super) kind: Val<I32>,
+    /// Bus address after the A20 gate, also used for MMIO callbacks.
+    pub(super) address: Val<I32>,
     backing: Val<I32>,
 }
 
@@ -22,8 +24,8 @@ impl Entry {
         self.kind.eq(RAM).or(self.kind.eq(ROM))
     }
 
-    pub(super) fn backing_address(&self, address: &Val<I32>) -> Val<I32> {
-        self.backing.add(address.and(PAGE_MASK))
+    pub(super) fn backing_address(&self) -> Val<I32> {
+        self.backing.add(self.address.and(PAGE_MASK))
     }
 }
 
@@ -46,10 +48,17 @@ impl PhysicalTable {
         body: &mut BlockBuilder<'_>,
         address: &Val<I32>,
     ) -> Result<Entry, BuildError> {
+        let mask =
+            body.load_at::<I32>(self.entries, PhysicalMemoryMap::A20_MASK_OFFSET as u32, 0)?;
+        let address = address.and(mask);
         let offset = address.unsigned().shr(PAGE_SHIFT).shl(3);
         let kind = body.load_at::<I32>(self.entries, &offset, 0)?;
         let backing = body.load_at::<I32>(self.entries, &offset, 4)?;
-        Ok(Entry { kind, backing })
+        Ok(Entry {
+            kind,
+            backing,
+            address,
+        })
     }
 
     /// One-page windows need no second lookup and never retain a device mapping.
@@ -71,7 +80,7 @@ impl PhysicalTable {
                 .and(PAGE_MASK)
                 .unsigned()
                 .ge(PhysicalMemoryMap::PAGE_BYTES - bytes + 1)),
-            physical: entry.backing_address(address),
+            physical: entry.backing_address(),
         })
     }
 
@@ -82,9 +91,9 @@ impl PhysicalTable {
         self,
         body: &mut BlockBuilder<'_>,
         entry: &Entry,
-        address: &Val<I32>,
         remaining: &Val<I32>,
     ) -> Result<Val<I32>, BuildError> {
+        let address = &entry.address;
         let in_page = Val::<I32>::from(PhysicalMemoryMap::PAGE_BYTES).sub(address.and(PAGE_MASK));
         let count = body.if_value::<I32>(
             in_page.unsigned().lt(remaining),
@@ -94,7 +103,13 @@ impl PhysicalTable {
                     entry.kind.eq(MMIO),
                     |mut mmio| {
                         let next = self.lookup(&mut mmio, &next_address)?;
-                        mmio.yield_(next.kind.eq(MMIO).select(remaining, &in_page))
+                        // Even two MMIO pages split when A20 wraps their bus addresses.
+                        mmio.yield_(
+                            next.kind
+                                .eq(MMIO)
+                                .and(next.address.eq(&next_address))
+                                .select(remaining, &in_page),
+                        )
                     },
                     |other| other.yield_(&in_page),
                 )?;
