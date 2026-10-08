@@ -12,6 +12,8 @@ mod handoff;
 mod interrupt_return;
 #[path = "real_mode/memory.rs"]
 mod memory;
+#[path = "real_mode/ports.rs"]
+mod ports;
 #[path = "real_mode/segments.rs"]
 mod segments;
 
