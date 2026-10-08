@@ -5,7 +5,7 @@ use crate::{
     address::MemoryAddress,
     execution::{X87Operand, X87Operands},
     instruction::X87StackIndex,
-    state::x87::{ConditionCode, Exception, X87Specialization},
+    state::x87::{ConditionCode, Exception, StackValue, X87Specialization},
     x87::{ArithmeticResult, BinaryFormat, BinaryOperation},
 };
 
@@ -246,7 +246,11 @@ fn arithmetic(
     )?;
     // Unlike memory stores, unmasked range and precision exceptions write
     // register results, including the pop and any adjusted exponent.
-    x87.write_stack(destination, &rounded.value, &enabled)?;
+    x87.write_stack(
+        destination,
+        &StackValue::from_value(rounded.value),
+        &enabled,
+    )?;
     if pop {
         x87.pop(&enabled)?;
     }

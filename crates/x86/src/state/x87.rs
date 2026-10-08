@@ -32,7 +32,21 @@ pub(crate) struct X87State {
 
 pub(crate) struct StackValue {
     pub(crate) value: ExtendedValue,
-    pub(crate) empty: Val<I1>,
+    pub(crate) tag: Val<I16>,
+}
+
+impl StackValue {
+    /// Classifies a computed value; raw register copies may retain a saved tag.
+    pub(crate) fn from_value(value: ExtendedValue) -> Self {
+        Self {
+            tag: value.classification().tag(),
+            value,
+        }
+    }
+
+    pub(crate) fn is_empty(&self) -> Val<I1> {
+        self.tag.eq(3)
+    }
 }
 
 impl super::State<'_> {
@@ -178,7 +192,7 @@ impl X87Access<'_, '_> {
     ) -> Result<StackValue, BuildError> {
         let slot = self.slot(index)?;
         Ok(StackValue {
-            empty: self.state.registers.tag(self.body, &slot)?.eq(3),
+            tag: self.state.registers.tag(self.body, &slot)?,
             value: self.state.registers.read(self.body, &slot)?,
         })
     }
@@ -229,17 +243,13 @@ impl X87Access<'_, '_> {
     pub(crate) fn write_stack(
         &mut self,
         index: impl Into<Val<I32>>,
-        value: &ExtendedValue,
+        value: &StackValue,
         enabled: &Val<I1>,
     ) -> Result<(), BuildError> {
         let slot = self.slot(index)?;
-        self.state.registers.write(
-            self.body,
-            &slot,
-            value,
-            value.classification().tag(),
-            enabled,
-        )
+        self.state
+            .registers
+            .write(self.body, &slot, &value.value, value.tag.clone(), enabled)
     }
 
     /// A disabled pop must leave a pending exception, as for `push`.

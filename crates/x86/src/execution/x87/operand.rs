@@ -42,7 +42,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
                 let right = self.x87().read_stack(index)?;
                 Ok(X87Operands {
                     values: BinaryOperands::new(&left.value, &right.value),
-                    stack_fault: left.empty.or(right.empty),
+                    stack_fault: left.is_empty().or(right.is_empty()),
                     memory: None,
                 })
             }
@@ -50,7 +50,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
                 let left = self.x87().read_stack(destination)?;
                 Ok(X87Operands {
                     values: BinaryOperands::new(&left.value, &value),
-                    stack_fault: left.empty,
+                    stack_fault: left.is_empty(),
                     memory: None,
                 })
             }
@@ -60,7 +60,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
                 let left = self.x87().read_stack(destination)?;
                 Ok(X87Operands {
                     values: BinaryOperands::from_binary(&left.value, &source),
-                    stack_fault: left.empty,
+                    stack_fault: left.is_empty(),
                     memory: Some(memory),
                 })
             }

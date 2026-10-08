@@ -138,6 +138,8 @@ helpers live in [x87](crates/x86/src/x87). `execution.x87()` exposes architectur
 state operations while keeping register tracking, status backing and publication
 inside state. For example, `set_condition_code(ConditionCode::C1, false)` always
 writes C1; recording a stack underflow does not choose the instruction's C1 policy.
+Use `set_condition_code_when(code, value, &enabled)` for a conditional write; a
+false guard preserves the entire backing byte. Both setters accept every C0–C3 code.
 
 ## Writing tests
 
