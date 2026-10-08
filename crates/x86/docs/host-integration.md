@@ -22,8 +22,8 @@ use 32-bit wrapping arithmetic. A taken transfer checks its segment target befor
 committing instruction effects; fetching the destination belongs to the next entry.
 
 The host chooses whether dispatch enters more code or returns control. Interpreter
-`run` continues inside Wasm until a branch or segment load completes. It uses
-the same instruction boundary as snapshot compilation: conditional branches end
+`run` continues inside Wasm until a branch, segment load or port I/O completes.
+It uses the same instruction boundary as snapshot compilation: conditional branches end
 execution on both outcomes. Earlier instructions remain published if a later
 instruction faults or is unsupported. Each instruction fetches live guest bytes
 and starts with fresh prefix state. REP completes its repetition and continues
@@ -51,8 +51,8 @@ is neither of those exits.
 
 An embedding can bind this import directly to an instance's `step` or `run` export.
 `step` resumes normal dispatch after one instruction; `run` continues to its own
-branch or segment-load boundary. Neither is constrained by the abandoned snapshot's
-instruction limit. The host chooses this policy and admits interpreter entries
+branch, segment-load or port-I/O boundary. Neither is constrained by the
+abandoned snapshot's instruction limit. The host chooses this policy and admits interpreter entries
 against their segment profile. Interpreter execution uses the shared instruction
 semantics without speculative guards and does not import `interpret` itself.
 
@@ -90,6 +90,32 @@ exception and memory-access checks. A host can reuse a block under another mode;
 the guard preserves correctness, though frequently mismatching modes may warrant
 compiling another block. No CPU state is replaced with the observed snapshot.
 
+## Port I/O
+
+Real16 IN/OUT use synchronous `wasm86` imports:
+
+| Import | Wasm signature |
+| --- | --- |
+| `readPort` | `(port: i32, bytes: i32) -> i32` |
+| `writePort` | `(port: i32, bytes: i32, value: i32) -> ()` |
+
+The unsigned port address is 0..65535; `bytes` is 1, 2 or 4. An immediate port
+is zero-extended from its encoded byte; DX contributes only its low 16 bits.
+One callback represents one operand-width transfer, including a word/dword at
+port FFFF. The host applies its bus/device rules. Reads ignore upper result bits;
+writes zero upper value bits. Reads remain observable even if their result is unused.
+
+Callbacks may change guest backing or physical routing, but must not inspect or
+modify CPU backing or reenter execution. They complete synchronously, with no
+retry result. Both snapshot blocks and interpreter runs publish completed state
+and dispatch after a port instruction, so the host can validate the next code
+entry against device changes. Devices and any pending interrupts belong to the host.
+
+Protected profiles fix CPL3/IOPL0 and expose no TSS I/O permission bitmap grants;
+port instructions raise #GP(0) after decoding and before device effects. LOCK
+uses the shared unsupported-encoding exit. Operand-size overrides choose
+word/dword transfers independently of the port address. Segment and address-size overrides do not affect scalar I/O.
+
 ## Imported memories
 
 All imports belong to the `wasm86` module. Memories are distinct, unshared Wasm
@@ -104,8 +130,8 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 
 Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
 `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
-`cpuState`, `guest`, `physicalMap`, `dispatch` and the MMIO callbacks. They use
-generated RAM/ROM accesses and do not call descriptor callbacks. The physical
+`cpuState`, `guest`, `physicalMap`, `dispatch`, the MMIO callbacks and the port
+callbacks. They use generated RAM/ROM accesses and do not call descriptor callbacks. The physical
 memory contract below describes routing and callback widths.
 Snapshot modules omit imports they do not use: protected-mode memory instructions
 require guest backing and the page table, protected-mode segment loads require

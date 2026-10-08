@@ -56,6 +56,8 @@ pub(in crate::instruction) enum Effect {
     MemoryWrite,
     ControlTransfer,
     SegmentLoad,
+    /// Device callbacks may change instruction routing; resume through dispatch.
+    PortIo,
     /// Execution always raises a guest fault, so no successor belongs to the block.
     UnconditionalFault,
 }
@@ -208,9 +210,10 @@ impl Declaration<'_> {
         while index < self.effects.len() {
             match self.effects[index] {
                 Effect::MemoryRead | Effect::MemoryWrite => implicit_memory = true,
-                Effect::ControlTransfer | Effect::SegmentLoad | Effect::UnconditionalFault => {
-                    ends_block = true
-                }
+                Effect::ControlTransfer
+                | Effect::SegmentLoad
+                | Effect::PortIo
+                | Effect::UnconditionalFault => ends_block = true,
             }
             index += 1;
         }

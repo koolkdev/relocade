@@ -1,5 +1,7 @@
 //! Host execution imports and their adapters to architectural values.
 
+mod ports;
+
 use wasm86_compiler::{
     BlockBuilder, BuildError, Func, FunctionImport, Program, Signature, Type, Val, I1, I16, I32,
 };
@@ -16,6 +18,7 @@ pub(crate) struct Runtime {
     interpret: Func,
     resolve_segment: Func,
     query_segment_descriptor: Func,
+    ports: ports::Ports,
 }
 
 impl Runtime {
@@ -60,6 +63,7 @@ impl Runtime {
             },
         });
         Self {
+            ports: ports::Ports::declare(program),
             dispatch,
             interpret,
             resolve_segment,

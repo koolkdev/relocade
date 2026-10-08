@@ -124,6 +124,9 @@ macro_rules! declaration_opcode {
 }
 
 macro_rules! declaration_effect {
+    (port_io) => {
+        Effect::PortIo
+    };
     (segment_load) => {
         Effect::SegmentLoad
     };
