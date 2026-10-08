@@ -89,13 +89,10 @@ struct BlockKey {
     eip: u32,
 }
 
-struct EntryRef {
-    block: BlockId,
-    slot: EntrySlot,
-}
+struct EntryId(NonZeroU32);
 
 struct CodeVersion {
-    block: BlockId,
+    entry: EntryId,
     generation: u64,
 }
 ```
@@ -114,18 +111,42 @@ aliases; a remap invalidates the entries using that mapping. Guarded CPU
 observations, such as x87 modes, remain instruction-local specialization inputs
 rather than expanding `BlockKey` with every observed CPU value.
 
-`BlockId` indexes dense records in a separate runtime control memory. A record
-holds its key, entry slot, generation, execution state, saturating heat counter
-and pending-compilation flag. Larger dependency lists, reverse links and compiler
-artifacts stay in host-owned storage. Generated code embeds record offsets and
-slot indices where known. Keep control metadata out of `cpuState`, `machine` and
-`physicalMap`; those memories have existing independent ABIs.
+`EntryId` indexes both a dense record in runtime control memory and its stable
+Wasm table slot. Coallocate them so a lookup returns one 32-bit handle, with no
+second mapping from record to slot. Zero is reserved for unresolved destinations;
+a successful lookup never calls slot zero. A record holds its key, generation,
+execution state, saturating heat counter and pending-compilation flag. Larger
+dependency lists, reverse links and compiler artifacts stay in host-owned storage.
+Generated code embeds record offsets and IDs where known. Keep control metadata
+out of `cpuState`, `machine` and `physicalMap`; those memories have existing
+independent ABIs.
 
-Use a small tagged address cache in Wasm for unresolved destinations. Hits compare
-the full `(ContextId, EIP)` key and return an `EntryRef`. Collisions are misses,
-never evidence of identity. A miss returns a resolver request; the host's complete
-map finds or creates the record and fills the cache. Do not allocate a dense table
-for every byte of the 32-bit guest address space.
+Each admitted context owns a dispatch namespace. Bind its lookup storage on
+admission and retain that binding across transfers that preserve the context.
+Segment/environment changes take `Reenter` before using another link. This lets
+inner lookup compare only EIP; context identity follows from the namespace rather
+than a repeated `ContextId` load and comparison. A cold edge is likewise owned by
+its source record and context. This is an identity proof, not a code-validity proof:
+target gates and compiled-unit validity rules still apply.
+
+Use a bounded cache of packed `{ eip: u32, entry: u32 }` records for general
+computed destinations. One `i64.load` obtains both the full address tag and
+`EntryId`. Accept a hit only if the tag equals the actual EIP and the handle is
+nonzero, including when EIP itself is zero. Collisions are misses, never evidence
+of identity. On a miss, return a resolver request; the host's complete
+`(ContextId, EIP)` map finds or creates the record and fills the cache. Choose the
+index function and capacity from address distributions; x86 entries need not be
+aligned, so dropping low bits must never establish identity.
+
+An exact page/byte-offset index is an optional alternative for dense hot address
+sets: `leaf = root[eip >> 12]`, then `entry = leaf[eip & 4095]`. A shared zero leaf
+represents untouched pages without a separate page-presence branch. Every byte
+offset needs its own slot. With 32-bit pointers/IDs, the root costs 4 MiB per
+context and each populated 4 KiB guest page needs a 16 KiB leaf. It removes hashing
+and tags but retains two dependent loads, consumes more cache/TLB capacity, and
+still needs entry transfer and validity checks. Keep the compact cache as the
+initial default; require workload evidence before paying for the exact index.
+Both representations must fit the runtime's metadata budget.
 
 ## Link selection
 
@@ -136,9 +157,10 @@ execution tiers. A cached destination can still be interpreted.
 | --- | --- | --- |
 | Static, within one compiled unit | `return_call` to a known block function. | Internal body entry is allowed only under the unit's current validity proof. |
 | Static, to another installed unit | `return_call` to an imported Wasm entry. | Call its guarded entry; the import is immutable and pins that instance. |
+| Predicted computed destination | Compare the actual EIP with a constant, then use a static link. | Same unit/gate rules as other static links; mismatch continues through dynamic resolution. |
 | Dynamic, known destination | `return_call_indirect` through a constant entry slot. | Slot points to the currently admitted compiled entry or the shared cold entry. |
-| Dynamic, computed destination | Compare the destination with a small per-edge cache, then use its slot. | Guard by context and target EIP; miss uses address lookup. |
-| Unresolved destination | Tagged address cache, then the full resolver on a miss. | Establish identity and repair a dynamic edge before continuing. |
+| Dynamic, computed destination | Probe one packed record at a fixed per-edge address, then use its `EntryId`. | Compare full target EIP and reject zero; the admitted namespace supplies context identity. |
+| Unresolved destination | Context-owned address cache, then the full resolver on a miss. | Establish identity and repair a dynamic edge before continuing. |
 
 An immediately known target should never perform a full address lookup on every
 execution. Give each conditional outcome its own link. An uncompiled target uses
@@ -164,13 +186,23 @@ validity service before entering another compiled body. A replaced generation
 can follow its replacement slot. Never redirect an invalid gate into the same
 unchanged slot: that would loop without executing or revalidating guest code.
 
-Indirect branches and near returns start with one cached target per site. A
-small polymorphic cache is justified only by measured hit rates; highly variable
-sites go directly to address lookup. A future return predictor must compare the
-architecturally loaded return address and context. It must not replace guest
-stack reads, checks or faults, or assume that CALL/RET are balanced.
+Indirect branches and near returns start with one packed target record per site.
+The probe address is known from the source edge, so a hit needs no hash or page
+walk. Sample its success separately from host resolver misses. A small polymorphic
+cache is justified only by measured hit rates; highly variable sites bypass the
+per-site probe and go directly to general address lookup.
 
-The proposed private table signature is `(block_id: i32) -> i64`. This lets all
+When recompiling or regrouping a hot unit, promote a stable computed target to a
+guarded static edge. For example, `if actual_eip == predicted_eip { direct(target) }`
+removes the cache load and indirect call on a hit. The false arm resolves the
+original actual EIP, and the true arm obeys the same validity and instance-lifetime
+rules as every static link. The address comparison alone does not validate code.
+Bound the number of predictions and their rebuilding cost; prediction changes
+do not justify compiling cold targets. A return prediction must use the
+architecturally loaded return address in the admitted context. It must not
+replace guest stack reads, checks or faults, or assume that CALL/RET are balanced.
+
+The proposed private table signature is `(entry_id: i32) -> i64`. This lets all
 cold slots reference one interpreter adapter rather than generating a Wasm stub
 for every cold address. Compiled entries know their own identity; static edges
 pass a constant ID. The existing public `() -> i64` entries remain available via
@@ -205,11 +237,12 @@ Eligibility is level-triggered: heat at or above the threshold remains eligible
 when there is no pending job or active refusal. Queue saturation or a retry delay
 must not lose the only opportunity to compile a block whose counter has saturated.
 
-The cold adapter records the active `BlockId`; completion retains the terminating
+The cold adapter records the active `EntryId`; completion retains the terminating
 instruction's EIP and edge kind. Cached cold edges compare the newly decoded
-target EIP and current context before using a slot, even for immediate branches:
-the interpreter reads live bytes, so an old edge cannot assume an unchanged
-encoding. Target-cache hits repair these links without entering the host.
+target EIP under the source context's namespace before using a slot, even for
+immediate branches: the interpreter reads live bytes, so an old edge cannot assume
+an unchanged encoding. A context change reenters admission instead. Target-cache
+hits repair these links without entering the host.
 
 Compiled blocks normally stop updating their heat counters. Sample edges only
 when needed to decide regrouping, eviction or a specialization change. Repeated
@@ -405,12 +438,22 @@ pages to compiled units and static imports to the instances they retain. Epoch
 changes make old gates fail immediately; invalidation service subsequently resets
 affected slots to cold entries, cancels stale jobs and clears affected edge caches.
 
-Bound code bytes, records, table slots, queued jobs and pinned instances. Evict
-cold or repeatedly invalidated compiled units first. A slot may be reused only
-after all incoming dynamic caches and static owners have been cleared or retired,
-and no execution is active. Retiring a target can require retiring its static
-callers as a closed dependency set. A slot index must never silently acquire
-another address while an old caller still refers to it.
+Compilation jobs pin every captured `EntryId`, namespace allocation and static
+import while compilation is pending. Publication transfers those pins to the
+installed owner; cancellation or discard releases them. Recheck captured bindings
+as well as code dependencies before publishing. Valid source bytes alone cannot
+prove that a previously resolved destination still has the same identity.
+
+Bound code bytes, records, table slots, lookup metadata, queued jobs and pinned
+instances. Evict cold or repeatedly invalidated compiled units first. An `EntryId`
+and its slot may be reused only after all incoming address/site caches, optional
+exact-index leaves, constant-ID callers, static owners and pending-job bindings
+have been cleared or retired, and no execution is active. Immutable callers that
+embed a dynamic slot keep its ID alive just as static imports do. Retiring a target
+can require retiring its callers as a closed dependency set. An ID must never
+silently acquire another address while an old caller still refers to it. A
+context's lookup storage remains bound until its callers and pending jobs are
+retired; reclaim it only while execution is stopped.
 
 When that reclamation is too expensive or slots are pinned, stop admitting new
 records/compilations and interpret through the resolver without caching until
@@ -434,7 +477,7 @@ profile checks, cache invalidation and table updates itself. Proposed operations
 | `Runtime::write_memory(...)` / `map_memory(...)` | Mutate the selected memory model and record all affected code dependencies. |
 | `Runtime::set_execution_mode(...)` / `reset_cpu(...)` | Re-admit execution; a mode change requires no suspended instruction, while reset explicitly discards one. |
 | `Runtime::service_compilation(...)` | Spend bounded host work on queued immutable snapshots and publish only valid results. |
-| `Runtime::stats()` | Report interpreter work, compile cost, transfer hit rates, invalidations and cache occupancy. |
+| `Runtime::stats()` | Report interpreter work, compile cost, prediction/site/address hit rates, host resolver requests, invalidations and cache occupancy. |
 
 These names describe a proposed API, not available Rust signatures. Reuse
 `CpuState`, `ExecutionProfile`, `Compiler` and the existing memory/descriptor
@@ -454,11 +497,12 @@ Implement in independently usable parts:
    restart and safe code mutation. A temporary resolver path is acceptable for
    validation, not the intended steady-state dispatch.
 3. **Dynamic linkage.** Add typed tables and indirect tail calls to the generic
-   compiler. Use stable slots for known targets and guarded caches for computed
-   ones. Ensure table replacement redirects already-linked callers.
+   compiler. Use stable IDs for known targets and context-owned packed caches for
+   computed ones. Ensure table replacement redirects already-linked callers.
 4. **Static linkage.** Preserve outgoing edge intent, compile hot connected blocks
    in bounded units, bind stable existing targets directly and implement static
-   dependency retirement. Measure against the same dynamic-link workloads.
+   dependency retirement. Add bounded guarded predictions for stable computed
+   targets. Measure against the same dynamic-link workloads.
 
 ## Evidence required before implementation is ready
 
@@ -466,9 +510,12 @@ Behavioral tests should cover mixed interpreted/compiled chains, both conditiona
 outcomes, computed-target misses, long tail-call loops, compile-once promotion,
 queue saturation, stale job rejection, failed-specialization restart, context
 changes at equal EIP, invalid fetch after a valid prefix and invalidation through
-each link type. Mutation tests need alias writes, remaps, self-modification within
-one block, faulting partial writes, bulk/atomic stores and device read callbacks
-that change code. Exercise eviction and slot reuse with old static callers.
+each link type. Include unaligned entries, wrapping EIPs, unresolved EIP zero,
+hash collisions, failed target predictions and namespace retirement. Mutation
+tests need alias writes, remaps, self-modification within one block, faulting
+partial writes, bulk/atomic stores and device read callbacks that change code.
+Exercise ID reuse with constant-slot callers, old static callers and compilation
+jobs that captured destination bindings before eviction.
 
 Budget tests need zero/exact/short limits, straight-line interpretation, direct
 cycles, partial REP, repeat termination, entry flags on a later comparison fault,
@@ -481,6 +528,10 @@ slot hits use indirect calls and neither invokes a host dispatch callback. Then
 measure cold startup, a hot straight-line chunk, a two-block loop, a conditional
 diamond, indirect calls/returns and code-mutation churn with equal guest work
 and stopping boundaries. Include compilation/instantiation cost, code/metadata
-bytes, address-cache misses and each link's hit rate. Compare static, dynamic and
-lookup paths separately; generated call shape is evidence of the mechanism, not
-a performance result by itself.
+bytes, address-cache misses and each link's hit rate. Compare stable and variable
+computed targets, dense and sparse code pages, cache capacity pressure and context
+switching. Count per-site misses separately from host resolver requests. Compare
+static, dynamic and lookup paths separately; generated call shape is evidence of
+the mechanism, not a performance result by itself. Report total time for matched
+synthetic blocks separately from any estimate of isolated dispatch latency;
+optimization of the block body can otherwise distort baseline subtraction.
