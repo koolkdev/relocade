@@ -2,9 +2,19 @@
 
 use wasm86_compiler::BuildError;
 
-use crate::{state::x87::Exception, x87::ComparisonKind};
+use crate::{
+    flags::{Flag, FlagChange},
+    state::x87::Exception,
+    x87::ComparisonKind,
+};
 
 use super::{operand::X87Operands, ExecutionBuilder, X87Operand};
+
+#[derive(Clone, Copy)]
+pub(crate) enum ComparisonTarget {
+    X87,
+    Eflags,
+}
 
 impl ExecutionBuilder<'_, '_> {
     /// Ordinary comparisons, including FUCOM quiet NaNs, stay in the block.
@@ -14,6 +24,7 @@ impl ExecutionBuilder<'_, '_> {
         source: X87Operand,
         kind: ComparisonKind,
         pops: u32,
+        target: ComparisonTarget,
     ) -> Result<(), BuildError> {
         self.check_x87_exception()?;
         let X87Operands {
@@ -65,7 +76,27 @@ impl ExecutionBuilder<'_, '_> {
         // unmasked denormal too, as the pre-operation policy; Intel specifies
         // unchanged TOP and operands for #D but not the condition-code response.
         let enabled = suppressed.eq(false);
-        state.status.set_comparison(body, &result, &enabled)?;
-        state.access(body).pop(pops, &enabled)
+        if matches!(target, ComparisonTarget::X87) {
+            state.status.set_comparison(body, &result, &enabled)?;
+        }
+        state.access(body).pop(pops, &enabled)?;
+        if matches!(target, ComparisonTarget::Eflags) {
+            // Intel's October 2011 correction (252046-033, change 8) clarifies
+            // that OF, SF and AF clear even when invalid suppresses the result.
+            self.write_flags(FlagChange::partial([
+                (Flag::OF, false.into()),
+                (Flag::SF, false.into()),
+                (Flag::AF, false.into()),
+            ]))?;
+            self.write_flags(
+                FlagChange::partial([
+                    (Flag::CF, result.unordered.or(result.less)),
+                    (Flag::PF, result.unordered.clone()),
+                    (Flag::ZF, result.unordered.or(result.equal)),
+                ])
+                .when(enabled),
+            )?;
+        }
+        Ok(())
     }
 }
