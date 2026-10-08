@@ -5,7 +5,7 @@ use crate::{
     address::MemoryAddress,
     instruction::X87StackIndex,
     memory::Intent,
-    state::x87::X87Specialization,
+    state::x87::{C1Update, StackValue, X87Specialization},
     x87::{BinaryFormat, ConversionResult, ExtendedValue, RoundingMode},
 };
 use wasm86_compiler::{MemoryInt, I64};
@@ -114,8 +114,10 @@ fn store_extended(
     let operand = execution.memory_operand(address, 10, Intent::Write, &[])?;
     let source = execution.x87().read_stack(0)?;
     execution.record_x87_memory(&operand)?;
-    let enabled = execution.x87().stack_fault(&source.empty, false.into())?;
-    let value = source.value.or_indefinite(&source.empty).bits();
+    let enabled = execution
+        .x87()
+        .stack_underflow(&source.is_empty(), C1Update::Clear)?;
+    let value = source.value.or_indefinite(&source.is_empty()).bits();
     execution.if_value::<()>(
         &enabled,
         |arm| {
@@ -135,10 +137,12 @@ fn store_register(
     execution.check_x87_exception()?;
     execution.record_x87_instruction()?;
     let source = execution.x87().read_stack(0)?;
-    let enabled = execution.x87().stack_fault(&source.empty, false.into())?;
+    let enabled = execution
+        .x87()
+        .stack_underflow(&source.is_empty(), C1Update::Clear)?;
     execution.x87().write_stack(
         destination.offset(),
-        &source.value.or_indefinite(&source.empty),
+        &StackValue::from_value(source.value.or_indefinite(&source.is_empty())),
         &enabled,
     )?;
     if pop {

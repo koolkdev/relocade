@@ -26,8 +26,8 @@ impl X87Access<'_, '_> {
     ) -> Result<StoreResult, BuildError> {
         let source = self.read_stack(0)?;
         let rounding = self.state.control.rounding(self.body)?;
-        let result = convert(&source.value.or_indefinite(&source.empty), &rounding);
-        let invalid = source.empty.or(result.invalid);
+        let result = convert(&source.value.or_indefinite(&source.is_empty()), &rounding);
+        let invalid = source.is_empty().or(result.invalid);
         let unmasked_invalid = self.state.status.record_exception(
             self.body,
             Exception::Invalid,
@@ -36,7 +36,7 @@ impl X87Access<'_, '_> {
         )?;
         self.state
             .status
-            .record_stack_fault(self.body, &source.empty)?;
+            .record_stack_fault(self.body, &source.is_empty())?;
         let unmasked_overflow = self.state.status.record_exception(
             self.body,
             Exception::Overflow,
@@ -91,7 +91,8 @@ impl X87Access<'_, '_> {
         let (value, source_empty, signaling_nan, denormal) = match source {
             LoadSource::Value(value) => (value, false.into(), false.into(), false.into()),
             LoadSource::Register(source) => {
-                (source.value, source.empty, false.into(), false.into())
+                let empty = source.is_empty();
+                (source.value, empty, false.into(), false.into())
             }
             LoadSource::Binary(source) => (
                 source.loaded_value(),

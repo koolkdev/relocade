@@ -2,6 +2,7 @@
 
 mod arithmetic;
 mod compare;
+mod conditional_move;
 mod operand;
 
 pub(crate) use compare::ComparisonTarget;

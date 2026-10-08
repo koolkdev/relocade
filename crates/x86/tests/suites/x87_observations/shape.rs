@@ -45,6 +45,7 @@ fn blocks_without_mode_consumers_are_byte_identical() {
         &[0xd9, 0xe4],                // FTST
         &[0xdb, 0xf1],                // FCOMI ST1
         &[0xdf, 0xe9],                // FUCOMIP ST1
+        &[0xda, 0xc1],                // FCMOVB ST1
     ];
     for &code in cases {
         let ordinary =

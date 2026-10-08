@@ -102,6 +102,8 @@ mod x87_add;
 mod x87_compare;
 #[path = "suites/x87_compare_flags.rs"]
 mod x87_compare_flags;
+#[path = "suites/x87_conditional_move.rs"]
+mod x87_conditional_move;
 #[path = "suites/x87_control.rs"]
 mod x87_control;
 #[path = "suites/x87_divide.rs"]
