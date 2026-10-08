@@ -10,7 +10,7 @@
 //!
 //! The supported subset covers 16/32-bit protected-mode and ordinary real-mode
 //! integer execution, plus selected x87 operations. Privilege transitions,
-//! interrupt delivery and SIMD are outside the current scope.
+//! external interrupt delivery and SIMD are outside the current scope.
 //!
 //! [`CpuState`] exchanges backing state with the host. [`ExecutionProfile`] describes
 //! entry assumptions, and [`DescriptorTables`] resolves host-managed selectors into
