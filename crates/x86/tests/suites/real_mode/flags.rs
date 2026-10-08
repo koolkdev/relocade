@@ -193,3 +193,88 @@ fn histories(engine: Engine, frontend: Frontend) {
     );
 }
 test_frontends!(flag_transfer_histories, histories);
+
+fn interrupt_controls(engine: Engine, frontend: Frontend) {
+    let mut cases = sequences(engine, frontend);
+    for (opcode, result) in [(0xfa, 0), (0xfb, 1)] {
+        for fill in [0x80, 0xff] {
+            let code = [0x66, 0x67, 0x64, opcode];
+            let mut image = image(&code);
+            image.cpu.flags = CpuState::filled(fill).flags;
+            let mut cpu = retired(&image, code.len());
+            cpu.flags.bytes.if_ = result;
+            cases.check(
+                "CLI/STI write only IF and preserve opaque status and IOPL",
+                &code,
+                &image,
+                &[Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                }],
+            );
+        }
+    }
+}
+test_frontends!(direct_interrupt_flag_controls, interrupt_controls);
+
+fn interrupt_histories(engine: Engine, frontend: Frontend) {
+    // Both writes are visible immediately to PUSHF. The final fault publishes
+    // the latest IF and keeps the pending arithmetic flags unchanged.
+    let code = [0xfb, 0x9c, 0xfa, 0x9c, 0x67, 0xa1, 0, 0, 1, 0];
+    let mut image = image(&code);
+    image.cpu.flags.status_source.kind = 9;
+    image.cpu.flags.status_source.left = 7;
+    image.cpu.flags.status_source.right = 8;
+    image.cpu.flags.bytes.if_ = 0x80;
+    image.cpu.flags.bytes.iopl = 0xfe;
+    image.cpu.registers.esp = 0xabcd_2004;
+    image.map(2, 0x8000, true);
+    let mut set = retired(&image, 1);
+    set.flags.bytes.if_ = 1;
+    let mut pushed_set = set;
+    pushed_set.eip += 1;
+    pushed_set.instruction_count += 1;
+    pushed_set.registers.esp = 0xabcd_2002;
+    let mut clear = pushed_set;
+    clear.eip += 1;
+    clear.instruction_count += 1;
+    clear.flags.bytes.if_ = 0;
+    let mut pushed_clear = clear;
+    pushed_clear.eip += 1;
+    pushed_clear.instruction_count += 1;
+    pushed_clear.registers.esp = 0xabcd_2000;
+    sequences(engine, frontend).check(
+        "STI/CLI feed PUSHF and survive a later fault in the same entry",
+        &code,
+        &image,
+        &[
+            Step {
+                cpu: set,
+                ram: &[],
+                exit: Exit::Dispatch(set.eip),
+            },
+            Step {
+                cpu: pushed_set,
+                ram: &[(0x8002, &[0x97, 0x67])],
+                exit: Exit::Dispatch(pushed_set.eip),
+            },
+            Step {
+                cpu: clear,
+                ram: &[],
+                exit: Exit::Dispatch(clear.eip),
+            },
+            Step {
+                cpu: pushed_clear,
+                ram: &[(0x8000, &[0x97, 0x65])],
+                exit: Exit::Dispatch(pushed_clear.eip),
+            },
+            Step {
+                cpu: pushed_clear,
+                ram: &[],
+                exit: Exit::GeneralProtection { error: 0 },
+            },
+        ],
+    );
+}
+test_frontends!(interrupt_flag_histories, interrupt_histories);
