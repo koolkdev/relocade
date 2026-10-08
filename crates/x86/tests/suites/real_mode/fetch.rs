@@ -15,7 +15,6 @@ fn availability(engine: Engine, frontend: Frontend) {
         (&[0x0f, 0x03, 0x07][..], Exit::InvalidOpcode),
         (&[0x0f, 0x00, 0x27][..], Exit::InvalidOpcode),
         (&[0x0f, 0x00, 0x2f][..], Exit::InvalidOpcode),
-        (&[0xcf][..], Exit::Other(0x0008_00cf_0000_1000)),
     ] {
         let image = image(code);
         let module = match frontend {

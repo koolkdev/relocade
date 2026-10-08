@@ -50,10 +50,6 @@ impl ResolvedForm {
                 implicit_memory: self.form.implicit_memory,
                 ends_block: self.form.ends_block,
                 real_mode: self.form.real_mode,
-                diagnostic_opcode: match self.form.map {
-                    super::OpcodeMap::Primary => self.form.opcode,
-                    super::OpcodeMap::Extended => crate::instruction::EXTENDED_OPCODE_ESCAPE,
-                },
                 segment_override: self.segment_override.clone(),
                 locked: self.locked,
                 x87_opcode: (self.form.map == super::OpcodeMap::Primary

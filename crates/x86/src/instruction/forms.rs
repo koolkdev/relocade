@@ -64,7 +64,6 @@ type HandlerBinding = HandlerCall<LocationBinding, OperandBinding>;
 pub(super) enum RealModeSupport {
     Supported,
     InvalidOpcode,
-    Unsupported,
 }
 
 #[derive(Clone, Copy)]

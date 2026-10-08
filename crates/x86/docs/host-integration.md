@@ -467,10 +467,15 @@ PUSHF/POPF transfer word or dword images through SS:SP. Real16 POPF restores IF
 and IOPL regardless of their entry values; only dword transfers change AC and ID.
 Reserved and unrepresented image bits are ignored.
 
-ARPL/LAR/LSL/VERR/VERW raise #UD before operand access. IRET currently returns the
-unsupported exit before reading flags or stack. Both cases terminate snapshot
-compilation; both decoders read the selected form's physical encoding before mode
-rejection. INT and real-mode interrupt delivery are not implemented.
+IRET/IRETD check all three stack slots before restoring IP/EIP, CS and FLAGS.
+IRETD rejects an EIP above `0xffff` before reading the CS and FLAGS fields. The
+return commits all state and dispatches; target fetch belongs to the next entry.
+Entry NT does not select a task return in real mode. Word returns preserve AC/ID;
+dword returns restore them, with RF still unrepresented as described above.
+
+ARPL/LAR/LSL/VERR/VERW raise #UD before operand access and terminate snapshot
+compilation. Both decoders read the selected form's physical encoding before
+mode rejection. INT and real-mode interrupt delivery are not implemented.
 PUSHA/PUSHAD honor the specified #GP for low odd SP values 7 through 15. Stack
 faults are reported to the host; exception delivery, double faults and shutdown
 are outside this execution model. ENTER checks actual transfers without requiring
@@ -608,9 +613,10 @@ An unsupported exit describes an encoding or execution path outside the
 implementation's subset, not an architectural invalid-opcode exception. Its
 diagnostic byte is the first byte after size and segment prefixes, `0F` for an
 extended opcode, or the selected `F0`/`F2`/`F3` prefix for an unsupported prefixed
-form. It does not retire or dispatch. IRET with entry NT set reports `CF` at the
-instruction's restart EIP, including its prefixes. Snapshot construction reports
-`BlockError` for unsupported encodings; state-dependent unsupported paths remain
+form. It does not retire or dispatch. Protected IRET with entry NT set reports
+`CF` at the instruction's restart EIP, including its prefixes. Snapshot
+construction reports `BlockError` for unsupported encodings; state-dependent
+unsupported paths remain
 runtime exits. Truncated byte input alone cannot establish a guest fetch fault.
 
 Faults are reported to the host. Guest IDT delivery, privilege transitions,
