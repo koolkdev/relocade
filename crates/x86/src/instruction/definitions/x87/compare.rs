@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     address::MemoryAddress,
-    execution::{ComparisonTarget, X87Operand},
+    execution::{ComparisonTarget, X87MemoryFormat, X87Operand},
     instruction::X87StackIndex,
     x87::{BinaryFormat, ComparisonKind, ExtendedValue},
 };
@@ -50,20 +50,36 @@ instruction_families! {
         forms { 0xDF @ 0xE8 + rm => operands(st); }
     }
     FCOM_BINARY32 {
-        execute: compare_memory(BinaryFormat::Binary32, 0);
+        execute: compare_memory(X87MemoryFormat::Binary(BinaryFormat::Binary32), 0);
         forms { 0xD8 / 2 => operands(mem); }
     }
     FCOM_BINARY64 {
-        execute: compare_memory(BinaryFormat::Binary64, 0);
+        execute: compare_memory(X87MemoryFormat::Binary(BinaryFormat::Binary64), 0);
         forms { 0xDC / 2 => operands(mem); }
     }
     FCOMP_BINARY32 {
-        execute: compare_memory(BinaryFormat::Binary32, 1);
+        execute: compare_memory(X87MemoryFormat::Binary(BinaryFormat::Binary32), 1);
         forms { 0xD8 / 3 => operands(mem); }
     }
     FCOMP_BINARY64 {
-        execute: compare_memory(BinaryFormat::Binary64, 1);
+        execute: compare_memory(X87MemoryFormat::Binary(BinaryFormat::Binary64), 1);
         forms { 0xDC / 3 => operands(mem); }
+    }
+    FICOM_INTEGER16 {
+        execute: compare_memory(X87MemoryFormat::Integer16, 0);
+        forms { 0xDE / 2 => operands(mem); }
+    }
+    FICOM_INTEGER32 {
+        execute: compare_memory(X87MemoryFormat::Integer32, 0);
+        forms { 0xDA / 2 => operands(mem); }
+    }
+    FICOMP_INTEGER16 {
+        execute: compare_memory(X87MemoryFormat::Integer16, 1);
+        forms { 0xDE / 3 => operands(mem); }
+    }
+    FICOMP_INTEGER32 {
+        execute: compare_memory(X87MemoryFormat::Integer32, 1);
+        forms { 0xDA / 3 => operands(mem); }
     }
     FTST {
         execute: test_zero;
@@ -84,11 +100,11 @@ fn compare_register(
 fn compare_memory(
     execution: &mut ExecutionBuilder<'_, '_>,
     address: MemoryAddress<Val<I32>>,
-    format: BinaryFormat,
+    format: X87MemoryFormat,
     pops: u32,
 ) -> Result<(), BuildError> {
     execution.compare_x87(
-        X87Operand::BinaryMemory { address, format },
+        X87Operand::Memory { address, format },
         ComparisonKind::Ordered,
         pops,
         ComparisonTarget::X87,

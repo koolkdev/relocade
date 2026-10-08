@@ -2,6 +2,8 @@
 
 #[path = "x87_compare/exceptions.rs"]
 mod exceptions;
+#[path = "x87_compare/integer.rs"]
+mod integer;
 #[path = "x87_compare/jit.rs"]
 mod jit;
 #[path = "x87_compare/memory.rs"]
