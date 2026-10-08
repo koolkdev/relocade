@@ -1,6 +1,7 @@
 //! Complete x87 operations keep capture, admission and effects in execution order.
 
 mod arithmetic;
+mod compare;
 mod operand;
 
 pub(crate) use operand::X87Operand;

@@ -3,6 +3,101 @@ use crate::{test_step as step, CompiledModule};
 use wasm86_compiler::{Program, Signature, Type};
 use wasmparser::{Operator, Parser, Payload};
 
+fn loaded_binary64_classification(engine: step::Engine) {
+    use crate::x87::{BinaryOperands, ComparisonKind};
+
+    let mut program = Program::new();
+    let function = program
+        .function(
+            Signature {
+                parameters: vec![Type::I64],
+                results: vec![Type::I32, Type::I32, Type::I32, Type::I64],
+            },
+            |body| {
+                let source = BinaryFormat::Binary64.decode(&body.parameter::<I64>(0)?);
+                let value = source.loaded_value();
+                let minimum_normal = BinaryFormat::Binary64
+                    .decode(&0x0010_0000_0000_0000_u64.into())
+                    .loaded_value();
+                let compared =
+                    BinaryOperands::new(&value, &minimum_normal).compare(ComparisonKind::Unordered);
+                let exceptions = source.denormal.unsigned().extend::<I32>().or(source
+                    .signaling_nan
+                    .unsigned()
+                    .extend::<I32>()
+                    .shl(1));
+                // Ordering predicates have no contract for unordered operands.
+                let ordered = compared.unordered.eq(false);
+                let comparison = [
+                    ordered.and(compared.less),
+                    ordered.and(compared.equal),
+                    compared.unordered,
+                    compared.invalid,
+                    compared.denormal,
+                ]
+                .into_iter()
+                .enumerate()
+                .fold(Val::<I32>::from(0), |bits, (index, flag)| {
+                    bits.or(flag.unsigned().extend::<I32>().shl(index as u32))
+                });
+                body.return_((
+                    class_flags(&value),
+                    exceptions,
+                    comparison,
+                    value.binary64_value().unwrap().to_bits(),
+                ))
+            },
+        )
+        .unwrap();
+    program.export("classify", function).unwrap();
+    let module = step::TestModule::new(&CompiledModule {
+        bytes: program.compile().unwrap(),
+        entry: "classify".into(),
+        execution_profile: None,
+    });
+    // Loaded subnormals are normal extended values; loaded SNaNs are quiet.
+    // Source bits record denormal/SNaN separately. Comparison bits are LT/EQ/UN/IE/DE.
+    for (bits, classes, source, comparison, loaded_bits) in [
+        (1_u64, 0, 1, 1, 1_u64),
+        (0x000f_ffff_ffff_ffff, 0, 1, 1, 0x000f_ffff_ffff_ffff),
+        (0x0010_0000_0000_0000, 0, 0, 2, 0x0010_0000_0000_0000),
+        (0, 1, 0, 1, 0),
+        (0x8000_0000_0000_0000, 1, 0, 1, 0x8000_0000_0000_0000),
+        (0x7ff0_0000_0000_0000, 12, 0, 0, 0x7ff0_0000_0000_0000),
+        (0x7ff8_0000_0000_0001, 20, 0, 4, 0x7ff8_0000_0000_0001),
+        (0x7ff0_0000_0000_0001, 20, 2, 4, 0x7ff8_0000_0000_0001),
+    ] {
+        let input = step::Input {
+            arguments: vec![step::Argument::I64(bits as i64)],
+            ..step::Input::new(&[])
+        };
+        let expected = vec![step::Event::Return {
+            outcome: step::Outcome::Returned(vec![
+                step::Argument::I32(classes),
+                step::Argument::I32(source),
+                step::Argument::I32(comparison),
+                step::Argument::I64(loaded_bits as i64),
+            ]),
+            snapshot: step::Snapshot {
+                cpu: vec![],
+                guest: None,
+            },
+        }];
+        assert_eq!(engine.observe(&module, &input, 1).events, expected);
+    }
+}
+
+#[test]
+fn retained_binary64_values_preserve_loaded_classification() {
+    loaded_binary64_classification(step::Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_retained_binary64_values_preserve_loaded_classification() {
+    loaded_binary64_classification(step::Engine::V8);
+}
+
 fn non_normal_classes(value: &ExtendedValue) -> [Val<I1>; 7] {
     [
         value.zero(),

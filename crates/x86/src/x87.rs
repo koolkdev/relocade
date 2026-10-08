@@ -2,6 +2,7 @@
 
 mod add;
 mod binary;
+mod compare;
 mod divide;
 mod integer;
 mod multiply;
@@ -12,6 +13,7 @@ mod rounding;
 mod value;
 
 pub(crate) use binary::{BinaryFormat, BinaryOperand};
+pub(crate) use compare::{ComparisonKind, ComparisonResult};
 pub(crate) use operand::BinaryOperands;
 use result::BinaryArithmetic;
 pub(crate) use result::{ArithmeticCandidate, ArithmeticResult, ConversionResult};

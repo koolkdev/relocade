@@ -216,14 +216,23 @@ impl X87Access<'_, '_> {
             .write(self.body, &slot, value, value.tag(), enabled)
     }
 
-    pub(crate) fn pop(&mut self, enabled: &Val<I1>) -> Result<(), BuildError> {
+    pub(crate) fn pop(&mut self, count: u32, enabled: &Val<I1>) -> Result<(), BuildError> {
+        if count == 0 {
+            return Ok(());
+        }
         let top = self.state.status.top(self.body)?;
-        let slot = self.state.registers.slot(self.body, &top, 0.into())?;
+        // All tags use the entry TOP; the movement commits only after every
+        // tag has been captured, including the two-slot comparison pop.
+        for index in 0..count {
+            let slot = self.state.registers.slot(self.body, &top, index.into())?;
+            self.state
+                .registers
+                .set_tag(self.body, &slot, 3.into(), enabled)?;
+        }
+        self.state.registers.advance(count as i32);
         self.state
-            .registers
-            .set_tag(self.body, &slot, 3.into(), enabled)?;
-        self.state.registers.advance(1);
-        self.state.status.set_top(self.body, top.add(1), enabled)
+            .status
+            .set_top(self.body, top.add(count), enabled)
     }
 
     pub(crate) fn free(&mut self, index: impl Into<Val<I32>>) -> Result<(), BuildError> {
