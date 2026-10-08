@@ -145,7 +145,7 @@ This is a public repository. Commit messages use `component: title`.
   types, schemas and consumer APIs, with representative code excerpts and the reasons
   for their design. Distinguish new interfaces from existing ones reused by the change.
   If these did not change, say so.
-- Within the agreed task scope, commit, push and open or update pull requests after
-  completing review and validation without waiting for a separate ACK.
+- Within the agreed task scope, complete review and validation, then commit, push
+  and open or update pull requests.
 - Resolve routine implementation choices while completing the current part; do not
   leave it half-finished merely to request those choices.
