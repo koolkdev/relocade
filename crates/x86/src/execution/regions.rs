@@ -1,10 +1,28 @@
-//! Nested execution inherits a restart boundary and returns explicit values.
+//! Nested execution inherits a restart boundary and returns values or dispatches.
 
-use wasm86_compiler::{Arguments, BlockBuilder, BuildError, Results, Val, I1};
+use wasm86_compiler::{Arguments, BlockBuilder, BuildError, Results, Val, I1, I32};
 
 use super::ExecutionBuilder;
 
 impl<'module> ExecutionBuilder<'_, 'module> {
+    /// Completes a conditional transfer with its own effects and destination.
+    /// The taken arm retires this instruction and dispatches; the other arm
+    /// continues unchanged. Faults inside the arm retain the entry boundary.
+    pub(crate) fn dispatch_if(
+        &mut self,
+        condition: impl Into<Val<I1>>,
+        transfer: impl FnOnce(&mut ExecutionBuilder<'_, 'module>) -> Result<Val<I32>, BuildError>,
+    ) -> Result<(), BuildError> {
+        let nested = self.nested_builder();
+        self.body.if_(condition, |body| {
+            let mut arm = nested(body);
+            arm.eip = transfer(&mut arm)?;
+            arm.completed += 1;
+            let runtime = arm.runtime;
+            arm.complete(|body, eip| runtime.dispatch(body, eip))
+        })
+    }
+
     /// Child register definitions do not merge into the parent. Callers return
     /// values and define the successful results there. This does not roll back
     /// guest memory or CPU backing stores authored inside the child.

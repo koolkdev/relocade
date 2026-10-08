@@ -60,6 +60,20 @@ impl MemoryOperand<'_> {
 }
 
 impl<'memory> ExecutionBuilder<'_, 'memory> {
+    /// Reads a linear address without applying a data segment or address-size wrap.
+    /// System-table accesses still use the profile's ordinary memory routing.
+    pub(crate) fn read_linear_memory<T: MemoryInt>(
+        &mut self,
+        linear: impl Into<Val<I32>>,
+    ) -> Result<Val<T>, BuildError> {
+        let access = self.resolve_access(&linear.into(), T::BYTES, Intent::Read)?;
+        self.memory
+            .as_ref()
+            .expect("a memory read declares guest memory")
+            .memory()
+            .read(&mut self.body, &access, 0)
+    }
+
     pub(super) fn read_memory<T: MemoryInt>(
         &mut self,
         address: MemoryAddress<impl Into<Val<I32>>>,
