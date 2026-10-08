@@ -14,7 +14,7 @@ pub use layout::{
 };
 #[cfg(test)]
 pub(crate) use observation::compile_flag_observer;
-pub(crate) use x87::{Arithmetic, ArithmeticSource, LoadSource, X87Access};
+pub(crate) use x87::{LoadSource, X87Access};
 
 use access::{cpu_load, cpu_store, register_location};
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};

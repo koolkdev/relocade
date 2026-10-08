@@ -137,16 +137,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.segments.profile()
     }
 
-    /// Builds compiler values, including pure control-flow joins, in the current
-    /// body. The callback must leave it open and must not change guest state or
-    /// memory. Use execution regions for branches with architectural effects.
-    pub(crate) fn compute<R>(
-        &mut self,
-        build: impl FnOnce(&mut BlockBuilder<'body>) -> Result<R, BuildError>,
-    ) -> Result<R, BuildError> {
-        build(&mut self.body)
-    }
-
     /// Defines a flag change while preserving flags omitted from its write mask.
     pub(super) fn write_flags(&mut self, change: impl Into<FlagChange>) -> Result<(), BuildError> {
         self.state.write_flags(&mut self.body, change)

@@ -23,7 +23,7 @@ impl Exception {
 }
 
 #[derive(Clone)]
-pub(super) struct Status {
+pub(crate) struct Status {
     fields: StateFields,
 }
 
@@ -76,7 +76,7 @@ impl Status {
         )
     }
 
-    pub(super) fn set_c1(
+    pub(crate) fn set_c1(
         &mut self,
         body: &mut BlockBuilder<'_>,
         value: impl Into<Val<I1>>,
@@ -121,7 +121,7 @@ impl Status {
 
     /// Records this occurrence and returns whether it is unmasked. Existing
     /// sticky flags do not create a new pending exception here.
-    pub(super) fn record_exception(
+    pub(crate) fn record_exception(
         &mut self,
         body: &mut BlockBuilder<'_>,
         exception: Exception,
@@ -133,7 +133,7 @@ impl Status {
         body.value(raised.and(unmasked))
     }
 
-    pub(super) fn record_stack_fault(
+    pub(crate) fn record_stack_fault(
         &mut self,
         body: &mut BlockBuilder<'_>,
         raised: &Val<I1>,
@@ -142,7 +142,7 @@ impl Status {
     }
 
     /// Sets ES and B for a newly unmasked exception; delivery remains deferred.
-    pub(super) fn record_pending_exception(
+    pub(crate) fn record_pending_exception(
         &mut self,
         body: &mut BlockBuilder<'_>,
         unmasked: Val<I1>,

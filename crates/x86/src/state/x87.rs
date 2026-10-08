@@ -1,12 +1,10 @@
 //! x87 state owns stack positions, status updates and publication at guest exits.
 
-mod arithmetic;
 mod control;
 mod registers;
 mod status;
 mod transfer;
 
-pub(crate) use arithmetic::{Arithmetic, ArithmeticSource};
 pub(crate) use transfer::LoadSource;
 
 use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
@@ -14,7 +12,7 @@ use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 use crate::{ssa::StateFields, x87::ExtendedValue};
 
 use super::{access::cpu_location, StoredX87};
-use control::Exception;
+pub(crate) use control::Exception;
 
 #[derive(Clone, Copy)]
 pub(crate) enum X87Specialization {
@@ -27,8 +25,8 @@ pub(crate) enum X87Specialization {
 #[derive(Clone)]
 pub(crate) struct X87State {
     metadata: StateFields,
-    control: control::Control,
-    status: status::Status,
+    pub(crate) control: control::Control,
+    pub(crate) status: status::Status,
     registers: registers::Registers,
 }
 
@@ -86,7 +84,7 @@ impl X87State {
 }
 
 /// Builds x87 state operations in the current execution body. Register tracking,
-/// exception responses and publication remain owned by the underlying state.
+/// status backing and publication remain owned by the underlying state.
 pub(crate) struct X87Access<'state, 'body> {
     state: &'state mut X87State,
     body: &'state mut BlockBuilder<'body>,
