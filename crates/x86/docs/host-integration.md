@@ -467,6 +467,11 @@ PUSHF/POPF transfer word or dword images through SS:SP. Real16 POPF restores IF
 and IOPL regardless of their entry values; only dword transfers change AC and ID.
 Reserved and unrepresented image bits are ignored.
 
+CLI/STI clear or set IF in Real16 and raise #GP(0) in protected profiles, which
+fix CPL3/IOPL0. IF changes are immediately visible to PUSHF. External interrupt
+delivery and STI's one-instruction inhibition are not modeled; IF alone must not
+be used by the host to decide when to inject interrupts.
+
 IRET/IRETD check all three stack slots before restoring IP/EIP, CS and FLAGS.
 IRETD rejects an EIP above `0xffff` before reading the CS and FLAGS fields. The
 return commits all state and dispatches; target fetch belongs to the next entry.

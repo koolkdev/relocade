@@ -63,7 +63,7 @@ fn immediates_bind_after_location_operands() {
                 OperandSpec::Immediate(ImmediateWidth::Word),
             ];
             let form = Declaration {
-                real_mode: crate::instruction::RealModeSupport::Supported,
+                availability: crate::instruction::Availability::AllModes,
                 opcode: Opcode {
                     map: OpcodeMap::Primary,
                     byte: 0x00,

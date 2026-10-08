@@ -21,6 +21,20 @@ instruction_families! {
             0xF5 => no_operands();
         }
     }
+    CLI {
+        execute: set(Flag::IF, false);
+        availability: IoPrivileged;
+        forms {
+            0xFA => no_operands();
+        }
+    }
+    STI {
+        execute: set(Flag::IF, true);
+        availability: IoPrivileged;
+        forms {
+            0xFB => no_operands();
+        }
+    }
     CLD {
         execute: set(Flag::DF, false);
         forms {

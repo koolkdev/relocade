@@ -429,7 +429,7 @@ fn memory_only_bindings_restrict_modrm_at_every_operand_position() {
         (&[register, register, memory][..], ternary),
     ] {
         let form = Declaration {
-            real_mode: crate::instruction::RealModeSupport::Supported,
+            availability: crate::instruction::Availability::AllModes,
             opcode: Opcode {
                 map: OpcodeMap::Primary,
                 byte: 0x00,

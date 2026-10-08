@@ -1,4 +1,4 @@
-//! Carry and direction controls change only their named flag.
+//! Flag controls preserve other state and enforce the execution profile's privileges.
 use crate::flags::Flag;
 use crate::support::{
     cases::{
@@ -66,7 +66,7 @@ fn direction_cases() -> Vec<Case> {
 
 #[test]
 fn controls_consume_only_their_opcode_and_ignored_operand_prefix() {
-    for opcode in [0xf8, 0xf9, 0xf5, 0xfc, 0xfd] {
+    for opcode in [0xf8, 0xf9, 0xf5, 0xfa, 0xfb, 0xfc, 0xfd] {
         check_length(&[opcode]);
         check_length(&[0x66, opcode]);
     }
@@ -112,3 +112,85 @@ fn dependent_flags() -> Vec<Sequence> {
 test_cases!(carry_changes_and_preserved_status, carry_cases());
 test_cases!(direction_changes_preserve_opaque_status, direction_cases());
 test_sequences!(pending_flags_consumers_and_publication, dependent_flags());
+
+fn interrupt_controls_fault(
+    engine: crate::support::step::Engine,
+    frontend: crate::support::execution::Frontend,
+) {
+    use crate::support::{
+        execution::ImageSequences,
+        machine::{Exit, Image, Step},
+    };
+    use wasm86_x86::{SegmentAttributes, SegmentProfile};
+
+    for profile in [
+        SegmentProfile::Flat32,
+        SegmentProfile::Segmented32,
+        SegmentProfile::Segmented16,
+    ] {
+        let mut cases = ImageSequences::new(engine, frontend, profile);
+        for opcode in [0xfa, 0xfb] {
+            let code = [0x66, 0x67, 0x64, opcode];
+            for fill in [0x80, 0xff] {
+                let mut image = Image::new(&code);
+                image.cpu.flags = CpuState::filled(fill).flags;
+                if profile == SegmentProfile::Segmented16 {
+                    image.cpu.segments.cs.attributes = SegmentAttributes::from_bits(7);
+                }
+                cases.check(
+                    "CLI/STI fault at CPL3/IOPL0 regardless of stored IF/IOPL bytes",
+                    &code,
+                    &image,
+                    &[Step {
+                        cpu: image.cpu,
+                        ram: &[],
+                        exit: Exit::GeneralProtection { error: 0 },
+                    }],
+                );
+            }
+        }
+    }
+}
+crate::support::execution::test_frontends!(
+    interrupt_controls_require_privilege,
+    interrupt_controls_fault
+);
+
+#[test]
+fn protected_interrupt_controls_stop_before_snapshot_successors() {
+    use wasm86_x86::{compile_block_from_bytes_with_profile, SegmentProfile};
+
+    for profile in [
+        SegmentProfile::Flat32,
+        SegmentProfile::Segmented32,
+        SegmentProfile::Segmented16,
+    ] {
+        for code in [&[0xfa][..], &[0x66, 0x67, 0x64, 0xfb]] {
+            let complete = compile_block_from_bytes_with_profile(0x1000, code, 1, profile).unwrap();
+            for suffix in [&[][..], &[0x0f], &[0xf4], &[0xb0, 0x7f]] {
+                assert_eq!(
+                    compile_block_from_bytes_with_profile(
+                        0x1000,
+                        &[code, suffix].concat(),
+                        u32::MAX,
+                        profile
+                    )
+                    .unwrap()
+                    .bytes,
+                    complete.bytes
+                );
+            }
+        }
+    }
+}
+
+test_sequences!(
+    interrupt_control_fault_publishes_prior_work,
+    [
+        Sequence::from_opaque_flags("CLI publishes completed work and does not retire")
+            .initial_registers(&[(Eax, 0)])
+            .step(Step::preserving_flags(&[0xb0, 0x77]).register(Eax, 0x77))
+            .step(Step::preserving_flags(&[0xfa]).general_protection(0))
+            .trailing_code(&[0xb0, 0x55], 1),
+    ]
+);

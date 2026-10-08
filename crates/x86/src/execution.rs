@@ -182,6 +182,12 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.state.condition(&mut self.body, condition)
     }
 
+    /// Raises a guest fault at the current instruction's restart boundary.
+    /// Publishes completed work without retiring the faulting instruction.
+    pub(crate) fn fault(&mut self, exception: Exception<Val<I32>>) -> Result<(), BuildError> {
+        self.fault_if(true, exception)
+    }
+
     /// Ends a faulting path with the current state. Define only effects permitted
     /// to survive that fault; the instruction's EIP and retirement stay at entry.
     pub(crate) fn fault_if(

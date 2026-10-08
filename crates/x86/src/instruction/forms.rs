@@ -17,7 +17,8 @@ use super::{
     Group1Prefix, OperandSize, PrefixState, SegmentOverride,
 };
 use crate::register::NamedRegister;
-use crate::{address::AddressSize, flags::Condition};
+use crate::{address::AddressSize, flags::Condition, Exception, ExecutionProfile};
+use wasm86_compiler::{Val, I32};
 
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
 pub(crate) enum OpcodeMap {
@@ -61,9 +62,25 @@ type HandlerBinding = HandlerCall<LocationBinding, OperandBinding>;
 
 /// Availability is checked after decoding, before any operand access or effect.
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub(super) enum RealModeSupport {
-    Supported,
-    InvalidOpcode,
+pub(super) enum Availability {
+    AllModes,
+    ProtectedOnly,
+    /// Requires CPL <= IOPL; supported protected profiles fix CPL3/IOPL0.
+    IoPrivileged,
+}
+
+impl Availability {
+    pub(super) fn fault(self, profile: ExecutionProfile) -> Option<Exception<Val<I32>>> {
+        match (self, profile) {
+            (Self::ProtectedOnly, ExecutionProfile::Real16) => Some(Exception::InvalidOpcode),
+            (Self::IoPrivileged, ExecutionProfile::Protected(_)) => {
+                Some(Exception::GeneralProtection {
+                    error_code: 0.into(),
+                })
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -80,7 +97,7 @@ pub(crate) struct Form {
     pub(super) condition: Option<Condition>,
     pub(super) implicit_memory: bool,
     pub(super) ends_block: bool,
-    pub(super) real_mode: RealModeSupport,
+    pub(super) availability: Availability,
 }
 
 impl Form {
