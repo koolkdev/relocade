@@ -1,9 +1,11 @@
 //! String elements complete their accesses before advancing the indices.
 
 mod comparisons;
+mod ports;
 mod repetition;
 
 use comparisons::{compare_elements, scan_elements, ComparisonRepetition};
+use ports::{input_elements, output_elements};
 use repetition::Repetition;
 
 use super::*;
@@ -16,6 +18,43 @@ use crate::{
 };
 
 instruction_families! {
+    INS {
+        execute: input_elements::<_>(Repetition::Once);
+        effects: [memory_write, port_io];
+        availability: IoPrivileged;
+        forms {
+            0x6C => byte();
+            0x6D => word_or_dword();
+        }
+    }
+    REP_INS {
+        execute: input_elements::<_>(Repetition::Count);
+        effects: [memory_write, port_io];
+        availability: IoPrivileged;
+        forms {
+            F3 0x6C => byte();
+            F3 0x6D => word_or_dword();
+        }
+    }
+    OUTS {
+        execute: output_elements::<_>(Repetition::Once);
+        effects: [memory_read, port_io];
+        availability: IoPrivileged;
+        forms {
+            0x6E => byte();
+            0x6F => word_or_dword();
+        }
+    }
+    REP_OUTS {
+        execute: output_elements::<_>(Repetition::Count);
+        effects: [memory_read, port_io];
+        availability: IoPrivileged;
+        forms {
+            F3 0x6E => byte();
+            F3 0x6F => word_or_dword();
+        }
+    }
+
     MOVS {
         execute: move_elements::<_>(Repetition::Once);
         effects: [memory_read, memory_write];

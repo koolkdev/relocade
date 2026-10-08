@@ -77,20 +77,35 @@ impl StringOperand {
     where
         I32: wasm86_compiler::AtLeast<T>,
     {
+        self.write_from(execution, |_| Ok(value.clone()))
+    }
+
+    /// Checks the destination before producing a value with observable effects,
+    /// then writes it. Physical routing remains live across that callback.
+    pub(crate) fn write_from<T: RegisterType>(
+        &self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        read: impl FnOnce(&mut ExecutionBuilder<'_, '_>) -> Result<Val<T>, BuildError>,
+    ) -> Result<(), BuildError>
+    where
+        I32: wasm86_compiler::AtLeast<T>,
+    {
         assert!(matches!(self.intent, Intent::Write));
         match &self.relative {
             Some(range) => {
                 let position = execution.read_address_register(self.index)?;
+                let address = range.physical_start.add(position.sub(&range.offset_start));
+                let value = read(execution)?;
                 let memory = execution.memory.as_ref().unwrap().memory();
-                memory.store(
-                    &mut execution.body,
-                    &range.physical_start.add(position.sub(&range.offset_start)),
-                    value,
-                )
+                memory.store(&mut execution.body, &address, &value)
             }
-            None => execution
-                .memory_at_register::<T>(self.index, self.segment.clone())
-                .write(execution, value),
+            None => {
+                let target = execution
+                    .memory_at_register::<T>(self.index, self.segment.clone())
+                    .prepare_write(execution, &[])?;
+                let value = read(execution)?;
+                target.write(execution, value)
+            }
         }
     }
 }

@@ -21,8 +21,8 @@ use super::Compiler;
 /// the [host integration contract](crate#host-integration).
 ///
 /// This entry has no execution budget. Straight-line execution continues until
-/// a block-ending instruction or guest exit. REP completes its repetition and
-/// continues to the next instruction; a fault retains completed elements.
+/// a block-ending instruction or guest exit. REP completes its repetition; port
+/// strings dispatch and other strings continue. A fault retains completed elements.
 /// The snapshot compiler's instruction limit does not bound interpreter execution.
 ///
 /// ```
