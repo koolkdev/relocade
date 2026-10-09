@@ -1,4 +1,5 @@
 use super::*;
+use crate::bitwise::BitwiseOp;
 
 fn conditional_value() -> FunctionGraph {
     let mut graph = FunctionGraph::new();
@@ -263,9 +264,9 @@ fn observing_a_narrow_replacement_does_not_define_the_sources_upper_bits() {
 
 #[test]
 fn bitwise_absorption_cannot_discard_unknown_carrier_bits() {
-    use crate::{integer::BinaryOp, Type};
+    use crate::Type;
 
-    for operator in [BinaryOp::Or, BinaryOp::And] {
+    for operator in [BitwiseOp::Or, BitwiseOp::And] {
         for reversed in [false, true] {
             let mut graph = FunctionGraph::new();
             let inputs: Vec<_> = (0..2)
@@ -292,7 +293,7 @@ fn bitwise_absorption_cannot_discard_unknown_carrier_bits() {
             };
             let result = graph.values.intern(Value {
                 ty: Type::I8,
-                definition: ValueDefinition::Expression(Expression::Binary {
+                definition: ValueDefinition::Expression(Expression::Bitwise {
                     operator,
                     left,
                     right,
@@ -317,7 +318,7 @@ fn bitwise_absorption_cannot_discard_unknown_carrier_bits() {
 
 #[test]
 fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
-    use crate::{integer::BinaryOp, Type};
+    use crate::Type;
 
     let mut graph = FunctionGraph::new();
     let inputs: Vec<_> = (0..3)
@@ -355,8 +356,8 @@ fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
     });
     let result = graph.values.intern(Value {
         ty: Type::I32,
-        definition: ValueDefinition::Expression(Expression::Binary {
-            operator: BinaryOp::Or,
+        definition: ValueDefinition::Expression(Expression::Bitwise {
+            operator: BitwiseOp::Or,
             left: choice,
             right: update,
         }),
@@ -380,8 +381,8 @@ fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
     let unproven = live.specialize(&mut graph, result, |_, _, _| None).value;
     assert!(matches!(
         graph.values[unproven].definition,
-        ValueDefinition::Expression(Expression::Binary {
-            operator: BinaryOp::Or,
+        ValueDefinition::Expression(Expression::Bitwise {
+            operator: BitwiseOp::Or,
             ..
         })
     ));

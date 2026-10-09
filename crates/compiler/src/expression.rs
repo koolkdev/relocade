@@ -9,6 +9,7 @@ pub(crate) use fold::{build, normalize, refold};
 mod tests;
 
 use crate::{
+    bitwise::BitwiseOp,
     floating,
     integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
     Type,
@@ -35,6 +36,11 @@ pub(super) enum Expression<V> {
     },
     Binary {
         operator: BinaryOp,
+        left: V,
+        right: V,
+    },
+    Bitwise {
+        operator: BitwiseOp,
         left: V,
         right: V,
     },
@@ -151,6 +157,15 @@ impl<V> Expression<V> {
                 left,
                 right,
             } => Expression::Binary {
+                operator: *operator,
+                left: input(left)?,
+                right: input(right)?,
+            },
+            Self::Bitwise {
+                operator,
+                left,
+                right,
+            } => Expression::Bitwise {
                 operator: *operator,
                 left: input(left)?,
                 right: input(right)?,

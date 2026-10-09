@@ -2,6 +2,7 @@
 //! For floating values these describe encoding bits, not numerical magnitude.
 
 use crate::{
+    bitwise::BitwiseOp,
     body::{BlockItem, Value, ValueDefinition},
     integer::{shift_count, BinaryOp, BitCountOp, ShiftOp},
     Expression, Type,
@@ -102,8 +103,14 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
                     .min(carrier),
                 BinaryOp::DivUnsigned | BinaryOp::RemUnsigned => value.ty.bits(),
                 BinaryOp::DivSigned | BinaryOp::RemSigned => carrier,
-                BinaryOp::And => inputs[a].unsigned.min(inputs[b].unsigned),
-                BinaryOp::Or | BinaryOp::Xor => inputs[a].unsigned.max(inputs[b].unsigned),
+            },
+            Expression::Bitwise {
+                operator,
+                left: a,
+                right: b,
+            } => match operator {
+                BitwiseOp::And => inputs[a].unsigned.min(inputs[b].unsigned),
+                BitwiseOp::Or | BitwiseOp::Xor => inputs[a].unsigned.max(inputs[b].unsigned),
             },
             Expression::Shift {
                 operator,

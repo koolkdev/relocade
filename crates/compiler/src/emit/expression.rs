@@ -5,6 +5,7 @@ use wasm_encoder::Instruction;
 mod wide;
 
 use crate::{
+    bitwise::BitwiseOp,
     floating,
     integer::{low_mask, BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
     Expression, Type,
@@ -40,6 +41,15 @@ impl Writer<'_> {
                 (Type::F64, Type::I64) => Instruction::I64ReinterpretF64,
                 _ => unreachable!("bitcasts preserve width and change scalar type"),
             },
+            Expression::Bitwise { operator, .. } => match (operator, result_type.carrier()) {
+                (BitwiseOp::And, Type::I32) => Instruction::I32And,
+                (BitwiseOp::And, Type::I64) => Instruction::I64And,
+                (BitwiseOp::Or, Type::I32) => Instruction::I32Or,
+                (BitwiseOp::Or, Type::I64) => Instruction::I64Or,
+                (BitwiseOp::Xor, Type::I32) => Instruction::I32Xor,
+                (BitwiseOp::Xor, Type::I64) => Instruction::I64Xor,
+                _ => unreachable!("bitwise operations require integer carriers"),
+            },
             Expression::Binary { operator, .. } => match (operator, wide) {
                 (BinaryOp::Add, false) => Instruction::I32Add,
                 (BinaryOp::Add, true) => Instruction::I64Add,
@@ -55,12 +65,6 @@ impl Writer<'_> {
                 (BinaryOp::RemUnsigned, true) => Instruction::I64RemU,
                 (BinaryOp::RemSigned, false) => Instruction::I32RemS,
                 (BinaryOp::RemSigned, true) => Instruction::I64RemS,
-                (BinaryOp::And, false) => Instruction::I32And,
-                (BinaryOp::And, true) => Instruction::I64And,
-                (BinaryOp::Or, false) => Instruction::I32Or,
-                (BinaryOp::Or, true) => Instruction::I64Or,
-                (BinaryOp::Xor, false) => Instruction::I32Xor,
-                (BinaryOp::Xor, true) => Instruction::I64Xor,
             },
             Expression::MultiplyWide { signed, .. } => {
                 if self.features.wide_arithmetic {

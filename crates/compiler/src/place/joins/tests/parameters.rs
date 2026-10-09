@@ -1,5 +1,6 @@
 //! Authored results inherit only bits agreed by all active incoming edges.
 use super::*;
+use crate::bitwise::BitwiseOp;
 
 fn parameter(graph: &mut FunctionGraph, block: BlockId, ty: Type) -> usize {
     let component = graph.blocks[block.0].parameters.len();
@@ -31,8 +32,8 @@ fn argument_facts_transfer_common_bits_without_value_candidates() {
         let low = expression(
             &mut graph,
             Type::I8,
-            Expression::Binary {
-                operator: BinaryOp::And,
+            Expression::Bitwise {
+                operator: BitwiseOp::And,
                 left: result,
                 right: mask,
             },

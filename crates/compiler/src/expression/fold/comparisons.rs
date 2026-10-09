@@ -2,8 +2,9 @@
 
 use super::Folder;
 use crate::{
+    bitwise::BitwiseOp,
     body::ValueDefinition,
-    integer::{self, BinaryOp, CompareOp},
+    integer::{self, CompareOp},
     Expression, Type,
 };
 
@@ -74,7 +75,7 @@ impl Folder<'_> {
             && self.values.bounds[right].unsigned > a.ty.bits()
         {
             // Compare the low-bit difference once instead of masking both operands.
-            let difference = self.binary(BinaryOp::Xor, left, right);
+            let difference = self.bitwise(BitwiseOp::Xor, left, right);
             return self.zero_test(difference, operator == CompareOp::Ne);
         }
         let (left, right) = if signed_operands {
@@ -147,8 +148,8 @@ impl Folder<'_> {
         } else {
             let one_bit = mask == 1 && self.values.bounds[input].unsigned <= 1;
             let masked_bit = match self.values[self.values.representation(input)].definition {
-                ValueDefinition::Expression(Expression::Binary {
-                    operator: BinaryOp::And,
+                ValueDefinition::Expression(Expression::Bitwise {
+                    operator: BitwiseOp::And,
                     left,
                     right,
                 }) => {
