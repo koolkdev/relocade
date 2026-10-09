@@ -28,6 +28,8 @@ mod conditional_moves;
 mod count_publication;
 #[path = "suites/counted_branches.rs"]
 mod counted_branches;
+#[path = "suites/cpuid.rs"]
+mod cpuid;
 #[path = "suites/data_moves.rs"]
 mod data_moves;
 #[path = "suites/decimal_adjust.rs"]

@@ -1,7 +1,8 @@
 # Host integration
 
 Generated x86 modules use this contract for both snapshot blocks and interpreter
-entries. The embedding host supplies memory, dispatch and descriptor resolution.
+entries. The embedding host supplies memory, dispatch, processor queries and
+descriptor resolution.
 The Wasm engine must support multiple memories, multiple results, tail calls and
 the threads extension's atomic instructions, including on unshared memories.
 
@@ -22,7 +23,8 @@ use 32-bit wrapping arithmetic. A taken transfer checks its segment target befor
 committing instruction effects; fetching the destination belongs to the next entry.
 
 The host chooses whether dispatch enters more code or returns control. Interpreter
-`run` continues inside Wasm until a branch, segment load or port I/O completes.
+`run` continues inside Wasm until a branch, segment load, port I/O or serializing
+instruction completes.
 It uses the same instruction boundary as snapshot compilation: conditional branches end
 execution on both outcomes. Earlier instructions remain published if a later
 instruction faults or is unsupported. Each instruction fetches live guest bytes
@@ -51,8 +53,8 @@ is neither of those exits.
 
 An embedding can bind this import directly to an instance's `step` or `run` export.
 `step` resumes normal dispatch after one instruction; `run` continues to its own
-branch, segment-load or port-I/O boundary. Neither is constrained by the
-abandoned snapshot's instruction limit. The host chooses this policy and admits interpreter entries
+branch, segment-load, port-I/O or serialization boundary. Neither is constrained
+by the abandoned snapshot's instruction limit. The host chooses this policy and admits interpreter entries
 against their segment profile. Interpreter execution uses the shared instruction
 semantics without speculative guards and does not import `interpret` itself.
 
@@ -89,6 +91,40 @@ ordinary interpreter handoff at the consuming instruction, after its pending
 exception and memory-access checks. A host can reuse a block under another mode;
 the guard preserves correctness, though frequently mismatching modes may warrant
 compiling another block. No CPU state is replaced with the observed snapshot.
+
+## Processor identification
+
+CPUID uses `wasm86.cpuid(leaf: i32, subleaf: i32) -> (i32, i32, i32, i32)`.
+The inputs are the full EAX and ECX bit patterns. Results replace EAX, EBX, ECX
+and EDX, in that order. All other registers and flags are preserved. The operation
+is identical in every execution profile; size and segment prefixes do not narrow
+its registers. Clearing EFLAGS.ID does not disable the instruction. LOCK uses the
+shared unsupported-encoding exit before calling the host.
+
+The callback supplies the virtual processor's identity, supported leaves and
+feature bits. It must handle every input, including unsupported leaves and
+subleaves. Intel's invalid-leaf rule returns the highest supported basic leaf;
+leaves with subleaf inputs follow their own enumeration rules. Results must be
+consistent across interpreter and JIT entries for the same virtual processor.
+The callback must not inspect or modify CPU backing, guest memory or mappings,
+or reenter execution. No CPU state layout or host-side Rust configuration changes
+are required. Blocks that do not execute CPUID do not import the callback.
+
+Advertise only capabilities the embedding actually implements. In particular,
+partial x87 support does not establish the complete FPU feature, and this build
+does not implement MMX, SSE, SSE2, FXSAVE/FXRSTOR or RDTSC. These feature bits
+must remain clear. Copying the native host's CPUID results would advertise
+instructions and platform facilities the guest cannot use. The P4 compatibility
+target does not require claiming the complete identity of a physical P4.
+
+CPUID serializes execution: both a snapshot block and an interpreter run complete
+the instruction, publish state and dispatch before fetching its successor. Prior
+guest stores are complete at this boundary. The host must validate the next
+snapshot's code against any preceding code writes, as at every dispatch; CPUID
+does not itself invalidate a host code cache. The single-threaded, unshared-memory
+execution contract does not model a processor's speculative pipeline or cache.
+
+These semantics follow Intel's [Volume 2A, CPUID](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf#page=202).
 
 ## Port I/O
 
@@ -142,15 +178,15 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
 
 Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
-`resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
-`cpuState`, `guest`, `physicalMap`, `dispatch`, the MMIO callbacks and the port
-callbacks. They use generated RAM/ROM accesses and do not call descriptor callbacks. The physical
-memory contract below describes routing and callback widths.
+`cpuid`, `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
+`cpuState`, `guest`, `physicalMap`, `dispatch`, `cpuid`, the MMIO callbacks and the
+port callbacks. They use generated RAM/ROM accesses and do not call descriptor
+callbacks. The physical memory contract below describes routing and callback widths.
 Snapshot modules omit imports they do not use: protected-mode memory instructions
 require guest backing and the page table, protected-mode segment loads require
-`resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks
-with specialization guards require `interpret`. Hosts should use the generated
-module's import list when instantiating it.
+`resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. CPUID
+requires `cpuid`; blocks with specialization guards require `interpret`. Hosts
+should use the generated module's import list when instantiating it.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical

@@ -58,6 +58,8 @@ pub(in crate::instruction) enum Effect {
     SegmentLoad,
     /// Device callbacks may change instruction routing; resume through dispatch.
     PortIo,
+    /// Complete prior work and resume through dispatch before the next fetch.
+    Serializing,
     /// Execution always raises a guest fault, so no successor belongs to the block.
     UnconditionalFault,
 }
@@ -213,6 +215,7 @@ impl Declaration<'_> {
                 Effect::ControlTransfer
                 | Effect::SegmentLoad
                 | Effect::PortIo
+                | Effect::Serializing
                 | Effect::UnconditionalFault => ends_block = true,
             }
             index += 1;
