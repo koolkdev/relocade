@@ -2,7 +2,7 @@ use super::*;
 use crate::support::{
     blocks::BlockModules,
     machine::expected,
-    step::{Event, MmioUpdate, TestModule},
+    step::{DeviceUpdate, Event, TestModule},
 };
 use std::sync::OnceLock;
 use wasm86_x86::compile_interpreter;
@@ -313,9 +313,9 @@ fn live_fetch(engine: Engine) {
     let mut input = image.input();
     input.mmio_pages = vec![(2, 0x6000)];
     input.observe_mmio = true;
-    input.mmio_updates = vec![MmioUpdate {
+    input.mmio_updates = vec![DeviceUpdate {
         map: vec![(8, vec![2, 0, 0, 0, 0, 0x90, 0, 0])],
-        ..MmioUpdate::default()
+        ..DeviceUpdate::default()
     }];
     let mut cpu = retired(&image, 8);
     cpu.registers.eax = 0x1111_5678;

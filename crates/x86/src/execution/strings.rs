@@ -22,6 +22,7 @@ pub(crate) struct StringOperand {
     segment: SegmentSelection,
     intent: Intent,
     relative: Option<RelativeRange>,
+    live_routing: bool,
 }
 
 /// String operands whose direct backing may be used when the range is available.
@@ -43,7 +44,14 @@ impl StringOperand {
             segment,
             intent,
             relative: None,
+            live_routing: false,
         }
+    }
+
+    /// Device callbacks can remap this operand between transfers.
+    pub(crate) fn with_live_routing(mut self) -> Self {
+        self.live_routing = true;
+        self
     }
 
     pub(crate) fn read<T: RegisterType>(
@@ -111,16 +119,54 @@ impl StringOperand {
 }
 
 impl ExecutionBuilder<'_, '_> {
+    /// Caps a budgeted chunk at operand page boundaries. A straddling element
+    /// gets a one-element chunk, whose ordinary range proof may still succeed.
+    pub(crate) fn repetition_chunk<T: RegisterType, const N: usize>(
+        &mut self,
+        count: &Val<I32>,
+        operands: &[StringOperand; N],
+    ) -> Result<Val<I32>, BuildError> {
+        let Some(work) = &self.work else {
+            return Ok(count.clone());
+        };
+        let mut chunk = count.unsigned().lt(work).select(count, work);
+        let backward = self.read_flag(Flag::DF)?;
+        for operand in operands {
+            let position = self.read_address_register(operand.index)?;
+            let segment = self.segments.check(
+                &mut self.body,
+                &operand.segment,
+                &position,
+                T::BYTES,
+                operand.intent,
+            )?;
+            let offset = segment.linear.and(4095);
+            let forward = Val::<I32>::from(4096)
+                .sub(&offset)
+                .unsigned()
+                .shr(T::BYTES.trailing_zeros());
+            let reverse = offset.unsigned().shr(T::BYTES.trailing_zeros()).add(1);
+            let elements = backward.select(reverse, forward);
+            let elements = elements.eq(0).select(1, &elements);
+            chunk = chunk.unsigned().lt(&elements).select(chunk, elements);
+        }
+        self.body.value(chunk)
+    }
+
     /// Non-faulting preflight. Zero count skips all operand checks. Oversized or
     /// wrapping offset spans, denied permissions and scattered backing need the
     /// checked interpreter loop to determine actual progress and fault priority.
-    /// Memory models with live mappings keep per-element resolution in both frontends.
+    /// Bounded physical chunks require direct RAM/ROM so no device callback can
+    /// invalidate the proof. Unbudgeted physical repetitions retain checked accesses.
     pub(crate) fn resolve_strings<T: RegisterType, const N: usize>(
         &mut self,
         operands: &[StringOperand; N],
         count: &Val<I32>,
     ) -> Result<Option<ResolvedStrings<N>>, BuildError> {
-        if !self.memory.as_ref().unwrap().memory().has_stable_mappings() {
+        if operands.iter().any(|operand| operand.live_routing)
+            || (!self.runtime.is_budgeted()
+                && !self.memory.as_ref().unwrap().memory().has_stable_mappings())
+        {
             return Ok(None);
         }
         let bytes = count.mul(T::BYTES);
@@ -166,7 +212,7 @@ impl ExecutionBuilder<'_, '_> {
                                 segment.denied.unwrap_or(false.into()),
                                 |denied| denied.yield_((false, 0)),
                                 |mut paging| {
-                                    let access = memory.resolve_access(
+                                    let access = memory.check_direct_access(
                                         &mut paging,
                                         &segment.linear,
                                         &bytes,

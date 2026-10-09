@@ -54,6 +54,10 @@ mod instruction_tests;
 
 use std::fmt;
 
+/// A budgeted entry yielded with its resumable CPU state published.
+/// This host exit is distinct from guest faults and dispatch return values.
+pub const SLICE_EXHAUSTED: u64 = 512 << 48;
+
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, compile_interpreter,
     compile_interpreter_step, Compiler,

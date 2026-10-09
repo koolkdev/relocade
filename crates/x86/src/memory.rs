@@ -18,7 +18,7 @@ use access::FaultHandler;
 use page_table::{PRESENT, WRITABLE};
 use physical::PhysicalMemory;
 use virtual_memory::VirtualMemory;
-use wasm86_compiler::{BlockBuilder, BuildError, MemoryInt, Program, Val, I1, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Program, Val, I1, I32};
 
 /// Selects the generated memory model once, during module construction.
 pub(crate) enum Memory {
@@ -78,14 +78,15 @@ impl Memory {
         &self,
         body: &mut BlockBuilder<'_>,
         start: &Val<I32>,
-        bytes: u32,
+        bytes: impl Into<Val<I32>>,
         intent: Intent,
         denied: Option<Val<I1>>,
         cache: Option<&mut PageCache>,
     ) -> Result<DirectRange, BuildError> {
+        let bytes = body.value(bytes)?;
         let probe = |body: &mut BlockBuilder<'_>, cache: Option<&mut PageCache>| match self {
             Self::Virtual(memory) => {
-                let access = memory.resolve_access(body, start, bytes, intent, cache, None)?;
+                let access = memory.resolve_access(body, start, &bytes, intent, cache, None)?;
                 Ok(DirectRange {
                     unavailable: access.unavailable,
                     physical: access.physical,
@@ -93,7 +94,7 @@ impl Memory {
             }
             // MMIO callbacks can change routing during an entry. Physical
             // lookups always read live metadata rather than the loop page cache.
-            Self::Physical(memory) => memory.check_direct_access(body, start, bytes, intent),
+            Self::Physical(memory) => memory.check_direct_access(body, start, &bytes, intent),
         };
         let Some(denied) = denied else {
             return probe(body, cache);
@@ -216,32 +217,10 @@ impl Memory {
         }
     }
 
-    pub(crate) fn copy(
-        &self,
-        body: &mut BlockBuilder<'_>,
-        destination: &Val<I32>,
-        source: &Val<I32>,
-        bytes: &Val<I32>,
-    ) -> Result<(), BuildError> {
+    fn backing(&self) -> Mem {
         match self {
-            Self::Virtual(memory) => memory.copy(body, destination, source, bytes),
-            Self::Physical(_) => unreachable!("bulk transfers require stable mappings"),
-        }
-    }
-
-    pub(crate) fn fill<T: MemoryInt>(
-        &self,
-        body: &mut BlockBuilder<'_>,
-        destination: &Val<I32>,
-        value: &Val<T>,
-        bytes: &Val<I32>,
-    ) -> Result<(), BuildError>
-    where
-        I32: wasm86_compiler::AtLeast<T>,
-    {
-        match self {
-            Self::Virtual(memory) => memory.fill(body, destination, value, bytes),
-            Self::Physical(_) => unreachable!("bulk transfers require stable mappings"),
+            Self::Virtual(memory) => memory.guest,
+            Self::Physical(memory) => memory.backing(),
         }
     }
 }

@@ -37,6 +37,7 @@ impl ComparisonRepetition {
             memory,
             (false.into(), [0.into(), 0.into()]),
             |(done, _)| done.clone(),
+            |_, _| Ok(()),
             |iteration, _, memory| {
                 let [left, right] = operands(iteration, memory)?;
                 advance_indices(iteration, &indices, stride)?;

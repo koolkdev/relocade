@@ -1,5 +1,5 @@
 use super::*;
-use crate::test_step::{MmioUpdate, Observation};
+use crate::test_step::{DeviceUpdate, Observation};
 
 fn transfer(engine: Engine, input: &Input, entry: &str) -> Observation {
     let module = TestModule::new(&CompiledModule {
@@ -148,9 +148,9 @@ fn remapping(engine: Engine) {
         ));
         input.arguments = vec![Argument::I32(0x1fff)];
         // Replace page 2's backing after the first (MMIO) byte transfers.
-        input.mmio_updates = vec![MmioUpdate {
+        input.mmio_updates = vec![DeviceUpdate {
             map: vec![(2 * 8, vec![1, 0, 0, 0, 0, 0x70, 0, 0])],
-            ..MmioUpdate::default()
+            ..DeviceUpdate::default()
         }];
         if write {
             input.arguments.push(Argument::I32(0x4433_2211));
@@ -221,9 +221,9 @@ fn remapping(engine: Engine) {
     });
     let mut input = input();
     input.mmio_pages = vec![(8, 0x6000)];
-    input.mmio_updates = vec![MmioUpdate {
+    input.mmio_updates = vec![DeviceUpdate {
         guest: vec![(0x5000, vec![0x42])],
-        ..MmioUpdate::default()
+        ..DeviceUpdate::default()
     }];
     let observed = engine.observe(&module, &input, 1);
     assert_eq!(value(&observed), 0x7742);

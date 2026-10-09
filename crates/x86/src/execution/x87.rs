@@ -102,7 +102,8 @@ impl<'body> ExecutionBuilder<'body, '_> {
     /// Delivers a pending exception at this instruction's restart boundary.
     /// Called by FWAIT and x87 instructions that check exceptions on entry.
     pub(crate) fn check_x87_exception(&mut self) -> Result<(), BuildError> {
-        self.state
-            .check_x87(&mut self.body, &self.eip, self.completed)
+        let pending = self.state.x87.exception_pending(&mut self.body)?;
+        self.fault_if(pending, crate::exception::Exception::FloatingPoint)?;
+        self.state.x87.assume_no_pending_exception(&mut self.body)
     }
 }

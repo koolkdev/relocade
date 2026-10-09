@@ -11,7 +11,7 @@ pub(super) fn register(
     store: &mut Store<ExecutionEvents>,
     guest: Memory,
     input: &Input,
-) {
+) -> Memory {
     let backing = input
         .physical_pages
         .iter()
@@ -63,7 +63,8 @@ pub(super) fn register(
                     let backing = device_backing(&read_devices, table.data(&caller), address);
                     value |= u64::from(guest.data(&caller)[backing]) << (offset * 8);
                 }
-                apply_update(&mut caller, guest, table);
+                let update = caller.data_mut().mmio_updates.next();
+                apply_update(&mut caller, guest, Some(table), update);
                 value as i64
             },
         )
@@ -90,10 +91,12 @@ pub(super) fn register(
                     let backing = device_backing(&devices, table.data(&caller), address);
                     guest.data_mut(&mut caller)[backing] = byte;
                 }
-                apply_update(&mut caller, guest, table);
+                let update = caller.data_mut().mmio_updates.next();
+                apply_update(&mut caller, guest, Some(table), update);
             },
         )
         .unwrap();
+    table
 }
 
 fn device_backing(devices: &BTreeMap<u32, u32>, table: &[u8], address: u32) -> usize {
@@ -111,12 +114,21 @@ fn device_backing(devices: &BTreeMap<u32, u32>, table: &[u8], address: u32) -> u
     (devices[&page] + (address & 4095)) as usize
 }
 
-fn apply_update(caller: &mut Caller<'_, ExecutionEvents>, guest: Memory, table: Memory) {
-    if let Some(update) = caller.data_mut().mmio_updates.next() {
-        for (memory, patches) in [(guest, update.guest), (table, update.map)] {
-            for (offset, bytes) in patches {
-                memory.write(&mut *caller, offset as usize, &bytes).unwrap();
-            }
+pub(super) fn apply_update(
+    caller: &mut Caller<'_, ExecutionEvents>,
+    guest: Memory,
+    table: Option<Memory>,
+    update: Option<super::DeviceUpdate>,
+) {
+    if let Some(update) = update {
+        for (offset, bytes) in update.guest {
+            guest.write(&mut *caller, offset as usize, &bytes).unwrap();
+        }
+        for (offset, bytes) in update.map {
+            table
+                .expect("physical map for routing edits")
+                .write(&mut *caller, offset as usize, &bytes)
+                .unwrap();
         }
     }
 }

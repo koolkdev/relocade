@@ -19,14 +19,17 @@ pub(crate) struct Input {
     pub(crate) machine: Vec<(u32, Vec<u8>)>,
     pub(crate) physical_pages: Vec<(u32, u32, bool)>,
     pub(crate) mmio_pages: Vec<(u32, u32)>,
-    pub(crate) mmio_updates: Vec<MmioUpdate>,
+    pub(crate) mmio_updates: Vec<DeviceUpdate>,
     pub(crate) observe_mmio: bool,
     pub(crate) port_reads: Vec<u32>,
+    pub(crate) port_updates: Vec<DeviceUpdate>,
     pub(crate) arguments: Vec<Argument>,
     pub(crate) observe_guest: bool,
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
     pub(crate) segment_queries: Vec<SegmentQuery>,
     pub(crate) patches_before_calls: Vec<CallPatches>,
+    pub(crate) budgets: Vec<u32>,
+    pub(crate) observe_budget: bool,
     #[serde(with = "wasm86_test_support::decimal_i64")]
     pub(crate) dispatch_return: i64,
 }
@@ -42,19 +45,22 @@ impl Input {
             mmio_updates: Vec::new(),
             observe_mmio: false,
             port_reads: Vec::new(),
+            port_updates: Vec::new(),
             arguments: Vec::new(),
             observe_guest: false,
             segment_resolutions: Vec::new(),
             segment_queries: Vec::new(),
             patches_before_calls: Vec::new(),
+            budgets: Vec::new(),
+            observe_budget: false,
             dispatch_return: i64::MIN,
         }
     }
 }
 
-/// Device changes applied after the corresponding MMIO transfer completes.
+/// Backing and routing changes applied after the corresponding device callback.
 #[derive(Clone, Default, Serialize)]
-pub(crate) struct MmioUpdate {
+pub(crate) struct DeviceUpdate {
     pub(crate) guest: Vec<(u32, Vec<u8>)>,
     pub(crate) map: Vec<(u32, Vec<u8>)>,
 }
@@ -85,6 +91,9 @@ pub(crate) struct Snapshot {
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Event {
+    Budget {
+        remaining: u32,
+    },
     PortRead {
         port: u32,
         bytes: u32,
