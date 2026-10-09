@@ -7,6 +7,7 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   const cpuState = new WebAssembly.Memory({ initial: 1 });
   const guest = new WebAssembly.Memory({ initial: 1 });
   const machine = new WebAssembly.Memory({ initial: 64 });
+  const executionBudget = new WebAssembly.Memory({ initial: 1 });
   new Uint8Array(cpuState.buffer).set(input.cpu);
   for (const [memory, patches] of [[guest, input.guest], [machine, input.machine]]) {
     for (const [offset, bytes] of patches) new Uint8Array(memory.buffer).set(bytes, offset);
@@ -35,21 +36,32 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   const events = [];
   let resolutions = 0;
   let portReads = 0;
+  let portUpdates = 0;
   let segmentQueries = 0;
   const physical = [module, interpreter].filter(Boolean)
     .some(module => WebAssembly.Module.imports(module).some(resource => resource.module === 'wasm86' && resource.name === 'physicalMap'))
     ? physicalMemory(guest, input, events) : null;
+  const updatePort = () => {
+    const update = input.port_updates[portUpdates];
+    if (update) {
+      portUpdates++;
+      if (!physical) throw new Error('port update needs physical memory');
+      physical.patch(update);
+    }
+  };
   const imports = {
     wasm86: {
-      cpuState, guest, machine,
+      cpuState, guest, machine, executionBudget,
       ...physical?.imports,
       readPort: (port, bytes) => {
         if (portReads >= input.port_reads.length) throw new Error('unexpected port read');
         events.push({kind: 'port_read', port, bytes});
+        updatePort();
         return input.port_reads[portReads++];
       },
       writePort: (port, bytes, value) => {
         events.push({kind: 'port_write', port, bytes, value: value >>> 0});
+        updatePort();
       },
       querySegmentDescriptor: selector => {
         const reply = input.segment_queries[segmentQueries++];
@@ -84,6 +96,9 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   const instance = new WebAssembly.Instance(module, imports);
   const args = input.arguments.map(decode);
   for (let call = 0; call < invocations; call++) {
+    if (input.budgets[call] !== undefined) {
+      new DataView(executionBudget.buffer).setUint32(0, input.budgets[call], true);
+    }
     const patches = input.patches_before_calls[call];
     if (patches) {
       for (const [memory, edits] of [[cpuState, patches.cpu], [guest, patches.guest], [machine, patches.machine]]) {
@@ -101,12 +116,14 @@ export default function execute([module, interpreter], { entry, interpreter_entr
       outcome = { kind: 'trap' };
     }
     events.push({ kind: 'return', outcome, snapshot: snapshot() });
+    if (input.observe_budget) events.push({kind: 'budget', remaining: new DataView(executionBudget.buffer).getUint32(0, true)});
   }
   if (resolutions !== input.segment_resolutions.length) throw new Error('unused segment resolutions');
   if (segmentQueries !== input.segment_queries.length) {
     throw new Error('unused segment queries');
   }
   if (portReads !== input.port_reads.length) throw new Error('unused port reads');
+  if (portUpdates !== input.port_updates.length) throw new Error('unused port updates');
   if (physical) physical.checkComplete();
   else if (input.mmio_updates.length !== 0) throw new Error('unused MMIO updates');
   return {

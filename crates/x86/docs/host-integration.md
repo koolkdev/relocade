@@ -29,11 +29,48 @@ instruction faults or is unsupported. Each instruction fetches live guest bytes
 and starts with fresh prefix state. REP completes its repetition; port strings
 dispatch and other strings continue to the next instruction in both frontends.
 
-Interpreter `step` executes one instruction before dispatch, including all elements
-of a supported REP instruction. Neither interpreter entry has an execution budget.
-Straight-line `run` execution, REP work and chains of host dispatches have no fixed
-bound. The snapshot compiler's instruction limit bounds compilation only; it is
-not an interpreter limit or a host responsiveness guarantee.
+By default, interpreter `step` executes one instruction before dispatch, including
+all elements of a supported REP instruction. Neither interpreter entry has an
+execution budget unless enabled as described below. Straight-line `run` execution,
+REP work and chains of host dispatches otherwise have no fixed bound. The snapshot
+compiler's instruction limit bounds compilation only; it is not an interpreter
+limit or a host responsiveness guarantee.
+
+## Execution slices
+
+`Compiler::new(profile).with_execution_budget()` enables a common budget for its
+snapshot and interpreter entries. They import `wasm86.executionBudget`, an unshared
+memory of at least one Wasm page. Its first four bytes hold a little-endian u32
+remaining work count. The host supplies a finite count before entering a slice;
+entries, interpreter handoffs and dispatches in that slice share the same memory.
+The host must not replenish it from dispatch or device callbacks.
+
+One unit permits an ordinary completed instruction or one REP element. A REP with
+zero count consumes one unit. Exhaustion returns `SLICE_EXHAUSTED` (tag 512, zero
+payload/address), with all completed state published and no dispatch callback.
+An ordinary block boundary may still dispatch after consuming the last unit;
+the next budgeted entry yields before fetching or executing an instruction.
+No next-instruction fetch occurs after exhaustion. This bounds guest work rather
+than wall-clock time: synchronous device callbacks still belong to the host.
+
+A partial REP leaves EIP at its first prefix, retains completed elements and the
+remaining count, and does not retire. Reenter an interpreter or a valid snapshot
+at that EIP with a fresh budget. LODS retains its last accumulator; CMPS/SCAS keep
+their original entry flags until successful completion, including across slices,
+so a later fault preserves the existing REP fault semantics. Conditional termination
+and count exhaustion complete the instruction before any yield. Hosts must not
+modify instruction inputs during an internal REP suspension unless intentionally
+changing guest execution.
+
+Budgeted REP bounds each range proof by the remaining budget and operand page
+boundaries. Successful proofs retain the shared bulk copy/fill and relative
+element loops. A failed JIT proof enters the interpreter before effects; a failed
+interpreter proof executes one checked element. An unfinished chunk keeps EIP
+at REP and does not retire. Interpreter `run` resumes internally; `step` and JIT
+entries dispatch at that same EIP. Count exhaustion and conditional termination
+complete REP normally. Budget values stay local during execution and are published
+alongside CPU state at exits. CPU image layout and default compilation are unchanged.
+Snapshot compilation limits still bound compilation, independently of this budget.
 
 ## Interpreter handoff
 
@@ -140,6 +177,7 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | `guest` | 1 | Guest backing bytes for the selected memory model. |
 | `machine` | 64 | Protected-mode linear-to-backing page table at byte zero. |
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
+| `executionBudget` | 1 | Optional slice work count at byte zero. |
 
 Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
 `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
@@ -151,6 +189,7 @@ require guest backing and the page table, protected-mode segment loads require
 `resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks
 with specialization guards require `interpret`. Hosts should use the generated
 module's import list when instantiating it.
+Budgeted entries additionally share `executionBudget` as described above.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical
@@ -655,6 +694,7 @@ exception vector numbers:
 | BOUND range exceeded | 64 | Zero | Zero |
 | Invalid opcode | 128 | Zero | Zero |
 | Floating-point error | 256 | Zero | Zero |
+| Slice exhausted | 512 | Zero | Zero |
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the

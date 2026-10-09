@@ -25,6 +25,10 @@ export default function physicalMemory(guest, input, events) {
     const update = input.mmio_updates[updates];
     if (!update) return;
     updates++;
+    patch(update);
+  }
+
+  function patch(update) {
     for (const [memory, patches] of [[guest, update.guest], [physicalMap, update.map]]) {
       for (const [offset, bytes] of patches) new Uint8Array(memory.buffer).set(bytes, offset);
     }
@@ -37,6 +41,7 @@ export default function physicalMemory(guest, input, events) {
   }
 
   return {
+    patch,
     imports: {
       physicalMap,
       readMmio(address, bytes) {

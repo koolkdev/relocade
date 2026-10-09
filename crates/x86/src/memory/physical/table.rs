@@ -57,20 +57,24 @@ impl PhysicalTable {
         self,
         body: &mut BlockBuilder<'_>,
         address: &Val<I32>,
-        bytes: u32,
+        bytes: impl Into<Val<I32>>,
         intent: Intent,
     ) -> Result<DirectRange, BuildError> {
-        assert!((1..=PhysicalMemoryMap::PAGE_BYTES).contains(&bytes));
+        let bytes = body.value(bytes)?;
         let entry = self.lookup(body, address)?;
         let allowed = match intent {
             Intent::Read | Intent::Fetch => entry.readable(),
             Intent::Write => entry.kind.eq(RAM),
         };
         Ok(DirectRange {
-            unavailable: allowed.eq(false).or(address
-                .and(PAGE_MASK)
-                .unsigned()
-                .ge(PhysicalMemoryMap::PAGE_BYTES - bytes + 1)),
+            unavailable: allowed
+                .eq(false)
+                .or(bytes.eq(0))
+                .or(bytes.unsigned().ge(PhysicalMemoryMap::PAGE_BYTES + 1))
+                .or(address
+                    .and(PAGE_MASK)
+                    .unsigned()
+                    .ge(Val::<I32>::from(PhysicalMemoryMap::PAGE_BYTES + 1).sub(&bytes))),
             physical: entry.backing_address(address),
         })
     }

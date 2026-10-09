@@ -110,7 +110,7 @@ impl Compiler {
             .any(|decoded_instruction| decoded_instruction.instruction.uses_memory())
             .then(|| Memory::declare(&mut program, profile))
             .transpose()?;
-        let runtime = Runtime::declare(&mut program);
+        let runtime = Runtime::declare(&mut program, self.execution_budget);
         let function = program.function(
             Signature {
                 parameters: vec![],

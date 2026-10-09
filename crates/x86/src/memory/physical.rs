@@ -59,11 +59,15 @@ impl PhysicalMemory {
         }
     }
 
+    pub(super) fn backing(&self) -> Mem {
+        self.backing
+    }
+
     pub(super) fn check_direct_access(
         &self,
         body: &mut BlockBuilder<'_>,
         address: &Val<I32>,
-        bytes: u32,
+        bytes: impl Into<Val<I32>>,
         intent: Intent,
     ) -> Result<DirectRange, BuildError> {
         self.table.direct_range(body, address, bytes, intent)

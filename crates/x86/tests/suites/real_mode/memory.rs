@@ -204,7 +204,7 @@ test_frontends!(physical_bus_policy, physical_policy);
 fn repeated_copy_remapping(engine: Engine, frontend: Frontend) {
     use crate::support::{
         machine::expected,
-        step::{Event, MmioUpdate, TestModule},
+        step::{DeviceUpdate, Event, TestModule},
     };
     let code = [0xf3, 0xa4]; // REP MOVSB
     let mut image = image(&code);
@@ -220,12 +220,12 @@ fn repeated_copy_remapping(engine: Engine, frontend: Frontend) {
     let mut input = image.input();
     input.mmio_pages = vec![(2, 0x8000)];
     input.observe_mmio = true;
-    input.mmio_updates = vec![MmioUpdate {
+    input.mmio_updates = vec![DeviceUpdate {
         map: vec![
             (2 * 8, vec![1, 0, 0, 0, 0, 0xb0, 0, 0]),
             (3 * 8, vec![1, 0, 0, 0, 0, 0xa0, 0, 0]),
         ],
-        ..MmioUpdate::default()
+        ..DeviceUpdate::default()
     }];
     let block = matches!(frontend, Frontend::Block).then(|| {
         TestModule::new(

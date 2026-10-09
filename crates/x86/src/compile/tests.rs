@@ -1,6 +1,8 @@
 use super::*;
 use crate::SegmentProfile;
 
+mod slices;
+
 #[test]
 fn snapshot_helpers_use_unobserved_configuration() {
     for profile in [

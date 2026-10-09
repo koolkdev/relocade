@@ -37,30 +37,23 @@ pub(crate) struct StackValue {
     pub(crate) empty: Val<I1>,
 }
 
-impl super::State<'_> {
-    /// Delivers a deferred x87 exception at this instruction's restart boundary.
-    /// The fault path keeps conditional writes. Reaching the continuation proves
-    /// that earlier writes were enabled, so later stack reads can omit their guards.
-    pub(crate) fn check_x87(
+impl X87State {
+    pub(crate) fn exception_pending(
         &mut self,
         body: &mut BlockBuilder<'_>,
-        restart_eip: &Val<I32>,
-        completed: u32,
-    ) -> Result<(), BuildError> {
-        let pending = self.x87.status.pending(body)?;
-        body.if_(pending, |fault_body| {
-            self.fault(
-                fault_body,
-                restart_eip,
-                completed,
-                crate::exception::Exception::FloatingPoint,
-            )
-        })?;
-        self.x87.registers.discard_write_guards(body)
+    ) -> Result<Val<I1>, BuildError> {
+        self.status.pending(body)
     }
-}
 
-impl X87State {
+    /// After the execution owner exits on a pending exception, earlier
+    /// conditional writes are known to have succeeded.
+    pub(crate) fn assume_no_pending_exception(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<(), BuildError> {
+        self.registers.discard_write_guards(body)
+    }
+
     pub(crate) fn new(memory: Mem) -> Self {
         Self {
             metadata: StateFields::new(memory),

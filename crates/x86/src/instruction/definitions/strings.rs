@@ -225,9 +225,11 @@ where
         )],
         initial,
         |_| false.into(),
-        |iteration, previous, operands| {
-            // A later fault must retain the last completed load.
-            TypedLocation::<T>::register(Gpr32::Eax).write(iteration, previous)?;
+        |iteration, previous| {
+            // A later fault or slice yield retains the last completed load.
+            TypedLocation::<T>::register(Gpr32::Eax).write(iteration, previous.clone())
+        },
+        |iteration, _, operands| {
             load_element::<T>(iteration, &operands[0])?;
             TypedLocation::<T>::register(Gpr32::Eax).read(iteration)
         },
