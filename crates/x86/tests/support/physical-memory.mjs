@@ -5,6 +5,7 @@ export default function physicalMemory(guest, input, events) {
   for (const [page] of devices) pages.set(page, [3, 0]);
   const physicalMap = new WebAssembly.Memory({ initial: 1 });
   const table = new DataView(physicalMap.buffer);
+  table.setUint32(2176, input.a20_enabled ? 0xffffffff : 0xffefffff, true);
   for (const [page, [kind, backing]] of pages) {
     if (page < 0 || page >= 272) throw new Error('physical page exceeds the real-mode table');
     table.setUint32(page * 8, kind, true);
