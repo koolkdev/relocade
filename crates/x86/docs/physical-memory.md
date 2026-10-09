@@ -52,9 +52,10 @@ backing-page offset. Unmapped and MMIO offsets are zero. Install the image at
 offset zero in `physicalMap`; physical page `p` has its kind at `p * 8` and backing
 offset at `p * 8 + 4`. A trailing u32 at `PhysicalMemoryMap::A20_MASK_OFFSET`
 (2176) is the address mask: FFFFFFFF with A20 enabled, FFEFFFFF with it disabled.
-New maps enable A20. `set_a20_enabled(false)` makes addresses with bit 20 set
-alias the corresponding low address, before routing or MMIO callbacks. Install
-the updated serialized mask to change the live gate; page entries stay intact.
+New maps disable A20 for DOS compatibility: addresses with bit 20 set alias the
+corresponding low address before routing or MMIO callbacks. Call
+`set_a20_enabled(true)` to preserve addresses above 1 MiB. Install the updated
+serialized mask to change the live gate; page entries stay intact.
 `get(address)` applies the same gate for host inspection. The host models the
 keyboard-controller or fast-A20 port that controls this platform state.
 

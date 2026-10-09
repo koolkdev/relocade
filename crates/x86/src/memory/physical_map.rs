@@ -81,6 +81,7 @@ impl PhysicalMemoryMap {
 
     /// Constructs a table from inclusive physical ranges. Empty input leaves all
     /// pages unmapped; later regions replace earlier overlapping regions.
+    /// A20 starts disabled for DOS-compatible address wrapping.
     /// Each range must contain complete pages within 0..=0x10ffff.
     /// For RAM/ROM, `backing_offset` names the first byte and must be page aligned;
     /// subsequent pages use consecutive backing. Backing must fit the 32-bit
@@ -117,11 +118,11 @@ impl PhysicalMemoryMap {
         }
         Ok(Self {
             pages,
-            a20_enabled: true,
+            a20_enabled: false,
         })
     }
 
-    /// Selects the platform A20 gate. New maps enable it. The host installs the
+    /// Selects the platform A20 gate. New maps disable it. The host installs the
     /// updated serialized mask before the next transfer that should observe it.
     pub fn set_a20_enabled(&mut self, enabled: bool) {
         self.a20_enabled = enabled;

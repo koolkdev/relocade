@@ -10,7 +10,7 @@ fn empty_regions_produce_a_complete_unmapped_table() {
     }
     let bytes = map.to_bytes();
     assert!(bytes[..2176].iter().all(|&byte| byte == 0));
-    assert_eq!(&bytes[2176..], &[0xff; 4]);
+    assert_eq!(&bytes[2176..], &[0xff, 0xff, 0xef, 0xff]);
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn later_regions_replace_only_the_requested_pages() {
 
 #[test]
 fn separate_physical_ranges_can_alias_the_same_backing() {
-    let map = PhysicalMemoryMap::new([
+    let mut map = PhysicalMemoryMap::new([
         (
             0..=0x1fff,
             Ram {
@@ -121,6 +121,7 @@ fn separate_physical_ranges_can_alias_the_same_backing() {
         ),
     ])
     .unwrap();
+    map.set_a20_enabled(true);
     assert_eq!(
         map.get(0x1234),
         Ram {
@@ -174,7 +175,7 @@ fn constructor_rejects_invalid_regions() {
 
 #[test]
 fn last_real_mode_page_can_use_the_last_32_bit_backing_page() {
-    let map = PhysicalMemoryMap::new([
+    let mut map = PhysicalMemoryMap::new([
         (0..=0x10ffff, Ram { backing_offset: 0 }),
         (
             0x10f000..=0x10ffff,
@@ -184,6 +185,7 @@ fn last_real_mode_page_can_use_the_last_32_bit_backing_page() {
         ),
     ])
     .unwrap();
+    map.set_a20_enabled(true);
     assert_eq!(
         map.get(0x10efff),
         Ram {
@@ -237,11 +239,11 @@ fn serialization_has_fixed_little_endian_entries_without_a_header() {
     );
     assert!(bytes[24..2168].iter().all(|&byte| byte == 0));
     assert_eq!(&bytes[2168..2176], &[1, 0, 0, 0, 0, 0xf0, 0xff, 0xff]);
-    assert_eq!(&bytes[2176..], &[0xff; 4]);
+    assert_eq!(&bytes[2176..], &[0xff, 0xff, 0xef, 0xff]);
 }
 
 #[test]
-fn a20_gate_aliases_addresses_without_replacing_mappings() {
+fn a20_defaults_to_disabled_and_toggling_preserves_mappings() {
     let mut map = PhysicalMemoryMap::new([
         (
             0..=0xfff,
@@ -259,14 +261,6 @@ fn a20_gate_aliases_addresses_without_replacing_mappings() {
     .unwrap();
     assert_eq!(
         map.get(0x100123),
-        Rom {
-            backing_offset: 0x5123
-        }
-    );
-    let enabled = map.to_bytes();
-    map.set_a20_enabled(false);
-    assert_eq!(
-        map.get(0x100123),
         Ram {
             backing_offset: 0x2123
         }
@@ -278,8 +272,17 @@ fn a20_gate_aliases_addresses_without_replacing_mappings() {
         }
     );
     assert_eq!(map.get(u32::MAX), Unmapped);
-    assert_eq!(&map.to_bytes()[..2176], &enabled[..2176]);
-    assert_eq!(&map.to_bytes()[2176..], &[0xff, 0xff, 0xef, 0xff]);
+    let disabled = map.to_bytes();
+    assert_eq!(&disabled[2176..], &[0xff, 0xff, 0xef, 0xff]);
     map.set_a20_enabled(true);
-    assert_eq!(map.to_bytes(), enabled);
+    assert_eq!(
+        map.get(0x100123),
+        Rom {
+            backing_offset: 0x5123
+        }
+    );
+    assert_eq!(&map.to_bytes()[..2176], &disabled[..2176]);
+    assert_eq!(&map.to_bytes()[2176..], &[0xff; 4]);
+    map.set_a20_enabled(false);
+    assert_eq!(map.to_bytes(), disabled);
 }

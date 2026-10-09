@@ -458,8 +458,9 @@ from protected mode. Mode transitions and unreal-mode caches remain unsupported.
 Operand/address overrides select 32-bit operands/addresses while SS still uses SP.
 Every transferred span must fit the 64 KiB segment: SS failures report #SS(0),
 others #GP(0). Real-mode type permissions allow data writes through CS overrides.
-The physical map enables A20 by default. Disabling its gate clears address bit 20
-before RAM, ROM or MMIO routing; see [physical memory](physical-memory.md). Far JMP/CALL/RET
+The physical map disables A20 by default for DOS compatibility, clearing address
+bit 20 before RAM, ROM or MMIO routing. The host can enable it through
+`set_a20_enabled(true)`; see [physical memory](physical-memory.md). Far JMP/CALL/RET
 commit CS and dispatch, with target fetch belonging to the next entry. Real CALL
 checks the transferred offset plus selector; a dword selector slot reserves four
 bytes but transfers only its low word. RET checks both complete stack slots.

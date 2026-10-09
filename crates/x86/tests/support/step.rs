@@ -38,6 +38,7 @@ impl Input {
             guest: Vec::new(),
             machine: Vec::new(),
             physical_pages: Vec::new(),
+            // Most execution fixtures exercise unwrapped physical addressing.
             a20_enabled: true,
             mmio_pages: Vec::new(),
             mmio_updates: Vec::new(),
