@@ -110,19 +110,24 @@ fn exceptions(engine: Engine, frontend: Frontend) {
             (ONE, QNAN, 0, u16::from(!unordered), 0x45),
             (SNAN, ONE, 0, 1, 0x45),
             (ONE, (1, 0x3fff), 0, 1, 0x45),
+            ((0, 0x7fff), ONE, 0, 1, 0x45),
             ((1, 0), ONE, 0, 2, 1),
+            (ONE, (1, 0), 0, 2, 0),
+            ((1, 0), (1, 0), 0, 2, 0x40),
             (QNAN, (1, 0), 0, u16::from(!unordered), 0x45),
+            (SNAN, (1, 0), 0, 1, 0x45),
             (ONE, (1, 0), 1, 0x41, 0x45),
             (ONE, ONE, 2, 0x41, 0x45),
             (SNAN, QNAN, 3, 0x41, 0x45),
         ] {
-            for masked in [true, false] {
+            for control in [0x037f, 0x037e, 0x037d, 0x037c] {
                 let code = [instruction.as_slice(), &[0x9b]].concat();
                 let mut image = initial_image(&code);
-                set_control(
-                    &mut image.cpu.x87.control,
-                    if masked { 0x037f } else { 0x037c },
-                );
+                set_control(&mut image.cpu.x87.control, control);
+                // This starting relation differs from every comparison result.
+                image.cpu.flags.bytes.cf = 0;
+                image.cpu.flags.bytes.pf = 1;
+                image.cpu.flags.bytes.zf = 1;
                 write_value(&mut image.cpu, 7, left);
                 write_value(&mut image.cpu, 0, right);
                 if empty & 1 != 0 {
@@ -131,17 +136,17 @@ fn exceptions(engine: Engine, frontend: Frontend) {
                 if empty & 2 != 0 {
                     image.cpu.x87.tag_word |= 3;
                 }
-                let suppressed = !masked && exception != 0;
+                let pending = exception & !control & 3 != 0;
                 let opcode = (u16::from(instruction[0] & 7) << 8) | u16::from(instruction[1]);
                 let result = completed(
                     image.cpu,
                     opcode,
-                    if suppressed { 1 } else { relation },
-                    exception | if suppressed { 0x8080 } else { 0 },
-                    if suppressed { 0 } else { pops },
+                    relation,
+                    exception | if pending { 0x8080 } else { 0 },
+                    if pending { 0 } else { pops },
                 );
                 let mut waited = result;
-                let exit = if suppressed {
+                let exit = if pending {
                     Exit::FloatingPoint
                 } else {
                     waited.eip += 1;
@@ -149,7 +154,7 @@ fn exceptions(engine: Engine, frontend: Frontend) {
                     Exit::Dispatch(waited.eip)
                 };
                 checks.check(
-                    "operand exceptions suppress only result flags and pop",
+                    "operand exceptions publish flags and suppress unmasked pops",
                     &code,
                     &image,
                     &[
@@ -228,9 +233,9 @@ fn stored_flags_and_pending(engine: Engine, frontend: Frontend) {
                 }],
             );
         } else {
-            let result = completed(image.cpu, 0x07f1, 5, 0x8081, 0);
+            let result = completed(image.cpu, 0x07f1, 0x45, 0x8081, 0);
             checks.check(
-                "unmasked invalid retains logical recipe flags",
+                "unmasked invalid replaces logical recipe flags",
                 &code,
                 &image,
                 &[dispatch(result)],

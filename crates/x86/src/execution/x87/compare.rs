@@ -72,30 +72,27 @@ impl ExecutionBuilder<'_, '_> {
             .status
             .record_pending_exception(body, suppressed.clone())?;
         state.status.set_c1(body, false)?;
-        // Unmasked invalid preserves the condition codes. Retain them for an
-        // unmasked denormal too, as the pre-operation policy; Intel specifies
-        // unchanged TOP and operands for #D but not the condition-code response.
-        let enabled = suppressed.eq(false);
+        let pop_enabled = suppressed.eq(false);
         if matches!(target, ComparisonTarget::X87) {
-            state.status.set_comparison(body, &result, &enabled)?;
+            // Unmasked invalid preserves the x87 condition codes. Retain them
+            // for unmasked denormals too; Intel specifies unchanged TOP and
+            // operands for #D but not the condition-code response.
+            state.status.set_comparison(body, &result, &pop_enabled)?;
         }
-        state.access(body).pop(pops, &enabled)?;
+        state.access(body).pop(pops, &pop_enabled)?;
         if matches!(target, ComparisonTarget::Eflags) {
-            // Intel's October 2011 correction (252046-033, change 8) clarifies
-            // that OF, SF and AF clear even when invalid suppresses the result.
+            // Intel's Celeron specification update 243748-011, C15, corrects
+            // the manual: comparison flags are written even for unmasked #IA.
+            // Denormals also publish the relation; neither exception allows a
+            // pop when unmasked. OF/SF/AF clear per 252046-033, change 8.
             self.write_flags(FlagChange::partial([
+                (Flag::CF, result.unordered.or(result.less)),
+                (Flag::PF, result.unordered.clone()),
+                (Flag::ZF, result.unordered.or(result.equal)),
                 (Flag::OF, false.into()),
                 (Flag::SF, false.into()),
                 (Flag::AF, false.into()),
             ]))?;
-            self.write_flags(
-                FlagChange::partial([
-                    (Flag::CF, result.unordered.or(result.less)),
-                    (Flag::PF, result.unordered.clone()),
-                    (Flag::ZF, result.unordered.or(result.equal)),
-                ])
-                .when(enabled),
-            )?;
         }
         Ok(())
     }

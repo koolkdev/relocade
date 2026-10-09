@@ -1,4 +1,4 @@
-//! Native comparisons and exact restart preserve the preceding flag producer.
+//! Native comparisons publish flags; exception restarts preserve the preceding producer.
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
@@ -102,7 +102,7 @@ fn restart_after_integer_compare(engine: Engine) {
             let result = completed(
                 prefix,
                 0x07f1,
-                if masked { relation } else { 5 },
+                relation,
                 exception | if masked { 0 } else { 0x8080 },
                 u8::from(masked),
             );
