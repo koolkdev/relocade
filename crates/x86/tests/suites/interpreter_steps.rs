@@ -102,6 +102,7 @@ fn interpreter_step_exposes_host_abis() {
                 (vec![ValType::I32], vec![ValType::I32; 5])
             ),
             ("cpuid", (vec![ValType::I32; 2], vec![ValType::I32; 4])),
+            ("readTimestampCounter", (vec![], vec![ValType::I64])),
         ]
     );
     let entry = exported.unwrap() as usize - imports.len();

@@ -24,6 +24,7 @@ pub(crate) struct Input {
     pub(crate) observe_mmio: bool,
     pub(crate) port_reads: Vec<u32>,
     pub(crate) cpuid_results: Vec<[u32; 4]>,
+    pub(crate) timestamp_reads: Vec<Argument>,
     pub(crate) arguments: Vec<Argument>,
     pub(crate) observe_guest: bool,
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
@@ -47,6 +48,7 @@ impl Input {
             observe_mmio: false,
             port_reads: Vec::new(),
             cpuid_results: Vec::new(),
+            timestamp_reads: Vec::new(),
             arguments: Vec::new(),
             observe_guest: false,
             segment_resolutions: Vec::new(),
@@ -90,6 +92,7 @@ pub(crate) struct Snapshot {
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Event {
+    TimestampRead,
     Cpuid {
         leaf: u32,
         subleaf: u32,

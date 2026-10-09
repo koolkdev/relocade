@@ -10,7 +10,8 @@ use crate::{Segment, SegmentDefaultSize, SegmentProfile, Segments, StoredSegment
 /// publication and dispatch may follow before the next entry is admitted.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ExecutionProfile {
-    /// Protected mode at CPL3 under the selected segment assumptions.
+    /// Protected mode at CPL3 under the selected segment assumptions, with
+    /// timestamp reads enabled (CR4.TSD=0).
     Protected(SegmentProfile),
     /// Ordinary real mode: 16-bit defaults, selector-shifted bases, 64 KiB limits
     /// and host-controlled A20. The host establishes canonical caches with

@@ -4,6 +4,11 @@ use super::*;
 use crate::register::{Gpr32, Register};
 
 impl ExecutionBuilder<'_, '_> {
+    pub(crate) fn rdtsc(&mut self) -> Result<(), BuildError> {
+        let counter = self.runtime.read_timestamp_counter(&mut self.body)?;
+        self.write_register_pair::<I32>(Gpr32::Edx, Gpr32::Eax, counter)
+    }
+
     pub(crate) fn cpuid(&mut self) -> Result<(), BuildError> {
         let leaf = self
             .state

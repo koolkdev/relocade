@@ -112,10 +112,12 @@ are required. Blocks that do not execute CPUID do not import the callback.
 
 Advertise only capabilities the embedding actually implements. In particular,
 partial x87 support does not establish the complete FPU feature, and this build
-does not implement MMX, SSE, SSE2, FXSAVE/FXRSTOR or RDTSC. These feature bits
+does not implement MMX, SSE, SSE2 or FXSAVE/FXRSTOR. These feature bits
 must remain clear. Copying the native host's CPUID results would advertise
 instructions and platform facilities the guest cannot use. The P4 compatibility
 target does not require claiming the complete identity of a physical P4.
+The host may advertise the TSC feature (leaf 1 EDX bit 4) when it provides the
+timestamp-counter contract below.
 
 CPUID serializes execution: both a snapshot block and an interpreter run complete
 the instruction, publish state and dispatch before fetching its successor. Prior
@@ -125,6 +127,44 @@ does not itself invalidate a host code cache. The single-threaded, unshared-memo
 execution contract does not model a processor's speculative pipeline or cache.
 
 These semantics follow Intel's [Volume 2A, CPUID](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf#page=202).
+
+## Timestamp counter
+
+RDTSC calls `wasm86.readTimestampCounter() -> i64` once per executed instruction.
+The result carries the complete unsigned 64-bit counter as a Wasm i64 bit pattern.
+Its low 32 bits replace EAX and its high 32 bits replace EDX; other registers and
+all flags are preserved. JavaScript hosts return a `BigInt`, preserving counters
+above Number's exact-integer range. For example, a result of
+`0x0123456789abcdefn` produces EDX=`0x01234567`, EAX=`0x89abcdef`.
+
+The embedding owns the virtual counter, its tick frequency and its progression.
+Use one clock timeline for a virtual processor across interpreter entries, JIT
+blocks and host dispatches. Frequency is an embedding policy, not the native
+host CPU frequency or the 32-bit retired-instruction count. The counter must
+progress with the host's emulated clock, may repeat between sufficiently close
+reads, and wraps modulo 2^64. Entering a module or reading the counter must not
+reset it. A deterministic embedding can supply virtual time; a real-time
+embedding can convert elapsed monotonic time into ticks at its chosen rate.
+
+The callback completes synchronously and must not inspect or modify CPU backing,
+guest memory or mappings, or reenter execution. It may advance its own clock
+state. Reads remain observable even when subsequent instructions overwrite both
+result registers. Every interpreter requires this import; snapshots include it
+only when they execute RDTSC. No CPU backing fields or public Rust configuration
+are added for the host-owned clock.
+
+RDTSC is not serializing and does not end a block or interpreter run. The current
+execution model performs its read in guest instruction order; it does not model
+speculative timing. A later fault retains its completed register effects and
+retirement. An earlier fault or incomplete encoding prevents the read.
+
+All execution profiles support RDTSC. Protected profiles assume CR4.TSD=0;
+changing CR4 or denying user timestamp reads with TSD remains unsupported.
+Real-address mode permits RDTSC independently of TSD. Operand/address/segment
+prefixes do not alter its full-width registers. LOCK uses the shared
+unsupported-encoding exit before the callback.
+
+These semantics follow Intel's [Volume 2B, RDTSC](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366721.pdf#page=248).
 
 ## Port I/O
 
@@ -178,15 +218,17 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
 
 Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
-`cpuid`, `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
-`cpuState`, `guest`, `physicalMap`, `dispatch`, `cpuid`, the MMIO callbacks and the
-port callbacks. They use generated RAM/ROM accesses and do not call descriptor
-callbacks. The physical memory contract below describes routing and callback widths.
+`cpuid`, `readTimestampCounter`, `resolveSegment` and `querySegmentDescriptor`.
+Real16 interpreters import `cpuState`, `guest`, `physicalMap`, `dispatch`, `cpuid`,
+`readTimestampCounter`, the MMIO callbacks and the port callbacks. They use
+generated RAM/ROM accesses and do not call descriptor callbacks. The physical
+memory contract below describes routing and callback widths.
 Snapshot modules omit imports they do not use: protected-mode memory instructions
 require guest backing and the page table, protected-mode segment loads require
 `resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. CPUID
-requires `cpuid`; blocks with specialization guards require `interpret`. Hosts
-should use the generated module's import list when instantiating it.
+requires `cpuid` and RDTSC requires `readTimestampCounter`; blocks with
+specialization guards require `interpret`. Hosts should use the generated
+module's import list when instantiating it.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical

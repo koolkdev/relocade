@@ -1,10 +1,12 @@
-//! Queries of the host's virtual processor identity.
+//! Queries of the host's virtual processor identity and clock.
 
 use super::*;
+use wasm86_compiler::I64;
 
 #[derive(Clone, Copy)]
 pub(super) struct Processor {
     cpuid: Func,
+    timestamp_counter: Func,
 }
 
 pub(crate) struct CpuidValues {
@@ -24,11 +26,29 @@ impl Processor {
                 results: vec![Type::I32; 4],
             },
         });
-        Self { cpuid }
+        let timestamp_counter = program.import_function(FunctionImport {
+            module: "wasm86".into(),
+            name: "readTimestampCounter".into(),
+            signature: Signature {
+                parameters: vec![],
+                results: vec![Type::I64],
+            },
+        });
+        Self {
+            cpuid,
+            timestamp_counter,
+        }
     }
 }
 
 impl Runtime {
+    pub(crate) fn read_timestamp_counter(
+        self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<Val<I64>, BuildError> {
+        body.call::<I64>(self.processor.timestamp_counter, &[])
+    }
+
     pub(crate) fn cpuid(
         self,
         body: &mut BlockBuilder<'_>,
