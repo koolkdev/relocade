@@ -12,8 +12,9 @@ pub(crate) use source::ValueSource;
 pub(crate) use unbound::UnboundExpression;
 
 use crate::{
+    bitwise::BitwiseOp,
     integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
-    AtLeast, DoubleWidth, Expression, IntType, ValueType, I1, I32, I64,
+    AtLeast, BitwiseType, DoubleWidth, Expression, IntType, ValueType, I1, I32, I64,
 };
 
 /// A literal, unbound calculation or function-body scalar expression, checked by Rust.
@@ -76,6 +77,32 @@ impl From<bool> for Val<I1> {
     }
 }
 
+impl<T: BitwiseType> Val<T> {
+    fn bitwise(&self, operator: BitwiseOp, other: impl Into<Val<T>>) -> Self {
+        let other: Self = other.into();
+        Self::expression(Expression::Bitwise {
+            operator,
+            left: self.into(),
+            right: other.into(),
+        })
+    }
+
+    /// Keeps bits set in both operands.
+    pub fn and(&self, other: impl Into<Val<T>>) -> Self {
+        self.bitwise(BitwiseOp::And, other)
+    }
+
+    /// Sets bits present in either operand.
+    pub fn or(&self, other: impl Into<Val<T>>) -> Self {
+        self.bitwise(BitwiseOp::Or, other)
+    }
+
+    /// Keeps bits set in exactly one operand.
+    pub fn xor(&self, other: impl Into<Val<T>>) -> Self {
+        self.bitwise(BitwiseOp::Xor, other)
+    }
+}
+
 impl<T: ValueType> Val<T> {
     /// Returns whether values share a successful representation. Two literals
     /// share their normalized bits; body expressions share their body and node.
@@ -129,21 +156,6 @@ impl<T: IntType> Val<T> {
     #[allow(clippy::should_implement_trait)]
     pub fn mul(&self, other: impl Into<Val<T>>) -> Self {
         self.binary(BinaryOp::Mul, other)
-    }
-
-    /// Keeps bits set in both operands.
-    pub fn and(&self, other: impl Into<Val<T>>) -> Self {
-        self.binary(BinaryOp::And, other)
-    }
-
-    /// Sets bits present in either operand.
-    pub fn or(&self, other: impl Into<Val<T>>) -> Self {
-        self.binary(BinaryOp::Or, other)
-    }
-
-    /// Keeps bits set in exactly one operand.
-    pub fn xor(&self, other: impl Into<Val<T>>) -> Self {
-        self.binary(BinaryOp::Xor, other)
     }
 
     /// Counts set bits in the logical value, ignoring upper carrier bits.

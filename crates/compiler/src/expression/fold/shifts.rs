@@ -2,6 +2,7 @@
 
 use super::Folder;
 use crate::{
+    bitwise::BitwiseOp,
     body::ValueDefinition,
     integer::{self, BinaryOp, RotateOp, ShiftOp},
     Expression, Type,
@@ -62,7 +63,7 @@ impl Folder<'_> {
             let input = self.normalize(input);
             let width = u64::from(value.ty.bits());
             let mask = self.values.literal(Type::I32, width - 1);
-            let count = self.binary(BinaryOp::And, count, mask);
+            let count = self.bitwise(BitwiseOp::And, count, mask);
             let width = self.values.literal(Type::I32, width);
             let remaining = self.binary(BinaryOp::Sub, width, count);
             let (left_count, right_count) = match operator {
@@ -72,7 +73,7 @@ impl Folder<'_> {
             // A zero count leaves the other term outside the logical low bits.
             let left = self.shift(ShiftOp::Left, input, left_count);
             let right = self.shift(ShiftOp::RightUnsigned, input, right_count);
-            return self.binary(BinaryOp::Or, left, right);
+            return self.bitwise(BitwiseOp::Or, left, right);
         }
         let count = if value.ty == Type::I64 {
             self.convert(count, Type::I64)

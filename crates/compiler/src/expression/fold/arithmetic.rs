@@ -79,29 +79,6 @@ impl Folder<'_> {
         if let Some((input, offset)) = offset {
             return Some(self.add_constant(ty, input, offset, ty.carrier().bits()));
         }
-        if operator == BinaryOp::And {
-            let masked = match (self.values[a].definition, self.values[b].definition) {
-                (_, ValueDefinition::Literal(mask)) => self.and_constant(ty, left, mask),
-                (ValueDefinition::Literal(mask), _) => self.and_constant(ty, right, mask),
-                _ => None,
-            };
-            if masked.is_some() {
-                return masked;
-            }
-        }
-        if operator == BinaryOp::Or {
-            if let Some(input) = self.rejoin_bits(ty, left, right) {
-                return Some(input);
-            }
-        }
-        if matches!(operator, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor)
-            && self.complementary_predicates(left, right)
-        {
-            return Some(
-                self.values
-                    .carrier_literal(ty, u64::from(operator != BinaryOp::And)),
-            );
-        }
         match (
             operator,
             self.values[a].definition,
@@ -125,41 +102,11 @@ impl Folder<'_> {
                     },
                 ))
             }
-            (BinaryOp::Or | BinaryOp::Xor, _, ValueDefinition::Literal(0))
-            | (BinaryOp::Mul, _, ValueDefinition::Literal(1)) => Some(left),
-            (BinaryOp::Or | BinaryOp::Xor, ValueDefinition::Literal(0), _)
-            | (BinaryOp::Mul, ValueDefinition::Literal(1), _) => Some(right),
-            (BinaryOp::Or, _, ValueDefinition::Literal(bits)) if bits == ty.carrier().mask() => {
-                Some(right)
-            }
-            (BinaryOp::Or, ValueDefinition::Literal(bits), _) if bits == ty.carrier().mask() => {
-                Some(left)
-            }
+            (BinaryOp::Mul, _, ValueDefinition::Literal(1)) => Some(left),
+            (BinaryOp::Mul, ValueDefinition::Literal(1), _) => Some(right),
             (BinaryOp::Mul, _, ValueDefinition::Literal(0))
             | (BinaryOp::Mul, ValueDefinition::Literal(0), _) => Some(self.values.literal(ty, 0)),
-            (BinaryOp::Sub | BinaryOp::Xor, _, _) if a == b => Some(self.values.literal(ty, 0)),
-            (BinaryOp::Xor, _, _) => self.fold_xor(ty, a, b),
-            (BinaryOp::And | BinaryOp::Or, _, _) => {
-                if a == b {
-                    return Some(left);
-                }
-                for (input, other) in [(left, b), (right, a)] {
-                    if let ValueDefinition::Expression(Expression::Binary {
-                        operator: nested,
-                        left,
-                        right,
-                    }) = self.values[self.values.representation(input)].definition
-                    {
-                        if nested == operator
-                            && (self.values.representation(left) == other
-                                || self.values.representation(right) == other)
-                        {
-                            return Some(input);
-                        }
-                    }
-                }
-                None
-            }
+            (BinaryOp::Sub, _, _) if a == b => Some(self.values.literal(ty, 0)),
             _ => None,
         }
     }
@@ -180,10 +127,6 @@ impl Folder<'_> {
             (BinaryOp::Sub, _, ValueDefinition::Literal(offset)) => {
                 self.add_constant(a.ty, left, 0u64.wrapping_sub(offset), a.ty.bits())
             }
-            (BinaryOp::And, _, ValueDefinition::Literal(mask)) if mask == a.ty.mask() => left,
-            (BinaryOp::And, ValueDefinition::Literal(mask), _) if mask == a.ty.mask() => right,
-            (BinaryOp::Or, _, ValueDefinition::Literal(bits)) if bits == a.ty.mask() => right,
-            (BinaryOp::Or, ValueDefinition::Literal(bits), _) if bits == a.ty.mask() => left,
             _ => {
                 let (left, right) = match operator {
                     BinaryOp::DivUnsigned | BinaryOp::RemUnsigned => {
@@ -255,16 +198,5 @@ impl Folder<'_> {
             ValueDefinition::Literal(offset) => Some((left, offset)),
             _ => None,
         }
-    }
-
-    fn and_constant(&mut self, ty: Type, input: usize, mask: u64) -> Option<usize> {
-        let bits = mask.trailing_ones() as u8;
-        if self.values.bounds[input].unsigned <= bits {
-            return Some(input);
-        }
-        if mask == integer::low_mask(bits) {
-            return Some(self.fold_low_bits(ty, input, bits));
-        }
-        None
     }
 }

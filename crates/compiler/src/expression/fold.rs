@@ -11,6 +11,7 @@ use crate::{
 
 mod arithmetic;
 mod bits;
+mod bitwise;
 mod comparisons;
 mod select;
 mod shifts;
@@ -67,6 +68,11 @@ impl Folder<'_> {
                 left,
                 right,
             } => self.binary(operator, left, right),
+            Expression::Bitwise {
+                operator,
+                left,
+                right,
+            } => self.bitwise(operator, left, right),
             Expression::Compare {
                 operator,
                 left,
@@ -118,6 +124,11 @@ impl Folder<'_> {
                 left,
                 right,
             } => self.fold_binary(ty, operator, left, right),
+            Expression::Bitwise {
+                operator,
+                left,
+                right,
+            } => self.fold_bitwise(ty, operator, left, right),
             Expression::MultiplyWide {
                 signed,
                 left,
@@ -189,7 +200,7 @@ impl Folder<'_> {
             .ok()
     }
 
-    /// Finish a canonical scalar without re-entering the rewrite that produced it.
+    /// Finish a canonical value without re-entering the rewrite that produced it.
     fn intern(&mut self, ty: Type, expression: Expression<usize>) -> usize {
         self.intern_result(ty, expression, 0)
     }

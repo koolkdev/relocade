@@ -64,8 +64,17 @@ pub trait ValueType: Copy + sealed::Sealed + 'static {
     const TYPE: Type;
 }
 
-/// An integer type supporting bit operations and signed or unsigned views.
-pub trait IntType: ValueType {}
+/// A value type supporting bitwise AND, OR and XOR.
+pub trait BitwiseType: ValueType {}
+
+/// A scalar integer supporting arithmetic and signed or unsigned views.
+pub trait IntType: BitwiseType {}
+
+impl BitwiseType for I1 {}
+impl BitwiseType for I8 {}
+impl BitwiseType for I16 {}
+impl BitwiseType for I32 {}
+impl BitwiseType for I64 {}
 
 /// A logical one-bit integer type.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

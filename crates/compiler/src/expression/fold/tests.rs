@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::{
+    bitwise::BitwiseOp,
     body::BlockId,
     integer::{BinaryOp, BitCountOp, CompareOp, ShiftOp},
 };
@@ -36,8 +37,8 @@ fn xor_mask_combination_preserves_carrier_bits_during_refolding() {
         let high_bit = 1_u64 << ty.bits();
         let first_mask = values.carrier_literal(ty, high_bit | 1);
         let second_mask = values.literal(ty, 1);
-        let xor = |left, right| Expression::Binary {
-            operator: BinaryOp::Xor,
+        let xor = |left, right| Expression::Bitwise {
+            operator: BitwiseOp::Xor,
             left,
             right,
         };
@@ -51,8 +52,8 @@ fn xor_mask_combination_preserves_carrier_bits_during_refolding() {
         );
         let first = refold(&mut values, ty, xor(view, first_mask));
         let combined = refold(&mut values, ty, xor(first, second_mask));
-        let ValueDefinition::Expression(Expression::Binary {
-            operator: BinaryOp::Xor,
+        let ValueDefinition::Expression(Expression::Bitwise {
+            operator: BitwiseOp::Xor,
             left,
             right,
         }) = values[combined].definition
@@ -200,8 +201,8 @@ fn offsets_and_explicit_masks_keep_their_observed_width() {
     let masked = refold(
         &mut values,
         Type::I8,
-        Expression::Binary {
-            operator: BinaryOp::And,
+        Expression::Bitwise {
+            operator: BitwiseOp::And,
             left: carried,
             right: mask,
         },
@@ -287,11 +288,11 @@ fn boolean_folds_do_not_discard_upper_carrier_bits() {
         assert_eq!(values[numeric_bit].ty, Type::I64);
         assert_eq!(values.bounds[numeric_bit].unsigned, 1);
     }
-    for operator in [BinaryOp::Or, BinaryOp::Xor] {
+    for operator in [BitwiseOp::Or, BitwiseOp::Xor] {
         let result = refold(
             &mut values,
             Type::I1,
-            Expression::Binary {
+            Expression::Bitwise {
                 operator,
                 left: input,
                 right: zero_test,

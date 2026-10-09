@@ -2,8 +2,9 @@
 
 use super::{Bits, Facts};
 use crate::{
+    bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
-    integer::{low_mask, BinaryOp, CompareOp},
+    integer::{low_mask, CompareOp},
     Expression, Type,
 };
 
@@ -61,8 +62,8 @@ impl Facts {
                 Expression::LowBits { input, bits: width } => {
                     pending.push((input, bits.restrict(low_mask(width))))
                 }
-                Expression::Binary {
-                    operator: BinaryOp::Or,
+                Expression::Bitwise {
+                    operator: BitwiseOp::Or,
                     left: a,
                     right: b,
                 } => {
@@ -73,8 +74,8 @@ impl Facts {
                     pending.push((a, zeros));
                     pending.push((b, zeros));
                 }
-                Expression::Binary {
-                    operator: BinaryOp::And,
+                Expression::Bitwise {
+                    operator: BitwiseOp::And,
                     left: a,
                     right: b,
                 } => {

@@ -2,9 +2,10 @@
 
 use super::{Bits, Facts, Range};
 use crate::{
+    bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
     expression::TypedLiteral,
-    integer::{low_mask, BinaryOp, CompareOp},
+    integer::{low_mask, CompareOp},
     Expression,
 };
 
@@ -112,8 +113,8 @@ impl Facts {
                 }
                 (
                     _,
-                    Expression::Binary {
-                        operator: BinaryOp::And,
+                    Expression::Bitwise {
+                        operator: BitwiseOp::And,
                         left: a,
                         right: b,
                     },
@@ -127,8 +128,8 @@ impl Facts {
                 }
                 (
                     _,
-                    Expression::Binary {
-                        operator: BinaryOp::Or,
+                    Expression::Bitwise {
+                        operator: BitwiseOp::Or,
                         left: a,
                         right: b,
                     },
@@ -141,8 +142,8 @@ impl Facts {
                 }
                 (
                     _,
-                    Expression::Binary {
-                        operator: BinaryOp::Xor,
+                    Expression::Bitwise {
+                        operator: BitwiseOp::Xor,
                         left: a,
                         right: b,
                     },
