@@ -25,8 +25,7 @@ fn state(eip: u32) -> CpuState {
         cpu.registers[register] = value;
     }
     cpu.eip = eip;
-    cpu.instruction_count = 0xffff_ffff;
-    cpu.reserved_tail = [0; 4];
+    cpu.instruction_count = u64::MAX;
     cpu
 }
 

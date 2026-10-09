@@ -140,7 +140,7 @@ impl InstructionCase {
         self
     }
 
-    pub(crate) fn instruction_count(mut self, count: u32) -> Self {
+    pub(crate) fn instruction_count(mut self, count: u64) -> Self {
         self.initial.instruction_count = count;
         self
     }
@@ -277,7 +277,7 @@ impl InstructionCase {
 pub(super) struct InitialState {
     pub(super) flags: InitialFlags,
     pub(super) eip: u32,
-    pub(super) instruction_count: u32,
+    pub(super) instruction_count: u64,
     pub(super) registers: Vec<(Gpr32, u32)>,
     pub(super) segments: Vec<(Segment, StoredSegment)>,
     pub(super) memory: Vec<MemoryRegion>,

@@ -20,7 +20,7 @@ fn initial_cpu() -> CpuState {
     cpu.flags.bytes.id = 0xa5;
     cpu.flags.bytes.if_ = 0xfe;
     cpu.eip = 0x1000;
-    cpu.instruction_count = u32::MAX;
+    cpu.instruction_count = u64::MAX;
     cpu
 }
 

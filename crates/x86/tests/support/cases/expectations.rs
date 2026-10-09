@@ -213,7 +213,10 @@ fn check_effects(
     assert_eq!(actual.cpu.eip, expected_eip, "{context}: EIP");
     assert_eq!(
         actual.cpu.instruction_count,
-        initial.cpu.instruction_count.wrapping_add(boundary.retired),
+        initial
+            .cpu
+            .instruction_count
+            .wrapping_add(u64::from(boundary.retired)),
         "{context}: retired instruction count"
     );
     assert_eq!(
@@ -223,10 +226,6 @@ fn check_effects(
     assert_eq!(
         actual.cpu.reserved, initial.cpu.reserved,
         "{context}: reserved CPU bytes"
-    );
-    assert_eq!(
-        actual.cpu.reserved_tail, initial.cpu.reserved_tail,
-        "{context}: reserved CPU tail"
     );
     let mut expected_record = initial.cpu.flags;
     for &(flag, value) in &expected.direct_flags {

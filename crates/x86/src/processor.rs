@@ -15,6 +15,7 @@ pub(crate) struct CpuidValues {
 // processor identity. Feature flags describe the implementation independently.
 const SIGNATURE: u32 = 0x0000_0601;
 const POPCNT: u32 = 1 << 23;
+const TSC: u32 = 1 << 4;
 const CX8: u32 = 1 << 8;
 const CMOV: u32 = 1 << 15;
 
@@ -26,6 +27,6 @@ pub(crate) fn cpuid(leaf: &Val<I32>) -> CpuidValues {
         eax: vendor.select(1, SIGNATURE),
         ebx: vendor.select(u32::from_le_bytes(*b"Relo"), 0),
         ecx: vendor.select(u32::from_le_bytes(*b" CPU"), POPCNT),
-        edx: vendor.select(u32::from_le_bytes(*b"cade"), CX8 | CMOV),
+        edx: vendor.select(u32::from_le_bytes(*b"cade"), TSC | CX8 | CMOV),
     }
 }

@@ -14,7 +14,7 @@ pub(crate) use control::CodeTarget;
 pub(crate) use operands::WriteTarget;
 pub(crate) use strings::{ResolvedStrings, StringOperand};
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I64, I8};
 
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
@@ -134,6 +134,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     pub(crate) fn profile(&self) -> ExecutionProfile {
         self.segments.profile()
+    }
+
+    /// Retired instructions, including this entry's unpublished progress.
+    pub(crate) fn instruction_count(&mut self) -> Result<Val<I64>, BuildError> {
+        self.state.instruction_count(&mut self.body, self.completed)
     }
 
     /// Builds compiler values, including pure control-flow joins, in the current

@@ -123,8 +123,8 @@ pub struct CpuState {
     pub eip: u32,
     pub segments: Segments,
     pub reserved: [u8; 8],
-    pub instruction_count: u32,
-    pub reserved_tail: [u8; 4],
+    /// Retired guest instructions, wrapping modulo 2^64; also the virtual TSC.
+    pub instruction_count: u64,
     pub x87: StoredX87,
 }
 

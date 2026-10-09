@@ -7,7 +7,7 @@ impl InitialState {
     pub(in crate::support) fn new(flags: InitialFlags) -> Self {
         Self {
             eip: 0x1000,
-            instruction_count: u32::MAX,
+            instruction_count: u64::MAX,
             flags,
             registers: Vec::new(),
             segments: Vec::new(),

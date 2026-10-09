@@ -33,7 +33,7 @@ fn checkpoint_cases() -> Vec<SequenceCase> {
         .step(Checkpoint::preserving_flags(&[0xb4, 0x12]).register(Eax, 0x4433_1280))
         .conditions([1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1]),
         SequenceCase::preserving_flags("overlapping writes and retirement survive a later fault")
-            .instruction_count(u32::MAX - 1)
+            .instruction_count(u64::MAX - 1)
             .initial_registers(&[(Eax, 0x7a), (Ebx, 0x4000), (Edx, 0x1234), (Esi, 0x6000)])
             .map_page(4, 0x8000, ReadWrite)
             .backing(0x7fff, &[0xa5, 0, 0, 0x5a])

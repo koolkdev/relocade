@@ -369,7 +369,7 @@ fn mixed_partial_and_complete_history_keeps_constant_publication_depth() {
                 };
             }
             expected.eip = 0x1200;
-            expected.instruction_count = length - 1;
+            expected.instruction_count = u64::from(length - 1);
             assert_result(
                 &module,
                 &initial,

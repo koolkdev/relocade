@@ -11,6 +11,12 @@ instruction_families! {
             0x0F 0xA2 => no_operands();
         }
     }
+    RDTSC {
+        execute: rdtsc;
+        forms {
+            0x0F 0x31 => no_operands();
+        }
+    }
 }
 
 fn cpuid(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
@@ -25,4 +31,9 @@ fn cpuid(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
         TypedLocation::<I32>::register(register).write(execution, value)?;
     }
     Ok(())
+}
+
+fn rdtsc(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
+    let counter = execution.instruction_count()?;
+    execution.write_register_pair::<I32>(Gpr32::Edx, Gpr32::Eax, counter)
 }

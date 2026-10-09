@@ -33,7 +33,7 @@ fn zero_progress_exits_do_not_read_or_write_instruction_count() {
             for operation in code.get_operators_reader().unwrap() {
                 assert!(!matches!(
                     operation.unwrap(),
-                    Operator::I32Load { memarg } | Operator::I32Store { memarg }
+                    Operator::I64Load { memarg } | Operator::I64Store { memarg }
                         if memarg.offset == 144
                 ));
             }
@@ -133,10 +133,12 @@ fn publishing_an_exit_keeps_pending_writes_for_the_continuation() {
                 match operation {
                     Operator::If { .. } => depth += 1,
                     Operator::End if depth > 0 => depth -= 1,
-                    Operator::I32Store { memarg } if depth > 0 => {
+                    Operator::I32Store { memarg } | Operator::I64Store { memarg } if depth > 0 => {
                         exit_stores.push(memarg.offset);
                     }
-                    Operator::I32Store { memarg } => continuation_stores.push(memarg.offset),
+                    Operator::I32Store { memarg } | Operator::I64Store { memarg } => {
+                        continuation_stores.push(memarg.offset)
+                    }
                     _ => {}
                 }
             }
