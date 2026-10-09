@@ -3,7 +3,7 @@
 `ExecutionProfile::Real16` translates segment offsets to physical addresses, then
 uses generated Wasm to route accesses. RAM and ROM reads use `guest` backing;
 only MMIO accesses call the host. Ordinary real mode does not raise a page fault
-for an absent physical mapping. A20 remains enabled in this profile.
+for an absent physical mapping. The host controls the A20 gate in the routing map.
 
 ## Physical page map
 
@@ -46,11 +46,20 @@ ones where they overlap. RAM/ROM backing offsets are page aligned and may addres
 any part of the host's 32-bit backing memory. `get(address)` resolves one physical
 byte for host inspection, adjusting direct offsets to that byte.
 
-`to_bytes()` produces a fixed 2176-byte image without a header. Each entry has a
+`to_bytes()` produces a fixed 2180-byte image without a header. Each entry has a
 little-endian u32 kind (0 = unmapped, 1 = RAM, 2 = ROM, 3 = MMIO), followed by a u32
 backing-page offset. Unmapped and MMIO offsets are zero. Install the image at
 offset zero in `physicalMap`; physical page `p` has its kind at `p * 8` and backing
-offset at `p * 8 + 4`. Runtime mapping changes update the installed Wasm table.
+offset at `p * 8 + 4`. A trailing u32 at `PhysicalMemoryMap::A20_MASK_OFFSET`
+(2176) is the address mask: FFFFFFFF with A20 enabled, FFEFFFFF with it disabled.
+New maps disable A20 for DOS compatibility: addresses with bit 20 set alias the
+corresponding low address before routing or MMIO callbacks. Call
+`set_a20_enabled(true)` to preserve addresses above 1 MiB. Install the updated
+serialized mask to change the live gate; page entries stay intact.
+`get(address)` applies the same gate for host inspection. The host models the
+keyboard-controller or fast-A20 port that controls this platform state.
+
+Runtime mapping and gate changes update the installed Wasm table.
 
 ## MMIO callbacks
 
@@ -69,7 +78,8 @@ eight-byte device access.
 
 Each transferred operand field retains its width when its whole span is MMIO,
 including across adjacent MMIO pages. A span crossing different routing kinds
-is split at the page boundary. A four-byte field can therefore leave a three-byte
+is split at the page boundary. A20 wraparound also splits a request, so each
+callback describes contiguous bus addresses. A four-byte field can therefore leave a three-byte
 MMIO portion. The host adapter applies its bus and device rules to each request;
 one callback need not correspond to one hardware bus transaction. Wider structured
 operands transfer their constituent fields separately.
@@ -104,5 +114,5 @@ routing is rechecked after each instruction and is not held in the protected
 interpreter's page cache.
 
 Snapshot blocks use compiled bytes under the ordinary host validity contract.
-Code and mapping changes must preserve that contract throughout execution; the
+Code, mapping and A20 changes must preserve that contract throughout execution; the
 interpreter can observe code remapping at the next instruction.

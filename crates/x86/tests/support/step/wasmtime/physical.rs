@@ -29,9 +29,9 @@ pub(super) fn register(
         .mmio_pages
         .iter()
         .map(|&(page, _)| (page * 4096..=page * 4096 + 4095, PhysicalMapping::Mmio));
-    let image = PhysicalMemoryMap::new(backing.chain(devices))
-        .unwrap()
-        .to_bytes();
+    let mut map = PhysicalMemoryMap::new(backing.chain(devices)).unwrap();
+    map.set_a20_enabled(input.a20_enabled);
+    let image = map.to_bytes();
     let table = Memory::new(&mut *store, MemoryType::new(1, None)).unwrap();
     table.write(&mut *store, 0, &image).unwrap();
     linker

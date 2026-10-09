@@ -252,12 +252,101 @@ fn last_real_mode_page(engine: Engine) {
     );
 }
 
+fn a20(engine: Engine) {
+    for enabled in [false, true] {
+        for mmio in [false, true] {
+            let mut input = input();
+            input.a20_enabled = enabled;
+            input.physical_pages = vec![
+                (0xff, 0x3000, true),
+                (0, 0x5000, true),
+                (0x100, 0x7000, true),
+            ];
+            input.guest.push((0x7000, vec![0x11, 0x22, 0x33]));
+            if mmio {
+                input.mmio_pages = vec![(0xff, 0x3000), (0, 0x5000), (0x100, 0x7000)];
+            }
+            input.arguments = vec![Argument::I32(0xfffff)];
+            let read = transfer(engine, &input, "read32");
+            assert_eq!(
+                value(&read),
+                if enabled { 0x3322_1188 } else { 0x5566_7788 }
+            );
+            if mmio {
+                let expected = if enabled {
+                    vec![Event::MmioRead {
+                        address: 0xfffff,
+                        bytes: 4,
+                    }]
+                } else {
+                    vec![
+                        Event::MmioRead {
+                            address: 0xfffff,
+                            bytes: 1,
+                        },
+                        Event::MmioRead {
+                            address: 0,
+                            bytes: 3,
+                        },
+                    ]
+                };
+                assert_eq!(&read.events[..read.events.len() - 1], expected);
+            }
+            input.arguments.push(Argument::I32(0x4433_2211));
+            let write = transfer(engine, &input, "write32");
+            let Event::Return { snapshot, .. } = write.events.last().unwrap() else {
+                unreachable!()
+            };
+            let base = if enabled { 0x7000 } else { 0x5000 };
+            assert_eq!(
+                snapshot.guest,
+                Some(vec![
+                    (0x3fff, 0x11),
+                    (base, 0x22),
+                    (base + 1, 0x33),
+                    (base + 2, 0x44)
+                ])
+            );
+
+            // A callback changes the gate after the high byte was issued. The
+            // remaining bytes must resolve from their original linear address.
+            input.mmio_pages = vec![(0xff, 0x3000)];
+            input.mmio_updates = vec![MmioUpdate {
+                map: vec![(
+                    2176,
+                    if enabled {
+                        vec![0xff, 0xff, 0xef, 0xff]
+                    } else {
+                        vec![0xff; 4]
+                    },
+                )],
+                ..MmioUpdate::default()
+            }];
+            input.arguments.truncate(1);
+            let read = transfer(engine, &input, "read32");
+            assert_eq!(
+                value(&read),
+                if enabled { 0x5566_7788 } else { 0x3322_1188 }
+            );
+        }
+    }
+    // A direct high address uses the low page's kind, including ROM policy.
+    let mut input = input();
+    input.a20_enabled = false;
+    input.physical_pages = vec![(0, 0x5000, false)];
+    input.arguments = vec![Argument::I32(0x100000)];
+    assert_eq!(value(&transfer(engine, &input, "read32")), 0x4455_6677);
+    input.arguments.push(Argument::I32(0));
+    assert!(transfer(engine, &input, "write32").guest_unchanged);
+}
+
 #[test]
 fn routing_preserves_mmio_portions_and_live_mappings() {
     mixed(Engine::Wasmtime);
     backing_and_holes(Engine::Wasmtime);
     remapping(Engine::Wasmtime);
     last_real_mode_page(Engine::Wasmtime);
+    a20(Engine::Wasmtime);
 }
 
 #[test]
@@ -267,4 +356,5 @@ fn v8_routing_preserves_mmio_portions_and_live_mappings() {
     backing_and_holes(Engine::V8);
     remapping(Engine::V8);
     last_real_mode_page(Engine::V8);
+    a20(Engine::V8);
 }

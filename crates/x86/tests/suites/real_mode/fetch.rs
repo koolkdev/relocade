@@ -154,6 +154,45 @@ fn segment_fetch_bounds(engine: Engine) {
     );
 }
 
+fn a20_fetch(engine: Engine, frontend: Frontend) {
+    let mut blocks = BlockModules::default();
+    for enabled in [false, true] {
+        let mut image = image(&[]);
+        image.cpu.segments.cs = cache(Segment::Cs, 0xffff);
+        image.cpu.eip = 0x20;
+        image.map(0, 0x8000, false);
+        image.map(0x100, 0x9000, false);
+        image.data(0x8010, &[0xb8, 0x34, 0x12]);
+        image.data(0x9010, &[0xb8, 0x78, 0x56]);
+        let code = if enabled {
+            &[0xb8, 0x78, 0x56]
+        } else {
+            &[0xb8, 0x34, 0x12]
+        };
+        let module = match frontend {
+            // The host supplies bytes matching the installed gate.
+            Frontend::Block => blocks.get(&image.cpu, code, 1, ExecutionProfile::Real16),
+            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+        };
+        let mut input = image.input();
+        input.a20_enabled = enabled;
+        let mut cpu = retired(&image, 3);
+        cpu.registers.eax = 0x1111_0000 | if enabled { 0x5678 } else { 0x1234 };
+        assert_eq!(
+            engine.observe(module, &input, 1),
+            expected(
+                &image,
+                &[Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip)
+                }]
+            )
+        );
+    }
+}
+test_frontends!(a20_instruction_fetch, a20_fetch);
+
 fn run_module() -> &'static TestModule {
     static RUN: OnceLock<TestModule> = OnceLock::new();
     RUN.get_or_init(|| TestModule::new(&compile_interpreter(ExecutionProfile::Real16).unwrap()))
