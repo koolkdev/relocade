@@ -1,5 +1,8 @@
 //! Typed handler operands defer architectural accesses to the execution builder.
 
+mod xmm;
+pub(crate) use xmm::{VectorAlignment, XmmLocation};
+
 use std::marker::PhantomData;
 use wasm86_compiler::{AtLeast, BuildError, Val, I32};
 
@@ -141,6 +144,7 @@ pub(super) fn map_operand<V: Into<Val<I32>>>(operand: Operand<V>) -> Operand<Val
 pub(super) fn map_location<V: Into<Val<I32>>>(location: Location<V>) -> Location<Val<I32>> {
     match location {
         Location::Register(register) => Location::Register(register),
+        Location::Xmm(register) => Location::Xmm(register),
         Location::Memory(address) => Location::Memory(
             MemoryAddress {
                 segment: address.segment,

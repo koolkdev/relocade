@@ -75,7 +75,7 @@ fn default_x87_is_initialized_but_literal_zero_backing_remains_zero() {
     let mut expected = [0; 176];
     expected[..12].copy_from_slice(&[1, 1, 1, 1, 1, 1, 3, 0, 0, 0, 0x40, 0]);
     expected[12..14].fill(0xff);
-    assert_eq!(&cpu.to_bytes()[152..], &expected);
+    assert_eq!(&cpu.to_bytes()[152..328], &expected);
     assert_eq!(cpu.x87, StoredX87::default());
 
     let literal = CpuState::filled(0);

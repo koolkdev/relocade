@@ -2,14 +2,15 @@
 //! Guest transfers cannot alter the separate page table, so checked scattered
 //! transfers need only a frame lookup for each byte.
 
+use crate::memory::TransferType;
 use wasm86_compiler::{
-    BlockBuilder, BuildError, Func, MemoryInt, Program, Signature, Type, Val, I32, I8,
+    BlockBuilder, BuildError, Func, Program, Signature, Type, Val, I32, I64, I8,
 };
 
 use super::{page_table::physical_address, Access, Intent, VirtualMemory};
 
 impl VirtualMemory {
-    pub(crate) fn read<T: MemoryInt>(
+    pub(crate) fn read<T: TransferType>(
         &self,
         body: &mut BlockBuilder<'_>,
         access: &Access,
@@ -33,7 +34,7 @@ impl VirtualMemory {
         )
     }
 
-    pub(crate) fn write<T: MemoryInt>(
+    pub(crate) fn write<T: TransferType>(
         &self,
         body: &mut BlockBuilder<'_>,
         access: &Access,
@@ -59,7 +60,7 @@ impl VirtualMemory {
     }
 
     /// The caller must prove this entire read is present and physically contiguous.
-    pub(crate) fn load<T: MemoryInt>(
+    pub(crate) fn load<T: wasm86_compiler::MemoryType>(
         &self,
         body: &mut BlockBuilder<'_>,
         physical: &Val<I32>,
@@ -69,7 +70,7 @@ impl VirtualMemory {
     }
 
     /// The caller must prove this entire write is writable and contiguous.
-    pub(crate) fn store<T: MemoryInt>(
+    pub(crate) fn store<T: wasm86_compiler::MemoryType>(
         &self,
         body: &mut BlockBuilder<'_>,
         physical: &Val<I32>,
@@ -78,7 +79,7 @@ impl VirtualMemory {
         body.store_at::<T>(self.guest, physical, 0, value)
     }
 
-    fn scattered_reader<T: MemoryInt>(&self, program: &mut Program) -> Result<Func, BuildError> {
+    fn scattered_reader<T: TransferType>(&self, program: &mut Program) -> Result<Func, BuildError> {
         let slot = &self.scattered_readers[width_index::<T>()];
         if let Some(function) = slot.get() {
             return Ok(function);
@@ -94,7 +95,7 @@ impl VirtualMemory {
         Ok(function)
     }
 
-    fn scattered_writer<T: MemoryInt>(&self, program: &mut Program) -> Result<Func, BuildError> {
+    fn scattered_writer<T: TransferType>(&self, program: &mut Program) -> Result<Func, BuildError> {
         let slot = &self.scattered_writers[width_index::<T>()];
         if let Some(function) = slot.get() {
             return Ok(function);
@@ -110,47 +111,54 @@ impl VirtualMemory {
         Ok(function)
     }
 
-    fn define_scattered_reader<T: MemoryInt>(
+    fn define_scattered_reader<T: TransferType>(
         &self,
         mut body: BlockBuilder<'_>,
     ) -> Result<(), BuildError> {
         let linear = body.parameter::<I32>(0)?;
-        let mut value = body.value::<T>(0)?;
-        for offset in 0..T::BYTES {
-            let address = linear.add(offset);
-            let entry = self.table.entry(&mut body, &address)?;
-            let byte = self.load::<I8>(&mut body, &physical_address(&entry, &address), 0)?;
-            value = value.or(byte.unsigned().extend::<T>().shl(offset * 8));
-        }
+        let value = T::read_parts(|part, bytes| {
+            let mut value = Val::<I64>::from(0);
+            for offset in 0..bytes {
+                let address = linear.add(part + offset);
+                let entry = self.table.entry(&mut body, &address)?;
+                let byte = self.load::<I8>(&mut body, &physical_address(&entry, &address), 0)?;
+                value = value.or(byte.unsigned().extend::<I64>().shl(offset * 8));
+            }
+            Ok(value)
+        })?;
         body.return_(value)
     }
 
-    fn define_scattered_writer<T: MemoryInt>(
+    fn define_scattered_writer<T: TransferType>(
         &self,
         mut body: BlockBuilder<'_>,
     ) -> Result<(), BuildError> {
         let linear = body.parameter::<I32>(0)?;
         let value = body.parameter::<T>(1)?;
-        for offset in 0..T::BYTES {
-            let address = linear.add(offset);
-            let entry = self.table.entry(&mut body, &address)?;
-            body.store_at::<I8>(
-                self.guest,
-                physical_address(&entry, &address),
-                0,
-                value.unsigned().shr(offset * 8).truncate::<I8>(),
-            )?;
-        }
+        T::write_parts(&value, |part, bytes, value| {
+            for offset in 0..bytes {
+                let address = linear.add(part + offset);
+                let entry = self.table.entry(&mut body, &address)?;
+                body.store_at::<I8>(
+                    self.guest,
+                    physical_address(&entry, &address),
+                    0,
+                    value.unsigned().shr(offset * 8).truncate::<I8>(),
+                )?;
+            }
+            Ok(())
+        })?;
         body.return_(())
     }
 }
 
-fn width_index<T: MemoryInt>() -> usize {
+fn width_index<T: TransferType>() -> usize {
     match T::TYPE {
         Type::I8 => 0,
         Type::I16 => 1,
         Type::I32 => 2,
         Type::I64 => 3,
-        _ => unreachable!("guest transfers use byte, word, dword or qword fields"),
+        Type::V128 => 4,
+        _ => unreachable!("guest transfers use integer or vector fields"),
     }
 }

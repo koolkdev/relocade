@@ -145,7 +145,9 @@ pub(super) enum RegisterSelection {
     },
 }
 
-pub(super) trait RegisterType: SsaType {
+pub(super) trait RegisterType:
+    SsaType + wasm86_compiler::MemoryInt + crate::memory::TransferType
+{
     /// Number of parent slots reachable by an indexed encoded register.
     const BACKING_SLOT_COUNT: u32;
 

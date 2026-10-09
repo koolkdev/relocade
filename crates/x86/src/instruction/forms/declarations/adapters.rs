@@ -109,6 +109,8 @@ macro_rules! declaration_invoke {
 }
 
 macro_rules! operand_value {
+    ($width:tt, $operand:ident, xmm) => { crate::instruction::XmmLocation::from_operand($operand) };
+    ($width:tt, $operand:ident, xmm_rm) => { crate::instruction::XmmLocation::from_operand($operand) };
     ($width:tt, $operand:ident, st) => {{
         let crate::instruction::Operand::X87StackIndex(index) = $operand else {
             unreachable!("the form binds an x87 stack index")

@@ -18,6 +18,16 @@ impl Writer<'_> {
     pub(super) fn expression(&mut self, result_type: Type, expression: Expression<Type>) {
         let wide = result_type == Type::I64;
         let instruction = match expression {
+            Expression::VectorExtract { lane, .. } => match result_type {
+                Type::I32 => Instruction::I32x4ExtractLane(lane),
+                Type::I64 => Instruction::I64x2ExtractLane(lane),
+                _ => unreachable!("integer lanes have 32 or 64 bits"),
+            },
+            Expression::VectorReplace { value, lane, .. } => match value {
+                Type::I32 => Instruction::I32x4ReplaceLane(lane),
+                Type::I64 => Instruction::I64x2ReplaceLane(lane),
+                _ => unreachable!("integer lanes have 32 or 64 bits"),
+            },
             Expression::FloatBinary { operator, .. } => match operator {
                 floating::BinaryOp::Add => Instruction::F64Add,
                 floating::BinaryOp::Sub => Instruction::F64Sub,

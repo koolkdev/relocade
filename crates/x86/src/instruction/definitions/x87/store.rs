@@ -69,7 +69,7 @@ fn store_binary(
     }
 }
 
-fn store_integer<T: MemoryInt>(
+fn store_integer<T: MemoryInt + crate::memory::TransferType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     address: MemoryAddress<Val<I32>>,
     pop: bool,
@@ -85,7 +85,7 @@ where
     )
 }
 
-fn store<T: MemoryInt>(
+fn store<T: MemoryInt + crate::memory::TransferType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     address: MemoryAddress<Val<I32>>,
     pop: bool,

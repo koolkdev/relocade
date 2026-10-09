@@ -40,7 +40,9 @@ impl OpcodeMap {
 #[derive(Clone, Copy)]
 pub(super) enum LocationBinding {
     Register,
+    XmmRegister,
     Rm,
+    XmmRm,
     /// A named register view, independent of any encoded register field.
     FixedRegister(NamedRegister),
     AbsoluteOffset,
@@ -59,6 +61,29 @@ pub(super) enum OperandBinding {
 }
 
 type HandlerBinding = HandlerCall<LocationBinding, OperandBinding>;
+
+#[derive(Clone, Copy)]
+pub(super) enum PrefixRule {
+    /// Prefixes retain their operand-size, repetition and locking roles.
+    Modifiers(Option<Group1Prefix>),
+    /// Prefix presence selects an opcode variant.
+    OpcodeSelector(MandatoryPrefix),
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum MandatoryPrefix {
+    None,
+    P66,
+}
+
+impl MandatoryPrefix {
+    fn matches(self, prefixes: &PrefixState) -> bool {
+        match self {
+            Self::None => !prefixes.has_operand_override() && prefixes.group1().is_none(),
+            Self::P66 => prefixes.has_operand_override() && prefixes.group1().is_none(),
+        }
+    }
+}
 
 /// Availability is checked after decoding, before any operand access or effect.
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -88,8 +113,7 @@ pub(crate) struct Form {
     pub(super) opcode: u8,
     pub(super) mask: u8,
     pub(crate) map: OpcodeMap,
-    /// Exact F2/F3 requirement; LOCK is admitted separately for eligible forms.
-    group1_prefix: Option<Group1Prefix>,
+    prefix: PrefixRule,
     lockable: bool,
     pub(crate) encoding: Encoding,
     pub(crate) modrm: Option<ModRmSelector>,
@@ -103,9 +127,12 @@ pub(crate) struct Form {
 impl Form {
     /// Resolve prefix meaning before either decoder reads operand fields.
     pub(crate) fn resolve(&self, prefixes: &PrefixState) -> Option<ResolvedForm> {
-        let accepts_prefix = match prefixes.group1() {
-            Some(Group1Prefix::F0) => self.lockable,
-            prefix => self.group1_prefix == prefix,
+        let accepts_prefix = match self.prefix {
+            PrefixRule::Modifiers(required) => match prefixes.group1() {
+                Some(Group1Prefix::F0) => self.lockable,
+                prefix => required == prefix,
+            },
+            PrefixRule::OpcodeSelector(required) => required.matches(prefixes),
         };
         if !accepts_prefix {
             return None;

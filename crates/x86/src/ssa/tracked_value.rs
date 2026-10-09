@@ -1,17 +1,17 @@
 //! One current SSA value and whether it needs publication by its owner.
 
-use wasm86_compiler::{BlockBuilder, BuildError, IntType, Val};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, ValueType};
 
 /// Tracks a current definition and its dirty state on one straight-line build
 /// path. Cloning forks this bookkeeping; previously read SSA values stay valid.
 /// The owner decides how to publish a changed value.
 #[derive(Clone)]
-pub(crate) struct TrackedValue<T: IntType> {
+pub(crate) struct TrackedValue<T: ValueType> {
     value: Val<T>,
     dirty: bool,
 }
 
-impl<T: IntType> TrackedValue<T> {
+impl<T: ValueType> TrackedValue<T> {
     /// Captures a value already represented by its owner's external state.
     pub(crate) fn new(
         body: &mut BlockBuilder<'_>,

@@ -184,8 +184,8 @@ than #UD.
 
 Use `CpuState::to_bytes` and `CpuState::from_bytes` to exchange state with CPU memory.
 Conversion is explicitly little endian and preserves reserved bytes, inactive flag
-payloads, raw segment attributes and x87 encodings. The image is
-`CpuState::BYTE_LEN` (328) bytes:
+payloads, raw segment attributes, x87 and XMM encodings. The image is
+`CpuState::BYTE_LEN` (464) bytes:
 
 | Byte offset | Contents |
 | ---: | --- |
@@ -205,6 +205,9 @@ payloads, raw segment attributes and x87 encodings. The image is
 | 180 | Fourteen-byte `StoredX87Status`: IE, DE, ZE, OE, UE, PE, SF, TOP, C0, C1, C2, C3, ES, B. |
 | 194 | Six reserved bytes. |
 | 200 | Eight 16-byte physical x87 register slots, R0 through R7. |
+| 328 | u32 packed MXCSR. |
+| 332 | Four reserved bytes. |
+| 336 | Eight 16-byte XMM slots, XMM0 through XMM7, low byte first. |
 
 `StoredX87Control` keeps each exception mask in bit 0 of its named byte: invalid,
 denormal, zero divide, overflow, underflow and precision. A set mask suppresses
@@ -686,3 +689,24 @@ interrupt gates, privilege transitions, external interrupt/debug delivery, mode
 transitions and SS-load inhibition are not modeled. Native Wasm traps from broken
 backing or internal arithmetic invariants are implementation errors, outside this
 guest-fault protocol.
+
+## SSE state and raw transfers
+
+`CpuState::simd` contains `StoredSimd { mxcsr, reserved, xmm }`. Default state has
+MXCSR `0x1f80` and zero XMM registers. Literal snapshots retain every bit, including
+reserved MXCSR bits and padding; these bytes are not an FXSAVE image. Hosts must
+allocate the new 464-byte CPU image; offsets of existing fields are unchanged.
+
+The current execution profiles assume SSE/SSE2 are enabled (CR0.EM/TS clear and
+CR4.OSFXSR set); they do not model feature-control registers. MOVUPS, MOVUPD,
+XORPS and XORPD preserve raw bits and leave MXCSR, EFLAGS and x87 state unchanged.
+MOVUPS/MOVUPD accept unaligned memory. Legacy XORPS/XORPD require 16-byte linear
+alignment, checked after segment validation and before page translation.
+
+Both decoders select mandatory 66 by prefix presence, independently of the code
+segment's default operand size. Unsupported mandatory-prefix combinations do not
+select an unprefixed SSE form. XMM state uses the same retained-field mechanism
+as integer state, including runtime-indexed register accesses and fault publication.
+The complete 16-byte span is checked before transfer. Scattered virtual backing
+and physical MMIO use ordered integer parts; contiguous RAM uses Wasm SIMD.
+Hosts must enable the standard WebAssembly SIMD feature for these instructions.

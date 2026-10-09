@@ -1,5 +1,6 @@
 //! Checked memory operands support widths independently of register views.
 
+use crate::memory::TransferType;
 use wasm86_compiler::{BuildError, MemoryInt, Val, I32};
 
 use super::ExecutionBuilder;
@@ -9,6 +10,32 @@ use crate::{
     memory::{Access, Intent, Memory},
     segment::SegmentSelection,
 };
+
+/// A complete operand width and any architectural alignment requirement.
+#[derive(Clone, Copy)]
+pub(crate) struct OperandSpan {
+    pub(super) bytes: u32,
+    pub(super) alignment: u32,
+}
+
+impl OperandSpan {
+    pub(crate) fn aligned(bytes: u32) -> Self {
+        assert!(bytes.is_power_of_two());
+        Self {
+            bytes,
+            alignment: bytes,
+        }
+    }
+}
+
+impl From<u32> for OperandSpan {
+    fn from(bytes: u32) -> Self {
+        Self {
+            bytes,
+            alignment: 1,
+        }
+    }
+}
 
 /// A resolved operand whose complete span passed its architectural access checks.
 /// Fields share that proof, so a later field cannot fault after an earlier write.
@@ -29,7 +56,7 @@ impl MemoryOperand<'_> {
         &self.segment
     }
 
-    pub(crate) fn read<T: MemoryInt>(
+    pub(crate) fn read<T: TransferType>(
         &self,
         execution: &mut ExecutionBuilder<'_, '_>,
         offset: u32,
@@ -38,7 +65,7 @@ impl MemoryOperand<'_> {
             .read::<T>(&mut execution.body, &self.access, offset)
     }
 
-    pub(crate) fn write<T: MemoryInt>(
+    pub(crate) fn write<T: TransferType>(
         &self,
         execution: &mut ExecutionBuilder<'_, '_>,
         offset: u32,
@@ -49,7 +76,7 @@ impl MemoryOperand<'_> {
             .write(&mut execution.body, &self.access, offset, &value)
     }
 
-    pub(super) fn atomic_update<T: MemoryInt>(
+    pub(super) fn atomic_update<T: MemoryInt + TransferType>(
         self,
         execution: &mut ExecutionBuilder<'_, '_>,
         update: &OperandUpdate<T>,
@@ -62,7 +89,7 @@ impl MemoryOperand<'_> {
 impl<'memory> ExecutionBuilder<'_, 'memory> {
     /// Reads a linear address without applying a data segment or address-size wrap.
     /// System-table accesses still use the profile's ordinary memory routing.
-    pub(crate) fn read_linear_memory<T: MemoryInt>(
+    pub(crate) fn read_linear_memory<T: MemoryInt + TransferType>(
         &mut self,
         linear: impl Into<Val<I32>>,
     ) -> Result<Val<T>, BuildError> {
@@ -74,7 +101,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
             .read(&mut self.body, &access, 0)
     }
 
-    pub(super) fn read_memory<T: MemoryInt>(
+    pub(super) fn read_memory<T: TransferType>(
         &mut self,
         address: MemoryAddress<impl Into<Val<I32>>>,
     ) -> Result<Val<T>, BuildError> {
@@ -82,7 +109,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
             .read(self, 0)
     }
 
-    pub(super) fn prepare_memory_write<T: MemoryInt>(
+    pub(super) fn prepare_memory_write<T: wasm86_compiler::MemoryType>(
         &mut self,
         address: MemoryAddress<impl Into<Val<I32>>>,
         bindings: &[RegisterValue],
@@ -92,7 +119,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
 
     /// Checks and modifies a complete memory operand. Inputs must be captured
     /// before entry; the returned value belongs to this successful update.
-    pub(crate) fn modify_memory<T: MemoryInt>(
+    pub(crate) fn modify_memory<T: MemoryInt + TransferType>(
         &mut self,
         address: MemoryAddress<impl Into<Val<I32>>>,
         update: OperandUpdate<T>,
@@ -111,7 +138,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
     pub(crate) fn memory_operand(
         &mut self,
         address: MemoryAddress<impl Into<Val<I32>>>,
-        bytes: u32,
+        span: impl Into<OperandSpan>,
         intent: Intent,
         bindings: &[RegisterValue],
     ) -> Result<MemoryOperand<'memory>, BuildError> {
@@ -121,7 +148,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
             .as_ref()
             .expect("a memory operand declares guest memory")
             .memory();
-        let access = self.checked(&address.segment, &offset, bytes, intent)?;
+        let access = self.checked(&address.segment, &offset, span, intent)?;
         Ok(MemoryOperand {
             memory,
             access,

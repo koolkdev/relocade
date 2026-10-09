@@ -5,6 +5,7 @@ use super::PhysicalMemory;
 use wasm86_compiler::{MemoryInt, Program, Signature, Type, I16, I32, I64, I8};
 mod generated;
 mod routing;
+mod vectors;
 
 use crate::{
     alu::OperandUpdate,
@@ -14,7 +15,10 @@ use crate::{
     CompiledModule,
 };
 
-fn define_transfers<T: MemoryInt>(program: &mut Program, memory: &Memory) {
+fn define_transfers<T: MemoryInt + crate::memory::TransferType>(
+    program: &mut Program,
+    memory: &Memory,
+) {
     for write in [false, true] {
         let function = program
             .function(

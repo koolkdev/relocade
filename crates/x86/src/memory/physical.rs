@@ -1,5 +1,6 @@
 //! Direct physical backing accesses and shared routing for MMIO and split spans.
 
+use crate::memory::TransferType;
 mod table;
 mod transfer;
 
@@ -69,7 +70,7 @@ impl PhysicalMemory {
         self.table.direct_range(body, address, bytes, intent)
     }
 
-    pub(super) fn read<T: MemoryInt>(
+    pub(super) fn read<T: TransferType>(
         &self,
         body: &mut BlockBuilder<'_>,
         access: &Access,
@@ -82,8 +83,10 @@ impl PhysicalMemory {
             direct.unavailable,
             |mut slow| {
                 let reader = self.reader(slow.program())?;
-                let value = slow.call::<I64>(reader, &[address.into(), T::BYTES.into()])?;
-                slow.yield_(value.truncate::<T>())
+                let value = T::read_parts(|offset, bytes| {
+                    slow.call::<I64>(reader, &[address.add(offset).into(), bytes.into()])
+                })?;
+                slow.yield_(value)
             },
             |mut direct_body| {
                 let value = self.load::<T>(&mut direct_body, &direct.physical, 0)?;
@@ -92,7 +95,7 @@ impl PhysicalMemory {
         )
     }
 
-    pub(super) fn write<T: MemoryInt>(
+    pub(super) fn write<T: TransferType>(
         &self,
         body: &mut BlockBuilder<'_>,
         access: &Access,
@@ -107,21 +110,19 @@ impl PhysicalMemory {
             direct.unavailable,
             |mut slow| {
                 let writer = self.writer(slow.program())?;
-                slow.call::<()>(
-                    writer,
-                    &[
-                        address.into(),
-                        T::BYTES.into(),
-                        value.unsigned().extend::<I64>().into(),
-                    ],
-                )
+                T::write_parts(value, |offset, bytes, part| {
+                    slow.call::<()>(
+                        writer,
+                        &[address.add(offset).into(), bytes.into(), part.into()],
+                    )
+                })
             },
             |mut direct_body| direct_body.store_at::<T>(self.backing, direct.physical, 0, value),
         )
     }
 
     /// The caller has proved this read lies in a direct backing window.
-    pub(super) fn load<T: MemoryInt>(
+    pub(super) fn load<T: wasm86_compiler::MemoryType>(
         &self,
         body: &mut BlockBuilder<'_>,
         backing: &Val<I32>,
@@ -131,7 +132,7 @@ impl PhysicalMemory {
     }
 
     /// Stores only under a successful direct writable-window proof.
-    pub(super) fn store<T: MemoryInt>(
+    pub(super) fn store<T: wasm86_compiler::MemoryType>(
         &self,
         body: &mut BlockBuilder<'_>,
         backing: &Val<I32>,
@@ -140,7 +141,7 @@ impl PhysicalMemory {
         body.store_at::<T>(self.backing, backing, 0, value)
     }
 
-    pub(super) fn atomic_update<T: MemoryInt>(
+    pub(super) fn atomic_update<T: MemoryInt + TransferType>(
         &self,
         body: &mut BlockBuilder<'_>,
         access: &Access,
