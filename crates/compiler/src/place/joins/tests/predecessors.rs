@@ -131,7 +131,7 @@ fn completed_facts_survive_rollback_of_the_incoming_paths() {
 fn a_join_keeps_common_facts_without_any_value_candidates() {
     let mut graph = graph();
     let arms = Diamond::new(&mut graph, BlockId(0));
-    let one = graph.values.constant(Type::I32, 1);
+    let one = graph.values.literal(Type::I32, 1);
     let low_bit = expression(
         &mut graph,
         Type::I32,
@@ -270,7 +270,7 @@ fn a_discarded_predecessor_does_not_need_a_value_or_completed_facts() {
     let value = placed(&mut graph, arms.left, recipe);
     joins.record(arms.left.0, [(recipe, value)].into_iter());
     joins.complete(arms.left.0, &Facts::default());
-    let condition = graph.values.constant(Type::I1, 1);
+    let condition = graph.values.literal(Type::I1, 1);
     graph.blocks[0].exit = Exit::If {
         condition,
         taken: edge(arms.left),
@@ -298,7 +298,7 @@ fn a_join_inside_a_discarded_arm_has_no_incoming_values() {
     let inner = Diamond::new(&mut graph, outer.left);
     let recipe = square(&mut graph);
     let mut joins = joins(&graph);
-    let condition = graph.values.constant(Type::I1, 0);
+    let condition = graph.values.literal(Type::I1, 0);
     graph.blocks[0].exit = Exit::If {
         condition,
         taken: edge(outer.left),
@@ -336,7 +336,7 @@ fn a_folded_switch_excludes_an_inactive_edge_from_a_reachable_source() {
     let value = placed(&mut graph, arm, recipe);
     joins.record(arm.0, [(recipe, value)].into_iter());
     joins.complete(arm.0, &Facts::default());
-    let selector = graph.values.constant(Type::I32, 7);
+    let selector = graph.values.literal(Type::I32, 7);
     if let Exit::Switch {
         selector: input, ..
     } = &mut graph.blocks[0].exit
@@ -372,7 +372,7 @@ fn surviving_predecessors_keep_their_arguments_when_an_arm_is_removed() {
         joins.record(block.0, [(recipe, value)].into_iter());
         joins.complete(block.0, &Facts::default());
     }
-    let condition = graph.values.constant(Type::I1, 0);
+    let condition = graph.values.literal(Type::I1, 0);
     graph.blocks[outer.left.0].exit = Exit::If {
         condition,
         taken: edge(inner.left),
@@ -401,6 +401,6 @@ fn surviving_predecessors_keep_their_arguments_when_an_arm_is_removed() {
     let filler = graph.blocks[inner.left.0].exit.edges()[0].arguments[0];
     assert!(matches!(
         graph.values[filler].definition,
-        ValueDefinition::Constant(0)
+        ValueDefinition::Literal(0)
     ));
 }

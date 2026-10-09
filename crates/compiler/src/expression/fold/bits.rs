@@ -32,15 +32,15 @@ impl Folder<'_> {
             if a == other {
                 return Some(inner_right);
             }
-            let ValueDefinition::Constant(outer_mask) = self.values[other].definition else {
+            let ValueDefinition::Literal(outer_mask) = self.values[other].definition else {
                 continue;
             };
             let (base, inner_mask) = match (self.values[a].definition, self.values[b].definition) {
-                (_, ValueDefinition::Constant(mask)) => (inner_left, mask),
-                (ValueDefinition::Constant(mask), _) => (inner_right, mask),
+                (_, ValueDefinition::Literal(mask)) => (inner_left, mask),
+                (ValueDefinition::Literal(mask), _) => (inner_right, mask),
                 _ => continue,
             };
-            let mask = self.values.carrier_constant(ty, inner_mask ^ outer_mask);
+            let mask = self.values.carrier_literal(ty, inner_mask ^ outer_mask);
             return Some(self.fold(
                 ty,
                 Expression::Binary {
@@ -61,7 +61,7 @@ impl Folder<'_> {
         if left.input != right.input {
             return None;
         }
-        let mask = self.values.carrier_constant(ty, left.mask | right.mask);
+        let mask = self.values.carrier_literal(ty, left.mask | right.mask);
         Some(self.fold(
             ty,
             Expression::Binary {
@@ -83,8 +83,8 @@ impl Folder<'_> {
                 left,
                 right,
             }) => match (self.values[left].definition, self.values[right].definition) {
-                (_, ValueDefinition::Constant(mask)) => (left, mask),
-                (ValueDefinition::Constant(mask), _) => (right, mask),
+                (_, ValueDefinition::Literal(mask)) => (left, mask),
+                (ValueDefinition::Literal(mask), _) => (right, mask),
                 _ => (input, self.values[input].ty.carrier().mask()),
             },
             _ => (input, self.values[input].ty.carrier().mask()),
@@ -106,7 +106,7 @@ impl Folder<'_> {
             return bits;
         };
         let carrier = self.values[bits.input].ty.carrier();
-        let ValueDefinition::Constant(count) = self.values[count].definition else {
+        let ValueDefinition::Literal(count) = self.values[count].definition else {
             return bits;
         };
         let count = integer::shift_count(carrier, count as u32);
@@ -119,7 +119,7 @@ impl Folder<'_> {
         else {
             return bits;
         };
-        let ValueDefinition::Constant(reverse) = self.values[reverse].definition else {
+        let ValueDefinition::Literal(reverse) = self.values[reverse].definition else {
             return bits;
         };
         if self.values[shifted.input].ty.carrier() != carrier
@@ -139,7 +139,7 @@ impl Folder<'_> {
     pub(super) fn fold_low_bits(&mut self, ty: Type, input: usize, bits: u8) -> usize {
         debug_assert!(bits <= ty.carrier().bits());
         if bits == 0 {
-            return self.values.constant(ty, 0);
+            return self.values.literal(ty, 0);
         }
         if self.values.bounds[input].unsigned <= bits {
             return input;
@@ -149,10 +149,10 @@ impl Folder<'_> {
         let mut offset = 0_u64;
         loop {
             match self.values[base].definition {
-                ValueDefinition::Constant(value) => {
+                ValueDefinition::Literal(value) => {
                     return self
                         .values
-                        .carrier_constant(ty, value.wrapping_add(offset) & mask);
+                        .carrier_literal(ty, value.wrapping_add(offset) & mask);
                 }
                 ValueDefinition::Expression(Expression::LowBits { input, bits: kept })
                     if kept >= bits =>
@@ -172,8 +172,8 @@ impl Folder<'_> {
                 }) => {
                     let (input, kept) =
                         match (self.values[left].definition, self.values[right].definition) {
-                            (_, ValueDefinition::Constant(mask)) => (left, mask.trailing_ones()),
-                            (ValueDefinition::Constant(mask), _) => (right, mask.trailing_ones()),
+                            (_, ValueDefinition::Literal(mask)) => (left, mask.trailing_ones()),
+                            (ValueDefinition::Literal(mask), _) => (right, mask.trailing_ones()),
                             _ => break,
                         };
                     if kept < u32::from(bits) {

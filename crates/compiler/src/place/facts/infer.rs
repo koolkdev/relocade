@@ -3,7 +3,7 @@
 use super::{Bits, Facts, Range};
 use crate::{
     body::{ValueDefinition, ValueTable},
-    expression::Constant,
+    expression::TypedLiteral,
     integer::{low_mask, BinaryOp, CompareOp},
     Expression,
 };
@@ -21,7 +21,7 @@ impl Facts {
             }
             let value = table[id];
             let known = self.known.get(&id).copied().unwrap_or_default();
-            if let ValueDefinition::Constant(bits) = value.definition {
+            if let ValueDefinition::Literal(bits) = value.definition {
                 cache.insert(
                     id,
                     Bits {
@@ -197,9 +197,9 @@ impl Facts {
                 if bits.mask & ty.mask() != ty.mask() {
                     return Err(());
                 }
-                Ok(Constant {
+                Ok(TypedLiteral {
                     ty,
-                    bits: table.carrier_bits(input, bits.value),
+                    value: table.carrier_bits(input, bits.value),
                 })
             }) {
                 if let Some(result) = constants.constant_result(value.ty, result.component) {

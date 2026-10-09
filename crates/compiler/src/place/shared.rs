@@ -85,7 +85,7 @@ impl Placer<'_> {
         self.available.get(value).is_none()
             && !matches!(
                 self.graph.values[value].definition,
-                ValueDefinition::Constant(_) | ValueDefinition::Parameter { .. }
+                ValueDefinition::Literal(_) | ValueDefinition::Parameter { .. }
             )
     }
 

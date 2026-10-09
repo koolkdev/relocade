@@ -35,12 +35,12 @@ impl FunctionArena {
             Err(BuildError::BodyClosed)
         }
     }
-    pub(super) fn constant(&self, ty: Type, bits: u64) -> Result<usize, BuildError> {
-        self.with_open(|table| table.constant(ty, bits))
+    pub(super) fn literal(&self, ty: Type, bits: u64) -> Result<usize, BuildError> {
+        self.with_open(|table| table.literal(ty, bits))
     }
     pub(super) fn constant_bits(&self, value: usize) -> Result<Option<u64>, BuildError> {
         self.with_graph(|graph| match graph.values[value].definition {
-            ValueDefinition::Constant(bits) => Some(graph.values[value].ty.normalize(bits)),
+            ValueDefinition::Literal(bits) => Some(graph.values[value].ty.normalize(bits)),
             _ => None,
         })
     }
@@ -179,7 +179,7 @@ impl FunctionArena {
                 producer: BlockItem::Effect(effect),
                 ..
             } => graph.blocks[graph.effects[effect.0].origin.0].scope,
-            ValueDefinition::Constant(_)
+            ValueDefinition::Literal(_)
             | ValueDefinition::Expression(_)
             | ValueDefinition::Result {
                 producer: BlockItem::Evaluate(_),

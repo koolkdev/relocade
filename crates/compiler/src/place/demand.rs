@@ -169,7 +169,7 @@ pub(super) fn schedules(
     let mut requirements = vec![None; graph.values.len()];
     for (id, value) in graph.values.iter().enumerate() {
         requirements[id] = match value.definition {
-            ValueDefinition::Constant(_) => Some(graph.entry.0),
+            ValueDefinition::Literal(_) => Some(graph.entry.0),
             ValueDefinition::Parameter { block, .. } => Some(block.0),
             ValueDefinition::Result {
                 producer: BlockItem::Effect(effect),
@@ -270,7 +270,7 @@ pub(super) fn schedules(
                     right,
                 } => {
                     let other = if input == left { right } else { left };
-                    matches!(graph.values[other].definition, ValueDefinition::Constant(bits) if bits & 1 != 0)
+                    matches!(graph.values[other].definition, ValueDefinition::Literal(bits) if bits & 1 != 0)
                 }
                 _ => false,
             };

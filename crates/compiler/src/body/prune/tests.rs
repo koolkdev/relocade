@@ -61,7 +61,7 @@ fn load(address: usize) -> Operation {
 #[test]
 fn complete_result_groups_and_stored_bounds_survive_compaction() {
     let mut graph = graph(&[Type::I8, Type::I64]);
-    let address = graph.values.constant(Type::I32, 123);
+    let address = graph.values.literal(Type::I32, 123);
     // A later parameter keeps its learned bounds when the dead address is removed.
     let input = graph.values.push_with_bounds(
         Value {
@@ -170,8 +170,8 @@ fn folded_edges_release_discarded_arguments_even_when_their_target_is_live() {
     ] {
         let mut graph = graph(&[Type::I32]);
         let join = graph.block(0, &[Type::I32]);
-        let selector = graph.values.constant(ty, bits);
-        let argument = graph.values.constant(Type::I32, 42);
+        let selector = graph.values.literal(ty, bits);
+        let argument = graph.values.literal(Type::I32, 42);
         let dead_read = effect(&mut graph, load(0), &[Type::I32]);
         let dead_argument = graph.effects[dead_read.0].results[0];
         let edge = |index| Edge {
@@ -209,7 +209,7 @@ fn folded_edges_release_discarded_arguments_even_when_their_target_is_live() {
         assert_eq!(edge.arguments, [2]);
         assert!(matches!(
             graph.values[2].definition,
-            ValueDefinition::Constant(42)
+            ValueDefinition::Literal(42)
         ));
 
         graph.compact(|_| true);
@@ -249,7 +249,7 @@ fn unreachable_blocks_release_their_contents_and_layout() {
 #[test]
 fn loop_parameters_and_parallel_backedge_arguments_are_remapped_together() {
     let mut graph = graph(&[Type::I32, Type::I32]);
-    graph.values.constant(Type::I32, 99);
+    graph.values.literal(Type::I32, 99);
     let header = graph.block(0, &[Type::I32, Type::I32]);
     graph.blocks[0].exit = Exit::Jump(Edge {
         target: header,
@@ -282,7 +282,7 @@ fn loop_parameters_and_parallel_backedge_arguments_are_remapped_together() {
 fn pruning_unused_result_channels_preserves_ids_until_compaction() {
     let mut graph = graph(&[Type::I32]);
     let join = graph.block(0, &[Type::I32, Type::I32]);
-    let kept = graph.values.constant(Type::I32, 17);
+    let kept = graph.values.literal(Type::I32, 17);
     let read = effect(&mut graph, load(0), &[Type::I32]);
     let unused = graph.effects[read.0].results[0];
     graph.blocks[0].items.push(BlockItem::Effect(read));
@@ -302,7 +302,7 @@ fn pruning_unused_result_channels_preserves_ids_until_compaction() {
     assert_eq!(graph.effects[read.0].results, [unused]);
     assert!(matches!(
         graph.values[kept].definition,
-        ValueDefinition::Constant(17)
+        ValueDefinition::Literal(17)
     ));
 
     graph.compact(|_| false);
@@ -313,6 +313,6 @@ fn pruning_unused_result_channels_preserves_ids_until_compaction() {
     assert_eq!(graph.outgoing(graph.entry)[0].arguments, [2]);
     assert!(matches!(
         graph.values[2].definition,
-        ValueDefinition::Constant(17)
+        ValueDefinition::Literal(17)
     ));
 }

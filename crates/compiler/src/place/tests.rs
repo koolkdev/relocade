@@ -171,7 +171,7 @@ fn a_loop_backedge_does_not_keep_a_discarded_region_alive() {
             nonzero: true,
         }),
     });
-    let zero = graph.values.constant(Type::I1, 0);
+    let zero = graph.values.literal(Type::I1, 0);
     let repeat = graph.values.intern(Value {
         ty: Type::I1,
         definition: ValueDefinition::Expression(Expression::Select {

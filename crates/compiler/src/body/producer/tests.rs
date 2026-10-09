@@ -53,7 +53,7 @@ fn producer_views_preserve_dependencies_and_zero_one_or_many_results() {
     assert_eq!(inputs[0], graph.blocks[graph.entry.0].parameters[0]);
     assert!(matches!(
         graph.values[inputs[1]].definition,
-        ValueDefinition::Constant(7)
+        ValueDefinition::Literal(7)
     ));
     assert_eq!(
         graph.inputs(calculation).rev().collect::<Vec<_>>(),

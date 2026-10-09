@@ -41,7 +41,7 @@ impl IncomingValues {
             }
             if let Some(bits) = facts.constant(&graph.values, recipe) {
                 let bits = graph.values.carrier_bits(recipe, bits);
-                break Some(graph.values.carrier_constant(value.ty, bits));
+                break Some(graph.values.carrier_literal(value.ty, bits));
             }
             recipe = match value.definition {
                 ValueDefinition::Expression(Expression::Select {

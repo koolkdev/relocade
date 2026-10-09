@@ -28,8 +28,8 @@ impl Folder<'_> {
         when_false: usize,
     ) -> Option<usize> {
         match self.values[condition].definition {
-            ValueDefinition::Constant(0) => return Some(when_false),
-            ValueDefinition::Constant(_) => return Some(when_true),
+            ValueDefinition::Literal(0) => return Some(when_false),
+            ValueDefinition::Literal(_) => return Some(when_true),
             _ => {}
         }
         if self.values.representation(when_true) == self.values.representation(when_false) {
@@ -42,8 +42,8 @@ impl Folder<'_> {
             self.values[when_true].definition,
             self.values[when_false].definition,
         ) {
-            (ValueDefinition::Constant(1), ValueDefinition::Constant(0)) => true,
-            (ValueDefinition::Constant(0), ValueDefinition::Constant(1)) => false,
+            (ValueDefinition::Literal(1), ValueDefinition::Literal(0)) => true,
+            (ValueDefinition::Literal(0), ValueDefinition::Literal(1)) => false,
             _ => return None,
         };
         // A truth consumer accepts any nonzero carrier. Numeric selection must
