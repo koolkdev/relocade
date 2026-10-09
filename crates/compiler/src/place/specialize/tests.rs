@@ -3,13 +3,19 @@ use crate::bitwise::BitwiseOp;
 
 fn conditional_value() -> FunctionGraph {
     let mut graph = FunctionGraph::new();
-    let condition = graph.values.push(Value {
-        ty: crate::Type::I1,
-        definition: ValueDefinition::Parameter {
-            block: graph.entry,
-            component: 0,
+    let condition = graph.values.push_with_bounds(
+        Value {
+            ty: crate::Type::I1,
+            definition: ValueDefinition::Parameter {
+                block: graph.entry,
+                component: 0,
+            },
         },
-    });
+        crate::body::BitBounds {
+            unsigned: 1,
+            signed: 2,
+        },
+    );
     graph.blocks[0].parameters.push(condition);
     let when_true = graph.values.literal(crate::Type::I32, 7);
     let when_false = graph.values.literal(crate::Type::I32, 11);
@@ -75,6 +81,37 @@ fn reported_aliases_survive_the_memo_and_leave_with_their_scope() {
     available.restore(scope);
     assert_eq!(available.get(choice), None);
     specializer.end_block(block);
+}
+
+#[test]
+fn equal_logical_choices_keep_distinct_physical_carriers() {
+    let mut graph = conditional_value();
+    let condition = graph.blocks[0].parameters[0];
+    let when_true = graph.values.carrier_literal(crate::Type::I8, 0x100);
+    let when_false = graph.values.carrier_literal(crate::Type::I8, 0x200);
+    let choice = graph.values.intern(Value {
+        ty: crate::Type::I8,
+        definition: ValueDefinition::Expression(Expression::Select {
+            condition,
+            when_true,
+            when_false,
+        }),
+    });
+    let carrier = graph.values.intern(Value {
+        ty: crate::Type::I32,
+        definition: ValueDefinition::Expression(Expression::Convert { input: choice }),
+    });
+    let mut specializer = Specializer::default();
+    let result = specializer
+        .specialize(&mut graph, carrier, |_, _, _| None)
+        .value;
+    assert!(graph.values[result].scalar_literal().is_none());
+    for (truth, expected) in [(true, 0x100), (false, 0x200)] {
+        let mut branch =
+            specializer.on_branch(&graph.values, &Availability::default(), condition, truth);
+        let result = branch.specialize(&mut graph, carrier, |_, _, _| None).value;
+        assert_eq!(graph.values[result].scalar_literal(), Some(expected));
+    }
 }
 
 #[test]

@@ -7,7 +7,7 @@ use crate::body::ValueTable;
 mod tests;
 
 impl Bits {
-    fn common(self, other: Self) -> Self {
+    pub(super) fn common(self, other: Self) -> Self {
         let mask = self.mask & other.mask & !(self.value ^ other.value);
         Self {
             mask,
@@ -58,5 +58,6 @@ impl ScalarFacts {
         self.comparisons.retain_common(&other.comparisons);
         // Earlier inferences may depend on knowledge just discarded.
         self.computed.get_mut().clear();
+        self.select_constants.clear();
     }
 }

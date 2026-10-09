@@ -187,6 +187,24 @@ impl ScalarFacts {
                     mask: 1,
                     value: u64::from(nonzero),
                 },
+                (
+                    Expression::Shift {
+                        operator,
+                        value: input,
+                        ..
+                    },
+                    Expression::Shift {
+                        value: bits, count, ..
+                    },
+                ) => bits.shifted(table, input, operator, count),
+                (
+                    _,
+                    Expression::Select {
+                        when_true,
+                        when_false,
+                        ..
+                    },
+                ) => when_true.common(when_false),
                 _ => Bits::default(),
             };
             let comparison = match expression {
@@ -232,7 +250,7 @@ impl ScalarFacts {
                 }
                 Ok(TypedLiteral {
                     ty,
-                    value: table.carrier_bits(input, bits.value).into(),
+                    value: table.carrier_bits(input, bits.value).ok_or(())?.into(),
                 })
             }) {
                 if let Some(result) = constants

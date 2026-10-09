@@ -94,10 +94,14 @@ impl ValueTable {
 
     /// Restore the carrier promised by construction after learning logical bits.
     /// Literal values already contain the exact carrier and keep those bits.
-    pub(crate) fn carrier_bits(&self, id: usize, logical_bits: u64) -> u64 {
+    /// Logical bits alone cannot reconstruct an unknown wider physical value.
+    pub(crate) fn carrier_bits(&self, id: usize, logical_bits: u64) -> Option<u64> {
         let ty = self.values[id].ty;
         if let Some(bits) = self.values[id].scalar_literal() {
-            return ty.carrier().normalize(bits);
+            return Some(ty.carrier().normalize(bits));
+        }
+        if self.bounds[id].unsigned > ty.bits() && self.bounds[id].signed > ty.bits() {
+            return None;
         }
         let bits = logical_bits & ty.mask();
         let bits = if ty.bits() < 32
@@ -108,7 +112,7 @@ impl ValueTable {
         } else {
             bits
         };
-        ty.carrier().normalize(bits)
+        Some(ty.carrier().normalize(bits))
     }
 
     /// Conversions within a Wasm carrier preserve all physical bits.
