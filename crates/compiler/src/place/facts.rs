@@ -5,8 +5,9 @@ use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 
 use crate::{
+    bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
-    integer::{low_mask, BinaryOp},
+    integer::low_mask,
     Expression,
 };
 
@@ -138,7 +139,7 @@ impl Facts {
     /// An operand whose known bits make the other bitwise operand redundant.
     /// Unlike a logical constant, an identity must preserve the entire carrier.
     pub(super) fn bitwise_identity(&self, table: &ValueTable, id: usize) -> Option<usize> {
-        let ValueDefinition::Expression(Expression::Binary {
+        let ValueDefinition::Expression(Expression::Bitwise {
             operator,
             left,
             right,
@@ -146,7 +147,7 @@ impl Facts {
         else {
             return None;
         };
-        if !matches!(operator, BinaryOp::And | BinaryOp::Or) {
+        if !matches!(operator, BitwiseOp::And | BitwiseOp::Or) {
             return None;
         }
         let mask = table[id].ty.carrier().mask();
@@ -157,10 +158,10 @@ impl Facts {
         let left_zeros = (a.mask & !a.value) | (mask & !low_mask(table.bounds[left].unsigned));
         let right_zeros = (b.mask & !b.value) | (mask & !low_mask(table.bounds[right].unsigned));
         match operator {
-            BinaryOp::Or if mask & !right_zeros & !a.value == 0 => Some(left),
-            BinaryOp::Or if mask & !left_zeros & !b.value == 0 => Some(right),
-            BinaryOp::And if mask & !b.value & !left_zeros == 0 => Some(left),
-            BinaryOp::And if mask & !a.value & !right_zeros == 0 => Some(right),
+            BitwiseOp::Or if mask & !right_zeros & !a.value == 0 => Some(left),
+            BitwiseOp::Or if mask & !left_zeros & !b.value == 0 => Some(right),
+            BitwiseOp::And if mask & !b.value & !left_zeros == 0 => Some(left),
+            BitwiseOp::And if mask & !a.value & !right_zeros == 0 => Some(right),
             _ => None,
         }
     }

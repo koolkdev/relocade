@@ -43,6 +43,11 @@ impl Expression<TypedLiteral> {
                 left,
                 right,
             } => integer::binary(left.ty, operator, left.value, right.value)?,
+            Self::Bitwise {
+                operator,
+                left,
+                right,
+            } => operator.apply(left.value, right.value),
             Self::MultiplyWide {
                 signed,
                 left,

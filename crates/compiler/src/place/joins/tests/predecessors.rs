@@ -1,5 +1,6 @@
 //! Incoming paths must be complete before their values or facts can justify reuse.
 use super::*;
+use crate::bitwise::BitwiseOp;
 
 #[test]
 fn incoming_values_use_the_nearest_binding_on_each_predecessor_path() {
@@ -135,8 +136,8 @@ fn a_join_keeps_common_facts_without_any_value_candidates() {
     let low_bit = expression(
         &mut graph,
         Type::I32,
-        Expression::Binary {
-            operator: BinaryOp::And,
+        Expression::Bitwise {
+            operator: BitwiseOp::And,
             left: 1,
             right: one,
         },
