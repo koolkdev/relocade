@@ -123,7 +123,7 @@ impl Facts {
     }
 
     pub(super) fn constant(&self, table: &ValueTable, id: usize) -> Option<u64> {
-        if let ValueDefinition::Constant(bits) = table[id].definition {
+        if let ValueDefinition::Literal(bits) = table[id].definition {
             return Some(bits);
         }
         // Construction already folded path-independent constants.

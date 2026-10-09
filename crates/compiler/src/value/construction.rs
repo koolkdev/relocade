@@ -4,7 +4,7 @@ use super::{
     unbound::{Operand as UnboundOperand, UnboundExpression},
     Val,
 };
-use crate::{expression::Constant, results, Expression, Results, Type, ValueType, I1};
+use crate::{expression::TypedLiteral, results, Expression, Results, Type, ValueType, I1};
 
 pub(super) struct Operand {
     ty: Type,
@@ -15,7 +15,7 @@ impl<T: ValueType> From<&Val<T>> for Operand {
     fn from(value: &Val<T>) -> Self {
         Self {
             ty: T::TYPE,
-            source: value.source.clone(),
+            source: value.clone().into_source(),
         }
     }
 }
@@ -24,7 +24,7 @@ impl<T: ValueType> From<Val<T>> for Operand {
     fn from(value: Val<T>) -> Self {
         Self {
             ty: T::TYPE,
-            source: value.source,
+            source: value.into_source(),
         }
     }
 }
@@ -72,11 +72,11 @@ pub(super) fn expression_results<R: Results>(expression: Expression<Operand>) ->
 }
 
 fn unbound_results<R: Results>(expression: Expression<Operand>) -> R::Values {
-    let constants = expression
+    let literals = expression
         .try_map(|operand| match operand.source {
-            ValueSource::Literal(bits) => Ok(Constant {
+            ValueSource::Literal(bits) => Ok(TypedLiteral {
                 ty: operand.ty,
-                bits,
+                value: bits,
             }),
             _ => Err(()),
         })
@@ -85,15 +85,15 @@ fn unbound_results<R: Results>(expression: Expression<Operand>) -> R::Values {
     let mut component = 0;
     results::bind_sources::<R>(|ty| {
         let result = if let Some(bits) =
-            constants.and_then(|constants| constants.constant_result(ty, component))
+            literals.and_then(|literals| literals.constant_result(ty, component))
         {
             ValueSource::Literal(bits)
         } else {
             let recipe = recipe.get_or_insert_with(|| {
                 let expression = expression.map(|operand| match &operand.source {
-                    ValueSource::Literal(bits) => UnboundOperand::Literal(Constant {
+                    ValueSource::Literal(bits) => UnboundOperand::Literal(TypedLiteral {
                         ty: operand.ty,
-                        bits: *bits,
+                        value: *bits,
                     }),
                     ValueSource::Unbound(expression) => {
                         UnboundOperand::Expression(expression.clone())

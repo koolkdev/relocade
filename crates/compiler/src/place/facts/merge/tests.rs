@@ -50,8 +50,8 @@ fn common_bits_discard_disagreements_missing_facts_and_cached_constants() {
 #[test]
 fn common_ranges_cover_both_paths_even_without_a_shared_predicate_identity() {
     let mut table = parameters();
-    let ten = table.constant(Type::I32, 10);
-    let twenty = table.constant(Type::I32, 20);
+    let ten = table.literal(Type::I32, 10);
+    let twenty = table.literal(Type::I32, 20);
     let below_ten = compare(&mut table, CompareOp::LtUnsigned, 0, ten);
     let below_twenty = compare(&mut table, CompareOp::LtUnsigned, 0, twenty);
     let mut first = Facts::default();

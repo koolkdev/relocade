@@ -53,7 +53,7 @@ fn restoring_partial_bits_discards_child_constants_but_preserves_snapshots() {
 #[test]
 fn restoring_ranges_discards_child_comparison_inference() {
     let mut table = parameters();
-    let [ten, twenty, forty] = [10, 20, 40].map(|value| table.constant(Type::I32, value));
+    let [ten, twenty, forty] = [10, 20, 40].map(|value| table.literal(Type::I32, value));
     let below_ten = compare(&mut table, CompareOp::LtUnsigned, 0, ten);
     let below_twenty = compare(&mut table, CompareOp::LtUnsigned, 0, twenty);
     let below_forty = compare(&mut table, CompareOp::LtUnsigned, 0, forty);

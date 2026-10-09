@@ -60,7 +60,7 @@ impl Folder<'_> {
         let b = self.values[right];
         debug_assert_eq!(a.ty, b.ty);
         if let Some(result) = self.compare_constant_choices(operator, left, right, a.ty) {
-            return self.values.constant(Type::I1, u64::from(result));
+            return self.values.literal(Type::I1, u64::from(result));
         }
         // Equality can use the signed carriers when both already repeat their
         // logical sign. Mixed signed/unsigned representations still need masks.
@@ -106,10 +106,10 @@ impl Folder<'_> {
         if let Some(result) =
             self.compare_constant_choices(operator, a, b, self.values[a].ty.carrier())
         {
-            return Some(self.values.constant(Type::I1, u64::from(result)));
+            return Some(self.values.literal(Type::I1, u64::from(result)));
         }
         if a == b {
-            return Some(self.values.constant(
+            return Some(self.values.literal(
                 Type::I1,
                 u64::from(matches!(
                     operator,
@@ -118,13 +118,13 @@ impl Folder<'_> {
             ));
         }
         if matches!(operator, CompareOp::LtUnsigned | CompareOp::GeUnsigned) {
-            if self.values[b].definition == ValueDefinition::Constant(0) {
+            if self.values[b].definition == ValueDefinition::Literal(0) {
                 return Some(
                     self.values
-                        .constant(Type::I1, u64::from(operator == CompareOp::GeUnsigned)),
+                        .literal(Type::I1, u64::from(operator == CompareOp::GeUnsigned)),
                 );
             }
-            if self.values[a].definition == ValueDefinition::Constant(0) {
+            if self.values[a].definition == ValueDefinition::Literal(0) {
                 return Some(self.fold(
                     Type::I1,
                     Expression::ZeroTest {
@@ -138,8 +138,8 @@ impl Folder<'_> {
             return None;
         }
         let (input, mask) = match (self.values[a].definition, self.values[b].definition) {
-            (_, ValueDefinition::Constant(mask)) => (left, mask),
-            (ValueDefinition::Constant(mask), _) => (right, mask),
+            (_, ValueDefinition::Literal(mask)) => (left, mask),
+            (ValueDefinition::Literal(mask), _) => (right, mask),
             _ => return None,
         };
         let nonzero = if mask == 0 {
@@ -153,8 +153,8 @@ impl Folder<'_> {
                     right,
                 }) => {
                     mask.is_power_of_two()
-                        && (self.values[left].definition == ValueDefinition::Constant(mask)
-                            || self.values[right].definition == ValueDefinition::Constant(mask))
+                        && (self.values[left].definition == ValueDefinition::Literal(mask)
+                            || self.values[right].definition == ValueDefinition::Literal(mask))
                 }
                 _ => false,
             };
@@ -175,8 +175,8 @@ impl Folder<'_> {
     ) -> Option<bool> {
         let (input, constant, constant_first) =
             match (self.values[left].definition, self.values[right].definition) {
-                (_, ValueDefinition::Constant(constant)) => (left, constant, false),
-                (ValueDefinition::Constant(constant), _) => (right, constant, true),
+                (_, ValueDefinition::Literal(constant)) => (left, constant, false),
+                (ValueDefinition::Literal(constant), _) => (right, constant, true),
                 _ => return None,
             };
         let comparison = ConstantComparison {
@@ -199,7 +199,7 @@ impl Folder<'_> {
         *remaining = remaining.checked_sub(1)?;
         let value = self.values[input];
         match value.definition {
-            ValueDefinition::Constant(bits) => Some(comparison.evaluate(bits)),
+            ValueDefinition::Literal(bits) => Some(comparison.evaluate(bits)),
             ValueDefinition::Expression(Expression::Select {
                 when_true,
                 when_false,

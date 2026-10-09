@@ -31,8 +31,8 @@ fn scalar_and_bulk_writes_share_relative_alias_precision() {
     let mut graph = FunctionGraph::new();
     let base = parameter(&mut graph);
     let other_base = parameter(&mut graph);
-    let four = graph.values.constant(Type::I32, 4);
-    let value = graph.values.constant(Type::I32, 7);
+    let four = graph.values.literal(Type::I32, 4);
+    let value = graph.values.literal(Type::I32, 7);
     let writers = [
         Operation::store(access(Mem(0), 0), base, value),
         Operation::memory_fill(Mem(0), base, value, four),
@@ -55,7 +55,7 @@ fn zero_lengths_and_unknown_lengths_have_distinct_dependencies() {
     let mut graph = FunctionGraph::new();
     let destination = parameter(&mut graph);
     let length = parameter(&mut graph);
-    let zero = graph.values.constant(Type::I32, 0);
+    let zero = graph.values.literal(Type::I32, 0);
     let reader = Operation::load(access(Mem(0), 0), zero);
     for (bytes, conflict) in [(zero, false), (length, true)] {
         let writer = Operation::memory_fill(Mem(0), destination, zero, bytes);
@@ -82,7 +82,7 @@ fn zero_lengths_and_unknown_lengths_have_distinct_dependencies() {
 fn summaries_discard_local_addresses_but_keep_absolute_ranges() {
     let mut graph = FunctionGraph::new();
     let base = parameter(&mut graph);
-    let absolute = graph.values.constant(Type::I32, 12);
+    let absolute = graph.values.literal(Type::I32, 12);
     let mut writes = Vec::new();
     include(
         &mut writes,

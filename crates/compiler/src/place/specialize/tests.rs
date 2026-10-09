@@ -10,8 +10,8 @@ fn conditional_value() -> FunctionGraph {
         },
     });
     graph.blocks[0].parameters.push(condition);
-    let when_true = graph.values.constant(crate::Type::I32, 7);
-    let when_false = graph.values.constant(crate::Type::I32, 11);
+    let when_true = graph.values.literal(crate::Type::I32, 7);
+    let when_false = graph.values.literal(crate::Type::I32, 11);
     let choice = graph.values.intern(Value {
         ty: crate::Type::I32,
         definition: ValueDefinition::Expression(Expression::Select {
@@ -45,7 +45,7 @@ fn branch_previews_have_independent_facts_and_residuals() {
         let mut preview = live.on_branch(&graph.values, &Availability::default(), condition, truth);
         let result = preview.specialize(&mut graph, choice, |_, _, _| None).value;
         assert!(
-            matches!(graph.values[result].definition, ValueDefinition::Constant(bits) if bits == expected)
+            matches!(graph.values[result].definition, ValueDefinition::Literal(bits) if bits == expected)
         );
     }
     assert_eq!(
@@ -98,7 +98,7 @@ fn changing_facts_invalidates_previous_folds() {
         .value;
     assert!(matches!(
         graph.values[result].definition,
-        ValueDefinition::Constant(7)
+        ValueDefinition::Literal(7)
     ));
 }
 
@@ -140,7 +140,7 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
         .value;
     assert!(matches!(
         graph.values[result].definition,
-        ValueDefinition::Constant(7)
+        ValueDefinition::Literal(7)
     ));
 
     let mut incoming = Facts::default();
@@ -152,7 +152,7 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
         .value;
     assert!(matches!(
         graph.values[result].definition,
-        ValueDefinition::Constant(11)
+        ValueDefinition::Literal(11)
     ));
     specializer.end_block(child);
     assert_eq!(
@@ -165,7 +165,7 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
         .value;
     assert!(matches!(
         graph.values[result].definition,
-        ValueDefinition::Constant(7)
+        ValueDefinition::Literal(7)
     ));
     specializer.end_block(inherited);
     assert_eq!(
@@ -180,7 +180,7 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
 fn exact_carrier_constants_survive_specialization_and_fact_inference() {
     let mut graph = conditional_value();
     let condition = graph.blocks[0].parameters[0];
-    let literal = graph.values.carrier_constant(crate::Type::I8, 256);
+    let literal = graph.values.carrier_literal(crate::Type::I8, 256);
     let view = graph.values.intern(Value {
         ty: crate::Type::I32,
         definition: ValueDefinition::Expression(Expression::Convert { input: literal }),
@@ -198,7 +198,7 @@ fn exact_carrier_constants_survive_specialization_and_fact_inference() {
         .value;
     assert!(matches!(
         graph.values[result].definition,
-        ValueDefinition::Constant(256)
+        ValueDefinition::Literal(256)
     ));
 }
 
@@ -223,7 +223,7 @@ fn branch_facts_follow_executed_conditions_to_their_source_recipes() {
         .value;
     assert!(matches!(
         graph.values[result].definition,
-        ValueDefinition::Constant(7)
+        ValueDefinition::Literal(7)
     ));
 }
 
