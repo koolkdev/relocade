@@ -1,11 +1,11 @@
-//! RDTSC reads one host counter per execution and preserves its full bit pattern.
+//! RDTSC observes complete 64-bit retirement progress before its own retirement.
 
 use crate::support::{
     blocks::BlockModules,
     encoding::check_length,
     execution::{test_frontends, Frontend},
     machine::{expected, Exit, Image, Step},
-    step::{Argument, Engine, Event, TestModule},
+    step::{CallPatches, Engine, TestModule},
 };
 use wasm86_x86::{
     compile_block_from_bytes, compile_interpreter, CpuState, ExecutionProfile, SegmentAttributes,
@@ -81,14 +81,14 @@ fn transfers(engine: Engine, frontend: Frontend) {
         image.cpu.flags.status_source.kind = 9;
         image.cpu.flags.status_source.left = 7;
         image.cpu.flags.status_source.right = 8;
-        let mut input = image.input();
-        input.timestamp_reads.push(Argument::I64(counter as i64));
+        image.cpu.instruction_count = counter;
+        let input = image.input();
         let module = match frontend {
             Frontend::Block => blocks.get(&image.cpu, code, 1, profile),
             Frontend::Interpreter => TestModule::interpreter_with_profile(profile),
         };
         let cpu = timestamp_result(image.cpu, eax, edx, code.len() as u32);
-        let mut wanted = expected(
+        let wanted = expected(
             &image,
             &[Step {
                 cpu,
@@ -96,7 +96,6 @@ fn transfers(engine: Engine, frontend: Frontend) {
                 exit: Exit::Dispatch(cpu.eip),
             }],
         );
-        wanted.events.insert(0, Event::TimestampRead);
         assert_eq!(
             engine.observe(module, &input, 1),
             wanted,
@@ -111,35 +110,23 @@ fn ordering(engine: Engine) {
     let code = [
         0x0f, 0x31, 0xb8, 0, 0, 0, 0, 0x0f, 0x31, 0x89, 0xc1, 0x89, 0xd3, 0x0f, 0x31, 0xeb, 0,
     ];
-    let image = Image::new(&code);
-    let mut input = image.input();
-    input.timestamp_reads = vec![
-        Argument::I64(0x1234_5678),
-        Argument::I64(0xffff_ffff),
-        Argument::I64(0x1_0000_0000),
-    ];
+    let mut image = Image::new(&code);
+    image.cpu.instruction_count = 0xffff_fffd;
+    let input = image.input();
     let mut cpu = image.cpu;
-    cpu.registers.eax = 0;
+    cpu.registers.eax = 2;
     cpu.registers.edx = 1;
     cpu.registers.ecx = u32::MAX;
     cpu.registers.ebx = 0;
     cpu.eip += code.len() as u32;
-    cpu.instruction_count = cpu.instruction_count.wrapping_add(7);
-    let mut wanted = expected(
+    cpu.instruction_count = 0x1_0000_0004;
+    let wanted = expected(
         &image,
         &[Step {
             cpu,
             ram: &[],
             exit: Exit::Dispatch(cpu.eip),
         }],
-    );
-    wanted.events.splice(
-        0..0,
-        [
-            Event::TimestampRead,
-            Event::TimestampRead,
-            Event::TimestampRead,
-        ],
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 20).unwrap());
     let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
@@ -149,36 +136,23 @@ fn ordering(engine: Engine) {
 
     // RDTSC continues to CPUID, which consumes its EAX and ends the entry.
     let code = [0x0f, 0x31, 0x0f, 0xa2, 0xb8, 0, 0, 0, 0];
-    let image = Image::new(&code);
-    let mut input = image.input();
-    input
-        .timestamp_reads
-        .push(Argument::I64(0x1234_5678_0000_0001));
-    input.cpuid_results.push([0, 0, 0, 1 << 4]);
+    let mut image = Image::new(&code);
+    image.cpu.instruction_count = 1;
+    let input = image.input();
     let mut cpu = image.cpu;
-    cpu.registers.eax = 0;
+    cpu.registers.eax = 0x601;
     cpu.registers.ebx = 0;
-    cpu.registers.ecx = 0;
-    cpu.registers.edx = 1 << 4;
+    cpu.registers.ecx = 0x0080_0000;
+    cpu.registers.edx = 0x8110;
     cpu.eip += 4;
     cpu.instruction_count = cpu.instruction_count.wrapping_add(2);
-    let mut wanted = expected(
+    let wanted = expected(
         &image,
         &[Step {
             cpu,
             ram: &[],
             exit: Exit::Dispatch(cpu.eip),
         }],
-    );
-    wanted.events.splice(
-        0..0,
-        [
-            Event::TimestampRead,
-            Event::Cpuid {
-                leaf: 1,
-                subleaf: image.cpu.registers.ecx,
-            },
-        ],
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 20).unwrap());
     for module in [&block, &run] {
@@ -187,25 +161,23 @@ fn ordering(engine: Engine) {
 }
 
 #[test]
-fn repeated_reads_remain_observable_without_ending_execution() {
+fn repeated_reads_include_pending_retirement_without_ending_execution() {
     ordering(Engine::Wasmtime);
 }
 
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_repeated_reads_remain_observable_without_ending_execution() {
+fn v8_repeated_reads_include_pending_retirement_without_ending_execution() {
     ordering(Engine::V8);
 }
 
 fn fault_order(engine: Engine) {
     let code = [0x0f, 0x31, 0x8b, 0x1d, 0, 0x40, 0, 0];
-    let image = Image::new(&code);
-    let mut input = image.input();
-    input
-        .timestamp_reads
-        .push(Argument::I64(0x1234_5678_9abc_def0));
+    let mut image = Image::new(&code);
+    image.cpu.instruction_count = 0x1234_5678_9abc_def0;
+    let input = image.input();
     let cpu = timestamp_result(image.cpu, 0x9abc_def0, 0x1234_5678, 2);
-    let mut wanted = expected(
+    let wanted = expected(
         &image,
         &[Step {
             cpu,
@@ -216,7 +188,6 @@ fn fault_order(engine: Engine) {
             },
         }],
     );
-    wanted.events.insert(0, Event::TimestampRead);
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
     let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
     for module in [&block, &run] {
@@ -267,13 +238,11 @@ fn fetch_boundary(engine: Engine) {
 
     image.cpu.eip = 0x1ffe;
     image.data(0x3ffe, &[0x0f, 0x31]);
-    let mut input = image.input();
-    input
-        .timestamp_reads
-        .push(Argument::I64(0x1234_5678_9abc_def0));
+    image.cpu.instruction_count = 0x1234_5678_9abc_def0;
+    let input = image.input();
     let cpu = timestamp_result(image.cpu, 0x9abc_def0, 0x1234_5678, 2);
     let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
-    let mut wanted = expected(
+    let wanted = expected(
         &image,
         &[Step {
             cpu,
@@ -284,7 +253,6 @@ fn fetch_boundary(engine: Engine) {
             },
         }],
     );
-    wanted.events.insert(0, Event::TimestampRead);
     assert_eq!(engine.observe(&run, &input, 1), wanted);
 
     let image = Image::new(&[0xf0, 0x0f, 0x31]);
@@ -312,7 +280,7 @@ fn encoding_and_imports() {
     for code in [&[0x0f, 0x31][..], &[0x66, 0x67, 0x64, 0x0f, 0x31]] {
         check_length(code);
     }
-    for (code, expected) in [(&[0x0f, 0x31][..], true), (&[0x90][..], false)] {
+    for code in [&[0x0f, 0x31][..], &[0x90][..]] {
         let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
         let imports = wasmparser::Parser::new(0)
             .parse_all(&module.bytes)
@@ -323,6 +291,100 @@ fn encoding_and_imports() {
             .flatten()
             .map(|import| import.unwrap().name)
             .collect::<Vec<_>>();
-        assert_eq!(imports.contains(&"readTimestampCounter"), expected);
+        assert!(!imports.contains(&"readTimestampCounter"));
     }
+}
+
+fn continuity(engine: Engine) {
+    // Each entry reads once, then branches back to the same address.
+    let code = [0x0f, 0x31, 0xeb, 0xfc];
+    let mut image = Image::new(&code);
+    image.cpu.instruction_count = 0x1234_5678_ffff_fffe;
+    let mut input = image.input();
+    input.patches_before_calls = vec![
+        CallPatches::default(),
+        CallPatches::default(),
+        CallPatches::cpu(vec![(
+            std::mem::offset_of!(CpuState, instruction_count) as u32,
+            0x8000_0000_0000_0010_u64.to_le_bytes().to_vec(),
+        )]),
+    ];
+    let steps = [
+        (0xffff_fffe, 0x1234_5678, 0x1234_5679_0000_0000),
+        (0, 0x1234_5679, 0x1234_5679_0000_0002),
+        (0x10, 0x8000_0000, 0x8000_0000_0000_0012),
+    ]
+    .map(|(eax, edx, count)| {
+        let mut cpu = image.cpu;
+        cpu.registers.eax = eax;
+        cpu.registers.edx = edx;
+        cpu.instruction_count = count;
+        Step {
+            cpu,
+            ram: &[],
+            exit: Exit::Dispatch(0x1000),
+        }
+    });
+    let wanted = expected(&image, &steps);
+    let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
+    let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
+    for module in [&block, &run] {
+        assert_eq!(engine.observe(module, &input, 3), wanted);
+    }
+}
+
+#[test]
+fn counter_continues_across_entries_and_reads_full_width_restores() {
+    continuity(Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_counter_continues_across_entries_and_reads_full_width_restores() {
+    continuity(Engine::V8);
+}
+
+fn repeated_instruction(engine: Engine) {
+    let code = [0xf3, 0xa4, 0x0f, 0x31, 0xeb, 0];
+    let mut image = Image::new(&code);
+    image.cpu.instruction_count = 100;
+    image.cpu.registers.ecx = 3;
+    image.cpu.registers.esi = 0x2000;
+    image.cpu.registers.edi = 0x4000;
+    image.cpu.flags.bytes.df = 0;
+    image.map(2, 0x5000, false);
+    image.map(4, 0x7000, true);
+    image.data(0x5000, &[1, 2, 3]);
+    let mut cpu = image.cpu;
+    cpu.registers.eax = 101;
+    cpu.registers.edx = 0;
+    cpu.registers.ecx = 0;
+    cpu.registers.esi = 0x2003;
+    cpu.registers.edi = 0x4003;
+    cpu.eip = 0x1006;
+    cpu.instruction_count = 103;
+    let wanted = expected(
+        &image,
+        &[Step {
+            cpu,
+            ram: &[(0x7000, &[1, 2, 3])],
+            exit: Exit::Dispatch(0x1006),
+        }],
+    );
+    let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 3).unwrap());
+    let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
+    for module in [&block, &run] {
+        assert_eq!(engine.observe(module, &image.input(), 1), wanted);
+    }
+}
+
+#[test]
+fn rep_contributes_one_retirement_to_the_counter() {
+    repeated_instruction(Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_rep_contributes_one_retirement_to_the_counter() {
+    repeated_instruction(Engine::V8);
 }

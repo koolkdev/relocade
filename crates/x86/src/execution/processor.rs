@@ -5,7 +5,9 @@ use crate::register::{Gpr32, Register};
 
 impl ExecutionBuilder<'_, '_> {
     pub(crate) fn rdtsc(&mut self) -> Result<(), BuildError> {
-        let counter = self.runtime.read_timestamp_counter(&mut self.body)?;
+        let counter = self
+            .state
+            .instruction_count(&mut self.body, self.completed)?;
         self.write_register_pair::<I32>(Gpr32::Edx, Gpr32::Eax, counter)
     }
 
@@ -13,10 +15,7 @@ impl ExecutionBuilder<'_, '_> {
         let leaf = self
             .state
             .read_register(&mut self.body, Register::<I32>::named(Gpr32::Eax))?;
-        let subleaf = self
-            .state
-            .read_register(&mut self.body, Register::<I32>::named(Gpr32::Ecx))?;
-        let result = self.runtime.cpuid(&mut self.body, &leaf, &subleaf)?;
+        let result = crate::processor::cpuid(&leaf);
         for (register, value) in [
             (Gpr32::Eax, result.eax),
             (Gpr32::Ebx, result.ebx),

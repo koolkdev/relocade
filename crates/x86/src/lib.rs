@@ -30,6 +30,7 @@ mod execution;
 mod flags;
 mod instruction;
 mod memory;
+mod processor;
 mod profile;
 mod register;
 mod runtime;

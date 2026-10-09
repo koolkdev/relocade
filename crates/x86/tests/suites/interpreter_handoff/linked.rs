@@ -38,7 +38,7 @@ fn published_prefix_and_step(engine: Engine) {
     image.map(4, 0x8000, true);
     let mut restart = image.cpu;
     restart.eip = 0x1008;
-    restart.instruction_count = 1; // Two completed instructions wrap u32::MAX.
+    restart.instruction_count = 1; // Two completed instructions wrap u64::MAX.
     restart.registers.eax = 1;
     for linked in [false, true] {
         let mut module = TestModule::new(&compile_block_from_bytes(0x1000, &code, 4).unwrap());
@@ -133,4 +133,47 @@ fn interpreter_run_passes_snapshot_limit_and_stops_at_branch_or_fault() {
 fn v8_linked_interpreter_handoff() {
     published_prefix_and_step(Engine::V8);
     run_to_branch_or_fault(Engine::V8);
+}
+
+fn timestamp_after_handoff(engine: Engine) {
+    let code = [
+        0x90, // The JIT retires this prefix before its FLD specialization fails.
+        0xd9, 0x05, 0, 0x40, 0, 0, 0x0f, 0x31, 0xeb, 0,
+    ];
+    let mut image = stack_image(&code, 0, 0xffff);
+    image.cpu.instruction_count = 0xffff_ffff;
+    image.map(4, 0x8000, false);
+    image.data(0x8000, &1_u32.to_le_bytes());
+    let mut restart = image.cpu;
+    restart.eip = 0x1001;
+    restart.instruction_count = 0x1_0000_0000;
+    let mut cpu = subnormal_loaded(restart);
+    cpu.registers.eax = 1;
+    cpu.registers.edx = 1;
+    cpu.eip = 0x100b;
+    cpu.instruction_count = 0x1_0000_0003;
+    let module = TestModule::new(&compile_block_from_bytes(0x1000, &code, 4).unwrap())
+        .with_interpreter(interpreter_run());
+    assert_eq!(
+        engine.observe(&module, &image.input(), 1),
+        expected(
+            &image,
+            &[Step {
+                cpu,
+                ram: &[],
+                exit: Exit::Dispatch(0x100b)
+            }]
+        )
+    );
+}
+
+#[test]
+fn timestamp_includes_retirement_across_interpreter_handoff() {
+    timestamp_after_handoff(Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_timestamp_includes_retirement_across_interpreter_handoff() {
+    timestamp_after_handoff(Engine::V8);
 }

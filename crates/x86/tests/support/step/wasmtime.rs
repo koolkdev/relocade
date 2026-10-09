@@ -10,7 +10,6 @@ use super::{
 
 mod physical;
 mod ports;
-mod processor;
 
 struct ExecutionEvents {
     events: Vec<Event>,
@@ -19,8 +18,6 @@ struct ExecutionEvents {
     segment_queries: std::vec::IntoIter<SegmentQuery>,
     mmio_updates: std::vec::IntoIter<MmioUpdate>,
     port_reads: std::vec::IntoIter<u32>,
-    cpuid_results: std::vec::IntoIter<[u32; 4]>,
-    timestamp_reads: std::vec::IntoIter<Argument>,
 }
 
 impl TestModule {
@@ -36,8 +33,6 @@ impl TestModule {
                 segment_queries: input.segment_queries.clone().into_iter(),
                 mmio_updates: input.mmio_updates.clone().into_iter(),
                 port_reads: input.port_reads.clone().into_iter(),
-                cpuid_results: input.cpuid_results.clone().into_iter(),
-                timestamp_reads: input.timestamp_reads.clone().into_iter(),
             },
         );
         let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
@@ -63,7 +58,6 @@ impl TestModule {
         let machine_before = observes_machine.then(|| Arc::<[u8]>::from(machine.data(&store)));
         let mut linker = Linker::new(engine);
         ports::register(&mut linker);
-        processor::register(&mut linker);
         for (name, memory) in [("cpuState", cpu), ("guest", guest), ("machine", machine)] {
             linker.define(&store, "wasm86", name, memory).unwrap();
         }
@@ -237,12 +231,6 @@ impl TestModule {
         );
         assert_eq!(store.data().mmio_updates.len(), 0, "unused MMIO updates");
         assert_eq!(store.data().port_reads.len(), 0, "unused port reads");
-        assert_eq!(store.data().cpuid_results.len(), 0, "unused CPUID results");
-        assert_eq!(
-            store.data().timestamp_reads.len(),
-            0,
-            "unused timestamp reads"
-        );
         let guest_unchanged = &*guest_before == guest.data(&store);
         let machine_unchanged = store.data().machine_unchanged;
         Observation {

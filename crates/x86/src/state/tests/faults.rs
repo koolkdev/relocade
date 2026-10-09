@@ -54,12 +54,12 @@ fn conditional_fault(completed: u32) -> CompiledModule {
 fn check_fault_publication(engine: Engine) {
     let mut initial = CpuState {
         eip: 0x1000,
-        instruction_count: 0xffff_ffff,
+        instruction_count: u64::MAX,
         ..CpuState::filled(0xa5)
     };
     initial.flags.status_source.kind = 9;
     initial.registers.eax = 0xffff_ffff;
-    for (completed, fault_count, continued_count) in [(0, 0xffff_ffff, 0), (2, 1, 2)] {
+    for (completed, fault_count, continued_count) in [(0, u64::MAX, 0), (2, 1, 2)] {
         let module = TestModule::new(&conditional_fault(completed));
         for denied in [false, true] {
             let mut expected = initial;

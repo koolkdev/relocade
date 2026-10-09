@@ -30,9 +30,8 @@ impl Image {
             edi: 0x8888_8888,
         };
         cpu.eip = 0x1000;
-        cpu.instruction_count = u32::MAX;
+        cpu.instruction_count = u64::MAX;
         cpu.segments = Segments::flat32();
-        cpu.reserved_tail.fill(0);
         Self {
             cpu,
             guest: vec![],

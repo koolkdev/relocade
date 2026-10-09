@@ -84,7 +84,7 @@ fn faults() -> Vec<Case> {
 fn histories() -> Vec<Sequence> {
     vec![
         Sequence::from_opaque_flags("REP LODSB keeps pending ADD flags and AH on a later fault")
-            .stored_flags(record(0)).instruction_count(u32::MAX - 1)
+            .stored_flags(record(0)).instruction_count(u64::MAX - 1)
             .initial_registers(&[(Eax, 0xaabb_cc7f), (Ecx, 0xdddd_00aa), (Esi, 0xeeee_4ffe)])
             .memory(0x4ffe, &[0x12, 0x34], ReadOnly)
             .step(Step::new(&[0x04, 1], flags(52)).register(Eax, 0xaabb_cc80))

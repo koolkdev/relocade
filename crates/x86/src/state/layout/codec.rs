@@ -55,8 +55,7 @@ impl CpuState {
                 gs: read_segment(&bytes, offset_of!(CpuState, segments.gs)),
             },
             reserved: read(&bytes, offset_of!(CpuState, reserved)),
-            instruction_count: read_u32(&bytes, offset_of!(CpuState, instruction_count)),
-            reserved_tail: read(&bytes, offset_of!(CpuState, reserved_tail)),
+            instruction_count: read_u64(&bytes, offset_of!(CpuState, instruction_count)),
             x87: StoredX87::read(&bytes[offset_of!(CpuState, x87)..]),
         }
     }
@@ -109,10 +108,6 @@ impl CpuState {
             (offset_of!(CpuState, registers.esi), self.registers.esi),
             (offset_of!(CpuState, registers.edi), self.registers.edi),
             (offset_of!(CpuState, eip), self.eip),
-            (
-                offset_of!(CpuState, instruction_count),
-                self.instruction_count,
-            ),
         ] {
             write(&mut bytes, offset, &value.to_le_bytes());
         }
@@ -129,8 +124,8 @@ impl CpuState {
         write(&mut bytes, offset_of!(CpuState, reserved), &self.reserved);
         write(
             &mut bytes,
-            offset_of!(CpuState, reserved_tail),
-            &self.reserved_tail,
+            offset_of!(CpuState, instruction_count),
+            &self.instruction_count.to_le_bytes(),
         );
         self.x87.write(&mut bytes[offset_of!(CpuState, x87)..]);
         bytes
@@ -154,6 +149,10 @@ pub(super) fn read_u16(bytes: &[u8], offset: usize) -> u16 {
 
 pub(super) fn read_u32(bytes: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes(read(bytes, offset))
+}
+
+fn read_u64(bytes: &[u8], offset: usize) -> u64 {
+    u64::from_le_bytes(read(bytes, offset))
 }
 
 fn read_segment(bytes: &[u8], offset: usize) -> StoredSegment {

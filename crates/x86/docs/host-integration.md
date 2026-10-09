@@ -1,7 +1,7 @@
 # Host integration
 
 Generated x86 modules use this contract for both snapshot blocks and interpreter
-entries. The embedding host supplies memory, dispatch, processor queries and
+entries. The embedding host supplies memory, dispatch and
 descriptor resolution.
 The Wasm engine must support multiple memories, multiple results, tail calls and
 the threads extension's atomic instructions, including on unshared memories.
@@ -18,9 +18,10 @@ construct this configuration without CPU observations.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
 count, then tail-calls `wasm86.dispatch(next_eip: i32) -> i64`. Its result is returned
-unchanged. EIP and dispatch arguments are offsets relative to CS, and EIP and count
-use 32-bit wrapping arithmetic. A taken transfer checks its segment target before
-committing instruction effects; fetching the destination belongs to the next entry.
+unchanged. EIP and dispatch arguments are offsets relative to CS. EIP wraps at
+32 bits, and the instruction count wraps at 64 bits. A taken transfer checks its
+segment target before committing instruction effects; fetching the destination
+belongs to the next entry.
 
 The host chooses whether dispatch enters more code or returns control. Interpreter
 `run` continues inside Wasm until a branch, segment load, port I/O or serializing
@@ -94,30 +95,25 @@ compiling another block. No CPU state is replaced with the observed snapshot.
 
 ## Processor identification
 
-CPUID uses `wasm86.cpuid(leaf: i32, subleaf: i32) -> (i32, i32, i32, i32)`.
-The inputs are the full EAX and ECX bit patterns. Results replace EAX, EBX, ECX
-and EDX, in that order. All other registers and flags are preserved. The operation
-is identical in every execution profile; size and segment prefixes do not narrow
-its registers. Clearing EFLAGS.ID does not disable the instruction. LOCK uses the
-shared unsupported-encoding exit before calling the host.
+CPUID is generated from the core's built-in virtual CPU model; it needs no host
+callback or configuration. Leaf 0 reports maximum basic leaf 1 and the vendor
+string `Relocade CPU`. Leaf 1 reports virtual family 6, model 0, stepping 1
+(EAX=`0x00000601`), EBX=0, POPCNT in ECX, and TSC, CX8 and CMOV in EDX. These are
+implemented capabilities, independent of real/protected mode and segment
+assumptions. The identity does not claim a physical Intel processor.
 
-The callback supplies the virtual processor's identity, supported leaves and
-feature bits. It must handle every input, including unsupported leaves and
-subleaves. Intel's invalid-leaf rule returns the highest supported basic leaf;
-leaves with subleaf inputs follow their own enumeration rules. Results must be
-consistent across interpreter and JIT entries for the same virtual processor.
-The callback must not inspect or modify CPU backing, guest memory or mappings,
-or reenter execution. No CPU state layout or host-side Rust configuration changes
-are required. Blocks that do not execute CPUID do not import the callback.
+Only complete feature groups are advertised. Partial x87 support does not establish
+the FPU feature; MMX, SSE, SSE2, FXSAVE/FXRSTOR and unsupported platform
+facilities remain clear. POPCNT is already implemented; its independent bit does
+not advertise SSE4.2 or expand the P4 compatibility target. When adding a feature,
+update the core model only after its advertised behavior is supported.
 
-Advertise only capabilities the embedding actually implements. In particular,
-partial x87 support does not establish the complete FPU feature, and this build
-does not implement MMX, SSE, SSE2 or FXSAVE/FXRSTOR. These feature bits
-must remain clear. Copying the native host's CPUID results would advertise
-instructions and platform facilities the guest cannot use. The P4 compatibility
-target does not require claiming the complete identity of a physical P4.
-The host may advertise the TSC feature (leaf 1 EDX bit 4) when it provides the
-timestamp-counter contract below.
+The full EAX selects the leaf. Both leaves ignore input ECX. Unsupported basic and
+extended queries return leaf 1, following Intel's highest-basic-leaf rule. There
+are no cache, topology, frequency or extended leaves. Results replace the full
+EAX, EBX, ECX and EDX in every execution profile; size and segment prefixes do not
+narrow the registers. Other registers and all flags are preserved. Clearing
+EFLAGS.ID does not disable CPUID. LOCK uses the shared unsupported-encoding exit.
 
 CPUID serializes execution: both a snapshot block and an interpreter run complete
 the instruction, publish state and dispatch before fetching its successor. Prior
@@ -130,41 +126,35 @@ These semantics follow Intel's [Volume 2A, CPUID](https://www.intel.com/content/
 
 ## Timestamp counter
 
-RDTSC calls `wasm86.readTimestampCounter() -> i64` once per executed instruction.
-The result carries the complete unsigned 64-bit counter as a Wasm i64 bit pattern.
-Its low 32 bits replace EAX and its high 32 bits replace EDX; other registers and
-all flags are preserved. JavaScript hosts return a `BigInt`, preserving counters
-above Number's exact-integer range. For example, a result of
-`0x0123456789abcdefn` produces EDX=`0x01234567`, EAX=`0x89abcdef`.
+RDTSC reads the virtual CPU's 64-bit completed-instruction count into EDX:EAX.
+The clock advances by one tick per retired guest instruction. A read includes
+preceding instructions in the current block, even before their count is published,
+and excludes RDTSC's own retirement. Starting from zero, two consecutive RDTSC
+instructions therefore return 0 and 1. Other registers and all flags are preserved.
+No host callback or browser timer is needed.
 
-The embedding owns the virtual counter, its tick frequency and its progression.
-Use one clock timeline for a virtual processor across interpreter entries, JIT
-blocks and host dispatches. Frequency is an embedding policy, not the native
-host CPU frequency or the 32-bit retired-instruction count. The counter must
-progress with the host's emulated clock, may repeat between sufficiently close
-reads, and wraps modulo 2^64. Entering a module or reading the counter must not
-reset it. A deterministic embedding can supply virtual time; a real-time
-embedding can convert elapsed monotonic time into ticks at its chosen rate.
+This initial clock models execution progress. It has no fixed relationship to
+seconds or physical CPU cycles and stops when guest execution stops. A completed
+REP instruction advances it once, regardless of its element count; an instruction
+that faults or exits unsupported does not advance it. The CPUID model advertises
+TSC support, but no clock-frequency or invariant-TSC leaf.
 
-The callback completes synchronously and must not inspect or modify CPU backing,
-guest memory or mappings, or reenter execution. It may advance its own clock
-state. Reads remain observable even when subsequent instructions overwrite both
-result registers. Every interpreter requires this import; snapshots include it
-only when they execute RDTSC. No CPU backing fields or public Rust configuration
-are added for the host-owned clock.
+The counter lives in `CpuState::instruction_count` and wraps modulo 2^64. Saving
+and restoring the full CPU record preserves it across interpreter entries, JIT
+blocks and host dispatches. Hosts may initialize or restore it only between
+entries, using all eight bytes. JavaScript hosts should use little-endian
+`DataView.getBigUint64` / `setBigUint64` when accessing it directly.
 
-RDTSC is not serializing and does not end a block or interpreter run. The current
-execution model performs its read in guest instruction order; it does not model
-speculative timing. A later fault retains its completed register effects and
-retirement. An earlier fault or incomplete encoding prevents the read.
+RDTSC is not serializing and does not end a block or interpreter run. Its result
+reflects guest instruction order. A later fault retains its register effects and
+retirement; an earlier fault or incomplete encoding prevents its effects.
+All execution profiles support it. Protected profiles assume CR4.TSD=0;
+changing CR4 or denying timestamp reads with TSD remains unsupported. Real mode
+permits the instruction independently of TSD. Operand/address/segment prefixes
+do not narrow its full-width registers. LOCK uses the shared unsupported exit.
 
-All execution profiles support RDTSC. Protected profiles assume CR4.TSD=0;
-changing CR4 or denying user timestamp reads with TSD remains unsupported.
-Real-address mode permits RDTSC independently of TSD. Operand/address/segment
-prefixes do not alter its full-width registers. LOCK uses the shared
-unsupported-encoding exit before the callback.
-
-These semantics follow Intel's [Volume 2B, RDTSC](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366721.pdf#page=248).
+The register and permission semantics follow Intel's [Volume 2B, RDTSC](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366721.pdf#page=248).
+The instruction-based progression is this virtual CPU's explicit timing policy.
 
 ## Port I/O
 
@@ -218,17 +208,14 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
 
 Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
-`cpuid`, `readTimestampCounter`, `resolveSegment` and `querySegmentDescriptor`.
-Real16 interpreters import `cpuState`, `guest`, `physicalMap`, `dispatch`, `cpuid`,
-`readTimestampCounter`, the MMIO callbacks and the port callbacks. They use
-generated RAM/ROM accesses and do not call descriptor callbacks. The physical
-memory contract below describes routing and callback widths.
+`resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
+`cpuState`, `guest`, `physicalMap`, `dispatch`, the MMIO callbacks and the
+port callbacks. They use generated RAM/ROM accesses and do not call descriptor
+callbacks. The physical memory contract below describes routing and callback widths.
 Snapshot modules omit imports they do not use: protected-mode memory instructions
 require guest backing and the page table, protected-mode segment loads require
-`resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. CPUID
-requires `cpuid` and RDTSC requires `readTimestampCounter`; blocks with
-specialization guards require `interpret`. Hosts should use the generated
-module's import list when instantiating it.
+`resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks with
+specialization guards require `interpret`. Hosts should use the generated module's import list when instantiating it.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical
@@ -273,8 +260,7 @@ payloads, raw segment attributes and x87 encodings. The image is
 | 60 | u32 EIP. |
 | 64 | Six 12-byte segment records: ES, CS, SS, DS, FS, GS. |
 | 136 | Eight reserved bytes. |
-| 144 | u32 completed-instruction count. |
-| 148 | Four reserved bytes. |
+| 144 | u64 completed-instruction count and virtual timestamp counter. |
 | 152 | Twelve-byte `StoredX87Control`: six mask bytes, PC, RC, IC, padding byte, u16 reserved bits. |
 | 164 | u16 full x87 tag word. |
 | 166 | u16 last x87 opcode. |
