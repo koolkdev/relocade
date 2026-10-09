@@ -7,8 +7,8 @@ use super::{UnboundExpression, Val};
 use crate::{arena::FunctionArena, BuildError, Type, ValueType};
 
 #[derive(Clone)]
-pub(crate) enum ValueSource {
-    Literal(u64),
+pub(crate) enum ValueSource<L = u64> {
+    Literal(L),
     Unbound(UnboundExpression),
     Expression {
         arena: FunctionArena,
@@ -46,7 +46,15 @@ impl BoundExpression {
     }
 }
 
-impl ValueSource {
+impl<L> ValueSource<L> {
+    fn map_literal<M>(self, map: impl FnOnce(L) -> M) -> ValueSource<M> {
+        match self {
+            Self::Literal(literal) => ValueSource::Literal(map(literal)),
+            Self::Unbound(expression) => ValueSource::Unbound(expression),
+            Self::Expression { arena, expression } => ValueSource::Expression { arena, expression },
+        }
+    }
+
     // Parameters, reads, calls and joins use the scope of their own definition.
     // Calculations retain their original operand scopes across folding.
     pub(crate) fn from_definition(
@@ -61,14 +69,19 @@ impl ValueSource {
         });
         Self::Expression { arena, expression }
     }
+}
 
+impl<L: Copy + Eq + Into<u64>> ValueSource<L> {
     pub(super) fn resolve(
         &self,
         arena: &FunctionArena,
         ty: Type,
     ) -> Result<BoundExpression, BuildError> {
         match self {
-            Self::Literal(bits) => Ok(BoundExpression::new(arena.constant(ty, *bits)?, Some(0))),
+            Self::Literal(bits) => Ok(BoundExpression::new(
+                arena.literal(ty, (*bits).into())?,
+                Some(0),
+            )),
             Self::Unbound(expression) => Ok(BoundExpression::new(
                 arena.resolve_unbound(expression)?,
                 Some(0),
@@ -115,9 +128,18 @@ impl<T: ValueType> Val<T> {
 
     pub(crate) fn from_source(source: ValueSource) -> Self {
         Self {
-            source,
+            source: source.map_literal(|literal| {
+                T::Literal::try_from(literal)
+                    .ok()
+                    .expect("a result literal matches its logical type")
+            }),
             ty: PhantomData,
         }
+    }
+
+    /// Erase the literal payload only when entering a mixed-type container.
+    pub(super) fn into_source(self) -> ValueSource {
+        self.source.map_literal(Into::into)
     }
 
     pub(super) fn bound(

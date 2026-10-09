@@ -308,7 +308,7 @@ impl JoinInputs {
                 .conflicts_with(&graph.values, facts)
             {
                 excluded.push(source.source);
-                graph.values.constant(ty, 0)
+                graph.values.literal(ty, 0)
             } else {
                 return None;
             };
@@ -382,7 +382,7 @@ impl JoinArguments {
                 .copied()
                 // Inactive edges still have well-formed tuples. Their
                 // values are never consumed by the reachable join.
-                .unwrap_or_else(|| graph.values.constant(self.ty, 0));
+                .unwrap_or_else(|| graph.values.literal(self.ty, 0));
             for edge in graph.blocks[source].exit.edges_mut() {
                 if edge.target == join {
                     edge.arguments.push(argument);

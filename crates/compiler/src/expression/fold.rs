@@ -18,7 +18,7 @@ mod shifts;
 #[cfg(test)]
 mod tests;
 
-use super::Constant;
+use super::TypedLiteral;
 
 pub(crate) fn build(
     values: &mut ValueTable,
@@ -52,13 +52,13 @@ impl Folder<'_> {
         let expression = expression.map(|&input| {
             let value = self.values[input];
             match value.definition {
-                ValueDefinition::Constant(bits) => self.values.constant(value.ty, bits),
+                ValueDefinition::Literal(bits) => self.values.literal(value.ty, bits),
                 _ => input,
             }
         });
-        if let Some(constants) = self.constants(expression) {
-            if let Some(bits) = constants.constant_result(ty, component) {
-                return self.values.constant(ty, bits);
+        if let Some(literals) = self.literals(expression) {
+            if let Some(bits) = literals.constant_result(ty, component) {
+                return self.values.literal(ty, bits);
             }
         }
         match expression {
@@ -107,10 +107,10 @@ impl Folder<'_> {
     // Construction and operand replacement share rewrites that preserve every result bit.
     fn fold_result(&mut self, ty: Type, expression: Expression<usize>, component: usize) -> usize {
         if let Some(bits) = self
-            .constants(expression)
-            .and_then(|constants| constants.carrier_result(ty, component))
+            .literals(expression)
+            .and_then(|literals| literals.carrier_result(ty, component))
         {
-            return self.values.carrier_constant(ty, bits);
+            return self.values.carrier_literal(ty, bits);
         }
         let input = match expression {
             Expression::Binary {
@@ -174,14 +174,17 @@ impl Folder<'_> {
         self.intern_result(ty, expression, component)
     }
 
-    fn constants(&self, expression: Expression<usize>) -> Option<Expression<Constant>> {
+    fn literals(&self, expression: Expression<usize>) -> Option<Expression<TypedLiteral>> {
         expression
             .try_map(|&input| {
                 let value = self.values[input];
-                let ValueDefinition::Constant(bits) = value.definition else {
+                let ValueDefinition::Literal(bits) = value.definition else {
                     return Err(());
                 };
-                Ok(Constant { ty: value.ty, bits })
+                Ok(TypedLiteral {
+                    ty: value.ty,
+                    value: bits,
+                })
             })
             .ok()
     }
@@ -203,7 +206,7 @@ impl Folder<'_> {
         });
         let id = self.values.expression_result(id, component);
         if self.values.bounds[id].unsigned == 0 {
-            self.values.constant(ty, 0)
+            self.values.literal(ty, 0)
         } else {
             id
         }

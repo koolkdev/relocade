@@ -70,14 +70,14 @@ impl Argument {
                 })
             }
         };
-        arena.constant(expected, bits)
+        arena.literal(expected, bits)
     }
 }
 
 impl<T: ValueType> From<&Val<T>> for Argument {
     fn from(value: &Val<T>) -> Self {
         Self(Operand::Value {
-            source: value.source.clone(),
+            source: value.clone().into_source(),
             ty: T::TYPE,
         })
     }
@@ -86,7 +86,7 @@ impl<T: ValueType> From<&Val<T>> for Argument {
 impl<T: ValueType> From<Val<T>> for Argument {
     fn from(value: Val<T>) -> Self {
         Self(Operand::Value {
-            source: value.source,
+            source: value.into_source(),
             ty: T::TYPE,
         })
     }

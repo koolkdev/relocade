@@ -53,7 +53,10 @@ impl Type {
 }
 
 mod sealed {
-    pub trait Sealed {}
+    pub trait Sealed {
+        // Typed handles retain only the encoding their logical type can carry.
+        type Literal: Copy + Eq + Into<u64> + TryFrom<u64>;
+    }
 }
 
 /// A supported scalar type known at compile time.
@@ -110,12 +113,24 @@ pub struct I64;
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct F64;
 
-impl sealed::Sealed for I1 {}
-impl sealed::Sealed for I8 {}
-impl sealed::Sealed for I16 {}
-impl sealed::Sealed for I32 {}
-impl sealed::Sealed for I64 {}
-impl sealed::Sealed for F64 {}
+impl sealed::Sealed for I1 {
+    type Literal = u64;
+}
+impl sealed::Sealed for I8 {
+    type Literal = u64;
+}
+impl sealed::Sealed for I16 {
+    type Literal = u64;
+}
+impl sealed::Sealed for I32 {
+    type Literal = u64;
+}
+impl sealed::Sealed for I64 {
+    type Literal = u64;
+}
+impl sealed::Sealed for F64 {
+    type Literal = u64;
+}
 
 impl ValueType for I1 {
     const TYPE: Type = Type::I1;

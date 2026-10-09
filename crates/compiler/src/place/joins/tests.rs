@@ -125,7 +125,7 @@ fn a_descendant_demand_adds_one_parameter_at_the_owning_join() {
     let filler = graph.blocks[inactive.0].exit.edges()[0].arguments[0];
     assert!(matches!(
         graph.values[filler].definition,
-        ValueDefinition::Constant(0)
+        ValueDefinition::Literal(0)
     ));
 }
 
@@ -169,7 +169,7 @@ fn a_nearer_join_is_preferred_but_a_failed_merge_keeps_ancestor_reuse() {
     let outer = Diamond::new(&mut graph, BlockId(0));
     let inner = Diamond::new(&mut graph, outer.join);
     let nearby = square(&mut graph);
-    let one = graph.values.constant(Type::I32, 1);
+    let one = graph.values.literal(Type::I32, 1);
     let fallback = expression(
         &mut graph,
         Type::I32,

@@ -18,7 +18,7 @@ fn shared_unbound_expressions_are_cached_per_body_and_released_when_closed() {
     for (arena, owners) in [(&first, 2), (&second, 3)] {
         for _ in 0..2 {
             let value = folded.checked_expression(arena, 0).unwrap();
-            assert_eq!(value, arena.constant(Type::I32, 0).unwrap());
+            assert_eq!(value, arena.literal(Type::I32, 0).unwrap());
             assert_eq!(retained.strong_count(), owners);
         }
     }
@@ -83,7 +83,7 @@ fn unbound_operands_keep_their_types_across_comparisons_shifts_and_conversions()
     for (id, ty, bits) in expected {
         assert_eq!(values[id].ty, ty);
         assert!(
-            matches!(values[id].definition, ValueDefinition::Constant(actual) if actual == bits)
+            matches!(values[id].definition, ValueDefinition::Literal(actual) if actual == bits)
         );
     }
 }
@@ -118,7 +118,7 @@ fn unbound_wide_components_share_storage_but_keep_distinct_identities_and_cache_
         };
         for (id, expected) in ids.into_iter().zip(expected) {
             assert!(
-                matches!(values[id].definition, ValueDefinition::Constant(bits) if bits == expected)
+                matches!(values[id].definition, ValueDefinition::Literal(bits) if bits == expected)
             );
         }
     }

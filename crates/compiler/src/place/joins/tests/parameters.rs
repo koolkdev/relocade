@@ -27,7 +27,7 @@ fn argument_facts_transfer_common_bits_without_value_candidates() {
                 .arguments
                 .push(argument);
         }
-        let mask = graph.values.constant(Type::I8, 15);
+        let mask = graph.values.literal(Type::I8, 15);
         let low = expression(
             &mut graph,
             Type::I8,
@@ -68,8 +68,8 @@ fn two_edges_from_one_predecessor_must_agree_unless_one_is_discarded() {
         let mut graph = graph();
         let arms = Diamond::new(&mut graph, BlockId(0));
         let result = parameter(&mut graph, arms.join, Type::I32);
-        let five = graph.values.constant(Type::I32, 5);
-        let seven = graph.values.constant(Type::I32, 7);
+        let five = graph.values.literal(Type::I32, 5);
+        let seven = graph.values.literal(Type::I32, 7);
         let incoming = |value| Edge {
             target: arms.join,
             arguments: vec![value],
@@ -85,7 +85,7 @@ fn two_edges_from_one_predecessor_must_agree_unless_one_is_discarded() {
             joins.complete(source.0, &Facts::default());
         }
         if discard {
-            let yes = graph.values.constant(Type::I1, 1);
+            let yes = graph.values.literal(Type::I1, 1);
             if let Exit::If { condition, .. } = &mut graph.blocks[arms.left.0].exit {
                 *condition = yes;
             }
@@ -107,7 +107,7 @@ fn a_loop_parameter_does_not_inherit_its_initial_constant() {
     let mut graph = graph();
     let header = graph.block(0, &[Type::I32]);
     let result = graph.blocks[header.0].parameters[0];
-    let one = graph.values.constant(Type::I32, 1);
+    let one = graph.values.literal(Type::I32, 1);
     graph.blocks[0].exit = Exit::Jump(Edge {
         target: header,
         arguments: vec![one],
@@ -142,7 +142,7 @@ fn one_completed_incoming_edge_makes_its_placed_argument_available_at_the_join()
     let result = parameter(&mut graph, arms.join, Type::I32);
     let recipe = square(&mut graph);
     let argument = placed(&mut graph, arms.left, recipe);
-    let unused = graph.values.constant(Type::I32, 99);
+    let unused = graph.values.literal(Type::I32, 99);
     graph.blocks[arms.left.0].exit.edges_mut()[0]
         .arguments
         .push(argument);
@@ -153,7 +153,7 @@ fn one_completed_incoming_edge_makes_its_placed_argument_available_at_the_join()
     joins.complete(arms.left.0, &Facts::default());
     // Model a branch folded after the original dominance analysis. The unused
     // arm is deliberately not completed and cannot constrain this join.
-    let yes = graph.values.constant(Type::I1, 1);
+    let yes = graph.values.literal(Type::I1, 1);
     if let Exit::If { condition, .. } = &mut graph.blocks[0].exit {
         *condition = yes;
     }
@@ -170,7 +170,7 @@ fn two_live_edges_from_a_single_predecessor_keep_their_parameter() {
     let mut graph = graph();
     let join = graph.block(0, &[Type::I32]);
     let result = graph.blocks[join.0].parameters[0];
-    let seven = graph.values.constant(Type::I32, 7);
+    let seven = graph.values.literal(Type::I32, 7);
     graph.blocks[0].exit = Exit::If {
         condition: 0,
         taken: Edge {

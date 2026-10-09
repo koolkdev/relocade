@@ -29,7 +29,7 @@ pub(super) struct Value {
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum ValueDefinition {
-    Constant(u64),
+    Literal(u64),
     Expression(Expression<usize>),
     Parameter {
         block: BlockId,
@@ -179,13 +179,13 @@ impl Exit {
     pub(super) fn constant_edge_index(&self, values: &ValueTable) -> Option<usize> {
         match self {
             Self::If { condition, .. } => match values[*condition].definition {
-                ValueDefinition::Constant(bits) => Some(usize::from(bits == 0)),
+                ValueDefinition::Literal(bits) => Some(usize::from(bits == 0)),
                 _ => None,
             },
             Self::Switch {
                 selector, cases, ..
             } => match values[*selector].definition {
-                ValueDefinition::Constant(bits) => Some(
+                ValueDefinition::Literal(bits) => Some(
                     cases
                         .iter()
                         .position(|(key, _)| u64::from(*key) == bits)

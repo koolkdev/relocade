@@ -42,7 +42,7 @@ use crate::{
 /// ```
 #[derive(Clone)]
 pub struct Val<T: ValueType> {
-    source: ValueSource,
+    source: ValueSource<T::Literal>,
     ty: PhantomData<T>,
 }
 

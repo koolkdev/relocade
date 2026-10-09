@@ -1,5 +1,7 @@
 //! Pure expressions shared by unbound values and function bodies.
 
+mod evaluate;
+pub(super) use evaluate::TypedLiteral;
 mod fold;
 pub(crate) use fold::{build, normalize, refold};
 
@@ -8,7 +10,7 @@ mod tests;
 
 use crate::{
     floating,
-    integer::{self, BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
+    integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
     Type,
 };
 
@@ -223,95 +225,5 @@ impl<V> Expression<V> {
                 bits: *bits,
             },
         })
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct Constant {
-    pub(super) ty: Type,
-    pub(super) bits: u64,
-}
-
-impl Expression<Constant> {
-    /// Evaluate operations whose logical input normalization is already explicit.
-    pub(super) fn carrier_result(&self, result: Type, component: usize) -> Option<u64> {
-        let expression = match *self {
-            // These operations explicitly interpret the source's logical width.
-            Self::SignExtend { .. } | Self::BitCount { .. } => *self,
-            _ => self.map(|input| Constant {
-                ty: input.ty.carrier(),
-                bits: input.ty.carrier().normalize(input.bits),
-            }),
-        };
-        expression.constant_result(result.carrier(), component)
-    }
-
-    pub(super) fn constant_result(&self, result: Type, component: usize) -> Option<u64> {
-        debug_assert!(component < self.result_types(result).len());
-        let bits = match *self {
-            Self::FloatBinary {
-                operator,
-                left,
-                right,
-            } => floating::binary(operator, left.bits, right.bits)?,
-            Self::FloatUnary { operator, input } => floating::unary(operator, input.bits),
-            Self::FloatCompare {
-                operator,
-                left,
-                right,
-            } => u64::from(floating::compare(operator, left.bits, right.bits)),
-            Self::Reinterpret { input } => input.bits,
-            Self::Binary {
-                operator,
-                left,
-                right,
-            } => integer::binary(left.ty, operator, left.bits, right.bits)?,
-            Self::MultiplyWide {
-                signed,
-                left,
-                right,
-            } => {
-                let product = if signed {
-                    ((left.bits as i64 as i128) * (right.bits as i64 as i128)) as u128
-                } else {
-                    u128::from(left.bits) * u128::from(right.bits)
-                };
-                (product >> (component * 64)) as u64
-            }
-            Self::Compare {
-                operator,
-                left,
-                right,
-            } => u64::from(integer::compare(left.ty, operator, left.bits, right.bits)),
-            Self::Shift {
-                operator,
-                value,
-                count,
-            } => integer::shift(value.ty, operator, value.bits, count.bits as u32),
-            Self::Rotate {
-                operator,
-                value,
-                count,
-            } => integer::rotate(value.ty, operator, value.bits, count.bits as u32),
-            Self::Select {
-                condition,
-                when_true,
-                when_false,
-            } => {
-                if condition.bits != 0 {
-                    when_true.bits
-                } else {
-                    when_false.bits
-                }
-            }
-            Self::BitCount { operator, input } => {
-                integer::bit_count(input.ty, operator, input.bits)
-            }
-            Self::SignExtend { input } => integer::signed_value(input.ty, input.bits) as u64,
-            Self::ZeroTest { input, nonzero } => u64::from((input.bits != 0) == nonzero),
-            Self::Convert { input } => input.bits,
-            Self::LowBits { input, bits } => input.bits & integer::low_mask(bits),
-        };
-        Some(result.normalize(bits))
     }
 }

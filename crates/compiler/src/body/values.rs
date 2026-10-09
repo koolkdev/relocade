@@ -95,7 +95,7 @@ impl ValueTable {
     /// Literal values already contain the exact carrier and keep those bits.
     pub(crate) fn carrier_bits(&self, id: usize, logical_bits: u64) -> u64 {
         let ty = self.values[id].ty;
-        if let ValueDefinition::Constant(bits) = self.values[id].definition {
+        if let ValueDefinition::Literal(bits) = self.values[id].definition {
             return ty.carrier().normalize(bits);
         }
         let bits = logical_bits & ty.mask();
@@ -123,15 +123,15 @@ impl ValueTable {
         id
     }
 
-    pub(crate) fn constant(&mut self, ty: Type, bits: u64) -> usize {
-        self.carrier_constant(ty, ty.normalize(bits))
+    pub(crate) fn literal(&mut self, ty: Type, bits: u64) -> usize {
+        self.carrier_literal(ty, ty.normalize(bits))
     }
 
     /// Store a lowered result without discarding bits above its logical width.
-    pub(crate) fn carrier_constant(&mut self, ty: Type, bits: u64) -> usize {
+    pub(crate) fn carrier_literal(&mut self, ty: Type, bits: u64) -> usize {
         self.intern(Value {
             ty,
-            definition: ValueDefinition::Constant(ty.carrier().normalize(bits)),
+            definition: ValueDefinition::Literal(ty.carrier().normalize(bits)),
         })
     }
 

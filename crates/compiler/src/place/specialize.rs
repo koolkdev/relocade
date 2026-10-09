@@ -78,7 +78,7 @@ impl Specializer {
     ) {
         // A constant supplies no new runtime observation. Do not replay its
         // shared alias history, including on the discarded edge.
-        if matches!(values[condition].definition, ValueDefinition::Constant(_)) {
+        if matches!(values[condition].definition, ValueDefinition::Literal(_)) {
             return;
         }
         let mut sources = available.sources(values, condition, 1);
@@ -98,7 +98,7 @@ impl Specializer {
         selector: usize,
         value: u64,
     ) {
-        if matches!(values[selector].definition, ValueDefinition::Constant(_)) {
+        if matches!(values[selector].definition, ValueDefinition::Literal(_)) {
             return;
         }
         let facts = self.facts_mut();
@@ -158,7 +158,7 @@ impl Specializer {
                 }
                 Work::Select(id, condition, when_true, when_false) => {
                     let condition = self.residuals[&condition];
-                    if let ValueDefinition::Constant(bits) = graph.values[condition].definition {
+                    if let ValueDefinition::Literal(bits) = graph.values[condition].definition {
                         let input = if bits == 0 { when_false } else { when_true };
                         work.push(Work::Alias(id, input));
                         work.push(Work::Visit(input));
@@ -214,7 +214,7 @@ impl Specializer {
     fn known_constant(&self, values: &mut ValueTable, value: usize) -> Option<usize> {
         let bits = self.facts.constant(values, value)?;
         let bits = values.carrier_bits(value, bits);
-        Some(values.carrier_constant(values[value].ty, bits))
+        Some(values.carrier_literal(values[value].ty, bits))
     }
 
     fn record(&mut self, recipe: usize, residual: usize, aliases: &mut Vec<Alias>) {

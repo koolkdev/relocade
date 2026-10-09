@@ -3,7 +3,7 @@
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use crate::{arena::FunctionArena, expression::Constant, BuildError, Expression, Type};
+use crate::{arena::FunctionArena, expression::TypedLiteral, BuildError, Expression, Type};
 
 #[derive(Clone)]
 pub(crate) struct UnboundExpression {
@@ -20,7 +20,7 @@ struct Node {
 // when an arena retains resolved expressions in its admission cache.
 #[derive(Clone)]
 pub(super) enum Operand {
-    Literal(Constant),
+    Literal(TypedLiteral),
     Expression(UnboundExpression),
 }
 
@@ -42,7 +42,7 @@ impl UnboundExpression {
 
     pub(crate) fn build(&self, arena: &FunctionArena) -> Result<usize, BuildError> {
         let expression = self.node.expression.try_map(|operand| match operand {
-            Operand::Literal(constant) => arena.constant(constant.ty, constant.bits),
+            Operand::Literal(literal) => arena.literal(literal.ty, literal.value),
             Operand::Expression(expression) => arena.resolve_unbound(expression),
         })?;
         arena.expression(self.node.ty, expression, self.component)

@@ -23,7 +23,7 @@ impl MemoryRange {
     ) -> Self {
         let base = body.values.representation(base);
         let (base, start) = match body.values[base].definition {
-            ValueDefinition::Constant(address) => (None, address + offset),
+            ValueDefinition::Literal(address) => (None, address + offset),
             _ => (Some(base), offset),
         };
         Self {
@@ -36,7 +36,7 @@ impl MemoryRange {
     pub(super) fn from_span(memory: Mem, base: usize, bytes: usize, body: &FunctionGraph) -> Self {
         let bytes = body.values.representation(bytes);
         let bytes = match body.values[bytes].definition {
-            ValueDefinition::Constant(bytes) => Some(bytes),
+            ValueDefinition::Literal(bytes) => Some(bytes),
             _ => None,
         };
         Self::new(memory, base, 0, bytes, body)
