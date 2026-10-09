@@ -45,6 +45,9 @@ impl VirtualMemory {
             matches!(access.intent, Intent::Write),
             "store requires a write access"
         );
+        if let Some(code) = self.code {
+            code.before_write(body, &access.watched, &access.linear.add(offset), T::BYTES)?;
+        }
         if access.constant_bytes == Some(1) {
             return body.store_at::<T>(self.guest, &access.physical, 0, value);
         }

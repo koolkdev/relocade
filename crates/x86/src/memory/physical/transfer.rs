@@ -134,6 +134,9 @@ impl PhysicalMemory {
             },
             |mut ordinary| {
                 ordinary.if_(entry.kind.eq(RAM), |mut ram| {
+                    if let Some(code) = self.code {
+                        code.before_write(&mut ram, &entry.watched, address, 1)?;
+                    }
                     ram.store_at::<I8>(
                         self.backing,
                         entry.backing_address(address),

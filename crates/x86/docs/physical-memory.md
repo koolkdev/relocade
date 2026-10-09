@@ -51,6 +51,10 @@ little-endian u32 kind (0 = unmapped, 1 = RAM, 2 = ROM, 3 = MMIO), followed by a
 backing-page offset. Unmapped and MMIO offsets are zero. Install the image at
 offset zero in `physicalMap`; physical page `p` has its kind at `p * 8` and backing
 offset at `p * 8 + 4`. Runtime mapping changes update the installed Wasm table.
+With `Compiler::with_code_tracking()`, bit 4 of the kind word is `CODE_WATCH`;
+it is independent of the base routing kind. Watched RAM stores notify the host
+before writing, while ROM/hole writes keep their ordinary ignored-write policy.
+Protect writable aliases of ROM code as well as the code mapping itself.
 
 ## MMIO callbacks
 

@@ -28,6 +28,7 @@ fn interrupt(
     fallthrough: Val<I32>,
     opcode: u8,
 ) -> Result<Val<I32>, BuildError> {
+    execution.interpret_tracked_memory()?;
     match execution.profile() {
         ExecutionProfile::Protected(_) => {
             execution.unsupported(u32::from(opcode))?;
@@ -45,6 +46,7 @@ fn overflow_interrupt(
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
 ) -> Result<Val<I32>, BuildError> {
+    execution.interpret_tracked_memory()?;
     match execution.profile() {
         ExecutionProfile::Protected(_) => execution.unsupported(0xce)?,
         ExecutionProfile::Real16 => {

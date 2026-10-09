@@ -108,7 +108,7 @@ impl Compiler {
         let memory = decoded_instructions
             .iter()
             .any(|decoded_instruction| decoded_instruction.instruction.uses_memory())
-            .then(|| Memory::declare(&mut program, profile))
+            .then(|| Memory::declare(&mut program, profile, self.code_tracking))
             .transpose()?;
         let runtime = Runtime::declare(&mut program, self.execution_budget);
         let function = program.function(

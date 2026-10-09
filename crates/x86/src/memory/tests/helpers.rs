@@ -113,6 +113,7 @@ where
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        false,
     )
     .unwrap();
     for name in ["read_a", "read_b"] {
@@ -178,6 +179,7 @@ fn read_only_accesses_do_not_build_writers_or_other_widths() {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        false,
     )
     .unwrap();
     define_read::<I16>(&mut program, &memory, "read");
@@ -194,6 +196,7 @@ fn byte_accesses_do_not_build_transfer_helpers() {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        false,
     )
     .unwrap();
     define_read::<I8>(&mut program, &memory, "read");
@@ -209,6 +212,7 @@ fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmti
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        false,
     )
     .unwrap();
     let function = program

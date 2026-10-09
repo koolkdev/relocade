@@ -17,6 +17,7 @@ use table::PhysicalTable;
 pub(crate) struct PhysicalMemory {
     backing: Mem,
     table: PhysicalTable,
+    pub(super) code: Option<super::code::CodeWrites>,
     mmio_reader: Func,
     mmio_writer: Func,
     reader: Cell<Option<Func>>,
@@ -24,7 +25,7 @@ pub(crate) struct PhysicalMemory {
 }
 
 impl PhysicalMemory {
-    pub(super) fn declare(program: &mut Program) -> Self {
+    pub(super) fn declare(program: &mut Program, code_tracking: bool) -> Self {
         let backing = program.import_memory(MemoryImport {
             module: "wasm86".into(),
             name: "guest".into(),
@@ -32,7 +33,7 @@ impl PhysicalMemory {
             maximum: None,
             shared: false,
         });
-        let table = PhysicalTable::declare(program);
+        let table = PhysicalTable::declare(program, code_tracking);
         let mmio_reader = program.import_function(FunctionImport {
             module: "wasm86".into(),
             name: "readMmio".into(),
@@ -52,6 +53,7 @@ impl PhysicalMemory {
         Self {
             backing,
             table,
+            code: code_tracking.then(|| super::code::CodeWrites::declare(program)),
             mmio_reader,
             mmio_writer,
             reader: Cell::new(None),
@@ -80,6 +82,9 @@ impl PhysicalMemory {
         offset: u32,
     ) -> Result<Val<T>, BuildError> {
         access.check_field::<T>(offset);
+        if body.constant_bits(&access.unavailable)? == Some(0) {
+            return self.load(body, &access.physical, offset);
+        }
         let address = access.linear.add(offset);
         let direct = self.check_direct_access(body, &address, T::BYTES, Intent::Read)?;
         body.if_value::<T>(
@@ -105,6 +110,9 @@ impl PhysicalMemory {
     ) -> Result<(), BuildError> {
         assert!(matches!(access.intent, Intent::Write));
         access.check_field::<T>(offset);
+        if body.constant_bits(&access.unavailable)? == Some(0) {
+            return body.store_at::<T>(self.backing, &access.physical, offset, value);
+        }
         let address = access.linear.add(offset);
         let direct = self.check_direct_access(body, &address, T::BYTES, Intent::Write)?;
         body.if_else(

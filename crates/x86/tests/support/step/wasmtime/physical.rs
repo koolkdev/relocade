@@ -34,6 +34,17 @@ pub(super) fn register(
         .to_bytes();
     let table = Memory::new(&mut *store, MemoryType::new(1, None)).unwrap();
     table.write(&mut *store, 0, &image).unwrap();
+    for &page in &input.code_pages {
+        let offset = page as usize * 8;
+        let word = u32::from_le_bytes(table.data(&*store)[offset..offset + 4].try_into().unwrap());
+        table
+            .write(
+                &mut *store,
+                offset,
+                &(word | wasm86_x86::CODE_WATCH).to_le_bytes(),
+            )
+            .unwrap();
+    }
     linker
         .define(&*store, "wasm86", "physicalMap", table)
         .unwrap();

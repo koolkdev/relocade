@@ -1,6 +1,7 @@
 use super::*;
 use crate::SegmentProfile;
 
+mod code_tracking;
 mod slices;
 
 #[test]

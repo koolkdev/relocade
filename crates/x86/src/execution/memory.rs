@@ -60,6 +60,96 @@ impl MemoryOperand<'_> {
 }
 
 impl<'memory> ExecutionBuilder<'_, 'memory> {
+    pub(super) fn checked(
+        &mut self,
+        segment: &SegmentSelection,
+        offset: &Val<I32>,
+        bytes: u32,
+        intent: Intent,
+    ) -> Result<Access, BuildError> {
+        let linear = self.translate(segment, offset, bytes, intent)?;
+        self.resolve_access(&linear, bytes, intent)
+    }
+
+    pub(super) fn translate(
+        &mut self,
+        segment: &SegmentSelection,
+        offset: &Val<I32>,
+        bytes: u32,
+        intent: Intent,
+    ) -> Result<Val<I32>, BuildError> {
+        self.segments.translate(
+            &mut self.body,
+            segment,
+            offset,
+            bytes,
+            intent,
+            |mut fault_body, exception| {
+                self.runtime
+                    .publish_work(&mut fault_body, self.work.as_ref())?;
+                self.state
+                    .fault(fault_body, &self.eip, self.completed, exception)
+            },
+        )
+    }
+
+    pub(super) fn resolve_access(
+        &mut self,
+        linear: &Val<I32>,
+        bytes: u32,
+        intent: Intent,
+    ) -> Result<Access, BuildError> {
+        let memory = self
+            .memory
+            .as_ref()
+            .expect("a memory access declares guest memory")
+            .memory();
+        if memory.tracks_code() && self.can_specialize && !memory.has_stable_mappings() {
+            let direct =
+                memory.check_direct_access(&mut self.body, linear, bytes, intent, None, None)?;
+            self.specialize_on(direct.unavailable.eq(false))?;
+            return Ok(Access {
+                linear: linear.clone(),
+                physical: direct.physical,
+                denied: false.into(),
+                unavailable: false.into(),
+                watched: false.into(),
+                intent,
+                constant_bytes: Some(bytes),
+            });
+        }
+        let mut access = self.memory.as_mut().unwrap().resolve(
+            &mut self.body,
+            linear,
+            bytes,
+            intent,
+            |mut fault_body, exception| {
+                self.runtime
+                    .publish_work(&mut fault_body, self.work.as_ref())?;
+                self.state
+                    .fault(fault_body, &self.eip, self.completed, exception)
+            },
+        )?;
+        if memory.tracks_code() && matches!(intent, Intent::Write) && self.can_specialize {
+            self.specialize_on(access.watched.eq(false))?;
+            access.watched = false.into();
+        }
+        Ok(access)
+    }
+
+    /// Rare operations with interleaved architectural effects cannot restart
+    /// at a later protected memory access. Keep their precise checked semantics.
+    pub(crate) fn interpret_tracked_memory(&mut self) -> Result<(), BuildError> {
+        if self
+            .memory
+            .as_ref()
+            .is_some_and(|memory| memory.memory().tracks_code())
+        {
+            self.specialize(|jit| jit.specialize_on(false))?;
+        }
+        Ok(())
+    }
+
     /// Reads a linear address without applying a data segment or address-size wrap.
     /// System-table accesses still use the profile's ordinary memory routing.
     pub(crate) fn read_linear_memory<T: MemoryInt>(

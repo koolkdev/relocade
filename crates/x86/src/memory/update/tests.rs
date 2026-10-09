@@ -12,6 +12,7 @@ fn aligned_complete_updates_need_no_scattered_access_helpers() {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        false,
     )
     .unwrap();
     let update = program

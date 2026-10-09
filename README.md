@@ -19,6 +19,7 @@ that subset. The project is under development; the crates are not published.
 | Crate | Responsibility |
 | --- | --- |
 | [wasm86-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
+| [wasm86-code-cache](crates/code-cache/README.md) | Host-owned snapshots, backing aliases and code-page invalidation. |
 | [wasm86-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
 | [wasm86-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime and V8 test support. |
 

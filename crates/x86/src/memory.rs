@@ -1,6 +1,8 @@
 mod access;
 mod accesses;
 mod bulk;
+mod code;
+pub use code::CODE_WATCH;
 mod page_table;
 mod physical;
 mod physical_map;
@@ -65,10 +67,16 @@ impl Memory {
     pub(crate) fn declare(
         program: &mut Program,
         profile: ExecutionProfile,
+        code_tracking: bool,
     ) -> Result<Self, BuildError> {
         match profile {
-            ExecutionProfile::Protected(_) => VirtualMemory::declare(program).map(Self::Virtual),
-            ExecutionProfile::Real16 => Ok(Self::Physical(PhysicalMemory::declare(program))),
+            ExecutionProfile::Protected(_) => {
+                VirtualMemory::declare(program, code_tracking).map(Self::Virtual)
+            }
+            ExecutionProfile::Real16 => Ok(Self::Physical(PhysicalMemory::declare(
+                program,
+                code_tracking,
+            ))),
         }
     }
     /// Probes direct backing after the caller's eligibility check. A true
@@ -88,7 +96,7 @@ impl Memory {
             Self::Virtual(memory) => {
                 let access = memory.resolve_access(body, start, &bytes, intent, cache, None)?;
                 Ok(DirectRange {
-                    unavailable: access.unavailable,
+                    unavailable: access.unavailable.or(&access.watched),
                     physical: access.physical,
                 })
             }
@@ -148,6 +156,7 @@ impl Memory {
                     linear: start.clone(),
                     physical: body.value(0)?,
                     denied: bytes.eq(0),
+                    watched: false.into(),
                     unavailable: body.value(true)?,
                     intent,
                     constant_bytes,
@@ -214,6 +223,13 @@ impl Memory {
         match self {
             Self::Virtual(memory) => memory.store(body, backing, value),
             Self::Physical(memory) => memory.store(body, backing, value),
+        }
+    }
+
+    pub(crate) fn tracks_code(&self) -> bool {
+        match self {
+            Self::Virtual(memory) => memory.code.is_some(),
+            Self::Physical(memory) => memory.code.is_some(),
         }
     }
 

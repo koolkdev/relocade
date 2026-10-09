@@ -18,6 +18,7 @@ pub(crate) struct Input {
     pub(crate) guest: Vec<(u32, Vec<u8>)>,
     pub(crate) machine: Vec<(u32, Vec<u8>)>,
     pub(crate) physical_pages: Vec<(u32, u32, bool)>,
+    pub(crate) code_pages: Vec<u32>,
     pub(crate) mmio_pages: Vec<(u32, u32)>,
     pub(crate) mmio_updates: Vec<DeviceUpdate>,
     pub(crate) observe_mmio: bool,
@@ -42,6 +43,7 @@ impl Input {
             machine: Vec::new(),
             physical_pages: Vec::new(),
             mmio_pages: Vec::new(),
+            code_pages: Vec::new(),
             mmio_updates: Vec::new(),
             observe_mmio: false,
             port_reads: Vec::new(),
@@ -93,6 +95,10 @@ pub(crate) struct Snapshot {
 pub(crate) enum Event {
     Budget {
         remaining: u32,
+    },
+    CodeWrite {
+        address: u32,
+        bytes: u32,
     },
     PortRead {
         port: u32,

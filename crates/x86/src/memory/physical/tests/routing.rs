@@ -177,7 +177,7 @@ fn remapping(engine: Engine) {
     }
     // The next direct read must see RAM changes made by an MMIO read callback.
     let mut program = Program::new();
-    let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
+    let memory = Memory::Physical(PhysicalMemory::declare(&mut program, false));
     let function = program
         .function(
             Signature {

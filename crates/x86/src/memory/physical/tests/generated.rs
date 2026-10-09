@@ -27,7 +27,7 @@ fn physical_accesses_import_backing_map_and_only_mmio_callbacks() {
 #[test]
 fn one_slow_reader_serves_all_widths_and_callers_without_a_writer() {
     let mut program = Program::new();
-    let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
+    let memory = Memory::Physical(PhysicalMemory::declare(&mut program, false));
     for index in 0..12 {
         let function = program
             .function(
