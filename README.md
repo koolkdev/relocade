@@ -21,7 +21,7 @@ that subset. The project is under development; the crates are not published.
 | [wasm86-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
 | [wasm86-code-cache](crates/code-cache/README.md) | Host-owned snapshots, backing aliases and code-page invalidation. |
 | [wasm86-codegen](crates/codegen/src/lib.rs) | Owned generation requests shared by native and Wasm workers. |
-| [wasm86-runtime](crates/runtime/README.md) | Asynchronous Wasmtime compilation and bounded guest execution. |
+| [wasm86-runtime](crates/runtime/README.md) | Asynchronous Wasmtime and Node.js/V8 compilation with bounded guest execution. |
 | [wasm86-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
 | [wasm86-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime and V8 test support. |
 
