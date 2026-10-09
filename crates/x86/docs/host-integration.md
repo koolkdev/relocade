@@ -1,7 +1,7 @@
 # Host integration
 
 Generated x86 modules use this contract for both snapshot blocks and interpreter
-entries. The embedding host supplies memory, dispatch, processor queries and
+entries. The embedding host supplies memory, dispatch and
 descriptor resolution.
 The Wasm engine must support multiple memories, multiple results, tail calls and
 the threads extension's atomic instructions, including on unshared memories.
@@ -94,28 +94,25 @@ compiling another block. No CPU state is replaced with the observed snapshot.
 
 ## Processor identification
 
-CPUID uses `wasm86.cpuid(leaf: i32, subleaf: i32) -> (i32, i32, i32, i32)`.
-The inputs are the full EAX and ECX bit patterns. Results replace EAX, EBX, ECX
-and EDX, in that order. All other registers and flags are preserved. The operation
-is identical in every execution profile; size and segment prefixes do not narrow
-its registers. Clearing EFLAGS.ID does not disable the instruction. LOCK uses the
-shared unsupported-encoding exit before calling the host.
+CPUID is generated from the core's built-in virtual CPU model; it needs no host
+callback or configuration. Leaf 0 reports maximum basic leaf 1 and the vendor
+string `Relocade CPU`. Leaf 1 reports virtual family 6, model 0, stepping 1
+(EAX=`0x00000601`), EBX=0, POPCNT in ECX, and CX8 plus CMOV in EDX. These are
+implemented capabilities, independent of real/protected mode and segment
+assumptions. The identity does not claim a physical Intel processor.
 
-The callback supplies the virtual processor's identity, supported leaves and
-feature bits. It must handle every input, including unsupported leaves and
-subleaves. Intel's invalid-leaf rule returns the highest supported basic leaf;
-leaves with subleaf inputs follow their own enumeration rules. Results must be
-consistent across interpreter and JIT entries for the same virtual processor.
-The callback must not inspect or modify CPU backing, guest memory or mappings,
-or reenter execution. No CPU state layout or host-side Rust configuration changes
-are required. Blocks that do not execute CPUID do not import the callback.
+Only complete feature groups are advertised. Partial x87 support does not establish
+the FPU feature; MMX, SSE, SSE2, FXSAVE/FXRSTOR, RDTSC and unsupported platform
+facilities remain clear. POPCNT is already implemented; its independent bit does
+not advertise SSE4.2 or expand the P4 compatibility target. When adding a feature,
+update the core model only after its advertised behavior is supported.
 
-Advertise only capabilities the embedding actually implements. In particular,
-partial x87 support does not establish the complete FPU feature, and this build
-does not implement MMX, SSE, SSE2, FXSAVE/FXRSTOR or RDTSC. These feature bits
-must remain clear. Copying the native host's CPUID results would advertise
-instructions and platform facilities the guest cannot use. The P4 compatibility
-target does not require claiming the complete identity of a physical P4.
+The full EAX selects the leaf. Both leaves ignore input ECX. Unsupported basic and
+extended queries return leaf 1, following Intel's highest-basic-leaf rule. There
+are no cache, topology, frequency or extended leaves. Results replace the full
+EAX, EBX, ECX and EDX in every execution profile; size and segment prefixes do not
+narrow the registers. Other registers and all flags are preserved. Clearing
+EFLAGS.ID does not disable CPUID. LOCK uses the shared unsupported-encoding exit.
 
 CPUID serializes execution: both a snapshot block and an interpreter run complete
 the instruction, publish state and dispatch before fetching its successor. Prior
@@ -178,15 +175,14 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
 
 Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
-`cpuid`, `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
-`cpuState`, `guest`, `physicalMap`, `dispatch`, `cpuid`, the MMIO callbacks and the
+`resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
+`cpuState`, `guest`, `physicalMap`, `dispatch`, the MMIO callbacks and the
 port callbacks. They use generated RAM/ROM accesses and do not call descriptor
 callbacks. The physical memory contract below describes routing and callback widths.
 Snapshot modules omit imports they do not use: protected-mode memory instructions
 require guest backing and the page table, protected-mode segment loads require
-`resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. CPUID
-requires `cpuid`; blocks with specialization guards require `interpret`. Hosts
-should use the generated module's import list when instantiating it.
+`resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks with
+specialization guards require `interpret`. Hosts should use the generated module's import list when instantiating it.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical

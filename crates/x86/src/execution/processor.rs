@@ -8,10 +8,7 @@ impl ExecutionBuilder<'_, '_> {
         let leaf = self
             .state
             .read_register(&mut self.body, Register::<I32>::named(Gpr32::Eax))?;
-        let subleaf = self
-            .state
-            .read_register(&mut self.body, Register::<I32>::named(Gpr32::Ecx))?;
-        let result = self.runtime.cpuid(&mut self.body, &leaf, &subleaf)?;
+        let result = crate::processor::cpuid(&leaf);
         for (register, value) in [
             (Gpr32::Eax, result.eax),
             (Gpr32::Ebx, result.ebx),

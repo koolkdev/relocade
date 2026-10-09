@@ -35,7 +35,6 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   const events = [];
   let resolutions = 0;
   let portReads = 0;
-  let cpuidQueries = 0;
   let segmentQueries = 0;
   const physical = [module, interpreter].filter(Boolean)
     .some(module => WebAssembly.Module.imports(module).some(resource => resource.module === 'wasm86' && resource.name === 'physicalMap'))
@@ -44,11 +43,6 @@ export default function execute([module, interpreter], { entry, interpreter_entr
     wasm86: {
       cpuState, guest, machine,
       ...physical?.imports,
-      cpuid: (leaf, subleaf) => {
-        if (cpuidQueries >= input.cpuid_results.length) throw new Error('unexpected CPUID query');
-        events.push({kind: 'cpuid', leaf: leaf >>> 0, subleaf: subleaf >>> 0});
-        return input.cpuid_results[cpuidQueries++];
-      },
       readPort: (port, bytes) => {
         if (portReads >= input.port_reads.length) throw new Error('unexpected port read');
         events.push({kind: 'port_read', port, bytes});
@@ -113,7 +107,6 @@ export default function execute([module, interpreter], { entry, interpreter_entr
     throw new Error('unused segment queries');
   }
   if (portReads !== input.port_reads.length) throw new Error('unused port reads');
-  if (cpuidQueries !== input.cpuid_results.length) throw new Error('unused CPUID results');
   if (physical) physical.checkComplete();
   else if (input.mmio_updates.length !== 0) throw new Error('unused MMIO updates');
   return {

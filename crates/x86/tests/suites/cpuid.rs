@@ -1,18 +1,19 @@
-//! CPUID uses the host's identity and serializes the next instruction fetch.
+//! CPUID describes the built-in virtual CPU and serializes the next fetch.
 
 use crate::support::{
     blocks::BlockModules,
     encoding::check_length,
     execution::{test_frontends, Frontend},
     machine::{expected, Exit, Image, Step},
-    step::{Engine, Event, TestModule},
+    step::{Engine, TestModule},
 };
 use wasm86_x86::{
     compile_block_from_bytes, compile_interpreter, CpuState, ExecutionProfile, SegmentAttributes,
     SegmentProfile, Segments,
 };
 
-const RESULTS: [u32; 4] = [0x8000_0001, 0xffff_0002, 0xabcd_0003, 0x7654_0004];
+const VENDOR: [u32; 4] = [1, 0x6f6c_6552, 0x5550_4320, 0x6564_6163];
+const FEATURES: [u32; 4] = [0x601, 0, 0x0080_0000, 0x0000_8100];
 
 fn result(mut cpu: CpuState, values: [u32; 4], bytes: u32, count: u32) -> CpuState {
     [
@@ -35,14 +36,9 @@ fn forms(engine: Engine, frontend: Frontend) {
         ExecutionProfile::Real16,
     ] {
         for (code, leaf, subleaf, values) in [
-            (
-                &[0x0f, 0xa2][..],
-                0,
-                0,
-                [1, 0x756e_6547, 0x6c65_746e, 0x4965_6e69],
-            ),
-            (&[0x66, 0x67, 0x64, 0x0f, 0xa2], 4, 0xffff_0002, RESULTS),
-            (&[0x0f, 0xa2], 0x8000_0000, 0x8000_0001, RESULTS),
+            (&[0x0f, 0xa2][..], 0, u32::MAX, VENDOR),
+            (&[0x66, 0x67, 0x64, 0x0f, 0xa2], 1, 0x8000_0001, FEATURES),
+            (&[0x0f, 0xa2], 0x0001_0000, 0, FEATURES),
         ] {
             let mut image = Image::new(code);
             match profile {
@@ -58,14 +54,13 @@ fn forms(engine: Engine, frontend: Frontend) {
             image.cpu.flags.status_source.left = 7;
             image.cpu.flags.status_source.right = 8;
             image.cpu.flags.bytes.id = (leaf != 0) as u8;
-            let mut input = image.input();
-            input.cpuid_results.push(values);
+            let input = image.input();
             let module = match frontend {
                 Frontend::Block => blocks.get(&image.cpu, code, 8, profile),
                 Frontend::Interpreter => TestModule::interpreter_with_profile(profile),
             };
             let cpu = result(image.cpu, values, code.len() as u32, 1);
-            let mut wanted = expected(
+            let wanted = expected(
                 &image,
                 &[Step {
                     cpu,
@@ -73,7 +68,6 @@ fn forms(engine: Engine, frontend: Frontend) {
                     exit: Exit::Dispatch(cpu.eip),
                 }],
             );
-            wanted.events.insert(0, Event::Cpuid { leaf, subleaf });
             assert_eq!(
                 engine.observe(module, &input, 1),
                 wanted,
@@ -91,20 +85,14 @@ fn serialization(engine: Engine) {
     ];
     let mut image = Image::new(&code);
     image.map(1, 0x3000, true);
-    let mut input = image.input();
-    input.cpuid_results.push(RESULTS);
-    let cpu = result(image.cpu, RESULTS, 9, 2);
+    let input = image.input();
+    let cpu = result(image.cpu, FEATURES, 9, 2);
     let first = Step {
         cpu,
         ram: &[(0x300a, &[0x77])],
         exit: Exit::Dispatch(cpu.eip),
     };
-    let query = Event::Cpuid {
-        leaf: image.cpu.registers.eax,
-        subleaf: image.cpu.registers.ecx,
-    };
-    let mut wanted = expected(&image, &[first]);
-    wanted.events.insert(0, query.clone());
+    let wanted = expected(&image, &[first]);
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 16).unwrap());
     let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
     for module in [&block, &run] {
@@ -115,7 +103,7 @@ fn serialization(engine: Engine) {
     resumed.registers.ebx = 0x77;
     resumed.eip = 0x1010;
     resumed.instruction_count = resumed.instruction_count.wrapping_add(2);
-    let mut wanted = expected(
+    let wanted = expected(
         &image,
         &[
             Step {
@@ -130,7 +118,6 @@ fn serialization(engine: Engine) {
             },
         ],
     );
-    wanted.events.insert(0, query);
     assert_eq!(engine.observe(&run, &input, 2), wanted);
 }
 
@@ -150,23 +137,15 @@ fn fetch_boundary(engine: Engine) {
     image.cpu.eip = 0x1ffe;
     image.map(1, 0x3000, false);
     image.data(0x3ffe, &[0x0f, 0xa2]);
-    let mut input = image.input();
-    input.cpuid_results.push(RESULTS);
-    let cpu = result(image.cpu, RESULTS, 2, 1);
-    let mut wanted = expected(
+    let input = image.input();
+    let cpu = result(image.cpu, FEATURES, 2, 1);
+    let wanted = expected(
         &image,
         &[Step {
             cpu,
             ram: &[],
             exit: Exit::Dispatch(cpu.eip),
         }],
-    );
-    wanted.events.insert(
-        0,
-        Event::Cpuid {
-            leaf: image.cpu.registers.eax,
-            subleaf: image.cpu.registers.ecx,
-        },
     );
     let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
     assert_eq!(engine.observe(&run, &input, 1), wanted);
@@ -187,7 +166,7 @@ fn fetch_boundary(engine: Engine) {
     image.check_unchanged_exit(
         engine,
         TestModule::interpreter(),
-        "LOCK uses the shared unsupported-encoding exit before a host query",
+        "LOCK rejects CPUID without changing state",
         Exit::Other(0x0008_00f0_0000_1000),
     );
 }
@@ -213,7 +192,7 @@ fn encoding_and_import_boundaries() {
             one.bytes
         );
     }
-    for (code, expected) in [(&[0x0f, 0xa2][..], true), (&[0x90][..], false)] {
+    for code in [&[0x0f, 0xa2][..], &[0x90][..]] {
         let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
         let imports = wasmparser::Parser::new(0)
             .parse_all(&module.bytes)
@@ -224,6 +203,52 @@ fn encoding_and_import_boundaries() {
             .flatten()
             .map(|import| import.unwrap().name)
             .collect::<Vec<_>>();
-        assert_eq!(imports.contains(&"cpuid"), expected);
+        assert!(!imports.contains(&"cpuid"));
     }
+}
+
+fn leaf_selection(engine: Engine) {
+    let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
+    for (leaf, wanted_values) in [
+        (0, VENDOR),
+        (1, FEATURES),
+        (2, FEATURES),
+        (0x8000_0000, FEATURES),
+        (0x8000_0001, FEATURES),
+        (u32::MAX, FEATURES),
+    ] {
+        // CPUID consumes the preceding register definition in the same block.
+        let mut code = vec![0xb8];
+        code.extend(leaf.to_le_bytes());
+        code.extend([0x0f, 0xa2]);
+        let image = Image::new(&code);
+        let cpu = result(image.cpu, wanted_values, 7, 2);
+        let wanted = expected(
+            &image,
+            &[Step {
+                cpu,
+                ram: &[],
+                exit: Exit::Dispatch(cpu.eip),
+            }],
+        );
+        let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
+        for module in [&block, &run] {
+            assert_eq!(
+                engine.observe(module, &image.input(), 1),
+                wanted,
+                "leaf {leaf:#x}"
+            );
+        }
+    }
+}
+
+#[test]
+fn leaf_selection_uses_current_full_width_eax() {
+    leaf_selection(Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_leaf_selection_uses_current_full_width_eax() {
+    leaf_selection(Engine::V8);
 }

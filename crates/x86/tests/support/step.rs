@@ -23,7 +23,6 @@ pub(crate) struct Input {
     pub(crate) mmio_updates: Vec<MmioUpdate>,
     pub(crate) observe_mmio: bool,
     pub(crate) port_reads: Vec<u32>,
-    pub(crate) cpuid_results: Vec<[u32; 4]>,
     pub(crate) arguments: Vec<Argument>,
     pub(crate) observe_guest: bool,
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
@@ -46,7 +45,6 @@ impl Input {
             mmio_updates: Vec::new(),
             observe_mmio: false,
             port_reads: Vec::new(),
-            cpuid_results: Vec::new(),
             arguments: Vec::new(),
             observe_guest: false,
             segment_resolutions: Vec::new(),
@@ -90,10 +88,6 @@ pub(crate) struct Snapshot {
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Event {
-    Cpuid {
-        leaf: u32,
-        subleaf: u32,
-    },
     PortRead {
         port: u32,
         bytes: u32,
