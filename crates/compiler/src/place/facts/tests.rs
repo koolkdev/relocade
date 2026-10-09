@@ -40,12 +40,15 @@ fn restoring_partial_bits_discards_child_constants_but_preserves_snapshots() {
     facts.assume_bits(1, 0xffff_ffff, 9);
     assert_eq!(facts.constant(&table, 0), Some(0x123412));
     assert_eq!(facts.constant(&table, 1), Some(9));
+    assert_eq!(facts.bits(&table, 0).value, 0x123412);
+    assert_eq!(facts.bits(&table, 1).value, 9);
     let snapshot = facts.clone();
     facts.restore(scope);
     assert_eq!(facts.constant(&table, 0), None);
     assert_eq!(facts.constant(&table, 1), None);
     let bits = facts.bits(&table, 0);
     assert_eq!((bits.mask, bits.value), (0xff, 0x12));
+    assert_eq!(facts.bits(&table, 1).mask, 0);
     assert_eq!(snapshot.constant(&table, 0), Some(0x123412));
     assert_eq!(snapshot.constant(&table, 1), Some(9));
 }

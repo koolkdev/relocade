@@ -1,5 +1,7 @@
 //! Derive facts through expressions without changing the current path.
 
+use rustc_hash::FxHashMap;
+
 use super::{Bits, Range, ScalarFacts};
 use crate::{
     bitwise::BitwiseOp,
@@ -9,14 +11,36 @@ use crate::{
     Expression,
 };
 
+/// Inferred facts and reusable storage for walking their dependencies.
+#[derive(Clone, Default, Eq, PartialEq)]
+pub(super) struct InferenceCache {
+    bits: FxHashMap<usize, Bits>,
+    // Every query drains the worklist; keep its capacity for the next one.
+    pending: Vec<(usize, bool)>,
+}
+
+impl InferenceCache {
+    pub(super) fn clear(&mut self) {
+        self.bits.clear();
+    }
+
+    pub(super) fn invalidate_from(&mut self, id: usize) {
+        self.bits.retain(|&input, _| input < id);
+    }
+}
+
 impl ScalarFacts {
     /// Known scalar bits; non-scalar values contribute no knowledge.
     pub(super) fn bits(&self, table: &ValueTable, root: usize) -> Bits {
-        let mut cache = self.computed.borrow_mut();
+        let mut computed = self.computed.borrow_mut();
+        let InferenceCache {
+            bits: cache,
+            pending,
+        } = &mut *computed;
         if let Some(&bits) = cache.get(&root) {
             return bits;
         }
-        let mut pending = vec![(root, false)];
+        pending.push((root, false));
         while let Some((id, ready)) = pending.pop() {
             if cache.contains_key(&id) {
                 continue;
