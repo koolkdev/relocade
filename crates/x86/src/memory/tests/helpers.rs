@@ -105,7 +105,7 @@ impl Module {
     }
 }
 
-fn check_reuse<T: MemoryInt>()
+fn check_reuse<T: MemoryInt + crate::memory::TransferType>()
 where
     I64: AtLeast<T>,
 {

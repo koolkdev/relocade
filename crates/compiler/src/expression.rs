@@ -17,6 +17,15 @@ use crate::{
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum Expression<V> {
+    VectorExtract {
+        input: V,
+        lane: u8,
+    },
+    VectorReplace {
+        vector: V,
+        value: V,
+        lane: u8,
+    },
     FloatBinary {
         operator: floating::BinaryOp,
         left: V,
@@ -124,6 +133,19 @@ impl<V> Expression<V> {
         mut input: impl FnMut(&'a V) -> Result<U, E>,
     ) -> Result<Expression<U>, E> {
         Ok(match self {
+            Self::VectorExtract { input: value, lane } => Expression::VectorExtract {
+                input: input(value)?,
+                lane: *lane,
+            },
+            Self::VectorReplace {
+                vector,
+                value,
+                lane,
+            } => Expression::VectorReplace {
+                vector: input(vector)?,
+                value: input(value)?,
+                lane: *lane,
+            },
             Self::FloatBinary {
                 operator,
                 left,

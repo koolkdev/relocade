@@ -12,8 +12,8 @@ pub(crate) struct VirtualMemory {
     pub(super) guest: Mem,
     pub(super) table: PageTable,
     pub(super) range_resolver: Func,
-    pub(super) scattered_readers: [Cell<Option<Func>>; 4],
-    pub(super) scattered_writers: [Cell<Option<Func>>; 4],
+    pub(super) scattered_readers: [Cell<Option<Func>>; 5],
+    pub(super) scattered_writers: [Cell<Option<Func>>; 5],
 }
 
 impl VirtualMemory {

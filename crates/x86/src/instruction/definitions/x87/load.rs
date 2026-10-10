@@ -73,7 +73,7 @@ fn load_extended(
     execution.x87().push(LoadSource::Value(value))
 }
 
-fn load_integer<T: MemoryInt>(
+fn load_integer<T: MemoryInt + crate::memory::TransferType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     address: MemoryAddress<Val<I32>>,
 ) -> Result<(), BuildError>

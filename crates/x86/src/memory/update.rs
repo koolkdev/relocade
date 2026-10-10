@@ -47,7 +47,7 @@ impl VirtualMemory {
     /// Returns the value observed by this complete read-modify-write operation.
     /// Naturally aligned scalar operands fit one page, so their native path
     /// does not inspect scattered backing. Translation preserves page offsets.
-    pub(crate) fn atomic_update<T: MemoryInt>(
+    pub(crate) fn atomic_update<T: MemoryInt + crate::memory::TransferType>(
         &self,
         body: &mut BlockBuilder<'_>,
         access: &Access,

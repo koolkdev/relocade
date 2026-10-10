@@ -2,9 +2,11 @@
 
 mod codec;
 mod segments;
+mod simd;
 mod x87;
 
 pub use segments::{Segments, StoredSegment};
+pub use simd::StoredSimd;
 pub use x87::{StoredX87, StoredX87Control, StoredX87Register, StoredX87Status};
 
 #[cfg(test)]
@@ -113,7 +115,7 @@ impl IndexMut<Gpr32> for Registers {
 }
 
 /// CPU backing state. Byte conversion is explicitly little endian on every host.
-/// `Default` installs flat segment caches and an initialized x87 environment;
+/// `Default` installs flat segment caches and initialized x87 and SIMD environments;
 /// `filled` and `from_bytes` preserve literal backing images without initialization.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -126,6 +128,7 @@ pub struct CpuState {
     pub instruction_count: u32,
     pub reserved_tail: [u8; 4],
     pub x87: StoredX87,
+    pub simd: StoredSimd,
 }
 
 impl CpuState {
@@ -137,6 +140,7 @@ impl Default for CpuState {
         Self {
             segments: Segments::flat32(),
             x87: StoredX87::default(),
+            simd: StoredSimd::default(),
             ..Self::filled(0)
         }
     }
