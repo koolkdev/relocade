@@ -747,6 +747,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm86-codegen"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wasm86-x86",
+]
+
+[[package]]
 name = "wasm86-compiler"
 version = "0.0.0"
 dependencies = [
@@ -756,6 +765,17 @@ dependencies = [
  "wasm-encoder 0.254.0",
  "wasm86-test-support",
  "wasmparser",
+ "wasmtime",
+]
+
+[[package]]
+name = "wasm86-runtime"
+version = "0.0.0"
+dependencies = [
+ "wasm86-code-cache",
+ "wasm86-codegen",
+ "wasm86-test-support",
+ "wasm86-x86",
  "wasmtime",
 ]
 

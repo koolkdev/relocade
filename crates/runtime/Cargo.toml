@@ -1,0 +1,16 @@
+[package]
+name = "wasm86-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+wasm86-x86 = { path = "../x86" }
+wasm86-code-cache = { path = "../code-cache" }
+wasm86-codegen = { path = "../codegen" }
+wasmtime.workspace = true
+
+[dev-dependencies]
+wasm86-test-support.workspace = true
+wasmtime = { workspace = true, features = ["call-hook"] }

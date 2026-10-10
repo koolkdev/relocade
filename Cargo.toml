@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/compiler", "crates/x86", "crates/test-support", "crates/code-cache"]
+members = ["crates/compiler", "crates/x86", "crates/test-support", "crates/code-cache", "crates/codegen", "crates/runtime"]
 default-members = ["crates/compiler", "crates/x86"]
 
 [workspace.package]
