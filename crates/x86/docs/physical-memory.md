@@ -76,13 +76,18 @@ Values use little-endian order in the low `bytes * 8` bits. Upper read-result bi
 are ignored; upper write-value bits are zero. The i64 is a value container, not an
 eight-byte device access.
 
-Each transferred operand field retains its width when its whole span is MMIO,
-including across adjacent MMIO pages. A span crossing different routing kinds
-is split at the page boundary. A20 wraparound also splits a request, so each
-callback describes contiguous bus addresses. A four-byte field can therefore leave a three-byte
-MMIO portion. The host adapter applies its bus and device rules to each request;
-one callback need not correspond to one hardware bus transaction. Wider structured
-operands transfer their constituent fields separately.
+Scalar operand fields of up to eight bytes retain their width when their whole
+span is MMIO, including across adjacent MMIO pages. Vector operands involving
+MMIO transfer their first eight bytes and then their remaining eight bytes. The
+ABI provides no atomicity guarantee across these parts. Wider structured operands
+transfer their constituent fields separately.
+
+Each scalar field or vector part is split at a page boundary when its span
+crosses different routing kinds. A20 wraparound also splits a request, so each
+callback describes contiguous bus addresses. A four-byte field can therefore
+leave a three-byte MMIO portion. The host adapter applies its bus and device
+rules to each request; one callback need not correspond to one hardware bus
+transaction.
 
 Callbacks complete synchronously and execute even when a read result is unused.
 They may change backing bytes and installed routing. The next transfer, including
