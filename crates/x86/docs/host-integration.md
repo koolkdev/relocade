@@ -699,14 +699,18 @@ allocate the new 464-byte CPU image; offsets of existing fields are unchanged.
 
 The current execution profiles assume SSE/SSE2 are enabled (CR0.EM/TS clear and
 CR4.OSFXSR set); they do not model feature-control registers. MOVUPS, MOVUPD,
-XORPS and XORPD preserve raw bits and leave MXCSR, EFLAGS and x87 state unchanged.
-MOVUPS/MOVUPD accept unaligned memory. Legacy XORPS/XORPD require 16-byte linear
-alignment, checked after segment validation and before page translation.
+MOVAPS, MOVAPD, MOVDQA, MOVDQU, MOVSS, MOVSD, XORPS and XORPD preserve raw bits
+and leave MXCSR, EFLAGS and x87 state unchanged. MOVUPS/MOVUPD/MOVDQU accept
+unaligned memory. MOVAPS/MOVAPD/MOVDQA and legacy XORPS/XORPD require 16-byte
+linear alignment, checked after segment validation and before page translation.
+Scalar MOVSS/MOVSD memory operands access exactly four/eight bytes and permit
+unaligned addresses. Loads clear the rest of the destination XMM register;
+register copies preserve its upper bits. Stores write only the low scalar lane.
 
-Both decoders select mandatory 66 by prefix presence, independently of the code
-segment's default operand size. Unsupported mandatory-prefix combinations do not
+Both decoders select mandatory 66/F2/F3 by prefix presence, independently of the
+code segment's default operand size. Unsupported mandatory-prefix combinations do not
 select an unprefixed SSE form. XMM state uses the same retained-field mechanism
 as integer state, including runtime-indexed register accesses and fault publication.
-The complete 16-byte span is checked before transfer. Scattered virtual backing
-and physical MMIO use ordered integer parts; contiguous RAM uses Wasm SIMD.
+The complete operand span is checked before transfer. Scattered virtual backing
+and physical MMIO use ordered integer parts; contiguous packed transfers use Wasm SIMD.
 Hosts must enable the standard WebAssembly SIMD feature for these instructions.

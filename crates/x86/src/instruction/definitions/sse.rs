@@ -2,20 +2,64 @@
 
 use super::*;
 use crate::instruction::{VectorAlignment, XmmLocation};
+use crate::memory::{Intent, TransferType};
+use wasm86_compiler::{VectorLane, V128};
 
 instruction_families! {
     MOVUPS {
-        execute: move_vector;
+        execute: move_vector(VectorAlignment::Unaligned);
         forms {
             NP 0x0f 0x10 => operands(xmm, xmm_rm);
             NP 0x0f 0x11 => operands(xmm_rm, xmm);
         }
     }
     MOVUPD {
-        execute: move_vector;
+        execute: move_vector(VectorAlignment::Unaligned);
         forms {
             P66 0x0f 0x10 => operands(xmm, xmm_rm);
             P66 0x0f 0x11 => operands(xmm_rm, xmm);
+        }
+    }
+    MOVDQU {
+        execute: move_vector(VectorAlignment::Unaligned);
+        forms {
+            PF3 0x0f 0x6f => operands(xmm, xmm_rm);
+            PF3 0x0f 0x7f => operands(xmm_rm, xmm);
+        }
+    }
+    MOVAPS {
+        execute: move_vector(VectorAlignment::Aligned);
+        forms {
+            NP 0x0f 0x28 => operands(xmm, xmm_rm);
+            NP 0x0f 0x29 => operands(xmm_rm, xmm);
+        }
+    }
+    MOVAPD {
+        execute: move_vector(VectorAlignment::Aligned);
+        forms {
+            P66 0x0f 0x28 => operands(xmm, xmm_rm);
+            P66 0x0f 0x29 => operands(xmm_rm, xmm);
+        }
+    }
+    MOVDQA {
+        execute: move_vector(VectorAlignment::Aligned);
+        forms {
+            P66 0x0f 0x6f => operands(xmm, xmm_rm);
+            P66 0x0f 0x7f => operands(xmm_rm, xmm);
+        }
+    }
+    MOVSS {
+        execute: move_scalar::<_>;
+        forms {
+            PF3 0x0f 0x10 => dword(xmm, xmm_rm);
+            PF3 0x0f 0x11 => dword(xmm_rm, xmm);
+        }
+    }
+    MOVSD {
+        execute: move_scalar::<_>;
+        forms {
+            PF2 0x0f 0x10 => qword(xmm, xmm_rm);
+            PF2 0x0f 0x11 => qword(xmm_rm, xmm);
         }
     }
     XORPS {
@@ -36,9 +80,42 @@ fn move_vector(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: XmmLocation,
     source: XmmLocation,
+    alignment: VectorAlignment,
 ) -> Result<(), BuildError> {
-    let value = source.read_vector(execution, VectorAlignment::Unaligned)?;
-    destination.write_vector(execution, VectorAlignment::Unaligned, value)
+    let value = source.read_vector(execution, alignment)?;
+    destination.write_vector(execution, alignment, value)
+}
+
+fn move_scalar<T: VectorLane + TransferType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: XmmLocation,
+    source: XmmLocation,
+) -> Result<(), BuildError> {
+    // Legacy scalar loads clear the upper bits; register copies preserve them.
+    let (value, clear_upper) = match source {
+        XmmLocation::Register(register) => {
+            (execution.read_xmm(register)?.extract_lane::<T>(0), false)
+        }
+        XmmLocation::Memory(address) => (
+            execution
+                .memory_operand(*address, T::BYTES, Intent::Read, &[])?
+                .read::<T>(execution, 0)?,
+            true,
+        ),
+    };
+    match destination {
+        XmmLocation::Register(register) => {
+            let vector = if clear_upper {
+                Val::<V128>::from(0_u128)
+            } else {
+                execution.read_xmm(register.clone())?
+            };
+            execution.write_xmm(register, vector.replace_lane(0, value))
+        }
+        XmmLocation::Memory(address) => execution
+            .memory_operand(*address, T::BYTES, Intent::Write, &[])?
+            .write(execution, 0, value),
+    }
 }
 
 fn xor_vector(
