@@ -18,12 +18,16 @@ impl Bits {
 
 impl ScalarFacts {
     /// A scalar parameter keeps only logical bits proved by every incoming argument.
+    /// Vector parameters still join normally, without acquiring scalar facts.
     pub(in crate::place) fn merge_parameter<'a>(
         &mut self,
         table: &ValueTable,
         parameter: usize,
         incoming: impl Iterator<Item = (&'a Self, usize)>,
     ) {
+        if !table[parameter].ty.is_scalar() {
+            return;
+        }
         let bits = incoming
             .map(|(facts, argument)| facts.bits(table, argument))
             .reduce(Bits::common)

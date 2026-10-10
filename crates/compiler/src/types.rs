@@ -1,4 +1,4 @@
-/// Logical scalar types used by values and function signatures.
+/// Logical value types used by values and function signatures.
 ///
 /// Integer operations choose signed or unsigned interpretation. F64 uses strict
 /// IEEE binary64 arithmetic. WebAssembly storage is chosen during emission.
@@ -15,14 +15,15 @@ pub enum Type {
     I32,
     I64,
     F64,
+    V128,
 }
 
 impl Type {
-    /// The Wasm scalar type carrying this logical value.
+    /// The Wasm type carrying this logical value.
     pub(super) fn carrier(self) -> Self {
         match self {
             Self::I1 | Self::I8 | Self::I16 | Self::I32 => Self::I32,
-            Self::I64 | Self::F64 => self,
+            Self::I64 | Self::F64 | Self::V128 => self,
         }
     }
 
@@ -37,6 +38,7 @@ impl Type {
     pub(super) fn is_scalar(self) -> bool {
         match self {
             Self::I1 | Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::F64 => true,
+            Self::V128 => false,
         }
     }
 
@@ -47,6 +49,7 @@ impl Type {
             Self::I16 => 16,
             Self::I32 => 32,
             Self::I64 | Self::F64 => 64,
+            Self::V128 => 128,
         }
     }
 
@@ -69,22 +72,16 @@ mod sealed {
     }
 }
 
-/// A supported scalar type known at compile time.
+/// A supported value type known at compile time.
 pub trait ValueType: Copy + sealed::Sealed + 'static {
     const TYPE: Type;
 }
 
-/// A value type supporting bitwise AND, OR and XOR.
+/// An integer or raw vector type supporting bitwise AND, OR and XOR.
 pub trait BitwiseType: ValueType {}
 
 /// A scalar integer supporting arithmetic and signed or unsigned views.
 pub trait IntType: BitwiseType {}
-
-impl BitwiseType for I1 {}
-impl BitwiseType for I8 {}
-impl BitwiseType for I16 {}
-impl BitwiseType for I32 {}
-impl BitwiseType for I64 {}
 
 /// A logical one-bit integer type.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -131,6 +128,40 @@ pub struct I64;
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct F64;
+
+/// An uninterpreted 128-bit vector, carried by WebAssembly v128.
+///
+/// Vector values preserve every bit through memory, calls and control flow.
+/// Modules using this type require WebAssembly SIMD. JavaScript cannot directly
+/// pass or return v128 values; use memory at JavaScript-facing boundaries.
+/// Native u128 literals and 16-byte arrays construct vector values. Array bytes
+/// are in increasing memory-address order, with the low byte first.
+///
+/// ```
+/// use wasm86_compiler::{Val, V128};
+/// let mask = Val::<V128>::from([0xff; 16]);
+/// let bits = mask.xor(0x1234_u128);
+/// ```
+/// Vector values do not acquire scalar integer arithmetic:
+/// ```compile_fail
+/// use wasm86_compiler::{Val, V128};
+/// let bits = Val::<V128>::from(0_u128).add(1_u128);
+/// ```
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct V128;
+
+impl sealed::Sealed for V128 {
+    type Literal = u128;
+}
+impl ValueType for V128 {
+    const TYPE: Type = Type::V128;
+}
+impl BitwiseType for V128 {}
+impl BitwiseType for I1 {}
+impl BitwiseType for I8 {}
+impl BitwiseType for I16 {}
+impl BitwiseType for I32 {}
+impl BitwiseType for I64 {}
 
 impl sealed::Sealed for I1 {
     type Literal = u64;

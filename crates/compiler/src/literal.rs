@@ -2,7 +2,7 @@
 
 use crate::Type;
 
-/// Two words retain 128 bits without imposing u128 alignment on the IR.
+/// Two words retain all vector bits without imposing u128 alignment on the IR.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Literal {
     low: u64,

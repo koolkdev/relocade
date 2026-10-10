@@ -17,6 +17,7 @@ pub(super) fn wasm_type(ty: Type) -> ValType {
     match ty.carrier() {
         Type::I64 => ValType::I64,
         Type::F64 => ValType::F64,
+        Type::V128 => ValType::V128,
         _ => ValType::I32,
     }
 }
@@ -113,6 +114,7 @@ impl Writer<'_> {
                     match self.graph.values[value].definition {
                         ValueDefinition::Literal(bits) => {
                             self.emit(match self.graph.values[value].ty.carrier() {
+                                Type::V128 => Wasm::V128Const(u128::from(bits) as i128),
                                 Type::I64 => Wasm::I64Const(u64::from(bits) as i64),
                                 Type::F64 => {
                                     Wasm::F64Const(wasm_encoder::Ieee64::new(u64::from(bits)))
