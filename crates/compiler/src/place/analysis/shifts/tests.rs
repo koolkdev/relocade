@@ -1,3 +1,4 @@
+use super::super::{Assumption, ValueAnalysis};
 use super::*;
 use crate::{
     body::{BlockId, Value, ValueDefinition},
@@ -114,8 +115,14 @@ fn constant_evaluation_cannot_invent_unknown_upper_shift_bits() {
             count,
         }),
     });
-    let mut facts = super::super::ScalarFacts::default();
-    facts.assume_bits(view, 0xff, 0);
+    let facts = ValueAnalysis::default().fork(
+        &table,
+        [Assumption::Bits {
+            value: view,
+            mask: 0xff,
+            bits: 0,
+        }],
+    );
     assert_eq!(facts.constant(&table, view), Some(0));
     assert_eq!(facts.constant(&table, shifted), None);
 }

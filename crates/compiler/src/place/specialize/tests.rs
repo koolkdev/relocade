@@ -75,7 +75,7 @@ fn reported_aliases_survive_the_memo_and_leave_with_their_scope() {
         .iter()
         .any(|alias| alias.recipe == choice && alias.residual == result.value));
     available.record_aliases(result.aliases);
-    let block = specializer.begin_block(None);
+    let block = specializer.begin_block(&graph.values, &available, None, None);
     available.bind(result.value, result.value);
     assert_eq!(available.get(choice), Some(result.value));
     available.restore(scope);
@@ -115,7 +115,7 @@ fn equal_logical_choices_keep_distinct_physical_carriers() {
 }
 
 #[test]
-fn changing_facts_invalidates_previous_folds() {
+fn entering_a_refined_context_reconsiders_previous_folds() {
     let mut graph = conditional_value();
     let choice = returned(&graph);
     let condition = graph.blocks[0].parameters[0];
@@ -126,9 +126,15 @@ fn changing_facts_invalidates_previous_folds() {
             .value,
         choice
     );
-    specializer
-        .facts_mut()
-        .assume(&graph.values, condition, true);
+    specializer.begin_block(
+        &graph.values,
+        &Availability::default(),
+        None,
+        Some(EdgeAssumption::Truth {
+            condition,
+            truth: true,
+        }),
+    );
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
@@ -148,7 +154,7 @@ fn entering_another_block_discards_cached_availability() {
             .value,
         placed
     );
-    let block = specializer.begin_block(None);
+    let block = specializer.begin_block(&graph.values, &Availability::default(), None, None);
     assert_eq!(
         specializer
             .specialize(&mut graph, choice, |_, _, _| None)
@@ -164,26 +170,41 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
     let choice = returned(&graph);
     let condition = graph.blocks[0].parameters[0];
     let mut specializer = Specializer::default();
-    let inherited = specializer.begin_block(None);
-    specializer
-        .facts_mut()
-        .assume(&graph.values, condition, true);
+    let inherited = specializer.begin_block(
+        &graph.values,
+        &Availability::default(),
+        None,
+        Some(EdgeAssumption::Truth {
+            condition,
+            truth: true,
+        }),
+    );
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
     assert!(matches!(graph.values[result].scalar_literal(), Some(7)));
 
-    let mut incoming = ScalarFacts::default();
-    incoming.assume(&graph.values, condition, false);
-    let replaced = specializer.begin_block(Some(incoming));
-    let child = specializer.begin_block(None);
+    let incoming = ValueAnalysis::default().fork(
+        &graph.values,
+        [analysis::Assumption::Truth {
+            condition,
+            truth: false,
+        }],
+    );
+    let replaced = specializer.begin_block(
+        &graph.values,
+        &Availability::default(),
+        Some(incoming),
+        None,
+    );
+    let child = specializer.begin_block(&graph.values, &Availability::default(), None, None);
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
     assert!(matches!(graph.values[result].scalar_literal(), Some(11)));
     specializer.end_block(child);
     assert_eq!(
-        specializer.facts().constant(&graph.values, condition),
+        specializer.analysis().constant(&graph.values, condition),
         Some(0)
     );
     specializer.end_block(replaced);
@@ -238,7 +259,15 @@ fn branch_facts_follow_executed_conditions_to_their_source_recipes() {
     let mut available = Availability::default();
     available.bind(condition, observed);
     let mut specializer = Specializer::default();
-    specializer.assume(&graph.values, &available, observed, true);
+    specializer.begin_block(
+        &graph.values,
+        &available,
+        None,
+        Some(EdgeAssumption::Truth {
+            condition: observed,
+            truth: true,
+        }),
+    );
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
@@ -264,19 +293,35 @@ fn observing_a_narrow_replacement_does_not_define_the_sources_upper_bits() {
     available.bind(wide, byte);
     let mut specializer = Specializer::default();
     // Only the low byte of this replacement is observed by the switch.
-    specializer.equal(&values, &available, byte, 0x81);
-    assert_eq!(specializer.facts.constant(&values, byte), Some(0x81));
-    assert_eq!(specializer.facts.constant(&values, wide), None);
+    specializer.begin_block(
+        &values,
+        &available,
+        None,
+        Some(EdgeAssumption::Equal {
+            selector: byte,
+            value: 0x81,
+        }),
+    );
+    assert_eq!(specializer.analysis.constant(&values, byte), Some(0x81));
+    assert_eq!(specializer.analysis.constant(&values, wide), None);
 
     let mut specializer = Specializer::default();
-    specializer.assume(&values, &available, byte, true);
-    assert_eq!(specializer.facts.constant(&values, wide), None);
-    assert_eq!(specializer.facts.constant(&values, byte), None);
+    specializer.begin_block(
+        &values,
+        &available,
+        None,
+        Some(EdgeAssumption::Truth {
+            condition: byte,
+            truth: true,
+        }),
+    );
+    assert_eq!(specializer.analysis.constant(&values, wide), None);
+    assert_eq!(specializer.analysis.constant(&values, byte), None);
     let bit = values.push(Value {
         ty: crate::Type::I1,
         definition: ValueDefinition::Expression(Expression::Convert { input: wide }),
     });
-    assert_eq!(specializer.facts.constant(&values, bit), Some(1));
+    assert_eq!(specializer.analysis.constant(&values, bit), Some(1));
 }
 
 #[test]
@@ -316,11 +361,26 @@ fn bitwise_absorption_cannot_discard_unknown_carrier_bits() {
                     right,
                 }),
             });
-            let mut specializer = Specializer::default();
             // The low bytes alone would permit absorption. Both narrow views
             // still have unknown upper i32 bits, which the operation must keep.
-            specializer.facts_mut().assume_bits(inputs[0], 3, 3);
-            specializer.facts_mut().assume_bits(inputs[1], 0xfc, 0);
+            let mut specializer = Specializer {
+                analysis: ValueAnalysis::default().fork(
+                    &graph.values,
+                    [
+                        Assumption::Bits {
+                            value: inputs[0],
+                            mask: 3,
+                            bits: 3,
+                        },
+                        Assumption::Bits {
+                            value: inputs[1],
+                            mask: 0xfc,
+                            bits: 0,
+                        },
+                    ],
+                ),
+                ..Specializer::default()
+            };
             assert_eq!(graph.values.bounds[left].unsigned, 32);
             assert_eq!(graph.values.bounds[right].unsigned, 32);
             assert_eq!(
@@ -383,7 +443,14 @@ fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
     let scope = available.checkpoint();
     let mut live = Specializer::default();
     let mut branch = live.on_branch(&graph.values, &available, bit, true);
-    branch.facts_mut().assume_bits(inputs[1], 1, 1);
+    branch.analysis = branch.analysis.fork(
+        &graph.values,
+        [Assumption::Bits {
+            value: inputs[1],
+            mask: 1,
+            bits: 1,
+        }],
+    );
     let absorbed = branch.specialize(&mut graph, result, |_, _, _| None);
     assert_eq!(absorbed.value, inputs[1]);
     assert!(absorbed

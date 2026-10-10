@@ -1,4 +1,4 @@
-//! Path facts about scalar encodings up to 64 bits, integer ranges and comparisons.
+//! Analyze scalar encodings under an explicit path context.
 //! F64 participates through its raw encoding; numeric range rules apply to integers.
 //! Vectors are opaque to this analysis. Queries infer no vector facts, while
 //! expression evaluation still folds complete vector literals.
@@ -16,14 +16,15 @@ use crate::{
 
 mod assume;
 mod comparisons;
+mod context;
 mod infer;
 mod merge;
 mod range;
 mod scoped_map;
 mod selects;
 mod shifts;
-use comparisons::Comparisons;
-use infer::InferenceCache;
+pub(super) use context::{Assumption, ContextScope};
+use context::{PathContext, SuspendedContext};
 use range::Range;
 use scoped_map::ScopedMap;
 
@@ -57,62 +58,58 @@ impl Bits {
     }
 }
 
+/// Derivation and its reusable worklist belong to this context's analysis owner.
+/// Ordinary queries cannot change assumptions; entry and joins establish them first.
 #[derive(Default)]
-pub(super) struct ScalarFacts {
-    // These sparse maps hash compiler-assigned value IDs, never guest values.
-    known: ScopedMap<usize, Bits>,
-    ranges: ScopedMap<usize, Range>,
-    comparisons: Comparisons,
-    computed: RefCell<InferenceCache>,
+pub(super) struct ValueAnalysis {
+    context: PathContext,
+    derived: RefCell<DerivedFacts>,
+    pending: RefCell<Vec<(usize, bool)>>,
+    spare_results: DerivedFacts,
+    suspended: Vec<SuspendedContext>,
+}
+
+#[derive(Default)]
+struct DerivedFacts {
+    bits: FxHashMap<usize, Bits>,
     select_constants: FxHashMap<usize, Option<u64>>,
 }
 
-pub(super) struct Checkpoint {
-    known: scoped_map::Checkpoint,
-    ranges: scoped_map::Checkpoint,
-    comparisons: scoped_map::Checkpoint,
+impl DerivedFacts {
+    /// Retain empty storage from finished contexts for the next child query.
+    fn recycle(&mut self, mut finished: Self) {
+        finished.bits.clear();
+        finished.select_constants.clear();
+        if finished.bits.capacity() > self.bits.capacity() {
+            self.bits = finished.bits;
+        }
+        if finished.select_constants.capacity() > self.select_constants.capacity() {
+            self.select_constants = finished.select_constants;
+        }
+    }
 }
 
-impl Clone for ScalarFacts {
+impl Clone for ValueAnalysis {
+    /// A completed path can answer later join queries independently of active scopes.
     fn clone(&self) -> Self {
         Self {
-            known: self.known.clone(),
-            ranges: self.ranges.clone(),
-            comparisons: self.comparisons.clone(),
-            computed: RefCell::default(),
-            select_constants: FxHashMap::default(),
+            context: self.context.clone(),
+            ..Self::default()
         }
     }
 }
 
-impl ScalarFacts {
-    /// Save a nested path scope without copying its inherited facts.
-    pub(super) fn checkpoint(&mut self) -> Checkpoint {
-        Checkpoint {
-            known: self.known.checkpoint(),
-            ranges: self.ranges.checkpoint(),
-            comparisons: self.comparisons.checkpoint(),
-        }
-    }
-
-    /// Restore the most recent scope and discard inferences from its changed facts.
-    pub(super) fn restore(&mut self, checkpoint: Checkpoint) {
-        self.known.restore(checkpoint.known);
-        self.ranges.restore(checkpoint.ranges);
-        self.comparisons.restore(checkpoint.comparisons);
-        self.computed.get_mut().clear();
-        self.select_constants.clear();
-    }
-
+impl ValueAnalysis {
     /// Whether known logical bits prove that these paths cannot coincide.
     pub(super) fn conflicts_with(&self, table: &ValueTable, other: &Self) -> bool {
-        self.known
+        self.context
+            .known
             .iter()
             .any(|(&id, &bits)| bits.conflicts(other.bits(table, id)))
     }
 
-    pub(super) fn assume_bits(&mut self, id: usize, mask: u64, value: u64) {
-        let previous = self.known.get(&id).copied().unwrap_or_default();
+    fn assume_bits(&mut self, id: usize, mask: u64, value: u64) {
+        let previous = self.context.known.get(&id).copied().unwrap_or_default();
         let bits = Bits {
             mask,
             value: value & mask,
@@ -123,15 +120,16 @@ impl ScalarFacts {
     }
 
     fn record(&mut self, id: usize, bits: Bits) {
-        self.known.insert(id, bits);
+        self.context.known.insert(id, bits);
         self.invalidate_from(id);
     }
 
     fn invalidate_from(&mut self, id: usize) {
-        // Calculations refer only to earlier values. Their cached inputs remain
-        // valid when learning a fact about this value and its possible users.
-        self.computed.get_mut().invalidate_from(id);
-        self.select_constants.retain(|&input, _| input < id);
+        // Only context construction changes observations. Calculations refer to
+        // earlier values, so provisional answers below this ID remain valid.
+        let derived = self.derived.get_mut();
+        derived.bits.retain(|&input, _| input < id);
+        derived.select_constants.retain(|&input, _| input < id);
     }
 
     /// Query constants under path assumptions; without them, use construction's folds.
@@ -144,12 +142,16 @@ impl ScalarFacts {
         if let Some(bits) = table[id].scalar_literal() {
             return Some(bits);
         }
-        if self.known.is_empty() && self.ranges.is_empty() && self.comparisons.is_empty() {
+        if self.context.known.is_empty()
+            && self.context.ranges.is_empty()
+            && self.context.comparisons.is_empty()
+        {
             return None;
         }
         if table.expression(id).is_none() {
             let mask = table[id].ty.mask();
             return self
+                .context
                 .known
                 .get(&id)
                 .and_then(|bits| (bits.mask & mask == mask).then_some(bits.value & mask));

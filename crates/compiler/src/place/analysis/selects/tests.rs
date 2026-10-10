@@ -108,19 +108,40 @@ fn speculative_select_facts_do_not_escape_or_survive_a_scope_change() {
     let input = parameter(&mut table, Type::I64, 2);
     let invariant = correlated(&mut table, first, first, input);
     let independent = correlated(&mut table, first, second, input);
-    let mut facts = ScalarFacts::default();
+    let mut facts = ValueAnalysis::default();
     assert_eq!(facts.constant_across_selects(&table, invariant), Some(0));
     assert_eq!(facts.constant(&table, first), None);
     assert_eq!(facts.constant_across_selects(&table, independent), None);
-    let scope = facts.checkpoint();
-    facts.assume(&table, first, true);
-    facts.assume(&table, second, false);
-    facts.assume_bits(input, 1, 1);
+    let scope = facts.enter(
+        &table,
+        None,
+        [
+            Assumption::Truth {
+                condition: first,
+                truth: true,
+            },
+            Assumption::Truth {
+                condition: second,
+                truth: false,
+            },
+            Assumption::Bits {
+                value: input,
+                mask: 1,
+                bits: 1,
+            },
+        ],
+    );
     assert_eq!(facts.constant_across_selects(&table, independent), Some(1));
     let mut snapshot = facts.clone();
-    facts.restore(scope);
+    facts.leave(scope);
     assert_eq!(facts.constant_across_selects(&table, independent), None);
-    facts.assume(&table, second, true);
+    facts = facts.fork(
+        &table,
+        [Assumption::Truth {
+            condition: second,
+            truth: true,
+        }],
+    );
     assert_eq!(facts.constant_across_selects(&table, independent), Some(0));
     assert_eq!(
         snapshot.constant_across_selects(&table, independent),
@@ -148,15 +169,27 @@ fn successful_and_failed_proofs_preserve_inherited_facts_and_cached_bits() {
             right: other,
         },
     );
-    let mut facts = ScalarFacts::default();
-    let scope = facts.checkpoint();
-    facts.assume(&table, inherited, true);
-    facts.assume_bits(input, 0xff, 0x42);
+    let mut facts = ValueAnalysis::default();
+    let scope = facts.enter(
+        &table,
+        None,
+        [
+            Assumption::Truth {
+                condition: inherited,
+                truth: true,
+            },
+            Assumption::Bits {
+                value: input,
+                mask: 0xff,
+                bits: 0x42,
+            },
+        ],
+    );
     facts.bits(&table, dynamic);
-    let cached = facts.computed.borrow().clone();
+    let cached = facts.derived.borrow().bits.clone();
     assert_eq!(facts.constant_across_selects(&table, invariant), Some(0));
     assert_eq!(facts.constant_across_selects(&table, dynamic), None);
-    assert!(*facts.computed.borrow() == cached);
+    assert!(facts.derived.borrow().bits == cached);
     assert_eq!(facts.bits(&table, input).value, 0x42);
     assert_eq!(facts.constant(&table, condition), None);
     assert_eq!(facts.constant(&table, other), None);
@@ -168,7 +201,7 @@ fn successful_and_failed_proofs_preserve_inherited_facts_and_cached_bits() {
     assert_eq!(facts.constant(&table, below_ten), None);
     assert_eq!(facts.constant(&table, below_thirty), None);
     assert_eq!(facts.constant(&table, inherited), Some(1));
-    facts.restore(scope);
+    facts.leave(scope);
     assert_eq!(facts.bits(&table, input).mask, 0);
     let outside = compare(&mut table, CompareOp::GeUnsigned, selector_input, forty);
     assert_eq!(facts.constant(&table, outside), None);
@@ -189,7 +222,7 @@ fn unknown_selects_keep_only_bits_shared_by_both_alternatives() {
             when_false: b,
         },
     );
-    let facts = ScalarFacts::default();
+    let facts = ValueAnalysis::default();
     let bits = facts.bits(&table, choice);
     assert_eq!((bits.mask, bits.value), (!6_u64, 0x91));
     assert_eq!(facts.constant(&table, choice), None);
@@ -211,7 +244,7 @@ fn equal_logical_select_bits_do_not_make_the_carrier_constant() {
         },
     );
     let carrier = expression(&mut table, Type::I32, Expression::Convert { input: choice });
-    let facts = ScalarFacts::default();
+    let facts = ValueAnalysis::default();
     assert_eq!(facts.inferred_constant(&table, choice), Some(0));
     assert_eq!(table.carrier_bits(choice, 0), None);
     assert_eq!(facts.inferred_constant(&table, carrier), None);
@@ -255,15 +288,24 @@ fn select_proofs_use_ranges_without_leaking_case_assumptions() {
             right: b,
         },
     );
-    let mut facts = ScalarFacts::default();
+    let mut facts = ValueAnalysis::default();
     assert_eq!(facts.constant_across_selects(&table, both), None);
-    let scope = facts.checkpoint();
-    facts.assume(&table, at_least_twenty, true);
+    let scope = facts.enter(
+        &table,
+        None,
+        [Assumption::Truth {
+            condition: at_least_twenty,
+            truth: true,
+        }],
+    );
     assert_eq!(facts.constant_across_selects(&table, both), Some(1));
-    let mut joined = facts.clone();
-    joined.retain_common(&ScalarFacts::default());
+    let mut joined = ValueAnalysis::join(
+        &table,
+        &[],
+        &[(&facts, &[]), (&ValueAnalysis::default(), &[])],
+    );
     assert_eq!(joined.constant_across_selects(&table, both), None);
-    facts.restore(scope);
+    facts.leave(scope);
     assert_eq!(facts.constant_across_selects(&table, both), None);
 }
 
@@ -285,7 +327,7 @@ fn predicates_can_require_more_than_one_shared_selector() {
         },
     );
     assert_eq!(
-        ScalarFacts::default().constant_across_selects(&table, either),
+        ValueAnalysis::default().constant_across_selects(&table, either),
         Some(0)
     );
 }
@@ -298,7 +340,7 @@ fn exhausted_select_proofs_keep_the_original_predicate() {
     let condition = compare(&mut table, CompareOp::LtUnsigned, selector_input, twenty);
     let input = parameter(&mut table, Type::I64, 1);
     let invariant = correlated(&mut table, condition, condition, input);
-    let mut facts = ScalarFacts::default();
+    let mut facts = ValueAnalysis::default();
     assert_eq!(
         facts.prove_select_cases(&table, invariant, &[condition], &mut 1),
         None

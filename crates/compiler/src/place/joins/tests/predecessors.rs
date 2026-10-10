@@ -24,7 +24,7 @@ fn incoming_values_use_the_nearest_binding_on_each_predecessor_path() {
         joins.record(block.0, [(recipe, value)].into_iter());
     }
     for source in [left_source, arms.right] {
-        joins.complete(source.0, &ScalarFacts::default());
+        joins.complete(source.0, &ValueAnalysis::default());
     }
     joins
         .prepare(
@@ -35,7 +35,7 @@ fn incoming_values_use_the_nearest_binding_on_each_predecessor_path() {
         )
         .unwrap();
     let result = joins
-        .resolve(&mut graph, arms.join.0, recipe, &ScalarFacts::default())
+        .resolve(&mut graph, arms.join.0, recipe, &ValueAnalysis::default())
         .unwrap();
     assert_eq!(graph.blocks[arms.join.0].parameters, [result]);
     assert_eq!(
@@ -66,7 +66,7 @@ fn incoming_aliases_see_a_common_ancestor_binding_requested_after_preparation() 
     );
     let alias = expression(&mut graph, Type::I8, Expression::Convert { input: choice });
     let mut joins = joins(&graph);
-    let facts = ScalarFacts::default();
+    let facts = ValueAnalysis::default();
     for source in [earlier.left, earlier.right] {
         let value = placed(&mut graph, source, number);
         joins.record(source.0, [(number, value)].into_iter());
@@ -74,8 +74,13 @@ fn incoming_aliases_see_a_common_ancestor_binding_requested_after_preparation() 
     }
     joins.record(later.left.0, [(alias, 1)].into_iter());
     for (source, truth) in [(later.left, true), (later.right, false)] {
-        let mut branch_facts = ScalarFacts::default();
-        branch_facts.assume(&graph.values, 0, truth);
+        let branch_facts = ValueAnalysis::default().fork(
+            &graph.values,
+            [analysis::Assumption::Truth {
+                condition: 0,
+                truth,
+            }],
+        );
         joins.complete(source.0, &branch_facts);
     }
     let reachable = graph.reachable();
@@ -109,12 +114,19 @@ fn completed_facts_survive_rollback_of_the_incoming_paths() {
     let mut graph = graph();
     let arms = Diamond::new(&mut graph, BlockId(0));
     let mut joins = joins(&graph);
-    let mut facts = ScalarFacts::default();
+    let mut facts = ValueAnalysis::default();
     for block in [arms.left, arms.right] {
-        let scope = facts.checkpoint();
-        facts.assume_bits(1, 0xffff_ffff, 5);
+        let scope = facts.enter(
+            &graph.values,
+            None,
+            [analysis::Assumption::Bits {
+                value: 1,
+                mask: 0xffff_ffff,
+                bits: 5,
+            }],
+        );
         joins.complete(block.0, &facts);
-        facts.restore(scope);
+        facts.leave(scope);
         assert_eq!(facts.constant(&graph.values, 1), None);
     }
     let merged = joins
@@ -144,8 +156,14 @@ fn a_join_keeps_common_facts_without_any_value_candidates() {
     );
     let mut joins = joins(&graph);
     for (block, value) in [(arms.left, 5), (arms.right, 7)] {
-        let mut facts = ScalarFacts::default();
-        facts.assume_bits(1, 0xffff_ffff, value);
+        let facts = ValueAnalysis::default().fork(
+            &graph.values,
+            [analysis::Assumption::Bits {
+                value: 1,
+                mask: 0xffff_ffff,
+                bits: value,
+            }],
+        );
         joins.complete(block.0, &facts);
     }
     let facts = joins
@@ -183,11 +201,17 @@ fn every_reachable_predecessor_must_prove_a_common_fact() {
     graph.blocks[bypass.0].exit = Exit::Jump(edge(arms.join));
     let mut joins = joins(&graph);
     for source in [arms.left, arms.right] {
-        let mut facts = ScalarFacts::default();
-        facts.assume_bits(1, 0xffff_ffff, 5);
+        let facts = ValueAnalysis::default().fork(
+            &graph.values,
+            [analysis::Assumption::Bits {
+                value: 1,
+                mask: 0xffff_ffff,
+                bits: 5,
+            }],
+        );
         joins.complete(source.0, &facts);
     }
-    joins.complete(bypass.0, &ScalarFacts::default());
+    joins.complete(bypass.0, &ValueAnalysis::default());
     let facts = joins
         .prepare(
             &graph,
@@ -213,7 +237,7 @@ fn completing_a_backedge_does_not_reopen_entry_eligibility() {
     graph.blocks[after.0].exit = Exit::Return(vec![1]);
     let recipe = square(&mut graph);
     let mut joins = joins(&graph);
-    joins.complete(0, &ScalarFacts::default());
+    joins.complete(0, &ValueAnalysis::default());
     assert!(joins
         .prepare(
             &graph,
@@ -224,9 +248,9 @@ fn completing_a_backedge_does_not_reopen_entry_eligibility() {
         .is_none());
     let value = placed(&mut graph, header, recipe);
     joins.record(header.0, [(recipe, value)].into_iter());
-    joins.complete(header.0, &ScalarFacts::default());
+    joins.complete(header.0, &ValueAnalysis::default());
     assert_eq!(
-        joins.resolve(&mut graph, after.0, recipe, &ScalarFacts::default()),
+        joins.resolve(&mut graph, after.0, recipe, &ValueAnalysis::default()),
         None
     );
     assert!(graph.blocks[header.0].parameters.is_empty());
@@ -240,8 +264,8 @@ fn a_missing_incoming_value_is_not_recomputed_or_merged() {
     let mut joins = joins(&graph);
     let value = placed(&mut graph, arms.left, recipe);
     joins.record(arms.left.0, [(recipe, value)].into_iter());
-    joins.complete(arms.left.0, &ScalarFacts::default());
-    joins.complete(arms.right.0, &ScalarFacts::default());
+    joins.complete(arms.left.0, &ValueAnalysis::default());
+    joins.complete(arms.right.0, &ValueAnalysis::default());
     joins
         .prepare(
             &graph,
@@ -253,7 +277,7 @@ fn a_missing_incoming_value_is_not_recomputed_or_merged() {
     let count = graph.values.len();
     for _ in 0..2 {
         assert_eq!(
-            joins.resolve(&mut graph, arms.join.0, recipe, &ScalarFacts::default()),
+            joins.resolve(&mut graph, arms.join.0, recipe, &ValueAnalysis::default()),
             None
         );
     }
@@ -270,7 +294,7 @@ fn a_discarded_predecessor_does_not_need_a_value_or_completed_facts() {
     let mut joins = joins(&graph);
     let value = placed(&mut graph, arms.left, recipe);
     joins.record(arms.left.0, [(recipe, value)].into_iter());
-    joins.complete(arms.left.0, &ScalarFacts::default());
+    joins.complete(arms.left.0, &ValueAnalysis::default());
     let condition = graph.values.literal(Type::I1, 1);
     graph.blocks[0].exit = Exit::If {
         condition,
@@ -286,7 +310,7 @@ fn a_discarded_predecessor_does_not_need_a_value_or_completed_facts() {
         )
         .unwrap();
     assert_eq!(
-        joins.resolve(&mut graph, arms.join.0, recipe, &ScalarFacts::default()),
+        joins.resolve(&mut graph, arms.join.0, recipe, &ValueAnalysis::default()),
         Some(value)
     );
     assert!(graph.blocks[arms.join.0].parameters.is_empty());
@@ -314,7 +338,7 @@ fn a_join_inside_a_discarded_arm_has_no_incoming_values() {
         )
         .is_none());
     assert_eq!(
-        joins.resolve(&mut graph, inner.join.0, recipe, &ScalarFacts::default()),
+        joins.resolve(&mut graph, inner.join.0, recipe, &ValueAnalysis::default()),
         None
     );
     assert!(graph.blocks[inner.join.0].parameters.is_empty());
@@ -336,7 +360,7 @@ fn a_folded_switch_excludes_an_inactive_edge_from_a_reachable_source() {
     let mut joins = joins(&graph);
     let value = placed(&mut graph, arm, recipe);
     joins.record(arm.0, [(recipe, value)].into_iter());
-    joins.complete(arm.0, &ScalarFacts::default());
+    joins.complete(arm.0, &ValueAnalysis::default());
     let selector = graph.values.literal(Type::I32, 7);
     if let Exit::Switch {
         selector: input, ..
@@ -353,7 +377,7 @@ fn a_folded_switch_excludes_an_inactive_edge_from_a_reachable_source() {
         )
         .unwrap();
     assert_eq!(
-        joins.resolve(&mut graph, after.0, recipe, &ScalarFacts::default()),
+        joins.resolve(&mut graph, after.0, recipe, &ValueAnalysis::default()),
         Some(value)
     );
 }
@@ -371,7 +395,7 @@ fn surviving_predecessors_keep_their_arguments_when_an_arm_is_removed() {
     let second = placed(&mut graph, inner.right, recipe);
     for (block, value) in [(outer.right, first), (inner.right, second)] {
         joins.record(block.0, [(recipe, value)].into_iter());
-        joins.complete(block.0, &ScalarFacts::default());
+        joins.complete(block.0, &ValueAnalysis::default());
     }
     let condition = graph.values.literal(Type::I1, 0);
     graph.blocks[outer.left.0].exit = Exit::If {
@@ -388,7 +412,7 @@ fn surviving_predecessors_keep_their_arguments_when_an_arm_is_removed() {
         )
         .unwrap();
     let result = joins
-        .resolve(&mut graph, outer.join.0, recipe, &ScalarFacts::default())
+        .resolve(&mut graph, outer.join.0, recipe, &ValueAnalysis::default())
         .unwrap();
     assert_eq!(graph.blocks[outer.join.0].parameters, [result]);
     assert_eq!(
