@@ -39,9 +39,9 @@ impl FunctionArena {
         self.with_open(|table| table.literal(ty, bits))
     }
     pub(super) fn constant_bits(&self, value: usize) -> Result<Option<u64>, BuildError> {
-        self.with_graph(|graph| match graph.values[value].definition {
-            ValueDefinition::Literal(bits) => Some(graph.values[value].ty.normalize(bits)),
-            _ => None,
+        self.with_graph(|graph| {
+            let value = graph.values[value];
+            value.scalar_literal().map(|bits| value.ty.normalize(bits))
         })
     }
     pub(crate) fn resolve_unbound(

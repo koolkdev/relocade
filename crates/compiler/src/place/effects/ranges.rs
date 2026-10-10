@@ -2,7 +2,7 @@
 use std::ops::Range;
 
 use crate::{
-    body::{FunctionGraph, ValueDefinition},
+    body::FunctionGraph,
     memory::{Location, Mem},
 };
 
@@ -22,8 +22,8 @@ impl MemoryRange {
         body: &FunctionGraph,
     ) -> Self {
         let base = body.values.representation(base);
-        let (base, start) = match body.values[base].definition {
-            ValueDefinition::Literal(address) => (None, address + offset),
+        let (base, start) = match body.values[base].scalar_literal() {
+            Some(address) => (None, address + offset),
             _ => (Some(base), offset),
         };
         Self {
@@ -35,10 +35,7 @@ impl MemoryRange {
 
     pub(super) fn from_span(memory: Mem, base: usize, bytes: usize, body: &FunctionGraph) -> Self {
         let bytes = body.values.representation(bytes);
-        let bytes = match body.values[bytes].definition {
-            ValueDefinition::Literal(bytes) => Some(bytes),
-            _ => None,
-        };
+        let bytes = body.values[bytes].scalar_literal();
         Self::new(memory, base, 0, bytes, body)
     }
 

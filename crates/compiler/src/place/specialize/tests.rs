@@ -144,7 +144,7 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
         ValueDefinition::Literal(7)
     ));
 
-    let mut incoming = Facts::default();
+    let mut incoming = ScalarFacts::default();
     incoming.assume(&graph.values, condition, false);
     let replaced = specializer.begin_block(Some(incoming));
     let child = specializer.begin_block(None);

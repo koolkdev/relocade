@@ -95,7 +95,7 @@ impl ValueTable {
     /// Literal values already contain the exact carrier and keep those bits.
     pub(crate) fn carrier_bits(&self, id: usize, logical_bits: u64) -> u64 {
         let ty = self.values[id].ty;
-        if let ValueDefinition::Literal(bits) = self.values[id].definition {
+        if let Some(bits) = self.values[id].scalar_literal() {
             return ty.carrier().normalize(bits);
         }
         let bits = logical_bits & ty.mask();

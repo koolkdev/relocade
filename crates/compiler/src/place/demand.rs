@@ -270,7 +270,7 @@ pub(super) fn schedules(
                     right,
                 } => {
                     let other = if input == left { right } else { left };
-                    matches!(graph.values[other].definition, ValueDefinition::Literal(bits) if bits & 1 != 0)
+                    matches!(graph.values[other].scalar_literal(), Some(bits) if bits & 1 != 0)
                 }
                 _ => false,
             };

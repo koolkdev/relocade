@@ -1,7 +1,7 @@
 //! Value selection keeps its condition's truth distinct from its numeric bits.
 
 use super::Folder;
-use crate::{body::ValueDefinition, Expression, Type};
+use crate::{Expression, Type};
 
 impl Folder<'_> {
     pub(super) fn select(
@@ -27,9 +27,9 @@ impl Folder<'_> {
         when_true: usize,
         when_false: usize,
     ) -> Option<usize> {
-        match self.values[condition].definition {
-            ValueDefinition::Literal(0) => return Some(when_false),
-            ValueDefinition::Literal(_) => return Some(when_true),
+        match self.values[condition].scalar_literal() {
+            Some(0) => return Some(when_false),
+            Some(_) => return Some(when_true),
             _ => {}
         }
         if self.values.representation(when_true) == self.values.representation(when_false) {
@@ -39,11 +39,11 @@ impl Folder<'_> {
             return None;
         }
         let nonzero = match (
-            self.values[when_true].definition,
-            self.values[when_false].definition,
+            self.values[when_true].scalar_literal(),
+            self.values[when_false].scalar_literal(),
         ) {
-            (ValueDefinition::Literal(1), ValueDefinition::Literal(0)) => true,
-            (ValueDefinition::Literal(0), ValueDefinition::Literal(1)) => false,
+            (Some(1), Some(0)) => true,
+            (Some(0), Some(1)) => false,
             _ => return None,
         };
         // A truth consumer accepts any nonzero carrier. Numeric selection must

@@ -6,14 +6,14 @@ mod tests;
 
 #[derive(Default)]
 pub(super) struct Specializer {
-    facts: Facts,
+    facts: ScalarFacts,
     residuals: HashMap<usize, usize>,
 }
 
 /// Restore inherited facts by undoing changes; suspend them when a join replaces them.
 pub(super) enum BlockScope {
     Inherited(facts::Checkpoint),
-    Replaced(Box<Facts>),
+    Replaced(Box<ScalarFacts>),
 }
 
 pub(super) struct Alias {
@@ -27,7 +27,7 @@ pub(super) struct Specialization {
 }
 
 impl Specializer {
-    pub(super) fn begin_block(&mut self, incoming: Option<Facts>) -> BlockScope {
+    pub(super) fn begin_block(&mut self, incoming: Option<ScalarFacts>) -> BlockScope {
         self.residuals.clear();
         match incoming {
             Some(facts) => {
@@ -45,11 +45,11 @@ impl Specializer {
         }
     }
 
-    pub(super) fn facts(&self) -> &Facts {
+    pub(super) fn facts(&self) -> &ScalarFacts {
         &self.facts
     }
 
-    pub(super) fn facts_mut(&mut self) -> &mut Facts {
+    pub(super) fn facts_mut(&mut self) -> &mut ScalarFacts {
         self.residuals.clear();
         &mut self.facts
     }
@@ -115,7 +115,7 @@ impl Specializer {
         &mut self,
         graph: &mut FunctionGraph,
         root: usize,
-        mut resolve: impl FnMut(&mut FunctionGraph, usize, &Facts) -> Option<usize>,
+        mut resolve: impl FnMut(&mut FunctionGraph, usize, &ScalarFacts) -> Option<usize>,
     ) -> Specialization {
         enum Work {
             Visit(usize),
@@ -158,7 +158,7 @@ impl Specializer {
                 }
                 Work::Select(id, condition, when_true, when_false) => {
                     let condition = self.residuals[&condition];
-                    if let ValueDefinition::Literal(bits) = graph.values[condition].definition {
+                    if let Some(bits) = graph.values[condition].scalar_literal() {
                         let input = if bits == 0 { when_false } else { when_true };
                         work.push(Work::Alias(id, input));
                         work.push(Work::Visit(input));

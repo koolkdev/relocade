@@ -42,9 +42,12 @@ impl Folder<'_> {
                 operator: BitwiseOp::And,
                 left,
                 right,
-            }) => match (self.values[left].definition, self.values[right].definition) {
-                (_, ValueDefinition::Literal(mask)) => (left, mask),
-                (ValueDefinition::Literal(mask), _) => (right, mask),
+            }) => match (
+                self.values[left].scalar_literal(),
+                self.values[right].scalar_literal(),
+            ) {
+                (_, Some(mask)) => (left, mask),
+                (Some(mask), _) => (right, mask),
                 _ => (input, self.values[input].ty.carrier().mask()),
             },
             _ => (input, self.values[input].ty.carrier().mask()),
@@ -66,7 +69,7 @@ impl Folder<'_> {
             return bits;
         };
         let carrier = self.values[bits.input].ty.carrier();
-        let ValueDefinition::Literal(count) = self.values[count].definition else {
+        let Some(count) = self.values[count].scalar_literal() else {
             return bits;
         };
         let count = integer::shift_count(carrier, count as u32);
@@ -79,7 +82,7 @@ impl Folder<'_> {
         else {
             return bits;
         };
-        let ValueDefinition::Literal(reverse) = self.values[reverse].definition else {
+        let Some(reverse) = self.values[reverse].scalar_literal() else {
             return bits;
         };
         if self.values[shifted.input].ty.carrier() != carrier
@@ -108,12 +111,12 @@ impl Folder<'_> {
         let mut base = input;
         let mut offset = 0_u64;
         loop {
+            if let Some(value) = self.values[base].scalar_literal() {
+                return self
+                    .values
+                    .carrier_literal(ty, value.wrapping_add(offset) & mask);
+            }
             match self.values[base].definition {
-                ValueDefinition::Literal(value) => {
-                    return self
-                        .values
-                        .carrier_literal(ty, value.wrapping_add(offset) & mask);
-                }
                 ValueDefinition::Expression(Expression::LowBits { input, bits: kept })
                     if kept >= bits =>
                 {
@@ -130,12 +133,14 @@ impl Folder<'_> {
                     left,
                     right,
                 }) => {
-                    let (input, kept) =
-                        match (self.values[left].definition, self.values[right].definition) {
-                            (_, ValueDefinition::Literal(mask)) => (left, mask.trailing_ones()),
-                            (ValueDefinition::Literal(mask), _) => (right, mask.trailing_ones()),
-                            _ => break,
-                        };
+                    let (input, kept) = match (
+                        self.values[left].scalar_literal(),
+                        self.values[right].scalar_literal(),
+                    ) {
+                        (_, Some(mask)) => (left, mask.trailing_ones()),
+                        (Some(mask), _) => (right, mask.trailing_ones()),
+                        _ => break,
+                    };
                     if kept < u32::from(bits) {
                         break;
                     }

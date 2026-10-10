@@ -3,21 +3,18 @@
 use super::Folder;
 use crate::{
     bitwise::BitwiseOp,
-    body::ValueDefinition,
     integer::{self, BinaryOp, RotateOp, ShiftOp},
     Expression, Type,
 };
 
 impl Folder<'_> {
     pub(super) fn fold_shift(&self, ty: Type, input: usize, count: usize) -> Option<usize> {
-        let zero_count = matches!(self.values[count].definition,
-            ValueDefinition::Literal(bits) if integer::shift_count(ty, bits as u32) == 0);
+        let zero_count = matches!(self.values[count].scalar_literal(), Some(bits) if integer::shift_count(ty, bits as u32) == 0);
         (zero_count || self.values.bounds[input].unsigned == 0).then_some(input)
     }
 
     pub(super) fn fold_rotate(&self, ty: Type, input: usize, count: usize) -> Option<usize> {
-        let identity_input = matches!(self.values[input].definition,
-            ValueDefinition::Literal(bits) if bits == 0 || bits == ty.carrier().mask());
+        let identity_input = matches!(self.values[input].scalar_literal(), Some(bits) if bits == 0 || bits == ty.carrier().mask());
         self.fold_shift(ty, input, count)
             .or(identity_input.then_some(input))
     }
@@ -53,9 +50,9 @@ impl Folder<'_> {
             return input;
         }
         if matches!(value.ty, Type::I8 | Type::I16) {
-            if matches!(self.values[count].definition, ValueDefinition::Literal(bits)
+            if matches!(self.values[count].scalar_literal(), Some(bits)
                 if integer::rotate_count(value.ty, bits as u32) == 0)
-                || matches!(value.definition, ValueDefinition::Literal(bits)
+                || matches!(value.scalar_literal(), Some(bits)
                     if bits == 0 || bits == value.ty.mask())
             {
                 return input;

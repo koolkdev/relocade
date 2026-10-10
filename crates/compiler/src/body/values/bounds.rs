@@ -116,8 +116,8 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
                 operator,
                 value: input,
                 count,
-            } => match values[count].definition {
-                ValueDefinition::Literal(bits) => {
+            } => match values[count].scalar_literal() {
+                Some(bits) => {
                     let count = shift_count(value.ty, bits as u32) as u8;
                     match operator {
                         ShiftOp::Left => inputs[input].unsigned.saturating_add(count).min(carrier),

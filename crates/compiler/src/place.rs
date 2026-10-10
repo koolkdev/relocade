@@ -17,7 +17,7 @@ mod value;
 use availability::{Availability, Checkpoint};
 use dominance::Dominators;
 use effects::Effects;
-use facts::Facts;
+use facts::ScalarFacts;
 use joins::Joins;
 use specialize::{BlockScope, Specializer};
 

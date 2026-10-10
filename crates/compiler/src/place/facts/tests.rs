@@ -33,7 +33,7 @@ fn compare(table: &mut ValueTable, operator: CompareOp, left: usize, right: usiz
 #[test]
 fn restoring_partial_bits_discards_child_constants_but_preserves_snapshots() {
     let table = parameters();
-    let mut facts = Facts::default();
+    let mut facts = ScalarFacts::default();
     facts.assume_bits(0, 0xff, 0x12);
     let scope = facts.checkpoint();
     facts.assume_bits(0, 0xffff_ff00, 0x123400);
@@ -57,7 +57,7 @@ fn restoring_ranges_discards_child_comparison_inference() {
     let below_ten = compare(&mut table, CompareOp::LtUnsigned, 0, ten);
     let below_twenty = compare(&mut table, CompareOp::LtUnsigned, 0, twenty);
     let below_forty = compare(&mut table, CompareOp::LtUnsigned, 0, forty);
-    let mut facts = Facts::default();
+    let mut facts = ScalarFacts::default();
     facts.assume(&table, below_forty, true);
     let scope = facts.checkpoint();
     facts.assume(&table, below_ten, true);
@@ -79,7 +79,7 @@ fn restoring_comparisons_forgets_equivalent_and_opposite_predicates() {
     let unequal = compare(&mut table, CompareOp::Ne, 0, 1);
     let reversed = compare(&mut table, CompareOp::Eq, 1, 0);
     let equal = compare(&mut table, CompareOp::Eq, 0, 1);
-    let mut facts = Facts::default();
+    let mut facts = ScalarFacts::default();
     // Keep an inherited fact so subsequent queries still consult inference.
     facts.assume_bits(0, 1, 0);
     let scope = facts.checkpoint();
