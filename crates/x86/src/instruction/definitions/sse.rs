@@ -92,17 +92,8 @@ fn move_scalar<T: VectorLane + TransferType>(
     source: XmmLocation,
 ) -> Result<(), BuildError> {
     // Legacy scalar loads clear the upper bits; register copies preserve them.
-    let (value, clear_upper) = match source {
-        XmmLocation::Register(register) => {
-            (execution.read_xmm(register)?.extract_lane::<T>(0), false)
-        }
-        XmmLocation::Memory(address) => (
-            execution
-                .memory_operand(*address, T::BYTES, Intent::Read, &[])?
-                .read::<T>(execution, 0)?,
-            true,
-        ),
-    };
+    let clear_upper = source.is_memory();
+    let value = source.read_scalar::<T>(execution)?;
     match destination {
         XmmLocation::Register(register) => {
             let vector = if clear_upper {

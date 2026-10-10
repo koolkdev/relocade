@@ -3,8 +3,9 @@ use crate::{
     address::MemoryAddress,
     execution::{ExecutionBuilder, OperandSpan},
     instruction::{Location, Operand},
+    memory::{Intent, TransferType},
 };
-use wasm86_compiler::{BuildError, Val, I32, V128};
+use wasm86_compiler::{BuildError, Val, VectorLane, I32, V128};
 
 #[derive(Clone, Copy)]
 pub(crate) enum VectorAlignment {
@@ -35,6 +36,23 @@ impl XmmLocation {
         }
     }
 
+    pub(crate) fn is_memory(&self) -> bool {
+        matches!(self, Self::Memory(_))
+    }
+
+    /// Reads the low register lane or exactly one scalar from memory.
+    pub(crate) fn read_scalar<T: VectorLane + TransferType>(
+        self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+    ) -> Result<Val<T>, BuildError> {
+        match self {
+            Self::Register(register) => Ok(execution.read_xmm(register)?.extract_lane::<T>(0)),
+            Self::Memory(address) => execution
+                .memory_operand(*address, T::BYTES, Intent::Read, &[])?
+                .read(execution, 0),
+        }
+    }
+
     pub(crate) fn read_vector(
         self,
         execution: &mut ExecutionBuilder<'_, '_>,
@@ -43,7 +61,7 @@ impl XmmLocation {
         match self {
             Self::Register(register) => execution.read_xmm(register),
             Self::Memory(address) => execution
-                .memory_operand(*address, alignment.span(), crate::memory::Intent::Read, &[])?
+                .memory_operand(*address, alignment.span(), Intent::Read, &[])?
                 .read(execution, 0),
         }
     }
@@ -57,12 +75,7 @@ impl XmmLocation {
         match self {
             Self::Register(register) => execution.write_xmm(register, value),
             Self::Memory(address) => execution
-                .memory_operand(
-                    *address,
-                    alignment.span(),
-                    crate::memory::Intent::Write,
-                    &[],
-                )?
+                .memory_operand(*address, alignment.span(), Intent::Write, &[])?
                 .write(execution, 0, value),
         }
     }
