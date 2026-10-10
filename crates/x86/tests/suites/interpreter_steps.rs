@@ -31,7 +31,7 @@ fn state(eip: u32) -> CpuState {
 }
 
 #[test]
-fn interpreter_step_exposes_memory_dispatch_and_descriptor_query_abis() {
+fn interpreter_step_exposes_host_abis() {
     let module = TestModule::interpreter();
     assert_eq!(module.entry, "step");
     Validator::new().validate_all(module.bytes()).unwrap();
@@ -86,21 +86,22 @@ fn interpreter_step_exposes_memory_dispatch_and_descriptor_query_abis() {
             ("machine".into(), 64)
         ]
     );
-    assert_eq!(imports.len(), 3);
-    assert_eq!(imports[0].0, "dispatch");
     assert_eq!(
-        types[imports[0].1 as usize],
-        (vec![ValType::I32], vec![ValType::I64])
-    );
-    assert_eq!(imports[1].0, "resolveSegment");
-    assert_eq!(
-        types[imports[1].1 as usize],
-        (vec![ValType::I32; 2], vec![ValType::I32; 6])
-    );
-    assert_eq!(imports[2].0, "querySegmentDescriptor");
-    assert_eq!(
-        types[imports[2].1 as usize],
-        (vec![ValType::I32], vec![ValType::I32; 5])
+        imports
+            .iter()
+            .map(|(name, signature)| (name.as_str(), types[*signature as usize].clone()))
+            .collect::<Vec<_>>(),
+        [
+            ("dispatch", (vec![ValType::I32], vec![ValType::I64])),
+            (
+                "resolveSegment",
+                (vec![ValType::I32; 2], vec![ValType::I32; 6])
+            ),
+            (
+                "querySegmentDescriptor",
+                (vec![ValType::I32], vec![ValType::I32; 5])
+            ),
+        ]
     );
     let entry = exported.unwrap() as usize - imports.len();
     assert_eq!(
