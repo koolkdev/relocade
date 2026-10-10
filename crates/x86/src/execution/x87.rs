@@ -6,7 +6,7 @@ mod conditional_move;
 mod operand;
 
 pub(crate) use compare::ComparisonTarget;
-pub(crate) use operand::X87Operand;
+pub(crate) use operand::{X87MemoryFormat, X87Operand};
 
 use wasm86_compiler::BuildError;
 

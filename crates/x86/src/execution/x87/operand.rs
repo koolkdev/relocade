@@ -1,6 +1,6 @@
 //! Operand reads preserve source exception evidence and checked memory provenance.
 
-use wasm86_compiler::{BuildError, Val, I1, I32, I64};
+use wasm86_compiler::{BuildError, Val, I1, I16, I32, I64};
 
 use crate::{
     address::MemoryAddress,
@@ -10,15 +10,33 @@ use crate::{
 
 use super::super::{memory::MemoryOperand, ExecutionBuilder};
 
+/// The opcode fixes the source format independently of operand-size prefixes.
+#[derive(Clone, Copy)]
+pub(crate) enum X87MemoryFormat {
+    Binary(BinaryFormat),
+    Integer16,
+    Integer32,
+}
+
+impl X87MemoryFormat {
+    fn bytes(self) -> u32 {
+        match self {
+            Self::Binary(format) => format.bytes(),
+            Self::Integer16 => 2,
+            Self::Integer32 => 4,
+        }
+    }
+}
+
 // Execution consumes this descriptor immediately; boxing would allocate only
 // to move the address into memory resolution.
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum X87Operand {
     Register(Val<I32>),
     Value(ExtendedValue),
-    BinaryMemory {
+    Memory {
         address: MemoryAddress<Val<I32>>,
-        format: BinaryFormat,
+        format: X87MemoryFormat,
     },
 }
 
@@ -54,12 +72,28 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
                     memory: None,
                 })
             }
-            X87Operand::BinaryMemory { address, format } => {
+            X87Operand::Memory { address, format } => {
                 let memory = self.memory_operand(address, format.bytes(), Intent::Read, &[])?;
-                let source = memory.read_x87_binary(self, format)?;
+                let value = match format {
+                    X87MemoryFormat::Binary(format) => {
+                        let source = memory.read_x87_binary(self, format)?;
+                        let left = self.x87().read_stack(destination)?;
+                        return Ok(X87Operands {
+                            values: BinaryOperands::from_binary(&left.value, &source),
+                            stack_fault: left.is_empty(),
+                            memory: Some(memory),
+                        });
+                    }
+                    X87MemoryFormat::Integer16 => {
+                        ExtendedValue::from_signed_integer(&memory.read::<I16>(self, 0)?)
+                    }
+                    X87MemoryFormat::Integer32 => {
+                        ExtendedValue::from_signed_integer(&memory.read::<I32>(self, 0)?)
+                    }
+                };
                 let left = self.x87().read_stack(destination)?;
                 Ok(X87Operands {
-                    values: BinaryOperands::from_binary(&left.value, &source),
+                    values: BinaryOperands::new(&left.value, &value),
                     stack_fault: left.is_empty(),
                     memory: Some(memory),
                 })
