@@ -12,7 +12,7 @@ mod tests;
 struct BlockValues {
     // Bindings established here, including residual recipes, relative to the dominator.
     values: HashMap<usize, usize>,
-    facts: Option<Facts>,
+    facts: Option<ScalarFacts>,
 }
 
 struct JoinedValue {
@@ -81,7 +81,7 @@ impl Joins {
         self.blocks[block].values.extend(values);
     }
 
-    pub(super) fn complete(&mut self, block: usize, facts: &Facts) {
+    pub(super) fn complete(&mut self, block: usize, facts: &ScalarFacts) {
         if self.needs_facts[block] {
             // These facts outlive the block's active path scope.
             self.blocks[block].facts = Some(facts.clone());
@@ -95,7 +95,7 @@ impl Joins {
         reachable: &[bool],
         join: usize,
         available: &mut Availability,
-    ) -> Option<Facts> {
+    ) -> Option<ScalarFacts> {
         if self.predecessors[join].len() < 2 {
             if let [source] = self.predecessors[join].as_slice() {
                 if *source != join && self.dominators.dominates(*source, join) {
@@ -183,7 +183,7 @@ impl Joins {
         graph: &mut FunctionGraph,
         block: usize,
         recipe: usize,
-        facts: &Facts,
+        facts: &ScalarFacts,
     ) -> Option<usize> {
         let candidates = self.joins_by_recipe.get(recipe)?;
         // Prefer a previously constructed value before adding another parameter.
@@ -275,7 +275,12 @@ fn forward_parameters(
 }
 
 impl JoinedValue {
-    fn usable_under(&self, values: &ValueTable, blocks: &[BlockValues], facts: &Facts) -> bool {
+    fn usable_under(
+        &self,
+        values: &ValueTable,
+        blocks: &[BlockValues],
+        facts: &ScalarFacts,
+    ) -> bool {
         self.excluded.iter().all(|&source| {
             blocks[source]
                 .facts
@@ -292,7 +297,7 @@ impl JoinInputs {
         &mut self,
         graph: &mut FunctionGraph,
         recipe: usize,
-        facts: &Facts,
+        facts: &ScalarFacts,
         joins: &Joins,
     ) -> Option<JoinArguments> {
         let ty = graph.values[recipe].ty;

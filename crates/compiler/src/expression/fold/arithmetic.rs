@@ -66,14 +66,12 @@ impl Folder<'_> {
         let b = self.values.representation(right);
         let offset = match (
             operator,
-            self.values[a].definition,
-            self.values[b].definition,
+            self.values[a].scalar_literal(),
+            self.values[b].scalar_literal(),
         ) {
-            (BinaryOp::Add, _, ValueDefinition::Literal(offset)) => Some((left, offset)),
-            (BinaryOp::Add, ValueDefinition::Literal(offset), _) => Some((right, offset)),
-            (BinaryOp::Sub, _, ValueDefinition::Literal(offset)) => {
-                Some((left, 0_u64.wrapping_sub(offset)))
-            }
+            (BinaryOp::Add, _, Some(offset)) => Some((left, offset)),
+            (BinaryOp::Add, Some(offset), _) => Some((right, offset)),
+            (BinaryOp::Sub, _, Some(offset)) => Some((left, 0_u64.wrapping_sub(offset))),
             _ => None,
         };
         if let Some((input, offset)) = offset {
@@ -81,8 +79,8 @@ impl Folder<'_> {
         }
         match (
             operator,
-            self.values[a].definition,
-            self.values[b].definition,
+            self.values[a].scalar_literal(),
+            self.values[b].scalar_literal(),
         ) {
             (BinaryOp::DivUnsigned | BinaryOp::RemUnsigned, _, _)
                 if ty == Type::I64
@@ -102,10 +100,11 @@ impl Folder<'_> {
                     },
                 ))
             }
-            (BinaryOp::Mul, _, ValueDefinition::Literal(1)) => Some(left),
-            (BinaryOp::Mul, ValueDefinition::Literal(1), _) => Some(right),
-            (BinaryOp::Mul, _, ValueDefinition::Literal(0))
-            | (BinaryOp::Mul, ValueDefinition::Literal(0), _) => Some(self.values.literal(ty, 0)),
+            (BinaryOp::Mul, _, Some(1)) => Some(left),
+            (BinaryOp::Mul, Some(1), _) => Some(right),
+            (BinaryOp::Mul, _, Some(0)) | (BinaryOp::Mul, Some(0), _) => {
+                Some(self.values.literal(ty, 0))
+            }
             (BinaryOp::Sub, _, _) if a == b => Some(self.values.literal(ty, 0)),
             _ => None,
         }
@@ -117,14 +116,10 @@ impl Folder<'_> {
         debug_assert_eq!(a.ty, b.ty);
         // These transformations interpret the logical width. Placement has
         // already chosen its carrier operations and must not repeat them.
-        match (operator, a.definition, b.definition) {
-            (BinaryOp::Add, _, ValueDefinition::Literal(offset)) => {
-                self.add_constant(a.ty, left, offset, a.ty.bits())
-            }
-            (BinaryOp::Add, ValueDefinition::Literal(offset), _) => {
-                self.add_constant(a.ty, right, offset, a.ty.bits())
-            }
-            (BinaryOp::Sub, _, ValueDefinition::Literal(offset)) => {
+        match (operator, a.scalar_literal(), b.scalar_literal()) {
+            (BinaryOp::Add, _, Some(offset)) => self.add_constant(a.ty, left, offset, a.ty.bits()),
+            (BinaryOp::Add, Some(offset), _) => self.add_constant(a.ty, right, offset, a.ty.bits()),
+            (BinaryOp::Sub, _, Some(offset)) => {
                 self.add_constant(a.ty, left, 0u64.wrapping_sub(offset), a.ty.bits())
             }
             _ => {
@@ -169,7 +164,7 @@ impl Folder<'_> {
         if offset == 0 {
             return input;
         }
-        if let ValueDefinition::Literal(value) = self.values[input].definition {
+        if let Some(value) = self.values[input].scalar_literal() {
             return self
                 .values
                 .carrier_literal(ty, value.wrapping_add(offset) & mask);
@@ -194,9 +189,8 @@ impl Folder<'_> {
         else {
             return None;
         };
-        match self.values[right].definition {
-            ValueDefinition::Literal(offset) => Some((left, offset)),
-            _ => None,
-        }
+        self.values[right]
+            .scalar_literal()
+            .map(|offset| (left, offset))
     }
 }

@@ -27,6 +27,15 @@ pub(super) struct Value {
     pub(super) definition: ValueDefinition,
 }
 
+impl Value {
+    pub(crate) fn scalar_literal(self) -> Option<u64> {
+        match self.definition {
+            ValueDefinition::Literal(bits) => Some(bits),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum ValueDefinition {
     Literal(u64),
@@ -178,21 +187,17 @@ impl Exit {
     /// The sole executable edge when a conditional exit has a constant selector.
     pub(super) fn constant_edge_index(&self, values: &ValueTable) -> Option<usize> {
         match self {
-            Self::If { condition, .. } => match values[*condition].definition {
-                ValueDefinition::Literal(bits) => Some(usize::from(bits == 0)),
-                _ => None,
-            },
+            Self::If { condition, .. } => values[*condition]
+                .scalar_literal()
+                .map(|bits| usize::from(bits == 0)),
             Self::Switch {
                 selector, cases, ..
-            } => match values[*selector].definition {
-                ValueDefinition::Literal(bits) => Some(
-                    cases
-                        .iter()
-                        .position(|(key, _)| u64::from(*key) == bits)
-                        .unwrap_or(cases.len()),
-                ),
-                _ => None,
-            },
+            } => values[*selector].scalar_literal().map(|bits| {
+                cases
+                    .iter()
+                    .position(|(key, _)| u64::from(*key) == bits)
+                    .unwrap_or(cases.len())
+            }),
             _ => None,
         }
     }

@@ -15,9 +15,12 @@ impl Folder<'_> {
         let a = self.values.representation(left);
         let b = self.values.representation(right);
         if operator == BitwiseOp::And {
-            let masked = match (self.values[a].definition, self.values[b].definition) {
-                (_, ValueDefinition::Literal(mask)) => self.and_constant(ty, left, mask),
-                (ValueDefinition::Literal(mask), _) => self.and_constant(ty, right, mask),
+            let masked = match (
+                self.values[a].scalar_literal(),
+                self.values[b].scalar_literal(),
+            ) {
+                (_, Some(mask)) => self.and_constant(ty, left, mask),
+                (Some(mask), _) => self.and_constant(ty, right, mask),
                 _ => None,
             };
             if masked.is_some() {
@@ -37,17 +40,13 @@ impl Folder<'_> {
         }
         match (
             operator,
-            self.values[a].definition,
-            self.values[b].definition,
+            self.values[a].scalar_literal(),
+            self.values[b].scalar_literal(),
         ) {
-            (BitwiseOp::Or | BitwiseOp::Xor, _, ValueDefinition::Literal(0)) => Some(left),
-            (BitwiseOp::Or | BitwiseOp::Xor, ValueDefinition::Literal(0), _) => Some(right),
-            (BitwiseOp::Or, _, ValueDefinition::Literal(bits)) if bits == ty.carrier().mask() => {
-                Some(right)
-            }
-            (BitwiseOp::Or, ValueDefinition::Literal(bits), _) if bits == ty.carrier().mask() => {
-                Some(left)
-            }
+            (BitwiseOp::Or | BitwiseOp::Xor, _, Some(0)) => Some(left),
+            (BitwiseOp::Or | BitwiseOp::Xor, Some(0), _) => Some(right),
+            (BitwiseOp::Or, _, Some(bits)) if bits == ty.carrier().mask() => Some(right),
+            (BitwiseOp::Or, Some(bits), _) if bits == ty.carrier().mask() => Some(left),
             (BitwiseOp::Xor, _, _) if a == b => Some(self.values.literal(ty, 0)),
             (BitwiseOp::Xor, _, _) => self.fold_xor(ty, a, b),
             (BitwiseOp::And | BitwiseOp::Or, _, _) => {
@@ -80,11 +79,11 @@ impl Folder<'_> {
         debug_assert_eq!(a.ty, b.ty);
         // Construction observes logical widths. Refolding an existing carrier
         // operation must retain its upper bits instead of repeating these rules.
-        match (operator, a.definition, b.definition) {
-            (BitwiseOp::And, _, ValueDefinition::Literal(mask)) if mask == a.ty.mask() => left,
-            (BitwiseOp::And, ValueDefinition::Literal(mask), _) if mask == a.ty.mask() => right,
-            (BitwiseOp::Or, _, ValueDefinition::Literal(bits)) if bits == a.ty.mask() => right,
-            (BitwiseOp::Or, ValueDefinition::Literal(bits), _) if bits == a.ty.mask() => left,
+        match (operator, a.scalar_literal(), b.scalar_literal()) {
+            (BitwiseOp::And, _, Some(mask)) if mask == a.ty.mask() => left,
+            (BitwiseOp::And, Some(mask), _) if mask == a.ty.mask() => right,
+            (BitwiseOp::Or, _, Some(bits)) if bits == a.ty.mask() => right,
+            (BitwiseOp::Or, Some(bits), _) if bits == a.ty.mask() => left,
             _ => self.fold(
                 a.ty,
                 Expression::Bitwise {
@@ -116,12 +115,15 @@ impl Folder<'_> {
             if a == other {
                 return Some(inner_right);
             }
-            let ValueDefinition::Literal(outer_mask) = self.values[other].definition else {
+            let Some(outer_mask) = self.values[other].scalar_literal() else {
                 continue;
             };
-            let (base, inner_mask) = match (self.values[a].definition, self.values[b].definition) {
-                (_, ValueDefinition::Literal(mask)) => (inner_left, mask),
-                (ValueDefinition::Literal(mask), _) => (inner_right, mask),
+            let (base, inner_mask) = match (
+                self.values[a].scalar_literal(),
+                self.values[b].scalar_literal(),
+            ) {
+                (_, Some(mask)) => (inner_left, mask),
+                (Some(mask), _) => (inner_right, mask),
                 _ => continue,
             };
             let mask = self.values.carrier_literal(ty, inner_mask ^ outer_mask);
