@@ -10,6 +10,7 @@ use crate::{
 };
 
 impl ScalarFacts {
+    /// Known scalar bits; non-scalar values contribute no knowledge.
     pub(super) fn bits(&self, table: &ValueTable, root: usize) -> Bits {
         let mut cache = self.computed.borrow_mut();
         if let Some(&bits) = cache.get(&root) {
@@ -21,6 +22,10 @@ impl ScalarFacts {
                 continue;
             }
             let value = table[id];
+            if !value.ty.is_scalar() {
+                cache.insert(id, Bits::default());
+                continue;
+            }
             let known = self.known.get(&id).copied().unwrap_or_default();
             if let Some(bits) = value.scalar_literal() {
                 cache.insert(
@@ -195,6 +200,9 @@ impl ScalarFacts {
             if let Ok(constants) = expression.try_map(|&input| {
                 let bits = cache[&input];
                 let ty = table[input].ty;
+                if !ty.is_scalar() {
+                    return Err(());
+                }
                 if bits.mask & ty.mask() != ty.mask() {
                     return Err(());
                 }

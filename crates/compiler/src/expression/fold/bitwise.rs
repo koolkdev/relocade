@@ -27,7 +27,7 @@ impl Folder<'_> {
                 return masked;
             }
         }
-        if operator == BitwiseOp::Or {
+        if operator == BitwiseOp::Or && ty.is_integer() {
             if let Some(input) = self.rejoin_bits(ty, left, right) {
                 return Some(input);
             }

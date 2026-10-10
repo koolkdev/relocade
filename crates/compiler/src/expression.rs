@@ -91,11 +91,11 @@ pub(super) enum Expression<V> {
 
 impl<V> Expression<V> {
     /// Logical result types in their declared order. The caller supplies the
-    /// scalar result type; operations with a fixed signature declare it here.
-    pub(super) fn result_types(&self, scalar: Type) -> impl ExactSizeIterator<Item = Type> {
+    /// value result type; operations with a fixed signature declare it here.
+    pub(super) fn result_types(&self, ty: Type) -> impl ExactSizeIterator<Item = Type> {
         let (types, count) = match self {
             Self::MultiplyWide { .. } => ([Type::I64; 2], 2),
-            _ => ([scalar; 2], 1),
+            _ => ([ty; 2], 1),
         };
         types.into_iter().take(count)
     }

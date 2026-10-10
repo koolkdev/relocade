@@ -1,4 +1,4 @@
-//! Bitwise operations on complete literal encodings.
+//! Bitwise operations shared by integer and vector encodings.
 
 use crate::literal::Literal;
 

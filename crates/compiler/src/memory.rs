@@ -1,6 +1,6 @@
 use crate::{
     body::Operation, AtLeast, BlockBuilder, BuildError, Program, Val, ValueType, F64, I1, I16, I32,
-    I64, I8,
+    I64, I8, V128,
 };
 
 mod atomic;
@@ -38,7 +38,7 @@ pub struct MemoryImport {
 /// ```
 pub trait MemoryInt: MemoryType + AtLeast<I1> + AtLeast<I8> {}
 
-/// A scalar type stored in a whole number of bytes. Floating loads and stores
+/// A value type stored in a whole number of bytes. Floating loads and stores
 /// preserve the exact encoding, including signed zeros and NaN payloads.
 pub trait MemoryType: ValueType {
     /// The number of bytes read or written by an access of this type.
@@ -60,6 +60,10 @@ impl MemoryType for I64 {
 
 impl MemoryType for F64 {
     const BYTES: u32 = 8;
+}
+
+impl MemoryType for V128 {
+    const BYTES: u32 = 16;
 }
 
 impl MemoryInt for I8 {}
@@ -129,7 +133,7 @@ impl Program {
 }
 
 impl BlockBuilder<'_> {
-    /// Reads a scalar at a fixed byte offset in little-endian memory.
+    /// Reads a value at a fixed byte offset in little-endian memory.
     /// Each call creates a separate read. Reusing its value preserves that read's
     /// snapshot across overlapping stores and explicit atomic effects. A used
     /// read may run later, past stores to other bytes; an unused read and its
