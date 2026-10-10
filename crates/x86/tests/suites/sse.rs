@@ -1,5 +1,8 @@
 //! Raw XMM transfers, prefix selection and precise memory faults in both decoders.
 
+#[path = "sse/moves.rs"]
+mod moves;
+
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},

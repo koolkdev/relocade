@@ -78,6 +78,12 @@ macro_rules! declaration_opcode {
     (@prefix P66) => {
         PrefixRule::OpcodeSelector(crate::instruction::forms::MandatoryPrefix::P66)
     };
+    (@prefix PF2) => {
+        PrefixRule::OpcodeSelector(crate::instruction::forms::MandatoryPrefix::F2)
+    };
+    (@prefix PF3) => {
+        PrefixRule::OpcodeSelector(crate::instruction::forms::MandatoryPrefix::F3)
+    };
     (@prefix $prefix:ident) => {
         PrefixRule::Modifiers(Some(crate::instruction::Group1Prefix::$prefix))
     };

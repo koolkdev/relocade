@@ -77,6 +77,8 @@ pub(super) enum MandatoryPrefix {
     /// The unprefixed variant; segment and address-size prefixes can still apply.
     None,
     P66,
+    F2,
+    F3,
 }
 
 impl MandatoryPrefix {
@@ -84,6 +86,12 @@ impl MandatoryPrefix {
         match self {
             Self::None => !prefixes.has_operand_override() && prefixes.group1().is_none(),
             Self::P66 => prefixes.has_operand_override() && prefixes.group1().is_none(),
+            Self::F2 => {
+                !prefixes.has_operand_override() && prefixes.group1() == Some(Group1Prefix::F2)
+            }
+            Self::F3 => {
+                !prefixes.has_operand_override() && prefixes.group1() == Some(Group1Prefix::F3)
+            }
         }
     }
 }

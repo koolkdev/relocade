@@ -1,6 +1,7 @@
 mod immediates;
 mod locking;
 mod modrm;
+mod prefixes;
 
 use super::declarations::{Declaration, Opcode, OperandSpec};
 use super::*;
