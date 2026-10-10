@@ -59,12 +59,15 @@ fn interning_distinguishes_logical_types_and_physical_bits() {
     let mut values = ValueTable::default();
     let byte = values.literal(Type::I8, 255);
     let word = values.literal(Type::I16, 255);
-    let negative_byte = values.carrier_literal(Type::I8, 0xffff_ffff);
+    let negative_byte = values.carrier_literal(Type::I8, 0xffff_ffff_u64);
 
     assert_eq!([byte, word, negative_byte], [0, 1, 2]);
     assert_eq!(values.literal(Type::I8, 255), byte);
     assert_eq!(values.literal(Type::I16, 255), word);
-    assert_eq!(values.carrier_literal(Type::I8, 0xffff_ffff), negative_byte);
+    assert_eq!(
+        values.carrier_literal(Type::I8, 0xffff_ffff_u64),
+        negative_byte
+    );
     assert_eq!(values.len(), 3);
 }
 
@@ -80,8 +83,5 @@ fn finalization_releases_the_interning_allocation() {
 
     assert_eq!(graph.values.interned.capacity(), 0);
     assert_eq!(graph.values.len(), 1);
-    assert!(matches!(
-        graph.values[0].definition,
-        ValueDefinition::Literal(7)
-    ));
+    assert!(matches!(graph.values[0].scalar_literal(), Some(7)));
 }

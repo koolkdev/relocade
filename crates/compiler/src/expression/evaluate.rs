@@ -1,29 +1,69 @@
-//! Literal evaluation follows logical widths and lowered carrier rules.
-
+//! Literal evaluation separates complete encodings from scalar carrier rules.
 use super::Expression;
-use crate::{floating, integer, Type};
+use crate::{floating, integer, literal::Literal, Type};
 
 #[derive(Clone, Copy)]
 pub(crate) struct TypedLiteral {
     pub(crate) ty: Type,
-    pub(crate) value: u64,
+    pub(crate) value: Literal,
 }
 
 impl Expression<TypedLiteral> {
-    /// Evaluate operations whose logical input normalization is already explicit.
-    pub(crate) fn carrier_result(&self, result: Type, component: usize) -> Option<u64> {
+    pub(crate) fn carrier_result(&self, result: Type, component: usize) -> Option<Literal> {
         let expression = match *self {
-            // These operations explicitly interpret the source's logical width.
             Self::SignExtend { .. } | Self::BitCount { .. } => *self,
             _ => self.map(|input| TypedLiteral {
                 ty: input.ty.carrier(),
-                value: input.ty.carrier().normalize(input.value),
+                value: input.value.normalize(input.ty.carrier()),
             }),
         };
         expression.constant_result(result.carrier(), component)
     }
 
-    pub(crate) fn constant_result(&self, result: Type, component: usize) -> Option<u64> {
+    pub(crate) fn constant_result(&self, result: Type, component: usize) -> Option<Literal> {
+        if let Self::Select {
+            condition,
+            when_true,
+            when_false,
+        } = *self
+        {
+            return Some(
+                if condition.value.scalar(condition.ty)? != 0 {
+                    when_true.value
+                } else {
+                    when_false.value
+                }
+                .normalize(result),
+            );
+        }
+        if let Self::Bitwise {
+            operator,
+            left,
+            right,
+        } = *self
+        {
+            return Some(operator.apply(left.value, right.value).normalize(result));
+        }
+        self.try_map(|input| {
+            Ok::<_, ()>(ScalarLiteral {
+                ty: input.ty,
+                value: input.value.scalar(input.ty).ok_or(())?,
+            })
+        })
+        .ok()?
+        .constant_result(result, component)
+        .map(Literal::from)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ScalarLiteral {
+    ty: Type,
+    value: u64,
+}
+
+impl Expression<ScalarLiteral> {
+    fn constant_result(&self, result: Type, component: usize) -> Option<u64> {
         debug_assert!(component < self.result_types(result).len());
         let bits = match *self {
             Self::FloatBinary {
@@ -43,11 +83,6 @@ impl Expression<TypedLiteral> {
                 left,
                 right,
             } => integer::binary(left.ty, operator, left.value, right.value)?,
-            Self::Bitwise {
-                operator,
-                left,
-                right,
-            } => operator.apply(left.value, right.value),
             Self::MultiplyWide {
                 signed,
                 left,
@@ -75,17 +110,8 @@ impl Expression<TypedLiteral> {
                 value,
                 count,
             } => integer::rotate(value.ty, operator, value.value, count.value as u32),
-            Self::Select {
-                condition,
-                when_true,
-                when_false,
-            } => {
-                if condition.value != 0 {
-                    when_true.value
-                } else {
-                    when_false.value
-                }
-            }
+            // Selection and bitwise operations evaluate their complete encodings above.
+            Self::Select { .. } | Self::Bitwise { .. } => return None,
             Self::BitCount { operator, input } => {
                 integer::bit_count(input.ty, operator, input.value)
             }

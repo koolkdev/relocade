@@ -207,10 +207,7 @@ fn folded_edges_release_discarded_arguments_even_when_their_target_is_live() {
         };
         assert_eq!(edge.target, join);
         assert_eq!(edge.arguments, [2]);
-        assert!(matches!(
-            graph.values[2].definition,
-            ValueDefinition::Literal(42)
-        ));
+        assert!(matches!(graph.values[2].scalar_literal(), Some(42)));
 
         graph.compact(|_| true);
         assert_eq!(graph.values.len(), 3);
@@ -300,10 +297,7 @@ fn pruning_unused_result_channels_preserves_ids_until_compaction() {
     assert_eq!(graph.values.len(), 5);
     assert_eq!(graph.effects.len(), 1);
     assert_eq!(graph.effects[read.0].results, [unused]);
-    assert!(matches!(
-        graph.values[kept].definition,
-        ValueDefinition::Literal(17)
-    ));
+    assert!(matches!(graph.values[kept].scalar_literal(), Some(17)));
 
     graph.compact(|_| false);
 
@@ -311,8 +305,5 @@ fn pruning_unused_result_channels_preserves_ids_until_compaction() {
     assert!(graph.effects.is_empty());
     assert_eq!(graph.blocks[join.0].parameters, [1]);
     assert_eq!(graph.outgoing(graph.entry)[0].arguments, [2]);
-    assert!(matches!(
-        graph.values[2].definition,
-        ValueDefinition::Literal(17)
-    ));
+    assert!(matches!(graph.values[2].scalar_literal(), Some(17)));
 }

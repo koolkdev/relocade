@@ -1,4 +1,5 @@
 //! Stored values, deduplication and physical representation facts.
+use crate::literal::Literal;
 use hashbrown::HashTable;
 use std::{collections::hash_map::RandomState, hash::BuildHasher};
 
@@ -123,15 +124,15 @@ impl ValueTable {
         id
     }
 
-    pub(crate) fn literal(&mut self, ty: Type, bits: u64) -> usize {
-        self.carrier_literal(ty, ty.normalize(bits))
+    pub(crate) fn literal(&mut self, ty: Type, bits: impl Into<Literal>) -> usize {
+        self.carrier_literal(ty, bits.into().normalize(ty))
     }
 
     /// Store a lowered result without discarding bits above its logical width.
-    pub(crate) fn carrier_literal(&mut self, ty: Type, bits: u64) -> usize {
+    pub(crate) fn carrier_literal(&mut self, ty: Type, bits: impl Into<Literal>) -> usize {
         self.intern(Value {
             ty,
-            definition: ValueDefinition::Literal(ty.carrier().normalize(bits)),
+            definition: ValueDefinition::Literal(bits.into().normalize(ty.carrier())),
         })
     }
 

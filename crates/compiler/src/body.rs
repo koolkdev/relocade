@@ -1,4 +1,5 @@
 //! Typed values, effects and explicit control edges owned by one function.
+use crate::literal::Literal;
 use crate::{memory::Mem, Expression, Func, Type};
 
 mod operation;
@@ -30,7 +31,7 @@ pub(super) struct Value {
 impl Value {
     pub(crate) fn scalar_literal(self) -> Option<u64> {
         match self.definition {
-            ValueDefinition::Literal(bits) => Some(bits),
+            ValueDefinition::Literal(literal) => literal.scalar(self.ty),
             _ => None,
         }
     }
@@ -38,7 +39,7 @@ impl Value {
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum ValueDefinition {
-    Literal(u64),
+    Literal(Literal),
     Expression(Expression<usize>),
     Parameter {
         block: BlockId,
