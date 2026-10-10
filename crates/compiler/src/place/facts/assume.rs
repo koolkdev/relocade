@@ -1,6 +1,6 @@
 //! Learn facts implied by choosing one edge of a conditional branch.
 
-use super::{Bits, Facts};
+use super::{Bits, ScalarFacts};
 use crate::{
     bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
@@ -8,7 +8,7 @@ use crate::{
     Expression, Type,
 };
 
-impl Facts {
+impl ScalarFacts {
     pub(in crate::place) fn assume(&mut self, table: &ValueTable, condition: usize, truth: bool) {
         let mut pending = vec![(
             condition,

@@ -1,15 +1,15 @@
 //! Derive facts through expressions without changing the current path.
 
-use super::{Bits, Facts, Range};
+use super::{Bits, Range, ScalarFacts};
 use crate::{
     bitwise::BitwiseOp,
-    body::{ValueDefinition, ValueTable},
+    body::ValueTable,
     expression::TypedLiteral,
     integer::{low_mask, CompareOp},
     Expression,
 };
 
-impl Facts {
+impl ScalarFacts {
     pub(super) fn bits(&self, table: &ValueTable, root: usize) -> Bits {
         let mut cache = self.computed.borrow_mut();
         if let Some(&bits) = cache.get(&root) {
@@ -22,7 +22,7 @@ impl Facts {
             }
             let value = table[id];
             let known = self.known.get(&id).copied().unwrap_or_default();
-            if let ValueDefinition::Literal(bits) = value.definition {
+            if let Some(bits) = value.scalar_literal() {
                 cache.insert(
                     id,
                     Bits {

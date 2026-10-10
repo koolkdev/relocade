@@ -1,4 +1,5 @@
-//! Path facts about logical bits, unsigned intervals and comparison outcomes.
+//! Path facts about scalar encodings up to 64 bits, integer ranges and comparisons.
+//! F64 participates through its raw encoding; numeric range rules apply to integers.
 //! Facts about a truncated value do not erase its other carrier bits.
 
 use rustc_hash::FxHashMap;
@@ -26,6 +27,7 @@ mod tests;
 
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
 struct Bits {
+    // Known positions in a scalar encoding; zero means no knowledge.
     mask: u64,
     value: u64,
 }
@@ -51,7 +53,7 @@ impl Bits {
 }
 
 #[derive(Default)]
-pub(super) struct Facts {
+pub(super) struct ScalarFacts {
     // These sparse maps hash compiler-assigned value IDs, never guest values.
     known: ScopedMap<usize, Bits>,
     ranges: ScopedMap<usize, Range>,
@@ -65,7 +67,7 @@ pub(super) struct Checkpoint {
     comparisons: scoped_map::Checkpoint,
 }
 
-impl Clone for Facts {
+impl Clone for ScalarFacts {
     fn clone(&self) -> Self {
         Self {
             known: self.known.clone(),
@@ -76,7 +78,7 @@ impl Clone for Facts {
     }
 }
 
-impl Facts {
+impl ScalarFacts {
     /// Save a nested path scope without copying its inherited facts.
     pub(super) fn checkpoint(&mut self) -> Checkpoint {
         Checkpoint {
@@ -123,8 +125,10 @@ impl Facts {
         self.computed.get_mut().retain(|&input, _| input < id);
     }
 
+    /// Scalar literals keep their carrier bits; inferred constants contain logical bits.
+    /// Use ValueTable::carrier_bits to restore the carrier promised by construction.
     pub(super) fn constant(&self, table: &ValueTable, id: usize) -> Option<u64> {
-        if let ValueDefinition::Literal(bits) = table[id].definition {
+        if let Some(bits) = table[id].scalar_literal() {
             return Some(bits);
         }
         // Construction already folded path-independent constants.
@@ -136,7 +140,7 @@ impl Facts {
         (bits.mask & mask == mask).then_some(bits.value & mask)
     }
 
-    /// An operand whose known bits make the other bitwise operand redundant.
+    /// A scalar operand whose known bits make the other bitwise operand redundant.
     /// Unlike a logical constant, an identity must preserve the entire carrier.
     pub(super) fn bitwise_identity(&self, table: &ValueTable, id: usize) -> Option<usize> {
         let ValueDefinition::Expression(Expression::Bitwise {

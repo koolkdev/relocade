@@ -1,6 +1,6 @@
 //! Keep only knowledge that holds on every incoming path.
 
-use super::{Bits, Facts, Range};
+use super::{Bits, Range, ScalarFacts};
 use crate::body::ValueTable;
 
 #[cfg(test)]
@@ -16,8 +16,8 @@ impl Bits {
     }
 }
 
-impl Facts {
-    /// A block parameter keeps only logical bits proved by every incoming argument.
+impl ScalarFacts {
+    /// A scalar parameter keeps only logical bits proved by every incoming argument.
     pub(in crate::place) fn merge_parameter<'a>(
         &mut self,
         table: &ValueTable,

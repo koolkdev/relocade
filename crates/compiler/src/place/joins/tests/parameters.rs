@@ -43,7 +43,7 @@ fn argument_facts_transfer_common_bits_without_value_candidates() {
             (arms.left, 1, Some(0x1a5)),
             (arms.right, right_argument, right_value),
         ] {
-            let mut facts = Facts::default();
+            let mut facts = ScalarFacts::default();
             if let Some(value) = value {
                 facts.assume_bits(argument, u32::MAX.into(), value);
             }
@@ -83,7 +83,7 @@ fn two_edges_from_one_predecessor_must_agree_unless_one_is_discarded() {
         graph.blocks[arms.right.0].exit = Exit::Jump(incoming(five));
         let mut joins = joins(&graph);
         for source in [arms.left, arms.right] {
-            joins.complete(source.0, &Facts::default());
+            joins.complete(source.0, &ScalarFacts::default());
         }
         if discard {
             let yes = graph.values.literal(Type::I1, 1);
@@ -125,7 +125,7 @@ fn a_loop_parameter_does_not_inherit_its_initial_constant() {
         },
     };
     let mut joins = joins(&graph);
-    joins.complete(0, &Facts::default());
+    joins.complete(0, &ScalarFacts::default());
     assert!(joins
         .prepare(
             &graph,
@@ -151,7 +151,7 @@ fn one_completed_incoming_edge_makes_its_placed_argument_available_at_the_join()
         .arguments
         .push(unused);
     let mut joins = joins(&graph);
-    joins.complete(arms.left.0, &Facts::default());
+    joins.complete(arms.left.0, &ScalarFacts::default());
     // Model a branch folded after the original dominance analysis. The unused
     // arm is deliberately not completed and cannot constrain this join.
     let yes = graph.values.literal(Type::I1, 1);

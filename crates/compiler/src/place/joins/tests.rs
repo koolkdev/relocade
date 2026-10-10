@@ -95,7 +95,7 @@ fn a_descendant_demand_adds_one_parameter_at_the_owning_join() {
     let right = placed(&mut graph, arms.right, recipe);
     for (block, value) in [(arms.left, left), (arms.right, right)] {
         joins.record(block.0, [(recipe, value), (unused, value)].into_iter());
-        joins.complete(block.0, &Facts::default());
+        joins.complete(block.0, &ScalarFacts::default());
     }
     joins
         .prepare(
@@ -107,14 +107,14 @@ fn a_descendant_demand_adds_one_parameter_at_the_owning_join() {
         .unwrap();
     assert!(graph.blocks[arms.join.0].parameters.is_empty());
     let result = joins
-        .resolve(&mut graph, uses.left.0, recipe, &Facts::default())
+        .resolve(&mut graph, uses.left.0, recipe, &ScalarFacts::default())
         .unwrap();
     assert!(matches!(
         graph.values[result].definition,
         ValueDefinition::Parameter { block, component: 0 } if block == arms.join
     ));
     assert_eq!(
-        joins.resolve(&mut graph, uses.right.0, recipe, &Facts::default()),
+        joins.resolve(&mut graph, uses.right.0, recipe, &ScalarFacts::default()),
         Some(result)
     );
     assert_eq!(graph.blocks[arms.join.0].parameters, [result]);
@@ -140,7 +140,7 @@ fn an_indexed_join_cannot_supply_a_sibling_branch() {
     for block in [inner.left, inner.right] {
         let value = placed(&mut graph, block, recipe);
         joins.record(block.0, [(recipe, value)].into_iter());
-        joins.complete(block.0, &Facts::default());
+        joins.complete(block.0, &ScalarFacts::default());
     }
     joins
         .prepare(
@@ -151,14 +151,14 @@ fn an_indexed_join_cannot_supply_a_sibling_branch() {
         )
         .unwrap();
     assert!(joins
-        .resolve(&mut graph, inner.join.0, recipe, &Facts::default())
+        .resolve(&mut graph, inner.join.0, recipe, &ScalarFacts::default())
         .is_some());
     assert_eq!(
-        joins.resolve(&mut graph, outer.right.0, recipe, &Facts::default()),
+        joins.resolve(&mut graph, outer.right.0, recipe, &ScalarFacts::default()),
         None
     );
     assert_eq!(
-        joins.resolve(&mut graph, outer.join.0, recipe, &Facts::default()),
+        joins.resolve(&mut graph, outer.join.0, recipe, &ScalarFacts::default()),
         None
     );
 }
@@ -188,7 +188,7 @@ fn a_nearer_join_is_preferred_but_a_failed_merge_keeps_ancestor_reuse() {
                 let value = placed(&mut graph, block, fallback);
                 joins.record(block.0, [(fallback, value)].into_iter());
             }
-            joins.complete(block.0, &Facts::default());
+            joins.complete(block.0, &ScalarFacts::default());
         }
         joins
             .prepare(
@@ -200,15 +200,15 @@ fn a_nearer_join_is_preferred_but_a_failed_merge_keeps_ancestor_reuse() {
             .unwrap();
     }
     let near_result = joins
-        .resolve(&mut graph, inner.join.0, nearby, &Facts::default())
+        .resolve(&mut graph, inner.join.0, nearby, &ScalarFacts::default())
         .unwrap();
     assert_eq!(graph.blocks[inner.join.0].parameters, [near_result]);
     assert!(graph.blocks[outer.join.0].parameters.is_empty());
     let ancestor_result = joins
-        .resolve(&mut graph, inner.join.0, fallback, &Facts::default())
+        .resolve(&mut graph, inner.join.0, fallback, &ScalarFacts::default())
         .unwrap();
     assert_eq!(
-        joins.resolve(&mut graph, inner.join.0, fallback, &Facts::default()),
+        joins.resolve(&mut graph, inner.join.0, fallback, &ScalarFacts::default()),
         Some(ancestor_result)
     );
     assert_eq!(graph.blocks[outer.join.0].parameters, [ancestor_result]);
@@ -237,7 +237,7 @@ fn incoming_aliases_keep_their_predecessor_scope() {
     joins.record(0, [(number, ancestor)].into_iter());
     joins.record(arms.left.0, [(alias, 1)].into_iter());
     for (block, condition) in [(arms.left, true), (arms.right, false)] {
-        let mut facts = Facts::default();
+        let mut facts = ScalarFacts::default();
         facts.assume(&graph.values, 0, condition);
         joins.complete(block.0, &facts);
     }
@@ -248,7 +248,7 @@ fn incoming_aliases_keep_their_predecessor_scope() {
         .unwrap();
     joins.record(uses.left.0, [(number, child)].into_iter());
     let result = joins
-        .resolve(&mut graph, uses.left.0, alias, &Facts::default())
+        .resolve(&mut graph, uses.left.0, alias, &ScalarFacts::default())
         .unwrap();
     assert_eq!(graph.values[result].ty, Type::I8);
     // Logical narrowing keeps the physical i32 bits, including the upper bits.
@@ -259,7 +259,7 @@ fn incoming_aliases_keep_their_predecessor_scope() {
         [ancestor]
     );
     assert_eq!(
-        joins.resolve(&mut graph, uses.right.0, alias, &Facts::default()),
+        joins.resolve(&mut graph, uses.right.0, alias, &ScalarFacts::default()),
         Some(result)
     );
 }
@@ -272,7 +272,7 @@ fn identical_incoming_carriers_can_reuse_a_value_with_a_different_logical_type()
     let mut joins = joins(&graph);
     joins.record(arms.left.0, [(byte, 1)].into_iter());
     for source in [arms.left, arms.right] {
-        joins.complete(source.0, &Facts::default());
+        joins.complete(source.0, &ScalarFacts::default());
     }
     joins
         .prepare(
@@ -283,7 +283,7 @@ fn identical_incoming_carriers_can_reuse_a_value_with_a_different_logical_type()
         )
         .unwrap();
     let result = joins
-        .resolve(&mut graph, arms.join.0, byte, &Facts::default())
+        .resolve(&mut graph, arms.join.0, byte, &ScalarFacts::default())
         .unwrap();
     assert_eq!(result, 1);
     assert_eq!(graph.values[result].ty, Type::I32);
@@ -314,7 +314,7 @@ fn guarded_join_reuse_stays_with_matching_facts() {
     let value = placed(&mut graph, arms.left, recipe);
     joins.record(arms.left.0, [(recipe, value)].into_iter());
     for (block, truth) in [(arms.left, true), (arms.right, false)] {
-        let mut facts = Facts::default();
+        let mut facts = ScalarFacts::default();
         facts.assume(&graph.values, 0, truth);
         joins.complete(block.0, &facts);
     }
@@ -326,12 +326,12 @@ fn guarded_join_reuse_stays_with_matching_facts() {
             &mut Availability::default(),
         )
         .unwrap();
-    let mut taken = Facts::default();
+    let mut taken = ScalarFacts::default();
     taken.assume(&graph.values, 0, true);
-    let mut otherwise = Facts::default();
+    let mut otherwise = ScalarFacts::default();
     otherwise.assume(&graph.values, 0, false);
     assert_eq!(
-        joins.resolve(&mut graph, arms.join.0, recipe, &Facts::default()),
+        joins.resolve(&mut graph, arms.join.0, recipe, &ScalarFacts::default()),
         None
     );
     let parameter = joins
@@ -347,7 +347,7 @@ fn guarded_join_reuse_stays_with_matching_facts() {
         None
     );
     assert_eq!(
-        joins.resolve(&mut graph, arms.join.0, recipe, &Facts::default()),
+        joins.resolve(&mut graph, arms.join.0, recipe, &ScalarFacts::default()),
         None
     );
 }
