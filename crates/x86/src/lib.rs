@@ -10,7 +10,8 @@
 //!
 //! The supported subset covers 16/32-bit protected-mode and ordinary real-mode
 //! integer execution, selected x87 operations, MMX transfers, logical and packed
-//! add/subtract operations, EMMS, and SSE/SSE2 moves, bitwise XOR and MXCSR access.
+//! add/subtract and comparison operations, EMMS, and SSE/SSE2 moves, bitwise XOR
+//! and MXCSR access.
 //! Privilege transitions and external interrupt delivery are outside the current scope.
 //!
 //! [`CpuState`] exchanges backing state with the host. [`ExecutionProfile`] describes

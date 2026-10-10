@@ -2,6 +2,8 @@
 
 #[path = "mmx/arithmetic.rs"]
 mod arithmetic;
+#[path = "mmx/comparisons.rs"]
+mod comparisons;
 #[path = "mmx/faults.rs"]
 mod faults;
 #[path = "mmx/logical.rs"]
