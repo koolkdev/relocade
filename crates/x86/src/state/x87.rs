@@ -22,6 +22,12 @@ pub(crate) enum X87Specialization {
     Arithmetic,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum C1Update {
+    Clear,
+    ClearOnFault,
+}
+
 #[derive(Clone)]
 pub(crate) struct X87State {
     metadata: StateFields,
@@ -32,7 +38,21 @@ pub(crate) struct X87State {
 
 pub(crate) struct StackValue {
     pub(crate) value: ExtendedValue,
-    pub(crate) empty: Val<I1>,
+    pub(crate) tag: Val<I16>,
+}
+
+impl StackValue {
+    /// Classifies a computed value; raw register copies may retain a saved tag.
+    pub(crate) fn from_value(value: ExtendedValue) -> Self {
+        Self {
+            tag: value.tag(),
+            value,
+        }
+    }
+
+    pub(crate) fn is_empty(&self) -> Val<I1> {
+        self.tag.eq(3)
+    }
 }
 
 impl super::State<'_> {
@@ -178,17 +198,17 @@ impl X87Access<'_, '_> {
     ) -> Result<StackValue, BuildError> {
         let slot = self.slot(index)?;
         Ok(StackValue {
-            empty: self.state.registers.tag(self.body, &slot)?.eq(3),
+            tag: self.state.registers.tag(self.body, &slot)?,
             value: self.state.registers.read(self.body, &slot)?,
         })
     }
 
     /// Records a stack fault and returns whether its data and stack effects commit.
     /// An unmasked fault becomes pending; its producer still retires normally.
-    pub(crate) fn stack_fault(
+    pub(crate) fn stack_underflow(
         &mut self,
         fault: &Val<I1>,
-        overflow: Val<I1>,
+        c1: C1Update,
     ) -> Result<Val<I1>, BuildError> {
         let unmasked = self.state.status.record_exception(
             self.body,
@@ -200,20 +220,24 @@ impl X87Access<'_, '_> {
         self.state
             .status
             .record_pending_exception(self.body, unmasked.clone())?;
-        self.state.status.set_c1(self.body, overflow)?;
+        let clear_c1 = match c1 {
+            C1Update::Clear => true.into(),
+            C1Update::ClearOnFault => fault.clone(),
+        };
+        self.state.status.clear_c1(self.body, &clear_c1)?;
         Ok(unmasked.eq(false))
     }
 
     pub(crate) fn write_stack(
         &mut self,
         index: impl Into<Val<I32>>,
-        value: &ExtendedValue,
+        value: &StackValue,
         enabled: &Val<I1>,
     ) -> Result<(), BuildError> {
         let slot = self.slot(index)?;
         self.state
             .registers
-            .write(self.body, &slot, value, value.tag(), enabled)
+            .write(self.body, &slot, &value.value, value.tag.clone(), enabled)
     }
 
     pub(crate) fn pop(&mut self, count: u32, enabled: &Val<I1>) -> Result<(), BuildError> {

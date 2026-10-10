@@ -1,7 +1,10 @@
 //! Stack operations address ST(i) relative to TOP on entry.
 
 use super::*;
-use crate::instruction::X87StackIndex;
+use crate::{
+    instruction::X87StackIndex,
+    state::x87::{C1Update, StackValue},
+};
 
 instruction_families! {
     FXCH {
@@ -31,15 +34,19 @@ fn exchange_register(
     let index = other.offset();
     let top = execution.x87().read_stack(0)?;
     let other = execution.x87().read_stack(&index)?;
-    let fault = top.empty.or(&other.empty);
-    let enabled = execution.x87().stack_fault(&fault, false.into())?;
+    let fault = top.is_empty().or(other.is_empty());
+    let enabled = execution.x87().stack_underflow(&fault, C1Update::Clear)?;
     // Each empty source is replaced before exchanging; the live source survives.
-    execution
-        .x87()
-        .write_stack(0, &other.value.or_indefinite(&other.empty), &enabled)?;
-    execution
-        .x87()
-        .write_stack(index, &top.value.or_indefinite(&top.empty), &enabled)
+    execution.x87().write_stack(
+        0,
+        &StackValue::from_value(other.value.or_indefinite(&other.is_empty())),
+        &enabled,
+    )?;
+    execution.x87().write_stack(
+        index,
+        &StackValue::from_value(top.value.or_indefinite(&top.is_empty())),
+        &enabled,
+    )
 }
 
 fn free_register(

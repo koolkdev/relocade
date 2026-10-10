@@ -93,6 +93,20 @@ impl Status {
         self.flag(body, cpu_location!(x87.status.error_summary))
     }
 
+    /// Untouched condition codes retain their complete backing byte.
+    pub(super) fn clear_c1(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        enabled: &Val<I1>,
+    ) -> Result<(), BuildError> {
+        let previous = self.fields.read(body, cpu_location!(x87.status.c1))?;
+        self.fields.define(
+            body,
+            cpu_location!(x87.status.c1),
+            enabled.select(0_u32, previous),
+        )
+    }
+
     pub(crate) fn set_comparison(
         &mut self,
         body: &mut BlockBuilder<'_>,
