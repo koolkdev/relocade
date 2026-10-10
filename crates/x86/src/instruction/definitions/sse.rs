@@ -9,11 +9,11 @@ use wasm86_compiler::{VectorLane, V128};
 instruction_families! {
     LDMXCSR {
         execute: load_mxcsr;
-        forms { 0x0f 0xae / 2 => operands(mem); }
+        forms { NP 0x0f 0xae / 2 => operands(mem); }
     }
     STMXCSR {
         execute: store_mxcsr;
-        forms { 0x0f 0xae / 3 => operands(mem); }
+        forms { NP 0x0f 0xae / 3 => operands(mem); }
     }
     MOVUPS {
         execute: move_vector(VectorAlignment::Unaligned);

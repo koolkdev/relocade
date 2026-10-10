@@ -1,6 +1,43 @@
 //! MXCSR control policy, literal snapshot preservation and precise memory faults.
 
 use super::*;
+use crate::support::step::TestModule;
+use wasm86_x86::{compile_block_from_bytes, BlockError};
+
+fn rejected_prefixes(engine: Engine) {
+    for (prefix, diagnostic) in [(0x66, 0x0f), (0xf2, 0xf2), (0xf3, 0xf3), (0xf0, 0xf0)] {
+        for modrm in [0x10, 0x18] {
+            let code = [prefix, 0x0f, 0xae, modrm];
+            assert_eq!(
+                compile_block_from_bytes(0x1000, &code, 1).err(),
+                Some(BlockError::UnsupportedInstruction {
+                    address: 0x1000,
+                    opcode: diagnostic,
+                }),
+                "MXCSR rejects prefix {prefix:02x}, ModRM {modrm:02x}",
+            );
+            let mut image = image(&code);
+            image.cpu.registers.eax = 0x4000; // Unmapped: rejection precedes data access.
+            image.check_unchanged_exit(
+                engine,
+                TestModule::interpreter(),
+                &format!("MXCSR rejects prefix {prefix:02x}, ModRM {modrm:02x}"),
+                Exit::Other((8 << 48) | (u64::from(diagnostic) << 32) | 0x1000),
+            );
+        }
+    }
+}
+
+#[test]
+fn sse_mxcsr_rejected_prefixes() {
+    rejected_prefixes(Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_sse_mxcsr_rejected_prefixes() {
+    rejected_prefixes(Engine::V8);
+}
 
 fn readback(engine: Engine, frontend: Frontend) {
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
@@ -43,7 +80,7 @@ fn architectural_stores(engine: Engine, frontend: Frontend) {
         (CpuState::default().simd.mxcsr, 0x1f80_u32),
         (0xabcd_9fc5, 0x9fc5),
     ] {
-        let code = [0x66, 0x0f, 0xae, 0x18]; // operand-size override still stores m32
+        let code = [0x0f, 0xae, 0x18];
         let mut image = image(&code);
         image.cpu.simd.mxcsr = raw;
         image.cpu.registers.eax = 0x4ffc;
