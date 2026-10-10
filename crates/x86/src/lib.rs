@@ -9,8 +9,8 @@
 //! [`Compiler`] configures both frontends with one execution profile.
 //!
 //! The supported subset covers 16/32-bit protected-mode and ordinary real-mode
-//! integer execution, selected x87 operations, MMX transfers and EMMS, and SSE/SSE2
-//! moves, bitwise XOR and MXCSR access.
+//! integer execution, selected x87 operations, MMX transfers, logical operations and
+//! EMMS, and SSE/SSE2 moves, bitwise XOR and MXCSR access.
 //! Privilege transitions and external interrupt delivery are outside the current scope.
 //!
 //! [`CpuState`] exchanges backing state with the host. [`ExecutionProfile`] describes
