@@ -38,6 +38,8 @@ fn common_bits_discard_disagreements_missing_facts_and_cached_constants() {
     first.assume_bits(1, 0xffff_ffff, 9);
     assert_eq!(first.constant(&table, 0), Some(5));
     assert_eq!(first.constant(&table, 1), Some(9));
+    assert_eq!(first.bits(&table, 0).value, 5);
+    assert_eq!(first.bits(&table, 1).value, 9);
     let mut second = ScalarFacts::default();
     second.assume_bits(0, 0xffff_ffff, 7);
     first.retain_common(&second);
