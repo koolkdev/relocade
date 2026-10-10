@@ -7,6 +7,8 @@ mod tests;
 
 #[derive(Default)]
 pub(super) struct Availability {
+    // Only copied expressions can introduce duplicates of interned recipes.
+    pub(super) has_copies: bool,
     // Value-table IDs are dense and stable throughout placement.
     bindings: Vec<Option<usize>>,
     // A producer can retain its original ID for its first unchanged placement.
@@ -183,6 +185,7 @@ impl Availability {
             {
                 producer
             } else {
+                self.has_copies = true;
                 graph.values.push(operation)
             };
             if placed >= self.placed.len() {

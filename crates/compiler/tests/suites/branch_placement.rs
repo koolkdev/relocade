@@ -8,6 +8,8 @@ use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 mod continuations;
 #[path = "branch_placement/guarded.rs"]
 mod guarded;
+#[path = "branch_placement/reuse.rs"]
+mod reuse;
 
 fn exclusive_switch_arms() -> TestModule {
     let mut fixture = Fixture::new();

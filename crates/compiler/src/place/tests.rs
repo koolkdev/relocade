@@ -46,6 +46,60 @@ fn assert_return_unchanged(graph: &FunctionGraph, block: BlockId, recipe: usize)
 }
 
 #[test]
+fn sharing_reuses_dominance_only_when_placement_keeps_the_edges() {
+    use crate::{Signature, I1, I32};
+
+    for fold_edges in [false, true] {
+        let mut program = Program::new();
+        program
+            .function(
+                Signature {
+                    parameters: vec![Type::I1, Type::I32, Type::I32, Type::I32],
+                    results: vec![Type::I32],
+                },
+                |mut body| {
+                    let flag = body.parameter::<I1>(0)?;
+                    let stop = body.parameter::<I32>(1)?;
+                    let input = body.parameter::<I32>(2)?;
+                    let mut value = body.parameter::<I32>(3)?;
+                    if fold_edges {
+                        body.if_(&flag, |mut arm| {
+                            arm.if_(&flag, |done| done.return_(0))?;
+                            arm.return_(1)
+                        })?;
+                    }
+                    for step in 0..4 {
+                        value = value.xor(input.add(step)).and(0x8000);
+                        body.if_(stop.eq(step), |done| done.return_(value.or(step)))?;
+                    }
+                    body.return_(value)
+                },
+            )
+            .unwrap();
+        let FunctionKind::Defined(body) = &mut program.functions[0].kind else {
+            unreachable!()
+        };
+        let mut graph = body.take().unwrap();
+        let placement = place_calculations(&mut graph, &[]);
+        assert!(placement.has_copies);
+        assert_eq!(placement.dominators.is_some(), !fold_edges);
+        graph.compact(|_| false);
+        let replacements = reuse::share(&mut graph, placement.dominators).unwrap();
+        graph.replace_values(replacements);
+        let xors = graph.values.iter().filter(|value| {
+            matches!(
+                value.definition,
+                ValueDefinition::Expression(Expression::Binary {
+                    operator: BinaryOp::Xor,
+                    ..
+                })
+            )
+        });
+        assert_eq!(xors.count(), 4);
+    }
+}
+
+#[test]
 fn a_folded_if_skips_its_discarded_subtree_and_keeps_the_join() {
     let mut graph = graph(Type::I1);
     let condition = graph.blocks[0].parameters[0];

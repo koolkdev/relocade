@@ -33,9 +33,9 @@ impl ValueTable {
         // No more construction or folding follows finalization. Release the
         // lookup table before changing the values and IDs that supply its keys.
         self.interned = HashTable::new();
-        let mut retained = remapping.values.iter();
+        let mut retained = remapping.retained_values.iter();
         self.values.retain_mut(|value| {
-            if retained.next().unwrap().is_none() {
+            if !retained.next().unwrap() {
                 return false;
             }
             value.definition = match value.definition {
@@ -53,8 +53,8 @@ impl ValueTable {
             };
             true
         });
-        let mut retained = remapping.values.iter();
-        self.bounds.retain(|_| retained.next().unwrap().is_some());
+        let mut retained = remapping.retained_values.iter();
+        self.bounds.retain(|_| *retained.next().unwrap());
         self.values.shrink_to_fit();
         self.bounds.shrink_to_fit();
     }

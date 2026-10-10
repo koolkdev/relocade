@@ -46,6 +46,10 @@ pub(super) struct Joins {
 }
 
 impl Joins {
+    pub(super) fn into_dominators(self) -> Dominators {
+        self.dominators
+    }
+
     pub(super) fn new(
         graph: &FunctionGraph,
         predecessors: &[Vec<usize>],

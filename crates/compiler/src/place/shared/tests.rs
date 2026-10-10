@@ -74,6 +74,7 @@ fn placer(graph: &mut FunctionGraph) -> Placer<'_> {
         available: Availability::default(),
         shared,
         joins,
+        changed_edges: false,
     }
 }
 

@@ -136,28 +136,8 @@ pub(super) fn schedules(
     dominators: &Dominators,
 ) -> Vec<Vec<usize>> {
     let count = graph.blocks.len();
-    let mut successors = successors(graph, reachable);
-    successors.push(Vec::new());
-    for (source, targets) in successors[..count].iter_mut().enumerate() {
-        if !reachable[source] {
-            continue;
-        }
-        if targets.is_empty()
-            || targets
-                .iter()
-                .any(|&target| dominators.dominates(target, source))
-        {
-            targets.push(count);
-        }
-    }
-    let mut reversed = vec![Vec::new(); count + 1];
-    for (source, targets) in successors.iter().enumerate() {
-        for &target in targets {
-            reversed[target].push(source);
-        }
-    }
-    let postdominators = Dominators::new(count, &reversed, &successors);
-    let mut coverage = Coverage::new(&successors, count);
+    let mut coverage = super::coverage::Coverage::new(successors(graph, reachable), dominators);
+    let postdominators = coverage.postdominators();
     let mut locations = vec![None; graph.effects.len()];
     for (block, data) in graph.blocks.iter().enumerate() {
         for item in &data.items {
@@ -235,7 +215,8 @@ pub(super) fn schedules(
                     .iter()
                     .any(|&site| postdominators.dominates(site, candidate))
                     || (sites.retained_input
-                        && coverage.all_paths_reach(candidate, &sites.required_sites)))
+                        && coverage
+                            .all_paths_reach(candidate, sites.required_sites.iter().copied())))
             {
                 schedules[candidate].extend(
                     graph
@@ -285,46 +266,4 @@ pub(super) fn schedules(
         schedule.reverse();
     }
     schedules
-}
-
-// A set of demands can cover every path even when no single site does.
-// Walk only as far as the first demand on each path. Reuse visit marks and
-// the worklist so each query neither clears nor copies the whole graph.
-// Scoped control flow is reducible: the synthetic exit on every backedge
-// ensures that a cycle without a prior demand fails this check.
-struct Coverage<'a> {
-    successors: &'a [Vec<usize>],
-    exit: usize,
-    visited: Vec<usize>,
-    generation: usize,
-    pending: Vec<usize>,
-}
-
-impl<'a> Coverage<'a> {
-    fn new(successors: &'a [Vec<usize>], exit: usize) -> Self {
-        Self {
-            successors,
-            exit,
-            visited: vec![0; successors.len()],
-            generation: 0,
-            pending: Vec::new(),
-        }
-    }
-
-    fn all_paths_reach(&mut self, candidate: usize, sites: &HashSet<usize>) -> bool {
-        self.generation += 1;
-        self.pending.clear();
-        self.pending.push(candidate);
-        while let Some(block) = self.pending.pop() {
-            if sites.contains(&block) || self.visited[block] == self.generation {
-                continue;
-            }
-            if block == self.exit {
-                return false;
-            }
-            self.visited[block] = self.generation;
-            self.pending.extend(&self.successors[block]);
-        }
-        true
-    }
 }
