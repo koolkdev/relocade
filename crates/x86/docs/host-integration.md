@@ -38,7 +38,8 @@ use 32-bit wrapping arithmetic. A taken transfer checks its segment target befor
 committing instruction effects; fetching the destination belongs to the next entry.
 
 The host chooses whether dispatch enters more code or returns control. Interpreter
-`run` continues inside Wasm until a branch, segment load or port I/O completes.
+`run` continues inside Wasm until a branch, segment load, port I/O or serializing
+instruction completes.
 It uses the same instruction boundary as snapshot compilation: conditional branches end
 execution on both outcomes. Earlier instructions remain published if a later
 instruction faults or is unsupported. Each instruction fetches live guest bytes
@@ -67,8 +68,8 @@ is neither of those exits.
 
 An embedding can bind this import directly to an instance's `step` or `run` export.
 `step` resumes normal dispatch after one instruction; `run` continues to its own
-branch, segment-load or port-I/O boundary. Neither is constrained by the
-abandoned snapshot's instruction limit. The host chooses this policy and admits interpreter entries
+branch, segment-load, port-I/O or serialization boundary. Neither is constrained
+by the abandoned snapshot's instruction limit. The host chooses this policy and admits interpreter entries
 against their execution target. Interpreter execution uses the shared instruction
 semantics without speculative guards and does not import `interpret` itself.
 
@@ -105,6 +106,43 @@ ordinary interpreter handoff at the consuming instruction, after its pending
 exception and memory-access checks. A host can reuse a block under another mode;
 the guard preserves correctness, though frequently mismatching modes may warrant
 compiling another block. No CPU state is replaced with the observed snapshot.
+
+## Processor identification
+
+CPUID is generated from the compiler's selected `CpuModel` and needs no host
+callback. Leaf 0 reports maximum basic leaf 1 and the vendor
+string `Relocade CPU`. Leaf 1 reports virtual family 6, model 0, stepping 1
+(EAX=`0x00000601`), EBX=0, and the selected capabilities: POPCNT in ECX bit 23,
+CX8 in EDX bit 8 and CMOV in EDX bit 15. Disabling a capability clears its bit
+and rejects its instructions through the shared admission mechanism. Feature
+reporting is independent of real/protected mode and segment assumptions. The
+identity does not claim a physical Intel processor.
+
+Only complete feature groups are advertised. Partial x87 support does not establish
+the FPU feature; MMX, SSE, SSE2, FXSAVE/FXRSTOR, RDTSC and unsupported platform
+facilities remain clear. POPCNT is already implemented; its independent bit does
+not advertise SSE4.2 or expand the P4 compatibility target. When adding a feature,
+update the core model only after its advertised behavior and feature combinations
+are supported. In particular, advertising both FPU and CMOV would also promise
+the x87 FCMOV and FCOMI instructions.
+
+The full EAX selects the leaf. Both leaves ignore input ECX. Unsupported basic and
+extended queries return leaf 1, following Intel's highest-basic-leaf rule. There
+are no cache, topology, frequency or extended leaves. Results replace the full
+EAX, EBX, ECX and EDX in every execution profile; size and segment prefixes do not
+narrow the registers. Other registers and all flags are preserved. Clearing
+EFLAGS.ID does not disable CPUID. LOCK uses the shared unsupported-encoding exit.
+
+CPUID serializes execution: both a snapshot block and an interpreter run complete
+the instruction, publish state and dispatch before fetching its successor. Prior
+guest stores are complete at this boundary. The host must validate the next
+snapshot's code against any preceding code writes, as at every dispatch; CPUID
+does not itself invalidate a host code cache. The single-threaded, unshared-memory
+execution contract does not model a processor's speculative pipeline or cache.
+
+These semantics follow Intel's [Volume 2A, CPUID](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf#page=202).
+The later POPCNT bit and its #UD condition are specified in Intel's
+[instruction reference](https://cdrdv2-public.intel.com/774492/325383-sdm-vol-2abcd.pdf).
 
 ## Port I/O
 

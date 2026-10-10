@@ -1,5 +1,7 @@
 //! Capabilities selected for the virtual processor, independent of execution mode.
 
+mod cpuid;
+
 /// A complete optional capability implemented by the virtual processor.
 ///
 /// Identifiers are independent of their architectural CPUID bit positions.
@@ -25,7 +27,7 @@ impl CpuFeature {
 /// Immutable capability choices for one virtual processor.
 ///
 /// The default enables all complete optional capabilities. Disabling one changes
-/// instruction availability in both compiled blocks and generated interpreters.
+/// CPUID reporting and instruction availability in blocks and interpreters.
 /// Baseline instructions and existing partial x87/SSE implementations remain
 /// available; feature selection does not emulate an older processor generation.
 ///
