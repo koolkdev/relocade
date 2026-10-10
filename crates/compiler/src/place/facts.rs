@@ -4,6 +4,7 @@
 //! expression evaluation still folds complete vector literals.
 //! Facts about a truncated value do not erase its other carrier bits.
 
+use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 
 use crate::{
@@ -19,6 +20,8 @@ mod infer;
 mod merge;
 mod range;
 mod scoped_map;
+mod selects;
+mod shifts;
 use comparisons::Comparisons;
 use infer::InferenceCache;
 use range::Range;
@@ -61,6 +64,7 @@ pub(super) struct ScalarFacts {
     ranges: ScopedMap<usize, Range>,
     comparisons: Comparisons,
     computed: RefCell<InferenceCache>,
+    select_constants: FxHashMap<usize, Option<u64>>,
 }
 
 pub(super) struct Checkpoint {
@@ -76,6 +80,7 @@ impl Clone for ScalarFacts {
             ranges: self.ranges.clone(),
             comparisons: self.comparisons.clone(),
             computed: RefCell::default(),
+            select_constants: FxHashMap::default(),
         }
     }
 }
@@ -96,6 +101,7 @@ impl ScalarFacts {
         self.ranges.restore(checkpoint.ranges);
         self.comparisons.restore(checkpoint.comparisons);
         self.computed.get_mut().clear();
+        self.select_constants.clear();
     }
 
     /// Whether known logical bits prove that these paths cannot coincide.
@@ -125,8 +131,10 @@ impl ScalarFacts {
         // Calculations refer only to earlier values. Their cached inputs remain
         // valid when learning a fact about this value and its possible users.
         self.computed.get_mut().invalidate_from(id);
+        self.select_constants.retain(|&input, _| input < id);
     }
 
+    /// Query constants under path assumptions; without them, use construction's folds.
     /// Scalar literals keep their carrier bits; inferred constants contain logical bits.
     /// Use ValueTable::carrier_bits to restore the carrier promised by construction.
     pub(super) fn constant(&self, table: &ValueTable, id: usize) -> Option<u64> {
@@ -136,7 +144,6 @@ impl ScalarFacts {
         if let Some(bits) = table[id].scalar_literal() {
             return Some(bits);
         }
-        // Construction already folded path-independent constants.
         if self.known.is_empty() && self.ranges.is_empty() && self.comparisons.is_empty() {
             return None;
         }
@@ -146,6 +153,15 @@ impl ScalarFacts {
                 .known
                 .get(&id)
                 .and_then(|bits| (bits.mask & mask == mask).then_some(bits.value & mask));
+        }
+        self.inferred_constant(table, id)
+    }
+
+    /// Explicitly request structural inference, including without path assumptions.
+    /// The bounded Boolean folding stage uses this for its candidate and cases.
+    fn inferred_constant(&self, table: &ValueTable, id: usize) -> Option<u64> {
+        if !table[id].ty.is_scalar() {
+            return None;
         }
         let bits = self.bits(table, id);
         let mask = table.values[id].ty.mask();

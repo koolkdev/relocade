@@ -82,11 +82,11 @@ fn refolded_constants_retain_carrier_bits_and_unsigned_extension() {
         },
     );
     assert_constant(&values, sum, 256);
-    assert_eq!(values.carrier_bits(sum, 0), 256);
+    assert_eq!(values.carrier_bits(sum, 0), Some(256));
     let view = refold(&mut values, Type::I32, Expression::Convert { input: sum });
     assert_constant(&values, view, 256);
     let negative = values.carrier_literal(Type::I8, u64::MAX);
-    assert_eq!(values.carrier_bits(negative, 255), 0xffff_ffff_u64);
+    assert_eq!(values.carrier_bits(negative, 255), Some(0xffff_ffff));
     let unsigned = refold(
         &mut values,
         Type::I64,

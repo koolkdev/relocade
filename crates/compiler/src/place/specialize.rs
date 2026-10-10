@@ -201,6 +201,13 @@ impl Specializer {
                     let result = self
                         .known_constant(&mut graph.values, result)
                         .unwrap_or(result);
+                    // Ordinary input specialization and refolding run first;
+                    // case analysis only sees the remaining small predicate.
+                    let result = self
+                        .facts
+                        .constant_across_selects(&graph.values, result)
+                        .map(|bits| graph.values.carrier_literal(crate::Type::I1, bits))
+                        .unwrap_or(result);
                     self.record(id, result, &mut aliases);
                 }
             }
@@ -213,7 +220,7 @@ impl Specializer {
 
     fn known_constant(&self, values: &mut ValueTable, value: usize) -> Option<usize> {
         let bits = self.facts.constant(values, value)?;
-        let bits = values.carrier_bits(value, bits);
+        let bits = values.carrier_bits(value, bits)?;
         Some(values.carrier_literal(values[value].ty, bits))
     }
 

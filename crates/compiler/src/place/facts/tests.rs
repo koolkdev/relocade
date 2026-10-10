@@ -31,6 +31,24 @@ fn compare(table: &mut ValueTable, operator: CompareOp, left: usize, right: usiz
 }
 
 #[test]
+fn structural_inference_leaves_vector_values_opaque() {
+    let mut table = ValueTable::default();
+    let input = table.push(Value {
+        ty: Type::V128,
+        definition: ValueDefinition::Parameter {
+            block: BlockId(0),
+            component: 0,
+        },
+    });
+    let zero = table.literal(Type::V128, 0_u128);
+    let high = table.literal(Type::V128, 1_u128 << 96);
+    let facts = ScalarFacts::default();
+    for value in [input, zero, high] {
+        assert_eq!(facts.inferred_constant(&table, value), None);
+    }
+}
+
+#[test]
 fn restoring_partial_bits_discards_child_constants_but_preserves_snapshots() {
     let table = parameters();
     let mut facts = ScalarFacts::default();

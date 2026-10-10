@@ -4,13 +4,19 @@ use crate::{integer::BinaryOp, Type};
 fn graph() -> FunctionGraph {
     let mut graph = FunctionGraph::new();
     for (component, ty) in [Type::I1, Type::I32].into_iter().enumerate() {
-        let value = graph.values.push(Value {
-            ty,
-            definition: ValueDefinition::Parameter {
-                block: graph.entry,
-                component,
+        let value = graph.values.push_with_bounds(
+            Value {
+                ty,
+                definition: ValueDefinition::Parameter {
+                    block: graph.entry,
+                    component,
+                },
             },
-        });
+            BitBounds {
+                unsigned: ty.bits(),
+                signed: ty.bits().saturating_add(1).min(ty.carrier().bits()),
+            },
+        );
         graph.blocks[0].parameters.push(value);
     }
     graph

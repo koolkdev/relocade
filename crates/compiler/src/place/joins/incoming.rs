@@ -39,8 +39,10 @@ impl IncomingValues {
                     .dominates(block.0, self.source)
                     .then_some(recipe);
             }
-            if let Some(bits) = facts.constant(&graph.values, recipe) {
-                let bits = graph.values.carrier_bits(recipe, bits);
+            if let Some(bits) = facts
+                .constant(&graph.values, recipe)
+                .and_then(|bits| graph.values.carrier_bits(recipe, bits))
+            {
                 break Some(graph.values.carrier_literal(value.ty, bits));
             }
             recipe = match value.definition {
