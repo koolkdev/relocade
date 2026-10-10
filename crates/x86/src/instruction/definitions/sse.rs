@@ -4,19 +4,29 @@ use super::*;
 use crate::instruction::{VectorAlignment, XmmLocation};
 
 instruction_families! {
-    moves {
+    MOVUPS {
         execute: move_vector;
         forms {
             NP 0x0f 0x10 => operands(xmm, xmm_rm);
             NP 0x0f 0x11 => operands(xmm_rm, xmm);
+        }
+    }
+    MOVUPD {
+        execute: move_vector;
+        forms {
             P66 0x0f 0x10 => operands(xmm, xmm_rm);
             P66 0x0f 0x11 => operands(xmm_rm, xmm);
         }
     }
-    xor {
+    XORPS {
         execute: xor_vector;
         forms {
             NP 0x0f 0x57 => operands(xmm, xmm_rm);
+        }
+    }
+    XORPD {
+        execute: xor_vector;
+        forms {
             P66 0x0f 0x57 => operands(xmm, xmm_rm);
         }
     }

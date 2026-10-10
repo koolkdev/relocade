@@ -1,7 +1,7 @@
 //! Checked memory operands support widths independently of register views.
 
 use crate::memory::TransferType;
-use wasm86_compiler::{BuildError, MemoryInt, Val, I32};
+use wasm86_compiler::{BuildError, MemoryInt, MemoryType, Val, I32};
 
 use super::ExecutionBuilder;
 use crate::{
@@ -109,7 +109,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
             .read(self, 0)
     }
 
-    pub(super) fn prepare_memory_write<T: wasm86_compiler::MemoryType>(
+    pub(super) fn prepare_memory_write<T: MemoryType>(
         &mut self,
         address: MemoryAddress<impl Into<Val<I32>>>,
         bindings: &[RegisterValue],

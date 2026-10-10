@@ -20,7 +20,7 @@ use access::FaultHandler;
 use page_table::{PRESENT, WRITABLE};
 use physical::PhysicalMemory;
 use virtual_memory::VirtualMemory;
-use wasm86_compiler::{BlockBuilder, BuildError, MemoryInt, Program, Val, I1, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, MemoryInt, MemoryType, Program, Val, I1, I32};
 
 /// Selects the generated memory model once, during module construction.
 pub(crate) enum Memory {
@@ -194,7 +194,7 @@ impl Memory {
         }
     }
 
-    pub(crate) fn load<T: wasm86_compiler::MemoryType>(
+    pub(crate) fn load<T: MemoryType>(
         &self,
         body: &mut BlockBuilder<'_>,
         backing: &Val<I32>,
@@ -206,7 +206,7 @@ impl Memory {
         }
     }
 
-    pub(crate) fn store<T: wasm86_compiler::MemoryType>(
+    pub(crate) fn store<T: MemoryType>(
         &self,
         body: &mut BlockBuilder<'_>,
         backing: &Val<I32>,

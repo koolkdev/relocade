@@ -7,8 +7,8 @@ mod transfer;
 use std::cell::Cell;
 
 use wasm86_compiler::{
-    BlockBuilder, BuildError, Func, FunctionImport, Mem, MemoryImport, MemoryInt, Program,
-    Signature, Type, Val, I32, I64,
+    BlockBuilder, BuildError, Func, FunctionImport, Mem, MemoryImport, MemoryInt, MemoryType,
+    Program, Signature, Type, Val, I32, I64,
 };
 
 use super::{Access, DirectRange, Intent};
@@ -122,7 +122,7 @@ impl PhysicalMemory {
     }
 
     /// The caller has proved this read lies in a direct backing window.
-    pub(super) fn load<T: wasm86_compiler::MemoryType>(
+    pub(super) fn load<T: MemoryType>(
         &self,
         body: &mut BlockBuilder<'_>,
         backing: &Val<I32>,
@@ -132,7 +132,7 @@ impl PhysicalMemory {
     }
 
     /// Stores only under a successful direct writable-window proof.
-    pub(super) fn store<T: wasm86_compiler::MemoryType>(
+    pub(super) fn store<T: MemoryType>(
         &self,
         body: &mut BlockBuilder<'_>,
         backing: &Val<I32>,

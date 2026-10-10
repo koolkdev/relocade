@@ -70,8 +70,11 @@ pub(super) enum PrefixRule {
     OpcodeSelector(MandatoryPrefix),
 }
 
+/// A prefix used as part of the opcode to select an instruction variant.
+/// Its usual operand-size or repetition role does not apply to that form.
 #[derive(Clone, Copy)]
 pub(super) enum MandatoryPrefix {
+    /// The unprefixed variant; segment and address-size prefixes can still apply.
     None,
     P66,
 }

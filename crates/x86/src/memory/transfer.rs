@@ -4,7 +4,7 @@
 
 use crate::memory::TransferType;
 use wasm86_compiler::{
-    BlockBuilder, BuildError, Func, Program, Signature, Type, Val, I32, I64, I8,
+    BlockBuilder, BuildError, Func, MemoryType, Program, Signature, Type, Val, I32, I64, I8,
 };
 
 use super::{page_table::physical_address, Access, Intent, VirtualMemory};
@@ -60,7 +60,7 @@ impl VirtualMemory {
     }
 
     /// The caller must prove this entire read is present and physically contiguous.
-    pub(crate) fn load<T: wasm86_compiler::MemoryType>(
+    pub(crate) fn load<T: MemoryType>(
         &self,
         body: &mut BlockBuilder<'_>,
         physical: &Val<I32>,
@@ -70,7 +70,7 @@ impl VirtualMemory {
     }
 
     /// The caller must prove this entire write is writable and contiguous.
-    pub(crate) fn store<T: wasm86_compiler::MemoryType>(
+    pub(crate) fn store<T: MemoryType>(
         &self,
         body: &mut BlockBuilder<'_>,
         physical: &Val<I32>,
