@@ -16,7 +16,19 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
+pub(super) enum LaneBinaryOp {
+    Add,
+    Sub,
+}
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum Expression<V> {
+    VectorBinary {
+        operator: LaneBinaryOp,
+        lane_type: Type,
+        left: V,
+        right: V,
+    },
     VectorExtract {
         input: V,
         lane: u8,
@@ -133,6 +145,17 @@ impl<V> Expression<V> {
         mut input: impl FnMut(&'a V) -> Result<U, E>,
     ) -> Result<Expression<U>, E> {
         Ok(match self {
+            Self::VectorBinary {
+                operator,
+                lane_type,
+                left,
+                right,
+            } => Expression::VectorBinary {
+                operator: *operator,
+                lane_type: *lane_type,
+                left: input(left)?,
+                right: input(right)?,
+            },
             Self::VectorExtract { input: value, lane } => Expression::VectorExtract {
                 input: input(value)?,
                 lane: *lane,
