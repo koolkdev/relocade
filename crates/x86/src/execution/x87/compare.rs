@@ -2,9 +2,19 @@
 
 use wasm86_compiler::BuildError;
 
-use crate::{state::x87::Exception, x87::ComparisonKind};
+use crate::{
+    flags::{Flag, FlagChange},
+    state::x87::Exception,
+    x87::ComparisonKind,
+};
 
 use super::{operand::X87Operands, ExecutionBuilder, X87Operand};
+
+#[derive(Clone, Copy)]
+pub(crate) enum ComparisonTarget {
+    X87,
+    Eflags,
+}
 
 impl ExecutionBuilder<'_, '_> {
     /// Ordinary comparisons, including FUCOM quiet NaNs, stay in the block.
@@ -14,6 +24,7 @@ impl ExecutionBuilder<'_, '_> {
         source: X87Operand,
         kind: ComparisonKind,
         pops: u32,
+        target: ComparisonTarget,
     ) -> Result<(), BuildError> {
         self.check_x87_exception()?;
         let X87Operands {
@@ -61,11 +72,28 @@ impl ExecutionBuilder<'_, '_> {
             .status
             .record_pending_exception(body, suppressed.clone())?;
         state.status.set_c1(body, false)?;
-        // Unmasked invalid preserves the condition codes. Retain them for an
-        // unmasked denormal too, as the pre-operation policy; Intel specifies
-        // unchanged TOP and operands for #D but not the condition-code response.
-        let enabled = suppressed.eq(false);
-        state.status.set_comparison(body, &result, &enabled)?;
-        state.access(body).pop(pops, &enabled)
+        let pop_enabled = suppressed.eq(false);
+        if matches!(target, ComparisonTarget::X87) {
+            // Unmasked invalid preserves the x87 condition codes. Retain them
+            // for unmasked denormals too; Intel specifies unchanged TOP and
+            // operands for #D but not the condition-code response.
+            state.status.set_comparison(body, &result, &pop_enabled)?;
+        }
+        state.access(body).pop(pops, &pop_enabled)?;
+        if matches!(target, ComparisonTarget::Eflags) {
+            // Intel's Celeron specification update 243748-011, C15, corrects
+            // the manual: comparison flags are written even for unmasked #IA.
+            // Denormals also publish the relation; neither exception allows a
+            // pop when unmasked. OF/SF/AF clear per 252046-033, change 8.
+            self.write_flags(FlagChange::partial([
+                (Flag::CF, result.unordered.or(result.less)),
+                (Flag::PF, result.unordered.clone()),
+                (Flag::ZF, result.unordered.or(result.equal)),
+                (Flag::OF, false.into()),
+                (Flag::SF, false.into()),
+                (Flag::AF, false.into()),
+            ]))?;
+        }
+        Ok(())
     }
 }

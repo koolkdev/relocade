@@ -4,6 +4,7 @@ mod arithmetic;
 mod compare;
 mod operand;
 
+pub(crate) use compare::ComparisonTarget;
 pub(crate) use operand::X87Operand;
 
 use wasm86_compiler::BuildError;
