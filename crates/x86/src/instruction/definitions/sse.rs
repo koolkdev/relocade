@@ -91,7 +91,8 @@ fn move_scalar<T: VectorLane + TransferType>(
     destination: XmmLocation,
     source: XmmLocation,
 ) -> Result<(), BuildError> {
-    // Legacy scalar loads clear the upper bits; register copies preserve them.
+    // MOVSS/MOVSD memory loads clear upper XMM bits;
+    // register copies preserve them.
     let upper_bits = if source.is_memory() {
         UpperBits::Clear
     } else {
