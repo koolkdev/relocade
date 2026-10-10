@@ -1,7 +1,7 @@
 //! Typed handler operands defer architectural accesses to the execution builder.
 
 mod xmm;
-pub(crate) use xmm::{VectorAlignment, XmmLocation};
+pub(crate) use xmm::{UpperBits, VectorAlignment, XmmLocation};
 
 use std::marker::PhantomData;
 use wasm86_compiler::{AtLeast, BuildError, Val, I32};

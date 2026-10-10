@@ -10,7 +10,9 @@ pub(crate) use forms::*;
 use handlers::HandlerCall;
 pub(super) use lower::lower;
 use operands::{map_location, map_operand};
-pub(crate) use operands::{Input, TypedLocation, VectorAlignment, X87StackIndex, XmmLocation};
+pub(crate) use operands::{
+    Input, TypedLocation, UpperBits, VectorAlignment, X87StackIndex, XmmLocation,
+};
 pub(crate) use prefixes::{Group1Prefix, Prefix, PrefixState, SegmentOverride};
 
 use crate::address::{AddressSize, EffectiveAddress, MemoryAddress};

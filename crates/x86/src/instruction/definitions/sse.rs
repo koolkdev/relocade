@@ -1,9 +1,9 @@
 //! SSE and SSE2 moves and logical operations preserve raw XMM encodings.
 
 use super::*;
-use crate::instruction::{VectorAlignment, XmmLocation};
-use crate::memory::{Intent, TransferType};
-use wasm86_compiler::{VectorLane, V128};
+use crate::instruction::{UpperBits, VectorAlignment, XmmLocation};
+use crate::memory::TransferType;
+use wasm86_compiler::VectorLane;
 
 instruction_families! {
     MOVUPS {
@@ -92,21 +92,13 @@ fn move_scalar<T: VectorLane + TransferType>(
     source: XmmLocation,
 ) -> Result<(), BuildError> {
     // Legacy scalar loads clear the upper bits; register copies preserve them.
-    let clear_upper = source.is_memory();
+    let upper_bits = if source.is_memory() {
+        UpperBits::Clear
+    } else {
+        UpperBits::Preserve
+    };
     let value = source.read_scalar::<T>(execution)?;
-    match destination {
-        XmmLocation::Register(register) => {
-            let vector = if clear_upper {
-                Val::<V128>::from(0_u128)
-            } else {
-                execution.read_xmm(register.clone())?
-            };
-            execution.write_xmm(register, vector.replace_lane(0, value))
-        }
-        XmmLocation::Memory(address) => execution
-            .memory_operand(*address, T::BYTES, Intent::Write, &[])?
-            .write(execution, 0, value),
-    }
+    destination.write_scalar(execution, upper_bits, value)
 }
 
 fn xor_vector(

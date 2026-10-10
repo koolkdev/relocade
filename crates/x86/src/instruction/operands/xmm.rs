@@ -21,6 +21,13 @@ impl VectorAlignment {
     }
 }
 
+/// How a scalar write treats the XMM register bits above its low lane.
+#[derive(Clone, Copy)]
+pub(crate) enum UpperBits {
+    Clear,
+    Preserve,
+}
+
 /// A location in the XMM register class or a memory operand.
 pub(crate) enum XmmLocation {
     Register(crate::register::RegisterCode),
@@ -50,6 +57,28 @@ impl XmmLocation {
             Self::Memory(address) => execution
                 .memory_operand(*address, T::BYTES, Intent::Read, &[])?
                 .read(execution, 0),
+        }
+    }
+
+    /// Writes the low register lane or exactly one scalar to memory.
+    /// The upper-bit policy applies only to a register destination.
+    pub(crate) fn write_scalar<T: VectorLane + TransferType>(
+        self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        upper_bits: UpperBits,
+        value: Val<T>,
+    ) -> Result<(), BuildError> {
+        match self {
+            Self::Register(register) => {
+                let vector = match upper_bits {
+                    UpperBits::Clear => Val::<V128>::from(0_u128),
+                    UpperBits::Preserve => execution.read_xmm(register.clone())?,
+                };
+                execution.write_xmm(register, vector.replace_lane(0, value))
+            }
+            Self::Memory(address) => execution
+                .memory_operand(*address, T::BYTES, Intent::Write, &[])?
+                .write(execution, 0, value),
         }
     }
 
