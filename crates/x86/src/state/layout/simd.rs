@@ -16,7 +16,7 @@ pub struct StoredSimd {
 impl Default for StoredSimd {
     fn default() -> Self {
         Self {
-            mxcsr: 0x1f80,
+            mxcsr: Self::MXCSR_RESET,
             reserved: [0; 4],
             xmm: [[0; 16]; 8],
         }
@@ -24,6 +24,12 @@ impl Default for StoredSimd {
 }
 
 impl StoredSimd {
+    /// Reset control: all exceptions masked, round to nearest, gradual underflow.
+    pub const MXCSR_RESET: u32 = 0x1f80;
+
+    /// Architecturally writable bits. This target supports DAZ (bit 6).
+    pub const MXCSR_MASK: u32 = 0x0000_ffff;
+
     pub(super) fn read(bytes: &[u8]) -> Self {
         Self {
             mxcsr: read_u32(bytes, 0),

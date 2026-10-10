@@ -2,6 +2,8 @@
 
 #[path = "sse/moves.rs"]
 mod moves;
+#[path = "sse/mxcsr.rs"]
+mod mxcsr;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},

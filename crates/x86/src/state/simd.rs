@@ -1,9 +1,9 @@
-//! XMM definitions share fixed and runtime-indexed backing synchronization.
+//! Retained SIMD state preserves raw XMM encodings and logical MXCSR bits.
 
-use super::{CpuState, State};
+use super::{access::cpu_location, CpuState, State, StoredSimd};
 use crate::{register::RegisterCode, ssa::Location};
 use std::mem::offset_of;
-use wasm86_compiler::{BlockBuilder, BuildError, Val, V128};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I32, V128};
 
 fn xmm_location(register: RegisterCode) -> Location<V128> {
     let base = offset_of!(CpuState, simd.xmm) as u32;
@@ -14,6 +14,29 @@ fn xmm_location(register: RegisterCode) -> Location<V128> {
 }
 
 impl State<'_> {
+    pub(crate) fn read_mxcsr(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<Val<I32>, BuildError> {
+        // Literal snapshots retain reserved bits; architectural reads expose zero.
+        Ok(self
+            .simd
+            .read(body, cpu_location!(simd.mxcsr))?
+            .and(StoredSimd::MXCSR_MASK))
+    }
+
+    pub(crate) fn write_mxcsr(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        value: Val<I32>,
+    ) -> Result<(), BuildError> {
+        self.simd.define(
+            body,
+            cpu_location!(simd.mxcsr),
+            value.and(StoredSimd::MXCSR_MASK),
+        )
+    }
+
     pub(crate) fn read_xmm(
         &mut self,
         body: &mut BlockBuilder<'_>,
