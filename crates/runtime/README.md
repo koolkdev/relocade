@@ -1,10 +1,20 @@
-# Asynchronous Wasmtime runtime
+# Asynchronous runtime
 
 `wasm86-runtime` keeps guest execution and host memory ownership on one thread.
 A worker receives owned requests, generates Wasm with `wasm86-codegen`, and
 compiles Wasmtime modules. The execution owner installs completed modules between
 Wasm invocations. It never waits for generation or compilation, including startup.
 Compilation requests are explicit; automatic hotness tracking comes later.
+
+The [Node.js/V8 adapter](v8/runtime.mjs) uses the same Rust generator and generated
+interpreter/JIT semantics. Its JavaScript memory owner follows the same watch and
+ticket protocol as `wasm86-code-cache`, keeping Wasm generator calls off the
+execution thread. Mapping/alias metadata lives in `mappings.mjs`, memory mutation
+and code lifetimes in `memory.mjs`, and scheduling/engine handles in
+`runtime.mjs`. Wasmtime separates those responsibilities into `HostMemory`,
+`CodeCache`, and `Runtime`/its compiler worker.
+
+## Wasmtime
 
 Create an engine supporting multi-memory, multi-value, tail calls and threads.
 Create its store with `HostState::new(host_payload)`, initialize CPU, backing and
@@ -100,10 +110,79 @@ until that Store is dropped. `into_store()` preserves this arena along with gues
 state. Repeated installations can eventually reach Store limits and report an
 instantiation failure; the interpreter remains available.
 
+## Node.js / V8
+
+Build the generator artifact before starting the application:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo build -p wasm86-codegen --target wasm32-unknown-unknown --release --locked
+```
+
+Use Node.js 24 and the ordinary host imports, including initialized private CPU,
+guest and mapping memories. The runtime supplies budget, dispatch, handoff and
+invalidation. A Node worker instantiates the generator and compiles all generated
+Wasm; only completed `WebAssembly.Module` objects return to the execution thread.
+
+```js
+import { Runtime } from './crates/runtime/v8/runtime.mjs';
+
+const runtime = new Runtime({
+  generator: new URL('./target/wasm32-unknown-unknown/release/wasm86_codegen.wasm', import.meta.url),
+  imports,
+  profile: 'flat32',
+});
+const ticket = runtime.requestBlock(0x1000, 16);
+const slice = await runtime.runSlice(4096);
+// exit: starting, yielded, guest, incompatible_profile, or unavailable.
+// Guest exits include the raw BigInt ABI value; compilations reports tickets.
+runtime.memory.writeBacking(0x2000, [1, 2, 3]);
+runtime.memory.remap(3, { kind: 'ram', backing: 0x2000, writable: true });
+await runtime.close();
+```
+
+Prepared artifacts use the same registration and installation contract as
+Wasmtime. Match the artifact to the guest image, profile and ABI, then register
+all of its code ranges before asynchronous loading or engine compilation:
+
+```js
+const ticket = runtime.registerCode(0x1000, [{ offset: 0x1000, bytes: 3 }]);
+// Obtain a matching WebAssembly.Module from an off-thread producer.
+const installed = runtime.install(ticket, { module, entry: 'block_1000' });
+```
+
+`registerCode` returns `null` when complete dependencies cannot be protected.
+`install` accepts an already compiled module with no start function or
+imported-memory initialization. It returns `false` for a stale or already
+installed ticket, and throws on instantiation/export failure after releasing
+that registration. A failed replacement retains the previous installed block.
+`cancelCode(ticket)` abandons a registration or invalidates an installed entry.
+Worker completions call this same installation operation; stopping a worker
+does not cancel a ticket already installed through another producer.
+
+`requestBlock` returns `null` for a full queue and throws for an invalid request
+or unavailable fetch bytes. `runSlice` yields to the event loop before installing
+completions and entering Wasm. Overlapping slices are rejected. Device callbacks
+may call `writeBacking` and `remap`; registration, capture, installation and close
+require an execution boundary. `close` releases watches and terminates the worker.
+To change profiles, close the runtime and construct another using the same
+memories; discard the old memory owner. Shared memories and simultaneous owners
+are rejected. Views are refreshed after host memory growth.
+
+## Scope and validation
+
 This stage uses host dispatch and one block per module. It deliberately leaves
 hotness policy, dispatch tables, direct tail links and multi-block modules for
 later work. Wasm traps remain host errors; expected guest faults remain ABI values.
 
 ```sh
 cargo test -p wasm86-runtime --locked
+cargo build -p wasm86-codegen --target wasm32-unknown-unknown --release --locked
+cargo test -p wasm86-runtime --locked --test v8 -- --ignored
 ```
+
+The V8 lane disables Liftoff, lazy Wasm compilation and tier-up. It checks worker
+isolation, installation during guest progress, independently prepared modules,
+watched aliases and remaps, device callbacks, and REP continuation. Shared
+generated slice and write-guard behavior also has focused tests on both engines
+in `wasm86-x86`.

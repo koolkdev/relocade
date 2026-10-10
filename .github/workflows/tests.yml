@@ -25,6 +25,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Install Node.js
         uses: actions/setup-node@v7
@@ -38,4 +40,6 @@ jobs:
         run: cargo test --workspace --locked
 
       - name: Run V8 tests
-        run: cargo test --workspace --locked -- --ignored
+        run: |
+          cargo build -p wasm86-codegen --target wasm32-unknown-unknown --release --locked
+          cargo test --workspace --locked -- --ignored
