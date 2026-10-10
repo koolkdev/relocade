@@ -1,6 +1,6 @@
 //! Keep only knowledge that holds on every incoming path.
 
-use super::{Bits, Range, ScalarFacts};
+use super::{Bits, PathContext, Range, ValueAnalysis};
 use crate::body::ValueTable;
 
 #[cfg(test)]
@@ -16,10 +16,35 @@ impl Bits {
     }
 }
 
-impl ScalarFacts {
+impl ValueAnalysis {
+    /// Establish the common context and its parameter observations before querying it.
+    pub(in crate::place) fn join(
+        table: &ValueTable,
+        parameters: &[usize],
+        incoming: &[(&Self, &[usize])],
+    ) -> Self {
+        let Some((first, _)) = incoming.first() else {
+            return Self::default();
+        };
+        let mut joined = (*first).clone();
+        for (analysis, _) in &incoming[1..] {
+            joined.context.retain_common(&analysis.context);
+        }
+        for (component, &parameter) in parameters.iter().enumerate() {
+            joined.merge_parameter(
+                table,
+                parameter,
+                incoming
+                    .iter()
+                    .map(|&(analysis, arguments)| (analysis, arguments[component])),
+            );
+        }
+        joined
+    }
+
     /// A scalar parameter keeps only logical bits proved by every incoming argument.
     /// Vector parameters still join normally, without acquiring scalar facts.
-    pub(in crate::place) fn merge_parameter<'a>(
+    fn merge_parameter<'a>(
         &mut self,
         table: &ValueTable,
         parameter: usize,
@@ -37,8 +62,10 @@ impl ScalarFacts {
             self.assume_bits(parameter, bits.mask, bits.value);
         }
     }
+}
 
-    pub(in crate::place) fn retain_common(&mut self, other: &Self) {
+impl PathContext {
+    fn retain_common(&mut self, other: &Self) {
         self.known.retain(|id, bits| {
             let incoming = other.known.get(id).copied().unwrap_or_default();
             *bits = bits.common(incoming);
@@ -56,8 +83,5 @@ impl ScalarFacts {
             true
         });
         self.comparisons.retain_common(&other.comparisons);
-        // Earlier inferences may depend on knowledge just discarded.
-        self.computed.get_mut().clear();
-        self.select_constants.clear();
     }
 }

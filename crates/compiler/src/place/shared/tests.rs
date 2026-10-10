@@ -243,7 +243,7 @@ fn sharing_analysis_resolves_ancestor_joins_before_caching_values() {
         placer
             .joins
             .record(source.0, [(product, value)].into_iter());
-        placer.joins.complete(source.0, &ScalarFacts::default());
+        placer.joins.complete(source.0, &ValueAnalysis::default());
     }
     placer.joins.prepare(
         placer.graph,
@@ -291,10 +291,15 @@ fn knowing_one_component_does_not_make_its_sibling_available() {
         },
     );
     let mut placer = placer(&mut graph);
-    placer
-        .specializer
-        .facts_mut()
-        .assume(&placer.graph.values, condition, true);
+    placer.specializer.begin_block(
+        &placer.graph.values,
+        &placer.available,
+        None,
+        Some(EdgeAssumption::Truth {
+            condition,
+            truth: true,
+        }),
+    );
     let folded = placer.materialize(low, BlockId(0));
     assert!(matches!(
         placer.graph.values[folded].scalar_literal(),

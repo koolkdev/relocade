@@ -1,19 +1,51 @@
 //! Fold recipes under one set of path facts without scheduling calculations.
 use super::*;
+use analysis::{Assumption, ContextScope};
 
 #[cfg(test)]
 mod tests;
 
 #[derive(Default)]
 pub(super) struct Specializer {
-    facts: ScalarFacts,
+    analysis: ValueAnalysis,
     residuals: HashMap<usize, usize>,
 }
 
-/// Restore inherited facts by undoing changes; suspend them when a join replaces them.
-pub(super) enum BlockScope {
-    Inherited(facts::Checkpoint),
-    Replaced(Box<ScalarFacts>),
+/// The observation made by a selected control-flow edge.
+pub(super) enum EdgeAssumption {
+    Truth { condition: usize, truth: bool },
+    Equal { selector: usize, value: u64 },
+}
+
+impl EdgeAssumption {
+    fn observations(self, values: &ValueTable, available: &Availability) -> Vec<Assumption> {
+        let (observed, mask) = match self {
+            Self::Truth { condition, .. } => (condition, 1),
+            Self::Equal { selector, .. } => (selector, values[selector].ty.mask()),
+        };
+        // A literal supplies no runtime observation to replay through its aliases.
+        if matches!(values[observed].definition, ValueDefinition::Literal(_)) {
+            return Vec::new();
+        }
+        let mut sources = available.sources(values, observed, mask);
+        // Learning earlier recipes first avoids discarding later derivations
+        // while the new context's observations are still being propagated.
+        sources.sort_unstable_by_key(|source| source.recipe);
+        sources
+            .into_iter()
+            .map(|source| match self {
+                Self::Truth { truth, .. } => Assumption::Truth {
+                    condition: source.recipe,
+                    truth,
+                },
+                Self::Equal { value, .. } => Assumption::Bits {
+                    value: source.recipe,
+                    mask: source.mask,
+                    bits: value,
+                },
+            })
+            .collect()
+    }
 }
 
 pub(super) struct Alias {
@@ -27,31 +59,28 @@ pub(super) struct Specialization {
 }
 
 impl Specializer {
-    pub(super) fn begin_block(&mut self, incoming: Option<ScalarFacts>) -> BlockScope {
+    pub(super) fn begin_block(
+        &mut self,
+        values: &ValueTable,
+        available: &Availability,
+        incoming: Option<ValueAnalysis>,
+        edge: Option<EdgeAssumption>,
+    ) -> ContextScope {
+        // Availability changes across blocks even when path knowledge does not.
         self.residuals.clear();
-        match incoming {
-            Some(facts) => {
-                BlockScope::Replaced(Box::new(std::mem::replace(&mut self.facts, facts)))
-            }
-            None => BlockScope::Inherited(self.facts.checkpoint()),
-        }
+        let observations = edge
+            .map(|edge| edge.observations(values, available))
+            .unwrap_or_default();
+        self.analysis.enter(values, incoming, observations)
     }
 
-    pub(super) fn end_block(&mut self, scope: BlockScope) {
+    pub(super) fn end_block(&mut self, scope: ContextScope) {
         self.residuals.clear();
-        match scope {
-            BlockScope::Inherited(checkpoint) => self.facts.restore(checkpoint),
-            BlockScope::Replaced(previous) => self.facts = *previous,
-        }
+        self.analysis.leave(scope);
     }
 
-    pub(super) fn facts(&self) -> &ScalarFacts {
-        &self.facts
-    }
-
-    pub(super) fn facts_mut(&mut self) -> &mut ScalarFacts {
-        self.residuals.clear();
-        &mut self.facts
+    pub(super) fn analysis(&self) -> &ValueAnalysis {
+        &self.analysis
     }
 
     pub(super) fn on_branch(
@@ -61,49 +90,11 @@ impl Specializer {
         condition: usize,
         truth: bool,
     ) -> Self {
-        let mut branch = Self {
-            facts: self.facts.clone(),
+        let observations =
+            EdgeAssumption::Truth { condition, truth }.observations(values, available);
+        Self {
+            analysis: self.analysis.fork(values, observations),
             residuals: HashMap::new(),
-        };
-        branch.assume(values, available, condition, truth);
-        branch
-    }
-
-    pub(super) fn assume(
-        &mut self,
-        values: &ValueTable,
-        available: &Availability,
-        condition: usize,
-        truth: bool,
-    ) {
-        // A constant supplies no new runtime observation. Do not replay its
-        // shared alias history, including on the discarded edge.
-        if matches!(values[condition].definition, ValueDefinition::Literal(_)) {
-            return;
-        }
-        let mut sources = available.sources(values, condition, 1);
-        // Learning earlier recipes first reduces invalidation of inference
-        // cached for later residuals.
-        sources.sort_unstable_by_key(|source| source.recipe);
-        let facts = self.facts_mut();
-        for source in sources {
-            facts.assume(values, source.recipe, truth);
-        }
-    }
-
-    pub(super) fn equal(
-        &mut self,
-        values: &ValueTable,
-        available: &Availability,
-        selector: usize,
-        value: u64,
-    ) {
-        if matches!(values[selector].definition, ValueDefinition::Literal(_)) {
-            return;
-        }
-        let facts = self.facts_mut();
-        for source in available.sources(values, selector, values[selector].ty.mask()) {
-            facts.assume_bits(source.recipe, source.mask, value);
         }
     }
 
@@ -115,7 +106,7 @@ impl Specializer {
         &mut self,
         graph: &mut FunctionGraph,
         root: usize,
-        mut resolve: impl FnMut(&mut FunctionGraph, usize, &ScalarFacts) -> Option<usize>,
+        mut resolve: impl FnMut(&mut FunctionGraph, usize, &ValueAnalysis) -> Option<usize>,
     ) -> Specialization {
         enum Work {
             Visit(usize),
@@ -133,9 +124,9 @@ impl Specializer {
                     }
                     if let Some(result) = self.known_constant(&mut graph.values, id) {
                         self.record(id, result, &mut aliases);
-                    } else if let Some(result) = resolve(graph, id, &self.facts) {
+                    } else if let Some(result) = resolve(graph, id, &self.analysis) {
                         self.record(id, result, &mut aliases);
-                    } else if let Some(input) = self.facts.bitwise_identity(&graph.values, id) {
+                    } else if let Some(input) = self.analysis.bitwise_identity(&graph.values, id) {
                         work.push(Work::Alias(id, input));
                         work.push(Work::Visit(input));
                     } else if let Some(result) = graph.values.expression(id) {
@@ -186,16 +177,16 @@ impl Specializer {
                     let result =
                         if let Some(constant) = self.known_constant(&mut graph.values, rewritten) {
                             constant
-                        } else if let Some(available) = resolve(graph, rewritten, &self.facts) {
+                        } else if let Some(available) = resolve(graph, rewritten, &self.analysis) {
                             available
                         } else if let Some(input) =
-                            self.facts.bitwise_identity(&graph.values, rewritten)
+                            self.analysis.bitwise_identity(&graph.values, rewritten)
                         {
                             input
                         } else {
                             let folded = crate::expression::refold(&mut graph.values, rewritten);
                             self.known_constant(&mut graph.values, folded)
-                                .or_else(|| resolve(graph, folded, &self.facts))
+                                .or_else(|| resolve(graph, folded, &self.analysis))
                                 .unwrap_or(folded)
                         };
                     let result = self
@@ -204,7 +195,7 @@ impl Specializer {
                     // Ordinary input specialization and refolding run first;
                     // case analysis only sees the remaining small predicate.
                     let result = self
-                        .facts
+                        .analysis
                         .constant_across_selects(&graph.values, result)
                         .map(|bits| graph.values.carrier_literal(crate::Type::I1, bits))
                         .unwrap_or(result);
@@ -219,7 +210,7 @@ impl Specializer {
     }
 
     fn known_constant(&self, values: &mut ValueTable, value: usize) -> Option<usize> {
-        let bits = self.facts.constant(values, value)?;
+        let bits = self.analysis.constant(values, value)?;
         let bits = values.carrier_bits(value, bits)?;
         Some(values.carrier_literal(values[value].ty, bits))
     }

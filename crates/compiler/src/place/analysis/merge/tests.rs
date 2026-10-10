@@ -1,3 +1,4 @@
+use super::super::Assumption;
 use super::*;
 use crate::{
     body::{BlockId, Value, ValueDefinition, ValueTable},
@@ -33,16 +34,34 @@ fn compare(table: &mut ValueTable, operator: CompareOp, left: usize, right: usiz
 #[test]
 fn common_bits_discard_disagreements_missing_facts_and_cached_constants() {
     let table = parameters();
-    let mut first = ScalarFacts::default();
-    first.assume_bits(0, 0xffff_ffff, 5);
-    first.assume_bits(1, 0xffff_ffff, 9);
+    let mut first = ValueAnalysis::default().fork(
+        &table,
+        [
+            Assumption::Bits {
+                value: 0,
+                mask: 0xffff_ffff,
+                bits: 5,
+            },
+            Assumption::Bits {
+                value: 1,
+                mask: 0xffff_ffff,
+                bits: 9,
+            },
+        ],
+    );
     assert_eq!(first.constant(&table, 0), Some(5));
     assert_eq!(first.constant(&table, 1), Some(9));
     assert_eq!(first.bits(&table, 0).value, 5);
     assert_eq!(first.bits(&table, 1).value, 9);
-    let mut second = ScalarFacts::default();
-    second.assume_bits(0, 0xffff_ffff, 7);
-    first.retain_common(&second);
+    let second = ValueAnalysis::default().fork(
+        &table,
+        [Assumption::Bits {
+            value: 0,
+            mask: 0xffff_ffff,
+            bits: 7,
+        }],
+    );
+    first = ValueAnalysis::join(&table, &[], &[(&first, &[]), (&second, &[])]);
     let bits = first.bits(&table, 0);
     assert_eq!((bits.mask, bits.value), (0xffff_fffd, 5));
     assert_eq!(first.constant(&table, 0), None);
@@ -56,15 +75,29 @@ fn common_ranges_cover_both_paths_even_without_a_shared_predicate_identity() {
     let twenty = table.literal(Type::I32, 20);
     let below_ten = compare(&mut table, CompareOp::LtUnsigned, 0, ten);
     let below_twenty = compare(&mut table, CompareOp::LtUnsigned, 0, twenty);
-    let mut first = ScalarFacts::default();
-    first.assume(&table, below_ten, true);
-    let mut second = ScalarFacts::default();
-    second.assume(&table, below_twenty, true);
-    first.retain_common(&second);
-    assert!(first.known.is_empty());
+    let mut first = ValueAnalysis::default().fork(
+        &table,
+        [Assumption::Truth {
+            condition: below_ten,
+            truth: true,
+        }],
+    );
+    let second = ValueAnalysis::default().fork(
+        &table,
+        [Assumption::Truth {
+            condition: below_twenty,
+            truth: true,
+        }],
+    );
+    first = ValueAnalysis::join(&table, &[], &[(&first, &[]), (&second, &[])]);
+    assert!(first.context.known.is_empty());
     assert_eq!(first.constant(&table, below_twenty), Some(1));
     assert_eq!(first.constant(&table, below_ten), None);
-    first.retain_common(&ScalarFacts::default());
+    first = ValueAnalysis::join(
+        &table,
+        &[],
+        &[(&first, &[]), (&ValueAnalysis::default(), &[])],
+    );
     assert_eq!(first.constant(&table, below_twenty), None);
 }
 
@@ -73,15 +106,30 @@ fn common_comparison_outcomes_survive_distinct_predicates_but_not_disagreement()
     let mut table = parameters();
     let equal = compare(&mut table, CompareOp::Eq, 0, 1);
     let reversed = compare(&mut table, CompareOp::Eq, 1, 0);
-    let mut first = ScalarFacts::default();
-    first.assume(&table, equal, true);
-    let mut second = ScalarFacts::default();
-    second.assume(&table, reversed, true);
-    first.retain_common(&second);
-    assert!(first.known.is_empty());
+    let mut first = ValueAnalysis::default().fork(
+        &table,
+        [Assumption::Truth {
+            condition: equal,
+            truth: true,
+        }],
+    );
+    let second = ValueAnalysis::default().fork(
+        &table,
+        [Assumption::Truth {
+            condition: reversed,
+            truth: true,
+        }],
+    );
+    first = ValueAnalysis::join(&table, &[], &[(&first, &[]), (&second, &[])]);
+    assert!(first.context.known.is_empty());
     assert_eq!(first.constant(&table, equal), Some(1));
-    let mut unequal = ScalarFacts::default();
-    unequal.assume(&table, reversed, false);
-    first.retain_common(&unequal);
+    let unequal = ValueAnalysis::default().fork(
+        &table,
+        [Assumption::Truth {
+            condition: reversed,
+            truth: false,
+        }],
+    );
+    first = ValueAnalysis::join(&table, &[], &[(&first, &[]), (&unequal, &[])]);
     assert_eq!(first.constant(&table, equal), None);
 }

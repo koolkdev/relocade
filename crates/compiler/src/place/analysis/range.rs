@@ -1,6 +1,6 @@
 //! Unsigned intervals for comparisons on normalized logical values.
 
-use super::{Bits, ScalarFacts};
+use super::{Bits, ValueAnalysis};
 use crate::{body::ValueTable, integer::CompareOp};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -43,7 +43,7 @@ impl Range {
     }
 }
 
-impl ScalarFacts {
+impl ValueAnalysis {
     pub(super) fn range(&self, table: &ValueTable, id: usize, bits: Bits) -> Option<Range> {
         // Unsigned comparisons observe carriers. Logical intervals describe
         // those carriers only after their unused upper bits have been cleared.
@@ -55,7 +55,8 @@ impl ScalarFacts {
             maximum: bits.value | (table[id].ty.mask() & !bits.mask),
         };
         Some(
-            self.ranges
+            self.context
+                .ranges
                 .get(&id)
                 .and_then(|&range| logical.intersect(range))
                 .unwrap_or(logical),
@@ -67,13 +68,14 @@ impl ScalarFacts {
             return;
         }
         let Some(range) = self
+            .context
             .ranges
             .get(&id)
             .map_or(Some(range), |previous| previous.intersect(range))
         else {
             return;
         };
-        if self.ranges.insert(id, range) != Some(range) {
+        if self.context.ranges.insert(id, range) != Some(range) {
             self.invalidate_from(id);
         }
     }

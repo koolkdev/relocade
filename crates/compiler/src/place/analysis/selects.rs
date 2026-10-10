@@ -1,6 +1,6 @@
 //! Fold small Boolean combinations using shared select alternatives.
 
-use super::ScalarFacts;
+use super::{Assumption, ValueAnalysis};
 use crate::{
     bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
@@ -13,7 +13,7 @@ const MAX_CASES: usize = 8;
 #[cfg(test)]
 mod tests;
 
-impl ScalarFacts {
+impl ValueAnalysis {
     pub(in crate::place) fn constant_across_selects(
         &mut self,
         table: &ValueTable,
@@ -37,24 +37,17 @@ impl ScalarFacts {
         if let Some(value) = self.inferred_constant(table, root) {
             return Some(value);
         }
-        if let Some(&result) = self.select_constants.get(&root) {
+        if let Some(&result) = self.derived.borrow().select_constants.get(&root) {
             return result;
         }
         let result = self.select_inputs(table, root).and_then(|conditions| {
             if conditions.is_empty() {
                 return None;
             }
-            // Case assumptions use the existing undo scopes. Suspend inference
-            // caches so speculative invalidation leaves the caller's cache intact.
-            let computed = self.computed.take();
-            let constants = std::mem::take(&mut self.select_constants);
             let mut remaining = MAX_CASES;
-            let result = self.prove_select_cases(table, root, &conditions, &mut remaining);
-            *self.computed.get_mut() = computed;
-            self.select_constants = constants;
-            result
+            self.prove_select_cases(table, root, &conditions, &mut remaining)
         });
-        self.select_constants.insert(root, result);
+        self.derived.get_mut().select_constants.insert(root, result);
         result
     }
 
@@ -72,6 +65,7 @@ impl ScalarFacts {
             visited.push(id);
             if matches!(table[id].definition, ValueDefinition::Literal(_))
                 || self
+                    .context
                     .known
                     .get(&id)
                     .is_some_and(|bits| bits.mask == table[id].ty.mask())
@@ -128,10 +122,16 @@ impl ScalarFacts {
         }
         let mut results = [None; 2];
         for (truth, result) in results.iter_mut().enumerate() {
-            let scope = self.checkpoint();
-            self.assume(table, condition, truth != 0);
+            let scope = self.enter(
+                table,
+                None,
+                [Assumption::Truth {
+                    condition,
+                    truth: truth != 0,
+                }],
+            );
             *result = self.prove_select_cases(table, root, rest, remaining);
-            self.restore(scope);
+            self.leave(scope);
             (*result)?;
         }
         (results[0] == results[1]).then_some(results[0]).flatten()

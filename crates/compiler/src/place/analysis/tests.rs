@@ -42,7 +42,7 @@ fn structural_inference_leaves_vector_values_opaque() {
     });
     let zero = table.literal(Type::V128, 0_u128);
     let high = table.literal(Type::V128, 1_u128 << 96);
-    let facts = ScalarFacts::default();
+    let facts = ValueAnalysis::default();
     for value in [input, zero, high] {
         assert_eq!(facts.inferred_constant(&table, value), None);
     }
@@ -51,17 +51,36 @@ fn structural_inference_leaves_vector_values_opaque() {
 #[test]
 fn restoring_partial_bits_discards_child_constants_but_preserves_snapshots() {
     let table = parameters();
-    let mut facts = ScalarFacts::default();
-    facts.assume_bits(0, 0xff, 0x12);
-    let scope = facts.checkpoint();
-    facts.assume_bits(0, 0xffff_ff00, 0x123400);
-    facts.assume_bits(1, 0xffff_ffff, 9);
+    let mut facts = ValueAnalysis::default().fork(
+        &table,
+        [Assumption::Bits {
+            value: 0,
+            mask: 0xff,
+            bits: 0x12,
+        }],
+    );
+    let scope = facts.enter(
+        &table,
+        None,
+        [
+            Assumption::Bits {
+                value: 0,
+                mask: 0xffff_ff00,
+                bits: 0x123400,
+            },
+            Assumption::Bits {
+                value: 1,
+                mask: 0xffff_ffff,
+                bits: 9,
+            },
+        ],
+    );
     assert_eq!(facts.constant(&table, 0), Some(0x123412));
     assert_eq!(facts.constant(&table, 1), Some(9));
     assert_eq!(facts.bits(&table, 0).value, 0x123412);
     assert_eq!(facts.bits(&table, 1).value, 9);
     let snapshot = facts.clone();
-    facts.restore(scope);
+    facts.leave(scope);
     assert_eq!(facts.constant(&table, 0), None);
     assert_eq!(facts.constant(&table, 1), None);
     let bits = facts.bits(&table, 0);
@@ -78,19 +97,36 @@ fn restoring_ranges_discards_child_comparison_inference() {
     let below_ten = compare(&mut table, CompareOp::LtUnsigned, 0, ten);
     let below_twenty = compare(&mut table, CompareOp::LtUnsigned, 0, twenty);
     let below_forty = compare(&mut table, CompareOp::LtUnsigned, 0, forty);
-    let mut facts = ScalarFacts::default();
-    facts.assume(&table, below_forty, true);
-    let scope = facts.checkpoint();
-    facts.assume(&table, below_ten, true);
+    let mut facts = ValueAnalysis::default().fork(
+        &table,
+        [Assumption::Truth {
+            condition: below_forty,
+            truth: true,
+        }],
+    );
+    let scope = facts.enter(
+        &table,
+        None,
+        [Assumption::Truth {
+            condition: below_ten,
+            truth: true,
+        }],
+    );
     assert_eq!(facts.constant(&table, below_twenty), Some(1));
-    facts.restore(scope);
+    facts.leave(scope);
     assert_eq!(facts.constant(&table, below_forty), Some(1));
     assert_eq!(facts.constant(&table, below_twenty), None);
-    let sibling = facts.checkpoint();
-    facts.assume(&table, below_twenty, false);
+    let sibling = facts.enter(
+        &table,
+        None,
+        [Assumption::Truth {
+            condition: below_twenty,
+            truth: false,
+        }],
+    );
     assert_eq!(facts.constant(&table, below_ten), Some(0));
     assert_eq!(facts.constant(&table, below_forty), Some(1));
-    facts.restore(sibling);
+    facts.leave(sibling);
     assert_eq!(facts.constant(&table, below_twenty), None);
 }
 
@@ -100,19 +136,38 @@ fn restoring_comparisons_forgets_equivalent_and_opposite_predicates() {
     let unequal = compare(&mut table, CompareOp::Ne, 0, 1);
     let reversed = compare(&mut table, CompareOp::Eq, 1, 0);
     let equal = compare(&mut table, CompareOp::Eq, 0, 1);
-    let mut facts = ScalarFacts::default();
+    let mut facts = ValueAnalysis::default();
     // Keep an inherited fact so subsequent queries still consult inference.
-    facts.assume_bits(0, 1, 0);
-    let scope = facts.checkpoint();
-    facts.assume(&table, equal, true);
+    facts = facts.fork(
+        &table,
+        [Assumption::Bits {
+            value: 0,
+            mask: 1,
+            bits: 0,
+        }],
+    );
+    let scope = facts.enter(
+        &table,
+        None,
+        [Assumption::Truth {
+            condition: equal,
+            truth: true,
+        }],
+    );
     assert_eq!(facts.constant(&table, unequal), Some(0));
     assert_eq!(facts.constant(&table, reversed), Some(1));
-    facts.restore(scope);
+    facts.leave(scope);
     assert_eq!(facts.constant(&table, unequal), None);
     assert_eq!(facts.constant(&table, reversed), None);
-    let sibling = facts.checkpoint();
-    facts.assume(&table, equal, false);
+    let sibling = facts.enter(
+        &table,
+        None,
+        [Assumption::Truth {
+            condition: equal,
+            truth: false,
+        }],
+    );
     assert_eq!(facts.constant(&table, unequal), Some(1));
     assert_eq!(facts.constant(&table, reversed), Some(0));
-    facts.restore(sibling);
+    facts.leave(sibling);
 }
