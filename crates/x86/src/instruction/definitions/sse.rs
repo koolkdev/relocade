@@ -1,10 +1,20 @@
-//! SSE and SSE2 moves and logical operations preserve raw XMM encodings.
+//! SSE and SSE2 raw transfers, logical operations and MXCSR control.
 
 use super::*;
+use crate::address::MemoryAddress;
 use crate::instruction::{VectorAlignment, XmmLocation, XmmType};
+use crate::memory::Intent;
 use wasm86_compiler::{VectorLane, V128};
 
 instruction_families! {
+    LDMXCSR {
+        execute: load_mxcsr;
+        forms { 0x0f 0xae / 2 => operands(mem); }
+    }
+    STMXCSR {
+        execute: store_mxcsr;
+        forms { 0x0f 0xae / 3 => operands(mem); }
+    }
     MOVUPS {
         execute: move_vector(VectorAlignment::Unaligned);
         forms {
@@ -73,6 +83,26 @@ instruction_families! {
             P66 0x0f 0x57 => operands(xmm, xmm_rm);
         }
     }
+}
+
+fn load_mxcsr(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    source: MemoryAddress<Val<I32>>,
+) -> Result<(), BuildError> {
+    let value = execution
+        .memory_operand(source, 4, Intent::Read, &[])?
+        .read(execution, 0)?;
+    execution.load_mxcsr(value)
+}
+
+fn store_mxcsr(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: MemoryAddress<Val<I32>>,
+) -> Result<(), BuildError> {
+    let value = execution.read_mxcsr()?;
+    execution
+        .memory_operand(destination, 4, Intent::Write, &[])?
+        .write(execution, 0, value)
 }
 
 fn move_vector(

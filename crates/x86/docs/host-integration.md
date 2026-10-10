@@ -714,3 +714,15 @@ as integer state, including runtime-indexed register accesses and fault publicat
 The complete operand span is checked before transfer. Scattered virtual backing
 and physical MMIO use ordered integer parts; contiguous packed transfers use Wasm SIMD.
 Hosts must enable the standard WebAssembly SIMD feature for these instructions.
+
+LDMXCSR/STMXCSR transfer an unaligned four-byte architectural MXCSR word.
+`StoredSimd::MXCSR_MASK` is `0x0000ffff`: this target supports DAZ (bit 6), in
+addition to exception status, exception masks, rounding control and FTZ. DAZ was
+optional on Pentium 4; hosts can use this mask as the emulator's declared policy.
+`StoredSimd::MXCSR_RESET` is `0x1f80`. LDMXCSR raises #GP(0) if any bit outside
+the supported mask is set, after completing the memory read and before changing
+state. Loading exception flags or unmasking them does not itself raise a SIMD
+floating-point exception. STMXCSR writes supported bits and zeroes reserved bits
+without normalizing the literal CPU snapshot. Both instructions leave XMM, EFLAGS
+and x87 state unchanged. SIMD floating-point arithmetic and its exception delivery
+are outside the current instruction subset.
