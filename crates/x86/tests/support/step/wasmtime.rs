@@ -47,6 +47,18 @@ impl TestModule {
                 memory.write(&mut store, *offset as usize, bytes).unwrap();
             }
         }
+        for &page in &input.code_pages {
+            let offset = page as usize * 4;
+            let word =
+                u32::from_le_bytes(machine.data(&store)[offset..offset + 4].try_into().unwrap());
+            machine
+                .write(
+                    &mut store,
+                    offset,
+                    &(word | crate::CODE_WATCH).to_le_bytes(),
+                )
+                .unwrap();
+        }
         let guest_before: Arc<[u8]> = guest.data(&store).into();
         // CPU-only observers without host mapping edits cannot change machine
         // memory. Avoid its four-megabyte copies at flag-observation checkpoints.
@@ -68,6 +80,18 @@ impl TestModule {
         ] {
             linker.define(&store, "wasm86", name, memory).unwrap();
         }
+        linker
+            .func_wrap(
+                "wasm86",
+                "invalidateCode",
+                |mut caller: Caller<'_, ExecutionEvents>, address: u32, bytes: u32| {
+                    caller
+                        .data_mut()
+                        .events
+                        .push(Event::CodeWrite { address, bytes });
+                },
+            )
+            .unwrap();
         let cpu_len = input.cpu.len();
         let observe_guest = input.observe_guest;
         let dispatch_return = input.dispatch_return;

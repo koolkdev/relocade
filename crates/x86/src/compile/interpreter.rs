@@ -96,7 +96,7 @@ impl Compiler {
         let profile = self.profile;
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
-        let memory = Memory::declare(&mut program, profile)?;
+        let memory = Memory::declare(&mut program, profile, self.code_tracking)?;
         let runtime = Runtime::declare(&mut program, self.execution_budget);
         let signature = Signature {
             parameters: vec![],

@@ -10,10 +10,12 @@ use super::super::{
 #[derive(Clone, Copy)]
 pub(super) struct PhysicalTable {
     entries: Mem,
+    code_tracking: bool,
 }
 
 pub(super) struct Entry {
     pub(super) kind: Val<I32>,
+    pub(super) watched: Val<I1>,
     backing: Val<I32>,
 }
 
@@ -28,8 +30,9 @@ impl Entry {
 }
 
 impl PhysicalTable {
-    pub(super) fn declare(program: &mut Program) -> Self {
+    pub(super) fn declare(program: &mut Program, code_tracking: bool) -> Self {
         Self {
+            code_tracking,
             entries: program.import_memory(MemoryImport {
                 module: "wasm86".into(),
                 name: "physicalMap".into(),
@@ -49,7 +52,21 @@ impl PhysicalTable {
         let offset = address.unsigned().shr(PAGE_SHIFT).shl(3);
         let kind = body.load_at::<I32>(self.entries, &offset, 0)?;
         let backing = body.load_at::<I32>(self.entries, &offset, 4)?;
-        Ok(Entry { kind, backing })
+        let watched = if self.code_tracking {
+            kind.and(super::super::CODE_WATCH).ne(0)
+        } else {
+            false.into()
+        };
+        let kind = if self.code_tracking {
+            kind.and(!super::super::CODE_WATCH)
+        } else {
+            kind
+        };
+        Ok(Entry {
+            kind,
+            backing,
+            watched,
+        })
     }
 
     /// One-page windows need no second lookup and never retain a device mapping.
@@ -64,7 +81,7 @@ impl PhysicalTable {
         let entry = self.lookup(body, address)?;
         let allowed = match intent {
             Intent::Read | Intent::Fetch => entry.readable(),
-            Intent::Write => entry.kind.eq(RAM),
+            Intent::Write => entry.kind.eq(RAM).and(entry.watched.eq(false)),
         };
         Ok(DirectRange {
             unavailable: allowed

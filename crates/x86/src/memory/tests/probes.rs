@@ -6,6 +6,7 @@ fn probe_module(constant_bytes: Option<u32>, intent: Intent) -> TestModule {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        false,
     )
     .unwrap();
     let function = program

@@ -10,6 +10,7 @@ export default function physicalMemory(guest, input, events) {
     table.setUint32(page * 8, kind, true);
     table.setUint32(page * 8 + 4, backing, true);
   }
+  for (const page of input.code_pages) table.setUint32(page * 8, table.getUint32(page * 8, true) | 0x10, true);
   let updates = 0;
 
   function deviceBacking(address) {

@@ -20,11 +20,13 @@ pub(super) const LATER_DENIAL: u32 = 8;
 #[derive(Clone, Copy)]
 pub(super) struct PageTable {
     entries: Mem,
+    code_tracking: bool,
 }
 
 impl PageTable {
-    pub(super) fn declare(program: &mut Program) -> Self {
+    pub(super) fn declare(program: &mut Program, code_tracking: bool) -> Self {
         Self {
+            code_tracking,
             entries: program.import_memory(MemoryImport {
                 module: "wasm86".into(),
                 name: "machine".into(),
@@ -66,15 +68,20 @@ impl PageTable {
                 .unsigned()
                 .shr(PAGE_SHIFT),
         );
-        let scattered = body.loop_::<(I32, I32, I1, I32), I1>(
+        let watch_mask = if self.code_tracking {
+            super::CODE_WATCH
+        } else {
+            0
+        };
+        let flags = body.loop_::<(I32, I32, I32, I32), I32>(
             (
                 start.and(FRAME_MASK),
                 first_entry.and(FRAME_MASK),
-                false,
+                first_entry.and(watch_mask),
                 boundaries,
             ),
-            |mut page, labels, (address, frame, scattered, remaining)| {
-                page.branch_if(remaining.eq(0), &labels.exit, &scattered)?;
+            |mut page, labels, (address, frame, flags, remaining)| {
+                page.branch_if(remaining.eq(0), &labels.exit, &flags)?;
                 let next_address = address.add(PAGE_BYTES);
                 let entry = self.entry(&mut page, &next_address)?;
                 page.if_(entry.and(&required).ne(&required), |arm| {
@@ -85,17 +92,18 @@ impl PageTable {
                     (
                         next_address,
                         entry.and(FRAME_MASK),
-                        scattered.or(scattered_backing(&frame, &entry)),
+                        flags
+                            .or(scattered_backing(&frame, &entry)
+                                .unsigned()
+                                .extend::<I32>()
+                                .shl(2))
+                            .or(entry.and(watch_mask)),
                         remaining.sub(1),
                     ),
                 )
             },
         )?;
-        body.return_(
-            first_entry
-                .and(FRAME_MASK | PRESENT | WRITABLE)
-                .or(scattered.unsigned().extend::<I32>().shl(2)),
-        )
+        body.return_(first_entry.and(FRAME_MASK | PRESENT | WRITABLE).or(flags))
     }
 }
 

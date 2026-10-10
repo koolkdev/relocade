@@ -740,6 +740,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm86-code-cache"
+version = "0.0.0"
+dependencies = [
+ "wasm86-x86",
+]
+
+[[package]]
 name = "wasm86-compiler"
 version = "0.0.0"
 dependencies = [

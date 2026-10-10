@@ -9,6 +9,7 @@ fn write_then_read() -> TestModule {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        false,
     )
     .unwrap();
     let function = program
@@ -111,6 +112,7 @@ fn same_address_updates(engine: Engine) {
         let memory = Memory::declare(
             &mut program,
             crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+            false,
         )
         .unwrap();
         let function = program
@@ -204,6 +206,7 @@ fn page_changes_and_reentry(engine: Engine) {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        false,
     )
     .unwrap();
     let function = program

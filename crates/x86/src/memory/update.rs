@@ -60,11 +60,17 @@ impl VirtualMemory {
             "an atomic update covers its complete checked operand"
         );
         if T::BYTES == 1 {
+            if let Some(code) = self.code {
+                code.before_write(body, &access.watched, &access.linear, T::BYTES)?;
+            }
             return native_update(body, self.guest, &access.physical, update);
         }
         body.if_value::<T>(
             access.linear.and(T::BYTES - 1).eq(0),
             |mut aligned| {
+                if let Some(code) = self.code {
+                    code.before_write(&mut aligned, &access.watched, &access.linear, T::BYTES)?;
+                }
                 let previous = native_update(&mut aligned, self.guest, &access.physical, update)?;
                 aligned.yield_(previous)
             },

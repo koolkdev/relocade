@@ -6,6 +6,7 @@ fn field_module() -> TestModule {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        false,
     )
     .unwrap();
     let function = program
@@ -123,6 +124,7 @@ fn wide_field_modules() -> [TestModule; 2] {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        false,
     )
     .unwrap();
     for (name, intent) in [

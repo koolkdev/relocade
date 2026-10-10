@@ -25,6 +25,7 @@ pub struct Compiler {
     profile: ExecutionProfile,
     observed_cpu: Option<CpuState>,
     execution_budget: bool,
+    code_tracking: bool,
 }
 
 impl Compiler {
@@ -34,6 +35,7 @@ impl Compiler {
             profile: profile.into(),
             observed_cpu: None,
             execution_budget: false,
+            code_tracking: false,
         }
     }
 
@@ -43,6 +45,19 @@ impl Compiler {
     /// [`crate::SLICE_EXHAUSTED`]. All entries sharing a CPU must use this policy
     /// to provide a bounded slice. See the [slice contract](crate#execution-slices).
     pub fn with_execution_budget(mut self) -> Self {
+        self.execution_budget = true;
+        self
+    }
+
+    /// Enables host-owned code-page protection. Watched stores hand off before
+    /// effects in snapshot blocks; the interpreter calls `wasm86.invalidateCode`
+    /// immediately before writing. The host maintains watches for pending and
+    /// installed snapshots in the existing mapping metadata.
+    ///
+    /// This also enables execution budgets so REP can resume after a checked
+    /// element that writes code. All entries sharing memory must use this policy.
+    pub fn with_code_tracking(mut self) -> Self {
+        self.code_tracking = true;
         self.execution_budget = true;
         self
     }

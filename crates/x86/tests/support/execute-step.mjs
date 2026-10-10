@@ -33,6 +33,8 @@ export default function execute([module, interpreter], { entry, interpreter_entr
       guest: input.observe_guest ? changes : null,
     };
   };
+  const tableView = new DataView(machine.buffer);
+  for (const page of input.code_pages) tableView.setUint32(page * 4, tableView.getUint32(page * 4, true) | 0x10, true);
   const events = [];
   let resolutions = 0;
   let portReads = 0;
@@ -52,6 +54,7 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   const imports = {
     wasm86: {
       cpuState, guest, machine, executionBudget,
+      invalidateCode: (address, bytes) => events.push({kind: 'code_write', address: address >>> 0, bytes}),
       ...physical?.imports,
       readPort: (port, bytes) => {
         if (portReads >= input.port_reads.length) throw new Error('unexpected port read');

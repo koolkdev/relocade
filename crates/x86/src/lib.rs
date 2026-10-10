@@ -63,7 +63,7 @@ pub use compile::{
     compile_interpreter_step, Compiler,
 };
 pub use exception::{Exception, ExceptionVector};
-pub use memory::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
+pub use memory::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap, CODE_WATCH};
 pub use profile::ExecutionProfile;
 pub use register::Gpr32;
 pub use segment::{

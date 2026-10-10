@@ -193,7 +193,8 @@ Budgeted entries additionally share `executionBudget` as described above.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical
-frame address in `guest`; other bits are ignored. Reads and instruction fetches
+frame address in `guest`. Bit 4 is the host-owned `CODE_WATCH` when code tracking
+is enabled; remaining bits are ignored. Reads and instruction fetches
 require presence. Every present frame must have valid physical backing. Violating
 that invariant is a host error, not a guest page fault.
 
@@ -488,10 +489,39 @@ does not establish snapshot validity.
 
 The host must preserve validity during execution and revalidate or invalidate
 affected entries and links when relevant CS state, code bytes or mappings change.
-An instruction changing a relied-upon assumption must end the block. There is no
-code cache or automatic invalidation in these libraries. A checked snapshot
-producer stops before an invalid fetch, executes any valid instruction prefix,
-then handles the fault, for example by entering the interpreter at the failing EIP.
+An instruction changing a relied-upon assumption must leave captured execution.
+`Compiler::with_code_tracking()` provides the memory-side protection for the
+host-owned `wasm86-code-cache` owner. Default compilation retains the manual host
+validity contract. A checked snapshot producer stops before an invalid fetch;
+failed compilation leaves execution with the interpreter and its precise faults.
+
+### Code-page write protection
+
+`with_code_tracking()` also enables execution budgets. The host marks every alias
+of backing used by pending or installed snapshots with `CODE_WATCH` before copying
+bytes. Existing memory proofs carry this bit with architectural permissions.
+A JIT write to a watched span uses `specialize_on` before instruction effects.
+The interpreter calls `wasm86.invalidateCode(address: i32, bytes: i32) -> ()`
+immediately before its actual write, including native atomic updates. The host
+invalidates dependent entries and pending tickets before returning. This callback
+may clear watches; it cannot change CPU state, guest bytes or architectural
+mappings. Permission probes and suppressed x87 stores do not notify.
+
+REP range proofs reject watched destinations. A failed JIT proof hands off; the
+interpreter performs one checked element and resumes live decoding at the same
+EIP if repetition remains. Completed indices/count and carried values are retained.
+A store that changes REP itself therefore affects the next decoded iteration.
+
+Tracked physical JIT accesses specialize on direct RAM/ROM backing so device
+callbacks cannot invalidate captured successors. PUSHA, POPA, ENTER, software
+interrupts and port strings use the interpreter from instruction entry; their
+rare interleaved effects would otherwise require guards after partial progress.
+Ordinary loads, stores and multi-field operands keep their shared JIT paths.
+
+Only add watches and install modules between Wasm invocations. Protected-mode
+mapping proofs remain stable during an entry; invalidation can only remove watch
+bits. Device and host backing writes/remaps must use the same coherence owner.
+No generation lookup or code-byte comparison is added to block entry.
 
 Protected-mode execution may reuse successful data-access checks while mappings
 remain stable. Each access still checks its segment and transfers current guest

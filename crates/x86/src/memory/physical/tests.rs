@@ -60,7 +60,7 @@ fn transfers() -> &'static [u8] {
     static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
     BYTES.get_or_init(|| {
         let mut program = Program::new();
-        let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
+        let memory = Memory::Physical(PhysicalMemory::declare(&mut program, false));
         define_transfers::<I8>(&mut program, &memory);
         define_transfers::<I16>(&mut program, &memory);
         define_transfers::<I32>(&mut program, &memory);
@@ -171,7 +171,7 @@ fn widths(engine: Engine, mmio: bool) {
 fn updates(engine: Engine) {
     for matches in [false, true] {
         let mut program = Program::new();
-        let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
+        let memory = Memory::Physical(PhysicalMemory::declare(&mut program, false));
         let function = program
             .function(
                 Signature {

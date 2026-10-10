@@ -87,9 +87,15 @@ impl<'memory> Accesses<'memory> {
             let page = anchor.linear.and(FRAME_MASK);
             // One unsigned test covers the entire span, including linear wrap.
             let fits = start.sub(&page).unsigned().lt(PAGE_BYTES - bytes + 1);
-            let (scattered, physical) = body.if_value::<(I1, I32)>(
+            let (scattered, physical, watched) = body.if_value::<(I1, I32, I1)>(
                 fits,
-                |hit| hit.yield_((false, physical_address(&anchor.physical, start))),
+                |hit| {
+                    hit.yield_((
+                        false,
+                        physical_address(&anchor.physical, start),
+                        &anchor.watched,
+                    ))
+                },
                 |mut miss| {
                     let access = self.memory.resolve_access(
                         &mut miss,
@@ -99,7 +105,7 @@ impl<'memory> Accesses<'memory> {
                         None,
                         Some(&mut on_fault),
                     )?;
-                    miss.yield_((access.scattered(), access.physical))
+                    miss.yield_((access.scattered(), access.physical, access.watched))
                 },
             )?;
             Access {
@@ -107,6 +113,7 @@ impl<'memory> Accesses<'memory> {
                 physical,
                 denied: body.value(false)?,
                 unavailable: scattered,
+                watched,
                 intent,
                 constant_bytes: Some(bytes),
             }

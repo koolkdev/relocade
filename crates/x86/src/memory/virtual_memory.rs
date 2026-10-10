@@ -11,13 +11,14 @@ use super::page_table::PageTable;
 pub(crate) struct VirtualMemory {
     pub(super) guest: Mem,
     pub(super) table: PageTable,
+    pub(super) code: Option<super::code::CodeWrites>,
     pub(super) range_resolver: Func,
     pub(super) scattered_readers: [Cell<Option<Func>>; 4],
     pub(super) scattered_writers: [Cell<Option<Func>>; 4],
 }
 
 impl VirtualMemory {
-    pub(super) fn declare(program: &mut Program) -> Result<Self, BuildError> {
+    pub(super) fn declare(program: &mut Program, code_tracking: bool) -> Result<Self, BuildError> {
         let guest = program.import_memory(MemoryImport {
             module: "wasm86".into(),
             name: "guest".into(),
@@ -25,7 +26,7 @@ impl VirtualMemory {
             maximum: None,
             shared: false,
         });
-        let table = PageTable::declare(program);
+        let table = PageTable::declare(program, code_tracking);
         let range_resolver = program.function(
             Signature {
                 parameters: vec![Type::I32, Type::I32, Type::I32, Type::I32],
@@ -36,6 +37,7 @@ impl VirtualMemory {
         Ok(Self {
             guest,
             table,
+            code: code_tracking.then(|| super::code::CodeWrites::declare(program)),
             range_resolver,
             scattered_readers: std::array::from_fn(|_| Cell::new(None)),
             scattered_writers: std::array::from_fn(|_| Cell::new(None)),

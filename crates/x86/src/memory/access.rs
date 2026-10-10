@@ -17,12 +17,13 @@ pub(super) type FaultHandler<'handler> = dyn for<'body> FnMut(BlockBuilder<'body
 /// Non-faulting callers must guard transfers with `!denied`.
 #[derive(Clone)]
 pub(crate) struct Access {
-    pub(super) linear: Val<I32>,
+    pub(crate) linear: Val<I32>,
     pub(crate) physical: Val<I32>,
     pub(crate) denied: Val<I1>,
     pub(crate) unavailable: Val<I1>,
-    pub(super) intent: Intent,
-    pub(super) constant_bytes: Option<u32>,
+    pub(crate) watched: Val<I1>,
+    pub(crate) intent: Intent,
+    pub(crate) constant_bytes: Option<u32>,
 }
 
 impl Access {
@@ -70,12 +71,18 @@ impl VirtualMemory {
         };
         let required = intent.required_permissions();
         let first_denied = first_entry.and(required).ne(required);
+        let watch_mask = if self.code.is_some() && matches!(intent, Intent::Write) {
+            super::CODE_WATCH
+        } else {
+            0
+        };
+        let first_watched = first_entry.and(watch_mask).ne(0);
         if !faulting {
             if let Some(bytes) = constant_bytes.filter(|bytes| *bytes <= PAGE_BYTES) {
-                let (denied, unavailable) = if bytes == 0 {
-                    (body.value(true)?, body.value(true)?)
+                let (denied, unavailable, watched) = if bytes == 0 {
+                    (body.value(true)?, body.value(true)?, body.value(false)?)
                 } else {
-                    body.if_value::<(I1, I1)>(
+                    body.if_value::<(I1, I1, I1)>(
                         crosses_page(start, bytes),
                         |mut crossing| {
                             let next_entry =
@@ -84,9 +91,15 @@ impl VirtualMemory {
                             let scattered =
                                 scattered_backing(&first_entry.and(FRAME_MASK), &next_entry);
                             // Direct-only consumers can discard the separate denial result.
-                            crossing.yield_((&denied, denied.or(scattered)))
+                            crossing.yield_((
+                                &denied,
+                                denied.or(scattered),
+                                first_entry.or(&next_entry).and(watch_mask).ne(0),
+                            ))
                         },
-                        |single_page| single_page.yield_((&first_denied, &first_denied)),
+                        |single_page| {
+                            single_page.yield_((&first_denied, &first_denied, &first_watched))
+                        },
                     )?
                 };
                 return Ok(Access {
@@ -94,48 +107,57 @@ impl VirtualMemory {
                     physical: physical_address(&first_entry, start),
                     denied,
                     unavailable,
+                    watched,
                     intent,
                     constant_bytes,
                 });
             }
         }
-        let mut finish_denial =
-            |fault_body: BlockBuilder<'_>, address: Val<I32>, present: Val<I1>| {
-                match on_fault {
-                    Some(ref mut on_fault) => {
-                        let error_code = match intent {
-                            Intent::Write => present
-                                .unsigned()
-                                .extend::<I32>()
-                                .or(intent.base_error_code()),
-                            // Presence is the only read/fetch permission.
-                            Intent::Read | Intent::Fetch => {
-                                fault_body.value(intent.base_error_code())?
-                            }
-                        };
-                        on_fault(
-                            fault_body,
-                            Exception::PageFault {
-                                linear_address: address,
-                                error_code,
-                            },
-                        )
-                    }
-                    None => fault_body.yield_((true, physical_address(&first_entry, start), true)),
+        let mut finish_denial = |fault_body: BlockBuilder<'_>,
+                                 address: Val<I32>,
+                                 present: Val<I1>| {
+            match on_fault {
+                Some(ref mut on_fault) => {
+                    let error_code = match intent {
+                        Intent::Write => present
+                            .unsigned()
+                            .extend::<I32>()
+                            .or(intent.base_error_code()),
+                        // Presence is the only read/fetch permission.
+                        Intent::Read | Intent::Fetch => {
+                            fault_body.value(intent.base_error_code())?
+                        }
+                    };
+                    on_fault(
+                        fault_body,
+                        Exception::PageFault {
+                            linear_address: address,
+                            error_code,
+                        },
+                    )
                 }
-            };
-        let (unavailable, physical, denied) = if constant_bytes == Some(1) && faulting {
+                None => {
+                    fault_body.yield_((true, physical_address(&first_entry, start), true, false))
+                }
+            }
+        };
+        let (unavailable, physical, denied, watched) = if constant_bytes == Some(1) && faulting {
             // A byte needs only the first page check.
             let physical = body.if_value::<I32>(
                 &first_denied,
                 |fault_body| finish_denial(fault_body, start.clone(), first_entry.truncate::<I1>()),
                 |allowed| allowed.yield_(physical_address(&first_entry, start)),
             )?;
-            (body.value(false)?, physical, body.value(false)?)
+            (
+                body.value(false)?,
+                physical,
+                body.value(false)?,
+                first_watched.clone(),
+            )
         } else {
-            // Resolution exits the outer block with (unavailable, physical, denied).
+            // Resolution exits with backing, denial and write-watch classification.
             // Denial exits the inner block with (address, present) for reporting.
-            body.block::<(I1, I32, I1)>(|mut access_body, success| {
+            body.block::<(I1, I32, I1, I1)>(|mut access_body, success| {
                 let (address, present) = access_body.block::<(I32, I1)>(|mut checks, fault| {
                     let resolve_pages = |mut pages: BlockBuilder<'_>| {
                         let resolution_word = pages.call::<I32>(
@@ -164,6 +186,7 @@ impl VirtualMemory {
                                 resolution_word.and(SCATTERED).ne(0),
                                 physical_address(&resolution_word, start),
                                 false,
+                                resolution_word.and(watch_mask).ne(0),
                             ),
                         )
                     };
@@ -185,7 +208,12 @@ impl VirtualMemory {
                             )?;
                             checks.branch(
                                 &success,
-                                (false, physical_address(&first_entry, start), false),
+                                (
+                                    false,
+                                    physical_address(&first_entry, start),
+                                    false,
+                                    &first_watched,
+                                ),
                             )
                         }
                         _ => {
@@ -208,6 +236,7 @@ impl VirtualMemory {
             physical,
             denied,
             unavailable,
+            watched,
             intent,
             constant_bytes,
         })

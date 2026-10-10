@@ -17,6 +17,7 @@ pub(super) fn enter_frame<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
+    execution.interpret_tracked_memory()?;
     let allocation = allocation.read(execution)?;
     let nesting = nesting.read(execution)?;
     let level = nesting.unsigned().extend::<I32>().and(31);

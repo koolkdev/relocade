@@ -18,9 +18,9 @@ use wasm86_compiler::{BlockBuilder, BuildError, Func, Val, I1, I16, I32, I8};
 
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
-use crate::memory::{Access, Accesses, Intent, Memory};
+use crate::memory::{Accesses, Memory};
 use crate::runtime::Runtime;
-use crate::segment::{SegmentAccess, SegmentSelection};
+use crate::segment::SegmentAccess;
 use crate::state::{exit, Cpu, State};
 use crate::{address::AddressSize, exception::Exception, CpuState, ExecutionProfile};
 
@@ -290,62 +290,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             self.state.publish(&mut body, &self.eip, self.completed)?;
             exit::unsupported(body, &self.eip, opcode)
         })
-    }
-
-    fn checked(
-        &mut self,
-        segment: &SegmentSelection,
-        offset: &Val<I32>,
-        bytes: u32,
-        intent: Intent,
-    ) -> Result<Access, BuildError> {
-        let linear = self.translate(segment, offset, bytes, intent)?;
-        self.resolve_access(&linear, bytes, intent)
-    }
-
-    fn translate(
-        &mut self,
-        segment: &SegmentSelection,
-        offset: &Val<I32>,
-        bytes: u32,
-        intent: Intent,
-    ) -> Result<Val<I32>, BuildError> {
-        self.segments.translate(
-            &mut self.body,
-            segment,
-            offset,
-            bytes,
-            intent,
-            |mut fault_body, exception| {
-                self.runtime
-                    .publish_work(&mut fault_body, self.work.as_ref())?;
-                self.state
-                    .fault(fault_body, &self.eip, self.completed, exception)
-            },
-        )
-    }
-
-    fn resolve_access(
-        &mut self,
-        linear: &Val<I32>,
-        bytes: u32,
-        intent: Intent,
-    ) -> Result<Access, BuildError> {
-        self.memory
-            .as_mut()
-            .expect("a memory access declares guest memory")
-            .resolve(
-                &mut self.body,
-                linear,
-                bytes,
-                intent,
-                |mut fault_body, exception| {
-                    self.runtime
-                        .publish_work(&mut fault_body, self.work.as_ref())?;
-                    self.state
-                        .fault(fault_body, &self.eip, self.completed, exception)
-                },
-            )
     }
 
     /// Publishes completed work before the frontend dispatches or continues decoding.
