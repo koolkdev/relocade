@@ -10,7 +10,7 @@ pub(crate) use forms::*;
 use handlers::HandlerCall;
 pub(super) use lower::lower;
 use operands::{map_location, map_operand};
-pub(crate) use operands::{Input, TypedLocation, X87StackIndex};
+pub(crate) use operands::{Input, TypedLocation, VectorAlignment, X87StackIndex, XmmLocation};
 pub(crate) use prefixes::{Group1Prefix, Prefix, PrefixState, SegmentOverride};
 
 use crate::address::{AddressSize, EffectiveAddress, MemoryAddress};
@@ -44,6 +44,7 @@ pub(super) enum Operand<V> {
 #[derive(Clone)]
 pub(super) enum Location<V> {
     Register(RegisterOperand),
+    Xmm(crate::register::RegisterCode),
     // Keep register operands compact while memory retains its full address terms.
     Memory(Box<MemoryAddress<V>>),
 }

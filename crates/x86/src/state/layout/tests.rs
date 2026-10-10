@@ -8,7 +8,7 @@ use crate::Gpr32;
 
 #[test]
 fn cpu_layout_matches_the_external_byte_contract() {
-    assert_eq!(CpuState::BYTE_LEN, 328);
+    assert_eq!(CpuState::BYTE_LEN, 464);
     assert_eq!(size_of::<StoredFlags>(), 28);
     assert_eq!(size_of::<StoredStatusSource>(), 12);
     assert_eq!(size_of::<FlagBytes>(), 16);
@@ -170,4 +170,22 @@ fn encoded_register_indices_address_the_named_registers() {
             0x8888_8888,
         ]
     );
+}
+
+#[test]
+fn simd_layout_defaults_and_literal_encodings() {
+    assert_eq!(offset_of!(CpuState, simd.mxcsr), 328);
+    assert_eq!(offset_of!(CpuState, simd.reserved), 332);
+    assert_eq!(offset_of!(CpuState, simd.xmm), 336);
+    assert_eq!(size_of::<super::StoredSimd>(), 136);
+    assert_eq!(CpuState::default().simd.mxcsr, 0x1f80);
+    assert_eq!(CpuState::default().simd.xmm, [[0; 16]; 8]);
+    let mut cpu = CpuState::filled(0xa5);
+    cpu.simd.mxcsr = 0xfedc_ba98;
+    cpu.simd.xmm[7] = 0x01234567_89abcdef_fedcba98_76543210_u128.to_le_bytes();
+    let bytes = cpu.to_bytes();
+    assert_eq!(&bytes[328..332], &[0x98, 0xba, 0xdc, 0xfe]);
+    assert_eq!(&bytes[332..448], &[0xa5; 116]);
+    assert_eq!(&bytes[448..464], &cpu.simd.xmm[7]);
+    assert_eq!(CpuState::from_bytes(bytes), cpu);
 }

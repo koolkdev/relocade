@@ -98,6 +98,8 @@ impl Folder<'_> {
             Expression::ZeroTest { input, nonzero } => self.zero_test(input, nonzero),
             Expression::Convert { input } => self.convert(input, ty),
             Expression::LowBits { .. }
+            | Expression::VectorExtract { .. }
+            | Expression::VectorReplace { .. }
             | Expression::FloatBinary { .. }
             | Expression::FloatUnary { .. }
             | Expression::FloatCompare { .. }
@@ -170,6 +172,8 @@ impl Folder<'_> {
             // Integer identities and comparison complements do not hold for
             // floating-point values, including NaNs and signed zeros.
             Expression::FloatBinary { .. }
+            | Expression::VectorExtract { .. }
+            | Expression::VectorReplace { .. }
             | Expression::FloatUnary { .. }
             | Expression::FloatCompare { .. }
             | Expression::BitCount { .. } => None,

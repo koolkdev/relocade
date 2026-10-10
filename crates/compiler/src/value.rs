@@ -3,8 +3,10 @@ mod construction;
 mod floating;
 mod source;
 mod unbound;
+mod vector;
 
 pub use argument::Argument;
+pub use vector::VectorLane;
 
 use std::marker::PhantomData;
 

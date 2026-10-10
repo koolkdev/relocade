@@ -13,8 +13,11 @@ mod probes;
 mod ranges;
 mod spans;
 
-fn define_read<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str)
-where
+fn define_read<T: MemoryInt + crate::memory::TransferType>(
+    program: &mut Program,
+    memory: &Memory,
+    name: &str,
+) where
     I64: AtLeast<T>,
 {
     let read = program
@@ -41,7 +44,11 @@ where
     program.export(name, read).unwrap();
 }
 
-fn define_write<T: MemoryInt>(program: &mut Program, memory: &Memory, name: &str) {
+fn define_write<T: MemoryInt + crate::memory::TransferType>(
+    program: &mut Program,
+    memory: &Memory,
+    name: &str,
+) {
     let write = program
         .function(
             Signature {
@@ -87,7 +94,7 @@ fn accesses() -> Vec<u8> {
 
 #[test]
 fn access_fault_handlers_must_terminate_the_denied_path() {
-    fn reject_fallthrough<T: MemoryInt>() {
+    fn reject_fallthrough<T: MemoryInt + crate::memory::TransferType>() {
         let mut program = Program::new();
         let memory = Memory::declare(
             &mut program,

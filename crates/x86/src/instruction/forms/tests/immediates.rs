@@ -67,7 +67,7 @@ fn immediates_bind_after_location_operands() {
                 opcode: Opcode {
                     map: OpcodeMap::Primary,
                     byte: 0x00,
-                    group1_prefix: None,
+                    prefix: PrefixRule::Modifiers(None),
                     register_range: matches!(location, OperandSpec::OpcodeRegister),
                     modrm: None,
                 },

@@ -121,3 +121,6 @@ mod x87_store;
 
 #[path = "suites/execution_sizes.rs"]
 mod execution_sizes;
+
+#[path = "suites/sse.rs"]
+mod sse;

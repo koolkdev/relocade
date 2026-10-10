@@ -5,12 +5,13 @@ mod flags;
 mod layout;
 #[cfg(test)]
 mod observation;
+mod simd;
 pub(crate) mod x87;
 
 pub(super) use cpu::Cpu;
 pub use layout::{
-    CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredStatusSource,
-    StoredX87, StoredX87Control, StoredX87Register, StoredX87Status,
+    CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredSimd,
+    StoredStatusSource, StoredX87, StoredX87Control, StoredX87Register, StoredX87Status,
 };
 #[cfg(test)]
 pub(crate) use observation::compile_flag_observer;
@@ -31,6 +32,7 @@ use crate::{
 pub(super) struct State<'cpu> {
     cpu: &'cpu Cpu,
     registers: StateFields,
+    simd: StateFields,
     flags: flags::FlagState,
     pub(super) x87: x87::X87State,
 }
@@ -40,6 +42,7 @@ impl<'cpu> State<'cpu> {
         Self {
             cpu,
             registers: StateFields::new(cpu.memory()),
+            simd: StateFields::new(cpu.memory()),
             flags: flags::FlagState::new(cpu.memory()),
             x87: x87::X87State::new(cpu.memory()),
         }
@@ -167,6 +170,7 @@ impl<'cpu> State<'cpu> {
     ) -> Result<(), BuildError> {
         self.flags.publish(body, self.cpu)?;
         self.x87.publish(body)?;
+        self.simd.publish(body)?;
         self.registers.publish(body)?;
         cpu_store!(body, self.cpu.memory(), eip, next_eip)?;
         if completed != 0 {

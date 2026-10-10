@@ -6,11 +6,13 @@ mod ports;
 mod regions;
 mod register_pairs;
 mod segments;
+mod simd;
 mod stack;
 mod strings;
 mod x87;
 
 pub(crate) use control::CodeTarget;
+pub(crate) use memory::OperandSpan;
 pub(crate) use operands::WriteTarget;
 pub(crate) use strings::{ResolvedStrings, StringOperand};
 
@@ -225,11 +227,18 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         &mut self,
         segment: &SegmentSelection,
         offset: &Val<I32>,
-        bytes: u32,
+        span: impl Into<OperandSpan>,
         intent: Intent,
     ) -> Result<Access, BuildError> {
-        let linear = self.translate(segment, offset, bytes, intent)?;
-        self.resolve_access(&linear, bytes, intent)
+        let span = span.into();
+        let linear = self.translate(segment, offset, span.bytes, intent)?;
+        self.fault_if(
+            linear.and(span.alignment - 1).ne(0),
+            Exception::GeneralProtection {
+                error_code: 0.into(),
+            },
+        )?;
+        self.resolve_access(&linear, span.bytes, intent)
     }
 
     fn translate(

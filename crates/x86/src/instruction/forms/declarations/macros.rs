@@ -31,7 +31,7 @@ macro_rules! declaration_family {
                     opcode: Opcode {
                         map: declaration_opcode!(@map $opcode $($extended)?),
                         byte: declaration_opcode!(@byte $opcode $($extended)?),
-                        group1_prefix: declaration_opcode!(@prefix $($prefix)?),
+                        prefix: declaration_opcode!(@prefix $($prefix)?),
                         register_range: declaration_opcode!(@register $($pattern)?),
                         modrm: declaration_opcode!(@modrm [$($extension)?] [$($modrm $(+ $modrm_range)?)?]),
                     },
@@ -72,11 +72,17 @@ macro_rules! declaration_opcode {
     (@lockable) => {
         false
     };
+    (@prefix NP) => {
+        PrefixRule::OpcodeSelector(crate::instruction::forms::MandatoryPrefix::None)
+    };
+    (@prefix P66) => {
+        PrefixRule::OpcodeSelector(crate::instruction::forms::MandatoryPrefix::P66)
+    };
     (@prefix $prefix:ident) => {
-        Some(crate::instruction::Group1Prefix::$prefix)
+        PrefixRule::Modifiers(Some(crate::instruction::Group1Prefix::$prefix))
     };
     (@prefix) => {
-        None
+        PrefixRule::Modifiers(None)
     };
     (@map $opcode:literal) => {
         OpcodeMap::Primary
@@ -145,6 +151,12 @@ macro_rules! declaration_effect {
 }
 
 macro_rules! operand_spec {
+    (xmm) => {
+        OperandSpec::XmmRegister
+    };
+    (xmm_rm) => {
+        OperandSpec::XmmRm
+    };
     (st) => {
         OperandSpec::X87StackIndex
     };

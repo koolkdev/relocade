@@ -21,6 +21,7 @@ mod no_ops;
 mod ports;
 mod segments;
 mod shifts;
+mod sse;
 mod stack;
 mod strings;
 mod undefined;
@@ -61,5 +62,6 @@ pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form
         .chain(far_control::forms())
         .chain(interrupts::forms())
         .chain(x87::forms())
+        .chain(sse::forms())
         .filter(move |form| form.map == map)
 }

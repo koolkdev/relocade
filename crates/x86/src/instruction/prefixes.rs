@@ -142,6 +142,10 @@ impl PrefixState {
         }
     }
 
+    pub(crate) fn has_operand_override(&self) -> bool {
+        self.operand_size_override
+    }
+
     pub(crate) fn group1(&self) -> Option<Group1Prefix> {
         self.group1
     }

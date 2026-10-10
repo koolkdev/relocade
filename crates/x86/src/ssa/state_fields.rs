@@ -3,7 +3,7 @@
 use super::TrackedValue;
 use std::marker::PhantomData;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Val, I16, I32, I64, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryType, Val, I16, I32, I64, I8, V128};
 
 #[derive(Clone)]
 pub(crate) struct Location<T: SsaType> {
@@ -80,6 +80,7 @@ pub(crate) enum DefinitionValue {
     Word(TrackedValue<I16>),
     Dword(TrackedValue<I32>),
     Qword(TrackedValue<I64>),
+    Vector(TrackedValue<V128>),
 }
 
 impl DefinitionValue {
@@ -89,6 +90,7 @@ impl DefinitionValue {
             Self::Word(value) => value.dirty_value().is_some(),
             Self::Dword(value) => value.dirty_value().is_some(),
             Self::Qword(value) => value.dirty_value().is_some(),
+            Self::Vector(value) => value.dirty_value().is_some(),
         }
     }
 
@@ -98,6 +100,7 @@ impl DefinitionValue {
             Self::Word(value) => value.mark_clean(),
             Self::Dword(value) => value.mark_clean(),
             Self::Qword(value) => value.mark_clean(),
+            Self::Vector(value) => value.mark_clean(),
         }
     }
 
@@ -113,11 +116,12 @@ impl DefinitionValue {
             Self::Word(value) => body.store_at(memory, base, offset, value.value()),
             Self::Dword(value) => body.store_at(memory, base, offset, value.value()),
             Self::Qword(value) => body.store_at(memory, base, offset, value.value()),
+            Self::Vector(value) => body.store_at(memory, base, offset, value.value()),
         }
     }
 }
 
-pub(crate) trait SsaType: MemoryInt {
+pub(crate) trait SsaType: MemoryType {
     fn retain(value: TrackedValue<Self>) -> DefinitionValue;
     fn retained(definition: &DefinitionValue) -> &TrackedValue<Self>;
     fn retained_mut(definition: &mut DefinitionValue) -> &mut TrackedValue<Self>;
@@ -151,6 +155,7 @@ ssa_type!(I8, Byte);
 ssa_type!(I16, Word);
 ssa_type!(I32, Dword);
 ssa_type!(I64, Qword);
+ssa_type!(V128, Vector);
 
 #[derive(Clone)]
 struct Definition {

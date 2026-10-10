@@ -3,8 +3,8 @@ use std::mem::offset_of;
 use crate::segment::SegmentAttributes;
 
 use super::{
-    CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredStatusSource,
-    StoredX87,
+    CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredSimd,
+    StoredStatusSource, StoredX87,
 };
 
 impl CpuState {
@@ -58,6 +58,7 @@ impl CpuState {
             instruction_count: read_u32(&bytes, offset_of!(CpuState, instruction_count)),
             reserved_tail: read(&bytes, offset_of!(CpuState, reserved_tail)),
             x87: StoredX87::read(&bytes[offset_of!(CpuState, x87)..]),
+            simd: StoredSimd::read(&bytes[offset_of!(CpuState, simd)..]),
         }
     }
 
@@ -133,6 +134,7 @@ impl CpuState {
             &self.reserved_tail,
         );
         self.x87.write(&mut bytes[offset_of!(CpuState, x87)..]);
+        self.simd.write(&mut bytes[offset_of!(CpuState, simd)..]);
         bytes
     }
 

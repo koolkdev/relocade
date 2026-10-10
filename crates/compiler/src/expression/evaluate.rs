@@ -21,6 +21,27 @@ impl Expression<TypedLiteral> {
     }
 
     pub(crate) fn constant_result(&self, result: Type, component: usize) -> Option<Literal> {
+        match *self {
+            Self::VectorExtract { input, lane } => {
+                return Some(Literal::from(result.normalize(
+                    (u128::from(input.value) >> (lane * result.bits())) as u64,
+                )));
+            }
+            Self::VectorReplace {
+                vector,
+                value,
+                lane,
+            } => {
+                let shift = lane * value.ty.bits();
+                let mask = u128::from(value.ty.mask()) << shift;
+                return Some(
+                    ((u128::from(vector.value) & !mask)
+                        | (u128::from(value.value.scalar(value.ty)?) << shift))
+                        .into(),
+                );
+            }
+            _ => {}
+        }
         if let Self::Select {
             condition,
             when_true,
@@ -66,6 +87,7 @@ impl Expression<ScalarLiteral> {
     fn constant_result(&self, result: Type, component: usize) -> Option<u64> {
         debug_assert!(component < self.result_types(result).len());
         let bits = match *self {
+            Self::VectorExtract { .. } | Self::VectorReplace { .. } => return None,
             Self::FloatBinary {
                 operator,
                 left,

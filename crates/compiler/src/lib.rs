@@ -55,7 +55,7 @@ pub use results::{Arguments, Results};
 pub use types::{
     AtLeast, BitwiseType, DoubleWidth, IntType, Type, ValueType, F64, I1, I16, I32, I64, I8, V128,
 };
-pub use value::{Argument, Signed, Unsigned, Val};
+pub use value::{Argument, Signed, Unsigned, Val, VectorLane};
 
 /// A function's ordered logical parameter and result types.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

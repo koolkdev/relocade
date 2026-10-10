@@ -81,6 +81,16 @@ impl ResolvedForm {
                     .into(),
             ),
             LocationBinding::Rm => fields.rm.clone().expect("the form decodes r/m"),
+            LocationBinding::XmmRegister => {
+                Location::Xmm(fields.register.clone().expect("the form decodes ModRM.reg"))
+            }
+            LocationBinding::XmmRm => match fields.rm.clone().expect("the form decodes r/m") {
+                Location::Register(crate::register::RegisterOperand::Encoded(code)) => {
+                    Location::Xmm(code)
+                }
+                memory @ Location::Memory(_) => memory,
+                _ => unreachable!("decoded r/m registers retain their encoded field"),
+            },
             LocationBinding::FixedRegister(register) => Location::Register(register.into()),
             LocationBinding::AbsoluteOffset => Location::Memory(
                 EffectiveAddress {

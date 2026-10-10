@@ -272,4 +272,78 @@ fn v8_vectors_bitwise_control_and_memory() {
     overlapping_memory(true);
     mixed_literal_encodings(true);
     small_vector_literals(true);
+    lanes(true);
+}
+
+fn lanes(v8: bool) {
+    use wasm86_compiler::I64;
+    let mut bytes = vec![0xa5; 240];
+    bytes[..16].copy_from_slice(&LEFT.to_le_bytes());
+    bytes[16..32].copy_from_slice(&RIGHT.to_le_bytes());
+    let mut fixture = Fixture::new();
+    let memory = fixture.memory("state", &bytes);
+    let module = fixture.function(&[Type::I32], &[], |mut body| {
+        let vector = body.load::<V128>(memory, 0)?;
+        let word = body.load::<I32>(memory, 16)?;
+        let qword = body.load::<I64>(memory, 24)?;
+        for lane in 0..4 {
+            body.store(
+                memory,
+                32 + u32::from(lane) * 16,
+                vector.replace_lane(lane, &word),
+            )?;
+            body.store(
+                memory,
+                128 + u32::from(lane) * 4,
+                vector.extract_lane::<I32>(lane),
+            )?;
+        }
+        for lane in 0..2 {
+            body.store(
+                memory,
+                96 + u32::from(lane) * 16,
+                vector.replace_lane(lane, &qword),
+            )?;
+            body.store(
+                memory,
+                144 + u32::from(lane) * 8,
+                vector.extract_lane::<I64>(lane),
+            )?;
+        }
+        let literal = Val::<V128>::from(LEFT);
+        body.store(memory, 160, literal.replace_lane::<I32>(3, 0x11223344))?;
+        body.store(
+            memory,
+            176,
+            literal.replace_lane::<I64>(0, 0x88776655_44332211_u64),
+        )?;
+        body.store(memory, 192, literal.extract_lane::<I32>(3))?;
+        body.store(memory, 200, literal.extract_lane::<I64>(1))?;
+        body.return_(())
+    });
+    let mut expected = bytes.clone();
+    for lane in 0..4 {
+        let mut vector = LEFT.to_le_bytes();
+        vector[lane * 4..lane * 4 + 4].copy_from_slice(&RIGHT.to_le_bytes()[..4]);
+        expected[32 + lane * 16..48 + lane * 16].copy_from_slice(&vector);
+    }
+    for lane in 0..2 {
+        let mut vector = LEFT.to_le_bytes();
+        vector[lane * 8..lane * 8 + 8].copy_from_slice(&RIGHT.to_le_bytes()[8..]);
+        expected[96 + lane * 16..112 + lane * 16].copy_from_slice(&vector);
+    }
+    expected[128..144].copy_from_slice(&LEFT.to_le_bytes());
+    expected[144..160].copy_from_slice(&LEFT.to_le_bytes());
+    expected[160..176].copy_from_slice(&LEFT.to_le_bytes());
+    expected[172..176].copy_from_slice(&0x11223344_u32.to_le_bytes());
+    expected[176..192].copy_from_slice(&LEFT.to_le_bytes());
+    expected[176..184].copy_from_slice(&0x88776655_44332211_u64.to_le_bytes());
+    expected[192..196].copy_from_slice(&LEFT.to_le_bytes()[12..]);
+    expected[200..208].copy_from_slice(&LEFT.to_le_bytes()[8..]);
+    check(&module, &bytes, &expected, 0, v8);
+}
+
+#[test]
+fn vector_lanes_preserve_other_bits_and_use_low_byte_first_order() {
+    lanes(false);
 }

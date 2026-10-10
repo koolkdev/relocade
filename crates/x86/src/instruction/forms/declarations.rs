@@ -7,7 +7,7 @@ pub(in crate::instruction) use {adapters::*, macros::*};
 
 use super::{
     Availability, Encoding, Form, HandlerBinding, ImmediateWidth, LocationBinding, ModRmSelector,
-    OpcodeMap, OperandBinding, OperandEncoding,
+    OpcodeMap, OperandBinding, OperandEncoding, PrefixRule,
 };
 use crate::flags::Condition;
 use crate::instruction::handlers::{Handler, HandlerCall, SizedHandlers};
@@ -19,6 +19,8 @@ pub(in crate::instruction) enum OperandSpec {
     Rm,
     Memory,
     ModRmRegister,
+    XmmRegister,
+    XmmRm,
     X87StackIndex,
     OpcodeRegister,
     FixedRegister(NamedRegister),
@@ -37,6 +39,8 @@ impl OperandSpec {
             (Self::Rm, Self::Rm)
             | (Self::Memory, Self::Memory)
             | (Self::ModRmRegister, Self::ModRmRegister)
+            | (Self::XmmRegister, Self::XmmRegister)
+            | (Self::XmmRm, Self::XmmRm)
             | (Self::X87StackIndex, Self::X87StackIndex)
             | (Self::OpcodeRegister, Self::OpcodeRegister)
             | (Self::Offset, Self::Offset)
@@ -65,7 +69,7 @@ pub(in crate::instruction) enum Effect {
 pub(in crate::instruction) struct Opcode {
     pub(in crate::instruction) map: OpcodeMap,
     pub(in crate::instruction) byte: u8,
-    pub(in crate::instruction) group1_prefix: Option<Group1Prefix>,
+    pub(in crate::instruction) prefix: PrefixRule,
     pub(in crate::instruction) register_range: bool,
     pub(in crate::instruction) modrm: Option<ModRmSelector>,
 }
@@ -82,12 +86,15 @@ pub(in crate::instruction) struct Declaration<'a> {
 impl Declaration<'_> {
     pub(in crate::instruction) const fn form(self) -> Form {
         assert!(
-            !matches!(self.opcode.group1_prefix, Some(Group1Prefix::F0)),
+            !matches!(
+                self.opcode.prefix,
+                PrefixRule::Modifiers(Some(Group1Prefix::F0))
+            ),
             "declare optional LOCK support with lockable"
         );
         if self.lockable {
             assert!(
-                self.opcode.group1_prefix.is_none(),
+                matches!(self.opcode.prefix, PrefixRule::Modifiers(None)),
                 "LOCK eligibility requires an unprefixed form"
             );
             assert!(
@@ -116,19 +123,31 @@ impl Declaration<'_> {
         let mut index = 0;
         while index < self.operands.len() {
             bindings[index] = Some(match self.operands[index] {
-                OperandSpec::Rm | OperandSpec::Memory | OperandSpec::Address => {
+                OperandSpec::Rm
+                | OperandSpec::XmmRm
+                | OperandSpec::Memory
+                | OperandSpec::Address => {
                     modrm = true;
-                    memory_only |= !matches!(self.operands[index], OperandSpec::Rm);
+                    memory_only |=
+                        !matches!(self.operands[index], OperandSpec::Rm | OperandSpec::XmmRm);
                     if matches!(self.operands[index], OperandSpec::Address) {
                         OperandBinding::RmAddress
+                    } else if matches!(self.operands[index], OperandSpec::XmmRm) {
+                        OperandBinding::Location(LocationBinding::XmmRm)
                     } else {
                         OperandBinding::Location(LocationBinding::Rm)
                     }
                 }
-                OperandSpec::ModRmRegister => {
+                OperandSpec::ModRmRegister | OperandSpec::XmmRegister => {
                     modrm = true;
                     modrm_register = true;
-                    OperandBinding::Location(LocationBinding::Register)
+                    OperandBinding::Location(
+                        if matches!(self.operands[index], OperandSpec::XmmRegister) {
+                            LocationBinding::XmmRegister
+                        } else {
+                            LocationBinding::Register
+                        },
+                    )
                 }
                 OperandSpec::X87StackIndex => {
                     modrm = true;
@@ -221,7 +240,7 @@ impl Declaration<'_> {
             opcode: self.opcode.byte,
             mask: if opcode_register { 0xf8 } else { 0xff },
             map: self.opcode.map,
-            group1_prefix: self.opcode.group1_prefix,
+            prefix: self.opcode.prefix,
             lockable: self.lockable,
             modrm: if modrm {
                 let selector = match self.opcode.modrm {
