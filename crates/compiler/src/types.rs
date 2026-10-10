@@ -33,6 +33,13 @@ impl Type {
         )
     }
 
+    /// Scalar encodings fit in u64, including the raw bits of F64.
+    pub(super) fn is_scalar(self) -> bool {
+        match self {
+            Self::I1 | Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::F64 => true,
+        }
+    }
+
     pub(super) fn bits(self) -> u8 {
         match self {
             Self::I1 => 1,
@@ -43,11 +50,14 @@ impl Type {
         }
     }
 
+    /// Keep the logical bits of a scalar encoding.
     pub(super) fn normalize(self, bits: u64) -> u64 {
         bits & self.mask()
     }
 
+    /// The logical bit mask of a scalar encoding.
     pub(super) fn mask(self) -> u64 {
+        debug_assert!(self.is_scalar(), "scalar masks require a scalar type");
         crate::integer::low_mask(self.bits())
     }
 }
@@ -55,7 +65,7 @@ impl Type {
 mod sealed {
     pub trait Sealed {
         // Typed handles retain only the encoding their logical type can carry.
-        type Literal: Copy + Eq + Into<u64> + TryFrom<u64>;
+        type Literal: Copy + Eq + Into<crate::literal::Literal> + From<crate::literal::Literal>;
     }
 }
 

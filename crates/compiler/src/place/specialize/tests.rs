@@ -45,9 +45,7 @@ fn branch_previews_have_independent_facts_and_residuals() {
     for (truth, expected) in [(false, 11), (true, 7)] {
         let mut preview = live.on_branch(&graph.values, &Availability::default(), condition, truth);
         let result = preview.specialize(&mut graph, choice, |_, _, _| None).value;
-        assert!(
-            matches!(graph.values[result].definition, ValueDefinition::Literal(bits) if bits == expected)
-        );
+        assert!(matches!(graph.values[result].scalar_literal(), Some(bits) if bits == expected));
     }
     assert_eq!(
         live.specialize(&mut graph, choice, |_, _, _| None).value,
@@ -97,10 +95,7 @@ fn changing_facts_invalidates_previous_folds() {
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
-    assert!(matches!(
-        graph.values[result].definition,
-        ValueDefinition::Literal(7)
-    ));
+    assert!(matches!(graph.values[result].scalar_literal(), Some(7)));
 }
 
 #[test]
@@ -139,10 +134,7 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
-    assert!(matches!(
-        graph.values[result].definition,
-        ValueDefinition::Literal(7)
-    ));
+    assert!(matches!(graph.values[result].scalar_literal(), Some(7)));
 
     let mut incoming = ScalarFacts::default();
     incoming.assume(&graph.values, condition, false);
@@ -151,10 +143,7 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
-    assert!(matches!(
-        graph.values[result].definition,
-        ValueDefinition::Literal(11)
-    ));
+    assert!(matches!(graph.values[result].scalar_literal(), Some(11)));
     specializer.end_block(child);
     assert_eq!(
         specializer.facts().constant(&graph.values, condition),
@@ -164,10 +153,7 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
-    assert!(matches!(
-        graph.values[result].definition,
-        ValueDefinition::Literal(7)
-    ));
+    assert!(matches!(graph.values[result].scalar_literal(), Some(7)));
     specializer.end_block(inherited);
     assert_eq!(
         specializer
@@ -197,10 +183,7 @@ fn exact_carrier_constants_survive_specialization_and_fact_inference() {
     let result = specializer
         .specialize(&mut graph, view, |_, _, _| None)
         .value;
-    assert!(matches!(
-        graph.values[result].definition,
-        ValueDefinition::Literal(256)
-    ));
+    assert!(matches!(graph.values[result].scalar_literal(), Some(256)));
 }
 
 #[test]
@@ -222,10 +205,7 @@ fn branch_facts_follow_executed_conditions_to_their_source_recipes() {
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
-    assert!(matches!(
-        graph.values[result].definition,
-        ValueDefinition::Literal(7)
-    ));
+    assert!(matches!(graph.values[result].scalar_literal(), Some(7)));
 }
 
 #[test]

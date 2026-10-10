@@ -4,10 +4,10 @@ use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
 use super::{UnboundExpression, Val};
-use crate::{arena::FunctionArena, BuildError, Type, ValueType};
+use crate::{arena::FunctionArena, literal::Literal, BuildError, Type, ValueType};
 
 #[derive(Clone)]
-pub(crate) enum ValueSource<L = u64> {
+pub(crate) enum ValueSource<L = Literal> {
     Literal(L),
     Unbound(UnboundExpression),
     Expression {
@@ -71,7 +71,7 @@ impl<L> ValueSource<L> {
     }
 }
 
-impl<L: Copy + Eq + Into<u64>> ValueSource<L> {
+impl<L: Copy + Eq + Into<Literal>> ValueSource<L> {
     pub(super) fn resolve(
         &self,
         arena: &FunctionArena,
@@ -128,11 +128,7 @@ impl<T: ValueType> Val<T> {
 
     pub(crate) fn from_source(source: ValueSource) -> Self {
         Self {
-            source: source.map_literal(|literal| {
-                T::Literal::try_from(literal)
-                    .ok()
-                    .expect("a result literal matches its logical type")
-            }),
+            source: source.map_literal(Into::into),
             ty: PhantomData,
         }
     }
@@ -149,8 +145,8 @@ impl<T: ValueType> Val<T> {
         Self::from_source(ValueSource::Expression { arena, expression })
     }
 
-    pub(super) fn literal(bits: u64) -> Self {
-        Self::from_source(ValueSource::Literal(T::TYPE.normalize(bits)))
+    pub(super) fn literal(bits: impl Into<Literal>) -> Self {
+        Self::from_source(ValueSource::Literal(bits.into().normalize(T::TYPE)))
     }
 
     pub(crate) fn checked_expression(

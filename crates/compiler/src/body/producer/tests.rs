@@ -51,10 +51,7 @@ fn producer_views_preserve_dependencies_and_zero_one_or_many_results() {
     let inputs: Vec<_> = graph.inputs(calculation).collect();
     assert_eq!(inputs.len(), 2);
     assert_eq!(inputs[0], graph.blocks[graph.entry.0].parameters[0]);
-    assert!(matches!(
-        graph.values[inputs[1]].definition,
-        ValueDefinition::Literal(7)
-    ));
+    assert!(matches!(graph.values[inputs[1]].scalar_literal(), Some(7)));
     assert_eq!(
         graph.inputs(calculation).rev().collect::<Vec<_>>(),
         [inputs[1], inputs[0]]
