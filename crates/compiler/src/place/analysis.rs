@@ -19,12 +19,14 @@ mod comparisons;
 mod context;
 mod infer;
 mod merge;
+mod paths;
 mod range;
 mod scoped_map;
 mod selects;
 mod shifts;
 pub(super) use context::{Assumption, ContextScope};
 use context::{PathContext, SuspendedContext};
+pub(super) use paths::PathSnapshot;
 use range::Range;
 use scoped_map::ScopedMap;
 
@@ -73,6 +75,7 @@ pub(super) struct ValueAnalysis {
 struct DerivedFacts {
     bits: FxHashMap<usize, Bits>,
     select_constants: FxHashMap<usize, Option<u64>>,
+    path_exclusions: Option<Box<FxHashMap<usize, bool>>>,
 }
 
 impl DerivedFacts {
@@ -85,6 +88,16 @@ impl DerivedFacts {
         }
         if finished.select_constants.capacity() > self.select_constants.capacity() {
             self.select_constants = finished.select_constants;
+        }
+        if let Some(mut paths) = finished.path_exclusions {
+            paths.clear();
+            if self
+                .path_exclusions
+                .as_ref()
+                .is_none_or(|spare| paths.capacity() > spare.capacity())
+            {
+                self.path_exclusions = Some(paths);
+            }
         }
     }
 }
@@ -101,7 +114,7 @@ impl Clone for ValueAnalysis {
 
 impl ValueAnalysis {
     /// Whether known logical bits prove that these paths cannot coincide.
-    pub(super) fn conflicts_with(&self, table: &ValueTable, other: &Self) -> bool {
+    fn conflicts_with(&self, table: &ValueTable, other: &Self) -> bool {
         self.context
             .known
             .iter()

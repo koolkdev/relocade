@@ -20,7 +20,7 @@ impl IncomingValues {
         mut recipe: usize,
         joins: &Joins,
     ) -> Option<usize> {
-        let facts = joins.blocks[self.source].facts.as_ref().unwrap();
+        let facts = joins.blocks[self.source].facts.as_ref().unwrap().analysis();
         let mut path = Vec::new();
         let result = loop {
             if let Some(&result) = self.resolved.get(&recipe) {
