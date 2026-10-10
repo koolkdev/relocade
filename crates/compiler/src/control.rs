@@ -1,6 +1,6 @@
 //! Typed branches and direct construction of control-flow edges.
 use crate::{
-    body::{BlockId, Edge, Exit},
+    body::{BlockId, Edge, Exit, Layout},
     function::PendingBlock,
     results, Arguments, BlockBuilder, BuildError, Results, Type,
 };
@@ -57,6 +57,7 @@ impl BlockBuilder<'_> {
         build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<PendingBlock, BuildError> {
         let mut pending = PendingBlock::new(scope, block);
+        pending.path = self.pending.path.clone();
         build(BlockBuilder {
             program: self.program,
             function: self.function,
@@ -80,6 +81,23 @@ impl BlockBuilder<'_> {
                 }),
             )?;
         }
+        Ok(())
+    }
+    fn attach_scope(&mut self, block: PendingBlock, after: BlockId) -> Result<(), BuildError> {
+        self.connect_fallthrough(&block, after)?;
+        self.arena.exit(
+            self.pending.current,
+            Exit::Jump(Edge {
+                target: block.entry,
+                arguments: Vec::new(),
+            }),
+        )?;
+        self.pending.layout.push(Layout::Scope {
+            preheader: self.pending.current,
+            body: block.layout,
+            after,
+        });
+        self.pending.current = after;
         Ok(())
     }
     fn join_outputs(

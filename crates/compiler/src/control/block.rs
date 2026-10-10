@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use super::JoinTarget;
 use crate::{
     arena::FunctionArena,
-    body::{BlockId, Edge, Exit, Layout},
+    body::{BlockId, Edge, Exit},
     Arguments, BlockBuilder, BuildError, Results, Val, I1,
 };
 
@@ -34,9 +34,9 @@ impl BlockBuilder<'_> {
     /// Descendants may pass values to the label with [`Self::branch`], skipping
     /// the remainder of the block. Its direct body may instead use [`Self::yield_`].
     /// Each reachable completion must supply the result, branch to an enclosing
-    /// control label, or exit the function; a unit block may fall through. A nonempty result
-    /// requires at least one incoming result. Construction errors discard the block
-    /// and keep its parent usable.
+    /// control label, or exit the function; a unit block may fall through. If every
+    /// path exits elsewhere, the result and continuation are unreachable.
+    /// Construction errors discard the block and keep its parent usable.
     ///
     /// ```
     /// use wasm86_compiler::{Program, Signature, Type, I1, I32};
@@ -69,22 +69,9 @@ impl BlockBuilder<'_> {
         };
         let entry = self.arena.block(scope, &[])?;
         let block = self.build_block(scope, entry, Some(&target), |body| build(body, label))?;
-        self.connect_fallthrough(&block, target.target)?;
         let outputs = self.join_outputs(&target, &[block.entry])?;
         let values = crate::results::bind::<R>(self, &outputs);
-        self.arena.exit(
-            self.pending.current,
-            Exit::Jump(Edge {
-                target: block.entry,
-                arguments: Vec::new(),
-            }),
-        )?;
-        self.pending.layout.push(Layout::Scope {
-            preheader: self.pending.current,
-            body: block.layout,
-            after: target.target,
-        });
-        self.pending.current = target.target;
+        self.attach_scope(block, target.target)?;
         Ok(values)
     }
 

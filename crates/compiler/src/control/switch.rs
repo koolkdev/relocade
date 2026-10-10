@@ -13,21 +13,33 @@ impl BlockBuilder<'_> {
     /// key matches. Keys are unsigned and must be unique and fit the selector's
     /// logical type. The selector may be I1, I8, I16 or I32.
     ///
-    /// Construction invokes `build` once per key in the supplied order with
-    /// `Some(key)`, then once with `None` for the default. An empty case list builds
-    /// only the default. Each arm may fall through, return, tail-call or trap.
+    /// For a constant selector construction invokes only the matching arm, or
+    /// the default when no key matches. Otherwise it invokes `build` once per key
+    /// in the supplied order with `Some(key)`, then once with `None` for the default.
+    /// An empty case list builds only the default. Each arm may fall through,
+    /// return, tail-call or trap.
+    /// Skipped closures follow [`Self::if_`]'s construction contract.
     /// A callback error discards all arms; child values follow `if_`'s scope rules.
     /// Dense key ranges use a branch table; sparse ranges need no large table.
     pub fn switch<S: IntType>(
         &mut self,
         selector: impl Into<Val<S>>,
         cases: &[u32],
-        build: impl FnMut(BlockBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
+        mut build: impl FnMut(BlockBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError>
     where
         I32: AtLeast<S>,
     {
         let selector = self.switch_selector(selector, cases)?;
+        if let Some(bits) = self.arena.constant_bits(selector)? {
+            let key = cases.iter().copied().find(|&key| u64::from(key) == bits);
+            let branch = self.build_branch(None, |arm| build(arm, key))?;
+            let continuation = self.arena.block(self.pending.id, &[])?;
+            let path = branch.path.clone();
+            self.attach_scope(branch, continuation)?;
+            self.pending.path = path;
+            return Ok(());
+        }
         let (cases, default) = self.switch_arms(None, cases, build)?;
         let continuation = self.arena.block(self.pending.id, &[])?;
         self.attach_switch(selector, cases, default, continuation)?;
@@ -37,8 +49,8 @@ impl BlockBuilder<'_> {
     /// Executes one arm and joins its typed result in the parent, using `switch`'s
     /// key matching and construction order. Nonempty result arms must consume
     /// their builder with `yield_`, an outward `branch`, `return_`,
-    /// `tail_call` or `trap`; at least one must yield to this switch. Unit result
-    /// arms may fall through.
+    /// `tail_call` or `trap`. If every constructed arm exits elsewhere, the result
+    /// and continuation are unreachable. Unit result arms may fall through.
     /// A callback error discards all arms and leaves the parent usable.
     ///
     /// Only the joined result becomes available in the parent. Other values
@@ -64,13 +76,21 @@ impl BlockBuilder<'_> {
         &mut self,
         selector: impl Into<Val<S>>,
         cases: &[u32],
-        build: impl FnMut(BlockBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
+        mut build: impl FnMut(BlockBuilder<'_>, Option<u32>) -> Result<(), BuildError>,
     ) -> Result<R::Values, BuildError>
     where
         I32: AtLeast<S>,
     {
         let selector = self.switch_selector(selector, cases)?;
         let target = self.result_target::<R>()?;
+        if let Some(bits) = self.arena.constant_bits(selector)? {
+            let key = cases.iter().copied().find(|&key| u64::from(key) == bits);
+            let branch = self.build_branch(Some(&target), |arm| build(arm, key))?;
+            let outputs = self.join_outputs(&target, &[branch.entry])?;
+            let values = crate::results::bind::<R>(self, &outputs);
+            self.attach_scope(branch, target.target)?;
+            return Ok(values);
+        }
         let (cases, default) = self.switch_arms(Some(&target), cases, build)?;
         let entries: Vec<_> = cases
             .iter()

@@ -35,7 +35,7 @@ fn rejected_mixed_changes_leave_status_and_direction_history_intact() {
                             FlagChange::partial([(Flag::DF, true.into())]).when(predicate),
                         )?;
                         let mut child = None;
-                        body.if_(false, |mut arm| {
+                        body.if_(true, |mut arm| {
                             child = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?.ne(0));
                             Ok(())
                         })?;

@@ -42,15 +42,19 @@ impl BlockBuilder<'_> {
         })?;
         let continuation = self.arena.block(self.pending.id, &[])?;
         let otherwise = self.build_branch(None, |_| Ok(()))?;
-        self.attach_conditional(condition, taken, otherwise, continuation)
+        self.attach_conditional(condition, taken, otherwise, continuation)?;
+        self.pending.path = self.arena.assume(&self.pending.path, condition, false)?;
+        Ok(())
     }
 
     /// Builds a branch that executes when the condition is true. A false condition
     /// skips it. The child has the same load, store, conditional and return methods.
     /// Return `Ok(())` without a terminal to continue after the branch.
     /// A closure error discards the branch and leaves the parent usable.
-    /// Construction checks the branch even for a constant condition. Constant
-    /// conditions are folded after the complete function body has been checked.
+    /// A condition settled by a constant or an earlier test on this path invokes
+    /// only the reachable closure. Skipped closures are not validated and must not
+    /// be relied upon for construction-time side effects. Otherwise both closures
+    /// of a conditional are built and checked.
     ///
     /// Values depending on child reads, calls or joins can be consumed only in
     /// that child or its descendants. Pure expressions from parent values can be
@@ -81,7 +85,7 @@ impl BlockBuilder<'_> {
     /// Executes exactly one of two branches. Each branch may fall through,
     /// return from the function, tail-call or trap. A construction error discards both
     /// branches and leaves the parent usable. Child values follow `if_`'s scope rules.
-    /// Both closures run during construction, including for constant conditions.
+    /// Only closures reachable under known conditions run, as described by [`Self::if_`].
     ///
     /// ```
     /// use wasm86_compiler::{Program, Signature, Type, I32};
@@ -106,20 +110,41 @@ impl BlockBuilder<'_> {
         else_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         let condition = self.operand(condition)?;
-        let branch = self.build_branch(None, then_build)?;
-        let else_branch = self.build_branch(None, else_build)?;
         let condition = self.arena.normalize(condition)?;
+        if let Some(truth) = self.arena.condition(&self.pending.path, condition)? {
+            let branch = if truth {
+                self.build_branch(None, then_build)?
+            } else {
+                self.build_branch(None, else_build)?
+            };
+            let continuation = self.arena.block(self.pending.id, &[])?;
+            let path = branch.path.clone();
+            self.attach_scope(branch, continuation)?;
+            self.pending.path = path;
+            return Ok(());
+        }
+        let branch = self.build_conditional_arm(condition, true, None, then_build)?;
+        let else_branch = self.build_conditional_arm(condition, false, None, else_build)?;
+        // Ordinary arms cannot target this conditional's continuation directly.
+        // If only one arm falls through, its decisions hold after the guard too.
+        let path = match (branch.falls_through(), else_branch.falls_through()) {
+            (true, false) => branch.path.clone(),
+            (false, true) => else_branch.path.clone(),
+            _ => self.pending.path.clone(),
+        };
         let continuation = self.arena.block(self.pending.id, &[])?;
-        self.attach_conditional(condition, branch, else_branch, continuation)
+        self.attach_conditional(condition, branch, else_branch, continuation)?;
+        self.pending.path = path;
+        Ok(())
     }
 
     /// Selects a typed result by executing one of two branches. Nonempty result
     /// arms must consume their builder with `yield_`, an outward `branch`,
-    /// `return_`, `tail_call` or `trap`; at least one must yield
-    /// to this conditional. Unit result arms may fall through.
+    /// `return_`, `tail_call` or `trap`. If every constructed arm exits elsewhere,
+    /// the result and continuation are unreachable. Unit result arms may fall through.
     /// A yield supplies this conditional's result, while a return exits the function.
     /// A construction error discards both arms and leaves the parent usable.
-    /// Both arms are checked even when the condition is constant.
+    /// Only closures reachable under known conditions run, as described by [`Self::if_`].
     ///
     /// The selected value is visible in the parent. Other values depending on
     /// child reads, calls or joins remain confined to that child and its descendants.
@@ -148,15 +173,42 @@ impl BlockBuilder<'_> {
         else_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<R::Values, BuildError> {
         let condition = self.operand(condition)?;
-        let target = self.result_target::<R>()?;
-        let branch = self.build_branch(Some(&target), then_build)?;
-        let else_branch = self.build_branch(Some(&target), else_build)?;
         let condition = self.arena.normalize(condition)?;
+        let target = self.result_target::<R>()?;
+        if let Some(truth) = self.arena.condition(&self.pending.path, condition)? {
+            let branch = if truth {
+                self.build_branch(Some(&target), then_build)?
+            } else {
+                self.build_branch(Some(&target), else_build)?
+            };
+            let outputs = self.join_outputs(&target, &[branch.entry])?;
+            let values = crate::results::bind::<R>(self, &outputs);
+            self.attach_scope(branch, target.target)?;
+            return Ok(values);
+        }
+        let branch = self.build_conditional_arm(condition, true, Some(&target), then_build)?;
+        let else_branch =
+            self.build_conditional_arm(condition, false, Some(&target), else_build)?;
         let outputs = self.join_outputs(&target, &[branch.entry, else_branch.entry])?;
         let values = crate::results::bind::<R>(self, &outputs);
         self.attach_conditional(condition, branch, else_branch, target.target)?;
         Ok(values)
     }
+
+    fn build_conditional_arm(
+        &mut self,
+        condition: usize,
+        truth: bool,
+        target: Option<&JoinTarget>,
+        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
+    ) -> Result<PendingBlock, BuildError> {
+        let path = self.arena.assume(&self.pending.path, condition, truth)?;
+        self.build_branch(target, |arm| {
+            arm.pending.path = path;
+            build(arm)
+        })
+    }
+
     fn attach_conditional(
         &mut self,
         condition: usize,

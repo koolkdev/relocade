@@ -37,7 +37,7 @@ fn rejected_partial_values_and_predicates_leave_pending_changes_intact() {
                                 .when(pending),
                         )?;
                         let mut child = None;
-                        body.if_(false, |mut arm| {
+                        body.if_(true, |mut arm| {
                             child = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?.ne(0));
                             Ok(())
                         })?;

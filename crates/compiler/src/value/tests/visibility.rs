@@ -18,7 +18,7 @@ fn memory_program() -> (Program, Mem) {
 
 fn child_constant(body: &mut BlockBuilder<'_>, memory: Mem) -> Val<I32> {
     let mut retained = None;
-    body.if_(false, |mut child| {
+    body.if_(true, |mut child| {
         let input = child.load::<I32>(memory, 0)?;
         retained = Some(child.value(input.and(0).add(1))?);
         Ok(())
@@ -37,7 +37,7 @@ fn fold_chains_keep_original_visibility_and_runtime_identity() {
     program
         .define(function, |mut body| {
             let mut retained = vec![];
-            body.if_(false, |mut child| {
+            body.if_(true, |mut child| {
                 let input = child.load::<I32>(memory, 0)?;
                 for (value, expected) in [
                     (
@@ -115,7 +115,7 @@ fn folded_operands_from_siblings_have_no_shared_visible_scope() {
     program
         .define(function, |mut body| {
             let first = child_constant(&mut body, memory);
-            body.if_(false, |mut sibling| {
+            body.if_(true, |mut sibling| {
                 let local = sibling.load::<I32>(memory, 4)?.and(0).add(1);
                 for value in [
                     first.add(&local),
@@ -330,12 +330,12 @@ fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
             );
 
             let mut sibling = None;
-            body.if_(false, |mut branch| {
+            body.if_(true, |mut branch| {
                 sibling = Some(branch.load::<I32>(memory, 0)?);
                 Ok(())
             })
             .unwrap();
-            body.if_(false, |mut branch| {
+            body.if_(true, |mut branch| {
                 let local = branch.load::<I32>(memory, 4)?;
                 let sibling = sibling.as_ref().unwrap();
                 assert_eq!(

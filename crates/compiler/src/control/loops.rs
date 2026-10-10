@@ -23,7 +23,7 @@ impl BlockBuilder<'_> {
     /// `labels.exit`, or a direct `yield_`, completes the loop with its result.
     /// A unit result may fall through. Inputs and labels are confined to this
     /// loop and its descendants; only the result is visible afterwards.
-    /// A nonempty result requires at least one exit that supplies it.
+    /// If no path exits the loop, its result and continuation are unreachable.
     /// Errors discard the loop and leave the parent builder usable.
     ///
     /// Used loads and read-only call results constructed before the loop retain
