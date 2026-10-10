@@ -4,8 +4,9 @@ use crate::{
     execution::{ExecutionBuilder, OperandSpan},
     instruction::{Location, Operand},
     memory::{Intent, TransferType},
+    register::RegisterCode,
 };
-use wasm86_compiler::{BuildError, Val, VectorLane, I32, V128};
+use wasm86_compiler::{BuildError, Val, I32, I64, V128};
 
 #[derive(Clone, Copy)]
 pub(crate) enum VectorAlignment {
@@ -13,24 +14,72 @@ pub(crate) enum VectorAlignment {
     Aligned,
 }
 impl VectorAlignment {
-    fn span(self) -> OperandSpan {
+    fn span(self, bytes: u32) -> OperandSpan {
         match self {
-            Self::Unaligned => 16.into(),
-            Self::Aligned => OperandSpan::aligned(16),
+            Self::Unaligned => bytes.into(),
+            Self::Aligned => OperandSpan::aligned(bytes),
         }
     }
 }
 
-/// How a scalar write treats the XMM register bits above its low lane.
-#[derive(Clone, Copy)]
-pub(crate) enum UpperBits {
-    Clear,
-    Preserve,
+/// An XMM access width: the low I32/I64 lane or the complete V128 register.
+/// Writes replace only that portion of the register.
+pub(crate) trait XmmType: TransferType {
+    fn read_register(
+        execution: &mut ExecutionBuilder<'_, '_>,
+        register: RegisterCode,
+    ) -> Result<Val<Self>, BuildError>;
+
+    fn write_register(
+        execution: &mut ExecutionBuilder<'_, '_>,
+        register: RegisterCode,
+        value: Val<Self>,
+    ) -> Result<(), BuildError>;
+}
+
+macro_rules! scalar_xmm_types {
+    ($($ty:ty),+) => { $(
+        impl XmmType for $ty {
+            fn read_register(
+                execution: &mut ExecutionBuilder<'_, '_>,
+                register: RegisterCode,
+            ) -> Result<Val<Self>, BuildError> {
+                Ok(execution.read_xmm(register)?.extract_lane(0))
+            }
+
+            fn write_register(
+                execution: &mut ExecutionBuilder<'_, '_>,
+                register: RegisterCode,
+                value: Val<Self>,
+            ) -> Result<(), BuildError> {
+                let vector = execution.read_xmm(register.clone())?;
+                execution.write_xmm(register, vector.replace_lane(0, value))
+            }
+        }
+    )+};
+}
+scalar_xmm_types!(I32, I64);
+
+impl XmmType for V128 {
+    fn read_register(
+        execution: &mut ExecutionBuilder<'_, '_>,
+        register: RegisterCode,
+    ) -> Result<Val<Self>, BuildError> {
+        execution.read_xmm(register)
+    }
+
+    fn write_register(
+        execution: &mut ExecutionBuilder<'_, '_>,
+        register: RegisterCode,
+        value: Val<Self>,
+    ) -> Result<(), BuildError> {
+        execution.write_xmm(register, value)
+    }
 }
 
 /// A location in the XMM register class or a memory operand.
 pub(crate) enum XmmLocation {
-    Register(crate::register::RegisterCode),
+    Register(RegisterCode),
     Memory(Box<MemoryAddress<Val<I32>>>),
 }
 
@@ -47,64 +96,32 @@ impl XmmLocation {
         matches!(self, Self::Memory(_))
     }
 
-    /// Reads the low register lane or exactly one scalar from memory.
-    pub(crate) fn read_scalar<T: VectorLane + TransferType>(
+    /// Reads the low T-width register portion or exactly T::BYTES from memory.
+    pub(crate) fn read<T: XmmType>(
         self,
         execution: &mut ExecutionBuilder<'_, '_>,
+        alignment: VectorAlignment,
     ) -> Result<Val<T>, BuildError> {
         match self {
-            Self::Register(register) => Ok(execution.read_xmm(register)?.extract_lane::<T>(0)),
+            Self::Register(register) => T::read_register(execution, register),
             Self::Memory(address) => execution
-                .memory_operand(*address, T::BYTES, Intent::Read, &[])?
+                .memory_operand(*address, alignment.span(T::BYTES), Intent::Read, &[])?
                 .read(execution, 0),
         }
     }
 
-    /// Writes the low register lane or exactly one scalar to memory.
-    /// The upper-bit policy applies only to a register destination.
-    pub(crate) fn write_scalar<T: VectorLane + TransferType>(
+    /// Writes the low T-width register portion or exactly T::BYTES to memory.
+    /// Other register bits and memory bytes are preserved.
+    pub(crate) fn write<T: XmmType>(
         self,
         execution: &mut ExecutionBuilder<'_, '_>,
-        upper_bits: UpperBits,
+        alignment: VectorAlignment,
         value: Val<T>,
     ) -> Result<(), BuildError> {
         match self {
-            Self::Register(register) => {
-                let vector = match upper_bits {
-                    UpperBits::Clear => Val::<V128>::from(0_u128),
-                    UpperBits::Preserve => execution.read_xmm(register.clone())?,
-                };
-                execution.write_xmm(register, vector.replace_lane(0, value))
-            }
+            Self::Register(register) => T::write_register(execution, register, value),
             Self::Memory(address) => execution
-                .memory_operand(*address, T::BYTES, Intent::Write, &[])?
-                .write(execution, 0, value),
-        }
-    }
-
-    pub(crate) fn read_vector(
-        self,
-        execution: &mut ExecutionBuilder<'_, '_>,
-        alignment: VectorAlignment,
-    ) -> Result<Val<V128>, BuildError> {
-        match self {
-            Self::Register(register) => execution.read_xmm(register),
-            Self::Memory(address) => execution
-                .memory_operand(*address, alignment.span(), Intent::Read, &[])?
-                .read(execution, 0),
-        }
-    }
-
-    pub(crate) fn write_vector(
-        self,
-        execution: &mut ExecutionBuilder<'_, '_>,
-        alignment: VectorAlignment,
-        value: Val<V128>,
-    ) -> Result<(), BuildError> {
-        match self {
-            Self::Register(register) => execution.write_xmm(register, value),
-            Self::Memory(address) => execution
-                .memory_operand(*address, alignment.span(), Intent::Write, &[])?
+                .memory_operand(*address, alignment.span(T::BYTES), Intent::Write, &[])?
                 .write(execution, 0, value),
         }
     }

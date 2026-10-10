@@ -1,9 +1,8 @@
 //! SSE and SSE2 moves and logical operations preserve raw XMM encodings.
 
 use super::*;
-use crate::instruction::{UpperBits, VectorAlignment, XmmLocation};
-use crate::memory::TransferType;
-use wasm86_compiler::VectorLane;
+use crate::instruction::{VectorAlignment, XmmLocation, XmmType};
+use wasm86_compiler::{VectorLane, V128};
 
 instruction_families! {
     MOVUPS {
@@ -82,24 +81,27 @@ fn move_vector(
     source: XmmLocation,
     alignment: VectorAlignment,
 ) -> Result<(), BuildError> {
-    let value = source.read_vector(execution, alignment)?;
-    destination.write_vector(execution, alignment, value)
+    let value = source.read::<V128>(execution, alignment)?;
+    destination.write(execution, alignment, value)
 }
 
-fn move_scalar<T: VectorLane + TransferType>(
+fn move_scalar<T: VectorLane + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: XmmLocation,
     source: XmmLocation,
 ) -> Result<(), BuildError> {
-    // MOVSS/MOVSD memory loads clear upper XMM bits;
-    // register copies preserve them.
-    let upper_bits = if source.is_memory() {
-        UpperBits::Clear
+    let memory_load = source.is_memory();
+    let value = source.read::<T>(execution, VectorAlignment::Unaligned)?;
+    if memory_load {
+        // MOVSS/MOVSD memory loads also clear the rest of the XMM register.
+        let XmmLocation::Register(register) = destination else {
+            unreachable!("MOVSS/MOVSD memory loads have an XMM destination")
+        };
+        let vector = Val::<V128>::from(0_u128).replace_lane(0, value);
+        execution.write_xmm(register, vector)
     } else {
-        UpperBits::Preserve
-    };
-    let value = source.read_scalar::<T>(execution)?;
-    destination.write_scalar(execution, upper_bits, value)
+        destination.write(execution, VectorAlignment::Unaligned, value)
+    }
 }
 
 fn xor_vector(
@@ -110,7 +112,7 @@ fn xor_vector(
     let XmmLocation::Register(register) = destination else {
         unreachable!("XOR has an XMM destination")
     };
-    let right = source.read_vector(execution, VectorAlignment::Aligned)?;
+    let right = source.read::<V128>(execution, VectorAlignment::Aligned)?;
     let left = execution.read_xmm(register.clone())?;
     execution.write_xmm(register, left.xor(right))
 }
