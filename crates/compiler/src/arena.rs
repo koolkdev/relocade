@@ -1,4 +1,5 @@
 //! Shared graph construction, lexical visibility and unbound-expression admission.
+use crate::literal::Literal;
 use crate::{
     body::{
         BitBounds, BlockId, BlockItem, Effect, EffectId, Exit, FunctionGraph, Layout, Operation,
@@ -35,7 +36,7 @@ impl FunctionArena {
             Err(BuildError::BodyClosed)
         }
     }
-    pub(super) fn literal(&self, ty: Type, bits: u64) -> Result<usize, BuildError> {
+    pub(super) fn literal(&self, ty: Type, bits: impl Into<Literal>) -> Result<usize, BuildError> {
         self.with_open(|table| table.literal(ty, bits))
     }
     pub(super) fn constant_bits(&self, value: usize) -> Result<Option<u64>, BuildError> {

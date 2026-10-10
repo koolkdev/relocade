@@ -1,5 +1,5 @@
 use super::*;
-use crate::{body::ValueDefinition, value::source::ValueSource, Val, ValueType, I1, I32, I64, I8};
+use crate::{value::source::ValueSource, Val, ValueType, I1, I32, I64, I8};
 
 #[test]
 fn shared_unbound_expressions_are_cached_per_body_and_released_when_closed() {
@@ -82,9 +82,7 @@ fn unbound_operands_keep_their_types_across_comparisons_shifts_and_conversions()
     let values = arena.take().unwrap().values;
     for (id, ty, bits) in expected {
         assert_eq!(values[id].ty, ty);
-        assert!(
-            matches!(values[id].definition, ValueDefinition::Literal(actual) if actual == bits)
-        );
+        assert!(matches!(values[id].scalar_literal(), Some(actual) if actual == bits));
     }
 }
 
@@ -117,9 +115,7 @@ fn unbound_wide_components_share_storage_but_keep_distinct_identities_and_cache_
             [1, u64::MAX - 1]
         };
         for (id, expected) in ids.into_iter().zip(expected) {
-            assert!(
-                matches!(values[id].definition, ValueDefinition::Literal(bits) if bits == expected)
-            );
+            assert!(matches!(values[id].scalar_literal(), Some(bits) if bits == expected));
         }
     }
     drop(low);

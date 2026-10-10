@@ -200,10 +200,13 @@ impl ScalarFacts {
                 }
                 Ok(TypedLiteral {
                     ty,
-                    value: table.carrier_bits(input, bits.value),
+                    value: table.carrier_bits(input, bits.value).into(),
                 })
             }) {
-                if let Some(result) = constants.constant_result(value.ty, result.component) {
+                if let Some(result) = constants
+                    .constant_result(value.ty, result.component)
+                    .and_then(|literal| literal.scalar(value.ty))
+                {
                     bits = Bits {
                         mask: value.ty.mask(),
                         value: result,

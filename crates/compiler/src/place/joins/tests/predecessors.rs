@@ -400,8 +400,5 @@ fn surviving_predecessors_keep_their_arguments_when_an_arm_is_removed() {
         [second]
     );
     let filler = graph.blocks[inner.left.0].exit.edges()[0].arguments[0];
-    assert!(matches!(
-        graph.values[filler].definition,
-        ValueDefinition::Literal(0)
-    ));
+    assert!(matches!(graph.values[filler].scalar_literal(), Some(0)));
 }

@@ -16,7 +16,7 @@ fn refold(values: &mut ValueTable, ty: Type, expression: Expression<usize>) -> u
 }
 
 fn assert_constant(values: &ValueTable, id: usize, expected: u64) {
-    let ValueDefinition::Literal(bits) = values[id].definition else {
+    let Some(bits) = values[id].scalar_literal() else {
         panic!("expected a constant");
     };
     assert_eq!(bits, expected);
@@ -86,13 +86,13 @@ fn refolded_constants_retain_carrier_bits_and_unsigned_extension() {
     let view = refold(&mut values, Type::I32, Expression::Convert { input: sum });
     assert_constant(&values, view, 256);
     let negative = values.carrier_literal(Type::I8, u64::MAX);
-    assert_eq!(values.carrier_bits(negative, 255), 0xffff_ffff);
+    assert_eq!(values.carrier_bits(negative, 255), 0xffff_ffff_u64);
     let unsigned = refold(
         &mut values,
         Type::I64,
         Expression::Convert { input: negative },
     );
-    assert_constant(&values, unsigned, 0xffff_ffff);
+    assert_constant(&values, unsigned, 0xffff_ffff_u64);
     let zero = values.literal(Type::I8, 0);
     let positive = refold(
         &mut values,
@@ -216,7 +216,10 @@ fn offsets_and_explicit_masks_keep_their_observed_width() {
 #[test]
 fn constant_folding_keeps_division_traps_and_narrow_signed_results() {
     let mut values = ValueTable::default();
-    for (ty, minimum) in [(Type::I32, 0x8000_0000), (Type::I64, 0x8000_0000_0000_0000)] {
+    for (ty, minimum) in [
+        (Type::I32, 0x8000_0000_u64),
+        (Type::I64, 0x8000_0000_0000_0000_u64),
+    ] {
         let left = values.literal(ty, minimum);
         let minus_one = values.literal(ty, u64::MAX);
         let zero = values.literal(ty, 0);
@@ -240,8 +243,8 @@ fn constant_folding_keeps_division_traps_and_narrow_signed_results() {
             ));
         }
     }
-    let left = values.carrier_literal(Type::I8, 0xffff_ff80);
-    let right = values.carrier_literal(Type::I8, 0xffff_ffff);
+    let left = values.carrier_literal(Type::I8, 0xffff_ff80_u64);
+    let right = values.carrier_literal(Type::I8, 0xffff_ffff_u64);
     let result = refold(
         &mut values,
         Type::I8,

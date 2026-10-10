@@ -35,6 +35,7 @@ mod expression;
 mod floating;
 mod function;
 mod integer;
+mod literal;
 mod memory;
 mod module;
 mod place;

@@ -291,8 +291,8 @@ fn knowing_one_component_does_not_make_its_sibling_available() {
         .assume(&placer.graph.values, condition, true);
     let folded = placer.materialize(low, BlockId(0));
     assert!(matches!(
-        placer.graph.values[folded].definition,
-        ValueDefinition::Literal(0)
+        placer.graph.values[folded].scalar_literal(),
+        Some(0)
     ));
     assert!(placer.graph.blocks[0].items.is_empty());
     let placed = placer.materialize(high, BlockId(0));
