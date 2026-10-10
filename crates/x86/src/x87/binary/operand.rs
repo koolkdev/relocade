@@ -1,6 +1,6 @@
 //! Narrow sources retain their original exception evidence until consumption.
 
-use wasm86_compiler::{Val, I1, I64};
+use wasm86_compiler::{Val, F64, I1, I64};
 
 use super::BinaryFormat;
 use crate::x87::{ExtendedBits, ExtendedValue};
@@ -28,6 +28,10 @@ impl BinaryFormat {
 }
 
 impl BinaryOperand {
+    pub(in crate::x87) fn binary64_value(&self) -> Option<Val<F64>> {
+        (self.format == BinaryFormat::Binary64).then(|| Val::<F64>::from_bits(&self.bits))
+    }
+
     /// FLD quiets an SNaN after retaining its exception evidence. Keeping the
     /// narrow representation also permits exact stores back to the same format.
     pub(crate) fn loaded_value(&self) -> ExtendedValue {

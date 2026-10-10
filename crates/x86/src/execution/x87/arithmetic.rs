@@ -123,7 +123,7 @@ impl ExecutionBuilder<'_, '_> {
         let mut x87 = state.access(body);
         x87.write_stack(destination, &rounded.value, &enabled)?;
         if pop {
-            x87.pop(&enabled)?;
+            x87.pop(1, &enabled)?;
         }
         Ok(())
     }

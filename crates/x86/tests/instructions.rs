@@ -98,6 +98,8 @@ mod unary_operations;
 mod undefined_instructions;
 #[path = "suites/x87_add.rs"]
 mod x87_add;
+#[path = "suites/x87_compare.rs"]
+mod x87_compare;
 #[path = "suites/x87_control.rs"]
 mod x87_control;
 #[path = "suites/x87_divide.rs"]

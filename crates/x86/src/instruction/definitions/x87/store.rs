@@ -124,7 +124,7 @@ fn store_extended(
         },
         |_| Ok(()),
     )?;
-    execution.x87().pop(&enabled)
+    execution.x87().pop(1, &enabled)
 }
 
 fn store_register(
@@ -142,7 +142,7 @@ fn store_register(
         &enabled,
     )?;
     if pop {
-        execution.x87().pop(&enabled)?;
+        execution.x87().pop(1, &enabled)?;
     }
     Ok(())
 }

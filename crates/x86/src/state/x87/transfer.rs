@@ -74,7 +74,7 @@ impl X87Access<'_, '_> {
             .status
             .record_pending_exception(self.body, suppressed.or(unmasked_precision))?;
         if pop {
-            self.pop(&enabled)?;
+            self.pop(1, &enabled)?;
         }
         Ok(StoreResult {
             bits: result.bits,

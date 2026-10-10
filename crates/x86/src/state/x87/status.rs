@@ -5,6 +5,7 @@ use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I8};
 use crate::{
     ssa::{Location, StateFields},
     state::access::cpu_location,
+    x87::ComparisonResult,
 };
 
 use super::control::{Control, Exception};
@@ -90,6 +91,33 @@ impl Status {
 
     pub(super) fn pending(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I1>, BuildError> {
         self.flag(body, cpu_location!(x87.status.error_summary))
+    }
+
+    pub(crate) fn set_comparison(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        result: &ComparisonResult,
+        enabled: &Val<I1>,
+    ) -> Result<(), BuildError> {
+        for (location, bit) in [
+            (
+                cpu_location!(x87.status.c0),
+                result.unordered.or(&result.less),
+            ),
+            (cpu_location!(x87.status.c2), result.unordered.clone()),
+            (
+                cpu_location!(x87.status.c3),
+                result.unordered.or(&result.equal),
+            ),
+        ] {
+            let previous = self.fields.read(body, location.clone())?;
+            self.fields.define(
+                body,
+                location,
+                enabled.select(bit.unsigned().extend::<I8>(), previous),
+            )?;
+        }
+        Ok(())
     }
 
     pub(super) fn exception_raised(

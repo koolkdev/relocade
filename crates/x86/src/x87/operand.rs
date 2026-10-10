@@ -1,4 +1,4 @@
-//! Binary operands select arithmetic and share normalization and exception priority.
+//! Binary operands retain exact values, classification and source exception evidence.
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64, I8};
 
@@ -9,15 +9,17 @@ use super::{
 
 pub(super) struct Operand {
     pub(super) bits: ExtendedBits,
-    // Retain this exact view without changing the original exception evidence.
+    // A native significand retains x87's separate exponent. A whole binary64
+    // value requires its own range and precision proof. Neither changes evidence.
     pub(super) precision53_significand: Option<Val<F64>>,
+    pub(super) binary64_value: Option<Val<F64>>,
     normal_or_zero: Val<I1>,
     pub(super) zero: Val<I1>,
     pub(super) infinity: Val<I1>,
-    nan: Val<I1>,
-    signaling_nan: Val<I1>,
-    denormal: Val<I1>,
-    unsupported: Val<I1>,
+    pub(super) nan: Val<I1>,
+    pub(super) signaling_nan: Val<I1>,
+    pub(super) denormal: Val<I1>,
+    pub(super) unsupported: Val<I1>,
 }
 
 impl Operand {
@@ -25,6 +27,7 @@ impl Operand {
         Self {
             bits: value.bits(),
             precision53_significand: value.precision53_significand(),
+            binary64_value: value.binary64_value(),
             normal_or_zero: value.normal().or(value.zero()),
             zero: value.zero(),
             infinity: value.infinity(),
@@ -38,6 +41,7 @@ impl Operand {
     fn from_binary(source: &BinaryOperand) -> Self {
         Self {
             bits: source.expanded_bits(),
+            binary64_value: source.binary64_value(),
             precision53_significand: Some(
                 Precision53::from_bits(&source.expanded_bits())
                     .significand()

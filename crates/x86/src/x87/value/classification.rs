@@ -2,7 +2,7 @@
 
 use wasm86_compiler::{Val, I1, I8};
 
-use super::ExtendedValue;
+use super::{ExtendedValue, Representation};
 
 /// Only these exact classes are currently established by value construction.
 /// Other encodings keep no class hint and use the predicates below.
@@ -57,6 +57,9 @@ impl ExtendedValue {
     }
 
     pub(in crate::x87) fn special_exponent(&self) -> Val<I1> {
+        if let Representation::Binary { format, bits } = &self.representation {
+            return format.decode(bits).finite().eq(false);
+        }
         self.class
             .as_ref()
             .map(|class| class.0.eq(Class::QuietNaN as u32))
@@ -64,6 +67,9 @@ impl ExtendedValue {
     }
 
     pub(in crate::x87) fn nan(&self) -> Val<I1> {
+        if let Representation::Binary { format, bits } = &self.representation {
+            return format.decode(bits).nan();
+        }
         if let Some(class) = &self.class {
             return class.0.eq(Class::QuietNaN as u32);
         }
@@ -76,6 +82,10 @@ impl ExtendedValue {
     }
 
     pub(in crate::x87) fn signaling_nan(&self) -> Val<I1> {
+        // Binary representations contain post-load encodings with NaNs quieted.
+        if matches!(&self.representation, Representation::Binary { .. }) {
+            return false.into();
+        }
         if self.class.is_some() {
             return false.into();
         }
@@ -84,6 +94,9 @@ impl ExtendedValue {
     }
 
     pub(in crate::x87) fn infinity(&self) -> Val<I1> {
+        if let Representation::Binary { format, bits } = &self.representation {
+            return format.decode(bits).infinity();
+        }
         if self.class.is_some() {
             return false.into();
         }
@@ -96,6 +109,10 @@ impl ExtendedValue {
     }
 
     pub(in crate::x87) fn denormal(&self) -> Val<I1> {
+        // Narrow subnormals have normal extended values after loading.
+        if matches!(&self.representation, Representation::Binary { .. }) {
+            return false.into();
+        }
         if self.class.is_some() {
             return false.into();
         }
@@ -104,6 +121,9 @@ impl ExtendedValue {
     }
 
     pub(in crate::x87) fn unsupported(&self) -> Val<I1> {
+        if matches!(&self.representation, Representation::Binary { .. }) {
+            return false.into();
+        }
         if self.class.is_some() {
             return false.into();
         }
