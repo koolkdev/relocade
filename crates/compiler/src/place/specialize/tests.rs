@@ -1,4 +1,5 @@
 use super::*;
+use crate::bitwise::BitwiseOp;
 
 fn conditional_value() -> FunctionGraph {
     let mut graph = FunctionGraph::new();
@@ -10,8 +11,8 @@ fn conditional_value() -> FunctionGraph {
         },
     });
     graph.blocks[0].parameters.push(condition);
-    let when_true = graph.values.constant(crate::Type::I32, 7);
-    let when_false = graph.values.constant(crate::Type::I32, 11);
+    let when_true = graph.values.literal(crate::Type::I32, 7);
+    let when_false = graph.values.literal(crate::Type::I32, 11);
     let choice = graph.values.intern(Value {
         ty: crate::Type::I32,
         definition: ValueDefinition::Expression(Expression::Select {
@@ -44,9 +45,7 @@ fn branch_previews_have_independent_facts_and_residuals() {
     for (truth, expected) in [(false, 11), (true, 7)] {
         let mut preview = live.on_branch(&graph.values, &Availability::default(), condition, truth);
         let result = preview.specialize(&mut graph, choice, |_, _, _| None).value;
-        assert!(
-            matches!(graph.values[result].definition, ValueDefinition::Constant(bits) if bits == expected)
-        );
+        assert!(matches!(graph.values[result].scalar_literal(), Some(bits) if bits == expected));
     }
     assert_eq!(
         live.specialize(&mut graph, choice, |_, _, _| None).value,
@@ -96,10 +95,7 @@ fn changing_facts_invalidates_previous_folds() {
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
-    assert!(matches!(
-        graph.values[result].definition,
-        ValueDefinition::Constant(7)
-    ));
+    assert!(matches!(graph.values[result].scalar_literal(), Some(7)));
 }
 
 #[test]
@@ -138,22 +134,16 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
-    assert!(matches!(
-        graph.values[result].definition,
-        ValueDefinition::Constant(7)
-    ));
+    assert!(matches!(graph.values[result].scalar_literal(), Some(7)));
 
-    let mut incoming = Facts::default();
+    let mut incoming = ScalarFacts::default();
     incoming.assume(&graph.values, condition, false);
     let replaced = specializer.begin_block(Some(incoming));
     let child = specializer.begin_block(None);
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
-    assert!(matches!(
-        graph.values[result].definition,
-        ValueDefinition::Constant(11)
-    ));
+    assert!(matches!(graph.values[result].scalar_literal(), Some(11)));
     specializer.end_block(child);
     assert_eq!(
         specializer.facts().constant(&graph.values, condition),
@@ -163,10 +153,7 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
-    assert!(matches!(
-        graph.values[result].definition,
-        ValueDefinition::Constant(7)
-    ));
+    assert!(matches!(graph.values[result].scalar_literal(), Some(7)));
     specializer.end_block(inherited);
     assert_eq!(
         specializer
@@ -180,7 +167,7 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
 fn exact_carrier_constants_survive_specialization_and_fact_inference() {
     let mut graph = conditional_value();
     let condition = graph.blocks[0].parameters[0];
-    let literal = graph.values.carrier_constant(crate::Type::I8, 256);
+    let literal = graph.values.carrier_literal(crate::Type::I8, 256);
     let view = graph.values.intern(Value {
         ty: crate::Type::I32,
         definition: ValueDefinition::Expression(Expression::Convert { input: literal }),
@@ -196,10 +183,7 @@ fn exact_carrier_constants_survive_specialization_and_fact_inference() {
     let result = specializer
         .specialize(&mut graph, view, |_, _, _| None)
         .value;
-    assert!(matches!(
-        graph.values[result].definition,
-        ValueDefinition::Constant(256)
-    ));
+    assert!(matches!(graph.values[result].scalar_literal(), Some(256)));
 }
 
 #[test]
@@ -221,10 +205,7 @@ fn branch_facts_follow_executed_conditions_to_their_source_recipes() {
     let result = specializer
         .specialize(&mut graph, choice, |_, _, _| None)
         .value;
-    assert!(matches!(
-        graph.values[result].definition,
-        ValueDefinition::Constant(7)
-    ));
+    assert!(matches!(graph.values[result].scalar_literal(), Some(7)));
 }
 
 #[test]
@@ -263,9 +244,9 @@ fn observing_a_narrow_replacement_does_not_define_the_sources_upper_bits() {
 
 #[test]
 fn bitwise_absorption_cannot_discard_unknown_carrier_bits() {
-    use crate::{integer::BinaryOp, Type};
+    use crate::Type;
 
-    for operator in [BinaryOp::Or, BinaryOp::And] {
+    for operator in [BitwiseOp::Or, BitwiseOp::And] {
         for reversed in [false, true] {
             let mut graph = FunctionGraph::new();
             let inputs: Vec<_> = (0..2)
@@ -292,7 +273,7 @@ fn bitwise_absorption_cannot_discard_unknown_carrier_bits() {
             };
             let result = graph.values.intern(Value {
                 ty: Type::I8,
-                definition: ValueDefinition::Expression(Expression::Binary {
+                definition: ValueDefinition::Expression(Expression::Bitwise {
                     operator,
                     left,
                     right,
@@ -317,7 +298,7 @@ fn bitwise_absorption_cannot_discard_unknown_carrier_bits() {
 
 #[test]
 fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
-    use crate::{integer::BinaryOp, Type};
+    use crate::Type;
 
     let mut graph = FunctionGraph::new();
     let inputs: Vec<_> = (0..3)
@@ -355,8 +336,8 @@ fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
     });
     let result = graph.values.intern(Value {
         ty: Type::I32,
-        definition: ValueDefinition::Expression(Expression::Binary {
-            operator: BinaryOp::Or,
+        definition: ValueDefinition::Expression(Expression::Bitwise {
+            operator: BitwiseOp::Or,
             left: choice,
             right: update,
         }),
@@ -380,8 +361,8 @@ fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
     let unproven = live.specialize(&mut graph, result, |_, _, _| None).value;
     assert!(matches!(
         graph.values[unproven].definition,
-        ValueDefinition::Expression(Expression::Binary {
-            operator: BinaryOp::Or,
+        ValueDefinition::Expression(Expression::Bitwise {
+            operator: BitwiseOp::Or,
             ..
         })
     ));

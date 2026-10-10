@@ -1,8 +1,9 @@
 //! Logical width changes and the physical bits carried between observations.
 use super::Folder;
 use crate::{
+    bitwise::BitwiseOp,
     body::ValueDefinition,
-    integer::{self, BinaryOp, ShiftOp},
+    integer::{self, ShiftOp},
     Expression, Type,
 };
 
@@ -12,47 +13,6 @@ struct MaskedBits {
 }
 
 impl Folder<'_> {
-    /// XOR cancels repeated operands and combines adjacent constant masks.
-    /// Inputs already identify their carrier representations.
-    pub(super) fn fold_xor(&mut self, ty: Type, left: usize, right: usize) -> Option<usize> {
-        for (nested, other) in [(left, right), (right, left)] {
-            let ValueDefinition::Expression(Expression::Binary {
-                operator: BinaryOp::Xor,
-                left: inner_left,
-                right: inner_right,
-            }) = self.values[nested].definition
-            else {
-                continue;
-            };
-            let a = self.values.representation(inner_left);
-            let b = self.values.representation(inner_right);
-            if b == other {
-                return Some(inner_left);
-            }
-            if a == other {
-                return Some(inner_right);
-            }
-            let ValueDefinition::Constant(outer_mask) = self.values[other].definition else {
-                continue;
-            };
-            let (base, inner_mask) = match (self.values[a].definition, self.values[b].definition) {
-                (_, ValueDefinition::Constant(mask)) => (inner_left, mask),
-                (ValueDefinition::Constant(mask), _) => (inner_right, mask),
-                _ => continue,
-            };
-            let mask = self.values.carrier_constant(ty, inner_mask ^ outer_mask);
-            return Some(self.fold(
-                ty,
-                Expression::Binary {
-                    operator: BinaryOp::Xor,
-                    left: base,
-                    right: mask,
-                },
-            ));
-        }
-        None
-    }
-
     /// Rejoining bits extracted from the same carrier only needs their union
     /// mask. Match explicit masks and restored shifts, never logical type widths.
     pub(super) fn rejoin_bits(&mut self, ty: Type, left: usize, right: usize) -> Option<usize> {
@@ -61,11 +21,11 @@ impl Folder<'_> {
         if left.input != right.input {
             return None;
         }
-        let mask = self.values.carrier_constant(ty, left.mask | right.mask);
+        let mask = self.values.carrier_literal(ty, left.mask | right.mask);
         Some(self.fold(
             ty,
-            Expression::Binary {
-                operator: BinaryOp::And,
+            Expression::Bitwise {
+                operator: BitwiseOp::And,
                 left: left.input,
                 right: mask,
             },
@@ -78,13 +38,16 @@ impl Folder<'_> {
             ValueDefinition::Expression(Expression::LowBits { input, bits }) => {
                 (input, integer::low_mask(bits))
             }
-            ValueDefinition::Expression(Expression::Binary {
-                operator: BinaryOp::And,
+            ValueDefinition::Expression(Expression::Bitwise {
+                operator: BitwiseOp::And,
                 left,
                 right,
-            }) => match (self.values[left].definition, self.values[right].definition) {
-                (_, ValueDefinition::Constant(mask)) => (left, mask),
-                (ValueDefinition::Constant(mask), _) => (right, mask),
+            }) => match (
+                self.values[left].scalar_literal(),
+                self.values[right].scalar_literal(),
+            ) {
+                (_, Some(mask)) => (left, mask),
+                (Some(mask), _) => (right, mask),
                 _ => (input, self.values[input].ty.carrier().mask()),
             },
             _ => (input, self.values[input].ty.carrier().mask()),
@@ -106,7 +69,7 @@ impl Folder<'_> {
             return bits;
         };
         let carrier = self.values[bits.input].ty.carrier();
-        let ValueDefinition::Constant(count) = self.values[count].definition else {
+        let Some(count) = self.values[count].scalar_literal() else {
             return bits;
         };
         let count = integer::shift_count(carrier, count as u32);
@@ -119,7 +82,7 @@ impl Folder<'_> {
         else {
             return bits;
         };
-        let ValueDefinition::Constant(reverse) = self.values[reverse].definition else {
+        let Some(reverse) = self.values[reverse].scalar_literal() else {
             return bits;
         };
         if self.values[shifted.input].ty.carrier() != carrier
@@ -139,7 +102,7 @@ impl Folder<'_> {
     pub(super) fn fold_low_bits(&mut self, ty: Type, input: usize, bits: u8) -> usize {
         debug_assert!(bits <= ty.carrier().bits());
         if bits == 0 {
-            return self.values.constant(ty, 0);
+            return self.values.literal(ty, 0);
         }
         if self.values.bounds[input].unsigned <= bits {
             return input;
@@ -148,12 +111,12 @@ impl Folder<'_> {
         let mut base = input;
         let mut offset = 0_u64;
         loop {
+            if let Some(value) = self.values[base].scalar_literal() {
+                return self
+                    .values
+                    .carrier_literal(ty, value.wrapping_add(offset) & mask);
+            }
             match self.values[base].definition {
-                ValueDefinition::Constant(value) => {
-                    return self
-                        .values
-                        .carrier_constant(ty, value.wrapping_add(offset) & mask);
-                }
                 ValueDefinition::Expression(Expression::LowBits { input, bits: kept })
                     if kept >= bits =>
                 {
@@ -165,24 +128,26 @@ impl Folder<'_> {
                 {
                     base = input;
                 }
-                ValueDefinition::Expression(Expression::Binary {
-                    operator: BinaryOp::And,
+                ValueDefinition::Expression(Expression::Bitwise {
+                    operator: BitwiseOp::And,
                     left,
                     right,
                 }) => {
-                    let (input, kept) =
-                        match (self.values[left].definition, self.values[right].definition) {
-                            (_, ValueDefinition::Constant(mask)) => (left, mask.trailing_ones()),
-                            (ValueDefinition::Constant(mask), _) => (right, mask.trailing_ones()),
-                            _ => break,
-                        };
+                    let (input, kept) = match (
+                        self.values[left].scalar_literal(),
+                        self.values[right].scalar_literal(),
+                    ) {
+                        (_, Some(mask)) => (left, mask.trailing_ones()),
+                        (Some(mask), _) => (right, mask.trailing_ones()),
+                        _ => break,
+                    };
                     if kept < u32::from(bits) {
                         break;
                     }
                     base = input;
                 }
-                ValueDefinition::Expression(Expression::Binary {
-                    operator: BinaryOp::Or | BinaryOp::Xor,
+                ValueDefinition::Expression(Expression::Bitwise {
+                    operator: BitwiseOp::Or | BitwiseOp::Xor,
                     left,
                     right,
                 }) => {

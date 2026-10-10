@@ -105,7 +105,7 @@ impl Module {
     }
 }
 
-fn check_reuse<T: MemoryInt>()
+fn check_reuse<T: MemoryInt + crate::memory::TransferType>()
 where
     I64: AtLeast<T>,
 {
@@ -243,7 +243,7 @@ fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmti
         .unwrap();
     program.export("replace", function).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
-        execution_profile: None,
+        execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "replace".into(),
     });

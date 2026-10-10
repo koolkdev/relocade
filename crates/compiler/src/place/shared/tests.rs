@@ -80,16 +80,16 @@ fn placer(graph: &mut FunctionGraph) -> Placer<'_> {
 #[test]
 fn a_branch_can_eliminate_work_without_placing_its_preview() {
     enum Folded {
-        Constant,
+        Literal,
         Parameter,
         Available,
     }
-    for folded in [Folded::Constant, Folded::Parameter, Folded::Available] {
+    for folded in [Folded::Literal, Folded::Parameter, Folded::Available] {
         let mut graph = graph();
         let product = square(&mut graph);
-        let constant = graph.values.constant(Type::I32, 17);
+        let literal = graph.values.literal(Type::I32, 17);
         let when_false = match folded {
-            Folded::Constant => constant,
+            Folded::Literal => literal,
             Folded::Parameter => 1,
             Folded::Available => expression(
                 &mut graph,
@@ -97,7 +97,7 @@ fn a_branch_can_eliminate_work_without_placing_its_preview() {
                 Expression::Binary {
                     operator: BinaryOp::Add,
                     left: 1,
-                    right: constant,
+                    right: literal,
                 },
             ),
         };
@@ -237,7 +237,7 @@ fn sharing_analysis_resolves_ancestor_joins_before_caching_values() {
         placer
             .joins
             .record(source.0, [(product, value)].into_iter());
-        placer.joins.complete(source.0, &Facts::default());
+        placer.joins.complete(source.0, &ScalarFacts::default());
     }
     placer.joins.prepare(
         placer.graph,
@@ -291,8 +291,8 @@ fn knowing_one_component_does_not_make_its_sibling_available() {
         .assume(&placer.graph.values, condition, true);
     let folded = placer.materialize(low, BlockId(0));
     assert!(matches!(
-        placer.graph.values[folded].definition,
-        ValueDefinition::Constant(0)
+        placer.graph.values[folded].scalar_literal(),
+        Some(0)
     ));
     assert!(placer.graph.blocks[0].items.is_empty());
     let placed = placer.materialize(high, BlockId(0));

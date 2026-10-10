@@ -65,6 +65,8 @@ mod tail_calls;
 mod value_reuse;
 #[path = "suites/value_selection.rs"]
 mod value_selection;
+#[path = "suites/vectors.rs"]
+mod vectors;
 #[path = "suites/zero_tests.rs"]
 mod zero_tests;
 

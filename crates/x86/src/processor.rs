@@ -1,32 +1,71 @@
-//! The built-in virtual CPU identity and complete advertised instruction features.
-//!
-//! Execution profiles change decoding and memory assumptions, not this identity.
+//! Capabilities selected for the virtual processor, independent of execution mode.
 
-use wasm86_compiler::{Val, I32};
+mod cpuid;
 
-pub(crate) struct CpuidValues {
-    pub(crate) eax: Val<I32>,
-    pub(crate) ebx: Val<I32>,
-    pub(crate) ecx: Val<I32>,
-    pub(crate) edx: Val<I32>,
+/// A complete optional capability implemented by the virtual processor.
+///
+/// Identifiers are independent of their architectural CPUID bit positions.
+/// Partial x87 and SSE implementations are not complete capabilities and cannot
+/// be selected or advertised through this enum.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[non_exhaustive]
+pub enum CpuFeature {
+    /// Eight-byte compare and exchange: CMPXCHG8B.
+    Cx8,
+    /// Integer conditional moves: CMOVcc. The model does not advertise an FPU.
+    Cmov,
+    /// Population count: POPCNT, independently of SSE4.2.
+    Popcnt,
+    /// Timestamp reads: RDTSC. Execution profiles separately govern permission.
+    Tsc,
 }
 
-// The virtual model uses family 6, model 0, stepping 1 without claiming an Intel
-// processor identity. Feature flags describe the implementation independently.
-const SIGNATURE: u32 = 0x0000_0601;
-const POPCNT: u32 = 1 << 23;
-const TSC: u32 = 1 << 4;
-const CX8: u32 = 1 << 8;
-const CMOV: u32 = 1 << 15;
+impl CpuFeature {
+    const fn mask(self) -> u8 {
+        1 << self as u8
+    }
+}
 
-/// Leaves 0 and 1 have no subleaves. All unsupported queries return the highest
-/// basic leaf, including extended queries because this model has no extended range.
-pub(crate) fn cpuid(leaf: &Val<I32>) -> CpuidValues {
-    let vendor = leaf.eq(0);
-    CpuidValues {
-        eax: vendor.select(1, SIGNATURE),
-        ebx: vendor.select(u32::from_le_bytes(*b"Relo"), 0),
-        ecx: vendor.select(u32::from_le_bytes(*b" CPU"), POPCNT),
-        edx: vendor.select(u32::from_le_bytes(*b"cade"), TSC | CX8 | CMOV),
+/// Immutable capability choices for one virtual processor.
+///
+/// The default enables all complete optional capabilities. Disabling one changes
+/// CPUID reporting and instruction availability in blocks and interpreters.
+/// Baseline instructions and existing partial x87/SSE implementations remain
+/// available; feature selection does not emulate an older processor generation.
+///
+/// Only implemented, independent capabilities are selectable. There is no raw
+/// CPUID mask or constructor that can claim an unimplemented feature group.
+/// Keep this model fixed for a guest and include it in compiled-entry cache keys.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CpuModel {
+    features: u8,
+}
+
+impl Default for CpuModel {
+    fn default() -> Self {
+        Self {
+            features: CpuFeature::Cx8.mask()
+                | CpuFeature::Cmov.mask()
+                | CpuFeature::Popcnt.mask()
+                | CpuFeature::Tsc.mask(),
+        }
+    }
+}
+
+impl CpuModel {
+    /// Enable or disable one complete optional capability.
+    #[must_use]
+    pub const fn with_feature(mut self, feature: CpuFeature, enabled: bool) -> Self {
+        if enabled {
+            self.features |= feature.mask();
+        } else {
+            self.features &= !feature.mask();
+        }
+        self
+    }
+
+    /// Whether this model provides the selected capability.
+    pub const fn supports(self, feature: CpuFeature) -> bool {
+        self.features & feature.mask() != 0
     }
 }

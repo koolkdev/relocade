@@ -17,6 +17,7 @@ pub(super) fn wasm_type(ty: Type) -> ValType {
     match ty.carrier() {
         Type::I64 => ValType::I64,
         Type::F64 => ValType::F64,
+        Type::V128 => ValType::V128,
         _ => ValType::I32,
     }
 }
@@ -40,7 +41,7 @@ pub(super) fn encode(
     }
     let mut slot_types = Vec::new();
     for (index, value) in graph.values.iter().enumerate() {
-        if locals[index].is_none() && !matches!(value.definition, ValueDefinition::Constant(_)) {
+        if locals[index].is_none() && !matches!(value.definition, ValueDefinition::Literal(_)) {
             locals[index] = Some(parameter_count + slot_types.len() as u32);
             slot_types.push(wasm_type(value.ty));
         }
@@ -111,11 +112,14 @@ impl Writer<'_> {
                 Pending::Value(value) => {
                     let value = self.selection.resolve(value);
                     match self.graph.values[value].definition {
-                        ValueDefinition::Constant(bits) => {
+                        ValueDefinition::Literal(bits) => {
                             self.emit(match self.graph.values[value].ty.carrier() {
-                                Type::I64 => Wasm::I64Const(bits as i64),
-                                Type::F64 => Wasm::F64Const(wasm_encoder::Ieee64::new(bits)),
-                                _ => Wasm::I32Const(bits as i32),
+                                Type::V128 => Wasm::V128Const(u128::from(bits) as i128),
+                                Type::I64 => Wasm::I64Const(u64::from(bits) as i64),
+                                Type::F64 => {
+                                    Wasm::F64Const(wasm_encoder::Ieee64::new(u64::from(bits)))
+                                }
+                                _ => Wasm::I32Const(u64::from(bits) as i32),
                             })
                         }
                         _ => {

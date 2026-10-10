@@ -39,7 +39,7 @@ fn resolved_conditionals_and_switches_keep_only_the_surviving_layout() {
             graph.blocks[block.0].exit = jump(join);
         }
         graph.blocks[join.0].exit = Exit::Return(Vec::new());
-        let selector = graph.values.constant(ty, bits);
+        let selector = graph.values.literal(ty, bits);
         let edge = |index: usize| Edge {
             target: arms[index],
             arguments: Vec::new(),
@@ -91,7 +91,7 @@ fn scopes_keep_early_branch_labels_and_flatten_a_final_entrance() {
         let input = if early {
             condition(&mut graph)
         } else {
-            graph.values.constant(Type::I1, 0)
+            graph.values.literal(Type::I1, 0)
         };
         let branch = graph.block(0, &[]);
         let taken = graph.block(0, &[]);

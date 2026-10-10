@@ -1,14 +1,16 @@
 //! Derive facts through expressions without changing the current path.
 
-use super::{Bits, Facts, Range};
+use super::{Bits, Range, ScalarFacts};
 use crate::{
-    body::{ValueDefinition, ValueTable},
-    expression::Constant,
-    integer::{low_mask, BinaryOp, CompareOp},
+    bitwise::BitwiseOp,
+    body::ValueTable,
+    expression::TypedLiteral,
+    integer::{low_mask, CompareOp},
     Expression,
 };
 
-impl Facts {
+impl ScalarFacts {
+    /// Known scalar bits; non-scalar values contribute no knowledge.
     pub(super) fn bits(&self, table: &ValueTable, root: usize) -> Bits {
         let mut cache = self.computed.borrow_mut();
         if let Some(&bits) = cache.get(&root) {
@@ -20,8 +22,12 @@ impl Facts {
                 continue;
             }
             let value = table[id];
+            if !value.ty.is_scalar() {
+                cache.insert(id, Bits::default());
+                continue;
+            }
             let known = self.known.get(&id).copied().unwrap_or_default();
-            if let ValueDefinition::Constant(bits) = value.definition {
+            if let Some(bits) = value.scalar_literal() {
                 cache.insert(
                     id,
                     Bits {
@@ -112,8 +118,8 @@ impl Facts {
                 }
                 (
                     _,
-                    Expression::Binary {
-                        operator: BinaryOp::And,
+                    Expression::Bitwise {
+                        operator: BitwiseOp::And,
                         left: a,
                         right: b,
                     },
@@ -127,8 +133,8 @@ impl Facts {
                 }
                 (
                     _,
-                    Expression::Binary {
-                        operator: BinaryOp::Or,
+                    Expression::Bitwise {
+                        operator: BitwiseOp::Or,
                         left: a,
                         right: b,
                     },
@@ -141,8 +147,8 @@ impl Facts {
                 }
                 (
                     _,
-                    Expression::Binary {
-                        operator: BinaryOp::Xor,
+                    Expression::Bitwise {
+                        operator: BitwiseOp::Xor,
                         left: a,
                         right: b,
                     },
@@ -194,15 +200,21 @@ impl Facts {
             if let Ok(constants) = expression.try_map(|&input| {
                 let bits = cache[&input];
                 let ty = table[input].ty;
+                if !ty.is_scalar() {
+                    return Err(());
+                }
                 if bits.mask & ty.mask() != ty.mask() {
                     return Err(());
                 }
-                Ok(Constant {
+                Ok(TypedLiteral {
                     ty,
-                    bits: table.carrier_bits(input, bits.value),
+                    value: table.carrier_bits(input, bits.value).into(),
                 })
             }) {
-                if let Some(result) = constants.constant_result(value.ty, result.component) {
+                if let Some(result) = constants
+                    .constant_result(value.ty, result.component)
+                    .and_then(|literal| literal.scalar(value.ty))
+                {
                     bits = Bits {
                         mask: value.ty.mask(),
                         value: result,

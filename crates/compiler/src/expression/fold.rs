@@ -11,6 +11,7 @@ use crate::{
 
 mod arithmetic;
 mod bits;
+mod bitwise;
 mod comparisons;
 mod select;
 mod shifts;
@@ -18,7 +19,7 @@ mod shifts;
 #[cfg(test)]
 mod tests;
 
-use super::Constant;
+use super::TypedLiteral;
 
 pub(crate) fn build(
     values: &mut ValueTable,
@@ -52,13 +53,13 @@ impl Folder<'_> {
         let expression = expression.map(|&input| {
             let value = self.values[input];
             match value.definition {
-                ValueDefinition::Constant(bits) => self.values.constant(value.ty, bits),
+                ValueDefinition::Literal(bits) => self.values.literal(value.ty, bits),
                 _ => input,
             }
         });
-        if let Some(constants) = self.constants(expression) {
-            if let Some(bits) = constants.constant_result(ty, component) {
-                return self.values.constant(ty, bits);
+        if let Some(literals) = self.literals(expression) {
+            if let Some(bits) = literals.constant_result(ty, component) {
+                return self.values.literal(ty, bits);
             }
         }
         match expression {
@@ -67,6 +68,11 @@ impl Folder<'_> {
                 left,
                 right,
             } => self.binary(operator, left, right),
+            Expression::Bitwise {
+                operator,
+                left,
+                right,
+            } => self.bitwise(operator, left, right),
             Expression::Compare {
                 operator,
                 left,
@@ -92,6 +98,8 @@ impl Folder<'_> {
             Expression::ZeroTest { input, nonzero } => self.zero_test(input, nonzero),
             Expression::Convert { input } => self.convert(input, ty),
             Expression::LowBits { .. }
+            | Expression::VectorExtract { .. }
+            | Expression::VectorReplace { .. }
             | Expression::FloatBinary { .. }
             | Expression::FloatUnary { .. }
             | Expression::FloatCompare { .. }
@@ -107,10 +115,10 @@ impl Folder<'_> {
     // Construction and operand replacement share rewrites that preserve every result bit.
     fn fold_result(&mut self, ty: Type, expression: Expression<usize>, component: usize) -> usize {
         if let Some(bits) = self
-            .constants(expression)
-            .and_then(|constants| constants.carrier_result(ty, component))
+            .literals(expression)
+            .and_then(|literals| literals.carrier_result(ty, component))
         {
-            return self.values.carrier_constant(ty, bits);
+            return self.values.carrier_literal(ty, bits);
         }
         let input = match expression {
             Expression::Binary {
@@ -118,6 +126,11 @@ impl Folder<'_> {
                 left,
                 right,
             } => self.fold_binary(ty, operator, left, right),
+            Expression::Bitwise {
+                operator,
+                left,
+                right,
+            } => self.fold_bitwise(ty, operator, left, right),
             Expression::MultiplyWide {
                 signed,
                 left,
@@ -159,6 +172,8 @@ impl Folder<'_> {
             // Integer identities and comparison complements do not hold for
             // floating-point values, including NaNs and signed zeros.
             Expression::FloatBinary { .. }
+            | Expression::VectorExtract { .. }
+            | Expression::VectorReplace { .. }
             | Expression::FloatUnary { .. }
             | Expression::FloatCompare { .. }
             | Expression::BitCount { .. } => None,
@@ -174,19 +189,22 @@ impl Folder<'_> {
         self.intern_result(ty, expression, component)
     }
 
-    fn constants(&self, expression: Expression<usize>) -> Option<Expression<Constant>> {
+    fn literals(&self, expression: Expression<usize>) -> Option<Expression<TypedLiteral>> {
         expression
             .try_map(|&input| {
                 let value = self.values[input];
-                let ValueDefinition::Constant(bits) = value.definition else {
+                let ValueDefinition::Literal(bits) = value.definition else {
                     return Err(());
                 };
-                Ok(Constant { ty: value.ty, bits })
+                Ok(TypedLiteral {
+                    ty: value.ty,
+                    value: bits,
+                })
             })
             .ok()
     }
 
-    /// Finish a canonical scalar without re-entering the rewrite that produced it.
+    /// Finish a canonical value without re-entering the rewrite that produced it.
     fn intern(&mut self, ty: Type, expression: Expression<usize>) -> usize {
         self.intern_result(ty, expression, 0)
     }
@@ -203,7 +221,7 @@ impl Folder<'_> {
         });
         let id = self.values.expression_result(id, component);
         if self.values.bounds[id].unsigned == 0 {
-            self.values.constant(ty, 0)
+            self.values.literal(ty, 0)
         } else {
             id
         }

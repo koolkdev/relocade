@@ -1,6 +1,6 @@
 //! Unsigned intervals for comparisons on normalized logical values.
 
-use super::{Bits, Facts};
+use super::{Bits, ScalarFacts};
 use crate::{body::ValueTable, integer::CompareOp};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -43,7 +43,7 @@ impl Range {
     }
 }
 
-impl Facts {
+impl ScalarFacts {
     pub(super) fn range(&self, table: &ValueTable, id: usize, bits: Bits) -> Option<Range> {
         // Unsigned comparisons observe carriers. Logical intervals describe
         // those carriers only after their unused upper bits have been cleared.

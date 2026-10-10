@@ -43,6 +43,8 @@ fn binary_lengths_follow_the_selected_operand_and_immediate_widths() {
         &[0x66, 0x83, 0xf8, 0x80],
         &[0x66, 0x80, 0xc0, 0x80],
         &[0x66, 0x0f, 0x9f, 0xc4],
+        &[0x0f, 0x28, 0xc1],
+        &[0x66, 0x0f, 0x28, 0xc1],
         &[0x81, 0x84, 0x8b, 0, 0x40, 0, 0, 0x80, 0x81, 0x83, 0x66],
         &[0x0f, 0x94, 0x84, 0x8b, 0, 0x40, 0, 0],
     ] {
@@ -115,8 +117,8 @@ fn unsupported_extensions_stop_before_address_and_immediate_fields() {
         (&[0xf7, 0x0c][..], 0xf7),
         (&[0x66, 0xf7, 0x0d][..], 0xf7),
         (&[0xf6, 0x0d][..], 0xf6),
-        (&[0x0f, 0x28][..], 0x0f), // MOVAPS is outside the integer subset.
-        (&[0x66, 0x0f, 0x28][..], 0x0f), // MOVAPD
+        (&[0x0f, 0x04][..], 0x0f), // Unassigned extended opcode.
+        (&[0x66, 0x0f, 0x04][..], 0x0f),
     ] {
         assert_eq!(
             compile_block_from_bytes(0x1000, code, 1).err(),
@@ -228,9 +230,18 @@ fn binary_fetch_faults_follow_decode_precedence() {
             Exit::Other(0x0008_00f7_0000_1ffe),
         ),
         (
-            "unsupported MOVAPS opcode before ModRM",
+            "missing MOVAPS ModRM",
             0x1ffe,
             vec![0x0f, 0x28],
+            Exit::PageFault {
+                address: 0x00002000,
+                error: 0x10,
+            },
+        ),
+        (
+            "unsupported extended opcode avoids another fetch",
+            0x1ffe,
+            vec![0x0f, 0x04],
             Exit::Other(0x0008_000f_0000_1ffe),
         ),
         (
@@ -276,9 +287,15 @@ fn binary_fetch_faults_follow_decode_precedence() {
             Exit::Other(0x0008_00f6_0000_1ff1),
         ),
         (
-            "last-byte MOVAPD opcode rejection avoids a ModRM length fault",
+            "MOVAPD ModRM beyond length limit",
             0x1ff1,
             [vec![0x66; 13], vec![0x0f, 0x28]].concat(),
+            Exit::Other(0x0002_0000_0000_0000),
+        ),
+        (
+            "last-byte unsupported extended opcode avoids a length fault",
+            0x1ff1,
+            [vec![0x66; 13], vec![0x0f, 0x04]].concat(),
             Exit::Other(0x0008_000f_0000_1ff1),
         ),
     ] {

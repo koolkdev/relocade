@@ -56,13 +56,13 @@ pub fn compile_block_from_bytes(
 /// execution and fallback at an invalid fetch.
 ///
 /// ```
-/// use wasm86_x86::{compile_block_from_bytes_with_profile, SegmentProfile};
+/// use wasm86_x86::{compile_block_from_bytes_with_profile, Compiler, SegmentProfile};
 ///
 /// // MOV AX, 0x1234 under 16-bit code defaults.
 /// let block = compile_block_from_bytes_with_profile(
 ///     0x1000, &[0xb8, 0x34, 0x12], 1, SegmentProfile::Segmented16,
 /// )?;
-/// assert_eq!(block.execution_profile, Some(SegmentProfile::Segmented16.into()));
+/// assert_eq!(block.execution_target, Some(Compiler::new(SegmentProfile::Segmented16).target()));
 /// # Ok::<(), wasm86_x86::BlockError>(())
 /// ```
 pub fn compile_block_from_bytes_with_profile(
@@ -76,7 +76,7 @@ pub fn compile_block_from_bytes_with_profile(
 
 impl Compiler {
     /// Compiles a snapshot through the boundary described by
-    /// [`compile_block_from_bytes`], with this compiler's execution profile and
+    /// [`compile_block_from_bytes`], with this compiler's execution target and
     /// observations. Fetch admission follows [`compile_block_from_bytes_with_profile`].
     pub fn compile_block(
         &self,
@@ -84,7 +84,7 @@ impl Compiler {
         bytes: &[u8],
         instruction_limit: u32,
     ) -> Result<CompiledModule, BlockError> {
-        let profile = self.profile;
+        let profile = self.target.profile;
         if instruction_limit == 0 {
             return Err(BlockError::ZeroInstructionLimit);
         }
@@ -97,7 +97,7 @@ impl Compiler {
                 decode::snapshot(remaining_bytes, next_eip, profile.code_default_size())?;
             next_eip = decoded_instruction.fallthrough_eip;
             remaining_bytes = rest;
-            let ends_block = decoded_instruction.instruction.ends_block(profile);
+            let ends_block = decoded_instruction.instruction.ends_block(self.target);
             decoded_instructions.push(decoded_instruction);
             if ends_block {
                 break;
@@ -124,7 +124,7 @@ impl Compiler {
                     memory.as_ref(),
                     runtime,
                     start_eip,
-                    profile,
+                    self.target,
                 )?
                 .with_specialization(self.observed_cpu.as_ref());
                 for decoded_instruction in decoded_instructions {
@@ -138,7 +138,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry,
-            execution_profile: Some(profile),
+            execution_target: Some(self.target),
         })
     }
 }

@@ -26,7 +26,7 @@ impl FunctionGraph {
         match self.values[value].definition {
             ValueDefinition::Expression(_) => Some(BlockItem::Evaluate(value)),
             ValueDefinition::Result { producer, .. } => Some(producer),
-            ValueDefinition::Constant(_) | ValueDefinition::Parameter { .. } => None,
+            ValueDefinition::Literal(_) | ValueDefinition::Parameter { .. } => None,
         }
     }
 

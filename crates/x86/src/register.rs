@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
-use wasm86_compiler::{Val, I1, I16, I32, I8};
+use wasm86_compiler::{MemoryInt, Val, I1, I16, I32, I8};
 
-use crate::ssa::SsaType;
+use crate::{memory::TransferType, ssa::SsaType};
 
 /// A general-purpose register, independent of its position in CPU backing memory.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -145,7 +145,7 @@ pub(super) enum RegisterSelection {
     },
 }
 
-pub(super) trait RegisterType: SsaType {
+pub(super) trait RegisterType: SsaType + MemoryInt + TransferType {
     /// Number of parent slots reachable by an indexed encoded register.
     const BACKING_SLOT_COUNT: u32;
 

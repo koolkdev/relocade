@@ -2,8 +2,9 @@
 
 use super::Folder;
 use crate::{
+    bitwise::BitwiseOp,
     body::ValueDefinition,
-    integer::{self, BinaryOp, CompareOp},
+    integer::{self, CompareOp},
     Expression, Type,
 };
 
@@ -60,7 +61,7 @@ impl Folder<'_> {
         let b = self.values[right];
         debug_assert_eq!(a.ty, b.ty);
         if let Some(result) = self.compare_constant_choices(operator, left, right, a.ty) {
-            return self.values.constant(Type::I1, u64::from(result));
+            return self.values.literal(Type::I1, u64::from(result));
         }
         // Equality can use the signed carriers when both already repeat their
         // logical sign. Mixed signed/unsigned representations still need masks.
@@ -74,7 +75,7 @@ impl Folder<'_> {
             && self.values.bounds[right].unsigned > a.ty.bits()
         {
             // Compare the low-bit difference once instead of masking both operands.
-            let difference = self.binary(BinaryOp::Xor, left, right);
+            let difference = self.bitwise(BitwiseOp::Xor, left, right);
             return self.zero_test(difference, operator == CompareOp::Ne);
         }
         let (left, right) = if signed_operands {
@@ -106,10 +107,10 @@ impl Folder<'_> {
         if let Some(result) =
             self.compare_constant_choices(operator, a, b, self.values[a].ty.carrier())
         {
-            return Some(self.values.constant(Type::I1, u64::from(result)));
+            return Some(self.values.literal(Type::I1, u64::from(result)));
         }
         if a == b {
-            return Some(self.values.constant(
+            return Some(self.values.literal(
                 Type::I1,
                 u64::from(matches!(
                     operator,
@@ -118,13 +119,13 @@ impl Folder<'_> {
             ));
         }
         if matches!(operator, CompareOp::LtUnsigned | CompareOp::GeUnsigned) {
-            if self.values[b].definition == ValueDefinition::Constant(0) {
+            if self.values[b].scalar_literal() == Some(0) {
                 return Some(
                     self.values
-                        .constant(Type::I1, u64::from(operator == CompareOp::GeUnsigned)),
+                        .literal(Type::I1, u64::from(operator == CompareOp::GeUnsigned)),
                 );
             }
-            if self.values[a].definition == ValueDefinition::Constant(0) {
+            if self.values[a].scalar_literal() == Some(0) {
                 return Some(self.fold(
                     Type::I1,
                     Expression::ZeroTest {
@@ -137,9 +138,12 @@ impl Folder<'_> {
         if !matches!(operator, CompareOp::Eq | CompareOp::Ne) {
             return None;
         }
-        let (input, mask) = match (self.values[a].definition, self.values[b].definition) {
-            (_, ValueDefinition::Constant(mask)) => (left, mask),
-            (ValueDefinition::Constant(mask), _) => (right, mask),
+        let (input, mask) = match (
+            self.values[a].scalar_literal(),
+            self.values[b].scalar_literal(),
+        ) {
+            (_, Some(mask)) => (left, mask),
+            (Some(mask), _) => (right, mask),
             _ => return None,
         };
         let nonzero = if mask == 0 {
@@ -147,14 +151,14 @@ impl Folder<'_> {
         } else {
             let one_bit = mask == 1 && self.values.bounds[input].unsigned <= 1;
             let masked_bit = match self.values[self.values.representation(input)].definition {
-                ValueDefinition::Expression(Expression::Binary {
-                    operator: BinaryOp::And,
+                ValueDefinition::Expression(Expression::Bitwise {
+                    operator: BitwiseOp::And,
                     left,
                     right,
                 }) => {
                     mask.is_power_of_two()
-                        && (self.values[left].definition == ValueDefinition::Constant(mask)
-                            || self.values[right].definition == ValueDefinition::Constant(mask))
+                        && (self.values[left].scalar_literal() == Some(mask)
+                            || self.values[right].scalar_literal() == Some(mask))
                 }
                 _ => false,
             };
@@ -173,12 +177,14 @@ impl Folder<'_> {
         right: usize,
         ty: Type,
     ) -> Option<bool> {
-        let (input, constant, constant_first) =
-            match (self.values[left].definition, self.values[right].definition) {
-                (_, ValueDefinition::Constant(constant)) => (left, constant, false),
-                (ValueDefinition::Constant(constant), _) => (right, constant, true),
-                _ => return None,
-            };
+        let (input, constant, constant_first) = match (
+            self.values[left].scalar_literal(),
+            self.values[right].scalar_literal(),
+        ) {
+            (_, Some(constant)) => (left, constant, false),
+            (Some(constant), _) => (right, constant, true),
+            _ => return None,
+        };
         let comparison = ConstantComparison {
             operator,
             ty,
@@ -198,8 +204,10 @@ impl Folder<'_> {
     ) -> Option<bool> {
         *remaining = remaining.checked_sub(1)?;
         let value = self.values[input];
+        if let Some(bits) = value.scalar_literal() {
+            return Some(comparison.evaluate(bits));
+        }
         match value.definition {
-            ValueDefinition::Constant(bits) => Some(comparison.evaluate(bits)),
             ValueDefinition::Expression(Expression::Select {
                 when_true,
                 when_false,

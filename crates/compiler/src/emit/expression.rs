@@ -1,10 +1,11 @@
-//! Lowering pure scalar expressions to their Wasm carrier operations.
+//! Lowering pure expressions to their Wasm carrier operations.
 use super::Writer;
 use wasm_encoder::Instruction;
 
 mod wide;
 
 use crate::{
+    bitwise::BitwiseOp,
     floating,
     integer::{low_mask, BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
     Expression, Type,
@@ -17,6 +18,16 @@ impl Writer<'_> {
     pub(super) fn expression(&mut self, result_type: Type, expression: Expression<Type>) {
         let wide = result_type == Type::I64;
         let instruction = match expression {
+            Expression::VectorExtract { lane, .. } => match result_type {
+                Type::I32 => Instruction::I32x4ExtractLane(lane),
+                Type::I64 => Instruction::I64x2ExtractLane(lane),
+                _ => unreachable!("integer lanes have 32 or 64 bits"),
+            },
+            Expression::VectorReplace { value, lane, .. } => match value {
+                Type::I32 => Instruction::I32x4ReplaceLane(lane),
+                Type::I64 => Instruction::I64x2ReplaceLane(lane),
+                _ => unreachable!("integer lanes have 32 or 64 bits"),
+            },
             Expression::FloatBinary { operator, .. } => match operator {
                 floating::BinaryOp::Add => Instruction::F64Add,
                 floating::BinaryOp::Sub => Instruction::F64Sub,
@@ -40,6 +51,18 @@ impl Writer<'_> {
                 (Type::F64, Type::I64) => Instruction::I64ReinterpretF64,
                 _ => unreachable!("bitcasts preserve width and change scalar type"),
             },
+            Expression::Bitwise { operator, .. } => match (operator, result_type.carrier()) {
+                (BitwiseOp::And, Type::I32) => Instruction::I32And,
+                (BitwiseOp::And, Type::I64) => Instruction::I64And,
+                (BitwiseOp::And, Type::V128) => Instruction::V128And,
+                (BitwiseOp::Or, Type::I32) => Instruction::I32Or,
+                (BitwiseOp::Or, Type::I64) => Instruction::I64Or,
+                (BitwiseOp::Or, Type::V128) => Instruction::V128Or,
+                (BitwiseOp::Xor, Type::I32) => Instruction::I32Xor,
+                (BitwiseOp::Xor, Type::I64) => Instruction::I64Xor,
+                (BitwiseOp::Xor, Type::V128) => Instruction::V128Xor,
+                _ => unreachable!("bitwise operations require integer or vector carriers"),
+            },
             Expression::Binary { operator, .. } => match (operator, wide) {
                 (BinaryOp::Add, false) => Instruction::I32Add,
                 (BinaryOp::Add, true) => Instruction::I64Add,
@@ -55,12 +78,6 @@ impl Writer<'_> {
                 (BinaryOp::RemUnsigned, true) => Instruction::I64RemU,
                 (BinaryOp::RemSigned, false) => Instruction::I32RemS,
                 (BinaryOp::RemSigned, true) => Instruction::I64RemS,
-                (BinaryOp::And, false) => Instruction::I32And,
-                (BinaryOp::And, true) => Instruction::I64And,
-                (BinaryOp::Or, false) => Instruction::I32Or,
-                (BinaryOp::Or, true) => Instruction::I64Or,
-                (BinaryOp::Xor, false) => Instruction::I32Xor,
-                (BinaryOp::Xor, true) => Instruction::I64Xor,
             },
             Expression::MultiplyWide { signed, .. } => {
                 if self.features.wide_arithmetic {
@@ -127,7 +144,7 @@ impl Writer<'_> {
                     Type::I8 => self.emit(Instruction::I32Extend8S),
                     Type::I16 => self.emit(Instruction::I32Extend16S),
                     Type::I32 => {}
-                    Type::I64 | Type::F64 => {
+                    Type::I64 | Type::F64 | Type::V128 => {
                         unreachable!("a signed extension widens an integer input")
                     }
                 }

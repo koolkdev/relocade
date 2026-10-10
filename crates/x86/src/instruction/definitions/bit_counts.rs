@@ -5,6 +5,7 @@ use crate::register::RegisterType;
 instruction_families! {
     POPCNT {
         execute: popcnt;
+        requires: [Popcnt];
         forms {
             F3 0x0F 0xB8 => word_or_dword(modrm_reg, rm);
         }

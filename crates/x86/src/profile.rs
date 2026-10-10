@@ -1,6 +1,27 @@
 //! Execution mode and assumptions fixed when an entry is compiled.
 
-use crate::{Segment, SegmentDefaultSize, SegmentProfile, Segments, StoredSegment};
+use crate::{CpuModel, Segment, SegmentDefaultSize, SegmentProfile, Segments, StoredSegment};
+
+/// The processor model and execution assumptions required by a compiled entry.
+///
+/// Use the complete value in cache and direct-link keys. Blocks and their fallback
+/// interpreters must agree on this target, including disabled capabilities.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ExecutionTarget {
+    pub profile: ExecutionProfile,
+    pub cpu_model: CpuModel,
+}
+
+impl ExecutionTarget {
+    /// Check an entry against the host's active target and loaded segment caches.
+    ///
+    /// The host must supply its actual execution mode; segment caches alone cannot
+    /// establish that mode. Code bytes, fetch permissions and mappings require
+    /// separate validation as described by the entry-validity contract.
+    pub fn is_compatible_with(self, active: Self, segments: &Segments) -> bool {
+        self == active && self.profile.is_compatible_with(segments)
+    }
+}
 
 /// Execution assumptions under which a compiled entry may execute.
 /// Compatibility does not validate instruction-fetch spans, code bytes or mappings and

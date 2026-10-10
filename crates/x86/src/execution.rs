@@ -6,11 +6,13 @@ mod ports;
 mod regions;
 mod register_pairs;
 mod segments;
+mod simd;
 mod stack;
 mod strings;
 mod x87;
 
 pub(crate) use control::CodeTarget;
+pub(crate) use memory::OperandSpan;
 pub(crate) use operands::WriteTarget;
 pub(crate) use strings::{ResolvedStrings, StringOperand};
 
@@ -22,7 +24,9 @@ use crate::memory::{Access, Accesses, Intent, Memory};
 use crate::runtime::Runtime;
 use crate::segment::{SegmentAccess, SegmentSelection};
 use crate::state::{exit, Cpu, State};
-use crate::{address::AddressSize, exception::Exception, CpuState, ExecutionProfile};
+use crate::{
+    address::AddressSize, exception::Exception, CpuState, ExecutionProfile, ExecutionTarget,
+};
 
 /// Builds one execution path. State definitions and progress describe completed
 /// instructions. Instructions with partial progress, such as REP and POPA, also
@@ -32,6 +36,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     state: State<'module>,
     memory: Option<Accesses<'module>>,
     segments: SegmentAccess<'module>,
+    target: ExecutionTarget,
     segment_override: SegmentOverride,
     address_size: AddressSize,
     locked: bool,
@@ -50,14 +55,15 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         memory: Option<&'module Memory>,
         runtime: Runtime,
         start: impl Into<Val<I32>>,
-        profile: ExecutionProfile,
+        target: ExecutionTarget,
     ) -> Result<Self, BuildError> {
         let eip = body.value(start)?;
         Ok(Self {
             body,
             state: State::new(cpu),
             memory: memory.map(Memory::accesses),
-            segments: SegmentAccess::new(cpu, profile),
+            segments: SegmentAccess::new(cpu, target.profile),
+            target,
             segment_override: SegmentOverride::None,
             address_size: AddressSize::Bits32,
             locked: false,
@@ -134,6 +140,10 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     pub(crate) fn profile(&self) -> ExecutionProfile {
         self.segments.profile()
+    }
+
+    pub(crate) fn target(&self) -> ExecutionTarget {
+        self.target
     }
 
     /// Retired instructions, including this entry's unpublished progress.
@@ -230,11 +240,18 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         &mut self,
         segment: &SegmentSelection,
         offset: &Val<I32>,
-        bytes: u32,
+        span: impl Into<OperandSpan>,
         intent: Intent,
     ) -> Result<Access, BuildError> {
-        let linear = self.translate(segment, offset, bytes, intent)?;
-        self.resolve_access(&linear, bytes, intent)
+        let span = span.into();
+        let linear = self.translate(segment, offset, span.bytes, intent)?;
+        self.fault_if(
+            linear.and(span.alignment - 1).ne(0),
+            Exception::GeneralProtection {
+                error_code: 0.into(),
+            },
+        )?;
+        self.resolve_access(&linear, span.bytes, intent)
     }
 
     fn translate(

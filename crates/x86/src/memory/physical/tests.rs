@@ -5,6 +5,7 @@ use super::PhysicalMemory;
 use wasm86_compiler::{MemoryInt, Program, Signature, Type, I16, I32, I64, I8};
 mod generated;
 mod routing;
+mod vectors;
 
 use crate::{
     alu::OperandUpdate,
@@ -14,7 +15,10 @@ use crate::{
     CompiledModule,
 };
 
-fn define_transfers<T: MemoryInt>(program: &mut Program, memory: &Memory) {
+fn define_transfers<T: MemoryInt + crate::memory::TransferType>(
+    program: &mut Program,
+    memory: &Memory,
+) {
     for write in [false, true] {
         let function = program
             .function(
@@ -102,7 +106,7 @@ fn widths(engine: Engine, mmio: bool) {
             let module = TestModule::new(&CompiledModule {
                 bytes: transfers().to_vec(),
                 entry: format!("{}{bits}", if write { "write" } else { "read" }),
-                execution_profile: None,
+                execution_target: None,
             });
             let mut input = input();
             if mmio {
@@ -235,7 +239,7 @@ fn updates(engine: Engine) {
         let module = TestModule::new(&CompiledModule {
             bytes: program.compile().unwrap(),
             entry: "update".into(),
-            execution_profile: None,
+            execution_target: None,
         });
         let mut input = input();
         input.mmio_pages = vec![(1, 0x3000), (2, 0x5000), (8, 0x6000)];

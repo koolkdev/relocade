@@ -6,11 +6,12 @@
 //! through a block boundary, and [`compile_interpreter_step`] generates a
 //! single-instruction entry.
 //! Both frontends share instruction semantics and return a [`CompiledModule`].
-//! [`Compiler`] configures both frontends with one execution profile.
+//! [`Compiler`] configures both frontends with one [`ExecutionTarget`], combining
+//! an execution profile and a [`CpuModel`].
 //!
 //! The supported subset covers 16/32-bit protected-mode and ordinary real-mode
-//! integer execution, plus selected x87 operations. Privilege transitions,
-//! external interrupt delivery and SIMD are outside the current scope.
+//! integer execution, selected x87 operations, and SSE/SSE2 moves, bitwise XOR and MXCSR access.
+//! Privilege transitions and external interrupt delivery are outside the current scope.
 //!
 //! [`CpuState`] exchanges backing state with the host. [`ExecutionProfile`] describes
 //! entry assumptions, and [`DescriptorTables`] resolves host-managed selectors into
@@ -61,7 +62,8 @@ pub use compile::{
 };
 pub use exception::{Exception, ExceptionVector};
 pub use memory::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
-pub use profile::ExecutionProfile;
+pub use processor::{CpuFeature, CpuModel};
+pub use profile::{ExecutionProfile, ExecutionTarget};
 pub use register::Gpr32;
 pub use segment::{
     DescriptorTables, PrivilegeLevel, Segment, SegmentAttributes, SegmentDefaultSize,
@@ -69,20 +71,21 @@ pub use segment::{
     SegmentProfile,
 };
 pub use state::{
-    CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredStatusSource,
-    StoredX87, StoredX87Control, StoredX87Register, StoredX87Status,
+    CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredSimd,
+    StoredStatusSource, StoredX87, StoredX87Control, StoredX87Register, StoredX87Status,
 };
 
 /// A WebAssembly module and the exported function that enters it.
 pub struct CompiledModule {
     pub bytes: Vec<u8>,
     pub entry: String,
-    /// Required execution assumptions for x86 execution entries. The host must
-    /// establish compatibility before entry and invalidate dependent code and
-    /// links when assumptions break. A terminal segment load may change compatibility
-    /// before publication and dispatch. Snapshot instruction-fetch validity is separate.
-    /// Modules that do not execute x86 instructions have no execution profile.
-    pub execution_profile: Option<ExecutionProfile>,
+    /// Required processor model and execution assumptions for x86 entries.
+    /// The host must establish target compatibility before entry and use matching
+    /// targets for cached blocks, direct links and interpreter fallback. A terminal
+    /// segment load may change compatibility before publication and dispatch.
+    /// Snapshot instruction-fetch validity is separate. Modules that do not
+    /// execute x86 instructions have no execution target.
+    pub execution_target: Option<ExecutionTarget>,
 }
 
 /// A failure to construct a block, not an exception raised by guest execution.

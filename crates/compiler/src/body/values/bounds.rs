@@ -1,7 +1,9 @@
 //! Conservative widths of physical encodings, including unused logical upper bits.
-//! For floating values these describe encoding bits, not numerical magnitude.
+//! These describe complete encodings, not floating-point magnitude or vector lanes.
+//! Scalar literals refine these widths; vector literals retain the full carrier width.
 
 use crate::{
+    bitwise::BitwiseOp,
     body::{BlockItem, Value, ValueDefinition},
     integer::{shift_count, BinaryOp, BitCountOp, ShiftOp},
     Expression, Type,
@@ -30,14 +32,16 @@ impl BitBounds {
         // full carrier width no narrower signed representation is established.
         let fallback = unsigned.saturating_add(1).min(carrier);
         let signed = match value.definition {
-            ValueDefinition::Constant(bits) => {
-                let signed = if carrier == 64 {
-                    bits as i64
-                } else {
-                    bits as u32 as i32 as i64
-                };
-                let magnitude = if signed < 0 { !signed } else { signed } as u64;
-                (65 - magnitude.leading_zeros()) as u8
+            ValueDefinition::Literal(literal) => {
+                literal.scalar(value.ty).map_or(fallback, |bits| {
+                    let signed = if carrier == 64 {
+                        bits as i64
+                    } else {
+                        bits as u32 as i32 as i64
+                    };
+                    let magnitude = if signed < 0 { !signed } else { signed } as u64;
+                    (65 - magnitude.leading_zeros()) as u8
+                })
             }
             ValueDefinition::Expression(expression) => match expression {
                 Expression::SignExtend { input } => {
@@ -74,7 +78,9 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
         // Backedges may carry wider intermediate bits than their initial values.
         // Loop edges preserve those bits just like ordinary result joins.
         ValueDefinition::Parameter { .. } => carrier,
-        ValueDefinition::Constant(bits) => (64 - bits.leading_zeros()) as u8,
+        ValueDefinition::Literal(literal) => literal
+            .scalar(value.ty)
+            .map_or(carrier, |bits| (64 - bits.leading_zeros()) as u8),
         ValueDefinition::Result {
             producer: BlockItem::Effect(_),
             ..
@@ -102,15 +108,21 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
                     .min(carrier),
                 BinaryOp::DivUnsigned | BinaryOp::RemUnsigned => value.ty.bits(),
                 BinaryOp::DivSigned | BinaryOp::RemSigned => carrier,
-                BinaryOp::And => inputs[a].unsigned.min(inputs[b].unsigned),
-                BinaryOp::Or | BinaryOp::Xor => inputs[a].unsigned.max(inputs[b].unsigned),
+            },
+            Expression::Bitwise {
+                operator,
+                left: a,
+                right: b,
+            } => match operator {
+                BitwiseOp::And => inputs[a].unsigned.min(inputs[b].unsigned),
+                BitwiseOp::Or | BitwiseOp::Xor => inputs[a].unsigned.max(inputs[b].unsigned),
             },
             Expression::Shift {
                 operator,
                 value: input,
                 count,
-            } => match values[count].definition {
-                ValueDefinition::Constant(bits) => {
+            } => match values[count].scalar_literal() {
+                Some(bits) => {
                     let count = shift_count(value.ty, bits as u32) as u8;
                     match operator {
                         ShiftOp::Left => inputs[input].unsigned.saturating_add(count).min(carrier),
@@ -125,6 +137,8 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
                 },
             },
             Expression::Rotate { .. }
+            | Expression::VectorExtract { .. }
+            | Expression::VectorReplace { .. }
             | Expression::SignExtend { .. }
             | Expression::MultiplyWide { .. }
             | Expression::FloatBinary { .. }

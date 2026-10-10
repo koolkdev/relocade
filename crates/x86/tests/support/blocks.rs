@@ -4,7 +4,7 @@
 mod tests;
 
 use std::collections::HashMap;
-use wasm86_x86::{compile_block_from_bytes_with_profile, CpuState, ExecutionProfile, SegmentKind};
+use wasm86_x86::{Compiler, CpuState, ExecutionProfile, ExecutionTarget, SegmentKind};
 use wasmparser::Validator;
 
 use super::step::TestModule;
@@ -14,7 +14,7 @@ struct BlockKey {
     start: u32,
     bytes: Vec<u8>,
     limit: u32,
-    profile: ExecutionProfile,
+    target: ExecutionTarget,
 }
 
 #[derive(Default)]
@@ -28,20 +28,31 @@ impl BlockModules {
         limit: u32,
         profile: impl Into<ExecutionProfile>,
     ) -> &TestModule {
-        let profile = profile.into();
+        self.get_with_target(cpu, bytes, limit, Compiler::new(profile).target())
+    }
+
+    pub(crate) fn get_with_target(
+        &mut self,
+        cpu: &CpuState,
+        bytes: &[u8],
+        limit: u32,
+        target: ExecutionTarget,
+    ) -> &TestModule {
         let key = BlockKey {
             start: cpu.eip,
             bytes: bytes.to_vec(),
             limit,
-            profile,
+            target,
         };
         // A matching cache key only permits reuse after validating the current
         // execution context. The fixture machine supplies the code and mappings.
         key.validate_fetches(cpu);
         self.0.entry(key).or_insert_with_key(|key| {
-            let module = compile_block_from_bytes_with_profile(key.start, bytes, limit, profile)
+            let module = Compiler::new(target.profile)
+                .with_cpu_model(target.cpu_model)
+                .compile_block(key.start, bytes, limit)
                 .unwrap_or_else(|error| panic!("compiling {key:?}: {error:?}"));
-            assert_eq!(module.execution_profile, Some(profile));
+            assert_eq!(module.execution_target, Some(target));
             Validator::new()
                 .validate_all(&module.bytes)
                 .unwrap_or_else(|error| panic!("validating {key:?}: {error}"));
@@ -52,7 +63,7 @@ impl BlockModules {
 
 impl BlockKey {
     fn validate_fetches(&self, cpu: &CpuState) {
-        assert!(self.profile.is_compatible_with(&cpu.segments));
+        assert!(self.target.is_compatible_with(self.target, &cpu.segments));
         let cs = cpu.segments.cs;
         assert!(matches!(
             cs.attributes.kind(),
@@ -62,7 +73,7 @@ impl BlockKey {
         let mut remaining = self.bytes.as_slice();
         for _ in 0..self.limit {
             let (decoded, rest) =
-                crate::decode::snapshot(remaining, eip, self.profile.code_default_size())
+                crate::decode::snapshot(remaining, eip, self.target.profile.code_default_size())
                     .unwrap_or_else(|error| panic!("validating snapshot {self:?}: {error:?}"));
             let last = decoded.fallthrough_eip.wrapping_sub(1);
             assert!(
@@ -70,7 +81,7 @@ impl BlockKey {
                 "snapshot instruction {eip:#x}..={last:#x} exceeds CS limit {:#x}",
                 cs.limit
             );
-            if decoded.instruction.ends_block(self.profile) {
+            if decoded.instruction.ends_block(self.target) {
                 break;
             }
             eip = decoded.fallthrough_eip;

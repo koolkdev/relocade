@@ -1,6 +1,7 @@
 mod immediates;
 mod locking;
 mod modrm;
+mod prefixes;
 
 use super::declarations::{Declaration, Opcode, OperandSpec};
 use super::*;
@@ -27,7 +28,7 @@ fn unprefixed_form(map: OpcodeMap, opcode: u8, extension: Option<u8>) -> &'stati
                 (selector, None) => selector.is_none_or(|selector| selector.mask == 0),
                 (None, Some(_)) => false,
             }
-            && form.group1_prefix.is_none()
+            && matches!(form.prefix, PrefixRule::Modifiers(None))
     });
     let form = candidates.next().expect("the representative form exists");
     assert!(
@@ -115,7 +116,9 @@ fn catalog_bindings_select_declared_fields() {
                 );
                 for binding in bindings {
                     match binding {
-                        OperandBinding::Location(LocationBinding::Register) => {
+                        OperandBinding::Location(
+                            LocationBinding::Register | LocationBinding::XmmRegister,
+                        ) => {
                             assert!(matches!(
                                 form.encoding.operands,
                                 OperandEncoding::OpcodeRegister | OperandEncoding::ModRm
@@ -125,7 +128,7 @@ fn catalog_bindings_select_declared_fields() {
                                 "ModRM.reg cannot also be an opcode extension"
                             );
                         }
-                        OperandBinding::Location(LocationBinding::Rm)
+                        OperandBinding::Location(LocationBinding::Rm | LocationBinding::XmmRm)
                         | OperandBinding::RmAddress => {
                             assert!(form.encoding.has_modrm());
                         }
@@ -282,9 +285,7 @@ fn width_alternatives_share_one_opcode_and_preserve_implicit_register_bindings()
         assert_eq!(decoded.fallthrough_eip, fallthrough);
         assert!(!decoded
             .instruction
-            .ends_block(crate::ExecutionProfile::Protected(
-                crate::SegmentProfile::Flat32
-            )));
+            .ends_block(crate::Compiler::new(crate::SegmentProfile::Flat32).target()));
         assert!(!decoded.instruction.uses_memory());
         assert!(matches!(
             decoded.instruction.call,
@@ -311,9 +312,7 @@ fn flag_transfer_forms_bind_ah_without_encoded_operand_fields() {
             );
             assert!(!decoded
                 .instruction
-                .ends_block(crate::ExecutionProfile::Protected(
-                    crate::SegmentProfile::Flat32
-                )));
+                .ends_block(crate::Compiler::new(crate::SegmentProfile::Flat32).target()));
             assert!(!decoded.instruction.uses_memory());
             assert!(matches!(
                 decoded.instruction.call,
@@ -351,9 +350,7 @@ fn opcode_extensions_can_decode_without_binding_operands() {
         assert!(!decoded.instruction.uses_memory());
         assert!(!decoded
             .instruction
-            .ends_block(crate::ExecutionProfile::Protected(
-                crate::SegmentProfile::Flat32
-            )));
+            .ends_block(crate::Compiler::new(crate::SegmentProfile::Flat32).target()));
     }
 }
 
@@ -430,10 +427,11 @@ fn memory_only_bindings_restrict_modrm_at_every_operand_position() {
     ] {
         let form = Declaration {
             availability: crate::instruction::Availability::AllModes,
+            features: &[],
             opcode: Opcode {
                 map: OpcodeMap::Primary,
                 byte: 0x00,
-                group1_prefix: None,
+                prefix: PrefixRule::Modifiers(None),
                 register_range: false,
                 modrm: None,
             },

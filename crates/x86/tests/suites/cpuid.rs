@@ -1,4 +1,7 @@
-//! CPUID describes the built-in virtual CPU and serializes the next fetch.
+//! CPUID describes the selected virtual CPU and serializes the next fetch.
+
+#[path = "cpuid/features.rs"]
+mod features;
 
 use crate::support::{
     blocks::BlockModules,

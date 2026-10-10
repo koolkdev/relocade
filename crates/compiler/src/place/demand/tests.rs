@@ -55,7 +55,7 @@ impl Branches {
     }
 
     fn increment(&mut self) -> usize {
-        let one = self.graph.values.constant(Type::I32, 1);
+        let one = self.graph.values.literal(Type::I32, 1);
         self.graph.values.push(Value {
             ty: Type::I32,
             definition: ValueDefinition::Expression(Expression::Binary {
@@ -104,7 +104,7 @@ fn a_single_site_witness_still_shares_publication_only_values() {
     }
     let memory = Mem(0);
     branches.graph.memories.push(memory);
-    let base = branches.graph.values.constant(Type::I32, 0);
+    let base = branches.graph.values.literal(Type::I32, 0);
     branches.graph.effects.push(Effect {
         results: Vec::new(),
         operation: Operation::store(
@@ -134,7 +134,7 @@ fn unused_calculations_do_not_supply_a_sharing_witness() {
 #[test]
 fn select_users_do_not_supply_retained_calculation_demand() {
     let mut branches = Branches::new();
-    let zero = branches.graph.values.constant(Type::I32, 0);
+    let zero = branches.graph.values.literal(Type::I32, 0);
     let choice = branches.graph.values.push(Value {
         ty: Type::I32,
         definition: ValueDefinition::Expression(Expression::Select {
@@ -160,7 +160,7 @@ fn a_bypass_prevents_collective_placement() {
         otherwise: edge(bypass),
     };
     branches.graph.blocks[use_value.0].exit = Exit::Return(vec![increment]);
-    let zero = branches.graph.values.constant(Type::I32, 0);
+    let zero = branches.graph.values.literal(Type::I32, 0);
     branches.graph.blocks[bypass.0].exit = Exit::Return(vec![zero]);
     assert!(branches.entry_schedule().is_empty());
 }
@@ -319,7 +319,7 @@ fn a_backedge_can_bypass_a_subgroup_witness() {
     };
     branches.graph.blocks[after.0].exit = Exit::Return(vec![branches.product]);
     branches.graph.memories.push(Mem(0));
-    let base = branches.graph.values.constant(Type::I32, 0);
+    let base = branches.graph.values.literal(Type::I32, 0);
     branches.graph.effects.push(Effect {
         results: Vec::new(),
         operation: Operation::store(

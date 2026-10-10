@@ -1,20 +1,35 @@
 # Host integration
 
 Generated x86 modules use this contract for both snapshot blocks and interpreter
-entries. The embedding host supplies memory, dispatch and
-descriptor resolution.
+entries. The embedding host supplies memory, dispatch and descriptor resolution.
 The Wasm engine must support multiple memories, multiple results, tail calls and
 the threads extension's atomic instructions, including on unshared memories.
 
 ## Entries and dispatch
 
 `CompiledModule` contains the Wasm bytes, exported entry name and required execution
-profile. Snapshot entries are named `block_<hex start_eip>`; interpreter entries
+target. Snapshot entries are named `block_<hex start_eip>`; interpreter entries
 are named `run` or `step`. All have the Wasm signature `() -> i64`.
 
-`Compiler::new(profile)` uses one segment profile for `compile_block`,
-`compile_interpreter` and `compile_interpreter_step`. The free compilation functions
-construct this configuration without CPU observations.
+`Compiler::new(profile)` uses one execution profile and the default `CpuModel`
+for `compile_block`, `compile_interpreter` and `compile_interpreter_step`.
+`with_cpu_model(model)` selects the same capabilities for every entry; `target()`
+returns the resulting `ExecutionTarget { profile, cpu_model }`. Free compilation
+functions use the default model without CPU observations.
+
+The default model enables the complete optional capabilities CX8, CMOV, POPCNT and TSC.
+For example, `CpuModel::default().with_feature(CpuFeature::Popcnt, false)` disables
+POPCNT. Known encodings requiring a disabled capability raise #UD after complete
+instruction fetch and before operand access, without retiring. They terminate
+snapshot compilation before the next instruction. The capability choice is fixed
+when Wasm is generated, so execution needs no dynamic feature test.
+
+Feature choices do not change the baseline or emulate an older CPU generation.
+Existing partial x87 and SSE/SSE2 support remains available without claiming complete
+FPU or SIMD capabilities. These incomplete groups are not selectable `CpuFeature`
+values. Execution-mode and control-register assumptions remain separate from
+capability selection. The processor model is host configuration, not mutable
+`CpuState`; keep it fixed for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
 count, then tail-calls `wasm86.dispatch(next_eip: i32) -> i64`. Its result is returned
@@ -56,7 +71,7 @@ An embedding can bind this import directly to an instance's `step` or `run` expo
 `step` resumes normal dispatch after one instruction; `run` continues to its own
 branch, segment-load, port-I/O or serialization boundary. Neither is constrained
 by the abandoned snapshot's instruction limit. The host chooses this policy and admits interpreter entries
-against their segment profile. Interpreter execution uses the shared instruction
+against their execution target. Interpreter execution uses the shared instruction
 semantics without speculative guards and does not import `interpret` itself.
 
 ## Observed CPU state
@@ -95,18 +110,22 @@ compiling another block. No CPU state is replaced with the observed snapshot.
 
 ## Processor identification
 
-CPUID is generated from the core's built-in virtual CPU model; it needs no host
-callback or configuration. Leaf 0 reports maximum basic leaf 1 and the vendor
+CPUID is generated from the compiler's selected `CpuModel` and needs no host
+callback. Leaf 0 reports maximum basic leaf 1 and the vendor
 string `Relocade CPU`. Leaf 1 reports virtual family 6, model 0, stepping 1
-(EAX=`0x00000601`), EBX=0, POPCNT in ECX, and TSC, CX8 and CMOV in EDX. These are
-implemented capabilities, independent of real/protected mode and segment
-assumptions. The identity does not claim a physical Intel processor.
+(EAX=`0x00000601`), EBX=0, and the selected capabilities: POPCNT in ECX bit 23,
+TSC in EDX bit 4, CX8 in EDX bit 8 and CMOV in EDX bit 15. Disabling a capability
+clears its bit and rejects its instructions through the shared admission mechanism. Feature
+reporting is independent of real/protected mode and segment assumptions. The
+identity does not claim a physical Intel processor.
 
 Only complete feature groups are advertised. Partial x87 support does not establish
 the FPU feature; MMX, SSE, SSE2, FXSAVE/FXRSTOR and unsupported platform
 facilities remain clear. POPCNT is already implemented; its independent bit does
 not advertise SSE4.2 or expand the P4 compatibility target. When adding a feature,
-update the core model only after its advertised behavior is supported.
+update the core model only after its advertised behavior and feature combinations
+are supported. In particular, advertising both FPU and CMOV would also promise
+the x87 FCMOV and FCOMI instructions.
 
 The full EAX selects the leaf. Both leaves ignore input ECX. Unsupported basic and
 extended queries return leaf 1, following Intel's highest-basic-leaf rule. There
@@ -123,6 +142,8 @@ does not itself invalidate a host code cache. The single-threaded, unshared-memo
 execution contract does not model a processor's speculative pipeline or cache.
 
 These semantics follow Intel's [Volume 2A, CPUID](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf#page=202).
+The later POPCNT bit and its #UD condition are specified in Intel's
+[instruction reference](https://cdrdv2-public.intel.com/774492/325383-sdm-vol-2abcd.pdf).
 
 ## Timestamp counter
 
@@ -136,8 +157,10 @@ No host callback or browser timer is needed.
 This initial clock models execution progress. It has no fixed relationship to
 seconds or physical CPU cycles and stops when guest execution stops. A completed
 REP instruction advances it once, regardless of its element count; an instruction
-that faults or exits unsupported does not advance it. The CPUID model advertises
-TSC support, but no clock-frequency or invariant-TSC leaf.
+that faults or exits unsupported does not advance it. The default model enables
+`CpuFeature::Tsc`, reporting CPUID leaf 1 EDX bit 4, but no clock-frequency or
+invariant-TSC leaf. Disabling TSC clears that bit and makes RDTSC raise #UD.
+Retirement accounting continues with TSC disabled.
 
 The counter lives in `CpuState::instruction_count` and wraps modulo 2^64. Saving
 and restoring the full CPU record preserves it across interpreter entries, JIT
@@ -145,11 +168,11 @@ blocks and host dispatches. Hosts may initialize or restore it only between
 entries, using all eight bytes. JavaScript hosts should use little-endian
 `DataView.getBigUint64` / `setBigUint64` when accessing it directly.
 
-RDTSC is not serializing and does not end a block or interpreter run. Its result
-reflects guest instruction order. A later fault retains its register effects and
+With TSC enabled, RDTSC is not serializing and does not end a block or interpreter
+run. Its result reflects guest instruction order. A later fault retains its register effects and
 retirement; an earlier fault or incomplete encoding prevents its effects.
-All execution profiles support it. Protected profiles assume CR4.TSD=0;
-changing CR4 or denying timestamp reads with TSD remains unsupported. Real mode
+All execution profiles support the enabled capability. Protected profiles assume
+CR4.TSD=0; changing CR4 or denying timestamp reads with TSD remains unsupported. Real mode
 permits the instruction independently of TSD. Operand/address/segment prefixes
 do not narrow its full-width registers. LOCK uses the shared unsupported exit.
 
@@ -209,13 +232,14 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 
 Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
 `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
-`cpuState`, `guest`, `physicalMap`, `dispatch`, the MMIO callbacks and the
-port callbacks. They use generated RAM/ROM accesses and do not call descriptor
-callbacks. The physical memory contract below describes routing and callback widths.
+`cpuState`, `guest`, `physicalMap`, `dispatch`, the MMIO callbacks and the port
+callbacks. They use generated RAM/ROM accesses and do not call descriptor callbacks. The physical
+memory contract below describes routing and callback widths.
 Snapshot modules omit imports they do not use: protected-mode memory instructions
 require guest backing and the page table, protected-mode segment loads require
-`resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks with
-specialization guards require `interpret`. Hosts should use the generated module's import list when instantiating it.
+`resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks
+with specialization guards require `interpret`. Hosts should use the generated
+module's import list when instantiating it.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical
@@ -249,8 +273,8 @@ than #UD.
 
 Use `CpuState::to_bytes` and `CpuState::from_bytes` to exchange state with CPU memory.
 Conversion is explicitly little endian and preserves reserved bytes, inactive flag
-payloads, raw segment attributes and x87 encodings. The image is
-`CpuState::BYTE_LEN` (328) bytes:
+payloads, raw segment attributes, x87 and XMM encodings. The image is
+`CpuState::BYTE_LEN` (464) bytes:
 
 | Byte offset | Contents |
 | ---: | --- |
@@ -269,6 +293,9 @@ payloads, raw segment attributes and x87 encodings. The image is
 | 180 | Fourteen-byte `StoredX87Status`: IE, DE, ZE, OE, UE, PE, SF, TOP, C0, C1, C2, C3, ES, B. |
 | 194 | Six reserved bytes. |
 | 200 | Eight 16-byte physical x87 register slots, R0 through R7. |
+| 328 | u32 packed MXCSR. |
+| 332 | Four reserved bytes. |
+| 336 | Eight 16-byte XMM slots, XMM0 through XMM7, low byte first. |
 
 `StoredX87Control` keeps each exception mask in bit 0 of its named byte: invalid,
 denormal, zero divide, overflow, underflow and precision. A set mask suppresses
@@ -476,8 +503,16 @@ unused bits and ES/B. Changing a field may normalize that field's unused bits.
 
 ## Entry validity
 
-The host must admit each entry against `CompiledModule::execution_profile` before
-executing it, including when following a direct dispatch link.
+The host must admit each entry against `CompiledModule::execution_target` before
+executing it, including when following a direct dispatch link. This replaces the
+former profile-only metadata. `ExecutionTarget::is_compatible_with(active, segments)`
+requires exact target equality and checks the current segment caches. The host
+supplies its actual active target; segment bytes alone cannot establish the mode.
+
+Use the complete target in cache and direct-link keys, and require the same target
+for interpreter fallback. A model with additional enabled capabilities is not an
+interchangeable target: instruction availability is part of the guest contract.
+Changing the target requires rebuilding or selecting matching entries and links.
 
 `ExecutionProfile` selects `Protected(SegmentProfile)` or `Real16` at compilation
 time. `SegmentProfile` supplies protected-mode code defaults and segment assumptions.
@@ -494,8 +529,8 @@ attribute bits and ordinary DS/ES D/B bits do not determine flat compatibility.
 Segmented profiles can admit unusable caches or restrictive limits so execution
 can report their guest faults. All `Protected` entries execute at CPL3, including
 those with 16-bit code defaults. The host selects the execution mode; cache
-compatibility alone cannot distinguish it. Keep the complete profile in entry
-and dispatch-link keys, and invalidate dependencies when it changes.
+compatibility alone cannot distinguish it. The profile is part of the complete
+execution target described above.
 
 Flat entries omit checks and base reads where the segment is known to satisfy the
 profile. Interpreter memory operands with an explicit segment override use checked
@@ -750,3 +785,41 @@ interrupt gates, privilege transitions, external interrupt/debug delivery, mode
 transitions and SS-load inhibition are not modeled. Native Wasm traps from broken
 backing or internal arithmetic invariants are implementation errors, outside this
 guest-fault protocol.
+
+## SSE state and raw transfers
+
+`CpuState::simd` contains `StoredSimd { mxcsr, reserved, xmm }`. Default state has
+MXCSR `0x1f80` and zero XMM registers. Literal snapshots retain every bit, including
+reserved MXCSR bits and padding; these bytes are not an FXSAVE image. Hosts must
+allocate the new 464-byte CPU image; offsets of existing fields are unchanged.
+
+The current execution profiles assume SSE/SSE2 are enabled (CR0.EM/TS clear and
+CR4.OSFXSR set); they do not model feature-control registers. These are execution
+assumptions for the implemented subset, not claims of complete SSE/SSE2 support. MOVUPS, MOVUPD,
+MOVAPS, MOVAPD, MOVDQA, MOVDQU, MOVSS, MOVSD, XORPS and XORPD preserve raw bits
+and leave MXCSR, EFLAGS and x87 state unchanged. MOVUPS/MOVUPD/MOVDQU accept
+unaligned memory. MOVAPS/MOVAPD/MOVDQA and legacy XORPS/XORPD require 16-byte
+linear alignment, checked after segment validation and before page translation.
+Scalar MOVSS/MOVSD memory operands access exactly four/eight bytes and permit
+unaligned addresses. Loads clear the rest of the destination XMM register;
+register copies preserve its upper bits. Stores write only the low scalar lane.
+
+Both decoders select mandatory 66/F2/F3 by prefix presence, independently of the
+code segment's default operand size. Unsupported mandatory-prefix combinations do not
+select an unprefixed SSE form. XMM state uses the same retained-field mechanism
+as integer state, including runtime-indexed register accesses and fault publication.
+The complete operand span is checked before transfer. Scattered virtual backing
+and physical MMIO use ordered integer parts; contiguous packed transfers use Wasm SIMD.
+Hosts must enable the standard WebAssembly SIMD feature for these instructions.
+
+LDMXCSR/STMXCSR transfer an unaligned four-byte architectural MXCSR word.
+`StoredSimd::MXCSR_MASK` is `0x0000ffff`: this target supports DAZ (bit 6), in
+addition to exception status, exception masks, rounding control and FTZ. DAZ was
+optional on Pentium 4; hosts can use this mask as the emulator's declared policy.
+`StoredSimd::MXCSR_RESET` is `0x1f80`. LDMXCSR raises #GP(0) if any bit outside
+the supported mask is set, after completing the memory read and before changing
+state. Loading exception flags or unmasking them does not itself raise a SIMD
+floating-point exception. STMXCSR writes supported bits and zeroes reserved bits
+without normalizing the literal CPU snapshot. Both instructions leave XMM, EFLAGS
+and x87 state unchanged. SIMD floating-point arithmetic and its exception delivery
+are outside the current instruction subset.

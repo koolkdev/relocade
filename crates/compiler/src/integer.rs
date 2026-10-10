@@ -13,9 +13,6 @@ pub(super) enum BinaryOp {
     DivSigned,
     RemUnsigned,
     RemSigned,
-    And,
-    Or,
-    Xor,
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -87,9 +84,6 @@ pub(super) fn binary(ty: Type, operator: BinaryOp, left: u64, right: u64) -> Opt
                 left.checked_rem(right)? as u64
             }
         }
-        BinaryOp::And => left & right,
-        BinaryOp::Or => left | right,
-        BinaryOp::Xor => left ^ right,
     })
 }
 

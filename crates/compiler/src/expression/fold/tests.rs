@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::{
+    bitwise::BitwiseOp,
     body::BlockId,
     integer::{BinaryOp, BitCountOp, CompareOp, ShiftOp},
 };
@@ -15,7 +16,7 @@ fn refold(values: &mut ValueTable, ty: Type, expression: Expression<usize>) -> u
 }
 
 fn assert_constant(values: &ValueTable, id: usize, expected: u64) {
-    let ValueDefinition::Constant(bits) = values[id].definition else {
+    let Some(bits) = values[id].scalar_literal() else {
         panic!("expected a constant");
     };
     assert_eq!(bits, expected);
@@ -34,10 +35,10 @@ fn xor_mask_combination_preserves_carrier_bits_during_refolding() {
         });
         let view = refold(&mut values, ty, Expression::Convert { input });
         let high_bit = 1_u64 << ty.bits();
-        let first_mask = values.carrier_constant(ty, high_bit | 1);
-        let second_mask = values.constant(ty, 1);
-        let xor = |left, right| Expression::Binary {
-            operator: BinaryOp::Xor,
+        let first_mask = values.carrier_literal(ty, high_bit | 1);
+        let second_mask = values.literal(ty, 1);
+        let xor = |left, right| Expression::Bitwise {
+            operator: BitwiseOp::Xor,
             left,
             right,
         };
@@ -51,8 +52,8 @@ fn xor_mask_combination_preserves_carrier_bits_during_refolding() {
         );
         let first = refold(&mut values, ty, xor(view, first_mask));
         let combined = refold(&mut values, ty, xor(first, second_mask));
-        let ValueDefinition::Expression(Expression::Binary {
-            operator: BinaryOp::Xor,
+        let ValueDefinition::Expression(Expression::Bitwise {
+            operator: BitwiseOp::Xor,
             left,
             right,
         }) = values[combined].definition
@@ -69,8 +70,8 @@ fn xor_mask_combination_preserves_carrier_bits_during_refolding() {
 #[test]
 fn refolded_constants_retain_carrier_bits_and_unsigned_extension() {
     let mut values = ValueTable::default();
-    let byte = values.constant(Type::I8, 255);
-    let one = values.constant(Type::I8, 1);
+    let byte = values.literal(Type::I8, 255);
+    let one = values.literal(Type::I8, 1);
     let sum = refold(
         &mut values,
         Type::I8,
@@ -84,15 +85,15 @@ fn refolded_constants_retain_carrier_bits_and_unsigned_extension() {
     assert_eq!(values.carrier_bits(sum, 0), 256);
     let view = refold(&mut values, Type::I32, Expression::Convert { input: sum });
     assert_constant(&values, view, 256);
-    let negative = values.carrier_constant(Type::I8, u64::MAX);
-    assert_eq!(values.carrier_bits(negative, 255), 0xffff_ffff);
+    let negative = values.carrier_literal(Type::I8, u64::MAX);
+    assert_eq!(values.carrier_bits(negative, 255), 0xffff_ffff_u64);
     let unsigned = refold(
         &mut values,
         Type::I64,
         Expression::Convert { input: negative },
     );
-    assert_constant(&values, unsigned, 0xffff_ffff);
-    let zero = values.constant(Type::I8, 0);
+    assert_constant(&values, unsigned, 0xffff_ffff_u64);
+    let zero = values.literal(Type::I8, 0);
     let positive = refold(
         &mut values,
         Type::I1,
@@ -108,8 +109,8 @@ fn refolded_constants_retain_carrier_bits_and_unsigned_extension() {
 #[test]
 fn construction_interprets_logical_bits_of_carrier_constants() {
     let mut values = ValueTable::default();
-    let input = values.carrier_constant(Type::I8, 256);
-    let count = values.constant(Type::I32, 1);
+    let input = values.carrier_literal(Type::I8, 256);
+    let count = values.literal(Type::I32, 1);
     for (ty, expression, expected) in [
         (Type::I32, Expression::Convert { input }, 0),
         (Type::I32, Expression::SignExtend { input }, 0),
@@ -170,8 +171,8 @@ fn offsets_and_explicit_masks_keep_their_observed_width() {
             component: 0,
         },
     });
-    let offset = values.constant(Type::I8, 255);
-    let one = values.constant(Type::I8, 1);
+    let offset = values.literal(Type::I8, 255);
+    let one = values.literal(Type::I8, 1);
     let first = build(
         &mut values,
         Type::I8,
@@ -196,12 +197,12 @@ fn offsets_and_explicit_masks_keep_their_observed_width() {
     };
     assert_eq!(left, input);
     assert_constant(&values, right, 256);
-    let mask = values.carrier_constant(Type::I8, 511);
+    let mask = values.carrier_literal(Type::I8, 511);
     let masked = refold(
         &mut values,
         Type::I8,
-        Expression::Binary {
-            operator: BinaryOp::And,
+        Expression::Bitwise {
+            operator: BitwiseOp::And,
             left: carried,
             right: mask,
         },
@@ -215,10 +216,13 @@ fn offsets_and_explicit_masks_keep_their_observed_width() {
 #[test]
 fn constant_folding_keeps_division_traps_and_narrow_signed_results() {
     let mut values = ValueTable::default();
-    for (ty, minimum) in [(Type::I32, 0x8000_0000), (Type::I64, 0x8000_0000_0000_0000)] {
-        let left = values.constant(ty, minimum);
-        let minus_one = values.constant(ty, u64::MAX);
-        let zero = values.constant(ty, 0);
+    for (ty, minimum) in [
+        (Type::I32, 0x8000_0000_u64),
+        (Type::I64, 0x8000_0000_0000_0000_u64),
+    ] {
+        let left = values.literal(ty, minimum);
+        let minus_one = values.literal(ty, u64::MAX);
+        let zero = values.literal(ty, 0);
         for (operator, right) in [
             (BinaryOp::DivSigned, minus_one),
             (BinaryOp::DivUnsigned, zero),
@@ -239,8 +243,8 @@ fn constant_folding_keeps_division_traps_and_narrow_signed_results() {
             ));
         }
     }
-    let left = values.carrier_constant(Type::I8, 0xffff_ff80);
-    let right = values.carrier_constant(Type::I8, 0xffff_ffff);
+    let left = values.carrier_literal(Type::I8, 0xffff_ff80_u64);
+    let right = values.carrier_literal(Type::I8, 0xffff_ffff_u64);
     let result = refold(
         &mut values,
         Type::I8,
@@ -272,8 +276,8 @@ fn boolean_folds_do_not_discard_upper_carrier_bits() {
         },
     );
     for (when_true, when_false) in [(1, 0), (0, 1)] {
-        let when_true = values.constant(Type::I64, when_true);
-        let when_false = values.constant(Type::I64, when_false);
+        let when_true = values.literal(Type::I64, when_true);
+        let when_false = values.literal(Type::I64, when_false);
         let numeric_bit = refold(
             &mut values,
             Type::I64,
@@ -287,11 +291,11 @@ fn boolean_folds_do_not_discard_upper_carrier_bits() {
         assert_eq!(values[numeric_bit].ty, Type::I64);
         assert_eq!(values.bounds[numeric_bit].unsigned, 1);
     }
-    for operator in [BinaryOp::Or, BinaryOp::Xor] {
+    for operator in [BitwiseOp::Or, BitwiseOp::Xor] {
         let result = refold(
             &mut values,
             Type::I1,
-            Expression::Binary {
+            Expression::Bitwise {
                 operator,
                 left: input,
                 right: zero_test,
@@ -300,12 +304,12 @@ fn boolean_folds_do_not_discard_upper_carrier_bits() {
         // For carrier input 2 these produce 2, despite the logical I1 type.
         assert!(!matches!(
             values[result].definition,
-            ValueDefinition::Constant(_)
+            ValueDefinition::Literal(_)
         ));
         assert_eq!(values.bounds[result].unsigned, 32);
     }
-    let one_with_upper_bits = values.carrier_constant(Type::I8, 0x101);
-    let zero = values.constant(Type::I8, 0);
+    let one_with_upper_bits = values.carrier_literal(Type::I8, 0x101);
+    let zero = values.literal(Type::I8, 0);
     let byte_choice = refold(
         &mut values,
         Type::I8,

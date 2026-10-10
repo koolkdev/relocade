@@ -79,19 +79,19 @@ impl InterpreterEntry {
 
 impl Compiler {
     /// Generates the runtime-decoded block entry described by [`compile_interpreter`]
-    /// with this compiler's execution profile. CPU observations are not used.
+    /// with this compiler's execution target. CPU observations are not used.
     pub fn compile_interpreter(&self) -> Result<CompiledModule, BuildError> {
         self.compile_runtime(InterpreterEntry::Run)
     }
 
     /// Generates the single-instruction entry described by [`compile_interpreter_step`]
-    /// with this compiler's execution profile. CPU observations are not used.
+    /// with this compiler's execution target. CPU observations are not used.
     pub fn compile_interpreter_step(&self) -> Result<CompiledModule, BuildError> {
         self.compile_runtime(InterpreterEntry::Step)
     }
 
     fn compile_runtime(&self, entry: InterpreterEntry) -> Result<CompiledModule, BuildError> {
-        let profile = self.profile;
+        let profile = self.target.profile;
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let memory = Memory::declare(&mut program, profile)?;
@@ -110,14 +110,14 @@ impl Compiler {
             matches!(entry, InterpreterEntry::Run).then_some(entry_function),
             |body, decoded, continuation| {
                 let continuation =
-                    continuation.filter(|_| !decoded.instruction.ends_block(profile));
+                    continuation.filter(|_| !decoded.instruction.ends_block(self.target));
                 let mut execution = ExecutionBuilder::new(
                     body,
                     &cpu,
                     Some(&memory),
                     runtime,
                     &decoded.eip,
-                    profile,
+                    self.target,
                 )?;
                 execution.execute(decoded)?;
                 execution.complete(|body, eip| match continuation {
@@ -143,7 +143,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry: entry.name().into(),
-            execution_profile: Some(profile),
+            execution_target: Some(self.target),
         })
     }
 }

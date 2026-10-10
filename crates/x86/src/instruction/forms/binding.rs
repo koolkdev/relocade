@@ -49,7 +49,7 @@ impl ResolvedForm {
                 condition: self.form.condition,
                 implicit_memory: self.form.implicit_memory,
                 ends_block: self.form.ends_block,
-                availability: self.form.availability,
+                requirements: self.form.requirements,
                 segment_override: self.segment_override.clone(),
                 locked: self.locked,
                 x87_opcode: (self.form.map == super::OpcodeMap::Primary
@@ -81,6 +81,16 @@ impl ResolvedForm {
                     .into(),
             ),
             LocationBinding::Rm => fields.rm.clone().expect("the form decodes r/m"),
+            LocationBinding::XmmRegister => {
+                Location::Xmm(fields.register.clone().expect("the form decodes ModRM.reg"))
+            }
+            LocationBinding::XmmRm => match fields.rm.clone().expect("the form decodes r/m") {
+                Location::Register(crate::register::RegisterOperand::Encoded(code)) => {
+                    Location::Xmm(code)
+                }
+                memory @ Location::Memory(_) => memory,
+                _ => unreachable!("decoded r/m registers retain their encoded field"),
+            },
             LocationBinding::FixedRegister(register) => Location::Register(register.into()),
             LocationBinding::AbsoluteOffset => Location::Memory(
                 EffectiveAddress {

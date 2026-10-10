@@ -13,6 +13,7 @@ instruction_families! {
     }
     RDTSC {
         execute: rdtsc;
+        requires: [Tsc];
         forms {
             0x0F 0x31 => no_operands();
         }
@@ -21,7 +22,7 @@ instruction_families! {
 
 fn cpuid(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
     let leaf = TypedLocation::<I32>::register(Gpr32::Eax).read(execution)?;
-    let result = crate::processor::cpuid(&leaf);
+    let result = execution.target().cpu_model.cpuid(&leaf);
     for (register, value) in [
         (Gpr32::Eax, result.eax),
         (Gpr32::Ebx, result.ebx),

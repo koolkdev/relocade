@@ -1,4 +1,5 @@
 //! Stored values, deduplication and physical representation facts.
+use crate::literal::Literal;
 use hashbrown::HashTable;
 use std::{collections::hash_map::RandomState, hash::BuildHasher};
 
@@ -95,7 +96,7 @@ impl ValueTable {
     /// Literal values already contain the exact carrier and keep those bits.
     pub(crate) fn carrier_bits(&self, id: usize, logical_bits: u64) -> u64 {
         let ty = self.values[id].ty;
-        if let ValueDefinition::Constant(bits) = self.values[id].definition {
+        if let Some(bits) = self.values[id].scalar_literal() {
             return ty.carrier().normalize(bits);
         }
         let bits = logical_bits & ty.mask();
@@ -123,15 +124,15 @@ impl ValueTable {
         id
     }
 
-    pub(crate) fn constant(&mut self, ty: Type, bits: u64) -> usize {
-        self.carrier_constant(ty, ty.normalize(bits))
+    pub(crate) fn literal(&mut self, ty: Type, bits: impl Into<Literal>) -> usize {
+        self.carrier_literal(ty, bits.into().normalize(ty))
     }
 
     /// Store a lowered result without discarding bits above its logical width.
-    pub(crate) fn carrier_constant(&mut self, ty: Type, bits: u64) -> usize {
+    pub(crate) fn carrier_literal(&mut self, ty: Type, bits: impl Into<Literal>) -> usize {
         self.intern(Value {
             ty,
-            definition: ValueDefinition::Constant(ty.carrier().normalize(bits)),
+            definition: ValueDefinition::Literal(bits.into().normalize(ty.carrier())),
         })
     }
 

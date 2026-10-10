@@ -28,6 +28,8 @@ mod conditional_moves;
 mod count_publication;
 #[path = "suites/counted_branches.rs"]
 mod counted_branches;
+#[path = "suites/cpu_features.rs"]
+mod cpu_features;
 #[path = "suites/cpuid.rs"]
 mod cpuid;
 #[path = "suites/data_moves.rs"]
@@ -125,3 +127,6 @@ mod x87_store;
 
 #[path = "suites/execution_sizes.rs"]
 mod execution_sizes;
+
+#[path = "suites/sse.rs"]
+mod sse;
