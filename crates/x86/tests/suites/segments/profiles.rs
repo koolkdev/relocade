@@ -8,8 +8,11 @@ use wasm86_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile};
 fn changed_runtime_cache(engine: Engine) {
     let code = [0x64, 0x8b, 0x03];
     let compiled = compile_block_from_bytes(0x1000, &code, 1).unwrap();
-    let profile = compiled.execution_profile.unwrap();
-    assert_eq!(profile, ExecutionProfile::Protected(SegmentProfile::Flat32));
+    let target = compiled.execution_target.unwrap();
+    assert_eq!(
+        target.profile,
+        ExecutionProfile::Protected(SegmentProfile::Flat32)
+    );
     let block = TestModule::new(&compiled);
     let mut image = Image::new(&code);
     image.cpu.registers.ebx = 0x20;
@@ -19,7 +22,7 @@ fn changed_runtime_cache(engine: Engine) {
     image.data(0xa020, &[0x22; 4]);
     for (base, value) in [(0x4000, 0x1111_1111), (0x5000, 0x2222_2222)] {
         image.cpu.segments.fs = data(base, 0xff);
-        assert!(profile.is_compatible_with(&image.cpu.segments));
+        assert!(target.is_compatible_with(target, &image.cpu.segments));
         let mut cpu = image.cpu;
         cpu.registers.eax = value;
         cpu.eip = 0x1003;
@@ -39,7 +42,7 @@ fn changed_runtime_cache(engine: Engine) {
         }
     }
     image.cpu.segments.fs.limit = 0x20;
-    assert!(profile.is_compatible_with(&image.cpu.segments));
+    assert!(target.is_compatible_with(target, &image.cpu.segments));
     for module in [&block, TestModule::interpreter()] {
         image.check_unchanged_exit(
             engine,
@@ -49,7 +52,7 @@ fn changed_runtime_cache(engine: Engine) {
         );
     }
     image.cpu.segments.ds.base = 0x6000;
-    assert!(!profile.is_compatible_with(&image.cpu.segments));
+    assert!(!target.is_compatible_with(target, &image.cpu.segments));
     assert!(ExecutionProfile::Protected(SegmentProfile::Segmented32)
         .is_compatible_with(&image.cpu.segments));
 }

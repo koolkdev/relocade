@@ -8,12 +8,28 @@ the threads extension's atomic instructions, including on unshared memories.
 ## Entries and dispatch
 
 `CompiledModule` contains the Wasm bytes, exported entry name and required execution
-profile. Snapshot entries are named `block_<hex start_eip>`; interpreter entries
+target. Snapshot entries are named `block_<hex start_eip>`; interpreter entries
 are named `run` or `step`. All have the Wasm signature `() -> i64`.
 
-`Compiler::new(profile)` uses one segment profile for `compile_block`,
-`compile_interpreter` and `compile_interpreter_step`. The free compilation functions
-construct this configuration without CPU observations.
+`Compiler::new(profile)` uses one execution profile and the default `CpuModel`
+for `compile_block`, `compile_interpreter` and `compile_interpreter_step`.
+`with_cpu_model(model)` selects the same capabilities for every entry; `target()`
+returns the resulting `ExecutionTarget { profile, cpu_model }`. Free compilation
+functions use the default model without CPU observations.
+
+The default model enables the complete optional capabilities CX8, CMOV and POPCNT.
+For example, `CpuModel::default().with_feature(CpuFeature::Popcnt, false)` disables
+POPCNT. Known encodings requiring a disabled capability raise #UD after complete
+instruction fetch and before operand access, without retiring. They terminate
+snapshot compilation before the next instruction. The capability choice is fixed
+when Wasm is generated, so execution needs no dynamic feature test.
+
+Feature choices do not change the baseline or emulate an older CPU generation.
+Existing partial x87 and SSE/SSE2 support remains available without claiming complete
+FPU or SIMD capabilities. These incomplete groups are not selectable `CpuFeature`
+values. Execution-mode and control-register assumptions remain separate from
+capability selection. The processor model is host configuration, not mutable
+`CpuState`; keep it fixed for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
 count, then tail-calls `wasm86.dispatch(next_eip: i32) -> i64`. Its result is returned
@@ -53,7 +69,7 @@ An embedding can bind this import directly to an instance's `step` or `run` expo
 `step` resumes normal dispatch after one instruction; `run` continues to its own
 branch, segment-load or port-I/O boundary. Neither is constrained by the
 abandoned snapshot's instruction limit. The host chooses this policy and admits interpreter entries
-against their segment profile. Interpreter execution uses the shared instruction
+against their execution target. Interpreter execution uses the shared instruction
 semantics without speculative guards and does not import `interpret` itself.
 
 ## Observed CPU state
@@ -415,8 +431,16 @@ unused bits and ES/B. Changing a field may normalize that field's unused bits.
 
 ## Entry validity
 
-The host must admit each entry against `CompiledModule::execution_profile` before
-executing it, including when following a direct dispatch link.
+The host must admit each entry against `CompiledModule::execution_target` before
+executing it, including when following a direct dispatch link. This replaces the
+former profile-only metadata. `ExecutionTarget::is_compatible_with(active, segments)`
+requires exact target equality and checks the current segment caches. The host
+supplies its actual active target; segment bytes alone cannot establish the mode.
+
+Use the complete target in cache and direct-link keys, and require the same target
+for interpreter fallback. A model with additional enabled capabilities is not an
+interchangeable target: instruction availability is part of the guest contract.
+Changing the target requires rebuilding or selecting matching entries and links.
 
 `ExecutionProfile` selects `Protected(SegmentProfile)` or `Real16` at compilation
 time. `SegmentProfile` supplies protected-mode code defaults and segment assumptions.
@@ -433,8 +457,8 @@ attribute bits and ordinary DS/ES D/B bits do not determine flat compatibility.
 Segmented profiles can admit unusable caches or restrictive limits so execution
 can report their guest faults. All `Protected` entries execute at CPL3, including
 those with 16-bit code defaults. The host selects the execution mode; cache
-compatibility alone cannot distinguish it. Keep the complete profile in entry
-and dispatch-link keys, and invalidate dependencies when it changes.
+compatibility alone cannot distinguish it. The profile is part of the complete
+execution target described above.
 
 Flat entries omit checks and base reads where the segment is known to satisfy the
 profile. Interpreter memory operands with an explicit segment override use checked
@@ -698,7 +722,8 @@ reserved MXCSR bits and padding; these bytes are not an FXSAVE image. Hosts must
 allocate the new 464-byte CPU image; offsets of existing fields are unchanged.
 
 The current execution profiles assume SSE/SSE2 are enabled (CR0.EM/TS clear and
-CR4.OSFXSR set); they do not model feature-control registers. MOVUPS, MOVUPD,
+CR4.OSFXSR set); they do not model feature-control registers. These are execution
+assumptions for the implemented subset, not claims of complete SSE/SSE2 support. MOVUPS, MOVUPD,
 MOVAPS, MOVAPD, MOVDQA, MOVDQU, MOVSS, MOVSD, XORPS and XORPD preserve raw bits
 and leave MXCSR, EFLAGS and x87 state unchanged. MOVUPS/MOVUPD/MOVDQU accept
 unaligned memory. MOVAPS/MOVAPD/MOVDQA and legacy XORPS/XORPD require 16-byte

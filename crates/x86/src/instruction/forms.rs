@@ -14,11 +14,10 @@ pub(crate) use opcodes::forms_by_opcode;
 
 use super::{
     handlers::{HandlerCall, SizedHandlers},
-    Group1Prefix, OperandSize, PrefixState, SegmentOverride,
+    Availability, Group1Prefix, OperandSize, PrefixState, Requirements, SegmentOverride,
 };
 use crate::register::NamedRegister;
-use crate::{address::AddressSize, flags::Condition, Exception, ExecutionProfile};
-use wasm86_compiler::{Val, I32};
+use crate::{address::AddressSize, flags::Condition};
 
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
 pub(crate) enum OpcodeMap {
@@ -96,29 +95,6 @@ impl MandatoryPrefix {
     }
 }
 
-/// Availability is checked after decoding, before any operand access or effect.
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub(super) enum Availability {
-    AllModes,
-    ProtectedOnly,
-    /// Requires CPL <= IOPL; supported protected profiles fix CPL3/IOPL0.
-    IoPrivileged,
-}
-
-impl Availability {
-    pub(super) fn fault(self, profile: ExecutionProfile) -> Option<Exception<Val<I32>>> {
-        match (self, profile) {
-            (Self::ProtectedOnly, ExecutionProfile::Real16) => Some(Exception::InvalidOpcode),
-            (Self::IoPrivileged, ExecutionProfile::Protected(_)) => {
-                Some(Exception::GeneralProtection {
-                    error_code: 0.into(),
-                })
-            }
-            _ => None,
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 pub(crate) struct Form {
     pub(super) opcode: u8,
@@ -132,7 +108,7 @@ pub(crate) struct Form {
     pub(super) condition: Option<Condition>,
     pub(super) implicit_memory: bool,
     pub(super) ends_block: bool,
-    pub(super) availability: Availability,
+    pub(super) requirements: Requirements,
 }
 
 impl Form {

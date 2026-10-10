@@ -285,9 +285,7 @@ fn width_alternatives_share_one_opcode_and_preserve_implicit_register_bindings()
         assert_eq!(decoded.fallthrough_eip, fallthrough);
         assert!(!decoded
             .instruction
-            .ends_block(crate::ExecutionProfile::Protected(
-                crate::SegmentProfile::Flat32
-            )));
+            .ends_block(crate::Compiler::new(crate::SegmentProfile::Flat32).target()));
         assert!(!decoded.instruction.uses_memory());
         assert!(matches!(
             decoded.instruction.call,
@@ -314,9 +312,7 @@ fn flag_transfer_forms_bind_ah_without_encoded_operand_fields() {
             );
             assert!(!decoded
                 .instruction
-                .ends_block(crate::ExecutionProfile::Protected(
-                    crate::SegmentProfile::Flat32
-                )));
+                .ends_block(crate::Compiler::new(crate::SegmentProfile::Flat32).target()));
             assert!(!decoded.instruction.uses_memory());
             assert!(matches!(
                 decoded.instruction.call,
@@ -354,9 +350,7 @@ fn opcode_extensions_can_decode_without_binding_operands() {
         assert!(!decoded.instruction.uses_memory());
         assert!(!decoded
             .instruction
-            .ends_block(crate::ExecutionProfile::Protected(
-                crate::SegmentProfile::Flat32
-            )));
+            .ends_block(crate::Compiler::new(crate::SegmentProfile::Flat32).target()));
     }
 }
 
@@ -433,6 +427,7 @@ fn memory_only_bindings_restrict_modrm_at_every_operand_position() {
     ] {
         let form = Declaration {
             availability: crate::instruction::Availability::AllModes,
+            features: &[],
             opcode: Opcode {
                 map: OpcodeMap::Primary,
                 byte: 0x00,

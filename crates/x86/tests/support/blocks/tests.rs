@@ -71,3 +71,44 @@ fn admission_checks_only_instructions_inside_the_compilation_boundary() {
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
     );
 }
+
+#[test]
+fn cached_blocks_keep_their_cpu_model() {
+    use crate::support::{
+        machine::{expected, Exit, Image, Step},
+        step::Engine,
+    };
+    use wasm86_x86::{Compiler, CpuFeature, CpuModel};
+
+    let code = [0x0f, 0x44, 0xc3]; // CMOVE EAX, EBX
+    let mut image = Image::new(&code);
+    image.cpu.flags.status_source.kind = 0;
+    image.cpu.flags.bytes.zf = 1;
+    let mut blocks = BlockModules::default();
+    for enabled in [true, false, true] {
+        let target = Compiler::new(SegmentProfile::Flat32)
+            .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, enabled))
+            .target();
+        let module = blocks.get_with_target(&image.cpu, &code, 1, target);
+        let mut cpu = image.cpu;
+        let exit = if enabled {
+            cpu.registers.eax = cpu.registers.ebx;
+            cpu.eip += 3;
+            cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
+            Exit::Dispatch(cpu.eip)
+        } else {
+            Exit::InvalidOpcode
+        };
+        assert_eq!(
+            Engine::Wasmtime.observe(module, &image.input(), 1),
+            expected(
+                &image,
+                &[Step {
+                    cpu,
+                    ram: &[],
+                    exit
+                }]
+            )
+        );
+    }
+}
