@@ -1,5 +1,7 @@
 //! Path facts about scalar encodings up to 64 bits, integer ranges and comparisons.
 //! F64 participates through its raw encoding; numeric range rules apply to integers.
+//! Vectors are opaque to this analysis. Queries infer no vector facts, while
+//! expression evaluation still folds complete vector literals.
 //! Facts about a truncated value do not erase its other carrier bits.
 
 use rustc_hash::FxHashMap;
@@ -128,6 +130,9 @@ impl ScalarFacts {
     /// Scalar literals keep their carrier bits; inferred constants contain logical bits.
     /// Use ValueTable::carrier_bits to restore the carrier promised by construction.
     pub(super) fn constant(&self, table: &ValueTable, id: usize) -> Option<u64> {
+        if !table[id].ty.is_scalar() {
+            return None;
+        }
         if let Some(bits) = table[id].scalar_literal() {
             return Some(bits);
         }
@@ -151,7 +156,7 @@ impl ScalarFacts {
         else {
             return None;
         };
-        if !matches!(operator, BitwiseOp::And | BitwiseOp::Or) {
+        if !table[id].ty.is_scalar() || !matches!(operator, BitwiseOp::And | BitwiseOp::Or) {
             return None;
         }
         let mask = table[id].ty.carrier().mask();

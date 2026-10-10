@@ -1,4 +1,4 @@
-//! Literal evaluation separates complete encodings from scalar carrier rules.
+//! Literal evaluation preserves raw vector bits and scalar carrier rules.
 use super::Expression;
 use crate::{floating, integer, literal::Literal, Type};
 

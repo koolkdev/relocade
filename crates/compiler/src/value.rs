@@ -14,10 +14,10 @@ pub(crate) use unbound::UnboundExpression;
 use crate::{
     bitwise::BitwiseOp,
     integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
-    AtLeast, BitwiseType, DoubleWidth, Expression, IntType, ValueType, I1, I32, I64,
+    AtLeast, BitwiseType, DoubleWidth, Expression, IntType, ValueType, I1, I32, I64, V128,
 };
 
-/// A literal, unbound calculation or function-body scalar expression, checked by Rust.
+/// A literal, unbound calculation or function-body expression, checked by Rust.
 ///
 /// Native literals use ordinary conversions, such as `Val::<I1>::from(false)` or
 /// `Val::<I32>::from(7)`. Literals and calculations containing only literals can
@@ -29,6 +29,7 @@ use crate::{
 /// only the logical low bits in narrower types. A u64 input requires I64.
 /// An f64 input requires F64 and retains its IEEE encoding. Integer and floating
 /// literals do not implicitly convert to each other's numerical types.
+/// A u128 or a 16-byte array requires V128 and retains every encoding bit.
 ///
 /// Operations construct values immediately. Cloning an expression shares its
 /// storage. Construction errors are reported when a value is checked, stored,
@@ -74,6 +75,18 @@ impl From<u64> for Val<I64> {
 impl From<bool> for Val<I1> {
     fn from(value: bool) -> Self {
         Self::literal(u64::from(value))
+    }
+}
+
+impl From<u128> for Val<V128> {
+    fn from(bits: u128) -> Self {
+        Self::literal(bits)
+    }
+}
+
+impl From<[u8; 16]> for Val<V128> {
+    fn from(bytes: [u8; 16]) -> Self {
+        Self::literal(u128::from_le_bytes(bytes))
     }
 }
 
@@ -123,6 +136,15 @@ impl<T: ValueType> Val<T> {
 }
 
 impl<T: IntType> Val<T> {
+    fn binary(&self, operator: BinaryOp, other: impl Into<Val<T>>) -> Self {
+        let other: Self = other.into();
+        Self::expression(Expression::Binary {
+            operator,
+            left: self.into(),
+            right: other.into(),
+        })
+    }
+
     /// Adds an integer value or literal of the same type, wrapping on overflow.
     ///
     /// Different integer types cannot be mixed, even when both use Wasm i32:
@@ -229,15 +251,6 @@ impl<T: IntType> Val<T> {
         T: AtLeast<To>,
     {
         self.convert()
-    }
-
-    fn binary(&self, operator: BinaryOp, other: impl Into<Val<T>>) -> Self {
-        let other: Self = other.into();
-        Self::expression(Expression::Binary {
-            operator,
-            left: self.into(),
-            right: other.into(),
-        })
     }
 
     fn bit_count(&self, operator: BitCountOp) -> Self {

@@ -1,5 +1,6 @@
 //! Conservative widths of physical encodings, including unused logical upper bits.
-//! For floating values these describe encoding bits, not numerical magnitude.
+//! These describe complete encodings, not floating-point magnitude or vector lanes.
+//! Scalar literals refine these widths; vector literals retain the full carrier width.
 
 use crate::{
     bitwise::BitwiseOp,

@@ -1,4 +1,4 @@
-//! Lowering pure scalar expressions to their Wasm carrier operations.
+//! Lowering pure expressions to their Wasm carrier operations.
 use super::Writer;
 use wasm_encoder::Instruction;
 
@@ -44,11 +44,14 @@ impl Writer<'_> {
             Expression::Bitwise { operator, .. } => match (operator, result_type.carrier()) {
                 (BitwiseOp::And, Type::I32) => Instruction::I32And,
                 (BitwiseOp::And, Type::I64) => Instruction::I64And,
+                (BitwiseOp::And, Type::V128) => Instruction::V128And,
                 (BitwiseOp::Or, Type::I32) => Instruction::I32Or,
                 (BitwiseOp::Or, Type::I64) => Instruction::I64Or,
+                (BitwiseOp::Or, Type::V128) => Instruction::V128Or,
                 (BitwiseOp::Xor, Type::I32) => Instruction::I32Xor,
                 (BitwiseOp::Xor, Type::I64) => Instruction::I64Xor,
-                _ => unreachable!("bitwise operations require integer carriers"),
+                (BitwiseOp::Xor, Type::V128) => Instruction::V128Xor,
+                _ => unreachable!("bitwise operations require integer or vector carriers"),
             },
             Expression::Binary { operator, .. } => match (operator, wide) {
                 (BinaryOp::Add, false) => Instruction::I32Add,
@@ -131,7 +134,7 @@ impl Writer<'_> {
                     Type::I8 => self.emit(Instruction::I32Extend8S),
                     Type::I16 => self.emit(Instruction::I32Extend16S),
                     Type::I32 => {}
-                    Type::I64 | Type::F64 => {
+                    Type::I64 | Type::F64 | Type::V128 => {
                         unreachable!("a signed extension widens an integer input")
                     }
                 }

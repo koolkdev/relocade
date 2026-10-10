@@ -3,12 +3,13 @@
 use super::{Val, ValueSource};
 use crate::{arena::FunctionArena, BuildError, Type, ValueType};
 
-/// A scalar value or literal supplied where a function signature determines its type.
+/// A value or literal supplied where a function signature determines its type.
 /// Typed values, including typed literals, keep their logical type and any body
 /// ownership and branch visibility. Native literals supplied directly use the expected type.
 /// Signed i32 literals sign-extend to I64; u32 literals zero-extend. Both reduce
 /// to the low bits for narrower types. A u64 literal requires I64, and bool requires I1.
 /// An f64 literal requires F64; integer literals never implicitly become floating values.
+/// A u128 or 16-byte array requires V128. Array bytes use increasing memory order.
 #[derive(Clone)]
 pub struct Argument(Operand);
 
@@ -116,5 +117,17 @@ impl From<bool> for Argument {
 impl From<f64> for Argument {
     fn from(value: f64) -> Self {
         Self(Operand::Float(value.to_bits()))
+    }
+}
+
+impl From<u128> for Argument {
+    fn from(bits: u128) -> Self {
+        Val::<crate::V128>::from(bits).into()
+    }
+}
+
+impl From<[u8; 16]> for Argument {
+    fn from(bytes: [u8; 16]) -> Self {
+        Self::from(u128::from_le_bytes(bytes))
     }
 }

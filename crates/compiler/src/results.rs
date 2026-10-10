@@ -8,14 +8,14 @@ mod sealed {
 
     pub trait Values: Sized {
         fn types() -> Vec<Type>;
-        /// Requests scalar sources in result order, using their logical types.
+        /// Requests value sources in result order, using their logical types.
         fn bind(next: &mut dyn FnMut(Type) -> ValueSource) -> Self;
     }
 }
 
 /// The logical shape of call and control results, and of loop inputs.
 ///
-/// A scalar marker such as `I32` or `F64` produces its typed `Val`. `()` produces no values.
+/// A value marker such as `I32`, `F64` or `V128` produces its typed `Val`. `()` produces no values.
 /// Tuples of up to eight shapes produce corresponding tuples of typed values;
 /// arrays repeat a shape, and shapes may be nested. Components retain their
 /// logical types even when several types use the same WebAssembly carrier.
@@ -75,9 +75,9 @@ impl<V: sealed::Values, const N: usize> sealed::Values for [V; N] {
 
 /// Values or native literals supplied to a return, control result, loop entry or branch label.
 ///
-/// A scalar argument supplies one component, `()` supplies none, and a tuple
-/// or array supplies its components in order. A vector supplies a runtime-sized
-/// list of scalar arguments. The logical signature validates their number,
+/// A typed value or native literal supplies one component, `()` supplies none, and a tuple
+/// or array supplies its components in order. A `Vec` supplies a runtime-sized
+/// list of arguments. The logical signature validates their number,
 /// types, body ownership and visibility.
 pub struct Arguments(pub(super) Vec<Argument>);
 
