@@ -98,6 +98,7 @@ impl Folder<'_> {
             Expression::ZeroTest { input, nonzero } => self.zero_test(input, nonzero),
             Expression::Convert { input } => self.convert(input, ty),
             Expression::LowBits { .. }
+            | Expression::VectorBinary { .. }
             | Expression::VectorExtract { .. }
             | Expression::VectorReplace { .. }
             | Expression::FloatBinary { .. }
@@ -169,14 +170,15 @@ impl Folder<'_> {
                 }
                 _ => None,
             },
+            Expression::VectorBinary { .. }
+            | Expression::VectorExtract { .. }
+            | Expression::VectorReplace { .. }
+            | Expression::BitCount { .. } => None,
             // Integer identities and comparison complements do not hold for
             // floating-point values, including NaNs and signed zeros.
             Expression::FloatBinary { .. }
-            | Expression::VectorExtract { .. }
-            | Expression::VectorReplace { .. }
             | Expression::FloatUnary { .. }
-            | Expression::FloatCompare { .. }
-            | Expression::BitCount { .. } => None,
+            | Expression::FloatCompare { .. } => None,
         };
         let expression = if let Some(input) = input {
             if self.values[input].ty == ty {

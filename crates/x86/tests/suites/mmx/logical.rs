@@ -11,23 +11,7 @@ fn logical(engine: Engine, frontend: Frontend) {
         (0xeb, 0xffff_f0ff_ffff_f381, LEFT),
         (0xef, 0xfff0_f0ff_ffff_c301, 0),
     ] {
-        for memory in [false, true] {
-            let code = [0x0f, opcode, if memory { 0x30 } else { 0xf2 }]; // mm6, mm2/[eax]
-            let mut image = image(&code);
-            write_register_bits(&mut image.cpu, 6, (LEFT, 0x1234));
-            write_register_bits(&mut image.cpu, 2, (RIGHT, 0x5678));
-            image.cpu.registers.eax = 0x4ff8;
-            image.map(4, 0x8000, false);
-            image.data(0x8ff8, &RIGHT.to_le_bytes());
-            let mut cpu = complete(image.cpu, 3);
-            write_register_bits(&mut cpu, 6, (result, 0xffff));
-            checks.check(
-                "MMX logic uses all 64 bits and preserves unrelated state",
-                &code,
-                &image,
-                &[dispatch(cpu)],
-            );
-        }
+        check_binary(&mut checks, opcode, LEFT, RIGHT, result);
         let code = [0x0f, opcode, 0xf6]; // mm6, mm6
         let mut image = image(&code);
         write_register_bits(&mut image.cpu, 6, (LEFT, 0x1234));
