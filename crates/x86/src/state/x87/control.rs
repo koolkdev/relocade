@@ -13,7 +13,7 @@ use super::X87Specialization;
 /// Maskable exceptions share bit positions in the architectural control and
 /// status words. Stack fault is a status condition, not a seventh exception mask.
 #[derive(Clone, Copy)]
-pub(super) enum Exception {
+pub(crate) enum Exception {
     Invalid = 0,
     Denormal = 1,
     ZeroDivide = 2,
@@ -45,7 +45,7 @@ impl Exception {
 }
 
 #[derive(Clone)]
-pub(super) struct Control {
+pub(crate) struct Control {
     fields: StateFields,
 }
 
@@ -56,7 +56,7 @@ impl Control {
         }
     }
 
-    pub(super) fn rounding(
+    pub(crate) fn rounding(
         &mut self,
         body: &mut BlockBuilder<'_>,
     ) -> Result<RoundingMode, BuildError> {
@@ -66,7 +66,7 @@ impl Control {
         ))
     }
 
-    pub(super) fn precision(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I8>, BuildError> {
+    pub(crate) fn precision(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I8>, BuildError> {
         self.fields
             .read(body, cpu_location!(x87.control.precision_control))
     }
@@ -91,7 +91,7 @@ impl Control {
         })
     }
 
-    pub(super) fn unmasked(
+    pub(crate) fn unmasked(
         &mut self,
         body: &mut BlockBuilder<'_>,
         exception: Exception,

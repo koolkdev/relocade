@@ -15,6 +15,7 @@ pub(crate) use control::CodeTarget;
 pub(crate) use memory::OperandSpan;
 pub(crate) use operands::WriteTarget;
 pub(crate) use strings::{ResolvedStrings, StringOperand};
+pub(crate) use x87::X87Operand;
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
 
@@ -136,16 +137,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     pub(crate) fn profile(&self) -> ExecutionProfile {
         self.segments.profile()
-    }
-
-    /// Builds compiler values, including pure control-flow joins, in the current
-    /// body. The callback must leave it open and must not change guest state or
-    /// memory. Use execution regions for branches with architectural effects.
-    pub(crate) fn compute<R>(
-        &mut self,
-        build: impl FnOnce(&mut BlockBuilder<'body>) -> Result<R, BuildError>,
-    ) -> Result<R, BuildError> {
-        build(&mut self.body)
     }
 
     /// Defines a flag change while preserving flags omitted from its write mask.
