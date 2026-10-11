@@ -1,7 +1,7 @@
 //! Integer lane operations preserve their logical widths independently.
 
-use crate::integer::ShiftOp;
 use crate::{expression::LaneBinaryOp, Expression, IntType, Val, I16, I32, I64, I8, V128};
+use crate::{expression::ShuffleMask, integer::ShiftOp};
 
 /// An integer lane width in a 128-bit vector: I8, I16, I32 or I64.
 pub trait VectorLane: IntType {}
@@ -90,6 +90,17 @@ impl Val<V128> {
             lane_type: T::TYPE,
             left: self.into(),
             right: right.into(),
+        })
+    }
+
+    /// Selects each output byte from the concatenated input vectors.
+    /// Indices 0..16 address this vector and 16..32 address `right`, low byte first.
+    /// Panics if an index is outside 0..32.
+    pub fn shuffle_bytes(&self, right: impl Into<Self>, lanes: [u8; 16]) -> Self {
+        Self::expression(Expression::VectorShuffle {
+            left: self.into(),
+            right: right.into().into(),
+            lanes: ShuffleMask::new(lanes),
         })
     }
 

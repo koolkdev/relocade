@@ -139,6 +139,7 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
             Expression::Rotate { .. }
             | Expression::VectorBinary { .. }
             | Expression::VectorShift { .. }
+            | Expression::VectorShuffle { .. }
             | Expression::VectorExtract { .. }
             | Expression::VectorReplace { .. }
             | Expression::SignExtend { .. }

@@ -63,3 +63,8 @@ pub(super) fn shift(operator: ShiftOp, lane_type: Type, value: u128, count: u32)
     }
     bits
 }
+
+pub(super) fn shuffle(left: u128, right: u128, lanes: [u8; 16]) -> u128 {
+    let inputs = [left.to_le_bytes(), right.to_le_bytes()];
+    u128::from_le_bytes(lanes.map(|lane| inputs[usize::from(lane / 16)][usize::from(lane % 16)]))
+}

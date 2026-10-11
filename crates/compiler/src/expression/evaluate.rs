@@ -43,6 +43,11 @@ impl Expression<TypedLiteral> {
                         .into(),
                 );
             }
+            Self::VectorShuffle { left, right, lanes } => {
+                return Some(
+                    vector::shuffle(left.value.into(), right.value.into(), lanes.indices()).into(),
+                );
+            }
             Self::VectorExtract { input, lane } => {
                 return Some(Literal::from(result.normalize(
                     (u128::from(input.value) >> (lane * result.bits())) as u64,
@@ -126,6 +131,7 @@ impl Expression<ScalarLiteral> {
         let bits = match *self {
             Self::VectorBinary { .. }
             | Self::VectorShift { .. }
+            | Self::VectorShuffle { .. }
             | Self::VectorExtract { .. }
             | Self::VectorReplace { .. } => return None,
             Self::FloatBinary {
