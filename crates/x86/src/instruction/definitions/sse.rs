@@ -6,6 +6,7 @@ mod half_moves;
 mod logical;
 mod moves;
 mod mxcsr;
+mod saturation;
 mod shifts;
 
 use super::*;
@@ -22,6 +23,7 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
         .chain(half_moves::forms())
         .chain(logical::forms())
         .chain(mxcsr::forms())
+        .chain(saturation::forms())
         .chain(shifts::forms())
 }
 
