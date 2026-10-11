@@ -54,7 +54,7 @@ fn immediates_bind_after_location_operands() {
     for location in [
         OperandSpec::FixedRegister(NamedRegister::low(Gpr32::Eax)),
         OperandSpec::OpcodeRegister,
-        OperandSpec::Rm,
+        OperandSpec::Rm(RegisterClass::Gpr),
     ] {
         for two in [false, true] {
             let operands = [
@@ -82,9 +82,9 @@ fn immediates_bind_after_location_operands() {
             }
             .form();
             let fields = DecodedFields {
-                register: matches!(location, OperandSpec::OpcodeRegister | OperandSpec::Rm)
+                register: matches!(location, OperandSpec::OpcodeRegister | OperandSpec::Rm(_))
                     .then(|| RegisterCode::from_code(0)),
-                rm: matches!(location, OperandSpec::Rm)
+                rm: matches!(location, OperandSpec::Rm(_))
                     .then(|| Location::Register(RegisterCode::from_code(0).into())),
                 immediates: [Some(0x9234_5678u32), two.then_some(0xf327)],
                 ..DecodedFields::default()

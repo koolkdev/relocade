@@ -157,11 +157,17 @@ macro_rules! declaration_effect {
 }
 
 macro_rules! operand_spec {
+    (mm) => {
+        OperandSpec::ModRmRegister(crate::instruction::forms::RegisterClass::Mmx)
+    };
+    (mm_rm) => {
+        OperandSpec::Rm(crate::instruction::forms::RegisterClass::Mmx)
+    };
     (xmm) => {
-        OperandSpec::XmmRegister
+        OperandSpec::ModRmRegister(crate::instruction::forms::RegisterClass::Xmm)
     };
     (xmm_rm) => {
-        OperandSpec::XmmRm
+        OperandSpec::Rm(crate::instruction::forms::RegisterClass::Xmm)
     };
     (st) => {
         OperandSpec::X87StackIndex
@@ -176,16 +182,16 @@ macro_rules! operand_spec {
         OperandSpec::Segment($segment)
     };
     (rm) => {
-        OperandSpec::Rm
+        OperandSpec::Rm(crate::instruction::forms::RegisterClass::Gpr)
     };
     (rm8) => {
-        OperandSpec::Rm
+        OperandSpec::Rm(crate::instruction::forms::RegisterClass::Gpr)
     };
     (rm16) => {
-        OperandSpec::Rm
+        OperandSpec::Rm(crate::instruction::forms::RegisterClass::Gpr)
     };
     (modrm_reg) => {
-        OperandSpec::ModRmRegister
+        OperandSpec::ModRmRegister(crate::instruction::forms::RegisterClass::Gpr)
     };
     (opcode_reg) => {
         OperandSpec::OpcodeRegister

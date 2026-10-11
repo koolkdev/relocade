@@ -1,6 +1,7 @@
 mod address;
 mod control;
 mod memory;
+mod mmx;
 mod operands;
 mod ports;
 mod regions;

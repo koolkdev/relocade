@@ -84,6 +84,41 @@ fn check(
 }
 
 #[test]
+fn known_stack_and_physical_aliases_share_values_across_top_and_tag_changes() {
+    let compiled = module(|body, registers| {
+        registers.reset(body, 0)?;
+        let physical = registers.physical(body, RegisterCode::from_code(0))?;
+        registers.write_value(body, &physical, &value(0x1234, 0xffff), &true.into())?;
+        registers.advance(body, 1, true)?;
+        let stack = registers.slot(body, 7.into())?;
+        let retained = registers.read(body, &stack)?;
+        registers.write(body, &stack, &retained, 2.into(), &true.into())?;
+        registers.reset(body, 0xffff)?;
+        registers.discard_write_guards(body)?;
+        let physical = registers.physical(body, RegisterCode::from_code(0))?;
+        let result = registers.read(body, &physical)?.bits().significand;
+        registers.publish(body)?;
+        Ok(result)
+    });
+    assert!(!operators(&compiled)
+        .any(|op| matches!(op, Operator::I64Load { .. } | Operator::I32Load16U { .. })));
+    assert_eq!(
+        operators(&compiled)
+            .filter(|op| matches!(op, Operator::I64Store { .. }))
+            .count(),
+        1
+    );
+    let module = TestModule::new(&compiled);
+    let initial = CpuState::filled(0xa5);
+    let mut expected = initial;
+    expected.x87.status.top = 0;
+    expected.x87.tag_word = 0xffff;
+    expected.x87.registers[0].significand = 0x1234;
+    expected.x87.registers[0].sign_exponent = 0xffff;
+    check(&module, &initial, 0, true, &expected, 0x1234);
+}
+
+#[test]
 fn stack_movement_reuses_the_register_address_and_preserves_suppressed_top() {
     let compiled = module(|body, registers| {
         let enabled = body.parameter::<I1>(1)?;
@@ -115,6 +150,79 @@ fn stack_movement_reuses_the_register_address_and_preserves_suppressed_top() {
                     (initial.x87.tag_word & !(3 << (target * 2))) | (2 << (target * 2));
             }
             check(&module, &initial, 0, enabled, &expected, 0);
+        }
+    }
+}
+
+#[test]
+fn indexed_guarded_writes_publish_without_reading_the_old_payload() {
+    let compiled = module(|body, registers| {
+        let index = body.parameter::<I32>(0)?;
+        let enabled = body.parameter::<I1>(1)?;
+        let slot = registers.physical(body, RegisterCode::indexed(index))?;
+        registers.write_value(body, &slot, &value(0x1234, 0x4567), &enabled)?;
+        registers.publish(body)?;
+        Ok(0_u64.into())
+    });
+    assert!(!operators(&compiled).any(|op| matches!(
+        op,
+        Operator::I64Load { .. } | Operator::I32Load16U { .. } | Operator::Select
+    )));
+    assert!(operators(&compiled).any(|op| matches!(op, Operator::If { .. })));
+    let module = TestModule::new(&compiled);
+    let initial = CpuState::filled(0xa5);
+    for index in 0..8 {
+        for enabled in [false, true] {
+            let mut expected = initial;
+            if enabled {
+                expected.x87.registers[index].significand = 0x1234;
+                expected.x87.registers[index].sign_exponent = 0x4567;
+            }
+            check(&module, &initial, index, enabled, &expected, 0);
+        }
+    }
+}
+
+#[test]
+fn uncertain_aliases_preserve_guarded_writes_and_captured_reads() {
+    let compiled = module(|body, registers| {
+        let index = body.parameter::<I32>(0)?;
+        let enabled = body.parameter::<I1>(1)?;
+        let stack = registers.slot(body, 0.into())?;
+        let old = registers.read(body, &stack)?.bits().significand;
+        registers.write(body, &stack, &value(0x1234, 0x4567), 2.into(), &enabled)?;
+        let physical = registers.physical(body, RegisterCode::indexed(index))?;
+        let middle = registers.read(body, &physical)?.bits().significand;
+        registers.write_value(body, &physical, &value(0x5678, 0xffff), &true.into())?;
+        let stack = registers.slot(body, 0.into())?;
+        let current = registers.read(body, &stack)?.bits().significand;
+        registers.publish(body)?;
+        Ok(old.shl(32).or(middle.shl(16)).or(current))
+    });
+    let module = TestModule::new(&compiled);
+    for top in 0..8 {
+        let mut initial = CpuState::filled(0xa5);
+        initial.x87.status.top = top as u8;
+        for (index, register) in initial.x87.registers.iter_mut().enumerate() {
+            register.significand = 0x100 + index as u64;
+        }
+        for index in 0..8 {
+            for enabled in [false, true] {
+                let mut expected = initial;
+                if enabled {
+                    expected.x87.registers[top].significand = 0x1234;
+                    expected.x87.registers[top].sign_exponent = 0x4567;
+                    expected.x87.tag_word =
+                        (initial.x87.tag_word & !(3 << (top * 2))) | (2 << (top * 2));
+                }
+                let middle = expected.x87.registers[index].significand;
+                expected.x87.registers[index].significand = 0x5678;
+                expected.x87.registers[index].sign_exponent = 0xffff;
+                let result = (initial.x87.registers[top].significand << 32)
+                    | (middle << 16)
+                    | expected.x87.registers[top].significand;
+                check(&module, &initial, index, enabled, &expected, result);
+            }
         }
     }
 }

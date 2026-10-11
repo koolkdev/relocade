@@ -7,7 +7,7 @@ pub(in crate::instruction) use {adapters::*, macros::*};
 
 use super::{
     Availability, Encoding, Form, HandlerBinding, ImmediateWidth, LocationBinding, ModRmSelector,
-    OpcodeMap, OperandBinding, OperandEncoding, PrefixRule,
+    OpcodeMap, OperandBinding, OperandEncoding, PrefixRule, RegisterClass,
 };
 use crate::flags::Condition;
 use crate::instruction::handlers::{Handler, HandlerCall, SizedHandlers};
@@ -16,11 +16,9 @@ use crate::register::NamedRegister;
 
 #[derive(Clone, Copy)]
 pub(in crate::instruction) enum OperandSpec {
-    Rm,
+    Rm(RegisterClass),
     Memory,
-    ModRmRegister,
-    XmmRegister,
-    XmmRm,
+    ModRmRegister(RegisterClass),
     X87StackIndex,
     OpcodeRegister,
     FixedRegister(NamedRegister),
@@ -36,11 +34,9 @@ impl OperandSpec {
     // same physical fields. Named AX and EAX therefore share a binding here.
     const fn same_binding(self, other: Self) -> bool {
         match (self, other) {
-            (Self::Rm, Self::Rm)
-            | (Self::Memory, Self::Memory)
-            | (Self::ModRmRegister, Self::ModRmRegister)
-            | (Self::XmmRegister, Self::XmmRegister)
-            | (Self::XmmRm, Self::XmmRm)
+            (Self::Rm(left), Self::Rm(right))
+            | (Self::ModRmRegister(left), Self::ModRmRegister(right)) => left as u8 == right as u8,
+            (Self::Memory, Self::Memory)
             | (Self::X87StackIndex, Self::X87StackIndex)
             | (Self::OpcodeRegister, Self::OpcodeRegister)
             | (Self::Offset, Self::Offset)
@@ -100,7 +96,7 @@ impl Declaration<'_> {
             assert!(
                 matches!(
                     self.operands.first(),
-                    Some(OperandSpec::Rm | OperandSpec::Memory)
+                    Some(OperandSpec::Rm(RegisterClass::Gpr) | OperandSpec::Memory)
                 ),
                 "LOCK eligibility requires a ModRM memory destination"
             );
@@ -123,31 +119,23 @@ impl Declaration<'_> {
         let mut index = 0;
         while index < self.operands.len() {
             bindings[index] = Some(match self.operands[index] {
-                OperandSpec::Rm
-                | OperandSpec::XmmRm
-                | OperandSpec::Memory
-                | OperandSpec::Address => {
+                OperandSpec::Rm(class) => {
                     modrm = true;
-                    memory_only |=
-                        !matches!(self.operands[index], OperandSpec::Rm | OperandSpec::XmmRm);
+                    OperandBinding::Location(LocationBinding::Rm(class))
+                }
+                OperandSpec::Memory | OperandSpec::Address => {
+                    modrm = true;
+                    memory_only = true;
                     if matches!(self.operands[index], OperandSpec::Address) {
                         OperandBinding::RmAddress
-                    } else if matches!(self.operands[index], OperandSpec::XmmRm) {
-                        OperandBinding::Location(LocationBinding::XmmRm)
                     } else {
-                        OperandBinding::Location(LocationBinding::Rm)
+                        OperandBinding::Location(LocationBinding::Rm(RegisterClass::Gpr))
                     }
                 }
-                OperandSpec::ModRmRegister | OperandSpec::XmmRegister => {
+                OperandSpec::ModRmRegister(class) => {
                     modrm = true;
                     modrm_register = true;
-                    OperandBinding::Location(
-                        if matches!(self.operands[index], OperandSpec::XmmRegister) {
-                            LocationBinding::XmmRegister
-                        } else {
-                            LocationBinding::Register
-                        },
-                    )
+                    OperandBinding::Location(LocationBinding::Register(class))
                 }
                 OperandSpec::X87StackIndex => {
                     modrm = true;
@@ -156,7 +144,7 @@ impl Declaration<'_> {
                 }
                 OperandSpec::OpcodeRegister => {
                     opcode_register = true;
-                    OperandBinding::Location(LocationBinding::Register)
+                    OperandBinding::Location(LocationBinding::Register(RegisterClass::Gpr))
                 }
                 OperandSpec::Offset => {
                     offset = true;
