@@ -1,5 +1,7 @@
 //! Raw XMM transfers, prefix selection and precise memory faults in both decoders.
 
+#[path = "sse/logical.rs"]
+mod logical;
 #[path = "sse/moves.rs"]
 mod moves;
 #[path = "sse/mxcsr.rs"]
