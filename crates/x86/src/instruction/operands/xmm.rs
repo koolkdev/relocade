@@ -83,6 +83,12 @@ pub(crate) enum XmmLocation {
     Memory(Box<MemoryAddress<Val<I32>>>),
 }
 
+impl From<RegisterCode> for XmmLocation {
+    fn from(register: RegisterCode) -> Self {
+        Self::Register(register)
+    }
+}
+
 impl XmmLocation {
     pub(crate) fn from_operand(operand: Operand<Val<I32>>) -> Self {
         match operand {

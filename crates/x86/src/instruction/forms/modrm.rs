@@ -23,6 +23,18 @@ impl ModRmSelector {
         }
     }
 
+    pub(in crate::instruction) const fn register(self) -> Self {
+        assert!(
+            !matches!(self.mode, ModRmMode::Memory),
+            "a memory encoding cannot bind an r/m register operand"
+        );
+        Self {
+            mask: self.mask | 0xc0,
+            value: self.value | 0xc0,
+            mode: ModRmMode::Register,
+        }
+    }
+
     pub(in crate::instruction) const fn extension(extension: u8) -> Self {
         assert!(extension < 8, "a ModRM extension has three bits");
         Self {

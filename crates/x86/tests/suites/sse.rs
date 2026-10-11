@@ -1,5 +1,7 @@
 //! Raw XMM transfers, prefix selection and precise memory faults in both decoders.
 
+#[path = "sse/half_moves.rs"]
+mod half_moves;
 #[path = "sse/integer_moves.rs"]
 mod integer_moves;
 #[path = "sse/logical.rs"]
