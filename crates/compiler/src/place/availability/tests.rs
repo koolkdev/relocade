@@ -218,7 +218,7 @@ fn publishing_an_alias_chain_keeps_intermediate_width_limits_for_facts() {
         }
         assert_eq!(available.get(original), Some(executed));
         let known = available
-            .sources(&values, executed, u64::from(u32::MAX))
+            .sources(&values, executed, u128::from(u32::MAX))
             .into_iter()
             .filter(|source| source.recipe == original)
             .fold(0, |mask, source| mask | source.mask);

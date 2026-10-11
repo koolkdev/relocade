@@ -61,7 +61,12 @@ impl Type {
     /// The logical bit mask of a scalar encoding.
     pub(super) fn mask(self) -> u64 {
         debug_assert!(self.is_scalar(), "scalar masks require a scalar type");
-        crate::integer::low_mask(self.bits())
+        self.bit_mask() as u64
+    }
+
+    /// Logical bits of any encoding, including all 128 vector bits.
+    pub(super) fn bit_mask(self) -> u128 {
+        u128::MAX >> (128 - self.bits())
     }
 }
 

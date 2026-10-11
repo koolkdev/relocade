@@ -136,7 +136,7 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
         .value;
     assert!(matches!(graph.values[result].scalar_literal(), Some(7)));
 
-    let mut incoming = ScalarFacts::default();
+    let mut incoming = ValueFacts::default();
     incoming.assume(&graph.values, condition, false);
     let replaced = specializer.begin_block(Some(incoming));
     let child = specializer.begin_block(None);
@@ -146,7 +146,10 @@ fn nested_blocks_restore_inherited_and_replaced_facts_and_folds() {
     assert!(matches!(graph.values[result].scalar_literal(), Some(11)));
     specializer.end_block(child);
     assert_eq!(
-        specializer.facts().constant(&graph.values, condition),
+        specializer
+            .facts()
+            .constant(&graph.values, condition)
+            .map(u128::from),
         Some(0)
     );
     specializer.end_block(replaced);
@@ -228,18 +231,33 @@ fn observing_a_narrow_replacement_does_not_define_the_sources_upper_bits() {
     let mut specializer = Specializer::default();
     // Only the low byte of this replacement is observed by the switch.
     specializer.equal(&values, &available, byte, 0x81);
-    assert_eq!(specializer.facts.constant(&values, byte), Some(0x81));
-    assert_eq!(specializer.facts.constant(&values, wide), None);
+    assert_eq!(
+        specializer.facts.constant(&values, byte).map(u128::from),
+        Some(0x81)
+    );
+    assert_eq!(
+        specializer.facts.constant(&values, wide).map(u128::from),
+        None
+    );
 
     let mut specializer = Specializer::default();
     specializer.assume(&values, &available, byte, true);
-    assert_eq!(specializer.facts.constant(&values, wide), None);
-    assert_eq!(specializer.facts.constant(&values, byte), None);
+    assert_eq!(
+        specializer.facts.constant(&values, wide).map(u128::from),
+        None
+    );
+    assert_eq!(
+        specializer.facts.constant(&values, byte).map(u128::from),
+        None
+    );
     let bit = values.push(Value {
         ty: crate::Type::I1,
         definition: ValueDefinition::Expression(Expression::Convert { input: wide }),
     });
-    assert_eq!(specializer.facts.constant(&values, bit), Some(1));
+    assert_eq!(
+        specializer.facts.constant(&values, bit).map(u128::from),
+        Some(1)
+    );
 }
 
 #[test]

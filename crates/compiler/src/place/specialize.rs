@@ -6,14 +6,14 @@ mod tests;
 
 #[derive(Default)]
 pub(super) struct Specializer {
-    facts: ScalarFacts,
+    facts: ValueFacts,
     residuals: HashMap<usize, usize>,
 }
 
 /// Restore inherited facts by undoing changes; suspend them when a join replaces them.
 pub(super) enum BlockScope {
     Inherited(facts::Checkpoint),
-    Replaced(Box<ScalarFacts>),
+    Replaced(Box<ValueFacts>),
 }
 
 pub(super) struct Alias {
@@ -27,7 +27,7 @@ pub(super) struct Specialization {
 }
 
 impl Specializer {
-    pub(super) fn begin_block(&mut self, incoming: Option<ScalarFacts>) -> BlockScope {
+    pub(super) fn begin_block(&mut self, incoming: Option<ValueFacts>) -> BlockScope {
         self.residuals.clear();
         match incoming {
             Some(facts) => {
@@ -45,11 +45,11 @@ impl Specializer {
         }
     }
 
-    pub(super) fn facts(&self) -> &ScalarFacts {
+    pub(super) fn facts(&self) -> &ValueFacts {
         &self.facts
     }
 
-    pub(super) fn facts_mut(&mut self) -> &mut ScalarFacts {
+    pub(super) fn facts_mut(&mut self) -> &mut ValueFacts {
         self.residuals.clear();
         &mut self.facts
     }
@@ -102,8 +102,8 @@ impl Specializer {
             return;
         }
         let facts = self.facts_mut();
-        for source in available.sources(values, selector, values[selector].ty.mask()) {
-            facts.assume_bits(source.recipe, source.mask, value);
+        for source in available.sources(values, selector, values[selector].ty.bit_mask()) {
+            facts.assume_bits(source.recipe, source.mask, u128::from(value));
         }
     }
 
@@ -115,7 +115,7 @@ impl Specializer {
         &mut self,
         graph: &mut FunctionGraph,
         root: usize,
-        mut resolve: impl FnMut(&mut FunctionGraph, usize, &ScalarFacts) -> Option<usize>,
+        mut resolve: impl FnMut(&mut FunctionGraph, usize, &ValueFacts) -> Option<usize>,
     ) -> Specialization {
         enum Work {
             Visit(usize),
@@ -135,7 +135,7 @@ impl Specializer {
                         self.record(id, result, &mut aliases);
                     } else if let Some(result) = resolve(graph, id, &self.facts) {
                         self.record(id, result, &mut aliases);
-                    } else if let Some(input) = self.facts.bitwise_identity(&graph.values, id) {
+                    } else if let Some(input) = self.facts.identity(&graph.values, id) {
                         work.push(Work::Alias(id, input));
                         work.push(Work::Visit(input));
                     } else if let Some(result) = graph.values.expression(id) {
@@ -188,9 +188,7 @@ impl Specializer {
                             constant
                         } else if let Some(available) = resolve(graph, rewritten, &self.facts) {
                             available
-                        } else if let Some(input) =
-                            self.facts.bitwise_identity(&graph.values, rewritten)
-                        {
+                        } else if let Some(input) = self.facts.identity(&graph.values, rewritten) {
                             input
                         } else {
                             let folded = crate::expression::refold(&mut graph.values, rewritten);
@@ -213,7 +211,6 @@ impl Specializer {
 
     fn known_constant(&self, values: &mut ValueTable, value: usize) -> Option<usize> {
         let bits = self.facts.constant(values, value)?;
-        let bits = values.carrier_bits(value, bits);
         Some(values.carrier_literal(values[value].ty, bits))
     }
 

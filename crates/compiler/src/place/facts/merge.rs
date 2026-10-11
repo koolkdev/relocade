@@ -1,38 +1,24 @@
 //! Keep only knowledge that holds on every incoming path.
 
-use super::{Bits, Range, ScalarFacts};
+use super::{KnownBits, Range, ValueFacts};
 use crate::body::ValueTable;
 
 #[cfg(test)]
 mod tests;
 
-impl Bits {
-    fn common(self, other: Self) -> Self {
-        let mask = self.mask & other.mask & !(self.value ^ other.value);
-        Self {
-            mask,
-            value: self.value & mask,
-        }
-    }
-}
-
-impl ScalarFacts {
-    /// A scalar parameter keeps only logical bits proved by every incoming argument.
-    /// Vector parameters still join normally, without acquiring scalar facts.
+impl ValueFacts {
+    /// A parameter keeps only logical encoding bits proved by every incoming argument.
     pub(in crate::place) fn merge_parameter<'a>(
         &mut self,
         table: &ValueTable,
         parameter: usize,
         incoming: impl Iterator<Item = (&'a Self, usize)>,
     ) {
-        if !table[parameter].ty.is_scalar() {
-            return;
-        }
         let bits = incoming
             .map(|(facts, argument)| facts.bits(table, argument))
-            .reduce(Bits::common)
+            .reduce(KnownBits::common)
             .unwrap_or_default()
-            .restrict(table[parameter].ty.mask());
+            .restrict(table[parameter].ty.bit_mask());
         if bits.mask != 0 {
             self.assume_bits(parameter, bits.mask, bits.value);
         }

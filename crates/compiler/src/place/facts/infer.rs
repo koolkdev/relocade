@@ -1,17 +1,16 @@
 //! Derive facts through expressions without changing the current path.
 
-use super::{Bits, Range, ScalarFacts};
+use super::{KnownBits, Range, ValueFacts};
 use crate::{
-    bitwise::BitwiseOp,
-    body::ValueTable,
+    body::{ValueDefinition, ValueTable},
     expression::TypedLiteral,
-    integer::{low_mask, CompareOp},
+    integer::CompareOp,
     Expression,
 };
 
-impl ScalarFacts {
-    /// Known scalar bits; non-scalar values contribute no knowledge.
-    pub(super) fn bits(&self, table: &ValueTable, root: usize) -> Bits {
+impl ValueFacts {
+    /// Infer logical encoding bits through the same graph for every value type.
+    pub(super) fn bits(&self, table: &ValueTable, root: usize) -> KnownBits {
         let mut cache = self.computed.borrow_mut();
         if let Some(&bits) = cache.get(&root) {
             return bits;
@@ -22,22 +21,18 @@ impl ScalarFacts {
                 continue;
             }
             let value = table[id];
-            if !value.ty.is_scalar() {
-                cache.insert(id, Bits::default());
-                continue;
-            }
             let known = self.known.get(&id).copied().unwrap_or_default();
-            if let Some(bits) = value.scalar_literal() {
+            if let ValueDefinition::Literal(bits) = value.definition {
                 cache.insert(
                     id,
-                    Bits {
-                        mask: value.ty.mask(),
-                        value: value.ty.normalize(bits),
+                    KnownBits {
+                        mask: value.ty.bit_mask(),
+                        value: u128::from(bits) & value.ty.bit_mask(),
                     },
                 );
                 continue;
             }
-            if known.mask == value.ty.mask() {
+            if known.mask == value.ty.bit_mask() {
                 cache.insert(id, known);
                 continue;
             }
@@ -55,9 +50,9 @@ impl ScalarFacts {
                 if let Some(truth) = self.comparisons.get(table, operator, left, right) {
                     cache.insert(
                         id,
-                        Bits {
+                        KnownBits {
                             mask: 1,
-                            value: u64::from(truth),
+                            value: u128::from(truth),
                         },
                     );
                     continue;
@@ -83,7 +78,7 @@ impl ScalarFacts {
                         when_false
                     };
                     if let Some(&bits) = cache.get(&input) {
-                        cache.insert(id, bits.union(known).restrict(value.ty.mask()));
+                        cache.insert(id, bits.union(known).restrict(value.ty.bit_mask()));
                     } else {
                         pending.push((id, false));
                         pending.push((input, false));
@@ -97,74 +92,7 @@ impl ScalarFacts {
                 continue;
             }
             let inputs = expression.map(|&input| cache[&input]);
-            let mut bits = match (expression, inputs) {
-                (Expression::Convert { input }, Expression::Convert { input: bits }) => {
-                    let width = table.bounds[input].unsigned;
-                    let mask = low_mask(width);
-                    bits.union(Bits {
-                        mask: value.ty.mask() & !mask,
-                        value: 0,
-                    })
-                }
-                (
-                    Expression::LowBits { bits: width, .. },
-                    Expression::LowBits { input: bits, .. },
-                ) => {
-                    let mask = low_mask(width);
-                    bits.restrict(mask).union(Bits {
-                        mask: value.ty.mask() & !mask,
-                        value: 0,
-                    })
-                }
-                (
-                    _,
-                    Expression::Bitwise {
-                        operator: BitwiseOp::And,
-                        left: a,
-                        right: b,
-                    },
-                ) => {
-                    let zeros = (a.mask & !a.value) | (b.mask & !b.value);
-                    let ones = a.value & b.value;
-                    Bits {
-                        mask: zeros | ones,
-                        value: ones,
-                    }
-                }
-                (
-                    _,
-                    Expression::Bitwise {
-                        operator: BitwiseOp::Or,
-                        left: a,
-                        right: b,
-                    },
-                ) => {
-                    let ones = a.value | b.value;
-                    Bits {
-                        mask: (a.mask & !a.value & b.mask & !b.value) | ones,
-                        value: ones,
-                    }
-                }
-                (
-                    _,
-                    Expression::Bitwise {
-                        operator: BitwiseOp::Xor,
-                        left: a,
-                        right: b,
-                    },
-                ) => {
-                    let mask = a.mask & b.mask;
-                    Bits {
-                        mask,
-                        value: (a.value ^ b.value) & mask,
-                    }
-                }
-                (_, Expression::ZeroTest { input, nonzero }) if input.value != 0 => Bits {
-                    mask: 1,
-                    value: u64::from(nonzero),
-                },
-                _ => Bits::default(),
-            };
+            let mut bits = super::encoding::infer(table, value.ty, expression, inputs);
             let comparison = match expression {
                 Expression::Compare {
                     operator,
@@ -192,36 +120,34 @@ impl ScalarFacts {
                 _ => None,
             };
             if let Some(result) = comparison {
-                bits = Bits {
+                bits = KnownBits {
                     mask: 1,
-                    value: u64::from(result),
+                    value: u128::from(result),
                 };
             }
             if let Ok(constants) = expression.try_map(|&input| {
                 let bits = cache[&input];
                 let ty = table[input].ty;
-                if !ty.is_scalar() {
-                    return Err(());
-                }
-                if bits.mask & ty.mask() != ty.mask() {
+                if bits.mask & ty.bit_mask() != ty.bit_mask() {
                     return Err(());
                 }
                 Ok(TypedLiteral {
                     ty,
-                    value: table.carrier_bits(input, bits.value).into(),
+                    value: if ty.is_scalar() {
+                        table.carrier_bits(input, bits.value as u64).into()
+                    } else {
+                        bits.value.into()
+                    },
                 })
             }) {
-                if let Some(result) = constants
-                    .constant_result(value.ty, result.component)
-                    .and_then(|literal| literal.scalar(value.ty))
-                {
-                    bits = Bits {
-                        mask: value.ty.mask(),
-                        value: result,
+                if let Some(result) = constants.constant_result(value.ty, result.component) {
+                    bits = KnownBits {
+                        mask: value.ty.bit_mask(),
+                        value: u128::from(result),
                     };
                 }
             }
-            cache.insert(id, bits.union(known).restrict(value.ty.mask()));
+            cache.insert(id, bits.union(known).restrict(value.ty.bit_mask()));
         }
         cache[&root]
     }

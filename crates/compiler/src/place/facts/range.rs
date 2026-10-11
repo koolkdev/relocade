@@ -1,6 +1,6 @@
 //! Unsigned intervals for comparisons on normalized logical values.
 
-use super::{Bits, ScalarFacts};
+use super::{KnownBits, ValueFacts};
 use crate::{body::ValueTable, integer::CompareOp};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -43,16 +43,16 @@ impl Range {
     }
 }
 
-impl ScalarFacts {
-    pub(super) fn range(&self, table: &ValueTable, id: usize, bits: Bits) -> Option<Range> {
+impl ValueFacts {
+    pub(super) fn range(&self, table: &ValueTable, id: usize, bits: KnownBits) -> Option<Range> {
         // Unsigned comparisons observe carriers. Logical intervals describe
         // those carriers only after their unused upper bits have been cleared.
-        if table.bounds[id].unsigned > table[id].ty.bits() {
+        if !table[id].ty.is_integer() || table.bounds[id].unsigned > table[id].ty.bits() {
             return None;
         }
         let logical = Range {
-            minimum: bits.value,
-            maximum: bits.value | (table[id].ty.mask() & !bits.mask),
+            minimum: bits.value as u64,
+            maximum: bits.value as u64 | (table[id].ty.mask() & !bits.mask as u64),
         };
         Some(
             self.ranges

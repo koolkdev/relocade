@@ -79,3 +79,42 @@ fn refolding_lane_replacement_discards_narrow_carrier_bits() {
         assert_eq!(u128::from(bits), expected);
     }
 }
+
+#[test]
+fn refolding_matching_lane_extraction_normalizes_the_scalar_carrier() {
+    use crate::{
+        body::{BlockId, Value, ValueDefinition, ValueTable},
+        Type,
+    };
+
+    for (ty, lane, carrier, expected) in [
+        (Type::I8, 15, 0x102_u64, 2),
+        (Type::I16, 7, 0x10001, 1),
+        (Type::I8, 0, 0xffff_ffff, 0xff),
+        (Type::I16, 0, 0xffff_ffff, 0xffff),
+    ] {
+        let mut values = ValueTable::default();
+        let vector = values.push(Value {
+            ty: Type::V128,
+            definition: ValueDefinition::Parameter {
+                block: BlockId(0),
+                component: 0,
+            },
+        });
+        let value = values.carrier_literal(ty, carrier);
+        let input = values.intern(Value {
+            ty: Type::V128,
+            definition: ValueDefinition::Expression(Expression::VectorReplace {
+                vector,
+                value,
+                lane,
+            }),
+        });
+        let expression = values.intern(Value {
+            ty,
+            definition: ValueDefinition::Expression(Expression::VectorExtract { input, lane }),
+        });
+        let folded = super::refold(&mut values, expression);
+        assert_eq!(values[folded].scalar_literal(), Some(expected));
+    }
+}

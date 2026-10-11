@@ -15,6 +15,7 @@ mod bitwise;
 mod comparisons;
 mod select;
 mod shifts;
+mod vectors;
 
 #[cfg(test)]
 mod tests;
@@ -170,10 +171,19 @@ impl Folder<'_> {
                 }
                 _ => None,
             },
-            Expression::VectorBinary { .. }
-            | Expression::VectorExtract { .. }
-            | Expression::VectorReplace { .. }
-            | Expression::BitCount { .. } => None,
+            Expression::VectorBinary {
+                operator,
+                left,
+                right,
+                ..
+            } => self.fold_vector_binary(operator, left, right),
+            Expression::VectorExtract { input, lane } => self.fold_vector_extract(ty, input, lane),
+            Expression::VectorReplace {
+                vector,
+                value,
+                lane,
+            } => self.fold_vector_replace(vector, value, lane),
+            Expression::BitCount { .. } => None,
             // Integer identities and comparison complements do not hold for
             // floating-point values, including NaNs and signed zeros.
             Expression::FloatBinary { .. }

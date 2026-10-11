@@ -12,7 +12,7 @@ mod tests;
 struct BlockValues {
     // Bindings established here, including residual recipes, relative to the dominator.
     values: HashMap<usize, usize>,
-    facts: Option<ScalarFacts>,
+    facts: Option<ValueFacts>,
 }
 
 struct JoinedValue {
@@ -81,7 +81,7 @@ impl Joins {
         self.blocks[block].values.extend(values);
     }
 
-    pub(super) fn complete(&mut self, block: usize, facts: &ScalarFacts) {
+    pub(super) fn complete(&mut self, block: usize, facts: &ValueFacts) {
         if self.needs_facts[block] {
             // These facts outlive the block's active path scope.
             self.blocks[block].facts = Some(facts.clone());
@@ -95,7 +95,7 @@ impl Joins {
         reachable: &[bool],
         join: usize,
         available: &mut Availability,
-    ) -> Option<ScalarFacts> {
+    ) -> Option<ValueFacts> {
         if self.predecessors[join].len() < 2 {
             if let [source] = self.predecessors[join].as_slice() {
                 if *source != join && self.dominators.dominates(*source, join) {
@@ -183,7 +183,7 @@ impl Joins {
         graph: &mut FunctionGraph,
         block: usize,
         recipe: usize,
-        facts: &ScalarFacts,
+        facts: &ValueFacts,
     ) -> Option<usize> {
         let candidates = self.joins_by_recipe.get(recipe)?;
         // Prefer a previously constructed value before adding another parameter.
@@ -279,7 +279,7 @@ impl JoinedValue {
         &self,
         values: &ValueTable,
         blocks: &[BlockValues],
-        facts: &ScalarFacts,
+        facts: &ValueFacts,
     ) -> bool {
         self.excluded.iter().all(|&source| {
             blocks[source]
@@ -297,7 +297,7 @@ impl JoinInputs {
         &mut self,
         graph: &mut FunctionGraph,
         recipe: usize,
-        facts: &ScalarFacts,
+        facts: &ValueFacts,
         joins: &Joins,
     ) -> Option<JoinArguments> {
         let ty = graph.values[recipe].ty;

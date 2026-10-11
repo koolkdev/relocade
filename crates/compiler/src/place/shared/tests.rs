@@ -237,7 +237,7 @@ fn sharing_analysis_resolves_ancestor_joins_before_caching_values() {
         placer
             .joins
             .record(source.0, [(product, value)].into_iter());
-        placer.joins.complete(source.0, &ScalarFacts::default());
+        placer.joins.complete(source.0, &ValueFacts::default());
     }
     placer.joins.prepare(
         placer.graph,

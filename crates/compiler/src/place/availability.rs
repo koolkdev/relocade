@@ -31,7 +31,7 @@ pub(super) struct Checkpoint {
 
 pub(super) struct RecipeBits {
     pub(super) recipe: usize,
-    pub(super) mask: u64,
+    pub(super) mask: u128,
 }
 
 impl Availability {
@@ -142,15 +142,15 @@ impl Availability {
 
     /// Recover source recipes for an observed result. An alias preserves its
     /// logical bits; it does not promise equality of unknown upper carrier bits.
-    pub(super) fn sources(&self, values: &ValueTable, value: usize, mask: u64) -> Vec<RecipeBits> {
+    pub(super) fn sources(&self, values: &ValueTable, value: usize, mask: u128) -> Vec<RecipeBits> {
         let mut pending = vec![RecipeBits {
             recipe: value,
             mask,
         }];
-        let mut seen = HashMap::<usize, u64>::new();
+        let mut seen = HashMap::<usize, u128>::new();
         let mut sources = Vec::new();
         while let Some(RecipeBits { recipe, mask }) = pending.pop() {
-            let mask = mask & values[recipe].ty.mask();
+            let mask = mask & values[recipe].ty.bit_mask();
             let known = seen.entry(recipe).or_default();
             let mask = mask & !*known;
             if mask == 0 {

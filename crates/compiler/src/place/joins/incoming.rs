@@ -40,7 +40,6 @@ impl IncomingValues {
                     .then_some(recipe);
             }
             if let Some(bits) = facts.constant(&graph.values, recipe) {
-                let bits = graph.values.carrier_bits(recipe, bits);
                 break Some(graph.values.carrier_literal(value.ty, bits));
             }
             recipe = match value.definition {
@@ -52,7 +51,7 @@ impl IncomingValues {
                     let Some(bits) = facts.constant(&graph.values, condition) else {
                         break None;
                     };
-                    if bits == 0 {
+                    if u128::from(bits) == 0 {
                         when_false
                     } else {
                         when_true

@@ -1,25 +1,25 @@
-//! Path facts about scalar encodings up to 64 bits, integer ranges and comparisons.
+//! Known bits of scalar and vector encodings, with scalar ranges and comparisons.
 //! F64 participates through its raw encoding; numeric range rules apply to integers.
-//! Vectors are opaque to this analysis. Queries infer no vector facts, while
-//! expression evaluation still folds complete vector literals.
 //! Facts about a truncated value do not erase its other carrier bits.
 
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 
 use crate::{
-    bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
-    integer::low_mask,
-    Expression,
+    literal::Literal,
 };
 
 mod assume;
+mod bits;
 mod comparisons;
+mod encoding;
+mod identity;
 mod infer;
 mod merge;
 mod range;
 mod scoped_map;
+use bits::KnownBits;
 use comparisons::Comparisons;
 use range::Range;
 use scoped_map::ScopedMap;
@@ -27,40 +27,13 @@ use scoped_map::ScopedMap;
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Copy, Default, Eq, PartialEq)]
-struct Bits {
-    // Known positions in a scalar encoding; zero means no knowledge.
-    mask: u64,
-    value: u64,
-}
-
-impl Bits {
-    fn conflicts(self, other: Self) -> bool {
-        (self.value ^ other.value) & self.mask & other.mask != 0
-    }
-
-    fn union(self, other: Self) -> Self {
-        Self {
-            mask: self.mask | other.mask,
-            value: self.value | other.value,
-        }
-    }
-
-    fn restrict(self, mask: u64) -> Self {
-        Self {
-            mask: self.mask & mask,
-            value: self.value & mask,
-        }
-    }
-}
-
 #[derive(Default)]
-pub(super) struct ScalarFacts {
+pub(super) struct ValueFacts {
     // These sparse maps hash compiler-assigned value IDs, never guest values.
-    known: ScopedMap<usize, Bits>,
+    known: ScopedMap<usize, KnownBits>,
     ranges: ScopedMap<usize, Range>,
     comparisons: Comparisons,
-    computed: RefCell<FxHashMap<usize, Bits>>,
+    computed: RefCell<FxHashMap<usize, KnownBits>>,
 }
 
 pub(super) struct Checkpoint {
@@ -69,7 +42,7 @@ pub(super) struct Checkpoint {
     comparisons: scoped_map::Checkpoint,
 }
 
-impl Clone for ScalarFacts {
+impl Clone for ValueFacts {
     fn clone(&self) -> Self {
         Self {
             known: self.known.clone(),
@@ -80,7 +53,7 @@ impl Clone for ScalarFacts {
     }
 }
 
-impl ScalarFacts {
+impl ValueFacts {
     /// Save a nested path scope without copying its inherited facts.
     pub(super) fn checkpoint(&mut self) -> Checkpoint {
         Checkpoint {
@@ -105,9 +78,9 @@ impl ScalarFacts {
             .any(|(&id, &bits)| bits.conflicts(other.bits(table, id)))
     }
 
-    pub(super) fn assume_bits(&mut self, id: usize, mask: u64, value: u64) {
+    pub(super) fn assume_bits(&mut self, id: usize, mask: u128, value: u128) {
         let previous = self.known.get(&id).copied().unwrap_or_default();
-        let bits = Bits {
+        let bits = KnownBits {
             mask,
             value: value & mask,
         };
@@ -116,7 +89,7 @@ impl ScalarFacts {
         }
     }
 
-    fn record(&mut self, id: usize, bits: Bits) {
+    fn record(&mut self, id: usize, bits: KnownBits) {
         self.known.insert(id, bits);
         self.invalidate_from(id);
     }
@@ -127,51 +100,34 @@ impl ScalarFacts {
         self.computed.get_mut().retain(|&input, _| input < id);
     }
 
-    /// Scalar literals keep their carrier bits; inferred constants contain logical bits.
-    /// Use ValueTable::carrier_bits to restore the carrier promised by construction.
-    pub(super) fn constant(&self, table: &ValueTable, id: usize) -> Option<u64> {
-        if !table[id].ty.is_scalar() {
-            return None;
-        }
-        if let Some(bits) = table[id].scalar_literal() {
+    /// Complete constant encodings, restoring scalar carriers from logical facts.
+    pub(super) fn constant(&self, table: &ValueTable, id: usize) -> Option<Literal> {
+        if let ValueDefinition::Literal(bits) = table[id].definition {
             return Some(bits);
         }
-        // Construction already folded path-independent constants.
-        if self.known.is_empty() && self.ranges.is_empty() && self.comparisons.is_empty() {
+        // Construction folds path-independent scalar constants. Lane extracts
+        // can additionally become constant from a partially known vector.
+        if table[id].ty.is_scalar()
+            && !matches!(
+                table[id].definition,
+                ValueDefinition::Expression(crate::Expression::VectorExtract { .. })
+            )
+            && self.known.is_empty()
+            && self.ranges.is_empty()
+            && self.comparisons.is_empty()
+        {
             return None;
         }
         let bits = self.bits(table, id);
-        let mask = table.values[id].ty.mask();
-        (bits.mask & mask == mask).then_some(bits.value & mask)
-    }
-
-    /// A scalar operand whose known bits make the other bitwise operand redundant.
-    /// Unlike a logical constant, an identity must preserve the entire carrier.
-    pub(super) fn bitwise_identity(&self, table: &ValueTable, id: usize) -> Option<usize> {
-        let ValueDefinition::Expression(Expression::Bitwise {
-            operator,
-            left,
-            right,
-        }) = table[id].definition
-        else {
-            return None;
-        };
-        if !table[id].ty.is_scalar() || !matches!(operator, BitwiseOp::And | BitwiseOp::Or) {
+        let ty = table[id].ty;
+        let mask = ty.bit_mask();
+        if bits.mask & mask != mask {
             return None;
         }
-        let mask = table[id].ty.carrier().mask();
-        let a = self.bits(table, left);
-        let b = self.bits(table, right);
-        // Logical facts leave upper carrier bits unknown. Only physical bounds
-        // can prove those bits zero; a narrow logical type cannot.
-        let left_zeros = (a.mask & !a.value) | (mask & !low_mask(table.bounds[left].unsigned));
-        let right_zeros = (b.mask & !b.value) | (mask & !low_mask(table.bounds[right].unsigned));
-        match operator {
-            BitwiseOp::Or if mask & !right_zeros & !a.value == 0 => Some(left),
-            BitwiseOp::Or if mask & !left_zeros & !b.value == 0 => Some(right),
-            BitwiseOp::And if mask & !b.value & !left_zeros == 0 => Some(left),
-            BitwiseOp::And if mask & !a.value & !right_zeros == 0 => Some(right),
-            _ => None,
-        }
+        Some(if ty.is_scalar() {
+            table.carrier_bits(id, bits.value as u64).into()
+        } else {
+            bits.value.into()
+        })
     }
 }

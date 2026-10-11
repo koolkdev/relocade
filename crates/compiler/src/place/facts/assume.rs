@@ -1,6 +1,6 @@
 //! Learn facts implied by choosing one edge of a conditional branch.
 
-use super::{Bits, ScalarFacts};
+use super::{KnownBits, ValueFacts};
 use crate::{
     bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
@@ -8,18 +8,18 @@ use crate::{
     Expression, Type,
 };
 
-impl ScalarFacts {
+impl ValueFacts {
     pub(in crate::place) fn assume(&mut self, table: &ValueTable, condition: usize, truth: bool) {
         let mut pending = vec![(
             condition,
-            Bits {
+            KnownBits {
                 mask: 1,
-                value: u64::from(truth),
+                value: u128::from(truth),
             },
         )];
         while let Some((id, bits)) = pending.pop() {
             let value = table.values[id];
-            let bits = bits.restrict(value.ty.mask());
+            let bits = bits.restrict(value.ty.bit_mask());
             if bits.mask == 0 {
                 continue;
             }
@@ -59,15 +59,42 @@ impl ScalarFacts {
             }
             match expression {
                 Expression::Convert { input } => pending.push((input, bits)),
+                Expression::VectorExtract { input, lane } => {
+                    let shift = lane * value.ty.bits();
+                    pending.push((
+                        input,
+                        KnownBits {
+                            mask: bits.mask << shift,
+                            value: bits.value << shift,
+                        },
+                    ));
+                }
+                Expression::VectorReplace {
+                    vector,
+                    value,
+                    lane,
+                } => {
+                    let shift = lane * table[value].ty.bits();
+                    let mask = table[value].ty.bit_mask() << shift;
+                    pending.push((vector, bits.restrict(!mask)));
+                    let inserted = bits.restrict(mask);
+                    pending.push((
+                        value,
+                        KnownBits {
+                            mask: inserted.mask >> shift,
+                            value: inserted.value >> shift,
+                        },
+                    ));
+                }
                 Expression::LowBits { input, bits: width } => {
-                    pending.push((input, bits.restrict(low_mask(width))))
+                    pending.push((input, bits.restrict(u128::from(low_mask(width)))))
                 }
                 Expression::Bitwise {
                     operator: BitwiseOp::Or,
                     left: a,
                     right: b,
                 } => {
-                    let zeros = Bits {
+                    let zeros = KnownBits {
                         mask: bits.mask & !bits.value,
                         value: 0,
                     };
@@ -79,7 +106,7 @@ impl ScalarFacts {
                     left: a,
                     right: b,
                 } => {
-                    let ones = Bits {
+                    let ones = KnownBits {
                         mask: bits.value,
                         value: bits.value,
                     };
@@ -96,8 +123,8 @@ impl ScalarFacts {
                     if is_zero {
                         pending.push((
                             input,
-                            Bits {
-                                mask: table.values[input].ty.mask(),
+                            KnownBits {
+                                mask: table.values[input].ty.bit_mask(),
                                 value: 0,
                             },
                         ));
@@ -106,8 +133,8 @@ impl ScalarFacts {
                     {
                         pending.push((
                             input,
-                            Bits {
-                                mask: table.values[input].ty.mask(),
+                            KnownBits {
+                                mask: table.values[input].ty.bit_mask(),
                                 value: 1,
                             },
                         ));
@@ -130,15 +157,15 @@ impl ScalarFacts {
                 } => {
                     let truth = self
                         .constant(table, condition)
-                        .map(|value| value != 0)
+                        .map(|value| u128::from(value) != 0)
                         .or_else(|| self.bits(table, when_true).conflicts(bits).then_some(false))
                         .or_else(|| self.bits(table, when_false).conflicts(bits).then_some(true));
                     if let Some(truth) = truth {
                         pending.push((
                             condition,
-                            Bits {
+                            KnownBits {
                                 mask: 1,
-                                value: u64::from(truth),
+                                value: u128::from(truth),
                             },
                         ));
                         pending.push((if truth { when_true } else { when_false }, bits));
