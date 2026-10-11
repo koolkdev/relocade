@@ -1,6 +1,100 @@
 //! Register selectors retain encoded indices and distinguish memory forms.
 
 use super::*;
+use crate::instruction::forms::declarations::{declaration_operands, operand_spec, same_layout};
+
+fn declaration_form(operands: &[OperandSpec], modrm: Option<ModRmSelector>) -> Form {
+    let handler = match operands.len() {
+        1 => Handler::Unary(|_, _, _, fallthrough| Ok(fallthrough)),
+        2 => Handler::Binary(|_, _, _, _, fallthrough| Ok(fallthrough)),
+        3 => Handler::Ternary(|_, _, _, _, _, fallthrough| Ok(fallthrough)),
+        _ => panic!("the test declaration has one to three operands"),
+    };
+    Declaration {
+        availability: crate::instruction::Availability::AllModes,
+        opcode: Opcode {
+            map: OpcodeMap::Primary,
+            byte: 0x00,
+            prefix: PrefixRule::Modifiers(None),
+            register_range: false,
+            modrm,
+        },
+        operands,
+        handlers: SizedHandlers::fixed(handler),
+        effects: &[],
+        lockable: false,
+    }
+    .form()
+}
+
+#[test]
+fn rm_operands_restrict_modrm_at_every_operand_position() {
+    let register = OperandSpec::ModRmRegister(RegisterClass::Gpr);
+    for (rm, register_only) in [
+        (operand_spec!(mem), false),
+        (operand_spec!(register(rm)), true),
+        (operand_spec!(register(mm_rm)), true),
+        (operand_spec!(register(xmm_rm)), true),
+    ] {
+        for operands in [
+            &[rm][..],
+            &[rm, register][..],
+            &[register, rm][..],
+            &[rm, register, register][..],
+            &[register, rm, register][..],
+            &[register, register, rm][..],
+        ] {
+            let form = declaration_form(operands, None);
+            for modrm in 0..=u8::MAX {
+                assert_eq!(
+                    form.matches_modrm(modrm, &PrefixState::default()),
+                    (modrm >= 0xc0) == register_only
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn register_rm_operands_preserve_fixed_modrm_bits() {
+    for (selector, expected) in [
+        (ModRmSelector::extension(5), 0xe8..=0xef),
+        (ModRmSelector::register_range(0xe8), 0xe8..=0xef),
+        (ModRmSelector::byte(0xeb), 0xeb..=0xeb),
+    ] {
+        let form = declaration_form(declaration_operands!((register(xmm_rm))), Some(selector));
+        let accepted: Vec<_> = (0..=u8::MAX)
+            .filter(|byte| form.matches_modrm(*byte, &PrefixState::default()))
+            .collect();
+        assert_eq!(accepted, expected.collect::<Vec<_>>());
+    }
+}
+
+#[test]
+fn declarations_reject_conflicting_modrm_constraints() {
+    let register = operand_spec!(register(xmm_rm));
+    for (operands, selector) in [
+        (&[register, OperandSpec::Memory][..], None),
+        (&[OperandSpec::Memory, register][..], None),
+        (&[register, OperandSpec::Address][..], None),
+        (&[OperandSpec::Address, register][..], None),
+        (&[register][..], Some(ModRmSelector::byte(0x20))),
+        (&[OperandSpec::Memory][..], Some(ModRmSelector::byte(0xe0))),
+    ] {
+        assert!(std::panic::catch_unwind(|| declaration_form(operands, selector)).is_err());
+    }
+}
+
+#[test]
+fn width_alternatives_must_share_rm_addressing_modes() {
+    for class in [RegisterClass::Gpr, RegisterClass::Mmx, RegisterClass::Xmm] {
+        let rm = OperandSpec::Rm(class);
+        let register = rm.register();
+        same_layout(&[register], &[register]);
+        assert!(std::panic::catch_unwind(|| same_layout(&[rm], &[register])).is_err());
+        assert!(std::panic::catch_unwind(|| same_layout(&[register], &[rm])).is_err());
+    }
+}
 
 #[test]
 fn register_only_forms_admit_both_register_fields_without_overlapping_memory() {

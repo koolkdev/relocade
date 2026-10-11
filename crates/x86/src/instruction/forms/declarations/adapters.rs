@@ -50,30 +50,30 @@ macro_rules! declaration_adapter {
             declaration_result!($result $pattern $call [$($width)?] execution, _condition, fallthrough;)
         })
     };
-    (@result $result:tt $pattern:tt $call:tt [$($width:ty)?]; $operand:ident $(($value:expr))?) => {
+    (@result $result:tt $pattern:tt $call:tt [$($width:ty)?]; $operand:ident $(($($value:tt)*))?) => {
         Handler::Unary(|execution, operand, _condition, fallthrough| {
             declaration_result!($result $pattern $call [$($width)?] execution, _condition, fallthrough;
-                operand_value!([$($width)?], operand, $operand $(($value))?))
+                operand_value!([$($width)?], operand, $operand $(($($value)*))?))
         })
     };
-    (@result $result:tt $pattern:tt $call:tt [$($width:ty)?]; $left:ident $(($left_value:expr))?, $right:ident $(($right_value:expr))?) => {
+    (@result $result:tt $pattern:tt $call:tt [$($width:ty)?]; $left:ident $(($($left_value:tt)*))?, $right:ident $(($($right_value:tt)*))?) => {
         Handler::Binary(|execution, left, right, _condition, fallthrough| {
             declaration_result!($result $pattern $call [$($width)?] execution, _condition, fallthrough;
-                operand_value!([$($width)?], left, $left $(($left_value))?),
-                operand_value!([$($width)?], right, $right $(($right_value))?))
+                operand_value!([$($width)?], left, $left $(($($left_value)*))?),
+                operand_value!([$($width)?], right, $right $(($($right_value)*))?))
         })
     };
     (@result $result:tt $pattern:tt $call:tt [$($width:ty)?];
-        $destination:ident $(($destination_value:expr))?,
-        $first:ident $(($first_value:expr))?,
-        $second:ident $(($second_value:expr))?
+        $destination:ident $(($($destination_value:tt)*))?,
+        $first:ident $(($($first_value:tt)*))?,
+        $second:ident $(($($second_value:tt)*))?
     ) => {
         Handler::Ternary(|execution, destination, first, second, _condition, fallthrough| {
             let destination = destination.into();
             declaration_result!($result $pattern $call [$($width)?] execution, _condition, fallthrough;
-                operand_value!([$($width)?], destination, $destination $(($destination_value))?),
-                operand_value!([$($width)?], first, $first $(($first_value))?),
-                operand_value!([$($width)?], second, $second $(($second_value))?))
+                operand_value!([$($width)?], destination, $destination $(($($destination_value)*))?),
+                operand_value!([$($width)?], first, $first $(($($first_value)*))?),
+                operand_value!([$($width)?], second, $second $(($($second_value)*))?))
         })
     };
 }
@@ -109,10 +109,12 @@ macro_rules! declaration_invoke {
 }
 
 macro_rules! operand_value {
-    ($width:tt, $operand:ident, mm) => { crate::instruction::MmxLocation::from_operand($operand) };
+    ($width:tt, $operand:ident, mm) => { operand_value!(@register Mmx, $operand) };
     ($width:tt, $operand:ident, mm_rm) => { crate::instruction::MmxLocation::from_operand($operand) };
-    ($width:tt, $operand:ident, xmm) => { crate::instruction::XmmLocation::from_operand($operand) };
+    ($width:tt, $operand:ident, xmm) => { operand_value!(@register Xmm, $operand) };
     ($width:tt, $operand:ident, xmm_rm) => { crate::instruction::XmmLocation::from_operand($operand) };
+    ($width:tt, $operand:ident, register(mm_rm)) => { operand_value!(@register Mmx, $operand) };
+    ($width:tt, $operand:ident, register(xmm_rm)) => { operand_value!(@register Xmm, $operand) };
     ($width:tt, $operand:ident, st) => {{
         let crate::instruction::Operand::X87StackIndex(index) = $operand else {
             unreachable!("the form binds an x87 stack index")
@@ -155,6 +157,12 @@ macro_rules! operand_value {
     ([$width:ty], $operand:ident, accumulator) => { operand_value!(@location $width, $operand) };
     ([$width:ty], $operand:ident, moffs) => { operand_value!(@location $width, $operand) };
     (@location $width:ty, $operand:ident) => { TypedLocation::<$width>::from_operand($operand).into() };
+    (@register $class:ident, $operand:ident) => {{
+        let crate::instruction::Operand::Location(crate::instruction::Location::$class(register)) = $operand else {
+            unreachable!("the form binds a register of the declared class")
+        };
+        register.into()
+    }};
 }
 
 pub(in crate::instruction) use {

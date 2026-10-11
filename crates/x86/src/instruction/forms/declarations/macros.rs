@@ -1,5 +1,5 @@
 //! Family tables expose opcode bytes, operand order and widths at the use site.
-//! `@ register` restricts ModRM addressing to registers while retaining both indices.
+//! `register(xmm_rm)` derives register-only ModRM addressing and handler types.
 
 macro_rules! instruction_families {
     ($($family:ident {
@@ -21,7 +21,7 @@ macro_rules! instruction_families {
 
 macro_rules! declaration_family {
     ($call:tt $effects:tt $availability:tt {
-        $($($prefix:ident)? $opcode:literal $($extended:literal)? $(+ $pattern:ident)? $(/ $extension:literal)? $(@ $modrm:tt $(+ $modrm_range:ident)?)? =>
+        $($($prefix:ident)? $opcode:literal $($extended:literal)? $(+ $pattern:ident)? $(/ $extension:literal)? $(@ $modrm:literal $(+ $modrm_range:ident)?)? =>
             $width:ident $operands:tt $(| $other_width:ident $other_operands:tt)? $($lockable:ident)?;
         )+
     }) => {
@@ -51,8 +51,8 @@ macro_rules! declaration_family {
 }
 
 macro_rules! declaration_operands {
-    (($($operand:ident $(($value:expr))?),*)) => {
-        &[$(operand_spec!($operand $(($value))?)),*]
+    (($($operand:ident $(($($value:tt)*))?),*)) => {
+        &[$(operand_spec!($operand $(($($value)*))?)),*]
     };
 }
 
@@ -116,9 +116,6 @@ macro_rules! declaration_opcode {
     (@modrm [$extension:literal] []) => {
         Some(ModRmSelector::extension($extension))
     };
-    (@modrm [] [register]) => {
-        Some(ModRmSelector::register())
-    };
     (@modrm [] [$modrm:literal]) => {
         Some(ModRmSelector::byte($modrm))
     };
@@ -161,6 +158,9 @@ macro_rules! declaration_effect {
 }
 
 macro_rules! operand_spec {
+    (register($operand:ident)) => {
+        operand_spec!($operand).register()
+    };
     (mm) => {
         OperandSpec::ModRmRegister(crate::instruction::forms::RegisterClass::Mmx)
     };

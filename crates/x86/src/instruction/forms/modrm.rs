@@ -23,10 +23,14 @@ impl ModRmSelector {
         }
     }
 
-    pub(in crate::instruction) const fn register() -> Self {
+    pub(in crate::instruction) const fn register(self) -> Self {
+        assert!(
+            !matches!(self.mode, ModRmMode::Memory),
+            "a memory encoding cannot bind an r/m register operand"
+        );
         Self {
-            mask: 0xc0,
-            value: 0xc0,
+            mask: self.mask | 0xc0,
+            value: self.value | 0xc0,
             mode: ModRmMode::Register,
         }
     }

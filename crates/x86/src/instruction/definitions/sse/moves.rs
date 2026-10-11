@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::instruction::{VectorAlignment, XmmLocation, XmmType};
+use crate::register::RegisterCode;
 use wasm86_compiler::{VectorLane, I64, V128};
 
 instruction_families! {
@@ -80,20 +81,20 @@ instruction_families! {
 
 fn move_dword_to_xmm(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: XmmLocation,
+    destination: RegisterCode,
     source: Input<I32>,
 ) -> Result<(), BuildError> {
     let value = source.read(execution)?;
     let vector = Val::<V128>::from(0_u128).replace_lane(0, value);
-    destination.write(execution, VectorAlignment::Unaligned, vector)
+    execution.write_xmm(destination, vector)
 }
 
 fn move_dword_from_xmm(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<I32>,
-    source: XmmLocation,
+    source: RegisterCode,
 ) -> Result<(), BuildError> {
-    let value = source.read::<I32>(execution, VectorAlignment::Unaligned)?;
+    let value = execution.read_xmm(source)?.extract_lane::<I32>(0);
     destination.write(execution, value)
 }
 
@@ -132,11 +133,8 @@ fn move_scalar<T: VectorLane + XmmType>(
     let value = source.read::<T>(execution, VectorAlignment::Unaligned)?;
     if memory_load {
         // MOVSS/MOVSD memory loads also clear the rest of the XMM register.
-        let XmmLocation::Register(register) = destination else {
-            unreachable!("MOVSS/MOVSD memory loads have an XMM destination")
-        };
         let vector = Val::<V128>::from(0_u128).replace_lane(0, value);
-        execution.write_xmm(register, vector)
+        destination.write(execution, VectorAlignment::Unaligned, vector)
     } else {
         destination.write(execution, VectorAlignment::Unaligned, value)
     }
