@@ -429,7 +429,7 @@ fn selectors_and_keys_are_validated_before_arm_construction() {
 }
 
 #[test]
-fn value_switches_require_a_yield_and_completed_arms() {
+fn value_switches_require_completed_arms_and_allow_unreachable_results() {
     let mut program = Program::new();
     let run = program.declare(signature(&[Type::I32], &[Type::I32]));
     program
@@ -444,7 +444,7 @@ fn value_switches_require_a_yield_and_completed_arms() {
             });
             assert_eq!(incomplete.err(), Some(BuildError::MissingBranchValue));
             let no_value = body.switch_value::<I8, _>(&selector, &[0], |arm, _| arm.return_(11));
-            assert_eq!(no_value.err(), Some(BuildError::MissingBranchValue));
+            assert!(no_value.is_ok());
             assert_eq!(
                 body.switch(selector, &[0], |arm, _| arm.yield_(7)).err(),
                 Some(BuildError::InvalidYield)
