@@ -6,7 +6,7 @@ mod unbound;
 mod vector;
 
 pub use argument::Argument;
-pub use vector::VectorLane;
+pub use vector::{SaturatingLane, VectorLane};
 
 use std::marker::PhantomData;
 
