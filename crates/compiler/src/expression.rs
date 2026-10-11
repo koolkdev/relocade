@@ -21,6 +21,9 @@ use crate::{
 pub(super) enum LaneBinaryOp {
     Add,
     Sub,
+    Mul,
+    WideningMulLowSigned,
+    DotI16Signed,
     Eq,
     GtSigned,
     AddSatSigned,
@@ -33,6 +36,7 @@ pub(super) enum LaneBinaryOp {
 pub(super) enum Expression<V> {
     VectorBinary {
         operator: LaneBinaryOp,
+        // Input lane width; widening multiplication and dot products double it.
         lane_type: Type,
         left: V,
         right: V,
