@@ -18,6 +18,7 @@ mod bitwise;
 mod comparisons;
 mod select;
 mod shifts;
+mod vectors;
 
 #[cfg(test)]
 mod tests;
@@ -120,6 +121,7 @@ impl Folder<'_> {
             Expression::Unary { operator, input } => match operator {
                 Unary::ZeroTest { nonzero } => self.fold_zero_test(input, nonzero),
                 Unary::LowBits { bits } => Some(self.fold_low_bits(ty, input, bits)),
+                Unary::ExtractLane { lane } => self.fold_vector_extract(ty, input, lane),
                 Unary::SignExtend { input_type } => self.fold_sign_extend(ty, input_type, input),
                 Unary::Convert if self.values[input].ty == ty => Some(input),
                 Unary::Convert => match self.values[input].definition {
@@ -148,6 +150,7 @@ impl Folder<'_> {
                 right,
             } => match operator {
                 Binary::Integer(operator) => self.fold_binary(ty, operator, left, right),
+                Binary::Vector { operator, .. } => self.fold_vector_binary(operator, left, right),
                 Binary::Bitwise(operator) => self.fold_bitwise(ty, operator, left, right),
                 Binary::Compare(Compare::Integer(operator)) => {
                     self.fold_compare(operator, left, right)

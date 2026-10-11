@@ -1,11 +1,10 @@
 //! Derive facts through expressions without changing the current path.
 
-use super::{Bits, Range, ValueAnalysis};
+use super::{Bits, DerivedFacts, Range, ValueAnalysis};
 use crate::expression::{
     BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, UnaryOp as Unary,
 };
 use crate::{
-    bitwise::BitwiseOp,
     body::ValueTable,
     expression::TypedLiteral,
     integer::{low_mask, CompareOp},
@@ -13,25 +12,74 @@ use crate::{
 };
 
 impl ValueAnalysis {
-    /// Known scalar bits; non-scalar values contribute no knowledge.
+    /// Scalar queries keep their cache entries and returned encodings at u64 width.
     pub(super) fn bits(&self, table: &ValueTable, root: usize) -> Bits {
+        if !table[root].ty.is_scalar() {
+            return Bits::default();
+        }
         let mut derived = self.derived.borrow_mut();
-        let cache = &mut derived.bits;
-        if let Some(&bits) = cache.get(&root) {
+        if let Some(&bits) = derived.bits.get(&root) {
             return bits;
         }
+        self.infer(table, root, &mut derived);
+        derived.bits[&root]
+    }
+
+    pub(super) fn vector_bits(&self, table: &ValueTable, root: usize) -> Bits<u128> {
+        let mut derived = self.derived.borrow_mut();
+        if let Some(&bits) = derived.vectors.as_ref().and_then(|bits| bits.get(&root)) {
+            return bits;
+        }
+        self.infer(table, root, &mut derived);
+        derived.vectors.as_ref().unwrap()[&root]
+    }
+
+    /// A single worklist crosses scalar/vector lane boundaries without nested queries.
+    fn infer(&self, table: &ValueTable, root: usize, derived: &mut DerivedFacts) {
         let mut pending = self.pending.borrow_mut();
-        pending.push((root, false));
-        while let Some((id, ready)) = pending.pop() {
+        Inference {
+            analysis: self,
+            table,
+            derived,
+            pending: &mut pending,
+        }
+        .run(root);
+    }
+}
+
+mod vectors;
+
+/// One query owns its derivation buffers while walking across encoding domains.
+struct Inference<'a> {
+    analysis: &'a ValueAnalysis,
+    table: &'a ValueTable,
+    derived: &'a mut DerivedFacts,
+    pending: &'a mut Vec<(usize, bool)>,
+}
+
+impl Inference<'_> {
+    fn run(&mut self, root: usize) {
+        let table = self.table;
+        self.pending.push((root, false));
+        while let Some((id, ready)) = self.pending.pop() {
+            if !table[id].ty.is_scalar() {
+                self.vector(id, ready);
+                continue;
+            }
+            let derived = &mut self.derived;
+            let pending = &mut self.pending;
+            let cache = &mut derived.bits;
             if cache.contains_key(&id) {
                 continue;
             }
             let value = table[id];
-            if !value.ty.is_scalar() {
-                cache.insert(id, Bits::default());
-                continue;
-            }
-            let known = self.context.known.get(&id).copied().unwrap_or_default();
+            let known = self
+                .analysis
+                .context
+                .known
+                .get(&id)
+                .copied()
+                .unwrap_or_default();
             if let Some(bits) = value.scalar_literal() {
                 cache.insert(
                     id,
@@ -57,7 +105,12 @@ impl ValueAnalysis {
                 right,
             } = expression
             {
-                if let Some(truth) = self.context.comparisons.get(table, operator, left, right) {
+                if let Some(truth) = self
+                    .analysis
+                    .context
+                    .comparisons
+                    .get(table, operator, left, right)
+                {
                     cache.insert(
                         id,
                         Bits {
@@ -101,10 +154,25 @@ impl ValueAnalysis {
                 pending.extend(expression.inputs().map(|&input| (input, false)));
                 continue;
             }
+            if let Expression::Unary {
+                operator: Unary::ExtractLane { lane },
+                input,
+            } = expression
+            {
+                let input = derived.vectors.as_ref().unwrap()[&input];
+                let shift = lane * value.ty.bits();
+                let bits = Bits {
+                    mask: (input.mask >> shift) as u64,
+                    value: (input.value >> shift) as u64,
+                };
+                cache.insert(id, bits.union(known).restrict(value.ty.mask()));
+                continue;
+            }
             let mut bits = match expression {
                 Expression::Unary { operator, input } => {
                     let input_bits = cache[&input];
                     match operator {
+                        Unary::Reinterpret => input_bits,
                         Unary::Convert => {
                             let mask = low_mask(table.bounds[input].unsigned);
                             input_bits.union(Bits {
@@ -130,34 +198,7 @@ impl ValueAnalysis {
                     operator: Binary::Bitwise(operator),
                     left,
                     right,
-                } => {
-                    let a = cache[&left];
-                    let b = cache[&right];
-                    match operator {
-                        BitwiseOp::And => {
-                            let zeros = (a.mask & !a.value) | (b.mask & !b.value);
-                            let ones = a.value & b.value;
-                            Bits {
-                                mask: zeros | ones,
-                                value: ones,
-                            }
-                        }
-                        BitwiseOp::Or => {
-                            let ones = a.value | b.value;
-                            Bits {
-                                mask: (a.mask & !a.value & b.mask & !b.value) | ones,
-                                value: ones,
-                            }
-                        }
-                        BitwiseOp::Xor => {
-                            let mask = a.mask & b.mask;
-                            Bits {
-                                mask,
-                                value: (a.value ^ b.value) & mask,
-                            }
-                        }
-                    }
-                }
+                } => cache[&left].bitwise(operator, cache[&right]),
                 Expression::Shift {
                     operator: Shift::Scalar(operator),
                     value: input,
@@ -176,25 +217,29 @@ impl ValueAnalysis {
                     left,
                     right,
                 } => self
+                    .analysis
                     .range(table, left, cache[&left])
-                    .zip(self.range(table, right, cache[&right]))
+                    .zip(self.analysis.range(table, right, cache[&right]))
                     .and_then(|(left, right)| left.compare(operator, right)),
                 Expression::Unary {
                     operator: Unary::ZeroTest { nonzero },
                     input,
-                } => self.range(table, input, cache[&input]).and_then(|range| {
-                    range.compare(
-                        if nonzero {
-                            CompareOp::Ne
-                        } else {
-                            CompareOp::Eq
-                        },
-                        Range {
-                            minimum: 0,
-                            maximum: 0,
-                        },
-                    )
-                }),
+                } => self
+                    .analysis
+                    .range(table, input, cache[&input])
+                    .and_then(|range| {
+                        range.compare(
+                            if nonzero {
+                                CompareOp::Ne
+                            } else {
+                                CompareOp::Eq
+                            },
+                            Range {
+                                minimum: 0,
+                                maximum: 0,
+                            },
+                        )
+                    }),
                 _ => None,
             };
             if let Some(result) = comparison {
@@ -229,6 +274,5 @@ impl ValueAnalysis {
             }
             cache.insert(id, bits.union(known).restrict(value.ty.mask()));
         }
-        cache[&root]
     }
 }

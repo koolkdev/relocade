@@ -1,5 +1,6 @@
 use super::Expression;
 use crate::expression::BinaryOp as Binary;
+use crate::expression::UnaryOp as Unary;
 
 #[test]
 #[cfg(target_pointer_width = "64")]
@@ -11,7 +12,7 @@ fn typed_opcodes_keep_compact_value_storage() {
 
 #[test]
 fn packed_operation_identity_includes_its_lane_width_without_view_nodes() {
-    use super::{BinaryOp, LaneBinaryOp};
+    use super::LaneBinaryOp;
     use crate::{
         body::{BlockId, Value, ValueDefinition, ValueTable},
         Type,
@@ -29,7 +30,7 @@ fn packed_operation_identity_includes_its_lane_width_without_view_nodes() {
     let mut sums = Vec::new();
     for lane_type in [Type::I8, Type::I16, Type::I32, Type::I64] {
         let expression = Expression::Binary {
-            operator: BinaryOp::Vector {
+            operator: Binary::Vector {
                 operator: LaneBinaryOp::Add,
                 lane_type,
             },
@@ -125,5 +126,51 @@ fn refolding_lane_replacement_discards_narrow_carrier_bits() {
             panic!("literal lane replacement folds");
         };
         assert_eq!(u128::from(bits), expected);
+    }
+}
+
+#[test]
+fn refolding_matching_lane_extraction_normalizes_the_scalar_carrier() {
+    use crate::{
+        body::{BlockId, Value, ValueDefinition, ValueTable},
+        Type,
+    };
+
+    for (ty, lane, carrier, expected) in [
+        (Type::I8, 15, 0x102_u64, 2),
+        (Type::I16, 7, 0x10001, 1),
+        (Type::I8, 0, 0xffff_ffff, 0xff),
+        (Type::I16, 0, 0xffff_ffff, 0xffff),
+    ] {
+        let mut values = ValueTable::default();
+        let vector = values.push(Value {
+            ty: Type::V128,
+            definition: ValueDefinition::Parameter {
+                block: BlockId(0),
+                component: 0,
+            },
+        });
+        // Execution reuse may substitute an i32 carrier for a byte or word.
+        let value = values.carrier_literal(ty.carrier(), carrier);
+        let input = values.intern(Value {
+            ty: Type::V128,
+            definition: ValueDefinition::Expression(Expression::Binary {
+                operator: Binary::ReplaceLane {
+                    lane_type: ty,
+                    lane,
+                },
+                left: vector,
+                right: value,
+            }),
+        });
+        let expression = values.intern(Value {
+            ty,
+            definition: ValueDefinition::Expression(Expression::Unary {
+                operator: Unary::ExtractLane { lane },
+                input,
+            }),
+        });
+        let folded = super::refold(&mut values, expression);
+        assert_eq!(values[folded].scalar_literal(), Some(expected));
     }
 }

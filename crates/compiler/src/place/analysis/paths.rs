@@ -32,7 +32,14 @@ impl ValueAnalysis {
     /// Both paths belong to this function. Their observations and the existing
     /// value definitions stay fixed during placement, so failed proofs stay valid.
     pub(in crate::place) fn excludes(&self, table: &ValueTable, path: &PathSnapshot) -> bool {
-        if path.analysis.context.known.is_empty() {
+        if path.analysis.context.known.is_empty()
+            && path
+                .analysis
+                .context
+                .vector_known
+                .as_ref()
+                .is_none_or(|known| known.is_empty())
+        {
             return false;
         }
         if let Some(&excluded) = self

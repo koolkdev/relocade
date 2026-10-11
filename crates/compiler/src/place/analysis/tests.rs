@@ -1,5 +1,7 @@
 use super::*;
 use crate::expression::{BinaryOp as Binary, CompareOp as Compare};
+
+mod vectors;
 use crate::{
     body::{BlockId, Value},
     integer::CompareOp,
@@ -32,7 +34,7 @@ fn compare(table: &mut ValueTable, operator: CompareOp, left: usize, right: usiz
 }
 
 #[test]
-fn structural_inference_leaves_vector_values_opaque() {
+fn scalar_queries_do_not_interpret_vector_encodings() {
     let mut table = ValueTable::default();
     let input = table.push(Value {
         ty: Type::V128,

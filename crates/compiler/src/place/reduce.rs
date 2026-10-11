@@ -51,7 +51,7 @@ impl Reducer {
                     }
                     if let Some(result) = self.known_constant(values, id) {
                         self.record(id, result);
-                    } else if let Some(input) = self.analysis.bitwise_identity(values, id) {
+                    } else if let Some(input) = self.analysis.identity(values, id) {
                         self.pending.push(Work::Alias(id, input));
                         self.pending.push(Work::Visit(input));
                     } else if let Some(result) = values.expression(id) {
@@ -105,7 +105,7 @@ impl Reducer {
                     // canonicalized the original expression.
                     let result = if let Some(constant) = self.known_constant(values, rewritten) {
                         constant
-                    } else if let Some(input) = self.analysis.bitwise_identity(values, rewritten) {
+                    } else if let Some(input) = self.analysis.identity(values, rewritten) {
                         input
                     } else {
                         let folded = if rewritten == id {
@@ -138,6 +138,10 @@ impl Reducer {
     }
 
     fn known_constant(&self, values: &mut ValueTable, value: usize) -> Option<usize> {
+        if !values[value].ty.is_scalar() {
+            let bits = self.analysis.vector_constant(values, value)?;
+            return Some(values.carrier_literal(values[value].ty, bits));
+        }
         let bits = self.analysis.constant(values, value)?;
         let bits = values.carrier_bits(value, bits)?;
         Some(values.carrier_literal(values[value].ty, bits))

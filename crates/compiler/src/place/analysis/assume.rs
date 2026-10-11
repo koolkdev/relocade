@@ -9,16 +9,34 @@ use crate::{
     Expression, Type,
 };
 
+mod vectors;
+
+#[derive(Default)]
+struct Pending {
+    scalar: Vec<(usize, Bits)>,
+    vector: Vec<(usize, Bits<u128>)>,
+}
+
 impl ValueAnalysis {
     pub(super) fn assume(&mut self, table: &ValueTable, condition: usize, truth: bool) {
-        let mut pending = vec![(
-            condition,
-            Bits {
-                mask: 1,
-                value: u64::from(truth),
-            },
-        )];
-        while let Some((id, bits)) = pending.pop() {
+        let mut pending = Pending {
+            scalar: vec![(
+                condition,
+                Bits {
+                    mask: 1,
+                    value: u64::from(truth),
+                },
+            )],
+            ..Pending::default()
+        };
+        loop {
+            let Some((id, bits)) = pending.scalar.pop() else {
+                let Some((id, bits)) = pending.vector.pop() else {
+                    break;
+                };
+                self.assume_vector(table, id, bits, &mut pending);
+                continue;
+            };
             let value = table.values[id];
             let bits = bits.restrict(value.ty.mask());
             if bits.mask == 0 {
@@ -47,14 +65,24 @@ impl ValueAnalysis {
             };
             match expression {
                 Expression::Unary { operator, input } => match operator {
-                    Unary::Convert => pending.push((input, bits)),
+                    Unary::Convert | Unary::Reinterpret => pending.scalar.push((input, bits)),
+                    Unary::ExtractLane { lane } => {
+                        let shift = lane * value.ty.bits();
+                        pending.vector.push((
+                            input,
+                            Bits {
+                                mask: u128::from(bits.mask) << shift,
+                                value: u128::from(bits.value) << shift,
+                            },
+                        ));
+                    }
                     Unary::LowBits { bits: width } => {
-                        pending.push((input, bits.restrict(low_mask(width))))
+                        pending.scalar.push((input, bits.restrict(low_mask(width))))
                     }
                     Unary::ZeroTest { nonzero } if bits.mask & 1 != 0 => {
                         let is_zero = (bits.value & 1 != 0) != nonzero;
                         if is_zero {
-                            pending.push((
+                            pending.scalar.push((
                                 input,
                                 Bits {
                                     mask: table.values[input].ty.mask(),
@@ -64,7 +92,7 @@ impl ValueAnalysis {
                         } else if table.values[input].ty == Type::I1
                             || table.bounds[input].unsigned <= 1
                         {
-                            pending.push((
+                            pending.scalar.push((
                                 input,
                                 Bits {
                                     mask: table.values[input].ty.mask(),
@@ -97,30 +125,19 @@ impl ValueAnalysis {
                             && bits.mask & 1 != 0
                             && (bits.value & 1 != 0) == (operator == CompareOp::Eq)
                         {
-                            pending.push((left, self.bits(table, right)));
-                            pending.push((right, self.bits(table, left)));
+                            pending.scalar.push((left, self.bits(table, right)));
+                            pending.scalar.push((right, self.bits(table, left)));
                         }
                     }
-                    Binary::Bitwise(BitwiseOp::Or) => {
-                        let zeros = Bits {
-                            mask: bits.mask & !bits.value,
-                            value: 0,
+                    Binary::Bitwise(operator @ (BitwiseOp::And | BitwiseOp::Or)) => {
+                        let (a, b) = if operator == BitwiseOp::And {
+                            (self.bits(table, left), self.bits(table, right))
+                        } else {
+                            (Bits::default(), Bits::default())
                         };
-                        pending.push((left, zeros));
-                        pending.push((right, zeros));
-                    }
-                    Binary::Bitwise(BitwiseOp::And) => {
-                        let ones = Bits {
-                            mask: bits.value,
-                            value: bits.value,
-                        };
-                        pending.push((left, ones));
-                        pending.push((right, ones));
-                        // A known mask exposes the same bits of the other operand.
-                        for (input, other) in [(left, right), (right, left)] {
-                            let other = self.bits(table, other);
-                            pending.push((input, bits.restrict(other.value)));
-                        }
+                        let [a, b] = bits.input_constraints(operator, a, b);
+                        pending.scalar.push((left, a));
+                        pending.scalar.push((right, b));
                     }
                     _ => {}
                 },
@@ -135,14 +152,16 @@ impl ValueAnalysis {
                         .or_else(|| self.bits(table, when_true).conflicts(bits).then_some(false))
                         .or_else(|| self.bits(table, when_false).conflicts(bits).then_some(true));
                     if let Some(truth) = truth {
-                        pending.push((
+                        pending.scalar.push((
                             condition,
                             Bits {
                                 mask: 1,
                                 value: u64::from(truth),
                             },
                         ));
-                        pending.push((if truth { when_true } else { when_false }, bits));
+                        pending
+                            .scalar
+                            .push((if truth { when_true } else { when_false }, bits));
                     }
                 }
                 _ => {}

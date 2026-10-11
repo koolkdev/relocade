@@ -6,16 +6,6 @@ use crate::body::ValueTable;
 #[cfg(test)]
 mod tests;
 
-impl Bits {
-    pub(super) fn common(self, other: Self) -> Self {
-        let mask = self.mask & other.mask & !(self.value ^ other.value);
-        Self {
-            mask,
-            value: self.value & mask,
-        }
-    }
-}
-
 impl ValueAnalysis {
     /// Establish the common context and its parameter observations before querying it.
     pub(in crate::place) fn join(
@@ -42,8 +32,7 @@ impl ValueAnalysis {
         joined
     }
 
-    /// A scalar parameter keeps only logical bits proved by every incoming argument.
-    /// Vector parameters still join normally, without acquiring scalar facts.
+    /// Parameters keep only logical positions proved by every incoming argument.
     fn merge_parameter<'a>(
         &mut self,
         table: &ValueTable,
@@ -51,6 +40,13 @@ impl ValueAnalysis {
         incoming: impl Iterator<Item = (&'a Self, usize)>,
     ) {
         if !table[parameter].ty.is_scalar() {
+            let bits = incoming
+                .map(|(facts, argument)| facts.vector_bits(table, argument))
+                .reduce(Bits::common)
+                .unwrap_or_default();
+            if bits.mask != 0 {
+                self.record_vector(parameter, bits);
+            }
             return;
         }
         let bits = incoming
@@ -71,6 +67,18 @@ impl PathContext {
             *bits = bits.common(incoming);
             bits.mask != 0
         });
+        if let Some(known) = &mut self.vector_known {
+            known.retain(|id, bits| {
+                let incoming = other
+                    .vector_known
+                    .as_ref()
+                    .and_then(|known| known.get(id))
+                    .copied()
+                    .unwrap_or_default();
+                *bits = bits.common(incoming);
+                bits.mask != 0
+            });
+        }
         self.ranges.retain(|id, range| {
             let Some(incoming) = other.ranges.get(id) else {
                 return false;

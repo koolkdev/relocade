@@ -1,23 +1,22 @@
-//! Analyze scalar encodings under an explicit path context.
+//! Analyze encoding bits under an explicit path context.
 //! F64 participates through its raw encoding; numeric range rules apply to integers.
-//! Vectors are opaque to this analysis. Queries infer no vector facts, while
-//! expression evaluation still folds complete vector literals.
+//! Scalar facts use u64 storage. Vector facts allocate separate u128 storage on demand.
 //! Facts about a truncated value do not erase its other carrier bits.
 
-use crate::expression::BinaryOp as Binary;
+use crate::expression::UnaryOp as Unary;
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 
 use crate::{
-    bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
-    integer::low_mask,
     Expression,
 };
 
 mod assume;
+mod bits;
 mod comparisons;
 mod context;
+mod identity;
 mod infer;
 mod merge;
 mod paths;
@@ -25,6 +24,7 @@ mod range;
 mod scoped_map;
 mod selects;
 mod shifts;
+use bits::Bits;
 pub(super) use context::Assumption;
 use context::{PathContext, SuspendedContext};
 pub(super) use paths::PathSnapshot;
@@ -33,33 +33,6 @@ use scoped_map::ScopedMap;
 
 #[cfg(test)]
 mod tests;
-
-#[derive(Clone, Copy, Default, Eq, PartialEq)]
-struct Bits {
-    // Known positions in a scalar encoding; zero means no knowledge.
-    mask: u64,
-    value: u64,
-}
-
-impl Bits {
-    fn conflicts(self, other: Self) -> bool {
-        (self.value ^ other.value) & self.mask & other.mask != 0
-    }
-
-    fn union(self, other: Self) -> Self {
-        Self {
-            mask: self.mask | other.mask,
-            value: self.value | other.value,
-        }
-    }
-
-    fn restrict(self, mask: u64) -> Self {
-        Self {
-            mask: self.mask & mask,
-            value: self.value & mask,
-        }
-    }
-}
 
 /// Derivation and its reusable worklist belong to this context's analysis owner.
 /// Ordinary queries cannot change assumptions; entry and joins establish them first.
@@ -75,6 +48,7 @@ pub(super) struct ValueAnalysis {
 #[derive(Default)]
 struct DerivedFacts {
     bits: FxHashMap<usize, Bits>,
+    vectors: Option<Box<FxHashMap<usize, Bits<u128>>>>,
     select_constants: FxHashMap<usize, Option<u64>>,
     path_exclusions: Option<Box<FxHashMap<usize, bool>>>,
 }
@@ -84,6 +58,16 @@ impl DerivedFacts {
     fn recycle(&mut self, mut finished: Self) {
         finished.bits.clear();
         finished.select_constants.clear();
+        if let Some(mut vectors) = finished.vectors {
+            vectors.clear();
+            if self
+                .vectors
+                .as_ref()
+                .is_none_or(|spare| vectors.capacity() > spare.capacity())
+            {
+                self.vectors = Some(vectors);
+            }
+        }
         if finished.bits.capacity() > self.bits.capacity() {
             self.bits = finished.bits;
         }
@@ -120,6 +104,11 @@ impl ValueAnalysis {
             .known
             .iter()
             .any(|(&id, &bits)| bits.conflicts(other.bits(table, id)))
+            || self.context.vector_known.as_ref().is_some_and(|known| {
+                known
+                    .iter()
+                    .any(|(&id, &bits)| bits.conflicts(other.vector_bits(table, id)))
+            })
     }
 
     fn assume_bits(&mut self, id: usize, mask: u64, value: u64) {
@@ -143,6 +132,9 @@ impl ValueAnalysis {
         // earlier values, so provisional answers below this ID remain valid.
         let derived = self.derived.get_mut();
         derived.bits.retain(|&input, _| input < id);
+        if let Some(vectors) = &mut derived.vectors {
+            vectors.retain(|&input, _| input < id);
+        }
         derived.select_constants.retain(|&input, _| input < id);
     }
 
@@ -159,6 +151,18 @@ impl ValueAnalysis {
         if self.context.known.is_empty()
             && self.context.ranges.is_empty()
             && self.context.comparisons.is_empty()
+            && self
+                .context
+                .vector_known
+                .as_ref()
+                .is_none_or(|known| known.is_empty())
+            && !matches!(
+                table[id].definition,
+                ValueDefinition::Expression(Expression::Unary {
+                    operator: Unary::ExtractLane { .. },
+                    ..
+                })
+            )
         {
             return None;
         }
@@ -183,34 +187,16 @@ impl ValueAnalysis {
         let mask = table.values[id].ty.mask();
         (bits.mask & mask == mask).then_some(bits.value & mask)
     }
+    fn record_vector(&mut self, id: usize, bits: Bits<u128>) {
+        self.context
+            .vector_known
+            .get_or_insert_with(Box::default)
+            .insert(id, bits);
+        self.invalidate_from(id);
+    }
 
-    /// A scalar operand whose known bits make the other bitwise operand redundant.
-    /// Unlike a logical constant, an identity must preserve the entire carrier.
-    pub(super) fn bitwise_identity(&self, table: &ValueTable, id: usize) -> Option<usize> {
-        let ValueDefinition::Expression(Expression::Binary {
-            operator: Binary::Bitwise(operator),
-            left,
-            right,
-        }) = table[id].definition
-        else {
-            return None;
-        };
-        if !table[id].ty.is_scalar() || !matches!(operator, BitwiseOp::And | BitwiseOp::Or) {
-            return None;
-        }
-        let mask = table[id].ty.carrier().mask();
-        let a = self.bits(table, left);
-        let b = self.bits(table, right);
-        // Logical facts leave upper carrier bits unknown. Only physical bounds
-        // can prove those bits zero; a narrow logical type cannot.
-        let left_zeros = (a.mask & !a.value) | (mask & !low_mask(table.bounds[left].unsigned));
-        let right_zeros = (b.mask & !b.value) | (mask & !low_mask(table.bounds[right].unsigned));
-        match operator {
-            BitwiseOp::Or if mask & !right_zeros & !a.value == 0 => Some(left),
-            BitwiseOp::Or if mask & !left_zeros & !b.value == 0 => Some(right),
-            BitwiseOp::And if mask & !b.value & !left_zeros == 0 => Some(left),
-            BitwiseOp::And if mask & !a.value & !right_zeros == 0 => Some(right),
-            _ => None,
-        }
+    pub(in crate::place) fn vector_constant(&self, table: &ValueTable, id: usize) -> Option<u128> {
+        let bits = self.vector_bits(table, id);
+        (bits.mask == u128::MAX).then_some(bits.value)
     }
 }

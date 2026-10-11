@@ -8,12 +8,14 @@ use crate::body::ValueTable;
 #[derive(Clone, Default)]
 pub(super) struct PathContext {
     pub(super) known: ScopedMap<usize, Bits>,
+    pub(super) vector_known: Option<Box<ScopedMap<usize, Bits<u128>>>>,
     pub(super) ranges: ScopedMap<usize, Range>,
     pub(super) comparisons: Comparisons,
 }
 
 struct Checkpoint {
     known: scoped_map::Checkpoint,
+    vectors: Option<scoped_map::Checkpoint>,
     ranges: scoped_map::Checkpoint,
     comparisons: scoped_map::Checkpoint,
 }
@@ -36,6 +38,7 @@ impl PathContext {
     fn checkpoint(&mut self) -> Checkpoint {
         Checkpoint {
             known: self.known.checkpoint(),
+            vectors: self.vector_known.as_mut().map(|known| known.checkpoint()),
             ranges: self.ranges.checkpoint(),
             comparisons: self.comparisons.checkpoint(),
         }
@@ -43,6 +46,11 @@ impl PathContext {
 
     fn restore(&mut self, checkpoint: Checkpoint) {
         self.known.restore(checkpoint.known);
+        if let Some(scope) = checkpoint.vectors {
+            self.vector_known.as_mut().unwrap().restore(scope);
+        } else {
+            self.vector_known = None;
+        }
         self.ranges.restore(checkpoint.ranges);
         self.comparisons.restore(checkpoint.comparisons);
     }
