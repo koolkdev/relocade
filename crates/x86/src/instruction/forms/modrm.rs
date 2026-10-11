@@ -23,6 +23,14 @@ impl ModRmSelector {
         }
     }
 
+    pub(in crate::instruction) const fn register() -> Self {
+        Self {
+            mask: 0xc0,
+            value: 0xc0,
+            mode: ModRmMode::Register,
+        }
+    }
+
     pub(in crate::instruction) const fn extension(extension: u8) -> Self {
         assert!(extension < 8, "a ModRM extension has three bits");
         Self {

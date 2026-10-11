@@ -1,4 +1,5 @@
 //! Family tables expose opcode bytes, operand order and widths at the use site.
+//! `@ register` restricts ModRM addressing to registers while retaining both indices.
 
 macro_rules! instruction_families {
     ($($family:ident {
@@ -20,7 +21,7 @@ macro_rules! instruction_families {
 
 macro_rules! declaration_family {
     ($call:tt $effects:tt $availability:tt {
-        $($($prefix:ident)? $opcode:literal $($extended:literal)? $(+ $pattern:ident)? $(/ $extension:literal)? $(@ $modrm:literal $(+ $modrm_range:ident)?)? =>
+        $($($prefix:ident)? $opcode:literal $($extended:literal)? $(+ $pattern:ident)? $(/ $extension:literal)? $(@ $modrm:tt $(+ $modrm_range:ident)?)? =>
             $width:ident $operands:tt $(| $other_width:ident $other_operands:tt)? $($lockable:ident)?;
         )+
     }) => {
@@ -114,6 +115,9 @@ macro_rules! declaration_opcode {
     };
     (@modrm [$extension:literal] []) => {
         Some(ModRmSelector::extension($extension))
+    };
+    (@modrm [] [register]) => {
+        Some(ModRmSelector::register())
     };
     (@modrm [] [$modrm:literal]) => {
         Some(ModRmSelector::byte($modrm))

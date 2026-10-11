@@ -1,6 +1,37 @@
-//! Register ranges retain their encoded indices and original opcode bytes.
+//! Register selectors retain encoded indices and distinguish memory forms.
 
 use super::*;
+
+#[test]
+fn register_only_forms_admit_both_register_fields_without_overlapping_memory() {
+    let prefixes = PrefixState::default();
+    for opcode in [0x12, 0x16] {
+        let forms: Vec<_> = opcode_forms(OpcodeMap::Extended)
+            .filter(|form| form.matches(opcode) && form.resolve(&prefixes).is_some())
+            .collect();
+        assert_eq!(forms.len(), 2);
+        let register = forms.iter().find(|form| !form.accepts_memory_rm()).unwrap();
+        let memory = forms.iter().find(|form| form.accepts_memory_rm()).unwrap();
+        for modrm in 0..=u8::MAX {
+            assert_eq!(register.matches_modrm(modrm, &prefixes), modrm >= 0xc0);
+            assert_eq!(memory.matches_modrm(modrm, &prefixes), modrm < 0xc0);
+            if modrm >= 0xc0 {
+                let code = [0x0f, opcode, modrm, 0x90];
+                let (decoded, remaining) =
+                    crate::decode::snapshot(&code, 0x1000, crate::SegmentDefaultSize::Bits32)
+                        .unwrap();
+                assert_eq!(remaining, [0x90]);
+                assert!(!decoded.instruction.uses_memory());
+                assert!(matches!(decoded.instruction.call,
+                    HandlerCall::Binary {
+                        left: Operand::Location(Location::Xmm(RegisterCode::Known(destination))),
+                        right: Operand::Location(Location::Xmm(RegisterCode::Known(source))),
+                        ..
+                    } if (destination & 7) == ((modrm >> 3) & 7) && (source & 7) == (modrm & 7)));
+            }
+        }
+    }
+}
 
 #[test]
 fn modrm_register_ranges_cover_eight_stack_offsets_without_accepting_memory() {
