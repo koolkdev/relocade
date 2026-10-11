@@ -8,6 +8,8 @@ mod comparisons;
 mod faults;
 #[path = "mmx/logical.rs"]
 mod logical;
+#[path = "mmx/shifts.rs"]
+mod shifts;
 #[path = "mmx/state.rs"]
 mod state;
 
@@ -176,6 +178,7 @@ test_frontends!(mmx_segmented_moves, segmented);
 fn mmx_encoding_extents() {
     for code in [
         &[0x0f, 0x77][..],
+        &[0x0f, 0x71, 0xf7, 0xff],
         &[0x0f, 0x6e, 0xc0],
         &[0x0f, 0x7e, 0xc7],
         &[0x0f, 0x6f, 0x84, 0x8d, 0, 0x40, 0, 0],

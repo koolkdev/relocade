@@ -49,6 +49,25 @@ impl Writer<'_> {
                 Type::I64 => Instruction::I64x2ExtractLane(lane),
                 _ => unreachable!("integer lanes have 8, 16, 32 or 64 bits"),
             },
+            Expression::VectorShift {
+                operator,
+                lane_type,
+                ..
+            } => match (operator, lane_type) {
+                (ShiftOp::Left, Type::I8) => Instruction::I8x16Shl,
+                (ShiftOp::Left, Type::I16) => Instruction::I16x8Shl,
+                (ShiftOp::Left, Type::I32) => Instruction::I32x4Shl,
+                (ShiftOp::Left, Type::I64) => Instruction::I64x2Shl,
+                (ShiftOp::RightUnsigned, Type::I8) => Instruction::I8x16ShrU,
+                (ShiftOp::RightUnsigned, Type::I16) => Instruction::I16x8ShrU,
+                (ShiftOp::RightUnsigned, Type::I32) => Instruction::I32x4ShrU,
+                (ShiftOp::RightUnsigned, Type::I64) => Instruction::I64x2ShrU,
+                (ShiftOp::RightSigned, Type::I8) => Instruction::I8x16ShrS,
+                (ShiftOp::RightSigned, Type::I16) => Instruction::I16x8ShrS,
+                (ShiftOp::RightSigned, Type::I32) => Instruction::I32x4ShrS,
+                (ShiftOp::RightSigned, Type::I64) => Instruction::I64x2ShrS,
+                _ => unreachable!("integer lanes have 8, 16, 32 or 64 bits"),
+            },
             Expression::VectorReplace { value, lane, .. } => match value {
                 Type::I8 => Instruction::I8x16ReplaceLane(lane),
                 Type::I16 => Instruction::I16x8ReplaceLane(lane),
