@@ -1,9 +1,24 @@
-//! Lane arithmetic agrees for constants and runtime inputs without cross-lane carries.
+//! Packed integer operations agree for constants and runtime inputs.
+
+#[path = "packed/comparisons.rs"]
+mod comparisons;
 
 use super::*;
 use wasm86_compiler::{VectorLane, I16, I64};
 
 fn arithmetic<T: VectorLane>(v8: bool, left: u128, right: u128, sum: u128, difference: u128) {
+    binary_results(v8, left, right, [sum, difference], |left, right| {
+        [left.add_lanes::<T>(&right), left.sub_lanes::<T>(right)]
+    });
+}
+
+fn binary_results(
+    v8: bool,
+    left: u128,
+    right: u128,
+    results: [u128; 2],
+    operations: impl Fn(Val<V128>, Val<V128>) -> [Val<V128>; 2],
+) {
     let mut bytes = vec![0xa5; 96];
     bytes[..16].copy_from_slice(&left.to_le_bytes());
     bytes[16..32].copy_from_slice(&right.to_le_bytes());
@@ -14,18 +29,16 @@ fn arithmetic<T: VectorLane>(v8: bool, left: u128, right: u128, sum: u128, diffe
         let runtime_right = body.load::<V128>(memory, 16)?;
         let constant_left = Val::<V128>::from(left);
         let results = [
-            runtime_left.add_lanes::<T>(&runtime_right),
-            runtime_left.sub_lanes::<T>(&runtime_right),
-            constant_left.add_lanes::<T>(right),
-            constant_left.sub_lanes::<T>(right),
+            operations(runtime_left, runtime_right),
+            operations(constant_left, right.into()),
         ];
-        for (index, result) in results.into_iter().enumerate() {
+        for (index, result) in results.into_iter().flatten().enumerate() {
             body.store(memory, 32 + index as u32 * 16, result)?;
         }
         body.return_(())
     });
     let mut expected = bytes.clone();
-    for (index, result) in [sum, difference, sum, difference].into_iter().enumerate() {
+    for (index, result) in [results, results].into_iter().flatten().enumerate() {
         expected[32 + index * 16..48 + index * 16].copy_from_slice(&result.to_le_bytes());
     }
     check(&module, &bytes, &expected, 0, v8);

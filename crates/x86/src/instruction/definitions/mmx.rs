@@ -5,6 +5,31 @@ use crate::instruction::MmxLocation;
 use wasm86_compiler::{I16, I64, V128};
 
 instruction_families! {
+    PCMPEQB {
+        execute: packed_binary(|left, right| left.eq_lanes::<I8>(right));
+        forms { NP 0x0f 0x74 => operands(mm, mm_rm); }
+    }
+    PCMPEQW {
+        execute: packed_binary(|left, right| left.eq_lanes::<I16>(right));
+        forms { NP 0x0f 0x75 => operands(mm, mm_rm); }
+    }
+    PCMPEQD {
+        execute: packed_binary(|left, right| left.eq_lanes::<I32>(right));
+        forms { NP 0x0f 0x76 => operands(mm, mm_rm); }
+    }
+    PCMPGTB {
+        execute: packed_binary(|left, right| left.signed_gt_lanes::<I8>(right));
+        forms { NP 0x0f 0x64 => operands(mm, mm_rm); }
+    }
+    PCMPGTW {
+        execute: packed_binary(|left, right| left.signed_gt_lanes::<I16>(right));
+        forms { NP 0x0f 0x65 => operands(mm, mm_rm); }
+    }
+    PCMPGTD {
+        execute: packed_binary(|left, right| left.signed_gt_lanes::<I32>(right));
+        forms { NP 0x0f 0x66 => operands(mm, mm_rm); }
+    }
+
     PADDB {
         execute: packed_binary(|left, right| left.add_lanes::<I8>(right));
         forms { NP 0x0f 0xfc => operands(mm, mm_rm); }

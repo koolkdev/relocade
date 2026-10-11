@@ -19,6 +19,8 @@ use crate::{
 pub(super) enum LaneBinaryOp {
     Add,
     Sub,
+    Eq,
+    GtSigned,
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]

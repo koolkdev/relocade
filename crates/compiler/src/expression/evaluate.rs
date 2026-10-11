@@ -44,6 +44,22 @@ impl Expression<TypedLiteral> {
                     let lane = match operator {
                         LaneBinaryOp::Add => left.wrapping_add(right),
                         LaneBinaryOp::Sub => left.wrapping_sub(right),
+                        LaneBinaryOp::Eq => {
+                            if left == right {
+                                mask
+                            } else {
+                                0
+                            }
+                        }
+                        LaneBinaryOp::GtSigned => {
+                            if integer::signed_value(lane_type, left as u64)
+                                > integer::signed_value(lane_type, right as u64)
+                            {
+                                mask
+                            } else {
+                                0
+                            }
+                        }
                     };
                     bits |= (lane & mask) << shift;
                 }
