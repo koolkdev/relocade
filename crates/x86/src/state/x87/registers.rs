@@ -1,4 +1,4 @@
-//! One register bank for x87 stack addressing, TOP and publication.
+//! One register bank for stack-relative x87 and physical MMX accesses.
 mod bank;
 mod payload;
 
@@ -7,7 +7,9 @@ mod tests;
 
 use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I8};
 
-use crate::{ssa::StateFields, state::access::cpu_location, x87::ExtendedValue};
+use crate::{
+    register::RegisterCode, ssa::StateFields, state::access::cpu_location, x87::ExtendedValue,
+};
 
 use bank::Bank;
 
@@ -79,6 +81,24 @@ impl Registers {
             self.bank.as_mut().unwrap().stack_top = Some((slot.relative + 8 - index) & 7);
         }
         Ok(slot)
+    }
+
+    pub(super) fn physical(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        register: RegisterCode,
+    ) -> Result<Slot, BuildError> {
+        let address = match register {
+            RegisterCode::Known(code) => Address {
+                origin: 0.into(),
+                offset: usize::from(code & 7),
+            },
+            RegisterCode::Indexed(code) => Address {
+                origin: body.value(code.and(7))?,
+                offset: 0,
+            },
+        };
+        self.locate(body, address)
     }
 
     fn locate(
@@ -176,11 +196,21 @@ impl Registers {
         tag: Val<I16>,
         enabled: &Val<I1>,
     ) -> Result<(), BuildError> {
+        self.write_value(body, slot, value, enabled)?;
+        self.set_tag(body, slot, tag, enabled)
+    }
+
+    pub(super) fn write_value(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        slot: &Slot,
+        value: &ExtendedValue,
+        enabled: &Val<I1>,
+    ) -> Result<(), BuildError> {
         self.bank
             .as_mut()
             .unwrap()
-            .write(body, slot.relative, value, enabled)?;
-        self.set_tag(body, slot, tag, enabled)
+            .write(body, slot.relative, value, enabled)
     }
 
     pub(super) fn discard_write_guards(
@@ -204,13 +234,23 @@ impl Registers {
 
     pub(super) fn initialize(&mut self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.rebase(body)?;
+        self.reset(body, 0xffff)
+    }
+
+    /// MMX and EMMS reset TOP and the tag word while retaining every payload.
+    pub(super) fn reset(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        tags: u16,
+    ) -> Result<(), BuildError> {
         self.top
             .define::<I8>(body, cpu_location!(x87.status.top), 0)?;
-        let mut bank = Bank::new(self.memory, 0.into());
-        bank.stack_top = Some(0);
-        bank.reset_tags(body, 0xffff)?;
-        self.bank = Some(bank);
-        Ok(())
+        let bank = self
+            .bank
+            .get_or_insert_with(|| Bank::new(self.memory, 0.into()));
+        let offset = body.value(Val::<I32>::from(0).sub(&bank.origin).and(7))?;
+        bank.stack_top = known_slot(body, &offset)?;
+        bank.reset_tags(body, tags)
     }
 
     pub(super) fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {

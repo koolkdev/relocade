@@ -36,13 +36,19 @@ impl OpcodeMap {
     }
 }
 
+/// The register file selected by a form, independently of its encoded field.
+#[derive(Clone, Copy)]
+pub(super) enum RegisterClass {
+    Gpr,
+    Mmx,
+    Xmm,
+}
+
 /// A location's role is independent of the fields needed to decode it.
 #[derive(Clone, Copy)]
 pub(super) enum LocationBinding {
-    Register,
-    XmmRegister,
-    Rm,
-    XmmRm,
+    Register(RegisterClass),
+    Rm(RegisterClass),
     /// A named register view, independent of any encoded register field.
     FixedRegister(NamedRegister),
     AbsoluteOffset,

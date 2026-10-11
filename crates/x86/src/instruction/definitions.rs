@@ -15,6 +15,7 @@ mod far_control;
 mod flag_control;
 mod flag_transfer;
 mod interrupts;
+mod mmx;
 mod moves;
 mod multiply;
 mod no_ops;
@@ -62,6 +63,7 @@ pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form
         .chain(far_control::forms())
         .chain(interrupts::forms())
         .chain(x87::forms())
+        .chain(mmx::forms())
         .chain(sse::forms())
         .filter(move |form| form.map == map)
 }

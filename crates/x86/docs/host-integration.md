@@ -690,6 +690,25 @@ transitions and SS-load inhibition are not modeled. Native Wasm traps from broke
 backing or internal arithmetic invariants are implementation errors, outside this
 guest-fault protocol.
 
+## MMX state and transfers
+
+MM0–MM7 alias the significands of physical x87 slots R0–R7, independent of TOP
+and the tag word. There is no separate MMX register array or mode flag in the
+CPU image. The execution profiles assume MMX is enabled (CR0.EM/TS clear).
+
+MOVD and MOVQ transfer raw integer bits. MOVD uses a 32-bit GPR or four memory
+bytes even in 16-bit code; loads into MMX clear the upper 32 bits. MOVQ uses eight
+memory bytes. Both accept unaligned addresses. A register destination receives
+sign/exponent `ffff`; a memory or GPR destination preserves all x87 payloads.
+Successful transfers mark all tags valid and reset TOP to zero. EMMS marks all
+tags empty and resets TOP to zero while retaining every payload and exponent.
+
+MMX instructions, including EMMS, deliver a pending x87 exception before operand
+access. A memory fault preserves the current instruction's destination, tags and
+TOP. These instructions preserve EFLAGS, MXCSR, x87 control and other status
+fields, and the saved x87 opcode and pointers. Hosts should execute EMMS before
+resuming x87 stack operations after MMX use.
+
 ## SSE state and raw transfers
 
 `CpuState::simd` contains `StoredSimd { mxcsr, reserved, xmm }`. Default state has

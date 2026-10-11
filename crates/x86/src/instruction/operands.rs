@@ -1,6 +1,8 @@
 //! Typed handler operands defer architectural accesses to the execution builder.
 
+mod mmx;
 mod xmm;
+pub(crate) use mmx::MmxLocation;
 pub(crate) use xmm::{VectorAlignment, XmmLocation, XmmType};
 
 use std::marker::PhantomData;
@@ -144,6 +146,7 @@ pub(super) fn map_operand<V: Into<Val<I32>>>(operand: Operand<V>) -> Operand<Val
 pub(super) fn map_location<V: Into<Val<I32>>>(location: Location<V>) -> Location<Val<I32>> {
     match location {
         Location::Register(register) => Location::Register(register),
+        Location::Mmx(register) => Location::Mmx(register),
         Location::Xmm(register) => Location::Xmm(register),
         Location::Memory(address) => Location::Memory(
             MemoryAddress {

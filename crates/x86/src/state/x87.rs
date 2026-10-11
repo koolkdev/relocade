@@ -2,6 +2,7 @@
 
 mod arithmetic;
 mod control;
+mod mmx;
 mod registers;
 mod status;
 mod transfer;
