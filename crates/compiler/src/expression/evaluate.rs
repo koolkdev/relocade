@@ -1,5 +1,7 @@
 //! Literal evaluation preserves raw vector bits and scalar carrier rules.
-use super::{Expression, LaneBinaryOp};
+use super::Expression;
+
+mod vector;
 use crate::{floating, integer, literal::Literal, Type};
 
 #[derive(Clone, Copy)]
@@ -36,34 +38,10 @@ impl Expression<TypedLiteral> {
                 left,
                 right,
             } => {
-                let mask = u128::from(lane_type.mask());
-                let mut bits = 0_u128;
-                for shift in (0..128).step_by(lane_type.bits() as usize) {
-                    let left = (u128::from(left.value) >> shift) & mask;
-                    let right = (u128::from(right.value) >> shift) & mask;
-                    let lane = match operator {
-                        LaneBinaryOp::Add => left.wrapping_add(right),
-                        LaneBinaryOp::Sub => left.wrapping_sub(right),
-                        LaneBinaryOp::Eq => {
-                            if left == right {
-                                mask
-                            } else {
-                                0
-                            }
-                        }
-                        LaneBinaryOp::GtSigned => {
-                            if integer::signed_value(lane_type, left as u64)
-                                > integer::signed_value(lane_type, right as u64)
-                            {
-                                mask
-                            } else {
-                                0
-                            }
-                        }
-                    };
-                    bits |= (lane & mask) << shift;
-                }
-                return Some(bits.into());
+                return Some(
+                    vector::binary(operator, lane_type, left.value.into(), right.value.into())
+                        .into(),
+                );
             }
             Self::VectorExtract { input, lane } => {
                 return Some(Literal::from(result.normalize(
@@ -76,20 +54,15 @@ impl Expression<TypedLiteral> {
                 value,
                 count,
             } => {
-                let count = count.value.scalar(count.ty)? as u32 % u32::from(lane_type.bits());
-                let mut bits = 0_u128;
-                for offset in (0..128).step_by(lane_type.bits() as usize) {
-                    let lane = ((u128::from(value.value) >> offset) as u64) & lane_type.mask();
-                    let lane = match operator {
-                        integer::ShiftOp::Left => lane << count,
-                        integer::ShiftOp::RightUnsigned => lane >> count,
-                        integer::ShiftOp::RightSigned => {
-                            (integer::signed_value(lane_type, lane) >> count) as u64
-                        }
-                    };
-                    bits |= u128::from(lane & lane_type.mask()) << offset;
-                }
-                return Some(bits.into());
+                return Some(
+                    vector::shift(
+                        operator,
+                        lane_type,
+                        value.value.into(),
+                        count.value.scalar(count.ty)? as u32,
+                    )
+                    .into(),
+                );
             }
             Self::VectorReplace {
                 vector,

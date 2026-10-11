@@ -21,6 +21,10 @@ pub(super) enum LaneBinaryOp {
     Sub,
     Eq,
     GtSigned,
+    AddSatSigned,
+    AddSatUnsigned,
+    SubSatSigned,
+    SubSatUnsigned,
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]

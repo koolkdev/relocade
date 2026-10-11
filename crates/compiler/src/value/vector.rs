@@ -1,4 +1,4 @@
-//! Integer lanes preserve their widths and wrap arithmetic independently.
+//! Integer lane operations preserve their logical widths independently.
 
 use crate::integer::ShiftOp;
 use crate::{expression::LaneBinaryOp, Expression, IntType, Val, I16, I32, I64, I8, V128};
@@ -9,6 +9,11 @@ impl VectorLane for I8 {}
 impl VectorLane for I16 {}
 impl VectorLane for I32 {}
 impl VectorLane for I64 {}
+
+/// A byte or word lane supporting saturating SIMD operations.
+pub trait SaturatingLane: VectorLane {}
+impl SaturatingLane for I8 {}
+impl SaturatingLane for I16 {}
 
 impl Val<V128> {
     /// Shifts each lane left by a shared count, modulo the lane width.
@@ -57,6 +62,26 @@ impl Val<V128> {
     /// this lane is greater than the right lane and zero bits otherwise.
     pub fn signed_gt_lanes<T: VectorLane>(&self, right: impl Into<Self>) -> Self {
         self.binary_lanes::<T>(LaneBinaryOp::GtSigned, right.into())
+    }
+
+    /// Adds signed lanes, clamping each result to that lane's range.
+    pub fn signed_saturating_add_lanes<T: SaturatingLane>(&self, right: impl Into<Self>) -> Self {
+        self.binary_lanes::<T>(LaneBinaryOp::AddSatSigned, right.into())
+    }
+
+    /// Subtracts signed lanes, clamping each result to that lane's range.
+    pub fn signed_saturating_sub_lanes<T: SaturatingLane>(&self, right: impl Into<Self>) -> Self {
+        self.binary_lanes::<T>(LaneBinaryOp::SubSatSigned, right.into())
+    }
+
+    /// Adds unsigned lanes, clamping each result to that lane's range.
+    pub fn unsigned_saturating_add_lanes<T: SaturatingLane>(&self, right: impl Into<Self>) -> Self {
+        self.binary_lanes::<T>(LaneBinaryOp::AddSatUnsigned, right.into())
+    }
+
+    /// Subtracts unsigned lanes, clamping each result to that lane's range.
+    pub fn unsigned_saturating_sub_lanes<T: SaturatingLane>(&self, right: impl Into<Self>) -> Self {
+        self.binary_lanes::<T>(LaneBinaryOp::SubSatUnsigned, right.into())
     }
 
     fn binary_lanes<T: VectorLane>(&self, operator: LaneBinaryOp, right: Self) -> Self {

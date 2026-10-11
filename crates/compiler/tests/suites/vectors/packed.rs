@@ -2,6 +2,8 @@
 
 #[path = "packed/comparisons.rs"]
 mod comparisons;
+#[path = "packed/saturation.rs"]
+mod saturation;
 
 use super::*;
 use wasm86_compiler::{VectorLane, I16, I64};
