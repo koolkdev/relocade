@@ -5,6 +5,7 @@ use crate::{
     results, Arguments, BlockBuilder, BuildError, Results, Type,
 };
 mod block;
+mod branches;
 mod conditional;
 mod loops;
 mod switch;
@@ -57,6 +58,7 @@ impl BlockBuilder<'_> {
         build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<PendingBlock, BuildError> {
         let mut pending = PendingBlock::new(scope, block);
+        pending.path = self.pending.path.clone();
         build(BlockBuilder {
             program: self.program,
             function: self.function,
@@ -81,13 +83,6 @@ impl BlockBuilder<'_> {
             )?;
         }
         Ok(())
-    }
-    fn join_outputs(
-        &self,
-        target: &JoinTarget,
-        branches: &[BlockId],
-    ) -> Result<Vec<usize>, BuildError> {
-        self.arena.complete_join(target.target, branches)
     }
 }
 #[cfg(test)]

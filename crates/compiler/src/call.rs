@@ -220,7 +220,7 @@ mod tests {
         program
             .define(function, |mut body| {
                 let mut escaped = None;
-                body.if_(false, |mut branch| {
+                body.if_(true, |mut branch| {
                     escaped = Some(branch.call::<I32>(helper, &[])?);
                     Ok(())
                 })

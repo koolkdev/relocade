@@ -103,7 +103,7 @@ fn every_call_component_retains_its_branch_visibility_even_after_folding() {
     program
         .define(run, |mut body| {
             let mut escaped = None;
-            body.if_(false, |mut arm| {
+            body.if_(true, |mut arm| {
                 escaped = Some(arm.call::<(I8, I64)>(helper, &[])?);
                 Ok(())
             })
@@ -139,12 +139,12 @@ fn discarded_blocks_do_not_retain_multi_result_calls_or_poison_parent_placement(
                     .function(shape, |body| body.return_((7, 11_u64)))
                     .unwrap()
             };
-            let run = program.declare(signature(&[], &[Type::I32]));
+            let run = program.declare(signature(&[Type::I1], &[Type::I32]));
             program
                 .define(run, |mut body| {
                     let error = if later_arm {
                         body.if_value::<I32>(
-                            true,
+                            body.parameter::<I1>(0)?,
                             |mut arm| {
                                 let (first, _second) = arm.call::<(I32, I64)>(target, &[])?;
                                 arm.yield_(first)
@@ -168,7 +168,7 @@ fn discarded_blocks_do_not_retain_multi_result_calls_or_poison_parent_placement(
             no_imports(&bytes);
             let module = TestModule::new(&bytes);
             assert_eq!(inspect(&module, "run").calls, 0);
-            assert_eq!(module.instantiate().call::<i32>(()).unwrap(), 23);
+            assert_eq!(module.instantiate().call::<i32>(0).unwrap(), 23);
         }
     }
 }
@@ -224,7 +224,7 @@ fn invalid_multi_returns_leave_the_function_undefined_for_a_fresh_definition() {
     );
     let result = program.define(run, |mut body| {
         let mut escaped = None;
-        body.if_(false, |mut arm| {
+        body.if_(true, |mut arm| {
             escaped = Some(arm.call::<I64>(helper, &[])?);
             Ok(())
         })

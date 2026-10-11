@@ -118,7 +118,7 @@ impl fmt::Display for BuildError {
                 formatter.write_str("yield requires a direct result arm or block")
             }
             Self::MissingBranchValue => {
-                formatter.write_str("no branch supplies the required result")
+                formatter.write_str("result arm falls through without supplying its value")
             }
             Self::DuplicateSwitchCase { key } => {
                 write!(formatter, "switch case {key} appears more than once")

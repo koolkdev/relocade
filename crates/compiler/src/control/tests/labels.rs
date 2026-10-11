@@ -155,7 +155,7 @@ fn branch_and_yield_arguments_validate_counts_logical_types_and_visibility() {
 }
 
 #[test]
-fn nonempty_results_require_completed_arms_and_an_incoming_result() {
+fn nonempty_results_require_completed_arms_but_allow_unreachable_continuations() {
     let mut program = Program::new();
     let function = program.declare(signature());
     program
@@ -164,15 +164,8 @@ fn nonempty_results_require_completed_arms_and_an_incoming_result() {
                 body.block::<(I32, I64)>(|_, _| Ok(())).err(),
                 Some(BuildError::MissingBranchValue)
             );
-            assert_eq!(
-                body.block::<I32>(|block, _| block.return_(7)).err(),
-                Some(BuildError::MissingBranchValue)
-            );
-            assert_eq!(
-                body.if_value::<(I32, I1)>(true, |arm| arm.return_(7), |arm| arm.trap())
-                    .err(),
-                Some(BuildError::MissingBranchValue)
-            );
+            body.block::<I32>(|block, _| block.return_(7))?;
+            body.if_value::<(I32, I1)>(true, |arm| arm.return_(7), |_| unreachable!())?;
             body.return_(17)
         })
         .unwrap();
