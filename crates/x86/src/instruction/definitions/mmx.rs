@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::instruction::MmxLocation;
+use crate::register::RegisterCode;
 use wasm86_compiler::{I16, I64, V128};
 
 instruction_families! {
@@ -95,22 +96,22 @@ instruction_families! {
 
 fn load_doubleword(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: MmxLocation,
+    destination: RegisterCode,
     source: TypedLocation<I32>,
 ) -> Result<(), BuildError> {
     execution.execute_mmx(|execution| {
         let value = source.read(execution)?.unsigned().extend::<I64>();
-        destination.write(execution, value)
+        execution.write_mmx(destination, value)
     })
 }
 
 fn store_doubleword(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<I32>,
-    source: MmxLocation,
+    source: RegisterCode,
 ) -> Result<(), BuildError> {
     execution.execute_mmx(|execution| {
-        let value = source.read::<I32>(execution)?;
+        let value = execution.read_mmx(source)?.truncate::<I32>();
         destination.write(execution, value)
     })
 }
@@ -132,23 +133,20 @@ fn empty(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
 
 fn binary(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: MmxLocation,
+    destination: RegisterCode,
     source: MmxLocation,
     operation: impl FnOnce(Val<I64>, Val<I64>) -> Val<I64>,
 ) -> Result<(), BuildError> {
-    let MmxLocation::Register(register) = destination else {
-        unreachable!("binary MMX operations have a register destination")
-    };
     execution.execute_mmx(|execution| {
         let right = source.read::<I64>(execution)?;
-        let left = execution.read_mmx(register.clone())?;
-        execution.write_mmx(register, operation(left, right))
+        let left = execution.read_mmx(destination.clone())?;
+        execution.write_mmx(destination, operation(left, right))
     })
 }
 
 fn packed_binary(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: MmxLocation,
+    destination: RegisterCode,
     source: MmxLocation,
     operation: impl FnOnce(Val<V128>, Val<V128>) -> Val<V128>,
 ) -> Result<(), BuildError> {

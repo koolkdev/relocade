@@ -1,7 +1,10 @@
 //! Bitwise operations use all 128 bits without floating-point interpretation.
 
 use super::*;
-use crate::instruction::{VectorAlignment, XmmLocation};
+use crate::{
+    instruction::{VectorAlignment, XmmLocation},
+    register::RegisterCode,
+};
 use wasm86_compiler::V128;
 
 #[derive(Clone, Copy)]
@@ -65,20 +68,17 @@ instruction_families! {
 
 fn logical(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: XmmLocation,
+    destination: RegisterCode,
     source: XmmLocation,
     operation: LogicalOperation,
 ) -> Result<(), BuildError> {
-    let XmmLocation::Register(register) = destination else {
-        unreachable!("vector logical instructions have an XMM destination")
-    };
     let right = source.read::<V128>(execution, VectorAlignment::Aligned)?;
-    let left = execution.read_xmm(register.clone())?;
+    let left = execution.read_xmm(destination.clone())?;
     let result = match operation {
         LogicalOperation::And => left.and(right),
         LogicalOperation::AndNot => left.xor(u128::MAX).and(right),
         LogicalOperation::Or => left.or(right),
         LogicalOperation::Xor => left.xor(right),
     };
-    execution.write_xmm(register, result)
+    execution.write_xmm(destination, result)
 }

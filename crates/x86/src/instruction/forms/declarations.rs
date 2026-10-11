@@ -17,6 +17,7 @@ use crate::register::NamedRegister;
 #[derive(Clone, Copy)]
 pub(in crate::instruction) enum OperandSpec {
     Rm(RegisterClass),
+    RmRegister(RegisterClass),
     Memory,
     ModRmRegister(RegisterClass),
     X87StackIndex,
@@ -30,11 +31,19 @@ pub(in crate::instruction) enum OperandSpec {
 }
 
 impl OperandSpec {
+    pub(in crate::instruction) const fn register(self) -> Self {
+        match self {
+            Self::Rm(class) => Self::RmRegister(class),
+            _ => panic!("register(...) requires an r/m operand"),
+        }
+    }
+
     // Width alternatives may change logical types, but must decode and bind the
     // same physical fields. Named AX and EAX therefore share a binding here.
     const fn same_binding(self, other: Self) -> bool {
         match (self, other) {
             (Self::Rm(left), Self::Rm(right))
+            | (Self::RmRegister(left), Self::RmRegister(right))
             | (Self::ModRmRegister(left), Self::ModRmRegister(right)) => left as u8 == right as u8,
             (Self::Memory, Self::Memory)
             | (Self::X87StackIndex, Self::X87StackIndex)
@@ -108,13 +117,16 @@ impl Declaration<'_> {
         // A selector requires the complete ModRM address encoding,
         // even when the instruction binds no operand to its handler.
         let mut modrm = self.opcode.modrm.is_some();
+        let mut selector = match self.opcode.modrm {
+            Some(selector) => selector,
+            None => ModRmSelector::any(),
+        };
         let mut modrm_register = false;
         let mut stack_index = false;
         let mut opcode_register = false;
         let mut offset = false;
         let mut immediates = [None; 2];
         let mut immediate_count = 0;
-        let mut memory_only = false;
         let mut bindings = [None; 3];
         let mut index = 0;
         while index < self.operands.len() {
@@ -123,9 +135,14 @@ impl Declaration<'_> {
                     modrm = true;
                     OperandBinding::Location(LocationBinding::Rm(class))
                 }
+                OperandSpec::RmRegister(class) => {
+                    modrm = true;
+                    selector = selector.register();
+                    OperandBinding::Location(LocationBinding::Rm(class))
+                }
                 OperandSpec::Memory | OperandSpec::Address => {
                     modrm = true;
-                    memory_only = true;
+                    selector = selector.memory();
                     if matches!(self.operands[index], OperandSpec::Address) {
                         OperandBinding::RmAddress
                     } else {
@@ -230,19 +247,7 @@ impl Declaration<'_> {
             map: self.opcode.map,
             prefix: self.opcode.prefix,
             lockable: self.lockable,
-            modrm: if modrm {
-                let selector = match self.opcode.modrm {
-                    Some(selector) => selector,
-                    None => ModRmSelector::any(),
-                };
-                Some(if memory_only {
-                    selector.memory()
-                } else {
-                    selector
-                })
-            } else {
-                None
-            },
+            modrm: if modrm { Some(selector) } else { None },
             encoding: Encoding {
                 operands,
                 immediates,
