@@ -714,6 +714,11 @@ cross-lane carries and borrows. They accept register or unaligned eight-byte
 memory sources and have the same MMX environment effects as logical operations.
 The compiler lowers packed arithmetic to standard WebAssembly SIMD operations.
 
+PCMPEQB/PCMPEQW/PCMPEQD compare lanes for equality; PCMPGTB/PCMPGTW/PCMPGTD
+compare signed lanes for greater-than. Each destination lane becomes all ones
+when the comparison is true and zero otherwise. These instructions use the same
+register/eight-byte memory forms and MMX environment effects as packed arithmetic.
+
 MMX instructions, including EMMS, deliver a pending x87 exception before operand
 access. A memory fault preserves the current instruction's destination, tags and
 TOP. These instructions preserve EFLAGS, MXCSR, x87 control and other status
