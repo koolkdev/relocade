@@ -10,6 +10,8 @@ mod logical;
 mod moves;
 #[path = "sse/mxcsr.rs"]
 mod mxcsr;
+#[path = "sse/packed.rs"]
+mod packed;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},

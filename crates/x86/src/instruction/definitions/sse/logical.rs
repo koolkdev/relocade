@@ -1,84 +1,54 @@
 //! Bitwise operations use all 128 bits without floating-point interpretation.
 
 use super::*;
-use crate::{
-    instruction::{VectorAlignment, XmmLocation},
-    register::RegisterCode,
-};
-use wasm86_compiler::V128;
-
-#[derive(Clone, Copy)]
-enum LogicalOperation {
-    And,
-    AndNot,
-    Or,
-    Xor,
-}
 
 instruction_families! {
     ANDPS {
-        execute: logical(LogicalOperation::And);
+        execute: binary(|left, right| left.and(right));
         forms { NP 0x0f 0x54 => operands(xmm, xmm_rm); }
     }
     ANDPD {
-        execute: logical(LogicalOperation::And);
+        execute: binary(|left, right| left.and(right));
         forms { P66 0x0f 0x54 => operands(xmm, xmm_rm); }
     }
     ANDNPS {
-        execute: logical(LogicalOperation::AndNot);
+        execute: binary(|left, right| left.xor(u128::MAX).and(right));
         forms { NP 0x0f 0x55 => operands(xmm, xmm_rm); }
     }
     ANDNPD {
-        execute: logical(LogicalOperation::AndNot);
+        execute: binary(|left, right| left.xor(u128::MAX).and(right));
         forms { P66 0x0f 0x55 => operands(xmm, xmm_rm); }
     }
     ORPS {
-        execute: logical(LogicalOperation::Or);
+        execute: binary(|left, right| left.or(right));
         forms { NP 0x0f 0x56 => operands(xmm, xmm_rm); }
     }
     ORPD {
-        execute: logical(LogicalOperation::Or);
+        execute: binary(|left, right| left.or(right));
         forms { P66 0x0f 0x56 => operands(xmm, xmm_rm); }
     }
     XORPS {
-        execute: logical(LogicalOperation::Xor);
+        execute: binary(|left, right| left.xor(right));
         forms { NP 0x0f 0x57 => operands(xmm, xmm_rm); }
     }
     XORPD {
-        execute: logical(LogicalOperation::Xor);
+        execute: binary(|left, right| left.xor(right));
         forms { P66 0x0f 0x57 => operands(xmm, xmm_rm); }
     }
     PAND {
-        execute: logical(LogicalOperation::And);
+        execute: binary(|left, right| left.and(right));
         forms { P66 0x0f 0xdb => operands(xmm, xmm_rm); }
     }
     PANDN {
-        execute: logical(LogicalOperation::AndNot);
+        execute: binary(|left, right| left.xor(u128::MAX).and(right));
         forms { P66 0x0f 0xdf => operands(xmm, xmm_rm); }
     }
     POR {
-        execute: logical(LogicalOperation::Or);
+        execute: binary(|left, right| left.or(right));
         forms { P66 0x0f 0xeb => operands(xmm, xmm_rm); }
     }
     PXOR {
-        execute: logical(LogicalOperation::Xor);
+        execute: binary(|left, right| left.xor(right));
         forms { P66 0x0f 0xef => operands(xmm, xmm_rm); }
     }
-}
-
-fn logical(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
-    source: XmmLocation,
-    operation: LogicalOperation,
-) -> Result<(), BuildError> {
-    let right = source.read::<V128>(execution, VectorAlignment::Aligned)?;
-    let left = execution.read_xmm(destination.clone())?;
-    let result = match operation {
-        LogicalOperation::And => left.and(right),
-        LogicalOperation::AndNot => left.xor(u128::MAX).and(right),
-        LogicalOperation::Or => left.or(right),
-        LogicalOperation::Xor => left.xor(right),
-    };
-    execution.write_xmm(destination, result)
 }
