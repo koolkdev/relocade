@@ -1,5 +1,6 @@
 //! Capabilities selected for the virtual processor, independent of execution mode.
 
+mod cpuid;
 mod feature;
 
 pub use feature::CpuFeature;
@@ -7,7 +8,7 @@ pub use feature::CpuFeature;
 /// Immutable capability choices for one virtual processor.
 ///
 /// The default enables all complete optional capabilities. Disabling one changes
-/// instruction availability in blocks and interpreters.
+/// CPUID reporting and instruction availability in blocks and interpreters.
 /// Baseline instructions and existing partial x87/MMX/SSE implementations remain
 /// available; feature selection does not emulate an older processor generation.
 ///

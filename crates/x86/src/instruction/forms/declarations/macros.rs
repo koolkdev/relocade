@@ -142,6 +142,9 @@ macro_rules! declaration_opcode {
 }
 
 macro_rules! declaration_effect {
+    (serializing) => {
+        Effect::Serializing
+    };
     (port_io) => {
         Effect::PortIo
     };
