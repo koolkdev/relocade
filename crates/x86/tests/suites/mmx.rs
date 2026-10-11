@@ -2,6 +2,8 @@
 
 #[path = "mmx/faults.rs"]
 mod faults;
+#[path = "mmx/logical.rs"]
+mod logical;
 #[path = "mmx/state.rs"]
 mod state;
 
