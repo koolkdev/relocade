@@ -1,6 +1,6 @@
 //! Place calculations directly in their function graph.
 //! Dominance owns availability; effects retain their authored snapshot ordering.
-use crate::{body::*, Expression, FunctionKind, Program};
+use crate::{body::*, Expression, Program};
 use std::collections::HashMap;
 mod availability;
 mod demand;
@@ -21,23 +21,24 @@ use facts::ScalarFacts;
 use joins::Joins;
 use specialize::{BlockScope, Specializer};
 
-pub(super) fn module(program: &mut Program) -> Vec<(usize, FunctionGraph)> {
-    let summaries = effects::infer(program);
-    program
-        .functions
-        .iter_mut()
-        .enumerate()
-        .filter_map(|(id, function)| {
-            let FunctionKind::Defined(body) = &mut function.kind else {
-                return None;
-            };
-            let mut graph = body
-                .take()
-                .expect("defined function completed construction");
-            place(&mut graph, &summaries);
-            Some((id, graph))
-        })
-        .collect()
+/// Call summaries describe authored bodies, before placement removes dead work.
+pub(super) struct Placement {
+    summaries: Vec<Effects>,
+}
+
+impl Placement {
+    pub(super) fn new(program: &Program) -> Self {
+        Self {
+            summaries: effects::infer(program),
+        }
+    }
+
+    pub(super) fn place(&self, mut graph: FunctionGraph) -> FunctionGraph {
+        // Release analysis and bindings before compacting the finished graph.
+        place_calculations(&mut graph, &self.summaries);
+        graph.compact(|operation| effects::observable(operation, &self.summaries));
+        graph
+    }
 }
 
 fn successors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
@@ -68,12 +69,6 @@ fn predecessors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
         }
     }
     predecessors
-}
-
-fn place(graph: &mut FunctionGraph, summaries: &[Effects]) {
-    // Release placement's facts and bindings before pruning the finished graph.
-    place_calculations(graph, summaries);
-    graph.compact(|operation| effects::observable(operation, summaries));
 }
 
 fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {

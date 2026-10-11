@@ -34,27 +34,28 @@ impl Types {
 }
 
 pub(super) fn encode(mut program: Program) -> Vec<u8> {
-    let mut defined = place::module(&mut program);
+    let placement = place::Placement::new(&program);
+    let mut defined = Vec::new();
     let mut used_functions = vec![false; program.functions.len()];
-    let mut bodies = vec![None; program.functions.len()];
-    for (id, body) in &defined {
-        bodies[*id] = Some(body);
-    }
     let mut pending: Vec<_> = program
         .exports
         .iter()
         .map(|(_, function)| function.0)
         .collect();
     let mut used_memories = vec![false; program.memories.len()];
-    // Exports are the roots. Calls in retained, reachable blocks keep their
-    // transitive helpers, including recursive cycles, and memory imports alive.
+    // Compile exports, then follow their surviving calls. Mark each function
+    // before following callees so recursive cycles are processed once.
     while let Some(id) = pending.pop() {
         if std::mem::replace(&mut used_functions[id], true) {
             continue;
         }
-        let Some(body) = bodies[id] else {
+        let FunctionKind::Defined(body) = &mut program.functions[id].kind else {
             continue;
         };
+        let body = placement.place(
+            body.take()
+                .expect("defined function completed construction"),
+        );
         for memory in &body.memories {
             used_memories[memory.0] = true;
         }
@@ -75,8 +76,10 @@ pub(super) fn encode(mut program: Program) -> Vec<u8> {
                 }
             }
         }
+        defined.push((id, body));
     }
-    defined.retain(|(id, _)| used_functions[*id]);
+    // Discovery order must not change function indices or signature interning.
+    defined.sort_unstable_by_key(|(id, _)| *id);
 
     let imported: Vec<_> = program
         .functions
