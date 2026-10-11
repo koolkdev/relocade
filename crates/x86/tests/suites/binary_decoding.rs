@@ -12,7 +12,49 @@ use crate::support::cases::{
 use crate::support::machine;
 use crate::support::step;
 use machine::{check, Exit, Image, Step};
-use step::TestModule;
+use step::{Engine, TestModule};
+
+fn population_count_is_unsupported(engine: Engine) {
+    use wasm86_x86::{Compiler, ExecutionProfile, SegmentProfile, Segments};
+
+    for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
+        let compiler = Compiler::new(profile);
+        let interpreter = TestModule::interpreter_with_profile(profile);
+        for code in [
+            &[0xf3, 0x0f, 0xb8, 0xc3][..],
+            &[0x66, 0xf3, 0x0f, 0xb8, 0x00],
+        ] {
+            assert_eq!(
+                compiler.compile_block(0x1000, code, 1).err(),
+                Some(BlockError::UnsupportedInstruction {
+                    address: 0x1000,
+                    opcode: 0xf3,
+                })
+            );
+            let mut image = Image::new(code);
+            if profile == ExecutionProfile::Real16 {
+                image.cpu.segments = Segments::real_mode();
+            }
+            image.check_unchanged_exit(
+                engine,
+                interpreter,
+                "post-P4 POPCNT has no executable form",
+                Exit::Other(0x0008_00f3_0000_1000),
+            );
+        }
+    }
+}
+
+#[test]
+fn population_count_has_no_supported_encoding() {
+    population_count_is_unsupported(Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_population_count_has_no_supported_encoding() {
+    population_count_is_unsupported(Engine::V8);
+}
 
 #[test]
 fn binary_lengths_follow_the_selected_operand_and_immediate_widths() {
