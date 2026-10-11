@@ -3,7 +3,7 @@ use super::{CpuFeature, CpuModel, UnsupportedCpuFeature};
 #[test]
 fn complete_capabilities_can_be_disabled_and_enabled_again() {
     let default = CpuModel::default();
-    for feature in [CpuFeature::Cx8, CpuFeature::Cmov] {
+    for feature in [CpuFeature::Cx8, CpuFeature::Cmov, CpuFeature::Tsc] {
         assert!(feature.is_implemented());
         assert!(default.supports(feature));
         let disabled = default.with_feature(feature, false).unwrap();
@@ -16,7 +16,6 @@ fn complete_capabilities_can_be_disabled_and_enabled_again() {
 fn unavailable_capabilities_cannot_be_enabled_or_change_the_model() {
     let default = CpuModel::default();
     for feature in [
-        CpuFeature::Tsc,
         CpuFeature::Fpu,
         CpuFeature::Mmx,
         CpuFeature::Fxsr,

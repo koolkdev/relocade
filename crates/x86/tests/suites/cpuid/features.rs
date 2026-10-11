@@ -7,13 +7,14 @@ fn configured_features(engine: Engine, frontend: Frontend) {
         (
             CpuFeature::Cx8,
             &[0x0f, 0xc7, 0x08][..],
-            [0x601, 0, 0, 0x8000],
+            [0x601, 0, 0, 0x8010],
         ),
         (
             CpuFeature::Cmov,
             &[0x0f, 0x44, 0xc3][..],
-            [0x601, 0, 0, 0x0100],
+            [0x601, 0, 0, 0x0110],
         ),
+        (CpuFeature::Tsc, &[0x0f, 0x31][..], [0x601, 0, 0, 0x8100]),
     ] {
         let target = Compiler::new(SegmentProfile::Flat32)
             .with_cpu_model(CpuModel::default().with_feature(feature, false).unwrap())
@@ -57,6 +58,8 @@ fn configured_features(engine: Engine, frontend: Frontend) {
         .with_feature(CpuFeature::Cx8, false)
         .unwrap()
         .with_feature(CpuFeature::Cmov, false)
+        .unwrap()
+        .with_feature(CpuFeature::Tsc, false)
         .unwrap();
     let compiler = Compiler::new(SegmentProfile::Flat32).with_cpu_model(model);
     let mut image = Image::new(&[0x0f, 0xa2]);

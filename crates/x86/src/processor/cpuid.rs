@@ -17,7 +17,8 @@ impl CpuModel {
     /// Leaves 0 and 1 have no subleaves. Unsupported queries return the highest
     /// basic leaf, including extended queries because there is no extended range.
     pub(crate) fn cpuid(self, leaf: &Val<I32>) -> CpuidValues {
-        let edx = (u32::from(self.supports(CpuFeature::Cx8)) << 8)
+        let edx = (u32::from(self.supports(CpuFeature::Tsc)) << 4)
+            | (u32::from(self.supports(CpuFeature::Cx8)) << 8)
             | (u32::from(self.supports(CpuFeature::Cmov)) << 15);
         let vendor = leaf.eq(0);
         CpuidValues {

@@ -17,7 +17,7 @@ for `compile_block`, `compile_interpreter` and `compile_interpreter_step`.
 returns the resulting `ExecutionTarget { profile, cpu_model }`. Free compilation
 functions use the default model without CPU observations.
 
-The default model enables the complete optional capabilities CX8 and CMOV.
+The default model enables the complete optional capabilities CX8, CMOV and TSC.
 For example, `CpuModel::default().with_feature(CpuFeature::Cmov, false)?` disables
 integer conditional moves. Known encodings requiring a disabled capability raise
 #UD after complete instruction fetch and before operand access, without retiring. They terminate
@@ -36,9 +36,10 @@ configuration, not mutable `CpuState`; keep it fixed for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
 count, then tail-calls `wasm86.dispatch(next_eip: i32) -> i64`. Its result is returned
-unchanged. EIP and dispatch arguments are offsets relative to CS, and EIP and count
-use 32-bit wrapping arithmetic. A taken transfer checks its segment target before
-committing instruction effects; fetching the destination belongs to the next entry.
+unchanged. EIP and dispatch arguments are offsets relative to CS. EIP wraps at
+32 bits, and the instruction count wraps at 64 bits. A taken transfer checks its
+segment target before committing instruction effects; fetching the destination
+belongs to the next entry.
 
 The host chooses whether dispatch enters more code or returns control. Interpreter
 `run` continues inside Wasm until a branch, segment load, port I/O or serializing
@@ -121,7 +122,7 @@ that the implementation is complete.
 | `CpuFeature` | Instruction capability | CPUID leaf 1 bit | Can enable |
 | --- | --- | --- | --- |
 | `Fpu` | x87 floating point | EDX 0 | No |
-| `Tsc` | RDTSC | EDX 4 | No |
+| `Tsc` | RDTSC | EDX 4 | Yes |
 | `Cx8` | CMPXCHG8B | EDX 8 | Yes |
 | `Sep` | SYSENTER/SYSEXIT | EDX 11 | No |
 | `Cmov` | CMOVcc; FCMOV/FCOMI when FPU is also advertised | EDX 15 | Yes |
@@ -144,14 +145,14 @@ MONITOR/MWAIT's conditional user-mode availability is described in
 CPUID is generated from the compiler's selected `CpuModel` and needs no host
 callback. Leaf 0 reports maximum basic leaf 1 and the vendor
 string `Relocade CPU`. Leaf 1 reports virtual family 6, model 0, stepping 1
-(EAX=`0x00000601`), EBX=0, ECX=0, and the selected capabilities:
+(EAX=`0x00000601`), EBX=0, ECX=0, and the selected capabilities: TSC in EDX bit 4,
 CX8 in EDX bit 8 and CMOV in EDX bit 15. Disabling a capability clears its bit and
 rejects its instructions through the shared admission mechanism. Feature reporting
 is independent of real/protected mode and segment assumptions. The
 identity does not claim a physical Intel processor.
 
 Only complete feature groups are advertised. Partial x87 support does not establish
-the FPU feature; MMX, SSE, SSE2, FXSAVE/FXRSTOR, RDTSC and unsupported platform
+the FPU feature; MMX, SSE, SSE2, FXSAVE/FXRSTOR and unsupported platform
 facilities remain clear. Post-P4 extensions such as POPCNT are outside the
 supported instruction subset. Mark a feature implemented only after its advertised
 behavior and feature combinations are supported. In particular,
@@ -172,6 +173,40 @@ does not itself invalidate a host code cache. The single-threaded, unshared-memo
 execution contract does not model a processor's speculative pipeline or cache.
 
 These semantics follow Intel's [Volume 2A, CPUID](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf#page=202).
+
+## Timestamp counter
+
+RDTSC reads the virtual CPU's 64-bit completed-instruction count into EDX:EAX.
+The clock advances by one tick per retired guest instruction. A read includes
+preceding instructions in the current block, even before their count is published,
+and excludes RDTSC's own retirement. Starting from zero, two consecutive RDTSC
+instructions therefore return 0 and 1. Other registers and all flags are preserved.
+No host callback or browser timer is needed.
+
+This initial clock models execution progress. It has no fixed relationship to
+seconds or physical CPU cycles and stops when guest execution stops. A completed
+REP instruction advances it once, regardless of its element count; an instruction
+that faults or exits unsupported does not advance it. The default model enables
+`CpuFeature::Tsc`, reporting CPUID leaf 1 EDX bit 4, but no clock-frequency or
+invariant-TSC leaf. Disabling TSC clears that bit and makes RDTSC raise #UD.
+Retirement accounting continues with TSC disabled.
+
+The counter lives in `CpuState::instruction_count` and wraps modulo 2^64. Saving
+and restoring the full CPU record preserves it across interpreter entries, JIT
+blocks and host dispatches. Hosts may initialize or restore it only between
+entries, using all eight bytes. JavaScript hosts should use little-endian
+`DataView.getBigUint64` / `setBigUint64` when accessing it directly.
+
+With TSC enabled, RDTSC is not serializing and does not end a block or interpreter
+run. Its result reflects guest instruction order. A later fault retains its register effects and
+retirement; an earlier fault or incomplete encoding prevents its effects.
+All execution profiles support the enabled capability. Protected profiles assume
+CR4.TSD=0; changing CR4 or denying timestamp reads with TSD remains unsupported. Real mode
+permits the instruction independently of TSD. Operand/address/segment prefixes
+do not narrow its full-width registers. LOCK uses the shared unsupported exit.
+
+The register and permission semantics follow Intel's [Volume 2B, RDTSC](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366721.pdf#page=248).
+The instruction-based progression is this virtual CPU's explicit timing policy.
 
 ## Port I/O
 
@@ -303,8 +338,7 @@ payloads, raw segment attributes, x87 and XMM encodings. The image is
 | 60 | u32 EIP. |
 | 64 | Six 12-byte segment records: ES, CS, SS, DS, FS, GS. |
 | 136 | Eight reserved bytes. |
-| 144 | u32 completed-instruction count. |
-| 148 | Four reserved bytes. |
+| 144 | u64 completed-instruction count and virtual timestamp counter. |
 | 152 | Twelve-byte `StoredX87Control`: six mask bytes, PC, RC, IC, padding byte, u16 reserved bits. |
 | 164 | u16 full x87 tag word. |
 | 166 | u16 last x87 opcode. |

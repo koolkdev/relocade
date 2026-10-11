@@ -36,7 +36,8 @@ pub enum CpuFeature {
     Monitor,
 }
 
-pub(super) const IMPLEMENTED_FEATURES: u16 = CpuFeature::Cx8.mask() | CpuFeature::Cmov.mask();
+pub(super) const IMPLEMENTED_FEATURES: u16 =
+    CpuFeature::Cx8.mask() | CpuFeature::Cmov.mask() | CpuFeature::Tsc.mask();
 
 impl CpuFeature {
     pub(super) const fn mask(self) -> u16 {

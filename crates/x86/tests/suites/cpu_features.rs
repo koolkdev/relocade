@@ -24,6 +24,10 @@ fn disabled_forms(engine: Engine, frontend: Frontend) {
                 CpuFeature::Cx8,
                 &[&[0x0f, 0xc7, 0x08][..], &[0xf0, 0x0f, 0xc7, 0x08]][..],
             ),
+            (
+                CpuFeature::Tsc,
+                &[&[0x0f, 0x31][..], &[0x66, 0x0f, 0x31]][..],
+            ),
         ] {
             let model = CpuModel::default().with_feature(feature, false).unwrap();
             let target = Compiler::new(profile).with_cpu_model(model).target();
@@ -152,6 +156,7 @@ fn disabled_forms_remain_decodable_and_unrelated_forms_keep_their_code() {
     let forms = [
         (CpuFeature::Cmov, &[0x0f, 0x44, 0xc3][..]),
         (CpuFeature::Cx8, &[0x0f, 0xc7, 0x08][..]),
+        (CpuFeature::Tsc, &[0x0f, 0x31][..]),
     ];
     for (disabled, _) in forms {
         let compiler = Compiler::new(SegmentProfile::Flat32)
