@@ -4,6 +4,8 @@
 mod comparisons;
 #[path = "packed/saturation.rs"]
 mod saturation;
+#[path = "packed/shuffle.rs"]
+mod shuffle;
 
 use super::*;
 use wasm86_compiler::{VectorLane, I16, I64};
