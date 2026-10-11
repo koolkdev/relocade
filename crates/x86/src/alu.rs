@@ -12,6 +12,7 @@ mod rotates;
 mod shifts;
 mod status;
 mod unary;
+mod unpack;
 mod update;
 
 pub(crate) use adjust::{adjust_after_multiply, adjust_before_division};
@@ -25,6 +26,7 @@ pub(crate) use rotates::RotateDirection;
 pub(crate) use shifts::{DoubleShiftOp, ShiftOp};
 pub(crate) use status::{AnyStatusSource, StatusSource};
 pub(crate) use unary::UnaryOp;
+pub(crate) use unpack::unpack_lanes;
 pub(crate) use update::OperandUpdate;
 
 use wasm86_compiler::{MemoryInt, Val, I1};

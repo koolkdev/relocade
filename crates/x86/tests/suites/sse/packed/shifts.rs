@@ -132,28 +132,8 @@ fn shifts(engine: Engine, frontend: Frontend) {
 }
 
 fn count_span(engine: Engine, frontend: Frontend) {
-    use wasm86_x86::{SegmentAttributes, SegmentDefaultSize, SegmentKind};
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented16);
-    let code = [0x66, 0x0f, 0xf1, 0x36, 0x00, 0x40]; // PSLLW xmm6, [disp16]
-    let mut image = image(&code);
-    image.cpu.segments.cs.attributes = SegmentAttributes::new(
-        SegmentKind::Code { readable: true },
-        SegmentDefaultSize::Bits16,
-    );
-    image.cpu.segments.ds.limit = 0x4007;
-    image.cpu.simd.xmm[6] = [0; 16];
-    image.map(4, 0x8000, false);
-    image.data(0x8000, &[0; 16]);
-    checks.check(
-        "unused high count bits still belong to the m128 operand span",
-        &code,
-        &image,
-        &[Step {
-            cpu: image.cpu,
-            ram: &[],
-            exit: Exit::GeneralProtection { error: 0 },
-        }],
-    );
+    check_m128_span(&mut checks, 0xf1);
 }
 
 #[test]
