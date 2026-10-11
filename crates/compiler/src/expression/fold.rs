@@ -99,6 +99,7 @@ impl Folder<'_> {
             Expression::Convert { input } => self.convert(input, ty),
             Expression::LowBits { .. }
             | Expression::VectorBinary { .. }
+            | Expression::VectorShift { .. }
             | Expression::VectorExtract { .. }
             | Expression::VectorReplace { .. }
             | Expression::FloatBinary { .. }
@@ -171,6 +172,7 @@ impl Folder<'_> {
                 _ => None,
             },
             Expression::VectorBinary { .. }
+            | Expression::VectorShift { .. }
             | Expression::VectorExtract { .. }
             | Expression::VectorReplace { .. }
             | Expression::BitCount { .. } => None,

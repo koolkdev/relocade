@@ -70,6 +70,27 @@ impl Expression<TypedLiteral> {
                     (u128::from(input.value) >> (lane * result.bits())) as u64,
                 )));
             }
+            Self::VectorShift {
+                operator,
+                lane_type,
+                value,
+                count,
+            } => {
+                let count = count.value.scalar(count.ty)? as u32 % u32::from(lane_type.bits());
+                let mut bits = 0_u128;
+                for offset in (0..128).step_by(lane_type.bits() as usize) {
+                    let lane = ((u128::from(value.value) >> offset) as u64) & lane_type.mask();
+                    let lane = match operator {
+                        integer::ShiftOp::Left => lane << count,
+                        integer::ShiftOp::RightUnsigned => lane >> count,
+                        integer::ShiftOp::RightSigned => {
+                            (integer::signed_value(lane_type, lane) >> count) as u64
+                        }
+                    };
+                    bits |= u128::from(lane & lane_type.mask()) << offset;
+                }
+                return Some(bits.into());
+            }
             Self::VectorReplace {
                 vector,
                 value,
@@ -130,9 +151,10 @@ impl Expression<ScalarLiteral> {
     fn constant_result(&self, result: Type, component: usize) -> Option<u64> {
         debug_assert!(component < self.result_types(result).len());
         let bits = match *self {
-            Self::VectorBinary { .. } | Self::VectorExtract { .. } | Self::VectorReplace { .. } => {
-                return None
-            }
+            Self::VectorBinary { .. }
+            | Self::VectorShift { .. }
+            | Self::VectorExtract { .. }
+            | Self::VectorReplace { .. } => return None,
             Self::FloatBinary {
                 operator,
                 left,

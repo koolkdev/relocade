@@ -31,6 +31,12 @@ pub(super) enum Expression<V> {
         left: V,
         right: V,
     },
+    VectorShift {
+        operator: ShiftOp,
+        lane_type: Type,
+        value: V,
+        count: V,
+    },
     VectorExtract {
         input: V,
         lane: u8,
@@ -161,6 +167,17 @@ impl<V> Expression<V> {
             Self::VectorExtract { input: value, lane } => Expression::VectorExtract {
                 input: input(value)?,
                 lane: *lane,
+            },
+            Self::VectorShift {
+                operator,
+                lane_type,
+                value,
+                count,
+            } => Expression::VectorShift {
+                operator: *operator,
+                lane_type: *lane_type,
+                value: input(value)?,
+                count: input(count)?,
             },
             Self::VectorReplace {
                 vector,
