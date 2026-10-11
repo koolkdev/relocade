@@ -69,6 +69,15 @@ impl Val<V128> {
         self.binary_lanes::<T>(LaneBinaryOp::WideningMulLowSigned, right.into())
     }
 
+    /// Multiplies signed T lanes in the high 64 bits, producing double-width lanes.
+    /// The low halves of both inputs are ignored. T is I8, I16 or I32.
+    pub fn signed_widening_mul_high_lanes<T: VectorLane + DoubleWidth>(
+        &self,
+        right: impl Into<Self>,
+    ) -> Self {
+        self.binary_lanes::<T>(LaneBinaryOp::WideningMulHighSigned, right.into())
+    }
+
     /// Multiplies corresponding signed I16 lanes and adds adjacent products.
     /// Produces four I32 lanes, with each sum wrapping at 32 bits.
     pub fn signed_dot_i16_pairs(&self, right: impl Into<Self>) -> Self {

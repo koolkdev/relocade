@@ -23,27 +23,51 @@ fn multiplication(v8: bool) {
         |left, right| [left.mul_lanes::<I64>(right)],
     );
 
-    // Widening consumes only the low half, including signed boundary values.
+    // Low and high widening select different halves, including signed boundary values.
     binary_results(
         v8,
-        0xdeadbeef123456787f80feff01020081,
-        0x76543210feedface7fff03fffe007f80,
-        [0x3f010080fffa0001fffe000000003f80],
-        |left, right| [left.signed_widening_mul_low_lanes::<I8>(right)],
+        0x807f0100fffe827e7f80feff01020081,
+        0x80ff7f0200feff017fff03fffe007f80,
+        [
+            0x3f010080fffa0001fffe000000003f80,
+            0x4000ff81007f000000000004007e007e,
+        ],
+        |left, right| {
+            [
+                left.signed_widening_mul_low_lanes::<I8>(&right),
+                left.signed_widening_mul_high_lanes::<I8>(right),
+            ]
+        },
     );
     binary_results(
         v8,
-        0xdeadbeef123456787fff8000ffff1234,
-        0x76543210feedface7fff800000022345,
-        [0x3fff000140000000fffffffe02820404],
-        |left, right| [left.signed_widening_mul_low_lanes::<I16>(right)],
+        0x80007fff0000fffe7fff8000ffff1234,
+        0xffff0002000100037fff800000022345,
+        [
+            0x3fff000140000000fffffffe02820404,
+            0x000080000000fffe00000000fffffffa,
+        ],
+        |left, right| {
+            [
+                left.signed_widening_mul_low_lanes::<I16>(&right),
+                left.signed_widening_mul_high_lanes::<I16>(right),
+            ]
+        },
     );
     binary_results(
         v8,
-        0xdeadbeef12345678800000007fffffff,
-        0x76543210feedfaceffffffff80000000,
-        [0x0000000080000000c000000080000000],
-        |left, right| [left.signed_widening_mul_low_lanes::<I32>(right)],
+        0xffffffff80000000800000007fffffff,
+        0x7fffffff80000000ffffffff80000000,
+        [
+            0x0000000080000000c000000080000000,
+            0xffffffff800000014000000000000000,
+        ],
+        |left, right| {
+            [
+                left.signed_widening_mul_low_lanes::<I32>(&right),
+                left.signed_widening_mul_high_lanes::<I32>(right),
+            ]
+        },
     );
 
     // Low to high: all-minimum overflow, cancellation, negative and positive sums.
