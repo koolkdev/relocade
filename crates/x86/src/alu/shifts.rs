@@ -1,6 +1,6 @@
-//! Logical-width shift results and the flags defined for a nonzero count.
+//! Scalar shifts with status flags and packed shifts with unmasked counts.
 
-use wasm86_compiler::{AtLeast, MemoryInt, Val, I1, I32};
+use wasm86_compiler::{AtLeast, MemoryInt, Val, VectorLane, I1, I32, I64, V128};
 
 use super::{bit, result_flag, AluResult};
 use crate::alu::{AnyStatusSource, StatusSource};
@@ -53,6 +53,24 @@ impl ShiftOp {
         // SHL/SHR also leave CF undefined at or above the operand width. Choose
         // zero for each undefined flag; none requires reading the prior source.
         result_with_flags(result, carry, overflow, &count)
+    }
+
+    /// Packed shifts use an unsigned 64-bit count without masking it to the lane width.
+    pub(crate) fn apply_packed<T: VectorLane + MemoryInt>(
+        self,
+        input: Val<V128>,
+        count: Val<I64>,
+    ) -> Val<V128> {
+        // Test before narrowing: a nonzero high dword must not become a small count.
+        let in_range = count.unsigned().lt(u64::from(T::BYTES * 8));
+        let count = count.truncate::<I32>();
+        match self {
+            Self::Left => in_range.select(input.shl_lanes::<T>(count), 0_u128),
+            Self::RightLogical => in_range.select(input.unsigned_shr_lanes::<T>(count), 0_u128),
+            Self::RightArithmetic => {
+                input.signed_shr_lanes::<T>(in_range.select(count, T::BYTES * 8 - 1))
+            }
+        }
     }
 }
 

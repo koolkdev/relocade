@@ -11,7 +11,8 @@ use handlers::HandlerCall;
 pub(super) use lower::lower;
 use operands::{map_location, map_operand};
 pub(crate) use operands::{
-    Input, MmxLocation, TypedLocation, VectorAlignment, X87StackIndex, XmmLocation, XmmType,
+    Input, MmxLocation, PackedShiftCount, TypedLocation, VectorAlignment, X87StackIndex,
+    XmmLocation, XmmType,
 };
 pub(crate) use prefixes::{Group1Prefix, Prefix, PrefixState, SegmentOverride};
 
