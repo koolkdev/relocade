@@ -690,7 +690,7 @@ transitions and SS-load inhibition are not modeled. Native Wasm traps from broke
 backing or internal arithmetic invariants are implementation errors, outside this
 guest-fault protocol.
 
-## MMX state and transfers
+## MMX state and integer operations
 
 MM0–MM7 alias the significands of physical x87 slots R0–R7, independent of TOP
 and the tag word. There is no separate MMX register array or mode flag in the
@@ -702,6 +702,11 @@ memory bytes. Both accept unaligned addresses. A register destination receives
 sign/exponent `ffff`; a memory or GPR destination preserves all x87 payloads.
 Successful transfers mark all tags valid and reset TOP to zero. EMMS marks all
 tags empty and resets TOP to zero while retaining every payload and exponent.
+
+PAND, PANDN, POR and PXOR operate on all 64 bits of an MMX register and a
+register or unaligned eight-byte memory source. PANDN computes `(~destination)
+& source`. Logical operations have the same tag, TOP and destination exponent
+effects as MOVQ, including same-register operations such as `PXOR mm0, mm0`.
 
 MMX instructions, including EMMS, deliver a pending x87 exception before operand
 access. A memory fault preserves the current instruction's destination, tags and
