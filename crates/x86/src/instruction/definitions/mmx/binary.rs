@@ -3,6 +3,39 @@
 use super::*;
 
 instruction_families! {
+    PADDSB {
+        execute: packed_binary(|left, right| left.signed_saturating_add_lanes::<I8>(right));
+        forms { NP 0x0f 0xec => operands(mm, mm_rm); }
+    }
+    PADDSW {
+        execute: packed_binary(|left, right| left.signed_saturating_add_lanes::<I16>(right));
+        forms { NP 0x0f 0xed => operands(mm, mm_rm); }
+    }
+    PADDUSB {
+        execute: packed_binary(|left, right| left.unsigned_saturating_add_lanes::<I8>(right));
+        forms { NP 0x0f 0xdc => operands(mm, mm_rm); }
+    }
+    PADDUSW {
+        execute: packed_binary(|left, right| left.unsigned_saturating_add_lanes::<I16>(right));
+        forms { NP 0x0f 0xdd => operands(mm, mm_rm); }
+    }
+    PSUBSB {
+        execute: packed_binary(|left, right| left.signed_saturating_sub_lanes::<I8>(right));
+        forms { NP 0x0f 0xe8 => operands(mm, mm_rm); }
+    }
+    PSUBSW {
+        execute: packed_binary(|left, right| left.signed_saturating_sub_lanes::<I16>(right));
+        forms { NP 0x0f 0xe9 => operands(mm, mm_rm); }
+    }
+    PSUBUSB {
+        execute: packed_binary(|left, right| left.unsigned_saturating_sub_lanes::<I8>(right));
+        forms { NP 0x0f 0xd8 => operands(mm, mm_rm); }
+    }
+    PSUBUSW {
+        execute: packed_binary(|left, right| left.unsigned_saturating_sub_lanes::<I16>(right));
+        forms { NP 0x0f 0xd9 => operands(mm, mm_rm); }
+    }
+
     PCMPEQB {
         execute: packed_binary(|left, right| left.eq_lanes::<I8>(right));
         forms { NP 0x0f 0x74 => operands(mm, mm_rm); }
