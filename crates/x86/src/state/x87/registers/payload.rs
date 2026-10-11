@@ -64,6 +64,11 @@ impl Payload {
         value: &ExtendedValue,
         enabled: &Val<I1>,
     ) -> Result<(), BuildError> {
+        if enabled.same_expression(&Val::from(true)) {
+            self.define(value.clone());
+            self.conditional_write = None;
+            return Ok(());
+        }
         if let Some(write) = &self.conditional_write {
             if !write.enabled.same_expression(enabled) {
                 // Equal guards let the later write replace the earlier one
@@ -112,7 +117,7 @@ impl Payload {
     }
 }
 
-pub(super) fn load(
+fn load(
     body: &mut BlockBuilder<'_>,
     memory: Mem,
     address: &Val<I32>,
@@ -132,7 +137,7 @@ pub(super) fn load(
     }))
 }
 
-pub(super) fn store(
+fn store(
     body: &mut BlockBuilder<'_>,
     memory: Mem,
     address: &Val<I32>,

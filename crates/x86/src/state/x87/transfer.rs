@@ -134,10 +134,7 @@ impl X87Access<'_, '_> {
         self.state
             .registers
             .write(self.body, &target, &value, tag, &enabled)?;
-        self.state.registers.advance(-1);
-        self.state
-            .status
-            .set_top(self.body, target.physical, enabled)
+        self.state.registers.advance(self.body, -1, enabled)
     }
 }
 
