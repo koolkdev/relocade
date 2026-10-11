@@ -84,6 +84,27 @@ impl Val<V128> {
         self.binary_lanes::<T>(LaneBinaryOp::SubSatUnsigned, right.into())
     }
 
+    /// Narrows signed lanes of twice T's width into signed T lanes, saturating.
+    /// The low half contains this input's results; the high half contains `right`'s.
+    pub fn signed_narrow_lanes<T: SaturatingLane>(&self, right: impl Into<Self>) -> Self {
+        self.narrow_lanes::<T>(right.into(), true)
+    }
+
+    /// Narrows signed lanes of twice T's width into unsigned T lanes, saturating.
+    /// Negative inputs become zero. Input order is the same as `signed_narrow_lanes`.
+    pub fn unsigned_narrow_lanes<T: SaturatingLane>(&self, right: impl Into<Self>) -> Self {
+        self.narrow_lanes::<T>(right.into(), false)
+    }
+
+    fn narrow_lanes<T: SaturatingLane>(&self, right: Self, signed: bool) -> Self {
+        Self::expression(Expression::VectorNarrow {
+            signed,
+            result_lane: T::TYPE,
+            left: self.into(),
+            right: right.into(),
+        })
+    }
+
     fn binary_lanes<T: VectorLane>(&self, operator: LaneBinaryOp, right: Self) -> Self {
         Self::expression(Expression::VectorBinary {
             operator,

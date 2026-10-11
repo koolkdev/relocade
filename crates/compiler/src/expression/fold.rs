@@ -100,6 +100,7 @@ impl Folder<'_> {
             Expression::LowBits { .. }
             | Expression::VectorBinary { .. }
             | Expression::VectorShift { .. }
+            | Expression::VectorNarrow { .. }
             | Expression::VectorShuffle { .. }
             | Expression::VectorExtract { .. }
             | Expression::VectorReplace { .. }
@@ -174,6 +175,7 @@ impl Folder<'_> {
             },
             Expression::VectorBinary { .. }
             | Expression::VectorShift { .. }
+            | Expression::VectorNarrow { .. }
             | Expression::VectorShuffle { .. }
             | Expression::VectorExtract { .. }
             | Expression::VectorReplace { .. }
