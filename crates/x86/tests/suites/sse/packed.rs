@@ -4,6 +4,8 @@
 mod arithmetic;
 #[path = "packed/comparisons.rs"]
 mod comparisons;
+#[path = "packed/shifts.rs"]
+mod shifts;
 
 use super::*;
 
