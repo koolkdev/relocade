@@ -29,6 +29,7 @@ pub(super) struct SuspendedContext {
 pub(super) struct ContextScope(usize);
 
 /// Observations used to construct a path; queries cannot add more observations.
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub(in crate::place) enum Assumption {
     Truth { condition: usize, truth: bool },
     Bits { value: usize, mask: u64, bits: u64 },

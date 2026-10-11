@@ -2,6 +2,8 @@ use super::*;
 use crate::bitwise::BitwiseOp;
 use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
 
+mod observations;
+
 fn branch(reducer: &Reducer, values: &ValueTable, condition: usize, truth: bool) -> Reducer {
     Reducer::from_analysis(
         reducer

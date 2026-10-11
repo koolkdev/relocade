@@ -96,41 +96,41 @@ fn operators(bytes: &[u8]) -> Vec<Operator<'_>> {
 }
 
 #[test]
-fn packed_add_chains_only_convert_at_scalar_boundaries() {
-    let code = [0x0f, 0xfd, 0xc1].repeat(8);
-    let inputs = 2;
-    let module = compile_block_from_bytes(0x1000, &code, (code.len() / 3) as u32).unwrap();
-    let ops = operators(&module.bytes);
-    assert_eq!(
-        ops.iter()
-            .filter(|op| matches!(op, Operator::I64x2ReplaceLane { .. }))
-            .count(),
-        inputs
-    );
-    assert_eq!(
-        ops.iter()
-            .filter(|op| matches!(op, Operator::I64x2ExtractLane { .. }))
-            .count(),
-        1
-    );
-    assert_eq!(
-        ops.iter()
-            .filter(|op| matches!(op, Operator::I64Load { .. }))
-            .count(),
-        inputs
-    );
-    assert_eq!(
-        ops.iter()
-            .filter(|op| matches!(op, Operator::I64Store { .. }))
-            .count(),
-        1
-    );
-    assert_eq!(
-        ops.iter()
-            .filter(|op| matches!(op, Operator::I32Load8U { memarg } if memarg.offset == 192))
-            .count(),
-        1
-    );
+fn packed_chains_only_convert_at_scalar_boundaries() {
+    for (code, inputs) in [([0x0f, 0xfd, 0xc1].repeat(8), 2), (MIXED.to_vec(), 4)] {
+        let module = compile_block_from_bytes(0x1000, &code, (code.len() / 3) as u32).unwrap();
+        let ops = operators(&module.bytes);
+        assert_eq!(
+            ops.iter()
+                .filter(|op| matches!(op, Operator::I64x2ReplaceLane { .. }))
+                .count(),
+            inputs
+        );
+        assert_eq!(
+            ops.iter()
+                .filter(|op| matches!(op, Operator::I64x2ExtractLane { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            ops.iter()
+                .filter(|op| matches!(op, Operator::I64Load { .. }))
+                .count(),
+            inputs
+        );
+        assert_eq!(
+            ops.iter()
+                .filter(|op| matches!(op, Operator::I64Store { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            ops.iter()
+                .filter(|op| matches!(op, Operator::I32Load8U { memarg } if memarg.offset == 192))
+                .count(),
+            1
+        );
+    }
 }
 
 #[test]

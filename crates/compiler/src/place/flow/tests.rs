@@ -1,5 +1,6 @@
 use super::*;
 use crate::expression::BinaryOp as Binary;
+use crate::expression::UnaryOp as Unary;
 use crate::{bitwise::BitwiseOp, Type};
 
 fn graph() -> FunctionGraph {
@@ -113,6 +114,86 @@ fn reduced_edge_values_establish_join_facts_before_any_execution_is_placed() {
         Some(5)
     );
     assert!(graph.blocks.iter().all(|block| block.items.is_empty()));
+}
+
+#[test]
+fn path_entry_observes_both_authored_and_reduced_control_values() {
+    for switch in [false, true] {
+        let mut graph = graph();
+        let mask = graph.values.literal(Type::I32, 255);
+        let masked = expression(
+            &mut graph,
+            Type::I32,
+            Expression::Binary {
+                operator: Binary::Bitwise(BitwiseOp::And),
+                left: 1,
+                right: mask,
+            },
+        );
+        let one = graph.values.literal(Type::I32, 1);
+        let sum = expression(
+            &mut graph,
+            Type::I32,
+            Expression::Binary {
+                operator: Binary::Integer(crate::integer::BinaryOp::Add),
+                left: masked,
+                right: one,
+            },
+        );
+        let byte = expression(
+            &mut graph,
+            Type::I32,
+            Expression::Unary {
+                operator: Unary::LowBits { bits: 8 },
+                input: sum,
+            },
+        );
+        let authored = if switch {
+            byte
+        } else {
+            expression(
+                &mut graph,
+                Type::I1,
+                Expression::Unary {
+                    operator: Unary::ZeroTest { nonzero: true },
+                    input: byte,
+                },
+            )
+        };
+        let taken = graph.block(0, &[]);
+        let otherwise = graph.block(0, &[]);
+        graph.blocks[0].exit = if switch {
+            Exit::Switch {
+                selector: authored,
+                cases: vec![(7, edge(taken))],
+                default: edge(otherwise),
+            }
+        } else {
+            Exit::If {
+                condition: authored,
+                taken: edge(taken),
+                otherwise: edge(otherwise),
+            }
+        };
+        graph.blocks[taken.0].exit = Exit::Return(vec![1]);
+        graph.blocks[otherwise.0].exit = Exit::Return(vec![1]);
+        let reachable = graph.reachable();
+        let predecessors = predecessors(&graph, &reachable);
+        let dominators = Dominators::new(0, &successors(&graph, &reachable), &predecessors);
+        let flow = ReducedFlow::new(&mut graph, &dominators, &predecessors);
+        let reduced = match graph.blocks[0].exit {
+            Exit::If { condition, .. } => condition,
+            Exit::Switch { selector, .. } => selector,
+            _ => unreachable!(),
+        };
+        assert_ne!(authored, reduced);
+        for value in [authored, reduced] {
+            assert_eq!(
+                flow.analysis(taken).constant(&graph.values, value),
+                Some(if switch { 7 } else { 1 })
+            );
+        }
+    }
 }
 
 #[test]
@@ -321,6 +402,7 @@ fn a_proven_component_does_not_make_its_sibling_available() {
     let reachable = graph.reachable();
     let predecessors = predecessors(&graph, &reachable);
     let dominators = Dominators::new(0, &successors(&graph, &reachable), &predecessors);
+    let plan = demand::Plan::new(&graph, &reachable, &dominators, &flow);
     let joins = Joins::new(&graph, &predecessors, dominators);
     let mut placer = Placer {
         graph: &mut graph,
@@ -328,7 +410,7 @@ fn a_proven_component_does_not_make_its_sibling_available() {
         flow,
         joins,
         available: Availability::default(),
-        shared: vec![Vec::new()],
+        plan,
     };
     let folded = placer.materialize(low, BlockId(0));
     assert_eq!(placer.graph.values[folded].scalar_literal(), Some(0));

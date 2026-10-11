@@ -2,8 +2,13 @@
 use super::*;
 use std::collections::HashSet;
 
+mod recipes;
+mod requirements;
+pub(super) use recipes::Plan;
+use recipes::Roots;
 #[cfg(test)]
 mod tests;
+use requirements::{requirements, Requirement};
 
 #[derive(Clone, Default)]
 struct Demand {
@@ -129,81 +134,12 @@ struct ResultDemand {
     used: bool,
 }
 
-/// Actual residual uses prove execution requirements. Equivalent original
-/// recipes only offer reuse; their discarded inputs are not required here.
-#[derive(Default)]
-struct Roots {
-    required: Vec<usize>,
-    reusable: Vec<usize>,
-}
-
-/// Retain an original recipe as a reuse option only while it is still executed
-/// somewhere in the reduced function. Eliminated recipes create no new demand.
-fn roots(graph: &FunctionGraph, flow: &ReducedFlow, reachable: &[bool]) -> Vec<Roots> {
-    let roots: Vec<Vec<_>> = graph
-        .blocks
-        .iter()
-        .enumerate()
-        .map(|(block, data)| {
-            if !reachable[block] {
-                return Vec::new();
-            }
-            let mut roots = data.exit.inputs();
-            for item in &data.items {
-                if let BlockItem::Effect(id) = item {
-                    roots.extend(graph.effects[id.0].operation.inputs());
-                }
-            }
-            roots
-        })
-        .collect();
-    let mut used = vec![false; graph.values.len()];
-    for &root in roots.iter().flatten() {
-        used[root] = true;
-    }
-    for id in (0..used.len()).rev() {
-        if used[id] {
-            if let Some(result) = graph.values.expression(id) {
-                for &input in result.expression.inputs() {
-                    used[input] = true;
-                }
-            }
-        }
-    }
-    roots
-        .into_iter()
-        .enumerate()
-        .map(|(block, required)| {
-            let mut reusable = Vec::new();
-            if reachable[block] {
-                for &root in &required {
-                    if graph.values.expression(root).is_some() {
-                        reusable.extend(
-                            flow.recipes(BlockId(block), root)
-                                .filter(|&recipe| recipe != root && used[recipe]),
-                        );
-                    }
-                }
-            }
-            Roots { required, reusable }
-        })
-        .collect()
-}
-
-pub(super) fn schedules(
-    graph: &FunctionGraph,
-    reachable: &[bool],
-    dominators: &Dominators,
-    flow: &ReducedFlow,
-) -> Vec<Vec<usize>> {
-    schedule_roots(graph, reachable, dominators, &roots(graph, flow, reachable))
-}
-
 fn schedule_roots(
     graph: &FunctionGraph,
     reachable: &[bool],
     dominators: &Dominators,
     roots: &[Roots],
+    requirements: &[Option<Requirement>],
 ) -> Vec<Vec<usize>> {
     let count = graph.blocks.len();
     let mut successors = successors(graph, reachable);
@@ -228,40 +164,6 @@ fn schedule_roots(
     }
     let postdominators = Dominators::new(count, &reversed, &successors);
     let mut coverage = Coverage::new(&successors, count);
-    let mut locations = vec![None; graph.effects.len()];
-    for (block, data) in graph.blocks.iter().enumerate() {
-        for item in &data.items {
-            if let BlockItem::Effect(id) = item {
-                locations[id.0] = Some(block);
-            }
-        }
-    }
-    let mut requirements = vec![None; graph.values.len()];
-    for (id, value) in graph.values.iter().enumerate() {
-        requirements[id] = match value.definition {
-            ValueDefinition::Literal(_) => Some(graph.entry.0),
-            ValueDefinition::Parameter { block, .. } => Some(block.0),
-            ValueDefinition::Result {
-                producer: BlockItem::Effect(effect),
-                ..
-            } => locations[effect.0],
-            ValueDefinition::Result {
-                producer: BlockItem::Evaluate(producer),
-                ..
-            } => requirements[producer],
-            ValueDefinition::Expression(expression) => {
-                let mut requirement = Some(graph.entry.0);
-                for &input in expression.inputs() {
-                    requirement = match (requirement, requirements[input]) {
-                        (Some(a), Some(b)) if dominators.dominates(a, b) => Some(b),
-                        (Some(a), Some(b)) if dominators.dominates(b, a) => Some(a),
-                        _ => None,
-                    };
-                }
-                requirement
-            }
-        };
-    }
     // Only required sites need individual identities. Other demands contribute
     // their common dominator and whether they span more than one block.
     let mut demands = vec![ResultDemand::default(); graph.values.len()];
@@ -295,7 +197,8 @@ fn schedule_roots(
             let candidate = sites.common_block.unwrap();
             // Limit collective coverage to retained calculation inputs, to avoid
             // hoisting final publication values across branch decisions.
-            if requirements[id].is_some_and(|required| dominators.dominates(required, candidate))
+            if requirements[id]
+                .is_some_and(|required| dominators.dominates(required.block, candidate))
                 && (sites
                     .required_sites
                     .iter()
@@ -311,7 +214,7 @@ fn schedule_roots(
                 );
                 sites = Demand::at(candidate);
             } else if let Some(required) = requirements[id] {
-                for block in sites.branch_placements(required, dominators, &postdominators) {
+                for block in sites.branch_placements(required.block, dominators, &postdominators) {
                     schedules[block].extend(
                         graph
                             .values

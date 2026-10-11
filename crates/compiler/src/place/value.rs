@@ -12,6 +12,7 @@ impl Placer<'_> {
 
     pub(super) fn materialize(&mut self, root: usize, block: BlockId) -> usize {
         let residual = self.flow.reduce(&mut self.graph.values, block, root);
+        let root_recipe = self.plan.recipe(block, residual);
         let mut work = vec![(residual, false)];
         while let Some((id, ready)) = work.pop() {
             if let Some(value) = self.available.get(id) {
@@ -37,7 +38,10 @@ impl Placer<'_> {
                     continue;
                 }
             }
-            let Some(result) = self.graph.values.expression(id) else {
+            // Demand was scheduled for this root's chosen recipe. Its inputs
+            // follow that DAG without further recipe selection.
+            let recipe = if id == residual { root_recipe } else { id };
+            let Some(result) = self.graph.values.expression(recipe) else {
                 if let ValueDefinition::Result {
                     producer: BlockItem::Effect(effect),
                     ..
@@ -58,6 +62,10 @@ impl Placer<'_> {
                 continue;
             }
             self.available.evaluate(self.graph, block, result.producer);
+            if recipe != id {
+                let value = self.available.get(recipe).unwrap();
+                self.bind_reduction(block, id, value);
+            }
             for output in self.graph.values.expression_results(result.producer) {
                 let value = self.available.get(output).unwrap();
                 self.bind_reduction(block, output, value);

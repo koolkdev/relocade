@@ -1,34 +1,30 @@
-//! Prove identities for complete carriers, retaining logical lane widths.
+//! Prove operand identities for the carrier positions a consumer observes.
 
-use super::{Bits, ValueAnalysis};
+use super::ValueAnalysis;
 use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
 use crate::{
     bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
-    integer::low_mask,
     Expression,
 };
 
 impl ValueAnalysis {
-    pub(in crate::place) fn identity(&self, table: &ValueTable, id: usize) -> Option<usize> {
+    pub(in crate::place) fn identity(
+        &self,
+        table: &ValueTable,
+        id: usize,
+        observed: u128,
+    ) -> Option<usize> {
         match table[id].definition {
             ValueDefinition::Expression(Expression::Binary {
                 operator: Binary::Bitwise(operator),
                 left,
                 right,
-            }) if matches!(operator, BitwiseOp::And | BitwiseOp::Or) => {
+            }) if operator != BitwiseOp::Xor || observed != u128::MAX => {
                 if table[id].ty.is_scalar() {
-                    let mask = table[id].ty.carrier().mask();
-                    // Logical facts cannot prove upper carrier positions. Physical
-                    // bounds can supply their zeros without narrowing the value.
-                    let a = self.bits(table, left).union(Bits {
-                        mask: mask & !low_mask(table.bounds[left].unsigned),
-                        value: 0,
-                    });
-                    let b = self.bits(table, right).union(Bits {
-                        mask: mask & !low_mask(table.bounds[right].unsigned),
-                        value: 0,
-                    });
+                    let mask = observed as u64 & table[id].ty.carrier().mask();
+                    let a = self.scalar_carrier_bits(table, left);
+                    let b = self.scalar_carrier_bits(table, right);
                     if a.absorbs(operator, b, mask) {
                         Some(left)
                     } else if b.absorbs(operator, a, mask) {
@@ -39,9 +35,9 @@ impl ValueAnalysis {
                 } else {
                     let a = self.vector_bits(table, left);
                     let b = self.vector_bits(table, right);
-                    if a.absorbs(operator, b, u128::MAX) {
+                    if a.absorbs(operator, b, observed) {
                         Some(left)
-                    } else if b.absorbs(operator, a, u128::MAX) {
+                    } else if b.absorbs(operator, a, observed) {
                         Some(right)
                     } else {
                         None
@@ -53,6 +49,10 @@ impl ValueAnalysis {
                 left: vector,
                 right: value,
             }) => {
+                let replaced = u128::from(lane_type.mask()) << (lane * lane_type.bits());
+                if observed & replaced == 0 {
+                    return Some(vector);
+                }
                 let ValueDefinition::Expression(Expression::Unary {
                     operator: Unary::ExtractLane { lane: extracted },
                     input,
@@ -63,14 +63,21 @@ impl ValueAnalysis {
                 if lane != extracted || lane_type != table[value].ty {
                     return None;
                 }
-                if vector == input {
+                if vector == input || observed & !replaced == 0 {
                     return Some(input);
                 }
-                let replaced = u128::from(lane_type.mask()) << (lane * lane_type.bits());
                 let common = self
                     .vector_bits(table, vector)
                     .common(self.vector_bits(table, input));
-                (common.mask & !replaced == !replaced).then_some(input)
+                (observed & !replaced & !common.mask == 0).then_some(input)
+            }
+            ValueDefinition::Expression(Expression::Unary {
+                operator: Unary::LowBits { bits },
+                input,
+            }) if table[input].ty == table[id].ty
+                && observed & !u128::from(crate::integer::low_mask(bits)) == 0 =>
+            {
+                Some(input)
             }
             _ => None,
         }

@@ -49,41 +49,22 @@ impl ReducedFlow {
                         .map(|parent| reducers[parent].as_ref().unwrap().analysis().clone())
                         .unwrap_or_default()
                 });
-            let edge = if let [source] = sources.as_slice() {
-                match &exits[*source] {
-                    Exit::If {
-                        condition,
-                        taken,
-                        otherwise,
-                    } if taken.target != otherwise.target => Some(Assumption::Truth {
-                        condition: *condition,
-                        truth: taken.target.0 == block,
-                    }),
-                    Exit::Switch {
-                        selector,
-                        cases,
-                        default,
-                    } if default.target.0 != block => {
-                        let mut keys = cases
-                            .iter()
-                            .filter(|(_, edge)| edge.target.0 == block)
-                            .map(|(key, _)| *key);
-                        match (keys.next(), keys.next()) {
-                            (Some(value), None) => Some(Assumption::Bits {
-                                value: *selector,
-                                mask: graph.values[*selector].ty.mask(),
-                                bits: u64::from(value),
-                            }),
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                }
+            let observations = if let [source] = sources.as_slice() {
+                let authored = edge_observation(&graph.values, &exits[*source], BlockId(block));
+                let reduced =
+                    edge_observation(&graph.values, &graph.blocks[*source].exit, BlockId(block));
+                // Both predicates describe the same edge. Keep authored facts for
+                // original recipes and reduced facts for their new normal forms.
+                [
+                    authored,
+                    reduced.filter(|observation| Some(*observation) != authored),
+                ]
             } else {
-                None
+                [None; 2]
             };
-            let mut reducer =
-                Reducer::from_analysis(incoming.with_assumptions(&graph.values, edge));
+            let mut reducer = Reducer::from_analysis(
+                incoming.with_assumptions(&graph.values, observations.into_iter().flatten()),
+            );
             for item in &graph.blocks[block].items {
                 let BlockItem::Effect(id) = item else {
                     unreachable!()
@@ -157,4 +138,37 @@ fn incoming_analysis(
         &graph.blocks[block].parameters,
         &incoming,
     ))
+}
+
+/// A unique outgoing alternative contributes a truth or selector observation.
+fn edge_observation(values: &ValueTable, exit: &Exit, target: BlockId) -> Option<Assumption> {
+    match exit {
+        Exit::If {
+            condition,
+            taken,
+            otherwise,
+        } if taken.target != otherwise.target => Some(Assumption::Truth {
+            condition: *condition,
+            truth: taken.target == target,
+        }),
+        Exit::Switch {
+            selector,
+            cases,
+            default,
+        } if default.target != target => {
+            let mut keys = cases
+                .iter()
+                .filter(|(_, edge)| edge.target == target)
+                .map(|(key, _)| *key);
+            match (keys.next(), keys.next()) {
+                (Some(value), None) => Some(Assumption::Bits {
+                    value: *selector,
+                    mask: values[*selector].ty.mask(),
+                    bits: u64::from(value),
+                }),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }

@@ -107,7 +107,7 @@ where
         match operator {
             BitwiseOp::Or => observed & !other_zeros & !self.value == T::default(),
             BitwiseOp::And => observed & !other.value & !zeros == T::default(),
-            BitwiseOp::Xor => false,
+            BitwiseOp::Xor => observed & !other_zeros == T::default(),
         }
     }
 }

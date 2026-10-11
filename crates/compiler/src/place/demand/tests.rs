@@ -23,7 +23,13 @@ fn schedules(
             }
         })
         .collect();
-    super::schedule_roots(graph, reachable, dominators, &roots)
+    super::schedule_roots(
+        graph,
+        reachable,
+        dominators,
+        &roots,
+        &super::requirements(graph, dominators),
+    )
 }
 
 struct Branches {
@@ -420,7 +426,13 @@ fn an_optional_recipe_does_not_require_its_discarded_inputs() {
         &successors(&branches.graph, &reachable),
         &predecessors(&branches.graph, &reachable),
     );
-    let schedules = super::schedule_roots(&branches.graph, &reachable, &dominators, &roots);
+    let schedules = super::schedule_roots(
+        &branches.graph,
+        &reachable,
+        &dominators,
+        &roots,
+        &super::requirements(&branches.graph, &dominators),
+    );
     // The generic choice offers reuse in the taken arm, but that arm's
     // residual uses no product. It cannot witness a shared multiplication.
     assert!(!schedules[0].contains(&branches.product));

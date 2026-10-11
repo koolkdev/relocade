@@ -12,6 +12,22 @@ use crate::{
 };
 
 impl ValueAnalysis {
+    /// Physical zeros supplement logical facts; a logical width never supplies
+    /// them by itself. Stored literals already describe their complete carrier.
+    pub(super) fn scalar_carrier_bits(&self, table: &ValueTable, id: usize) -> Bits {
+        let mask = table[id].ty.carrier().mask();
+        if let Some(value) = table[id].scalar_literal() {
+            return Bits {
+                mask,
+                value: value & mask,
+            };
+        }
+        self.bits(table, id).union(Bits {
+            mask: mask & !low_mask(table.bounds[id].unsigned),
+            value: 0,
+        })
+    }
+
     /// Scalar queries keep their cache entries and returned encodings at u64 width.
     pub(super) fn bits(&self, table: &ValueTable, root: usize) -> Bits {
         if !table[root].ty.is_scalar() {

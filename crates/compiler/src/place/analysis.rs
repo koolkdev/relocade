@@ -199,4 +199,25 @@ impl ValueAnalysis {
         let bits = self.vector_bits(table, id);
         (bits.mask == u128::MAX).then_some(bits.value)
     }
+
+    /// Bits outside the observation may take any value in this replacement.
+    /// Such a constant must not become a complete semantic equivalence.
+    pub(in crate::place) fn observed_constant(
+        &self,
+        table: &ValueTable,
+        id: usize,
+        observed: u128,
+    ) -> Option<u128> {
+        if observed == 0 {
+            return Some(0);
+        }
+        if table[id].ty.is_scalar() {
+            let bits = self.scalar_carrier_bits(table, id);
+            let mask = observed as u64 & table[id].ty.carrier().mask();
+            (bits.mask & mask == mask).then_some(u128::from(bits.value & mask))
+        } else {
+            let bits = self.vector_bits(table, id);
+            (bits.mask & observed == observed).then_some(bits.value & observed)
+        }
+    }
 }

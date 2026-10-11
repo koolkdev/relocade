@@ -13,6 +13,8 @@ use wasm86_compiler::{Argument, BuildError, Program, Type, Val, F64, I1, I32, I8
 
 #[path = "vectors/facts.rs"]
 mod facts;
+#[path = "vectors/observations.rs"]
+mod observations;
 
 use wasmparser::{Operator, Parser, Payload};
 

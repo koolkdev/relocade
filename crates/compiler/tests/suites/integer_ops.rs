@@ -7,6 +7,8 @@ use wasmparser::{Operator, Parser, Payload, Validator};
 mod addressing;
 #[path = "integer_ops/bit_fields.rs"]
 mod bit_fields;
+#[path = "integer_ops/observations.rs"]
+mod observations;
 #[path = "integer_ops/offsets.rs"]
 mod offsets;
 #[path = "integer_ops/scalars.rs"]

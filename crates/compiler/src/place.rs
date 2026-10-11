@@ -108,7 +108,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
         predecessors = self::predecessors(graph, &reachable);
         dominators = Dominators::new(graph.entry.0, &successors(graph, &reachable), &predecessors);
     }
-    let shared = demand::schedules(graph, &reachable, &dominators, &flow);
+    let plan = demand::Plan::new(graph, &reachable, &dominators, &flow);
     let mut children = vec![Vec::new(); graph.blocks.len()];
     for (block, parent) in dominators.parent.iter().enumerate() {
         if let Some(parent) = parent {
@@ -128,7 +128,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
         reachable,
         flow,
         available: Availability::default(),
-        shared,
+        plan,
         joins,
     };
     enum Visit {
@@ -177,7 +177,7 @@ struct Placer<'a> {
     reachable: Vec<bool>,
     flow: ReducedFlow,
     available: Availability,
-    shared: Vec<Vec<usize>>,
+    plan: demand::Plan,
     joins: Joins,
 }
 impl Placer<'_> {
@@ -197,7 +197,7 @@ impl Placer<'_> {
                 self.available.bind(result, result);
             }
         }
-        for value in std::mem::take(&mut self.shared[block.0]) {
+        for value in std::mem::take(&mut self.plan.shared[block.0]) {
             self.materialize(value, block);
         }
         let previous_targets: Vec<_> = self

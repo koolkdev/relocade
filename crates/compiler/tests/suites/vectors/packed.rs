@@ -8,6 +8,8 @@ mod folding;
 mod multiply;
 #[path = "packed/narrow.rs"]
 mod narrow;
+#[path = "packed/observations.rs"]
+mod observations;
 #[path = "packed/saturation.rs"]
 mod saturation;
 #[path = "packed/shuffle.rs"]

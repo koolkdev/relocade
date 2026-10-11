@@ -176,9 +176,9 @@ fn scalar_observation_proves_only_its_vector_lane_and_leaves_with_its_scope() {
             right: low,
         },
     );
-    assert_eq!(facts.identity(&values, round_trip), Some(input));
+    assert_eq!(facts.identity(&values, round_trip, u128::MAX), Some(input));
     assert!(facts.derived.borrow().vectors.is_none());
-    assert_eq!(facts.identity(&values, restored), None);
+    assert_eq!(facts.identity(&values, restored, u128::MAX), None);
     let scope = facts.enter(
         &values,
         [Assumption::Truth {
@@ -193,12 +193,12 @@ fn scalar_observation_proves_only_its_vector_lane_and_leaves_with_its_scope() {
             value: 0
         }
     );
-    assert_eq!(facts.identity(&values, restored), Some(input));
+    assert_eq!(facts.identity(&values, restored, u128::MAX), Some(input));
     assert_eq!(facts.vector_constant(&values, input), None);
     let snapshot = facts.clone();
     facts.leave(scope);
-    assert_eq!(facts.identity(&values, restored), None);
-    assert_eq!(snapshot.identity(&values, restored), Some(input));
+    assert_eq!(facts.identity(&values, restored, u128::MAX), None);
+    assert_eq!(snapshot.identity(&values, restored, u128::MAX), Some(input));
 }
 
 #[test]
@@ -542,5 +542,5 @@ fn replacement_width_survives_a_wider_scalar_alias() {
         },
     );
     // Equal lane indices with different widths name different bit intervals.
-    assert_eq!(facts.identity(&values, different_width), None);
+    assert_eq!(facts.identity(&values, different_width, u128::MAX), None);
 }
