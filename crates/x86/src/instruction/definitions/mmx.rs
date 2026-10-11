@@ -7,6 +7,7 @@ use crate::register::RegisterCode;
 use wasm86_compiler::{MemoryInt, I16, I64, V128};
 
 mod binary;
+mod pack;
 mod shifts;
 mod transfers;
 mod unpack;
@@ -14,6 +15,7 @@ mod unpack;
 pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
     binary::forms()
         .chain(shifts::forms())
+        .chain(pack::forms())
         .chain(transfers::forms())
         .chain(unpack::forms())
 }

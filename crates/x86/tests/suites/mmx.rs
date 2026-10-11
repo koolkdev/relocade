@@ -8,6 +8,8 @@ mod comparisons;
 mod faults;
 #[path = "mmx/logical.rs"]
 mod logical;
+#[path = "mmx/packing.rs"]
+mod packing;
 #[path = "mmx/saturation.rs"]
 mod saturation;
 #[path = "mmx/shifts.rs"]

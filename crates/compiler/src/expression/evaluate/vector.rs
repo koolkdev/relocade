@@ -68,3 +68,27 @@ pub(super) fn shuffle(left: u128, right: u128, lanes: [u8; 16]) -> u128 {
     let inputs = [left.to_le_bytes(), right.to_le_bytes()];
     u128::from_le_bytes(lanes.map(|lane| inputs[usize::from(lane / 16)][usize::from(lane % 16)]))
 }
+
+pub(super) fn narrow(signed: bool, result_lane: Type, left: u128, right: u128) -> u128 {
+    let input_lane = match result_lane {
+        Type::I8 => Type::I16,
+        Type::I16 => Type::I32,
+        _ => unreachable!("narrowing produces byte or word lanes"),
+    };
+    let (minimum, maximum) = if signed {
+        let limit = 1_i64 << (result_lane.bits() - 1);
+        (-limit, limit - 1)
+    } else {
+        (0, result_lane.mask() as i64)
+    };
+    let mut bits = 0_u128;
+    for (half, input) in [left, right].into_iter().enumerate() {
+        for lane in 0..128 / input_lane.bits() {
+            let value =
+                integer::signed_value(input_lane, (input >> (lane * input_lane.bits())) as u64);
+            let result = value.clamp(minimum, maximum) as u64 & result_lane.mask();
+            bits |= u128::from(result) << (half * 64 + usize::from(lane * result_lane.bits()));
+        }
+    }
+    bits
+}

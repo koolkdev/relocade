@@ -70,3 +70,13 @@ pub(super) fn replace(lane_type: Type, lane: u8) -> Instruction<'static> {
         _ => unreachable!("integer lanes have 8, 16, 32 or 64 bits"),
     }
 }
+
+pub(super) fn narrow(signed: bool, result_lane: Type) -> Instruction<'static> {
+    match (signed, result_lane) {
+        (true, Type::I8) => Instruction::I8x16NarrowI16x8S,
+        (false, Type::I8) => Instruction::I8x16NarrowI16x8U,
+        (true, Type::I16) => Instruction::I16x8NarrowI32x4S,
+        (false, Type::I16) => Instruction::I16x8NarrowI32x4U,
+        _ => unreachable!("narrowing produces byte or word lanes"),
+    }
+}
