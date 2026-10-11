@@ -9,17 +9,17 @@ mod dominance;
 mod effects;
 mod joins;
 mod reads;
+mod reduce;
 mod shared;
-mod specialize;
 #[cfg(test)]
 mod tests;
 mod value;
-use analysis::{ContextScope, ValueAnalysis};
+use analysis::ValueAnalysis;
 use availability::{Availability, Checkpoint};
 use dominance::Dominators;
 use effects::Effects;
 use joins::Joins;
-use specialize::{EdgeAssumption, Specializer};
+use reduce::{EdgeAssumption, Reducer, ReductionScope};
 
 /// Call summaries describe authored bodies, before placement removes dead work.
 pub(super) struct Placement {
@@ -118,7 +118,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
     let mut placer = Placer {
         graph,
         reachable,
-        specializer: Specializer::default(),
+        reducer: Reducer::default(),
         available: Availability::default(),
         shared,
         joins,
@@ -128,7 +128,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
         Leave {
             block: usize,
             checkpoint: Checkpoint,
-            scope: ContextScope,
+            scope: ReductionScope,
         },
     }
     let mut work = vec![Visit::Enter(placer.graph.entry.0)];
@@ -149,7 +149,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
                 // every entrance. Establish the whole context before placement queries.
                 let edge = if predecessors[index].len() == 1 {
                     let source = predecessors[index][0];
-                    match &placer.graph.blocks[source].exit {
+                    match placer.joins.semantic_exit(source) {
                         Exit::If {
                             condition,
                             taken,
@@ -180,12 +180,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
                 } else {
                     None
                 };
-                let scope = placer.specializer.begin_block(
-                    &placer.graph.values,
-                    &placer.available,
-                    incoming,
-                    edge,
-                );
+                let scope = placer.reducer.enter(&placer.graph.values, incoming, edge);
                 placer.block(BlockId(index));
                 placer
                     .joins
@@ -203,8 +198,8 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
                 scope,
             } => {
                 placer.available.restore(checkpoint);
-                placer.joins.complete(block, placer.specializer.analysis());
-                placer.specializer.end_block(scope);
+                placer.joins.complete(block, placer.reducer.analysis());
+                placer.reducer.leave(scope);
             }
         }
     }
@@ -213,7 +208,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
 struct Placer<'a> {
     graph: &'a mut FunctionGraph,
     reachable: Vec<bool>,
-    specializer: Specializer,
+    reducer: Reducer,
     available: Availability,
     shared: Vec<Vec<usize>>,
     joins: Joins,

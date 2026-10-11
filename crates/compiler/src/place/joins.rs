@@ -37,6 +37,7 @@ struct JoinArguments {
 
 pub(super) struct Joins {
     dominators: Dominators,
+    semantic_exits: Vec<Exit>,
     predecessors: Vec<Vec<usize>>,
     blocks: Vec<BlockValues>,
     incoming: Vec<Vec<usize>>,
@@ -68,6 +69,11 @@ impl Joins {
         }
         Self {
             dominators,
+            semantic_exits: graph
+                .blocks
+                .iter()
+                .map(|block| block.exit.clone())
+                .collect(),
             predecessors: predecessors.to_vec(),
             blocks: (0..count).map(|_| BlockValues::default()).collect(),
             incoming,
@@ -75,6 +81,10 @@ impl Joins {
             inputs: (0..count).map(|_| None).collect(),
             joins_by_recipe: vec![Vec::new(); graph.values.len()],
         }
+    }
+
+    pub(super) fn semantic_exit(&self, block: usize) -> &Exit {
+        &self.semantic_exits[block]
     }
 
     pub(super) fn record(&mut self, block: usize, values: impl Iterator<Item = (usize, usize)>) {
@@ -131,11 +141,17 @@ impl Joins {
             .iter()
             .flat_map(|&source| {
                 let facts = self.blocks[source].facts.as_ref().unwrap().analysis();
-                graph
-                    .outgoing(BlockId(source))
+                // The executed edge determines reachability; facts describe its
+                // semantic arguments, never the execution aliases on that edge.
+                let selected = graph.blocks[source].exit.constant_edge_index(&graph.values);
+                self.semantic_exits[source]
+                    .edges()
                     .into_iter()
-                    .filter(move |edge| edge.target.0 == join)
-                    .map(move |edge| (facts, edge.arguments.as_slice()))
+                    .enumerate()
+                    .filter(move |(index, edge)| {
+                        edge.target.0 == join && selected.is_none_or(|selected| selected == *index)
+                    })
+                    .map(move |(_, edge)| (facts, edge.arguments.as_slice()))
             })
             .collect();
         let facts = ValueAnalysis::join(&graph.values, &graph.blocks[join].parameters, &incoming);
@@ -156,7 +172,10 @@ impl Joins {
                 }
                 block = self.dominators.parent[block].unwrap();
             }
-            incoming.push(IncomingValues::new(source));
+            incoming.push(IncomingValues::new(
+                source,
+                self.blocks[source].facts.as_ref().unwrap().analysis(),
+            ));
         }
         if candidates.is_empty() {
             return Some(facts);
