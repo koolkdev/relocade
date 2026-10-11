@@ -1,6 +1,9 @@
 //! Integer lane operations preserve their logical widths independently.
 
-use crate::{expression::LaneBinaryOp, Expression, IntType, Val, I16, I32, I64, I8, V128};
+use crate::{
+    expression::LaneBinaryOp, AtLeast, DoubleWidth, Expression, IntType, Val, I16, I32, I64, I8,
+    V128,
+};
 use crate::{expression::ShuffleMask, integer::ShiftOp};
 
 /// An integer lane width in a 128-bit vector: I8, I16, I32 or I64.
@@ -50,6 +53,26 @@ impl Val<V128> {
     /// Borrows never cross a lane boundary.
     pub fn sub_lanes<T: VectorLane>(&self, right: impl Into<Self>) -> Self {
         self.binary_lanes::<T>(LaneBinaryOp::Sub, right.into())
+    }
+
+    /// Multiplies corresponding I16, I32 or I64 lanes, wrapping at the lane width.
+    pub fn mul_lanes<T: VectorLane + AtLeast<I16>>(&self, right: impl Into<Self>) -> Self {
+        self.binary_lanes::<T>(LaneBinaryOp::Mul, right.into())
+    }
+
+    /// Multiplies signed T lanes in the low 64 bits, producing double-width lanes.
+    /// The high halves of both inputs are ignored. T is I8, I16 or I32.
+    pub fn signed_widening_mul_low_lanes<T: VectorLane + DoubleWidth>(
+        &self,
+        right: impl Into<Self>,
+    ) -> Self {
+        self.binary_lanes::<T>(LaneBinaryOp::WideningMulLowSigned, right.into())
+    }
+
+    /// Multiplies corresponding signed I16 lanes and adds adjacent products.
+    /// Produces four I32 lanes, with each sum wrapping at 32 bits.
+    pub fn signed_dot_i16_pairs(&self, right: impl Into<Self>) -> Self {
+        self.binary_lanes::<I16>(LaneBinaryOp::DotI16Signed, right.into())
     }
 
     /// Compares corresponding integer lanes for equality, returning all-one bits

@@ -2,6 +2,8 @@
 
 #[path = "packed/comparisons.rs"]
 mod comparisons;
+#[path = "packed/multiply.rs"]
+mod multiply;
 #[path = "packed/narrow.rs"]
 mod narrow;
 #[path = "packed/saturation.rs"]
@@ -18,14 +20,14 @@ fn arithmetic<T: VectorLane>(v8: bool, left: u128, right: u128, sum: u128, diffe
     });
 }
 
-fn binary_results(
+fn binary_results<const N: usize>(
     v8: bool,
     left: u128,
     right: u128,
-    results: [u128; 2],
-    operations: impl Fn(Val<V128>, Val<V128>) -> [Val<V128>; 2],
+    results: [u128; N],
+    operations: impl Fn(Val<V128>, Val<V128>) -> [Val<V128>; N],
 ) {
-    let mut bytes = vec![0xa5; 96];
+    let mut bytes = vec![0xa5; 32 + 32 * N];
     bytes[..16].copy_from_slice(&left.to_le_bytes());
     bytes[16..32].copy_from_slice(&right.to_le_bytes());
     let mut fixture = Fixture::new();
