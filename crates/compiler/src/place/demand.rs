@@ -3,6 +3,9 @@ use super::*;
 use crate::integer::BinaryOp;
 use std::collections::HashSet;
 
+mod bits;
+pub(super) use bits::inputs;
+
 #[cfg(test)]
 mod tests;
 
@@ -122,19 +125,25 @@ impl Demand {
     }
 }
 
-// Sites from all components accumulate at their producer, while each result
-// keeps its own use bit so specialization can discard them independently.
+// Sites from all components accumulate at their producer. Each result keeps
+// its own liveness and observed bits for independent specialization.
 #[derive(Clone, Default)]
 struct ResultDemand {
     sites: Demand,
     used: bool,
+    bits: u128,
 }
 
-pub(super) fn schedules(
+pub(super) struct Demands {
+    pub(super) schedules: Vec<Vec<usize>>,
+    pub(super) bits: Vec<u128>,
+}
+
+pub(super) fn analyze(
     graph: &FunctionGraph,
     reachable: &[bool],
     dominators: &Dominators,
-) -> Vec<Vec<usize>> {
+) -> Demands {
     let count = graph.blocks.len();
     let mut successors = successors(graph, reachable);
     successors.push(Vec::new());
@@ -195,14 +204,16 @@ pub(super) fn schedules(
     // Only required sites need individual identities. Other demands contribute
     // their common dominator and whether they span more than one block.
     let mut demands = vec![ResultDemand::default(); graph.values.len()];
-    let demand = |value: usize, sites: &Demand, retained: bool, demands: &mut [ResultDemand]| {
-        if let Some(result) = graph.values.expression(value) {
-            demands[value].used |= sites.common_block.is_some();
-            demands[result.producer]
-                .sites
-                .merge(sites, retained, dominators);
-        }
-    };
+    let demand =
+        |value: usize, bits: u128, sites: &Demand, retained: bool, demands: &mut [ResultDemand]| {
+            demands[value].bits |= bits;
+            if let Some(result) = graph.values.expression(value) {
+                demands[value].used |= sites.common_block.is_some();
+                demands[result.producer]
+                    .sites
+                    .merge(sites, retained, dominators);
+            }
+        };
     for (block, data) in graph.blocks.iter().enumerate() {
         if !reachable[block] {
             continue;
@@ -211,12 +222,24 @@ pub(super) fn schedules(
         for item in &data.items {
             if let BlockItem::Effect(id) = item {
                 for input in graph.effects[id.0].operation.inputs() {
-                    demand(input, &sites, true, &mut demands);
+                    demand(
+                        input,
+                        graph.values[input].ty.carrier().bit_mask(),
+                        &sites,
+                        true,
+                        &mut demands,
+                    );
                 }
             }
         }
         for input in data.exit.inputs() {
-            demand(input, &sites, true, &mut demands);
+            demand(
+                input,
+                graph.values[input].ty.carrier().bit_mask(),
+                &sites,
+                true,
+                &mut demands,
+            );
         }
     }
     let mut schedules = vec![Vec::new(); count];
@@ -225,6 +248,20 @@ pub(super) fn schedules(
             continue;
         };
         let mut sites = std::mem::take(&mut demands[id].sites);
+        if sites.common_block.is_none() {
+            continue;
+        }
+        // All consumers contribute before any specialization chooses a residual.
+        // Edge arguments remain full observations, including loop backedges.
+        let mut required_bits = expression.map(|_| 0_u128);
+        for result in graph.values.expression_results(id) {
+            if !demands[result].used {
+                continue;
+            }
+            let inputs = inputs(&graph.values, result, demands[result].bits);
+            let mut masks = inputs.inputs();
+            required_bits = required_bits.map(|&mask| mask | masks.next().unwrap());
+        }
         if sites.multiple_blocks {
             let candidate = sites.common_block.unwrap();
             // Limit collective coverage to retained calculation inputs, to avoid
@@ -255,7 +292,7 @@ pub(super) fn schedules(
                 }
             }
         }
-        for &input in expression.inputs() {
+        for (&input, &bits) in expression.inputs().zip(required_bits.inputs()) {
             // These operations preserve the operand dependency. Path facts may
             // still eliminate the whole calculation; placement checks that
             // separately before materializing a shared root.
@@ -278,13 +315,16 @@ pub(super) fn schedules(
                 demands[result.producer].sites.retained_input |=
                     required && sites.common_block.is_some();
             }
-            demand(input, &sites, required, &mut demands);
+            demand(input, bits, &sites, required, &mut demands);
         }
     }
     for schedule in &mut schedules {
         schedule.reverse();
     }
-    schedules
+    Demands {
+        schedules,
+        bits: demands.into_iter().map(|demand| demand.bits).collect(),
+    }
 }
 
 // A set of demands can cover every path even when no single site does.

@@ -105,7 +105,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
     reads::prepare(graph, summaries, &reachable);
     let predecessors = predecessors(graph, &reachable);
     let dominators = Dominators::new(graph.entry.0, &successors(graph, &reachable), &predecessors);
-    let shared = demand::schedules(graph, &reachable, &dominators);
+    let demands = demand::analyze(graph, &reachable, &dominators);
     let mut children = vec![Vec::new(); graph.blocks.len()];
     for (block, parent) in dominators.parent.iter().enumerate() {
         if let Some(parent) = parent {
@@ -123,9 +123,9 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
     let mut placer = Placer {
         graph,
         reachable,
-        specializer: Specializer::default(),
+        specializer: Specializer::new(demands.bits),
         available: Availability::default(),
-        shared,
+        shared: demands.schedules,
         joins,
     };
     enum Visit {

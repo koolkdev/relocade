@@ -1,4 +1,4 @@
-//! Operand identities proved for the complete encoding, including carrier bits.
+//! Operand identities proved for the observed encoding bits.
 
 use super::ValueFacts;
 use crate::{
@@ -8,14 +8,19 @@ use crate::{
 };
 
 impl ValueFacts {
-    pub(in crate::place) fn identity(&self, table: &ValueTable, id: usize) -> Option<usize> {
+    pub(in crate::place) fn identity(
+        &self,
+        table: &ValueTable,
+        id: usize,
+        observed: u128,
+    ) -> Option<usize> {
         match table[id].definition {
             ValueDefinition::Expression(Expression::Bitwise {
                 operator,
                 left,
                 right,
             }) if matches!(operator, BitwiseOp::And | BitwiseOp::Or) => {
-                let mask = table[id].ty.carrier().bit_mask();
+                let mask = observed & table[id].ty.carrier().bit_mask();
                 // Logical facts leave upper scalar carrier bits unknown. Only
                 // physical bounds can prove those bits zero.
                 let a = self
@@ -39,6 +44,10 @@ impl ValueFacts {
                 value,
                 lane,
             }) => {
+                let replaced = table[value].ty.bit_mask() << (lane * table[value].ty.bits());
+                if observed & replaced == 0 {
+                    return Some(vector);
+                }
                 let ValueDefinition::Expression(Expression::VectorExtract {
                     input,
                     lane: extracted,
@@ -49,9 +58,14 @@ impl ValueFacts {
                 if lane != extracted {
                     return None;
                 }
-                let replaced = table[value].ty.bit_mask() << (lane * table[value].ty.bits());
                 let same = self.bits(table, vector).common(self.bits(table, input));
-                (same.mask & !replaced == !replaced).then_some(input)
+                (observed & !replaced & !same.mask == 0).then_some(input)
+            }
+            ValueDefinition::Expression(Expression::LowBits { input, bits })
+                if table[input].ty == table[id].ty
+                    && observed & !u128::from(crate::integer::low_mask(bits)) == 0 =>
+            {
+                Some(input)
             }
             _ => None,
         }

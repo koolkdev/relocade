@@ -1,5 +1,7 @@
 //! Vector encodings follow the same value, effect and control-flow contracts as scalars.
 
+#[path = "vectors/demand.rs"]
+mod demand;
 #[path = "vectors/facts.rs"]
 mod facts;
 #[path = "vectors/folding.rs"]
@@ -12,6 +14,18 @@ use crate::{
     wasm::{Input, MemoryBytes, Observation, TestModule, Value},
 };
 use wasm86_compiler::{Argument, BuildError, Program, Type, Val, F64, I1, I32, I8, V128};
+use wasmparser::{Operator, Parser, Payload};
+
+fn operators(module: &TestModule) -> Vec<Operator<'_>> {
+    Parser::new(0)
+        .parse_all(module.bytes())
+        .filter_map(|payload| match payload.unwrap() {
+            Payload::CodeSectionEntry(body) => Some(body.get_operators_reader().unwrap()),
+            _ => None,
+        })
+        .flat_map(|reader| reader.into_iter().map(Result::unwrap))
+        .collect()
+}
 
 const LEFT: u128 = 0x01234567_89abcdef_fedcba98_76543210;
 const RIGHT: u128 = 0xf0f00f0f_55aaaa55_3333cccc_00ffff00;

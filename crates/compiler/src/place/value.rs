@@ -47,8 +47,8 @@ impl Placer<'_> {
             }
             self.available.evaluate(self.graph, block, result.producer);
         }
-        let result = self.available.get(residual).unwrap_or(residual);
-        self.available.bind(root, result);
-        result
+        // Complete aliases were published by specialization. A partially
+        // observed root must never acquire an unrestricted binding here.
+        self.available.get(residual).unwrap_or(residual)
     }
 }

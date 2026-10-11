@@ -55,7 +55,7 @@ fn scalar_observation_proves_only_its_vector_lane_and_leaves_with_its_scope() {
         },
     );
     let mut facts = ValueFacts::default();
-    assert_eq!(facts.identity(&values, restored), None);
+    assert_eq!(facts.identity(&values, restored, u128::MAX), None);
     let checkpoint = facts.checkpoint();
     facts.assume(&values, condition, true);
     assert_eq!(
@@ -65,12 +65,12 @@ fn scalar_observation_proves_only_its_vector_lane_and_leaves_with_its_scope() {
             value: 0
         }
     );
-    assert_eq!(facts.identity(&values, restored), Some(input));
+    assert_eq!(facts.identity(&values, restored, u128::MAX), Some(input));
     assert_eq!(facts.constant(&values, input), None);
     let snapshot = facts.clone();
     facts.restore(checkpoint);
-    assert_eq!(facts.identity(&values, restored), None);
-    assert_eq!(snapshot.identity(&values, restored), Some(input));
+    assert_eq!(facts.identity(&values, restored, u128::MAX), None);
+    assert_eq!(snapshot.identity(&values, restored, u128::MAX), Some(input));
 }
 
 #[test]

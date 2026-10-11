@@ -1,5 +1,6 @@
 //! Fold recipes under one set of path facts without scheduling calculations.
 use super::*;
+use std::rc::Rc;
 
 #[cfg(test)]
 mod tests;
@@ -7,7 +8,15 @@ mod tests;
 #[derive(Default)]
 pub(super) struct Specializer {
     facts: ValueFacts,
-    residuals: HashMap<usize, usize>,
+    residuals: HashMap<Observation, usize>,
+    demands: Rc<[u128]>,
+}
+
+/// A residual preserves these carrier bits of its source recipe.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct Observation {
+    recipe: usize,
+    bits: u128,
 }
 
 /// Restore inherited facts by undoing changes; suspend them when a join replaces them.
@@ -27,6 +36,31 @@ pub(super) struct Specialization {
 }
 
 impl Specializer {
+    pub(super) fn new(demands: Vec<u128>) -> Self {
+        Self {
+            demands: demands.into(),
+            ..Self::default()
+        }
+    }
+
+    fn observation(&self, values: &ValueTable, recipe: usize, bits: u128) -> Observation {
+        Observation {
+            recipe,
+            bits: (bits | self.demands.get(recipe).copied().unwrap_or(0))
+                & values[recipe].ty.carrier().bit_mask(),
+        }
+    }
+
+    fn inputs(&self, values: &ValueTable, observed: Observation) -> Expression<Observation> {
+        let inputs = demand::inputs(values, observed.recipe, observed.bits);
+        let mut bits = inputs.inputs();
+        values
+            .expression(observed.recipe)
+            .unwrap()
+            .expression
+            .map(|&input| self.observation(values, input, *bits.next().unwrap()))
+    }
+
     pub(super) fn begin_block(&mut self, incoming: Option<ValueFacts>) -> BlockScope {
         self.residuals.clear();
         match incoming {
@@ -64,6 +98,7 @@ impl Specializer {
         let mut branch = Self {
             facts: self.facts.clone(),
             residuals: HashMap::new(),
+            demands: self.demands.clone(),
         };
         branch.assume(values, available, condition, truth);
         branch
@@ -110,7 +145,8 @@ impl Specializer {
     /// Resolve to values usable under the current path facts and dominance scope.
     /// Placement may create join parameters here; branch previews query existing
     /// values only. The resolver borrows these facts without changing them.
-    /// Each new rewrite reports its alias independently of the memo's lifetime.
+    /// Only complete equivalences escape as aliases. Partial residuals stay in
+    /// this path-scoped cache, keyed by the bits they preserve.
     pub(super) fn specialize(
         &mut self,
         graph: &mut FunctionGraph,
@@ -118,66 +154,81 @@ impl Specializer {
         mut resolve: impl FnMut(&mut FunctionGraph, usize, &ValueFacts) -> Option<usize>,
     ) -> Specialization {
         enum Work {
-            Visit(usize),
-            Finish(usize),
-            Select(usize, usize, usize, usize),
-            Alias(usize, usize),
+            Visit(Observation),
+            Finish(Observation),
+            Select(Observation, Observation, Observation, Observation),
+            Alias(Observation, Observation),
         }
+        let bits = self
+            .demands
+            .get(root)
+            .copied()
+            .unwrap_or_else(|| graph.values[root].ty.carrier().bit_mask());
+        let root = self.observation(&graph.values, root, bits);
         let mut work = vec![Work::Visit(root)];
         let mut aliases = Vec::new();
         while let Some(task) = work.pop() {
             match task {
-                Work::Visit(id) => {
-                    if self.residuals.contains_key(&id) {
-                        continue;
-                    }
+                Work::Visit(observed) => {
+                    let id = observed.recipe;
                     if let Some(result) = self.known_constant(&mut graph.values, id) {
-                        self.record(id, result, &mut aliases);
+                        self.record(&graph.values, observed, result, &mut aliases);
                     } else if let Some(result) = resolve(graph, id, &self.facts) {
-                        self.record(id, result, &mut aliases);
-                    } else if let Some(input) = self.facts.identity(&graph.values, id) {
-                        work.push(Work::Alias(id, input));
+                        self.record(&graph.values, observed, result, &mut aliases);
+                    } else if self.residuals.contains_key(&observed) {
+                        continue;
+                    } else if let Some(input) =
+                        self.facts.identity(&graph.values, id, observed.bits)
+                    {
+                        let input = self.observation(&graph.values, input, observed.bits);
+                        work.push(Work::Alias(observed, input));
                         work.push(Work::Visit(input));
-                    } else if let Some(result) = graph.values.expression(id) {
-                        let expression = result.expression;
+                    } else if graph.values.expression(id).is_some() {
+                        let expression = self.inputs(&graph.values, observed);
                         if let Expression::Select {
                             condition,
                             when_true,
                             when_false,
                         } = expression
                         {
-                            work.push(Work::Select(id, condition, when_true, when_false));
+                            work.push(Work::Select(observed, condition, when_true, when_false));
                             work.push(Work::Visit(condition));
                         } else {
-                            work.push(Work::Finish(id));
+                            work.push(Work::Finish(observed));
                             work.extend(expression.inputs().rev().map(|&v| Work::Visit(v)));
                         }
                     } else {
-                        self.residuals.insert(id, id);
+                        self.residuals.insert(observed, id);
                     }
                 }
-                Work::Select(id, condition, when_true, when_false) => {
+                Work::Select(observed, condition, when_true, when_false) => {
                     let condition = self.residuals[&condition];
                     if let Some(bits) = graph.values[condition].scalar_literal() {
                         let input = if bits == 0 { when_false } else { when_true };
-                        work.push(Work::Alias(id, input));
+                        work.push(Work::Alias(observed, input));
                         work.push(Work::Visit(input));
                     } else {
-                        work.push(Work::Finish(id));
+                        work.push(Work::Finish(observed));
                         work.push(Work::Visit(when_false));
                         work.push(Work::Visit(when_true));
                     }
                 }
-                Work::Alias(id, input) => {
-                    self.record(id, self.residuals[&input], &mut aliases);
+                Work::Alias(observed, input) => {
+                    self.record(
+                        &graph.values,
+                        observed,
+                        self.residuals[&input],
+                        &mut aliases,
+                    );
                 }
-                Work::Finish(id) => {
+                Work::Finish(observed) => {
+                    let id = observed.recipe;
                     let original = graph.values.expression(id).unwrap();
+                    let inputs = self.inputs(&graph.values, observed);
+                    let expression = inputs.map(|input| self.residuals[input]);
                     let producer = graph.values.intern(Value {
                         ty: graph.values[original.producer].ty,
-                        definition: ValueDefinition::Expression(
-                            original.expression.map(|v| self.residuals[v]),
-                        ),
+                        definition: ValueDefinition::Expression(expression),
                     });
                     let rewritten = graph.values.expression_result(producer, original.component);
                     // Rewriting can expose a fact that a joined parameter would
@@ -188,7 +239,9 @@ impl Specializer {
                             constant
                         } else if let Some(available) = resolve(graph, rewritten, &self.facts) {
                             available
-                        } else if let Some(input) = self.facts.identity(&graph.values, rewritten) {
+                        } else if let Some(input) =
+                            self.facts.identity(&graph.values, rewritten, observed.bits)
+                        {
                             input
                         } else {
                             let folded = crate::expression::refold(&mut graph.values, rewritten);
@@ -199,7 +252,7 @@ impl Specializer {
                     let result = self
                         .known_constant(&mut graph.values, result)
                         .unwrap_or(result);
-                    self.record(id, result, &mut aliases);
+                    self.record(&graph.values, observed, result, &mut aliases);
                 }
             }
         }
@@ -214,10 +267,21 @@ impl Specializer {
         Some(values.carrier_literal(values[value].ty, bits))
     }
 
-    fn record(&mut self, recipe: usize, residual: usize, aliases: &mut Vec<Alias>) {
-        self.residuals.insert(recipe, residual);
-        if recipe != residual {
-            aliases.push(Alias { recipe, residual });
+    fn record(
+        &mut self,
+        values: &ValueTable,
+        observed: Observation,
+        residual: usize,
+        aliases: &mut Vec<Alias>,
+    ) {
+        self.residuals.insert(observed, residual);
+        if observed.recipe != residual
+            && observed.bits == values[observed.recipe].ty.carrier().bit_mask()
+        {
+            aliases.push(Alias {
+                recipe: observed.recipe,
+                residual,
+            });
         }
     }
 }

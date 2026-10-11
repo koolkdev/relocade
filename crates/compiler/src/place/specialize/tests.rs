@@ -1,6 +1,8 @@
 use super::*;
 use crate::bitwise::BitwiseOp;
 
+mod observed;
+
 fn conditional_value() -> FunctionGraph {
     let mut graph = FunctionGraph::new();
     let condition = graph.values.push(Value {

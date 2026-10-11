@@ -2,18 +2,6 @@
 
 use super::*;
 use wasm86_compiler::{VectorLane, I16, I64};
-use wasmparser::{Operator, Parser, Payload};
-
-fn operators(module: &TestModule) -> Vec<Operator<'_>> {
-    Parser::new(0)
-        .parse_all(module.bytes())
-        .filter_map(|payload| match payload.unwrap() {
-            Payload::CodeSectionEntry(body) => Some(body.get_operators_reader().unwrap()),
-            _ => None,
-        })
-        .flat_map(|reader| reader.into_iter().map(Result::unwrap))
-        .collect()
-}
 
 fn identities<T: VectorLane>(v8: bool) {
     let mut initial = vec![0xa5; 112];

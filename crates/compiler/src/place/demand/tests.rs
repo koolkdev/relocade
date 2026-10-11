@@ -1,6 +1,8 @@
 use super::*;
 use crate::{memory::MemoryAccess, Mem, Type};
 
+mod bits;
+
 struct Branches {
     graph: FunctionGraph,
     product: usize,
@@ -77,7 +79,7 @@ impl Branches {
             &successors(&self.graph, &reachable),
             &predecessors(&self.graph, &reachable),
         );
-        schedules(&self.graph, &reachable, &dominators)
+        analyze(&self.graph, &reachable, &dominators).schedules
     }
 }
 
