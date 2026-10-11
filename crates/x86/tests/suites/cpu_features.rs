@@ -17,13 +17,6 @@ fn disabled_forms(engine: Engine, frontend: Frontend) {
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
         for (feature, forms) in [
             (
-                CpuFeature::Popcnt,
-                &[
-                    &[0xf3, 0x0f, 0xb8, 0xc3][..],
-                    &[0x66, 0xf3, 0x0f, 0xb8, 0x00],
-                ][..],
-            ),
-            (
                 CpuFeature::Cmov,
                 &[&[0x0f, 0x44, 0xc3][..], &[0x66, 0x0f, 0x44, 0x00]][..],
             ),
@@ -65,11 +58,11 @@ test_frontends!(disabled_forms_preserve_state, disabled_forms);
 
 fn restricted_compiler() -> Compiler {
     Compiler::new(SegmentProfile::Flat32)
-        .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Popcnt, false))
+        .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
 }
 
 fn prior_work(engine: Engine) {
-    let code = [0xbb, 7, 0, 0, 0, 0xf3, 0x0f, 0xb8, 0x03, 0x0f];
+    let code = [0xbb, 7, 0, 0, 0, 0x0f, 0x44, 0x03, 0x0f];
     let image = Image::new(&code);
     let mut cpu = image.cpu;
     cpu.registers.ebx = 7;
@@ -116,13 +109,13 @@ fn complete_fetch(engine: Engine) {
     let module = TestModule::interpreter_with_target(restricted_compiler().target());
     for (code, exit) in [
         (
-            &[0xf3, 0x0f, 0xb8][..],
+            &[0x0f, 0x44][..],
             Exit::PageFault {
                 address: 0x2000,
                 error: 0x10,
             },
         ),
-        (&[0xf3, 0x0f, 0xb8, 0x00][..], Exit::InvalidOpcode),
+        (&[0x0f, 0x44, 0x00][..], Exit::InvalidOpcode),
     ] {
         let mut image = Image::empty();
         image.cpu.eip = 0x2000 - code.len() as u32;
@@ -151,14 +144,13 @@ fn v8_interpreter_fetch_fault_precedes_disabled_feature_fault() {
 #[test]
 fn disabled_forms_remain_decodable_and_unrelated_forms_keep_their_code() {
     assert!(matches!(
-        restricted_compiler().compile_block(0x1000, &[0xf3, 0x0f, 0xb8], 1),
+        restricted_compiler().compile_block(0x1000, &[0x0f, 0x44], 1),
         Err(BlockError::TruncatedInstruction {
             address: 0x1000,
-            available: 3
+            available: 2
         }),
     ));
     let forms = [
-        (CpuFeature::Popcnt, &[0xf3, 0x0f, 0xb8, 0xc3][..]),
         (CpuFeature::Cmov, &[0x0f, 0x44, 0xc3][..]),
         (CpuFeature::Cx8, &[0x0f, 0xc7, 0x08][..]),
         (CpuFeature::Tsc, &[0x0f, 0x31][..]),

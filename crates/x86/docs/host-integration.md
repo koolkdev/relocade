@@ -17,10 +17,10 @@ for `compile_block`, `compile_interpreter` and `compile_interpreter_step`.
 returns the resulting `ExecutionTarget { profile, cpu_model }`. Free compilation
 functions use the default model without CPU observations.
 
-The default model enables the complete optional capabilities CX8, CMOV, POPCNT and TSC.
-For example, `CpuModel::default().with_feature(CpuFeature::Popcnt, false)` disables
-POPCNT. Known encodings requiring a disabled capability raise #UD after complete
-instruction fetch and before operand access, without retiring. They terminate
+The default model enables the complete optional capabilities CX8, CMOV and TSC.
+For example, `CpuModel::default().with_feature(CpuFeature::Cmov, false)` disables
+integer conditional moves. Known encodings requiring a disabled capability raise
+#UD after complete instruction fetch and before operand access, without retiring. They terminate
 snapshot compilation before the next instruction. The capability choice is fixed
 when Wasm is generated, so execution needs no dynamic feature test.
 
@@ -113,19 +113,18 @@ compiling another block. No CPU state is replaced with the observed snapshot.
 CPUID is generated from the compiler's selected `CpuModel` and needs no host
 callback. Leaf 0 reports maximum basic leaf 1 and the vendor
 string `Relocade CPU`. Leaf 1 reports virtual family 6, model 0, stepping 1
-(EAX=`0x00000601`), EBX=0, and the selected capabilities: POPCNT in ECX bit 23,
-TSC in EDX bit 4, CX8 in EDX bit 8 and CMOV in EDX bit 15. Disabling a capability
-clears its bit and rejects its instructions through the shared admission mechanism. Feature
-reporting is independent of real/protected mode and segment assumptions. The
+(EAX=`0x00000601`), EBX=0, ECX=0, and the selected capabilities: TSC in EDX bit 4,
+CX8 in EDX bit 8 and CMOV in EDX bit 15. Disabling a capability clears its bit and
+rejects its instructions through the shared admission mechanism. Feature reporting
+is independent of real/protected mode and segment assumptions. The
 identity does not claim a physical Intel processor.
 
 Only complete feature groups are advertised. Partial x87 support does not establish
 the FPU feature; MMX, SSE, SSE2, FXSAVE/FXRSTOR and unsupported platform
-facilities remain clear. POPCNT is already implemented; its independent bit does
-not advertise SSE4.2 or expand the P4 compatibility target. When adding a feature,
-update the core model only after its advertised behavior and feature combinations
-are supported. In particular, advertising both FPU and CMOV would also promise
-the x87 FCMOV and FCOMI instructions.
+facilities remain clear. Post-P4 extensions such as POPCNT are outside the
+supported instruction subset. When adding a feature, update the core model only
+after its advertised behavior and feature combinations are supported. In particular,
+advertising both FPU and CMOV would also promise the x87 FCMOV and FCOMI instructions.
 
 The full EAX selects the leaf. Both leaves ignore input ECX. Unsupported basic and
 extended queries return leaf 1, following Intel's highest-basic-leaf rule. There
@@ -142,8 +141,6 @@ does not itself invalidate a host code cache. The single-threaded, unshared-memo
 execution contract does not model a processor's speculative pipeline or cache.
 
 These semantics follow Intel's [Volume 2A, CPUID](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf#page=202).
-The later POPCNT bit and its #UD condition are specified in Intel's
-[instruction reference](https://cdrdv2-public.intel.com/774492/325383-sdm-vol-2abcd.pdf).
 
 ## Timestamp counter
 

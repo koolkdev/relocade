@@ -142,7 +142,7 @@ fn ordering(engine: Engine) {
     let mut cpu = image.cpu;
     cpu.registers.eax = 0x601;
     cpu.registers.ebx = 0;
-    cpu.registers.ecx = 0x0080_0000;
+    cpu.registers.ecx = 0;
     cpu.registers.edx = 0x8110;
     cpu.eip += 4;
     cpu.instruction_count = cpu.instruction_count.wrapping_add(2);

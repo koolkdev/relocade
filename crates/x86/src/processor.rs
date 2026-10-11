@@ -14,8 +14,6 @@ pub enum CpuFeature {
     Cx8,
     /// Integer conditional moves: CMOVcc. The model does not advertise an FPU.
     Cmov,
-    /// Population count: POPCNT, independently of SSE4.2.
-    Popcnt,
     /// Timestamp reads: RDTSC. Execution profiles separately govern permission.
     Tsc,
 }
@@ -44,10 +42,7 @@ pub struct CpuModel {
 impl Default for CpuModel {
     fn default() -> Self {
         Self {
-            features: CpuFeature::Cx8.mask()
-                | CpuFeature::Cmov.mask()
-                | CpuFeature::Popcnt.mask()
-                | CpuFeature::Tsc.mask(),
+            features: CpuFeature::Cx8.mask() | CpuFeature::Cmov.mask() | CpuFeature::Tsc.mask(),
         }
     }
 }

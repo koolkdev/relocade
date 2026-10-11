@@ -16,7 +16,7 @@ use wasm86_x86::{
 };
 
 const VENDOR: [u32; 4] = [1, 0x6f6c_6552, 0x5550_4320, 0x6564_6163];
-const FEATURES: [u32; 4] = [0x601, 0, 0x0080_0000, 0x0000_8110];
+const FEATURES: [u32; 4] = [0x601, 0, 0, 0x0000_8110];
 
 fn result(mut cpu: CpuState, values: [u32; 4], bytes: u32, count: u32) -> CpuState {
     [

@@ -187,7 +187,7 @@ fn interpreter_links_require_the_same_cpu_model() {
     let compilers = [
         Compiler::new(SegmentProfile::Flat32),
         Compiler::new(SegmentProfile::Flat32)
-            .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Popcnt, false)),
+            .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false)),
     ];
     for block_compiler in &compilers {
         let block = block_compiler.compile_block(0x1000, &[0x90], 1).unwrap();
