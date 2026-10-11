@@ -26,7 +26,7 @@ fn check_transient_machine_write(engine: Engine) {
         .unwrap();
     program.export("toggle", toggle).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
-        execution_profile: None,
+        execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "toggle".into(),
     });
@@ -61,7 +61,7 @@ fn check_host_memory_edits(engine: Engine) {
         .unwrap();
     program.export("entry", entry).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
-        execution_profile: None,
+        execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "entry".into(),
     });
@@ -117,7 +117,7 @@ fn check_entry_contexts(engine: Engine) {
 
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &[0x90], 1).unwrap());
     assert_eq!(
-        module.profile,
+        module.target.map(|target| target.profile),
         Some(ExecutionProfile::Protected(SegmentProfile::Flat32))
     );
     for profile in [
@@ -125,7 +125,9 @@ fn check_entry_contexts(engine: Engine) {
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
     ] {
         assert_eq!(
-            TestModule::interpreter_with_profile(profile).profile,
+            TestModule::interpreter_with_profile(profile)
+                .target
+                .map(|target| target.profile),
             Some(profile)
         );
     }
@@ -175,4 +177,33 @@ fn profile_admission_uses_patched_contexts_for_actual_calls() {
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn v8_profile_admission_uses_actual_entry_contexts() {
     check_entry_contexts(Engine::V8);
+}
+
+#[test]
+fn interpreter_links_require_the_same_cpu_model() {
+    use crate::{Compiler, CpuFeature, CpuModel};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    let compilers = [
+        Compiler::new(SegmentProfile::Flat32),
+        Compiler::new(SegmentProfile::Flat32).with_cpu_model(
+            CpuModel::default()
+                .with_feature(CpuFeature::Cmov, false)
+                .unwrap(),
+        ),
+    ];
+    for block_compiler in &compilers {
+        let block = block_compiler.compile_block(0x1000, &[0x90], 1).unwrap();
+        for interpreter_compiler in &compilers {
+            let interpreter = TestModule::interpreter_with_target(interpreter_compiler.target());
+            assert_eq!(interpreter.target, Some(interpreter_compiler.target()));
+            let link = catch_unwind(AssertUnwindSafe(|| {
+                TestModule::new(&block).with_interpreter(interpreter)
+            }));
+            assert_eq!(
+                link.is_ok(),
+                block_compiler.target() == interpreter_compiler.target()
+            );
+        }
+    }
 }

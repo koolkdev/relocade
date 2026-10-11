@@ -120,6 +120,14 @@ Forms derive ordinary operand effects. Declare additional effects when accesses
 are implicit, as in [strings](crates/x86/src/instruction/definitions/strings.rs),
 or when a segment load terminates execution under the current assumptions, as in
 [segment instructions](crates/x86/src/instruction/definitions/segments.rs).
+Declare complete optional capabilities with `requires: [Cmov];` alongside the
+family's handler and effects. Each expanded form retains those requirements.
+Shared admission checks the selected `CpuModel` after decoding and before operand
+access; a disabled form raises #UD and ends snapshot capture. Keep the form in the
+decoder catalog so instruction fetch still precedes capability rejection. Declare
+variants separately when their required capabilities differ. Adding one operation
+from an extension does not establish that the complete extension can be advertised.
+
 Use `unconditional_fault` when execution always raises a guest fault, as in UD2,
 so snapshot compilation stops without decoding a successor.
 
