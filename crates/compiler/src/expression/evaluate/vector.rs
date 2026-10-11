@@ -7,6 +7,11 @@ use crate::{
 };
 
 pub(super) fn binary(operator: LaneBinaryOp, lane_type: Type, left: u128, right: u128) -> u128 {
+    match operator {
+        LaneBinaryOp::WideningMulLowSigned => return widening_mul_low(lane_type, left, right),
+        LaneBinaryOp::DotI16Signed => return dot_i16_pairs(left, right),
+        _ => {}
+    }
     let mask = lane_type.mask();
     let mut bits = 0_u128;
     for offset in (0..128).step_by(lane_type.bits() as usize) {
@@ -15,6 +20,7 @@ pub(super) fn binary(operator: LaneBinaryOp, lane_type: Type, left: u128, right:
         let lane = match operator {
             LaneBinaryOp::Add => left.wrapping_add(right),
             LaneBinaryOp::Sub => left.wrapping_sub(right),
+            LaneBinaryOp::Mul => left.wrapping_mul(right),
             LaneBinaryOp::Eq => {
                 if left == right {
                     mask
@@ -43,8 +49,37 @@ pub(super) fn binary(operator: LaneBinaryOp, lane_type: Type, left: u128, right:
                 let limit = 1_i64 << (lane_type.bits() - 1);
                 result.clamp(-limit, limit - 1) as u64
             }
+            LaneBinaryOp::WideningMulLowSigned | LaneBinaryOp::DotI16Signed => {
+                unreachable!("width-changing operations were evaluated above")
+            }
         };
         bits |= u128::from(lane & mask) << offset;
+    }
+    bits
+}
+
+fn widening_mul_low(lane_type: Type, left: u128, right: u128) -> u128 {
+    let result_width = lane_type.bits() * 2;
+    let mask = u64::MAX >> (64 - result_width);
+    let mut bits = 0_u128;
+    for lane in 0..64 / lane_type.bits() {
+        let offset = lane * lane_type.bits();
+        let left = integer::signed_value(lane_type, (left >> offset) as u64);
+        let right = integer::signed_value(lane_type, (right >> offset) as u64);
+        bits |= u128::from((left * right) as u64 & mask) << (lane * result_width);
+    }
+    bits
+}
+
+fn dot_i16_pairs(left: u128, right: u128) -> u128 {
+    let mut bits = 0_u128;
+    for offset in (0..128).step_by(32) {
+        let product = |offset| {
+            integer::signed_value(Type::I16, (left >> offset) as u64)
+                * integer::signed_value(Type::I16, (right >> offset) as u64)
+        };
+        let sum = product(offset) + product(offset + 16);
+        bits |= u128::from(sum as u32) << offset;
     }
     bits
 }
