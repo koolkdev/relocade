@@ -2,9 +2,24 @@
 
 use super::*;
 use crate::instruction::{VectorAlignment, XmmLocation, XmmType};
-use wasm86_compiler::{VectorLane, V128};
+use wasm86_compiler::{VectorLane, I64, V128};
 
 instruction_families! {
+    MOVD_TO_XMM {
+        execute: move_dword_to_xmm;
+        forms { P66 0x0f 0x6e => dword(xmm, rm); }
+    }
+    MOVD_FROM_XMM {
+        execute: move_dword_from_xmm;
+        forms { P66 0x0f 0x7e => dword(rm, xmm); }
+    }
+    MOVQ {
+        execute: move_quadword;
+        forms {
+            PF3 0x0f 0x7e => operands(xmm, xmm_rm);
+            P66 0x0f 0xd6 => operands(xmm_rm, xmm);
+        }
+    }
     MOVUPS {
         execute: move_vector(VectorAlignment::Unaligned);
         forms {
@@ -60,6 +75,41 @@ instruction_families! {
             PF2 0x0f 0x10 => qword(xmm, xmm_rm);
             PF2 0x0f 0x11 => qword(xmm_rm, xmm);
         }
+    }
+}
+
+fn move_dword_to_xmm(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: XmmLocation,
+    source: Input<I32>,
+) -> Result<(), BuildError> {
+    let value = source.read(execution)?;
+    let vector = Val::<V128>::from(0_u128).replace_lane(0, value);
+    destination.write(execution, VectorAlignment::Unaligned, vector)
+}
+
+fn move_dword_from_xmm(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: TypedLocation<I32>,
+    source: XmmLocation,
+) -> Result<(), BuildError> {
+    let value = source.read::<I32>(execution, VectorAlignment::Unaligned)?;
+    destination.write(execution, value)
+}
+
+fn move_quadword(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: XmmLocation,
+    source: XmmLocation,
+) -> Result<(), BuildError> {
+    let value = source.read::<I64>(execution, VectorAlignment::Unaligned)?;
+    match destination {
+        XmmLocation::Register(register) => {
+            // Both MOVQ encodings clear the high half, including register copies.
+            let vector = Val::<V128>::from(0_u128).replace_lane(0, value);
+            execution.write_xmm(register, vector)
+        }
+        memory => memory.write(execution, VectorAlignment::Unaligned, value),
     }
 }
 
