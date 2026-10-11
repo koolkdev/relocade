@@ -14,6 +14,8 @@ mod saturation;
 mod shifts;
 #[path = "mmx/state.rs"]
 mod state;
+#[path = "mmx/unpack.rs"]
+mod unpack;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},

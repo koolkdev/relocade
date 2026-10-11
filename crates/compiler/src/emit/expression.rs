@@ -24,6 +24,7 @@ impl Writer<'_> {
                 lane_type,
                 ..
             } => vector::binary(operator, lane_type),
+            Expression::VectorShuffle { lanes, .. } => Instruction::I8x16Shuffle(lanes.indices()),
             Expression::VectorExtract { lane, .. } => vector::extract(result_type, lane),
             Expression::VectorShift {
                 operator,

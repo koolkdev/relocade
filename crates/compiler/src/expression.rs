@@ -3,7 +3,9 @@
 mod evaluate;
 pub(super) use evaluate::TypedLiteral;
 mod fold;
+mod shuffle;
 pub(crate) use fold::{build, normalize, refold};
+pub(super) use shuffle::ShuffleMask;
 
 #[cfg(test)]
 mod tests;
@@ -40,6 +42,11 @@ pub(super) enum Expression<V> {
         lane_type: Type,
         value: V,
         count: V,
+    },
+    VectorShuffle {
+        left: V,
+        right: V,
+        lanes: ShuffleMask,
     },
     VectorExtract {
         input: V,
@@ -167,6 +174,11 @@ impl<V> Expression<V> {
                 lane_type: *lane_type,
                 left: input(left)?,
                 right: input(right)?,
+            },
+            Self::VectorShuffle { left, right, lanes } => Expression::VectorShuffle {
+                left: input(left)?,
+                right: input(right)?,
+                lanes: *lanes,
             },
             Self::VectorExtract { input: value, lane } => Expression::VectorExtract {
                 input: input(value)?,
