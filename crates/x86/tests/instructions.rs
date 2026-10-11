@@ -62,6 +62,8 @@ mod logical_flags;
 mod memory_access_sequences;
 #[path = "suites/memory_addressing.rs"]
 mod memory_addressing;
+#[path = "suites/mmx.rs"]
+mod mmx;
 #[path = "suites/mov_blocks.rs"]
 mod mov_blocks;
 #[path = "suites/multiply.rs"]

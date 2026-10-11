@@ -1,12 +1,22 @@
 //! Assigns decoded fields to the handler's arguments without reading guest state.
 
-use super::{DecodedFields, LocationBinding, OperandBinding, ResolvedForm};
+use super::{DecodedFields, LocationBinding, OperandBinding, RegisterClass, ResolvedForm};
 use crate::{
     address::EffectiveAddress,
     instruction::{
         handlers::HandlerCall, DecodedInstruction, Instruction, Location, Operand, X87Opcode,
     },
 };
+
+impl RegisterClass {
+    fn location<V>(self, code: crate::register::RegisterCode) -> Location<V> {
+        match self {
+            Self::Gpr => Location::Register(code.into()),
+            Self::Mmx => Location::Mmx(code),
+            Self::Xmm => Location::Xmm(code),
+        }
+    }
+}
 
 impl ResolvedForm {
     pub(crate) fn bind<V: Clone + From<u32>, P>(
@@ -73,20 +83,15 @@ impl ResolvedForm {
         binding: LocationBinding,
     ) -> Location<V> {
         let mut location = match binding {
-            LocationBinding::Register => Location::Register(
+            LocationBinding::Register(class) => class.location(
                 fields
                     .register
                     .clone()
-                    .expect("the form decodes a register")
-                    .into(),
+                    .expect("the form decodes a register"),
             ),
-            LocationBinding::Rm => fields.rm.clone().expect("the form decodes r/m"),
-            LocationBinding::XmmRegister => {
-                Location::Xmm(fields.register.clone().expect("the form decodes ModRM.reg"))
-            }
-            LocationBinding::XmmRm => match fields.rm.clone().expect("the form decodes r/m") {
+            LocationBinding::Rm(class) => match fields.rm.clone().expect("the form decodes r/m") {
                 Location::Register(crate::register::RegisterOperand::Encoded(code)) => {
-                    Location::Xmm(code)
+                    class.location(code)
                 }
                 memory @ Location::Memory(_) => memory,
                 _ => unreachable!("decoded r/m registers retain their encoded field"),
@@ -125,7 +130,8 @@ impl ResolvedForm {
             OperandBinding::Constant(bits) => Operand::Immediate(bits.into()),
             OperandBinding::Location(location) => self.bind_location(fields, location).into(),
             OperandBinding::RmAddress => {
-                let Location::Memory(address) = self.bind_location(fields, LocationBinding::Rm)
+                let Location::Memory(address) =
+                    self.bind_location(fields, LocationBinding::Rm(RegisterClass::Gpr))
                 else {
                     unreachable!("address bindings require a memory addressing mode");
                 };
