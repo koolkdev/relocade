@@ -116,9 +116,7 @@ fn catalog_bindings_select_declared_fields() {
                 );
                 for binding in bindings {
                     match binding {
-                        OperandBinding::Location(
-                            LocationBinding::Register | LocationBinding::XmmRegister,
-                        ) => {
+                        OperandBinding::Location(LocationBinding::Register(_)) => {
                             assert!(matches!(
                                 form.encoding.operands,
                                 OperandEncoding::OpcodeRegister | OperandEncoding::ModRm
@@ -128,7 +126,7 @@ fn catalog_bindings_select_declared_fields() {
                                 "ModRM.reg cannot also be an opcode extension"
                             );
                         }
-                        OperandBinding::Location(LocationBinding::Rm | LocationBinding::XmmRm)
+                        OperandBinding::Location(LocationBinding::Rm(_))
                         | OperandBinding::RmAddress => {
                             assert!(form.encoding.has_modrm());
                         }
@@ -419,7 +417,7 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
 #[test]
 fn memory_only_bindings_restrict_modrm_at_every_operand_position() {
     let memory = OperandSpec::Memory;
-    let register = OperandSpec::ModRmRegister;
+    let register = OperandSpec::ModRmRegister(RegisterClass::Gpr);
     let unary = Handler::Unary(|_, _, _, fallthrough| Ok(fallthrough));
     let binary = Handler::Binary(|_, _, _, _, fallthrough| Ok(fallthrough));
     let ternary = Handler::Ternary(|_, _, _, _, _, fallthrough| Ok(fallthrough));

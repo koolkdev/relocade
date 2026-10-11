@@ -86,7 +86,9 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         I32: AtLeast<T>,
     {
         match operand {
-            Operand::Location(Location::Xmm(_)) => unreachable!("XMM operands use vector accesses"),
+            Operand::Location(Location::Xmm(_) | Location::Mmx(_)) => {
+                unreachable!("SIMD operands use their register file's accesses")
+            }
             Operand::Segment(_) => unreachable!("segment operands use selector operations"),
             Operand::X87StackIndex(_) => unreachable!("x87 stack operands use stack operations"),
             Operand::Immediate(bits) => Ok(self.body.value::<I32>(bits)?.truncate::<T>()),
@@ -132,7 +134,9 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         bindings: &[RegisterValue],
     ) -> Result<WriteTarget<'memory, T>, BuildError> {
         let location = match location {
-            Location::Xmm(_) => unreachable!("XMM operands use vector accesses"),
+            Location::Xmm(_) | Location::Mmx(_) => {
+                unreachable!("SIMD operands use their register file's accesses")
+            }
             Location::Register(register) => WriteLocation::Register(register.view::<T>()),
             Location::Memory(address) => {
                 WriteLocation::Memory(self.prepare_memory_write::<T>(*address, bindings)?)

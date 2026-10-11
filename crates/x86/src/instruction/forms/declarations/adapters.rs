@@ -109,6 +109,8 @@ macro_rules! declaration_invoke {
 }
 
 macro_rules! operand_value {
+    ($width:tt, $operand:ident, mm) => { crate::instruction::MmxLocation::from_operand($operand) };
+    ($width:tt, $operand:ident, mm_rm) => { crate::instruction::MmxLocation::from_operand($operand) };
     ($width:tt, $operand:ident, xmm) => { crate::instruction::XmmLocation::from_operand($operand) };
     ($width:tt, $operand:ident, xmm_rm) => { crate::instruction::XmmLocation::from_operand($operand) };
     ($width:tt, $operand:ident, st) => {{
