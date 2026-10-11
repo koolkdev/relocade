@@ -35,8 +35,11 @@ impl Status {
     }
 
     /// Constructs the architectural word only for an instruction that observes it.
-    pub(super) fn word(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I16>, BuildError> {
-        let top = self.top(body)?;
+    pub(super) fn word(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        top: Val<I32>,
+    ) -> Result<Val<I16>, BuildError> {
         let mut word = top.truncate::<I16>().shl(11);
         for exception in Exception::ALL {
             let bit = self.exception_raised(body, exception)?;
@@ -55,25 +58,6 @@ impl Status {
             word = word.or(bit.unsigned().extend::<I16>().shl(shift));
         }
         body.value(word)
-    }
-
-    pub(super) fn top(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I32>, BuildError> {
-        let top = self.fields.read(body, cpu_location!(x87.status.top))?;
-        body.value(top.and(7).unsigned().extend::<I32>())
-    }
-
-    pub(super) fn set_top(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        top: Val<I32>,
-        enabled: impl Into<Val<I1>>,
-    ) -> Result<(), BuildError> {
-        let previous = self.fields.read(body, cpu_location!(x87.status.top))?;
-        self.fields.define(
-            body,
-            cpu_location!(x87.status.top),
-            enabled.into().select(top.and(7).truncate::<I8>(), previous),
-        )
     }
 
     pub(super) fn set_c1(
@@ -202,7 +186,6 @@ impl Status {
     pub(super) fn initialize(&mut self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.clear_exceptions(body)?;
         for location in [
-            cpu_location!(x87.status.top),
             cpu_location!(x87.status.c0),
             cpu_location!(x87.status.c1),
             cpu_location!(x87.status.c2),
