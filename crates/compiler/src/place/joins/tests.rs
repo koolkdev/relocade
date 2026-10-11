@@ -111,14 +111,12 @@ fn a_descendant_demand_adds_one_parameter_at_the_owning_join() {
         joins.record(block.0, [(recipe, value), (unused, value)].into_iter());
         joins.complete(block.0, &ValueAnalysis::default());
     }
-    joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            arms.join.0,
-            &mut Availability::default(),
-        )
-        .unwrap();
+    joins.prepare(
+        &graph,
+        &graph.reachable(),
+        arms.join.0,
+        &mut Availability::default(),
+    );
     assert!(graph.blocks[arms.join.0].parameters.is_empty());
     let result = joins
         .resolve(&mut graph, uses.left.0, recipe, &ValueAnalysis::default())
@@ -153,14 +151,12 @@ fn an_indexed_join_cannot_supply_a_sibling_branch() {
         joins.record(block.0, [(recipe, value)].into_iter());
         joins.complete(block.0, &ValueAnalysis::default());
     }
-    joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            inner.join.0,
-            &mut Availability::default(),
-        )
-        .unwrap();
+    joins.prepare(
+        &graph,
+        &graph.reachable(),
+        inner.join.0,
+        &mut Availability::default(),
+    );
     assert!(joins
         .resolve(&mut graph, inner.join.0, recipe, &ValueAnalysis::default())
         .is_some());
@@ -201,14 +197,12 @@ fn a_nearer_join_is_preferred_but_a_failed_merge_keeps_ancestor_reuse() {
             }
             joins.complete(block.0, &ValueAnalysis::default());
         }
-        joins
-            .prepare(
-                &graph,
-                &graph.reachable(),
-                arms.join.0,
-                &mut Availability::default(),
-            )
-            .unwrap();
+        joins.prepare(
+            &graph,
+            &graph.reachable(),
+            arms.join.0,
+            &mut Availability::default(),
+        );
     }
     let near_result = joins
         .resolve(&mut graph, inner.join.0, nearby, &ValueAnalysis::default())
@@ -265,7 +259,7 @@ fn incoming_aliases_keep_their_predecessor_scope() {
     joins.record(0, [(number, ancestor)].into_iter());
     joins.record(arms.left.0, [(alias, 1)].into_iter());
     for (block, condition) in [(arms.left, true), (arms.right, false)] {
-        let facts = ValueAnalysis::default().fork(
+        let facts = ValueAnalysis::default().with_assumptions(
             &graph.values,
             [analysis::Assumption::Truth {
                 condition: 0,
@@ -276,9 +270,7 @@ fn incoming_aliases_keep_their_predecessor_scope() {
     }
     let mut available = Availability::default();
     available.bind(number, ancestor);
-    joins
-        .prepare(&graph, &graph.reachable(), arms.join.0, &mut available)
-        .unwrap();
+    joins.prepare(&graph, &graph.reachable(), arms.join.0, &mut available);
     joins.record(uses.left.0, [(number, child)].into_iter());
     let result = joins
         .resolve(&mut graph, uses.left.0, alias, &ValueAnalysis::default())
@@ -314,14 +306,12 @@ fn identical_incoming_carriers_can_reuse_a_value_with_a_different_logical_type()
     for source in [arms.left, arms.right] {
         joins.complete(source.0, &ValueAnalysis::default());
     }
-    joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            arms.join.0,
-            &mut Availability::default(),
-        )
-        .unwrap();
+    joins.prepare(
+        &graph,
+        &graph.reachable(),
+        arms.join.0,
+        &mut Availability::default(),
+    );
     let result = joins
         .resolve(&mut graph, arms.join.0, byte, &ValueAnalysis::default())
         .unwrap();
@@ -329,15 +319,14 @@ fn identical_incoming_carriers_can_reuse_a_value_with_a_different_logical_type()
     assert_eq!(graph.values[result].ty, Type::I32);
     assert_eq!(graph.values[byte].ty, Type::I8);
     assert!(graph.blocks[arms.join.0].parameters.is_empty());
-    let mut reducer = Reducer::default();
-    reducer.enter(
+    let reducer = Reducer::from_analysis(ValueAnalysis::default().with_assumptions(
         &graph.values,
-        None,
-        Some(EdgeAssumption::Equal {
-            selector: result,
-            value: 0x1234,
-        }),
-    );
+        [Assumption::Bits {
+            value: result,
+            mask: u32::MAX.into(),
+            bits: 0x1234,
+        }],
+    ));
     assert_eq!(reducer.analysis().constant(&graph.values, byte), Some(0x34));
     assert_eq!(
         reducer.analysis().constant(&graph.values, result),
@@ -356,7 +345,7 @@ fn guarded_join_reuse_stays_with_matching_facts() {
     let value = placed(&mut graph, arms.left, recipe);
     joins.record(arms.left.0, [(recipe, value)].into_iter());
     for (block, truth) in [(arms.left, true), (arms.right, false)] {
-        let facts = ValueAnalysis::default().fork(
+        let facts = ValueAnalysis::default().with_assumptions(
             &graph.values,
             [analysis::Assumption::Truth {
                 condition: 0,
@@ -365,22 +354,20 @@ fn guarded_join_reuse_stays_with_matching_facts() {
         );
         joins.complete(block.0, &facts);
     }
-    joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            arms.join.0,
-            &mut Availability::default(),
-        )
-        .unwrap();
-    let taken = ValueAnalysis::default().fork(
+    joins.prepare(
+        &graph,
+        &graph.reachable(),
+        arms.join.0,
+        &mut Availability::default(),
+    );
+    let taken = ValueAnalysis::default().with_assumptions(
         &graph.values,
         [analysis::Assumption::Truth {
             condition: 0,
             truth: true,
         }],
     );
-    let otherwise = ValueAnalysis::default().fork(
+    let otherwise = ValueAnalysis::default().with_assumptions(
         &graph.values,
         [analysis::Assumption::Truth {
             condition: 0,

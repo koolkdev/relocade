@@ -25,7 +25,7 @@ mod range;
 mod scoped_map;
 mod selects;
 mod shifts;
-pub(super) use context::{Assumption, ContextScope};
+pub(super) use context::Assumption;
 use context::{PathContext, SuspendedContext};
 pub(super) use paths::PathSnapshot;
 use range::Range;

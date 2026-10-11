@@ -1,7 +1,6 @@
 //! Incoming paths must be complete before their values or facts can justify reuse.
 use super::*;
-use crate::bitwise::BitwiseOp;
-use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
+use crate::expression::UnaryOp as Unary;
 
 #[test]
 fn incoming_values_use_the_nearest_binding_on_each_predecessor_path() {
@@ -27,14 +26,12 @@ fn incoming_values_use_the_nearest_binding_on_each_predecessor_path() {
     for source in [left_source, arms.right] {
         joins.complete(source.0, &ValueAnalysis::default());
     }
-    joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            arms.join.0,
-            &mut Availability::default(),
-        )
-        .unwrap();
+    joins.prepare(
+        &graph,
+        &graph.reachable(),
+        arms.join.0,
+        &mut Availability::default(),
+    );
     let result = joins
         .resolve(&mut graph, arms.join.0, recipe, &ValueAnalysis::default())
         .unwrap();
@@ -82,7 +79,7 @@ fn incoming_aliases_see_a_common_ancestor_binding_requested_after_preparation() 
     }
     joins.record(later.left.0, [(alias, 1)].into_iter());
     for (source, truth) in [(later.left, true), (later.right, false)] {
-        let branch_facts = ValueAnalysis::default().fork(
+        let branch_facts = ValueAnalysis::default().with_assumptions(
             &graph.values,
             [analysis::Assumption::Truth {
                 condition: 0,
@@ -93,12 +90,8 @@ fn incoming_aliases_see_a_common_ancestor_binding_requested_after_preparation() 
     }
     let reachable = graph.reachable();
     let mut available = Availability::default();
-    joins
-        .prepare(&graph, &reachable, earlier.join.0, &mut available)
-        .unwrap();
-    joins
-        .prepare(&graph, &reachable, later.join.0, &mut available)
-        .unwrap();
+    joins.prepare(&graph, &reachable, earlier.join.0, &mut available);
+    joins.prepare(&graph, &reachable, later.join.0, &mut available);
 
     // Both requests come from the current consuming block. The first publishes
     // an ancestor result needed to resolve the later join's incoming alias.
@@ -118,120 +111,6 @@ fn incoming_aliases_see_a_common_ancestor_binding_requested_after_preparation() 
 }
 
 #[test]
-fn completed_facts_survive_rollback_of_the_incoming_paths() {
-    let mut graph = graph();
-    let arms = Diamond::new(&mut graph, BlockId(0));
-    let mut joins = joins(&graph);
-    let mut facts = ValueAnalysis::default();
-    for block in [arms.left, arms.right] {
-        let scope = facts.enter(
-            &graph.values,
-            None,
-            [analysis::Assumption::Bits {
-                value: 1,
-                mask: 0xffff_ffff,
-                bits: 5,
-            }],
-        );
-        joins.complete(block.0, &facts);
-        facts.leave(scope);
-        assert_eq!(facts.constant(&graph.values, 1), None);
-    }
-    let merged = joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            arms.join.0,
-            &mut Availability::default(),
-        )
-        .unwrap();
-    assert_eq!(merged.constant(&graph.values, 1), Some(5));
-}
-
-#[test]
-fn a_join_keeps_common_facts_without_any_value_candidates() {
-    let mut graph = graph();
-    let arms = Diamond::new(&mut graph, BlockId(0));
-    let one = graph.values.literal(Type::I32, 1);
-    let low_bit = expression(
-        &mut graph,
-        Type::I32,
-        Expression::Binary {
-            operator: Binary::Bitwise(BitwiseOp::And),
-            left: 1,
-            right: one,
-        },
-    );
-    let mut joins = joins(&graph);
-    for (block, value) in [(arms.left, 5), (arms.right, 7)] {
-        let facts = ValueAnalysis::default().fork(
-            &graph.values,
-            [analysis::Assumption::Bits {
-                value: 1,
-                mask: 0xffff_ffff,
-                bits: value,
-            }],
-        );
-        joins.complete(block.0, &facts);
-    }
-    let facts = joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            arms.join.0,
-            &mut Availability::default(),
-        )
-        .unwrap();
-    assert_eq!(facts.constant(&graph.values, low_bit), Some(1));
-    assert_eq!(facts.constant(&graph.values, 1), None);
-    assert!(joins.inputs[arms.join.0].is_none());
-    assert!(graph.blocks[arms.join.0].parameters.is_empty());
-}
-
-#[test]
-fn every_reachable_predecessor_must_prove_a_common_fact() {
-    let mut graph = graph();
-    let arms = Diamond::new(&mut graph, BlockId(0));
-    let bypass = graph.block(0, &[]);
-    let selector = graph.values.push(Value {
-        ty: Type::I32,
-        definition: ValueDefinition::Parameter {
-            block: BlockId(0),
-            component: 2,
-        },
-    });
-    graph.blocks[0].parameters.push(selector);
-    graph.blocks[0].exit = Exit::Switch {
-        selector,
-        cases: vec![(0, edge(arms.left)), (1, edge(arms.right))],
-        default: edge(bypass),
-    };
-    graph.blocks[bypass.0].exit = Exit::Jump(edge(arms.join));
-    let mut joins = joins(&graph);
-    for source in [arms.left, arms.right] {
-        let facts = ValueAnalysis::default().fork(
-            &graph.values,
-            [analysis::Assumption::Bits {
-                value: 1,
-                mask: 0xffff_ffff,
-                bits: 5,
-            }],
-        );
-        joins.complete(source.0, &facts);
-    }
-    joins.complete(bypass.0, &ValueAnalysis::default());
-    let facts = joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            arms.join.0,
-            &mut Availability::default(),
-        )
-        .unwrap();
-    assert_eq!(facts.constant(&graph.values, 1), None);
-}
-
-#[test]
 fn completing_a_backedge_does_not_reopen_entry_eligibility() {
     let mut graph = graph();
     let header = graph.block(0, &[]);
@@ -246,14 +125,12 @@ fn completing_a_backedge_does_not_reopen_entry_eligibility() {
     let recipe = square(&mut graph);
     let mut joins = joins(&graph);
     joins.complete(0, &ValueAnalysis::default());
-    assert!(joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            header.0,
-            &mut Availability::default()
-        )
-        .is_none());
+    joins.prepare(
+        &graph,
+        &graph.reachable(),
+        header.0,
+        &mut Availability::default(),
+    );
     let value = placed(&mut graph, header, recipe);
     joins.record(header.0, [(recipe, value)].into_iter());
     joins.complete(header.0, &ValueAnalysis::default());
@@ -274,14 +151,12 @@ fn a_missing_incoming_value_is_not_recomputed_or_merged() {
     joins.record(arms.left.0, [(recipe, value)].into_iter());
     joins.complete(arms.left.0, &ValueAnalysis::default());
     joins.complete(arms.right.0, &ValueAnalysis::default());
-    joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            arms.join.0,
-            &mut Availability::default(),
-        )
-        .unwrap();
+    joins.prepare(
+        &graph,
+        &graph.reachable(),
+        arms.join.0,
+        &mut Availability::default(),
+    );
     let count = graph.values.len();
     for _ in 0..2 {
         assert_eq!(
@@ -309,14 +184,12 @@ fn a_discarded_predecessor_does_not_need_a_value_or_completed_facts() {
         taken: edge(arms.left),
         otherwise: edge(arms.right),
     };
-    joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            arms.join.0,
-            &mut Availability::default(),
-        )
-        .unwrap();
+    joins.prepare(
+        &graph,
+        &graph.reachable(),
+        arms.join.0,
+        &mut Availability::default(),
+    );
     assert_eq!(
         joins.resolve(&mut graph, arms.join.0, recipe, &ValueAnalysis::default()),
         Some(value)
@@ -337,14 +210,12 @@ fn a_join_inside_a_discarded_arm_has_no_incoming_values() {
         taken: edge(outer.left),
         otherwise: edge(outer.right),
     };
-    assert!(joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            inner.join.0,
-            &mut Availability::default()
-        )
-        .is_none());
+    joins.prepare(
+        &graph,
+        &graph.reachable(),
+        inner.join.0,
+        &mut Availability::default(),
+    );
     assert_eq!(
         joins.resolve(&mut graph, inner.join.0, recipe, &ValueAnalysis::default()),
         None
@@ -376,14 +247,12 @@ fn a_folded_switch_excludes_an_inactive_edge_from_a_reachable_source() {
     {
         *input = selector;
     }
-    joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            after.0,
-            &mut Availability::default(),
-        )
-        .unwrap();
+    joins.prepare(
+        &graph,
+        &graph.reachable(),
+        after.0,
+        &mut Availability::default(),
+    );
     assert_eq!(
         joins.resolve(&mut graph, after.0, recipe, &ValueAnalysis::default()),
         Some(value)
@@ -411,14 +280,12 @@ fn surviving_predecessors_keep_their_arguments_when_an_arm_is_removed() {
         taken: edge(inner.left),
         otherwise: edge(inner.right),
     };
-    joins
-        .prepare(
-            &graph,
-            &graph.reachable(),
-            outer.join.0,
-            &mut Availability::default(),
-        )
-        .unwrap();
+    joins.prepare(
+        &graph,
+        &graph.reachable(),
+        outer.join.0,
+        &mut Availability::default(),
+    );
     let result = joins
         .resolve(&mut graph, outer.join.0, recipe, &ValueAnalysis::default())
         .unwrap();

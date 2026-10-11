@@ -45,7 +45,7 @@ fn later_observations_refine_comparisons_already_visited_in_the_same_batch() {
     });
     // The first observation visits `equal` but cannot decide it. Learning its
     // opposite afterwards must discard that provisional answer before publication.
-    let facts = ValueAnalysis::default().fork(
+    let facts = ValueAnalysis::default().with_assumptions(
         &table,
         [
             Assumption::Truth {

@@ -52,7 +52,7 @@ fn structural_inference_leaves_vector_values_opaque() {
 #[test]
 fn restoring_partial_bits_discards_child_constants_but_preserves_snapshots() {
     let table = parameters();
-    let mut facts = ValueAnalysis::default().fork(
+    let mut facts = ValueAnalysis::default().with_assumptions(
         &table,
         [Assumption::Bits {
             value: 0,
@@ -62,7 +62,6 @@ fn restoring_partial_bits_discards_child_constants_but_preserves_snapshots() {
     );
     let scope = facts.enter(
         &table,
-        None,
         [
             Assumption::Bits {
                 value: 0,
@@ -98,7 +97,7 @@ fn restoring_ranges_discards_child_comparison_inference() {
     let below_ten = compare(&mut table, CompareOp::LtUnsigned, 0, ten);
     let below_twenty = compare(&mut table, CompareOp::LtUnsigned, 0, twenty);
     let below_forty = compare(&mut table, CompareOp::LtUnsigned, 0, forty);
-    let mut facts = ValueAnalysis::default().fork(
+    let mut facts = ValueAnalysis::default().with_assumptions(
         &table,
         [Assumption::Truth {
             condition: below_forty,
@@ -107,7 +106,6 @@ fn restoring_ranges_discards_child_comparison_inference() {
     );
     let scope = facts.enter(
         &table,
-        None,
         [Assumption::Truth {
             condition: below_ten,
             truth: true,
@@ -119,7 +117,6 @@ fn restoring_ranges_discards_child_comparison_inference() {
     assert_eq!(facts.constant(&table, below_twenty), None);
     let sibling = facts.enter(
         &table,
-        None,
         [Assumption::Truth {
             condition: below_twenty,
             truth: false,
@@ -139,7 +136,7 @@ fn restoring_comparisons_forgets_equivalent_and_opposite_predicates() {
     let equal = compare(&mut table, CompareOp::Eq, 0, 1);
     let mut facts = ValueAnalysis::default();
     // Keep an inherited fact so subsequent queries still consult inference.
-    facts = facts.fork(
+    facts = facts.clone().with_assumptions(
         &table,
         [Assumption::Bits {
             value: 0,
@@ -149,7 +146,6 @@ fn restoring_comparisons_forgets_equivalent_and_opposite_predicates() {
     );
     let scope = facts.enter(
         &table,
-        None,
         [Assumption::Truth {
             condition: equal,
             truth: true,
@@ -162,7 +158,6 @@ fn restoring_comparisons_forgets_equivalent_and_opposite_predicates() {
     assert_eq!(facts.constant(&table, reversed), None);
     let sibling = facts.enter(
         &table,
-        None,
         [Assumption::Truth {
             condition: equal,
             truth: false,

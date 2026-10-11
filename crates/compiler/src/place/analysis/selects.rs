@@ -125,7 +125,6 @@ impl ValueAnalysis {
         for (truth, result) in results.iter_mut().enumerate() {
             let scope = self.enter(
                 table,
-                None,
                 [Assumption::Truth {
                     condition,
                     truth: truth != 0,

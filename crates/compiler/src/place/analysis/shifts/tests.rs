@@ -122,7 +122,7 @@ fn constant_evaluation_cannot_invent_unknown_upper_shift_bits() {
             count,
         }),
     });
-    let facts = ValueAnalysis::default().fork(
+    let facts = ValueAnalysis::default().with_assumptions(
         &table,
         [Assumption::Bits {
             value: view,

@@ -1,6 +1,5 @@
 //! Fold recipes under one set of path facts without scheduling calculations.
 use super::*;
-use analysis::{Assumption, ContextScope};
 use rustc_hash::FxHashMap;
 
 mod equivalences;
@@ -14,7 +13,6 @@ pub(super) struct Reducer {
     analysis: ValueAnalysis,
     residuals: FxHashMap<usize, usize>,
     equivalents: Equivalences,
-    spare: FxHashMap<usize, usize>,
     pending: Vec<Work>,
 }
 
@@ -25,32 +23,6 @@ enum Work {
     Alias(usize, usize),
 }
 
-/// The observation made by a selected control-flow edge.
-pub(super) enum EdgeAssumption {
-    Truth { condition: usize, truth: bool },
-    Equal { selector: usize, value: u64 },
-}
-
-impl EdgeAssumption {
-    fn observation(self, values: &ValueTable) -> Assumption {
-        match self {
-            Self::Truth { condition, truth } => Assumption::Truth { condition, truth },
-            Self::Equal { selector, value } => Assumption::Bits {
-                value: selector,
-                mask: values[selector].ty.mask(),
-                bits: value,
-            },
-        }
-    }
-}
-
-pub(super) struct ReductionScope {
-    analysis: ContextScope,
-    parent: Option<FxHashMap<usize, usize>>,
-    equivalents: usize,
-    replaced: Option<Equivalences>,
-}
-
 impl Reducer {
     pub(super) fn from_analysis(analysis: ValueAnalysis) -> Self {
         Self {
@@ -59,56 +31,12 @@ impl Reducer {
         }
     }
 
-    pub(super) fn enter(
-        &mut self,
-        values: &ValueTable,
-        incoming: Option<ValueAnalysis>,
-        edge: Option<EdgeAssumption>,
-    ) -> ReductionScope {
-        let observation = edge.map(|edge| edge.observation(values));
-        let replaced = incoming
-            .is_some()
-            .then(|| std::mem::take(&mut self.equivalents));
-        let parent = (incoming.is_some() || observation.is_some())
-            .then(|| std::mem::replace(&mut self.residuals, std::mem::take(&mut self.spare)));
-        ReductionScope {
-            equivalents: self.equivalents.checkpoint(),
-            parent,
-            replaced,
-            analysis: self.analysis.enter(values, incoming, observation),
-        }
-    }
-
-    pub(super) fn leave(&mut self, scope: ReductionScope) {
-        if let Some(parent) = scope.parent {
-            let mut finished = std::mem::replace(&mut self.residuals, parent);
-            finished.clear();
-            if finished.capacity() > self.spare.capacity() {
-                self.spare = finished;
-            }
-            if let Some(parent) = scope.replaced {
-                self.equivalents = parent;
-            } else {
-                self.equivalents.restore(scope.equivalents);
-            }
-        }
-        self.analysis.leave(scope.analysis);
-    }
-
     pub(super) fn recipes(&self, residual: usize) -> impl Iterator<Item = usize> {
         std::iter::once(residual).chain(self.equivalents.recipes(residual))
     }
 
     pub(super) fn analysis(&self) -> &ValueAnalysis {
         &self.analysis
-    }
-
-    pub(super) fn on_branch(&self, values: &ValueTable, condition: usize, truth: bool) -> Self {
-        let observation = EdgeAssumption::Truth { condition, truth }.observation(values);
-        Self {
-            analysis: self.analysis.fork(values, [observation]),
-            ..Self::default()
-        }
     }
 
     /// Reduce semantic recipes without consulting execution availability.
@@ -195,7 +123,14 @@ impl Reducer {
                         .constant_across_selects(values, result)
                         .map(|bits| values.carrier_literal(crate::Type::I1, bits))
                         .unwrap_or(result);
-                    self.record(id, result);
+                    if result == id {
+                        self.record(id, id);
+                    } else {
+                        // Folding may introduce another recipe. Reduce it in
+                        // this context before publishing a stable normal form.
+                        self.pending.push(Work::Alias(id, result));
+                        self.pending.push(Work::Visit(result));
+                    }
                 }
             }
         }
@@ -210,6 +145,7 @@ impl Reducer {
 
     fn record(&mut self, recipe: usize, residual: usize) {
         self.residuals.insert(recipe, residual);
+        self.residuals.entry(residual).or_insert(residual);
         if recipe != residual {
             self.equivalents.record(recipe, residual);
         }

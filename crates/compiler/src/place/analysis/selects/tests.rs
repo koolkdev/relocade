@@ -115,7 +115,6 @@ fn speculative_select_facts_do_not_escape_or_survive_a_scope_change() {
     assert_eq!(facts.constant_across_selects(&table, independent), None);
     let scope = facts.enter(
         &table,
-        None,
         [
             Assumption::Truth {
                 condition: first,
@@ -136,7 +135,7 @@ fn speculative_select_facts_do_not_escape_or_survive_a_scope_change() {
     let mut snapshot = facts.clone();
     facts.leave(scope);
     assert_eq!(facts.constant_across_selects(&table, independent), None);
-    facts = facts.fork(
+    facts = facts.clone().with_assumptions(
         &table,
         [Assumption::Truth {
             condition: second,
@@ -173,7 +172,6 @@ fn successful_and_failed_proofs_preserve_inherited_facts_and_cached_bits() {
     let mut facts = ValueAnalysis::default();
     let scope = facts.enter(
         &table,
-        None,
         [
             Assumption::Truth {
                 condition: inherited,
@@ -300,7 +298,6 @@ fn select_proofs_use_ranges_without_leaking_case_assumptions() {
     assert_eq!(facts.constant_across_selects(&table, both), None);
     let scope = facts.enter(
         &table,
-        None,
         [Assumption::Truth {
             condition: at_least_twenty,
             truth: true,

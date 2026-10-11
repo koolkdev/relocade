@@ -1,4 +1,4 @@
-//! Preserve common facts and reuse incoming values at completed joins.
+//! Reuse incoming executions at completed joins.
 use super::{analysis::PathSnapshot, *};
 use crate::{body::BitBounds, Type};
 use std::collections::HashSet;
@@ -37,7 +37,6 @@ struct JoinArguments {
 
 pub(super) struct Joins {
     dominators: Dominators,
-    semantic_exits: Vec<Exit>,
     predecessors: Vec<Vec<usize>>,
     blocks: Vec<BlockValues>,
     incoming: Vec<Vec<usize>>,
@@ -69,11 +68,6 @@ impl Joins {
         }
         Self {
             dominators,
-            semantic_exits: graph
-                .blocks
-                .iter()
-                .map(|block| block.exit.clone())
-                .collect(),
             predecessors: predecessors.to_vec(),
             blocks: (0..count).map(|_| BlockValues::default()).collect(),
             incoming,
@@ -83,37 +77,33 @@ impl Joins {
         }
     }
 
-    pub(super) fn semantic_exit(&self, block: usize) -> &Exit {
-        &self.semantic_exits[block]
-    }
-
     pub(super) fn record(&mut self, block: usize, values: impl Iterator<Item = (usize, usize)>) {
         self.blocks[block].values.extend(values);
     }
 
     pub(super) fn complete(&mut self, block: usize, facts: &ValueAnalysis) {
         if self.needs_facts[block] {
-            // These facts outlive the block's active path scope.
+            // Incoming reuse can query these fixed facts after leaving the block.
             debug_assert!(self.blocks[block].facts.is_none());
             self.blocks[block].facts = Some(facts.snapshot(block));
         }
     }
 
-    /// Prepare incoming facts and forward sole-edge results before placing consumers.
+    /// Discover reusable incoming executions and forward sole-edge results.
     pub(super) fn prepare(
         &mut self,
         graph: &FunctionGraph,
         reachable: &[bool],
         join: usize,
         available: &mut Availability,
-    ) -> Option<ValueAnalysis> {
+    ) {
         if self.predecessors[join].len() < 2 {
             if let [source] = self.predecessors[join].as_slice() {
                 if *source != join && self.dominators.dominates(*source, join) {
                     forward_parameters(graph, join, &[*source], available);
                 }
             }
-            return None;
+            return;
         }
         // Placement can fold exits after the original dominance analysis.
         // Only paths that can still enter constrain the join's facts and values.
@@ -135,26 +125,8 @@ impl Joins {
                 .iter()
                 .any(|&source| self.blocks[source].facts.is_none())
         {
-            return None;
+            return;
         }
-        let incoming: Vec<_> = sources
-            .iter()
-            .flat_map(|&source| {
-                let facts = self.blocks[source].facts.as_ref().unwrap().analysis();
-                // The executed edge determines reachability; facts describe its
-                // semantic arguments, never the execution aliases on that edge.
-                let selected = graph.blocks[source].exit.constant_edge_index(&graph.values);
-                self.semantic_exits[source]
-                    .edges()
-                    .into_iter()
-                    .enumerate()
-                    .filter(move |(index, edge)| {
-                        edge.target.0 == join && selected.is_none_or(|selected| selected == *index)
-                    })
-                    .map(move |(_, edge)| (facts, edge.arguments.as_slice()))
-            })
-            .collect();
-        let facts = ValueAnalysis::join(&graph.values, &graph.blocks[join].parameters, &incoming);
         // An incoming block's arguments have already been placed. When folding
         // leaves one edge, consumers can use them directly instead of a join.
         forward_parameters(graph, join, &sources, available);
@@ -178,7 +150,7 @@ impl Joins {
             ));
         }
         if candidates.is_empty() {
-            return Some(facts);
+            return;
         }
         for recipe in candidates {
             if recipe >= self.joins_by_recipe.len() {
@@ -190,7 +162,6 @@ impl Joins {
             incoming,
             results: HashMap::new(),
         });
-        Some(facts)
     }
 
     /// Resolve incoming values, adding a parameter and edge arguments when needed.

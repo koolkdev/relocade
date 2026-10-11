@@ -1,7 +1,5 @@
 //! Prove where downstream demands permit a shared calculation.
 use super::*;
-use crate::expression::BinaryOp as Binary;
-use crate::integer::BinaryOp;
 use std::collections::HashSet;
 
 #[cfg(test)]
@@ -131,10 +129,81 @@ struct ResultDemand {
     used: bool,
 }
 
+/// Actual residual uses prove execution requirements. Equivalent original
+/// recipes only offer reuse; their discarded inputs are not required here.
+#[derive(Default)]
+struct Roots {
+    required: Vec<usize>,
+    reusable: Vec<usize>,
+}
+
+/// Retain an original recipe as a reuse option only while it is still executed
+/// somewhere in the reduced function. Eliminated recipes create no new demand.
+fn roots(graph: &FunctionGraph, flow: &ReducedFlow, reachable: &[bool]) -> Vec<Roots> {
+    let roots: Vec<Vec<_>> = graph
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(block, data)| {
+            if !reachable[block] {
+                return Vec::new();
+            }
+            let mut roots = data.exit.inputs();
+            for item in &data.items {
+                if let BlockItem::Effect(id) = item {
+                    roots.extend(graph.effects[id.0].operation.inputs());
+                }
+            }
+            roots
+        })
+        .collect();
+    let mut used = vec![false; graph.values.len()];
+    for &root in roots.iter().flatten() {
+        used[root] = true;
+    }
+    for id in (0..used.len()).rev() {
+        if used[id] {
+            if let Some(result) = graph.values.expression(id) {
+                for &input in result.expression.inputs() {
+                    used[input] = true;
+                }
+            }
+        }
+    }
+    roots
+        .into_iter()
+        .enumerate()
+        .map(|(block, required)| {
+            let mut reusable = Vec::new();
+            if reachable[block] {
+                for &root in &required {
+                    if graph.values.expression(root).is_some() {
+                        reusable.extend(
+                            flow.recipes(BlockId(block), root)
+                                .filter(|&recipe| recipe != root && used[recipe]),
+                        );
+                    }
+                }
+            }
+            Roots { required, reusable }
+        })
+        .collect()
+}
+
 pub(super) fn schedules(
     graph: &FunctionGraph,
     reachable: &[bool],
     dominators: &Dominators,
+    flow: &ReducedFlow,
+) -> Vec<Vec<usize>> {
+    schedule_roots(graph, reachable, dominators, &roots(graph, flow, reachable))
+}
+
+fn schedule_roots(
+    graph: &FunctionGraph,
+    reachable: &[bool],
+    dominators: &Dominators,
+    roots: &[Roots],
 ) -> Vec<Vec<usize>> {
     let count = graph.blocks.len();
     let mut successors = successors(graph, reachable);
@@ -204,20 +273,16 @@ pub(super) fn schedules(
                 .merge(sites, retained, dominators);
         }
     };
-    for (block, data) in graph.blocks.iter().enumerate() {
+    for block in 0..graph.blocks.len() {
         if !reachable[block] {
             continue;
         }
         let sites = Demand::at(block);
-        for item in &data.items {
-            if let BlockItem::Effect(id) = item {
-                for input in graph.effects[id.0].operation.inputs() {
-                    demand(input, &sites, true, &mut demands);
-                }
-            }
-        }
-        for input in data.exit.inputs() {
+        for &input in &roots[block].required {
             demand(input, &sites, true, &mut demands);
+        }
+        for &input in &roots[block].reusable {
+            demand(input, &sites, false, &mut demands);
         }
     }
     let mut schedules = vec![Vec::new(); count];
@@ -257,29 +322,12 @@ pub(super) fn schedules(
             }
         }
         for &input in expression.inputs() {
-            // These operations preserve the operand dependency. Path facts may
-            // still eliminate the whole calculation; placement checks that
-            // separately before materializing a shared root.
-            let required = match expression {
-                Expression::Binary {
-                    operator: Binary::Integer(BinaryOp::Add),
-                    ..
-                } => true,
-                Expression::Binary {
-                    operator: Binary::Integer(BinaryOp::Mul),
-                    left,
-                    right,
-                } => {
-                    let other = if input == left { right } else { left };
-                    matches!(graph.values[other].scalar_literal(), Some(bits) if bits & 1 != 0)
-                }
-                _ => false,
-            };
+            // Reduction has already chosen the surviving dependencies in each
+            // path. Every input still present is required when its result is used.
             if let Some(result) = graph.values.expression(input) {
-                demands[result.producer].sites.retained_input |=
-                    required && sites.common_block.is_some();
+                demands[result.producer].sites.retained_input |= sites.common_block.is_some();
             }
-            demand(input, &sites, required, &mut demands);
+            demand(input, &sites, true, &mut demands);
         }
     }
     for schedule in &mut schedules {
