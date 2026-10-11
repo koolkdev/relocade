@@ -23,6 +23,7 @@ pub(super) enum LaneBinaryOp {
     Sub,
     Mul,
     WideningMulLowSigned,
+    WideningMulHighSigned,
     DotI16Signed,
     Eq,
     GtSigned,

@@ -4,6 +4,8 @@
 mod arithmetic;
 #[path = "packed/comparisons.rs"]
 mod comparisons;
+#[path = "packed/multiply.rs"]
+mod multiply;
 #[path = "packed/packing.rs"]
 mod packing;
 #[path = "packed/saturation.rs"]
