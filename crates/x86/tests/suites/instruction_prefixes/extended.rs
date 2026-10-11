@@ -9,9 +9,9 @@ use wasm86_x86::{compile_block_from_bytes, BlockError};
 fn required_extended_fields(engine: Engine) {
     for code in [
         &[0xf3, 0x0f][..],
-        &[0xf3, 0x0f, 0xb8],
-        &[0xf3, 0x0f, 0xb8, 0x04],
-        &[0xf3, 0x0f, 0xb8, 0x84, 0x8b, 0x78, 0x56, 0x34],
+        &[0xf3, 0x0f, 0x10],
+        &[0xf3, 0x0f, 0x10, 0x04],
+        &[0xf3, 0x0f, 0x10, 0x84, 0x8b, 0x78, 0x56, 0x34],
     ] {
         let origin = 0x2000 - code.len() as u32;
         assert_eq!(
@@ -68,10 +68,10 @@ fn rejected_extended_forms(engine: Engine) {
 fn extended_field_length_limit(engine: Engine) {
     for suffix in [
         &[0xf3, 0x0f][..],
-        &[0xf3, 0x0f, 0xb8],
-        &[0xf3, 0x0f, 0xb8, 0x04],
+        &[0xf3, 0x0f, 0x10],
+        &[0xf3, 0x0f, 0x10, 0x04],
     ] {
-        let code = [vec![0x66; 15 - suffix.len()], suffix.to_vec()].concat();
+        let code = [vec![0x2e; 15 - suffix.len()], suffix.to_vec()].concat();
         assert_eq!(
             compile_block_from_bytes(0x1ff1, &code, 1).err(),
             Some(BlockError::InstructionTooLong { address: 0x1ff1 }),
