@@ -1,112 +1,142 @@
-//! Retains logical stack slots while preserving their physical backing and padding.
-mod backing;
+//! One register bank for x87 stack addressing, TOP and publication.
+mod bank;
 mod payload;
 
-use std::mem::{offset_of, size_of};
+#[cfg(test)]
+mod tests;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I8};
 
-use crate::{
-    ssa::TrackedValue,
-    state::{CpuState, StoredX87Register},
-    x87::ExtendedValue,
-};
+use crate::{ssa::StateFields, state::access::cpu_location, x87::ExtendedValue};
 
-use backing::Backing;
-use payload::Payload;
+use bank::Bank;
 
+/// A slot in the current bank; consume it before selecting another address.
 #[derive(Clone)]
 pub(super) struct Slot {
-    pub(super) physical: Val<I32>,
-    relative: Option<usize>,
+    relative: usize,
+}
+
+/// An address relative to a captured register-bank origin. Known offsets name
+/// disjoint slots even when the physical origin is only known at runtime.
+struct Address {
+    origin: Val<I32>,
+    offset: usize,
 }
 
 #[derive(Clone)]
 pub(super) struct Registers {
     memory: Mem,
-    backing: Backing,
-    frame: Option<Frame>,
-    dynamic: bool,
+    top: StateFields,
+    bank: Option<Bank>,
 }
 
-/// Slots keep fixed physical addresses relative to the captured TOP. `delta`
-/// tracks attempted movement while building the block. A suppressed movement
-/// sets the pending-exception flag, so the next stack instruction exits before
-/// using that mapping. FNCLEX/FNINIT rebase before subsequent stack accesses.
-#[derive(Clone)]
-struct Frame {
-    entry_top: Val<I32>,
-    delta: usize,
-    entry_tag_word: Val<I16>,
-    tags: [Option<Tag>; 8],
-    payloads: [Option<Payload>; 8],
-}
-
-impl Frame {
-    fn physical(&self, relative: usize) -> Val<I32> {
-        self.entry_top.add(relative as u32).and(7)
-    }
-}
-
-#[derive(Clone)]
-struct Tag {
-    current: TrackedValue<I16>,
-    // Keep the last assignment, including an empty tag after FSTP ST0.
-    // The exception check proves its guard before it replaces `current`.
-    latest_write: Option<Val<I16>>,
+fn known_slot(body: &mut BlockBuilder<'_>, value: &Val<I32>) -> Result<Option<usize>, BuildError> {
+    Ok(body
+        .constant_bits(value)?
+        .filter(|&slot| slot < 8)
+        .map(|slot| slot as usize))
 }
 
 impl Registers {
     pub(super) fn new(memory: Mem) -> Self {
         Self {
             memory,
-            backing: Backing::new(memory),
-            frame: None,
-            dynamic: false,
+            top: StateFields::new(memory),
+            bank: None,
         }
+    }
+
+    pub(super) fn top(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I32>, BuildError> {
+        let top = self.top.read(body, cpu_location!(x87.status.top))?;
+        body.value(top.and(7).unsigned().extend::<I32>())
     }
 
     pub(super) fn slot(
         &mut self,
         body: &mut BlockBuilder<'_>,
-        top: &Val<I32>,
         index: Val<I32>,
     ) -> Result<Slot, BuildError> {
-        let known = (0..8_u32).find(|i| index.same_expression(&Val::from(*i)));
-        if known.is_none() && !self.dynamic {
-            self.rebase(body)?;
-            self.dynamic = true;
+        let top = self.top(body)?;
+        let known = known_slot(body, &index)?;
+        if let Some(relative) =
+            known.and_then(|index| self.bank.as_ref()?.stack_top.map(|top| (top + index) & 7))
+        {
+            return Ok(Slot { relative });
         }
-        let physical = body.value(top.add(&index).and(7))?;
-        if self.dynamic {
-            return Ok(Slot {
-                physical,
-                relative: None,
-            });
+        let address = match known {
+            Some(index) => Address {
+                origin: top,
+                offset: index,
+            },
+            None => Address {
+                origin: body.value(top.add(index).and(7))?,
+                offset: 0,
+            },
+        };
+        let slot = self.locate(body, address)?;
+        if let Some(index) = known {
+            self.bank.as_mut().unwrap().stack_top = Some((slot.relative + 8 - index) & 7);
         }
-        if self.frame.is_none() {
-            self.backing.publish(body)?;
-            self.backing = Backing::new(self.memory);
-            self.frame = Some(Frame {
-                entry_top: top.clone(),
-                delta: 0,
-                entry_tag_word: body
-                    .load(self.memory, offset_of!(CpuState, x87.tag_word) as u32)?,
-                tags: std::array::from_fn(|_| None),
-                payloads: std::array::from_fn(|_| None),
-            });
-        }
-        let frame = self.frame.as_ref().unwrap();
-        Ok(Slot {
-            physical,
-            relative: Some((frame.delta + known.unwrap() as usize) & 7),
-        })
+        Ok(slot)
     }
 
-    pub(super) fn advance(&mut self, delta: i32) {
-        if let Some(frame) = &mut self.frame {
-            frame.delta = ((frame.delta as i32 + delta) & 7) as usize;
+    fn locate(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        address: Address,
+    ) -> Result<Slot, BuildError> {
+        if self
+            .bank
+            .as_ref()
+            .is_some_and(|bank| bank.origin.same_expression(&address.origin))
+        {
+            return Ok(Slot {
+                relative: address.offset,
+            });
         }
+        let physical = body.value(address.origin.add(address.offset as u32).and(7))?;
+        if let Some(bank) = &self.bank {
+            let offset = body.value(physical.sub(&bank.origin).and(7))?;
+            if let Some(relative) = known_slot(body, &offset)? {
+                return Ok(Slot { relative });
+            }
+        }
+        // A different symbolic origin may alias any retained register. Resolve
+        // its pending writes before selecting a new coordinate system.
+        self.rebase(body)?;
+        let (origin, relative) = match known_slot(body, &physical)? {
+            Some(index) => (Val::from(0), index),
+            None => (address.origin, address.offset),
+        };
+        self.bank = Some(Bank::new(self.memory, origin));
+        Ok(Slot { relative })
+    }
+
+    /// Advance the speculative stack mapping together with architectural TOP.
+    /// A suppressed movement sets ES, so the next waiting instruction exits
+    /// before using that mapping. FNCLEX/FNINIT rebase without assuming success.
+    pub(super) fn advance(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        delta: i32,
+        enabled: impl Into<Val<I1>>,
+    ) -> Result<(), BuildError> {
+        let bank_top = self.bank.as_mut().and_then(|bank| {
+            let relative = ((bank.stack_top? as i32 + delta) & 7) as usize;
+            bank.stack_top = Some(relative);
+            Some(bank.physical(relative))
+        });
+        let updated = match bank_top {
+            Some(top) => top,
+            None => self.top(body)?.add((delta & 7) as u32).and(7),
+        };
+        let previous = self.top.read(body, cpu_location!(x87.status.top))?;
+        self.top.define(
+            body,
+            cpu_location!(x87.status.top),
+            enabled.into().select(updated.truncate::<I8>(), previous),
+        )
     }
 
     pub(super) fn tag(
@@ -114,25 +144,7 @@ impl Registers {
         body: &mut BlockBuilder<'_>,
         slot: &Slot,
     ) -> Result<Val<I16>, BuildError> {
-        let Some(relative) = slot.relative else {
-            return self.backing.tag(body, &slot.physical);
-        };
-        let frame = self.frame.as_mut().unwrap();
-        if let Some(tag) = &frame.tags[relative] {
-            return tag.current.read(body);
-        }
-        let initial = frame
-            .entry_tag_word
-            .unsigned()
-            .shr(frame.physical(relative).shl(1))
-            .and(3);
-        let tag = Tag {
-            current: TrackedValue::new(body, initial)?,
-            latest_write: None,
-        };
-        let value = tag.current.read(body)?;
-        frame.tags[relative] = Some(tag);
-        Ok(value)
+        self.bank.as_mut().unwrap().tag(body, slot.relative)
     }
 
     pub(super) fn set_tag(
@@ -142,35 +154,10 @@ impl Registers {
         tag: Val<I16>,
         enabled: &Val<I1>,
     ) -> Result<(), BuildError> {
-        let Some(relative) = slot.relative else {
-            return self.backing.set_tag(body, &slot.physical, tag, enabled);
-        };
-        let previous = self.tag(body, slot)?;
-        let cached_tag = self.frame.as_mut().unwrap().tags[relative]
+        self.bank
             .as_mut()
-            .unwrap();
-        cached_tag
-            .current
-            .define(body, enabled.select(&tag, previous))?;
-        cached_tag.latest_write = Some(body.value(tag)?);
-        Ok(())
-    }
-
-    fn payload(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        relative: usize,
-    ) -> Result<&mut Payload, BuildError> {
-        let frame = self.frame.as_mut().unwrap();
-        if frame.payloads[relative].is_none() {
-            let address = body.value(
-                frame
-                    .physical(relative)
-                    .mul(size_of::<StoredX87Register>() as u32),
-            )?;
-            frame.payloads[relative] = Some(Payload::new(self.memory, address));
-        }
-        Ok(frame.payloads[relative].as_mut().unwrap())
+            .unwrap()
+            .set_tag(body, slot.relative, tag, enabled)
     }
 
     pub(super) fn read(
@@ -178,10 +165,7 @@ impl Registers {
         body: &mut BlockBuilder<'_>,
         slot: &Slot,
     ) -> Result<ExtendedValue, BuildError> {
-        match slot.relative {
-            Some(relative) => self.payload(body, relative)?.read(body),
-            None => self.backing.read(body, &slot.physical),
-        }
+        self.bank.as_mut().unwrap().read(body, slot.relative)
     }
 
     pub(super) fn write(
@@ -192,74 +176,47 @@ impl Registers {
         tag: Val<I16>,
         enabled: &Val<I1>,
     ) -> Result<(), BuildError> {
-        let Some(relative) = slot.relative else {
-            return self
-                .backing
-                .write(body, &slot.physical, value, tag, enabled);
-        };
-        self.payload(body, relative)?.write(body, value, enabled)?;
+        self.bank
+            .as_mut()
+            .unwrap()
+            .write(body, slot.relative, value, enabled)?;
         self.set_tag(body, slot, tag, enabled)
     }
 
-    /// Called by x87's exception check after constructing the terminating fault
-    /// branch. A disabled write implies ES = 1; the continuing path has ES = 0,
-    /// so its latest writes can be retained without their guards.
     pub(super) fn discard_write_guards(
         &mut self,
         body: &mut BlockBuilder<'_>,
     ) -> Result<(), BuildError> {
-        if let Some(frame) = &mut self.frame {
-            for tag in frame.tags.iter_mut().flatten() {
-                if let Some(value) = tag.latest_write.take() {
-                    tag.current.define(body, value)?;
-                }
-            }
-            for payload in frame.payloads.iter_mut().flatten() {
-                payload.discard_write_guard();
-            }
+        if let Some(bank) = &mut self.bank {
+            bank.discard_write_guards(body)?;
         }
         Ok(())
     }
 
-    /// Publishes the current values, including conditional writes, and forgets
-    /// the slot mapping. FNCLEX/FNINIT and dynamic indexing need fresh tracking;
-    /// none of them proves that an earlier conditional write was enabled.
+    /// Publish unresolved guards and forget only the register address mapping.
     pub(super) fn rebase(&mut self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
-        self.publish(body)?;
-        self.frame = None;
-        self.backing = Backing::new(self.memory);
-        self.dynamic = false;
+        if let Some(bank) = &self.bank {
+            bank.publish(body)?;
+        }
+        self.bank = None;
         Ok(())
     }
 
     pub(super) fn initialize(&mut self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.rebase(body)?;
-        self.backing.initialize(body)
+        self.top
+            .define::<I8>(body, cpu_location!(x87.status.top), 0)?;
+        let mut bank = Bank::new(self.memory, 0.into());
+        bank.stack_top = Some(0);
+        bank.reset_tags(body, 0xffff)?;
+        self.bank = Some(bank);
+        Ok(())
     }
 
     pub(super) fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
-        let Some(frame) = &self.frame else {
-            return self.backing.publish(body);
-        };
-        for payload in frame.payloads.iter().flatten() {
-            payload.publish(body)?;
-        }
-        let mut tags = frame.entry_tag_word.clone();
-        let mut changed = false;
-        for relative in 0..8 {
-            if let Some(tag) = frame.tags[relative]
-                .as_ref()
-                .and_then(|tag| tag.current.dirty_value())
-            {
-                changed = true;
-                let shift = frame.physical(relative).shl(1);
-                tags = tags
-                    .and(Val::<I16>::from(3_u32).shl(&shift).xor(0xffff))
-                    .or(tag.shl(shift));
-            }
-        }
-        if changed {
-            body.store(self.memory, offset_of!(CpuState, x87.tag_word) as u32, tags)?;
+        self.top.publish(body)?;
+        if let Some(bank) = &self.bank {
+            bank.publish(body)?;
         }
         Ok(())
     }

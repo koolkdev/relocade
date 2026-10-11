@@ -129,7 +129,8 @@ impl X87Access<'_, '_> {
     }
 
     pub(crate) fn status_word(&mut self) -> Result<Val<I16>, BuildError> {
-        self.state.status.word(self.body)
+        let top = self.state.registers.top(self.body)?;
+        self.state.status.word(self.body, top)
     }
 
     pub(crate) fn initialize(&mut self) -> Result<(), BuildError> {
@@ -170,8 +171,7 @@ impl X87Access<'_, '_> {
     }
 
     fn slot(&mut self, index: impl Into<Val<I32>>) -> Result<registers::Slot, BuildError> {
-        let top = self.state.status.top(self.body)?;
-        self.state.registers.slot(self.body, &top, index.into())
+        self.state.registers.slot(self.body, index.into())
     }
 
     pub(crate) fn read_stack(
@@ -219,13 +219,11 @@ impl X87Access<'_, '_> {
     }
 
     pub(crate) fn pop(&mut self, enabled: &Val<I1>) -> Result<(), BuildError> {
-        let top = self.state.status.top(self.body)?;
-        let slot = self.state.registers.slot(self.body, &top, 0.into())?;
+        let slot = self.slot(0)?;
         self.state
             .registers
             .set_tag(self.body, &slot, 3.into(), enabled)?;
-        self.state.registers.advance(1);
-        self.state.status.set_top(self.body, top.add(1), enabled)
+        self.state.registers.advance(self.body, 1, enabled)
     }
 
     pub(crate) fn free(&mut self, index: impl Into<Val<I32>>) -> Result<(), BuildError> {
@@ -236,13 +234,9 @@ impl X87Access<'_, '_> {
     }
 
     pub(crate) fn rotate(&mut self, increment: bool) -> Result<(), BuildError> {
-        let top = self.state.status.top(self.body)?;
-        self.state.status.set_top(
-            self.body,
-            top.add(if increment { 1 } else { u32::MAX }),
-            true,
-        )?;
-        self.state.registers.advance(if increment { 1 } else { -1 });
+        self.state
+            .registers
+            .advance(self.body, if increment { 1 } else { -1 }, true)?;
         self.state.status.set_c1(self.body, false)
     }
 
