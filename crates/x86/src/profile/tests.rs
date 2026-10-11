@@ -7,7 +7,11 @@ fn entry_compatibility_requires_the_complete_target_and_current_segment_assumpti
     let flat = Segments::flat32();
     assert!(target.is_compatible_with(target, &flat));
     let restricted = Compiler::new(SegmentProfile::Flat32)
-        .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
+        .with_cpu_model(
+            CpuModel::default()
+                .with_feature(CpuFeature::Cmov, false)
+                .unwrap(),
+        )
         .target();
     assert!(!target.is_compatible_with(restricted, &flat));
     assert!(!restricted.is_compatible_with(target, &flat));

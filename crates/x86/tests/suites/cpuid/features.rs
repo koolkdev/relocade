@@ -17,7 +17,7 @@ fn configured_features(engine: Engine, frontend: Frontend) {
         (CpuFeature::Tsc, &[0x0f, 0x31][..], [0x601, 0, 0, 0x8100]),
     ] {
         let target = Compiler::new(SegmentProfile::Flat32)
-            .with_cpu_model(CpuModel::default().with_feature(feature, false))
+            .with_cpu_model(CpuModel::default().with_feature(feature, false).unwrap())
             .target();
         for (leaf, values) in [(0, VENDOR), (1, features), (u32::MAX, features)] {
             let mut image = Image::new(&[0x0f, 0xa2]);
@@ -56,8 +56,11 @@ fn configured_features(engine: Engine, frontend: Frontend) {
     // Optional capabilities can all be disabled; the identity and CPUID remain available.
     let model = CpuModel::default()
         .with_feature(CpuFeature::Cx8, false)
+        .unwrap()
         .with_feature(CpuFeature::Cmov, false)
-        .with_feature(CpuFeature::Tsc, false);
+        .unwrap()
+        .with_feature(CpuFeature::Tsc, false)
+        .unwrap();
     let compiler = Compiler::new(SegmentProfile::Flat32).with_cpu_model(model);
     let mut image = Image::new(&[0x0f, 0xa2]);
     image.cpu.registers.eax = 1;

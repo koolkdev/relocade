@@ -42,12 +42,12 @@ impl Compiler {
     ///
     /// ```
     /// use wasm86_x86::{Compiler, CpuFeature, CpuModel, SegmentProfile};
-    /// let model = CpuModel::default().with_feature(CpuFeature::Cmov, false);
+    /// let model = CpuModel::default().with_feature(CpuFeature::Cmov, false)?;
     /// let compiler = Compiler::new(SegmentProfile::Flat32).with_cpu_model(model);
     /// let block = compiler.compile_block(0x1000, &[0x0f, 0x44, 0xc0], 1)?;
     /// assert_eq!(block.execution_target, Some(compiler.target()));
     /// // Executing this CMOVE raises #UD without reading its operand.
-    /// # Ok::<(), wasm86_x86::BlockError>(())
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
     pub fn with_cpu_model(mut self, cpu_model: CpuModel) -> Self {

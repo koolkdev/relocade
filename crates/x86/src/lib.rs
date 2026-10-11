@@ -62,7 +62,7 @@ pub use compile::{
 };
 pub use exception::{Exception, ExceptionVector};
 pub use memory::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
-pub use processor::{CpuFeature, CpuModel};
+pub use processor::{CpuFeature, CpuModel, UnsupportedCpuFeature};
 pub use profile::{ExecutionProfile, ExecutionTarget};
 pub use register::Gpr32;
 pub use segment::{

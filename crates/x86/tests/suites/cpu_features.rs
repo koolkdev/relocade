@@ -29,7 +29,7 @@ fn disabled_forms(engine: Engine, frontend: Frontend) {
                 &[&[0x0f, 0x31][..], &[0x66, 0x0f, 0x31]][..],
             ),
         ] {
-            let model = CpuModel::default().with_feature(feature, false);
+            let model = CpuModel::default().with_feature(feature, false).unwrap();
             let target = Compiler::new(profile).with_cpu_model(model).target();
             for &instruction in forms {
                 // The incomplete successor must not enter the snapshot boundary.
@@ -57,8 +57,11 @@ fn disabled_forms(engine: Engine, frontend: Frontend) {
 test_frontends!(disabled_forms_preserve_state, disabled_forms);
 
 fn restricted_compiler() -> Compiler {
-    Compiler::new(SegmentProfile::Flat32)
-        .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
+    Compiler::new(SegmentProfile::Flat32).with_cpu_model(
+        CpuModel::default()
+            .with_feature(CpuFeature::Cmov, false)
+            .unwrap(),
+    )
 }
 
 fn prior_work(engine: Engine) {
@@ -157,7 +160,7 @@ fn disabled_forms_remain_decodable_and_unrelated_forms_keep_their_code() {
     ];
     for (disabled, _) in forms {
         let compiler = Compiler::new(SegmentProfile::Flat32)
-            .with_cpu_model(CpuModel::default().with_feature(disabled, false));
+            .with_cpu_model(CpuModel::default().with_feature(disabled, false).unwrap());
         for (required, code) in forms {
             let ordinary = Compiler::new(SegmentProfile::Flat32)
                 .compile_block(0x1000, code, 1)
@@ -165,7 +168,7 @@ fn disabled_forms_remain_decodable_and_unrelated_forms_keep_their_code() {
             let configured = compiler.compile_block(0x1000, code, 1).unwrap();
             assert_eq!(ordinary.bytes == configured.bytes, required != disabled);
         }
-        // Base instructions and partial extension support have no selectable complete feature.
+        // Baseline instructions and partial extensions remain available.
         for code in [
             &[0x89, 0xd8][..],
             &[0xdb, 0xe3][..],

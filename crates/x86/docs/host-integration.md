@@ -18,7 +18,7 @@ returns the resulting `ExecutionTarget { profile, cpu_model }`. Free compilation
 functions use the default model without CPU observations.
 
 The default model enables the complete optional capabilities CX8, CMOV and TSC.
-For example, `CpuModel::default().with_feature(CpuFeature::Cmov, false)` disables
+For example, `CpuModel::default().with_feature(CpuFeature::Cmov, false)?` disables
 integer conditional moves. Known encodings requiring a disabled capability raise
 #UD after complete instruction fetch and before operand access, without retiring. They terminate
 snapshot compilation before the next instruction. The capability choice is fixed
@@ -26,10 +26,13 @@ when Wasm is generated, so execution needs no dynamic feature test.
 
 Feature choices do not change the baseline or emulate an older CPU generation.
 Existing partial x87 and SSE/SSE2 support remains available without claiming complete
-FPU or SIMD capabilities. These incomplete groups are not selectable `CpuFeature`
-values. Execution-mode and control-register assumptions remain separate from
-capability selection. The processor model is host configuration, not mutable
-`CpuState`; keep it fixed for a guest.
+FPU or SIMD capabilities. `CpuFeature` names these groups, but `with_feature` returns
+`UnsupportedCpuFeature { feature }` if asked to enable an incomplete or unimplemented
+capability. Disabling one leaves the model unchanged. `CpuFeature::is_implemented()`
+reports which groups this build can enable; `CpuModel::supports(feature)` reports
+which complete capabilities a model enables. Execution-mode and control-register
+assumptions remain separate from capability selection. The processor model is host
+configuration, not mutable `CpuState`; keep it fixed for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
 count, then tail-calls `wasm86.dispatch(next_eip: i32) -> i64`. Its result is returned
@@ -110,6 +113,33 @@ compiling another block. No CPU state is replaced with the observed snapshot.
 
 ## Processor identification
 
+The `CpuFeature` catalog covers CPUID-enumerated 32-bit application instruction
+capabilities through Pentium 4 Prescott. It excludes platform facilities such as
+paging, APIC and thermal controls, 64-bit-only capabilities and later instruction
+extensions. A catalog entry names an architectural capability; it does not promise
+that the implementation is complete.
+
+| `CpuFeature` | Instruction capability | CPUID leaf 1 bit | Can enable |
+| --- | --- | --- | --- |
+| `Fpu` | x87 floating point | EDX 0 | No |
+| `Tsc` | RDTSC | EDX 4 | Yes |
+| `Cx8` | CMPXCHG8B | EDX 8 | Yes |
+| `Sep` | SYSENTER/SYSEXIT | EDX 11 | No |
+| `Cmov` | CMOVcc; FCMOV/FCOMI when FPU is also advertised | EDX 15 | Yes |
+| `Clflush` | CLFLUSH | EDX 19 | No |
+| `Mmx` | MMX and EMMS | EDX 23 | No |
+| `Fxsr` | FXSAVE/FXRSTOR | EDX 24 | No |
+| `Sse` | SSE, including its MMX additions | EDX 25 | No |
+| `Sse2` | SSE2 | EDX 26 | No |
+| `Sse3` | SSE3, including FISTTP | ECX 0 | No |
+| `Monitor` | MONITOR/MWAIT | ECX 3 | No |
+
+XMM is the SIMD register bank, not a separate feature. SSE3 and MONITOR/MWAIT
+are separate capabilities even though they arrived together. The catalog follows
+Intel's [P4-era CPUID feature definitions](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf#page=213).
+MONITOR/MWAIT's conditional user-mode availability is described in
+[Volume 3A, section 7.11.3](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366821.pdf#page=318).
+
 CPUID is generated from the compiler's selected `CpuModel` and needs no host
 callback. Leaf 0 reports maximum basic leaf 1 and the vendor
 string `Relocade CPU`. Leaf 1 reports virtual family 6, model 0, stepping 1
@@ -122,8 +152,8 @@ identity does not claim a physical Intel processor.
 Only complete feature groups are advertised. Partial x87 support does not establish
 the FPU feature; MMX, SSE, SSE2, FXSAVE/FXRSTOR and unsupported platform
 facilities remain clear. Post-P4 extensions such as POPCNT are outside the
-supported instruction subset. When adding a feature, update the core model only
-after its advertised behavior and feature combinations are supported. In particular,
+supported instruction subset. Mark a feature implemented only after its advertised
+behavior and feature combinations are supported. In particular,
 advertising both FPU and CMOV would also promise the x87 FCMOV and FCOMI instructions.
 
 The full EAX selects the leaf. Both leaves ignore input ECX. Unsupported basic and
