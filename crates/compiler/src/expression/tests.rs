@@ -47,3 +47,35 @@ fn input_mapping_stops_at_the_first_error() {
     assert_eq!(visited, [1, 2]);
     assert!(matches!(result, Err("unavailable input")));
 }
+
+#[test]
+fn refolding_lane_replacement_discards_narrow_carrier_bits() {
+    use crate::{
+        body::{Value, ValueDefinition, ValueTable},
+        Type,
+    };
+
+    for (ty, carrier, expected) in [
+        (Type::I8, 0x102_u64, 2_u128),
+        (Type::I16, 0x10001, 1),
+        (Type::I8, 0xffff_ffff, 0xff),
+        (Type::I16, 0xffff_ffff, 0xffff),
+    ] {
+        let mut values = ValueTable::default();
+        let vector = values.literal(Type::V128, 0_u128);
+        let value = values.carrier_literal(ty, carrier);
+        let expression = values.intern(Value {
+            ty: Type::V128,
+            definition: ValueDefinition::Expression(Expression::VectorReplace {
+                vector,
+                value,
+                lane: 0,
+            }),
+        });
+        let folded = super::refold(&mut values, expression);
+        let ValueDefinition::Literal(bits) = values[folded].definition else {
+            panic!("literal lane replacement folds");
+        };
+        assert_eq!(u128::from(bits), expected);
+    }
+}

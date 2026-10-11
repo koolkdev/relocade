@@ -708,6 +708,12 @@ register or unaligned eight-byte memory source. PANDN computes `(~destination)
 & source`. Logical operations have the same tag, TOP and destination exponent
 effects as MOVQ, including same-register operations such as `PXOR mm0, mm0`.
 
+PADDB/PADDW/PADDD and PSUBB/PSUBW/PSUBD add or subtract independent byte,
+word or doubleword lanes. Results wrap at the lane width without saturation or
+cross-lane carries and borrows. They accept register or unaligned eight-byte
+memory sources and have the same MMX environment effects as logical operations.
+The compiler lowers packed arithmetic to standard WebAssembly SIMD operations.
+
 MMX instructions, including EMMS, deliver a pending x87 exception before operand
 access. A memory fault preserves the current instruction's destination, tags and
 TOP. These instructions preserve EFLAGS, MXCSR, x87 control and other status

@@ -6,6 +6,7 @@ mod wide;
 
 use crate::{
     bitwise::BitwiseOp,
+    expression::LaneBinaryOp,
     floating,
     integer::{low_mask, BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
     Expression, Type,
@@ -18,15 +19,34 @@ impl Writer<'_> {
     pub(super) fn expression(&mut self, result_type: Type, expression: Expression<Type>) {
         let wide = result_type == Type::I64;
         let instruction = match expression {
+            Expression::VectorBinary {
+                operator,
+                lane_type,
+                ..
+            } => match (operator, lane_type) {
+                (LaneBinaryOp::Add, Type::I8) => Instruction::I8x16Add,
+                (LaneBinaryOp::Add, Type::I16) => Instruction::I16x8Add,
+                (LaneBinaryOp::Add, Type::I32) => Instruction::I32x4Add,
+                (LaneBinaryOp::Add, Type::I64) => Instruction::I64x2Add,
+                (LaneBinaryOp::Sub, Type::I8) => Instruction::I8x16Sub,
+                (LaneBinaryOp::Sub, Type::I16) => Instruction::I16x8Sub,
+                (LaneBinaryOp::Sub, Type::I32) => Instruction::I32x4Sub,
+                (LaneBinaryOp::Sub, Type::I64) => Instruction::I64x2Sub,
+                _ => unreachable!("integer lanes have 8, 16, 32 or 64 bits"),
+            },
             Expression::VectorExtract { lane, .. } => match result_type {
+                Type::I8 => Instruction::I8x16ExtractLaneU(lane),
+                Type::I16 => Instruction::I16x8ExtractLaneU(lane),
                 Type::I32 => Instruction::I32x4ExtractLane(lane),
                 Type::I64 => Instruction::I64x2ExtractLane(lane),
-                _ => unreachable!("integer lanes have 32 or 64 bits"),
+                _ => unreachable!("integer lanes have 8, 16, 32 or 64 bits"),
             },
             Expression::VectorReplace { value, lane, .. } => match value {
+                Type::I8 => Instruction::I8x16ReplaceLane(lane),
+                Type::I16 => Instruction::I16x8ReplaceLane(lane),
                 Type::I32 => Instruction::I32x4ReplaceLane(lane),
                 Type::I64 => Instruction::I64x2ReplaceLane(lane),
-                _ => unreachable!("integer lanes have 32 or 64 bits"),
+                _ => unreachable!("integer lanes have 8, 16, 32 or 64 bits"),
             },
             Expression::FloatBinary { operator, .. } => match operator {
                 floating::BinaryOp::Add => Instruction::F64Add,
