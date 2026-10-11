@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::alu::ShiftOp;
+use crate::instruction::PackedShiftCount;
 use wasm86_compiler::{MemoryInt, VectorLane};
 
 instruction_families! {
@@ -63,42 +64,17 @@ instruction_families! {
     }
 }
 
-trait ShiftCount {
-    fn read_count(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<Val<I64>, BuildError>;
-}
-
-impl ShiftCount for MmxLocation {
-    fn read_count(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<Val<I64>, BuildError> {
-        self.read(execution)
-    }
-}
-
-impl ShiftCount for Input<I8> {
-    fn read_count(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<Val<I64>, BuildError> {
-        Ok(self.read(execution)?.unsigned().extend())
-    }
-}
-
 fn shift<T: VectorLane + MemoryInt>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
-    count: impl ShiftCount,
+    count: impl PackedShiftCount,
     operation: ShiftOp,
 ) -> Result<(), BuildError> {
     execution.execute_mmx(|execution| {
         let count = count.read_count(execution)?;
         let input = execution.read_mmx(destination.clone())?;
         let vector = Val::<V128>::from(0_u128).replace_lane(0, input);
-        // Test before narrowing: a nonzero high dword must not become a small count.
-        let in_range = count.unsigned().lt(u64::from(T::BYTES * 8));
-        let count = count.truncate::<I32>();
-        let result = match operation {
-            ShiftOp::Left => in_range.select(vector.shl_lanes::<T>(count), 0_u128),
-            ShiftOp::RightLogical => in_range.select(vector.unsigned_shr_lanes::<T>(count), 0_u128),
-            ShiftOp::RightArithmetic => {
-                vector.signed_shr_lanes::<T>(in_range.select(count, T::BYTES * 8 - 1))
-            }
-        };
+        let result = operation.apply_packed::<T>(vector, count);
         execution.write_mmx(destination, result.extract_lane::<I64>(0))
     })
 }

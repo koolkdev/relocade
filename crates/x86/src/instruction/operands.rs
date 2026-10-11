@@ -1,8 +1,10 @@
 //! Typed handler operands defer architectural accesses to the execution builder.
 
 mod mmx;
+mod shift_count;
 mod xmm;
 pub(crate) use mmx::MmxLocation;
+pub(crate) use shift_count::PackedShiftCount;
 pub(crate) use xmm::{VectorAlignment, XmmLocation, XmmType};
 
 use std::marker::PhantomData;
