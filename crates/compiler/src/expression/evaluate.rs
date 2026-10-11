@@ -1,5 +1,5 @@
 //! Literal evaluation preserves raw vector bits and scalar carrier rules.
-use super::Expression;
+use super::{Expression, LaneBinaryOp};
 use crate::{floating, integer, literal::Literal, Type};
 
 #[derive(Clone, Copy)]
@@ -10,6 +10,14 @@ pub(crate) struct TypedLiteral {
 
 impl Expression<TypedLiteral> {
     pub(crate) fn carrier_result(&self, result: Type, component: usize) -> Option<Literal> {
+        // Lane widths describe the operation, even when narrow scalar inputs or
+        // results use an i32 carrier. Replacement truncates to the logical lane.
+        if matches!(
+            self,
+            Self::VectorExtract { .. } | Self::VectorReplace { .. }
+        ) {
+            return self.constant_result(result, component);
+        }
         let expression = match *self {
             Self::SignExtend { .. } | Self::BitCount { .. } => *self,
             _ => self.map(|input| TypedLiteral {
@@ -22,6 +30,25 @@ impl Expression<TypedLiteral> {
 
     pub(crate) fn constant_result(&self, result: Type, component: usize) -> Option<Literal> {
         match *self {
+            Self::VectorBinary {
+                operator,
+                lane_type,
+                left,
+                right,
+            } => {
+                let mask = u128::from(lane_type.mask());
+                let mut bits = 0_u128;
+                for shift in (0..128).step_by(lane_type.bits() as usize) {
+                    let left = (u128::from(left.value) >> shift) & mask;
+                    let right = (u128::from(right.value) >> shift) & mask;
+                    let lane = match operator {
+                        LaneBinaryOp::Add => left.wrapping_add(right),
+                        LaneBinaryOp::Sub => left.wrapping_sub(right),
+                    };
+                    bits |= (lane & mask) << shift;
+                }
+                return Some(bits.into());
+            }
             Self::VectorExtract { input, lane } => {
                 return Some(Literal::from(result.normalize(
                     (u128::from(input.value) >> (lane * result.bits())) as u64,
@@ -34,10 +61,10 @@ impl Expression<TypedLiteral> {
             } => {
                 let shift = lane * value.ty.bits();
                 let mask = u128::from(value.ty.mask()) << shift;
+                // Refolding can leave carry bits above a narrow input's logical width.
+                let lane_bits = value.ty.normalize(value.value.scalar(value.ty)?);
                 return Some(
-                    ((u128::from(vector.value) & !mask)
-                        | (u128::from(value.value.scalar(value.ty)?) << shift))
-                        .into(),
+                    ((u128::from(vector.value) & !mask) | (u128::from(lane_bits) << shift)).into(),
                 );
             }
             _ => {}
@@ -87,7 +114,9 @@ impl Expression<ScalarLiteral> {
     fn constant_result(&self, result: Type, component: usize) -> Option<u64> {
         debug_assert!(component < self.result_types(result).len());
         let bits = match *self {
-            Self::VectorExtract { .. } | Self::VectorReplace { .. } => return None,
+            Self::VectorBinary { .. } | Self::VectorExtract { .. } | Self::VectorReplace { .. } => {
+                return None
+            }
             Self::FloatBinary {
                 operator,
                 left,
