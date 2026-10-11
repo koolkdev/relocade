@@ -1,6 +1,7 @@
 //! SSE and SSE2 instruction families share one catalog entry point.
 
 mod arithmetic;
+mod comparisons;
 mod half_moves;
 mod logical;
 mod moves;
@@ -15,6 +16,7 @@ use wasm86_compiler::V128;
 
 pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
     arithmetic::forms()
+        .chain(comparisons::forms())
         .chain(moves::forms())
         .chain(half_moves::forms())
         .chain(logical::forms())
