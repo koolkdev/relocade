@@ -37,6 +37,12 @@ pub(super) enum Expression<V> {
         left: V,
         right: V,
     },
+    VectorNarrow {
+        signed: bool,
+        result_lane: Type,
+        left: V,
+        right: V,
+    },
     VectorShift {
         operator: ShiftOp,
         lane_type: Type,
@@ -172,6 +178,17 @@ impl<V> Expression<V> {
             } => Expression::VectorBinary {
                 operator: *operator,
                 lane_type: *lane_type,
+                left: input(left)?,
+                right: input(right)?,
+            },
+            Self::VectorNarrow {
+                signed,
+                result_lane,
+                left,
+                right,
+            } => Expression::VectorNarrow {
+                signed: *signed,
+                result_lane: *result_lane,
                 left: input(left)?,
                 right: input(right)?,
             },

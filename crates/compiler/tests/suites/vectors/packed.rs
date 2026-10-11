@@ -2,6 +2,8 @@
 
 #[path = "packed/comparisons.rs"]
 mod comparisons;
+#[path = "packed/narrow.rs"]
+mod narrow;
 #[path = "packed/saturation.rs"]
 mod saturation;
 #[path = "packed/shuffle.rs"]

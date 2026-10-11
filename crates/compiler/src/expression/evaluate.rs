@@ -43,6 +43,17 @@ impl Expression<TypedLiteral> {
                         .into(),
                 );
             }
+            Self::VectorNarrow {
+                signed,
+                result_lane,
+                left,
+                right,
+            } => {
+                return Some(
+                    vector::narrow(signed, result_lane, left.value.into(), right.value.into())
+                        .into(),
+                );
+            }
             Self::VectorShuffle { left, right, lanes } => {
                 return Some(
                     vector::shuffle(left.value.into(), right.value.into(), lanes.indices()).into(),
@@ -131,6 +142,7 @@ impl Expression<ScalarLiteral> {
         let bits = match *self {
             Self::VectorBinary { .. }
             | Self::VectorShift { .. }
+            | Self::VectorNarrow { .. }
             | Self::VectorShuffle { .. }
             | Self::VectorExtract { .. }
             | Self::VectorReplace { .. } => return None,
