@@ -1,5 +1,6 @@
 //! Reduce semantic control flow before deciding where its calculations execute.
 use super::*;
+use rustc_hash::FxHashMap;
 
 #[cfg(test)]
 mod tests;
@@ -8,6 +9,7 @@ mod tests;
 /// Scheduling may request another normal form but cannot change a context.
 pub(super) struct ReducedFlow {
     reducers: Vec<Option<Reducer>>,
+    exclusions: FxHashMap<(BlockId, BlockId), bool>,
     pub(super) control_changed: bool,
 }
 
@@ -86,12 +88,30 @@ impl ReducedFlow {
         }
         ReducedFlow {
             reducers,
+            exclusions: FxHashMap::default(),
             control_changed,
         }
     }
 
     pub(super) fn facts(&self, block: BlockId) -> &ScalarFacts {
         self.reducers[block.0].as_ref().unwrap().facts()
+    }
+
+    /// Fixed facts and existing value definitions/bounds make proofs and misses reusable.
+    /// Placement only appends values; compaction runs after this owner is dropped.
+    /// The key is directional: inference may prove one relation but miss its reverse.
+    pub(super) fn excludes(
+        &mut self,
+        values: &ValueTable,
+        block: BlockId,
+        source: BlockId,
+    ) -> bool {
+        if let Some(&excluded) = self.exclusions.get(&(block, source)) {
+            return excluded;
+        }
+        let excluded = self.facts(source).conflicts_with(values, self.facts(block));
+        self.exclusions.insert((block, source), excluded);
+        excluded
     }
 
     pub(super) fn reduce(

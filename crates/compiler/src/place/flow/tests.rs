@@ -2,6 +2,8 @@ use super::*;
 use crate::expression::BinaryOp as Binary;
 use crate::{bitwise::BitwiseOp, Type};
 
+mod exclusions;
+
 #[test]
 fn rewritten_if_and_switch_guards_observe_both_semantic_forms() {
     use crate::expression::UnaryOp as Unary;
@@ -398,6 +400,7 @@ fn a_proven_component_does_not_make_its_sibling_available() {
     );
     let flow = ReducedFlow {
         reducers: vec![Some(Reducer::from_facts(facts))],
+        exclusions: FxHashMap::default(),
         control_changed: false,
     };
     let reachable = graph.reachable();
