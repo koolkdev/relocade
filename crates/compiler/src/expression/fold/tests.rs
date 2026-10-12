@@ -28,6 +28,33 @@ fn assert_constant(values: &ValueTable, id: usize, expected: u64) {
 }
 
 #[test]
+fn scalar_roundtrips_distinguish_logical_width_from_carrier_truncation() {
+    let mut values = ValueTable::default();
+    let convert = |input| Expression::Unary {
+        operator: Unary::Convert,
+        input,
+    };
+    for source in [Type::I32, Type::I64] {
+        let input = values.push(Value {
+            ty: source,
+            definition: ValueDefinition::Parameter {
+                block: BlockId(0),
+                component: 0,
+            },
+        });
+        for narrow in [Type::I1, Type::I8, Type::I16, Type::I32] {
+            let view = build(&mut values, narrow, convert(input), 0);
+            let carrier = refold(&mut values, source, convert(view));
+            assert_eq!(carrier == input, source == Type::I32);
+
+            let logical = build(&mut values, source, convert(view), 0);
+            assert_eq!(logical == input, source == narrow);
+            assert_eq!(values.bounds[logical].unsigned, narrow.bits());
+        }
+    }
+}
+
+#[test]
 fn xor_mask_combination_preserves_carrier_bits_during_refolding() {
     for ty in [Type::I1, Type::I8, Type::I16] {
         let mut values = ValueTable::default();

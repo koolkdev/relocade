@@ -102,7 +102,17 @@ impl Availability {
             {
                 producer
             } else {
-                graph.values.push(operation)
+                let placed = graph.values.push(operation);
+                // A fresh execution keeps the recipe's proven result bounds.
+                // Do not transfer a path's proof onto an existing execution.
+                for (recipe, output) in graph
+                    .values
+                    .expression_results(producer)
+                    .zip(graph.values.expression_results(placed))
+                {
+                    graph.values.retain_bounds(output, recipe);
+                }
+                placed
             };
             if placed >= self.placed.len() {
                 self.placed.resize(placed + 1, false);

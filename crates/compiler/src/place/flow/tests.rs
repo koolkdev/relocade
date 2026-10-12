@@ -401,6 +401,7 @@ fn a_proven_component_does_not_make_its_sibling_available() {
     let flow = ReducedFlow {
         reducers: vec![Some(Reducer::from_facts(facts))],
         exclusions: FxHashMap::default(),
+        lowering: None,
         control_changed: false,
     };
     let reachable = graph.reachable();
