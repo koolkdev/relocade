@@ -1,6 +1,6 @@
 use crate::{
     body::Operation, AtLeast, BlockBuilder, BuildError, Program, Val, ValueType, F64, I1, I16, I32,
-    I64, I8, V128,
+    I64, I8, V128, V64,
 };
 
 mod atomic;
@@ -64,6 +64,10 @@ impl MemoryType for F64 {
 
 impl MemoryType for V128 {
     const BYTES: u32 = 16;
+}
+
+impl MemoryType for V64 {
+    const BYTES: u32 = 8;
 }
 
 impl MemoryInt for I8 {}

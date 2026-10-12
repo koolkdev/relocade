@@ -14,10 +14,12 @@ impl Writer<'_> {
         let wide = ty == Type::I64;
         let instruction = match operator {
             Unary::ExtractLane { lane } => vector::extract(ty, lane),
-            Unary::Reinterpret => match (input_type, ty) {
+            Unary::Reinterpret => match (input_type.carrier(), ty.carrier()) {
                 (Type::I64, Type::F64) => Instruction::F64ReinterpretI64,
                 (Type::F64, Type::I64) => Instruction::I64ReinterpretF64,
-                _ => unreachable!("bitcasts preserve width and change scalar type"),
+                (Type::I64, Type::V128) => Instruction::I64x2Splat,
+                (Type::V128, Type::I64) => Instruction::I64x2ExtractLane(0),
+                _ => unreachable!("bitcasts preserve logical bits across carriers"),
             },
             Unary::Convert => {
                 if wide {
@@ -37,7 +39,7 @@ impl Writer<'_> {
                     Type::I8 => self.emit(Instruction::I32Extend8S),
                     Type::I16 => self.emit(Instruction::I32Extend16S),
                     Type::I32 => {}
-                    Type::I64 | Type::F64 | Type::V128 => {
+                    Type::I64 | Type::F64 | Type::V64 | Type::V128 => {
                         unreachable!("a signed extension widens an integer input")
                     }
                 }

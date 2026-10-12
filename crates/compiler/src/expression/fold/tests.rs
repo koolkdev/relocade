@@ -1,5 +1,7 @@
 //! Logical construction and operand replacement observe different bit widths.
 
+mod vectors;
+
 use super::*;
 use crate::expression::{
     BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, UnaryOp as Unary,

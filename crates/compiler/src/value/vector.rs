@@ -2,11 +2,27 @@
 
 use crate::expression::{BinaryOp as Binary, ShiftOp as Shift, UnaryOp as Unary};
 use crate::{
-    expression::LaneBinaryOp, AtLeast, DoubleWidth, IntType, Val, I16, I32, I64, I8, V128,
+    expression::LaneBinaryOp, AtLeast, BitwiseType, IntType, Type, Val, I16, I32, I64, I8, V128,
+    V64,
 };
 use crate::{expression::ShuffleMask, integer::ShiftOp};
 
-/// An integer lane width in a 128-bit vector: I8, I16, I32 or I64.
+mod width;
+
+/// A raw vector with a fixed logical byte width, independent of its Wasm carrier.
+pub trait VectorType: BitwiseType {
+    /// A byte array matching the logical vector width, including shuffle indices.
+    type Bytes: AsRef<[u8]> + AsMut<[u8]> + Default;
+}
+
+impl VectorType for V64 {
+    type Bytes = [u8; 8];
+}
+impl VectorType for V128 {
+    type Bytes = [u8; 16];
+}
+
+/// An integer lane width in a vector: I8, I16, I32 or I64.
 pub trait VectorLane: IntType {}
 impl VectorLane for I8 {}
 impl VectorLane for I16 {}
@@ -18,7 +34,7 @@ pub trait SaturatingLane: VectorLane {}
 impl SaturatingLane for I8 {}
 impl SaturatingLane for I16 {}
 
-impl Val<V128> {
+impl<V: VectorType> Val<V> {
     /// Shifts each lane left by a shared count, modulo the lane width.
     pub fn shl_lanes<T: VectorLane>(&self, count: impl Into<Val<I32>>) -> Self {
         self.shift_lanes::<T>(ShiftOp::Left, count.into())
@@ -61,26 +77,8 @@ impl Val<V128> {
         self.binary_lanes::<T>(LaneBinaryOp::Mul, right.into())
     }
 
-    /// Multiplies signed T lanes in the low 64 bits, producing double-width lanes.
-    /// The high halves of both inputs are ignored. T is I8, I16 or I32.
-    pub fn signed_widening_mul_low_lanes<T: VectorLane + DoubleWidth>(
-        &self,
-        right: impl Into<Self>,
-    ) -> Self {
-        self.binary_lanes::<T>(LaneBinaryOp::WideningMulLowSigned, right.into())
-    }
-
-    /// Multiplies signed T lanes in the high 64 bits, producing double-width lanes.
-    /// The low halves of both inputs are ignored. T is I8, I16 or I32.
-    pub fn signed_widening_mul_high_lanes<T: VectorLane + DoubleWidth>(
-        &self,
-        right: impl Into<Self>,
-    ) -> Self {
-        self.binary_lanes::<T>(LaneBinaryOp::WideningMulHighSigned, right.into())
-    }
-
     /// Multiplies corresponding signed I16 lanes and adds adjacent products.
-    /// Produces four I32 lanes, with each sum wrapping at 32 bits.
+    /// Produces one I32 lane per pair, with each sum wrapping at 32 bits.
     pub fn signed_dot_i16_pairs(&self, right: impl Into<Self>) -> Self {
         self.binary_lanes::<I16>(LaneBinaryOp::DotI16Signed, right.into())
     }
@@ -130,13 +128,18 @@ impl Val<V128> {
     }
 
     fn narrow_lanes<T: SaturatingLane>(&self, right: Self, signed: bool) -> Self {
-        self.binary(
-            Binary::Narrow {
-                signed,
-                result_lane: T::TYPE,
-            },
-            right,
-        )
+        let operator = Binary::Narrow {
+            signed,
+            result_lane: T::TYPE,
+        };
+        if V::TYPE == Type::V64 {
+            // The canonical narrowing operation consumes full carriers. Arrange
+            // both logical inputs in its first carrier before narrowing.
+            let joined = self.concat_low_halves(right);
+            joined.binary(operator, Val::<V128>::from(0_u128))
+        } else {
+            self.binary(operator, right)
+        }
     }
 
     fn binary_lanes<T: VectorLane>(&self, operator: LaneBinaryOp, right: Self) -> Self {
@@ -150,23 +153,43 @@ impl Val<V128> {
     }
 
     /// Selects each output byte from the concatenated input vectors.
-    /// Indices 0..16 address this vector and 16..32 address `right`, low byte first.
-    /// Panics if an index is outside 0..32.
-    pub fn shuffle_bytes(&self, right: impl Into<Self>, lanes: [u8; 16]) -> Self {
-        self.binary(Binary::Shuffle(ShuffleMask::new(lanes)), right)
+    /// Indices 0..N address this vector and N..2*N address `right`, low byte first,
+    /// where N is 8 for V64 and 16 for V128. Panics for indices outside that range.
+    pub fn shuffle_bytes(&self, right: impl Into<Self>, lanes: V::Bytes) -> Self {
+        let width = V::TYPE.bits() / 8;
+        let lanes = lanes.as_ref();
+        let indices = std::array::from_fn(|byte| {
+            if byte >= usize::from(width) {
+                return 0;
+            }
+            let lane = lanes[byte];
+            assert!(lane < width * 2, "shuffle byte is in range");
+            if lane < width {
+                lane
+            } else {
+                lane + 16 - width
+            }
+        });
+        self.binary(Binary::Shuffle(ShuffleMask::new(indices)), right)
     }
 
     /// Extracts a lane, numbered from the least significant bits.
     /// Panics if `lane` is outside the vector at the requested width.
     pub fn extract_lane<T: VectorLane>(&self, lane: u8) -> Val<T> {
-        assert!(lane < 128 / T::TYPE.bits(), "vector lane is in range");
+        assert!(
+            lane < V::TYPE.bits() / T::TYPE.bits(),
+            "vector lane is in range"
+        );
         self.unary(Unary::ExtractLane { lane })
     }
 
     /// Replaces one lane and preserves all other bits.
     /// Panics if `lane` is outside the vector at the supplied value's width.
     pub fn replace_lane<T: VectorLane>(&self, lane: u8, value: impl Into<Val<T>>) -> Self {
-        assert!(lane < 128 / T::TYPE.bits(), "vector lane is in range");
+        assert!(
+            lane < V::TYPE.bits() / T::TYPE.bits(),
+            "vector lane is in range"
+        );
         self.binary(
             Binary::ReplaceLane {
                 lane_type: T::TYPE,
