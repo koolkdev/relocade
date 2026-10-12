@@ -2,7 +2,8 @@ use super::machine;
 use wasm86_runtime::StepOutcome;
 use wasm86_x86::{Exception, ExecutionExit, Segment, StoredSegment};
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn persistent_state_and_independent_machines() {
     let mut first = machine(&[0xb8, 0x34, 0x12, 0xa3, 0, 2, 0x40, 0x0f, 0x0b]).await;
     let second = machine(&[0x90]).await;
@@ -24,7 +25,8 @@ async fn persistent_state_and_independent_machines() {
     assert_eq!(first.cpu(), before);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn guest_code_changes_are_visible_at_the_next_instruction() {
     // MOV byte [0105],40; NOP (replaced with INC AX).
     let mut machine = machine(&[0xc6, 0x06, 0x05, 0x01, 0x40, 0x90]).await;
@@ -34,7 +36,8 @@ async fn guest_code_changes_are_visible_at_the_next_instruction() {
     assert_eq!(machine.cpu().eip, 0x106);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn unsupported_instruction_is_distinct_from_an_architectural_exception() {
     let mut machine = machine(&[0xf4]).await; // HLT is outside the current subset.
     assert_eq!(
@@ -48,7 +51,8 @@ async fn unsupported_instruction_is_distinct_from_an_architectural_exception() {
     assert_eq!(machine.cpu().instruction_count, 0);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn interrupt_handler_returns_through_the_saved_frame() {
     let mut machine = machine(&[]).await;
     let mut cpu = machine.cpu();
@@ -79,7 +83,8 @@ async fn interrupt_handler_returns_through_the_saved_frame() {
     assert_eq!(cpu.flags.bytes.if_ & 1, 1);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn incompatible_cpu_replacement_leaves_the_machine_unchanged() {
     let mut machine = machine(&[0x90]).await;
     let before = machine.cpu();

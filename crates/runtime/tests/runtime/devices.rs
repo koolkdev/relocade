@@ -28,7 +28,8 @@ impl Devices for Bus {
     }
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn device_callbacks_preserve_cpu_operand_widths() {
     let map = PhysicalMemoryMap::new([
         (0..=0xffff, Ram { backing_offset: 0 }),
@@ -70,7 +71,8 @@ impl Devices for A20 {
     }
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn port_mapping_changes_are_installed_before_the_next_entry() {
     let mut machine = runtime().await.machine(ram(), A20).await.unwrap();
     machine
@@ -111,7 +113,8 @@ impl Devices for Remap {
     }
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn mmio_remapping_affects_the_remaining_part_of_one_operand() {
     let map = PhysicalMemoryMap::new([
         (0..=0xffff, Ram { backing_offset: 0 }),
@@ -127,7 +130,8 @@ async fn mmio_remapping_affects_the_remaining_part_of_one_operand() {
     assert_eq!(machine.cpu().registers.eax, 0x1234);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn local_devices_preserve_all_64_mmio_bits() {
     use std::{cell::RefCell, rc::Rc};
     const VALUE: u64 = 0xfedc_ba98_7654_3210;
