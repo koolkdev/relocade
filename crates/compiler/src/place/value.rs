@@ -2,8 +2,8 @@
 use super::*;
 
 impl Placer<'_> {
-    fn bind_reduction(&mut self, residual: usize, value: usize) {
-        for recipe in self.reducer.recipes(residual) {
+    fn bind_reduction(&mut self, block: BlockId, residual: usize, value: usize) {
+        for recipe in self.flow.recipes(block, residual) {
             if recipe == residual || self.available.get(recipe).is_none() {
                 self.available.bind(recipe, value);
             }
@@ -11,25 +11,25 @@ impl Placer<'_> {
     }
 
     pub(super) fn materialize(&mut self, root: usize, block: BlockId) -> usize {
-        let residual = self.reducer.reduce(&mut self.graph.values, root);
+        let residual = self.flow.reduce(&mut self.graph.values, block, root);
         let mut work = vec![(residual, false)];
         while let Some((id, ready)) = work.pop() {
             if let Some(value) = self.available.get(id) {
-                self.bind_reduction(id, value);
+                self.bind_reduction(block, id, value);
                 continue;
             }
             if self.graph.values.expression(id).is_some() {
-                let candidates = self.reducer.recipes(id);
+                let candidates = self.flow.recipes(block, id);
                 let reused = candidates.into_iter().find_map(|recipe| {
                     self.available
                         .lookup(&self.graph.values, recipe)
                         .or_else(|| {
                             self.joins
-                                .resolve(self.graph, block.0, recipe, self.reducer.facts())
+                                .resolve(self.graph, block.0, recipe, &mut self.flow)
                         })
                 });
                 if let Some(value) = reused {
-                    self.bind_reduction(id, value);
+                    self.bind_reduction(block, id, value);
                     continue;
                 }
             }
@@ -44,7 +44,7 @@ impl Placer<'_> {
                         effect.0, block.0
                     );
                 }
-                self.bind_reduction(id, id);
+                self.bind_reduction(block, id, id);
                 continue;
             };
             let expression = result.expression;
@@ -56,7 +56,7 @@ impl Placer<'_> {
             self.available.evaluate(self.graph, block, result.producer);
             for output in self.graph.values.expression_results(result.producer) {
                 let value = self.available.get(output).unwrap();
-                self.bind_reduction(output, value);
+                self.bind_reduction(block, output, value);
             }
         }
         let result = self.available.get(residual).unwrap_or(residual);

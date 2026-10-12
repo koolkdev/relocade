@@ -10,7 +10,7 @@ use crate::{
 };
 
 impl ScalarFacts {
-    pub(in crate::place) fn assume(&mut self, table: &ValueTable, condition: usize, truth: bool) {
+    pub(super) fn assume(&mut self, table: &ValueTable, condition: usize, truth: bool) {
         let mut pending = vec![(
             condition,
             Bits {

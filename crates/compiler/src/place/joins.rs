@@ -1,4 +1,4 @@
-//! Preserve common facts and reuse incoming values at completed joins.
+//! Reuse incoming executions at completed joins.
 use super::*;
 use crate::{body::BitBounds, Type};
 use std::collections::HashSet;
@@ -12,7 +12,7 @@ mod tests;
 struct BlockValues {
     // Bindings established here, including residual recipes, relative to the dominator.
     values: HashMap<usize, usize>,
-    facts: Option<ScalarFacts>,
+    complete: bool,
 }
 
 struct JoinedValue {
@@ -37,11 +37,9 @@ struct JoinArguments {
 
 pub(super) struct Joins {
     dominators: Dominators,
-    semantic_exits: Vec<Exit>,
     predecessors: Vec<Vec<usize>>,
     blocks: Vec<BlockValues>,
     incoming: Vec<Vec<usize>>,
-    needs_facts: Vec<bool>,
     inputs: Vec<Option<JoinInputs>>,
     joins_by_recipe: Vec<Vec<usize>>,
 }
@@ -53,12 +51,6 @@ impl Joins {
         dominators: Dominators,
     ) -> Self {
         let count = predecessors.len();
-        let mut needs_facts = vec![false; count];
-        for sources in predecessors.iter().filter(|sources| sources.len() > 1) {
-            for &source in sources {
-                needs_facts[source] = true;
-            }
-        }
         let mut incoming = vec![Vec::new(); count];
         for (source, block) in graph.blocks.iter().enumerate() {
             for edge in block.exit.edges() {
@@ -69,53 +61,40 @@ impl Joins {
         }
         Self {
             dominators,
-            semantic_exits: graph
-                .blocks
-                .iter()
-                .map(|block| block.exit.clone())
-                .collect(),
             predecessors: predecessors.to_vec(),
             blocks: (0..count).map(|_| BlockValues::default()).collect(),
             incoming,
-            needs_facts,
             inputs: (0..count).map(|_| None).collect(),
             joins_by_recipe: vec![Vec::new(); graph.values.len()],
         }
-    }
-
-    pub(super) fn semantic_exit(&self, block: usize) -> &Exit {
-        &self.semantic_exits[block]
     }
 
     pub(super) fn record(&mut self, block: usize, values: impl Iterator<Item = (usize, usize)>) {
         self.blocks[block].values.extend(values);
     }
 
-    pub(super) fn complete(&mut self, block: usize, facts: &ScalarFacts) {
-        if self.needs_facts[block] {
-            // These facts outlive the block's active path scope.
-            self.blocks[block].facts = Some(facts.clone());
-        }
+    pub(super) fn complete(&mut self, block: usize) {
+        self.blocks[block].complete = true;
     }
 
-    /// Prepare incoming facts and forward sole-edge results before placing consumers.
+    /// Discover reusable incoming executions and forward sole-edge results.
     pub(super) fn prepare(
         &mut self,
         graph: &FunctionGraph,
         reachable: &[bool],
         join: usize,
         available: &mut Availability,
-    ) -> Option<ScalarFacts> {
+    ) {
         if self.predecessors[join].len() < 2 {
             if let [source] = self.predecessors[join].as_slice() {
                 if *source != join && self.dominators.dominates(*source, join) {
                     forward_parameters(graph, join, &[*source], available);
                 }
             }
-            return None;
+            return;
         }
-        // Placement can fold exits after the original dominance analysis.
-        // Only paths that can still enter constrain the join's facts and values.
+        // Placement can fold exits after dominance analysis.
+        // Only paths that can still enter constrain the join's incoming values.
         let sources: Vec<_> = self.predecessors[join]
             .iter()
             .copied()
@@ -129,32 +108,8 @@ impl Joins {
             .collect();
         // An unfinished incoming block can be a loop backedge. Completing it
         // later must not make another iteration's facts or values valid on entry.
-        if sources.is_empty()
-            || sources
-                .iter()
-                .any(|&source| self.blocks[source].facts.is_none())
-        {
-            return None;
-        }
-        let mut facts = self.blocks[sources[0]].facts.as_ref().unwrap().clone();
-        for &source in &sources[1..] {
-            facts.retain_common(self.blocks[source].facts.as_ref().unwrap());
-        }
-        for (component, &parameter) in graph.blocks[join].parameters.iter().enumerate() {
-            let arguments = sources.iter().flat_map(|&source| {
-                let facts = self.blocks[source].facts.as_ref().unwrap();
-                // Reachability follows the placed exit, but facts observe its authored arguments.
-                let selected = graph.blocks[source].exit.constant_edge_index(&graph.values);
-                self.semantic_exits[source]
-                    .edges()
-                    .into_iter()
-                    .enumerate()
-                    .filter(move |(index, edge)| {
-                        edge.target.0 == join && selected.is_none_or(|selected| selected == *index)
-                    })
-                    .map(move |(_, edge)| (facts, edge.arguments[component]))
-            });
-            facts.merge_parameter(&graph.values, parameter, arguments);
+        if sources.is_empty() || sources.iter().any(|&source| !self.blocks[source].complete) {
+            return;
         }
         // An incoming block's arguments have already been placed. When folding
         // leaves one edge, consumers can use them directly instead of a join.
@@ -173,13 +128,10 @@ impl Joins {
                 }
                 block = self.dominators.parent[block].unwrap();
             }
-            incoming.push(IncomingValues::new(
-                source,
-                self.blocks[source].facts.as_ref().unwrap(),
-            ));
+            incoming.push(IncomingValues::new(source));
         }
         if candidates.is_empty() {
-            return Some(facts);
+            return;
         }
         for recipe in candidates {
             if recipe >= self.joins_by_recipe.len() {
@@ -191,7 +143,6 @@ impl Joins {
             incoming,
             results: HashMap::new(),
         });
-        Some(facts)
     }
 
     /// Resolve incoming values, adding a parameter and edge arguments when needed.
@@ -201,7 +152,7 @@ impl Joins {
         graph: &mut FunctionGraph,
         block: usize,
         recipe: usize,
-        facts: &ScalarFacts,
+        flow: &mut ReducedFlow,
     ) -> Option<usize> {
         let candidates = self.joins_by_recipe.get(recipe)?;
         // Prefer a previously constructed value before adding another parameter.
@@ -210,7 +161,7 @@ impl Joins {
                 continue;
             }
             if let Some(result) = self.inputs[join].as_ref().unwrap().results.get(&recipe) {
-                if result.usable_under(&graph.values, &self.blocks, facts) {
+                if result.usable_under(&graph.values, flow, BlockId(block)) {
                     return Some(result.value);
                 }
             }
@@ -232,7 +183,7 @@ impl Joins {
                 continue;
             }
             let mut inputs = self.inputs[join].take().unwrap();
-            let arguments = inputs.resolve_arguments(graph, recipe, facts, self);
+            let arguments = inputs.resolve_arguments(graph, recipe, BlockId(block), flow, self);
             self.inputs[join] = Some(inputs);
             let Some(arguments) = arguments else {
                 continue;
@@ -293,18 +244,10 @@ fn forward_parameters(
 }
 
 impl JoinedValue {
-    fn usable_under(
-        &self,
-        values: &ValueTable,
-        blocks: &[BlockValues],
-        facts: &ScalarFacts,
-    ) -> bool {
+    fn usable_under(&self, values: &ValueTable, flow: &ReducedFlow, block: BlockId) -> bool {
         self.excluded.iter().all(|&source| {
-            blocks[source]
-                .facts
-                .as_ref()
-                .unwrap()
-                .conflicts_with(values, facts)
+            flow.facts(BlockId(source))
+                .conflicts_with(values, flow.facts(block))
         })
     }
 }
@@ -315,20 +258,19 @@ impl JoinInputs {
         &mut self,
         graph: &mut FunctionGraph,
         recipe: usize,
-        facts: &ScalarFacts,
+        block: BlockId,
+        flow: &mut ReducedFlow,
         joins: &Joins,
     ) -> Option<JoinArguments> {
         let ty = graph.values[recipe].ty;
         let mut values = HashMap::new();
         let mut excluded = Vec::new();
         for source in &mut self.incoming {
-            let value = if let Some(value) = source.resolve(graph, recipe, joins) {
+            let value = if let Some(value) = source.resolve(graph, recipe, joins, flow) {
                 value
-            } else if joins.blocks[source.source]
-                .facts
-                .as_ref()
-                .unwrap()
-                .conflicts_with(&graph.values, facts)
+            } else if flow
+                .facts(BlockId(source.source))
+                .conflicts_with(&graph.values, flow.facts(block))
             {
                 excluded.push(source.source);
                 graph.values.literal(ty, 0)
@@ -340,11 +282,9 @@ impl JoinInputs {
         if !excluded.is_empty()
             && !self.incoming.iter().any(|source| {
                 !excluded.contains(&source.source)
-                    && !joins.blocks[source.source]
-                        .facts
-                        .as_ref()
-                        .unwrap()
-                        .conflicts_with(&graph.values, facts)
+                    && !flow
+                        .facts(BlockId(source.source))
+                        .conflicts_with(&graph.values, flow.facts(block))
             })
         {
             return None;

@@ -110,11 +110,11 @@ fn a_selected_recipe_reuses_the_value_available_on_each_incoming_path() {
             body.return_(result)
         },
     );
-    // Both exits need the recipe. On each exit's publication path the square
-    // has already executed; its other incoming path already has the input.
+    // The square survives in the generic result used by both exits. Reduction
+    // exposes that demand before placement, so one execution serves both paths.
     assert_eq!(
         count(module.bytes(), |op| matches!(op, Operator::I32Mul)),
-        2
+        1
     );
     for early in [0, 1] {
         for (publish, expected, stored) in [(0, 7, 0_u32), (1, 49, 49)] {
