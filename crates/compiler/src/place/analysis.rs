@@ -23,6 +23,8 @@ mod merge;
 mod paths;
 mod range;
 mod scoped_map;
+mod selects;
+mod shifts;
 pub(super) use context::{Assumption, ContextScope};
 use context::{PathContext, SuspendedContext};
 pub(super) use paths::PathSnapshot;
@@ -73,6 +75,7 @@ pub(super) struct ValueAnalysis {
 #[derive(Default)]
 struct DerivedFacts {
     bits: FxHashMap<usize, Bits>,
+    select_constants: FxHashMap<usize, Option<u64>>,
     path_exclusions: Option<Box<FxHashMap<usize, bool>>>,
 }
 
@@ -80,8 +83,12 @@ impl DerivedFacts {
     /// Retain empty storage from finished contexts for the next child query.
     fn recycle(&mut self, mut finished: Self) {
         finished.bits.clear();
+        finished.select_constants.clear();
         if finished.bits.capacity() > self.bits.capacity() {
             self.bits = finished.bits;
+        }
+        if finished.select_constants.capacity() > self.select_constants.capacity() {
+            self.select_constants = finished.select_constants;
         }
         if let Some(mut paths) = finished.path_exclusions {
             paths.clear();
@@ -136,6 +143,7 @@ impl ValueAnalysis {
         // earlier values, so provisional answers below this ID remain valid.
         let derived = self.derived.get_mut();
         derived.bits.retain(|&input, _| input < id);
+        derived.select_constants.retain(|&input, _| input < id);
     }
 
     /// Query constants under path assumptions; without them, use construction's folds.
@@ -161,6 +169,15 @@ impl ValueAnalysis {
                 .known
                 .get(&id)
                 .and_then(|bits| (bits.mask & mask == mask).then_some(bits.value & mask));
+        }
+        self.inferred_constant(table, id)
+    }
+
+    /// Explicitly request structural inference, including without path assumptions.
+    /// The bounded Boolean folding stage uses this for its candidate and cases.
+    fn inferred_constant(&self, table: &ValueTable, id: usize) -> Option<u64> {
+        if !table[id].ty.is_scalar() {
+            return None;
         }
         let bits = self.bits(table, id);
         let mask = table.values[id].ty.mask();
