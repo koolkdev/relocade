@@ -73,8 +73,7 @@ fn shift<T: VectorLane + MemoryInt>(
     execution.execute_mmx(|execution| {
         let count = count.read_count(execution)?;
         let input = execution.read_mmx(destination.clone())?;
-        let vector = Val::<V128>::from(0_u128).replace_lane(0, input);
-        let result = operation.apply_packed::<T>(vector, count);
-        execution.write_mmx(destination, result.extract_lane::<I64>(0))
+        let result = operation.apply_packed::<T, _>(Val::<V64>::from_bits(input), count);
+        execution.write_mmx(destination, result.to_bits())
     })
 }

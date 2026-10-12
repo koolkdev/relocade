@@ -8,7 +8,6 @@ use crate::expression::{
 };
 use crate::{
     body::{Value, ValueDefinition, ValueTable},
-    integer::BitCountOp,
     Expression, Type,
 };
 
@@ -16,22 +15,17 @@ mod arithmetic;
 mod bits;
 mod bitwise;
 mod comparisons;
+mod construct;
+mod reinterpret;
 mod select;
 mod shifts;
 
 #[cfg(test)]
 mod tests;
 
-use super::TypedLiteral;
+pub(crate) use construct::build;
 
-pub(crate) fn build(
-    values: &mut ValueTable,
-    ty: Type,
-    expression: Expression<usize>,
-    component: usize,
-) -> usize {
-    Folder { values }.expression(ty, expression, component)
-}
+use super::TypedLiteral;
 
 /// Fold a stored carrier operation without repeating logical normalization.
 pub(crate) fn refold(values: &mut ValueTable, id: usize) -> usize {
@@ -51,60 +45,6 @@ struct Folder<'a> {
 }
 
 impl Folder<'_> {
-    // Inputs carry logical types; canonical operations may retain wider physical bits.
-    fn expression(&mut self, ty: Type, expression: Expression<usize>, component: usize) -> usize {
-        let expression = expression.map(|&input| {
-            let value = self.values[input];
-            match value.definition {
-                ValueDefinition::Literal(bits) => self.values.literal(value.ty, bits),
-                _ => input,
-            }
-        });
-        if let Some(literals) = self.literals(expression) {
-            if let Some(bits) = literals.constant_result(ty, component) {
-                return self.values.literal(ty, bits);
-            }
-        }
-        match expression {
-            Expression::Unary { operator, input } => match operator {
-                Unary::SignExtend { input_type } => self.sign_extend(input, input_type, ty),
-                Unary::BitCount {
-                    operator,
-                    input_type,
-                } => self.bit_count(operator, input_type, input),
-                Unary::ZeroTest { nonzero } => self.zero_test(input, nonzero),
-                Unary::Convert => self.convert(input, ty),
-                Unary::Reinterpret => self.reinterpret(input, ty),
-                _ => self.fold(ty, expression),
-            },
-            Expression::Binary {
-                operator,
-                left,
-                right,
-            } => match operator {
-                Binary::Integer(operator) => self.binary(operator, left, right),
-                Binary::Bitwise(operator) => self.bitwise(operator, left, right),
-                Binary::Compare(Compare::Integer(operator)) => self.compare(operator, left, right),
-                _ => self.fold(ty, expression),
-            },
-            Expression::Shift {
-                operator,
-                value,
-                count,
-            } => match operator {
-                Shift::Scalar(operator) => self.shift(operator, value, count),
-                Shift::Rotate(operator) => self.rotate(operator, value, count),
-                Shift::Lanes { .. } => self.fold(ty, expression),
-            },
-            Expression::Select {
-                condition,
-                when_true,
-                when_false,
-            } => self.select(condition, when_true, when_false),
-            Expression::MultiplyWide { .. } => self.fold_result(ty, expression, component),
-        }
-    }
-
     fn fold(&mut self, ty: Type, expression: Expression<usize>) -> usize {
         self.fold_result(ty, expression, 0)
     }
@@ -134,17 +74,10 @@ impl Folder<'_> {
                     }
                     _ => None,
                 },
-                Unary::Reinterpret => match self.values[input].definition {
-                    ValueDefinition::Expression(Expression::Unary {
-                        operator: Unary::Reinterpret,
-                        input: original,
-                    }) if self.values[original].ty == ty
-                        && self.values[input].ty.carrier().bits() >= ty.carrier().bits() =>
-                    {
-                        Some(original)
-                    }
-                    _ => None,
-                },
+                Unary::Reinterpret => self.reinterpret_input(input).filter(|&original| {
+                    self.values[original].ty == ty
+                        && self.values[input].ty.carrier().bits() >= ty.carrier().bits()
+                }),
                 _ => None,
             },
             Expression::Binary {
@@ -229,27 +162,5 @@ impl Folder<'_> {
         } else {
             id
         }
-    }
-
-    fn bit_count(&mut self, operator: BitCountOp, input_type: Type, input: usize) -> usize {
-        let input = self.fold(
-            input_type,
-            Expression::Unary {
-                operator: Unary::LowBits {
-                    bits: input_type.bits(),
-                },
-                input,
-            },
-        );
-        self.fold(
-            input_type,
-            Expression::Unary {
-                operator: Unary::BitCount {
-                    operator,
-                    input_type,
-                },
-                input,
-            },
-        )
     }
 }
