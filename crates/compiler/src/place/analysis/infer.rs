@@ -1,6 +1,6 @@
 //! Derive facts through expressions without changing the current path.
 
-use super::{Bits, Range, ScalarFacts};
+use super::{Bits, Range, ValueAnalysis};
 use crate::expression::{BinaryOp as Binary, CompareOp as Compare, UnaryOp as Unary};
 use crate::{
     bitwise::BitwiseOp,
@@ -10,14 +10,16 @@ use crate::{
     Expression,
 };
 
-impl ScalarFacts {
+impl ValueAnalysis {
     /// Known scalar bits; non-scalar values contribute no knowledge.
     pub(super) fn bits(&self, table: &ValueTable, root: usize) -> Bits {
-        let mut cache = self.computed.borrow_mut();
+        let mut derived = self.derived.borrow_mut();
+        let cache = &mut derived.bits;
         if let Some(&bits) = cache.get(&root) {
             return bits;
         }
-        let mut pending = vec![(root, false)];
+        let mut pending = self.pending.borrow_mut();
+        pending.push((root, false));
         while let Some((id, ready)) = pending.pop() {
             if cache.contains_key(&id) {
                 continue;
@@ -27,7 +29,7 @@ impl ScalarFacts {
                 cache.insert(id, Bits::default());
                 continue;
             }
-            let known = self.known.get(&id).copied().unwrap_or_default();
+            let known = self.context.known.get(&id).copied().unwrap_or_default();
             if let Some(bits) = value.scalar_literal() {
                 cache.insert(
                     id,
@@ -53,7 +55,7 @@ impl ScalarFacts {
                 right,
             } = expression
             {
-                if let Some(truth) = self.comparisons.get(table, operator, left, right) {
+                if let Some(truth) = self.context.comparisons.get(table, operator, left, right) {
                     cache.insert(
                         id,
                         Bits {
@@ -200,7 +202,7 @@ impl ScalarFacts {
                 }
                 Ok(TypedLiteral {
                     ty,
-                    value: table.carrier_bits(input, bits.value).into(),
+                    value: table.carrier_bits(input, bits.value).ok_or(())?.into(),
                 })
             }) {
                 if let Some(result) = constants

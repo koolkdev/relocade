@@ -12,7 +12,7 @@ mod tests;
 struct BlockValues {
     // Bindings established here, including residual recipes, relative to the dominator.
     values: HashMap<usize, usize>,
-    facts: Option<ScalarFacts>,
+    facts: Option<ValueAnalysis>,
 }
 
 struct JoinedValue {
@@ -81,7 +81,7 @@ impl Joins {
         self.blocks[block].values.extend(values);
     }
 
-    pub(super) fn complete(&mut self, block: usize, facts: &ScalarFacts) {
+    pub(super) fn complete(&mut self, block: usize, facts: &ValueAnalysis) {
         if self.needs_facts[block] {
             // These facts outlive the block's active path scope.
             self.blocks[block].facts = Some(facts.clone());
@@ -95,7 +95,7 @@ impl Joins {
         reachable: &[bool],
         join: usize,
         available: &mut Availability,
-    ) -> Option<ScalarFacts> {
+    ) -> Option<ValueAnalysis> {
         if self.predecessors[join].len() < 2 {
             if let [source] = self.predecessors[join].as_slice() {
                 if *source != join && self.dominators.dominates(*source, join) {
@@ -126,21 +126,18 @@ impl Joins {
         {
             return None;
         }
-        let mut facts = self.blocks[sources[0]].facts.as_ref().unwrap().clone();
-        for &source in &sources[1..] {
-            facts.retain_common(self.blocks[source].facts.as_ref().unwrap());
-        }
-        for (component, &parameter) in graph.blocks[join].parameters.iter().enumerate() {
-            let arguments = sources.iter().flat_map(|&source| {
+        let incoming: Vec<_> = sources
+            .iter()
+            .flat_map(|&source| {
                 let facts = self.blocks[source].facts.as_ref().unwrap();
                 graph
                     .outgoing(BlockId(source))
                     .into_iter()
                     .filter(move |edge| edge.target.0 == join)
-                    .map(move |edge| (facts, edge.arguments[component]))
-            });
-            facts.merge_parameter(&graph.values, parameter, arguments);
-        }
+                    .map(move |edge| (facts, edge.arguments.as_slice()))
+            })
+            .collect();
+        let facts = ValueAnalysis::join(&graph.values, &graph.blocks[join].parameters, &incoming);
         // An incoming block's arguments have already been placed. When folding
         // leaves one edge, consumers can use them directly instead of a join.
         forward_parameters(graph, join, &sources, available);
@@ -183,7 +180,7 @@ impl Joins {
         graph: &mut FunctionGraph,
         block: usize,
         recipe: usize,
-        facts: &ScalarFacts,
+        facts: &ValueAnalysis,
     ) -> Option<usize> {
         let candidates = self.joins_by_recipe.get(recipe)?;
         // Prefer a previously constructed value before adding another parameter.
@@ -279,7 +276,7 @@ impl JoinedValue {
         &self,
         values: &ValueTable,
         blocks: &[BlockValues],
-        facts: &ScalarFacts,
+        facts: &ValueAnalysis,
     ) -> bool {
         self.excluded.iter().all(|&source| {
             blocks[source]
@@ -297,7 +294,7 @@ impl JoinInputs {
         &mut self,
         graph: &mut FunctionGraph,
         recipe: usize,
-        facts: &ScalarFacts,
+        facts: &ValueAnalysis,
         joins: &Joins,
     ) -> Option<JoinArguments> {
         let ty = graph.values[recipe].ty;

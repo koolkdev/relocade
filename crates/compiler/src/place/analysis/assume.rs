@@ -1,6 +1,6 @@
 //! Learn facts implied by choosing one edge of a conditional branch.
 
-use super::{Bits, ScalarFacts};
+use super::{Bits, ValueAnalysis};
 use crate::expression::{BinaryOp as Binary, CompareOp as Compare, UnaryOp as Unary};
 use crate::{
     bitwise::BitwiseOp,
@@ -9,8 +9,8 @@ use crate::{
     Expression, Type,
 };
 
-impl ScalarFacts {
-    pub(in crate::place) fn assume(&mut self, table: &ValueTable, condition: usize, truth: bool) {
+impl ValueAnalysis {
+    pub(super) fn assume(&mut self, table: &ValueTable, condition: usize, truth: bool) {
         let mut pending = vec![(
             condition,
             Bits {
@@ -24,9 +24,10 @@ impl ScalarFacts {
             if bits.mask == 0 {
                 continue;
             }
-            // Stored assumptions can decide this request without walking its
-            // expression history again after an inference-cache invalidation.
+            // Previously learned observations can decide this request without
+            // walking its expression again while this batch propagates.
             if self
+                .context
                 .known
                 .get(&id)
                 .is_some_and(|known| known.conflicts(bits) || bits.mask & !known.mask == 0)
@@ -82,10 +83,13 @@ impl ScalarFacts {
                     right,
                 } => match operator {
                     Binary::Compare(Compare::Integer(operator)) => {
-                        if let Some(first) =
-                            self.comparisons
-                                .assume(table, operator, left, right, bits.value != 0)
-                        {
+                        if let Some(first) = self.context.comparisons.assume(
+                            table,
+                            operator,
+                            left,
+                            right,
+                            bits.value != 0,
+                        ) {
                             self.invalidate_from(first);
                         }
                         self.assume_comparison(table, operator, left, right, bits.value != 0);
