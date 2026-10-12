@@ -1,5 +1,5 @@
 //! Preserve common facts and reuse incoming values at completed joins.
-use super::*;
+use super::{analysis::PathSnapshot, *};
 use crate::{body::BitBounds, Type};
 use std::collections::HashSet;
 
@@ -12,7 +12,7 @@ mod tests;
 struct BlockValues {
     // Bindings established here, including residual recipes, relative to the dominator.
     values: HashMap<usize, usize>,
-    facts: Option<ValueAnalysis>,
+    facts: Option<PathSnapshot>,
 }
 
 struct JoinedValue {
@@ -84,7 +84,8 @@ impl Joins {
     pub(super) fn complete(&mut self, block: usize, facts: &ValueAnalysis) {
         if self.needs_facts[block] {
             // These facts outlive the block's active path scope.
-            self.blocks[block].facts = Some(facts.clone());
+            debug_assert!(self.blocks[block].facts.is_none());
+            self.blocks[block].facts = Some(facts.snapshot(block));
         }
     }
 
@@ -129,7 +130,7 @@ impl Joins {
         let incoming: Vec<_> = sources
             .iter()
             .flat_map(|&source| {
-                let facts = self.blocks[source].facts.as_ref().unwrap();
+                let facts = self.blocks[source].facts.as_ref().unwrap().analysis();
                 graph
                     .outgoing(BlockId(source))
                     .into_iter()
@@ -278,13 +279,9 @@ impl JoinedValue {
         blocks: &[BlockValues],
         facts: &ValueAnalysis,
     ) -> bool {
-        self.excluded.iter().all(|&source| {
-            blocks[source]
-                .facts
-                .as_ref()
-                .unwrap()
-                .conflicts_with(values, facts)
-        })
+        self.excluded
+            .iter()
+            .all(|&source| facts.excludes(values, blocks[source].facts.as_ref().unwrap()))
     }
 }
 
@@ -303,12 +300,10 @@ impl JoinInputs {
         for source in &mut self.incoming {
             let value = if let Some(value) = source.resolve(graph, recipe, joins) {
                 value
-            } else if joins.blocks[source.source]
-                .facts
-                .as_ref()
-                .unwrap()
-                .conflicts_with(&graph.values, facts)
-            {
+            } else if facts.excludes(
+                &graph.values,
+                joins.blocks[source.source].facts.as_ref().unwrap(),
+            ) {
                 excluded.push(source.source);
                 graph.values.literal(ty, 0)
             } else {
@@ -319,11 +314,10 @@ impl JoinInputs {
         if !excluded.is_empty()
             && !self.incoming.iter().any(|source| {
                 !excluded.contains(&source.source)
-                    && !joins.blocks[source.source]
-                        .facts
-                        .as_ref()
-                        .unwrap()
-                        .conflicts_with(&graph.values, facts)
+                    && !facts.excludes(
+                        &graph.values,
+                        joins.blocks[source.source].facts.as_ref().unwrap(),
+                    )
             })
         {
             return None;
