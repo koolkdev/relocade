@@ -4,12 +4,13 @@
 //! A [`backend::Backend`] supplies host-engine compilation, memories and callbacks;
 //! the runtime owns physical routing, device access and execution policy.
 //! [`Machine::step`] returns after one x86 instruction, including all REP elements,
-//! or a guest exit. It does not preempt an instruction or device callback.
-//! Guest exceptions are reported, not delivered through the IVT.
+//! or a guest exit. [`Machine::run`] repeats those entries until an instruction
+//! limit, a host stop request or a guest exit. It does not preempt an instruction
+//! or device callback. Guest exceptions are reported, not delivered through the IVT.
 //!
 //! Preparation is asynchronous to accommodate browser module compilation. Generating
 //! interpreter bytes, guest entry and device callbacks remain synchronous. A browser
-//! embedding should run on a worker and yield to its event loop between entries.
+//! embedding should run on a worker and yield to its event loop between runs.
 //!
 //! ```
 //! use wasm86_runtime::{backend::Backend, Runtime, StepOutcome};
@@ -38,11 +39,13 @@ mod error;
 mod imports;
 mod machine;
 mod memory;
+mod run;
 
 pub use devices::Devices;
 pub use error::{Error, Result};
 pub use machine::{Machine, StepOutcome};
 pub use memory::{DeviceMemory, MemoryError};
+pub use run::{RunOutcome, RunStop};
 
 use backend::Backend;
 use wasm86_x86::{compile_interpreter_step, ExecutionProfile, PhysicalMemoryMap};

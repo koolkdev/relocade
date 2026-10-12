@@ -50,18 +50,28 @@ Both contracts are included in the x86 crate's generated API documentation.
 backend. `Runtime::new(backend).await` generates and prepares one Real16
 interpreter; `runtime.machine(map, devices).await` creates independent CPU,
 memory and device state. Native applications supply `WasmtimeBackend::new()?`
-from `wasm86-runtime-wasmtime`. `Machine::step()` executes one instruction and
-returns to the host with a completed instruction or a typed guest exit. Handle
-services or pending input between entries and resume the same machine.
+from `wasm86-runtime-wasmtime`. `Machine::step()` executes one
+instruction, while `Machine::run(limit, should_stop)` returns on a host stop
+request, an instruction limit or a typed guest exit. The predicate observes the
+initial state and each successful instruction boundary, including the final one
+at the limit. Handle services or pending input between runs and resume the same
+machine.
 
-REP remains one instruction and runs to completion or a guest fault; device
-callbacks are synchronous. The runtime therefore provides no wall-clock
-preemption guarantee. It reports CPU exceptions
+The limit counts complete x86 instructions. REP remains one instruction and runs
+to completion or a guest fault; device callbacks are synchronous. The runtime
+therefore provides no wall-clock preemption guarantee. It reports CPU exceptions
 without delivering them, and supplies no DOS/BIOS services or hardware interrupts.
+
+Run the small [raw x86 example](crates/runtime-wasmtime/examples/real16.rs), which writes
+`Hi` through host-defined output ports and requests an exit:
+
+```sh
+cargo run -p wasm86-runtime-wasmtime --example real16 --locked
+```
 
 The [runtime API](crates/runtime/src/lib.rs) describes machine setup, physical
 memory and device callbacks. Backends own compilation, instances and memory
-access; the runtime owns routing and dispatch outcomes.
+access; the runtime owns routing, dispatch outcomes and execution limits.
 `with_memory` supplies checked backing operations, and `with_devices` /
 `with_devices_mut` keep device borrows scoped to the backend. Execution always
 uses live instruction bytes through the interpreter; the runtime has no guest

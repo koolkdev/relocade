@@ -786,6 +786,7 @@ dependencies = [
 name = "wasm86-runtime-wasmtime"
 version = "0.0.0"
 dependencies = [
+ "pollster",
  "wasm86-runtime",
  "wasm86-x86",
  "wasmtime",

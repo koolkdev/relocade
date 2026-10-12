@@ -9,6 +9,8 @@ mod devices;
 mod execution;
 #[path = "runtime/memory.rs"]
 mod memory;
+#[path = "runtime/run.rs"]
+mod run;
 
 type TestBackend = WasmtimeBackend;
 type TestMachine<D = ()> = Machine<TestBackend, D>;
