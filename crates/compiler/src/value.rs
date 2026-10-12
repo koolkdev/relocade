@@ -1,3 +1,6 @@
+use crate::expression::{
+    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, UnaryOp as Unary,
+};
 mod argument;
 mod construction;
 mod floating;
@@ -93,32 +96,52 @@ impl From<[u8; 16]> for Val<V128> {
 }
 
 impl<T: BitwiseType> Val<T> {
-    fn bitwise(&self, operator: BitwiseOp, other: impl Into<Val<T>>) -> Self {
-        let other: Self = other.into();
-        Self::expression(Expression::Bitwise {
+    /// Keeps bits set in both operands.
+    pub fn and(&self, other: impl Into<Val<T>>) -> Self {
+        self.binary(Binary::Bitwise(BitwiseOp::And), other)
+    }
+
+    /// Sets bits present in either operand.
+    pub fn or(&self, other: impl Into<Val<T>>) -> Self {
+        self.binary(Binary::Bitwise(BitwiseOp::Or), other)
+    }
+
+    /// Keeps bits set in exactly one operand.
+    pub fn xor(&self, other: impl Into<Val<T>>) -> Self {
+        self.binary(Binary::Bitwise(BitwiseOp::Xor), other)
+    }
+}
+
+impl<T: ValueType> Val<T> {
+    fn unary<R: ValueType>(&self, operator: Unary) -> Val<R> {
+        Val::expression(Expression::Unary {
+            operator,
+            input: self.into(),
+        })
+    }
+
+    fn binary<U: ValueType, R: ValueType>(
+        &self,
+        operator: Binary,
+        other: impl Into<Val<U>>,
+    ) -> Val<R> {
+        let other: Val<U> = other.into();
+        Val::expression(Expression::Binary {
             operator,
             left: self.into(),
             right: other.into(),
         })
     }
 
-    /// Keeps bits set in both operands.
-    pub fn and(&self, other: impl Into<Val<T>>) -> Self {
-        self.bitwise(BitwiseOp::And, other)
+    fn shift(&self, operator: Shift, count: impl Into<Val<I32>>) -> Self {
+        let count: Val<I32> = count.into();
+        Self::expression(Expression::Shift {
+            operator,
+            value: self.into(),
+            count: count.into(),
+        })
     }
 
-    /// Sets bits present in either operand.
-    pub fn or(&self, other: impl Into<Val<T>>) -> Self {
-        self.bitwise(BitwiseOp::Or, other)
-    }
-
-    /// Keeps bits set in exactly one operand.
-    pub fn xor(&self, other: impl Into<Val<T>>) -> Self {
-        self.bitwise(BitwiseOp::Xor, other)
-    }
-}
-
-impl<T: ValueType> Val<T> {
     /// Returns whether values share a successful representation. Two literals
     /// share their normalized bits; body expressions share their body and node.
     /// Clones of an unbound calculation share its construction recipe.
@@ -138,15 +161,6 @@ impl<T: ValueType> Val<T> {
 }
 
 impl<T: IntType> Val<T> {
-    fn binary(&self, operator: BinaryOp, other: impl Into<Val<T>>) -> Self {
-        let other: Self = other.into();
-        Self::expression(Expression::Binary {
-            operator,
-            left: self.into(),
-            right: other.into(),
-        })
-    }
-
     /// Adds an integer value or literal of the same type, wrapping on overflow.
     ///
     /// Different integer types cannot be mixed, even when both use Wasm i32:
@@ -165,39 +179,48 @@ impl<T: IntType> Val<T> {
     /// ```
     #[allow(clippy::should_implement_trait)]
     pub fn add(&self, other: impl Into<Val<T>>) -> Self {
-        self.binary(BinaryOp::Add, other)
+        self.binary(Binary::Integer(BinaryOp::Add), other)
     }
 
     /// Subtracts an integer value or literal of the same type, wrapping on underflow.
     /// Narrow results retain their logical low bits, just like addition.
     #[allow(clippy::should_implement_trait)]
     pub fn sub(&self, other: impl Into<Val<T>>) -> Self {
-        self.binary(BinaryOp::Sub, other)
+        self.binary(Binary::Integer(BinaryOp::Sub), other)
     }
 
     /// Multiplies by an integer value or literal of the same type, wrapping on overflow.
     /// Narrow results retain their logical low bits, just like addition.
     #[allow(clippy::should_implement_trait)]
     pub fn mul(&self, other: impl Into<Val<T>>) -> Self {
-        self.binary(BinaryOp::Mul, other)
+        self.binary(Binary::Integer(BinaryOp::Mul), other)
     }
 
     /// Counts set bits in the logical value, ignoring upper carrier bits.
     /// The count retains the receiver's type and always fits in it.
     pub fn popcnt(&self) -> Self {
-        self.bit_count(BitCountOp::Ones)
+        self.unary(Unary::BitCount {
+            operator: BitCountOp::Ones,
+            input_type: T::TYPE,
+        })
     }
 
     /// Counts leading zeros in the logical value, ignoring upper carrier bits.
     /// Zero returns the logical width. The count retains the receiver's type.
     pub fn clz(&self) -> Self {
-        self.bit_count(BitCountOp::LeadingZeros)
+        self.unary(Unary::BitCount {
+            operator: BitCountOp::LeadingZeros,
+            input_type: T::TYPE,
+        })
     }
 
     /// Counts trailing zeros in the logical value, ignoring upper carrier bits.
     /// Zero returns the logical width. The count retains the receiver's type.
     pub fn ctz(&self) -> Self {
-        self.bit_count(BitCountOp::TrailingZeros)
+        self.unary(Unary::BitCount {
+            operator: BitCountOp::TrailingZeros,
+            input_type: T::TYPE,
+        })
     }
 
     /// Shifts left, retaining the logical type's low bits.
@@ -206,27 +229,27 @@ impl<T: IntType> Val<T> {
     /// A computed count has type I32, including when shifting an I64 value.
     #[allow(clippy::should_implement_trait)]
     pub fn shl(&self, count: impl Into<Val<I32>>) -> Self {
-        self.shift(ShiftOp::Left, count)
+        self.shift(Shift::Scalar(ShiftOp::Left), count)
     }
 
     /// Rotates the logical bits left. The I32 count wraps modulo the logical width.
     pub fn rotl(&self, count: impl Into<Val<I32>>) -> Self {
-        self.rotate(RotateOp::Left, count)
+        self.shift(Shift::Rotate(RotateOp::Left), count)
     }
 
     /// Rotates the logical bits right. The I32 count wraps modulo the logical width.
     pub fn rotr(&self, count: impl Into<Val<I32>>) -> Self {
-        self.rotate(RotateOp::Right, count)
+        self.shift(Shift::Rotate(RotateOp::Right), count)
     }
 
     /// Tests whether the operands' logical low bits are equal.
     pub fn eq(&self, other: impl Into<Val<T>>) -> Val<I1> {
-        self.compare(CompareOp::Eq, other)
+        self.binary(Binary::Compare(Compare::Integer(CompareOp::Eq)), other)
     }
 
     /// Tests whether the operands' logical low bits differ.
     pub fn ne(&self, other: impl Into<Val<T>>) -> Val<I1> {
-        self.compare(CompareOp::Ne, other)
+        self.binary(Binary::Compare(Compare::Integer(CompareOp::Ne)), other)
     }
 
     /// Reads this integer's logical bits as an unsigned value.
@@ -255,42 +278,8 @@ impl<T: IntType> Val<T> {
         self.convert()
     }
 
-    fn bit_count(&self, operator: BitCountOp) -> Self {
-        Self::expression(Expression::BitCount {
-            operator,
-            input: self.into(),
-        })
-    }
-
-    fn compare(&self, operator: CompareOp, other: impl Into<Val<T>>) -> Val<I1> {
-        let other: Self = other.into();
-        Val::expression(Expression::Compare {
-            operator,
-            left: self.into(),
-            right: other.into(),
-        })
-    }
-
-    fn shift(&self, operator: ShiftOp, count: impl Into<Val<I32>>) -> Self {
-        let count: Val<I32> = count.into();
-        Self::expression(Expression::Shift {
-            operator,
-            value: self.into(),
-            count: count.into(),
-        })
-    }
-
-    fn rotate(&self, operator: RotateOp, count: impl Into<Val<I32>>) -> Self {
-        let count: Val<I32> = count.into();
-        Self::expression(Expression::Rotate {
-            operator,
-            value: self.into(),
-            count: count.into(),
-        })
-    }
-
     fn convert<To: IntType>(&self) -> Val<To> {
-        Val::expression(Expression::Convert { input: self.into() })
+        self.unary(Unary::Convert)
     }
 }
 
@@ -302,13 +291,13 @@ impl<T: IntType> Unsigned<'_, T> {
     /// Like other value calculations, division is placed at its uses.
     #[allow(clippy::should_implement_trait)]
     pub fn div(&self, other: impl Into<Val<T>>) -> Val<T> {
-        self.0.binary(BinaryOp::DivUnsigned, other)
+        self.0.binary(Binary::Integer(BinaryOp::DivUnsigned), other)
     }
 
     /// Computes the unsigned logical remainder. The divisor must be nonzero.
     #[allow(clippy::should_implement_trait)]
     pub fn rem(&self, other: impl Into<Val<T>>) -> Val<T> {
-        self.0.binary(BinaryOp::RemUnsigned, other)
+        self.0.binary(Binary::Integer(BinaryOp::RemUnsigned), other)
     }
 
     /// Shifts the logical bits right, filling with zeros.
@@ -317,17 +306,23 @@ impl<T: IntType> Unsigned<'_, T> {
     /// A computed count has type I32, including when shifting an I64 value.
     #[allow(clippy::should_implement_trait)]
     pub fn shr(&self, count: impl Into<Val<I32>>) -> Val<T> {
-        self.0.shift(ShiftOp::RightUnsigned, count)
+        self.0.shift(Shift::Scalar(ShiftOp::RightUnsigned), count)
     }
 
     /// Tests unsigned less-than and returns a logical one-bit value.
     pub fn lt(&self, other: impl Into<Val<T>>) -> Val<I1> {
-        self.0.compare(CompareOp::LtUnsigned, other)
+        self.0.binary(
+            Binary::Compare(Compare::Integer(CompareOp::LtUnsigned)),
+            other,
+        )
     }
 
     /// Tests unsigned greater-than-or-equal and returns a logical one-bit value.
     pub fn ge(&self, other: impl Into<Val<T>>) -> Val<I1> {
-        self.0.compare(CompareOp::GeUnsigned, other)
+        self.0.binary(
+            Binary::Compare(Compare::Integer(CompareOp::GeUnsigned)),
+            other,
+        )
     }
 
     /// Widens the logical value with zero bits. The destination cannot be narrower.
@@ -372,40 +367,46 @@ impl<T: IntType> Signed<'_, T> {
     /// fit their signed type. Like other calculations, division is placed at its uses.
     #[allow(clippy::should_implement_trait)]
     pub fn div(&self, other: impl Into<Val<T>>) -> Val<T> {
-        self.0.binary(BinaryOp::DivSigned, other)
+        self.0.binary(Binary::Integer(BinaryOp::DivSigned), other)
     }
 
     /// Computes signed logical remainder, with the dividend's sign or zero.
     /// The divisor must be nonzero. The signed minimum modulo -1 is zero.
     #[allow(clippy::should_implement_trait)]
     pub fn rem(&self, other: impl Into<Val<T>>) -> Val<T> {
-        self.0.binary(BinaryOp::RemSigned, other)
+        self.0.binary(Binary::Integer(BinaryOp::RemSigned), other)
     }
 
     /// Shifts right, repeating the logical sign bit.
     /// Accepts an I32 count or a literal; counts wrap modulo 64 for I64 and 32 otherwise.
     #[allow(clippy::should_implement_trait)]
     pub fn shr(&self, count: impl Into<Val<I32>>) -> Val<T> {
-        self.0.shift(ShiftOp::RightSigned, count)
+        self.0.shift(Shift::Scalar(ShiftOp::RightSigned), count)
     }
 
     /// Tests signed less-than using each operand's logical sign bit.
     /// For I1, true is -1 and false is zero.
     pub fn lt(&self, other: impl Into<Val<T>>) -> Val<I1> {
-        self.0.compare(CompareOp::LtSigned, other)
+        self.0.binary(
+            Binary::Compare(Compare::Integer(CompareOp::LtSigned)),
+            other,
+        )
     }
 
     /// Tests signed greater-than-or-equal using each operand's logical sign bit.
     /// Arithmetic wraps before its result is interpreted as signed.
     pub fn ge(&self, other: impl Into<Val<T>>) -> Val<I1> {
-        self.0.compare(CompareOp::GeSigned, other)
+        self.0.binary(
+            Binary::Compare(Compare::Integer(CompareOp::GeSigned)),
+            other,
+        )
     }
 
     /// Widens by repeating the source's logical sign bit. The destination cannot
     /// be narrower. For I1, the bit pattern 1 extends to all ones.
     pub fn extend<To: AtLeast<T>>(&self) -> Val<To> {
-        Val::expression(Expression::SignExtend {
-            input: self.0.into(),
+        self.0.unary(Unary::SignExtend {
+            input_type: T::TYPE,
         })
     }
 }

@@ -1,4 +1,5 @@
 //! Stored values, deduplication and physical representation facts.
+use crate::expression::UnaryOp as Unary;
 use crate::literal::Literal;
 use hashbrown::HashTable;
 use std::{collections::hash_map::RandomState, hash::BuildHasher};
@@ -113,8 +114,10 @@ impl ValueTable {
 
     /// Conversions within a Wasm carrier preserve all physical bits.
     pub(crate) fn representation(&self, mut id: usize) -> usize {
-        while let ValueDefinition::Expression(Expression::Convert { input }) =
-            self.values[id].definition
+        while let ValueDefinition::Expression(Expression::Unary {
+            operator: Unary::Convert,
+            input,
+        }) = self.values[id].definition
         {
             if self.values[id].ty.carrier() != self.values[input].ty.carrier() {
                 break;

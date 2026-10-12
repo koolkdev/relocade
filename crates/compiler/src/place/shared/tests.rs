@@ -1,4 +1,5 @@
 use super::*;
+use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
 use crate::{integer::BinaryOp, Type};
 
 fn graph() -> FunctionGraph {
@@ -28,7 +29,7 @@ fn square(graph: &mut FunctionGraph) -> usize {
         graph,
         Type::I32,
         Expression::Binary {
-            operator: BinaryOp::Mul,
+            operator: Binary::Integer(BinaryOp::Mul),
             left: 1,
             right: 1,
         },
@@ -95,7 +96,7 @@ fn a_branch_can_eliminate_work_without_placing_its_preview() {
                 &mut graph,
                 Type::I32,
                 Expression::Binary {
-                    operator: BinaryOp::Add,
+                    operator: Binary::Integer(BinaryOp::Add),
                     left: 1,
                     right: literal,
                 },
@@ -143,9 +144,9 @@ fn the_branch_decision_remains_before_its_own_outcomes() {
     let predicate = expression(
         &mut graph,
         Type::I1,
-        Expression::ZeroTest {
+        Expression::Unary {
+            operator: Unary::ZeroTest { nonzero: true },
             input: 1,
-            nonzero: true,
         },
     );
     branch(&mut graph, BlockId(0), predicate, predicate);
@@ -200,12 +201,19 @@ fn retained_calculations_keep_their_dependencies_in_schedule_order() {
             when_false: 1,
         },
     );
-    let alias = expression(&mut graph, Type::I8, Expression::Convert { input: child });
+    let alias = expression(
+        &mut graph,
+        Type::I8,
+        Expression::Unary {
+            operator: Unary::Convert,
+            input: child,
+        },
+    );
     let parent = expression(
         &mut graph,
         Type::I8,
         Expression::Binary {
-            operator: BinaryOp::Mul,
+            operator: Binary::Integer(BinaryOp::Mul),
             left: alias,
             right: alias,
         },
@@ -279,9 +287,9 @@ fn knowing_one_component_does_not_make_its_sibling_available() {
     let condition = expression(
         &mut graph,
         Type::I1,
-        Expression::ZeroTest {
+        Expression::Unary {
+            operator: Unary::ZeroTest { nonzero: false },
             input: low,
-            nonzero: false,
         },
     );
     let mut placer = placer(&mut graph);

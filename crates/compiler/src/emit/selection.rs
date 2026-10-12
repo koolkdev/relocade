@@ -4,6 +4,7 @@
 //! may depend on a result being unused or only observed as zero/nonzero.
 //! Selection leaves the graph's value definitions intact.
 use super::wasm_type;
+use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
 use crate::{
     body::{BlockItem, Exit, FunctionGraph, OperationKind, ValueDefinition},
     integer::BinaryOp,
@@ -58,8 +59,10 @@ impl Selection {
             }
         }
         for &value in &order {
-            if let ValueDefinition::Expression(Expression::Convert { input }) =
-                graph.values[value].definition
+            if let ValueDefinition::Expression(Expression::Unary {
+                operator: Unary::Convert,
+                input,
+            }) = graph.values[value].definition
             {
                 if wasm_type(graph.values[value].ty) == wasm_type(graph.values[input].ty) {
                     this.aliases[value] = Some(input);
@@ -90,21 +93,29 @@ impl Selection {
             }
         }
         for &value in order.iter().rev() {
-            match graph.values[value].definition {
-                ValueDefinition::Expression(Expression::SignExtend { input })
-                    if !this.skipped[value] =>
-                {
-                    this.cover_load(graph, value, input)
+            let ValueDefinition::Expression(Expression::Unary { operator, input }) =
+                graph.values[value].definition
+            else {
+                continue;
+            };
+            match operator {
+                Unary::SignExtend { input_type } if !this.skipped[value] => {
+                    this.cover_load(graph, value, input, input_type.bits())
                 }
-                ValueDefinition::Expression(Expression::ZeroTest { input, .. })
-                    if this.aliases[value].is_none() =>
-                {
+                Unary::ZeroTest { .. } if this.aliases[value].is_none() => {
                     let input = this.resolve(input);
-                    if this.uses[input] == 1
-                        && matches!(graph.values[input].ty, Type::I8 | Type::I16)
-                        && matches!(graph.values[input].definition, ValueDefinition::Expression(Expression::LowBits { bits, .. }) if bits == graph.values[input].ty.bits())
+                    let ty = graph.values[input].ty;
+                    if this.uses[input] != 1 || !matches!(ty, Type::I8 | Type::I16) {
+                        continue;
+                    }
+                    if let ValueDefinition::Expression(Expression::Unary {
+                        operator: Unary::LowBits { bits },
+                        ..
+                    }) = graph.values[input].definition
                     {
-                        this.zero_test_masks[input] = true;
+                        if bits == ty.bits() {
+                            this.zero_test_masks[input] = true;
+                        }
                     }
                 }
                 _ => {}
@@ -125,10 +136,16 @@ impl Selection {
             panic!("evaluate names an expression")
         };
         match expression.map(|&input| graph.values[input].ty) {
-            Expression::LowBits { .. } if self.zero_test_masks[value] => {
+            Expression::Unary {
+                operator: Unary::LowBits { bits: _ },
+                ..
+            } if self.zero_test_masks[value] => {
                 // Masking and sign extension agree on zero, although their
                 // nonzero carriers can differ. No other use observes this value.
-                Expression::SignExtend {
+                Expression::Unary {
+                    operator: Unary::SignExtend {
+                        input_type: graph.values[value].ty,
+                    },
                     input: graph.values[value].ty,
                 }
             }
@@ -137,7 +154,7 @@ impl Selection {
             {
                 // Signed and unsigned multiplication have the same low half.
                 Expression::Binary {
-                    operator: BinaryOp::Mul,
+                    operator: Binary::Integer(BinaryOp::Mul),
                     left,
                     right,
                 }
@@ -181,8 +198,10 @@ impl Selection {
         inverted: bool,
     ) -> (usize, bool) {
         if self.skipped[value] {
-            if let ValueDefinition::Expression(Expression::ZeroTest { input, nonzero }) =
-                graph.values[value].definition
+            if let ValueDefinition::Expression(Expression::Unary {
+                operator: Unary::ZeroTest { nonzero },
+                input,
+            }) = graph.values[value].definition
             {
                 return (self.resolve(input), inverted ^ !nonzero);
             }
@@ -193,8 +212,10 @@ impl Selection {
         if self.uses[value] != 1 {
             return;
         }
-        let ValueDefinition::Expression(Expression::ZeroTest { input, nonzero }) =
-            graph.values[value].definition
+        let ValueDefinition::Expression(Expression::Unary {
+            operator: Unary::ZeroTest { nonzero },
+            input,
+        }) = graph.values[value].definition
         else {
             return;
         };
@@ -206,8 +227,7 @@ impl Selection {
             self.aliases[value] = Some(input);
         }
     }
-    fn cover_load(&mut self, graph: &FunctionGraph, result: usize, mut input: usize) {
-        let mut bits = graph.values[input].ty.bits();
+    fn cover_load(&mut self, graph: &FunctionGraph, result: usize, mut input: usize, mut bits: u8) {
         let mut extensions = vec![result];
         loop {
             input = self.resolve(input);
@@ -215,11 +235,12 @@ impl Selection {
                 return;
             }
             match graph.values[input].definition {
-                ValueDefinition::Expression(Expression::SignExtend { input: original })
-                    if graph.values[original].ty.bits() <= bits =>
-                {
+                ValueDefinition::Expression(Expression::Unary {
+                    operator: Unary::SignExtend { input_type },
+                    input: original,
+                }) if input_type.bits() <= bits => {
                     extensions.push(input);
-                    bits = graph.values[original].ty.bits();
+                    bits = input_type.bits();
                     input = original;
                 }
                 ValueDefinition::Result {

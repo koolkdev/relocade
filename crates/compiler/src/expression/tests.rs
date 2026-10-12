@@ -1,4 +1,49 @@
 use super::Expression;
+use crate::expression::BinaryOp as Binary;
+
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn typed_opcodes_keep_compact_value_storage() {
+    use std::mem::size_of;
+    assert_eq!(size_of::<Expression<usize>>(), 32);
+    assert_eq!(size_of::<crate::body::Value>(), 40);
+}
+
+#[test]
+fn packed_operation_identity_includes_its_lane_width_without_view_nodes() {
+    use super::{BinaryOp, LaneBinaryOp};
+    use crate::{
+        body::{BlockId, Value, ValueDefinition, ValueTable},
+        Type,
+    };
+
+    let mut values = ValueTable::default();
+    let left = values.push(Value {
+        ty: Type::V128,
+        definition: ValueDefinition::Parameter {
+            block: BlockId(0),
+            component: 0,
+        },
+    });
+    let right = values.literal(Type::V128, 1_u128);
+    let mut sums = Vec::new();
+    for lane_type in [Type::I8, Type::I16, Type::I32, Type::I64] {
+        let expression = Expression::Binary {
+            operator: BinaryOp::Vector {
+                operator: LaneBinaryOp::Add,
+                lane_type,
+            },
+            left,
+            right,
+        };
+        let before = values.len();
+        let sum = super::build(&mut values, Type::V128, expression, 0);
+        assert_eq!(values.len(), before + 1);
+        assert!(!sums.contains(&sum));
+        assert_eq!(super::build(&mut values, Type::V128, expression, 0), sum);
+        sums.push(sum);
+    }
+}
 
 #[test]
 fn select_inputs_and_mapping_follow_wasm_stack_order() {
@@ -66,10 +111,13 @@ fn refolding_lane_replacement_discards_narrow_carrier_bits() {
         let value = values.carrier_literal(ty, carrier);
         let expression = values.intern(Value {
             ty: Type::V128,
-            definition: ValueDefinition::Expression(Expression::VectorReplace {
-                vector,
-                value,
-                lane: 0,
+            definition: ValueDefinition::Expression(Expression::Binary {
+                operator: Binary::ReplaceLane {
+                    lane_type: ty,
+                    lane: 0,
+                },
+                left: vector,
+                right: value,
             }),
         });
         let folded = super::refold(&mut values, expression);

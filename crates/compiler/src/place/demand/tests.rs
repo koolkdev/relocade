@@ -1,4 +1,5 @@
 use super::*;
+use crate::expression::BinaryOp as Binary;
 use crate::{memory::MemoryAccess, Mem, Type};
 
 struct Branches {
@@ -31,7 +32,7 @@ impl Branches {
         let product = graph.values.push(Value {
             ty: Type::I32,
             definition: ValueDefinition::Expression(Expression::Binary {
-                operator: BinaryOp::Mul,
+                operator: Binary::Integer(BinaryOp::Mul),
                 left: 1,
                 right: 1,
             }),
@@ -59,7 +60,7 @@ impl Branches {
         self.graph.values.push(Value {
             ty: Type::I32,
             definition: ValueDefinition::Expression(Expression::Binary {
-                operator: BinaryOp::Add,
+                operator: Binary::Integer(BinaryOp::Add),
                 left: self.product,
                 right: one,
             }),

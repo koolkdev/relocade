@@ -1,6 +1,7 @@
 //! Learn facts implied by choosing one edge of a conditional branch.
 
 use super::{Bits, ScalarFacts};
+use crate::expression::{BinaryOp as Binary, CompareOp as Compare, UnaryOp as Unary};
 use crate::{
     bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
@@ -43,86 +44,82 @@ impl ScalarFacts {
             let ValueDefinition::Expression(expression) = value.definition else {
                 continue;
             };
-            if let Expression::Compare {
-                operator,
-                left,
-                right,
-            } = expression
-            {
-                if let Some(first) =
-                    self.comparisons
-                        .assume(table, operator, left, right, bits.value != 0)
-                {
-                    self.invalidate_from(first);
-                }
-                self.assume_comparison(table, operator, left, right, bits.value != 0);
-            }
             match expression {
-                Expression::Convert { input } => pending.push((input, bits)),
-                Expression::LowBits { input, bits: width } => {
-                    pending.push((input, bits.restrict(low_mask(width))))
-                }
-                Expression::Bitwise {
-                    operator: BitwiseOp::Or,
-                    left: a,
-                    right: b,
-                } => {
-                    let zeros = Bits {
-                        mask: bits.mask & !bits.value,
-                        value: 0,
-                    };
-                    pending.push((a, zeros));
-                    pending.push((b, zeros));
-                }
-                Expression::Bitwise {
-                    operator: BitwiseOp::And,
-                    left: a,
-                    right: b,
-                } => {
-                    let ones = Bits {
-                        mask: bits.value,
-                        value: bits.value,
-                    };
-                    pending.push((a, ones));
-                    pending.push((b, ones));
-                    // A known mask exposes the same bits of the other operand.
-                    for (input, other) in [(a, b), (b, a)] {
-                        let other = self.bits(table, other);
-                        pending.push((input, bits.restrict(other.value)));
+                Expression::Unary { operator, input } => match operator {
+                    Unary::Convert => pending.push((input, bits)),
+                    Unary::LowBits { bits: width } => {
+                        pending.push((input, bits.restrict(low_mask(width))))
                     }
-                }
-                Expression::ZeroTest { input, nonzero } if bits.mask & 1 != 0 => {
-                    let is_zero = (bits.value & 1 != 0) != nonzero;
-                    if is_zero {
-                        pending.push((
-                            input,
-                            Bits {
-                                mask: table.values[input].ty.mask(),
-                                value: 0,
-                            },
-                        ));
-                    } else if table.values[input].ty == Type::I1
-                        || table.bounds[input].unsigned <= 1
-                    {
-                        pending.push((
-                            input,
-                            Bits {
-                                mask: table.values[input].ty.mask(),
-                                value: 1,
-                            },
-                        ));
-                    } else {
-                        self.assume_nonzero(table, input);
+                    Unary::ZeroTest { nonzero } if bits.mask & 1 != 0 => {
+                        let is_zero = (bits.value & 1 != 0) != nonzero;
+                        if is_zero {
+                            pending.push((
+                                input,
+                                Bits {
+                                    mask: table.values[input].ty.mask(),
+                                    value: 0,
+                                },
+                            ));
+                        } else if table.values[input].ty == Type::I1
+                            || table.bounds[input].unsigned <= 1
+                        {
+                            pending.push((
+                                input,
+                                Bits {
+                                    mask: table.values[input].ty.mask(),
+                                    value: 1,
+                                },
+                            ));
+                        } else {
+                            self.assume_nonzero(table, input);
+                        }
                     }
-                }
-                Expression::Compare {
-                    operator: operator @ (CompareOp::Eq | CompareOp::Ne),
-                    left: a,
-                    right: b,
-                } if bits.mask & 1 != 0 && (bits.value & 1 != 0) == (operator == CompareOp::Eq) => {
-                    pending.push((a, self.bits(table, b)));
-                    pending.push((b, self.bits(table, a)));
-                }
+                    _ => {}
+                },
+                Expression::Binary {
+                    operator,
+                    left,
+                    right,
+                } => match operator {
+                    Binary::Compare(Compare::Integer(operator)) => {
+                        if let Some(first) =
+                            self.comparisons
+                                .assume(table, operator, left, right, bits.value != 0)
+                        {
+                            self.invalidate_from(first);
+                        }
+                        self.assume_comparison(table, operator, left, right, bits.value != 0);
+                        if matches!(operator, CompareOp::Eq | CompareOp::Ne)
+                            && bits.mask & 1 != 0
+                            && (bits.value & 1 != 0) == (operator == CompareOp::Eq)
+                        {
+                            pending.push((left, self.bits(table, right)));
+                            pending.push((right, self.bits(table, left)));
+                        }
+                    }
+                    Binary::Bitwise(BitwiseOp::Or) => {
+                        let zeros = Bits {
+                            mask: bits.mask & !bits.value,
+                            value: 0,
+                        };
+                        pending.push((left, zeros));
+                        pending.push((right, zeros));
+                    }
+                    Binary::Bitwise(BitwiseOp::And) => {
+                        let ones = Bits {
+                            mask: bits.value,
+                            value: bits.value,
+                        };
+                        pending.push((left, ones));
+                        pending.push((right, ones));
+                        // A known mask exposes the same bits of the other operand.
+                        for (input, other) in [(left, right), (right, left)] {
+                            let other = self.bits(table, other);
+                            pending.push((input, bits.restrict(other.value)));
+                        }
+                    }
+                    _ => {}
+                },
                 Expression::Select {
                     condition,
                     when_true,

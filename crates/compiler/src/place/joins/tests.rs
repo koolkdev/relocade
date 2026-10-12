@@ -1,4 +1,5 @@
 use super::*;
+use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
 use crate::integer::BinaryOp;
 
 mod parameters;
@@ -61,7 +62,7 @@ fn square(graph: &mut FunctionGraph) -> usize {
         graph,
         Type::I32,
         Expression::Binary {
-            operator: BinaryOp::Mul,
+            operator: Binary::Integer(BinaryOp::Mul),
             left: 1,
             right: 1,
         },
@@ -89,7 +90,14 @@ fn a_descendant_demand_adds_one_parameter_at_the_owning_join() {
     let inactive = graph.block(0, &[]);
     graph.blocks[inactive.0].exit = Exit::Jump(edge(arms.join));
     let recipe = square(&mut graph);
-    let unused = expression(&mut graph, Type::I8, Expression::Convert { input: recipe });
+    let unused = expression(
+        &mut graph,
+        Type::I8,
+        Expression::Unary {
+            operator: Unary::Convert,
+            input: recipe,
+        },
+    );
     let mut joins = joins(&graph);
     let left = placed(&mut graph, arms.left, recipe);
     let right = placed(&mut graph, arms.right, recipe);
@@ -171,7 +179,7 @@ fn a_nearer_join_is_preferred_but_a_failed_merge_keeps_ancestor_reuse() {
         &mut graph,
         Type::I32,
         Expression::Binary {
-            operator: BinaryOp::Add,
+            operator: Binary::Integer(BinaryOp::Add),
             left: 1,
             right: one,
         },
@@ -227,7 +235,14 @@ fn incoming_aliases_keep_their_predecessor_scope() {
             when_false: number,
         },
     );
-    let alias = expression(&mut graph, Type::I8, Expression::Convert { input: choice });
+    let alias = expression(
+        &mut graph,
+        Type::I8,
+        Expression::Unary {
+            operator: Unary::Convert,
+            input: choice,
+        },
+    );
     let mut joins = joins(&graph);
     let ancestor = placed(&mut graph, BlockId(0), number);
     let child = placed(&mut graph, uses.left, number);
@@ -265,7 +280,14 @@ fn incoming_aliases_keep_their_predecessor_scope() {
 fn identical_incoming_carriers_can_reuse_a_value_with_a_different_logical_type() {
     let mut graph = graph();
     let arms = Diamond::new(&mut graph, BlockId(0));
-    let byte = expression(&mut graph, Type::I8, Expression::Convert { input: 1 });
+    let byte = expression(
+        &mut graph,
+        Type::I8,
+        Expression::Unary {
+            operator: Unary::Convert,
+            input: 1,
+        },
+    );
     let mut joins = joins(&graph);
     joins.record(arms.left.0, [(byte, 1)].into_iter());
     for source in [arms.left, arms.right] {

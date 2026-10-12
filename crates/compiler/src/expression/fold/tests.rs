@@ -1,6 +1,9 @@
 //! Logical construction and operand replacement observe different bit widths.
 
 use super::*;
+use crate::expression::{
+    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, UnaryOp as Unary,
+};
 use crate::{
     bitwise::BitwiseOp,
     body::BlockId,
@@ -33,12 +36,19 @@ fn xor_mask_combination_preserves_carrier_bits_during_refolding() {
                 component: 0,
             },
         });
-        let view = refold(&mut values, ty, Expression::Convert { input });
+        let view = refold(
+            &mut values,
+            ty,
+            Expression::Unary {
+                operator: Unary::Convert,
+                input,
+            },
+        );
         let high_bit = 1_u64 << ty.bits();
         let first_mask = values.carrier_literal(ty, high_bit | 1);
         let second_mask = values.literal(ty, 1);
-        let xor = |left, right| Expression::Bitwise {
-            operator: BitwiseOp::Xor,
+        let xor = |left, right| Expression::Binary {
+            operator: Binary::Bitwise(BitwiseOp::Xor),
             left,
             right,
         };
@@ -52,8 +62,8 @@ fn xor_mask_combination_preserves_carrier_bits_during_refolding() {
         );
         let first = refold(&mut values, ty, xor(view, first_mask));
         let combined = refold(&mut values, ty, xor(first, second_mask));
-        let ValueDefinition::Expression(Expression::Bitwise {
-            operator: BitwiseOp::Xor,
+        let ValueDefinition::Expression(Expression::Binary {
+            operator: Binary::Bitwise(BitwiseOp::Xor),
             left,
             right,
         }) = values[combined].definition
@@ -76,29 +86,39 @@ fn refolded_constants_retain_carrier_bits_and_unsigned_extension() {
         &mut values,
         Type::I8,
         Expression::Binary {
-            operator: BinaryOp::Add,
+            operator: Binary::Integer(BinaryOp::Add),
             left: byte,
             right: one,
         },
     );
     assert_constant(&values, sum, 256);
     assert_eq!(values.carrier_bits(sum, 0), 256);
-    let view = refold(&mut values, Type::I32, Expression::Convert { input: sum });
+    let view = refold(
+        &mut values,
+        Type::I32,
+        Expression::Unary {
+            operator: Unary::Convert,
+            input: sum,
+        },
+    );
     assert_constant(&values, view, 256);
     let negative = values.carrier_literal(Type::I8, u64::MAX);
     assert_eq!(values.carrier_bits(negative, 255), 0xffff_ffff_u64);
     let unsigned = refold(
         &mut values,
         Type::I64,
-        Expression::Convert { input: negative },
+        Expression::Unary {
+            operator: Unary::Convert,
+            input: negative,
+        },
     );
     assert_constant(&values, unsigned, 0xffff_ffff_u64);
     let zero = values.literal(Type::I8, 0);
     let positive = refold(
         &mut values,
         Type::I1,
-        Expression::Compare {
-            operator: CompareOp::GeSigned,
+        Expression::Binary {
+            operator: Binary::Compare(Compare::Integer(CompareOp::GeSigned)),
             left: byte,
             right: zero,
         },
@@ -112,12 +132,28 @@ fn construction_interprets_logical_bits_of_carrier_constants() {
     let input = values.carrier_literal(Type::I8, 256);
     let count = values.literal(Type::I32, 1);
     for (ty, expression, expected) in [
-        (Type::I32, Expression::Convert { input }, 0),
-        (Type::I32, Expression::SignExtend { input }, 0),
+        (
+            Type::I32,
+            Expression::Unary {
+                operator: Unary::Convert,
+                input,
+            },
+            0,
+        ),
+        (
+            Type::I32,
+            Expression::Unary {
+                operator: Unary::SignExtend {
+                    input_type: Type::I8,
+                },
+                input,
+            },
+            0,
+        ),
         (
             Type::I8,
             Expression::Shift {
-                operator: ShiftOp::RightUnsigned,
+                operator: Shift::Scalar(ShiftOp::RightUnsigned),
                 value: input,
                 count,
             },
@@ -125,33 +161,42 @@ fn construction_interprets_logical_bits_of_carrier_constants() {
         ),
         (
             Type::I8,
-            Expression::BitCount {
-                operator: BitCountOp::LeadingZeros,
+            Expression::Unary {
+                operator: Unary::BitCount {
+                    operator: BitCountOp::LeadingZeros,
+                    input_type: Type::I8,
+                },
                 input,
             },
             8,
         ),
         (
             Type::I8,
-            Expression::BitCount {
-                operator: BitCountOp::TrailingZeros,
+            Expression::Unary {
+                operator: Unary::BitCount {
+                    operator: BitCountOp::TrailingZeros,
+                    input_type: Type::I8,
+                },
                 input,
             },
             8,
         ),
         (
             Type::I8,
-            Expression::BitCount {
-                operator: BitCountOp::Ones,
+            Expression::Unary {
+                operator: Unary::BitCount {
+                    operator: BitCountOp::Ones,
+                    input_type: Type::I8,
+                },
                 input,
             },
             0,
         ),
         (
             Type::I1,
-            Expression::ZeroTest {
+            Expression::Unary {
+                operator: Unary::ZeroTest { nonzero: true },
                 input,
-                nonzero: true,
             },
             0,
         ),
@@ -177,21 +222,25 @@ fn offsets_and_explicit_masks_keep_their_observed_width() {
         &mut values,
         Type::I8,
         Expression::Binary {
-            operator: BinaryOp::Add,
+            operator: Binary::Integer(BinaryOp::Add),
             left: input,
             right: offset,
         },
         0,
     );
     let expression = Expression::Binary {
-        operator: BinaryOp::Add,
+        operator: Binary::Integer(BinaryOp::Add),
         left: first,
         right: one,
     };
     assert_eq!(build(&mut values, Type::I8, expression, 0), input);
     let carried = refold(&mut values, Type::I8, expression);
-    let ValueDefinition::Expression(Expression::Binary { left, right, .. }) =
-        values[carried].definition
+    let ValueDefinition::Expression(Expression::Binary {
+        operator: Binary::Integer(_),
+        left,
+        right,
+        ..
+    }) = values[carried].definition
     else {
         panic!("carrier addition must retain the carry");
     };
@@ -201,15 +250,18 @@ fn offsets_and_explicit_masks_keep_their_observed_width() {
     let masked = refold(
         &mut values,
         Type::I8,
-        Expression::Bitwise {
-            operator: BitwiseOp::And,
+        Expression::Binary {
+            operator: Binary::Bitwise(BitwiseOp::And),
             left: carried,
             right: mask,
         },
     );
     assert!(matches!(
         values[masked].definition,
-        ValueDefinition::Expression(Expression::LowBits { bits: 9, .. })
+        ValueDefinition::Expression(Expression::Unary {
+            operator: Unary::LowBits { bits: 9 },
+            ..
+        })
     ));
 }
 
@@ -232,7 +284,7 @@ fn constant_folding_keeps_division_traps_and_narrow_signed_results() {
                 &mut values,
                 ty,
                 Expression::Binary {
-                    operator,
+                    operator: Binary::Integer(operator),
                     left,
                     right,
                 },
@@ -249,7 +301,7 @@ fn constant_folding_keeps_division_traps_and_narrow_signed_results() {
         &mut values,
         Type::I8,
         Expression::Binary {
-            operator: BinaryOp::DivSigned,
+            operator: Binary::Integer(BinaryOp::DivSigned),
             left,
             right,
         },
@@ -270,9 +322,9 @@ fn boolean_folds_do_not_discard_upper_carrier_bits() {
     let zero_test = refold(
         &mut values,
         Type::I1,
-        Expression::ZeroTest {
+        Expression::Unary {
+            operator: Unary::ZeroTest { nonzero: false },
             input,
-            nonzero: false,
         },
     );
     for (when_true, when_false) in [(1, 0), (0, 1)] {
@@ -295,8 +347,8 @@ fn boolean_folds_do_not_discard_upper_carrier_bits() {
         let result = refold(
             &mut values,
             Type::I1,
-            Expression::Bitwise {
-                operator,
+            Expression::Binary {
+                operator: Binary::Bitwise(operator),
                 left: input,
                 right: zero_test,
             },

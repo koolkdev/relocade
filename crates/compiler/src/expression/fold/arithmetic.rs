@@ -1,6 +1,7 @@
 //! Arithmetic normalization, algebraic rewrites and modular constant offsets.
 
 use super::Folder;
+use crate::expression::{BinaryOp as Binary, ShiftOp as Shift};
 use crate::{
     body::ValueDefinition,
     integer::{self, BinaryOp, ShiftOp},
@@ -33,7 +34,7 @@ impl Folder<'_> {
         let low = self.fold(
             Type::I64,
             Expression::Binary {
-                operator: BinaryOp::Mul,
+                operator: Binary::Integer(BinaryOp::Mul),
                 left,
                 right,
             },
@@ -45,7 +46,7 @@ impl Folder<'_> {
             self.fold(
                 Type::I64,
                 Expression::Shift {
-                    operator: ShiftOp::RightSigned,
+                    operator: Shift::Scalar(ShiftOp::RightSigned),
                     value: low,
                     count,
                 },
@@ -94,7 +95,7 @@ impl Folder<'_> {
                 Some(self.fold(
                     Type::I32,
                     Expression::Binary {
-                        operator,
+                        operator: Binary::Integer(operator),
                         left,
                         right,
                     },
@@ -136,7 +137,7 @@ impl Folder<'_> {
                 self.fold(
                     a.ty,
                     Expression::Binary {
-                        operator,
+                        operator: Binary::Integer(operator),
                         left,
                         right,
                     },
@@ -173,7 +174,7 @@ impl Folder<'_> {
         self.intern(
             ty,
             Expression::Binary {
-                operator: BinaryOp::Add,
+                operator: Binary::Integer(BinaryOp::Add),
                 left: input,
                 right: constant,
             },
@@ -182,7 +183,7 @@ impl Folder<'_> {
 
     pub(super) fn constant_offset(&self, input: usize) -> Option<(usize, u64)> {
         let ValueDefinition::Expression(Expression::Binary {
-            operator: BinaryOp::Add,
+            operator: Binary::Integer(BinaryOp::Add),
             left,
             right,
         }) = self.values[input].definition

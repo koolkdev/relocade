@@ -1,6 +1,7 @@
 //! Shift and rotate folding, count conversion and logical-width lowering.
 
 use super::Folder;
+use crate::expression::ShiftOp as Shift;
 use crate::{
     bitwise::BitwiseOp,
     integer::{self, BinaryOp, RotateOp, ShiftOp},
@@ -37,7 +38,7 @@ impl Folder<'_> {
         self.fold(
             value.ty,
             Expression::Shift {
-                operator,
+                operator: Shift::Scalar(operator),
                 value: input,
                 count,
             },
@@ -79,8 +80,8 @@ impl Folder<'_> {
         };
         self.fold(
             value.ty,
-            Expression::Rotate {
-                operator,
+            Expression::Shift {
+                operator: Shift::Rotate(operator),
                 value: input,
                 count,
             },

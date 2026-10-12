@@ -109,10 +109,45 @@ fn widths(v8: bool) {
 #[test]
 fn packed_shifts_wrap_counts_at_lane_width() {
     widths(false);
+    refined_count(false);
 }
 
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn v8_packed_shifts_wrap_counts_at_lane_width() {
     widths(true);
+    refined_count(true);
+}
+
+fn refined_count(v8: bool) {
+    const INPUT: u128 = 0x0081_0081_0081_0081_0081_0081_0081_0081;
+    let bytes = vec![0xa5; 40];
+    let mut fixture = Fixture::new();
+    let memory = fixture.memory("state", &bytes);
+    let module = fixture.function(&[Type::I32], &[], |mut body| {
+        let count = body.parameter::<I32>(0)?;
+        let bits = Val::<V128>::from(INPUT);
+        let byte_lanes = bits.shl_lanes::<I8>(&count);
+        let word_lanes = bits.shl_lanes::<I16>(&count);
+        let scalar = Val::<I8>::from(0x81).shl(&count);
+        body.if_(count.eq(8), |mut arm| {
+            arm.store(memory, 0, &byte_lanes)?;
+            arm.store(memory, 16, &word_lanes)?;
+            arm.store(memory, 32, &scalar)?;
+            arm.return_(())
+        })?;
+        body.store(memory, 0, byte_lanes)?;
+        body.store(memory, 16, word_lanes)?;
+        body.store(memory, 32, scalar)?;
+        body.return_(())
+    });
+    // A scalar byte masks the count modulo 32. Packed bytes and words retain
+    // their own lane widths, including when the branch supplies a constant count.
+    for (count, words, scalar) in [(8, INPUT << 8, 0), (32, INPUT, 0x81)] {
+        let mut expected = bytes.clone();
+        expected[..16].copy_from_slice(&INPUT.to_le_bytes());
+        expected[16..32].copy_from_slice(&words.to_le_bytes());
+        expected[32] = scalar;
+        check(&module, &bytes, &expected, count, v8);
+    }
 }

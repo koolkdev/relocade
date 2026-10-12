@@ -1,5 +1,6 @@
 //! Placement must leave discarded control flow unvisited.
 use super::*;
+use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
 use crate::{integer::BinaryOp, Type};
 
 fn graph(selector_type: Type) -> FunctionGraph {
@@ -29,7 +30,7 @@ fn square(graph: &mut FunctionGraph) -> usize {
     graph.values.intern(Value {
         ty: Type::I32,
         definition: ValueDefinition::Expression(Expression::Binary {
-            operator: BinaryOp::Mul,
+            operator: Binary::Integer(BinaryOp::Mul),
             left: number,
             right: number,
         }),
@@ -78,7 +79,7 @@ fn a_folded_if_skips_its_discarded_subtree_and_keeps_the_join() {
     let sum = graph.values.intern(Value {
         ty: Type::I32,
         definition: ValueDefinition::Expression(Expression::Binary {
-            operator: BinaryOp::Add,
+            operator: Binary::Integer(BinaryOp::Add),
             left: number,
             right: number,
         }),
@@ -124,7 +125,7 @@ fn a_folded_switch_skips_discarded_cases_and_default() {
     let sum = graph.values.intern(Value {
         ty: Type::I32,
         definition: ValueDefinition::Expression(Expression::Binary {
-            operator: BinaryOp::Add,
+            operator: Binary::Integer(BinaryOp::Add),
             left: product,
             right: selector,
         }),
@@ -166,9 +167,9 @@ fn a_loop_backedge_does_not_keep_a_discarded_region_alive() {
     let product = square(&mut graph);
     let nonzero = graph.values.intern(Value {
         ty: Type::I1,
-        definition: ValueDefinition::Expression(Expression::ZeroTest {
+        definition: ValueDefinition::Expression(Expression::Unary {
+            operator: Unary::ZeroTest { nonzero: true },
             input: product,
-            nonzero: true,
         }),
     });
     let zero = graph.values.literal(Type::I1, 0);

@@ -2,6 +2,7 @@
 //! These describe complete encodings, not floating-point magnitude or vector lanes.
 //! Scalar literals refine these widths; vector literals retain the full carrier width.
 
+use crate::expression::{BinaryOp as Binary, ShiftOp as Shift, UnaryOp as Unary};
 use crate::{
     bitwise::BitwiseOp,
     body::{BlockItem, Value, ValueDefinition},
@@ -43,19 +44,9 @@ impl BitBounds {
                     (65 - magnitude.leading_zeros()) as u8
                 })
             }
-            ValueDefinition::Expression(expression) => match expression {
-                Expression::SignExtend { input } => {
-                    inputs[input].signed.min(values[input].ty.bits())
-                }
-                Expression::Binary {
-                    operator: BinaryOp::Mul,
-                    left: a,
-                    right: b,
-                } => inputs[a]
-                    .signed
-                    .saturating_add(inputs[b].signed)
-                    .min(carrier),
-                Expression::Convert { input } => {
+            ValueDefinition::Expression(Expression::Unary { operator, input }) => match operator {
+                Unary::SignExtend { input_type } => inputs[input].signed.min(input_type.bits()),
+                Unary::Convert => {
                     if value.ty == Type::I64 && values[input].ty != Type::I64 {
                         // Widening this conversion is unsigned, including negative
                         // i32 carriers whose upper half becomes zero in i64.
@@ -66,6 +57,14 @@ impl BitBounds {
                 }
                 _ => fallback,
             },
+            ValueDefinition::Expression(Expression::Binary {
+                operator: Binary::Integer(BinaryOp::Mul),
+                left,
+                right,
+            }) => inputs[left]
+                .signed
+                .saturating_add(inputs[right].signed)
+                .min(carrier),
             _ => fallback,
         };
         Self { unsigned, signed }
@@ -74,54 +73,75 @@ impl BitBounds {
 
 fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
     let carrier = value.ty.carrier().bits();
-    match value.definition {
+    let expression = match value.definition {
         // Backedges may carry wider intermediate bits than their initial values.
         // Loop edges preserve those bits just like ordinary result joins.
-        ValueDefinition::Parameter { .. } => carrier,
-        ValueDefinition::Literal(literal) => literal
-            .scalar(value.ty)
-            .map_or(carrier, |bits| (64 - bits.leading_zeros()) as u8),
+        ValueDefinition::Parameter { .. } => return carrier,
+        ValueDefinition::Literal(literal) => {
+            return literal
+                .scalar(value.ty)
+                .map_or(carrier, |bits| (64 - bits.leading_zeros()) as u8)
+        }
         ValueDefinition::Result {
             producer: BlockItem::Effect(_),
             ..
-        } => value.ty.bits(),
+        } => return value.ty.bits(),
         ValueDefinition::Result {
             producer: BlockItem::Evaluate(_),
             ..
-        } => carrier,
-        ValueDefinition::Expression(expression) => match expression {
-            Expression::Binary {
+        } => return carrier,
+        ValueDefinition::Expression(expression) => expression,
+    };
+    match expression {
+        Expression::Unary { operator, input } => match operator {
+            Unary::BitCount {
                 operator,
-                left: a,
-                right: b,
-            } => match operator {
-                BinaryOp::Add => inputs[a]
+                input_type,
+            } => {
+                let maximum = match operator {
+                    BitCountOp::Ones => inputs[input].unsigned,
+                    BitCountOp::LeadingZeros | BitCountOp::TrailingZeros => input_type.bits(),
+                };
+                (u8::BITS - maximum.leading_zeros()) as u8
+            }
+            Unary::LowBits { bits } => inputs[input].unsigned.min(bits),
+            Unary::Convert | Unary::Reinterpret => inputs[input].unsigned.min(carrier),
+            Unary::ZeroTest { .. } => 1,
+            _ => carrier,
+        },
+        Expression::Binary {
+            operator,
+            left,
+            right,
+        } => match operator {
+            Binary::Integer(operator) => match operator {
+                BinaryOp::Add => inputs[left]
                     .unsigned
-                    .max(inputs[b].unsigned)
+                    .max(inputs[right].unsigned)
                     .saturating_add(1)
                     .min(carrier),
                 // Underflow can set every carrier bit, including above a narrow type.
                 BinaryOp::Sub => carrier,
-                BinaryOp::Mul => inputs[a]
+                BinaryOp::Mul => inputs[left]
                     .unsigned
-                    .saturating_add(inputs[b].unsigned)
+                    .saturating_add(inputs[right].unsigned)
                     .min(carrier),
                 BinaryOp::DivUnsigned | BinaryOp::RemUnsigned => value.ty.bits(),
                 BinaryOp::DivSigned | BinaryOp::RemSigned => carrier,
             },
-            Expression::Bitwise {
-                operator,
-                left: a,
-                right: b,
-            } => match operator {
-                BitwiseOp::And => inputs[a].unsigned.min(inputs[b].unsigned),
-                BitwiseOp::Or | BitwiseOp::Xor => inputs[a].unsigned.max(inputs[b].unsigned),
+            Binary::Bitwise(operator) => match operator {
+                BitwiseOp::And => inputs[left].unsigned.min(inputs[right].unsigned),
+                BitwiseOp::Or | BitwiseOp::Xor => inputs[left].unsigned.max(inputs[right].unsigned),
             },
-            Expression::Shift {
-                operator,
-                value: input,
-                count,
-            } => match values[count].scalar_literal() {
+            Binary::Compare(_) => 1,
+            _ => carrier,
+        },
+        Expression::Shift {
+            operator,
+            value: input,
+            count,
+        } => match operator {
+            Shift::Scalar(operator) => match values[count].scalar_literal() {
                 Some(bits) => {
                     let count = shift_count(value.ty, bits as u32) as u8;
                     match operator {
@@ -136,36 +156,13 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
                     ShiftOp::RightSigned => carrier,
                 },
             },
-            Expression::Rotate { .. }
-            | Expression::VectorBinary { .. }
-            | Expression::VectorShift { .. }
-            | Expression::VectorNarrow { .. }
-            | Expression::VectorShuffle { .. }
-            | Expression::VectorExtract { .. }
-            | Expression::VectorReplace { .. }
-            | Expression::SignExtend { .. }
-            | Expression::MultiplyWide { .. }
-            | Expression::FloatBinary { .. }
-            | Expression::FloatUnary { .. } => carrier,
-            Expression::BitCount { operator, input } => {
-                let maximum = match operator {
-                    BitCountOp::Ones => inputs[input].unsigned,
-                    BitCountOp::LeadingZeros | BitCountOp::TrailingZeros => value.ty.bits(),
-                };
-                (u8::BITS - maximum.leading_zeros()) as u8
-            }
-            Expression::Select {
-                when_true,
-                when_false,
-                ..
-            } => inputs[when_true].unsigned.max(inputs[when_false].unsigned),
-            Expression::LowBits { input, bits } => inputs[input].unsigned.min(bits),
-            Expression::Convert { input } | Expression::Reinterpret { input } => {
-                inputs[input].unsigned.min(carrier)
-            }
-            Expression::Compare { .. }
-            | Expression::FloatCompare { .. }
-            | Expression::ZeroTest { .. } => 1,
+            Shift::Rotate(_) | Shift::Lanes { .. } => carrier,
         },
+        Expression::Select {
+            when_true,
+            when_false,
+            ..
+        } => inputs[when_true].unsigned.max(inputs[when_false].unsigned),
+        Expression::MultiplyWide { .. } => carrier,
     }
 }

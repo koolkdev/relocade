@@ -1,6 +1,7 @@
 //! Comparison folding and logical-width normalization.
 
 use super::Folder;
+use crate::expression::{BinaryOp as Binary, CompareOp as Compare, UnaryOp as Unary};
 use crate::{
     bitwise::BitwiseOp,
     body::ValueDefinition,
@@ -33,15 +34,20 @@ impl Folder<'_> {
         let left = self.values.representation(left);
         let right = self.values.representation(right);
         for (predicate, other) in [(left, right), (right, left)] {
-            let ValueDefinition::Expression(Expression::ZeroTest { input, nonzero }) =
-                self.values[predicate].definition
+            let ValueDefinition::Expression(Expression::Unary {
+                operator: Unary::ZeroTest { nonzero },
+                input,
+            }) = self.values[predicate].definition
             else {
                 continue;
             };
             let input = self.values.representation(input);
-            if let ValueDefinition::Expression(Expression::ZeroTest {
+            if let ValueDefinition::Expression(Expression::Unary {
+                operator:
+                    Unary::ZeroTest {
+                        nonzero: other_nonzero,
+                    },
                 input: other_input,
-                nonzero: other_nonzero,
             }) = self.values[other].definition
             {
                 if input == self.values.representation(other_input) && nonzero != other_nonzero {
@@ -88,8 +94,8 @@ impl Folder<'_> {
         };
         self.fold(
             Type::I1,
-            Expression::Compare {
-                operator,
+            Expression::Binary {
+                operator: Binary::Compare(Compare::Integer(operator)),
                 left,
                 right,
             },
@@ -128,9 +134,11 @@ impl Folder<'_> {
             if self.values[a].scalar_literal() == Some(0) {
                 return Some(self.fold(
                     Type::I1,
-                    Expression::ZeroTest {
+                    Expression::Unary {
+                        operator: Unary::ZeroTest {
+                            nonzero: operator == CompareOp::LtUnsigned,
+                        },
                         input: right,
-                        nonzero: operator == CompareOp::LtUnsigned,
                     },
                 ));
             }
@@ -151,8 +159,8 @@ impl Folder<'_> {
         } else {
             let one_bit = mask == 1 && self.values.bounds[input].unsigned <= 1;
             let masked_bit = match self.values[self.values.representation(input)].definition {
-                ValueDefinition::Expression(Expression::Bitwise {
-                    operator: BitwiseOp::And,
+                ValueDefinition::Expression(Expression::Binary {
+                    operator: Binary::Bitwise(BitwiseOp::And),
                     left,
                     right,
                 }) => {
@@ -167,7 +175,13 @@ impl Folder<'_> {
             }
             operator == CompareOp::Eq
         };
-        Some(self.fold(Type::I1, Expression::ZeroTest { input, nonzero }))
+        Some(self.fold(
+            Type::I1,
+            Expression::Unary {
+                operator: Unary::ZeroTest { nonzero },
+                input,
+            },
+        ))
     }
 
     fn compare_constant_choices(
@@ -233,41 +247,53 @@ impl Folder<'_> {
         } else {
             self.normalize(input)
         };
-        self.fold(Type::I1, Expression::ZeroTest { input, nonzero })
+        self.fold(
+            Type::I1,
+            Expression::Unary {
+                operator: Unary::ZeroTest { nonzero },
+                input,
+            },
+        )
     }
 
     pub(super) fn fold_zero_test(&mut self, input: usize, nonzero: bool) -> Option<usize> {
         if nonzero && self.values.bounds[input].unsigned <= 1 {
             return Some(input);
         }
-        if let ValueDefinition::Expression(Expression::ZeroTest {
+        if let ValueDefinition::Expression(Expression::Unary {
+            operator: Unary::ZeroTest {
+                nonzero: inner_nonzero,
+            },
             input: source,
-            nonzero: inner_nonzero,
         }) = self.values[input].definition
         {
             return Some(self.fold(
                 Type::I1,
-                Expression::ZeroTest {
-                    input: source,
-                    nonzero: if nonzero {
-                        inner_nonzero
-                    } else {
-                        !inner_nonzero
+                Expression::Unary {
+                    operator: Unary::ZeroTest {
+                        nonzero: if nonzero {
+                            inner_nonzero
+                        } else {
+                            !inner_nonzero
+                        },
                     },
+                    input: source,
                 },
             ));
         }
-        if let ValueDefinition::Expression(Expression::Convert { input: source }) =
-            self.values[input].definition
+        if let ValueDefinition::Expression(Expression::Unary {
+            operator: Unary::Convert,
+            input: source,
+        }) = self.values[input].definition
         {
             // A carrier conversion that discards no set bits preserves zero.
             // Logical narrowing still keeps its explicit normalization mask.
             if self.values.bounds[source].unsigned <= self.values[input].ty.carrier().bits() {
                 return Some(self.fold(
                     Type::I1,
-                    Expression::ZeroTest {
+                    Expression::Unary {
+                        operator: Unary::ZeroTest { nonzero },
                         input: source,
-                        nonzero,
                     },
                 ));
             }
