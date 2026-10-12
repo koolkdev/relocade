@@ -1,4 +1,4 @@
-use wasm86_x86::{CpuState, Registers, Segments};
+use wasm86_x86::{CpuState, Exception, ExecutionExit, Registers, Segments};
 
 use super::step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule};
 
@@ -100,31 +100,29 @@ pub(crate) enum Exit {
 
 impl Exit {
     pub(crate) fn from_word(word: u64) -> Self {
-        if word == 0x0001_0000_0000_0000 {
-            Self::DivideError
-        } else if word == 0x0040_0000_0000_0000 {
-            Self::BoundRangeExceeded
-        } else if word == 0x0080_0000_0000_0000 {
-            Self::InvalidOpcode
-        } else if word == 0x0100_0000_0000_0000 {
-            Self::FloatingPoint
-        } else if word == 0x0200_0000_0000_0000 {
-            Self::SimdFloatingPoint
-        } else if word >> 48 == 2 {
-            Self::GeneralProtection {
-                error: (word >> 32) as u16,
-            }
-        } else if word >> 48 == 16 {
-            Self::StackFault {
-                error: (word >> 32) as u16,
-            }
-        } else if word >> 48 == 4 {
-            Self::PageFault {
-                address: word as u32,
-                error: (word >> 32) as u16,
-            }
-        } else {
-            Self::Other(word)
+        match ExecutionExit::from_bits(word) {
+            Some(ExecutionExit::Exception(exception)) => match exception {
+                Exception::DivideError => Self::DivideError,
+                Exception::BoundRangeExceeded => Self::BoundRangeExceeded,
+                Exception::InvalidOpcode => Self::InvalidOpcode,
+                Exception::FloatingPoint => Self::FloatingPoint,
+                Exception::SimdFloatingPoint => Self::SimdFloatingPoint,
+                Exception::GeneralProtection { error_code } => Self::GeneralProtection {
+                    error: error_code as u16,
+                },
+                Exception::StackFault { error_code } => Self::StackFault {
+                    error: error_code as u16,
+                },
+                Exception::PageFault {
+                    linear_address,
+                    error_code,
+                } => Self::PageFault {
+                    address: linear_address,
+                    error: error_code as u16,
+                },
+                Exception::SegmentNotPresent { .. } => Self::Other(word),
+            },
+            _ => Self::Other(word),
         }
     }
 }
