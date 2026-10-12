@@ -8,7 +8,8 @@ mod indexed_lanes;
 mod layout;
 #[path = "vectors/masks.rs"]
 mod masks;
-
+#[path = "vectors/memory.rs"]
+mod memory;
 #[path = "vectors/packed.rs"]
 mod packed;
 #[path = "vectors/shifts.rs"]

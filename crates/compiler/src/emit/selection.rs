@@ -6,52 +6,42 @@
 use super::wasm_type;
 use crate::expression::{BinaryOp as Binary, TernaryOp as Ternary, UnaryOp as Unary};
 use crate::{
-    body::{BlockItem, Exit, FunctionGraph, OperationKind, ValueDefinition},
+    body::{BlockItem, EffectId, Exit, FunctionGraph, ValueDefinition},
     integer::BinaryOp,
     Expression, Type,
 };
+use rustc_hash::FxHashMap;
+
+mod memory;
 
 pub(super) struct Selection {
     skipped: Vec<bool>,
-    pub(super) signed_load: Vec<Option<usize>>,
+    memory: FxHashMap<EffectId, memory::MemorySelection>,
     zero_test_masks: Vec<bool>,
     aliases: Vec<Option<usize>>,
     uses: Vec<usize>,
-    regions: Vec<usize>,
 }
 impl Selection {
     pub(super) fn new(graph: &FunctionGraph, reachable: &[bool]) -> Self {
         let count = graph.values.len();
         let mut this = Self {
             skipped: vec![false; count],
-            signed_load: vec![None; graph.effects.len()],
+            memory: FxHashMap::default(),
             zero_test_masks: vec![false; count],
             aliases: vec![None; count],
             uses: vec![0; count],
-            regions: vec![0; count],
         };
         let mut order = Vec::new();
-        let mut region = 0;
         for (index, block) in graph.blocks.iter().enumerate() {
             if !reachable[index] {
                 continue;
             }
-            region += 1;
             for &item in &block.items {
                 for value in graph.results(item) {
-                    this.regions[value] = region;
                     order.push(value);
                 }
                 for input in graph.inputs(item) {
                     this.uses[input] += 1;
-                }
-                if let BlockItem::Effect(effect) = item {
-                    if !matches!(
-                        graph.effects[effect.0].operation.kind(),
-                        OperationKind::Load { .. }
-                    ) {
-                        region += 1;
-                    }
                 }
             }
             for input in block.exit.inputs() {
@@ -80,6 +70,9 @@ impl Selection {
                 continue;
             }
             for item in &block.items {
+                if let BlockItem::Effect(effect) = *item {
+                    this.cover_store(graph, effect);
+                }
                 if let BlockItem::Evaluate(value) = *item {
                     if let ValueDefinition::Expression(Expression::Ternary {
                         operator: Ternary::Select,
@@ -102,8 +95,8 @@ impl Selection {
                 continue;
             };
             match operator {
-                Unary::SignExtend { input_type } if !this.skipped[value] => {
-                    this.cover_load(graph, value, input, input_type.bits())
+                Unary::SignExtend { .. } | Unary::Reinterpret if !this.skipped[value] => {
+                    this.cover_load(graph, value);
                 }
                 Unary::ZeroTest { .. } if this.aliases[value].is_none() => {
                     let input = this.resolve(input);
@@ -125,6 +118,24 @@ impl Selection {
             }
         }
         this
+    }
+    /// Operand-stack coverage and encoding consume the same selected operands.
+    pub(super) fn inputs<'a>(
+        &'a self,
+        graph: &'a FunctionGraph,
+        producer: BlockItem,
+    ) -> impl DoubleEndedIterator<Item = usize> + 'a {
+        let store = match producer {
+            BlockItem::Effect(effect) => match self.memory.get(&effect) {
+                Some(memory::MemorySelection::Store(store)) => Some(store.value),
+                _ => None,
+            },
+            BlockItem::Evaluate(_) => None,
+        };
+        // A store's ordered inputs are its address and then its payload.
+        let mut inputs = graph.inputs(producer);
+        let last = inputs.next_back().map(|input| store.unwrap_or(input));
+        inputs.chain(last)
     }
     pub(super) fn enabled(&self, producer: BlockItem) -> bool {
         match producer {
@@ -171,7 +182,10 @@ impl Selection {
         producer: &'a BlockItem,
     ) -> impl DoubleEndedIterator<Item = usize> + 'a {
         let replacement = match *producer {
-            BlockItem::Effect(effect) => self.signed_load[effect.0],
+            BlockItem::Effect(effect) => match self.memory.get(&effect) {
+                Some(memory::MemorySelection::Load(load)) => Some(load.result),
+                _ => None,
+            },
             BlockItem::Evaluate(_) => None,
         };
         let count = match *producer {
@@ -228,43 +242,6 @@ impl Selection {
         self.skipped[value] = true;
         if nonzero {
             self.aliases[value] = Some(input);
-        }
-    }
-    fn cover_load(&mut self, graph: &FunctionGraph, result: usize, mut input: usize, mut bits: u8) {
-        let mut extensions = vec![result];
-        loop {
-            input = self.resolve(input);
-            if self.uses[input] != 1 {
-                return;
-            }
-            match graph.values[input].definition {
-                ValueDefinition::Expression(Expression::Unary {
-                    operator: Unary::SignExtend { input_type },
-                    input: original,
-                }) if input_type.bits() <= bits => {
-                    extensions.push(input);
-                    bits = input_type.bits();
-                    input = original;
-                }
-                ValueDefinition::Result {
-                    producer: BlockItem::Effect(effect),
-                    ..
-                } => {
-                    let OperationKind::Load { access } = graph.effects[effect.0].operation.kind()
-                    else {
-                        return;
-                    };
-                    if bits != access.bytes * 8 || self.regions[input] != self.regions[result] {
-                        return;
-                    }
-                    self.signed_load[effect.0] = Some(result);
-                    for extension in extensions {
-                        self.skipped[extension] = true;
-                    }
-                    return;
-                }
-                _ => return,
-            }
         }
     }
 }

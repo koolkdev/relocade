@@ -27,7 +27,7 @@ impl OperandView {
                 for result in selection.results(graph, &item) {
                     this.producer[result] = Some(item);
                 }
-                for input in graph.inputs(item) {
+                for input in selection.inputs(graph, item) {
                     this.uses[selection.resolve(input)] += 1;
                 }
             }
@@ -79,7 +79,13 @@ impl OperandView {
                     continue;
                 }
                 let mut cursor = position;
-                this.cover(graph, selection, &items, &mut cursor, graph.inputs(item));
+                this.cover(
+                    graph,
+                    selection,
+                    &items,
+                    &mut cursor,
+                    selection.inputs(graph, item),
+                );
             }
         }
         this
@@ -116,7 +122,7 @@ impl OperandView {
                 BlockItem::Effect(effect) => self.inline_effects[effect.0] = true,
             }
             *cursor -= 1;
-            pending.extend(graph.inputs(producer));
+            pending.extend(selection.inputs(graph, producer));
         }
     }
 }

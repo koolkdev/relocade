@@ -1,3 +1,6 @@
+#[path = "memory/stores.rs"]
+mod stores;
+
 use crate::fixture::Fixture;
 use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
 
