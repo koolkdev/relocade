@@ -20,6 +20,8 @@ that subset. The project is under development; the crates are not published.
 | --- | --- |
 | [wasm86-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
 | [wasm86-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
+| [wasm86-runtime](crates/runtime/src/lib.rs) | Portable Real16 execution, physical routing and device callbacks. |
+| [wasm86-runtime-wasmtime](crates/runtime-wasmtime/src/lib.rs) | Native execution backend using Wasmtime. |
 | [wasm86-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime and V8 test support. |
 
 ## Generate a block
@@ -41,6 +43,29 @@ For an executable embedding, follow the
 dispatch and fault exits, segment resolution, and entry validity. Real16 uses
 the [physical-memory contract](crates/x86/docs/physical-memory.md) for host transfers.
 Both contracts are included in the x86 crate's generated API documentation.
+
+## Run a real-mode program
+
+`wasm86-runtime` provides persistent interpreter machines through a host-engine
+backend. `Runtime::new(backend).await` generates and prepares one Real16
+interpreter; `runtime.machine(map, devices).await` creates independent CPU,
+memory and device state. Native applications supply `WasmtimeBackend::new()?`
+from `wasm86-runtime-wasmtime`. `Machine::step()` executes one instruction and
+returns to the host with a completed instruction or a typed guest exit. Handle
+services or pending input between entries and resume the same machine.
+
+REP remains one instruction and runs to completion or a guest fault; device
+callbacks are synchronous. The runtime therefore provides no wall-clock
+preemption guarantee. It reports CPU exceptions
+without delivering them, and supplies no DOS/BIOS services or hardware interrupts.
+
+The [runtime API](crates/runtime/src/lib.rs) describes machine setup, physical
+memory and device callbacks. Backends own compilation, instances and memory
+access; the runtime owns routing and dispatch outcomes.
+`with_memory` supplies checked backing operations, and `with_devices` /
+`with_devices_mut` keep device borrows scoped to the backend. Execution always
+uses live instruction bytes through the interpreter; the runtime has no guest
+code cache.
 
 ## Build and test
 
