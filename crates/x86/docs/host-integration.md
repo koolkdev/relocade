@@ -649,6 +649,11 @@ The u64 return format is `(tag << 48) | (payload << 32) | address`, with a 16-bi
 tag, 16-bit payload and 32-bit address. These tags are independent of architectural
 exception vector numbers:
 
+Hosts can decode these words with `ExecutionExit::from_bits`, which returns an
+`Exception` or an unsupported-instruction diagnostic. Unknown tags and nonzero
+reserved fields return `None`. Establish whether dispatch was called before
+decoding: a dispatch return value belongs to the host and may be any i64.
+
 | Exit | Tag | Payload | Address |
 | --- | ---: | --- | --- |
 | Divide error | 1 | Zero | Zero |
