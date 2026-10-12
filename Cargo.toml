@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/compiler", "crates/x86", "crates/test-support"]
-default-members = ["crates/compiler", "crates/x86"]
+members = ["crates/compiler", "crates/x86", "crates/runtime", "crates/runtime-wasmtime", "crates/test-support"]
+default-members = ["crates/compiler", "crates/x86", "crates/runtime", "crates/runtime-wasmtime"]
 
 [workspace.package]
 version = "0.0.0"
@@ -15,6 +15,7 @@ serde_json = "=1.0.148"
 wasm86-test-support = { path = "crates/test-support" }
 wasm-encoder = { version = "=0.254.0", default-features = false }
 wasmtime = { version = "=30.0.2", default-features = false, features = ["cranelift", "runtime", "std", "threads"] }
+pollster = { version = "=1.0.1", features = ["macro"] }
 
 # Tests construct and compile Wasm at runtime. Keep assertions and debug info,
 # but optimize that work, including the Wasmtime compiler dependencies.
