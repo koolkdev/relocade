@@ -78,30 +78,14 @@ impl Writer<'_> {
             Unary::BitCount {
                 operator,
                 input_type,
-            } => match (operator, input_type == Type::I64) {
-                (BitCountOp::Ones, false) => Instruction::I32Popcnt,
-                (BitCountOp::Ones, true) => Instruction::I64Popcnt,
-                (BitCountOp::LeadingZeros, true) => Instruction::I64Clz,
-                (BitCountOp::TrailingZeros, true) => Instruction::I64Ctz,
-                (BitCountOp::LeadingZeros, false) => {
-                    let padding = 32 - input_type.bits();
-                    if padding == 0 {
-                        Instruction::I32Clz
-                    } else {
-                        self.emit(Instruction::I32Clz);
-                        self.emit(Instruction::I32Const(i32::from(padding)));
-                        Instruction::I32Sub
-                    }
-                }
-                (BitCountOp::TrailingZeros, false) => {
-                    if input_type.bits() < 32 {
-                        // The first bit above the logical value caps the zero case
-                        // at its width without changing any nonzero count.
-                        self.emit(Instruction::I32Const(1 << input_type.bits()));
-                        self.emit(Instruction::I32Or);
-                    }
-                    Instruction::I32Ctz
-                }
+            } => match (operator, input_type) {
+                (BitCountOp::Ones, Type::I64) => Instruction::I64Popcnt,
+                (BitCountOp::Ones, _) => Instruction::I32Popcnt,
+                (BitCountOp::LeadingZeros, Type::I32) => Instruction::I32Clz,
+                (BitCountOp::LeadingZeros, Type::I64) => Instruction::I64Clz,
+                (BitCountOp::TrailingZeros, Type::I32) => Instruction::I32Ctz,
+                (BitCountOp::TrailingZeros, Type::I64) => Instruction::I64Ctz,
+                _ => unreachable!("narrow counts are lowered before placement"),
             },
         };
         self.emit(instruction);

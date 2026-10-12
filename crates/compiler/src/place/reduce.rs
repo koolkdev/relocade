@@ -1,9 +1,7 @@
 //! Fold recipes under one set of path facts without scheduling calculations.
+use super::equivalences::Equivalences;
 use super::*;
 use rustc_hash::FxHashMap;
-
-mod equivalences;
-use equivalences::Equivalences;
 
 #[cfg(test)]
 mod tests;
@@ -14,6 +12,7 @@ pub(super) struct Reducer {
     residuals: FxHashMap<usize, usize>,
     equivalents: Equivalences,
     pending: Vec<Work>,
+    pub(super) needs_lowering: bool,
 }
 
 enum Work {
@@ -31,8 +30,17 @@ impl Reducer {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn recipes(&self, residual: usize) -> impl Iterator<Item = usize> {
-        std::iter::once(residual).chain(self.equivalents.recipes(residual))
+        std::iter::once(residual).chain(self.alternatives(residual))
+    }
+
+    pub(super) fn alternatives(&self, residual: usize) -> Vec<usize> {
+        self.equivalents.recipes(residual)
+    }
+
+    pub(super) fn originals(&self, residual: usize) -> &[usize] {
+        self.equivalents.sources(residual)
     }
 
     pub(super) fn facts(&self) -> &ScalarFacts {
@@ -109,6 +117,7 @@ impl Reducer {
                         crate::expression::refold(values, rewritten)
                     };
                     if result == id {
+                        self.needs_lowering |= expression.needs_lowering();
                         self.record(id, id);
                     } else {
                         // Folding may introduce another recipe. Reduce it in

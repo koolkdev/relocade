@@ -93,6 +93,19 @@ impl ValueTable {
             .expect("the expression declares this result")
     }
 
+    /// Transfer an unconditional bound across a proven full-carrier equivalence.
+    /// Definitions stay fixed; learning tighter bounds cannot invalidate a proof
+    /// already made with the more conservative bounds.
+    pub(crate) fn retain_bounds(&mut self, result: usize, original: usize) {
+        debug_assert_eq!(
+            self.values[result].ty.carrier(),
+            self.values[original].ty.carrier()
+        );
+        let known = self.bounds[original];
+        self.bounds[result].unsigned = self.bounds[result].unsigned.min(known.unsigned);
+        self.bounds[result].signed = self.bounds[result].signed.min(known.signed);
+    }
+
     /// Restore the carrier promised by construction after learning logical bits.
     /// Literal values already contain the exact carrier and keep those bits.
     /// Logical bits alone cannot reconstruct an unknown wider physical value.
