@@ -1,6 +1,8 @@
-use std::sync::OnceLock;
 use wasm86_runtime::{Machine, Runtime};
-use wasm86_runtime_wasmtime::WasmtimeBackend;
+#[cfg(not(target_arch = "wasm32"))]
+use wasm86_runtime_wasmtime::WasmtimeBackend as TestBackend;
+#[cfg(target_arch = "wasm32")]
+use wasm86_runtime_web::WebBackend as TestBackend;
 use wasm86_x86::{PhysicalMapping, PhysicalMemoryMap};
 
 #[path = "runtime/devices.rs"]
@@ -12,14 +14,29 @@ mod memory;
 #[path = "runtime/run.rs"]
 mod run;
 
-type TestBackend = WasmtimeBackend;
 type TestMachine<D = ()> = Machine<TestBackend, D>;
 
+#[cfg(not(target_arch = "wasm32"))]
 async fn runtime() -> Runtime<TestBackend> {
+    use std::sync::OnceLock;
     static RUNTIME: OnceLock<Runtime<TestBackend>> = OnceLock::new();
     RUNTIME
-        .get_or_init(|| pollster::block_on(Runtime::new(WasmtimeBackend::new().unwrap())).unwrap())
+        .get_or_init(|| pollster::block_on(Runtime::new(TestBackend::new().unwrap())).unwrap())
         .clone()
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn runtime() -> Runtime<TestBackend> {
+    use std::cell::RefCell;
+    thread_local! {
+        static RUNTIME: RefCell<Option<Runtime<TestBackend>>> = const { RefCell::new(None) };
+    }
+    if let Some(runtime) = RUNTIME.with_borrow(Clone::clone) {
+        return runtime;
+    }
+    let runtime = Runtime::new(TestBackend).await.unwrap();
+    RUNTIME.with_borrow_mut(|cache| *cache = Some(runtime.clone()));
+    runtime
 }
 
 fn ram() -> PhysicalMemoryMap {

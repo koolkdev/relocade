@@ -2,7 +2,8 @@ use super::machine;
 use wasm86_runtime::{RunOutcome, RunStop};
 use wasm86_x86::{Exception, ExecutionExit, Segment, StoredSegment};
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn zero_limit_and_initial_host_stop_do_not_execute_an_instruction() {
     let mut machine = machine(&[0x40]).await;
     let before = machine.cpu();
@@ -25,7 +26,8 @@ async fn zero_limit_and_initial_host_stop_do_not_execute_an_instruction() {
     assert_eq!(machine.cpu(), before);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn instruction_limit_stops_a_loop_and_resumes_across_counter_wrap() {
     let mut machine = machine(&[0x40, 0xeb, 0xfd]).await; // INC AX; JMP 0100
     let mut cpu = machine.cpu();
@@ -45,7 +47,8 @@ async fn instruction_limit_stops_a_loop_and_resumes_across_counter_wrap() {
     assert_eq!(machine.cpu().registers.eax, 4);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn host_can_stop_at_an_interrupt_handler_and_resume_its_return() {
     let mut machine = machine(&[0xcd, 0x21, 0x0f, 0x0b]).await;
     machine.write_memory(0x84, &[0x10, 0, 0x34, 0x12]).unwrap();
@@ -80,7 +83,8 @@ async fn host_can_stop_at_an_interrupt_handler_and_resume_its_return() {
     assert_eq!(machine.cpu().registers.eax, 0x1234);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn guest_exit_preserves_prior_work_and_takes_precedence_over_host_polling() {
     for (suffix, exit) in [
         (
@@ -119,7 +123,8 @@ async fn guest_exit_preserves_prior_work_and_takes_precedence_over_host_polling(
     }
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn rep_is_one_completed_instruction() {
     let mut machine = machine(&[0xf3, 0xa4, 0xf4]).await; // REP MOVSB; unsupported HLT
     let mut cpu = machine.cpu();
@@ -142,7 +147,8 @@ async fn rep_is_one_completed_instruction() {
     assert_eq!(machine.cpu().eip, 0x102);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn a_partial_rep_fault_is_not_counted_and_can_resume_after_repair() {
     let mut machine = machine(&[0x67, 0xf3, 0xa5]).await; // REP MOVSW with ESI/EDI/ECX
     let mut cpu = machine.cpu();

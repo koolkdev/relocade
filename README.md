@@ -22,6 +22,7 @@ that subset. The project is under development; the crates are not published.
 | [wasm86-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
 | [wasm86-runtime](crates/runtime/src/lib.rs) | Portable Real16 execution, physical routing and device callbacks. |
 | [wasm86-runtime-wasmtime](crates/runtime-wasmtime/src/lib.rs) | Native execution backend using Wasmtime. |
+| [wasm86-runtime-web](crates/runtime-web/src/lib.rs) | Browser WebAssembly backend through wasm-bindgen. |
 | [wasm86-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime and V8 test support. |
 
 ## Generate a block
@@ -77,6 +78,22 @@ access; the runtime owns routing, dispatch outcomes and execution limits.
 uses live instruction bytes through the interpreter; the runtime has no guest
 code cache.
 
+Browser applications compile for `wasm32-unknown-unknown` with wasm-bindgen and
+select `WebBackend` from `wasm86-runtime-web`:
+
+```rust
+let runtime = Runtime::new(WebBackend).await?;
+let mut machine = runtime.machine(map, devices).await?;
+```
+
+Machine, device and memory APIs are shared with Wasmtime. Browser module
+compilation and instantiation await JavaScript promises; generating interpreter
+bytes and executing guest instructions remain synchronous. Use a worker and yield
+to its event loop between bounded runs. No backend requires `Send` device state.
+The browser must support WebAssembly multi-memory, tail calls, SIMD and atomics;
+an unsupported engine returns a compilation error. The runtime suite runs in
+Chrome both on the page and in a dedicated worker.
+
 ## Build and test
 
 The ordinary tests execute Wasm in Wasmtime and do not require Node.js.
@@ -93,3 +110,18 @@ Open `target/doc/wasm86_x86/index.html` or
 [CONTRIBUTING.md](CONTRIBUTING.md) covers adding instructions, writing tests and
 running the optional Node.js 24 / V8 lane. Exact supported encodings live with
 [their instruction definitions](crates/x86/src/instruction/definitions).
+
+Run the same runtime behavior tests in headless Chrome with a matching
+`chromedriver` on `PATH` (or set `CHROMEDRIVER` to its executable):
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
+WASM_BINDGEN_USE_BROWSER=1 WASM_BINDGEN_TEST_TIMEOUT=180 \
+  cargo test -p wasm86-runtime --test runtime --target wasm32-unknown-unknown --locked
+```
+
+Set `WASM_BINDGEN_USE_DEDICATED_WORKER=1` instead of `WASM_BINDGEN_USE_BROWSER=1`
+to run the worker variant. `WASM_BINDGEN_TEST_WEBDRIVER_JSON` can point to a WebDriver
+capabilities file for custom Chrome paths or launch arguments.
