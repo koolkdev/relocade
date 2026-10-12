@@ -3,6 +3,51 @@ use super::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 use PhysicalMapping::{Mmio, Ram, Rom, Unmapped};
 
 #[test]
+fn required_backing_accounts_for_hidden_pages_and_the_full_u32_space() {
+    assert_eq!(
+        PhysicalMemoryMap::new([]).unwrap().required_backing_bytes(),
+        0
+    );
+    assert_eq!(
+        PhysicalMemoryMap::new([(0..=0xfff, Mmio)])
+            .unwrap()
+            .required_backing_bytes(),
+        0
+    );
+    let map = PhysicalMemoryMap::new([
+        (
+            0..=0xfff,
+            Ram {
+                backing_offset: 0x4000,
+            },
+        ),
+        (
+            0x100000..=0x100fff,
+            Rom {
+                backing_offset: 0xffff_f000,
+            },
+        ),
+    ])
+    .unwrap();
+    assert_eq!(map.required_backing_bytes(), 0x1_0000_0000);
+    assert_eq!(
+        map.get(0x100000),
+        Ram {
+            backing_offset: 0x4000
+        }
+    );
+}
+
+#[test]
+fn bus_address_applies_a20_without_reading_a_mapping() {
+    let mut map = PhysicalMemoryMap::new([]).unwrap();
+    assert_eq!(map.bus_address(0xfffff), 0xfffff);
+    assert_eq!(map.bus_address(0x10ffef), 0xffef);
+    map.set_a20_enabled(true);
+    assert_eq!(map.bus_address(0x10ffef), 0x10ffef);
+}
+
+#[test]
 fn empty_regions_produce_a_complete_unmapped_table() {
     let map = PhysicalMemoryMap::new([]).unwrap();
     for address in [0, 0xa0000, 0x10ffef, 0x110000, u32::MAX] {

@@ -20,6 +20,7 @@ that subset. The project is under development; the crates are not published.
 | --- | --- |
 | [wasm86-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
 | [wasm86-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
+| [wasm86-runtime](crates/runtime/src/lib.rs) | Persistent Real16 interpreter machines in Wasmtime, with physical memory and device callbacks. |
 | [wasm86-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime and V8 test support. |
 
 ## Generate a block
