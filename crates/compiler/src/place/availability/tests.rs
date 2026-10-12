@@ -1,4 +1,5 @@
 use super::*;
+use crate::expression::BinaryOp as Binary;
 
 #[test]
 fn aliases_wait_for_execution_and_survive_in_each_dominated_branch() {
@@ -138,7 +139,7 @@ fn rebinding_inputs_preserves_the_recipe_for_a_later_unchanged_placement() {
     let recipe = Value {
         ty: crate::Type::I64,
         definition: ValueDefinition::Expression(Expression::Binary {
-            operator: crate::integer::BinaryOp::Mul,
+            operator: Binary::Integer(crate::integer::BinaryOp::Mul),
             left: input,
             right: input,
         }),

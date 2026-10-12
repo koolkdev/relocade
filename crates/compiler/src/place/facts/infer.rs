@@ -1,6 +1,7 @@
 //! Derive facts through expressions without changing the current path.
 
 use super::{Bits, Range, ScalarFacts};
+use crate::expression::{BinaryOp as Binary, CompareOp as Compare, UnaryOp as Unary};
 use crate::{
     bitwise::BitwiseOp,
     body::ValueTable,
@@ -46,8 +47,8 @@ impl ScalarFacts {
                 continue;
             };
             let expression = result.expression;
-            if let Expression::Compare {
-                operator,
+            if let Expression::Binary {
+                operator: Binary::Compare(Compare::Integer(operator)),
                 left,
                 right,
             } = expression
@@ -96,99 +97,90 @@ impl ScalarFacts {
                 pending.extend(expression.inputs().map(|&input| (input, false)));
                 continue;
             }
-            let inputs = expression.map(|&input| cache[&input]);
-            let mut bits = match (expression, inputs) {
-                (Expression::Convert { input }, Expression::Convert { input: bits }) => {
-                    let width = table.bounds[input].unsigned;
-                    let mask = low_mask(width);
-                    bits.union(Bits {
-                        mask: value.ty.mask() & !mask,
-                        value: 0,
-                    })
-                }
-                (
-                    Expression::LowBits { bits: width, .. },
-                    Expression::LowBits { input: bits, .. },
-                ) => {
-                    let mask = low_mask(width);
-                    bits.restrict(mask).union(Bits {
-                        mask: value.ty.mask() & !mask,
-                        value: 0,
-                    })
-                }
-                (
-                    _,
-                    Expression::Bitwise {
-                        operator: BitwiseOp::And,
-                        left: a,
-                        right: b,
-                    },
-                ) => {
-                    let zeros = (a.mask & !a.value) | (b.mask & !b.value);
-                    let ones = a.value & b.value;
-                    Bits {
-                        mask: zeros | ones,
-                        value: ones,
+            let mut bits = match expression {
+                Expression::Unary { operator, input } => {
+                    let input_bits = cache[&input];
+                    match operator {
+                        Unary::Convert => {
+                            let mask = low_mask(table.bounds[input].unsigned);
+                            input_bits.union(Bits {
+                                mask: value.ty.mask() & !mask,
+                                value: 0,
+                            })
+                        }
+                        Unary::LowBits { bits: width } => {
+                            let mask = low_mask(width);
+                            input_bits.restrict(mask).union(Bits {
+                                mask: value.ty.mask() & !mask,
+                                value: 0,
+                            })
+                        }
+                        Unary::ZeroTest { nonzero } if input_bits.value != 0 => Bits {
+                            mask: 1,
+                            value: u64::from(nonzero),
+                        },
+                        _ => Bits::default(),
                     }
                 }
-                (
-                    _,
-                    Expression::Bitwise {
-                        operator: BitwiseOp::Or,
-                        left: a,
-                        right: b,
-                    },
-                ) => {
-                    let ones = a.value | b.value;
-                    Bits {
-                        mask: (a.mask & !a.value & b.mask & !b.value) | ones,
-                        value: ones,
+                Expression::Binary {
+                    operator: Binary::Bitwise(operator),
+                    left,
+                    right,
+                } => {
+                    let a = cache[&left];
+                    let b = cache[&right];
+                    match operator {
+                        BitwiseOp::And => {
+                            let zeros = (a.mask & !a.value) | (b.mask & !b.value);
+                            let ones = a.value & b.value;
+                            Bits {
+                                mask: zeros | ones,
+                                value: ones,
+                            }
+                        }
+                        BitwiseOp::Or => {
+                            let ones = a.value | b.value;
+                            Bits {
+                                mask: (a.mask & !a.value & b.mask & !b.value) | ones,
+                                value: ones,
+                            }
+                        }
+                        BitwiseOp::Xor => {
+                            let mask = a.mask & b.mask;
+                            Bits {
+                                mask,
+                                value: (a.value ^ b.value) & mask,
+                            }
+                        }
                     }
                 }
-                (
-                    _,
-                    Expression::Bitwise {
-                        operator: BitwiseOp::Xor,
-                        left: a,
-                        right: b,
-                    },
-                ) => {
-                    let mask = a.mask & b.mask;
-                    Bits {
-                        mask,
-                        value: (a.value ^ b.value) & mask,
-                    }
-                }
-                (_, Expression::ZeroTest { input, nonzero }) if input.value != 0 => Bits {
-                    mask: 1,
-                    value: u64::from(nonzero),
-                },
                 _ => Bits::default(),
             };
             let comparison = match expression {
-                Expression::Compare {
-                    operator,
+                Expression::Binary {
+                    operator: Binary::Compare(Compare::Integer(operator)),
                     left,
                     right,
                 } => self
                     .range(table, left, cache[&left])
                     .zip(self.range(table, right, cache[&right]))
                     .and_then(|(left, right)| left.compare(operator, right)),
-                Expression::ZeroTest { input, nonzero } => {
-                    self.range(table, input, cache[&input]).and_then(|range| {
-                        range.compare(
-                            if nonzero {
-                                CompareOp::Ne
-                            } else {
-                                CompareOp::Eq
-                            },
-                            Range {
-                                minimum: 0,
-                                maximum: 0,
-                            },
-                        )
-                    })
-                }
+                Expression::Unary {
+                    operator: Unary::ZeroTest { nonzero },
+                    input,
+                } => self.range(table, input, cache[&input]).and_then(|range| {
+                    range.compare(
+                        if nonzero {
+                            CompareOp::Ne
+                        } else {
+                            CompareOp::Eq
+                        },
+                        Range {
+                            minimum: 0,
+                            maximum: 0,
+                        },
+                    )
+                }),
                 _ => None,
             };
             if let Some(result) = comparison {

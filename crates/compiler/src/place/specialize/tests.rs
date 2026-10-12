@@ -1,5 +1,6 @@
 use super::*;
 use crate::bitwise::BitwiseOp;
+use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
 
 fn conditional_value() -> FunctionGraph {
     let mut graph = FunctionGraph::new();
@@ -170,7 +171,10 @@ fn exact_carrier_constants_survive_specialization_and_fact_inference() {
     let literal = graph.values.carrier_literal(crate::Type::I8, 256);
     let view = graph.values.intern(Value {
         ty: crate::Type::I32,
-        definition: ValueDefinition::Expression(Expression::Convert { input: literal }),
+        definition: ValueDefinition::Expression(Expression::Unary {
+            operator: Unary::Convert,
+            input: literal,
+        }),
     });
     let mut specializer =
         Specializer::default().on_branch(&graph.values, &Availability::default(), condition, true);
@@ -220,7 +224,10 @@ fn observing_a_narrow_replacement_does_not_define_the_sources_upper_bits() {
     });
     let byte = values.push(Value {
         ty: crate::Type::I8,
-        definition: ValueDefinition::Expression(Expression::Convert { input: wide }),
+        definition: ValueDefinition::Expression(Expression::Unary {
+            operator: Unary::Convert,
+            input: wide,
+        }),
     });
     assert_eq!(values.bounds[byte].unsigned, 32);
     let mut available = Availability::default();
@@ -237,7 +244,10 @@ fn observing_a_narrow_replacement_does_not_define_the_sources_upper_bits() {
     assert_eq!(specializer.facts.constant(&values, byte), None);
     let bit = values.push(Value {
         ty: crate::Type::I1,
-        definition: ValueDefinition::Expression(Expression::Convert { input: wide }),
+        definition: ValueDefinition::Expression(Expression::Unary {
+            operator: Unary::Convert,
+            input: wide,
+        }),
     });
     assert_eq!(specializer.facts.constant(&values, bit), Some(1));
 }
@@ -260,7 +270,8 @@ fn bitwise_absorption_cannot_discard_unknown_carrier_bits() {
                     });
                     graph.values.intern(Value {
                         ty: Type::I8,
-                        definition: ValueDefinition::Expression(Expression::Convert {
+                        definition: ValueDefinition::Expression(Expression::Unary {
+                            operator: Unary::Convert,
                             input: wide,
                         }),
                     })
@@ -273,8 +284,8 @@ fn bitwise_absorption_cannot_discard_unknown_carrier_bits() {
             };
             let result = graph.values.intern(Value {
                 ty: Type::I8,
-                definition: ValueDefinition::Expression(Expression::Bitwise {
-                    operator,
+                definition: ValueDefinition::Expression(Expression::Binary {
+                    operator: Binary::Bitwise(operator),
                     left,
                     right,
                 }),
@@ -314,9 +325,9 @@ fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
         .collect();
     let bit = graph.values.intern(Value {
         ty: Type::I1,
-        definition: ValueDefinition::Expression(Expression::LowBits {
+        definition: ValueDefinition::Expression(Expression::Unary {
+            operator: Unary::LowBits { bits: 1 },
             input: inputs[0],
-            bits: 1,
         }),
     });
     let choice = graph.values.intern(Value {
@@ -329,15 +340,15 @@ fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
     });
     let update = graph.values.intern(Value {
         ty: Type::I32,
-        definition: ValueDefinition::Expression(Expression::LowBits {
+        definition: ValueDefinition::Expression(Expression::Unary {
+            operator: Unary::LowBits { bits: 1 },
             input: inputs[0],
-            bits: 1,
         }),
     });
     let result = graph.values.intern(Value {
         ty: Type::I32,
-        definition: ValueDefinition::Expression(Expression::Bitwise {
-            operator: BitwiseOp::Or,
+        definition: ValueDefinition::Expression(Expression::Binary {
+            operator: Binary::Bitwise(BitwiseOp::Or),
             left: choice,
             right: update,
         }),
@@ -361,9 +372,83 @@ fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
     let unproven = live.specialize(&mut graph, result, |_, _, _| None).value;
     assert!(matches!(
         graph.values[unproven].definition,
-        ValueDefinition::Expression(Expression::Bitwise {
-            operator: BitwiseOp::Or,
+        ValueDefinition::Expression(Expression::Binary {
+            operator: Binary::Bitwise(BitwiseOp::Or),
             ..
         })
     ));
+}
+
+#[test]
+fn logical_input_widths_survive_same_carrier_aliases() {
+    use crate::{integer::BitCountOp, Type};
+    fn check(
+        bits: u64,
+        ty: Type,
+        expression: impl FnOnce(usize, &mut ValueTable) -> Expression<usize>,
+        expected: u128,
+    ) {
+        let mut graph = FunctionGraph::new();
+        let source = graph.values.literal(Type::I32, bits);
+        let byte = graph.values.intern(Value {
+            ty: Type::I8,
+            definition: ValueDefinition::Expression(Expression::Unary {
+                operator: Unary::Convert,
+                input: source,
+            }),
+        });
+        let expression = expression(byte, &mut graph.values);
+        let consumer = graph.values.intern(Value {
+            ty,
+            definition: ValueDefinition::Expression(expression),
+        });
+        // Joins may reuse an identical carrier with a different logical type.
+        let mut available = Availability::default();
+        available.bind(byte, source);
+        let result = Specializer::default()
+            .specialize(&mut graph, consumer, |graph, id, _| {
+                available.lookup(&graph.values, id)
+            })
+            .value;
+        let ValueDefinition::Literal(bits) = graph.values[result].definition else {
+            panic!("the resolved literal input folds");
+        };
+        assert_eq!(u128::from(bits), expected);
+    }
+    check(
+        0x34,
+        Type::I8,
+        |input, _| Expression::Unary {
+            operator: Unary::BitCount {
+                operator: BitCountOp::LeadingZeros,
+                input_type: Type::I8,
+            },
+            input,
+        },
+        2,
+    );
+    check(
+        0x80,
+        Type::I32,
+        |input, _| Expression::Unary {
+            operator: Unary::SignExtend {
+                input_type: Type::I8,
+            },
+            input,
+        },
+        0xffff_ff80,
+    );
+    check(
+        0x34,
+        Type::V128,
+        |input, values| Expression::Binary {
+            operator: Binary::ReplaceLane {
+                lane_type: Type::I8,
+                lane: 3,
+            },
+            left: values.literal(Type::V128, 0_u128),
+            right: input,
+        },
+        0x34_u128 << 24,
+    );
 }

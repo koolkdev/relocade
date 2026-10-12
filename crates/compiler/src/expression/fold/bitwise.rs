@@ -1,6 +1,7 @@
 //! Shared bitwise identities and integer mask normalization.
 
 use super::Folder;
+use crate::expression::BinaryOp as Binary;
 use crate::{bitwise::BitwiseOp, body::ValueDefinition, integer, Expression, Type};
 
 impl Folder<'_> {
@@ -54,8 +55,8 @@ impl Folder<'_> {
                     return Some(left);
                 }
                 for (input, other) in [(left, b), (right, a)] {
-                    if let ValueDefinition::Expression(Expression::Bitwise {
-                        operator: nested,
+                    if let ValueDefinition::Expression(Expression::Binary {
+                        operator: Binary::Bitwise(nested),
                         left,
                         right,
                     }) = self.values[self.values.representation(input)].definition
@@ -86,8 +87,8 @@ impl Folder<'_> {
             (BitwiseOp::Or, Some(bits), _) if bits == a.ty.mask() => left,
             _ => self.fold(
                 a.ty,
-                Expression::Bitwise {
-                    operator,
+                Expression::Binary {
+                    operator: Binary::Bitwise(operator),
                     left,
                     right,
                 },
@@ -99,8 +100,8 @@ impl Folder<'_> {
     /// Inputs already identify their carrier representations.
     fn fold_xor(&mut self, ty: Type, left: usize, right: usize) -> Option<usize> {
         for (nested, other) in [(left, right), (right, left)] {
-            let ValueDefinition::Expression(Expression::Bitwise {
-                operator: BitwiseOp::Xor,
+            let ValueDefinition::Expression(Expression::Binary {
+                operator: Binary::Bitwise(BitwiseOp::Xor),
                 left: inner_left,
                 right: inner_right,
             }) = self.values[nested].definition
@@ -129,8 +130,8 @@ impl Folder<'_> {
             let mask = self.values.carrier_literal(ty, inner_mask ^ outer_mask);
             return Some(self.fold(
                 ty,
-                Expression::Bitwise {
-                    operator: BitwiseOp::Xor,
+                Expression::Binary {
+                    operator: Binary::Bitwise(BitwiseOp::Xor),
                     left: base,
                     right: mask,
                 },

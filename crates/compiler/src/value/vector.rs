@@ -1,8 +1,8 @@
 //! Integer lane operations preserve their logical widths independently.
 
+use crate::expression::{BinaryOp as Binary, ShiftOp as Shift, UnaryOp as Unary};
 use crate::{
-    expression::LaneBinaryOp, AtLeast, DoubleWidth, Expression, IntType, Val, I16, I32, I64, I8,
-    V128,
+    expression::LaneBinaryOp, AtLeast, DoubleWidth, IntType, Val, I16, I32, I64, I8, V128,
 };
 use crate::{expression::ShuffleMask, integer::ShiftOp};
 
@@ -35,12 +35,13 @@ impl Val<V128> {
     }
 
     fn shift_lanes<T: VectorLane>(&self, operator: ShiftOp, count: Val<I32>) -> Self {
-        Self::expression(Expression::VectorShift {
-            operator,
-            lane_type: T::TYPE,
-            value: self.into(),
-            count: count.into(),
-        })
+        self.shift(
+            Shift::Lanes {
+                operator,
+                lane_type: T::TYPE,
+            },
+            count,
+        )
     }
 
     /// Adds corresponding integer lanes, wrapping at each lane's logical width.
@@ -129,52 +130,49 @@ impl Val<V128> {
     }
 
     fn narrow_lanes<T: SaturatingLane>(&self, right: Self, signed: bool) -> Self {
-        Self::expression(Expression::VectorNarrow {
-            signed,
-            result_lane: T::TYPE,
-            left: self.into(),
-            right: right.into(),
-        })
+        self.binary(
+            Binary::Narrow {
+                signed,
+                result_lane: T::TYPE,
+            },
+            right,
+        )
     }
 
     fn binary_lanes<T: VectorLane>(&self, operator: LaneBinaryOp, right: Self) -> Self {
-        Self::expression(Expression::VectorBinary {
-            operator,
-            lane_type: T::TYPE,
-            left: self.into(),
-            right: right.into(),
-        })
+        self.binary(
+            Binary::Vector {
+                operator,
+                lane_type: T::TYPE,
+            },
+            right,
+        )
     }
 
     /// Selects each output byte from the concatenated input vectors.
     /// Indices 0..16 address this vector and 16..32 address `right`, low byte first.
     /// Panics if an index is outside 0..32.
     pub fn shuffle_bytes(&self, right: impl Into<Self>, lanes: [u8; 16]) -> Self {
-        Self::expression(Expression::VectorShuffle {
-            left: self.into(),
-            right: right.into().into(),
-            lanes: ShuffleMask::new(lanes),
-        })
+        self.binary(Binary::Shuffle(ShuffleMask::new(lanes)), right)
     }
 
     /// Extracts a lane, numbered from the least significant bits.
     /// Panics if `lane` is outside the vector at the requested width.
     pub fn extract_lane<T: VectorLane>(&self, lane: u8) -> Val<T> {
         assert!(lane < 128 / T::TYPE.bits(), "vector lane is in range");
-        Val::expression(Expression::VectorExtract {
-            input: self.into(),
-            lane,
-        })
+        self.unary(Unary::ExtractLane { lane })
     }
 
     /// Replaces one lane and preserves all other bits.
     /// Panics if `lane` is outside the vector at the supplied value's width.
     pub fn replace_lane<T: VectorLane>(&self, lane: u8, value: impl Into<Val<T>>) -> Self {
         assert!(lane < 128 / T::TYPE.bits(), "vector lane is in range");
-        Self::expression(Expression::VectorReplace {
-            vector: self.into(),
-            value: value.into().into(),
-            lane,
-        })
+        self.binary(
+            Binary::ReplaceLane {
+                lane_type: T::TYPE,
+                lane,
+            },
+            value,
+        )
     }
 }

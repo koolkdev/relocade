@@ -1,5 +1,6 @@
 //! Logical width changes and the physical bits carried between observations.
 use super::Folder;
+use crate::expression::{BinaryOp as Binary, ShiftOp as Shift, UnaryOp as Unary};
 use crate::{
     bitwise::BitwiseOp,
     body::ValueDefinition,
@@ -24,8 +25,8 @@ impl Folder<'_> {
         let mask = self.values.carrier_literal(ty, left.mask | right.mask);
         Some(self.fold(
             ty,
-            Expression::Bitwise {
-                operator: BitwiseOp::And,
+            Expression::Binary {
+                operator: Binary::Bitwise(BitwiseOp::And),
                 left: left.input,
                 right: mask,
             },
@@ -35,11 +36,12 @@ impl Folder<'_> {
     fn masked_bits(&self, input: usize) -> MaskedBits {
         let input = self.values.representation(input);
         let (input, mask) = match self.values[input].definition {
-            ValueDefinition::Expression(Expression::LowBits { input, bits }) => {
-                (input, integer::low_mask(bits))
-            }
-            ValueDefinition::Expression(Expression::Bitwise {
-                operator: BitwiseOp::And,
+            ValueDefinition::Expression(Expression::Unary {
+                operator: Unary::LowBits { bits },
+                input,
+            }) => (input, integer::low_mask(bits)),
+            ValueDefinition::Expression(Expression::Binary {
+                operator: Binary::Bitwise(BitwiseOp::And),
                 left,
                 right,
             }) => match (
@@ -61,7 +63,7 @@ impl Folder<'_> {
     fn restored_bits(&self, input: usize) -> MaskedBits {
         let mut bits = self.masked_bits(input);
         let ValueDefinition::Expression(Expression::Shift {
-            operator: ShiftOp::Left,
+            operator: Shift::Scalar(ShiftOp::Left),
             value,
             count,
         }) = self.values[bits.input].definition
@@ -75,7 +77,7 @@ impl Folder<'_> {
         let count = integer::shift_count(carrier, count as u32);
         let shifted = self.masked_bits(value);
         let ValueDefinition::Expression(Expression::Shift {
-            operator: ShiftOp::RightUnsigned,
+            operator: Shift::Scalar(ShiftOp::RightUnsigned),
             value,
             count: reverse,
         }) = self.values[shifted.input].definition
@@ -117,19 +119,20 @@ impl Folder<'_> {
                     .carrier_literal(ty, value.wrapping_add(offset) & mask);
             }
             match self.values[base].definition {
-                ValueDefinition::Expression(Expression::LowBits { input, bits: kept })
-                    if kept >= bits =>
-                {
-                    base = input
-                }
-                ValueDefinition::Expression(Expression::Convert { input })
-                    if self.values[input].ty.bits() >= bits
-                        && self.values[base].ty.carrier() == self.values[input].ty.carrier() =>
+                ValueDefinition::Expression(Expression::Unary {
+                    operator: Unary::LowBits { bits: kept },
+                    input,
+                }) if kept >= bits => base = input,
+                ValueDefinition::Expression(Expression::Unary {
+                    operator: Unary::Convert,
+                    input,
+                }) if self.values[input].ty.bits() >= bits
+                    && self.values[base].ty.carrier() == self.values[input].ty.carrier() =>
                 {
                     base = input;
                 }
-                ValueDefinition::Expression(Expression::Bitwise {
-                    operator: BitwiseOp::And,
+                ValueDefinition::Expression(Expression::Binary {
+                    operator: Binary::Bitwise(BitwiseOp::And),
                     left,
                     right,
                 }) => {
@@ -146,8 +149,8 @@ impl Folder<'_> {
                     }
                     base = input;
                 }
-                ValueDefinition::Expression(Expression::Bitwise {
-                    operator: BitwiseOp::Or | BitwiseOp::Xor,
+                ValueDefinition::Expression(Expression::Binary {
+                    operator: Binary::Bitwise(BitwiseOp::Or | BitwiseOp::Xor),
                     left,
                     right,
                 }) => {
@@ -178,13 +181,25 @@ impl Folder<'_> {
         let base = if self.values[base].ty == ty {
             base
         } else {
-            self.fold(ty, Expression::Convert { input: base })
+            self.fold(
+                ty,
+                Expression::Unary {
+                    operator: Unary::Convert,
+                    input: base,
+                },
+            )
         };
         let input = self.add_constant(ty, base, offset, bits);
         if self.values.bounds[input].unsigned <= bits {
             return input;
         }
-        self.intern(ty, Expression::LowBits { input, bits })
+        self.intern(
+            ty,
+            Expression::Unary {
+                operator: Unary::LowBits { bits },
+                input,
+            },
+        )
     }
 
     pub(super) fn convert(&mut self, input: usize, target: Type) -> usize {
@@ -197,29 +212,67 @@ impl Folder<'_> {
         } else {
             input
         };
-        self.fold(target, Expression::Convert { input })
+        self.fold(
+            target,
+            Expression::Unary {
+                operator: Unary::Convert,
+                input,
+            },
+        )
     }
 
-    pub(super) fn sign_extend(&mut self, input: usize, target: Type) -> usize {
-        let source = self.values[input];
-        if source.ty == target {
-            return input;
+    pub(super) fn sign_extend(&mut self, input: usize, input_type: Type, target: Type) -> usize {
+        if input_type == target {
+            if self.values[input].ty == target {
+                return input;
+            }
+            return self.fold(
+                target,
+                Expression::Unary {
+                    operator: Unary::Convert,
+                    input,
+                },
+            );
         }
-        self.fold(target, Expression::SignExtend { input })
+        self.fold(
+            target,
+            Expression::Unary {
+                operator: Unary::SignExtend { input_type },
+                input,
+            },
+        )
     }
 
-    pub(super) fn fold_sign_extend(&mut self, target: Type, input: usize) -> Option<usize> {
-        let source = self.values[input];
-        let canonical = self.values.bounds[input].signed <= source.ty.bits();
+    pub(super) fn fold_sign_extend(
+        &mut self,
+        target: Type,
+        input_type: Type,
+        input: usize,
+    ) -> Option<usize> {
+        let canonical = self.values.bounds[input].signed <= input_type.bits();
         if canonical && target != Type::I64 {
             // Preserve the existing signed representation and its sharing when
             // only the logical type widens; unsigned convert() would mask it.
             return Some(input);
         }
-        if canonical && source.ty != Type::I32 {
-            let alias = self.fold(Type::I32, Expression::Convert { input });
+        if canonical && input_type != Type::I32 {
+            let alias = self.fold(
+                Type::I32,
+                Expression::Unary {
+                    operator: Unary::Convert,
+                    input,
+                },
+            );
             // Crossing into i64 still needs the signed carrier extension.
-            return Some(self.fold(target, Expression::SignExtend { input: alias }));
+            return Some(self.fold(
+                target,
+                Expression::Unary {
+                    operator: Unary::SignExtend {
+                        input_type: Type::I32,
+                    },
+                    input: alias,
+                },
+            ));
         }
         None
     }
@@ -228,7 +281,7 @@ impl Folder<'_> {
         // Interpret the logical sign before a signed carrier operation; narrow
         // arithmetic can leave upper bits that do not belong to the value.
         let carrier = self.values[input].ty.carrier();
-        self.sign_extend(input, carrier)
+        self.sign_extend(input, self.values[input].ty, carrier)
     }
 
     pub(crate) fn normalize(&mut self, input: usize) -> usize {
@@ -238,9 +291,9 @@ impl Folder<'_> {
         }
         self.fold(
             ty,
-            Expression::LowBits {
+            Expression::Unary {
+                operator: Unary::LowBits { bits: ty.bits() },
                 input,
-                bits: ty.bits(),
             },
         )
     }

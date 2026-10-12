@@ -1,6 +1,7 @@
 //! Value selection keeps its condition's truth distinct from its numeric bits.
 
 use super::Folder;
+use crate::expression::UnaryOp as Unary;
 use crate::{Expression, Type};
 
 impl Folder<'_> {
@@ -50,9 +51,9 @@ impl Folder<'_> {
         // still produce exactly zero or one, including during operand refolding.
         Some(self.fold(
             Type::I1,
-            Expression::ZeroTest {
+            Expression::Unary {
+                operator: Unary::ZeroTest { nonzero },
                 input: condition,
-                nonzero,
             },
         ))
     }

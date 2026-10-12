@@ -1,5 +1,8 @@
 //! Pure expressions shared by unbound values and function bodies.
 
+mod operators;
+pub(crate) use operators::{BinaryOp, CompareOp, LaneBinaryOp, ShiftOp, UnaryOp};
+
 mod evaluate;
 pub(super) use evaluate::TypedLiteral;
 mod fold;
@@ -10,93 +13,16 @@ pub(super) use shuffle::ShuffleMask;
 #[cfg(test)]
 mod tests;
 
-use crate::{
-    bitwise::BitwiseOp,
-    floating,
-    integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
-    Type,
-};
-
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub(super) enum LaneBinaryOp {
-    Add,
-    Sub,
-    Mul,
-    WideningMulLowSigned,
-    WideningMulHighSigned,
-    DotI16Signed,
-    Eq,
-    GtSigned,
-    AddSatSigned,
-    AddSatUnsigned,
-    SubSatSigned,
-    SubSatUnsigned,
-}
+use crate::Type;
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum Expression<V> {
-    VectorBinary {
-        operator: LaneBinaryOp,
-        // Input lane width; widening multiplication and dot products double it.
-        lane_type: Type,
-        left: V,
-        right: V,
-    },
-    VectorNarrow {
-        signed: bool,
-        result_lane: Type,
-        left: V,
-        right: V,
-    },
-    VectorShift {
-        operator: ShiftOp,
-        lane_type: Type,
-        value: V,
-        count: V,
-    },
-    VectorShuffle {
-        left: V,
-        right: V,
-        lanes: ShuffleMask,
-    },
-    VectorExtract {
-        input: V,
-        lane: u8,
-    },
-    VectorReplace {
-        vector: V,
-        value: V,
-        lane: u8,
-    },
-    FloatBinary {
-        operator: floating::BinaryOp,
-        left: V,
-        right: V,
-    },
-    FloatUnary {
-        operator: floating::UnaryOp,
-        input: V,
-    },
-    FloatCompare {
-        operator: floating::CompareOp,
-        left: V,
-        right: V,
-    },
-    Reinterpret {
+    Unary {
+        operator: UnaryOp,
         input: V,
     },
     Binary {
         operator: BinaryOp,
-        left: V,
-        right: V,
-    },
-    Bitwise {
-        operator: BitwiseOp,
-        left: V,
-        right: V,
-    },
-    MultiplyWide {
-        signed: bool,
         left: V,
         right: V,
     },
@@ -105,38 +31,15 @@ pub(super) enum Expression<V> {
         value: V,
         count: V,
     },
-    Rotate {
-        operator: RotateOp,
-        value: V,
-        count: V,
-    },
     Select {
         condition: V,
         when_true: V,
         when_false: V,
     },
-    SignExtend {
-        input: V,
-    },
-    BitCount {
-        operator: BitCountOp,
-        input: V,
-    },
-    Compare {
-        operator: CompareOp,
+    MultiplyWide {
+        signed: bool,
         left: V,
         right: V,
-    },
-    ZeroTest {
-        input: V,
-        nonzero: bool,
-    },
-    Convert {
-        input: V,
-    },
-    LowBits {
-        input: V,
-        bits: u8,
     },
 }
 
@@ -175,83 +78,11 @@ impl<V> Expression<V> {
         mut input: impl FnMut(&'a V) -> Result<U, E>,
     ) -> Result<Expression<U>, E> {
         Ok(match self {
-            Self::VectorBinary {
-                operator,
-                lane_type,
-                left,
-                right,
-            } => Expression::VectorBinary {
-                operator: *operator,
-                lane_type: *lane_type,
-                left: input(left)?,
-                right: input(right)?,
-            },
-            Self::VectorNarrow {
-                signed,
-                result_lane,
-                left,
-                right,
-            } => Expression::VectorNarrow {
-                signed: *signed,
-                result_lane: *result_lane,
-                left: input(left)?,
-                right: input(right)?,
-            },
-            Self::VectorShuffle { left, right, lanes } => Expression::VectorShuffle {
-                left: input(left)?,
-                right: input(right)?,
-                lanes: *lanes,
-            },
-            Self::VectorExtract { input: value, lane } => Expression::VectorExtract {
-                input: input(value)?,
-                lane: *lane,
-            },
-            Self::VectorShift {
-                operator,
-                lane_type,
-                value,
-                count,
-            } => Expression::VectorShift {
-                operator: *operator,
-                lane_type: *lane_type,
-                value: input(value)?,
-                count: input(count)?,
-            },
-            Self::VectorReplace {
-                vector,
-                value,
-                lane,
-            } => Expression::VectorReplace {
-                vector: input(vector)?,
-                value: input(value)?,
-                lane: *lane,
-            },
-            Self::FloatBinary {
-                operator,
-                left,
-                right,
-            } => Expression::FloatBinary {
-                operator: *operator,
-                left: input(left)?,
-                right: input(right)?,
-            },
-            Self::FloatUnary {
+            Self::Unary {
                 operator,
                 input: value,
-            } => Expression::FloatUnary {
+            } => Expression::Unary {
                 operator: *operator,
-                input: input(value)?,
-            },
-            Self::FloatCompare {
-                operator,
-                left,
-                right,
-            } => Expression::FloatCompare {
-                operator: *operator,
-                left: input(left)?,
-                right: input(right)?,
-            },
-            Self::Reinterpret { input: value } => Expression::Reinterpret {
                 input: input(value)?,
             },
             Self::Binary {
@@ -263,38 +94,11 @@ impl<V> Expression<V> {
                 left: input(left)?,
                 right: input(right)?,
             },
-            Self::Bitwise {
-                operator,
-                left,
-                right,
-            } => Expression::Bitwise {
-                operator: *operator,
-                left: input(left)?,
-                right: input(right)?,
-            },
-            Self::MultiplyWide {
-                signed,
-                left,
-                right,
-            } => Expression::MultiplyWide {
-                signed: *signed,
-                left: input(left)?,
-                right: input(right)?,
-            },
             Self::Shift {
                 operator,
                 value,
                 count,
             } => Expression::Shift {
-                operator: *operator,
-                value: input(value)?,
-                count: input(count)?,
-            },
-            Self::Rotate {
-                operator,
-                value,
-                count,
-            } => Expression::Rotate {
                 operator: *operator,
                 value: input(value)?,
                 count: input(count)?,
@@ -308,38 +112,14 @@ impl<V> Expression<V> {
                 when_false: input(when_false)?,
                 condition: input(condition)?,
             },
-            Self::SignExtend { input: value } => Expression::SignExtend {
-                input: input(value)?,
-            },
-            Self::BitCount {
-                operator,
-                input: value,
-            } => Expression::BitCount {
-                operator: *operator,
-                input: input(value)?,
-            },
-            Self::Compare {
-                operator,
+            Self::MultiplyWide {
+                signed,
                 left,
                 right,
-            } => Expression::Compare {
-                operator: *operator,
+            } => Expression::MultiplyWide {
+                signed: *signed,
                 left: input(left)?,
                 right: input(right)?,
-            },
-            Self::ZeroTest {
-                input: value,
-                nonzero,
-            } => Expression::ZeroTest {
-                input: input(value)?,
-                nonzero: *nonzero,
-            },
-            Self::Convert { input: value } => Expression::Convert {
-                input: input(value)?,
-            },
-            Self::LowBits { input: value, bits } => Expression::LowBits {
-                input: input(value)?,
-                bits: *bits,
             },
         })
     }

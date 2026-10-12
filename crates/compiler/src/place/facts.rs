@@ -4,6 +4,7 @@
 //! expression evaluation still folds complete vector literals.
 //! Facts about a truncated value do not erase its other carrier bits.
 
+use crate::expression::BinaryOp as Binary;
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 
@@ -148,8 +149,8 @@ impl ScalarFacts {
     /// A scalar operand whose known bits make the other bitwise operand redundant.
     /// Unlike a logical constant, an identity must preserve the entire carrier.
     pub(super) fn bitwise_identity(&self, table: &ValueTable, id: usize) -> Option<usize> {
-        let ValueDefinition::Expression(Expression::Bitwise {
-            operator,
+        let ValueDefinition::Expression(Expression::Binary {
+            operator: Binary::Bitwise(operator),
             left,
             right,
         }) = table[id].definition

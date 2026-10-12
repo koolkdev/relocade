@@ -1,9 +1,14 @@
-//! Portable 64-by-64 multiplication with two 64-bit results.
+//! Native and portable 64-by-64 multiplication with two 64-bit results.
 use super::Writer;
 use wasm_encoder::{Instruction::*, ValType};
 
 impl Writer<'_> {
     pub(super) fn multiply_wide(&mut self, signed: bool) {
+        if self.features.wide_arithmetic {
+            self.emit(if signed { I64MulWideS } else { I64MulWideU });
+            return;
+        }
+
         let left = self.encoder.temporary(ValType::I64);
         let right = self.encoder.temporary(ValType::I64);
         let low_product = self.encoder.temporary(ValType::I64);
