@@ -9,3 +9,6 @@ publish.workspace = true
 wasm86-runtime = { path = "../runtime" }
 wasm86-x86 = { path = "../x86" }
 wasmtime.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+pollster.workspace = true
