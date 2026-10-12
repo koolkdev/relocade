@@ -20,10 +20,8 @@ mod comparisons;
 mod infer;
 mod merge;
 mod range;
-mod scoped_map;
 use comparisons::Comparisons;
 use range::Range;
-use scoped_map::ScopedMap;
 
 #[cfg(test)]
 mod tests;
@@ -58,16 +56,18 @@ impl Bits {
 #[derive(Default)]
 pub(super) struct ScalarFacts {
     // These sparse maps hash compiler-assigned value IDs, never guest values.
-    known: ScopedMap<usize, Bits>,
-    ranges: ScopedMap<usize, Range>,
+    known: FxHashMap<usize, Bits>,
+    ranges: FxHashMap<usize, Range>,
     comparisons: Comparisons,
     computed: RefCell<FxHashMap<usize, Bits>>,
+    pending: RefCell<Vec<(usize, bool)>>,
 }
 
-pub(super) struct Checkpoint {
-    known: scoped_map::Checkpoint,
-    ranges: scoped_map::Checkpoint,
-    comparisons: scoped_map::Checkpoint,
+/// Observations established together before a block's facts are queried.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum Assumption {
+    Truth { condition: usize, truth: bool },
+    Bits { value: usize, mask: u64, bits: u64 },
 }
 
 impl Clone for ScalarFacts {
@@ -77,26 +77,24 @@ impl Clone for ScalarFacts {
             ranges: self.ranges.clone(),
             comparisons: self.comparisons.clone(),
             computed: RefCell::default(),
+            pending: RefCell::default(),
         }
     }
 }
 
 impl ScalarFacts {
-    /// Save a nested path scope without copying its inherited facts.
-    pub(super) fn checkpoint(&mut self) -> Checkpoint {
-        Checkpoint {
-            known: self.known.checkpoint(),
-            ranges: self.ranges.checkpoint(),
-            comparisons: self.comparisons.checkpoint(),
+    pub(super) fn with_assumptions(
+        mut self,
+        table: &ValueTable,
+        observations: impl IntoIterator<Item = Assumption>,
+    ) -> Self {
+        for observation in observations {
+            match observation {
+                Assumption::Truth { condition, truth } => self.assume(table, condition, truth),
+                Assumption::Bits { value, mask, bits } => self.assume_bits(value, mask, bits),
+            }
         }
-    }
-
-    /// Restore the most recent scope and discard inferences from its changed facts.
-    pub(super) fn restore(&mut self, checkpoint: Checkpoint) {
-        self.known.restore(checkpoint.known);
-        self.ranges.restore(checkpoint.ranges);
-        self.comparisons.restore(checkpoint.comparisons);
-        self.computed = RefCell::default();
+        self
     }
 
     /// Whether known logical bits prove that these paths cannot coincide.
@@ -106,7 +104,7 @@ impl ScalarFacts {
             .any(|(&id, &bits)| bits.conflicts(other.bits(table, id)))
     }
 
-    pub(super) fn assume_bits(&mut self, id: usize, mask: u64, value: u64) {
+    fn assume_bits(&mut self, id: usize, mask: u64, value: u64) {
         let previous = self.known.get(&id).copied().unwrap_or_default();
         let bits = Bits {
             mask,

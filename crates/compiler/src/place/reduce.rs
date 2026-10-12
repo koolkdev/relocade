@@ -23,76 +23,11 @@ enum Work {
     Alias(usize, usize),
 }
 
-/// The observation made by a selected control-flow edge.
-pub(super) enum EdgeAssumption {
-    Truth { condition: usize, truth: bool },
-    Equal { selector: usize, value: u64 },
-}
-
-/// Restore the existing fact scope when leaving a dominator subtree.
-enum FactScope {
-    Inherited(facts::Checkpoint),
-    Replaced(Box<ScalarFacts>),
-}
-
-pub(super) struct ReductionScope {
-    facts: FactScope,
-    equivalents: usize,
-    replaced: Option<Equivalences>,
-}
-
 impl Reducer {
     pub(super) fn from_facts(facts: ScalarFacts) -> Self {
         Self {
             facts,
             ..Self::default()
-        }
-    }
-
-    pub(super) fn enter(
-        &mut self,
-        values: &ValueTable,
-        incoming: Option<ScalarFacts>,
-        edge: Option<EdgeAssumption>,
-    ) -> ReductionScope {
-        self.residuals.clear();
-        let replaced = incoming
-            .is_some()
-            .then(|| std::mem::take(&mut self.equivalents));
-        let facts = match incoming {
-            Some(incoming) => {
-                FactScope::Replaced(Box::new(std::mem::replace(&mut self.facts, incoming)))
-            }
-            None => FactScope::Inherited(self.facts.checkpoint()),
-        };
-        if let Some(edge) = edge {
-            match edge {
-                EdgeAssumption::Truth { condition, truth } => {
-                    self.facts.assume(values, condition, truth)
-                }
-                EdgeAssumption::Equal { selector, value } => {
-                    self.facts
-                        .assume_bits(selector, values[selector].ty.mask(), value)
-                }
-            }
-        }
-        ReductionScope {
-            facts,
-            equivalents: self.equivalents.checkpoint(),
-            replaced,
-        }
-    }
-
-    pub(super) fn leave(&mut self, scope: ReductionScope) {
-        self.residuals.clear();
-        match scope.facts {
-            FactScope::Inherited(checkpoint) => self.facts.restore(checkpoint),
-            FactScope::Replaced(previous) => self.facts = *previous,
-        }
-        if let Some(previous) = scope.replaced {
-            self.equivalents = previous;
-        } else {
-            self.equivalents.restore(scope.equivalents);
         }
     }
 
@@ -102,12 +37,6 @@ impl Reducer {
 
     pub(super) fn facts(&self) -> &ScalarFacts {
         &self.facts
-    }
-
-    pub(super) fn on_branch(&self, values: &ValueTable, condition: usize, truth: bool) -> Self {
-        let mut facts = self.facts.clone();
-        facts.assume(values, condition, truth);
-        Self::from_facts(facts)
     }
 
     /// Reduce semantic recipes without consulting execution availability.
@@ -174,20 +103,19 @@ impl Reducer {
                     let rewritten = values.expression_result(producer, original.component);
                     // Refold only when an input changed. Construction already
                     // canonicalized the original expression.
-                    let result = if let Some(constant) = self.known_constant(values, rewritten) {
-                        constant
-                    } else if let Some(input) = self.facts.bitwise_identity(values, rewritten) {
-                        input
+                    let result = if rewritten == id {
+                        id
                     } else {
-                        let folded = if rewritten == id {
-                            id
-                        } else {
-                            crate::expression::refold(values, rewritten)
-                        };
-                        self.known_constant(values, folded).unwrap_or(folded)
+                        crate::expression::refold(values, rewritten)
                     };
-                    let result = self.known_constant(values, result).unwrap_or(result);
-                    self.record(id, result);
+                    if result == id {
+                        self.record(id, id);
+                    } else {
+                        // Folding may introduce another recipe. Reduce it in
+                        // this context before publishing a stable normal form.
+                        self.pending.push(Work::Alias(id, result));
+                        self.pending.push(Work::Visit(result));
+                    }
                 }
             }
         }
@@ -202,6 +130,7 @@ impl Reducer {
 
     fn record(&mut self, recipe: usize, residual: usize) {
         self.residuals.insert(recipe, residual);
+        self.residuals.entry(residual).or_insert(residual);
         if recipe != residual {
             self.equivalents.record(recipe, residual);
         }

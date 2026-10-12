@@ -7,19 +7,20 @@ mod demand;
 mod dominance;
 mod effects;
 mod facts;
+mod flow;
 mod joins;
 mod reads;
 mod reduce;
-mod shared;
 #[cfg(test)]
 mod tests;
 mod value;
 use availability::{Availability, Checkpoint};
 use dominance::Dominators;
 use effects::Effects;
-use facts::ScalarFacts;
+use facts::{Assumption, ScalarFacts};
+use flow::ReducedFlow;
 use joins::Joins;
-use reduce::{EdgeAssumption, Reducer, ReductionScope};
+use reduce::Reducer;
 
 /// Call summaries describe authored bodies, before placement removes dead work.
 pub(super) struct Placement {
@@ -34,7 +35,7 @@ impl Placement {
     }
 
     pub(super) fn place(&self, mut graph: FunctionGraph) -> FunctionGraph {
-        // Release analysis and bindings before compacting the finished graph.
+        // Release facts and bindings before compacting the finished graph.
         place_calculations(&mut graph, &self.summaries);
         graph.compact(|operation| effects::observable(operation, &self.summaries));
         graph
@@ -98,9 +99,16 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
         effects::observable(operation, summaries)
     });
     reads::prepare(graph, summaries, &reachable);
-    let predecessors = predecessors(graph, &reachable);
-    let dominators = Dominators::new(graph.entry.0, &successors(graph, &reachable), &predecessors);
-    let shared = demand::schedules(graph, &reachable, &dominators);
+    let mut predecessors = predecessors(graph, &reachable);
+    let mut dominators =
+        Dominators::new(graph.entry.0, &successors(graph, &reachable), &predecessors);
+    let flow = ReducedFlow::new(graph, &dominators, &predecessors);
+    let reachable = graph.reachable();
+    if flow.control_changed {
+        predecessors = self::predecessors(graph, &reachable);
+        dominators = Dominators::new(graph.entry.0, &successors(graph, &reachable), &predecessors);
+    }
+    let shared = demand::schedules(graph, &reachable, &dominators, &flow);
     let mut children = vec![Vec::new(); graph.blocks.len()];
     for (block, parent) in dominators.parent.iter().enumerate() {
         if let Some(parent) = parent {
@@ -110,7 +118,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
         }
     }
     // Joins can be allocated before their arms. Visit acyclic predecessors
-    // first so a join can retain facts and reuse computed incoming values.
+    // first so a join can reuse completed incoming executions.
     for children in &mut children {
         children.sort_by_key(|&block| dominators.rank[block]);
     }
@@ -118,7 +126,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
     let mut placer = Placer {
         graph,
         reachable,
-        reducer: Reducer::default(),
+        flow,
         available: Availability::default(),
         shared,
         joins,
@@ -128,7 +136,6 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
         Leave {
             block: usize,
             checkpoint: Checkpoint,
-            scope: ReductionScope,
         },
     }
     let mut work = vec![Visit::Enter(placer.graph.entry.0)];
@@ -139,48 +146,12 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
                     continue;
                 }
                 let checkpoint = placer.available.checkpoint();
-                let incoming = placer.joins.prepare(
+                placer.joins.prepare(
                     placer.graph,
                     &placer.reachable,
                     index,
                     &mut placer.available,
                 );
-                // A unique predecessor's selected edge supplies facts valid on
-                // every entrance. Establish the whole context before placement queries.
-                let edge = if predecessors[index].len() == 1 {
-                    let source = predecessors[index][0];
-                    match placer.joins.semantic_exit(source) {
-                        Exit::If {
-                            condition,
-                            taken,
-                            otherwise,
-                        } if taken.target != otherwise.target => Some(EdgeAssumption::Truth {
-                            condition: *condition,
-                            truth: taken.target.0 == index,
-                        }),
-                        Exit::Switch {
-                            selector,
-                            cases,
-                            default,
-                        } if default.target.0 != index => {
-                            let mut keys = cases
-                                .iter()
-                                .filter(|(_, edge)| edge.target.0 == index)
-                                .map(|(key, _)| *key);
-                            match (keys.next(), keys.next()) {
-                                (Some(key), None) => Some(EdgeAssumption::Equal {
-                                    selector: *selector,
-                                    value: u64::from(key),
-                                }),
-                                _ => None,
-                            }
-                        }
-                        _ => None,
-                    }
-                } else {
-                    None
-                };
-                let scope = placer.reducer.enter(&placer.graph.values, incoming, edge);
                 placer.block(BlockId(index));
                 placer
                     .joins
@@ -188,18 +159,12 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
                 work.push(Visit::Leave {
                     block: index,
                     checkpoint,
-                    scope,
                 });
                 work.extend(children[index].iter().rev().copied().map(Visit::Enter));
             }
-            Visit::Leave {
-                block,
-                checkpoint,
-                scope,
-            } => {
+            Visit::Leave { block, checkpoint } => {
                 placer.available.restore(checkpoint);
-                placer.joins.complete(block, placer.reducer.facts());
-                placer.reducer.leave(scope);
+                placer.joins.complete(block);
             }
         }
     }
@@ -208,7 +173,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
 struct Placer<'a> {
     graph: &'a mut FunctionGraph,
     reachable: Vec<bool>,
-    reducer: Reducer,
+    flow: ReducedFlow,
     available: Availability,
     shared: Vec<Vec<usize>>,
     joins: Joins,
@@ -230,7 +195,9 @@ impl Placer<'_> {
                 self.available.bind(result, result);
             }
         }
-        self.materialize_shared(block);
+        for value in std::mem::take(&mut self.shared[block.0]) {
+            self.materialize(value, block);
+        }
         let previous_targets: Vec<_> = self
             .graph
             .outgoing(block)

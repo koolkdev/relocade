@@ -4,27 +4,11 @@ use rustc_hash::FxHashMap;
 #[derive(Default)]
 pub(super) struct Equivalences {
     originals: FxHashMap<usize, Vec<usize>>,
-    log: Vec<usize>,
 }
 
 impl Equivalences {
-    pub(super) fn checkpoint(&self) -> usize {
-        self.log.len()
-    }
-
-    pub(super) fn restore(&mut self, checkpoint: usize) {
-        for residual in self.log.drain(checkpoint..).rev() {
-            let originals = self.originals.get_mut(&residual).unwrap();
-            originals.pop();
-            if originals.is_empty() {
-                self.originals.remove(&residual);
-            }
-        }
-    }
-
     pub(super) fn record(&mut self, recipe: usize, residual: usize) {
         self.originals.entry(residual).or_default().push(recipe);
-        self.log.push(residual);
     }
 
     /// A reduction preserves the full carrier. Logical-bit observations and

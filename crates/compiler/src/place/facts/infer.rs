@@ -17,7 +17,8 @@ impl ScalarFacts {
         if let Some(&bits) = cache.get(&root) {
             return bits;
         }
-        let mut pending = vec![(root, false)];
+        let mut pending = self.pending.borrow_mut();
+        pending.push((root, false));
         while let Some((id, ready)) = pending.pop() {
             if cache.contains_key(&id) {
                 continue;

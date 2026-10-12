@@ -3,15 +3,13 @@ use super::*;
 
 pub(super) struct IncomingValues {
     pub(super) source: usize,
-    reducer: Reducer,
     resolved: HashMap<usize, Option<usize>>,
 }
 
 impl IncomingValues {
-    pub(super) fn new(source: usize, facts: &ScalarFacts) -> Self {
+    pub(super) fn new(source: usize) -> Self {
         Self {
             source,
-            reducer: Reducer::from_facts(facts.clone()),
             resolved: HashMap::new(),
         }
     }
@@ -21,13 +19,14 @@ impl IncomingValues {
         graph: &mut FunctionGraph,
         recipe: usize,
         joins: &Joins,
+        flow: &mut ReducedFlow,
     ) -> Option<usize> {
         if let Some(&result) = self.resolved.get(&recipe) {
             return result;
         }
         // Reduction never adds an execution. A non-leaf residual can only be
         // supplied by a calculation already recorded on this predecessor.
-        let residual = self.reducer.reduce(&mut graph.values, recipe);
+        let residual = flow.reduce(&mut graph.values, BlockId(self.source), recipe);
         let residual = graph.values.representation(residual);
         let result = joins
             .recorded_value(self.source, recipe)

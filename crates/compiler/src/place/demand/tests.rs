@@ -1,6 +1,30 @@
 use super::*;
 use crate::expression::BinaryOp as Binary;
-use crate::{memory::MemoryAccess, Mem, Type};
+use crate::{integer::BinaryOp, memory::MemoryAccess, Mem, Type};
+
+fn schedules(
+    graph: &FunctionGraph,
+    reachable: &[bool],
+    dominators: &Dominators,
+) -> Vec<Vec<usize>> {
+    let roots: Vec<_> = graph
+        .blocks
+        .iter()
+        .map(|block| {
+            let mut roots = block.exit.inputs();
+            for item in &block.items {
+                if let BlockItem::Effect(id) = item {
+                    roots.extend(graph.effects[id.0].operation.inputs());
+                }
+            }
+            Roots {
+                required: roots,
+                reusable: Vec::new(),
+            }
+        })
+        .collect();
+    super::schedule_roots(graph, reachable, dominators, &roots)
+}
 
 struct Branches {
     graph: FunctionGraph,
@@ -133,7 +157,7 @@ fn unused_calculations_do_not_supply_a_sharing_witness() {
 }
 
 #[test]
-fn select_users_do_not_supply_retained_calculation_demand() {
+fn surviving_select_users_keep_their_input_demand() {
     let mut branches = Branches::new();
     let zero = branches.graph.values.literal(Type::I32, 0);
     let choice = branches.graph.values.push(Value {
@@ -146,7 +170,7 @@ fn select_users_do_not_supply_retained_calculation_demand() {
     });
     branches.graph.blocks[branches.taken.0].exit = Exit::Return(vec![branches.product, zero]);
     branches.graph.blocks[branches.otherwise.0].exit = Exit::Return(vec![branches.product, choice]);
-    assert!(branches.entry_schedule().is_empty());
+    assert_eq!(branches.entry_schedule(), [branches.product]);
 }
 
 #[test]
@@ -355,4 +379,49 @@ fn converging_paths_can_reuse_an_explored_tail() {
     let successors = [vec![1, 2], vec![3], vec![3], vec![4], vec![5], Vec::new()];
     let mut coverage = Coverage::new(&successors, 5);
     assert!(coverage.all_paths_reach(0, &HashSet::from([4])));
+}
+
+#[test]
+fn an_optional_recipe_does_not_require_its_discarded_inputs() {
+    let mut branches = Branches::new();
+    let one = branches.graph.values.literal(Type::I32, 1);
+    let residual = branches.graph.values.intern(Value {
+        ty: Type::I32,
+        definition: ValueDefinition::Expression(Expression::Binary {
+            operator: Binary::Integer(BinaryOp::Add),
+            left: 1,
+            right: one,
+        }),
+    });
+    let choice = branches.graph.values.intern(Value {
+        ty: Type::I32,
+        definition: ValueDefinition::Expression(Expression::Select {
+            condition: 0,
+            when_true: residual,
+            when_false: branches.product,
+        }),
+    });
+    branches.graph.blocks[branches.taken.0].exit = Exit::Return(vec![residual]);
+    branches.graph.blocks[branches.otherwise.0].exit = Exit::Return(vec![choice]);
+    let roots = [
+        Roots::default(),
+        Roots {
+            required: vec![residual],
+            reusable: vec![choice],
+        },
+        Roots {
+            required: vec![choice],
+            reusable: Vec::new(),
+        },
+    ];
+    let reachable = branches.graph.reachable();
+    let dominators = Dominators::new(
+        0,
+        &successors(&branches.graph, &reachable),
+        &predecessors(&branches.graph, &reachable),
+    );
+    let schedules = super::schedule_roots(&branches.graph, &reachable, &dominators, &roots);
+    // The generic choice offers reuse in the taken arm, but that arm's
+    // residual uses no product. It cannot witness a shared multiplication.
+    assert!(!schedules[0].contains(&branches.product));
 }

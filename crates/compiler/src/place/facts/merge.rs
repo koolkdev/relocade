@@ -17,9 +17,34 @@ impl Bits {
 }
 
 impl ScalarFacts {
+    /// Establish the common context and its parameter observations before querying it.
+    pub(in crate::place) fn join(
+        table: &ValueTable,
+        parameters: &[usize],
+        incoming: &[(&Self, &[usize])],
+    ) -> Self {
+        let Some((first, _)) = incoming.first() else {
+            return Self::default();
+        };
+        let mut joined = (*first).clone();
+        for (facts, _) in &incoming[1..] {
+            joined.retain_common(facts);
+        }
+        for (component, &parameter) in parameters.iter().enumerate() {
+            joined.merge_parameter(
+                table,
+                parameter,
+                incoming
+                    .iter()
+                    .map(|&(facts, arguments)| (facts, arguments[component])),
+            );
+        }
+        joined
+    }
+
     /// A scalar parameter keeps only logical bits proved by every incoming argument.
     /// Vector parameters still join normally, without acquiring scalar facts.
-    pub(in crate::place) fn merge_parameter<'a>(
+    fn merge_parameter<'a>(
         &mut self,
         table: &ValueTable,
         parameter: usize,
@@ -38,7 +63,7 @@ impl ScalarFacts {
         }
     }
 
-    pub(in crate::place) fn retain_common(&mut self, other: &Self) {
+    fn retain_common(&mut self, other: &Self) {
         self.known.retain(|id, bits| {
             let incoming = other.known.get(id).copied().unwrap_or_default();
             *bits = bits.common(incoming);

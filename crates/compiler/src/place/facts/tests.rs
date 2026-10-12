@@ -32,67 +32,100 @@ fn compare(table: &mut ValueTable, operator: CompareOp, left: usize, right: usiz
 }
 
 #[test]
-fn restoring_partial_bits_discards_child_constants_but_preserves_snapshots() {
+fn child_bits_and_derived_constants_do_not_change_the_parent() {
     let table = parameters();
-    let mut facts = ScalarFacts::default();
-    facts.assume_bits(0, 0xff, 0x12);
-    let scope = facts.checkpoint();
-    facts.assume_bits(0, 0xffff_ff00, 0x123400);
-    facts.assume_bits(1, 0xffff_ffff, 9);
-    assert_eq!(facts.constant(&table, 0), Some(0x123412));
-    assert_eq!(facts.constant(&table, 1), Some(9));
-    let snapshot = facts.clone();
-    facts.restore(scope);
-    assert_eq!(facts.constant(&table, 0), None);
-    assert_eq!(facts.constant(&table, 1), None);
-    let bits = facts.bits(&table, 0);
+    let parent = ScalarFacts::default().with_assumptions(
+        &table,
+        [Assumption::Bits {
+            value: 0,
+            mask: 0xff,
+            bits: 0x12,
+        }],
+    );
+    assert_eq!(parent.constant(&table, 0), None);
+    let child = parent.clone().with_assumptions(
+        &table,
+        [
+            Assumption::Bits {
+                value: 0,
+                mask: 0xffff_ff00,
+                bits: 0x123400,
+            },
+            Assumption::Bits {
+                value: 1,
+                mask: 0xffff_ffff,
+                bits: 9,
+            },
+        ],
+    );
+    assert_eq!(child.constant(&table, 0), Some(0x123412));
+    assert_eq!(child.constant(&table, 1), Some(9));
+    assert_eq!(parent.constant(&table, 0), None);
+    assert_eq!(parent.constant(&table, 1), None);
+    let bits = parent.bits(&table, 0);
     assert_eq!((bits.mask, bits.value), (0xff, 0x12));
-    assert_eq!(snapshot.constant(&table, 0), Some(0x123412));
-    assert_eq!(snapshot.constant(&table, 1), Some(9));
 }
 
 #[test]
-fn restoring_ranges_discards_child_comparison_inference() {
+fn sibling_ranges_have_independent_comparison_inference() {
     let mut table = parameters();
     let [ten, twenty, forty] = [10, 20, 40].map(|value| table.literal(Type::I32, value));
     let below_ten = compare(&mut table, CompareOp::LtUnsigned, 0, ten);
     let below_twenty = compare(&mut table, CompareOp::LtUnsigned, 0, twenty);
     let below_forty = compare(&mut table, CompareOp::LtUnsigned, 0, forty);
-    let mut facts = ScalarFacts::default();
-    facts.assume(&table, below_forty, true);
-    let scope = facts.checkpoint();
-    facts.assume(&table, below_ten, true);
-    assert_eq!(facts.constant(&table, below_twenty), Some(1));
-    facts.restore(scope);
-    assert_eq!(facts.constant(&table, below_forty), Some(1));
-    assert_eq!(facts.constant(&table, below_twenty), None);
-    let sibling = facts.checkpoint();
-    facts.assume(&table, below_twenty, false);
-    assert_eq!(facts.constant(&table, below_ten), Some(0));
-    assert_eq!(facts.constant(&table, below_forty), Some(1));
-    facts.restore(sibling);
-    assert_eq!(facts.constant(&table, below_twenty), None);
+    let parent = ScalarFacts::default().with_assumptions(
+        &table,
+        [Assumption::Truth {
+            condition: below_forty,
+            truth: true,
+        }],
+    );
+    assert_eq!(parent.constant(&table, below_twenty), None);
+    let child = parent.clone().with_assumptions(
+        &table,
+        [Assumption::Truth {
+            condition: below_ten,
+            truth: true,
+        }],
+    );
+    assert_eq!(child.constant(&table, below_twenty), Some(1));
+    let sibling = parent.clone().with_assumptions(
+        &table,
+        [Assumption::Truth {
+            condition: below_twenty,
+            truth: false,
+        }],
+    );
+    assert_eq!(sibling.constant(&table, below_ten), Some(0));
+    assert_eq!(sibling.constant(&table, below_forty), Some(1));
+    assert_eq!(parent.constant(&table, below_twenty), None);
 }
 
 #[test]
-fn restoring_comparisons_forgets_equivalent_and_opposite_predicates() {
+fn sibling_contexts_keep_equivalent_and_opposite_predicates_separate() {
     let mut table = parameters();
     let unequal = compare(&mut table, CompareOp::Ne, 0, 1);
     let reversed = compare(&mut table, CompareOp::Eq, 1, 0);
     let equal = compare(&mut table, CompareOp::Eq, 0, 1);
-    let mut facts = ScalarFacts::default();
-    // Keep an inherited fact so subsequent queries still consult inference.
-    facts.assume_bits(0, 1, 0);
-    let scope = facts.checkpoint();
-    facts.assume(&table, equal, true);
-    assert_eq!(facts.constant(&table, unequal), Some(0));
-    assert_eq!(facts.constant(&table, reversed), Some(1));
-    facts.restore(scope);
-    assert_eq!(facts.constant(&table, unequal), None);
-    assert_eq!(facts.constant(&table, reversed), None);
-    let sibling = facts.checkpoint();
-    facts.assume(&table, equal, false);
-    assert_eq!(facts.constant(&table, unequal), Some(1));
-    assert_eq!(facts.constant(&table, reversed), Some(0));
-    facts.restore(sibling);
+    let parent = ScalarFacts::default().with_assumptions(
+        &table,
+        [Assumption::Bits {
+            value: 0,
+            mask: 1,
+            bits: 0,
+        }],
+    );
+    for (truth, expected) in [(true, 1), (false, 0)] {
+        let child = parent.clone().with_assumptions(
+            &table,
+            [Assumption::Truth {
+                condition: equal,
+                truth,
+            }],
+        );
+        assert_eq!(child.constant(&table, unequal), Some(1 - expected));
+        assert_eq!(child.constant(&table, reversed), Some(expected));
+    }
+    assert_eq!(parent.constant(&table, unequal), None);
+    assert_eq!(parent.constant(&table, reversed), None);
 }
