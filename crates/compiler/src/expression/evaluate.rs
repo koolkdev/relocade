@@ -54,7 +54,13 @@ impl Expression<TypedLiteral> {
                         lane_type,
                     } => {
                         return Some(
-                            vector::shift(operator, lane_type, value.value.into(), count).into(),
+                            Literal::from(vector::shift(
+                                operator,
+                                lane_type,
+                                value.value.into(),
+                                count,
+                            ))
+                            .normalize(result),
                         )
                     }
                     Shift::Scalar(operator) => {
@@ -102,6 +108,12 @@ impl Expression<TypedLiteral> {
 
 fn unary(operator: Unary, input: TypedLiteral, result: Type) -> Option<Literal> {
     let bits = match operator {
+        Unary::Reinterpret if !result.is_scalar() => {
+            let low = u128::from(input.value.scalar(input.ty)?);
+            return Some(Literal::from(low | (low << 64)).normalize(result));
+        }
+        Unary::Reinterpret if !input.ty.is_scalar() => u128::from(input.value) as u64,
+        Unary::Convert if !input.ty.is_scalar() => return Some(input.value.normalize(result)),
         Unary::ExtractLane { lane } => (u128::from(input.value) >> (lane * result.bits())) as u64,
         Unary::Float(operator) => floating::unary(operator, input.value.scalar(input.ty)?),
         Unary::BitCount {
@@ -137,7 +149,13 @@ fn binary(
             lane_type,
         } => {
             return Some(
-                vector::binary(operator, lane_type, left.value.into(), right.value.into()).into(),
+                Literal::from(vector::binary(
+                    operator,
+                    lane_type,
+                    left.value.into(),
+                    right.value.into(),
+                ))
+                .normalize(result),
             )
         }
         Binary::Narrow {
@@ -145,12 +163,23 @@ fn binary(
             result_lane,
         } => {
             return Some(
-                vector::narrow(signed, result_lane, left.value.into(), right.value.into()).into(),
+                Literal::from(vector::narrow(
+                    signed,
+                    result_lane,
+                    left.value.into(),
+                    right.value.into(),
+                ))
+                .normalize(result),
             )
         }
         Binary::Shuffle(lanes) => {
             return Some(
-                vector::shuffle(left.value.into(), right.value.into(), lanes.indices()).into(),
+                Literal::from(vector::shuffle(
+                    left.value.into(),
+                    right.value.into(),
+                    lanes.indices(),
+                ))
+                .normalize(result),
             )
         }
         Binary::ReplaceLane { lane_type, lane } => {
@@ -159,7 +188,8 @@ fn binary(
             // Refolding can retain carry bits above the scalar's logical lane width.
             let lane_bits = lane_type.normalize(right.value.scalar(right.ty)?);
             return Some(
-                ((u128::from(left.value) & !mask) | (u128::from(lane_bits) << shift)).into(),
+                Literal::from((u128::from(left.value) & !mask) | (u128::from(lane_bits) << shift))
+                    .normalize(result),
             );
         }
         Binary::Integer(operator) => integer::binary(

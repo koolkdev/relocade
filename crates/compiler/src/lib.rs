@@ -54,8 +54,9 @@ pub use memory::{AtomicAccess, Mem, MemoryImport, MemoryInt, MemoryType};
 pub use results::{Arguments, Results};
 pub use types::{
     AtLeast, BitwiseType, DoubleWidth, IntType, Type, ValueType, F64, I1, I16, I32, I64, I8, V128,
+    V64,
 };
-pub use value::{Argument, SaturatingLane, Signed, Unsigned, Val, VectorLane};
+pub use value::{Argument, SaturatingLane, Signed, Unsigned, Val, VectorLane, VectorType};
 
 /// A function's ordered logical parameter and result types.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

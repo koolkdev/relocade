@@ -65,6 +65,10 @@ pub(super) fn store(argument: MemArg, bytes: u8, value_type: Type) -> Instructio
         (Type::I32, 4) => Instruction::I32Store(argument),
         (Type::I64, 8) => Instruction::I64Store(argument),
         (Type::F64, 8) => Instruction::F64Store(argument),
+        (Type::V128, 8) => Instruction::V128Store64Lane {
+            memarg: argument,
+            lane: 0,
+        },
         (Type::V128, 16) => Instruction::V128Store(argument),
         _ => unreachable!("a store retains its carrier and storage width"),
     }
@@ -87,6 +91,7 @@ pub(super) fn load(
         (Type::I64, 4, true) => Instruction::I64Load32S(argument),
         (Type::I64, 8, false) => Instruction::I64Load(argument),
         (Type::F64, 8, false) => Instruction::F64Load(argument),
+        (Type::V128, 8, false) => Instruction::V128Load64Zero(argument),
         (Type::V128, 16, false) => Instruction::V128Load(argument),
         _ => unreachable!("a load retains its type or widens with its original sign"),
     }

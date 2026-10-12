@@ -7,6 +7,7 @@
 /// Callers must supply arguments in 0..=1, 0..=255 and 0..=65535 respectively.
 /// Narrow return values are zero-extended to those same ranges. Imported functions
 /// must follow this contract too, including when they are exported directly.
+/// V64 uses the low half of a Wasm v128, with a zero high half at these boundaries.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Type {
     I1,
@@ -15,6 +16,7 @@ pub enum Type {
     I32,
     I64,
     F64,
+    V64,
     V128,
 }
 
@@ -23,6 +25,7 @@ impl Type {
     pub(super) fn carrier(self) -> Self {
         match self {
             Self::I1 | Self::I8 | Self::I16 | Self::I32 => Self::I32,
+            Self::V64 => Self::V128,
             Self::I64 | Self::F64 | Self::V128 => self,
         }
     }
@@ -35,10 +38,11 @@ impl Type {
     }
 
     /// Scalar encodings fit in u64, including the raw bits of F64.
+    /// V64 remains a vector: its physical carrier has 128 bits.
     pub(super) fn is_scalar(self) -> bool {
         match self {
             Self::I1 | Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::F64 => true,
-            Self::V128 => false,
+            Self::V64 | Self::V128 => false,
         }
     }
 
@@ -48,7 +52,7 @@ impl Type {
             Self::I8 => 8,
             Self::I16 => 16,
             Self::I32 => 32,
-            Self::I64 | Self::F64 => 64,
+            Self::I64 | Self::F64 | Self::V64 => 64,
             Self::V128 => 128,
         }
     }
@@ -128,6 +132,30 @@ pub struct I64;
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct F64;
+
+/// An uninterpreted 64-bit vector carried in the low half of WebAssembly v128.
+///
+/// Lane operations use only these 64 bits. Internal upper carrier bits are
+/// unspecified; zero-extension and function boundaries explicitly zero them.
+/// Memory accesses read or write exactly eight bytes. Like V128, this type
+/// requires WebAssembly SIMD and cannot cross a JavaScript call boundary directly.
+///
+/// ```
+/// use wasm86_compiler::{Val, I16, V64};
+/// let words = Val::<V64>::from_bits(0x0001_0002_0003_0004_u64);
+/// let sum = words.add_lanes::<I16>(0x0001_0001_0001_0001_u64);
+/// let encoding = sum.to_bits();
+/// ```
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct V64;
+
+impl sealed::Sealed for V64 {
+    type Literal = u64;
+}
+impl ValueType for V64 {
+    const TYPE: Type = Type::V64;
+}
+impl BitwiseType for V64 {}
 
 /// An uninterpreted 128-bit vector, carried by WebAssembly v128.
 ///

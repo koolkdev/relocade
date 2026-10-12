@@ -94,7 +94,7 @@ fn scalar_float_operations_lower_directly_and_inverse_bitcasts_disappear() {
 #[test]
 fn literal_identity_keeps_encodings_and_arithmetic_nan_choice_stays_in_wasm() {
     assert!(!Val::<F64>::from(0.0).same_expression(&Val::from(-0.0)));
-    assert!(!Val::<F64>::from_bits(NAN).same_expression(&Val::from_bits(NAN + 1)));
+    assert!(!Val::<F64>::from_bits(NAN).same_expression(&Val::<F64>::from_bits(NAN + 1)));
     let literal = Fixture::new().expression(&[], |_| Val::<F64>::from(1.5).mul(2.0));
     assert!(
         matches!(operators(&literal).as_slice(), [Operator::F64Const { value }, Operator::Return, Operator::End] if value.bits() == 3.0_f64.to_bits())

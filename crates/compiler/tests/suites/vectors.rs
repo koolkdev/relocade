@@ -4,6 +4,8 @@
 mod packed;
 #[path = "vectors/shifts.rs"]
 mod shifts;
+#[path = "vectors/width.rs"]
+mod width;
 
 use crate::{
     fixture::{signature, Fixture},

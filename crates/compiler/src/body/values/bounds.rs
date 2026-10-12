@@ -1,6 +1,6 @@
 //! Conservative widths of physical encodings, including unused logical upper bits.
 //! These describe complete encodings, not floating-point magnitude or vector lanes.
-//! Scalar literals refine these widths; vector literals retain the full carrier width.
+//! Literal bounds describe their physical bits, including vector encodings.
 
 use crate::expression::{BinaryOp as Binary, ShiftOp as Shift, UnaryOp as Unary};
 use crate::{
@@ -77,11 +77,7 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
         // Backedges may carry wider intermediate bits than their initial values.
         // Loop edges preserve those bits just like ordinary result joins.
         ValueDefinition::Parameter { .. } => return carrier,
-        ValueDefinition::Literal(literal) => {
-            return literal
-                .scalar(value.ty)
-                .map_or(carrier, |bits| (64 - bits.leading_zeros()) as u8)
-        }
+        ValueDefinition::Literal(literal) => return literal.unsigned_bits(),
         ValueDefinition::Result {
             producer: BlockItem::Effect(_),
             ..
@@ -105,6 +101,8 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
                 (u8::BITS - maximum.leading_zeros()) as u8
             }
             Unary::LowBits { bits } => inputs[input].unsigned.min(bits),
+            // I64 -> V64 lowers to a splat. The unused upper half is not zero.
+            Unary::Reinterpret if value.ty == Type::V64 => carrier,
             Unary::Convert | Unary::Reinterpret => inputs[input].unsigned.min(carrier),
             Unary::ZeroTest { .. } => 1,
             _ => carrier,

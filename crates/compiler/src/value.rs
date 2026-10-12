@@ -9,7 +9,7 @@ mod unbound;
 mod vector;
 
 pub use argument::Argument;
-pub use vector::{SaturatingLane, VectorLane};
+pub use vector::{SaturatingLane, VectorLane, VectorType};
 
 use std::marker::PhantomData;
 
@@ -31,10 +31,11 @@ use crate::{
 /// belongs to that body, including when it folds to a constant. Folding also
 /// preserves the branch visibility required by every original operand.
 /// Signed i32 inputs sign-extend and unsigned u32 inputs zero-extend; both keep
-/// only the logical low bits in narrower types. A u64 input requires I64.
+/// only the logical low bits in narrower types. A u64 input requires I64 or a vector.
 /// An f64 input requires F64 and retains its IEEE encoding. Integer and floating
 /// literals do not implicitly convert to each other's numerical types.
 /// A u128 or a 16-byte array requires V128 and retains every encoding bit.
+/// An 8-byte array requires V64 and retains its complete 64-bit encoding.
 ///
 /// Operations construct values immediately. Cloning an expression shares its
 /// storage. Construction errors are reported when a value is checked, stored,
@@ -89,9 +90,18 @@ impl From<u128> for Val<V128> {
     }
 }
 
-impl From<[u8; 16]> for Val<V128> {
-    fn from(bytes: [u8; 16]) -> Self {
-        Self::literal(u128::from_le_bytes(bytes))
+impl<V: VectorType> From<u64> for Val<V> {
+    fn from(bits: u64) -> Self {
+        Self::literal(bits)
+    }
+}
+
+impl<V: VectorType<Bytes = [u8; N]>, const N: usize> From<[u8; N]> for Val<V>
+where
+    crate::literal::Literal: From<[u8; N]>,
+{
+    fn from(bytes: [u8; N]) -> Self {
+        Self::literal(bytes)
     }
 }
 

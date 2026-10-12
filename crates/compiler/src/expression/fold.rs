@@ -74,6 +74,7 @@ impl Folder<'_> {
                 } => self.bit_count(operator, input_type, input),
                 Unary::ZeroTest { nonzero } => self.zero_test(input, nonzero),
                 Unary::Convert => self.convert(input, ty),
+                Unary::Reinterpret => self.reinterpret(input, ty),
                 _ => self.fold(ty, expression),
             },
             Expression::Binary {
@@ -137,7 +138,11 @@ impl Folder<'_> {
                     ValueDefinition::Expression(Expression::Unary {
                         operator: Unary::Reinterpret,
                         input: original,
-                    }) if self.values[original].ty == ty => Some(original),
+                    }) if self.values[original].ty == ty
+                        && self.values[input].ty.carrier().bits() >= ty.carrier().bits() =>
+                    {
+                        Some(original)
+                    }
                     _ => None,
                 },
                 _ => None,

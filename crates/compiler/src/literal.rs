@@ -10,8 +10,18 @@ pub struct Literal {
 }
 
 impl Literal {
+    pub(crate) fn unsigned_bits(self) -> u8 {
+        if self.high == 0 {
+            (64 - self.low.leading_zeros()) as u8
+        } else {
+            (128 - self.high.leading_zeros()) as u8
+        }
+    }
+
     pub(crate) fn normalize(self, ty: Type) -> Self {
-        if ty.is_scalar() {
+        if ty == Type::V64 {
+            Self::from(self.low)
+        } else if ty.is_scalar() {
             Self::from(ty.normalize(u64::from(self)))
         } else {
             self
@@ -44,9 +54,21 @@ impl From<u128> for Literal {
     }
 }
 
+impl From<[u8; 8]> for Literal {
+    fn from(bytes: [u8; 8]) -> Self {
+        u64::from_le_bytes(bytes).into()
+    }
+}
+
+impl From<[u8; 16]> for Literal {
+    fn from(bytes: [u8; 16]) -> Self {
+        u128::from_le_bytes(bytes).into()
+    }
+}
+
 impl From<Literal> for u64 {
     fn from(literal: Literal) -> Self {
-        debug_assert_eq!(literal.high, 0, "scalar literal bits fit in one word");
+        debug_assert_eq!(literal.high, 0, "this literal encoding fits in one word");
         literal.low
     }
 }
