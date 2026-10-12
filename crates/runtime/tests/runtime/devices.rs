@@ -28,14 +28,14 @@ impl Devices for Bus {
     }
 }
 
-#[test]
-fn device_callbacks_preserve_cpu_operand_widths() {
+#[pollster::test]
+async fn device_callbacks_preserve_cpu_operand_widths() {
     let map = PhysicalMemoryMap::new([
         (0..=0xffff, Ram { backing_offset: 0 }),
         (0x2000..=0x2fff, Mmio),
     ])
     .unwrap();
-    let mut machine = runtime().machine(map, Bus::default()).unwrap();
+    let mut machine = runtime().await.machine(map, Bus::default()).await.unwrap();
     machine
         .write_memory(
             0x100,
@@ -52,7 +52,7 @@ fn device_callbacks_preserve_cpu_operand_widths() {
     }
     assert_eq!(machine.cpu().registers.eax, 0xfedc_ba98);
     assert_eq!(
-        machine.devices().events,
+        machine.with_devices(|devices| devices.events.clone()),
         [
             ('i', 0xffff, 2, 0),
             ('o', 0xffff, 4, 0x9876_1234),
@@ -70,13 +70,13 @@ impl Devices for A20 {
     }
 }
 
-#[test]
-fn port_mapping_changes_are_installed_before_the_next_entry() {
-    let mut machine = runtime().machine(ram(), A20).unwrap();
+#[pollster::test]
+async fn port_mapping_changes_are_installed_before_the_next_entry() {
+    let mut machine = runtime().await.machine(ram(), A20).await.unwrap();
     machine
         .write_memory(0x100, &[0xe6, 0x92, 0xa0, 0x10, 0])
         .unwrap();
-    machine.with_memory(|memory| memory.backing_mut()[0x100000] = 0x42);
+    machine.with_memory(|memory| memory.write_backing(0x100000, &[0x42]).unwrap());
     let mut cpu = machine.cpu();
     cpu.eip = 0x100;
     cpu.registers.eax = 2;
@@ -91,7 +91,7 @@ struct Remap;
 impl Devices for Remap {
     fn read_mmio(&mut self, memory: &mut DeviceMemory<'_>, address: u32, bytes: u8) -> u64 {
         assert_eq!((address, bytes), (0x1fff, 1));
-        memory.backing_mut()[0x5000] = 0x12;
+        memory.write_backing(0x5000, &[0x12]).unwrap();
         memory
             .set_map(
                 PhysicalMemoryMap::new([
@@ -111,18 +111,61 @@ impl Devices for Remap {
     }
 }
 
-#[test]
-fn mmio_remapping_affects_the_remaining_part_of_one_operand() {
+#[pollster::test]
+async fn mmio_remapping_affects_the_remaining_part_of_one_operand() {
     let map = PhysicalMemoryMap::new([
         (0..=0xffff, Ram { backing_offset: 0 }),
         (0x1000..=0x1fff, Mmio),
     ])
     .unwrap();
-    let mut machine = runtime().machine(map, Remap).unwrap();
+    let mut machine = runtime().await.machine(map, Remap).await.unwrap();
     machine.write_memory(0x100, &[0xa1, 0xff, 0x1f]).unwrap();
     let mut cpu = machine.cpu();
     cpu.eip = 0x100;
     machine.set_cpu(cpu).unwrap();
     assert_eq!(machine.step().unwrap(), StepOutcome::Completed);
     assert_eq!(machine.cpu().registers.eax, 0x1234);
+}
+
+#[pollster::test]
+async fn local_devices_preserve_all_64_mmio_bits() {
+    use std::{cell::RefCell, rc::Rc};
+    const VALUE: u64 = 0xfedc_ba98_7654_3210;
+    struct WideBus(Rc<RefCell<Vec<u64>>>);
+    impl Devices for WideBus {
+        fn read_mmio(&mut self, _: &mut DeviceMemory<'_>, address: u32, bytes: u8) -> u64 {
+            assert_eq!((address, bytes), (0x2000, 8));
+            VALUE
+        }
+        fn write_mmio(&mut self, _: &mut DeviceMemory<'_>, address: u32, bytes: u8, value: u64) {
+            assert_eq!((address, bytes), (0x2008, 8));
+            self.0.borrow_mut().push(value);
+        }
+    }
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let map = PhysicalMemoryMap::new([
+        (0..=0xffff, Ram { backing_offset: 0 }),
+        (0x2000..=0x2fff, Mmio),
+    ])
+    .unwrap();
+    let mut machine = runtime()
+        .await
+        .machine(map, WideBus(events.clone()))
+        .await
+        .unwrap();
+    // MOVQ MM0,[2000]; MOVQ [2008],MM0.
+    machine
+        .write_memory(
+            0x100,
+            &[0x0f, 0x6f, 0x06, 0, 0x20, 0x0f, 0x7f, 0x06, 8, 0x20],
+        )
+        .unwrap();
+    let mut cpu = machine.cpu();
+    cpu.eip = 0x100;
+    machine.set_cpu(cpu).unwrap();
+    assert_eq!(machine.step().unwrap(), StepOutcome::Completed);
+    assert_eq!(machine.step().unwrap(), StepOutcome::Completed);
+    assert_eq!(&*events.borrow(), &[VALUE]);
+    machine.with_devices_mut(|device| device.0.borrow_mut().clear());
+    assert!(machine.with_devices(|device| device.0.borrow().is_empty()));
 }

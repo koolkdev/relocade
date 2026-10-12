@@ -1,4 +1,4 @@
-use crate::{Devices, Machine, StepOutcome};
+use crate::{backend::Backend, Devices, Machine, Result, StepOutcome};
 use wasm86_x86::ExecutionExit;
 
 /// Why a run returned with published guest state.
@@ -17,7 +17,7 @@ pub struct RunOutcome {
     pub stop: RunStop,
 }
 
-impl<D: Devices + 'static> Machine<D> {
+impl<B: Backend, D: Devices + 'static> Machine<B, D> {
     /// Executes at most `instruction_limit` complete x86 instructions.
     ///
     /// `should_stop` observes the initial state and every successful instruction
@@ -34,7 +34,7 @@ impl<D: Devices + 'static> Machine<D> {
         &mut self,
         instruction_limit: u64,
         mut should_stop: impl FnMut(&Self) -> bool,
-    ) -> wasmtime::Result<RunOutcome> {
+    ) -> Result<RunOutcome> {
         let mut completed = 0;
         loop {
             let stop = if should_stop(self) {

@@ -3,6 +3,7 @@
 
 use std::io::{self, Write};
 use wasm86_runtime::{DeviceMemory, Devices, RunStop, Runtime};
+use wasm86_runtime_wasmtime::WasmtimeBackend;
 use wasm86_x86::{PhysicalMapping, PhysicalMemoryMap};
 
 #[derive(Default)]
@@ -24,9 +25,13 @@ impl Devices for Console {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let runtime = Runtime::new()?;
+    pollster::block_on(run())
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let runtime = Runtime::new(WasmtimeBackend::new()?).await?;
     let map = PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])?;
-    let mut machine = runtime.machine(map, Console::default())?;
+    let mut machine = runtime.machine(map, Console::default()).await?;
     machine.write_memory(
         0x100,
         &[
@@ -40,9 +45,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cpu.eip = 0x100;
     cpu.registers.esp = 0xfffe;
     machine.set_cpu(cpu)?;
-    let outcome = machine.run(1000, |machine| machine.devices().exit_code.is_some())?;
-    io::stdout().write_all(&machine.devices().output)?;
-    if outcome.stop != RunStop::HostRequested || machine.devices().exit_code != Some(0) {
+    let outcome = machine.run(1000, |machine| {
+        machine.with_devices(|devices| devices.exit_code.is_some())
+    })?;
+    machine.with_devices(|devices| io::stdout().write_all(&devices.output))?;
+    if outcome.stop != RunStop::HostRequested
+        || machine.with_devices(|devices| devices.exit_code) != Some(0)
+    {
         return Err(format!("guest stopped unexpectedly: {outcome:?}").into());
     }
     eprintln!("Guest exited after {} instructions.", outcome.completed);

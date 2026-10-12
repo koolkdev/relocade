@@ -5,8 +5,8 @@ use wasm86_x86::{
     PhysicalMemoryMap,
 };
 
-#[test]
-fn host_transfers_follow_aliases_rom_holes_and_a20() {
+#[pollster::test]
+async fn host_transfers_follow_aliases_rom_holes_and_a20() {
     let map = PhysicalMemoryMap::new([
         (
             0..=0xfff,
@@ -29,8 +29,8 @@ fn host_transfers_follow_aliases_rom_holes_and_a20() {
         (0x5000..=0x5fff, Mmio),
     ])
     .unwrap();
-    let mut machine = runtime().machine(map, ()).unwrap();
-    machine.with_memory(|memory| memory.backing_mut()[0x4000] = 0x56);
+    let mut machine = runtime().await.machine(map, ()).await.unwrap();
+    machine.with_memory(|memory| memory.write_backing(0x4000, &[0x56]).unwrap());
     machine.write_memory(0, &[0x12, 0x34]).unwrap();
     machine.write_memory(0x2000, &[0xff]).unwrap();
     machine.write_memory(0x3000, &[0]).unwrap();
@@ -47,8 +47,8 @@ fn host_transfers_follow_aliases_rom_holes_and_a20() {
     }
 }
 
-#[test]
-fn backing_includes_pages_hidden_by_a20_and_grows_before_remapping() {
+#[pollster::test]
+async fn backing_includes_pages_hidden_by_a20_and_grows_before_remapping() {
     let map = PhysicalMemoryMap::new([
         (0..=0xfff, Ram { backing_offset: 0 }),
         (
@@ -59,9 +59,9 @@ fn backing_includes_pages_hidden_by_a20_and_grows_before_remapping() {
         ),
     ])
     .unwrap();
-    let mut machine = runtime().machine(map, ()).unwrap();
+    let mut machine = runtime().await.machine(map, ()).await.unwrap();
     machine.with_memory(|memory| {
-        memory.backing_mut()[0x20000] = 0x42;
+        memory.write_backing(0x20000, &[0x42]).unwrap();
         memory.set_a20_enabled(true);
     });
     let mut byte = [0];
@@ -76,10 +76,10 @@ fn backing_includes_pages_hidden_by_a20_and_grows_before_remapping() {
     assert_eq!(byte, [0]);
 }
 
-#[test]
-fn invalid_host_transfers_and_device_maps_have_no_partial_effects() {
+#[pollster::test]
+async fn invalid_host_transfers_and_device_maps_have_no_partial_effects() {
     let map = PhysicalMemoryMap::new([(0x10f000..=0x10ffff, Ram { backing_offset: 0 })]).unwrap();
-    let mut machine = runtime().machine(map, ()).unwrap();
+    let mut machine = runtime().await.machine(map, ()).await.unwrap();
     machine.with_memory(|memory| memory.set_a20_enabled(true));
     machine.write_memory(0x10ffff, &[0x42]).unwrap();
     assert_eq!(
@@ -104,4 +104,87 @@ fn invalid_host_transfers_and_device_maps_have_no_partial_effects() {
     );
     machine.read_memory(0x10ffff, &mut bytes[..1]).unwrap();
     assert_eq!(bytes[0], 0x42);
+}
+
+#[pollster::test]
+async fn backing_transfers_validate_the_entire_range() {
+    let map = PhysicalMemoryMap::new([(0..=0xfff, Ram { backing_offset: 0 })]).unwrap();
+    let mut machine = runtime().await.machine(map, ()).await.unwrap();
+    machine.with_memory(|memory| {
+        assert_eq!(memory.backing_len(), 0x10000);
+        memory.write_backing(0xffff, &[0x42]).unwrap();
+        assert_eq!(
+            memory.write_backing(0xffff, &[1, 2]),
+            Err(MemoryError::BackingRange)
+        );
+        let mut bytes = [7, 8];
+        assert_eq!(
+            memory.read_backing(0xffff, &mut bytes),
+            Err(MemoryError::BackingRange)
+        );
+        assert_eq!(bytes, [7, 8]);
+        memory.read_backing(0xffff, &mut bytes[..1]).unwrap();
+        assert_eq!(bytes[0], 0x42);
+    });
+}
+
+#[pollster::test]
+async fn memory_growth_preserves_backing_and_executes_through_the_new_mapping() {
+    let map = PhysicalMemoryMap::new([(0..=0xffff, Ram { backing_offset: 0 })]).unwrap();
+    let mut machine = runtime().await.machine(map, ()).await.unwrap();
+    machine.write_memory(0x100, &[0xb8, 7, 0]).unwrap();
+    let map = PhysicalMemoryMap::new([(
+        0..=0xffff,
+        Ram {
+            backing_offset: 0x20000,
+        },
+    )])
+    .unwrap();
+    machine.set_memory_map(map).unwrap();
+    machine.with_memory(|memory| {
+        assert_eq!(memory.backing_len(), 0x30000);
+        let mut bytes = [0; 3];
+        memory.read_backing(0x100, &mut bytes).unwrap();
+        assert_eq!(bytes, [0xb8, 7, 0]);
+        memory.read_backing(0x20100, &mut bytes).unwrap();
+        assert_eq!(bytes, [0; 3]);
+    });
+    machine.write_memory(0x100, &[0xb8, 42, 0]).unwrap();
+    let mut cpu = machine.cpu();
+    cpu.eip = 0x100;
+    machine.set_cpu(cpu).unwrap();
+    assert_eq!(
+        machine.step().unwrap(),
+        wasm86_runtime::StepOutcome::Completed
+    );
+    assert_eq!(machine.cpu().registers.eax, 42);
+}
+
+#[pollster::test]
+async fn an_error_return_does_not_discard_an_earlier_mapping_change() {
+    let mut machine = super::machine(&[0xa0, 0x10, 0]).await;
+    let mut cpu = machine.cpu();
+    cpu.segments.ds = wasm86_x86::StoredSegment::real_mode(wasm86_x86::Segment::Ds, 0xffff);
+    machine.set_cpu(cpu).unwrap();
+    let oversized = PhysicalMemoryMap::new([(
+        0..=0xfff,
+        Ram {
+            backing_offset: 0x200000,
+        },
+    )])
+    .unwrap();
+    let result = machine.with_memory(|memory| {
+        memory.write_backing(0x100000, &[0x42]).unwrap();
+        memory.set_a20_enabled(true);
+        memory.set_map(oversized)
+    });
+    assert!(matches!(
+        result,
+        Err(MemoryError::InsufficientBacking { .. })
+    ));
+    assert_eq!(
+        machine.step().unwrap(),
+        wasm86_runtime::StepOutcome::Completed
+    );
+    assert_eq!(machine.cpu().registers.eax, 0x42);
 }

@@ -2,9 +2,9 @@ use super::machine;
 use wasm86_runtime::{RunOutcome, RunStop};
 use wasm86_x86::{Exception, ExecutionExit, Segment, StoredSegment};
 
-#[test]
-fn zero_limit_and_initial_host_stop_do_not_execute_an_instruction() {
-    let mut machine = machine(&[0x40]);
+#[pollster::test]
+async fn zero_limit_and_initial_host_stop_do_not_execute_an_instruction() {
+    let mut machine = machine(&[0x40]).await;
     let before = machine.cpu();
     assert_eq!(
         machine.run(0, |_| false).unwrap(),
@@ -25,9 +25,9 @@ fn zero_limit_and_initial_host_stop_do_not_execute_an_instruction() {
     assert_eq!(machine.cpu(), before);
 }
 
-#[test]
-fn instruction_limit_stops_a_loop_and_resumes_across_counter_wrap() {
-    let mut machine = machine(&[0x40, 0xeb, 0xfd]); // INC AX; JMP 0100
+#[pollster::test]
+async fn instruction_limit_stops_a_loop_and_resumes_across_counter_wrap() {
+    let mut machine = machine(&[0x40, 0xeb, 0xfd]).await; // INC AX; JMP 0100
     let mut cpu = machine.cpu();
     cpu.instruction_count = u32::MAX - 1;
     machine.set_cpu(cpu).unwrap();
@@ -45,12 +45,12 @@ fn instruction_limit_stops_a_loop_and_resumes_across_counter_wrap() {
     assert_eq!(machine.cpu().registers.eax, 4);
 }
 
-#[test]
-fn host_can_stop_at_an_interrupt_handler_and_resume_its_return() {
-    let mut machine = machine(&[0xcd, 0x21, 0x0f, 0x0b]);
+#[pollster::test]
+async fn host_can_stop_at_an_interrupt_handler_and_resume_its_return() {
+    let mut machine = machine(&[0xcd, 0x21, 0x0f, 0x0b]).await;
     machine.write_memory(0x84, &[0x10, 0, 0x34, 0x12]).unwrap();
     machine.write_memory(0x12350, &[0xcf]).unwrap();
-    let at_handler = |m: &wasm86_runtime::Machine<()>| {
+    let at_handler = |m: &super::TestMachine| {
         let cpu = m.cpu();
         cpu.segments.cs.selector == 0x1234 && cpu.eip == 0x10
     };
@@ -80,8 +80,8 @@ fn host_can_stop_at_an_interrupt_handler_and_resume_its_return() {
     assert_eq!(machine.cpu().registers.eax, 0x1234);
 }
 
-#[test]
-fn guest_exit_preserves_prior_work_and_takes_precedence_over_host_polling() {
+#[pollster::test]
+async fn guest_exit_preserves_prior_work_and_takes_precedence_over_host_polling() {
     for (suffix, exit) in [
         (
             &[0x0f, 0x0b][..],
@@ -97,7 +97,7 @@ fn guest_exit_preserves_prior_work_and_takes_precedence_over_host_polling() {
     ] {
         let mut code = vec![0x40];
         code.extend_from_slice(suffix);
-        let mut machine = machine(&code);
+        let mut machine = machine(&code).await;
         let mut polls = 0;
         let outcome = machine
             .run(10, |_| {
@@ -119,9 +119,9 @@ fn guest_exit_preserves_prior_work_and_takes_precedence_over_host_polling() {
     }
 }
 
-#[test]
-fn rep_is_one_completed_instruction() {
-    let mut machine = machine(&[0xf3, 0xa4, 0xf4]); // REP MOVSB; unsupported HLT
+#[pollster::test]
+async fn rep_is_one_completed_instruction() {
+    let mut machine = machine(&[0xf3, 0xa4, 0xf4]).await; // REP MOVSB; unsupported HLT
     let mut cpu = machine.cpu();
     cpu.registers.ecx = 3;
     cpu.registers.esi = 0x300;
@@ -142,9 +142,9 @@ fn rep_is_one_completed_instruction() {
     assert_eq!(machine.cpu().eip, 0x102);
 }
 
-#[test]
-fn a_partial_rep_fault_is_not_counted_and_can_resume_after_repair() {
-    let mut machine = machine(&[0x67, 0xf3, 0xa5]); // REP MOVSW with ESI/EDI/ECX
+#[pollster::test]
+async fn a_partial_rep_fault_is_not_counted_and_can_resume_after_repair() {
+    let mut machine = machine(&[0x67, 0xf3, 0xa5]).await; // REP MOVSW with ESI/EDI/ECX
     let mut cpu = machine.cpu();
     cpu.registers.ecx = 2;
     cpu.registers.esi = 0xfffe;

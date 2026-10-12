@@ -20,7 +20,8 @@ that subset. The project is under development; the crates are not published.
 | --- | --- |
 | [wasm86-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
 | [wasm86-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
-| [wasm86-runtime](crates/runtime/src/lib.rs) | Persistent Real16 interpreter machines in Wasmtime, with physical memory and device callbacks. |
+| [wasm86-runtime](crates/runtime/src/lib.rs) | Portable Real16 execution, physical routing and device callbacks. |
+| [wasm86-runtime-wasmtime](crates/runtime-wasmtime/src/lib.rs) | Native execution backend using Wasmtime. |
 | [wasm86-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime and V8 test support. |
 
 ## Generate a block
@@ -45,9 +46,11 @@ Both contracts are included in the x86 crate's generated API documentation.
 
 ## Run a real-mode program
 
-`wasm86-runtime` provides persistent interpreter machines backed by Wasmtime.
-`Runtime::new()` generates and compiles one Real16 interpreter; `runtime.machine`
-creates independent CPU, memory and device state. `Machine::step()` executes one
+`wasm86-runtime` provides persistent interpreter machines through a host-engine
+backend. `Runtime::new(backend).await` generates and prepares one Real16
+interpreter; `runtime.machine(map, devices).await` creates independent CPU,
+memory and device state. Native applications supply `WasmtimeBackend::new()?`
+from `wasm86-runtime-wasmtime`. `Machine::step()` executes one
 instruction, while `Machine::run(limit, should_stop)` returns on a host stop
 request, an instruction limit or a typed guest exit. The predicate observes the
 initial state and each successful instruction boundary, including the final one
@@ -59,16 +62,20 @@ to completion or a guest fault; device callbacks are synchronous. The runtime
 therefore provides no wall-clock preemption guarantee. It reports CPU exceptions
 without delivering them, and supplies no DOS/BIOS services or hardware interrupts.
 
-Run the small [raw x86 example](crates/runtime/examples/real16.rs), which writes
+Run the small [raw x86 example](crates/runtime-wasmtime/examples/real16.rs), which writes
 `Hi` through host-defined output ports and requests an exit:
 
 ```sh
-cargo run -p wasm86-runtime --example real16 --locked
+cargo run -p wasm86-runtime-wasmtime --example real16 --locked
 ```
 
 The [runtime API](crates/runtime/src/lib.rs) describes machine setup, physical
-memory and device callbacks. Execution always uses live instruction bytes through
-the interpreter; the runtime has no guest code cache.
+memory and device callbacks. Backends own compilation, instances and memory
+access; the runtime owns routing, dispatch outcomes and execution limits.
+`with_memory` supplies checked backing operations, and `with_devices` /
+`with_devices_mut` keep device borrows scoped to the backend. Execution always
+uses live instruction bytes through the interpreter; the runtime has no guest
+code cache.
 
 ## Build and test
 

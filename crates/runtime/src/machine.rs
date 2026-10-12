@@ -1,6 +1,9 @@
-use crate::{devices, memory::MemoryBus, DeviceMemory, Devices, MemoryError, Runtime};
+use crate::{
+    backend::{Backend, Instance},
+    imports::Imports,
+    DeviceMemory, Devices, Error, MemoryError, Result, Runtime,
+};
 use wasm86_x86::{CpuState, ExecutionExit, ExecutionProfile, PhysicalMemoryMap, Segments};
-use wasmtime::{Caller, Linker, Memory, MemoryType, Store, TypedFunc};
 
 /// Result of one instruction attempt. CPU and completed memory/device effects
 /// are published for both outcomes, including partial progress on a guest fault.
@@ -10,131 +13,107 @@ pub enum StepOutcome {
     Exited(ExecutionExit),
 }
 
-pub(crate) struct State<D> {
-    pub(crate) devices: D,
-    pub(crate) map: PhysicalMemoryMap,
-    pub(crate) map_changed: bool,
-    dispatched: bool,
-}
-
-/// Persistent real-mode CPU, memory and devices in one Wasmtime store.
+/// Persistent real-mode CPU, memory and devices on one execution backend.
 /// Every entry returns to the host; dispatch never recursively enters Wasm.
-pub struct Machine<D> {
-    store: Store<State<D>>,
-    cpu: Memory,
-    memory: MemoryBus,
-    step: TypedFunc<(), i64>,
+pub struct Machine<B: Backend, D: Devices + 'static> {
+    instance: B::Instance<D>,
 }
 
-impl<D: Devices + 'static> Machine<D> {
-    pub(crate) fn new(
-        runtime: &Runtime,
+impl<B: Backend, D: Devices + 'static> Machine<B, D> {
+    pub(crate) async fn new(
+        runtime: &Runtime<B>,
         map: PhysicalMemoryMap,
         devices: D,
-    ) -> wasmtime::Result<Self> {
-        let mut store = Store::new(
-            &runtime.engine,
-            State {
-                devices,
-                map,
-                map_changed: false,
-                dispatched: false,
-            },
-        );
-        let cpu = Memory::new(&mut store, MemoryType::new(1, Some(1)))?;
-        let memory = MemoryBus::new(&mut store)?;
-        let mut linker = Linker::new(&runtime.engine);
-        linker.define(&store, "wasm86", "cpuState", cpu)?;
-        memory.define_imports(&mut linker, &store)?;
-        linker.func_wrap(
-            "wasm86",
-            "dispatch",
-            |mut caller: Caller<'_, State<D>>, _eip: i32| {
-                caller.data_mut().dispatched = true;
-                0_i64
-            },
-        )?;
-        devices::register(&mut linker, memory)?;
-        let instance = linker.instantiate(&mut store, &runtime.interpreter)?;
-        let step = instance.get_typed_func::<(), i64>(&mut store, "step")?;
-        let mut machine = Self {
-            store,
-            cpu,
-            memory,
-            step,
-        };
-        machine.set_cpu(CpuState {
+    ) -> Result<Self> {
+        let required = map.required_backing_bytes();
+        let mut instance = runtime
+            .backend
+            .instantiate(&runtime.interpreter, Imports::new(map, devices))
+            .await?;
+        instance.grow_guest(required)?;
+        instance.with_memory(|imports, memory| imports.publish_map(memory));
+        instance.set_cpu(&CpuState {
             segments: Segments::real_mode(),
             ..CpuState::default()
-        })?;
-        Ok(machine)
+        });
+        Ok(Self { instance })
     }
 
     pub fn cpu(&self) -> CpuState {
-        CpuState::from_bytes(
-            self.cpu.data(&self.store)[..CpuState::BYTE_LEN]
-                .try_into()
-                .unwrap(),
-        )
+        self.instance.cpu()
     }
 
     /// Replaces CPU state between entries after checking canonical real-mode
     /// caches. Other architectural state follows the x86 CPU-image contract.
-    pub fn set_cpu(&mut self, cpu: CpuState) -> wasmtime::Result<()> {
+    pub fn set_cpu(&mut self, cpu: CpuState) -> Result<()> {
         if !ExecutionProfile::Real16.is_compatible_with(&cpu.segments) {
-            return Err(wasmtime::Error::msg(
-                "CPU segment caches are incompatible with Real16",
-            ));
+            return Err(Error::IncompatibleCpu);
         }
-        self.cpu.write(&mut self.store, 0, &cpu.to_bytes())?;
+        self.instance.set_cpu(&cpu);
         Ok(())
     }
 
-    pub fn devices(&self) -> &D {
-        &self.store.data().devices
-    }
-    pub fn devices_mut(&mut self) -> &mut D {
-        &mut self.store.data_mut().devices
+    /// Inspects devices without allowing a borrow to escape the backend's scope.
+    pub fn with_devices<R>(&self, inspect: impl FnOnce(&D) -> R) -> R {
+        self.instance.inspect(|imports| inspect(&imports.devices))
     }
 
-    /// Executes one instruction, including a complete REP. This is an instruction
-    /// boundary, not a wall-clock bound. Unexpected Wasm/host failures are returned
-    /// as implementation errors; they are not resumable guest execution outcomes.
-    pub fn step(&mut self) -> wasmtime::Result<StepOutcome> {
-        self.store.data_mut().dispatched = false;
-        let word = self.step.call(&mut self.store, ())?;
-        if self.store.data().dispatched {
-            Ok(StepOutcome::Completed)
-        } else {
-            let exit = ExecutionExit::from_bits(word as u64).ok_or_else(|| {
-                wasmtime::Error::msg(format!("invalid guest exit word {word:#018x}"))
-            })?;
-            Ok(StepOutcome::Exited(exit))
-        }
+    pub fn with_devices_mut<R>(&mut self, update: impl FnOnce(&mut D) -> R) -> R {
+        self.instance
+            .with_memory(|imports, _| update(&mut imports.devices))
+    }
+
+    /// Executes one instruction, including a complete REP. Unexpected engine
+    /// failures are implementation errors, not resumable guest outcomes.
+    pub fn step(&mut self) -> Result<StepOutcome> {
+        self.instance
+            .with_memory(|imports, _| imports.dispatched = false);
+        let word = self.instance.enter()?;
+        self.instance.inspect(|imports| {
+            if imports.dispatched {
+                Ok(StepOutcome::Completed)
+            } else {
+                ExecutionExit::from_bits(word)
+                    .map(StepOutcome::Exited)
+                    .ok_or(Error::InvalidExit(word))
+            }
+        })
     }
 
     /// Changes mappings between entries, growing zeroed backing as needed.
-    pub fn set_memory_map(&mut self, map: PhysicalMemoryMap) -> wasmtime::Result<()> {
-        self.memory.set_map(&mut self.store, map)
+    pub fn set_memory_map(&mut self, map: PhysicalMemoryMap) -> Result<()> {
+        self.instance.grow_guest(map.required_backing_bytes())?;
+        self.with_memory(|memory| memory.set_map(map))
+            .expect("backend grew backing for every mapping");
+        Ok(())
     }
 
-    /// Gives the embedding access to backing and routing between entries. A changed
-    /// map is installed before execution resumes, just as during device callbacks.
+    /// Accesses backing and routing between entries. Changes are published before
+    /// this call returns, including any replacement physical-map table.
     pub fn with_memory<R>(&mut self, access: impl FnOnce(&mut DeviceMemory<'_>) -> R) -> R {
-        self.memory
-            .access(&mut self.store, |_, memory| access(memory))
+        self.instance
+            .with_memory(|imports, memory| imports.access(memory, |_, memory| access(memory)))
     }
 
     /// Reads physical bytes through current A20 and RAM/ROM/MMIO/hole routing.
-    /// Host buffer transfers issue byte-wide MMIO accesses; CPU operands retain
-    /// the widths specified by the x86 physical-memory contract.
-    pub fn read_memory(&mut self, address: u32, bytes: &mut [u8]) -> Result<(), MemoryError> {
-        self.memory.read(&mut self.store, address, bytes)
+    /// Host buffer transfers use byte-wide MMIO; CPU operands retain their widths.
+    pub fn read_memory(
+        &mut self,
+        address: u32,
+        bytes: &mut [u8],
+    ) -> std::result::Result<(), MemoryError> {
+        self.instance
+            .with_memory(|imports, memory| imports.read(memory, address, bytes))
     }
 
-    /// Writes physical bytes through current routing. ROM/hole writes are ignored;
-    /// use [`Self::with_memory`] for explicit initialization of ROM backing.
-    pub fn write_memory(&mut self, address: u32, bytes: &[u8]) -> Result<(), MemoryError> {
-        self.memory.write(&mut self.store, address, bytes)
+    /// Writes through physical routing; ROM/hole writes are ignored. Initialize
+    /// ROM explicitly with [`DeviceMemory::write_backing`] in [`Self::with_memory`].
+    pub fn write_memory(
+        &mut self,
+        address: u32,
+        bytes: &[u8],
+    ) -> std::result::Result<(), MemoryError> {
+        self.instance
+            .with_memory(|imports, memory| imports.write(memory, address, bytes))
     }
 }
