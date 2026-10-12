@@ -9,7 +9,8 @@ mod tests;
 use wasm86_compiler::{Val, F64, I1, I16, I32, I64};
 
 use super::BinaryFormat;
-pub(super) use classification::Classification;
+pub(crate) use classification::Classification;
+pub(super) use classification::KnownClass;
 pub(super) use precision53::Precision53;
 
 /// Raw extended encodings include unsupported values and signaling NaNs.
@@ -27,14 +28,6 @@ impl ExtendedBits {
     pub(super) fn negative(&self) -> Val<I1> {
         self.sign_exponent.and(0x8000).ne(0)
     }
-
-    fn normal(&self) -> Val<I1> {
-        let exponent = self.exponent_field();
-        exponent
-            .ne(0)
-            .and(exponent.ne(0x7fff))
-            .and(self.significand.and(1_u64 << 63).ne(0_u64))
-    }
 }
 
 #[derive(Clone)]
@@ -42,7 +35,7 @@ pub(crate) struct ExtendedValue {
     representation: Representation,
     // An exact class established by construction or a successful guard.
     // Unknown encodings retain their bits rather than acquiring a guessed class.
-    class: Option<Classification>,
+    class: Option<KnownClass>,
 }
 
 #[derive(Clone)]
@@ -110,7 +103,7 @@ impl ExtendedValue {
     pub(crate) fn bits(&self) -> ExtendedBits {
         match &self.representation {
             Representation::Extended(bits) => bits.clone(),
-            Representation::Precision53(value) => value.bits(),
+            Representation::Precision53(value) => value.bits().clone(),
             Representation::Binary { format, bits } => format.expand(bits),
         }
     }
@@ -131,7 +124,7 @@ impl ExtendedValue {
         value.class = self
             .class
             .as_ref()
-            .map(|class| Classification::quiet_nan().select(invalid, class));
+            .map(|class| KnownClass::quiet_nan().select(invalid, class));
         value
     }
 
@@ -172,16 +165,20 @@ impl ExtendedValue {
         }
     }
 
-    pub(crate) fn tag(&self) -> Val<I16> {
+    /// The caller must establish this exact class wherever the value is used.
+    pub(in crate::x87) fn assume_class(mut self, class: KnownClass) -> Self {
+        self.class = Some(class);
+        self
+    }
+
+    pub(crate) fn classification(&self) -> Classification<'_> {
         if let Some(class) = &self.class {
-            // The three established classes have the same codes as their tags.
-            return class.0.unsigned().extend::<I16>();
+            return Classification::known(class);
         }
         match &self.representation {
-            Representation::Binary { format, bits } => format.tag(bits),
-            Representation::Extended(_) | Representation::Precision53(_) => self
-                .zero()
-                .select(1_u32, self.normal().select(0_u32, 2_u32)),
+            Representation::Extended(bits) => Classification::extended(bits),
+            Representation::Precision53(value) => Classification::extended(value.bits()),
+            Representation::Binary { format, bits } => Classification::loaded_binary(*format, bits),
         }
     }
 }

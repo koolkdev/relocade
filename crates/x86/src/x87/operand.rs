@@ -22,20 +22,22 @@ pub(super) struct Operand {
 
 impl Operand {
     fn new(value: &ExtendedValue) -> Self {
+        let class = value.classification();
         Self {
             bits: value.bits(),
             precision53_significand: value.precision53_significand(),
-            normal_or_zero: value.normal().or(value.zero()),
-            zero: value.zero(),
-            infinity: value.infinity(),
-            nan: value.nan(),
-            signaling_nan: value.signaling_nan(),
-            denormal: value.denormal(),
-            unsupported: value.unsupported(),
+            normal_or_zero: class.normal_or_zero(),
+            zero: class.zero(),
+            infinity: class.infinity(),
+            nan: class.nan(),
+            signaling_nan: class.signaling_nan(),
+            denormal: class.denormal(),
+            unsupported: class.unsupported(),
         }
     }
 
     fn from_binary(source: &BinaryOperand) -> Self {
+        let class = source.classification();
         Self {
             bits: source.expanded_bits(),
             precision53_significand: Some(
@@ -45,10 +47,10 @@ impl Operand {
             ),
             // Every finite narrow value expands to normal binary80 or zero.
             // A narrow denormal still carries #D evidence for this operation.
-            normal_or_zero: source.finite(),
-            zero: source.zero(),
-            infinity: source.infinity(),
-            nan: source.nan(),
+            normal_or_zero: class.finite(),
+            zero: class.zero(),
+            infinity: class.infinity(),
+            nan: class.nan(),
             signaling_nan: source.signaling_nan.clone(),
             denormal: source.denormal.clone(),
             unsupported: false.into(),

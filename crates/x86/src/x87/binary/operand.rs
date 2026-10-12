@@ -2,7 +2,7 @@
 
 use wasm86_compiler::{Val, I1, I64};
 
-use super::BinaryFormat;
+use super::{BinaryClassification, BinaryFormat};
 use crate::x87::{ExtendedBits, ExtendedValue};
 
 pub(crate) struct BinaryOperand {
@@ -14,15 +14,12 @@ pub(crate) struct BinaryOperand {
 
 impl BinaryFormat {
     pub(crate) fn decode(self, bits: &Val<I64>) -> BinaryOperand {
-        let nan = bits
-            .and(self.sign_bit() - 1)
-            .unsigned()
-            .ge(self.infinity() + 1);
+        let class = self.classification(bits);
         BinaryOperand {
             format: self,
             bits: bits.clone(),
-            signaling_nan: nan.and(bits.and(self.quiet_bit()).eq(0_u64)),
-            denormal: self.denormal(bits),
+            signaling_nan: class.signaling_nan(),
+            denormal: class.denormal(),
         }
     }
 }
@@ -43,23 +40,8 @@ impl BinaryOperand {
         self.format.expand(&self.bits)
     }
 
-    fn magnitude(&self) -> Val<I64> {
-        self.bits.and(self.format.sign_bit() - 1)
-    }
-
-    pub(in crate::x87) fn finite(&self) -> Val<I1> {
-        self.magnitude().unsigned().lt(self.format.infinity())
-    }
-
-    pub(in crate::x87) fn zero(&self) -> Val<I1> {
-        self.magnitude().eq(0_u64)
-    }
-
-    pub(in crate::x87) fn infinity(&self) -> Val<I1> {
-        self.magnitude().eq(self.format.infinity())
-    }
-
-    pub(in crate::x87) fn nan(&self) -> Val<I1> {
-        self.magnitude().unsigned().ge(self.format.infinity() + 1)
+    /// Classifies the original source before loading normalizes or quiets it.
+    pub(in crate::x87) fn classification(&self) -> BinaryClassification<'_> {
+        self.format.classification(&self.bits)
     }
 }

@@ -3,7 +3,7 @@
 use wasm86_compiler::{AtLeast, MemoryInt, Val, I16, I32, I64};
 
 use super::{
-    rounding::RoundingInput, value::Classification, ConversionResult, ExtendedBits, ExtendedValue,
+    rounding::RoundingInput, value::KnownClass, ConversionResult, ExtendedBits, ExtendedValue,
     RoundingMode,
 };
 
@@ -29,7 +29,7 @@ impl ExtendedValue {
                 .or(exponent)
                 .truncate::<I16>(),
         })
-        .assume_class(Classification::zero().select(&integer.eq(0_u64), &Classification::normal()));
+        .assume_class(KnownClass::zero().select(&integer.eq(0_u64), &KnownClass::normal()));
         // Narrow integers need at most 32 significant bits. Keep the raw view
         // as well, so encoding consumers need no native-significand conversion.
         if T::BYTES <= 4 {
@@ -46,7 +46,7 @@ impl ExtendedValue {
         let value = self.bits();
         let exponent = value.exponent_field();
         let negative = value.negative();
-        let unsupported = self.unsupported();
+        let unsupported = self.classification().unsupported();
         // E=0 uses the same exponent as E=1, including pseudo-denormals.
         // No signed destination can contain a magnitude of 2^64 or more.
         let exponent = exponent.eq(0).select(1_u32, exponent);
