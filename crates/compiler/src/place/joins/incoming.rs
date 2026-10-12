@@ -1,16 +1,17 @@
-//! Resolve recipes against shared predecessor records and that path's facts.
+//! Reduce a predecessor recipe with the same semantics used by its consumers.
 use super::*;
-use crate::expression::UnaryOp as Unary;
 
 pub(super) struct IncomingValues {
     pub(super) source: usize,
+    reducer: Reducer,
     resolved: HashMap<usize, Option<usize>>,
 }
 
 impl IncomingValues {
-    pub(super) fn new(source: usize) -> Self {
+    pub(super) fn new(source: usize, facts: &ScalarFacts) -> Self {
         Self {
             source,
+            reducer: Reducer::from_facts(facts.clone()),
             resolved: HashMap::new(),
         }
     }
@@ -18,59 +19,31 @@ impl IncomingValues {
     pub(super) fn resolve(
         &mut self,
         graph: &mut FunctionGraph,
-        mut recipe: usize,
+        recipe: usize,
         joins: &Joins,
     ) -> Option<usize> {
-        let facts = joins.blocks[self.source].facts.as_ref().unwrap();
-        let mut path = Vec::new();
-        let result = loop {
-            if let Some(&result) = self.resolved.get(&recipe) {
-                break result;
-            }
-            path.push(recipe);
-            // Search the completed predecessor and its dominator ancestors.
-            // The consuming block's active bindings cannot describe this path.
-            if let Some(value) = joins.recorded_value(self.source, recipe) {
-                break Some(value);
-            }
-            let value = graph.values[recipe];
-            if let ValueDefinition::Parameter { block, .. } = value.definition {
-                break joins
-                    .dominators
-                    .dominates(block.0, self.source)
-                    .then_some(recipe);
-            }
-            if let Some(bits) = facts.constant(&graph.values, recipe) {
-                let bits = graph.values.carrier_bits(recipe, bits);
-                break Some(graph.values.carrier_literal(value.ty, bits));
-            }
-            recipe = match value.definition {
-                ValueDefinition::Expression(Expression::Select {
-                    condition,
-                    when_true,
-                    when_false,
-                }) => {
-                    let Some(bits) = facts.constant(&graph.values, condition) else {
-                        break None;
-                    };
-                    if bits == 0 {
-                        when_false
-                    } else {
-                        when_true
-                    }
-                }
-                ValueDefinition::Expression(Expression::Unary {
-                    operator: Unary::Convert,
-                    input,
-                }) if graph.values[input].ty.carrier() == value.ty.carrier() => input,
-                _ => break None,
-            };
-        };
-        // Ancestor records can gain equivalent bindings after this query.
-        // A cached miss may forgo reuse, but cannot introduce an invalid value.
-        for recipe in path {
-            self.resolved.insert(recipe, result);
+        if let Some(&result) = self.resolved.get(&recipe) {
+            return result;
         }
+        // Reduction never adds an execution. A non-leaf residual can only be
+        // supplied by a calculation already recorded on this predecessor.
+        let residual = self.reducer.reduce(&mut graph.values, recipe);
+        let residual = graph.values.representation(residual);
+        let result = joins
+            .recorded_value(self.source, recipe)
+            .or_else(|| joins.recorded_value(self.source, residual))
+            .or_else(|| match graph.values[residual].definition {
+                ValueDefinition::Literal(_) => Some(residual),
+                ValueDefinition::Parameter { block, .. }
+                    if joins.dominators.dominates(block.0, self.source) =>
+                {
+                    Some(residual)
+                }
+                _ => None,
+            });
+        // Ancestor records may later gain equivalent bindings. A cached miss
+        // can forgo reuse but cannot authorize an unavailable execution.
+        self.resolved.insert(recipe, result);
         result
     }
 }

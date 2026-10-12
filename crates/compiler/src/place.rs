@@ -9,8 +9,8 @@ mod effects;
 mod facts;
 mod joins;
 mod reads;
+mod reduce;
 mod shared;
-mod specialize;
 #[cfg(test)]
 mod tests;
 mod value;
@@ -19,7 +19,7 @@ use dominance::Dominators;
 use effects::Effects;
 use facts::ScalarFacts;
 use joins::Joins;
-use specialize::{BlockScope, Specializer};
+use reduce::{EdgeAssumption, Reducer, ReductionScope};
 
 /// Call summaries describe authored bodies, before placement removes dead work.
 pub(super) struct Placement {
@@ -118,7 +118,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
     let mut placer = Placer {
         graph,
         reachable,
-        specializer: Specializer::default(),
+        reducer: Reducer::default(),
         available: Availability::default(),
         shared,
         joins,
@@ -128,7 +128,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
         Leave {
             block: usize,
             checkpoint: Checkpoint,
-            scope: BlockScope,
+            scope: ReductionScope,
         },
     }
     let mut work = vec![Visit::Enter(placer.graph.entry.0)];
@@ -145,46 +145,42 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
                     index,
                     &mut placer.available,
                 );
-                let scope = placer.specializer.begin_block(incoming);
                 // A unique predecessor's selected edge supplies facts valid on
-                // every entrance. Dominator ancestry preserves them afterwards.
-                if predecessors[index].len() == 1 {
+                // every entrance. Establish the whole context before placement queries.
+                let edge = if predecessors[index].len() == 1 {
                     let source = predecessors[index][0];
-                    match placer.graph.blocks[source].exit.clone() {
+                    match placer.joins.semantic_exit(source) {
                         Exit::If {
                             condition,
                             taken,
                             otherwise,
-                        } if taken.target != otherwise.target => {
-                            placer.specializer.assume(
-                                &placer.graph.values,
-                                &placer.available,
-                                condition,
-                                taken.target.0 == index,
-                            );
-                        }
+                        } if taken.target != otherwise.target => Some(EdgeAssumption::Truth {
+                            condition: *condition,
+                            truth: taken.target.0 == index,
+                        }),
                         Exit::Switch {
                             selector,
                             cases,
                             default,
                         } if default.target.0 != index => {
-                            let keys: Vec<_> = cases
+                            let mut keys = cases
                                 .iter()
                                 .filter(|(_, edge)| edge.target.0 == index)
-                                .map(|(key, _)| *key)
-                                .collect();
-                            if keys.len() == 1 {
-                                placer.specializer.equal(
-                                    &placer.graph.values,
-                                    &placer.available,
-                                    selector,
-                                    u64::from(keys[0]),
-                                );
+                                .map(|(key, _)| *key);
+                            match (keys.next(), keys.next()) {
+                                (Some(key), None) => Some(EdgeAssumption::Equal {
+                                    selector: *selector,
+                                    value: u64::from(key),
+                                }),
+                                _ => None,
                             }
                         }
-                        _ => {}
+                        _ => None,
                     }
-                }
+                } else {
+                    None
+                };
+                let scope = placer.reducer.enter(&placer.graph.values, incoming, edge);
                 placer.block(BlockId(index));
                 placer
                     .joins
@@ -202,8 +198,8 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
                 scope,
             } => {
                 placer.available.restore(checkpoint);
-                placer.joins.complete(block, placer.specializer.facts());
-                placer.specializer.end_block(scope);
+                placer.joins.complete(block, placer.reducer.facts());
+                placer.reducer.leave(scope);
             }
         }
     }
@@ -212,7 +208,7 @@ fn place_calculations(graph: &mut FunctionGraph, summaries: &[Effects]) {
 struct Placer<'a> {
     graph: &'a mut FunctionGraph,
     reachable: Vec<bool>,
-    specializer: Specializer,
+    reducer: Reducer,
     available: Availability,
     shared: Vec<Vec<usize>>,
     joins: Joins,

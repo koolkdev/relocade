@@ -200,7 +200,7 @@ impl ScalarFacts {
                 }
                 Ok(TypedLiteral {
                     ty,
-                    value: table.carrier_bits(input, bits.value).into(),
+                    value: table.carrier_bits(input, bits.value).ok_or(())?.into(),
                 })
             }) {
                 if let Some(result) = constants
