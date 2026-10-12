@@ -8,13 +8,19 @@ mod predecessors;
 fn graph() -> FunctionGraph {
     let mut graph = FunctionGraph::new();
     for (component, ty) in [Type::I1, Type::I32].into_iter().enumerate() {
-        let parameter = graph.values.push(Value {
-            ty,
-            definition: ValueDefinition::Parameter {
-                block: graph.entry,
-                component,
+        let parameter = graph.values.push_with_bounds(
+            Value {
+                ty,
+                definition: ValueDefinition::Parameter {
+                    block: graph.entry,
+                    component,
+                },
             },
-        });
+            BitBounds {
+                unsigned: ty.bits(),
+                signed: ty.bits().saturating_add(1).min(ty.carrier().bits()),
+            },
+        );
         graph.blocks[0].parameters.push(parameter);
     }
     graph
@@ -308,16 +314,18 @@ fn identical_incoming_carriers_can_reuse_a_value_with_a_different_logical_type()
     assert_eq!(graph.values[result].ty, Type::I32);
     assert_eq!(graph.values[byte].ty, Type::I8);
     assert!(graph.blocks[arms.join.0].parameters.is_empty());
-    let mut available = Availability::default();
-    available.bind(byte, result);
-    let mut specializer = Specializer::default();
-    specializer.equal(&graph.values, &available, result, 0x1234);
-    assert_eq!(
-        specializer.facts_mut().constant(&graph.values, byte),
-        Some(0x34)
+    let mut reducer = Reducer::default();
+    reducer.enter(
+        &graph.values,
+        None,
+        Some(EdgeAssumption::Equal {
+            selector: result,
+            value: 0x1234,
+        }),
     );
+    assert_eq!(reducer.facts().constant(&graph.values, byte), Some(0x34));
     assert_eq!(
-        specializer.facts_mut().constant(&graph.values, result),
+        reducer.facts().constant(&graph.values, result),
         Some(0x1234)
     );
 }

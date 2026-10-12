@@ -1,79 +1,8 @@
 use super::*;
-use crate::expression::BinaryOp as Binary;
+use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
 
 #[test]
-fn aliases_wait_for_execution_and_survive_in_each_dominated_branch() {
-    let mut available = Availability::default();
-    available.record_aliases([Alias {
-        recipe: 1,
-        residual: 2,
-    }]);
-    assert_eq!(available.get(1), None);
-    let parent = available.checkpoint();
-    available.bind(2, 3);
-    assert_eq!(available.get(1), Some(3));
-    available.restore(parent);
-    assert_eq!(available.get(1), None);
-    available.bind(2, 4);
-    assert_eq!(available.get(1), Some(4));
-}
-
-#[test]
-fn aliases_of_executed_values_are_available_immediately() {
-    let mut available = Availability::default();
-    available.bind(2, 3);
-    assert_eq!(available.get(3), Some(3));
-    available.record_aliases([Alias {
-        recipe: 1,
-        residual: 2,
-    }]);
-    assert_eq!(available.get(1), Some(3));
-}
-
-#[test]
-fn leaving_a_branch_removes_its_aliases_and_restores_existing_bindings() {
-    let mut available = Availability::default();
-    available.bind(0, 1);
-    let parent = available.checkpoint();
-    available.record_aliases([Alias {
-        recipe: 2,
-        residual: 3,
-    }]);
-    available.bind(0, 4);
-    available.bind(3, 5);
-    assert_eq!(available.get(2), Some(5));
-    available.restore(parent);
-    assert_eq!(available.get(0), Some(1));
-    available.bind(3, 6);
-    assert_eq!(available.get(2), None);
-}
-
-#[test]
-fn chains_of_aliases_publish_without_replacing_known_values() {
-    let mut available = Availability::default();
-    available.bind(0, 7);
-    available.record_aliases([
-        Alias {
-            recipe: 0,
-            residual: 1,
-        },
-        Alias {
-            recipe: 1,
-            residual: 2,
-        },
-        Alias {
-            recipe: 2,
-            residual: 3,
-        },
-    ]);
-    available.bind(3, 4);
-    assert_eq!(available.get(0), Some(7));
-    assert_eq!(available.get(1), Some(4));
-    assert_eq!(available.get(2), Some(4));
-}
-
-#[test]
-fn execution_reuse_and_aliases_end_together_at_scope_exit() {
+fn execution_reuse_and_bindings_end_together_at_scope_exit() {
     let mut graph = FunctionGraph::new();
     let input = graph.values.push(Value {
         ty: crate::Type::I64,
@@ -170,59 +99,73 @@ fn rebinding_inputs_preserves_the_recipe_for_a_later_unchanged_placement() {
 }
 
 #[test]
-fn publishing_an_alias_chain_keeps_intermediate_width_limits_for_facts() {
-    enum BindingOrder {
-        ResidualBeforeAlias,
-        ResidualAfterAlias,
-        OriginalAfterAliases,
-    }
-    let mut values = ValueTable::default();
-    let inputs: Vec<_> = [crate::Type::I32, crate::Type::I8, crate::Type::I32]
-        .into_iter()
-        .enumerate()
-        .map(|(component, ty)| {
-            values.push(Value {
-                ty,
-                definition: ValueDefinition::Parameter {
-                    block: BlockId(0),
-                    component,
-                },
-            })
-        })
-        .collect();
-    let [original, narrow, executed] = inputs[..] else {
-        unreachable!()
-    };
-    for order in [
-        BindingOrder::ResidualBeforeAlias,
-        BindingOrder::ResidualAfterAlias,
-        BindingOrder::OriginalAfterAliases,
-    ] {
+fn logical_input_widths_survive_same_carrier_aliases() {
+    use crate::{integer::BitCountOp, Type};
+    fn check(
+        bits: u64,
+        ty: Type,
+        expression: impl FnOnce(usize, &mut ValueTable) -> Expression<usize>,
+        expected: u128,
+    ) {
+        let mut graph = FunctionGraph::new();
+        let source = graph.values.literal(Type::I32, bits);
+        let byte = graph.values.intern(Value {
+            ty: Type::I8,
+            definition: ValueDefinition::Expression(Expression::Unary {
+                operator: Unary::Convert,
+                input: source,
+            }),
+        });
+        let expression = expression(byte, &mut graph.values);
+        let consumer = graph.values.intern(Value {
+            ty,
+            definition: ValueDefinition::Expression(expression),
+        });
+        // Joins may reuse an identical carrier with a different logical type.
         let mut available = Availability::default();
-        if matches!(order, BindingOrder::ResidualBeforeAlias) {
-            available.bind(narrow, executed);
-        }
-        available.record_aliases([Alias {
-            recipe: original,
-            residual: narrow,
-        }]);
-        match order {
-            BindingOrder::ResidualBeforeAlias => {}
-            BindingOrder::ResidualAfterAlias => available.bind(narrow, executed),
-            BindingOrder::OriginalAfterAliases => {
-                available.record_aliases([Alias {
-                    recipe: narrow,
-                    residual: executed,
-                }]);
-                available.bind(original, executed);
-            }
-        }
-        assert_eq!(available.get(original), Some(executed));
-        let known = available
-            .sources(&values, executed, u64::from(u32::MAX))
-            .into_iter()
-            .filter(|source| source.recipe == original)
-            .fold(0, |mask, source| mask | source.mask);
-        assert_eq!(known, 0xff);
+        available.bind(byte, source);
+        available.evaluate(&mut graph, BlockId(0), consumer);
+        let placed = available.get(consumer).unwrap();
+        let result = crate::expression::refold(&mut graph.values, placed);
+        let ValueDefinition::Literal(bits) = graph.values[result].definition else {
+            panic!("the resolved literal input folds");
+        };
+        assert_eq!(u128::from(bits), expected);
     }
+    check(
+        0x34,
+        Type::I8,
+        |input, _| Expression::Unary {
+            operator: Unary::BitCount {
+                operator: BitCountOp::LeadingZeros,
+                input_type: Type::I8,
+            },
+            input,
+        },
+        2,
+    );
+    check(
+        0x80,
+        Type::I32,
+        |input, _| Expression::Unary {
+            operator: Unary::SignExtend {
+                input_type: Type::I8,
+            },
+            input,
+        },
+        0xffff_ff80,
+    );
+    check(
+        0x34,
+        Type::V128,
+        |input, values| Expression::Binary {
+            operator: Binary::ReplaceLane {
+                lane_type: Type::I8,
+                lane: 3,
+            },
+            left: values.literal(Type::V128, 0_u128),
+            right: input,
+        },
+        0x34_u128 << 24,
+    );
 }

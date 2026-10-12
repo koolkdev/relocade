@@ -5,13 +5,19 @@ use crate::{integer::BinaryOp, Type};
 fn graph() -> FunctionGraph {
     let mut graph = FunctionGraph::new();
     for (component, ty) in [Type::I1, Type::I32].into_iter().enumerate() {
-        let value = graph.values.push(Value {
-            ty,
-            definition: ValueDefinition::Parameter {
-                block: graph.entry,
-                component,
+        let value = graph.values.push_with_bounds(
+            Value {
+                ty,
+                definition: ValueDefinition::Parameter {
+                    block: graph.entry,
+                    component,
+                },
             },
-        });
+            BitBounds {
+                unsigned: ty.bits(),
+                signed: ty.bits().saturating_add(1).min(ty.carrier().bits()),
+            },
+        );
         graph.blocks[0].parameters.push(value);
     }
     graph
@@ -71,7 +77,7 @@ fn placer(graph: &mut FunctionGraph) -> Placer<'_> {
     Placer {
         graph,
         reachable,
-        specializer: Specializer::default(),
+        reducer: Reducer::default(),
         available: Availability::default(),
         shared,
         joins,
@@ -226,7 +232,7 @@ fn retained_calculations_keep_their_dependencies_in_schedule_order() {
 }
 
 #[test]
-fn sharing_analysis_resolves_ancestor_joins_before_caching_values() {
+fn reduction_leaves_ancestor_joins_to_materialization() {
     let mut graph = graph();
     let product = square(&mut graph);
     let sources = branch(&mut graph, BlockId(0), 0, product);
@@ -255,10 +261,10 @@ fn sharing_analysis_resolves_ancestor_joins_before_caching_values() {
     );
     let mut scheduled = vec![product];
     // A descendant first asks for the value while inspecting its early work.
-    // Its specializer must cache the ancestor's joined value, not the recipe.
+    // Reducing a recipe does not allocate an execution join.
     placer.defer_eliminated(uses[0], &mut scheduled);
-    let parameter = placer.graph.blocks[join.0].parameters[0];
-    assert_eq!(placer.materialize(product, uses[0]), parameter);
+    assert!(placer.graph.blocks[join.0].parameters.is_empty());
+    let parameter = placer.materialize(product, uses[0]);
     assert_eq!(placer.graph.blocks[join.0].parameters, [parameter]);
     assert!(placer.graph.blocks[uses[0].0].items.is_empty());
 }
@@ -293,10 +299,14 @@ fn knowing_one_component_does_not_make_its_sibling_available() {
         },
     );
     let mut placer = placer(&mut graph);
-    placer
-        .specializer
-        .facts_mut()
-        .assume(&placer.graph.values, condition, true);
+    placer.reducer.enter(
+        &placer.graph.values,
+        None,
+        Some(EdgeAssumption::Truth {
+            condition,
+            truth: true,
+        }),
+    );
     let folded = placer.materialize(low, BlockId(0));
     assert!(matches!(
         placer.graph.values[folded].scalar_literal(),

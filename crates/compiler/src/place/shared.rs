@@ -29,14 +29,14 @@ impl Placer<'_> {
             .iter()
             .map(|&recipe| SharedValue {
                 recipe,
-                residual: self.specialize(recipe, block),
+                residual: self.reducer.reduce(&mut self.graph.values, recipe),
                 can_defer: false,
             })
             .collect();
         let exit_inputs = self.graph.blocks[block.0].exit.inputs();
         let exit_inputs: Vec<_> = exit_inputs
             .into_iter()
-            .map(|value| self.specialize(value, block))
+            .map(|value| self.reducer.reduce(&mut self.graph.values, value))
             .collect();
         let exit_needs = self.required_values(exit_inputs.iter().copied());
         for value in &mut values {
@@ -47,19 +47,15 @@ impl Placer<'_> {
             return;
         }
 
-        // Previews share the current availability but have separate facts and
-        // residual caches. They neither schedule work nor create joined values.
-        let mut paths = [false, true].map(|truth| {
-            self.specializer
-                .on_branch(&self.graph.values, &self.available, condition, truth)
-        });
+        // Previews reduce the same semantic recipes with separate facts and
+        // residual caches. Scheduling then checks whether the result needs work.
+        let mut paths =
+            [false, true].map(|truth| self.reducer.on_branch(&self.graph.values, condition, truth));
         for value in &mut values {
             value.can_defer = value.can_defer
                 && paths.iter_mut().any(|path| {
-                    let residual = path.specialize(self.graph, value.recipe, |graph, id, _| {
-                        self.available.lookup(&graph.values, id)
-                    });
-                    !self.needs_evaluation(residual.value)
+                    let residual = path.reduce(&mut self.graph.values, value.recipe);
+                    !self.needs_evaluation(residual)
                 });
         }
 
