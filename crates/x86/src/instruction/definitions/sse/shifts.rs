@@ -71,5 +71,5 @@ fn shift<T: VectorLane + MemoryInt>(
 ) -> Result<(), BuildError> {
     let count = count.read_count(execution)?;
     let input = execution.read_xmm(destination.clone())?;
-    execution.write_xmm(destination, operation.apply_packed::<T>(input, count))
+    execution.write_xmm(destination, operation.apply_packed::<T, _>(input, count))
 }

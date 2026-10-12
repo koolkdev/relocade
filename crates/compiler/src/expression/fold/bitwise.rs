@@ -1,4 +1,4 @@
-//! Shared bitwise identities and integer mask normalization.
+//! Bitwise identities and mask rewrites that preserve every carrier bit.
 
 use super::Folder;
 use crate::expression::BinaryOp as Binary;
@@ -71,28 +71,6 @@ impl Folder<'_> {
                 }
                 None
             }
-        }
-    }
-
-    pub(super) fn bitwise(&mut self, operator: BitwiseOp, left: usize, right: usize) -> usize {
-        let a = self.values[left];
-        let b = self.values[right];
-        debug_assert_eq!(a.ty, b.ty);
-        // Construction observes logical widths. Refolding an existing carrier
-        // operation must retain its upper bits instead of repeating these rules.
-        match (operator, a.scalar_literal(), b.scalar_literal()) {
-            (BitwiseOp::And, _, Some(mask)) if mask == a.ty.mask() => left,
-            (BitwiseOp::And, Some(mask), _) if mask == a.ty.mask() => right,
-            (BitwiseOp::Or, _, Some(bits)) if bits == a.ty.mask() => right,
-            (BitwiseOp::Or, Some(bits), _) if bits == a.ty.mask() => left,
-            _ => self.fold(
-                a.ty,
-                Expression::Binary {
-                    operator: Binary::Bitwise(operator),
-                    left,
-                    right,
-                },
-            ),
         }
     }
 

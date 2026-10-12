@@ -14,27 +14,6 @@ struct MaskedBits {
 }
 
 impl Folder<'_> {
-    pub(super) fn reinterpret(&mut self, input: usize, target: Type) -> usize {
-        // Construction observes logical bits. A V64 roundtrip through I64 may
-        // discard the unused high carrier half here, but not during refolding.
-        if let ValueDefinition::Expression(Expression::Unary {
-            operator: Unary::Reinterpret,
-            input: original,
-        }) = self.values[input].definition
-        {
-            if self.values[original].ty == target {
-                return original;
-            }
-        }
-        self.fold(
-            target,
-            Expression::Unary {
-                operator: Unary::Reinterpret,
-                input,
-            },
-        )
-    }
-
     /// Rejoining bits extracted from the same carrier only needs their union
     /// mask. Match explicit masks and restored shifts, never logical type widths.
     pub(super) fn rejoin_bits(&mut self, ty: Type, left: usize, right: usize) -> Option<usize> {

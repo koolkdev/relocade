@@ -1,6 +1,6 @@
 //! Scalar shifts with status flags and packed shifts with unmasked counts.
 
-use wasm86_compiler::{AtLeast, MemoryInt, Val, VectorLane, I1, I32, I64, V128};
+use wasm86_compiler::{AtLeast, MemoryInt, Val, VectorLane, VectorType, I1, I32, I64};
 
 use super::{bit, result_flag, AluResult};
 use crate::alu::{AnyStatusSource, StatusSource};
@@ -56,17 +56,17 @@ impl ShiftOp {
     }
 
     /// Packed shifts use an unsigned 64-bit count without masking it to the lane width.
-    pub(crate) fn apply_packed<T: VectorLane + MemoryInt>(
+    pub(crate) fn apply_packed<T: VectorLane + MemoryInt, V: VectorType>(
         self,
-        input: Val<V128>,
+        input: Val<V>,
         count: Val<I64>,
-    ) -> Val<V128> {
+    ) -> Val<V> {
         // Test before narrowing: a nonzero high dword must not become a small count.
         let in_range = count.unsigned().lt(u64::from(T::BYTES * 8));
         let count = count.truncate::<I32>();
         match self {
-            Self::Left => in_range.select(input.shl_lanes::<T>(count), 0_u128),
-            Self::RightLogical => in_range.select(input.unsigned_shr_lanes::<T>(count), 0_u128),
+            Self::Left => in_range.select(input.shl_lanes::<T>(count), 0_u64),
+            Self::RightLogical => in_range.select(input.unsigned_shr_lanes::<T>(count), 0_u64),
             Self::RightArithmetic => {
                 input.signed_shr_lanes::<T>(in_range.select(count, T::BYTES * 8 - 1))
             }
