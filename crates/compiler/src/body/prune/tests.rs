@@ -1,4 +1,5 @@
 use super::*;
+use crate::expression::BinaryOp as Binary;
 use crate::{
     body::{
         BitBounds, BlockId, BlockItem, Edge, Effect, EffectId, Exit, Layout, Operation,
@@ -80,7 +81,7 @@ fn complete_result_groups_and_stored_bounds_survive_compaction() {
     graph.values.push(Value {
         ty: Type::I64,
         definition: ValueDefinition::Expression(Expression::Binary {
-            operator: BinaryOp::Add,
+            operator: Binary::Integer(BinaryOp::Add),
             left: 1,
             right: input,
         }),

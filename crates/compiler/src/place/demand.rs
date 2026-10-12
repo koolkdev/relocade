@@ -1,5 +1,6 @@
 //! Prove where downstream demands permit a shared calculation.
 use super::*;
+use crate::expression::BinaryOp as Binary;
 use crate::integer::BinaryOp;
 use std::collections::HashSet;
 
@@ -261,11 +262,11 @@ pub(super) fn schedules(
             // separately before materializing a shared root.
             let required = match expression {
                 Expression::Binary {
-                    operator: BinaryOp::Add,
+                    operator: Binary::Integer(BinaryOp::Add),
                     ..
                 } => true,
                 Expression::Binary {
-                    operator: BinaryOp::Mul,
+                    operator: Binary::Integer(BinaryOp::Mul),
                     left,
                     right,
                 } => {

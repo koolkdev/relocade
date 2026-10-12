@@ -3,6 +3,9 @@
 //! Construction interprets logical types before folding. Replacing operands
 //! folds the existing carrier operations without repeating that normalization.
 
+use crate::expression::{
+    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, UnaryOp as Unary,
+};
 use crate::{
     body::{Value, ValueDefinition, ValueTable},
     integer::BitCountOp,
@@ -63,51 +66,40 @@ impl Folder<'_> {
             }
         }
         match expression {
+            Expression::Unary { operator, input } => match operator {
+                Unary::SignExtend { input_type } => self.sign_extend(input, input_type, ty),
+                Unary::BitCount {
+                    operator,
+                    input_type,
+                } => self.bit_count(operator, input_type, input),
+                Unary::ZeroTest { nonzero } => self.zero_test(input, nonzero),
+                Unary::Convert => self.convert(input, ty),
+                _ => self.fold(ty, expression),
+            },
             Expression::Binary {
                 operator,
                 left,
                 right,
-            } => self.binary(operator, left, right),
-            Expression::Bitwise {
-                operator,
-                left,
-                right,
-            } => self.bitwise(operator, left, right),
-            Expression::Compare {
-                operator,
-                left,
-                right,
-            } => self.compare(operator, left, right),
+            } => match operator {
+                Binary::Integer(operator) => self.binary(operator, left, right),
+                Binary::Bitwise(operator) => self.bitwise(operator, left, right),
+                Binary::Compare(Compare::Integer(operator)) => self.compare(operator, left, right),
+                _ => self.fold(ty, expression),
+            },
             Expression::Shift {
                 operator,
                 value,
                 count,
-            } => self.shift(operator, value, count),
-            Expression::Rotate {
-                operator,
-                value,
-                count,
-            } => self.rotate(operator, value, count),
+            } => match operator {
+                Shift::Scalar(operator) => self.shift(operator, value, count),
+                Shift::Rotate(operator) => self.rotate(operator, value, count),
+                Shift::Lanes { .. } => self.fold(ty, expression),
+            },
             Expression::Select {
                 condition,
                 when_true,
                 when_false,
             } => self.select(condition, when_true, when_false),
-            Expression::SignExtend { input } => self.sign_extend(input, ty),
-            Expression::BitCount { operator, input } => self.bit_count(operator, input),
-            Expression::ZeroTest { input, nonzero } => self.zero_test(input, nonzero),
-            Expression::Convert { input } => self.convert(input, ty),
-            Expression::LowBits { .. }
-            | Expression::VectorBinary { .. }
-            | Expression::VectorShift { .. }
-            | Expression::VectorNarrow { .. }
-            | Expression::VectorShuffle { .. }
-            | Expression::VectorExtract { .. }
-            | Expression::VectorReplace { .. }
-            | Expression::FloatBinary { .. }
-            | Expression::FloatUnary { .. }
-            | Expression::FloatCompare { .. }
-            | Expression::Reinterpret { .. } => self.fold(ty, expression),
             Expression::MultiplyWide { .. } => self.fold_result(ty, expression, component),
         }
     }
@@ -125,72 +117,71 @@ impl Folder<'_> {
             return self.values.carrier_literal(ty, bits);
         }
         let input = match expression {
+            Expression::Unary { operator, input } => match operator {
+                Unary::ZeroTest { nonzero } => self.fold_zero_test(input, nonzero),
+                Unary::LowBits { bits } => Some(self.fold_low_bits(ty, input, bits)),
+                Unary::SignExtend { input_type } => self.fold_sign_extend(ty, input_type, input),
+                Unary::Convert if self.values[input].ty == ty => Some(input),
+                Unary::Convert => match self.values[input].definition {
+                    ValueDefinition::Expression(Expression::Unary {
+                        operator: Unary::Convert,
+                        input: original,
+                    }) if self.values[original].ty == ty
+                        && self.values[input].ty.bits() >= ty.bits() =>
+                    {
+                        Some(original)
+                    }
+                    _ => None,
+                },
+                Unary::Reinterpret => match self.values[input].definition {
+                    ValueDefinition::Expression(Expression::Unary {
+                        operator: Unary::Reinterpret,
+                        input: original,
+                    }) if self.values[original].ty == ty => Some(original),
+                    _ => None,
+                },
+                _ => None,
+            },
             Expression::Binary {
                 operator,
                 left,
                 right,
-            } => self.fold_binary(ty, operator, left, right),
-            Expression::Bitwise {
+            } => match operator {
+                Binary::Integer(operator) => self.fold_binary(ty, operator, left, right),
+                Binary::Bitwise(operator) => self.fold_bitwise(ty, operator, left, right),
+                Binary::Compare(Compare::Integer(operator)) => {
+                    self.fold_compare(operator, left, right)
+                }
+                _ => None,
+            },
+            Expression::Shift {
                 operator,
-                left,
-                right,
-            } => self.fold_bitwise(ty, operator, left, right),
-            Expression::MultiplyWide {
-                signed,
-                left,
-                right,
-            } => self.fold_multiply_wide(signed, left, right, component),
-            Expression::Shift { value, count, .. } => self.fold_shift(ty, value, count),
-            Expression::Rotate { value, count, .. } => self.fold_rotate(ty, value, count),
-            Expression::Compare {
-                operator,
-                left,
-                right,
-            } => self.fold_compare(operator, left, right),
-            Expression::ZeroTest { input, nonzero } => self.fold_zero_test(input, nonzero),
+                value,
+                count,
+            } => match operator {
+                Shift::Scalar(_) => self.fold_shift(ty, value, count),
+                Shift::Rotate(_) => self.fold_rotate(ty, value, count),
+                Shift::Lanes { .. } => None,
+            },
             Expression::Select {
                 condition,
                 when_true,
                 when_false,
             } => self.fold_select(condition, when_true, when_false),
-            Expression::LowBits { input, bits } => Some(self.fold_low_bits(ty, input, bits)),
-            Expression::SignExtend { input } => self.fold_sign_extend(ty, input),
-            Expression::Convert { input } if self.values[input].ty == ty => Some(input),
-            Expression::Convert { input: source } => match self.values[source].definition {
-                ValueDefinition::Expression(Expression::Convert { input })
-                    if self.values[input].ty == ty
-                        && self.values[source].ty.bits() >= ty.bits() =>
-                {
-                    Some(input)
-                }
-                _ => None,
-            },
-            Expression::Reinterpret { input } => match self.values[input].definition {
-                ValueDefinition::Expression(Expression::Reinterpret { input: original })
-                    if self.values[original].ty == ty =>
-                {
-                    Some(original)
-                }
-                _ => None,
-            },
-            Expression::VectorBinary { .. }
-            | Expression::VectorShift { .. }
-            | Expression::VectorNarrow { .. }
-            | Expression::VectorShuffle { .. }
-            | Expression::VectorExtract { .. }
-            | Expression::VectorReplace { .. }
-            | Expression::BitCount { .. } => None,
-            // Integer identities and comparison complements do not hold for
-            // floating-point values, including NaNs and signed zeros.
-            Expression::FloatBinary { .. }
-            | Expression::FloatUnary { .. }
-            | Expression::FloatCompare { .. } => None,
+            Expression::MultiplyWide {
+                signed,
+                left,
+                right,
+            } => self.fold_multiply_wide(signed, left, right, component),
         };
         let expression = if let Some(input) = input {
             if self.values[input].ty == ty {
                 return input;
             }
-            Expression::Convert { input }
+            Expression::Unary {
+                operator: Unary::Convert,
+                input,
+            }
         } else {
             expression
         };
@@ -235,9 +226,25 @@ impl Folder<'_> {
         }
     }
 
-    fn bit_count(&mut self, operator: BitCountOp, input: usize) -> usize {
-        let value = self.values[input];
-        let input = self.normalize(input);
-        self.fold(value.ty, Expression::BitCount { operator, input })
+    fn bit_count(&mut self, operator: BitCountOp, input_type: Type, input: usize) -> usize {
+        let input = self.fold(
+            input_type,
+            Expression::Unary {
+                operator: Unary::LowBits {
+                    bits: input_type.bits(),
+                },
+                input,
+            },
+        );
+        self.fold(
+            input_type,
+            Expression::Unary {
+                operator: Unary::BitCount {
+                    operator,
+                    input_type,
+                },
+                input,
+            },
+        )
     }
 }

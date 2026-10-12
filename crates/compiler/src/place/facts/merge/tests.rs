@@ -1,4 +1,5 @@
 use super::*;
+use crate::expression::{BinaryOp as Binary, CompareOp as Compare};
 use crate::{
     body::{BlockId, Value, ValueDefinition, ValueTable},
     integer::CompareOp,
@@ -22,8 +23,8 @@ fn parameters() -> ValueTable {
 fn compare(table: &mut ValueTable, operator: CompareOp, left: usize, right: usize) -> usize {
     table.intern(Value {
         ty: Type::I1,
-        definition: ValueDefinition::Expression(Expression::Compare {
-            operator,
+        definition: ValueDefinition::Expression(Expression::Binary {
+            operator: Binary::Compare(Compare::Integer(operator)),
             left,
             right,
         }),

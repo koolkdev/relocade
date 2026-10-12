@@ -2,6 +2,13 @@ use super::*;
 use crate::{value::source::ValueSource, Val, ValueType, I1, I32, I64, I8};
 
 #[test]
+#[cfg(target_pointer_width = "64")]
+fn opcode_metadata_keeps_unbound_storage_compact() {
+    assert_eq!(std::mem::size_of::<Val<I32>>(), 32);
+    assert_eq!(std::mem::size_of::<Node>(), 80);
+}
+
+#[test]
 fn shared_unbound_expressions_are_cached_per_body_and_released_when_closed() {
     let mut expression = Val::<I32>::from(7).unsigned().div(0);
     for _ in 0..40 {

@@ -1,6 +1,7 @@
 //! Incoming paths must be complete before their values or facts can justify reuse.
 use super::*;
 use crate::bitwise::BitwiseOp;
+use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
 
 #[test]
 fn incoming_values_use_the_nearest_binding_on_each_predecessor_path() {
@@ -64,7 +65,14 @@ fn incoming_aliases_see_a_common_ancestor_binding_requested_after_preparation() 
             when_false: number,
         },
     );
-    let alias = expression(&mut graph, Type::I8, Expression::Convert { input: choice });
+    let alias = expression(
+        &mut graph,
+        Type::I8,
+        Expression::Unary {
+            operator: Unary::Convert,
+            input: choice,
+        },
+    );
     let mut joins = joins(&graph);
     let facts = ScalarFacts::default();
     for source in [earlier.left, earlier.right] {
@@ -136,8 +144,8 @@ fn a_join_keeps_common_facts_without_any_value_candidates() {
     let low_bit = expression(
         &mut graph,
         Type::I32,
-        Expression::Bitwise {
-            operator: BitwiseOp::And,
+        Expression::Binary {
+            operator: Binary::Bitwise(BitwiseOp::And),
             left: 1,
             right: one,
         },

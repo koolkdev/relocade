@@ -1,4 +1,5 @@
 use super::*;
+use crate::expression::{BinaryOp as Binary, CompareOp as Compare};
 use crate::{
     body::{BlockId, Value, ValueDefinition},
     place::facts::ScalarFacts,
@@ -20,8 +21,8 @@ fn a_later_comparison_invalidates_cached_inference_for_its_earlier_opposite() {
     let [equal, unequal] = [CompareOp::Eq, CompareOp::Ne].map(|operator| {
         table.intern(Value {
             ty: Type::I1,
-            definition: ValueDefinition::Expression(Expression::Compare {
-                operator,
+            definition: ValueDefinition::Expression(Expression::Binary {
+                operator: Binary::Compare(Compare::Integer(operator)),
                 left,
                 right,
             }),

@@ -1,5 +1,6 @@
 //! Resolve recipes against shared predecessor records and that path's facts.
 use super::*;
+use crate::expression::UnaryOp as Unary;
 
 pub(super) struct IncomingValues {
     pub(super) source: usize,
@@ -58,11 +59,10 @@ impl IncomingValues {
                         when_true
                     }
                 }
-                ValueDefinition::Expression(Expression::Convert { input })
-                    if graph.values[input].ty.carrier() == value.ty.carrier() =>
-                {
-                    input
-                }
+                ValueDefinition::Expression(Expression::Unary {
+                    operator: Unary::Convert,
+                    input,
+                }) if graph.values[input].ty.carrier() == value.ty.carrier() => input,
                 _ => break None,
             };
         };
