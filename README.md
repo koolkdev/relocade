@@ -43,6 +43,33 @@ dispatch and fault exits, segment resolution, and entry validity. Real16 uses
 the [physical-memory contract](crates/x86/docs/physical-memory.md) for host transfers.
 Both contracts are included in the x86 crate's generated API documentation.
 
+## Run a real-mode program
+
+`wasm86-runtime` provides persistent interpreter machines backed by Wasmtime.
+`Runtime::new()` generates and compiles one Real16 interpreter; `runtime.machine`
+creates independent CPU, memory and device state. `Machine::step()` executes one
+instruction, while `Machine::run(limit, should_stop)` returns on a host stop
+request, an instruction limit or a typed guest exit. The predicate observes the
+initial state and each successful instruction boundary, including the final one
+at the limit. Handle services or pending input between runs and resume the same
+machine.
+
+The limit counts complete x86 instructions. REP remains one instruction and runs
+to completion or a guest fault; device callbacks are synchronous. The runtime
+therefore provides no wall-clock preemption guarantee. It reports CPU exceptions
+without delivering them, and supplies no DOS/BIOS services or hardware interrupts.
+
+Run the small [raw x86 example](crates/runtime/examples/real16.rs), which writes
+`Hi` through host-defined output ports and requests an exit:
+
+```sh
+cargo run -p wasm86-runtime --example real16 --locked
+```
+
+The [runtime API](crates/runtime/src/lib.rs) describes machine setup, physical
+memory and device callbacks. Execution always uses live instruction bytes through
+the interpreter; the runtime has no guest code cache.
+
 ## Build and test
 
 The ordinary tests execute Wasm in Wasmtime and do not require Node.js.

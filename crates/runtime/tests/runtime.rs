@@ -8,6 +8,8 @@ mod devices;
 mod execution;
 #[path = "runtime/memory.rs"]
 mod memory;
+#[path = "runtime/run.rs"]
+mod run;
 
 fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();

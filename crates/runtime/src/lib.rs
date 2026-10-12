@@ -3,6 +3,9 @@
 //! [`Runtime`] compiles one interpreter for reuse across independent [`Machine`]s.
 //! Machines own their CPU, physical backing and devices. [`Machine::step`] returns
 //! after one x86 instruction, including all elements of REP, or a guest exit.
+//! [`Machine::run`] repeats those entries until an instruction limit, a host stop
+//! request or a guest exit. Its limit counts complete instructions, not time or
+//! REP elements; it does not preempt an instruction or a device callback.
 //! Guest exceptions are reported to the embedding; this crate does not deliver
 //! exceptions or external interrupts through the IVT.
 //!
@@ -28,10 +31,12 @@
 mod devices;
 mod machine;
 mod memory;
+mod run;
 
 pub use devices::Devices;
 pub use machine::{Machine, StepOutcome};
 pub use memory::{DeviceMemory, MemoryError};
+pub use run::{RunOutcome, RunStop};
 
 use wasm86_x86::{compile_interpreter_step, ExecutionProfile, PhysicalMemoryMap};
 use wasmtime::{Config, Engine, Module};
