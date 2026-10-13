@@ -423,7 +423,7 @@ fn loaded_binary_classification(engine: step::Engine) {
                         value.classification().tag(),
                         exceptions,
                         source_classes,
-                        value.exact_bits(format).unwrap(),
+                        value.exact_conversion(format).unwrap().bits,
                     ))
                 },
             )

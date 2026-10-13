@@ -65,7 +65,7 @@ enum Predicate {
 }
 
 impl<'a> Classification<'a> {
-    pub(super) fn known(class: &'a KnownClass) -> Self {
+    pub(in crate::x87) fn known(class: &'a KnownClass) -> Self {
         Self {
             source: Source::Known(class),
         }

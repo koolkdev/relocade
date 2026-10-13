@@ -9,6 +9,8 @@ mod tests;
 use wasm86_compiler::{IntType, Val, F64, I1, I16, I32, I64};
 
 use crate::floating::BinaryFormat;
+
+use super::ConversionResult;
 pub(crate) use classification::Classification;
 pub(super) use classification::KnownClass;
 pub(super) use precision53::Precision53;
@@ -58,11 +60,14 @@ pub(crate) struct ExtendedValue {
 enum Representation {
     Extended(ExtendedBits),
     Precision53(Precision53),
-    // These are the post-load bits: SNaNs have already been quieted. Expanding
-    // them reproduces the entire extended value, including the NaN payload.
+    // An exact binary encoding from a load or a native calculation. Loaded
+    // SNaNs have already been quieted; expansion preserves the full NaN payload.
     Binary {
         format: BinaryFormat,
         bits: Val<I64>,
+        // A class proved in this encoding's range, before expansion. A narrow
+        // subnormal is normal binary80, so the outer class cannot replace it.
+        native_class: Option<KnownClass>,
     },
 }
 
@@ -76,8 +81,29 @@ impl ExtendedValue {
 
     pub(super) fn from_binary(format: BinaryFormat, bits: Val<I64>) -> Self {
         Self {
-            representation: Representation::Binary { format, bits },
+            representation: Representation::Binary {
+                format,
+                bits,
+                native_class: None,
+            },
             class: None,
+        }
+    }
+
+    /// Requires the stated class in the binary encoding itself. Normal, zero,
+    /// and quiet NaN keep the same class when expanded to binary80.
+    pub(super) fn from_classified_binary(
+        format: BinaryFormat,
+        bits: Val<I64>,
+        class: KnownClass,
+    ) -> Self {
+        Self {
+            representation: Representation::Binary {
+                format,
+                bits,
+                native_class: Some(class.clone()),
+            },
+            class: Some(class),
         }
     }
 
@@ -106,12 +132,13 @@ impl ExtendedValue {
         self
     }
 
-    pub(super) fn exact_bits(&self, format: BinaryFormat) -> Option<&Val<I64>> {
+    pub(super) fn exact_conversion(&self, format: BinaryFormat) -> Option<ConversionResult> {
         match &self.representation {
             Representation::Binary {
                 format: source,
                 bits,
-            } if *source == format => Some(bits),
+                native_class,
+            } if *source == format => Some(format.encode_exact(bits, native_class.as_ref())),
             _ => None,
         }
     }
@@ -121,7 +148,7 @@ impl ExtendedValue {
     /// remain in the encoded view rather than this numerical comparison view.
     pub(super) fn binary64_value(&self) -> Option<Val<F64>> {
         match &self.representation {
-            Representation::Binary { format, bits } => Some(format.binary64_value(bits)),
+            Representation::Binary { format, bits, .. } => Some(format.binary64_value(bits)),
             Representation::Precision53(value) => value.binary64_value().cloned(),
             Representation::Extended(_) => None,
         }
@@ -131,7 +158,11 @@ impl ExtendedValue {
         match &self.representation {
             Representation::Extended(bits) => bits.clone(),
             Representation::Precision53(value) => value.bits().clone(),
-            Representation::Binary { format, bits } => format.expand(bits),
+            Representation::Binary {
+                format,
+                bits,
+                native_class,
+            } => format.expand_classified(bits, native_class.as_ref()),
         }
     }
 
@@ -140,7 +171,7 @@ impl ExtendedValue {
         match &self.representation {
             Representation::Extended(bits) => bits.negative(),
             Representation::Precision53(value) => value.bits().negative(),
-            Representation::Binary { format, bits } => bits.and(format.sign_bit()).ne(0_u64),
+            Representation::Binary { format, bits, .. } => bits.and(format.sign_bit()).ne(0_u64),
         }
     }
 
@@ -155,9 +186,14 @@ impl ExtendedValue {
             Representation::Precision53(value) => {
                 Representation::Precision53(value.change_sign(operation))
             }
-            Representation::Binary { format, bits } => Representation::Binary {
+            Representation::Binary {
+                format,
+                bits,
+                native_class,
+            } => Representation::Binary {
                 format: *format,
                 bits: operation.apply(bits, format.sign_bit()),
+                native_class: native_class.clone(),
             },
         };
         Self {
@@ -171,9 +207,20 @@ impl ExtendedValue {
             Representation::Precision53(value) => {
                 Self::from_precision53(value.or_indefinite(invalid))
             }
-            Representation::Binary { format, bits } => {
-                Self::from_binary(*format, invalid.select(format.indefinite_bits(), bits))
-            }
+            Representation::Binary {
+                format,
+                bits,
+                native_class,
+            } => Self {
+                representation: Representation::Binary {
+                    format: *format,
+                    bits: invalid.select(format.indefinite_bits(), bits),
+                    native_class: native_class
+                        .as_ref()
+                        .map(|class| KnownClass::quiet_nan().select(invalid, class)),
+                },
+                class: None,
+            },
             Representation::Extended(bits) => Self::from_bits(ExtendedBits {
                 significand: invalid.select(0xc000_0000_0000_0000_u64, &bits.significand),
                 sign_exponent: invalid.select(0xffff_u32, &bits.sign_exponent),
@@ -194,14 +241,23 @@ impl ExtendedValue {
                 Representation::Precision53(value.select(condition, other))
             }
             (
-                Representation::Binary { format, bits },
+                Representation::Binary {
+                    format,
+                    bits,
+                    native_class,
+                },
                 Representation::Binary {
                     format: other_format,
                     bits: other_bits,
+                    native_class: other_class,
                 },
             ) if format == other_format => Representation::Binary {
                 format: *format,
                 bits: condition.select(bits, other_bits),
+                native_class: native_class
+                    .as_ref()
+                    .zip(other_class.as_ref())
+                    .map(|(left, right)| left.select(condition, right)),
             },
             _ => {
                 let true_bits = self.bits();
@@ -242,7 +298,9 @@ impl ExtendedValue {
         match &self.representation {
             Representation::Extended(bits) => Classification::extended(bits),
             Representation::Precision53(value) => Classification::extended(value.bits()),
-            Representation::Binary { format, bits } => Classification::loaded_binary(*format, bits),
+            Representation::Binary { format, bits, .. } => {
+                Classification::loaded_binary(*format, bits)
+            }
         }
     }
 }

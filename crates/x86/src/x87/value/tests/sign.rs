@@ -80,8 +80,9 @@ fn binary_sign_changes_retain_exact_source_format() {
         for operation in [SignOperation::Negate, SignOperation::Absolute] {
             let result = source.change_sign(operation);
             assert!(result
-                .exact_bits(format)
+                .exact_conversion(format)
                 .unwrap()
+                .bits
                 .same_expression(&output.into()));
             assert!(result
                 .classification()

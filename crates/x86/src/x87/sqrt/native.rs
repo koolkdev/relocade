@@ -19,12 +19,17 @@ pub(super) fn calculate(operand: &Operand) -> Option<RoundedValue> {
     let coefficient = operand.precision53_significand.as_ref()?;
     let exponent = operand.bits.exponent_field().sub(16383);
     let odd = exponent.and(1).ne(0);
+    let class = KnownClass::zero().select(&operand.zero, &KnownClass::normal());
     let (root, value) = match &operand.binary64_value {
         Some(native) => {
             // A binary64 operand's root fits its range. Retain the whole
             // result so a following exact store does not re-encode it.
             let root = native.sqrt();
-            let value = ExtendedValue::from_binary(BinaryFormat::Binary64, root.to_bits());
+            let value = ExtendedValue::from_classified_binary(
+                BinaryFormat::Binary64,
+                root.to_bits(),
+                class.clone(),
+            );
             (root, value)
         }
         None => {
@@ -51,7 +56,7 @@ pub(super) fn calculate(operand: &Operand) -> Option<RoundedValue> {
         .sub(integer_significand(&root).mul(integer_significand(&root)));
     let nonzero = operand.zero.eq(false);
     Some(RoundedValue {
-        value: value.assume_class(KnownClass::zero().select(&operand.zero, &KnownClass::normal())),
+        value: value.assume_class(class),
         inexact: nonzero.and(residual.ne(0_u64)),
         incremented: nonzero.and(residual.signed().lt(0)),
     })

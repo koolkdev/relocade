@@ -10,12 +10,21 @@ use crate::floating::BinaryFormat;
 
 use super::{
     rounding::{RoundingInput, RoundingMode},
+    value::{Classification, KnownClass},
     ConversionResult, ExtendedBits, ExtendedValue,
 };
 
 impl BinaryFormat {
     /// Expands the encoding exactly, preserving an SNaN's quiet bit and payload.
     pub(super) fn expand(self, bits: &Val<I64>) -> ExtendedBits {
+        self.expand_classified(bits, None)
+    }
+
+    pub(super) fn expand_classified(
+        self,
+        bits: &Val<I64>,
+        class: Option<&KnownClass>,
+    ) -> ExtendedBits {
         let fraction_bits = self.fraction_bits();
         let exponent_bits = self.exponent_bits();
         let bias = self.bias();
@@ -27,9 +36,17 @@ impl BinaryFormat {
             .shr(fraction_bits + exponent_bits)
             .truncate::<I16>()
             .shl(15);
-        let zero_exponent = exponent.eq(0_u64);
-        let special = exponent.eq(exponent_mask);
-        let denormal = self.classification(bits).denormal();
+        let (zero_exponent, special, denormal) = match class {
+            Some(class) => {
+                let class = Classification::known(class);
+                (class.zero(), class.special_exponent(), false.into())
+            }
+            None => (
+                exponent.eq(0_u64),
+                exponent.eq(exponent_mask),
+                self.classification(bits).denormal(),
+            ),
+        };
         let fraction = fraction.shl(63 - fraction_bits);
 
         // Narrow subnormals are normal extended values. This exact expansion
@@ -55,16 +72,8 @@ impl BinaryFormat {
     /// Rounds the original extended value directly to the destination. PC is
     /// irrelevant to stores; no intermediate binary64 value is constructed.
     pub(crate) fn encode(self, value: &ExtendedValue, rounding: &RoundingMode) -> ConversionResult {
-        if let Some(bits) = value.exact_bits(self) {
-            return ConversionResult {
-                bits: bits.clone(),
-                invalid: false.into(),
-                overflow: false.into(),
-                // Exact subnormals still raise underflow when UM is clear.
-                tiny: self.classification(bits).denormal(),
-                inexact: false.into(),
-                incremented: false.into(),
-            };
+        if let Some(exact) = value.exact_conversion(self) {
+            return exact;
         }
         let class = value.classification();
         let unsupported = class.unsupported();
@@ -134,6 +143,27 @@ impl BinaryFormat {
             tiny,
             inexact: finite.and(overflow.or(&stored.inexact)),
             incremented: finite.and(overflow.select(to_infinity, stored.incremented)),
+        }
+    }
+
+    pub(super) fn encode_exact(
+        self,
+        bits: &Val<I64>,
+        class: Option<&KnownClass>,
+    ) -> ConversionResult {
+        ConversionResult {
+            bits: bits.clone(),
+            invalid: false.into(),
+            overflow: false.into(),
+            // An exact subnormal still raises underflow when UM is clear.
+            // The retained native classes exclude that encoding.
+            tiny: if class.is_some() {
+                false.into()
+            } else {
+                self.classification(bits).denormal()
+            },
+            inexact: false.into(),
+            incremented: false.into(),
         }
     }
 }

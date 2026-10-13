@@ -14,10 +14,11 @@ impl Operand {
         let rounded = if let Some(native) = &self.binary64_value {
             let integral = rounding.integral(native);
             RoundedValue {
-                value: ExtendedValue::from_binary(BinaryFormat::Binary64, integral.to_bits())
-                    .assume_class(
-                        KnownClass::zero().select(&integral.eq(0.0), &KnownClass::normal()),
-                    ),
+                value: ExtendedValue::from_classified_binary(
+                    BinaryFormat::Binary64,
+                    integral.to_bits(),
+                    KnownClass::zero().select(&integral.eq(0.0), &KnownClass::normal()),
+                ),
                 inexact: integral.ne(native),
                 incremented: integral.abs().gt(native.abs()),
             }
