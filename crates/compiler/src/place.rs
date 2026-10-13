@@ -6,11 +6,9 @@ mod availability;
 mod demand;
 mod dominance;
 mod effects;
-mod equivalences;
 mod facts;
 mod flow;
 mod joins;
-mod lower;
 mod reads;
 mod reduce;
 #[cfg(test)]
