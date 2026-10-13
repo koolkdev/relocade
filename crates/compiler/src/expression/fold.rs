@@ -28,6 +28,7 @@ pub(crate) use construct::build;
 use super::TypedLiteral;
 
 /// Fold a stored carrier operation without repeating logical normalization.
+#[cfg(test)]
 pub(crate) fn refold(values: &mut ValueTable, id: usize) -> usize {
     let value = values[id];
     let Some(result) = values.expression(id) else {
@@ -36,7 +37,7 @@ pub(crate) fn refold(values: &mut ValueTable, id: usize) -> usize {
     fold_carrier(values, value.ty, result.expression, result.component)
 }
 
-/// Fold a primitive recipe without admitting logical operands again.
+/// Fold a carrier recipe without admitting logical operands again.
 pub(crate) fn fold_carrier(
     values: &mut ValueTable,
     ty: Type,

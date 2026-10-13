@@ -1,5 +1,4 @@
 //! Reduce semantic control flow before deciding where its calculations execute.
-use super::lower::Lowering;
 use super::*;
 
 #[cfg(test)]
@@ -9,7 +8,6 @@ mod tests;
 /// Scheduling may request another normal form but cannot change a context.
 pub(super) struct ReducedFlow {
     reducers: Vec<Option<Reducer>>,
-    lowering: Option<Lowering>,
     pub(super) control_changed: bool,
 }
 
@@ -86,38 +84,10 @@ impl ReducedFlow {
                 reachable = graph.reachable();
             }
         }
-        let mut flow = ReducedFlow {
+        ReducedFlow {
             reducers,
-            lowering: None,
             control_changed,
-        };
-        if flow
-            .reducers
-            .iter()
-            .flatten()
-            .any(|reducer| reducer.needs_lowering)
-        {
-            let lowering = flow.lowering.get_or_insert_default();
-            lowering.prepare(&mut graph.values);
-            for (block, data) in graph.blocks.iter_mut().enumerate() {
-                if !reachable[block] {
-                    continue;
-                }
-                let before = data.exit.constant_edge_index(&graph.values);
-                data.exit.map_inputs(|value| lowering.value(value));
-                flow.control_changed |= data.exit.constant_edge_index(&graph.values) != before;
-                for item in &data.items {
-                    let BlockItem::Effect(id) = item else {
-                        unreachable!()
-                    };
-                    graph.effects[id.0].operation = graph.effects[id.0]
-                        .operation
-                        .clone()
-                        .map_inputs(|value| lowering.value(value));
-                }
-            }
         }
-        flow
     }
 
     pub(super) fn facts(&self, block: BlockId) -> &ScalarFacts {
@@ -130,27 +100,14 @@ impl ReducedFlow {
         block: BlockId,
         value: usize,
     ) -> usize {
-        let reducer = self.reducers[block.0].as_mut().unwrap();
-        let result = reducer.reduce(values, value);
-        if reducer.needs_lowering {
-            let lowering = self.lowering.get_or_insert_default();
-            lowering.prepare(values);
-            lowering.value(result)
-        } else {
-            self.lowering
-                .as_ref()
-                .map_or(result, |lowering| lowering.value(result))
-        }
+        self.reducers[block.0]
+            .as_mut()
+            .unwrap()
+            .reduce(values, value)
     }
 
-    pub(super) fn recipes(&self, block: BlockId, value: usize) -> impl Iterator<Item = usize> {
-        let reducer = self.reducers[block.0].as_ref().unwrap();
-        let alternatives = if let Some(lowering) = &self.lowering {
-            lowering.recipes(reducer, value)
-        } else {
-            reducer.alternatives(value)
-        };
-        std::iter::once(value).chain(alternatives)
+    pub(super) fn recipes(&self, block: BlockId, value: usize) -> impl Iterator<Item = usize> + '_ {
+        self.reducers[block.0].as_ref().unwrap().recipes(value)
     }
 }
 

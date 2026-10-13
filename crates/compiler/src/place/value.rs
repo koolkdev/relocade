@@ -19,15 +19,25 @@ impl Placer<'_> {
                 continue;
             }
             if self.graph.values.expression(id).is_some() {
-                let candidates = self.flow.recipes(block, id);
-                let reused = candidates.into_iter().find_map(|recipe| {
-                    self.available
+                let mut index = 0;
+                let reused = loop {
+                    // Join resolution can reduce more recipes. End the borrow
+                    // of the current aliases before it updates the flow.
+                    let Some(recipe) = self.flow.recipes(block, id).nth(index) else {
+                        break None;
+                    };
+                    let value = self
+                        .available
                         .lookup(&self.graph.values, recipe)
                         .or_else(|| {
                             self.joins
                                 .resolve(self.graph, block.0, recipe, &mut self.flow)
-                        })
-                });
+                        });
+                    if value.is_some() {
+                        break value;
+                    }
+                    index += 1;
+                };
                 if let Some(value) = reused {
                     self.bind_reduction(block, id, value);
                     continue;

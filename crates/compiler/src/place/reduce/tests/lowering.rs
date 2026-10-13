@@ -1,4 +1,4 @@
-use super::*;
+use super::super::*;
 use crate::{expression::UnaryOp as Unary, integer::BitCountOp, Type};
 
 fn byte_input() -> FunctionGraph {
@@ -72,6 +72,52 @@ fn late_semantic_recipes_use_the_same_lowering_as_initial_roots() {
 }
 
 #[test]
+fn refolded_counts_consult_semantic_facts_before_lowering() {
+    let mut graph = byte_input();
+    let condition = graph.values.push_with_bounds(
+        Value {
+            ty: Type::I1,
+            definition: ValueDefinition::Parameter {
+                block: graph.entry,
+                component: 1,
+            },
+        },
+        BitBounds {
+            unsigned: 1,
+            signed: 2,
+        },
+    );
+    let zero = graph.values.literal(Type::I8, 0);
+    let choice = graph.values.intern(Value {
+        ty: Type::I8,
+        definition: ValueDefinition::Expression(Expression::Select {
+            condition,
+            when_true: 0,
+            when_false: zero,
+        }),
+    });
+    let known = count(&mut graph.values, BitCountOp::LeadingZeros, 0);
+    let root = count(&mut graph.values, BitCountOp::LeadingZeros, choice);
+    let facts = ScalarFacts::default().with_assumptions(
+        &graph.values,
+        [
+            Assumption::Truth {
+                condition,
+                truth: true,
+            },
+            Assumption::Bits {
+                value: known,
+                mask: 0xff,
+                bits: 0,
+            },
+        ],
+    );
+    let mut reducer = Reducer::from_facts(facts);
+    assert_eq!(reducer.reduce(&mut graph.values, root), zero);
+    assert!(reducer.recipes(zero).any(|recipe| recipe == root));
+}
+
+#[test]
 fn primitive_bounds_keep_the_count_range_through_representation_views() {
     let mut graph = byte_input();
     let leading = count(&mut graph.values, BitCountOp::LeadingZeros, 0);
@@ -123,4 +169,26 @@ fn unused_compounds_do_not_activate_lowering_for_scalar_roots() {
     let mut flow = flow(&mut graph);
     assert_eq!(flow.reduce(&mut graph.values, BlockId(0), 0), 0);
     assert_eq!(graph.values.len(), before);
+}
+
+#[test]
+fn unused_compounds_stay_unexpanded_alongside_a_live_count() {
+    let mut graph = byte_input();
+    let leading = count(&mut graph.values, BitCountOp::LeadingZeros, 0);
+    count(&mut graph.values, BitCountOp::TrailingZeros, 0);
+    graph.blocks[0].exit = Exit::Return(vec![leading]);
+    let before = graph.values.len();
+    let mut flow = flow(&mut graph);
+    let lowered = flow.reduce(&mut graph.values, BlockId(0), leading);
+    assert_primitive(&graph.values, lowered);
+    assert!(graph.values[before..].iter().all(|value| !matches!(
+        value.definition,
+        ValueDefinition::Expression(Expression::Unary {
+            operator: Unary::BitCount {
+                operator: BitCountOp::TrailingZeros,
+                ..
+            },
+            ..
+        })
+    )));
 }
