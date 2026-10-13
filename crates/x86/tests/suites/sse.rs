@@ -4,10 +4,14 @@
 mod half_moves;
 #[path = "sse/integer_moves.rs"]
 mod integer_moves;
+#[path = "sse/layout.rs"]
+mod layout;
 #[path = "sse/logical.rs"]
 mod logical;
 #[path = "sse/masks.rs"]
 mod masks;
+#[path = "sse/memory.rs"]
+mod memory;
 #[path = "sse/moves.rs"]
 mod moves;
 #[path = "sse/mxcsr.rs"]
@@ -24,6 +28,7 @@ use crate::support::{
     machine::{Exit, Image, Step},
     step::Engine,
 };
+use memory::check_m128_span;
 use wasm86_x86::{CpuState, SegmentProfile};
 
 const LEFT: u128 = 0x01234567_89abcdef_fedcba98_76543210;
