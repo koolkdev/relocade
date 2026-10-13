@@ -2,6 +2,8 @@
 
 #[path = "floating/flags.rs"]
 mod flags;
+#[path = "floating/jit.rs"]
+mod jit;
 #[path = "floating/masks.rs"]
 mod masks;
 #[path = "floating/minmax.rs"]

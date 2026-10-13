@@ -1,7 +1,10 @@
 //! Accesses to the SIMD state retained by this execution path.
 
 use super::ExecutionBuilder;
-use crate::{register::RegisterCode, simd::SimdExceptions, state::Mxcsr, Exception, StoredSimd};
+use crate::{
+    register::RegisterCode, simd::SimdExceptions, state::Mxcsr, Exception, ExecutionProfile,
+    StoredSimd,
+};
 use wasm86_compiler::{BuildError, Val, I32, V128};
 
 impl ExecutionBuilder<'_, '_> {
@@ -15,6 +18,18 @@ impl ExecutionBuilder<'_, '_> {
         &mut self,
         exceptions: &SimdExceptions,
     ) -> Result<(), BuildError> {
+        // Exceptional inputs are uncommon. Protected-mode JIT paths leave their
+        // sticky status and fault handling to the interpreter. Real-mode operand
+        // reads may invoke MMIO, so handle their exceptions without restarting.
+        if matches!(self.profile(), ExecutionProfile::Protected(_))
+            && self
+                .specialize(|execution| {
+                    execution.specialize_on(exceptions.invalid.or(&exceptions.denormal).eq(false))
+                })?
+                .is_some()
+        {
+            return Ok(());
+        }
         let unmasked = self
             .state
             .record_simd_exceptions(&mut self.body, exceptions)?;
