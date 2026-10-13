@@ -111,7 +111,7 @@ impl<'cpu> SegmentAccess<'cpu> {
             (
                 ExecutionProfile::Protected(SegmentProfile::Flat32),
                 SegmentSelection::Named(Segment::Cs),
-                Intent::Read | Intent::Fetch,
+                Intent::Read | Intent::ReadOrExecute | Intent::Fetch,
             ) => Ok(SegmentCheck {
                 linear: offset.clone(),
                 denied: None,
@@ -120,7 +120,7 @@ impl<'cpu> SegmentAccess<'cpu> {
                 ExecutionProfile::Protected(SegmentProfile::Flat32),
                 SegmentSelection::Named(Segment::Ds | Segment::Es | Segment::Ss)
                 | SegmentSelection::AddressDefault(_),
-                Intent::Read | Intent::Write,
+                Intent::Read | Intent::ReadOrExecute | Intent::Write,
             ) => Ok(SegmentCheck {
                 linear: offset.clone(),
                 denied: None,
@@ -159,6 +159,7 @@ impl SegmentValues {
         let down = self.bit(SegmentAttributes::EXPAND_DOWN);
         let permitted = match intent {
             Intent::Read => code.eq(0).or(&readable_or_writable),
+            Intent::ReadOrExecute => true.into(),
             Intent::Write => code.eq(0).and(&readable_or_writable),
             Intent::Fetch => code.clone(),
         };

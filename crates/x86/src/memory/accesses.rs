@@ -78,7 +78,7 @@ impl<'memory> Accesses<'memory> {
         // access. Separate read and write anchors serve both sides of a copy.
         // A write proof also permits reads.
         let anchor = match intent {
-            Intent::Read | Intent::Fetch => {
+            Intent::Read | Intent::ReadOrExecute | Intent::Fetch => {
                 self.read_anchor.as_ref().or(self.write_anchor.as_ref())
             }
             Intent::Write => self.write_anchor.as_ref(),
@@ -115,7 +115,7 @@ impl<'memory> Accesses<'memory> {
                 .resolve_access(body, start, bytes, intent, None, Some(&mut on_fault))?
         };
         let retained = match intent {
-            Intent::Read | Intent::Fetch => &mut self.read_anchor,
+            Intent::Read | Intent::ReadOrExecute | Intent::Fetch => &mut self.read_anchor,
             Intent::Write => &mut self.write_anchor,
         };
         if retained.is_none() {

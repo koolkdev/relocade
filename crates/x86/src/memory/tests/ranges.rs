@@ -60,9 +60,14 @@ fn expect_resolution(engine: Engine, module: &TestModule, input: &Input, expecte
 }
 
 fn first_denial(engine: Engine) {
-    for intent in [Intent::Read, Intent::Write, Intent::Fetch] {
+    for intent in [
+        Intent::Read,
+        Intent::Write,
+        Intent::Fetch,
+        Intent::ReadOrExecute,
+    ] {
         let missing = match intent {
-            Intent::Read => 0x0004_0000_0000_0000,
+            Intent::Read | Intent::ReadOrExecute => 0x0004_0000_0000_0000,
             Intent::Write => 0x0004_0002_0000_0000,
             Intent::Fetch => 0x0004_0010_0000_0000,
         };

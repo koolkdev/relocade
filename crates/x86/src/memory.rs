@@ -39,20 +39,22 @@ pub(crate) struct DirectRange {
 pub(super) enum Intent {
     Fetch,
     Read,
+    /// Data-read paging checks, with access to execute-only code segments too.
+    ReadOrExecute,
     Write,
 }
 
 impl Intent {
     fn required_permissions(self) -> u32 {
         match self {
-            Self::Fetch | Self::Read => PRESENT,
+            Self::Fetch | Self::Read | Self::ReadOrExecute => PRESENT,
             Self::Write => PRESENT | WRITABLE,
         }
     }
     fn base_error_code(self) -> u32 {
         match self {
             Self::Fetch => 16,
-            Self::Read => 0,
+            Self::Read | Self::ReadOrExecute => 0,
             Self::Write => 2,
         }
     }

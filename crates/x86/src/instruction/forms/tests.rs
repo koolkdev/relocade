@@ -413,3 +413,25 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
         ));
     }
 }
+
+#[test]
+fn prefetch_binds_an_address_without_claiming_a_memory_access() {
+    for hint in 0..4 {
+        let bytes = [0x0f, 0x18, 0x84 | hint << 3, 0x8b, 0x78, 0x56, 0x34, 0x12];
+        let (decoded, remaining) =
+            crate::decode::snapshot(&bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
+        assert!(remaining.is_empty());
+        assert_eq!(decoded.fallthrough_eip, 0x1008);
+        assert!(!decoded.instruction.uses_memory());
+        assert!(matches!(
+            decoded.instruction.call,
+            HandlerCall::Unary {
+                operand: Operand::Address(EffectiveAddress {
+                    displacement: 0x12345678,
+                    ..
+                }),
+                ..
+            }
+        ));
+    }
+}

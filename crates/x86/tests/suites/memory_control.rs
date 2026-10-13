@@ -1,5 +1,8 @@
 //! Memory fences preserve architectural state and remain observable compiler effects.
 
+#[path = "memory_control/cache.rs"]
+mod cache;
+
 use crate::support::{
     encoding::check_unsupported_at_page_end,
     execution::{test_frontends, Frontend, ImageSequences},
@@ -41,7 +44,8 @@ test_frontends!(fences_preserve_state, fences);
 
 #[test]
 fn fences_require_register_encodings_and_reject_lock() {
-    for modrm in [0x28, 0x30, 0x38] {
+    // The /7 memory form is CLFLUSH, covered by the cache-control tests.
+    for modrm in [0x28, 0x30] {
         check_unsupported_at_page_end(&[0x0f, 0xae, modrm], 0x0f);
     }
     for modrm in [0xe8, 0xf0, 0xf8] {
