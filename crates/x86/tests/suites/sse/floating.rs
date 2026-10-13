@@ -2,6 +2,8 @@
 
 #[path = "floating/flags.rs"]
 mod flags;
+#[path = "floating/masks.rs"]
+mod masks;
 
 use super::*;
 

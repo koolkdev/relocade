@@ -4,6 +4,7 @@ mod arithmetic;
 mod average;
 mod comparisons;
 mod float_compare;
+mod floating;
 mod half_moves;
 mod logical;
 mod masks;

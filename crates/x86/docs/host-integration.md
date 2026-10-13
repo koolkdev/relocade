@@ -828,3 +828,11 @@ in that comparison. DAZ treats subnormal inputs as signed zero; otherwise they
 raise the denormal condition. Unmasked conditions publish MXCSR and deliver #XM
 before changing EFLAGS. Memory sources access exactly four/eight unaligned bytes,
 and access faults precede numerical exceptions. XMM and x87 state are preserved.
+
+CMPSS/CMPSD and CMPPS/CMPPD implement the eight legacy predicates selected by
+immediate bits 2:0. True lanes become all ones and false lanes become zero. Scalar
+forms preserve the other destination lanes; packed forms replace all lanes and
+require aligned 16-byte memory operands. The LT, LE, NLT and NLE predicates signal
+invalid on quiet NaNs; every predicate signals on signaling NaNs. Packed operations
+collect exception conditions from all lanes before updating MXCSR and checking
+for #XM. They preserve EFLAGS and the entire XMM destination on an unmasked fault.
