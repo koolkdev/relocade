@@ -244,11 +244,10 @@ fn forward_parameters(
 }
 
 impl JoinedValue {
-    fn usable_under(&self, values: &ValueTable, flow: &ReducedFlow, block: BlockId) -> bool {
-        self.excluded.iter().all(|&source| {
-            flow.facts(BlockId(source))
-                .conflicts_with(values, flow.facts(block))
-        })
+    fn usable_under(&self, values: &ValueTable, flow: &mut ReducedFlow, block: BlockId) -> bool {
+        self.excluded
+            .iter()
+            .all(|&source| flow.excludes(values, block, BlockId(source)))
     }
 }
 
@@ -268,10 +267,7 @@ impl JoinInputs {
         for source in &mut self.incoming {
             let value = if let Some(value) = source.resolve(graph, recipe, joins, flow) {
                 value
-            } else if flow
-                .facts(BlockId(source.source))
-                .conflicts_with(&graph.values, flow.facts(block))
-            {
+            } else if flow.excludes(&graph.values, block, BlockId(source.source)) {
                 excluded.push(source.source);
                 graph.values.literal(ty, 0)
             } else {
@@ -282,9 +278,7 @@ impl JoinInputs {
         if !excluded.is_empty()
             && !self.incoming.iter().any(|source| {
                 !excluded.contains(&source.source)
-                    && !flow
-                        .facts(BlockId(source.source))
-                        .conflicts_with(&graph.values, flow.facts(block))
+                    && !flow.excludes(&graph.values, block, BlockId(source.source))
             })
         {
             return None;
