@@ -136,3 +136,6 @@ mod memory_control;
 
 #[path = "suites/streaming_stores.rs"]
 mod streaming_stores;
+
+#[path = "suites/masked_stores.rs"]
+mod masked_stores;

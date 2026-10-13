@@ -6,7 +6,7 @@ use crate::{
     execution::OperandSpan,
     instruction::{VectorAlignment, XmmLocation, XmmType},
     memory::Intent,
-    register::RegisterCode,
+    register::{Gpr32, RegisterCode},
 };
 use wasm86_compiler::{VectorLane, I64, V128};
 
@@ -94,6 +94,11 @@ instruction_families! {
         execute: store_non_temporal;
         forms { P66 0x0f 0xe7 => operands(mem, xmm); }
     }
+    MASKMOVDQU {
+        execute: store_masked;
+        effects: [memory_write];
+        forms { P66 0x0f 0xf7 => operands(xmm, register(xmm_rm)); }
+    }
 }
 
 fn move_dword_to_xmm(
@@ -166,4 +171,15 @@ fn store_non_temporal(
     execution
         .memory_operand(destination, OperandSpan::aligned(16), Intent::Write, &[])?
         .write(execution, 0, value)
+}
+
+fn store_masked(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    source: RegisterCode,
+    mask: RegisterCode,
+) -> Result<(), BuildError> {
+    let value = execution.read_xmm(source)?;
+    let mask = execution.read_xmm(mask)?;
+    let address = execution.memory_address_at_register(Gpr32::Edi, execution.data_segment());
+    execution.write_masked_memory(address, value, mask)
 }
