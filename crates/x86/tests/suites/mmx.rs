@@ -28,6 +28,8 @@ mod shifts;
 mod shuffle;
 #[path = "mmx/state.rs"]
 mod state;
+#[path = "mmx/sum_differences.rs"]
+mod sum_differences;
 #[path = "mmx/unpack.rs"]
 mod unpack;
 #[path = "mmx/words.rs"]

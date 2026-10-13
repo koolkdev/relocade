@@ -16,6 +16,8 @@ mod packing;
 mod saturation;
 #[path = "packed/shifts.rs"]
 mod shifts;
+#[path = "packed/sum_differences.rs"]
+mod sum_differences;
 #[path = "packed/unpack.rs"]
 mod unpack;
 

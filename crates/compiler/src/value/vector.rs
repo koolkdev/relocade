@@ -98,6 +98,15 @@ impl<V: VectorType> Val<V> {
         self.binary_lanes::<T>(LaneBinaryOp::AverageUnsigned, right.into())
     }
 
+    /// Adds adjacent pairs of unsigned lanes into lanes of twice their width.
+    /// I8 produces I16 lanes and I16 produces I32 lanes in the same vector width.
+    pub fn unsigned_pairwise_add_lanes<T: VectorLane>(&self) -> Self
+    where
+        I16: AtLeast<T>,
+    {
+        self.unary(Unary::PairwiseAddUnsigned { lane_type: T::TYPE })
+    }
+
     /// Compares corresponding integer lanes for equality, returning all-one bits
     /// in each equal lane and zero bits in each unequal lane.
     pub fn eq_lanes<T: VectorLane>(&self, right: impl Into<Self>) -> Self {

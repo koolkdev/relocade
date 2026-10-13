@@ -24,6 +24,9 @@ pub(crate) enum UnaryOp {
     Splat {
         lane_type: Type,
     },
+    PairwiseAddUnsigned {
+        lane_type: Type,
+    },
     Reinterpret,
     SignExtend {
         input_type: Type,

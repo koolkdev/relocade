@@ -12,6 +12,8 @@ mod minmax;
 mod multiply;
 #[path = "packed/narrow.rs"]
 mod narrow;
+#[path = "packed/pairwise.rs"]
+mod pairwise;
 #[path = "packed/saturation.rs"]
 mod saturation;
 #[path = "packed/shuffle.rs"]
