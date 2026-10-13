@@ -5,7 +5,7 @@ use crate::{
     address::MemoryAddress,
     instruction::X87StackIndex,
     memory::Intent,
-    state::x87::{ConditionCode, Exception, X87Specialization},
+    state::x87::{ConditionCode, Exception, StackValue, X87Specialization},
     x87::{BinaryFormat, ConversionResult, ExtendedValue, RoundingMode},
 };
 use wasm86_compiler::{MemoryInt, I64};
@@ -101,10 +101,10 @@ where
     let mut x87 = execution.x87();
     let source = x87.read_stack(0)?;
     let rounding = x87.rounding()?;
-    let result = convert(&source.value.or_indefinite(&source.empty), &rounding);
-    let invalid = source.empty.or(result.invalid);
+    let result = convert(&source.value.or_indefinite(&source.is_empty()), &rounding);
+    let invalid = source.is_empty().or(result.invalid);
     let unmasked_invalid = x87.record_exception(Exception::Invalid, &invalid)?;
-    x87.record_stack_fault(&source.empty)?;
+    x87.record_stack_fault(&source.is_empty())?;
     let unmasked_overflow = x87.record_exception(Exception::Overflow, &result.overflow)?;
     let unmasked_underflow = x87.exception_unmasked(Exception::Underflow)?;
     let underflow = result.tiny.and(unmasked_underflow.or(&result.inexact));
@@ -138,11 +138,11 @@ fn store_extended(
     let operand = execution.memory_operand(address, 10, Intent::Write, &[])?;
     let source = execution.x87().read_stack(0)?;
     execution.record_x87_memory(&operand)?;
-    let enabled = execution.x87().stack_underflow(&source.empty)?;
+    let enabled = execution.x87().stack_underflow(&source.is_empty())?;
     execution
         .x87()
         .set_condition_code(ConditionCode::C1, false)?;
-    let value = source.value.or_indefinite(&source.empty).bits();
+    let value = source.value.or_indefinite(&source.is_empty()).bits();
     execution.if_value::<()>(
         &enabled,
         |arm| {
@@ -162,13 +162,13 @@ fn store_register(
     execution.check_x87_exception()?;
     execution.record_x87_instruction()?;
     let source = execution.x87().read_stack(0)?;
-    let enabled = execution.x87().stack_underflow(&source.empty)?;
+    let enabled = execution.x87().stack_underflow(&source.is_empty())?;
     execution
         .x87()
         .set_condition_code(ConditionCode::C1, false)?;
     execution.x87().write_stack(
         destination.offset(),
-        &source.value.or_indefinite(&source.empty),
+        &StackValue::from_value(source.value.or_indefinite(&source.is_empty())),
         &enabled,
     )?;
     if pop {

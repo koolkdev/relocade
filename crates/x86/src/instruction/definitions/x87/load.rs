@@ -116,7 +116,10 @@ fn push(execution: &mut ExecutionBuilder<'_, '_>, source: LoadSource) -> Result<
     let mut x87 = execution.x87();
     let (value, source_empty, signaling_nan, denormal) = match source {
         LoadSource::Value(value) => (value, false.into(), false.into(), false.into()),
-        LoadSource::Register(source) => (source.value, source.empty, false.into(), false.into()),
+        LoadSource::Register(source) => {
+            let empty = source.is_empty();
+            (source.value, empty, false.into(), false.into())
+        }
         LoadSource::Binary(source) => (
             source.loaded_value(),
             false.into(),
