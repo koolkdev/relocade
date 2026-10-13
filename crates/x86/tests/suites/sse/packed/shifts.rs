@@ -133,7 +133,7 @@ fn shifts(engine: Engine, frontend: Frontend) {
 
 fn count_span(engine: Engine, frontend: Frontend) {
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented16);
-    check_m128_span(&mut checks, 0xf1);
+    check_m128_span(&mut checks, &[0x66, 0x0f, 0xf1, 0x36, 0x00, 0x40]);
 }
 
 #[test]

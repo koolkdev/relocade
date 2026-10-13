@@ -25,7 +25,7 @@ pub(crate) use logic::LogicOp;
 pub(crate) use multiply::MultiplyOp;
 pub(crate) use rotates::RotateDirection;
 pub(crate) use shifts::{DoubleShiftOp, ShiftOp};
-pub(crate) use shuffle::{shuffle_dwords, shuffle_words};
+pub(crate) use shuffle::{shuffle_dwords, shuffle_qwords, shuffle_words};
 pub(crate) use status::{AnyStatusSource, StatusSource};
 pub(crate) use unary::UnaryOp;
 pub(crate) use unpack::unpack_lanes;
