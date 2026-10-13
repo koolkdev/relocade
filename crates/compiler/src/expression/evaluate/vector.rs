@@ -24,6 +24,14 @@ pub(super) fn binary(operator: LaneBinaryOp, lane_type: Type, left: u128, right:
             LaneBinaryOp::Add => left.wrapping_add(right),
             LaneBinaryOp::Sub => left.wrapping_sub(right),
             LaneBinaryOp::Mul => left.wrapping_mul(right),
+            LaneBinaryOp::MinUnsigned => left.min(right),
+            LaneBinaryOp::MaxUnsigned => left.max(right),
+            LaneBinaryOp::MinSigned => integer::signed_value(lane_type, left)
+                .min(integer::signed_value(lane_type, right))
+                as u64,
+            LaneBinaryOp::MaxSigned => integer::signed_value(lane_type, left)
+                .max(integer::signed_value(lane_type, right))
+                as u64,
             LaneBinaryOp::Eq => {
                 if left == right {
                     mask

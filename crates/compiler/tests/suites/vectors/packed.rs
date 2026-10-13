@@ -4,6 +4,8 @@
 mod comparisons;
 #[path = "packed/identities.rs"]
 mod identities;
+#[path = "packed/minmax.rs"]
+mod minmax;
 #[path = "packed/multiply.rs"]
 mod multiply;
 #[path = "packed/narrow.rs"]
@@ -14,7 +16,7 @@ mod saturation;
 mod shuffle;
 
 use super::*;
-use wasm86_compiler::{VectorLane, I16, I64};
+use wasm86_compiler::{MemoryType, VectorLane, VectorType, I16, I64, V64};
 
 fn arithmetic<T: VectorLane>(v8: bool, left: u128, right: u128, sum: u128, difference: u128) {
     binary_results(v8, left, right, [sum, difference], |left, right| {
@@ -29,27 +31,44 @@ fn binary_results<const N: usize>(
     results: [u128; N],
     operations: impl Fn(Val<V128>, Val<V128>) -> [Val<V128>; N],
 ) {
-    let mut bytes = vec![0xa5; 32 + 32 * N];
+    binary_width_results::<V128, N>(v8, left, right, results, operations);
+}
+
+fn binary_width_results<V: VectorType + MemoryType, const N: usize>(
+    v8: bool,
+    left: u128,
+    right: u128,
+    results: [u128; N],
+    operations: impl Fn(Val<V>, Val<V>) -> [Val<V>; N],
+) {
+    let width = V::BYTES as usize;
+    let literal = |bits: u128| {
+        let mut bytes = V::Bytes::default();
+        bytes.as_mut().copy_from_slice(&bits.to_le_bytes()[..width]);
+        bytes.into()
+    };
+    let mut bytes = vec![0xa5; 32 + 2 * width * N];
     bytes[..16].copy_from_slice(&left.to_le_bytes());
     bytes[16..32].copy_from_slice(&right.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
     let module = fixture.function(&[Type::I32], &[], |mut body| {
-        let runtime_left = body.load::<V128>(memory, 0)?;
-        let runtime_right = body.load::<V128>(memory, 16)?;
-        let constant_left = Val::<V128>::from(left);
+        let runtime_left = body.load::<V>(memory, 0)?;
+        let runtime_right = body.load::<V>(memory, 16)?;
+        let constant_left = literal(left);
         let results = [
             operations(runtime_left, runtime_right),
-            operations(constant_left, right.into()),
+            operations(constant_left, literal(right)),
         ];
         for (index, result) in results.into_iter().flatten().enumerate() {
-            body.store(memory, 32 + index as u32 * 16, result)?;
+            body.store(memory, 32 + index as u32 * V::BYTES, result)?;
         }
         body.return_(())
     });
     let mut expected = bytes.clone();
     for (index, result) in [results, results].into_iter().flatten().enumerate() {
-        expected[32 + index * 16..48 + index * 16].copy_from_slice(&result.to_le_bytes());
+        expected[32 + index * width..32 + (index + 1) * width]
+            .copy_from_slice(&result.to_le_bytes()[..width]);
     }
     check(&module, &bytes, &expected, 0, v8);
 }

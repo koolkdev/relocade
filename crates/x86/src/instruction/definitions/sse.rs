@@ -5,6 +5,7 @@ mod comparisons;
 mod half_moves;
 mod logical;
 mod masks;
+mod minmax;
 mod moves;
 mod multiply;
 mod mxcsr;
@@ -26,6 +27,7 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
     arithmetic::forms()
         .chain(comparisons::forms())
         .chain(moves::forms())
+        .chain(minmax::forms())
         .chain(multiply::forms())
         .chain(half_moves::forms())
         .chain(logical::forms())

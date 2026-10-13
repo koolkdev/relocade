@@ -12,6 +12,8 @@ mod faults;
 mod logical;
 #[path = "mmx/masks.rs"]
 mod masks;
+#[path = "mmx/minmax.rs"]
+mod minmax;
 #[path = "mmx/multiply.rs"]
 mod multiply;
 #[path = "mmx/packing.rs"]

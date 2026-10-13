@@ -64,6 +64,7 @@ impl Folder<'_> {
                 }
                 // Even V64 equality sets the unused upper carrier lanes.
                 Eq => return Some(self.values.carrier_literal(ty, u128::MAX)),
+                MinSigned | MinUnsigned | MaxSigned | MaxUnsigned => return Some(left),
                 _ => {}
             }
         }
