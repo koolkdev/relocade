@@ -2,7 +2,7 @@ use crate::{imports::BoundImports, js_error, memory, memory::MemoryAccess, Prepa
 use js_sys::{Function, Reflect, WebAssembly};
 use std::{cell::RefCell, rc::Rc};
 use wasm86_runtime::{
-    backend::{GuestMemory, Imports, Instance},
+    backend::{EntryResult, GuestMemory, Imports, Instance},
     Devices, Result,
 };
 use wasm86_x86::CpuState;
@@ -13,6 +13,7 @@ use wasm_bindgen_futures::JsFuture;
 pub struct WebInstance<D> {
     state: Rc<RefCell<Imports<D>>>,
     cpu: WebAssembly::Memory,
+    budget: WebAssembly::Memory,
     memory: MemoryAccess,
     entry: Function,
     _imports: BoundImports,
@@ -26,7 +27,8 @@ impl<D: Devices + 'static> WebInstance<D> {
             guest: memory::new(65536)?,
             physical: memory::new(1)?,
         };
-        let imports = BoundImports::new(&state, &cpu, &memory);
+        let budget = memory::new(1)?;
+        let imports = BoundImports::new(&state, &cpu, &budget, &memory);
         let instance: WebAssembly::Instance = JsFuture::from(WebAssembly::instantiate_module(
             &module.module,
             &imports.object,
@@ -42,6 +44,7 @@ impl<D: Devices + 'static> WebInstance<D> {
         Ok(Self {
             state,
             cpu,
+            budget,
             memory,
             entry,
             _imports: imports,
@@ -50,16 +53,27 @@ impl<D: Devices + 'static> WebInstance<D> {
 }
 
 impl<D: Devices> Instance<D> for WebInstance<D> {
-    fn enter(&mut self) -> Result<u64> {
+    fn enter(&mut self, work: u32) -> Result<EntryResult> {
+        let counter = std::mem::offset_of!(CpuState, instruction_count) as u32;
+        let read_u32 = |memory: &WebAssembly::Memory, offset: u32| {
+            let mut bytes = [0; 4];
+            memory::read(memory, offset, &mut bytes);
+            u32::from_le_bytes(bytes)
+        };
+        let before = read_u32(&self.cpu, counter);
+        memory::write(&self.budget, 0, &work.to_le_bytes());
         // No borrow of state crosses the entry: imports borrow it synchronously.
         let word = self
             .entry
             .call0(&JsValue::UNDEFINED)
             .map_err(|error| js_error("execute Wasm", error))?;
         // Wasm i64 values cross the JS boundary as BigInt, never Number.
-        i64::try_from(word)
-            .map(|word| word as u64)
-            .map_err(|error| js_error("read Wasm exit", error))
+        let word = i64::try_from(word).map_err(|error| js_error("read Wasm exit", error))? as u64;
+        Ok(EntryResult {
+            word,
+            remaining_work: read_u32(&self.budget, 0),
+            completed: read_u32(&self.cpu, counter).wrapping_sub(before),
+        })
     }
 
     fn cpu(&self) -> CpuState {

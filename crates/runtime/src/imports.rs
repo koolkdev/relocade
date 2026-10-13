@@ -21,7 +21,7 @@ impl<D: Devices> Imports<D> {
         }
     }
 
-    /// Records successful execution and returns to the outer host loop.
+    /// Records a dispatch handoff, including partial REP progress, to the host loop.
     pub fn dispatch(&mut self) -> i64 {
         self.dispatched = true;
         0

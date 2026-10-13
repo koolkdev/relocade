@@ -58,9 +58,14 @@ initial state and each successful instruction boundary, including the final one
 at the limit. Handle services or pending input between runs and resume the same
 machine.
 
-The limit counts complete x86 instructions. REP remains one instruction and runs
-to completion or a guest fault; device callbacks are synchronous. The runtime
-therefore provides no wall-clock preemption guarantee. It reports CPU exceptions
+The instruction limit counts complete x86 instructions. REP remains one instruction
+and runs to completion or a guest fault. Use `machine.run_slice(work, should_stop)`
+to bound work instead: an ordinary instruction or a completed REP element costs one
+unit. A slice can return with the REP count/indices updated and EIP still at REP;
+resuming continues from that progress. `SliceOutcome` reports consumed work and
+completed instructions separately. Its predicate also sees partial REP boundaries.
+Device callbacks remain synchronous, so neither limit guarantees wall-clock
+preemption. The runtime reports CPU exceptions
 without delivering them, and supplies no DOS/BIOS services or hardware interrupts.
 
 Run the small [raw x86 example](crates/runtime-wasmtime/examples/real16.rs), which writes
@@ -89,7 +94,7 @@ let mut machine = runtime.machine(map, devices).await?;
 Machine, device and memory APIs are shared with Wasmtime. Browser module
 compilation and instantiation await JavaScript promises; generating interpreter
 bytes and executing guest instructions remain synchronous. Use a worker and yield
-to its event loop between bounded runs. No backend requires `Send` device state.
+to its event loop between bounded `run_slice` calls. No backend requires `Send` device state.
 The browser must support WebAssembly multi-memory, tail calls, SIMD and atomics;
 an unsupported engine returns a compilation error. The runtime suite runs in
 Chrome both on the page and in a dedicated worker.

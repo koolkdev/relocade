@@ -1,6 +1,6 @@
 use crate::{memory, PreparedModule};
 use wasm86_runtime::{
-    backend::{GuestMemory, Imports, Instance},
+    backend::{EntryResult, GuestMemory, Imports, Instance},
     Devices, Error, Result,
 };
 use wasm86_x86::CpuState;
@@ -12,6 +12,7 @@ pub struct WasmtimeInstance<D> {
     cpu: Memory,
     guest: Memory,
     physical: Memory,
+    budget: Memory,
     entry: TypedFunc<(), i64>,
 }
 
@@ -25,10 +26,12 @@ impl<D: Devices + 'static> WasmtimeInstance<D> {
         let cpu = Memory::new(&mut store, MemoryType::new(1, Some(1)))?;
         let guest = Memory::new(&mut store, MemoryType::new(1, None))?;
         let physical = Memory::new(&mut store, MemoryType::new(1, Some(1)))?;
+        let budget = Memory::new(&mut store, MemoryType::new(1, Some(1)))?;
         let mut linker = Linker::new(engine);
         linker.define(&store, "wasm86", "cpuState", cpu)?;
         linker.define(&store, "wasm86", "guest", guest)?;
         linker.define(&store, "wasm86", "physicalMap", physical)?;
+        linker.define(&store, "wasm86", "executionBudget", budget)?;
         linker.func_wrap(
             "wasm86",
             "dispatch",
@@ -77,17 +80,29 @@ impl<D: Devices + 'static> WasmtimeInstance<D> {
             cpu,
             guest,
             physical,
+            budget,
             entry,
         })
     }
 }
 
 impl<D: Devices> Instance<D> for WasmtimeInstance<D> {
-    fn enter(&mut self) -> Result<u64> {
-        self.entry
+    fn enter(&mut self, work: u32) -> Result<EntryResult> {
+        let counter = std::mem::offset_of!(CpuState, instruction_count);
+        let read_u32 = |memory: Memory, store: &Store<Imports<D>>, offset: usize| {
+            u32::from_le_bytes(memory.data(store)[offset..offset + 4].try_into().unwrap())
+        };
+        let before = read_u32(self.cpu, &self.store, counter);
+        self.budget.data_mut(&mut self.store)[..4].copy_from_slice(&work.to_le_bytes());
+        let word = self
+            .entry
             .call(&mut self.store, ())
-            .map(|word| word as u64)
-            .map_err(|error| Error::backend("execute Wasm", error))
+            .map_err(|error| Error::backend("execute Wasm", error))? as u64;
+        Ok(EntryResult {
+            word,
+            remaining_work: read_u32(self.budget, &self.store, 0),
+            completed: read_u32(self.cpu, &self.store, counter).wrapping_sub(before),
+        })
     }
     fn cpu(&self) -> CpuState {
         CpuState::from_bytes(

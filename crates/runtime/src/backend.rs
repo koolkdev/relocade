@@ -17,7 +17,7 @@ pub trait Backend {
 
     fn compile(&self, module: &CompiledModule) -> impl Future<Output = Result<Self::Module>>;
 
-    /// Creates private CPU, guest and physical-map memories, each at least one
+    /// Creates private CPU, guest, physical-map and execution-budget memories, each at least one
     /// Wasm page. Bind the supplied imports without entering guest execution.
     /// The runtime initializes CPU state, backing size and mapping before entry.
     fn instantiate<D: Devices + 'static>(
@@ -27,11 +27,21 @@ pub trait Backend {
     ) -> impl Future<Output = Result<Self::Instance<D>>>;
 }
 
+/// Published progress from one generated execution entry. `completed` is the
+/// wrapping CPU retirement-counter delta, independent of dispatch callbacks.
+#[derive(Clone, Copy, Debug)]
+pub struct EntryResult {
+    pub word: u64,
+    pub remaining_work: u32,
+    pub completed: u32,
+}
+
 /// One executable entry and its private memories/callback state.
 pub trait Instance<D: Devices> {
-    /// Enters the prepared export and returns its unmodified ABI word. Do not
-    /// borrow import state across this call: guest execution can invoke it.
-    fn enter(&mut self) -> Result<u64>;
+    /// Supplies a work allowance in `executionBudget`, enters the prepared export
+    /// and reads published progress. Do not borrow import state across entry:
+    /// guest execution can invoke it. A dispatch can represent partial REP work.
+    fn enter(&mut self, work: u32) -> Result<EntryResult>;
     fn cpu(&self) -> CpuState;
     fn set_cpu(&mut self, cpu: &CpuState);
 

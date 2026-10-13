@@ -13,6 +13,8 @@ mod execution;
 mod memory;
 #[path = "runtime/run.rs"]
 mod run;
+#[path = "runtime/slices.rs"]
+mod slices;
 
 type TestMachine<D = ()> = Machine<TestBackend, D>;
 

@@ -29,6 +29,7 @@ impl BoundImports {
     pub fn new<D: Devices + 'static>(
         state: &Rc<RefCell<Imports<D>>>,
         cpu: &Memory,
+        budget: &Memory,
         memory: &MemoryAccess,
     ) -> Self {
         let callback = || CallbackAccess {
@@ -60,6 +61,7 @@ impl BoundImports {
         });
         let namespace = Object::new();
         set_property(&namespace, "cpuState", cpu);
+        set_property(&namespace, "executionBudget", budget);
         set_property(&namespace, "guest", &memory.guest);
         set_property(&namespace, "physicalMap", &memory.physical);
         set_property(&namespace, "dispatch", dispatch.as_ref());

@@ -13,7 +13,7 @@
 //!
 //! Compile this crate for `wasm32-unknown-unknown` with wasm-bindgen. Preparation
 //! awaits JavaScript's WebAssembly promises; guest execution and device callbacks
-//! stay synchronous. Run on a worker and yield between bounded `Machine::run`
+//! stay synchronous. Run on a worker and yield between bounded `Machine::run_slice`
 //! calls to keep the host responsive. Generated Wasm requires multi-memory, tail
 //! calls, SIMD and atomics support. Unsupported engines return compilation errors.
 #![forbid(unsafe_code)]

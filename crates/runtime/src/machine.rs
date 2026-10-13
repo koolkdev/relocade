@@ -1,5 +1,5 @@
 use crate::{
-    backend::{Backend, Instance},
+    backend::{Backend, EntryResult, Instance},
     imports::Imports,
     DeviceMemory, Devices, Error, MemoryError, Result, Runtime,
 };
@@ -66,18 +66,33 @@ impl<B: Backend, D: Devices + 'static> Machine<B, D> {
     /// Executes one instruction, including a complete REP. Unexpected engine
     /// failures are implementation errors, not resumable guest outcomes.
     pub fn step(&mut self) -> Result<StepOutcome> {
+        loop {
+            let progress = self.enter(u32::MAX)?;
+            if let Some(exit) = progress.exit {
+                return Ok(StepOutcome::Exited(exit));
+            }
+            if progress.entry.completed != 0 {
+                return Ok(StepOutcome::Completed);
+            }
+        }
+    }
+
+    pub(crate) fn enter(&mut self, work: u32) -> Result<Progress> {
         self.instance
             .with_memory(|imports, _| imports.dispatched = false);
-        let word = self.instance.enter()?;
-        self.instance.inspect(|imports| {
+        let entry = self.instance.enter(work)?;
+        let exit = self.instance.inspect(|imports| {
             if imports.dispatched {
-                Ok(StepOutcome::Completed)
+                Ok(None)
             } else {
-                ExecutionExit::from_bits(word)
-                    .map(StepOutcome::Exited)
-                    .ok_or(Error::InvalidExit(word))
+                match ExecutionExit::from_bits(entry.word) {
+                    Some(ExecutionExit::BudgetExhausted) => Ok(None),
+                    Some(exit) => Ok(Some(exit)),
+                    None => Err(Error::InvalidExit(entry.word)),
+                }
             }
-        })
+        })?;
+        Ok(Progress { entry, exit })
     }
 
     /// Changes mappings between entries, growing zeroed backing as needed.
@@ -116,4 +131,10 @@ impl<B: Backend, D: Devices + 'static> Machine<B, D> {
         self.instance
             .with_memory(|imports, memory| imports.write(memory, address, bytes))
     }
+}
+
+/// Dispatch is a handoff, not proof that an instruction retired.
+pub(crate) struct Progress {
+    pub entry: EntryResult,
+    pub exit: Option<ExecutionExit>,
 }

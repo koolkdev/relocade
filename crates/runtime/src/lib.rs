@@ -6,7 +6,9 @@
 //! [`Machine::step`] returns after one x86 instruction, including all REP elements,
 //! or a guest exit. [`Machine::run`] repeats those entries until an instruction
 //! limit, a host stop request or a guest exit. It does not preempt an instruction
-//! or device callback. Guest exceptions are reported, not delivered through the IVT.
+//! or device callback. [`Machine::run_slice`] instead bounds instruction/REP-element
+//! work, publishing partial REP progress. Neither API preempts a synchronous host
+//! callback. Guest exceptions are reported, not delivered through the IVT.
 //!
 //! Preparation is asynchronous to accommodate browser module compilation. Generating
 //! interpreter bytes, guest entry and device callbacks remain synchronous. A browser
@@ -40,15 +42,17 @@ mod imports;
 mod machine;
 mod memory;
 mod run;
+mod slice;
 
 pub use devices::Devices;
 pub use error::{Error, Result};
 pub use machine::{Machine, StepOutcome};
 pub use memory::{DeviceMemory, MemoryError};
 pub use run::{RunOutcome, RunStop};
+pub use slice::{SliceOutcome, SliceStop};
 
 use backend::Backend;
-use wasm86_x86::{compile_interpreter_step, ExecutionProfile, PhysicalMemoryMap};
+use wasm86_x86::{Compiler, ExecutionProfile, PhysicalMemoryMap};
 
 /// Host engine and prepared interpreter shared by independent machines.
 pub struct Runtime<B: Backend> {
@@ -59,7 +63,9 @@ pub struct Runtime<B: Backend> {
 impl<B: Backend> Runtime<B> {
     /// Generates and prepares the Real16 interpreter once on the supplied engine.
     pub async fn new(backend: B) -> Result<Self> {
-        let module = compile_interpreter_step(ExecutionProfile::Real16)?;
+        let module = Compiler::new(ExecutionProfile::Real16)
+            .with_execution_budget()
+            .compile_interpreter_step()?;
         let interpreter = backend.compile(&module).await?;
         Ok(Self {
             backend,
