@@ -1,4 +1,4 @@
-//! Fold recipes under one set of path facts without scheduling calculations.
+//! Fold and lower recipes under fixed path facts before scheduling calculations.
 use super::*;
 use rustc_hash::FxHashMap;
 
@@ -31,8 +31,8 @@ impl Reducer {
         }
     }
 
-    pub(super) fn recipes(&self, residual: usize) -> impl Iterator<Item = usize> {
-        std::iter::once(residual).chain(self.equivalents.recipes(residual))
+    pub(super) fn recipes(&self, residual: usize) -> impl Iterator<Item = usize> + '_ {
+        std::iter::once(residual).chain(self.equivalents.recipes(residual).iter().copied())
     }
 
     pub(super) fn facts(&self) -> &ScalarFacts {
@@ -92,21 +92,24 @@ impl Reducer {
                 Work::Finish(id) => {
                     let original = values.expression(id).unwrap();
                     let expression = original.expression.map(|v| self.residuals[v]);
-                    let producer = if expression == original.expression {
-                        original.producer
-                    } else {
-                        values.intern(Value {
-                            ty: values[original.producer].ty,
-                            definition: ValueDefinition::Expression(expression),
-                        })
-                    };
-                    let rewritten = values.expression_result(producer, original.component);
-                    // Refold only when an input changed. Construction already
-                    // canonicalized the original expression.
-                    let result = if rewritten == id {
+                    // Construction already canonicalized unchanged expressions.
+                    // Fold changed operands directly, without interning a temporary recipe.
+                    let result = if expression == original.expression {
                         id
                     } else {
-                        crate::expression::refold(values, rewritten)
+                        crate::expression::fold_carrier(
+                            values,
+                            values[id].ty,
+                            expression,
+                            original.component,
+                        )
+                    };
+                    // Consult path facts on newly folded semantic recipes before
+                    // expanding them. Lowering uses the same cache and aliases.
+                    let result = if result == id {
+                        crate::expression::lower(values, id)
+                    } else {
+                        result
                     };
                     if result == id {
                         // Prove only a stable recipe. Alias/Visit below handles
@@ -118,8 +121,8 @@ impl Reducer {
                             .unwrap_or(id);
                         self.record(id, result);
                     } else {
-                        // Folding may introduce another recipe. Reduce it in
-                        // this context before publishing a stable normal form.
+                        // Folding and lowering may introduce another recipe.
+                        // Reduce it in this context before publishing a stable normal form.
                         self.pending.push(Work::Alias(id, result));
                         self.pending.push(Work::Visit(result));
                     }

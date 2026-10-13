@@ -126,7 +126,7 @@ impl ReducedFlow {
             .reduce(values, value)
     }
 
-    pub(super) fn recipes(&self, block: BlockId, value: usize) -> impl Iterator<Item = usize> {
+    pub(super) fn recipes(&self, block: BlockId, value: usize) -> impl Iterator<Item = usize> + '_ {
         self.reducers[block.0].as_ref().unwrap().recipes(value)
     }
 }
