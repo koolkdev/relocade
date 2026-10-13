@@ -12,6 +12,7 @@ mod pack;
 mod shifts;
 mod transfers;
 mod unpack;
+mod words;
 
 pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
     binary::forms()
@@ -20,6 +21,7 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
         .chain(pack::forms())
         .chain(transfers::forms())
         .chain(unpack::forms())
+        .chain(words::forms())
 }
 
 fn binary<T: MemoryInt + TransferType>(

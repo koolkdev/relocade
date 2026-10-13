@@ -56,10 +56,11 @@ fn incoming_aliases_see_a_common_ancestor_binding_requested_after_preparation() 
     let choice = expression(
         &mut graph,
         Type::I32,
-        Expression::Select {
-            condition: 0,
-            when_true: 1,
-            when_false: number,
+        Expression::Ternary {
+            operator: Ternary::Select,
+            first: 1,
+            second: number,
+            third: 0,
         },
     );
     let alias = expression(

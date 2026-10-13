@@ -6,7 +6,8 @@
 
 use super::Folder;
 use crate::expression::{
-    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, UnaryOp as Unary,
+    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, TernaryOp as Ternary,
+    UnaryOp as Unary,
 };
 use crate::{
     bitwise::BitwiseOp,
@@ -81,11 +82,16 @@ impl Folder<'_> {
                 Shift::Rotate(operator) => self.rotate(operator, value, count),
                 Shift::Lanes { .. } => self.fold(ty, expression),
             },
-            Expression::Select {
-                condition,
-                when_true,
-                when_false,
+            Expression::Ternary {
+                operator: Ternary::Select,
+                first: when_true,
+                second: when_false,
+                third: condition,
             } => self.select(condition, when_true, when_false),
+            Expression::Ternary {
+                operator: Ternary::Bitselect,
+                ..
+            } => self.fold(ty, expression),
             Expression::MultiplyWide { .. } => self.fold_result(ty, expression, component),
         }
     }

@@ -4,7 +4,8 @@ mod vectors;
 
 use super::*;
 use crate::expression::{
-    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, UnaryOp as Unary,
+    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, TernaryOp as Ternary,
+    UnaryOp as Unary,
 };
 use crate::{
     bitwise::BitwiseOp,
@@ -362,10 +363,11 @@ fn boolean_folds_do_not_discard_upper_carrier_bits() {
         let numeric_bit = refold(
             &mut values,
             Type::I64,
-            Expression::Select {
-                condition: input,
-                when_true,
-                when_false,
+            Expression::Ternary {
+                operator: Ternary::Select,
+                first: when_true,
+                second: when_false,
+                third: input,
             },
         );
         // A nonzero carrier such as 2 must still yield a canonical numeric bit.
@@ -394,15 +396,19 @@ fn boolean_folds_do_not_discard_upper_carrier_bits() {
     let byte_choice = refold(
         &mut values,
         Type::I8,
-        Expression::Select {
-            condition: zero_test,
-            when_true: one_with_upper_bits,
-            when_false: zero,
+        Expression::Ternary {
+            operator: Ternary::Select,
+            first: one_with_upper_bits,
+            second: zero,
+            third: zero_test,
         },
     );
     assert_eq!(values.bounds[byte_choice].unsigned, 9);
     assert!(matches!(
         values[byte_choice].definition,
-        ValueDefinition::Expression(Expression::Select { .. })
+        ValueDefinition::Expression(Expression::Ternary {
+            operator: Ternary::Select,
+            ..
+        })
     ));
 }

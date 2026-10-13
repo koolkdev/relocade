@@ -1,7 +1,9 @@
 //! Learn facts implied by choosing one edge of a conditional branch.
 
 use super::{Bits, ScalarFacts};
-use crate::expression::{BinaryOp as Binary, CompareOp as Compare, UnaryOp as Unary};
+use crate::expression::{
+    BinaryOp as Binary, CompareOp as Compare, TernaryOp as Ternary, UnaryOp as Unary,
+};
 use crate::{
     bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
@@ -120,10 +122,11 @@ impl ScalarFacts {
                     }
                     _ => {}
                 },
-                Expression::Select {
-                    condition,
-                    when_true,
-                    when_false,
+                Expression::Ternary {
+                    operator: Ternary::Select,
+                    first: when_true,
+                    second: when_false,
+                    third: condition,
                 } => {
                     let truth = self
                         .constant(table, condition)

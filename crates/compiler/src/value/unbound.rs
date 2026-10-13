@@ -8,11 +8,11 @@ use crate::{arena::FunctionArena, expression::TypedLiteral, BuildError, Expressi
 #[derive(Clone)]
 pub(crate) struct UnboundExpression {
     node: Rc<Node>,
-    component: usize,
+    ty: Type,
+    component: u8,
 }
 
 struct Node {
-    ty: Type,
     expression: Expression<Operand>,
 }
 
@@ -27,16 +27,20 @@ pub(super) enum Operand {
 impl UnboundExpression {
     pub(super) fn new(ty: Type, expression: Expression<Operand>) -> Self {
         Self {
-            node: Rc::new(Node { ty, expression }),
+            node: Rc::new(Node { expression }),
+            ty,
             component: 0,
         }
     }
 
     pub(super) fn result(&self, component: usize) -> Self {
-        debug_assert!(component < self.node.expression.result_types(self.node.ty).len());
+        debug_assert!(component < self.node.expression.result_types(self.ty).len());
         Self {
             node: self.node.clone(),
-            component,
+            ty: self.ty,
+            component: component
+                .try_into()
+                .expect("expression result index fits in a byte"),
         }
     }
 
@@ -45,7 +49,7 @@ impl UnboundExpression {
             Operand::Literal(literal) => arena.literal(literal.ty, literal.value),
             Operand::Expression(expression) => arena.resolve_unbound(expression),
         })?;
-        arena.expression(self.node.ty, expression, self.component)
+        arena.expression(self.ty, expression, usize::from(self.component))
     }
 }
 

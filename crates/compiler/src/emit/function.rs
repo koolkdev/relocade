@@ -43,7 +43,8 @@ impl FunctionEncoder {
         }
     }
 
-    /// Allocate lowering scratch storage in the same lifetime pool as graph values.
+    /// Scratch storage for the wide-multiply fallback. Other calculations use
+    /// expression placement, which owns their stack and local storage.
     pub(super) fn temporary(&mut self, ty: ValType) -> u32 {
         let slot = self.parameter_count + self.slot_types.len() as u32;
         self.slot_types.push(ty);

@@ -6,7 +6,7 @@ use crate::DoubleWidth;
 impl<V: VectorType> Val<V> {
     pub(super) fn concat_low_halves(&self, high: Self) -> Val<V128> {
         self.binary(
-            Binary::Shuffle(ShuffleMask::new(std::array::from_fn(|byte| {
+            Binary::ShuffleImmediate(ShuffleMask::new(std::array::from_fn(|byte| {
                 if byte < 8 {
                     byte as u8
                 } else {

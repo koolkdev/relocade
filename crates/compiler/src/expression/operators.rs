@@ -21,6 +21,9 @@ pub(crate) enum UnaryOp {
     Bitmask {
         lane_type: Type,
     },
+    Splat {
+        lane_type: Type,
+    },
     Reinterpret,
     SignExtend {
         input_type: Type,
@@ -38,7 +41,10 @@ pub(crate) enum UnaryOp {
 pub(crate) enum BinaryOp {
     Bitwise(BitwiseOp),
     Compare(CompareOp),
-    Shuffle(ShuffleMask),
+    ShuffleImmediate(ShuffleMask),
+    Swizzle {
+        input_type: Type,
+    },
     ReplaceLane {
         lane_type: Type,
         lane: u8,
@@ -54,6 +60,15 @@ pub(crate) enum BinaryOp {
         signed: bool,
         result_lane: Type,
     },
+}
+
+/// Three-input operations, with operands in Wasm stack order.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+pub(crate) enum TernaryOp {
+    /// Selects the first or second value using the third input's I1 predicate.
+    Select,
+    /// Selects bits from the first or second vector using the third input's mask.
+    Bitselect,
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]

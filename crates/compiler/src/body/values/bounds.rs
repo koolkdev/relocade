@@ -2,7 +2,9 @@
 //! These describe complete encodings, not floating-point magnitude or vector lanes.
 //! Literal bounds describe their physical bits, including vector encodings.
 
-use crate::expression::{BinaryOp as Binary, ShiftOp as Shift, UnaryOp as Unary};
+use crate::expression::{
+    BinaryOp as Binary, ShiftOp as Shift, TernaryOp as Ternary, UnaryOp as Unary,
+};
 use crate::{
     bitwise::BitwiseOp,
     body::{BlockItem, Value, ValueDefinition},
@@ -157,11 +159,12 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
             },
             Shift::Rotate(_) | Shift::Lanes { .. } => carrier,
         },
-        Expression::Select {
-            when_true,
-            when_false,
+        Expression::Ternary {
+            operator: Ternary::Select,
+            first: when_true,
+            second: when_false,
             ..
         } => inputs[when_true].unsigned.max(inputs[when_false].unsigned),
-        Expression::MultiplyWide { .. } => carrier,
+        Expression::Ternary { .. } | Expression::MultiplyWide { .. } => carrier,
     }
 }

@@ -4,7 +4,8 @@
 //! folds the existing carrier operations without repeating that normalization.
 
 use crate::expression::{
-    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, UnaryOp as Unary,
+    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, TernaryOp as Ternary,
+    UnaryOp as Unary,
 };
 use crate::{
     body::{Value, ValueDefinition, ValueTable},
@@ -16,6 +17,8 @@ mod bits;
 mod bitwise;
 mod comparisons;
 mod construct;
+mod lanes;
+mod layout;
 mod reinterpret;
 mod select;
 mod shifts;
@@ -71,6 +74,7 @@ impl Folder<'_> {
         }
         let input = match expression {
             Expression::Unary { operator, input } => match operator {
+                Unary::ExtractLane { lane } => self.fold_extract_lane(ty, lane, input),
                 Unary::ZeroTest { nonzero } => self.fold_zero_test(input, nonzero),
                 Unary::LowBits { bits } => Some(self.fold_low_bits(ty, input, bits)),
                 Unary::SignExtend { input_type } => self.fold_sign_extend(ty, input_type, input),
@@ -98,6 +102,7 @@ impl Folder<'_> {
                 right,
             } => match operator {
                 Binary::Integer(operator) => self.fold_binary(ty, operator, left, right),
+                Binary::Swizzle { input_type } => self.fold_swizzle(ty, input_type, left, right),
                 Binary::Bitwise(operator) => self.fold_bitwise(ty, operator, left, right),
                 Binary::Compare(Compare::Integer(operator)) => {
                     self.fold_compare(operator, left, right)
@@ -117,11 +122,15 @@ impl Folder<'_> {
                 Shift::Rotate(_) => self.fold_rotate(ty, value, count),
                 Shift::Lanes { lane_type, .. } => self.fold_lane_shift(value, count, lane_type),
             },
-            Expression::Select {
-                condition,
-                when_true,
-                when_false,
-            } => self.fold_select(condition, when_true, when_false),
+            Expression::Ternary {
+                operator,
+                first,
+                second,
+                third,
+            } => match operator {
+                Ternary::Select => self.fold_select(third, first, second),
+                Ternary::Bitselect => self.fold_select_bits(ty, third, first, second),
+            },
             Expression::MultiplyWide {
                 signed,
                 left,

@@ -1,7 +1,6 @@
 //! Dispatch pure expression shapes to opcode lowering.
 use super::Writer;
 use crate::{Expression, Type};
-use wasm_encoder::Instruction;
 
 mod operators;
 mod vector;
@@ -20,7 +19,7 @@ impl Writer<'_> {
             Expression::Shift { operator, .. } => {
                 self.emit(operators::shift(operator, result_type))
             }
-            Expression::Select { .. } => self.emit(Instruction::Select),
+            Expression::Ternary { operator, .. } => self.emit(operators::ternary(operator)),
             Expression::MultiplyWide { signed, .. } => self.multiply_wide(signed),
         }
     }

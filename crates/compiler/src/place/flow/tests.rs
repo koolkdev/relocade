@@ -19,10 +19,11 @@ fn rewritten_if_and_switch_guards_observe_both_semantic_forms() {
         let one = graph.values.literal(Type::I32, 1);
         let choice = graph.values.intern(Value {
             ty: Type::I32,
-            definition: ValueDefinition::Expression(Expression::Select {
-                condition: 0,
-                when_true: 1,
-                when_false: other,
+            definition: ValueDefinition::Expression(Expression::Ternary {
+                operator: crate::expression::TernaryOp::Select,
+                first: 1,
+                second: other,
+                third: 0,
             }),
         });
         let [authored_sum, reduced_sum] = [choice, 1].map(|input| {
@@ -173,10 +174,11 @@ fn reduced_edge_values_establish_join_facts_before_any_execution_is_placed() {
         let choice = expression(
             &mut graph,
             Type::I32,
-            Expression::Select {
-                condition: 0,
-                when_true,
-                when_false,
+            Expression::Ternary {
+                operator: crate::expression::TernaryOp::Select,
+                first: when_true,
+                second: when_false,
+                third: 0,
             },
         );
         graph.blocks[source.0].exit.edges_mut()[0]

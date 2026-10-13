@@ -1,7 +1,7 @@
 //! Value selection keeps its condition's truth distinct from its numeric bits.
 
 use super::Folder;
-use crate::expression::UnaryOp as Unary;
+use crate::expression::{TernaryOp as Ternary, UnaryOp as Unary};
 use crate::{Expression, Type};
 
 impl Folder<'_> {
@@ -14,10 +14,11 @@ impl Folder<'_> {
         let condition = self.normalize(condition);
         self.fold(
             self.values[when_true].ty,
-            Expression::Select {
-                condition,
-                when_true,
-                when_false,
+            Expression::Ternary {
+                operator: Ternary::Select,
+                first: when_true,
+                second: when_false,
+                third: condition,
             },
         )
     }
