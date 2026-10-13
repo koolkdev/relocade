@@ -2,10 +2,27 @@
 
 use super::*;
 use crate::{
+    floating::RoundingMode,
     instruction::XmmType,
     simd::{FloatLane, FloatOperands, FloatResult, FloatShape},
+    state::Mxcsr,
 };
 use wasm86_compiler::{AtLeast, I64};
+
+#[derive(Clone, Copy)]
+pub(super) enum IntegerRounding {
+    Mxcsr,
+    Truncate,
+}
+
+impl IntegerRounding {
+    pub(super) fn mode(self, controls: &Mxcsr) -> RoundingMode {
+        match self {
+            Self::Mxcsr => controls.rounding(),
+            Self::Truncate => RoundingMode::new(3.into()),
+        }
+    }
+}
 
 pub(super) fn binary<T: FloatLane + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,

@@ -8,6 +8,8 @@ mod jit;
 mod masks;
 #[path = "floating/minmax.rs"]
 mod minmax;
+#[path = "floating/scalar_integer.rs"]
+mod scalar_integer;
 
 use super::*;
 

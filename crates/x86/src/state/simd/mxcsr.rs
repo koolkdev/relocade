@@ -1,7 +1,7 @@
 //! MXCSR controls and sticky status are distinct from the numerical calculation.
 
-use crate::{simd::SimdExceptions, StoredSimd};
-use wasm86_compiler::{Val, I1, I32};
+use crate::{floating::RoundingMode, simd::SimdExceptions, StoredSimd};
+use wasm86_compiler::{Val, I1, I32, I8};
 
 pub(crate) struct Mxcsr(Val<I32>);
 
@@ -17,6 +17,10 @@ impl Mxcsr {
 
     pub(crate) fn denormals_are_zero(&self) -> Val<I1> {
         self.0.and(1 << 6).ne(0)
+    }
+
+    pub(crate) fn rounding(&self) -> RoundingMode {
+        RoundingMode::new(self.0.unsigned().shr(13).truncate::<I8>())
     }
 
     /// Record newly raised conditions even when masked. Old sticky flags alone
