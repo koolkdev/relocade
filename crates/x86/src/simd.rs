@@ -7,7 +7,7 @@ mod shuffle;
 mod sum_differences;
 mod unpack;
 
-pub(crate) use floating::{FloatLane, FloatOperands, SimdExceptions};
+pub(crate) use floating::{FloatLane, FloatOperands, FloatResult, FloatShape, SimdExceptions};
 pub(crate) use shifts::{ByteShiftOp, PackedShiftOp};
 pub(crate) use shuffle::{shuffle_dwords, shuffle_qwords, shuffle_words};
 pub(crate) use sum_differences::sum_absolute_byte_differences;
