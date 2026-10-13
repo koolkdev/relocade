@@ -1,9 +1,10 @@
-//! Comparisons publish x87 condition codes and optionally pop one or two slots.
+//! Comparisons select an architectural result destination and optional stack pops.
 
 use super::*;
 use crate::{
     address::MemoryAddress,
     execution::{X87Operand, X87Operands},
+    flags::{Flag, FlagChange},
     instruction::X87StackIndex,
     state::x87::{ConditionCode, Exception},
     x87::{BinaryFormat, ComparisonKind, ExtendedValue},
@@ -11,28 +12,44 @@ use crate::{
 
 instruction_families! {
     FCOM_REGISTER {
-        execute: compare_register(ComparisonKind::Ordered, 0);
+        execute: compare_register(ComparisonKind::Ordered, 0, ComparisonTarget::X87);
         forms { 0xD8 @ 0xD0 + rm => operands(st); }
     }
     FCOMP_REGISTER {
-        execute: compare_register(ComparisonKind::Ordered, 1);
+        execute: compare_register(ComparisonKind::Ordered, 1, ComparisonTarget::X87);
         forms { 0xD8 @ 0xD8 + rm => operands(st); }
     }
     FCOMPP {
-        execute: compare_register(X87StackIndex::new(1), ComparisonKind::Ordered, 2);
+        execute: compare_register(X87StackIndex::new(1), ComparisonKind::Ordered, 2, ComparisonTarget::X87);
         forms { 0xDE @ 0xD9 => no_operands(); }
     }
     FUCOM {
-        execute: compare_register(ComparisonKind::Unordered, 0);
+        execute: compare_register(ComparisonKind::Unordered, 0, ComparisonTarget::X87);
         forms { 0xDD @ 0xE0 + rm => operands(st); }
     }
     FUCOMP {
-        execute: compare_register(ComparisonKind::Unordered, 1);
+        execute: compare_register(ComparisonKind::Unordered, 1, ComparisonTarget::X87);
         forms { 0xDD @ 0xE8 + rm => operands(st); }
     }
     FUCOMPP {
-        execute: compare_register(X87StackIndex::new(1), ComparisonKind::Unordered, 2);
+        execute: compare_register(X87StackIndex::new(1), ComparisonKind::Unordered, 2, ComparisonTarget::X87);
         forms { 0xDA @ 0xE9 => no_operands(); }
+    }
+    FCOMI {
+        execute: compare_register(ComparisonKind::Ordered, 0, ComparisonTarget::Eflags);
+        forms { 0xDB @ 0xF0 + rm => operands(st); }
+    }
+    FCOMIP {
+        execute: compare_register(ComparisonKind::Ordered, 1, ComparisonTarget::Eflags);
+        forms { 0xDF @ 0xF0 + rm => operands(st); }
+    }
+    FUCOMI {
+        execute: compare_register(ComparisonKind::Unordered, 0, ComparisonTarget::Eflags);
+        forms { 0xDB @ 0xE8 + rm => operands(st); }
+    }
+    FUCOMIP {
+        execute: compare_register(ComparisonKind::Unordered, 1, ComparisonTarget::Eflags);
+        forms { 0xDF @ 0xE8 + rm => operands(st); }
     }
     FCOM_BINARY32 {
         execute: compare_memory(BinaryFormat::Binary32, 0);
@@ -56,17 +73,25 @@ instruction_families! {
     }
 }
 
+#[derive(Clone, Copy)]
+enum ComparisonTarget {
+    X87,
+    Eflags,
+}
+
 fn compare_register(
     execution: &mut ExecutionBuilder<'_, '_>,
     source: X87StackIndex,
     kind: ComparisonKind,
     pop_count: u32,
+    target: ComparisonTarget,
 ) -> Result<(), BuildError> {
     compare(
         execution,
         X87Operand::Register(source.offset()),
         kind,
         pop_count,
+        target,
     )
 }
 
@@ -81,6 +106,7 @@ fn compare_memory(
         X87Operand::BinaryMemory { address, format },
         ComparisonKind::Ordered,
         pop_count,
+        ComparisonTarget::X87,
     )
 }
 
@@ -91,6 +117,7 @@ fn test_zero(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
         X87Operand::Value(zero),
         ComparisonKind::Ordered,
         0,
+        ComparisonTarget::X87,
     )
 }
 
@@ -101,6 +128,7 @@ fn compare(
     source: X87Operand,
     kind: ComparisonKind,
     pop_count: u32,
+    target: ComparisonTarget,
 ) -> Result<(), BuildError> {
     execution.check_x87_exception()?;
     let X87Operands {
@@ -135,20 +163,37 @@ fn compare(
     let suppressed = unmasked_invalid.or(unmasked_denormal);
     x87.record_pending_exception(suppressed.clone())?;
     x87.set_condition_code(ConditionCode::C1, false)?;
-    // Unmasked invalid preserves the condition codes. Retain them for an
-    // unmasked denormal too, as the pre-operation policy; Intel specifies
-    // unchanged TOP and operands for #D but not the condition-code response.
-    let enabled = suppressed.eq(false);
-    x87.set_condition_code_when(
-        ConditionCode::C0,
-        result.unordered.or(&result.less),
-        &enabled,
-    )?;
-    x87.set_condition_code_when(ConditionCode::C2, result.unordered.clone(), &enabled)?;
-    x87.set_condition_code_when(
-        ConditionCode::C3,
-        result.unordered.or(&result.equal),
-        &enabled,
-    )?;
-    x87.pop_n(pop_count, &enabled)
+    let pop_enabled = suppressed.eq(false);
+    if matches!(target, ComparisonTarget::X87) {
+        // Unmasked invalid preserves the x87 condition codes. Retain them
+        // for unmasked denormals too; Intel specifies unchanged TOP and
+        // operands for #D but not the condition-code response.
+        x87.set_condition_code_when(
+            ConditionCode::C0,
+            result.unordered.or(&result.less),
+            &pop_enabled,
+        )?;
+        x87.set_condition_code_when(ConditionCode::C2, result.unordered.clone(), &pop_enabled)?;
+        x87.set_condition_code_when(
+            ConditionCode::C3,
+            result.unordered.or(&result.equal),
+            &pop_enabled,
+        )?;
+    }
+    x87.pop_n(pop_count, &pop_enabled)?;
+    if matches!(target, ComparisonTarget::Eflags) {
+        // Intel's Celeron specification update 243748-011, C15, corrects
+        // the manual: comparison flags are written even for unmasked #IA.
+        // Denormals also publish the relation; neither exception allows a
+        // pop when unmasked. OF/SF/AF clear per 252046-033, change 8.
+        execution.write_flags(FlagChange::partial([
+            (Flag::CF, result.unordered.or(result.less)),
+            (Flag::PF, result.unordered.clone()),
+            (Flag::ZF, result.unordered.or(result.equal)),
+            (Flag::OF, false.into()),
+            (Flag::SF, false.into()),
+            (Flag::AF, false.into()),
+        ]))?;
+    }
+    Ok(())
 }
