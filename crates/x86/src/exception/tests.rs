@@ -17,6 +17,7 @@ fn supported_faults_have_architectural_vector_numbers() {
             14,
         ),
         (Exception::FloatingPoint, 16),
+        (Exception::SimdFloatingPoint, 19),
     ] {
         assert_eq!(exception.vector() as u8, vector);
     }
@@ -29,6 +30,7 @@ fn fault_names_without_error_codes() {
         (Exception::BoundRangeExceeded, "#BR"),
         (Exception::InvalidOpcode, "#UD"),
         (Exception::FloatingPoint, "#MF"),
+        (Exception::SimdFloatingPoint, "#XM"),
     ] {
         assert_eq!(exception.to_string(), name);
     }

@@ -711,10 +711,16 @@ exception vector numbers:
 | BOUND range exceeded | 64 | Zero | Zero |
 | Invalid opcode | 128 | Zero | Zero |
 | Floating-point error | 256 | Zero | Zero |
+| SIMD floating-point exception | 512 | Zero | Zero |
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the
 pending exception.
+
+SIMD floating-point exception reports #XM (architectural vector 19) at the
+faulting instruction, without retirement. The published MXCSR includes newly
+raised sticky exception flags; the instruction's XMM or EFLAGS destination is
+preserved. Existing sticky flags do not themselves trigger an exception.
 
 UD2 raises invalid opcode (#UD, architectural vector 6) after its complete encoding
 has been fetched. It preserves CPU state and memory, does not retire or dispatch,
@@ -783,8 +789,9 @@ MXCSR `0x1f80` and zero XMM registers. Literal snapshots retain every bit, inclu
 reserved MXCSR bits and padding; these bytes are not an FXSAVE image. Hosts must
 allocate the new 464-byte CPU image; offsets of existing fields are unchanged.
 
-The current execution profiles assume SSE/SSE2 are enabled (CR0.EM/TS clear and
-CR4.OSFXSR set); they do not model feature-control registers. MOVUPS, MOVUPD,
+The current execution profiles assume SSE/SSE2 and SIMD exception delivery are
+enabled (CR0.EM/TS clear, CR4.OSFXSR and CR4.OSXMMEXCPT set); they do not model
+feature-control registers. MOVUPS, MOVUPD,
 MOVAPS, MOVAPD, MOVDQA, MOVDQU, MOVSS, MOVSD, XORPS and XORPD preserve raw bits
 and leave MXCSR, EFLAGS and x87 state unchanged. MOVUPS/MOVUPD/MOVDQU accept
 unaligned memory. MOVAPS/MOVAPD/MOVDQA and legacy XORPS/XORPD require 16-byte
@@ -810,5 +817,6 @@ the supported mask is set, after completing the memory read and before changing
 state. Loading exception flags or unmasking them does not itself raise a SIMD
 floating-point exception. STMXCSR writes supported bits and zeroes reserved bits
 without normalizing the literal CPU snapshot. Both instructions leave XMM, EFLAGS
-and x87 state unchanged. SIMD floating-point arithmetic and its exception delivery
-are outside the current instruction subset.
+and x87 state unchanged. The SIMD exception boundary is available to numerical
+instructions; floating-point arithmetic remains outside the current instruction
+subset.

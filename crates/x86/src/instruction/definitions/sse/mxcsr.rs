@@ -28,7 +28,7 @@ fn store_mxcsr(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: MemoryAddress<Val<I32>>,
 ) -> Result<(), BuildError> {
-    let value = execution.read_mxcsr()?;
+    let value = execution.read_mxcsr()?.bits();
     execution
         .memory_operand(destination, 4, Intent::Write, &[])?
         .write(execution, 0, value)
