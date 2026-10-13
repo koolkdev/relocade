@@ -19,6 +19,7 @@ impl FloatLane for I64 {
 pub(crate) struct FloatOperand<T: FloatLane> {
     original_bits: Val<I64>,
     pub(crate) bits: Val<T>,
+    pub(super) denormal: Val<I1>,
 }
 
 impl<T: FloatLane> FloatOperand<T>
@@ -32,6 +33,7 @@ where
         Self {
             original_bits,
             bits: daz.and(&denormal).select(bits.and(sign), bits),
+            denormal: daz.eq(false).and(denormal),
         }
     }
 

@@ -26,7 +26,7 @@ where
 {
     pub(crate) fn new(left: Val<T>, right: Val<T>, daz: Val<I1>) -> Self {
         let left = FloatOperand::new(left, daz.clone());
-        let right = FloatOperand::new(right, daz.clone());
+        let right = FloatOperand::new(right, daz);
         let left_class = left.classification();
         let right_class = right.classification();
         let unordered = left_class.nan().or(right_class.nan());
@@ -35,10 +35,7 @@ where
             right: right.bits.clone(),
             signaling_nan: left_class.signaling_nan().or(right_class.signaling_nan()),
             // A NaN response takes precedence over a denormal in the same lane.
-            denormal: unordered
-                .eq(false)
-                .and(daz.eq(false))
-                .and(left_class.denormal().or(right_class.denormal())),
+            denormal: unordered.eq(false).and(left.denormal.or(&right.denormal)),
             unordered,
         }
     }

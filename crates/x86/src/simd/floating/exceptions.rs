@@ -1,4 +1,4 @@
-//! Numerical conditions are collected across lanes before MXCSR masking.
+//! Lane conditions are collected before MXCSR publication and fault delivery.
 
 use wasm86_compiler::{Val, I1};
 
