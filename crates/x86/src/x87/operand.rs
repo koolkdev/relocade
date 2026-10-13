@@ -162,8 +162,13 @@ impl BinaryOperands {
         match operation {
             BinaryOperation::Divide => self.precision_only.and(self.right.zero.eq(false)),
             BinaryOperation::ReverseDivide => self.precision_only.and(self.left.zero.eq(false)),
-            _ => self.precision_only.clone(),
+            _ => self.normal_or_zero(),
         }
+    }
+
+    /// Normal or zero inputs, excluding an unconsumed narrow denormal operand.
+    pub(crate) fn normal_or_zero(&self) -> Val<I1> {
+        self.precision_only.clone()
     }
 
     pub(crate) fn calculate(
