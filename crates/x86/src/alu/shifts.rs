@@ -1,6 +1,6 @@
-//! Scalar shifts with status flags and packed shifts with unmasked counts.
+//! Scalar, packed-lane and whole-vector shifts retain their distinct count rules.
 
-use wasm86_compiler::{AtLeast, MemoryInt, Val, VectorLane, VectorType, I1, I32, I64};
+use wasm86_compiler::{AtLeast, MemoryInt, Val, VectorLane, VectorType, I1, I32, I64, I8, V128};
 
 use super::{bit, result_flag, AluResult};
 use crate::alu::{AnyStatusSource, StatusSource};
@@ -17,6 +17,27 @@ pub(crate) enum ShiftOp {
 pub(crate) enum DoubleShiftOp {
     Left,
     Right,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum ByteShiftOp {
+    Left,
+    Right,
+}
+
+impl ByteShiftOp {
+    /// Moves bytes across the whole vector; counts of 16 or more produce zero.
+    pub(crate) fn apply(self, input: Val<V128>, count: Val<I8>) -> Val<V128> {
+        let in_range = count.unsigned().lt(16);
+        let counts = Val::<V128>::splat(count);
+        let positions = Val::<V128>::from(std::array::from_fn::<_, 16, _>(|byte| byte as u8));
+        let indices = match self {
+            // Underflow puts vacated bytes outside the swizzle's input range.
+            Self::Left => positions.sub_lanes::<I8>(&counts),
+            Self::Right => positions.add_lanes::<I8>(&counts),
+        };
+        in_range.select(input.swizzle_bytes(indices), 0_u128)
+    }
 }
 
 impl ShiftOp {
