@@ -1,4 +1,4 @@
-//! x87 loads convert memory formats or copy a register before pushing.
+//! x87 loads push converted memory values, register copies, or constants.
 
 use super::*;
 use crate::{
@@ -6,11 +6,39 @@ use crate::{
     instruction::X87StackIndex,
     memory::Intent,
     state::x87::{ConditionCode, Exception, StackValue},
-    x87::{BinaryFormat, BinaryOperand, ExtendedBits, ExtendedValue},
+    x87::{BinaryFormat, BinaryOperand, Constant, ExtendedBits, ExtendedValue},
 };
 use wasm86_compiler::{MemoryInt, I64};
 
 instruction_families! {
+    FLD1 {
+        execute: load_constant(Constant::One);
+        forms { 0xD9 @ 0xE8 => no_operands(); }
+    }
+    FLDL2T {
+        execute: load_constant(Constant::Log2Ten);
+        forms { 0xD9 @ 0xE9 => no_operands(); }
+    }
+    FLDL2E {
+        execute: load_constant(Constant::Log2E);
+        forms { 0xD9 @ 0xEA => no_operands(); }
+    }
+    FLDPI {
+        execute: load_constant(Constant::Pi);
+        forms { 0xD9 @ 0xEB => no_operands(); }
+    }
+    FLDLG2 {
+        execute: load_constant(Constant::Log10Two);
+        forms { 0xD9 @ 0xEC => no_operands(); }
+    }
+    FLDLN2 {
+        execute: load_constant(Constant::LnTwo);
+        forms { 0xD9 @ 0xED => no_operands(); }
+    }
+    FLDZ {
+        execute: load_constant(Constant::Zero);
+        forms { 0xD9 @ 0xEE => no_operands(); }
+    }
     FLD_BINARY32 {
         execute: load_binary(BinaryFormat::Binary32);
         forms { 0xD9 / 0 => operands(mem); }
@@ -35,6 +63,21 @@ instruction_families! {
         execute: load_register;
         forms { 0xD9 @ 0xC0 + rm => operands(st); }
     }
+}
+
+fn load_constant(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    constant: Constant,
+) -> Result<(), BuildError> {
+    execution.check_x87_exception()?;
+    execution.specialize(|jit| {
+        let available = jit.x87().push_available()?;
+        jit.specialize_on(available)
+    })?;
+    let rounding = execution.x87().rounding()?;
+    let value = constant.value(&rounding);
+    execution.record_x87_instruction()?;
+    push(execution, LoadSource::Value(value))
 }
 
 fn load_binary(
