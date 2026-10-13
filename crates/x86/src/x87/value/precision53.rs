@@ -12,6 +12,8 @@ pub(in crate::x87) struct Precision53 {
     // Both exact views are pure expressions. Keep the original one so an
     // integer consumer does not pay for an unused native conversion or reverse it.
     bits: ExtendedBits,
+    // Present only when construction also proves binary64's exponent range.
+    binary64_value: Option<Val<F64>>,
 }
 
 impl Precision53 {
@@ -22,6 +24,17 @@ impl Precision53 {
         Self {
             significand: Val::<F64>::from_bits(fraction.or(exponent)),
             bits: bits.clone(),
+            binary64_value: None,
+        }
+    }
+
+    /// Requires the normalized or zero encoding accepted by `from_bits`,
+    /// together with an exact numerical binary64 view of those bits.
+    /// The encoded view retains signed zero and the complete NaN payload.
+    pub(in crate::x87) fn from_binary64(bits: &ExtendedBits, value: Val<F64>) -> Self {
+        Self {
+            binary64_value: Some(value),
+            ..Self::from_bits(bits)
         }
     }
 
@@ -39,6 +52,7 @@ impl Precision53 {
                 significand: encoded,
                 sign_exponent,
             },
+            binary64_value: None,
         }
     }
 
@@ -50,6 +64,10 @@ impl Precision53 {
         &self.significand
     }
 
+    pub(super) fn binary64_value(&self) -> Option<&Val<F64>> {
+        self.binary64_value.as_ref()
+    }
+
     pub(super) fn change_sign(&self, operation: SignOperation) -> Self {
         Self {
             significand: self.significand.clone(),
@@ -57,6 +75,10 @@ impl Precision53 {
                 significand: self.bits.significand.clone(),
                 sign_exponent: operation.apply(&self.bits.sign_exponent, 0x8000),
             },
+            binary64_value: self.binary64_value.as_ref().map(|value| match operation {
+                SignOperation::Negate => value.neg(),
+                SignOperation::Absolute => value.abs(),
+            }),
         }
     }
 
@@ -69,6 +91,9 @@ impl Precision53 {
                 significand: invalid.select(0xc000_0000_0000_0000_u64, &self.bits.significand),
                 sign_exponent: invalid.select(0xffff, &self.bits.sign_exponent),
             },
+            binary64_value: self.binary64_value.as_ref().map(|value| {
+                invalid.select(Val::<F64>::from_bits(0xfff8_0000_0000_0000_u64), value)
+            }),
         }
     }
 
@@ -80,6 +105,11 @@ impl Precision53 {
                 sign_exponent: condition
                     .select(&self.bits.sign_exponent, &otherwise.bits.sign_exponent),
             },
+            binary64_value: self
+                .binary64_value
+                .as_ref()
+                .zip(otherwise.binary64_value.as_ref())
+                .map(|(value, other)| condition.select(value, other)),
         }
     }
 }

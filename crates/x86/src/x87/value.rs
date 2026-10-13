@@ -116,11 +116,15 @@ impl ExtendedValue {
         }
     }
 
-    /// An exact native value only when retained binary64 bits prove its range
-    /// and precision. Precision53 alone does not bound the extended exponent.
+    /// An exact native value when construction proves its range and precision.
+    /// Precision53 alone does not bound the extended exponent. NaN payloads
+    /// remain in the encoded view rather than this numerical comparison view.
     pub(super) fn binary64_value(&self) -> Option<Val<F64>> {
-        self.exact_bits(BinaryFormat::Binary64)
-            .map(Val::<F64>::from_bits)
+        match &self.representation {
+            Representation::Binary { format, bits } => Some(format.binary64_value(bits)),
+            Representation::Precision53(value) => value.binary64_value().cloned(),
+            Representation::Extended(_) => None,
+        }
     }
 
     pub(crate) fn bits(&self) -> ExtendedBits {

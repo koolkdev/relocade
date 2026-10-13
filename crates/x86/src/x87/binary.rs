@@ -6,7 +6,7 @@ mod operand;
 pub(in crate::x87) use classification::BinaryClassification;
 pub(crate) use operand::BinaryOperand;
 
-use wasm86_compiler::{Val, I16, I32, I64};
+use wasm86_compiler::{Val, F64, I16, I32, I64};
 
 use super::{
     rounding::{RoundingInput, RoundingMode},
@@ -58,6 +58,15 @@ impl BinaryFormat {
         match self {
             Self::Binary32 => 4,
             Self::Binary64 => 8,
+        }
+    }
+
+    /// An exact numerical value for ordering. NaN payloads and signaling state
+    /// remain in the original bits; native promotion need not preserve them.
+    pub(super) fn binary64_value(self, bits: &Val<I64>) -> Val<F64> {
+        match self {
+            Self::Binary32 => Val::<F64>::from_binary32_bits(bits.truncate::<I32>()),
+            Self::Binary64 => Val::<F64>::from_bits(bits),
         }
     }
 

@@ -3,8 +3,9 @@
 use wasm86_compiler::{AtLeast, MemoryInt, Val, I16, I32, I64};
 
 use super::{
-    rounding::RoundingInput, value::KnownClass, ConversionResult, ExtendedBits, ExtendedValue,
-    RoundingMode,
+    rounding::RoundingInput,
+    value::{KnownClass, Precision53},
+    ConversionResult, ExtendedBits, ExtendedValue, RoundingMode,
 };
 
 impl ExtendedValue {
@@ -14,6 +15,9 @@ impl ExtendedValue {
     where
         I64: AtLeast<T>,
     {
+        // Every 16/32-bit integer has an exact binary64 value. Retain it before
+        // integer expansion; 64-bit inputs must keep their full precision.
+        let native = (T::BYTES <= 4).then(|| integer.signed().to_f64());
         let integer = integer.signed().extend::<I64>();
         let negative = integer.signed().lt(0_u64);
         // Wrapping negation preserves the unsigned magnitude of i64::MIN.
@@ -22,21 +26,18 @@ impl ExtendedValue {
         let exponent = magnitude
             .eq(0_u64)
             .select(0_u32, Val::<I32>::from(16383 + 63).sub(&shift));
-        let value = Self::from_bits(ExtendedBits {
+        let bits = ExtendedBits {
             significand: magnitude.shl(shift),
             sign_exponent: negative
                 .select(0x8000_u32, 0_u32)
                 .or(exponent)
                 .truncate::<I16>(),
-        })
-        .assume_class(KnownClass::zero().select(&integer.eq(0_u64), &KnownClass::normal()));
-        // Narrow integers need at most 32 significant bits. Keep the raw view
-        // as well, so encoding consumers need no native-significand conversion.
-        if T::BYTES <= 4 {
-            value.assume_precision53()
-        } else {
-            value
-        }
+        };
+        let value = match native {
+            Some(native) => Self::from_precision53(Precision53::from_binary64(&bits, native)),
+            None => Self::from_bits(bits),
+        };
+        value.assume_class(KnownClass::zero().select(&integer.eq(0_u64), &KnownClass::normal()))
     }
 
     pub(crate) fn to_signed_integer<T: MemoryInt>(

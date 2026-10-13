@@ -4,8 +4,8 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::compile_block_from_bytes;
 
-fn loaded(mut cpu: CpuState, address: u32, value: (u64, u16)) -> CpuState {
-    cpu = complete_x87(cpu, 6, 0x0505);
+fn loaded(mut cpu: CpuState, address: u32, value: (u64, u16), opcode: u16) -> CpuState {
+    cpu = complete_x87(cpu, 6, opcode);
     cpu.x87.status.top = cpu.x87.status.top.wrapping_sub(1) & 7;
     cpu.x87.status.c1 = 0;
     cpu.x87.data_offset = address;
@@ -71,10 +71,10 @@ fn native_values(engine: Engine) {
             let mut steps = Vec::new();
             let mut cpu = image.cpu;
             if !memory {
-                cpu = loaded(cpu, 0x4008, values[right].1);
+                cpu = loaded(cpu, 0x4008, values[right].1, 0x0505);
                 steps.push(dispatch(cpu));
             }
-            cpu = loaded(cpu, 0x4000, values[left].1);
+            cpu = loaded(cpu, 0x4000, values[left].1, 0x0505);
             steps.push(dispatch(cpu));
             cpu = completed(
                 cpu,
@@ -101,46 +101,56 @@ fn native_values(engine: Engine) {
 }
 
 fn restart_after_load(engine: Engine) {
-    let code = [0xdd, 0x05, 0, 0x40, 0, 0, 0xdc, 0x1d, 8, 0x40, 0, 0];
-    let compiled = compile_block_from_bytes(0x1000, &code, 2).unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
-    for (source, exception, relation) in [
-        (0x7ff8_0000_0000_0001_u64, 1, UNORDERED),
-        (0x7ff0_0000_0000_0001, 1, UNORDERED),
-        (1, 2, 0),
+    for (compare, quiet_nan, signaling_nan) in [
+        (
+            0xdc_u8,
+            0x7ff8_0000_0000_0001_u64,
+            0x7ff0_0000_0000_0001_u64,
+        ),
+        (0xd8, 0x7fc0_0001, 0x7f80_0001),
     ] {
-        for masked in [false, true] {
-            let mut image = stack_image(&code, 0, 0xffff);
-            image.cpu.x87.status = status(0x4320);
-            set_control(
-                &mut image.cpu.x87.control,
-                if masked { 0x037f } else { 0x037f & !exception },
-            );
-            image.map(4, 0x8000, false);
-            image.data(0x8000, &1.0_f64.to_bits().to_le_bytes());
-            image.data(0x8008, &source.to_le_bytes());
-            let first = loaded(image.cpu, 0x4000, ONE);
-            assert_eq!(
-                engine.observe(&block, &image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu: first,
-                        ram: &[],
-                        exit: Exit::Interpret,
-                    }]
-                ),
-                "restart retains the preceding load and its saved pointers"
-            );
-            let flags = exception | if masked { relation } else { 0x4100 | PENDING };
-            let mut result = completed(first, 6, 0x041d, flags, u8::from(masked));
-            result.x87.data_offset = 0x4008;
-            assert_eq!(
-                engine.observe(&linked, &image.input(), 1),
-                expected(&image, &[dispatch(result)]),
-                "interpreter completes the excluded operand response"
-            );
+        let opcode = (u16::from(compare & 7) << 8) | 0x1d;
+        let code = [0xdd, 0x05, 0, 0x40, 0, 0, compare, 0x1d, 8, 0x40, 0, 0];
+        let compiled = compile_block_from_bytes(0x1000, &code, 2).unwrap();
+        let block = TestModule::new(&compiled);
+        let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+        for (source, exception, relation) in [
+            (quiet_nan, 1, UNORDERED),
+            (signaling_nan, 1, UNORDERED),
+            (1, 2, 0),
+        ] {
+            for masked in [false, true] {
+                let mut image = stack_image(&code, 0, 0xffff);
+                image.cpu.x87.status = status(0x4320);
+                set_control(
+                    &mut image.cpu.x87.control,
+                    if masked { 0x037f } else { 0x037f & !exception },
+                );
+                image.map(4, 0x8000, false);
+                image.data(0x8000, &1.0_f64.to_bits().to_le_bytes());
+                image.data(0x8008, &source.to_le_bytes());
+                let first = loaded(image.cpu, 0x4000, ONE, 0x0505);
+                assert_eq!(
+                    engine.observe(&block, &image.input(), 1),
+                    expected(
+                        &image,
+                        &[Step {
+                            cpu: first,
+                            ram: &[],
+                            exit: Exit::Interpret,
+                        }]
+                    ),
+                    "restart retains the preceding load and its saved pointers"
+                );
+                let flags = exception | if masked { relation } else { 0x4100 | PENDING };
+                let mut result = completed(first, 6, opcode, flags, u8::from(masked));
+                result.x87.data_offset = 0x4008;
+                assert_eq!(
+                    engine.observe(&linked, &image.input(), 1),
+                    expected(&image, &[dispatch(result)]),
+                    "interpreter completes the excluded operand response"
+                );
+            }
         }
     }
 }
@@ -188,4 +198,181 @@ fn v8_native_and_extended_ordering() {
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn v8_operand_exception_restart() {
     restart_after_load(Engine::V8);
+}
+
+fn promoted_inputs(engine: Engine) {
+    // Source bits, the independently specified loaded value, and the final
+    // relation cover exact promotion, integer limits, signed zero and wide FILD.
+    for (load, modrm, source, value, compare, right, flags) in [
+        (
+            0xd9,
+            0x05,
+            0x3f80_0000_u64,
+            ONE,
+            0xd8,
+            0x3f80_0001_u64,
+            LESS,
+        ),
+        (
+            0xd9,
+            0x05,
+            0x3f80_0001,
+            (LEADING + (1 << 40), 0x3fff),
+            0xdc,
+            0x3ff0_0000_0000_0000,
+            0,
+        ),
+        (
+            0xdd,
+            0x05,
+            0x3ff0_0000_0000_0001,
+            (LEADING + 0x800, 0x3fff),
+            0xd8,
+            0x3f80_0000,
+            0,
+        ),
+        (0xd9, 0x05, 0x8000_0000, (0, 0x8000), 0xdc, 0, EQUAL),
+        (0xd9, 0x05, 0x8080_0000, (LEADING, 0xbf81), 0xd9, 0, LESS),
+        (
+            0xdd,
+            0x05,
+            0x8000_0000_0000_0000,
+            (0, 0x8000),
+            0xd9,
+            0,
+            EQUAL,
+        ),
+        (
+            0xdd,
+            0x05,
+            0x41df_ffff_ffe0_0000,
+            (0xffff_ffff_0000_0000, 0x401d),
+            0xda,
+            0x7fff_ffff,
+            0,
+        ),
+        (
+            0xd9,
+            0x05,
+            0xc700_0000,
+            (LEADING, 0xc00e),
+            0xde,
+            0x8000,
+            EQUAL,
+        ),
+        (
+            0xdb,
+            0x05,
+            0x8000_0000,
+            (LEADING, 0xc01e),
+            0xda,
+            0x7fff_ffff,
+            LESS,
+        ),
+        (0xdf, 0x05, 0x8000, (LEADING, 0xc00e), 0xd9, 0, LESS),
+        (
+            0xdf,
+            0x2d,
+            0x0020_0000_0000_0001,
+            (LEADING + 0x400, 0x4034),
+            0xdc,
+            0x4340_0000_0000_0000,
+            0,
+        ),
+    ] {
+        let mut code = vec![load, modrm, 0, 0x40, 0, 0];
+        let test_zero = compare == 0xd9;
+        let tail: &[u8] = if test_zero {
+            &[0xd9, 0xe4]
+        } else {
+            &[compare, 0x1d, 8, 0x40, 0, 0]
+        };
+        code.extend_from_slice(tail);
+        let mut image = stack_image(&code, 0, 0xffff);
+        image.cpu.x87.status = status(0x20);
+        set_control(&mut image.cpu.x87.control, 0x0c40);
+        image.map(4, 0x8000, false);
+        image.data(0x8000, &source.to_le_bytes());
+        image.data(0x8008, &right.to_le_bytes());
+        let first = loaded(
+            image.cpu,
+            0x4000,
+            value,
+            (u16::from(load & 7) << 8) | u16::from(modrm),
+        );
+        let mut result = completed(
+            first,
+            tail.len() as u32,
+            (u16::from(compare & 7) << 8) | u16::from(tail[1]),
+            flags,
+            u8::from(!test_zero),
+        );
+        if !test_zero {
+            result.x87.data_offset = 0x4008;
+        }
+        let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
+        assert_eq!(
+            engine.observe(&block, &image.input(), 1),
+            expected(&image, &[dispatch(result)]),
+            "compiled {code:02x?}"
+        );
+        assert_eq!(
+            engine.observe(TestModule::interpreter(), &image.input(), 2),
+            expected(&image, &[dispatch(first), dispatch(result)]),
+            "interpreted {code:02x?}"
+        );
+    }
+}
+
+#[test]
+fn binary32_and_integer_comparisons_stay_compiled() {
+    promoted_inputs(Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_binary32_and_integer_comparisons_stay_compiled() {
+    promoted_inputs(Engine::V8);
+}
+
+fn signed_integer_comparison(engine: Engine) {
+    for (operation, input, before, after, flags) in [
+        (0xe0_u8, 1_i32, ONE, (LEADING, 0xbfff), LESS),
+        (0xe1, -1, (LEADING, 0xbfff), ONE, 0),
+        (0xe0, 0, (0, 0), (0, 0x8000), EQUAL),
+    ] {
+        let code = [0xdb, 0x05, 0, 0x40, 0, 0, 0xd9, operation, 0xd9, 0xe4];
+        let mut image = stack_image(&code, 0, 0xffff);
+        image.cpu.x87.status = status(0x20);
+        image.map(4, 0x8000, false);
+        image.data(0x8000, &input.to_le_bytes());
+        let first = loaded(image.cpu, 0x4000, before, 0x0305);
+        let mut changed = complete_x87(first, 2, 0x0100 | u16::from(operation));
+        let top = changed.x87.status.top;
+        write_value(&mut changed, usize::from(top), after);
+        let result = completed(changed, 2, 0x01e4, flags, 0);
+        let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 3).unwrap());
+        assert_eq!(
+            engine.observe(&block, &image.input(), 1),
+            expected(&image, &[dispatch(result)])
+        );
+        assert_eq!(
+            engine.observe(TestModule::interpreter(), &image.input(), 3),
+            expected(
+                &image,
+                &[dispatch(first), dispatch(changed), dispatch(result)]
+            )
+        );
+    }
+}
+
+#[test]
+fn sign_changes_update_native_integer_comparisons() {
+    signed_integer_comparison(Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_sign_changes_update_native_integer_comparisons() {
+    signed_integer_comparison(Engine::V8);
 }

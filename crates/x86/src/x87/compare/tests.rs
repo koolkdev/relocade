@@ -83,3 +83,169 @@ fn loaded_binary64_values_compare_without_source_exceptions() {
 fn v8_loaded_binary64_values_compare_without_source_exceptions() {
     loaded_binary64_comparison(step::Engine::V8);
 }
+
+fn promoted_comparison(engine: step::Engine) {
+    for memory in [false, true] {
+        let mut program = Program::new();
+        let function = program
+            .function(
+                Signature {
+                    parameters: vec![Type::I64, Type::I32],
+                    results: vec![Type::I32],
+                },
+                |body| {
+                    let left = BinaryFormat::Binary64
+                        .decode(&body.parameter::<I64>(0)?)
+                        .loaded_value();
+                    let right = BinaryFormat::Binary32
+                        .decode(&body.parameter::<I32>(1)?.unsigned().extend::<I64>());
+                    let operands = if memory {
+                        BinaryOperands::from_binary(&left, &right)
+                    } else {
+                        BinaryOperands::new(&left, &right.loaded_value())
+                    };
+                    let compared = operands.compare(ComparisonKind::Unordered);
+                    let ordered = compared.unordered.eq(false);
+                    let bits = [
+                        ordered.and(compared.less),
+                        ordered.and(compared.equal),
+                        compared.unordered,
+                        compared.invalid,
+                        compared.denormal,
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    .fold(Val::<I32>::from(0), |bits, (index, flag)| {
+                        bits.or(flag.unsigned().extend::<I32>().shl(index as u32))
+                    });
+                    body.return_(bits)
+                },
+            )
+            .unwrap();
+        program.export("compare", function).unwrap();
+        let module = step::TestModule::new(&CompiledModule {
+            bytes: program.compile().unwrap(),
+            entry: "compare".into(),
+            execution_profile: None,
+        });
+        // LT/EQ/UN/IE/DE: loading quiets SNaN and normalizes narrow denormals;
+        // a memory operand must still report its original exception evidence.
+        for (left, right, loaded, direct) in [
+            (0x3ff0_0000_0000_0001_u64, 0x3f80_0000_u32, 0, 0),
+            (0x3ff0_0000_0000_0001, 0x3f80_0001, 1, 1),
+            (0x8000_0000_0000_0000, 0, 2, 2),
+            (0x36a0_0000_0000_0000, 1, 2, 18),
+            (0, 0x8000_0001, 0, 16),
+            (0x7ff0_0000_0000_0000, 0x7f80_0000, 2, 2),
+            (0xfff0_0000_0000_0000, 0xff7f_ffff, 1, 1),
+            (0x3ff0_0000_0000_0000, 0x7fc0_0042, 4, 4),
+            (0x3ff0_0000_0000_0000, 0x7f80_0042, 4, 12),
+        ] {
+            let input = step::Input {
+                arguments: vec![
+                    step::Argument::I64(left as i64),
+                    step::Argument::I32(right as i32),
+                ],
+                ..step::Input::new(&[])
+            };
+            assert_eq!(
+                engine.observe(&module, &input, 1).events,
+                vec![step::Event::Return {
+                    outcome: step::Outcome::Returned(vec![step::Argument::I32(if memory {
+                        direct
+                    } else {
+                        loaded
+                    })]),
+                    snapshot: step::Snapshot {
+                        cpu: vec![],
+                        guest: None
+                    }
+                }]
+            );
+        }
+    }
+}
+
+#[test]
+fn binary32_promotion_preserves_ordering_and_source_exceptions() {
+    promoted_comparison(step::Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_binary32_promotion_preserves_ordering_and_source_exceptions() {
+    promoted_comparison(step::Engine::V8);
+}
+
+#[test]
+fn proven_exact_inputs_emit_native_ordering() {
+    use wasmparser::{Operator, Parser, Payload};
+    for integer in [false, true] {
+        let mut program = Program::new();
+        let function = program
+            .function(
+                Signature {
+                    parameters: vec![Type::I32; 2],
+                    results: vec![Type::I1; 2],
+                },
+                |body| {
+                    let left = BinaryFormat::Binary32
+                        .decode(&body.parameter::<I32>(0)?.unsigned().extend::<I64>())
+                        .loaded_value();
+                    let input = body.parameter::<I32>(1)?;
+                    let right = if integer {
+                        crate::x87::ExtendedValue::from_signed_integer(&input)
+                    } else {
+                        BinaryFormat::Binary32
+                            .decode(&input.unsigned().extend::<I64>())
+                            .loaded_value()
+                    };
+                    let comparison =
+                        BinaryOperands::new(&left, &right).compare(ComparisonKind::Unordered);
+                    body.return_((comparison.less, comparison.equal))
+                },
+            )
+            .unwrap();
+        program.export("compare", function).unwrap();
+        let bytes = program.compile().unwrap();
+        let ops: Vec<_> = Parser::new(0)
+            .parse_all(&bytes)
+            .flat_map(|payload| match payload.unwrap() {
+                Payload::CodeSectionEntry(body) => body
+                    .get_operators_reader()
+                    .unwrap()
+                    .into_iter()
+                    .map(Result::unwrap)
+                    .collect(),
+                _ => vec![],
+            })
+            .collect();
+        assert_eq!(
+            ops.iter()
+                .filter(|op| matches!(op, Operator::F64Lt))
+                .count(),
+            1
+        );
+        assert_eq!(
+            ops.iter()
+                .filter(|op| matches!(op, Operator::F64Eq))
+                .count(),
+            1
+        );
+        assert_eq!(
+            ops.iter()
+                .filter(|op| matches!(op, Operator::F64PromoteF32))
+                .count(),
+            if integer { 1 } else { 2 }
+        );
+        assert_eq!(
+            ops.iter()
+                .filter(|op| matches!(op, Operator::F64ConvertI32S))
+                .count(),
+            usize::from(integer)
+        );
+        assert!(!ops
+            .iter()
+            .any(|op| matches!(op, Operator::I64Clz | Operator::I64LtU | Operator::I64Eq)));
+    }
+}
