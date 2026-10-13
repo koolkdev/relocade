@@ -36,12 +36,42 @@ pub(super) fn binary(operator: LaneBinaryOp, lane_type: Type) -> Instruction<'st
         (LaneBinaryOp::Mul, Type::I16) => Instruction::I16x8Mul,
         (LaneBinaryOp::Mul, Type::I32) => Instruction::I32x4Mul,
         (LaneBinaryOp::Mul, Type::I64) => Instruction::I64x2Mul,
-        (LaneBinaryOp::WideningMulLowSigned, Type::I8) => Instruction::I16x8ExtMulLowI8x16S,
-        (LaneBinaryOp::WideningMulLowSigned, Type::I16) => Instruction::I32x4ExtMulLowI16x8S,
-        (LaneBinaryOp::WideningMulLowSigned, Type::I32) => Instruction::I64x2ExtMulLowI32x4S,
-        (LaneBinaryOp::WideningMulHighSigned, Type::I8) => Instruction::I16x8ExtMulHighI8x16S,
-        (LaneBinaryOp::WideningMulHighSigned, Type::I16) => Instruction::I32x4ExtMulHighI16x8S,
-        (LaneBinaryOp::WideningMulHighSigned, Type::I32) => Instruction::I64x2ExtMulHighI32x4S,
+        (LaneBinaryOp::WideningMulLow { signed: true }, Type::I8) => {
+            Instruction::I16x8ExtMulLowI8x16S
+        }
+        (LaneBinaryOp::WideningMulLow { signed: true }, Type::I16) => {
+            Instruction::I32x4ExtMulLowI16x8S
+        }
+        (LaneBinaryOp::WideningMulLow { signed: true }, Type::I32) => {
+            Instruction::I64x2ExtMulLowI32x4S
+        }
+        (LaneBinaryOp::WideningMulHigh { signed: true }, Type::I8) => {
+            Instruction::I16x8ExtMulHighI8x16S
+        }
+        (LaneBinaryOp::WideningMulHigh { signed: true }, Type::I16) => {
+            Instruction::I32x4ExtMulHighI16x8S
+        }
+        (LaneBinaryOp::WideningMulHigh { signed: true }, Type::I32) => {
+            Instruction::I64x2ExtMulHighI32x4S
+        }
+        (LaneBinaryOp::WideningMulLow { signed: false }, Type::I8) => {
+            Instruction::I16x8ExtMulLowI8x16U
+        }
+        (LaneBinaryOp::WideningMulLow { signed: false }, Type::I16) => {
+            Instruction::I32x4ExtMulLowI16x8U
+        }
+        (LaneBinaryOp::WideningMulLow { signed: false }, Type::I32) => {
+            Instruction::I64x2ExtMulLowI32x4U
+        }
+        (LaneBinaryOp::WideningMulHigh { signed: false }, Type::I8) => {
+            Instruction::I16x8ExtMulHighI8x16U
+        }
+        (LaneBinaryOp::WideningMulHigh { signed: false }, Type::I16) => {
+            Instruction::I32x4ExtMulHighI16x8U
+        }
+        (LaneBinaryOp::WideningMulHigh { signed: false }, Type::I32) => {
+            Instruction::I64x2ExtMulHighI32x4U
+        }
         (LaneBinaryOp::DotI16Signed, Type::I16) => Instruction::I32x4DotI16x8S,
         (LaneBinaryOp::AddSatSigned, Type::I8) => Instruction::I8x16AddSatS,
         (LaneBinaryOp::AddSatSigned, Type::I16) => Instruction::I16x8AddSatS,

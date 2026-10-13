@@ -45,3 +45,30 @@ fn multiplication(engine: Engine, frontend: Frontend) {
 }
 
 test_frontends!(sse_word_products_and_pair_sums, multiplication);
+
+fn unsigned_products(engine: Engine, frontend: Frontend) {
+    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    check_binary(
+        &mut checks,
+        0xe4,
+        0xffff80007fff0000ffff80000001ffff,
+        0xffffffffffffffffffff8000ffff0001,
+        0xfffe7fff7ffe0000fffe400000000000,
+    );
+    check_binary(
+        &mut checks,
+        0xf4,
+        0x12345678ffffffffdeadbeefffffffff,
+        0xffffffff8000000012345678ffffffff,
+        0x7fffffff80000000fffffffe00000001,
+    );
+    check_binary(
+        &mut checks,
+        0xf4,
+        0xffffffff00000000ffffffff00000001,
+        0xffffffffffffffff80000000,
+        0x80000000,
+    );
+}
+
+test_frontends!(sse_unsigned_products, unsigned_products);

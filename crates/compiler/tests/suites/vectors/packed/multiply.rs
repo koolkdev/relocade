@@ -90,3 +90,70 @@ fn vector_products_preserve_signed_widths_and_pair_order() {
 fn v8_vector_products_preserve_signed_widths_and_pair_order() {
     multiplication(true);
 }
+
+fn unsigned_multiplication(v8: bool) {
+    // The narrow input keeps dirty upper carrier bits, which must not participate.
+    binary_results(
+        v8,
+        0x01ff03fe010080ff01ff03fe010080ff,
+        0xfffe01ff8007fffffffe01ff8007ffff,
+        [
+            0x00fffd020003fd02008000007f80fe01,
+            0x00fffd020003fd02008000007f80fe01,
+            0x00fffd020003fd02008000007f80fe01,
+        ],
+        |a, b| {
+            [
+                a.unsigned_widening_mul_low_lanes::<I8>(&b),
+                a.unsigned_widening_mul_high_lanes::<I8>(&b),
+                a.low_half().unsigned_widening_mul_lanes::<I8>(b.low_half()),
+            ]
+        },
+    );
+    binary_results(
+        v8,
+        0x0001ffff0003fffe000100008000ffff,
+        0xfffffffe0001ffff80000007ffffffff,
+        [
+            0x00008000000000007fff8000fffe0001,
+            0x0000fffffffd000200000003fffd0002,
+            0x00008000000000007fff8000fffe0001,
+        ],
+        |a, b| {
+            [
+                a.unsigned_widening_mul_low_lanes::<I16>(&b),
+                a.unsigned_widening_mul_high_lanes::<I16>(&b),
+                a.low_half()
+                    .unsigned_widening_mul_lanes::<I16>(b.low_half()),
+            ]
+        },
+    );
+    binary_results(
+        v8,
+        0x000000010000000080000000ffffffff,
+        0x8000000000000007ffffffffffffffff,
+        [
+            0x7fffffff80000000fffffffe00000001,
+            0x00000000800000000000000000000000,
+            0x7fffffff80000000fffffffe00000001,
+        ],
+        |a, b| {
+            [
+                a.unsigned_widening_mul_low_lanes::<I32>(&b),
+                a.unsigned_widening_mul_high_lanes::<I32>(&b),
+                a.low_half()
+                    .unsigned_widening_mul_lanes::<I32>(b.low_half()),
+            ]
+        },
+    );
+}
+
+#[test]
+fn vector_unsigned_products_preserve_full_precision_and_half_selection() {
+    unsigned_multiplication(false);
+}
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_vector_unsigned_products_preserve_full_precision_and_half_selection() {
+    unsigned_multiplication(true);
+}

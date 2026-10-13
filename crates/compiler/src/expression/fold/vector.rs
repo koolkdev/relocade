@@ -79,7 +79,7 @@ impl Folder<'_> {
             {
                 Some(left)
             }
-            Mul | WideningMulLowSigned | WideningMulHighSigned | DotI16Signed
+            Mul | WideningMulLow { .. } | WideningMulHigh { .. } | DotI16Signed
                 if x == Some(0) || y == Some(0) =>
             {
                 Some(self.values.literal(ty, 0))
