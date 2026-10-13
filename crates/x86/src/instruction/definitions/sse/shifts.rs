@@ -1,10 +1,21 @@
-//! Packed shifts use the low qword count or an unsigned immediate byte.
+//! Lane shifts and whole-register byte shifts use distinct unsigned count rules.
 
 use super::*;
-use crate::{alu::ShiftOp, instruction::PackedShiftCount};
+use crate::{
+    alu::{ByteShiftOp, ShiftOp},
+    instruction::PackedShiftCount,
+};
 use wasm86_compiler::{MemoryInt, VectorLane};
 
 instruction_families! {
+    PSLLDQ {
+        execute: shift_bytes(ByteShiftOp::Left);
+        forms { P66 0x0f 0x73 / 7 => operands(register(xmm_rm), imm8); }
+    }
+    PSRLDQ {
+        execute: shift_bytes(ByteShiftOp::Right);
+        forms { P66 0x0f 0x73 / 3 => operands(register(xmm_rm), imm8); }
+    }
     PSLLW {
         execute: shift::<_>(ShiftOp::Left);
         forms {
@@ -61,6 +72,17 @@ instruction_families! {
             P66 0x0f 0x72 / 4 => dword(register(xmm_rm), imm8);
         }
     }
+}
+
+fn shift_bytes(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    count: Input<I8>,
+    operation: ByteShiftOp,
+) -> Result<(), BuildError> {
+    let count = count.read(execution)?;
+    let input = execution.read_xmm(destination.clone())?;
+    execution.write_xmm(destination, operation.apply(input, count))
 }
 
 fn shift<T: VectorLane + MemoryInt>(
