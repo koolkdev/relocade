@@ -87,6 +87,13 @@ impl MemoryOperand<'_> {
 }
 
 impl<'memory> ExecutionBuilder<'_, 'memory> {
+    /// Wasm's full fence supplies the ordering required by all three x86 fences.
+    /// Its stronger ordering also keeps accesses in generated helpers on their
+    /// respective sides of the instruction.
+    pub(crate) fn memory_fence(&mut self) {
+        self.body.atomic_fence();
+    }
+
     /// Reads a linear address without applying a data segment or address-size wrap.
     /// System-table accesses still use the profile's ordinary memory routing.
     pub(crate) fn read_linear_memory<T: MemoryInt + TransferType>(

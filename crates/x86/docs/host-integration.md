@@ -172,6 +172,10 @@ Alignment is determined after segment translation. All operand bytes pass write
 checks before the update, including a failed comparison. Ordinary loads, stores
 and unlocked updates retain ordinary Wasm accesses; no extra fences are inserted.
 
+Explicit LFENCE, SFENCE and MFENCE instructions use Wasm's full atomic fence.
+This supplies stronger ordering than the individual load/store fences require;
+it does not change the private-memory contract or model speculative execution.
+
 Unaligned protected-mode locked operands use checked reads and writes under the private-memory
 contract, which prevents guest interleaving. The current imports do not support
 concurrent access to shared guest RAM. Such access will require coordination for

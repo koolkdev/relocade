@@ -1,0 +1,101 @@
+//! Memory fences preserve architectural state and remain observable compiler effects.
+
+use crate::support::{
+    encoding::check_unsupported_at_page_end,
+    execution::{test_frontends, Frontend, ImageSequences},
+    machine::{Exit, Image, Step},
+    step::Engine,
+};
+use wasm86_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile, Segments};
+use wasmparser::{Operator, Parser, Payload, TypeRef};
+
+fn fences(engine: Engine, frontend: Frontend) {
+    for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
+        let mut checks = ImageSequences::new(engine, frontend, profile);
+        for modrm in 0xe8..=0xff {
+            let code = [0x0f, 0xae, modrm];
+            let mut image = Image::new(&code);
+            if profile == ExecutionProfile::Real16 {
+                image.cpu.segments = Segments::real_mode();
+            }
+            image.cpu.x87.status.error_summary = 1;
+            image.cpu.simd.mxcsr = 0x9fc5;
+            let mut cpu = image.cpu;
+            cpu.eip += 3;
+            cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
+            checks.check(
+                "fences ignore ModRM.r/m and do not consult floating-point state",
+                &code,
+                &image,
+                &[Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                }],
+            );
+        }
+    }
+}
+
+test_frontends!(fences_preserve_state, fences);
+
+#[test]
+fn fences_require_register_encodings_and_reject_lock() {
+    for modrm in [0x28, 0x30, 0x38] {
+        check_unsupported_at_page_end(&[0x0f, 0xae, modrm], 0x0f);
+    }
+    for modrm in [0xe8, 0xf0, 0xf8] {
+        check_unsupported_at_page_end(&[0xf0, 0x0f, 0xae, modrm], 0xf0);
+    }
+}
+
+#[test]
+fn explicit_fences_remain_between_memory_effects() {
+    // Each store/fence/load sequence observes the same guest address. The fence
+    // must prevent forwarding the stored value across its synchronization point.
+    for modrm in [0xe8, 0xf0, 0xf8] {
+        let code = [0x89, 0x03, 0x0f, 0xae, modrm, 0x8b, 0x13];
+        let module = compile_block_from_bytes(0x1000, &code, 3).unwrap();
+        let mut memory_index = 0;
+        let mut guest = None;
+        let mut fence_count = 0;
+        let mut ordered_guest_accesses = false;
+        for payload in Parser::new(0).parse_all(&module.bytes) {
+            match payload.unwrap() {
+                Payload::ImportSection(imports) => {
+                    for import in imports {
+                        let import = import.unwrap();
+                        if matches!(import.ty, TypeRef::Memory(_)) {
+                            if import.module == "wasm86" && import.name == "guest" {
+                                guest = Some(memory_index);
+                            }
+                            memory_index += 1;
+                        }
+                    }
+                }
+                Payload::CodeSectionEntry(body) => {
+                    let mut stored = false;
+                    let mut fenced_store = false;
+                    for operator in body.get_operators_reader().unwrap() {
+                        match operator.unwrap() {
+                            Operator::I32Store { memarg } if Some(memarg.memory) == guest => {
+                                stored = true;
+                            }
+                            Operator::AtomicFence => {
+                                fence_count += 1;
+                                fenced_store = stored;
+                            }
+                            Operator::I32Load { memarg } if Some(memarg.memory) == guest => {
+                                ordered_guest_accesses |= fenced_store;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert!(ordered_guest_accesses);
+        assert_eq!(fence_count, 1);
+    }
+}
