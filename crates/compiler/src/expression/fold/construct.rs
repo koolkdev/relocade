@@ -56,6 +56,7 @@ impl Folder<'_> {
                         ConvertOp::FromUnsignedInteger | ConvertOp::PromoteBinary32 => {
                             self.normalize(input)
                         }
+                        ConvertOp::TruncateSaturatingI32 => input,
                     };
                     self.fold(ty, Expression::Unary { operator, input })
                 }

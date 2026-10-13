@@ -1,112 +1,96 @@
-//! Rounding preserves discarded-fraction evidence across shifts and formats.
+//! Rounds normalized magnitudes to x87 precision and extended exponent range.
 
-mod extended;
+use wasm86_compiler::{Val, I1, I16, I32, I64, I8};
 
-pub(super) use extended::FiniteMagnitude;
+use super::{
+    result::{ArithmeticCandidate, ArithmeticResult, RoundedValue},
+    ExtendedBits, ExtendedValue,
+};
 
-use wasm86_compiler::{Val, F64, I1, I32, I64, I8};
+use crate::floating::{RoundingInput, RoundingMode};
 
-#[cfg(test)]
-mod tests;
-
-/// An integer floor and its fractional remainder, described by the first
-/// discarded bit and whether any lower bit is nonzero.
-pub(super) struct RoundingInput {
-    pub(super) integer: Val<I64>,
-    pub(super) guard: Val<I1>,
-    pub(super) sticky: Val<I1>,
+/// The leading significand bit is bit 63. Its fractional evidence and signed,
+/// unbiased exponent still describe the unrounded result.
+pub(super) struct FiniteMagnitude {
+    pub(super) significand: RoundingInput,
+    pub(super) exponent: Val<I32>,
+    pub(super) negative: Val<I1>,
 }
 
-impl RoundingInput {
-    pub(super) fn exact(integer: Val<I64>) -> Self {
-        Self {
-            integer,
-            guard: false.into(),
-            sticky: false.into(),
-        }
-    }
+impl FiniteMagnitude {
+    pub(super) fn round(&self, precision: Val<I8>, rounding: &RoundingMode) -> ArithmeticResult {
+        const LEADING: u64 = 1 << 63;
+        let precision = precision.and(3);
+        // The reserved PC encoding follows the full-precision policy.
+        let discarded = precision.eq(0).select(40, precision.eq(2).select(11, 0));
+        let rounded = rounding.round(self.significand.shift_right(&discarded), &self.negative);
+        let significand = rounded.integer.shl(&discarded);
+        let carry = significand.eq(0_u64);
+        let exponent = self.exponent.add(carry.unsigned().extend::<I32>());
+        let significand = carry.select(LEADING, significand);
+        let overflow = exponent.signed().ge(16384);
+        let tiny = exponent.signed().lt(-16382);
+        let sign = self.negative.select(0x8000_u32, 0_u32);
+        let below_normal = self.exponent.signed().lt(-16382);
+        let in_range = ArithmeticCandidate {
+            // Rounding can only keep or increase the exponent, so the lower
+            // bound before rounding also proves it afterwards.
+            valid: below_normal.or(&overflow).eq(false),
+            rounded: RoundedValue {
+                value: ExtendedValue::from_bits(ExtendedBits {
+                    significand: significand.clone(),
+                    sign_exponent: sign.or(exponent.add(16383)).truncate::<I16>(),
+                }),
+                inexact: rounded.inexact.clone(),
+                incremented: rounded.incremented.clone(),
+            },
+        };
 
-    /// Divides the unrounded magnitude by 2^distance, retaining earlier
-    /// fractional evidence. Counts beyond a word do not wrap like Wasm shifts.
-    pub(super) fn shift_right(&self, distance: impl Into<Val<I32>>) -> Self {
-        let distance = distance.into();
-        let value = &self.integer;
-        let shifted = distance.ne(0);
-        let below_word = distance.unsigned().lt(64);
-        let integer = below_word.select(value.unsigned().shr(&distance), 0_u64);
-        let guard = shifted
-            .and(distance.unsigned().lt(65))
-            .and(value.unsigned().shr(distance.sub(1)).and(1_u64).ne(0_u64))
-            .or(shifted.eq(false).and(&self.guard));
-        let lower_mask = Val::<I64>::from(1_u64).shl(distance.sub(1)).sub(1_u64);
-        let sticky = self.sticky.or(shifted.and(
-            self.guard.or(distance
-                .unsigned()
-                .ge(65)
-                .select(value.ne(0_u64), value.and(lower_mask).ne(0_u64))),
-        ));
-        Self {
-            integer,
-            guard,
-            sticky,
-        }
-    }
-}
-
-pub(super) struct Rounded {
-    /// Wrapping integer result; consumers own exponent adjustment on carry.
-    pub(super) integer: Val<I64>,
-    pub(super) inexact: Val<I1>,
-    pub(super) incremented: Val<I1>,
-}
-
-pub(crate) struct RoundingMode(Val<I8>);
-
-impl RoundingMode {
-    pub(crate) fn new(control: Val<I8>) -> Self {
-        Self(control.and(3))
-    }
-
-    /// Native integral rounding has the same RC policy and signed-zero rule.
-    pub(super) fn integral(&self, value: &Val<F64>) -> Val<F64> {
-        self.0.eq(0).select(
-            value.nearest(),
-            self.0.eq(1).select(
-                value.floor(),
-                self.0.eq(2).select(value.ceil(), value.trunc()),
-            ),
-        )
-    }
-
-    /// Exact cancellation produces -0 only when rounding toward minus infinity.
-    pub(super) fn cancellation_negative(&self) -> Val<I1> {
-        self.0.eq(1)
-    }
-
-    fn away_from_zero(&self, negative: &Val<I1>) -> Val<I1> {
-        self.0
-            .eq(1)
-            .and(negative)
-            .or(self.0.eq(2).and(negative.eq(false)))
-    }
-
-    pub(super) fn overflow_to_infinity(&self, negative: &Val<I1>) -> Val<I1> {
-        self.0.eq(0).or(self.away_from_zero(negative))
-    }
-
-    pub(super) fn round(&self, input: RoundingInput, negative: &Val<I1>) -> Rounded {
-        let inexact = input.guard.or(&input.sticky);
-        let nearest = input
-            .guard
-            .and(input.sticky.or(input.integer.and(1_u64).ne(0_u64)));
-        let incremented = self
-            .0
-            .eq(0)
-            .select(nearest, inexact.and(self.away_from_zero(negative)));
-        Rounded {
-            integer: input.integer.add(incremented.unsigned().extend::<I64>()),
-            inexact,
-            incremented,
+        // Masked underflow uses the original magnitude on the subnormal grid,
+        // never the already precision-rounded significand above.
+        let distance = below_normal.select(
+            discarded.add(Val::<I32>::from(-16382).sub(&self.exponent)),
+            &discarded,
+        );
+        let stored = rounding.round(self.significand.shift_right(distance), &self.negative);
+        let subnormal = stored.integer.shl(&discarded);
+        let stored_exponent = below_normal.select(
+            subnormal.and(LEADING).ne(0_u64).unsigned().extend::<I32>(),
+            exponent.add(16383),
+        );
+        let to_infinity = rounding.overflow_to_infinity(&self.negative);
+        let saturated = to_infinity.select(LEADING, Val::<I64>::from(u64::MAX).shl(discarded));
+        let masked = RoundedValue {
+            value: ExtendedValue::from_bits(ExtendedBits {
+                significand: overflow
+                    .select(saturated, below_normal.select(subnormal, &significand)),
+                sign_exponent: sign
+                    .or(overflow.select(to_infinity.select(0x7fff, 0x7ffe), stored_exponent))
+                    .truncate::<I16>(),
+            }),
+            inexact: overflow.or(stored.inexact),
+            incremented: overflow.select(to_infinity, stored.incremented),
+        };
+        let adjustment = overflow.select(-24576, tiny.select(24576, 0));
+        let adjusted = RoundedValue {
+            value: ExtendedValue::from_bits(ExtendedBits {
+                significand,
+                sign_exponent: sign
+                    .or(exponent.add(16383).add(adjustment))
+                    .truncate::<I16>(),
+            }),
+            inexact: rounded.inexact,
+            incremented: rounded.incremented,
+        };
+        ArithmeticResult {
+            in_range,
+            invalid: false.into(),
+            denormal: false.into(),
+            zero_divide: false.into(),
+            overflow,
+            tiny,
+            masked,
+            adjusted,
         }
     }
 }

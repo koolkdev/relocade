@@ -1,8 +1,7 @@
 //! A native estimate followed by exact correction supplies all 64 root bits.
 
+use crate::floating::RoundingInput;
 use wasm86_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64};
-
-use super::super::rounding::RoundingInput;
 
 fn at_least(
     low: &Val<I64>,

@@ -1,10 +1,9 @@
 //! Constant loads round to extended precision without reporting inexact results.
 
+use crate::floating::{RoundingInput, RoundingMode};
 use wasm86_compiler::{Val, I32};
 
-use super::{
-    rounding::RoundingInput, value::KnownClass, ExtendedBits, ExtendedValue, RoundingMode,
-};
+use super::{value::KnownClass, ExtendedBits, ExtendedValue};
 
 #[derive(Clone, Copy)]
 pub(crate) enum Constant {

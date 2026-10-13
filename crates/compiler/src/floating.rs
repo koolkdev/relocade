@@ -24,6 +24,7 @@ pub(super) enum ConvertOp {
     PromoteBinary32,
     FromSignedInteger,
     FromUnsignedInteger,
+    TruncateSaturatingI32,
 }
 
 pub(super) fn convert(operator: ConvertOp, input_type: crate::Type, bits: u64) -> Option<u64> {
@@ -31,6 +32,7 @@ pub(super) fn convert(operator: ConvertOp, input_type: crate::Type, bits: u64) -
         ConvertOp::PromoteBinary32 => f64::from(f32::from_bits(bits as u32)),
         ConvertOp::FromSignedInteger => crate::integer::signed_value(input_type, bits) as f64,
         ConvertOp::FromUnsignedInteger => input_type.normalize(bits) as f64,
+        ConvertOp::TruncateSaturatingI32 => return Some(f64::from_bits(bits) as i32 as u32 as u64),
     };
     // Promotion may quiet or canonicalize a NaN. Preserve the destination
     // engine's permitted result instead of folding the host's payload choice.

@@ -23,7 +23,6 @@ pub(crate) use constant::Constant;
 pub(crate) use operand::{BinaryOperands, Operand};
 use result::BinaryArithmetic;
 pub(crate) use result::{ArithmeticCandidate, ArithmeticResult, ConversionResult};
-pub(crate) use rounding::RoundingMode;
 pub(crate) use value::{ExtendedBits, ExtendedValue, SignOperation};
 
 #[derive(Clone, Copy)]

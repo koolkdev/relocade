@@ -15,19 +15,31 @@ impl ExecutionBuilder<'_, '_> {
         &mut self,
         exceptions: &SimdExceptions,
     ) -> Result<(), BuildError> {
-        // Exceptional inputs are uncommon. JIT paths leave their sticky status
-        // and fault handling to the interpreter.
-        if self
+        // Operand and range exceptions are uncommon. Precision loss is common
+        // for conversions, so keep its sticky status and fault response compiled.
+        let exceptions = if self
             .specialize(|execution| {
-                execution.specialize_on(exceptions.invalid.or(&exceptions.denormal).eq(false))
+                execution.specialize_on(
+                    exceptions
+                        .invalid
+                        .or(&exceptions.denormal)
+                        .or(&exceptions.overflow)
+                        .or(&exceptions.underflow)
+                        .eq(false),
+                )
             })?
             .is_some()
         {
-            return Ok(());
-        }
+            SimdExceptions {
+                precision: exceptions.precision.clone(),
+                ..SimdExceptions::default()
+            }
+        } else {
+            exceptions.clone()
+        };
         let unmasked = self
             .state
-            .record_simd_exceptions(&mut self.body, exceptions)?;
+            .record_simd_exceptions(&mut self.body, &exceptions)?;
         self.fault_if(unmasked, Exception::SimdFloatingPoint)
     }
 

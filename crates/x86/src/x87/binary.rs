@@ -6,10 +6,9 @@ pub(crate) use operand::BinaryOperand;
 
 use wasm86_compiler::{Val, I16, I32, I64};
 
-use crate::floating::BinaryFormat;
+use crate::floating::{BinaryFormat, RoundingInput, RoundingMode};
 
 use super::{
-    rounding::{RoundingInput, RoundingMode},
     value::{Classification, KnownClass},
     ConversionResult, ExtendedBits, ExtendedValue,
 };

@@ -1,15 +1,11 @@
 //! Floating-point calculations report numerical conditions without changing state.
 
 mod compare;
+mod exceptions;
 pub(crate) use compare::{FloatLane, FloatOperands};
+pub(crate) use exceptions::SimdExceptions;
 
 use wasm86_compiler::{AtLeast, Val, ValueType, I1, I64, V128};
-
-/// Conditions raised by comparisons and value selection, before MXCSR masking.
-pub(crate) struct SimdExceptions {
-    pub(crate) invalid: Val<I1>,
-    pub(crate) denormal: Val<I1>,
-}
 
 pub(crate) struct FloatResult<T: ValueType> {
     pub(crate) value: Val<T>,
@@ -41,10 +37,7 @@ impl FloatShape {
         };
         let mut result = FloatResult {
             value: left.clone(),
-            exceptions: SimdExceptions {
-                invalid: false.into(),
-                denormal: false.into(),
-            },
+            exceptions: SimdExceptions::default(),
         };
         for lane in 0..lanes {
             let operands = FloatOperands::new(
@@ -54,12 +47,7 @@ impl FloatShape {
             );
             let lane_result = operation(operands);
             result.value = result.value.replace_lane(lane, lane_result.value);
-            result.exceptions.invalid =
-                result.exceptions.invalid.or(lane_result.exceptions.invalid);
-            result.exceptions.denormal = result
-                .exceptions
-                .denormal
-                .or(lane_result.exceptions.denormal);
+            result.exceptions.merge(lane_result.exceptions);
         }
         result
     }

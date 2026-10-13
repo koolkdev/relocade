@@ -32,6 +32,12 @@ impl Val<F64> {
         self.unary(Unary::Reinterpret)
     }
 
+    /// Truncates toward zero to a signed 32-bit integer. Out-of-range values
+    /// saturate to the nearest bound and NaNs produce zero; this never traps.
+    pub fn trunc_saturating_i32(&self) -> Val<I32> {
+        self.unary(Unary::FloatConvert(ConvertOp::TruncateSaturatingI32))
+    }
+
     /// Adds with binary64 round-to-nearest, ties-to-even and gradual underflow.
     /// Arithmetic may choose any NaN permitted by scalar WebAssembly. Operations
     /// are not reassociated or contracted into a fused multiply-add.

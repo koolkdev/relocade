@@ -3,9 +3,9 @@
 use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I8};
 
 use crate::{
+    floating::RoundingMode,
     ssa::{Location, StateFields},
     state::{access::cpu_location, StoredX87Control},
-    x87::RoundingMode,
 };
 
 use super::{X87Access, X87Specialization};
