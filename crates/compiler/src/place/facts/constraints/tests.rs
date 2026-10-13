@@ -298,21 +298,52 @@ fn joins_discard_constraints_missing_on_an_incoming_path() {
 
 #[test]
 fn joined_parameter_bits_reactivate_common_constraints() {
-    let mut table = parameters();
-    let zero = table.literal(Type::I32, 0);
-    let one = table.literal(Type::I32, 1);
-    let a = compare(&mut table, CompareOp::Ne, 0, zero);
-    let b = compare(&mut table, CompareOp::Ne, 1, zero);
-    let root = boolean(&mut table, BitwiseOp::And, a, b);
-    let parent = ScalarFacts::default().with_assumptions(
-        &table,
-        [Assumption::Truth {
-            condition: root,
-            truth: false,
-        }],
-    );
-    let joined = ScalarFacts::join(&table, &[0], &[(&parent, &[one]), (&parent, &[one])]);
-    assert_eq!(joined.constant(&table, b), Some(0));
+    for ty in [Type::I32, Type::V64, Type::V128] {
+        let mut table = ValueTable::default();
+        for (component, ty) in [ty, Type::I32].into_iter().enumerate() {
+            table.push(Value {
+                ty,
+                definition: ValueDefinition::Parameter {
+                    block: crate::body::BlockId(0),
+                    component,
+                },
+            });
+        }
+        let observed = if ty.is_scalar() {
+            0
+        } else {
+            table.intern(Value {
+                ty: Type::I32,
+                definition: ValueDefinition::Expression(Expression::Unary {
+                    operator: crate::expression::UnaryOp::ExtractLane { lane: 0 },
+                    input: 0,
+                }),
+            })
+        };
+        let zero = table.literal(Type::I32, 0);
+        let one = table.literal(ty, 1);
+        let a = compare(&mut table, CompareOp::Ne, observed, zero);
+        let b = compare(&mut table, CompareOp::Ne, 1, zero);
+        let root = boolean(&mut table, BitwiseOp::And, a, b);
+        let parent = ScalarFacts::default().with_assumptions(
+            &table,
+            [Assumption::Truth {
+                condition: root,
+                truth: false,
+            }],
+        );
+        assert_eq!(parent.constant(&table, b), None);
+        let arguments = [one];
+        let incoming = [(&parent, arguments.as_slice()); 2];
+        for count in 1..=2 {
+            let joined = ScalarFacts::join(&table, &[0], &incoming[..count]);
+            assert_eq!(
+                joined.constant(&table, b),
+                Some(0),
+                "{ty:?}, {count} inputs"
+            );
+        }
+    }
 }
 
 #[test]
@@ -631,7 +662,7 @@ fn a_fork_preserves_pending_parent_deductions() {
             truth: true,
         }],
     );
-    parent.assume_bits(0, u32::MAX as u64, 1);
+    parent.assume_bits(&table, 0, u32::MAX as u64, 1);
     let child = parent.clone().with_assumptions(&table, []);
     assert_eq!(child.constant(&table, b), Some(0));
     assert_eq!(parent.constant(&table, b), None);

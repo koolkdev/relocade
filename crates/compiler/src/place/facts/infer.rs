@@ -31,7 +31,7 @@ impl ScalarFacts {
                 cache.insert(id, Bits::default());
                 continue;
             }
-            let known = self.known.get(&id).copied().unwrap_or_default();
+            let known = self.known_bits(table, id);
             if let Some(bits) = value.scalar_literal() {
                 cache.insert(
                     id,

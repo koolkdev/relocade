@@ -12,6 +12,8 @@ mod folding;
 mod guards;
 #[path = "path_facts/joins.rs"]
 mod joins;
+#[path = "path_facts/lanes.rs"]
+mod lanes;
 #[path = "path_facts/masks.rs"]
 mod masks;
 #[path = "path_facts/materialization.rs"]

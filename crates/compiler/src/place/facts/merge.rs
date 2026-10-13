@@ -6,16 +6,6 @@ use crate::body::ValueTable;
 #[cfg(test)]
 mod tests;
 
-impl Bits {
-    pub(super) fn common(self, other: Self) -> Self {
-        let mask = self.mask & other.mask & !(self.value ^ other.value);
-        Self {
-            mask,
-            value: self.value & mask,
-        }
-    }
-}
-
 impl ScalarFacts {
     /// Establish the common context and its parameter observations before querying it.
     pub(in crate::place) fn join(
@@ -43,15 +33,15 @@ impl ScalarFacts {
         joined
     }
 
-    /// A scalar parameter keeps only logical bits proved by every incoming argument.
-    /// Vector parameters still join normally, without acquiring scalar facts.
+    /// Parameters keep only logical bits proved by every incoming argument.
     fn merge_parameter<'a>(
         &mut self,
         table: &ValueTable,
         parameter: usize,
-        incoming: impl Iterator<Item = (&'a Self, usize)>,
+        incoming: impl Iterator<Item = (&'a Self, usize)> + Clone,
     ) {
         if !table[parameter].ty.is_scalar() {
+            self.merge_vector_parameter(table, parameter, incoming);
             return;
         }
         let bits = incoming
@@ -60,7 +50,7 @@ impl ScalarFacts {
             .unwrap_or_default()
             .restrict(table[parameter].ty.mask());
         if bits.mask != 0 {
-            self.assume_bits(parameter, bits.mask, bits.value);
+            self.assume_bits(table, parameter, bits.mask, bits.value);
         }
     }
 
@@ -83,6 +73,14 @@ impl ScalarFacts {
         });
         self.comparisons.retain_common(&other.comparisons);
         self.constraints.retain_known(&self.known);
+        if !self
+            .lanes
+            .as_mut()
+            .zip(other.lanes.as_deref())
+            .is_some_and(|(lanes, other)| lanes.retain_common(other))
+        {
+            self.lanes = None;
+        }
         // Earlier inferences may depend on knowledge just discarded.
         self.computed.get_mut().clear();
     }
