@@ -112,6 +112,8 @@ mod x87_control;
 mod x87_divide;
 #[path = "suites/x87_examine.rs"]
 mod x87_examine;
+#[path = "suites/x87_extract.rs"]
+mod x87_extract;
 #[path = "suites/x87_integer_load.rs"]
 mod x87_integer_load;
 #[path = "suites/x87_integer_store.rs"]
