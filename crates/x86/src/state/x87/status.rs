@@ -96,6 +96,22 @@ impl Status {
         )
     }
 
+    pub(super) fn set_condition_code_when(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        code: ConditionCode,
+        value: impl Into<Val<I1>>,
+        enabled: &Val<I1>,
+    ) -> Result<(), BuildError> {
+        let location = code.location();
+        let previous = self.fields.read(body, location.clone())?;
+        self.fields.define(
+            body,
+            location,
+            enabled.select(value.into().unsigned().extend::<I8>(), previous),
+        )
+    }
+
     pub(super) fn pending(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I1>, BuildError> {
         self.flag(body, cpu_location!(x87.status.error_summary))
     }
@@ -233,6 +249,19 @@ impl X87Access<'_, '_> {
         value: impl Into<Val<I1>>,
     ) -> Result<(), BuildError> {
         self.state.status.set_condition_code(self.body, code, value)
+    }
+
+    /// Replaces the condition code only when enabled. The other path preserves
+    /// its entire backing byte, including unused bits imported by the host.
+    pub(crate) fn set_condition_code_when(
+        &mut self,
+        code: ConditionCode,
+        value: impl Into<Val<I1>>,
+        enabled: &Val<I1>,
+    ) -> Result<(), BuildError> {
+        self.state
+            .status
+            .set_condition_code_when(self.body, code, value, enabled)
     }
 
     /// Records a new occurrence and returns whether that occurrence is unmasked.

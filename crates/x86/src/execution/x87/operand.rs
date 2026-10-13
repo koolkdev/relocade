@@ -5,7 +5,7 @@ use wasm86_compiler::{BuildError, Val, I1, I32, I64};
 use crate::{
     address::MemoryAddress,
     memory::Intent,
-    x87::{BinaryFormat, BinaryOperand, BinaryOperands},
+    x87::{BinaryFormat, BinaryOperand, BinaryOperands, ExtendedValue},
 };
 
 use super::super::{memory::MemoryOperand, ExecutionBuilder};
@@ -15,6 +15,7 @@ use super::super::{memory::MemoryOperand, ExecutionBuilder};
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum X87Operand {
     Register(Val<I32>),
+    Value(ExtendedValue),
     BinaryMemory {
         address: MemoryAddress<Val<I32>>,
         format: BinaryFormat,
@@ -42,6 +43,14 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
                 Ok(X87Operands {
                     values: BinaryOperands::new(&left.value, &right.value),
                     stack_fault: left.empty.or(right.empty),
+                    memory: None,
+                })
+            }
+            X87Operand::Value(value) => {
+                let left = self.x87().read_stack(destination)?;
+                Ok(X87Operands {
+                    values: BinaryOperands::new(&left.value, &value),
+                    stack_fault: left.empty,
                     memory: None,
                 })
             }

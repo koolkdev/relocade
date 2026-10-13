@@ -244,11 +244,25 @@ impl X87Access<'_, '_> {
 
     /// A disabled pop must leave a pending exception, as for `push`.
     pub(crate) fn pop(&mut self, enabled: &Val<I1>) -> Result<(), BuildError> {
-        let slot = self.slot(0)?;
+        self.pop_n(1, enabled)
+    }
+
+    /// Uses the same exception suppression contract as `pop`.
+    pub(crate) fn pop_n(&mut self, count: u32, enabled: &Val<I1>) -> Result<(), BuildError> {
+        if count == 0 {
+            return Ok(());
+        }
+        // All tags use the entry TOP; the movement commits only after every
+        // tag has been captured, including the two-slot comparison pop.
+        for index in 0..count {
+            let slot = self.slot(index)?;
+            self.state
+                .registers
+                .set_tag(self.body, &slot, 3.into(), enabled)?;
+        }
         self.state
             .registers
-            .set_tag(self.body, &slot, 3.into(), enabled)?;
-        self.state.registers.advance(self.body, 1, enabled)
+            .advance(self.body, count as i32, enabled)
     }
 
     pub(crate) fn free(&mut self, index: impl Into<Val<I32>>) -> Result<(), BuildError> {
