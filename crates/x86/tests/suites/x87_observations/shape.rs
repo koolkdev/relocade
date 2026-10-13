@@ -40,6 +40,9 @@ fn blocks_without_mode_consumers_are_byte_identical() {
         &[0xdb, 0x3d, 0, 0x40, 0, 0], // FSTP m80
         &[0xdd, 0xd9],                // FSTP ST1
         &[0xd9, 0x3d, 0, 0x40, 0, 0], // FNSTCW
+        &[0xd8, 0xd1],                // FCOM ST1
+        &[0xdd, 0xe1],                // FUCOM ST1
+        &[0xd9, 0xe4],                // FTST
     ];
     for &code in cases {
         let ordinary =

@@ -279,8 +279,9 @@ FILD m16/m32/m64 integers, FIST m16/m32, FISTP m16/m32/m64, FST m32/m64 and
 FSTP m32/m64/m80. Register arithmetic supports FADD/FADDP, FSUB/FSUBP,
 FSUBR/FSUBRP, FMUL/FMULP, FDIV/FDIVP and FDIVR/FDIVRP. FADD, FSUB, FSUBR, FMUL,
 FDIV and FDIVR also accept binary32/64 memory sources. There is no FIST m64 or
-FST m80 encoding. Integer memory arithmetic and other arithmetic families remain
-unsupported.
+FST m80 encoding. Comparisons support FCOM/FCOMP with register or binary32/64
+memory sources, FCOMPP, FUCOM/FUCOMP/FUCOMPP and FTST. Integer memory arithmetic
+and other arithmetic families remain unsupported.
 Execution assumes an enabled FPU with native exception reporting, corresponding
 to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
 modeled by this user-mode environment.
@@ -347,6 +348,14 @@ divide, and zero divide precedes a denormal-operand response. Thus a denormal
 dividend divided by zero sets ZE without DE. These priorities follow Intel's
 [P4 Volume 1, sections 4.9.2 and 8.5.3](https://kib.kiev.ua/x86docs/Intel/SDMs/253665-014.pdf).
 
+Comparisons order the full extended values independently of PC and RC, publish
+C0/C2/C3 and clear C1. FCOM and FTST signal invalid for any NaN; FUCOM accepts
+quiet NaNs as unordered. Snapshot blocks keep comparisons without new operand
+exceptions compiled, including infinities and FUCOM quiet NaNs. Operand exceptions
+restart in the interpreter before comparison metadata, condition codes or pops
+change. Retained binary64 operands use native Wasm comparisons; wider values keep
+exact integer ordering without a conversion to binary64.
+
 FILD converts signed 16-, 32- and 64-bit memory integers exactly, independently
 of PC and RC. The opcode fixes the width even with an operand-size prefix.
 Zero receives the zero tag; every other integer becomes a normal extended value.
@@ -401,8 +410,8 @@ checks these accesses before generating a new stack or source exception. A
 preexisting pending exception is checked first. Faulting stores do not write an
 earlier portion of the value or pop the stack.
 
-Stack, arithmetic and data-transfer instructions record their instruction offset, selector
-and opcode. Memory forms also record their effective offset and segment selector;
+Stack, arithmetic, comparison and data-transfer instructions record their
+instruction offset, selector and opcode. Memory forms also record their effective offset and segment selector;
 register forms preserve the otherwise undefined data pointer. Opcode recording
 uses the Pentium 4 compatibility-mode policy, keeping the last x87 opcode valid
 after every such instruction. The opcode fixes these memory operands' widths;
