@@ -2,6 +2,7 @@ use super::*;
 use crate::{test_step as step, CompiledModule};
 use wasm86_compiler::{Program, Signature, Type};
 
+mod binary_class;
 mod sign;
 
 #[test]

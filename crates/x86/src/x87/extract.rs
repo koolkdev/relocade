@@ -20,7 +20,11 @@ impl Operand {
         let significand = match &self.precision53_significand {
             Some(native) => {
                 let signed = self.bits.negative().select(native.neg(), native);
-                ExtendedValue::from_binary(BinaryFormat::Binary64, signed.to_bits())
+                ExtendedValue::from_classified_binary(
+                    BinaryFormat::Binary64,
+                    signed.to_bits(),
+                    KnownClass::normal(),
+                )
             }
             None => ExtendedValue::from_bits(ExtendedBits {
                 significand,
