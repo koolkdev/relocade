@@ -317,8 +317,9 @@ FISUBR, FIDIV and FIDIVR accept signed m16/m32 integers. Integer sources expand
 exactly before arithmetic; PC and RC apply to the result. These forms retain
 TOP and use the same result, exception and native PC53 paths as real arithmetic.
 FRNDINT, FSCALE, FXTRACT and FSQRT are also supported.
-FPREM replaces ST(0) with the exact remainder of division by ST(1), truncating
-the quotient toward zero independently of PC and RC. A complete reduction clears
+FPREM and FPREM1 replace ST(0) with the exact remainder of division by ST(1).
+FPREM truncates the quotient toward zero; FPREM1 chooses its nearest integer,
+with ties to even. Both ignore PC and RC. A complete reduction clears
 C2 and places quotient-magnitude bits Q2/Q1/Q0 in C0/C3/C1. Exponent gaps of 64
 or more use a 32-bit partial reduction and set C2; repeat the instruction until C2
 clears. Partial reductions preserve the otherwise undefined quotient condition

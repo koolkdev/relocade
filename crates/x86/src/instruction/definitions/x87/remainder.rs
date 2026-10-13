@@ -1,19 +1,26 @@
-//! FPREM reports partial reduction and quotient bits without changing TOP or ST(1).
+//! Remainders report partial reduction and quotient bits without changing TOP or ST(1).
 
 use super::*;
 use crate::{
     state::x87::{ConditionCode, Exception, StackValue},
-    x87::{ArithmeticResult, BinaryOperands},
+    x87::{ArithmeticResult, BinaryOperands, QuotientRounding},
 };
 
 instruction_families! {
     FPREM {
-        execute: remainder();
+        execute: remainder(QuotientRounding::Truncate);
         forms { 0xD9 @ 0xF8 => no_operands(); }
+    }
+    FPREM1 {
+        execute: remainder(QuotientRounding::NearestEven);
+        forms { 0xD9 @ 0xF5 => no_operands(); }
     }
 }
 
-fn remainder(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
+fn remainder(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    rounding: QuotientRounding,
+) -> Result<(), BuildError> {
     execution.check_x87_exception()?;
     let left = execution.x87().read_stack(0)?;
     let right = execution.x87().read_stack(1)?;
@@ -29,7 +36,7 @@ fn remainder(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
         empty = false.into();
         Ok(())
     })?;
-    let mut remainder = execution.calculate(|body| operands.remainder(body))?;
+    let mut remainder = execution.calculate(|body| operands.remainder(body, rounding))?;
     execution.specialize(|execution| {
         execution.specialize_on(remainder.arithmetic.in_range.valid.clone())?;
         remainder.arithmetic =

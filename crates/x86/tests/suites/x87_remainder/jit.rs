@@ -20,11 +20,12 @@ fn binary64_bits(value: f64) -> (u64, u16) {
     }
 }
 
-fn native_quotient(engine: Engine) {
+fn native_quotient(engine: Engine, opcode: u8) {
+    let fop = 0x0100 | u16::from(opcode);
     let code = [
         0xdd, 0x05, 0, 0x40, 0, 0, // FLD divisor
         0xdd, 0x05, 8, 0x40, 0, 0, // FLD dividend
-        0xd9, 0xf8,
+        0xd9, opcode,
     ];
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .specialize_on_cpu(&CpuState::default())
@@ -43,14 +44,24 @@ fn native_quotient(engine: Engine) {
         1,
     );
     let module = TestModule::new(&compiled);
-    for (dividend, divisor, remainder, quotient, incomplete) in [
+    let mut cases = vec![
         (6.5_f64, 2.0_f64, 0.5_f64, 3, false),
         (-6.5, -2.0, -0.5, 3, false),
         (0.25, 3.0, 0.25, 0, false),
         (-0.0, 1.0, -0.0, 0, false),
         (2_f64.powi(63), 1.5, 0.5, 5, false),
         (2_f64.powi(64), 1.5, 2_f64.powi(32), 0, true),
-    ] {
+    ];
+    if opcode == 0xf5 {
+        cases.extend([
+            (3.0, 2.0, -1.0, 2, false),
+            (5.0, 2.0, 1.0, 2, false),
+            (0.75, 1.0, -0.25, 1, false),
+            (16.75, 2.5, -0.75, 7, false),
+            (-16.75, -2.5, 0.75, 7, false),
+        ]);
+    }
+    for (dividend, divisor, remainder, quotient, incomplete) in cases {
         for (pc, rc) in [(0, 0), (1, 1), (2, 2), (3, 3)] {
             let mut image = stack_image(&code, 0, 0xffff);
             set_control(&mut image.cpu.x87.control, 0x007f | (pc << 8) | (rc << 10));
@@ -60,7 +71,7 @@ fn native_quotient(engine: Engine) {
             image.data(0x8008, &dividend.to_le_bytes());
             let mut result = complete_x87(image.cpu, 6, 0x0505);
             result = complete_x87(result, 6, 0x0505);
-            result = complete_x87(result, 2, 0x01f8);
+            result = complete_x87(result, 2, fop);
             result.x87.status.top = 6;
             result.x87.status.c1 = 0; // FLD clears C1 before a partial reduction.
             result.x87.data_offset = 0x4008;
@@ -81,9 +92,11 @@ fn native_quotient(engine: Engine) {
     }
 }
 
-fn restart(engine: Engine) {
+fn restart(engine: Engine, opcode: u8) {
+    let code = [0xd9, opcode];
+    let fop = 0x0100 | u16::from(opcode);
     let compiled = Compiler::new(SegmentProfile::Flat32)
-        .compile_block(0x1000, &CODE, 1)
+        .compile_block(0x1000, &code, 1)
         .unwrap();
     let block = TestModule::new(&compiled);
     let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
@@ -93,17 +106,17 @@ fn restart(engine: Engine) {
         ((1, 0), (LEAD, 1), (1, 0), 0, 2),
         ((LEAD + 1, 1), (LEAD, 1), (1, 0), 1, 0),
     ] {
-        let mut image = stack_image(&CODE, 0, 0xffff);
+        let mut image = stack_image(&code, 0, 0xffff);
         image.cpu.x87.status.precision = 0;
         write_value(&mut image.cpu, 0, left);
         write_value(&mut image.cpu, 1, right);
         image.check_unchanged_exit(
             engine,
             &block,
-            "FPREM restarts before current effects",
+            "remainder restarts before current effects",
             Exit::Interpret,
         );
-        let mut result = complete_x87(image.cpu, 2, 0x01f8);
+        let mut result = complete_x87(image.cpu, 2, fop);
         quotient_flags(&mut result, quotient);
         result.x87.status.invalid = u8::from(flags == 1);
         result.x87.status.denormal = u8::from(flags == 2);
@@ -115,7 +128,7 @@ fn restart(engine: Engine) {
     }
 
     // A failed remainder guard keeps the two earlier pushes exactly once.
-    let code = [0xd9, 0xee, 0xd9, 0xe8, 0xd9, 0xf8]; // FLDZ; FLD1; FPREM
+    let code = [0xd9, 0xee, 0xd9, 0xe8, 0xd9, opcode]; // FLDZ; FLD1; remainder
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &code, 3)
         .unwrap();
@@ -138,7 +151,7 @@ fn restart(engine: Engine) {
             }]
         ),
     );
-    let mut result = complete_x87(prefix, 2, 0x01f8);
+    let mut result = complete_x87(prefix, 2, fop);
     result.x87.status.invalid = 1;
     quotient_flags(&mut result, 0);
     write_value(&mut result, 6, INDEFINITE);
@@ -154,18 +167,22 @@ fn restart(engine: Engine) {
 
 #[test]
 fn native_division_and_control_independence() {
-    native_quotient(Engine::Wasmtime);
+    for opcode in [0xf8, 0xf5] {
+        native_quotient(Engine::Wasmtime, opcode);
+    }
 }
 
 #[test]
 fn exceptional_operands_and_tiny_results_restart() {
-    restart(Engine::Wasmtime);
+    for opcode in [0xf8, 0xf5] {
+        restart(Engine::Wasmtime, opcode);
+    }
 }
 
-#[test]
-fn remainder_preserves_native_precision_for_following_arithmetic() {
+fn preserves_native_precision(opcode: u8) {
     let code = [
-        0xdd, 0x05, 0, 0x40, 0, 0, 0xdd, 0x05, 8, 0x40, 0, 0, 0xd9, 0xf8, 0xdc, 0x05, 0, 0x40, 0, 0,
+        0xdd, 0x05, 0, 0x40, 0, 0, 0xdd, 0x05, 8, 0x40, 0, 0, 0xd9, opcode, 0xdc, 0x05, 0, 0x40, 0,
+        0,
     ];
     let mut cpu = CpuState::default();
     set_control(&mut cpu.x87.control, 0x027f);
@@ -180,8 +197,17 @@ fn remainder_preserves_native_precision_for_following_arithmetic() {
 }
 
 #[test]
+fn remainder_preserves_native_precision_for_following_arithmetic() {
+    for opcode in [0xf8, 0xf5] {
+        preserves_native_precision(opcode);
+    }
+}
+
+#[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn v8_native_and_restart() {
-    native_quotient(Engine::V8);
-    restart(Engine::V8);
+    for opcode in [0xf8, 0xf5] {
+        native_quotient(Engine::V8, opcode);
+        restart(Engine::V8, opcode);
+    }
 }

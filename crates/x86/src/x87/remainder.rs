@@ -16,8 +16,18 @@ pub(crate) struct Remainder {
     pub(crate) incomplete: Val<I1>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum QuotientRounding {
+    Truncate,
+    NearestEven,
+}
+
 impl BinaryOperands {
-    pub(crate) fn remainder(&self, body: &mut BlockBuilder<'_>) -> Result<Remainder, BuildError> {
+    pub(crate) fn remainder(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        rounding: QuotientRounding,
+    ) -> Result<Remainder, BuildError> {
         let (numerator, numerator_exponent) = self.left.normalized();
         let (denominator, denominator_exponent) = self.right.normalized();
         // Zero and a finite dividend modulo infinity are already reduced.
@@ -30,7 +40,7 @@ impl BinaryOperands {
         // Intel permits an implementation-dependent reduction of 32..63 bits.
         // A 32-bit step bounds the work and always makes the required progress.
         let shift = incomplete.select(32, &difference);
-        let (quotient, remainder, exponent) = body.if_value::<(I64, I64, I32)>(
+        let (mut quotient, mut remainder, exponent) = body.if_value::<(I64, I64, I32)>(
             difference.signed().lt(1),
             |body| {
                 let subtract = difference.eq(0).and(numerator.unsigned().ge(&denominator));
@@ -56,12 +66,34 @@ impl BinaryOperands {
             },
         )?;
 
+        let mut negative = self.left.bits.negative();
+        if matches!(rounding, QuotientRounding::NearestEven) {
+            // Compare the remainder with its complement to avoid overflowing
+            // while doubling it. A tie rounds up only from an odd quotient.
+            let complement = denominator.sub(&remainder);
+            let above_half = complement.unsigned().lt(&remainder);
+            let odd_tie = remainder.eq(&complement).and(quotient.and(1_u64).ne(0_u64));
+            // With an exponent difference of -1 the quotient is zero, but its
+            // nearest integer is one when the normalized numerator is larger.
+            let half_exponent = difference.eq(-1);
+            let increment = difference
+                .signed()
+                .ge(0)
+                .and(above_half.or(odd_tie))
+                .or(half_exponent.and(denominator.unsigned().lt(&numerator)))
+                .and(incomplete.eq(false));
+            let complement = half_exponent.select(denominator.shl(1).sub(&numerator), complement);
+            remainder = increment.select(complement, remainder);
+            quotient = quotient.add(increment.unsigned().extend::<I64>());
+            negative = negative.xor(increment);
+        }
+
         let zero = remainder.eq(0_u64);
         let normalization = remainder.clz().truncate::<I32>();
         let magnitude = FiniteMagnitude {
             significand: RoundingInput::exact(remainder.shl(&normalization)),
             exponent: exponent.sub(normalization),
-            negative: self.left.bits.negative(),
+            negative,
         };
         // Remainders are exact on the binary80 grid. Neither PC nor RC applies;
         // only an unmasked tiny-result exception needs the adjusted exponent.

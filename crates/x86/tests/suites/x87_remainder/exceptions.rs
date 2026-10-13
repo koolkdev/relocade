@@ -3,7 +3,9 @@
 use super::*;
 use crate::support::{machine::Step, x87::INDEFINITE};
 
-fn special_operands(engine: Engine, frontend: Frontend) {
+fn special_operands(&opcode: &u8, engine: Engine, frontend: Frontend) {
+    let code = [0xd9, opcode];
+    let fop = 0x0100 | u16::from(opcode);
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
     for (left, right, output, quotient, flags) in [
         ((LEAD, 0x3fff), (0, 0), INDEFINITE, 0, 1),
@@ -33,10 +35,16 @@ fn special_operands(engine: Engine, frontend: Frontend) {
         ),
         ((1, 0x3fff), (LEAD, 0x3fff), INDEFINITE, 0, 1),
         ((LEAD, 0), (LEAD, 1), (0, 0), 1, 2),
-        ((3, 0), (2, 0), (1, 0), 1, 2),
+        (
+            (3, 0),
+            (2, 0),
+            (1, if opcode == 0xf5 { 0x8000 } else { 0 }),
+            if opcode == 0xf5 { 2 } else { 1 },
+            2,
+        ),
     ] {
         for masked in [false, true] {
-            let mut image = stack_image(&CODE, 0, 0xffff);
+            let mut image = stack_image(&code, 0, 0xffff);
             set_control(
                 &mut image.cpu.x87.control,
                 if masked { 0x037f } else { 0x037c },
@@ -45,7 +53,7 @@ fn special_operands(engine: Engine, frontend: Frontend) {
             write_value(&mut image.cpu, 0, left);
             write_value(&mut image.cpu, 1, right);
             let suppressed = !masked && flags != 0;
-            let mut result = complete_x87(image.cpu, 2, 0x01f8);
+            let mut result = complete_x87(image.cpu, 2, fop);
             result.x87.status.invalid = u8::from(flags == 1);
             result.x87.status.denormal = u8::from(flags == 2);
             result.x87.status.error_summary = u8::from(suppressed);
@@ -56,7 +64,7 @@ fn special_operands(engine: Engine, frontend: Frontend) {
             }
             checks.check(
                 &format!("{left:x?} / {right:x?} masked={masked}"),
-                &CODE,
+                &code,
                 &image,
                 &[dispatch(result)],
             );
@@ -64,13 +72,13 @@ fn special_operands(engine: Engine, frontend: Frontend) {
     }
     for empty in [0, 1] {
         for masked in [false, true] {
-            let mut image = stack_image(&CODE, 0, 0xffff);
+            let mut image = stack_image(&code, 0, 0xffff);
             set_control(
                 &mut image.cpu.x87.control,
                 if masked { 0x037f } else { 0x037e },
             );
             write_value(&mut image.cpu, 1 - empty, (LEAD, 0x3fff));
-            let mut result = complete_x87(image.cpu, 2, 0x01f8);
+            let mut result = complete_x87(image.cpu, 2, fop);
             result.x87.status.invalid = 1;
             result.x87.status.stack_fault = 1;
             result.x87.status.c1 = 0;
@@ -82,7 +90,7 @@ fn special_operands(engine: Engine, frontend: Frontend) {
             }
             checks.check(
                 "empty operand retains ST1 and TOP",
-                &CODE,
+                &code,
                 &image,
                 &[dispatch(result)],
             );
@@ -90,11 +98,13 @@ fn special_operands(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn underflow(engine: Engine, frontend: Frontend) {
+fn underflow(&opcode: &u8, engine: Engine, frontend: Frontend) {
+    let code = [0xd9, opcode];
+    let fop = 0x0100 | u16::from(opcode);
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
     for denormal_input in [false, true] {
         for unmasked in [false, true] {
-            let mut image = stack_image(&CODE, 0, 0xffff);
+            let mut image = stack_image(&code, 0, 0xffff);
             set_control(
                 &mut image.cpu.x87.control,
                 if unmasked { 0x036f } else { 0x037f },
@@ -110,7 +120,7 @@ fn underflow(engine: Engine, frontend: Frontend) {
                 },
             );
             write_value(&mut image.cpu, 1, (LEAD, 1));
-            let mut result = complete_x87(image.cpu, 2, 0x01f8);
+            let mut result = complete_x87(image.cpu, 2, fop);
             quotient_flags(&mut result, u8::from(!denormal_input));
             result.x87.status.denormal = u8::from(denormal_input);
             result.x87.status.underflow = u8::from(unmasked);
@@ -123,18 +133,18 @@ fn underflow(engine: Engine, frontend: Frontend) {
             );
             checks.check(
                 "exact tiny result only raises unmasked #U",
-                &CODE,
+                &code,
                 &image,
                 &[dispatch(result)],
             );
         }
     }
-    let code = [0xd9, 0xf8, 0x9b];
+    let code = [0xd9, opcode, 0x9b];
     let mut image = stack_image(&code, 0, 0xffff);
     set_control(&mut image.cpu.x87.control, 0x036d); // Unmasked #D suppresses #U.
     write_value(&mut image.cpu, 0, (1, 0));
     write_value(&mut image.cpu, 1, (LEAD, 1));
-    let mut result = complete_x87(image.cpu, 2, 0x01f8);
+    let mut result = complete_x87(image.cpu, 2, fop);
     result.x87.status.denormal = 1;
     result.x87.status.error_summary = 1;
     result.x87.status.busy = 1;
@@ -153,5 +163,7 @@ fn underflow(engine: Engine, frontend: Frontend) {
     );
 }
 
-test_frontends!(specials, special_operands);
-test_frontends!(tiny, underflow);
+test_frontends!(fprem_specials, 0xf8, special_operands);
+test_frontends!(fprem1_specials, 0xf5, special_operands);
+test_frontends!(fprem_tiny, 0xf8, underflow);
+test_frontends!(fprem1_tiny, 0xf5, underflow);
