@@ -27,20 +27,28 @@ impl ExecutionBuilder<'_, '_> {
         segment: SegmentSelection,
     ) -> TypedLocation<T> {
         TypedLocation::new(Location::Memory(
-            MemoryAddress {
-                segment,
-                offset: EffectiveAddress {
-                    size: self.address_size,
-                    base: Some(RegisterTerm {
-                        register: base.into(),
-                        present: None,
-                    }),
-                    index: None,
-                    displacement: 0.into(),
-                },
-            }
-            .into(),
+            self.memory_address_at_register(base, segment).into(),
         ))
+    }
+
+    /// Constructs an implicit address independently of the transferred value's width.
+    pub(crate) fn memory_address_at_register(
+        &self,
+        base: Gpr32,
+        segment: SegmentSelection,
+    ) -> MemoryAddress<Val<I32>> {
+        MemoryAddress {
+            segment,
+            offset: EffectiveAddress {
+                size: self.address_size,
+                base: Some(RegisterTerm {
+                    register: base.into(),
+                    present: None,
+                }),
+                index: None,
+                displacement: 0.into(),
+            },
+        }
     }
 
     pub(crate) fn read_address_register(

@@ -1,7 +1,7 @@
 //! Whole-register and scalar moves between MMX, XMM, GPRs and memory.
 
 use super::*;
-use crate::{address::MemoryAddress, memory::Intent};
+use crate::{address::MemoryAddress, memory::Intent, register::Gpr32};
 
 instruction_families! {
     MOVD_LOAD {
@@ -30,6 +30,11 @@ instruction_families! {
     MOVNTQ {
         execute: store_non_temporal;
         forms { NP 0x0f 0xe7 => operands(mem, mm); }
+    }
+    MASKMOVQ {
+        execute: store_masked;
+        effects: [memory_write];
+        forms { NP 0x0f 0xf7 => operands(mm, register(mm_rm)); }
     }
 }
 
@@ -98,5 +103,18 @@ fn store_non_temporal(
         execution
             .memory_operand(destination, 8, Intent::Write, &[])?
             .write(execution, 0, value)
+    })
+}
+
+fn store_masked(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    source: RegisterCode,
+    mask: RegisterCode,
+) -> Result<(), BuildError> {
+    execution.execute_mmx(|execution| {
+        let value = Val::<V64>::from_bits(execution.read_mmx(source)?);
+        let mask = Val::<V64>::from_bits(execution.read_mmx(mask)?);
+        let address = execution.memory_address_at_register(Gpr32::Edi, execution.data_segment());
+        execution.write_masked_memory(address, value, mask)
     })
 }

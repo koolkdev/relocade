@@ -1,7 +1,7 @@
 //! Checked memory operands support widths independently of register views.
 
 use crate::memory::TransferType;
-use wasm86_compiler::{BuildError, MemoryInt, MemoryType, Val, I32};
+use wasm86_compiler::{BuildError, MemoryInt, MemoryType, Val, VectorType, I32};
 
 use super::ExecutionBuilder;
 use crate::{
@@ -92,6 +92,22 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
     /// respective sides of the instruction.
     pub(crate) fn memory_fence(&mut self) {
         self.body.atomic_fence();
+    }
+
+    /// Checks the complete destination before writing bytes selected by mask sign
+    /// bits. Masked-off bytes are untouched, and routing stays live for each write.
+    pub(crate) fn write_masked_memory<V: VectorType + MemoryType>(
+        &mut self,
+        address: MemoryAddress<Val<I32>>,
+        value: Val<V>,
+        mask: Val<V>,
+    ) -> Result<(), BuildError> {
+        // Intel permits address and page faults even for an all-zero mask. Check
+        // the complete operand before any write, as for other non-repeated stores.
+        let operand = self.memory_operand(address, V::BYTES, Intent::Write, &[])?;
+        operand
+            .memory
+            .write_masked(&mut self.body, &operand.access, &value, &mask)
     }
 
     /// Reads a linear address without applying a data segment or address-size wrap.

@@ -182,6 +182,13 @@ buffered writes. The XMM stores require 16-byte linear alignment; MOVNTQ and
 MOVNTI do not add an alignment requirement. MMX stores retain MMX exception
 admission and the transition of x87 TOP and tags.
 
+MASKMOVQ and MASKMOVDQU check the complete 8- or 16-byte destination span even
+when every mask sign bit is clear, a fault policy permitted by Intel. A successful
+store writes only bytes whose mask sign bits are set; it never reads destination
+data or rewrites untouched bytes. Real16 MMIO therefore sees individual selected
+byte writes in increasing address order. MASKMOVQ enters MMX state even when the
+mask selects no bytes, provided the destination checks succeed.
+
 Unaligned protected-mode locked operands use checked reads and writes under the private-memory
 contract, which prevents guest interleaving. The current imports do not support
 concurrent access to shared guest RAM. Such access will require coordination for
