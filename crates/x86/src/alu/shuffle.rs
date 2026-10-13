@@ -6,7 +6,26 @@
 //! The compiler folds this calculation for snapshot immediates; runtime decoding
 //! evaluates it with the instruction's control byte.
 
-use wasm86_compiler::{Val, VectorType, I16, I32, I8, V128};
+use wasm86_compiler::{Val, VectorType, I16, I32, I64, I8, V128};
+
+/// Selects one qword from each input, ignoring the upper six control bits.
+pub(crate) fn shuffle_qwords(left: Val<V128>, right: Val<V128>, control: Val<I8>) -> Val<V128> {
+    let control = control.unsigned().extend::<I64>();
+    let mut indices = Val::<V128>::from(0_u128);
+    for lane in 0_u32..2 {
+        let selector = control.unsigned().shr(lane).and(1);
+        let source_byte_positions = if lane == 0 {
+            [0, 1, 2, 3, 4, 5, 6, 7]
+        } else {
+            [16, 17, 18, 19, 20, 21, 22, 23]
+        };
+        let byte_indices = selector
+            .mul(u64::from_le_bytes([8; 8]))
+            .add(u64::from_le_bytes(source_byte_positions));
+        indices = indices.replace_lane(lane, byte_indices);
+    }
+    left.shuffle_bytes(right, indices)
+}
 
 /// Selects four dwords, using the low and high pairs from the respective inputs.
 /// Supplying the same input twice permutes its four dwords.

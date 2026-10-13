@@ -80,28 +80,4 @@ fn faults(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn check_m128_span(checks: &mut ImageSequences, opcode: u8) {
-    use wasm86_x86::{SegmentAttributes, SegmentDefaultSize, SegmentKind};
-    let code = [0x66, 0x0f, opcode, 0x36, 0x00, 0x40]; // xmm6, [disp16]
-    let mut image = image(&code);
-    image.cpu.segments.cs.attributes = SegmentAttributes::new(
-        SegmentKind::Code { readable: true },
-        SegmentDefaultSize::Bits16,
-    );
-    image.cpu.segments.ds.limit = 0x4007;
-    image.cpu.simd.xmm[6] = [0; 16];
-    image.map(4, 0x8000, false);
-    image.data(0x8000, &[0; 16]);
-    checks.check(
-        "unused source bits still belong to the m128 operand span",
-        &code,
-        &image,
-        &[Step {
-            cpu: image.cpu,
-            ram: &[],
-            exit: Exit::GeneralProtection { error: 0 },
-        }],
-    );
-}
-
 test_frontends!(sse_packed_binary_faults, faults);

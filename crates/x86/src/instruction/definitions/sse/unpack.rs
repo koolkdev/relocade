@@ -4,6 +4,22 @@ use super::*;
 use crate::alu::unpack_lanes;
 
 instruction_families! {
+    UNPCKLPS {
+        execute: binary(|left, right| unpack_lanes(left, right, 4, 0));
+        forms { NP 0x0f 0x14 => operands(xmm, xmm_rm); }
+    }
+    UNPCKLPD {
+        execute: binary(|left, right| unpack_lanes(left, right, 8, 0));
+        forms { P66 0x0f 0x14 => operands(xmm, xmm_rm); }
+    }
+    UNPCKHPS {
+        execute: binary(|left, right| unpack_lanes(left, right, 4, 8));
+        forms { NP 0x0f 0x15 => operands(xmm, xmm_rm); }
+    }
+    UNPCKHPD {
+        execute: binary(|left, right| unpack_lanes(left, right, 8, 8));
+        forms { P66 0x0f 0x15 => operands(xmm, xmm_rm); }
+    }
     PUNPCKLBW {
         execute: binary(|left, right| unpack_lanes(left, right, 1, 0));
         forms { P66 0x0f 0x60 => operands(xmm, xmm_rm); }
