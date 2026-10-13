@@ -2,15 +2,6 @@
 
 use super::*;
 
-fn prefix(wide: bool, packed: bool) -> &'static [u8] {
-    match (wide, packed) {
-        (false, false) => &[0xf3],
-        (true, false) => &[0xf2],
-        (false, true) => &[],
-        (true, true) => &[0x66],
-    }
-}
-
 fn predicates(engine: Engine, frontend: Frontend) {
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
     // Bits enumerate the predicates that are true, independently of NaN signaling.

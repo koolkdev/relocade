@@ -836,3 +836,10 @@ require aligned 16-byte memory operands. The LT, LE, NLT and NLE predicates sign
 invalid on quiet NaNs; every predicate signals on signaling NaNs. Packed operations
 collect exception conditions from all lanes before updating MXCSR and checking
 for #XM. They preserve EFLAGS and the entire XMM destination on an unmasked fault.
+
+MINSS/MINSD/MINPS/MINPD and MAXSS/MAXSD/MAXPS/MAXPD use the same scalar/packed
+access and exception boundary. Equal values (including opposite zero signs) and
+either NaN select the second operand. Every NaN raises invalid; when masked, a
+selected signaling NaN retains its original bits. DAZ converts subnormal inputs
+to signed zero, including a selected second operand paired with a NaN. FTZ and
+rounding control do not change these selection operations. They preserve EFLAGS.
