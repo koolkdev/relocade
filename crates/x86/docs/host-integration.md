@@ -272,8 +272,8 @@ selector and provide its descriptor.
 
 ## x87 environment and stack
 
-The implemented controls are FNINIT, FNCLEX, FLDCW, FNSTCW, FNSTSW (memory and AX)
-and standalone FWAIT. Stack operations include FLD ST(i), FST/FSTP ST(i), FXCH,
+The implemented controls are FNINIT, FNCLEX, FLDCW, FNSTCW, FNSTSW (memory and AX),
+FNOP and standalone FWAIT. Stack operations include FLD ST(i), FST/FSTP ST(i), FXCH,
 FFREE, FINCSTP and FDECSTP. FCHS and FABS change only the sign of a nonempty
 ST(0), preserving its exact encoding, including NaN payloads. Empty operands
 use the ordinary masked or unmasked stack-underflow response. Memory data
@@ -292,6 +292,10 @@ FISUBR, FIDIV and FIDIVR accept signed m16/m32 integers. Integer sources expand
 exactly before arithmetic; PC and RC apply to the result. These forms retain
 TOP and use the same result, exception and native PC53 paths as real arithmetic.
 Other arithmetic families remain unsupported.
+FXAM reports ST(0)'s numerical class in C0/C2/C3 and its sign in C1. Empty
+entries report the empty class and retain their payload's sign; examination
+never raises a numerical exception or stack fault, including for signaling
+NaNs and unsupported encodings. Register contents, tags and TOP are unchanged.
 Execution assumes an enabled FPU with native exception reporting, corresponding
 to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
 modeled by this user-mode environment.
@@ -314,7 +318,10 @@ environment while preserving raw register payloads and snapshot padding.
 FNCLEX clears exception flags, stack fault, ES and B; this implementation retains
 the otherwise undefined condition codes. Control/status stores use two bytes
 regardless of the operand-size prefix. FNSTSW AX preserves EAX's upper half.
-The control instructions otherwise leave the x87 pointers and opcode unchanged.
+FNOP checks for a pending exception, then records its instruction pointer and
+opcode without changing the stack or status. This implementation retains its
+undefined condition codes. The other control instructions leave the x87
+pointers and opcode unchanged.
 Reserved control bits have no execution meaning; their readback is not a
 Pentium 4 compatibility guarantee.
 

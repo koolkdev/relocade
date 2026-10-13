@@ -142,7 +142,7 @@ impl<'a> Classification<'a> {
         }
     }
 
-    pub(in crate::x87) fn normal(&self) -> Val<I1> {
+    pub(crate) fn normal(&self) -> Val<I1> {
         self.test(Predicate::Normal)
     }
 
@@ -150,7 +150,7 @@ impl<'a> Classification<'a> {
         self.test(Predicate::NormalOrZero)
     }
 
-    pub(in crate::x87) fn zero(&self) -> Val<I1> {
+    pub(crate) fn zero(&self) -> Val<I1> {
         self.test(Predicate::Zero)
     }
 
@@ -158,11 +158,11 @@ impl<'a> Classification<'a> {
         self.test(Predicate::SpecialExponent)
     }
 
-    pub(in crate::x87) fn infinity(&self) -> Val<I1> {
+    pub(crate) fn infinity(&self) -> Val<I1> {
         self.test(Predicate::Infinity)
     }
 
-    pub(in crate::x87) fn nan(&self) -> Val<I1> {
+    pub(crate) fn nan(&self) -> Val<I1> {
         self.test(Predicate::NaN)
     }
 
@@ -170,11 +170,11 @@ impl<'a> Classification<'a> {
         self.test(Predicate::SignalingNaN)
     }
 
-    pub(in crate::x87) fn denormal(&self) -> Val<I1> {
+    pub(crate) fn denormal(&self) -> Val<I1> {
         self.test(Predicate::Denormal)
     }
 
-    pub(in crate::x87) fn unsupported(&self) -> Val<I1> {
+    pub(crate) fn unsupported(&self) -> Val<I1> {
         self.test(Predicate::Unsupported)
     }
 

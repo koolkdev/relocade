@@ -44,8 +44,8 @@ impl<'body> ExecutionBuilder<'body, '_> {
         self.state.x87.access(&mut self.body)
     }
 
-    /// Records a data instruction after its memory and specialization guards.
-    /// Control instructions do not update these saved instruction fields.
+    /// Records an x87 instruction after its memory and specialization guards.
+    /// Environment controls leave these fields unchanged, except for FNOP.
     pub(crate) fn record_x87_instruction(&mut self) -> Result<(), BuildError> {
         let selector = self
             .state

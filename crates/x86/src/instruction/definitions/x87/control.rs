@@ -1,8 +1,13 @@
-//! x87 control words have fixed widths, independent of operand-size prefixes.
+//! x87 environment controls and a waiting no-op.
+//! Control words have fixed widths, independent of operand-size prefixes.
 
 use super::*;
 
 instruction_families! {
+    FNOP {
+        execute: no_operation;
+        forms { 0xD9 @ 0xD0 => no_operands(); }
+    }
     FNINIT {
         execute: initialize;
         forms { 0xDB @ 0xE3 => no_operands(); }
@@ -30,6 +35,11 @@ instruction_families! {
             0xDF @ 0xE0 => operands(AX);
         }
     }
+}
+
+fn no_operation(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
+    execution.check_x87_exception()?;
+    execution.record_x87_instruction()
 }
 
 fn check_pending_exception(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
