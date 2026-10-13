@@ -69,6 +69,8 @@ pub(crate) enum TernaryOp {
     Select,
     /// Selects bits from the first or second vector using the third input's mask.
     Bitselect,
+    /// Selects bytes from the first two vectors using the third input's indices.
+    Shuffle { input_type: Type },
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]

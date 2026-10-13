@@ -11,6 +11,7 @@ mod mxcsr;
 mod pack;
 mod saturation;
 mod shifts;
+mod shuffle;
 mod unpack;
 mod words;
 
@@ -33,6 +34,7 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
         .chain(pack::forms())
         .chain(saturation::forms())
         .chain(shifts::forms())
+        .chain(shuffle::forms())
         .chain(unpack::forms())
         .chain(words::forms())
 }

@@ -144,6 +144,7 @@ pub(super) fn ternary(operator: Ternary) -> Instruction<'static> {
     match operator {
         Ternary::Select => Instruction::Select,
         Ternary::Bitselect => Instruction::V128Bitselect,
+        Ternary::Shuffle { .. } => unreachable!("byte shuffles lower before placement"),
     }
 }
 

@@ -89,7 +89,7 @@ impl Folder<'_> {
                 third: condition,
             } => self.select(condition, when_true, when_false),
             Expression::Ternary {
-                operator: Ternary::Bitselect,
+                operator: Ternary::Bitselect | Ternary::Shuffle { .. },
                 ..
             } => self.fold(ty, expression),
             Expression::MultiplyWide { .. } => self.fold_result(ty, expression, component),

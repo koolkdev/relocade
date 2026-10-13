@@ -11,6 +11,8 @@ mod masks;
 mod packed;
 #[path = "vectors/shifts.rs"]
 mod shifts;
+#[path = "vectors/shuffle_lowering.rs"]
+mod shuffle_lowering;
 #[path = "vectors/width.rs"]
 mod width;
 
