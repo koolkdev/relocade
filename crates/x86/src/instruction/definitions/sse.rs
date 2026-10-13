@@ -3,6 +3,7 @@
 mod arithmetic;
 mod average;
 mod comparisons;
+mod float_compare;
 mod half_moves;
 mod logical;
 mod masks;
@@ -28,6 +29,7 @@ use wasm86_compiler::V128;
 pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
     arithmetic::forms()
         .chain(comparisons::forms())
+        .chain(float_compare::forms())
         .chain(moves::forms())
         .chain(average::forms())
         .chain(minmax::forms())
