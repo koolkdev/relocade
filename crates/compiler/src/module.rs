@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use wasm_encoder::{
     CodeSection, EntityType, ExportKind, ExportSection, FunctionSection, ImportSection, MemoryType,
-    Module, TypeSection, ValType,
+    Module, RefType, TableType, TypeSection, ValType,
 };
 
 use crate::{
@@ -42,6 +42,7 @@ pub(super) fn encode(mut program: Program) -> Vec<u8> {
         .iter()
         .map(|(_, function)| function.0)
         .collect();
+    let mut used_tables = vec![false; program.tables.len()];
     let mut used_memories = vec![false; program.memories.len()];
     // Compile exports, then follow their surviving calls. Mark each function
     // before following callees so recursive cycles are processed once.
@@ -66,6 +67,9 @@ pub(super) fn encode(mut program: Program) -> Vec<u8> {
             }
             if let Exit::TailCall { target, .. } = &block.exit {
                 pending.push(target.0);
+            }
+            if let Exit::TailCallIndirect { table, .. } = &block.exit {
+                used_tables[table.0] = true;
             }
             for item in &block.items {
                 if let BlockItem::Effect(effect) = item {
@@ -156,6 +160,42 @@ pub(super) fn encode(mut program: Program) -> Vec<u8> {
             );
         }
     }
+    let mut tables = vec![None; program.tables.len()];
+    let mut table_index = 0;
+    for (index, table) in program.tables.iter().enumerate() {
+        if !used_tables[index] {
+            continue;
+        }
+        let type_index = types.function(
+            table
+                .signature
+                .parameters
+                .iter()
+                .copied()
+                .map(emit::wasm_type)
+                .collect(),
+            table
+                .signature
+                .results
+                .iter()
+                .copied()
+                .map(emit::wasm_type)
+                .collect(),
+        );
+        tables[index] = Some((table_index, type_index));
+        table_index += 1;
+        imports.import(
+            &table.module,
+            &table.name,
+            TableType {
+                element_type: RefType::FUNCREF,
+                minimum: table.minimum.into(),
+                maximum: table.maximum.map(u64::from),
+                table64: false,
+                shared: false,
+            },
+        );
+    }
     let mut functions = FunctionSection::new();
     for (id, _) in &defined {
         functions.function(function_types[*id]);
@@ -178,6 +218,7 @@ pub(super) fn encode(mut program: Program) -> Vec<u8> {
             parameters,
             &memories,
             &function_indices,
+            &tables,
             program.features,
         ));
     }
