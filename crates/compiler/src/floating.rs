@@ -15,6 +15,24 @@ pub(super) enum UnaryOp {
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
+pub(super) enum ConvertOp {
+    PromoteBinary32,
+    FromSignedInteger,
+    FromUnsignedInteger,
+}
+
+pub(super) fn convert(operator: ConvertOp, input_type: crate::Type, bits: u64) -> Option<u64> {
+    let value = match operator {
+        ConvertOp::PromoteBinary32 => f64::from(f32::from_bits(bits as u32)),
+        ConvertOp::FromSignedInteger => crate::integer::signed_value(input_type, bits) as f64,
+        ConvertOp::FromUnsignedInteger => input_type.normalize(bits) as f64,
+    };
+    // Promotion may quiet or canonicalize a NaN. Preserve the destination
+    // engine's permitted result instead of folding the host's payload choice.
+    (!value.is_nan()).then(|| value.to_bits())
+}
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) enum CompareOp {
     Eq,
     Ne,

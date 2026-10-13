@@ -1,9 +1,10 @@
 //! Typed binary64 calculations and exact access to their encodings.
 
+use super::{Signed, Unsigned};
 use crate::expression::{BinaryOp as Binary, CompareOp as Compare, UnaryOp as Unary};
 use crate::{
-    floating::{BinaryOp, CompareOp, UnaryOp},
-    Val, F64, I1, I64,
+    floating::{BinaryOp, CompareOp, ConvertOp, UnaryOp},
+    IntType, Val, F64, I1, I32, I64,
 };
 
 impl From<f64> for Val<F64> {
@@ -13,6 +14,14 @@ impl From<f64> for Val<F64> {
 }
 
 impl Val<F64> {
+    /// Promotes an IEEE binary32 encoding to binary64. Finite values, infinities
+    /// and signed zeros are exact; NaNs follow WebAssembly promotion semantics.
+    /// The source bits remain available when their exact payload must be retained.
+    pub fn from_binary32_bits(bits: impl Into<Val<I32>>) -> Self {
+        bits.into()
+            .unary(Unary::FloatConvert(ConvertOp::PromoteBinary32))
+    }
+
     /// Interprets an IEEE binary64 encoding without rounding or quieting NaNs.
     pub fn from_bits(bits: impl Into<Val<I64>>) -> Self {
         bits.into().unary(Unary::Reinterpret)
@@ -89,5 +98,23 @@ impl Val<F64> {
     /// Greater-than-or-equal; false when either operand is a NaN.
     pub fn ge(&self, other: impl Into<Self>) -> Val<I1> {
         self.binary(Binary::Compare(Compare::Float(CompareOp::Ge)), other)
+    }
+}
+
+impl<T: IntType> Signed<'_, T> {
+    /// Converts the signed logical integer to binary64, rounding to nearest,
+    /// ties to even. Inputs of up to 32 bits are exact; I1's true value is -1.
+    pub fn to_f64(&self) -> Val<F64> {
+        self.0
+            .unary(Unary::FloatConvert(ConvertOp::FromSignedInteger))
+    }
+}
+
+impl<T: IntType> Unsigned<'_, T> {
+    /// Converts the unsigned logical integer to binary64, rounding to nearest,
+    /// ties to even. Inputs of up to 32 bits are exact.
+    pub fn to_f64(&self) -> Val<F64> {
+        self.0
+            .unary(Unary::FloatConvert(ConvertOp::FromUnsignedInteger))
     }
 }

@@ -104,3 +104,68 @@ fn literal_identity_keeps_encodings_and_arithmetic_nan_choice_stays_in_wasm() {
         .iter()
         .any(|op| matches!(op, Operator::F64Div)));
 }
+
+#[test]
+fn numeric_conversions_emit_native_operations_and_fold_exact_constants() {
+    let promotion = Fixture::new().expression(&[Type::I32], |body| {
+        Val::<F64>::from_binary32_bits(body.parameter::<I32>(0).unwrap())
+    });
+    assert!(matches!(
+        operators(&promotion).as_slice(),
+        [
+            Operator::LocalGet { local_index: 0 },
+            Operator::F32ReinterpretI32,
+            Operator::F64PromoteF32,
+            Operator::Return,
+            Operator::End
+        ]
+    ));
+    let integers = Fixture::new().function(&[Type::I32, Type::I64], &[Type::F64; 4], |body| {
+        let word = body.parameter::<I32>(0)?;
+        let wide = body.parameter::<I64>(1)?;
+        body.return_([
+            word.signed().to_f64(),
+            word.unsigned().to_f64(),
+            wide.signed().to_f64(),
+            wide.unsigned().to_f64(),
+        ])
+    });
+    let ops = operators(&integers);
+    assert_eq!(
+        ops.iter()
+            .filter(|op| matches!(op, Operator::F64ConvertI32S))
+            .count(),
+        1
+    );
+    assert_eq!(
+        ops.iter()
+            .filter(|op| matches!(op, Operator::F64ConvertI32U))
+            .count(),
+        1
+    );
+    assert_eq!(
+        ops.iter()
+            .filter(|op| matches!(op, Operator::F64ConvertI64S))
+            .count(),
+        1
+    );
+    assert_eq!(
+        ops.iter()
+            .filter(|op| matches!(op, Operator::F64ConvertI64U))
+            .count(),
+        1
+    );
+    for value in [
+        Val::<F64>::from_binary32_bits(0x3f80_0000_u32),
+        Val::<I32>::from(1).signed().to_f64(),
+    ] {
+        let module = Fixture::new().expression(&[], |_| value);
+        assert!(
+            matches!(operators(&module).as_slice(), [Operator::F64Const { value }, Operator::Return, Operator::End] if value.bits() == 1.0_f64.to_bits())
+        );
+    }
+    let nan = Fixture::new().expression(&[], |_| Val::<F64>::from_binary32_bits(0x7f80_0001_u32));
+    assert!(operators(&nan)
+        .iter()
+        .any(|op| matches!(op, Operator::F64PromoteF32)));
+}

@@ -11,6 +11,7 @@ use crate::{bitwise::BitwiseOp, floating, integer, Type};
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(crate) enum UnaryOp {
     Float(floating::UnaryOp),
+    FloatConvert(floating::ConvertOp),
     BitCount {
         operator: integer::BitCountOp,
         input_type: Type,

@@ -12,6 +12,7 @@ use crate::expression::{
 use crate::{
     bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
+    floating::ConvertOp,
     integer::BitCountOp,
     Expression, Type,
 };
@@ -49,6 +50,15 @@ impl Folder<'_> {
         }
         match expression {
             Expression::Unary { operator, input } => match operator {
+                Unary::FloatConvert(conversion) => {
+                    let input = match conversion {
+                        ConvertOp::FromSignedInteger => self.sign_extend_carrier(input),
+                        ConvertOp::FromUnsignedInteger | ConvertOp::PromoteBinary32 => {
+                            self.normalize(input)
+                        }
+                    };
+                    self.fold(ty, Expression::Unary { operator, input })
+                }
                 Unary::SignExtend { input_type } => self.sign_extend(input, input_type, ty),
                 Unary::BitCount {
                     operator,
