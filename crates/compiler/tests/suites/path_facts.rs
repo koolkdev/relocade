@@ -16,6 +16,8 @@ mod joins;
 mod masks;
 #[path = "path_facts/materialization.rs"]
 mod materialization;
+#[path = "path_facts/predicates.rs"]
+mod predicates;
 #[path = "path_facts/ranges.rs"]
 mod ranges;
 #[path = "path_facts/representations.rs"]

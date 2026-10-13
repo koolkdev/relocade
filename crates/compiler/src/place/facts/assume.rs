@@ -43,6 +43,7 @@ impl ScalarFacts {
             }
             let bits = previous.union(bits);
             self.record(id, bits);
+            self.constraints.track(table, id, bits);
             let ValueDefinition::Expression(expression) = value.definition else {
                 continue;
             };
@@ -84,11 +85,13 @@ impl ScalarFacts {
                     right,
                 } => match operator {
                     Binary::Compare(Compare::Integer(operator)) => {
-                        if let Some(first) =
+                        if let Some((a, b)) =
                             self.comparisons
                                 .assume(table, operator, left, right, bits.value != 0)
                         {
-                            self.invalidate_from(first);
+                            self.invalidate_from(a.min(b));
+                            self.constraints.changed(a);
+                            self.constraints.changed(b);
                         }
                         self.assume_comparison(table, operator, left, right, bits.value != 0);
                         if matches!(operator, CompareOp::Eq | CompareOp::Ne)

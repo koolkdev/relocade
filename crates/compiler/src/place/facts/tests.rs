@@ -6,7 +6,7 @@ use crate::{
     Type,
 };
 
-fn parameters() -> ValueTable {
+pub(super) fn parameters() -> ValueTable {
     let mut table = ValueTable::default();
     for component in 0..2 {
         table.push(Value {
@@ -20,7 +20,12 @@ fn parameters() -> ValueTable {
     table
 }
 
-fn compare(table: &mut ValueTable, operator: CompareOp, left: usize, right: usize) -> usize {
+pub(super) fn compare(
+    table: &mut ValueTable,
+    operator: CompareOp,
+    left: usize,
+    right: usize,
+) -> usize {
     table.intern(Value {
         ty: Type::I1,
         definition: ValueDefinition::Expression(Expression::Binary {

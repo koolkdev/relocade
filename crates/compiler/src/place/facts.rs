@@ -17,12 +17,14 @@ use crate::{
 
 mod assume;
 mod comparisons;
+mod constraints;
 mod infer;
 mod merge;
 mod range;
 mod selects;
 mod shifts;
 use comparisons::Comparisons;
+use constraints::Constraints;
 use range::Range;
 
 #[cfg(test)]
@@ -61,6 +63,7 @@ pub(super) struct ScalarFacts {
     known: FxHashMap<usize, Bits>,
     ranges: FxHashMap<usize, Range>,
     comparisons: Comparisons,
+    constraints: Constraints,
     computed: RefCell<FxHashMap<usize, Bits>>,
     pending: RefCell<Vec<(usize, bool)>>,
 }
@@ -78,6 +81,7 @@ impl Clone for ScalarFacts {
             known: self.known.clone(),
             ranges: self.ranges.clone(),
             comparisons: self.comparisons.clone(),
+            constraints: self.constraints.clone(),
             computed: RefCell::default(),
             pending: RefCell::default(),
         }
@@ -96,6 +100,7 @@ impl ScalarFacts {
                 Assumption::Bits { value, mask, bits } => self.assume_bits(value, mask, bits),
             }
         }
+        self.propagate_constraints(table);
         self
     }
 
@@ -119,6 +124,11 @@ impl ScalarFacts {
 
     fn record(&mut self, id: usize, bits: Bits) {
         self.known.insert(id, bits);
+        self.changed(id);
+    }
+
+    fn changed(&mut self, id: usize) {
+        self.constraints.changed(id);
         self.invalidate_from(id);
     }
 

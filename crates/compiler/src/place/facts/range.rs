@@ -74,7 +74,7 @@ impl ScalarFacts {
             return;
         };
         if self.ranges.insert(id, range) != Some(range) {
-            self.invalidate_from(id);
+            self.changed(id);
         }
     }
 

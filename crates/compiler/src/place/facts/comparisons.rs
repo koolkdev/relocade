@@ -58,7 +58,7 @@ impl Comparisons {
             .retain(|key, truth| other.outcomes.get(key) == Some(truth));
     }
 
-    /// Return the first possibly affected value for inference-cache invalidation.
+    /// Return the canonical operands whose comparison facts changed.
     pub(super) fn assume(
         &mut self,
         table: &ValueTable,
@@ -66,12 +66,12 @@ impl Comparisons {
         left: usize,
         right: usize,
         truth: bool,
-    ) -> Option<usize> {
+    ) -> Option<(usize, usize)> {
         let (key, inverted) = Comparison::canonical(table, operator, left, right);
         if let Entry::Vacant(entry) = self.outcomes.entry(key) {
             entry.insert(truth ^ inverted);
             // The opposite predicate may have been constructed before this one.
-            Some(key.left.min(key.right))
+            Some((key.left, key.right))
         } else {
             None
         }
