@@ -2,7 +2,7 @@
 //! Low forms read m32 sources; high forms read m64 sources.
 
 use super::*;
-use crate::alu::unpack_lanes;
+use crate::simd::unpack_lanes;
 
 instruction_families! {
     PUNPCKLBW {

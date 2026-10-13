@@ -1,4 +1,4 @@
-//! Pure x86 operand results, status-flag changes and numeric fault conditions.
+//! Pure scalar integer results, status-flag changes and numeric fault conditions.
 //! Operand access belongs to instruction execution; flag storage belongs to state.
 
 mod adjust;
@@ -10,10 +10,8 @@ mod logic;
 mod multiply;
 mod rotates;
 mod shifts;
-mod shuffle;
 mod status;
 mod unary;
-mod unpack;
 mod update;
 
 pub(crate) use adjust::{adjust_after_multiply, adjust_before_division};
@@ -24,11 +22,9 @@ pub(crate) use divide::DivideOp;
 pub(crate) use logic::LogicOp;
 pub(crate) use multiply::MultiplyOp;
 pub(crate) use rotates::RotateDirection;
-pub(crate) use shifts::{ByteShiftOp, DoubleShiftOp, ShiftOp};
-pub(crate) use shuffle::{shuffle_dwords, shuffle_qwords, shuffle_words};
+pub(crate) use shifts::{DoubleShiftOp, ShiftOp};
 pub(crate) use status::{AnyStatusSource, StatusSource};
 pub(crate) use unary::UnaryOp;
-pub(crate) use unpack::unpack_lanes;
 pub(crate) use update::OperandUpdate;
 
 use wasm86_compiler::{MemoryInt, Val, I1};

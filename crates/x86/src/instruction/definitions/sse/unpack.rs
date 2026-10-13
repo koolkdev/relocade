@@ -1,7 +1,7 @@
 //! XMM unpacking interleaves one 64-bit half from each input.
 
 use super::*;
-use crate::alu::unpack_lanes;
+use crate::simd::unpack_lanes;
 
 instruction_families! {
     UNPCKLPS {
