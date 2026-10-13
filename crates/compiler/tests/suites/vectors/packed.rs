@@ -2,6 +2,8 @@
 
 #[path = "packed/comparisons.rs"]
 mod comparisons;
+#[path = "packed/identities.rs"]
+mod identities;
 #[path = "packed/multiply.rs"]
 mod multiply;
 #[path = "packed/narrow.rs"]

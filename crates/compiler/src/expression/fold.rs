@@ -19,6 +19,7 @@ mod construct;
 mod reinterpret;
 mod select;
 mod shifts;
+mod vector;
 
 #[cfg(test)]
 mod tests;
@@ -90,6 +91,10 @@ impl Folder<'_> {
                 Binary::Compare(Compare::Integer(operator)) => {
                     self.fold_compare(operator, left, right)
                 }
+                Binary::Vector {
+                    operator,
+                    lane_type,
+                } => self.fold_vector(ty, operator, lane_type, left, right),
                 _ => None,
             },
             Expression::Shift {
@@ -99,7 +104,7 @@ impl Folder<'_> {
             } => match operator {
                 Shift::Scalar(_) => self.fold_shift(ty, value, count),
                 Shift::Rotate(_) => self.fold_rotate(ty, value, count),
-                Shift::Lanes { .. } => None,
+                Shift::Lanes { lane_type, .. } => self.fold_lane_shift(value, count, lane_type),
             },
             Expression::Select {
                 condition,
@@ -124,6 +129,13 @@ impl Folder<'_> {
             expression
         };
         self.intern_result(ty, expression, component)
+    }
+
+    fn vector_literal(&self, input: usize) -> Option<u128> {
+        match self.values[input].definition {
+            ValueDefinition::Literal(bits) => Some(u128::from(bits)),
+            _ => None,
+        }
     }
 
     fn literals(&self, expression: Expression<usize>) -> Option<Expression<TypedLiteral>> {
