@@ -4,6 +4,8 @@
 mod arithmetic;
 #[path = "packed/comparisons.rs"]
 mod comparisons;
+#[path = "packed/minmax.rs"]
+mod minmax;
 #[path = "packed/multiply.rs"]
 mod multiply;
 #[path = "packed/packing.rs"]

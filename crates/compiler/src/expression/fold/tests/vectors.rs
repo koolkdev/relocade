@@ -37,6 +37,14 @@ fn packed_identities_preserve_the_complete_carrier_during_refolding() {
         ] {
             assert_eq!(refold(&mut values, ty, packed(op, input)), zero);
         }
+        for op in [
+            LaneBinaryOp::MinSigned,
+            LaneBinaryOp::MinUnsigned,
+            LaneBinaryOp::MaxSigned,
+            LaneBinaryOp::MaxUnsigned,
+        ] {
+            assert_eq!(refold(&mut values, ty, packed(op, input)), input);
+        }
         let equal = refold(&mut values, ty, packed(LaneBinaryOp::Eq, input));
         let ValueDefinition::Literal(bits) = values[equal].definition else {
             panic!("equality folds")

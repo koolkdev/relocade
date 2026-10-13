@@ -111,6 +111,38 @@ impl<V: VectorType> Val<V> {
         self.binary_lanes::<T>(LaneBinaryOp::GtSigned, right.into())
     }
 
+    /// Takes the smaller signed value in each pair of I8, I16 or I32 lanes.
+    pub fn signed_min_lanes<T: VectorLane>(&self, right: impl Into<Self>) -> Self
+    where
+        I32: AtLeast<T>,
+    {
+        self.binary_lanes::<T>(LaneBinaryOp::MinSigned, right.into())
+    }
+
+    /// Takes the smaller unsigned value in each pair of I8, I16 or I32 lanes.
+    pub fn unsigned_min_lanes<T: VectorLane>(&self, right: impl Into<Self>) -> Self
+    where
+        I32: AtLeast<T>,
+    {
+        self.binary_lanes::<T>(LaneBinaryOp::MinUnsigned, right.into())
+    }
+
+    /// Takes the larger signed value in each pair of I8, I16 or I32 lanes.
+    pub fn signed_max_lanes<T: VectorLane>(&self, right: impl Into<Self>) -> Self
+    where
+        I32: AtLeast<T>,
+    {
+        self.binary_lanes::<T>(LaneBinaryOp::MaxSigned, right.into())
+    }
+
+    /// Takes the larger unsigned value in each pair of I8, I16 or I32 lanes.
+    pub fn unsigned_max_lanes<T: VectorLane>(&self, right: impl Into<Self>) -> Self
+    where
+        I32: AtLeast<T>,
+    {
+        self.binary_lanes::<T>(LaneBinaryOp::MaxUnsigned, right.into())
+    }
+
     /// Adds signed lanes, clamping each result to that lane's range.
     pub fn signed_saturating_add_lanes<T: SaturatingLane>(&self, right: impl Into<Self>) -> Self {
         self.binary_lanes::<T>(LaneBinaryOp::AddSatSigned, right.into())
