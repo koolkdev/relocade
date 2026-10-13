@@ -24,6 +24,11 @@ pub enum ExecutionExit {
     BudgetExhausted,
     /// The independent retirement allowance has been consumed.
     InstructionLimit,
+    /// A completed host callback requested a return to the embedding. Resuming
+    /// at the suspended callable executes its continuation without repeating effects.
+    HostYield {
+        address: u32,
+    },
     Exception(Exception),
     /// An encoding or execution path outside the implemented instruction subset.
     UnsupportedInstruction {
@@ -48,6 +53,7 @@ impl ExecutionExit {
             crate::INSTRUCTION_LIMIT if payload == 0 && address == 0 => {
                 return Some(Self::InstructionLimit)
             }
+            crate::HOST_YIELD if payload == 0 => return Some(Self::HostYield { address }),
             DIVIDE_ERROR if payload == 0 && address == 0 => Exception::DivideError,
             BOUND_RANGE_EXCEEDED if payload == 0 && address == 0 => Exception::BoundRangeExceeded,
             INVALID_OPCODE if payload == 0 && address == 0 => Exception::InvalidOpcode,

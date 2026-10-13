@@ -24,7 +24,8 @@ impl<B: Backend, D: Devices + 'static> Machine<B, D> {
     /// boundary before another instruction is attempted. It takes precedence over
     /// the limit, including for a zero limit. This lets an embedding stop at a
     /// service entry, fulfill a request between runs, and resume the same machine.
-    /// An exit returns immediately without consulting the predicate again.
+    /// An exit, including a callback's HostYield, returns immediately without
+    /// consulting the predicate again. Host callbacks do not retire instructions.
     ///
     /// REP completes its repetition, or returns a guest fault with its partial
     /// progress. This limit is independent of the wrapping CPU instruction counter

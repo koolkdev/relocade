@@ -1,5 +1,6 @@
 use crate::{
-    backend::GuestMemory, memory::check_physical_range, DeviceMemory, Devices, MemoryError,
+    backend::GuestMemory, host::HostCallback, memory::check_physical_range, DeviceMemory, Devices,
+    MemoryError,
 };
 use wasm86_x86::{PhysicalMapping, PhysicalMemoryMap};
 
@@ -8,12 +9,17 @@ use wasm86_x86::{PhysicalMapping, PhysicalMemoryMap};
 /// Each device call publishes changed routing before returning to generated code.
 pub struct Imports<D> {
     pub(crate) devices: D,
+    pub(crate) callbacks: Vec<Option<HostCallback<D>>>,
     map: PhysicalMemoryMap,
 }
 
 impl<D: Devices> Imports<D> {
     pub(crate) fn new(map: PhysicalMemoryMap, devices: D) -> Self {
-        Self { map, devices }
+        Self {
+            map,
+            devices,
+            callbacks: Vec::new(),
+        }
     }
 
     pub fn read_port(&mut self, memory: &mut dyn GuestMemory, port: u16, bytes: u8) -> u32 {

@@ -1,5 +1,6 @@
 //! Address resolution shared by every kind of callable execution entry.
 
+mod continuation;
 mod table;
 pub use table::EntryTable;
 
@@ -14,7 +15,7 @@ use crate::{
 
 use super::Compiler;
 
-/// Generated access to shared callable slots.
+/// Generated access to shared callable slots and suspended execution identity.
 pub(super) struct Dispatch {
     memory: Mem,
     functions: Table,
@@ -81,6 +82,7 @@ impl Compiler {
                         dispatch.enter(invalid, EntryTable::INTERPRETER_SLOT)
                     })?;
                 }
+                dispatch.resume(&mut body, &cpu)?;
                 dispatch.lookup(body, &check.linear)
             },
         )?;

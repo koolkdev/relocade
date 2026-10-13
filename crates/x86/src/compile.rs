@@ -2,10 +2,12 @@
 
 mod block;
 mod dispatch;
+mod hooks;
 mod interpreter;
 
 pub use block::{compile_block_from_bytes, compile_block_from_bytes_with_profile};
 pub use dispatch::EntryTable;
+pub use hooks::{CallableEntry, CompiledHooks, Hook, HookReturn};
 pub use interpreter::{compile_interpreter, compile_interpreter_step};
 
 use crate::{CpuState, ExecutionProfile};

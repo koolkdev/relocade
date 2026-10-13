@@ -11,6 +11,8 @@ mod devices;
 mod dispatch;
 #[path = "runtime/execution.rs"]
 mod execution;
+#[path = "runtime/hooks.rs"]
+mod hooks;
 #[path = "runtime/memory.rs"]
 mod memory;
 #[path = "runtime/run.rs"]

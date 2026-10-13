@@ -8,7 +8,9 @@
 //! limit, a host stop request or a guest exit. It does not preempt an instruction
 //! or device callback. [`Machine::run_slice`] instead bounds instruction/REP-element
 //! work, publishing partial REP progress. Neither API preempts a synchronous host
-//! callback. Installed callable modules share this execution loop.
+//! callback. [`Machine::install_hooks`] registers address-based host services;
+//! generated Wasm calls them directly with [`HostContext`]. [`HostAction::Yield`]
+//! returns published state without repeating the callback on resumption.
 //! Guest exceptions are reported, not delivered through the IVT.
 //!
 //! Preparation is asynchronous to accommodate browser module compilation. Generating
@@ -39,6 +41,7 @@
 pub mod backend;
 mod devices;
 mod error;
+mod host;
 mod imports;
 mod machine;
 mod memory;
@@ -48,6 +51,7 @@ mod slice;
 
 pub use devices::Devices;
 pub use error::{Error, Result};
+pub use host::{HookReturn, Hooks, HostAction, HostContext};
 pub use machine::{Machine, StepOutcome};
 pub use memory::{DeviceMemory, MemoryError};
 pub use module::ExecutableModule;

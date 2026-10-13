@@ -4,6 +4,7 @@
 //! Guest instruction semantics, physical routing and execution policy remain in
 //! the x86 crate and runtime. Futures and device state need not be `Send`.
 
+pub use crate::host::HostCallback;
 use crate::{Devices, Result};
 use std::future::Future;
 use wasm86_x86::{CompiledModule, CpuState, EntryTable, PhysicalMemoryMap};
@@ -86,13 +87,15 @@ pub trait Instance<D: Devices> {
     type Module;
 
     /// Instantiates another module against this machine's existing memories and
-    /// function table. Install exports consecutively from first_slot before
-    /// publishing address mappings.
+    /// function table. Bind callbacks as hooks.entry_0, hooks.entry_1, etc. Install
+    /// exports consecutively from first_slot before publishing address mappings.
+    /// Retain callbacks as long as any installed function can reach them.
     fn install_module(
         &mut self,
         module: &Self::Module,
         first_slot: u32,
         exports: &[String],
+        callbacks: Vec<HostCallback<D>>,
     ) -> impl Future<Output = Result<()>>;
 
     /// Supplies a work allowance in `executionBudget`, enters the prepared export
@@ -100,8 +103,10 @@ pub trait Instance<D: Devices> {
     /// guest execution can invoke it. A dispatch can represent partial REP work.
     fn enter(&mut self, request: EntryRequest) -> Result<EntryResult>;
     /// Publishes execution destinations between entries, growing their memory
-    /// first. Preserve the observation prefix when replacing a table.
+    /// first. Preserve the generated continuation prefix when replacing a table.
     fn set_entries(&mut self, entries: &EntryTable) -> Result<()>;
+    /// Abandons the callable continuation by zeroing the table prefix.
+    fn restart_entry(&mut self);
     fn cpu(&self) -> CpuState;
     fn set_cpu(&mut self, cpu: &CpuState);
 

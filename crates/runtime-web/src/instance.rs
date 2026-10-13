@@ -1,10 +1,13 @@
 use crate::{
-    imports::BoundImports, js_error, memory, memory::MemoryAccess, set_property, PreparedModule,
+    imports::{BoundImports, HostImports},
+    js_error, memory,
+    memory::MemoryAccess,
+    set_property, PreparedModule,
 };
 use js_sys::{Function, Object, Reflect, WebAssembly};
 use std::{cell::RefCell, rc::Rc};
 use wasm86_runtime::{
-    backend::{EntryRequest, EntryResult, GuestMemory, Imports, Instance},
+    backend::{EntryRequest, EntryResult, GuestMemory, HostCallback, Imports, Instance},
     Devices, Result,
 };
 use wasm86_x86::{CpuState, EntryTable};
@@ -21,6 +24,7 @@ pub struct WebInstance<D> {
     entry: Function,
     imports: BoundImports,
     functions: WebAssembly::Table,
+    modules: Vec<HostImports>,
 }
 
 impl<D: Devices + 'static> WebInstance<D> {
@@ -63,6 +67,7 @@ impl<D: Devices + 'static> WebInstance<D> {
             entry,
             imports,
             functions,
+            modules: Vec::new(),
         })
     }
 }
@@ -75,8 +80,16 @@ impl<D: Devices + 'static> Instance<D> for WebInstance<D> {
         module: &PreparedModule,
         first_slot: u32,
         exports: &[String],
+        callbacks: Vec<HostCallback<D>>,
     ) -> Result<()> {
-        let instance = instantiate(module, &self.imports.object).await?;
+        let imports = HostImports::new(
+            &self.imports.object,
+            &self.state,
+            &self.cpu,
+            &self.memory,
+            callbacks,
+        );
+        let instance = instantiate(module, &imports.object).await?;
         let required = first_slot + exports.len() as u32;
         let current = self.functions.length();
         if required > current {
@@ -84,6 +97,8 @@ impl<D: Devices + 'static> Instance<D> for WebInstance<D> {
                 .grow(required - current)
                 .map_err(|error| js_error("grow execution functions", error))?;
         }
+        // Retain closures before any function becomes reachable through the table.
+        self.modules.push(imports);
         for (index, name) in exports.iter().enumerate() {
             let function = export(&instance, name)?;
             self.functions
@@ -129,6 +144,10 @@ impl<D: Devices + 'static> Instance<D> for WebInstance<D> {
         )?;
         memory::write(&self.entries, EntryTable::DATA_OFFSET, &bytes);
         Ok(())
+    }
+
+    fn restart_entry(&mut self) {
+        memory::write(&self.entries, 0, &[0; 24]);
     }
 
     fn cpu(&self) -> CpuState {

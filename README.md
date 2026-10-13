@@ -61,7 +61,7 @@ machine.
 The instruction limit counts complete x86 instructions. REP remains one instruction
 and runs to completion or a guest fault. Use `machine.run_slice_until(work, should_stop)`
 to bound work instead: an ordinary instruction or a completed REP element costs one
-unit.
+unit; a host entry callback also costs one unit without retiring an instruction.
 A slice can return with the REP count/indices updated and EIP still at REP;
 resuming continues from that progress. `SliceOutcome` reports consumed work and
 completed instructions separately. Its predicate also sees partial REP boundaries.
@@ -101,13 +101,44 @@ The browser must support WebAssembly multi-memory, tail calls, SIMD and atomics;
 an unsupported engine returns a compilation error. The runtime suite runs in
 Chrome both on the page and in a dedicated worker.
 
-## Callable execution
+## Callable execution and guest services
 
 The runtime resolves execution addresses to Wasm function-table slots. A missing
 address uses the interpreter; installed modules use the same calling convention.
 `run_slice(work)` keeps dispatch inside Wasm until exhaustion or an exit.
 `run_slice_until(work, predicate)` returns at published boundaries for observation.
 `step()` stops after one retirement even inside an installed compiled block.
+
+Services are complete guest functions compiled together into a module. Each
+wrapper directly calls its fixed host import, then performs a lowered guest
+return. For example, a DOS service uses the real interrupt frame:
+
+```rust
+use wasm86_runtime::{HostAction, HookReturn, Hooks};
+
+let mut hooks = Hooks::new();
+hooks.insert(0xf0100, HookReturn::Interrupt, |host| {
+    let mut cpu = host.cpu();
+    cpu.registers.eax = 0x1234;
+    host.set_cpu(cpu).unwrap();
+    HostAction::Continue
+});
+machine.install_hooks(hooks).await?;
+machine.write_memory(0x84, &[0, 1, 0, 0xf0])?; // INT 21h -> F000:0100
+```
+
+The service needs no guest IRET bytes at its address. INT creates its frame and
+follows the live IVT, allowing guest vector replacement and chaining. DLL exports
+use `HookReturn::Near { pop_bytes }` or `Far { pop_bytes }`. Dispatch resolves
+ordinary callable slots without knowing which functions implement host services.
+
+`HostContext` exposes checked CPU updates, routed memory and scoped device access.
+`HostAction::Yield` returns a published `ExecutionExit::HostYield { address }`.
+Resume continues at the compiled return without replaying
+host effects, including after a return fault. `restart_entry()` deliberately starts
+a fresh invocation; `remove_entry()` removes its address binding. Installed modules
+remain alive until their machine is dropped. Callbacks are synchronous; nested
+host-to-guest calls and JSPI suspension are not implemented.
 
 ## Build and test
 

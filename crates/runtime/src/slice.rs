@@ -23,7 +23,7 @@ pub struct SliceOutcome {
 
 impl<B: Backend, D: Devices + 'static> Machine<B, D> {
     /// Executes a work-bounded slice entirely through Wasm dispatch. Only device
-    /// imports cross into the host before an exit or exhaustion.
+    /// and service imports cross into the host before an exit or exhaustion.
     /// Use `run_slice_until` when a host predicate must observe dispatch boundaries.
     pub fn run_slice(&mut self, work_limit: u32) -> Result<SliceOutcome> {
         if work_limit == 0 {
@@ -44,13 +44,14 @@ impl<B: Backend, D: Devices + 'static> Machine<B, D> {
     }
 
     /// Executes at most `work_limit` units of guest work: one ordinary instruction
-    /// or one completed REP element. A zero-count REP costs one unit. Faulting
+    /// or one completed REP element; a host callback also costs one unit without
+    /// retiring an instruction. A zero-count REP costs one unit. Faulting
     /// operations do not consume work; earlier completed effects are retained.
     ///
     /// Unlike [`Self::run`], this can yield partway through REP with EIP unchanged
     /// and updated count/indices. The predicate observes the initial state and
-    /// every published progress boundary, including partial REP chunks. It takes
-    /// precedence over the work limit, but an exit returns
+    /// every outgoing dispatch boundary, including partial REP chunks. It takes
+    /// precedence over the work limit, but an exit (including HostYield) returns
     /// immediately.
     /// Call again to resume; a zero limit does not fetch an instruction.
     ///

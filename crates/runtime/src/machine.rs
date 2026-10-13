@@ -9,6 +9,7 @@ use wasm86_x86::{
 
 /// Result of one instruction attempt. CPU and completed memory/device effects
 /// are published for both outcomes, including partial progress on a guest fault.
+/// A host callback may yield before the instruction retires.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StepOutcome {
     Completed,
@@ -70,8 +71,17 @@ impl<B: Backend, D: Devices + 'static> Machine<B, D> {
         Ok(())
     }
 
+    /// Abandons the saved callable continuation. The next execution resolves
+    /// the current CS:EIP as a fresh visit, even if the address has not changed.
+    /// Use after installing CPU state for a new process or deliberate restart.
+    /// This does not undo partial instruction effects; ordinary fault repair and
+    /// completion of a yielded service should preserve the continuation instead.
+    pub fn restart_entry(&mut self) {
+        self.instance.restart_entry();
+    }
+
     /// Removes an address mapping. Later visits use the interpreter fallback.
-    /// Installed code remains alive until the machine is dropped.
+    /// Installed code remains alive for a suspended continuation, if any.
     pub fn remove_entry(&mut self, address: u32) -> Result<bool> {
         let mut entries = self.entries.clone();
         if entries.remove(address).is_none() {
@@ -93,7 +103,8 @@ impl<B: Backend, D: Devices + 'static> Machine<B, D> {
     }
 
     /// Executes one instruction, including a complete REP, or returns an exit.
-    /// Unexpected engine failures are implementation errors, not resumable guest outcomes.
+    /// Host callbacks run on the way and can return a HostYield exit. Unexpected engine
+    /// failures are implementation errors, not resumable guest outcomes.
     pub fn step(&mut self) -> Result<StepOutcome> {
         loop {
             let progress = self.enter(EntryRequest::step())?;

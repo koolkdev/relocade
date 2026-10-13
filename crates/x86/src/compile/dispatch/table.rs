@@ -14,13 +14,14 @@ const HASH_MULTIPLIER: u32 = 0x9e37_79b1;
 pub struct EntryTable(BTreeMap<u32, u32>);
 
 impl EntryTable {
-    /// The prefix holds observation policy; replace only the serialized rows.
-    pub const DATA_OFFSET: u32 = 8;
+    /// The prefix holds a suspended callable's continuation. Initialize it once
+    /// to zero; preserve it when publishing replacement address mappings.
+    pub const DATA_OFFSET: u32 = 32;
     pub const DISPATCH_SLOT: u32 = 0;
     pub const INTERPRETER_SLOT: u32 = 1;
     pub const FIRST_DYNAMIC_SLOT: u32 = 2;
     /// Nonzero asks the outgoing dispatcher to return at its next boundary.
-    pub const OBSERVE_OFFSET: u32 = 0;
+    pub const OBSERVE_OFFSET: u32 = 24;
 
     /// Publishes a callable slot. Zero is reserved for dispatch and empty rows.
     pub fn insert(&mut self, address: u32, slot: u32) -> Option<u32> {

@@ -1,7 +1,8 @@
-use crate::{memory::MemoryAccess, set_property};
+use crate::{memory, memory::MemoryAccess, set_property};
 use js_sys::{Object, WebAssembly::Memory};
 use std::{cell::RefCell, rc::Rc};
 use wasm86_runtime::{backend::Imports, Devices};
+use wasm86_x86::CpuState;
 use wasm_bindgen::closure::Closure;
 
 /// Retains the Rust closures for as long as the Wasm instance can call them.
@@ -88,6 +89,50 @@ impl BoundImports {
             _write_port: write_port,
             _read_mmio: read_mmio,
             _write_mmio: write_mmio,
+        }
+    }
+}
+
+/// A module's direct host imports, retained beside its installed Wasm functions.
+pub(crate) struct HostImports {
+    pub object: Object,
+    _callbacks: Vec<Closure<dyn FnMut() -> u32>>,
+}
+
+impl HostImports {
+    pub fn new<D: Devices + 'static>(
+        common: &Object,
+        state: &Rc<RefCell<Imports<D>>>,
+        cpu: &Memory,
+        memory: &MemoryAccess,
+        callbacks: Vec<wasm86_runtime::backend::HostCallback<D>>,
+    ) -> Self {
+        let namespace = Object::new();
+        let mut closures = Vec::new();
+        for (index, callback) in callbacks.into_iter().enumerate() {
+            let binding = state.borrow_mut().bind_host_call(callback);
+            let mut access = CallbackAccess {
+                state: state.clone(),
+                memory: memory.clone(),
+            };
+            let cpu = cpu.clone();
+            let closure = Closure::new(move || {
+                let mut bytes = [0; CpuState::BYTE_LEN];
+                memory::read(&cpu, 0, &mut bytes);
+                let mut state = CpuState::from_bytes(bytes);
+                let action =
+                    access.access(|imports, memory| imports.host_call(&mut state, memory, binding));
+                memory::write(&cpu, 0, &state.to_bytes());
+                action
+            });
+            set_property(&namespace, &format!("entry_{index}"), closure.as_ref());
+            closures.push(closure);
+        }
+        let object = Object::assign(&Object::new(), common);
+        set_property(&object, "hooks", &namespace);
+        Self {
+            object,
+            _callbacks: closures,
         }
     }
 }

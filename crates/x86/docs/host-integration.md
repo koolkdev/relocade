@@ -47,9 +47,9 @@ The host supplies a finite count before entering a slice;
 entries, interpreter handoffs and dispatches in that slice share the same memory.
 The host must not replenish it from dispatch or device callbacks.
 
-One unit permits an ordinary completed instruction or one REP element. A REP
-with zero count consumes one unit.
-Exhaustion returns `SLICE_EXHAUSTED` (tag 1024, zero
+One unit permits an ordinary completed instruction, one REP element, or one host
+entry callback when enabled below. A REP with zero count consumes one unit.
+Host calls do not retire x86 instructions. Exhaustion returns `SLICE_EXHAUSTED` (tag 1024, zero
 payload/address), with all completed state published and no dispatch callback.
 An ordinary block boundary may still dispatch after consuming the last unit;
 the next budgeted entry yields before fetching or executing an instruction.
@@ -93,7 +93,7 @@ as the corresponding imports of execution modules. `dispatch` follows the next
 execution address through the table; `interpret` directly enters the fallback
 when a snapshot abandons a specialization. These transfers stay inside Wasm.
 The embedding enters through `enter() -> i64`, which returns a guest exit or an
-execution limit. For observation, write nonzero at offset 0 of
+execution limit. For observation, write nonzero at offset 24 of
 `executionEntries`; the next outgoing dispatch returns zero with state published.
 Zero is a runtime handoff result, not an architectural exit.
 
@@ -108,12 +108,50 @@ links. The runtime initially uses the step interpreter, so interpreted code
 observes every instruction boundary without host round trips.
 
 Initialize `executionEntries` to zero, then copy `EntryTable::to_bytes()` at
-`EntryTable::DATA_OFFSET` (8), growing memory first. The serialized data is a
+`EntryTable::DATA_OFFSET` (32), growing memory first. The serialized data is a
 u32 mask followed by eight-byte address/slot rows, with zero slots marking empty
 rows. The table uses open addressing and is at most half full. Replace mappings
 only outside execution. The function table must already contain every published
-slot. Installed code and imports remain alive until the machine is dropped; removing
-an address does not reclaim code.
+slot. Installed code and imports remain alive while referenced by a mapping or
+suspended continuation; removing an address does not reclaim code.
+
+## Host-implemented guest functions
+
+`Compiler::compile_hooks(definitions, first_slot)` produces one module containing
+a callable entry and lowered return function for each service. Install its
+exports consecutively from `first_slot`, then publish its address bindings.
+Bind `hooks.entry_0`, `hooks.entry_1`, etc. as fixed `() -> i32` imports. The wrapper
+calls its import directly; there is no runtime address/host-ID search on this path.
+Normal interpreter and snapshot instruction lowering contains no hook probes.
+
+Each service defines `HookReturn::Interrupt`, `Near { pop_bytes }` or
+`Far { pop_bytes }`. Return width follows the execution profile. Wrappers reuse
+the ordinary IRET/RET/RETF semantics, including stack access and guest faults.
+They execute no guest bytes at their registered addresses. The host call costs
+one work unit without retirement; its lowered return costs one unit and retires
+once. The callback may update CPU, guest memory or mappings, preserving the
+retirement counter and profile compatibility, and must publish changes before
+returning to Wasm.
+
+An import returns 0 to continue or 1 to yield after completing its effects. Yield
+returns `HOST_YIELD | address` (tag 1025, zero bits 32–47). The wrapper retains its
+return function as a generic callable continuation. The dispatcher resumes that
+function while CS:EIP and the retirement counter still match the suspended
+identity, including after a yield, work exhaustion or return fault. A changed
+execution identity resolves afresh. Ordinary instructions maintain no hook
+markers. Explicitly restarting an invocation clears the first 24 bytes of
+`executionEntries`; replacing address bindings preserves them.
+
+INT still creates its real frame and follows the live IVT. A DOS/BIOS vector can
+point to a compiled service; guest handlers can replace that vector and chain to
+the service address. CALL/JMP to DLL exports use the same lookup, with near or far
+return conventions. This mechanism implements complete guest functions, not
+instruction interception or debugging probes.
+
+Host calls remain synchronous and cannot reenter the same machine. Yielding does
+not retain a Rust/JavaScript call stack. Nested guest callbacks, asynchronous
+stack suspension through JSPI, and interrupt delivery during suspended execution
+are separate future capabilities.
 
 ## Interpreter handoff
 
@@ -231,7 +269,7 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | `machine` | 64 | Protected-mode linear-to-backing page table at byte zero. |
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
 | `executionBudget` | 1 | Optional work and retirement limits at byte zero. |
-| `executionEntries` | 1 | Observation policy and execution-address table. |
+| `executionEntries` | 1 | Optional continuation prefix and execution-address table. |
 
 Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
 `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
@@ -244,8 +282,9 @@ require guest backing and the page table, protected-mode segment loads require
 with specialization guards require `interpret`. Hosts should use the generated
 module's import list when instantiating it.
 Budgeted entries additionally share `executionBudget` as described above.
-Callable dispatch imports `executionEntries` and the `executionFunctions`
-function table. The interpreter itself requires neither import.
+Callable dispatch and service modules share `executionEntries` and the
+`executionFunctions` function table. Service modules additionally import their
+individual host functions. The interpreter itself requires neither import.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical
@@ -856,7 +895,7 @@ tag, 16-bit payload and 32-bit address. These tags are independent of architectu
 exception vector numbers:
 
 Hosts can decode these words with `ExecutionExit::from_bits`, which returns an
-`Exception`, an unsupported-instruction diagnostic, `BudgetExhausted`, or `InstructionLimit`. Unknown tags and nonzero
+`Exception`, an unsupported-instruction diagnostic, `BudgetExhausted`, `InstructionLimit`, or `HostYield`. Unknown tags and nonzero
 reserved fields return `None`. Host-defined values returned by `dispatch` or
 `interpret` must be distinguished before decoding; either callback may return
 any i64. Track callback results or use a distinct result convention. If a callback
@@ -876,6 +915,7 @@ that callback's contract. A matching exit word alone does not establish its sour
 | Floating-point error | 256 | Zero | Zero |
 | SIMD floating-point exception | 512 | Zero | Zero |
 | Slice exhausted | 1024 | Zero | Zero |
+| Host yield | 1025 | Zero | Service address |
 | Instruction limit | 1026 | Zero | Zero |
 
 Floating-point error reports #MF (architectural vector 16). Its return value
