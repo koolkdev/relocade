@@ -14,6 +14,7 @@ mod operand;
 mod result;
 mod rounding;
 mod scale;
+mod sqrt;
 mod value;
 
 pub(crate) use binary::BinaryOperand;

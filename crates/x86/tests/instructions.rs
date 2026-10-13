@@ -132,6 +132,8 @@ mod x87_observations;
 mod x87_scale;
 #[path = "suites/x87_sign.rs"]
 mod x87_sign;
+#[path = "suites/x87_sqrt.rs"]
+mod x87_sqrt;
 #[path = "suites/x87_stack.rs"]
 mod x87_stack;
 #[path = "suites/x87_store.rs"]
