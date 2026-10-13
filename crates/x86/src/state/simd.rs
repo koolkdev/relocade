@@ -1,9 +1,12 @@
 //! Retained SIMD state preserves raw XMM encodings and logical MXCSR bits.
 
+mod mxcsr;
+pub(crate) use mxcsr::Mxcsr;
+
 use super::{access::cpu_location, CpuState, State, StoredSimd};
-use crate::{register::RegisterCode, ssa::Location};
+use crate::{register::RegisterCode, simd::SimdExceptions, ssa::Location};
 use std::mem::offset_of;
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I32, V128};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, V128};
 
 fn xmm_location(register: RegisterCode) -> Location<V128> {
     let base = offset_of!(CpuState, simd.xmm) as u32;
@@ -14,15 +17,18 @@ fn xmm_location(register: RegisterCode) -> Location<V128> {
 }
 
 impl State<'_> {
-    pub(crate) fn read_mxcsr(
+    pub(crate) fn read_mxcsr(&mut self, body: &mut BlockBuilder<'_>) -> Result<Mxcsr, BuildError> {
+        Ok(Mxcsr::new(self.simd.read(body, cpu_location!(simd.mxcsr))?))
+    }
+
+    pub(crate) fn record_simd_exceptions(
         &mut self,
         body: &mut BlockBuilder<'_>,
-    ) -> Result<Val<I32>, BuildError> {
-        // Literal snapshots retain reserved bits; architectural reads expose zero.
-        Ok(self
-            .simd
-            .read(body, cpu_location!(simd.mxcsr))?
-            .and(StoredSimd::MXCSR_MASK))
+        exceptions: &SimdExceptions,
+    ) -> Result<Val<I1>, BuildError> {
+        let (bits, unmasked) = self.read_mxcsr(body)?.record(exceptions);
+        self.simd.define(body, cpu_location!(simd.mxcsr), bits)?;
+        Ok(unmasked)
     }
 
     pub(crate) fn write_mxcsr(

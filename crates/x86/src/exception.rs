@@ -24,6 +24,8 @@ pub enum Exception<V = u32> {
     },
     /// A pending x87 floating-point exception reported by a waiting instruction.
     FloatingPoint,
+    /// An unmasked SIMD floating-point exception at the current instruction.
+    SimdFloatingPoint,
 }
 
 /// Architectural vector numbers, independent of the host exit encoding.
@@ -38,6 +40,7 @@ pub enum ExceptionVector {
     GeneralProtection = 13,
     PageFault = 14,
     FloatingPoint = 16,
+    SimdFloatingPoint = 19,
 }
 
 impl<V> Exception<V> {
@@ -51,6 +54,7 @@ impl<V> Exception<V> {
             Self::GeneralProtection { .. } => ExceptionVector::GeneralProtection,
             Self::PageFault { .. } => ExceptionVector::PageFault,
             Self::FloatingPoint => ExceptionVector::FloatingPoint,
+            Self::SimdFloatingPoint => ExceptionVector::SimdFloatingPoint,
         }
     }
 }
@@ -62,6 +66,7 @@ impl fmt::Display for Exception<u32> {
             Self::BoundRangeExceeded => return f.write_str("#BR"),
             Self::InvalidOpcode => return f.write_str("#UD"),
             Self::FloatingPoint => return f.write_str("#MF"),
+            Self::SimdFloatingPoint => return f.write_str("#XM"),
             Self::SegmentNotPresent { error_code } => ("#NP", error_code),
             Self::StackFault { error_code } => ("#SS", error_code),
             Self::GeneralProtection { error_code } => ("#GP", error_code),

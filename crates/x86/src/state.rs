@@ -15,6 +15,7 @@ pub use layout::{
 };
 #[cfg(test)]
 pub(crate) use observation::compile_flag_observer;
+pub(crate) use simd::Mxcsr;
 pub(crate) use x87::X87Access;
 
 use access::{cpu_load, cpu_store, register_location};
