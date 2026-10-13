@@ -8,9 +8,11 @@ use crate::{
 
 pub(super) fn binary(operator: LaneBinaryOp, lane_type: Type, left: u128, right: u128) -> u128 {
     match operator {
-        LaneBinaryOp::WideningMulLowSigned => return widening_mul(lane_type, left, right),
-        LaneBinaryOp::WideningMulHighSigned => {
-            return widening_mul(lane_type, left >> 64, right >> 64)
+        LaneBinaryOp::WideningMulLow { signed } => {
+            return widening_mul(lane_type, left, right, signed)
+        }
+        LaneBinaryOp::WideningMulHigh { signed } => {
+            return widening_mul(lane_type, left >> 64, right >> 64, signed)
         }
         LaneBinaryOp::DotI16Signed => return dot_i16_pairs(left, right),
         _ => {}
@@ -61,8 +63,8 @@ pub(super) fn binary(operator: LaneBinaryOp, lane_type: Type, left: u128, right:
                 let limit = 1_i64 << (lane_type.bits() - 1);
                 result.clamp(-limit, limit - 1) as u64
             }
-            LaneBinaryOp::WideningMulLowSigned
-            | LaneBinaryOp::WideningMulHighSigned
+            LaneBinaryOp::WideningMulLow { .. }
+            | LaneBinaryOp::WideningMulHigh { .. }
             | LaneBinaryOp::DotI16Signed => {
                 unreachable!("width-changing operations were evaluated above")
             }
@@ -72,15 +74,21 @@ pub(super) fn binary(operator: LaneBinaryOp, lane_type: Type, left: u128, right:
     bits
 }
 
-fn widening_mul(lane_type: Type, left: u128, right: u128) -> u128 {
+fn widening_mul(lane_type: Type, left: u128, right: u128, signed: bool) -> u128 {
     let result_width = lane_type.bits() * 2;
     let mask = u64::MAX >> (64 - result_width);
     let mut bits = 0_u128;
     for lane in 0..64 / lane_type.bits() {
         let offset = lane * lane_type.bits();
-        let left = integer::signed_value(lane_type, (left >> offset) as u64);
-        let right = integer::signed_value(lane_type, (right >> offset) as u64);
-        bits |= u128::from((left * right) as u64 & mask) << (lane * result_width);
+        let left = (left >> offset) as u64 & lane_type.mask();
+        let right = (right >> offset) as u64 & lane_type.mask();
+        let product = if signed {
+            (integer::signed_value(lane_type, left) * integer::signed_value(lane_type, right))
+                as u64
+        } else {
+            left * right
+        };
+        bits |= u128::from(product & mask) << (lane * result_width);
     }
     bits
 }

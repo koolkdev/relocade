@@ -11,6 +11,7 @@ use crate::{
 };
 
 mod layout;
+mod multiply;
 
 mod width;
 
@@ -95,17 +96,6 @@ impl<V: VectorType> Val<V> {
         I16: AtLeast<T>,
     {
         self.binary_lanes::<T>(LaneBinaryOp::AverageUnsigned, right.into())
-    }
-
-    /// Multiplies corresponding I16, I32 or I64 lanes, wrapping at the lane width.
-    pub fn mul_lanes<T: VectorLane + AtLeast<I16>>(&self, right: impl Into<Self>) -> Self {
-        self.binary_lanes::<T>(LaneBinaryOp::Mul, right.into())
-    }
-
-    /// Multiplies corresponding signed I16 lanes and adds adjacent products.
-    /// Produces one I32 lane per pair, with each sum wrapping at 32 bits.
-    pub fn signed_dot_i16_pairs(&self, right: impl Into<Self>) -> Self {
-        self.binary_lanes::<I16>(LaneBinaryOp::DotI16Signed, right.into())
     }
 
     /// Compares corresponding integer lanes for equality, returning all-one bits
