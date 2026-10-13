@@ -23,6 +23,18 @@ impl Mxcsr {
         RoundingMode::new(self.0.unsigned().shr(13).truncate::<I8>())
     }
 
+    pub(crate) fn overflow_masked(&self) -> Val<I1> {
+        self.0.and(1 << 10).ne(0)
+    }
+
+    pub(crate) fn underflow_masked(&self) -> Val<I1> {
+        self.0.and(1 << 11).ne(0)
+    }
+
+    pub(crate) fn flush_to_zero(&self) -> Val<I1> {
+        self.0.and(1 << 15).ne(0)
+    }
+
     /// Record newly raised conditions even when masked. Old sticky flags alone
     /// cannot fault, and every unrelated bit in the stored snapshot is retained.
     pub(super) fn record(&self, exceptions: &SimdExceptions) -> (Val<I32>, Val<I1>) {

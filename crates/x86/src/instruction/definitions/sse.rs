@@ -3,6 +3,7 @@
 mod arithmetic;
 mod average;
 mod comparisons;
+mod convert_float_width;
 mod convert_from_integer;
 mod convert_packed_integer;
 mod convert_scalar_integer;
@@ -34,6 +35,7 @@ use wasm86_compiler::V128;
 pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
     arithmetic::forms()
         .chain(comparisons::forms())
+        .chain(convert_float_width::forms())
         .chain(convert_from_integer::forms())
         .chain(convert_packed_integer::forms())
         .chain(convert_scalar_integer::forms())

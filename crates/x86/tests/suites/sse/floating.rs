@@ -14,6 +14,8 @@ mod minmax;
 mod packed_integer;
 #[path = "floating/scalar_integer.rs"]
 mod scalar_integer;
+#[path = "floating/width.rs"]
+mod width;
 
 use super::*;
 
