@@ -820,3 +820,11 @@ without normalizing the literal CPU snapshot. Both instructions leave XMM, EFLAG
 and x87 state unchanged. The SIMD exception boundary is available to numerical
 instructions; floating-point arithmetic remains outside the current instruction
 subset.
+
+COMISS/COMISD and UCOMISS/UCOMISD compare the low binary32/binary64 lane and
+write ZF/PF/CF, clearing OF/SF/AF. COMI raises invalid for any NaN; UCOMI raises
+invalid only for a signaling NaN. A NaN response suppresses the denormal condition
+in that comparison. DAZ treats subnormal inputs as signed zero; otherwise they
+raise the denormal condition. Unmasked conditions publish MXCSR and deliver #XM
+before changing EFLAGS. Memory sources access exactly four/eight unaligned bytes,
+and access faults precede numerical exceptions. XMM and x87 state are preserved.

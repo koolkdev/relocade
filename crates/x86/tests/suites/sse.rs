@@ -2,6 +2,8 @@
 
 #[path = "sse/byte_shifts.rs"]
 mod byte_shifts;
+#[path = "sse/floating.rs"]
+mod floating;
 #[path = "sse/half_moves.rs"]
 mod half_moves;
 #[path = "sse/integer_moves.rs"]
