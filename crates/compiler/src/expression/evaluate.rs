@@ -142,6 +142,12 @@ fn ternary(
 
 fn unary(operator: Unary, input: TypedLiteral, result: Type) -> Option<Literal> {
     let bits = match operator {
+        Unary::PairwiseAddUnsigned { lane_type } => {
+            return Some(
+                Literal::from(vector::pairwise_add_unsigned(lane_type, input.value.into()))
+                    .normalize(result),
+            );
+        }
         Unary::Splat { lane_type } => {
             let lane = u128::from(lane_type.normalize(input.value.scalar(input.ty)?));
             let bits = (0..128)

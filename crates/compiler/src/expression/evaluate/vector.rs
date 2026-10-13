@@ -121,6 +121,18 @@ pub(super) fn shift(operator: ShiftOp, lane_type: Type, value: u128, count: u32)
     bits
 }
 
+pub(super) fn pairwise_add_unsigned(lane_type: Type, input: u128) -> u128 {
+    let width = lane_type.bits();
+    let mask = u128::from(lane_type.mask());
+    (0..128)
+        .step_by(usize::from(width * 2))
+        .fold(0, |bits, offset| {
+            let left = (input >> offset) & mask;
+            let right = (input >> (offset + usize::from(width))) & mask;
+            bits | ((left + right) << offset)
+        })
+}
+
 pub(super) fn shuffle(left: u128, right: u128, lanes: [u8; 16]) -> u128 {
     let inputs = [left.to_le_bytes(), right.to_le_bytes()];
     u128::from_le_bytes(lanes.map(|lane| inputs[usize::from(lane / 16)][usize::from(lane % 16)]))

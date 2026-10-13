@@ -18,6 +18,7 @@ impl Writer<'_> {
         let instruction = match operator {
             Unary::Bitmask { lane_type } => vector::bitmask(lane_type),
             Unary::Splat { lane_type } => vector::splat(lane_type),
+            Unary::PairwiseAddUnsigned { lane_type } => vector::pairwise_add_unsigned(lane_type),
             Unary::ExtractLane { lane } => vector::extract(ty, lane),
             Unary::Reinterpret => match (input_type.carrier(), ty.carrier()) {
                 (Type::I64, Type::F64) => Instruction::F64ReinterpretI64,

@@ -13,6 +13,7 @@ mod multiply;
 mod pack;
 mod shifts;
 mod shuffle;
+mod sum_differences;
 mod transfers;
 mod unpack;
 mod words;
@@ -23,6 +24,7 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
         .chain(minmax::forms())
         .chain(multiply::forms())
         .chain(shifts::forms())
+        .chain(sum_differences::forms())
         .chain(shuffle::forms())
         .chain(pack::forms())
         .chain(transfers::forms())

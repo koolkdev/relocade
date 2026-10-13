@@ -23,6 +23,14 @@ pub(super) fn splat(lane_type: Type) -> Instruction<'static> {
     }
 }
 
+pub(super) fn pairwise_add_unsigned(lane_type: Type) -> Instruction<'static> {
+    match lane_type {
+        Type::I8 => Instruction::I16x8ExtAddPairwiseI8x16U,
+        Type::I16 => Instruction::I32x4ExtAddPairwiseI16x8U,
+        _ => unreachable!("pairwise addition widens byte or word lanes"),
+    }
+}
+
 pub(super) fn binary(operator: LaneBinaryOp, lane_type: Type) -> Instruction<'static> {
     match (operator, lane_type) {
         (LaneBinaryOp::Add, Type::I8) => Instruction::I8x16Add,
