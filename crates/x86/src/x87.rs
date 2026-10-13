@@ -12,6 +12,7 @@ mod native;
 mod operand;
 mod result;
 mod rounding;
+mod scale;
 mod value;
 
 pub(crate) use binary::BinaryOperand;
