@@ -2,6 +2,8 @@ use super::*;
 use crate::{test_step as step, CompiledModule};
 use wasm86_compiler::{Program, Signature, Type};
 
+mod sign;
+
 #[test]
 fn precision53_views_agree_after_selection_and_indefinite_replacement() {
     let mut program = Program::new();

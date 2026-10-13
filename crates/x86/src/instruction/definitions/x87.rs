@@ -5,6 +5,7 @@ mod compare;
 mod conditional_move;
 mod control;
 mod load;
+mod sign;
 mod stack;
 mod store;
 
@@ -17,5 +18,6 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
         .chain(conditional_move::forms())
         .chain(stack::forms())
         .chain(load::forms())
+        .chain(sign::forms())
         .chain(store::forms())
 }
