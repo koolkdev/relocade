@@ -1,8 +1,10 @@
 //! IEEE binary32/64 encoding helpers shared by x87 and SIMD.
 
 mod classification;
+mod rounding;
 
 pub(crate) use classification::BinaryClassification;
+pub(crate) use rounding::{RoundingInput, RoundingMode};
 use wasm86_compiler::{Val, F64, I32, I64};
 
 #[derive(Clone, Copy, Eq, PartialEq)]

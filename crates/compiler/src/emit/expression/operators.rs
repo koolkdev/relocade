@@ -99,7 +99,10 @@ impl Writer<'_> {
                 (floating::ConvertOp::FromUnsignedInteger, Type::I64) => {
                     Instruction::F64ConvertI64U
                 }
-                _ => unreachable!("float conversions consume integer carriers"),
+                (floating::ConvertOp::TruncateSaturatingI32, Type::F64) => {
+                    Instruction::I32TruncSatF64S
+                }
+                _ => unreachable!("invalid carrier for floating-point conversion"),
             },
             Unary::BitCount {
                 operator,

@@ -181,6 +181,47 @@ fn wide_integers(v8: bool) {
     }
 }
 
+fn saturating_integers(v8: bool) {
+    let runtime = Fixture::new().function(&[Type::I64], &[Type::I32], |body| {
+        let value = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
+        body.return_(value.trunc_saturating_i32())
+    });
+    for (bits, expected) in [
+        (0_u64, 0),
+        (SIGN, 0),
+        (1, 0),
+        (SIGN | 1, 0),
+        (1.75_f64.to_bits(), 1),
+        ((-1.75_f64).to_bits(), -1),
+        (2147483647.0_f64.to_bits(), i32::MAX),
+        (2147483647.75_f64.to_bits(), i32::MAX),
+        (2147483648.0_f64.to_bits(), i32::MAX),
+        ((-2147483648.0_f64).to_bits(), i32::MIN),
+        ((-2147483648.75_f64).to_bits(), i32::MIN),
+        ((-2147483649.0_f64).to_bits(), i32::MIN),
+        (INFINITY, i32::MAX),
+        (SIGN | INFINITY, i32::MIN),
+        (0x7ff8_0000_0000_0042, 0),
+        (0xfff0_0000_0000_0001, 0),
+    ] {
+        let expected = [Value::I32(expected)];
+        check(&runtime, &[Value::I64(bits as i64)], &expected, v8);
+        for admitted in [false, true] {
+            let constant = Fixture::new().function(&[], &[Type::I32], |body| {
+                let value = Val::<F64>::from_bits(bits);
+                let value = if admitted { body.value(value)? } else { value };
+                body.return_(value.trunc_saturating_i32())
+            });
+            check(&constant, &[], &expected, v8);
+        }
+    }
+}
+
+#[test]
+fn floating_integer_conversion_saturates_without_trapping() {
+    saturating_integers(false);
+}
+
 #[test]
 fn binary32_promotion_preserves_values_and_defers_nan_payloads() {
     promotion(false);
@@ -198,4 +239,5 @@ fn v8_numeric_conversions() {
     promotion(true);
     narrow_integers(true);
     wide_integers(true);
+    saturating_integers(true);
 }

@@ -2,11 +2,10 @@
 
 use wasm86_compiler::{Val, I16, I32};
 
-use crate::floating::BinaryFormat;
+use crate::floating::{BinaryFormat, RoundingInput, RoundingMode};
 
 use super::{
-    result::RoundedValue, rounding::RoundingInput, value::KnownClass, ArithmeticResult,
-    ExtendedBits, ExtendedValue, Operand, RoundingMode,
+    result::RoundedValue, value::KnownClass, ArithmeticResult, ExtendedBits, ExtendedValue, Operand,
 };
 
 impl Operand {

@@ -1,8 +1,7 @@
 //! Normalized quotient algorithms preserve an exact floor and remainder.
 
+use crate::floating::RoundingInput;
 use wasm86_compiler::{Val, F64, I1, I64};
-
-use super::super::rounding::RoundingInput;
 
 const LEADING: u64 = 1 << 63;
 const RADIX: u64 = 1 << 32;

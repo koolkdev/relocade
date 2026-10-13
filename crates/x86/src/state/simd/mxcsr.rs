@@ -22,11 +22,21 @@ impl Mxcsr {
     /// Record newly raised conditions even when masked. Old sticky flags alone
     /// cannot fault, and every unrelated bit in the stored snapshot is retained.
     pub(super) fn record(&self, exceptions: &SimdExceptions) -> (Val<I32>, Val<I1>) {
-        let raised = exceptions
+        let operand_flags = exceptions
             .invalid
             .select(1_u32, 0)
             .or(exceptions.denormal.select(2_u32, 0));
-        let unmasked = raised.and(self.0.unsigned().shr(7).xor(u32::MAX)).ne(0);
+        let result_flags = exceptions
+            .overflow
+            .select(8_u32, 0)
+            .or(exceptions.underflow.select(16_u32, 0))
+            .or(exceptions.precision.select(32_u32, 0));
+        let enabled = self.0.unsigned().shr(7).xor(u32::MAX);
+        // Any unmasked operand exception stops the packed instruction before
+        // range or precision conditions from other lanes can be reported.
+        let operand_fault = operand_flags.and(&enabled).ne(0);
+        let raised = operand_flags.or(operand_fault.select(0, result_flags));
+        let unmasked = raised.and(enabled).ne(0);
         (self.0.or(raised), unmasked)
     }
 }

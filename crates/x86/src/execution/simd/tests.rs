@@ -5,22 +5,26 @@ use crate::{
     test_step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule},
     CompiledModule, CpuState, ExecutionProfile, SegmentDefaultSize, SegmentProfile,
 };
-use wasm86_compiler::{Program, Signature, Type, I1};
+use wasm86_compiler::{Program, Signature, Type};
 
-fn exception_module() -> CompiledModule {
+fn exception_module(specialize: bool) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let runtime = Runtime::declare(&mut program);
     let function = program
         .function(
             Signature {
-                parameters: vec![Type::I1, Type::I1],
+                parameters: vec![Type::I32],
                 results: vec![Type::I64],
             },
             |body| {
+                let raised = body.parameter::<I32>(0)?;
                 let exceptions = SimdExceptions {
-                    invalid: body.parameter::<I1>(0)?,
-                    denormal: body.parameter::<I1>(1)?,
+                    invalid: raised.and(1).ne(0),
+                    denormal: raised.and(2).ne(0),
+                    overflow: raised.and(8).ne(0),
+                    underflow: raised.and(16).ne(0),
+                    precision: raised.and(32).ne(0),
                 };
                 let mut execution = ExecutionBuilder::new(
                     body,
@@ -30,6 +34,9 @@ fn exception_module() -> CompiledModule {
                     0x1000,
                     ExecutionProfile::Protected(SegmentProfile::Flat32),
                 )?;
+                if specialize {
+                    execution = execution.with_specialization(None);
+                }
                 let (nop, _) =
                     crate::decode::snapshot(&[0x90], 0x1000, SegmentDefaultSize::Bits32).unwrap();
                 execution.execute(nop)?;
@@ -47,21 +54,35 @@ fn exception_module() -> CompiledModule {
     }
 }
 
-fn exceptions(engine: Engine) {
-    let module = TestModule::new(&exception_module());
-    for (mxcsr, invalid, denormal, expected_mxcsr, fault) in [
-        (0x1f80, false, false, 0x1f80, false),
-        (0x1f80, true, false, 0x1f81, false),
-        (0x1f80, false, true, 0x1f82, false),
-        (0x1f80, true, true, 0x1f83, false),
-        (0x1f00, true, false, 0x1f01, true),
-        (0x1e80, false, true, 0x1e82, true),
-        (0x1f00, true, true, 0x1f03, true),
-        (0x1e00, true, true, 0x1e03, true),
-        (0x0003, false, false, 0x0003, false),
-        (0x1e81, true, false, 0x1e81, false),
-        (0xa5a5_9fc4, true, false, 0xa5a5_9fc5, false),
+fn exceptions(engine: Engine, specialize: bool) {
+    let module = TestModule::new(&exception_module(specialize));
+    for (mxcsr, raised, expected_mxcsr, fault) in [
+        (0x1f80, 0, 0x1f80, false),
+        (0x1f80, 1, 0x1f81, false),
+        (0x1f80, 2, 0x1f82, false),
+        (0x1f80, 3, 0x1f83, false),
+        (0x1f00, 1, 0x1f01, true),
+        (0x1e80, 2, 0x1e82, true),
+        (0x1f00, 3, 0x1f03, true),
+        (0x1e00, 3, 0x1e03, true),
+        (0x0003, 0, 0x0003, false),
+        (0x1e81, 1, 0x1e81, false),
+        (0xa5a5_9fc4, 1, 0xa5a5_9fc5, false),
+        (0x1f80, 0x20, 0x1fa0, false), // Masked precision stays compiled too.
+        (0x1f80, 0x38, 0x1fb8, false),
+        (0x0f80, 0x20, 0x0fa0, true),  // Unmasked precision.
+        (0x1b80, 0x28, 0x1ba8, true),  // Unmasked overflow retains computed PE.
+        (0x1780, 0x10, 0x1790, true),  // Exact tiny result, underflow unmasked.
+        (0x1f00, 0x21, 0x1f01, true),  // Invalid suppresses a sibling lane's PE.
+        (0x1e80, 0x3a, 0x1e82, true),  // Denormal suppresses post-computation flags.
+        (0x1f80, 0x21, 0x1fa1, false), // Masked invalid permits a sibling's PE.
+        (0x0f81, 0, 0x0f81, false),    // Old flags cannot raise a new exception.
     ] {
+        // Operand and range conditions use interpreter restart in specialized
+        // blocks. Exact and inexact results must complete in the compiled path.
+        if specialize && raised & 0x1b != 0 {
+            continue;
+        }
         let mut initial = CpuState {
             eip: 0x1000,
             instruction_count: 7,
@@ -77,10 +98,7 @@ fn exceptions(engine: Engine) {
             expected.simd.xmm[0] = [0; 16];
         }
         let input = Input {
-            arguments: vec![
-                Argument::I32(invalid.into()),
-                Argument::I32(denormal.into()),
-            ],
+            arguments: vec![Argument::I32(raised)],
             ..Input::new(&initial.to_bytes())
         };
         assert_eq!(
@@ -100,18 +118,20 @@ fn exceptions(engine: Engine) {
                 guest_unchanged: true,
                 machine_unchanged: true,
             },
-            "MXCSR {mxcsr:#x}, invalid {invalid}, denormal {denormal}"
+            "MXCSR {mxcsr:#x}, raised {raised:#x}"
         );
     }
 }
 
 #[test]
 fn simd_status_precedes_faults_and_destination_updates() {
-    exceptions(Engine::Wasmtime);
+    exceptions(Engine::Wasmtime, false);
+    exceptions(Engine::Wasmtime, true);
 }
 
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn v8_simd_status_precedes_faults_and_destination_updates() {
-    exceptions(Engine::V8);
+    exceptions(Engine::V8, false);
+    exceptions(Engine::V8, true);
 }

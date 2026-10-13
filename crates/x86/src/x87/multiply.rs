@@ -1,12 +1,13 @@
 //! Exact significand multiplication and x87 operand-class responses.
 
+use crate::floating::{RoundingInput, RoundingMode};
 use wasm86_compiler::{Val, I32, I8};
 
 use super::{
     operand::BinaryOperands,
     result::{BinaryArithmetic, RoundedValue},
-    rounding::{FiniteMagnitude, RoundingInput},
-    BinaryOperation, RoundingMode,
+    rounding::FiniteMagnitude,
+    BinaryOperation,
 };
 
 pub(super) fn multiply(

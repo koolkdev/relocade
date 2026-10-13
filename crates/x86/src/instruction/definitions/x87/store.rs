@@ -3,11 +3,11 @@
 use super::*;
 use crate::{
     address::MemoryAddress,
-    floating::BinaryFormat,
+    floating::{BinaryFormat, RoundingMode},
     instruction::X87StackIndex,
     memory::Intent,
     state::x87::{ConditionCode, Exception, StackValue, X87Specialization},
-    x87::{ConversionResult, ExtendedValue, RoundingMode},
+    x87::{ConversionResult, ExtendedValue},
 };
 use wasm86_compiler::{MemoryInt, I64};
 

@@ -72,6 +72,7 @@ where
             exceptions: SimdExceptions {
                 invalid: self.signaling_nan.or(signal_quiet_nan.and(&self.unordered)),
                 denormal: self.denormal.clone(),
+                ..SimdExceptions::default()
             },
         }
     }

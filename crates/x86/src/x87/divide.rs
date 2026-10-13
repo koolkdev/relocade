@@ -4,11 +4,13 @@ mod quotient;
 
 use wasm86_compiler::{Val, I32, I8};
 
+use crate::floating::RoundingMode;
+
 use super::{
     operand::BinaryOperands,
     result::{BinaryArithmetic, RoundedValue},
     rounding::FiniteMagnitude,
-    BinaryOperation, RoundingMode,
+    BinaryOperation,
 };
 
 pub(super) fn divide(

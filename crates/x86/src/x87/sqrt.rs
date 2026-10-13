@@ -8,11 +8,13 @@ mod tests;
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I8};
 
+use crate::floating::RoundingMode;
+
 use super::{
     result::{RoundedShape, RoundedValue},
     rounding::FiniteMagnitude,
     value::KnownClass,
-    ArithmeticResult, ExtendedValue, Operand, RoundingMode,
+    ArithmeticResult, ExtendedValue, Operand,
 };
 
 impl Operand {

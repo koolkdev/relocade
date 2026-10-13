@@ -1,11 +1,11 @@
 //! Exact integer expansion and rounded signed-integer narrowing.
 
+use crate::floating::{RoundingInput, RoundingMode};
 use wasm86_compiler::{AtLeast, MemoryInt, Val, I16, I32, I64};
 
 use super::{
-    rounding::RoundingInput,
     value::{KnownClass, Precision53},
-    ConversionResult, ExtendedBits, ExtendedValue, RoundingMode,
+    ConversionResult, ExtendedBits, ExtendedValue,
 };
 
 impl ExtendedValue {
