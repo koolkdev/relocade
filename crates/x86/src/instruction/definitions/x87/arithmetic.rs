@@ -1,4 +1,4 @@
-//! Binary arithmetic combines an x87 destination with a register or real memory source.
+//! Binary arithmetic combines an x87 destination with a register, real or integer source.
 
 use super::*;
 use crate::{
@@ -11,52 +11,100 @@ use crate::{
 
 instruction_families! {
     FADD_BINARY32 {
-        execute: binary_memory(BinaryOperation::Add, BinaryFormat::Binary32);
+        execute: binary_memory(BinaryOperation::Add, X87MemoryFormat::Binary(BinaryFormat::Binary32));
         forms { 0xD8 / 0 => operands(mem); }
     }
     FADD_BINARY64 {
-        execute: binary_memory(BinaryOperation::Add, BinaryFormat::Binary64);
+        execute: binary_memory(BinaryOperation::Add, X87MemoryFormat::Binary(BinaryFormat::Binary64));
         forms { 0xDC / 0 => operands(mem); }
     }
     FSUB_BINARY32 {
-        execute: binary_memory(BinaryOperation::Subtract, BinaryFormat::Binary32);
+        execute: binary_memory(BinaryOperation::Subtract, X87MemoryFormat::Binary(BinaryFormat::Binary32));
         forms { 0xD8 / 4 => operands(mem); }
     }
     FSUB_BINARY64 {
-        execute: binary_memory(BinaryOperation::Subtract, BinaryFormat::Binary64);
+        execute: binary_memory(BinaryOperation::Subtract, X87MemoryFormat::Binary(BinaryFormat::Binary64));
         forms { 0xDC / 4 => operands(mem); }
     }
     FSUBR_BINARY32 {
-        execute: binary_memory(BinaryOperation::ReverseSubtract, BinaryFormat::Binary32);
+        execute: binary_memory(BinaryOperation::ReverseSubtract, X87MemoryFormat::Binary(BinaryFormat::Binary32));
         forms { 0xD8 / 5 => operands(mem); }
     }
     FSUBR_BINARY64 {
-        execute: binary_memory(BinaryOperation::ReverseSubtract, BinaryFormat::Binary64);
+        execute: binary_memory(BinaryOperation::ReverseSubtract, X87MemoryFormat::Binary(BinaryFormat::Binary64));
         forms { 0xDC / 5 => operands(mem); }
     }
     FMUL_BINARY32 {
-        execute: binary_memory(BinaryOperation::Multiply, BinaryFormat::Binary32);
+        execute: binary_memory(BinaryOperation::Multiply, X87MemoryFormat::Binary(BinaryFormat::Binary32));
         forms { 0xD8 / 1 => operands(mem); }
     }
     FMUL_BINARY64 {
-        execute: binary_memory(BinaryOperation::Multiply, BinaryFormat::Binary64);
+        execute: binary_memory(BinaryOperation::Multiply, X87MemoryFormat::Binary(BinaryFormat::Binary64));
         forms { 0xDC / 1 => operands(mem); }
     }
     FDIV_BINARY32 {
-        execute: binary_memory(BinaryOperation::Divide, BinaryFormat::Binary32);
+        execute: binary_memory(BinaryOperation::Divide, X87MemoryFormat::Binary(BinaryFormat::Binary32));
         forms { 0xD8 / 6 => operands(mem); }
     }
     FDIV_BINARY64 {
-        execute: binary_memory(BinaryOperation::Divide, BinaryFormat::Binary64);
+        execute: binary_memory(BinaryOperation::Divide, X87MemoryFormat::Binary(BinaryFormat::Binary64));
         forms { 0xDC / 6 => operands(mem); }
     }
     FDIVR_BINARY32 {
-        execute: binary_memory(BinaryOperation::ReverseDivide, BinaryFormat::Binary32);
+        execute: binary_memory(BinaryOperation::ReverseDivide, X87MemoryFormat::Binary(BinaryFormat::Binary32));
         forms { 0xD8 / 7 => operands(mem); }
     }
     FDIVR_BINARY64 {
-        execute: binary_memory(BinaryOperation::ReverseDivide, BinaryFormat::Binary64);
+        execute: binary_memory(BinaryOperation::ReverseDivide, X87MemoryFormat::Binary(BinaryFormat::Binary64));
         forms { 0xDC / 7 => operands(mem); }
+    }
+    FIADD_INTEGER16 {
+        execute: binary_memory(BinaryOperation::Add, X87MemoryFormat::Integer16);
+        forms { 0xDE / 0 => operands(mem); }
+    }
+    FIADD_INTEGER32 {
+        execute: binary_memory(BinaryOperation::Add, X87MemoryFormat::Integer32);
+        forms { 0xDA / 0 => operands(mem); }
+    }
+    FIMUL_INTEGER16 {
+        execute: binary_memory(BinaryOperation::Multiply, X87MemoryFormat::Integer16);
+        forms { 0xDE / 1 => operands(mem); }
+    }
+    FIMUL_INTEGER32 {
+        execute: binary_memory(BinaryOperation::Multiply, X87MemoryFormat::Integer32);
+        forms { 0xDA / 1 => operands(mem); }
+    }
+    FISUB_INTEGER16 {
+        execute: binary_memory(BinaryOperation::Subtract, X87MemoryFormat::Integer16);
+        forms { 0xDE / 4 => operands(mem); }
+    }
+    FISUB_INTEGER32 {
+        execute: binary_memory(BinaryOperation::Subtract, X87MemoryFormat::Integer32);
+        forms { 0xDA / 4 => operands(mem); }
+    }
+    FISUBR_INTEGER16 {
+        execute: binary_memory(BinaryOperation::ReverseSubtract, X87MemoryFormat::Integer16);
+        forms { 0xDE / 5 => operands(mem); }
+    }
+    FISUBR_INTEGER32 {
+        execute: binary_memory(BinaryOperation::ReverseSubtract, X87MemoryFormat::Integer32);
+        forms { 0xDA / 5 => operands(mem); }
+    }
+    FIDIV_INTEGER16 {
+        execute: binary_memory(BinaryOperation::Divide, X87MemoryFormat::Integer16);
+        forms { 0xDE / 6 => operands(mem); }
+    }
+    FIDIV_INTEGER32 {
+        execute: binary_memory(BinaryOperation::Divide, X87MemoryFormat::Integer32);
+        forms { 0xDA / 6 => operands(mem); }
+    }
+    FIDIVR_INTEGER16 {
+        execute: binary_memory(BinaryOperation::ReverseDivide, X87MemoryFormat::Integer16);
+        forms { 0xDE / 7 => operands(mem); }
+    }
+    FIDIVR_INTEGER32 {
+        execute: binary_memory(BinaryOperation::ReverseDivide, X87MemoryFormat::Integer32);
+        forms { 0xDA / 7 => operands(mem); }
     }
     FADD_TOP {
         execute: binary_register(BinaryOperation::Add, Destination::Top, false);
@@ -161,15 +209,12 @@ fn binary_memory(
     execution: &mut ExecutionBuilder<'_, '_>,
     address: MemoryAddress<Val<I32>>,
     operation: BinaryOperation,
-    format: BinaryFormat,
+    format: X87MemoryFormat,
 ) -> Result<(), BuildError> {
     arithmetic(
         execution,
         0.into(),
-        X87Operand::Memory {
-            address,
-            format: X87MemoryFormat::Binary(format),
-        },
+        X87Operand::Memory { address, format },
         operation,
         false,
     )
