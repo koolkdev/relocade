@@ -1,21 +1,7 @@
 //! IEEE ordering and operand exceptions, independent of the destination or MXCSR masks.
 
-use super::SimdExceptions;
-use crate::floating::BinaryFormat;
-use wasm86_compiler::{AtLeast, Val, VectorLane, I1, I32, I64};
-
-/// The integer encoding of one binary32 or binary64 lane.
-pub(crate) trait FloatLane: VectorLane {
-    const FORMAT: BinaryFormat;
-}
-
-impl FloatLane for I32 {
-    const FORMAT: BinaryFormat = BinaryFormat::Binary32;
-}
-
-impl FloatLane for I64 {
-    const FORMAT: BinaryFormat = BinaryFormat::Binary64;
-}
+use super::{FloatLane, FloatOperand, SimdExceptions};
+use wasm86_compiler::{AtLeast, Val, I1, I64};
 
 pub(crate) struct FloatOperands<T: FloatLane> {
     /// DAZ-normalized encodings retained for exact result selection.
@@ -39,24 +25,20 @@ where
     I64: AtLeast<T>,
 {
     pub(crate) fn new(left: Val<T>, right: Val<T>, daz: Val<I1>) -> Self {
-        let left_bits = left.unsigned().extend::<I64>();
-        let right_bits = right.unsigned().extend::<I64>();
-        let left_class = T::FORMAT.classification(&left_bits);
-        let right_class = T::FORMAT.classification(&right_bits);
-        let left_denormal = left_class.denormal();
-        let right_denormal = right_class.denormal();
+        let left = FloatOperand::new(left, daz.clone());
+        let right = FloatOperand::new(right, daz.clone());
+        let left_class = left.classification();
+        let right_class = right.classification();
         let unordered = left_class.nan().or(right_class.nan());
-        let sign = Val::<I64>::from(T::FORMAT.sign_bit()).truncate::<T>();
         Self {
-            // DAZ retains the sign of a subnormal input's zero replacement.
-            left: daz.and(&left_denormal).select(left.and(&sign), left),
-            right: daz.and(&right_denormal).select(right.and(sign), right),
+            left: left.bits.clone(),
+            right: right.bits.clone(),
             signaling_nan: left_class.signaling_nan().or(right_class.signaling_nan()),
             // A NaN response takes precedence over a denormal in the same lane.
             denormal: unordered
                 .eq(false)
                 .and(daz.eq(false))
-                .and(left_denormal.or(right_denormal)),
+                .and(left_class.denormal().or(right_class.denormal())),
             unordered,
         }
     }

@@ -2,8 +2,11 @@
 
 mod compare;
 mod exceptions;
-pub(crate) use compare::{FloatLane, FloatOperands};
+mod integer;
+mod operand;
+pub(crate) use compare::FloatOperands;
 pub(crate) use exceptions::SimdExceptions;
+pub(crate) use operand::{FloatLane, FloatOperand};
 
 use wasm86_compiler::{AtLeast, Val, ValueType, I1, I64, V128};
 
