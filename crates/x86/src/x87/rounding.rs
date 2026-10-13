@@ -4,7 +4,7 @@ mod extended;
 
 pub(super) use extended::FiniteMagnitude;
 
-use wasm86_compiler::{Val, I1, I32, I64, I8};
+use wasm86_compiler::{Val, F64, I1, I32, I64, I8};
 
 #[cfg(test)]
 mod tests;
@@ -65,6 +65,17 @@ pub(crate) struct RoundingMode(Val<I8>);
 impl RoundingMode {
     pub(crate) fn new(control: Val<I8>) -> Self {
         Self(control.and(3))
+    }
+
+    /// Native integral rounding has the same RC policy and signed-zero rule.
+    pub(super) fn integral(&self, value: &Val<F64>) -> Val<F64> {
+        self.0.eq(0).select(
+            value.nearest(),
+            self.0.eq(1).select(
+                value.floor(),
+                self.0.eq(2).select(value.ceil(), value.trunc()),
+            ),
+        )
     }
 
     /// Exact cancellation produces -0 only when rounding toward minus infinity.

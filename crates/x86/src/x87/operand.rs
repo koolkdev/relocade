@@ -1,4 +1,4 @@
-//! Binary operands retain exact values, classification and source exception evidence.
+//! Operands retain exact values, classification and source exception evidence.
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64, I8};
 
@@ -7,7 +7,7 @@ use super::{
     BinaryArithmetic, BinaryOperand, BinaryOperation, ExtendedBits, ExtendedValue, RoundingMode,
 };
 
-pub(super) struct Operand {
+pub(crate) struct Operand {
     pub(super) bits: ExtendedBits,
     // A native significand retains x87's separate exponent. A whole binary64
     // value requires its own range and precision proof. Neither changes evidence.
@@ -23,7 +23,7 @@ pub(super) struct Operand {
 }
 
 impl Operand {
-    fn new(value: &ExtendedValue) -> Self {
+    pub(crate) fn new(value: &ExtendedValue) -> Self {
         let class = value.classification();
         Self {
             bits: value.bits(),
@@ -37,6 +37,32 @@ impl Operand {
             denormal: class.denormal(),
             unsupported: class.unsupported(),
         }
+    }
+
+    pub(crate) fn normal_or_zero(&self) -> Val<I1> {
+        self.normal_or_zero.clone()
+    }
+
+    /// Unary operations quiet their original NaN and let invalid operands
+    /// suppress lower-priority denormal evidence.
+    pub(super) fn finish(
+        &self,
+        mut result: ArithmeticResult,
+        invalid_operation: Val<I1>,
+    ) -> ArithmeticResult {
+        let indefinite = self.unsupported.or(invalid_operation);
+        let invalid = indefinite.or(&self.signaling_nan);
+        let special = RoundedValue::exact(
+            ExtendedValue::from_bits(ExtendedBits {
+                significand: self.bits.significand.or(1_u64 << 62),
+                sign_exponent: self.bits.sign_exponent.clone(),
+            })
+            .or_indefinite(&indefinite),
+        );
+        result.replace_when(&self.nan.or(&indefinite), &special);
+        result.denormal = invalid.or(&self.nan).eq(false).and(&self.denormal);
+        result.invalid = invalid;
+        result
     }
 
     fn from_binary(source: &BinaryOperand) -> Self {

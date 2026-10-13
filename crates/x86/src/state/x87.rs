@@ -16,7 +16,7 @@ pub(crate) use control::Exception;
 
 #[derive(Clone, Copy)]
 pub(crate) enum X87Specialization {
-    /// Rounding control alone, for conversion stores.
+    /// Rounding control alone, for operations independent of PC.
     Rounding,
     /// Precision and rounding, plus PM and PE when both were observed set.
     Arithmetic,
