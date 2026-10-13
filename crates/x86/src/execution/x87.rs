@@ -2,7 +2,7 @@
 
 mod operand;
 
-pub(crate) use operand::{X87Operand, X87Operands};
+pub(crate) use operand::{X87MemoryFormat, X87Operand, X87Operands};
 
 use wasm86_compiler::BuildError;
 

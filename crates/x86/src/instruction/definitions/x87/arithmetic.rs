@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     address::MemoryAddress,
-    execution::{X87Operand, X87Operands},
+    execution::{X87MemoryFormat, X87Operand, X87Operands},
     instruction::X87StackIndex,
     state::x87::{ConditionCode, Exception, StackValue, X87Specialization},
     x87::{ArithmeticResult, BinaryFormat, BinaryOperation},
@@ -166,7 +166,10 @@ fn binary_memory(
     arithmetic(
         execution,
         0.into(),
-        X87Operand::BinaryMemory { address, format },
+        X87Operand::Memory {
+            address,
+            format: X87MemoryFormat::Binary(format),
+        },
         operation,
         false,
     )
