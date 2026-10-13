@@ -458,7 +458,7 @@ fn memory_faults(engine: Engine, frontend: Frontend) {
 
 fn rejected_forms(engine: Engine) {
     for code in [
-        &[0xd9, 0xe8][..], // FLDCW's /5 is memory-only; this register form is FLD1.
+        &[0xd9, 0xef][..], // FLDCW's /5 is memory-only; D9 EF is unassigned.
         &[0xdd, 0xf8][..],
         &[0xdf, 0xe1][..],
         &[0xdb, 0x23][..], // The FNINIT byte does not select a memory operand.

@@ -304,7 +304,11 @@ ST(0), preserving its exact encoding, including NaN payloads. Empty operands
 use the ordinary masked or unmasked stack-underflow response. Memory data
 transfers support FLD m32/m64/m80,
 FILD m16/m32/m64 integers, FIST m16/m32, FISTP m16/m32/m64, FST m32/m64 and
-FSTP m32/m64/m80. Register arithmetic supports FADD/FADDP, FSUB/FSUBP,
+FSTP m32/m64/m80. FLD1, FLDZ, FLDPI, FLDL2T, FLDL2E, FLDLG2 and FLDLN2 push
+the x87 constants. They obey RC at extended precision independently of PC,
+without raising precision exceptions or setting C1 for rounding. A full stack
+uses the ordinary masked or unmasked stack-overflow response.
+Register arithmetic supports FADD/FADDP, FSUB/FSUBP,
 FSUBR/FSUBRP, FMUL/FMULP, FDIV/FDIVP and FDIVR/FDIVRP. FADD, FSUB, FSUBR, FMUL,
 FDIV and FDIVR also accept binary32/64 memory sources. There is no FIST m64 or
 FST m80 encoding. Comparisons support FCOM/FCOMP with register or binary32/64
