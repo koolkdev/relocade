@@ -176,6 +176,12 @@ Explicit LFENCE, SFENCE and MFENCE instructions use Wasm's full atomic fence.
 This supplies stronger ordering than the individual load/store fences require;
 it does not change the private-memory contract or model speculative execution.
 
+MOVNTPS, MOVNTPD, MOVNTDQ, MOVNTQ and MOVNTI use the ordinary checked memory
+write path. Their non-temporal cache hints do not alter host routing or introduce
+buffered writes. The XMM stores require 16-byte linear alignment; MOVNTQ and
+MOVNTI do not add an alignment requirement. MMX stores retain MMX exception
+admission and the transition of x87 TOP and tags.
+
 Unaligned protected-mode locked operands use checked reads and writes under the private-memory
 contract, which prevents guest interleaving. The current imports do not support
 concurrent access to shared guest RAM. Such access will require coordination for

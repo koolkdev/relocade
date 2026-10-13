@@ -1,12 +1,9 @@
-//! MMX transfers and x87 tag reset.
+//! Whole-register and scalar moves between MMX, XMM, GPRs and memory.
 
 use super::*;
+use crate::{address::MemoryAddress, memory::Intent};
 
 instruction_families! {
-    PMOVMSKB {
-        execute: byte_mask;
-        forms { NP 0x0f 0xd7 => dword(modrm_reg, register(mm_rm)); }
-    }
     MOVD_LOAD {
         execute: load_doubleword;
         forms { NP 0x0f 0x6e => dword(mm, rm); }
@@ -30,22 +27,10 @@ instruction_families! {
         execute: move_from_xmm;
         forms { PF2 0x0f 0xd6 => operands(mm, register(xmm_rm)); }
     }
-    EMMS {
-        execute: empty;
-        forms { NP 0x0f 0x77 => no_operands(); }
+    MOVNTQ {
+        execute: store_non_temporal;
+        forms { NP 0x0f 0xe7 => operands(mem, mm); }
     }
-}
-
-fn byte_mask(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    destination: TypedLocation<I32>,
-    source: RegisterCode,
-) -> Result<(), BuildError> {
-    execution.execute_mmx(|execution| {
-        let bits = execution.read_mmx(source)?;
-        let mask = Val::<V64>::from_bits(bits).bitmask::<I8>();
-        destination.write(execution, mask)
-    })
 }
 
 fn load_doubleword(
@@ -81,10 +66,6 @@ fn move_quadword(
     })
 }
 
-fn empty(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
-    execution.empty_mmx()
-}
-
 fn move_to_xmm(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
@@ -104,5 +85,18 @@ fn move_from_xmm(
     execution.execute_mmx(|execution| {
         let bits = execution.read_xmm(source)?.low_half().to_bits();
         execution.write_mmx(destination, bits)
+    })
+}
+
+fn store_non_temporal(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: MemoryAddress<Val<I32>>,
+    source: RegisterCode,
+) -> Result<(), BuildError> {
+    execution.execute_mmx(|execution| {
+        let value = execution.read_mmx(source)?;
+        execution
+            .memory_operand(destination, 8, Intent::Write, &[])?
+            .write(execution, 0, value)
     })
 }

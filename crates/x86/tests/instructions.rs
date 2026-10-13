@@ -133,3 +133,6 @@ mod sse;
 
 #[path = "suites/memory_control.rs"]
 mod memory_control;
+
+#[path = "suites/streaming_stores.rs"]
+mod streaming_stores;
