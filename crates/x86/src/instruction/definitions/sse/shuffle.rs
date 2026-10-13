@@ -1,7 +1,7 @@
 //! Shuffles select raw lanes from registers or an aligned m128 source.
 
 use super::*;
-use crate::alu::{shuffle_dwords, shuffle_qwords, shuffle_words};
+use crate::simd::{shuffle_dwords, shuffle_qwords, shuffle_words};
 
 instruction_families! {
     SHUFPS {

@@ -1,7 +1,7 @@
 //! PSHUFW permutes the four words of a register or unaligned m64 source.
 
 use super::*;
-use crate::alu::shuffle_words;
+use crate::simd::shuffle_words;
 
 instruction_families! {
     PSHUFW {

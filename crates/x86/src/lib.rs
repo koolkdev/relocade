@@ -36,6 +36,7 @@ mod profile;
 mod register;
 mod runtime;
 mod segment;
+mod simd;
 mod ssa;
 mod state;
 mod x87;
