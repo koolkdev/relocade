@@ -8,11 +8,32 @@ pub(crate) use compare::FloatOperands;
 pub(crate) use exceptions::SimdExceptions;
 pub(crate) use operand::{FloatLane, FloatOperand};
 
-use wasm86_compiler::{AtLeast, Val, ValueType, I1, I64, V128};
+use wasm86_compiler::{AtLeast, Val, ValueType, VectorLane, I1, I64, V128};
 
 pub(crate) struct FloatResult<T: ValueType> {
     pub(crate) value: Val<T>,
     pub(crate) exceptions: SimdExceptions,
+}
+
+impl FloatResult<V128> {
+    /// Replace result lanes and collect every condition before any state update.
+    /// The initial vector determines which unused destination bits are retained.
+    pub(crate) fn from_lanes<T: VectorLane>(
+        initial: Val<V128>,
+        count: u32,
+        operation: impl Fn(u32) -> FloatResult<T>,
+    ) -> Self {
+        let mut result = Self {
+            value: initial,
+            exceptions: SimdExceptions::default(),
+        };
+        for lane in 0..count {
+            let lane_result = operation(lane);
+            result.value = result.value.replace_lane(lane, lane_result.value);
+            result.exceptions.merge(lane_result.exceptions);
+        }
+        result
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -38,20 +59,13 @@ impl FloatShape {
             Self::Scalar => 1,
             Self::Packed => 16 / T::FORMAT.bytes(),
         };
-        let mut result = FloatResult {
-            value: left.clone(),
-            exceptions: SimdExceptions::default(),
-        };
-        for lane in 0..lanes {
+        FloatResult::from_lanes(left.clone(), lanes, |lane| {
             let operands = FloatOperands::new(
                 left.extract_lane(lane),
                 right.extract_lane(lane),
                 daz.clone(),
             );
-            let lane_result = operation(operands);
-            result.value = result.value.replace_lane(lane, lane_result.value);
-            result.exceptions.merge(lane_result.exceptions);
-        }
-        result
+            operation(operands)
+        })
     }
 }
