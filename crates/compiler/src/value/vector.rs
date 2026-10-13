@@ -35,6 +35,17 @@ impl SaturatingLane for I8 {}
 impl SaturatingLane for I16 {}
 
 impl<V: VectorType> Val<V> {
+    /// Packs each lane's most significant bit into an I32, low lane first.
+    /// Bits above the number of lanes are zero.
+    pub fn bitmask<T: VectorLane>(&self) -> Val<I32> {
+        let mask: Val<I32> = self.unary(Unary::Bitmask { lane_type: T::TYPE });
+        if V::TYPE == Type::V64 {
+            mask.and((1_u32 << (64 / T::TYPE.bits())) - 1)
+        } else {
+            mask
+        }
+    }
+
     /// Shifts each lane left by a shared count, modulo the lane width.
     pub fn shl_lanes<T: VectorLane>(&self, count: impl Into<Val<I32>>) -> Self {
         self.shift_lanes::<T>(ShiftOp::Left, count.into())

@@ -105,6 +105,7 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
             Unary::Reinterpret if value.ty == Type::V64 => carrier,
             Unary::Convert | Unary::Reinterpret => inputs[input].unsigned.min(carrier),
             Unary::ZeroTest { .. } => 1,
+            Unary::Bitmask { lane_type } => 128 / lane_type.bits(),
             _ => carrier,
         },
         Expression::Binary {
