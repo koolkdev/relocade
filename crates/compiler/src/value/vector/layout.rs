@@ -1,7 +1,6 @@
 //! Byte selection and lane access composed from Wasm SIMD primitives.
 
 use super::*;
-use crate::expression::TernaryOp as Ternary;
 
 impl<V: VectorType> Val<V> {
     /// Repeats the scalar's logical bits in every lane of its width.

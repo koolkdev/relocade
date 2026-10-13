@@ -4,6 +4,85 @@ use super::*;
 use crate::expression::{BinaryOp as Binary, ShuffleMask, UnaryOp as Unary};
 
 impl Folder<'_> {
+    pub(super) fn fold_shuffle_bytes(
+        &mut self,
+        ty: Type,
+        input_type: Type,
+        left: usize,
+        right: usize,
+        indices: usize,
+    ) -> Option<usize> {
+        let indices = self.vector_literal(indices)?.to_le_bytes();
+        let width = input_type.bits() / 8;
+        let has_left = indices.iter().any(|&index| index < width);
+        let has_right = indices
+            .iter()
+            .any(|&index| (width..width * 2).contains(&index));
+        let has_zero = indices.iter().any(|&index| index >= width * 2);
+        if !has_left && !has_right {
+            return Some(self.values.literal(ty, 0));
+        }
+        let same = self.values.representation(left) == self.values.representation(right);
+        let (left, right, mask) = if !has_left || !has_right || same {
+            let input = if has_left { left } else { right };
+            let other = if has_zero {
+                self.values.literal(Type::V128, 0)
+            } else {
+                input
+            };
+            (
+                input,
+                other,
+                indices.map(|index| {
+                    if index < width * 2 {
+                        index % width
+                    } else {
+                        16 | (index & 15)
+                    }
+                }),
+            )
+        } else {
+            (
+                left,
+                right,
+                indices.map(|index| {
+                    if index < width {
+                        index
+                    } else if index < width * 2 {
+                        16 + index - width
+                    } else {
+                        0
+                    }
+                }),
+            )
+        };
+        let result = self.fold(
+            ty,
+            Expression::Binary {
+                operator: Binary::ShuffleImmediate(ShuffleMask::new(mask)),
+                left,
+                right,
+            },
+        );
+        // An immediate shuffle names two inputs. A third source of zero bytes
+        // needs an explicit mask, which placement can share like any other value.
+        if has_zero && has_left && has_right && !same {
+            let mask =
+                u128::from_le_bytes(indices.map(|index| if index < width * 2 { 255 } else { 0 }));
+            let mask = self.values.literal(Type::V128, mask);
+            Some(self.fold(
+                ty,
+                Expression::Binary {
+                    operator: Binary::Bitwise(crate::bitwise::BitwiseOp::And),
+                    left: result,
+                    right: mask,
+                },
+            ))
+        } else {
+            Some(result)
+        }
+    }
+
     pub(super) fn fold_swizzle(
         &mut self,
         ty: Type,

@@ -130,6 +130,9 @@ impl Folder<'_> {
             } => match operator {
                 Ternary::Select => self.fold_select(third, first, second),
                 Ternary::Bitselect => self.fold_select_bits(ty, third, first, second),
+                Ternary::Shuffle { input_type } => {
+                    self.fold_shuffle_bytes(ty, input_type, first, second, third)
+                }
             },
             Expression::MultiplyWide {
                 signed,
