@@ -131,6 +131,15 @@ impl ExtendedValue {
         }
     }
 
+    /// Observe the sign without expanding a retained binary representation.
+    pub(crate) fn negative(&self) -> Val<I1> {
+        match &self.representation {
+            Representation::Extended(bits) => bits.negative(),
+            Representation::Precision53(value) => value.bits().negative(),
+            Representation::Binary { format, bits } => bits.and(format.sign_bit()).ne(0_u64),
+        }
+    }
+
     /// Sign-only changes retain the numerical class and exact representation,
     /// including a retained native PC53 significand.
     pub(crate) fn change_sign(&self, operation: SignOperation) -> Self {

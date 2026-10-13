@@ -1,5 +1,7 @@
 //! x87 environment controls, deferred exception delivery and memory commitment.
 
+#[path = "x87_control/nop.rs"]
+mod nop;
 #[path = "x87_control/words.rs"]
 mod words;
 
