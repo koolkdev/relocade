@@ -1,5 +1,9 @@
 use super::*;
-use crate::register::{Gpr32, RegisterType};
+use crate::{
+    address::MemoryAddress,
+    memory::Intent,
+    register::{Gpr32, RegisterType},
+};
 
 instruction_families! {
     MOV {
@@ -24,6 +28,10 @@ instruction_families! {
         forms {
             0x8D => word_or_dword(modrm_reg, address);
         }
+    }
+    MOVNTI {
+        execute: store_non_temporal;
+        forms { NP 0x0f 0xc3 => dword(mem, modrm_reg); }
     }
     XLAT {
         execute: translate_byte;
@@ -56,4 +64,15 @@ where
 {
     let value = source.read(execution)?;
     destination.write(execution, value)
+}
+
+fn store_non_temporal(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: MemoryAddress<Val<I32>>,
+    source: TypedLocation<I32>,
+) -> Result<(), BuildError> {
+    let value = source.read(execution)?;
+    execution
+        .memory_operand(destination, 4, Intent::Write, &[])?
+        .write(execution, 0, value)
 }

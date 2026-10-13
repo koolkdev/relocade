@@ -8,26 +8,30 @@ use wasm86_compiler::{MemoryInt, I16, I64, V64};
 
 mod average;
 mod binary;
+mod control;
+mod masks;
 mod minmax;
+mod moves;
 mod multiply;
 mod pack;
 mod shifts;
 mod shuffle;
 mod sum_differences;
-mod transfers;
 mod unpack;
 mod words;
 
 pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
     binary::forms()
         .chain(average::forms())
+        .chain(control::forms())
+        .chain(masks::forms())
         .chain(minmax::forms())
+        .chain(moves::forms())
         .chain(multiply::forms())
         .chain(shifts::forms())
         .chain(sum_differences::forms())
         .chain(shuffle::forms())
         .chain(pack::forms())
-        .chain(transfers::forms())
         .chain(unpack::forms())
         .chain(words::forms())
 }

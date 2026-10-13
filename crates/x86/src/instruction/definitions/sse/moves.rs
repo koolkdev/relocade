@@ -1,8 +1,13 @@
 //! Whole-vector and scalar transfers share typed XMM and checked memory accesses.
 
 use super::*;
-use crate::instruction::{VectorAlignment, XmmLocation, XmmType};
-use crate::register::RegisterCode;
+use crate::{
+    address::MemoryAddress,
+    execution::OperandSpan,
+    instruction::{VectorAlignment, XmmLocation, XmmType},
+    memory::Intent,
+    register::RegisterCode,
+};
 use wasm86_compiler::{VectorLane, I64, V128};
 
 instruction_families! {
@@ -77,6 +82,18 @@ instruction_families! {
             PF2 0x0f 0x11 => qword(xmm_rm, xmm);
         }
     }
+    MOVNTPS {
+        execute: store_non_temporal;
+        forms { NP 0x0f 0x2b => operands(mem, xmm); }
+    }
+    MOVNTPD {
+        execute: store_non_temporal;
+        forms { P66 0x0f 0x2b => operands(mem, xmm); }
+    }
+    MOVNTDQ {
+        execute: store_non_temporal;
+        forms { P66 0x0f 0xe7 => operands(mem, xmm); }
+    }
 }
 
 fn move_dword_to_xmm(
@@ -138,4 +155,15 @@ fn move_scalar<T: VectorLane + XmmType>(
     } else {
         destination.write(execution, VectorAlignment::Unaligned, value)
     }
+}
+
+fn store_non_temporal(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: MemoryAddress<Val<I32>>,
+    source: RegisterCode,
+) -> Result<(), BuildError> {
+    let value = execution.read_xmm(source)?;
+    execution
+        .memory_operand(destination, OperandSpan::aligned(16), Intent::Write, &[])?
+        .write(execution, 0, value)
 }
