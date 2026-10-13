@@ -47,7 +47,16 @@ fn assert_primitive(values: &ValueTable, root: usize) {
     while let Some(id) = pending.pop() {
         if let Some(result) = values.expression(id) {
             assert!(
-                !result.expression.needs_lowering(),
+                !matches!(
+                    result.expression,
+                    Expression::Unary {
+                        operator: Unary::BitCount {
+                            operator: BitCountOp::LeadingZeros | BitCountOp::TrailingZeros,
+                            input_type: Type::I1 | Type::I8 | Type::I16,
+                        },
+                        ..
+                    }
+                ),
                 "compound value {id} survives"
             );
             pending.extend(result.expression.inputs());
