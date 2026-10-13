@@ -34,6 +34,8 @@ mod sum_differences;
 mod unpack;
 #[path = "mmx/words.rs"]
 mod words;
+#[path = "mmx/xmm_transfers.rs"]
+mod xmm_transfers;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},

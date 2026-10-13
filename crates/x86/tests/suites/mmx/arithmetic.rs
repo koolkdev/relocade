@@ -45,3 +45,23 @@ fn arithmetic(engine: Engine, frontend: Frontend) {
 }
 
 test_frontends!(mmx_packed_arithmetic, arithmetic);
+
+fn quadwords(engine: Engine, frontend: Frontend) {
+    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    for (left, right, sum, difference) in [
+        (u64::MAX, 1, 0, u64::MAX - 1),
+        (0, 1, 1, u64::MAX),
+        (
+            0x7fffffff_ffffffff,
+            1,
+            0x80000000_00000000,
+            0x7fffffff_fffffffe,
+        ),
+        (0x80000000_00000000, 0x80000000_00000000, 0, 0),
+    ] {
+        check_binary(&mut checks, 0xd4, left, right, sum);
+        check_binary(&mut checks, 0xfb, left, right, difference);
+    }
+}
+
+test_frontends!(mmx_quadword_arithmetic, quadwords);

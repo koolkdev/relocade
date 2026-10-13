@@ -22,6 +22,14 @@ instruction_families! {
             NP 0x0f 0x7f => operands(mm_rm, mm);
         }
     }
+    MOVQ2DQ {
+        execute: move_to_xmm;
+        forms { PF3 0x0f 0xd6 => operands(xmm, register(mm_rm)); }
+    }
+    MOVDQ2Q {
+        execute: move_from_xmm;
+        forms { PF2 0x0f 0xd6 => operands(mm, register(xmm_rm)); }
+    }
     EMMS {
         execute: empty;
         forms { NP 0x0f 0x77 => no_operands(); }
@@ -75,4 +83,26 @@ fn move_quadword(
 
 fn empty(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
     execution.empty_mmx()
+}
+
+fn move_to_xmm(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: RegisterCode,
+) -> Result<(), BuildError> {
+    execution.execute_mmx(|execution| {
+        let bits = execution.read_mmx(source)?;
+        execution.write_xmm(destination, Val::<V64>::from_bits(bits).zero_extend())
+    })
+}
+
+fn move_from_xmm(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: RegisterCode,
+) -> Result<(), BuildError> {
+    execution.execute_mmx(|execution| {
+        let bits = execution.read_xmm(source)?.low_half().to_bits();
+        execution.write_mmx(destination, bits)
+    })
 }

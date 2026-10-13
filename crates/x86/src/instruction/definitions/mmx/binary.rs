@@ -73,6 +73,10 @@ instruction_families! {
         execute: binary::<_>(|left, right| left.add_lanes::<I32>(right));
         forms { NP 0x0f 0xfe => qword(mm, mm_rm); }
     }
+    PADDQ {
+        execute: binary::<_>(|left, right| left.add_lanes::<I64>(right));
+        forms { NP 0x0f 0xd4 => qword(mm, mm_rm); }
+    }
     PSUBB {
         execute: binary::<_>(|left, right| left.sub_lanes::<I8>(right));
         forms { NP 0x0f 0xf8 => qword(mm, mm_rm); }
@@ -84,6 +88,10 @@ instruction_families! {
     PSUBD {
         execute: binary::<_>(|left, right| left.sub_lanes::<I32>(right));
         forms { NP 0x0f 0xfa => qword(mm, mm_rm); }
+    }
+    PSUBQ {
+        execute: binary::<_>(|left, right| left.sub_lanes::<I64>(right));
+        forms { NP 0x0f 0xfb => qword(mm, mm_rm); }
     }
 
     PAND {
