@@ -4,8 +4,9 @@ use wasm86_compiler::{BuildError, Val, I1, I16, I32, I64};
 
 use crate::{
     address::MemoryAddress,
+    floating::BinaryFormat,
     memory::Intent,
-    x87::{BinaryFormat, BinaryOperand, BinaryOperands, ExtendedValue},
+    x87::{BinaryOperand, BinaryOperands, ExtendedValue},
 };
 
 use super::super::{memory::MemoryOperand, ExecutionBuilder};

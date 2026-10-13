@@ -3,10 +3,11 @@
 use super::*;
 use crate::{
     address::MemoryAddress,
+    floating::BinaryFormat,
     instruction::X87StackIndex,
     memory::Intent,
     state::x87::{ConditionCode, Exception, StackValue},
-    x87::{BinaryFormat, BinaryOperand, Constant, ExtendedBits, ExtendedValue},
+    x87::{BinaryOperand, Constant, ExtendedBits, ExtendedValue},
 };
 use wasm86_compiler::{MemoryInt, I64};
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::x87::BinaryFormat;
+use crate::floating::BinaryFormat;
 use crate::{test_step as step, CompiledModule};
 use wasm86_compiler::{Program, Signature, Type, I32, I64};
 

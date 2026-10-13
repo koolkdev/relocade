@@ -2,7 +2,7 @@
 
 use wasm86_compiler::{Val, F64, I1, I64};
 
-use super::{BinaryClassification, BinaryFormat};
+use crate::floating::{BinaryClassification, BinaryFormat};
 use crate::x87::{ExtendedBits, ExtendedValue};
 
 pub(crate) struct BinaryOperand {

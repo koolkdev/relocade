@@ -4,9 +4,10 @@ use super::*;
 use crate::{
     address::MemoryAddress,
     execution::{X87MemoryFormat, X87Operand, X87Operands},
+    floating::BinaryFormat,
     instruction::X87StackIndex,
     state::x87::{ConditionCode, Exception, StackValue, X87Specialization},
-    x87::{ArithmeticResult, BinaryFormat, BinaryOperation},
+    x87::{ArithmeticResult, BinaryOperation},
 };
 
 instruction_families! {

@@ -1,75 +1,19 @@
 //! Exact binary32/64 expansion and directly rounded narrowing of extended values.
 
-mod classification;
 mod operand;
 
-pub(in crate::x87) use classification::BinaryClassification;
 pub(crate) use operand::BinaryOperand;
 
-use wasm86_compiler::{Val, F64, I16, I32, I64};
+use wasm86_compiler::{Val, I16, I32, I64};
+
+use crate::floating::BinaryFormat;
 
 use super::{
     rounding::{RoundingInput, RoundingMode},
     ConversionResult, ExtendedBits, ExtendedValue,
 };
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub(crate) enum BinaryFormat {
-    Binary32,
-    Binary64,
-}
-
 impl BinaryFormat {
-    fn fraction_bits(self) -> u32 {
-        match self {
-            Self::Binary32 => 23,
-            Self::Binary64 => 52,
-        }
-    }
-
-    fn exponent_bits(self) -> u32 {
-        match self {
-            Self::Binary32 => 8,
-            Self::Binary64 => 11,
-        }
-    }
-
-    fn bias(self) -> u32 {
-        (1 << (self.exponent_bits() - 1)) - 1
-    }
-
-    fn infinity(self) -> u64 {
-        ((1_u64 << self.exponent_bits()) - 1) << self.fraction_bits()
-    }
-
-    fn quiet_bit(self) -> u64 {
-        1 << (self.fraction_bits() - 1)
-    }
-
-    pub(super) fn sign_bit(self) -> u64 {
-        1 << (self.fraction_bits() + self.exponent_bits())
-    }
-
-    pub(super) fn indefinite_bits(self) -> u64 {
-        self.sign_bit() | self.infinity() | self.quiet_bit()
-    }
-
-    pub(crate) fn bytes(self) -> u32 {
-        match self {
-            Self::Binary32 => 4,
-            Self::Binary64 => 8,
-        }
-    }
-
-    /// An exact numerical value for ordering. NaN payloads and signaling state
-    /// remain in the original bits; native promotion need not preserve them.
-    pub(super) fn binary64_value(self, bits: &Val<I64>) -> Val<F64> {
-        match self {
-            Self::Binary32 => Val::<F64>::from_binary32_bits(bits.truncate::<I32>()),
-            Self::Binary64 => Val::<F64>::from_bits(bits),
-        }
-    }
-
     /// Expands the encoding exactly, preserving an SNaN's quiet bit and payload.
     pub(super) fn expand(self, bits: &Val<I64>) -> ExtendedBits {
         let fraction_bits = self.fraction_bits();
