@@ -39,7 +39,12 @@ fn probe_module(constant_bytes: Option<u32>, intent: Intent) -> TestModule {
 }
 
 fn check_probes(engine: Engine) {
-    for intent in [Intent::Read, Intent::Write, Intent::Fetch] {
+    for intent in [
+        Intent::Read,
+        Intent::Write,
+        Intent::Fetch,
+        Intent::ReadOrExecute,
+    ] {
         let mut modules = std::collections::BTreeMap::new();
         for (start, bytes, entries, read_denied, write_denied, scattered) in [
             (0x4fffu32, 1, [0x8003u32, 0, 0], false, false, false),
@@ -77,7 +82,7 @@ fn check_probes(engine: Engine) {
             ),
         ] {
             let denied = match intent {
-                Intent::Read | Intent::Fetch => read_denied,
+                Intent::Read | Intent::ReadOrExecute | Intent::Fetch => read_denied,
                 Intent::Write => write_denied,
             };
             let mut input = Input::new(&CpuState::filled(0xa5).to_bytes());

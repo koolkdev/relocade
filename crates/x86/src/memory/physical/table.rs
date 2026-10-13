@@ -72,7 +72,7 @@ impl PhysicalTable {
         assert!((1..=PhysicalMemoryMap::PAGE_BYTES).contains(&bytes));
         let entry = self.lookup(body, address)?;
         let allowed = match intent {
-            Intent::Read | Intent::Fetch => entry.readable(),
+            Intent::Read | Intent::ReadOrExecute | Intent::Fetch => entry.readable(),
             Intent::Write => entry.kind.eq(RAM),
         };
         Ok(DirectRange {

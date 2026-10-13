@@ -109,7 +109,7 @@ impl VirtualMemory {
                                 .extend::<I32>()
                                 .or(intent.base_error_code()),
                             // Presence is the only read/fetch permission.
-                            Intent::Read | Intent::Fetch => {
+                            Intent::Read | Intent::ReadOrExecute | Intent::Fetch => {
                                 fault_body.value(intent.base_error_code())?
                             }
                         };

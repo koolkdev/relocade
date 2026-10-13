@@ -140,6 +140,12 @@ macro_rules! operand_value {
     ([$width:ty], $operand:ident, signed_imm8) => { Input::<$width>::new($operand) };
     ($width:tt, $operand:ident, rel8) => { Input::<I32>::new($operand) };
     ($width:tt, $operand:ident, rel) => { Input::<I32>::new($operand) };
+    ([], $operand:ident, address) => {{
+        let crate::instruction::Operand::Address(address) = $operand else {
+            unreachable!("the form binds an effective address")
+        };
+        address
+    }};
     ([$width:ty], $operand:ident, address) => { Input::<$width>::new($operand) };
     ($width:tt, $operand:ident, rm8) => { operand_value!(@location I8, $operand) };
     ($width:tt, $operand:ident, mem16) => { operand_value!(@location I16, $operand) };

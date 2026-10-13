@@ -172,6 +172,16 @@ Alignment is determined after segment translation. All operand bytes pass write
 checks before the update, including a failed comparison. Ordinary loads, stores
 and unlocked updates retain ordinary Wasm accesses; no extra fences are inserted.
 
+Unaligned protected-mode locked operands use checked reads and writes under the private-memory
+contract, which prevents guest interleaving. The current imports do not support
+concurrent access to shared guest RAM. Such access will require coordination for
+unaligned locked operands as well as the surrounding ordinary accesses.
+Rejected LOCK combinations and register forms of memory-only instructions remain
+unsupported encodings, reported through the unsupported-instruction path rather
+than #UD.
+
+## Memory ordering and cache control
+
 Explicit LFENCE, SFENCE and MFENCE instructions use Wasm's full atomic fence.
 This supplies stronger ordering than the individual load/store fences require;
 it does not change the private-memory contract or model speculative execution.
@@ -189,13 +199,11 @@ data or rewrites untouched bytes. Real16 MMIO therefore sees individual selected
 byte writes in increasing address order. MASKMOVQ enters MMX state even when the
 mask selects no bytes, provided the destination checks succeed.
 
-Unaligned protected-mode locked operands use checked reads and writes under the private-memory
-contract, which prevents guest interleaving. The current imports do not support
-concurrent access to shared guest RAM. Such access will require coordination for
-unaligned locked operands as well as the surrounding ordinary accesses.
-Rejected LOCK combinations and register forms of memory-only instructions remain
-unsupported encodings, reported through the unsupported-instruction path rather
-than #UD.
+PREFETCHNTA/T0/T1/T2 decode their complete memory-address encodings but otherwise
+act as ignored hints, without data-access faults or MMIO callbacks. CLFLUSH checks
+the addressed byte with read permissions, including execute-only code segments,
+and applies a full memory fence. It performs no data transfer or MMIO callback;
+guest backing has no separate cache or buffered writes to flush.
 
 ## CPU backing image
 

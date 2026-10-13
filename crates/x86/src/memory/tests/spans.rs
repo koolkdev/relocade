@@ -167,7 +167,7 @@ fn wide_field_modules() -> [TestModule; 2] {
                             memory.write::<I16>(&mut body, &access, 8, &0x5566u32.into())?;
                             body.return_(1)
                         }
-                        Intent::Fetch => unreachable!(),
+                        Intent::Fetch | Intent::ReadOrExecute => unreachable!(),
                     }
                 },
             )

@@ -94,6 +94,17 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         self.body.atomic_fence();
     }
 
+    /// Validates CLFLUSH's byte address without transferring device or RAM data.
+    /// Guest backing is coherent; there is no separate guest cache to flush.
+    pub(crate) fn flush_cache_line(
+        &mut self,
+        address: MemoryAddress<Val<I32>>,
+    ) -> Result<(), BuildError> {
+        self.memory_operand(address, 1, Intent::ReadOrExecute, &[])?;
+        self.memory_fence();
+        Ok(())
+    }
+
     /// Checks the complete destination before writing bytes selected by mask sign
     /// bits. Masked-off bytes are untouched, and routing stays live for each write.
     pub(crate) fn write_masked_memory<V: VectorType + MemoryType>(

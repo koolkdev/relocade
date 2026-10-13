@@ -59,7 +59,7 @@ fn default_segment(choice: Val<I32>) -> SegmentSelection {
 
 #[test]
 fn flat_data_segments_and_address_defaults_generate_only_the_effective_offset() {
-    for intent in [Intent::Read, Intent::Write] {
+    for intent in [Intent::Read, Intent::Write, Intent::ReadOrExecute] {
         let expected = translation(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             intent,
@@ -83,7 +83,7 @@ fn flat_data_segments_and_address_defaults_generate_only_the_effective_offset() 
 
 #[test]
 fn flat_code_reads_and_fetches_generate_only_the_effective_offset() {
-    for intent in [Intent::Read, Intent::Fetch] {
+    for intent in [Intent::Read, Intent::Fetch, Intent::ReadOrExecute] {
         assert_eq!(
             translation(
                 ExecutionProfile::Protected(SegmentProfile::Flat32),
