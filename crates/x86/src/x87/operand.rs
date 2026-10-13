@@ -43,7 +43,7 @@ impl Operand {
         let class = source.classification();
         Self {
             bits: source.expanded_bits(),
-            binary64_value: source.binary64_value(),
+            binary64_value: Some(source.binary64_value()),
             precision53_significand: Some(
                 Precision53::from_bits(&source.expanded_bits())
                     .significand()

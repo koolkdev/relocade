@@ -25,8 +25,8 @@ impl BinaryFormat {
 }
 
 impl BinaryOperand {
-    pub(in crate::x87) fn binary64_value(&self) -> Option<Val<F64>> {
-        (self.format == BinaryFormat::Binary64).then(|| Val::<F64>::from_bits(&self.bits))
+    pub(in crate::x87) fn binary64_value(&self) -> Val<F64> {
+        self.format.binary64_value(&self.bits)
     }
 
     /// FLD quiets an SNaN after retaining its exception evidence. Keeping the

@@ -4,8 +4,8 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::compile_block_from_bytes;
 
-fn loaded(mut cpu: CpuState, address: u32, value: (u64, u16)) -> CpuState {
-    cpu = complete_x87(cpu, 6, 0x0505);
+fn loaded(mut cpu: CpuState, address: u32, value: (u64, u16), opcode: u16) -> CpuState {
+    cpu = complete_x87(cpu, 6, opcode);
     cpu.x87.status.top = cpu.x87.status.top.wrapping_sub(1) & 7;
     cpu.x87.status.c1 = 0;
     cpu.x87.data_offset = address;
@@ -16,35 +16,53 @@ fn loaded(mut cpu: CpuState, address: u32, value: (u64, u16)) -> CpuState {
 }
 
 fn native_values(engine: Engine) {
-    let code = [
-        0xdd, 0x05, 8, 0x40, 0, 0, 0xdd, 0x05, 0, 0x40, 0, 0, 0xdf, 0xe9,
-    ];
-    let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 3).unwrap());
-    for (bits, value, flags) in [
-        (0x3ff0_0000_0000_0000_u64, ONE, 0x40),
-        (0x3ff0_0000_0000_0001, (LEADING + 0x800, 0x3fff), 0),
-        (0xbff0_0000_0000_0000, (LEADING, 0xbfff), 1),
-        (0x0010_0000_0000_0000, (LEADING, 0x3c01), 1),
-        (0x7ff0_0000_0000_0000, (LEADING, 0x7fff), 0),
-        (0x7ff8_0000_0000_0001, (0xc000_0000_0000_0800, 0x7fff), 0x45),
+    for (load, values) in [
+        (
+            0xdd_u8,
+            [
+                (0x3ff0_0000_0000_0000_u64, ONE, 0x40),
+                (0x3ff0_0000_0000_0001, (LEADING + 0x800, 0x3fff), 0),
+                (0xbff0_0000_0000_0000, (LEADING, 0xbfff), 1),
+                (0x0010_0000_0000_0000, (LEADING, 0x3c01), 1),
+                (0x7ff0_0000_0000_0000, (LEADING, 0x7fff), 0),
+                (0x7ff8_0000_0000_0001, (0xc000_0000_0000_0800, 0x7fff), 0x45),
+            ],
+        ),
+        (
+            0xd9,
+            [
+                (0x3f80_0000, ONE, 0x40),
+                (0x3f80_0001, (LEADING + (1 << 40), 0x3fff), 0),
+                (0xbf80_0000, (LEADING, 0xbfff), 1),
+                (0x0080_0000, (LEADING, 0x3f81), 1),
+                (0x7f80_0000, (LEADING, 0x7fff), 0),
+                (0x7fc0_0001, (0xc000_0100_0000_0000, 0x7fff), 0x45),
+            ],
+        ),
     ] {
-        let mut image = initial_image(&code);
-        image.cpu.x87.tag_word = 0xffff;
-        set_control(&mut image.cpu.x87.control, 0x0c40);
-        image.map(4, 0x8000, false);
-        image.data(0x8000, &bits.to_le_bytes());
-        image.data(0x8008, &1.0_f64.to_bits().to_le_bytes());
-        let right = loaded(image.cpu, 0x4008, ONE);
-        let left = loaded(right, 0x4000, value);
-        let result = completed(left, 0x07e9, flags, 0, 1);
-        assert_eq!(
-            engine.observe(&block, &image.input(), 1),
-            expected(&image, &[dispatch(result)])
-        );
-        assert_eq!(
-            engine.observe(TestModule::interpreter(), &image.input(), 3),
-            expected(&image, &[dispatch(right), dispatch(left), dispatch(result)])
-        );
+        let code = [
+            0xdd, 0x05, 8, 0x40, 0, 0, load, 0x05, 0, 0x40, 0, 0, 0xdf, 0xe9,
+        ];
+        let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 3).unwrap());
+        for (bits, value, flags) in values {
+            let mut image = initial_image(&code);
+            image.cpu.x87.tag_word = 0xffff;
+            set_control(&mut image.cpu.x87.control, 0x0c40);
+            image.map(4, 0x8000, false);
+            image.data(0x8000, &bits.to_le_bytes());
+            image.data(0x8008, &1.0_f64.to_bits().to_le_bytes());
+            let right = loaded(image.cpu, 0x4008, ONE, 0x0505);
+            let left = loaded(right, 0x4000, value, (u16::from(load & 7) << 8) | 0x05);
+            let result = completed(left, 0x07e9, flags, 0, 1);
+            assert_eq!(
+                engine.observe(&block, &image.input(), 1),
+                expected(&image, &[dispatch(result)])
+            );
+            assert_eq!(
+                engine.observe(TestModule::interpreter(), &image.input(), 3),
+                expected(&image, &[dispatch(right), dispatch(left), dispatch(result)])
+            );
+        }
     }
     // Full extended range and precision remain compiled without narrowing.
     for (left, right, flags) in [
