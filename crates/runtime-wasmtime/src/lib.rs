@@ -66,9 +66,10 @@ impl Backend for WasmtimeBackend {
     async fn instantiate<D: Devices + 'static>(
         &self,
         module: &PreparedModule,
+        dispatcher: &PreparedModule,
         imports: Imports<D>,
     ) -> Result<WasmtimeInstance<D>> {
-        WasmtimeInstance::new(&self.engine, module, imports)
+        WasmtimeInstance::new(&self.engine, module, dispatcher, imports)
             .map_err(|error| Error::backend("instantiate Wasm", error))
     }
 }

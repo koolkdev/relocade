@@ -7,6 +7,8 @@ use wasm86_x86::{PhysicalMapping, PhysicalMemoryMap};
 
 #[path = "runtime/devices.rs"]
 mod devices;
+#[path = "runtime/dispatch.rs"]
+mod dispatch;
 #[path = "runtime/execution.rs"]
 mod execution;
 #[path = "runtime/memory.rs"]

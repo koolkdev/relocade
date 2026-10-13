@@ -66,9 +66,10 @@ impl Backend for WebBackend {
     async fn instantiate<D: Devices + 'static>(
         &self,
         module: &PreparedModule,
+        dispatcher: &PreparedModule,
         imports: Imports<D>,
     ) -> Result<WebInstance<D>> {
-        WebInstance::new(module, imports).await
+        WebInstance::new(module, dispatcher, imports).await
     }
 }
 

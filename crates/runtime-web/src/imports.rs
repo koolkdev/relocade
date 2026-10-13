@@ -7,7 +7,6 @@ use wasm_bindgen::closure::Closure;
 /// Retains the Rust closures for as long as the Wasm instance can call them.
 pub(crate) struct BoundImports {
     pub object: Object,
-    _dispatch: Closure<dyn FnMut(u32) -> i64>,
     _read_port: Closure<dyn FnMut(u32, u32) -> u32>,
     _write_port: Closure<dyn FnMut(u32, u32, u32)>,
     _read_mmio: Closure<dyn FnMut(u32, u32) -> u64>,
@@ -26,18 +25,29 @@ impl<D: Devices> CallbackAccess<D> {
 }
 
 impl BoundImports {
+    pub fn bind_dispatcher(&self, exports: &Object) {
+        use wasm_bindgen::JsCast;
+        let namespace = js_sys::Reflect::get(&self.object, &"wasm86".into())
+            .unwrap()
+            .unchecked_into::<Object>();
+        for name in ["dispatch", "interpret"] {
+            let function = js_sys::Reflect::get(exports, &name.into()).unwrap();
+            set_property(&namespace, name, &function);
+        }
+    }
+
     pub fn new<D: Devices + 'static>(
         state: &Rc<RefCell<Imports<D>>>,
         cpu: &Memory,
         budget: &Memory,
+        entries: &Memory,
         memory: &MemoryAccess,
+        functions: &js_sys::WebAssembly::Table,
     ) -> Self {
         let callback = || CallbackAccess {
             state: state.clone(),
             memory: memory.clone(),
         };
-        let dispatch_state = state.clone();
-        let dispatch = Closure::new(move |_: u32| dispatch_state.borrow_mut().dispatch());
         let mut read_port_access = callback();
         let read_port = Closure::new(move |port: u32, bytes: u32| {
             read_port_access
@@ -62,9 +72,10 @@ impl BoundImports {
         let namespace = Object::new();
         set_property(&namespace, "cpuState", cpu);
         set_property(&namespace, "executionBudget", budget);
+        set_property(&namespace, "executionEntries", entries);
+        set_property(&namespace, "executionFunctions", functions);
         set_property(&namespace, "guest", &memory.guest);
         set_property(&namespace, "physicalMap", &memory.physical);
-        set_property(&namespace, "dispatch", dispatch.as_ref());
         set_property(&namespace, "readPort", read_port.as_ref());
         set_property(&namespace, "writePort", write_port.as_ref());
         set_property(&namespace, "readMmio", read_mmio.as_ref());
@@ -73,7 +84,6 @@ impl BoundImports {
         set_property(&object, "wasm86", &namespace);
         Self {
             object,
-            _dispatch: dispatch,
             _read_port: read_port,
             _write_port: write_port,
             _read_mmio: read_mmio,

@@ -41,6 +41,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         let eip = self.eip.clone();
         let completed = self.completed;
         let work = self.work.clone();
+        let instructions = self.instructions.clone();
         let resume_instruction = self.resume_instruction;
         let repetition_accounts_work = self.repetition_accounts_work;
         move |body| ExecutionBuilder {
@@ -56,6 +57,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             eip: eip.clone(),
             completed,
             work: work.clone(),
+            instructions: instructions.clone(),
             resume_instruction,
             repetition_accounts_work,
             // A child can contain partial effects of the current instruction,

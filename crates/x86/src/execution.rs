@@ -44,6 +44,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     eip: Val<I32>,
     completed: u32,
     work: Option<Val<I32>>,
+    instructions: Option<Val<I32>>,
     resume_instruction: Option<Func>,
     repetition_accounts_work: bool,
     can_specialize: bool,
@@ -61,6 +62,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     ) -> Result<Self, BuildError> {
         let eip = body.value(start)?;
         let work = runtime.remaining_work(&mut body)?;
+        let instructions = runtime.remaining_instructions(&mut body, cpu)?;
         Ok(Self {
             body,
             state: State::new(cpu),
@@ -74,6 +76,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             eip,
             completed: 0,
             work,
+            instructions,
             resume_instruction: None,
             repetition_accounts_work: false,
             can_specialize: false,
@@ -123,6 +126,16 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
                 self.state.publish(&mut body, &self.eip, self.completed)?;
                 body.return_(crate::SLICE_EXHAUSTED)
             })?;
+        }
+        if let Some(instructions) = &self.instructions {
+            self.body.if_(
+                Val::<I32>::from(self.completed).unsigned().ge(instructions),
+                |mut body| {
+                    self.runtime.publish_work(&mut body, self.work.as_ref())?;
+                    self.state.publish(&mut body, &self.eip, self.completed)?;
+                    body.return_(crate::INSTRUCTION_LIMIT)
+                },
+            )?;
         }
         Ok(())
     }

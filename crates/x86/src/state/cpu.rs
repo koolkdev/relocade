@@ -36,6 +36,13 @@ impl Cpu {
         self.memory
     }
 
+    pub(crate) fn read_instruction_count(
+        &self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<Val<I32>, BuildError> {
+        cpu_load!(body, self.memory, instruction_count)
+    }
+
     pub(crate) fn read_eip(&self, body: &mut BlockBuilder<'_>) -> Result<Val<I32>, BuildError> {
         cpu_load!(body, self.memory, eip)
     }

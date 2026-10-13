@@ -1,10 +1,12 @@
 use crate::{memory, PreparedModule};
 use wasm86_runtime::{
-    backend::{EntryResult, GuestMemory, Imports, Instance},
+    backend::{EntryRequest, EntryResult, GuestMemory, Imports, Instance},
     Devices, Error, Result,
 };
-use wasm86_x86::CpuState;
-use wasmtime::{Caller, Engine, Linker, Memory, MemoryType, Store, TypedFunc};
+use wasm86_x86::{CpuState, EntryTable};
+use wasmtime::{Engine, Linker, Memory, Store, Table, TypedFunc};
+
+mod modules;
 
 /// Per-machine Wasmtime store and execution handles.
 pub struct WasmtimeInstance<D> {
@@ -13,87 +15,38 @@ pub struct WasmtimeInstance<D> {
     guest: Memory,
     physical: Memory,
     budget: Memory,
+    entries: Memory,
+    functions: Table,
+    linker: Linker<Imports<D>>,
     entry: TypedFunc<(), i64>,
 }
 
-impl<D: Devices + 'static> WasmtimeInstance<D> {
-    pub(crate) fn new(
-        engine: &Engine,
-        module: &PreparedModule,
-        imports: Imports<D>,
-    ) -> wasmtime::Result<Self> {
-        let mut store = Store::new(engine, imports);
-        let cpu = Memory::new(&mut store, MemoryType::new(1, Some(1)))?;
-        let guest = Memory::new(&mut store, MemoryType::new(1, None))?;
-        let physical = Memory::new(&mut store, MemoryType::new(1, Some(1)))?;
-        let budget = Memory::new(&mut store, MemoryType::new(1, Some(1)))?;
-        let mut linker = Linker::new(engine);
-        linker.define(&store, "wasm86", "cpuState", cpu)?;
-        linker.define(&store, "wasm86", "guest", guest)?;
-        linker.define(&store, "wasm86", "physicalMap", physical)?;
-        linker.define(&store, "wasm86", "executionBudget", budget)?;
-        linker.func_wrap(
-            "wasm86",
-            "dispatch",
-            |mut caller: Caller<'_, Imports<D>>, _: u32| caller.data_mut().dispatch(),
-        )?;
-        linker.func_wrap(
-            "wasm86",
-            "readPort",
-            move |mut caller: Caller<'_, Imports<D>>, port: u32, bytes: u32| {
-                memory::access(&mut caller, guest, physical, |imports, memory| {
-                    imports.read_port(memory, port as u16, bytes as u8)
-                })
-            },
-        )?;
-        linker.func_wrap(
-            "wasm86",
-            "writePort",
-            move |mut caller: Caller<'_, Imports<D>>, port: u32, bytes: u32, value: u32| {
-                memory::access(&mut caller, guest, physical, |imports, memory| {
-                    imports.write_port(memory, port as u16, bytes as u8, value)
-                })
-            },
-        )?;
-        linker.func_wrap(
-            "wasm86",
-            "readMmio",
-            move |mut caller: Caller<'_, Imports<D>>, address: u32, bytes: u32| {
-                memory::access(&mut caller, guest, physical, |imports, memory| {
-                    imports.read_mmio(memory, address, bytes as u8)
-                })
-            },
-        )?;
-        linker.func_wrap(
-            "wasm86",
-            "writeMmio",
-            move |mut caller: Caller<'_, Imports<D>>, address: u32, bytes: u32, value: u64| {
-                memory::access(&mut caller, guest, physical, |imports, memory| {
-                    imports.write_mmio(memory, address, bytes as u8, value)
-                })
-            },
-        )?;
-        let instance = linker.instantiate(&mut store, &module.module)?;
-        let entry = instance.get_typed_func(&mut store, &module.entry)?;
-        Ok(Self {
-            store,
-            cpu,
-            guest,
-            physical,
-            budget,
-            entry,
-        })
-    }
-}
+impl<D: Devices + 'static> Instance<D> for WasmtimeInstance<D> {
+    type Module = PreparedModule;
 
-impl<D: Devices> Instance<D> for WasmtimeInstance<D> {
-    fn enter(&mut self, work: u32) -> Result<EntryResult> {
+    async fn install_module(
+        &mut self,
+        module: &PreparedModule,
+        first_slot: u32,
+        exports: &[String],
+    ) -> Result<()> {
+        self.install(module, first_slot, exports)
+    }
+
+    fn enter(&mut self, request: EntryRequest) -> Result<EntryResult> {
         let counter = std::mem::offset_of!(CpuState, instruction_count);
         let read_u32 = |memory: Memory, store: &Store<Imports<D>>, offset: usize| {
             u32::from_le_bytes(memory.data(store)[offset..offset + 4].try_into().unwrap())
         };
         let before = read_u32(self.cpu, &self.store, counter);
-        self.budget.data_mut(&mut self.store)[..4].copy_from_slice(&work.to_le_bytes());
+        self.budget.data_mut(&mut self.store)[..12].copy_from_slice(&request.to_bytes(before));
+        self.entries
+            .write(
+                &mut self.store,
+                EntryTable::OBSERVE_OFFSET as usize,
+                &u32::from(request.observe).to_le_bytes(),
+            )
+            .expect("dispatch state has valid backing");
         let word = self
             .entry
             .call(&mut self.store, ())
@@ -103,6 +56,20 @@ impl<D: Devices> Instance<D> for WasmtimeInstance<D> {
             remaining_work: read_u32(self.budget, &self.store, 0),
             completed: read_u32(self.cpu, &self.store, counter).wrapping_sub(before),
         })
+    }
+    fn set_entries(&mut self, entries: &EntryTable) -> Result<()> {
+        let bytes = entries.to_bytes();
+        let pages = (u64::from(EntryTable::DATA_OFFSET) + bytes.len() as u64).div_ceil(65536);
+        let current = self.entries.size(&self.store);
+        if pages > current {
+            self.entries
+                .grow(&mut self.store, pages - current)
+                .map_err(|error| Error::backend("grow execution entries", error))?;
+        }
+        self.entries
+            .write(&mut self.store, EntryTable::DATA_OFFSET as usize, &bytes)
+            .expect("entry backing was grown before publication");
+        Ok(())
     }
     fn cpu(&self) -> CpuState {
         CpuState::from_bytes(

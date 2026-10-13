@@ -30,6 +30,7 @@ pub(crate) struct Input {
     pub(crate) segment_queries: Vec<SegmentQuery>,
     pub(crate) patches_before_calls: Vec<CallPatches>,
     pub(crate) budgets: Vec<u32>,
+    pub(crate) instruction_limit: u32,
     pub(crate) observe_budget: bool,
     #[serde(with = "wasm86_test_support::decimal_i64")]
     pub(crate) dispatch_return: i64,
@@ -55,6 +56,7 @@ impl Input {
             segment_queries: Vec::new(),
             patches_before_calls: Vec::new(),
             budgets: Vec::new(),
+            instruction_limit: 0,
             observe_budget: false,
             dispatch_return: i64::MIN,
         }

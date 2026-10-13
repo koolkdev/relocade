@@ -1,6 +1,6 @@
 //! Persistent, single-CPU real-mode execution with the generated Wasm interpreter.
 //!
-//! [`Runtime`] prepares one interpreter for reuse across independent [`Machine`]s.
+//! [`Runtime`] prepares an interpreter and dispatcher for independent [`Machine`]s.
 //! A [`backend::Backend`] supplies host-engine compilation, memories and callbacks;
 //! the runtime owns physical routing, device access and execution policy.
 //! [`Machine::step`] returns after one x86 instruction, including all REP elements,
@@ -8,7 +8,8 @@
 //! limit, a host stop request or a guest exit. It does not preempt an instruction
 //! or device callback. [`Machine::run_slice`] instead bounds instruction/REP-element
 //! work, publishing partial REP progress. Neither API preempts a synchronous host
-//! callback. Guest exceptions are reported, not delivered through the IVT.
+//! callback. Installed callable modules share this execution loop.
+//! Guest exceptions are reported, not delivered through the IVT.
 //!
 //! Preparation is asynchronous to accommodate browser module compilation. Generating
 //! interpreter bytes, guest entry and device callbacks remain synchronous. A browser
@@ -41,6 +42,7 @@ mod error;
 mod imports;
 mod machine;
 mod memory;
+mod module;
 mod run;
 mod slice;
 
@@ -48,28 +50,45 @@ pub use devices::Devices;
 pub use error::{Error, Result};
 pub use machine::{Machine, StepOutcome};
 pub use memory::{DeviceMemory, MemoryError};
+pub use module::ExecutableModule;
 pub use run::{RunOutcome, RunStop};
 pub use slice::{SliceOutcome, SliceStop};
 
 use backend::Backend;
+use std::sync::Arc;
 use wasm86_x86::{Compiler, ExecutionProfile, PhysicalMemoryMap};
 
-/// Host engine and prepared interpreter shared by independent machines.
+/// Host engine and prepared execution modules shared by independent machines.
 pub struct Runtime<B: Backend> {
+    code: Arc<RuntimeCode<B>>,
+}
+
+struct RuntimeCode<B: Backend> {
     backend: B,
     interpreter: B::Module,
+    dispatcher: B::Module,
 }
 
 impl<B: Backend> Runtime<B> {
-    /// Generates and prepares the Real16 interpreter once on the supplied engine.
+    /// Prepares the Real16 interpreter and callable dispatcher on the supplied engine.
     pub async fn new(backend: B) -> Result<Self> {
         let module = Compiler::new(ExecutionProfile::Real16)
             .with_execution_budget()
             .compile_interpreter_step()?;
         let interpreter = backend.compile(&module).await?;
+        let dispatcher = backend
+            .compile(
+                &Compiler::new(ExecutionProfile::Real16)
+                    .with_execution_budget()
+                    .compile_dispatcher()?,
+            )
+            .await?;
         Ok(Self {
-            backend,
-            interpreter,
+            code: Arc::new(RuntimeCode {
+                backend,
+                interpreter,
+                dispatcher,
+            }),
         })
     }
 
@@ -84,14 +103,10 @@ impl<B: Backend> Runtime<B> {
     }
 }
 
-impl<B: Backend + Clone> Clone for Runtime<B>
-where
-    B::Module: Clone,
-{
+impl<B: Backend> Clone for Runtime<B> {
     fn clone(&self) -> Self {
         Self {
-            backend: self.backend.clone(),
-            interpreter: self.interpreter.clone(),
+            code: self.code.clone(),
         }
     }
 }

@@ -9,6 +9,8 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   const machine = new WebAssembly.Memory({ initial: 64 });
   const executionBudget = new WebAssembly.Memory({ initial: 1 });
   new Uint8Array(cpuState.buffer).set(input.cpu);
+  new DataView(executionBudget.buffer).setUint32(4, input.instruction_limit, true);
+  new DataView(executionBudget.buffer).setUint32(8, new DataView(cpuState.buffer).getUint32(144, true), true);
   for (const [memory, patches] of [[guest, input.guest], [machine, input.machine]]) {
     for (const [offset, bytes] of patches) new Uint8Array(memory.buffer).set(bytes, offset);
   }

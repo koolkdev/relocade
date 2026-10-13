@@ -22,6 +22,8 @@ pub enum ExecutionExit {
     /// The work budget is exhausted; published state can resume in another slice.
     /// This is a scheduling boundary, not an architectural exception.
     BudgetExhausted,
+    /// The independent retirement allowance has been consumed.
+    InstructionLimit,
     Exception(Exception),
     /// An encoding or execution path outside the implemented instruction subset.
     UnsupportedInstruction {
@@ -42,6 +44,9 @@ impl ExecutionExit {
         let exception = match tag {
             crate::SLICE_EXHAUSTED if payload == 0 && address == 0 => {
                 return Some(Self::BudgetExhausted);
+            }
+            crate::INSTRUCTION_LIMIT if payload == 0 && address == 0 => {
+                return Some(Self::InstructionLimit)
             }
             DIVIDE_ERROR if payload == 0 && address == 0 => Exception::DivideError,
             BOUND_RANGE_EXCEEDED if payload == 0 && address == 0 => Exception::BoundRangeExceeded,

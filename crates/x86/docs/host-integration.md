@@ -40,13 +40,16 @@ limit or a host responsiveness guarantee.
 
 `Compiler::new(profile).with_execution_budget()` enables a common budget for its
 snapshot and interpreter entries. They import `wasm86.executionBudget`, an unshared
-memory of at least one Wasm page. Its first four bytes hold a little-endian u32
-remaining work count. The host supplies a finite count before entering a slice;
+memory of at least one Wasm page. Three little-endian u32 fields begin at zero:
+remaining work at offset 0, a retirement limit at offset 4, and the starting CPU
+instruction counter at offset 8. A zero retirement limit disables that limit.
+The host supplies a finite count before entering a slice;
 entries, interpreter handoffs and dispatches in that slice share the same memory.
 The host must not replenish it from dispatch or device callbacks.
 
-One unit permits an ordinary completed instruction or one REP element. A REP with
-zero count consumes one unit. Exhaustion returns `SLICE_EXHAUSTED` (tag 1024, zero
+One unit permits an ordinary completed instruction or one REP element. A REP
+with zero count consumes one unit.
+Exhaustion returns `SLICE_EXHAUSTED` (tag 1024, zero
 payload/address), with all completed state published and no dispatch callback.
 An ordinary block boundary may still dispatch after consuming the last unit;
 the next budgeted entry yields before fetching or executing an instruction.
@@ -71,6 +74,46 @@ entries dispatch at that same EIP. Count exhaustion and conditional termination
 complete REP normally. Budget values stay local during execution and are published
 alongside CPU state at exits. CPU image layout and default compilation are unchanged.
 Snapshot compilation limits still bound compilation, independently of this budget.
+A nonzero retirement limit also bounds a snapshot's interior: completing REP counts
+once regardless of its work cost. Reaching the limit returns `INSTRUCTION_LIMIT`
+(tag 1026, zero payload/address). Counter differences use wrapping arithmetic.
+The host must initialize all three fields before entering a bounded execution loop.
+
+## Callable dispatch
+
+`Compiler::compile_dispatcher()` generates a module that resolves execution
+addresses to ordinary `() -> i64` functions in the imported
+`wasm86.executionFunctions` table. Slot 0 holds its `enter` export, slot 1 holds a
+compatible interpreter, and subsequent slots hold installed module exports.
+All functions share CPU, guest, mapping and budget memories. The dispatcher has
+no target-kind tag or host-service import.
+
+Bind the module's `dispatch(eip: i32) -> i64` and `interpret() -> i64` exports
+as the corresponding imports of execution modules. `dispatch` follows the next
+execution address through the table; `interpret` directly enters the fallback
+when a snapshot abandons a specialization. These transfers stay inside Wasm.
+The embedding enters through `enter() -> i64`, which returns a guest exit or an
+execution limit. For observation, write nonzero at offset 0 of
+`executionEntries`; the next outgoing dispatch returns zero with state published.
+Zero is a runtime handoff result, not an architectural exit.
+
+The embedding scopes lookup to one guest address space and execution profile.
+Keys are CS.base + EIP before paging, A20 or backing translation. CS admission is
+checked before invoking a target. A miss tail-calls the interpreter. Registering
+an export does not establish its snapshot validity: the embedding must uphold
+its original EIP, segment, byte and mapping assumptions. Every registered entry
+must be an execution boundary; larger blocks must not run across another entry.
+Registration changes therefore require updating any affected compiled blocks or
+links. The runtime initially uses the step interpreter, so interpreted code
+observes every instruction boundary without host round trips.
+
+Initialize `executionEntries` to zero, then copy `EntryTable::to_bytes()` at
+`EntryTable::DATA_OFFSET` (8), growing memory first. The serialized data is a
+u32 mask followed by eight-byte address/slot rows, with zero slots marking empty
+rows. The table uses open addressing and is at most half full. Replace mappings
+only outside execution. The function table must already contain every published
+slot. Installed code and imports remain alive until the machine is dropped; removing
+an address does not reclaim code.
 
 ## Interpreter handoff
 
@@ -187,7 +230,8 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | `guest` | 1 | Guest backing bytes for the selected memory model. |
 | `machine` | 64 | Protected-mode linear-to-backing page table at byte zero. |
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
-| `executionBudget` | 1 | Optional slice work count at byte zero. |
+| `executionBudget` | 1 | Optional work and retirement limits at byte zero. |
+| `executionEntries` | 1 | Observation policy and execution-address table. |
 
 Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
 `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
@@ -200,6 +244,8 @@ require guest backing and the page table, protected-mode segment loads require
 with specialization guards require `interpret`. Hosts should use the generated
 module's import list when instantiating it.
 Budgeted entries additionally share `executionBudget` as described above.
+Callable dispatch imports `executionEntries` and the `executionFunctions`
+function table. The interpreter itself requires neither import.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical
@@ -810,7 +856,7 @@ tag, 16-bit payload and 32-bit address. These tags are independent of architectu
 exception vector numbers:
 
 Hosts can decode these words with `ExecutionExit::from_bits`, which returns an
-`Exception`, an unsupported-instruction diagnostic, or `BudgetExhausted`. Unknown tags and nonzero
+`Exception`, an unsupported-instruction diagnostic, `BudgetExhausted`, or `InstructionLimit`. Unknown tags and nonzero
 reserved fields return `None`. Host-defined values returned by `dispatch` or
 `interpret` must be distinguished before decoding; either callback may return
 any i64. Track callback results or use a distinct result convention. If a callback
@@ -830,6 +876,7 @@ that callback's contract. A matching exit word alone does not establish its sour
 | Floating-point error | 256 | Zero | Zero |
 | SIMD floating-point exception | 512 | Zero | Zero |
 | Slice exhausted | 1024 | Zero | Zero |
+| Instruction limit | 1026 | Zero | Zero |
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the

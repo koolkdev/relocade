@@ -1,5 +1,7 @@
 //! Host execution imports and their adapters to architectural values.
 
+use crate::state::Cpu;
+
 mod budget;
 mod ports;
 
@@ -90,11 +92,36 @@ impl Runtime {
         self.budget.is_some()
     }
 
+    /// Reject a new entry before its decoder fetches any instruction bytes.
+    pub(crate) fn check_entry_budget(
+        self,
+        body: &mut BlockBuilder<'_>,
+        cpu: &Cpu,
+    ) -> Result<(), BuildError> {
+        self.check_budget(body, |stopped| stopped.return_(crate::SLICE_EXHAUSTED))?;
+        if let Some(instructions) = self.remaining_instructions(body, cpu)? {
+            body.if_(instructions.eq(0), |stopped| {
+                stopped.return_(crate::INSTRUCTION_LIMIT)
+            })?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn remaining_work(
         self,
         body: &mut BlockBuilder<'_>,
     ) -> Result<Option<Val<I32>>, BuildError> {
         self.budget.map(|budget| budget.remaining(body)).transpose()
+    }
+
+    pub(crate) fn remaining_instructions(
+        self,
+        body: &mut BlockBuilder<'_>,
+        cpu: &Cpu,
+    ) -> Result<Option<Val<I32>>, BuildError> {
+        self.budget
+            .map(|budget| budget.remaining_instructions(body, cpu))
+            .transpose()
     }
 
     pub(crate) fn publish_work(

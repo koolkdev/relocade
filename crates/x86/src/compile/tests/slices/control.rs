@@ -55,6 +55,31 @@ fn check_straight_line(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(straight_line, check_straight_line);
 
+fn check_retirement_limit(engine: Engine, frontend: Frontend) {
+    // The unsupported suffix must never decode after the requested retirement.
+    let code: &[u8] = match frontend {
+        Frontend::Block => &[0x40, 0x43],
+        Frontend::Interpreter => &[0x40, 0x0f, 0xff],
+    };
+    let mut cpu = initial();
+    cpu.instruction_count = u32::MAX;
+    let mut input = input(code, cpu, &[10]);
+    input.instruction_limit = 1;
+    let observations = run(engine, frontend, code, 2, &input);
+    assert_eq!(observations[0].0, crate::INSTRUCTION_LIMIT);
+    let cpu = observations[0].1;
+    assert_eq!(
+        (
+            cpu.eip,
+            cpu.instruction_count,
+            cpu.registers.eax,
+            cpu.registers.ebx
+        ),
+        (0x1001, 0, 1, 0)
+    );
+}
+test_frontends!(retirement_limit, check_retirement_limit);
+
 fn check_taken_interrupt(engine: Engine) {
     let module = TestModule::new(
         &Compiler::new(crate::ExecutionProfile::Real16)

@@ -10,6 +10,7 @@ pub enum Error {
         message: String,
     },
     IncompatibleCpu,
+    IncompatibleModule,
     InvalidExit(u64),
 }
 
@@ -26,8 +27,11 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Generate(error) => write!(f, "generate interpreter: {error}"),
+            Self::Generate(error) => write!(f, "generate execution module: {error}"),
             Self::Backend { operation, message } => write!(f, "{operation}: {message}"),
+            Self::IncompatibleModule => {
+                write!(f, "module execution profile is incompatible with Real16")
+            }
             Self::IncompatibleCpu => write!(f, "CPU segment caches are incompatible with Real16"),
             Self::InvalidExit(word) => write!(f, "invalid guest exit word {word:#018x}"),
         }

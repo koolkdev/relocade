@@ -41,7 +41,13 @@ impl TestModule {
         let guest = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
         let machine = Memory::new(&mut store, MemoryType::new(64, None)).unwrap();
         let budget = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
+        budget
+            .write(&mut store, 4, &input.instruction_limit.to_le_bytes())
+            .unwrap();
         cpu.write(&mut store, 0, &input.cpu).unwrap();
+        let counter = std::mem::offset_of!(crate::CpuState, instruction_count);
+        let starting_count: [u8; 4] = cpu.data(&store)[counter..counter + 4].try_into().unwrap();
+        budget.write(&mut store, 8, &starting_count).unwrap();
         for (memory, patches) in [(guest, &input.guest), (machine, &input.machine)] {
             for (offset, bytes) in patches {
                 memory.write(&mut store, *offset as usize, bytes).unwrap();

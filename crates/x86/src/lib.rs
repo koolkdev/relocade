@@ -62,9 +62,12 @@ use std::fmt;
 /// This host exit is distinct from guest faults and dispatch return values.
 pub const SLICE_EXHAUSTED: u64 = 1024 << 48;
 
+/// The requested number of guest instructions has retired.
+pub const INSTRUCTION_LIMIT: u64 = 1026 << 48;
+
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, compile_interpreter,
-    compile_interpreter_step, Compiler,
+    compile_interpreter_step, Compiler, EntryTable,
 };
 pub use exception::{Exception, ExceptionVector};
 pub use memory::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};

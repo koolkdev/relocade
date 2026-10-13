@@ -1,9 +1,11 @@
 use crate::{
-    backend::{Backend, EntryResult, Instance},
+    backend::{Backend, EntryRequest, EntryResult, Instance},
     imports::Imports,
     DeviceMemory, Devices, Error, MemoryError, Result, Runtime,
 };
-use wasm86_x86::{CpuState, ExecutionExit, ExecutionProfile, PhysicalMemoryMap, Segments};
+use wasm86_x86::{
+    CpuState, EntryTable, ExecutionExit, ExecutionProfile, PhysicalMemoryMap, Segments,
+};
 
 /// Result of one instruction attempt. CPU and completed memory/device effects
 /// are published for both outcomes, including partial progress on a guest fault.
@@ -14,9 +16,12 @@ pub enum StepOutcome {
 }
 
 /// Persistent real-mode CPU, memory and devices on one execution backend.
-/// Every entry returns to the host; dispatch never recursively enters Wasm.
+/// Dispatch tail-calls installed code or the interpreter inside Wasm.
 pub struct Machine<B: Backend, D: Devices + 'static> {
-    instance: B::Instance<D>,
+    pub(crate) instance: B::Instance<D>,
+    pub(crate) runtime: Runtime<B>,
+    pub(crate) entries: EntryTable,
+    pub(crate) next_slot: u32,
 }
 
 impl<B: Backend, D: Devices + 'static> Machine<B, D> {
@@ -27,8 +32,13 @@ impl<B: Backend, D: Devices + 'static> Machine<B, D> {
     ) -> Result<Self> {
         let required = map.required_backing_bytes();
         let mut instance = runtime
+            .code
             .backend
-            .instantiate(&runtime.interpreter, Imports::new(map, devices))
+            .instantiate(
+                &runtime.code.interpreter,
+                &runtime.code.dispatcher,
+                Imports::new(map, devices),
+            )
             .await?;
         instance.grow_guest(required)?;
         instance.with_memory(|imports, memory| imports.publish_map(memory));
@@ -36,7 +46,14 @@ impl<B: Backend, D: Devices + 'static> Machine<B, D> {
             segments: Segments::real_mode(),
             ..CpuState::default()
         });
-        Ok(Self { instance })
+        let entries = EntryTable::default();
+        instance.set_entries(&entries)?;
+        Ok(Self {
+            instance,
+            runtime: runtime.clone(),
+            entries,
+            next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
+        })
     }
 
     pub fn cpu(&self) -> CpuState {
@@ -53,6 +70,18 @@ impl<B: Backend, D: Devices + 'static> Machine<B, D> {
         Ok(())
     }
 
+    /// Removes an address mapping. Later visits use the interpreter fallback.
+    /// Installed code remains alive until the machine is dropped.
+    pub fn remove_entry(&mut self, address: u32) -> Result<bool> {
+        let mut entries = self.entries.clone();
+        if entries.remove(address).is_none() {
+            return Ok(false);
+        }
+        self.instance.set_entries(&entries)?;
+        self.entries = entries;
+        Ok(true)
+    }
+
     /// Inspects devices without allowing a borrow to escape the backend's scope.
     pub fn with_devices<R>(&self, inspect: impl FnOnce(&D) -> R) -> R {
         self.instance.inspect(|imports| inspect(&imports.devices))
@@ -63,11 +92,11 @@ impl<B: Backend, D: Devices + 'static> Machine<B, D> {
             .with_memory(|imports, _| update(&mut imports.devices))
     }
 
-    /// Executes one instruction, including a complete REP. Unexpected engine
-    /// failures are implementation errors, not resumable guest outcomes.
+    /// Executes one instruction, including a complete REP, or returns an exit.
+    /// Unexpected engine failures are implementation errors, not resumable guest outcomes.
     pub fn step(&mut self) -> Result<StepOutcome> {
         loop {
-            let progress = self.enter(u32::MAX)?;
+            let progress = self.enter(EntryRequest::step())?;
             if let Some(exit) = progress.exit {
                 return Ok(StepOutcome::Exited(exit));
             }
@@ -77,21 +106,17 @@ impl<B: Backend, D: Devices + 'static> Machine<B, D> {
         }
     }
 
-    pub(crate) fn enter(&mut self, work: u32) -> Result<Progress> {
-        self.instance
-            .with_memory(|imports, _| imports.dispatched = false);
-        let entry = self.instance.enter(work)?;
-        let exit = self.instance.inspect(|imports| {
-            if imports.dispatched {
-                Ok(None)
-            } else {
-                match ExecutionExit::from_bits(entry.word) {
-                    Some(ExecutionExit::BudgetExhausted) => Ok(None),
-                    Some(exit) => Ok(Some(exit)),
-                    None => Err(Error::InvalidExit(entry.word)),
-                }
-            }
-        })?;
+    pub(crate) fn enter(&mut self, request: EntryRequest) -> Result<Progress> {
+        let entry = self.instance.enter(request)?;
+        let exit = match entry.word {
+            // The generated dispatcher returns zero at an observed boundary.
+            0 => None,
+            word => match ExecutionExit::from_bits(word) {
+                Some(ExecutionExit::BudgetExhausted | ExecutionExit::InstructionLimit) => None,
+                Some(exit) => Some(exit),
+                None => return Err(Error::InvalidExit(word)),
+            },
+        };
         Ok(Progress { entry, exit })
     }
 

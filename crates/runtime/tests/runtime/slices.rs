@@ -13,7 +13,7 @@ async fn rep_yields_with_exact_work_and_step_finishes_the_remaining_instruction(
     cpu.registers.edi = 0x400;
     machine.set_cpu(cpu).unwrap();
     assert_eq!(
-        machine.run_slice(2, |_| false).unwrap(),
+        machine.run_slice(2).unwrap(),
         SliceOutcome {
             work: 2,
             completed: 0,
@@ -53,7 +53,7 @@ async fn faults_report_completed_elements_without_retiring_rep() {
     machine.set_cpu(cpu).unwrap();
     machine.write_memory(0xfffe, &[1, 2]).unwrap();
     assert_eq!(
-        machine.run_slice(10, |_| false).unwrap(),
+        machine.run_slice(10).unwrap(),
         SliceOutcome {
             work: 2,
             completed: 1,
@@ -106,9 +106,9 @@ async fn resumed_rep_observes_a20_at_the_next_element() {
     cpu.registers.esi = 0xf;
     cpu.registers.edi = 0x300;
     machine.set_cpu(cpu).unwrap();
-    assert_eq!(machine.run_slice(1, |_| false).unwrap().completed, 0);
+    assert_eq!(machine.run_slice(1).unwrap().completed, 0);
     machine.with_memory(|memory| memory.set_a20_enabled(true));
-    assert_eq!(machine.run_slice(1, |_| false).unwrap().completed, 1);
+    assert_eq!(machine.run_slice(1).unwrap().completed, 1);
     let mut bytes = [0; 2];
     machine.read_memory(0x300, &mut bytes).unwrap();
     assert_eq!(bytes, [1, 2]);
@@ -120,7 +120,7 @@ async fn empty_slices_and_host_stops_precede_fetch_and_work_limit() {
     let mut machine = machine(&[0x0f, 0x0b]).await;
     let before = machine.cpu();
     assert_eq!(
-        machine.run_slice(0, |_| false).unwrap(),
+        machine.run_slice(0).unwrap(),
         SliceOutcome {
             work: 0,
             completed: 0,
@@ -128,14 +128,14 @@ async fn empty_slices_and_host_stops_precede_fetch_and_work_limit() {
         }
     );
     assert_eq!(
-        machine.run_slice(0, |_| true).unwrap().stop,
+        machine.run_slice_until(0, |_| true).unwrap().stop,
         SliceStop::HostRequested
     );
     assert_eq!(machine.cpu(), before);
     machine.write_memory(0x100, &[0x40]).unwrap();
     assert_eq!(
         machine
-            .run_slice(1, |m| m.cpu().registers.eax == 1)
+            .run_slice_until(1, |m| m.cpu().registers.eax == 1)
             .unwrap(),
         SliceOutcome {
             work: 1,
@@ -156,7 +156,7 @@ async fn predicate_can_stop_at_partial_rep_boundary() {
     machine.set_cpu(cpu).unwrap();
     assert_eq!(
         machine
-            .run_slice(10, |m| m.cpu().registers.ecx == 2)
+            .run_slice_until(10, |m| m.cpu().registers.ecx == 2)
             .unwrap(),
         SliceOutcome {
             work: 1,

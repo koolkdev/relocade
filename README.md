@@ -59,9 +59,10 @@ at the limit. Handle services or pending input between runs and resume the same
 machine.
 
 The instruction limit counts complete x86 instructions. REP remains one instruction
-and runs to completion or a guest fault. Use `machine.run_slice(work, should_stop)`
+and runs to completion or a guest fault. Use `machine.run_slice_until(work, should_stop)`
 to bound work instead: an ordinary instruction or a completed REP element costs one
-unit. A slice can return with the REP count/indices updated and EIP still at REP;
+unit.
+A slice can return with the REP count/indices updated and EIP still at REP;
 resuming continues from that progress. `SliceOutcome` reports consumed work and
 completed instructions separately. Its predicate also sees partial REP boundaries.
 Device callbacks remain synchronous, so neither limit guarantees wall-clock
@@ -79,9 +80,10 @@ The [runtime API](crates/runtime/src/lib.rs) describes machine setup, physical
 memory and device callbacks. Backends own compilation, instances and memory
 access; the runtime owns routing, dispatch outcomes and execution limits.
 `with_memory` supplies checked backing operations, and `with_devices` /
-`with_devices_mut` keep device borrows scoped to the backend. Execution always
-uses live instruction bytes through the interpreter; the runtime has no guest
-code cache.
+`with_devices_mut` keep device borrows scoped to the backend. Execution defaults
+to live instruction bytes through the interpreter. Explicitly
+installed callable modules share its dispatcher; automatic guest JIT compilation
+and code-validity tracking remain future work.
 
 Browser applications compile for `wasm32-unknown-unknown` with wasm-bindgen and
 select `WebBackend` from `wasm86-runtime-web`:
@@ -98,6 +100,14 @@ to its event loop between bounded `run_slice` calls. No backend requires `Send` 
 The browser must support WebAssembly multi-memory, tail calls, SIMD and atomics;
 an unsupported engine returns a compilation error. The runtime suite runs in
 Chrome both on the page and in a dedicated worker.
+
+## Callable execution
+
+The runtime resolves execution addresses to Wasm function-table slots. A missing
+address uses the interpreter; installed modules use the same calling convention.
+`run_slice(work)` keeps dispatch inside Wasm until exhaustion or an exit.
+`run_slice_until(work, predicate)` returns at published boundaries for observation.
+`step()` stops after one retirement even inside an installed compiled block.
 
 ## Build and test
 

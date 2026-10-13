@@ -8,23 +8,12 @@ use wasm86_x86::{PhysicalMapping, PhysicalMemoryMap};
 /// Each device call publishes changed routing before returning to generated code.
 pub struct Imports<D> {
     pub(crate) devices: D,
-    pub(crate) dispatched: bool,
     map: PhysicalMemoryMap,
 }
 
 impl<D: Devices> Imports<D> {
     pub(crate) fn new(map: PhysicalMemoryMap, devices: D) -> Self {
-        Self {
-            map,
-            devices,
-            dispatched: false,
-        }
-    }
-
-    /// Records a dispatch handoff, including partial REP progress, to the host loop.
-    pub fn dispatch(&mut self) -> i64 {
-        self.dispatched = true;
-        0
+        Self { map, devices }
     }
 
     pub fn read_port(&mut self, memory: &mut dyn GuestMemory, port: u16, bytes: u8) -> u32 {

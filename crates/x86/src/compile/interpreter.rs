@@ -128,8 +128,7 @@ impl Compiler {
                 execution.complete(|body, eip| match continuation {
                     Some(continuation) => {
                         let mut body = body;
-                        runtime
-                            .check_budget(&mut body, |body| body.return_(crate::SLICE_EXHAUSTED))?;
+                        runtime.check_entry_budget(&mut body, &cpu)?;
                         continuation.resume(body)
                     }
                     None => runtime.dispatch(body, eip),
@@ -138,7 +137,7 @@ impl Compiler {
         )?;
 
         program.define(entry_function, |mut body| {
-            runtime.check_budget(&mut body, |body| body.return_(crate::SLICE_EXHAUSTED))?;
+            runtime.check_entry_budget(&mut body, &cpu)?;
             let start = cpu.read_eip(&mut body)?;
             let direct = decoder.direct_window(&mut body, &start)?;
             body.if_(&direct.unavailable, |arm| arm.tail_call(exact, &[]))?;
