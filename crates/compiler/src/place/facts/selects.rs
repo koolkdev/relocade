@@ -1,7 +1,7 @@
 //! Fold small Boolean combinations using shared select alternatives.
 
 use super::{Assumption, ScalarFacts};
-use crate::expression::BinaryOp as Binary;
+use crate::expression::{BinaryOp as Binary, TernaryOp as Ternary};
 use crate::{
     bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
@@ -70,10 +70,11 @@ impl ScalarFacts {
             let Some(result) = table.expression(id) else {
                 continue;
             };
-            if let Expression::Select {
-                condition,
-                when_true,
-                when_false,
+            if let Expression::Ternary {
+                operator: Ternary::Select,
+                first: when_true,
+                second: when_false,
+                third: condition,
             } = result.expression
             {
                 if let Some((_, uses)) = conditions.iter_mut().find(|(id, _)| *id == condition) {

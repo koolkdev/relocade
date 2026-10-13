@@ -1,7 +1,9 @@
 //! Comparison folding and logical-width normalization.
 
 use super::Folder;
-use crate::expression::{BinaryOp as Binary, CompareOp as Compare, UnaryOp as Unary};
+use crate::expression::{
+    BinaryOp as Binary, CompareOp as Compare, TernaryOp as Ternary, UnaryOp as Unary,
+};
 use crate::{
     bitwise::BitwiseOp,
     body::ValueDefinition,
@@ -222,9 +224,10 @@ impl Folder<'_> {
             return Some(comparison.evaluate(bits));
         }
         match value.definition {
-            ValueDefinition::Expression(Expression::Select {
-                when_true,
-                when_false,
+            ValueDefinition::Expression(Expression::Ternary {
+                operator: Ternary::Select,
+                first: when_true,
+                second: when_false,
                 ..
             }) => {
                 let when_true = self.compare_choices(when_true, comparison, remaining)?;

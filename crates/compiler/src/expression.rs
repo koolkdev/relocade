@@ -1,7 +1,7 @@
 //! Pure expressions shared by unbound values and function bodies.
 
 mod operators;
-pub(crate) use operators::{BinaryOp, CompareOp, LaneBinaryOp, ShiftOp, UnaryOp};
+pub(crate) use operators::{BinaryOp, CompareOp, LaneBinaryOp, ShiftOp, TernaryOp, UnaryOp};
 
 mod evaluate;
 pub(super) use evaluate::TypedLiteral;
@@ -35,10 +35,11 @@ pub(super) enum Expression<V> {
         value: V,
         count: V,
     },
-    Select {
-        condition: V,
-        when_true: V,
-        when_false: V,
+    Ternary {
+        operator: TernaryOp,
+        first: V,
+        second: V,
+        third: V,
     },
     MultiplyWide {
         signed: bool,
@@ -107,14 +108,16 @@ impl<V> Expression<V> {
                 value: input(value)?,
                 count: input(count)?,
             },
-            Self::Select {
-                condition,
-                when_true,
-                when_false,
-            } => Expression::Select {
-                when_true: input(when_true)?,
-                when_false: input(when_false)?,
-                condition: input(condition)?,
+            Self::Ternary {
+                operator,
+                first,
+                second,
+                third,
+            } => Expression::Ternary {
+                operator: *operator,
+                first: input(first)?,
+                second: input(second)?,
+                third: input(third)?,
             },
             Self::MultiplyWide {
                 signed,

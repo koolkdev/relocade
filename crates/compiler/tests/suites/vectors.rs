@@ -1,7 +1,12 @@
 //! Vector encodings follow the same value, effect and control-flow contracts as scalars.
 
+#[path = "vectors/lanes.rs"]
+mod indexed_lanes;
+#[path = "vectors/layout.rs"]
+mod layout;
 #[path = "vectors/masks.rs"]
 mod masks;
+
 #[path = "vectors/packed.rs"]
 mod packed;
 #[path = "vectors/shifts.rs"]
@@ -295,29 +300,13 @@ fn lanes(v8: bool) {
         let vector = body.load::<V128>(memory, 0)?;
         let word = body.load::<I32>(memory, 16)?;
         let qword = body.load::<I64>(memory, 24)?;
-        for lane in 0..4 {
-            body.store(
-                memory,
-                32 + u32::from(lane) * 16,
-                vector.replace_lane(lane, &word),
-            )?;
-            body.store(
-                memory,
-                128 + u32::from(lane) * 4,
-                vector.extract_lane::<I32>(lane),
-            )?;
+        for lane in 0_u32..4 {
+            body.store(memory, 32 + lane * 16, vector.replace_lane(lane, &word))?;
+            body.store(memory, 128 + lane * 4, vector.extract_lane::<I32>(lane))?;
         }
-        for lane in 0..2 {
-            body.store(
-                memory,
-                96 + u32::from(lane) * 16,
-                vector.replace_lane(lane, &qword),
-            )?;
-            body.store(
-                memory,
-                144 + u32::from(lane) * 8,
-                vector.extract_lane::<I64>(lane),
-            )?;
+        for lane in 0_u32..2 {
+            body.store(memory, 96 + lane * 16, vector.replace_lane(lane, &qword))?;
+            body.store(memory, 144 + lane * 8, vector.extract_lane::<I64>(lane))?;
         }
         let literal = Val::<V128>::from(LEFT);
         body.store(memory, 160, literal.replace_lane::<I32>(3, 0x11223344))?;

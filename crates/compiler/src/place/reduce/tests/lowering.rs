@@ -99,10 +99,11 @@ fn refolded_counts_consult_semantic_facts_before_lowering() {
     let zero = graph.values.literal(Type::I8, 0);
     let choice = graph.values.intern(Value {
         ty: Type::I8,
-        definition: ValueDefinition::Expression(Expression::Select {
-            condition,
-            when_true: 0,
-            when_false: zero,
+        definition: ValueDefinition::Expression(Expression::Ternary {
+            operator: crate::expression::TernaryOp::Select,
+            first: 0,
+            second: zero,
+            third: condition,
         }),
     });
     let known = count(&mut graph.values, BitCountOp::LeadingZeros, 0);

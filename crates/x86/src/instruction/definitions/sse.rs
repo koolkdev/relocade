@@ -12,6 +12,7 @@ mod pack;
 mod saturation;
 mod shifts;
 mod unpack;
+mod words;
 
 use super::*;
 use crate::{
@@ -33,6 +34,7 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
         .chain(saturation::forms())
         .chain(shifts::forms())
         .chain(unpack::forms())
+        .chain(words::forms())
 }
 
 /// Legacy XMM binary operations read an aligned m128 source before updating state.

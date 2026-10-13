@@ -13,6 +13,16 @@ pub(super) fn bitmask(lane_type: Type) -> Instruction<'static> {
     }
 }
 
+pub(super) fn splat(lane_type: Type) -> Instruction<'static> {
+    match lane_type {
+        Type::I8 => Instruction::I8x16Splat,
+        Type::I16 => Instruction::I16x8Splat,
+        Type::I32 => Instruction::I32x4Splat,
+        Type::I64 => Instruction::I64x2Splat,
+        _ => unreachable!("integer lanes have 8, 16, 32 or 64 bits"),
+    }
+}
+
 pub(super) fn binary(operator: LaneBinaryOp, lane_type: Type) -> Instruction<'static> {
     match (operator, lane_type) {
         (LaneBinaryOp::Add, Type::I8) => Instruction::I8x16Add,

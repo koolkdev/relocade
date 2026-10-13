@@ -1,6 +1,6 @@
 //! Placement must leave discarded control flow unvisited.
 use super::*;
-use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
+use crate::expression::{BinaryOp as Binary, TernaryOp as Ternary, UnaryOp as Unary};
 use crate::{integer::BinaryOp, Type};
 
 fn graph(selector_type: Type) -> FunctionGraph {
@@ -74,10 +74,11 @@ fn a_folded_if_skips_its_discarded_subtree_and_keeps_the_join() {
     let product = square(&mut graph);
     let conditional_product = graph.values.intern(Value {
         ty: Type::I32,
-        definition: ValueDefinition::Expression(Expression::Select {
-            condition,
-            when_true: number,
-            when_false: product,
+        definition: ValueDefinition::Expression(Expression::Ternary {
+            operator: Ternary::Select,
+            first: number,
+            second: product,
+            third: condition,
         }),
     });
     graph.blocks[discarded.0].exit = Exit::Jump(edge(descendant));
@@ -181,10 +182,11 @@ fn a_loop_backedge_does_not_keep_a_discarded_region_alive() {
     let zero = graph.values.literal(Type::I1, 0);
     let repeat = graph.values.intern(Value {
         ty: Type::I1,
-        definition: ValueDefinition::Expression(Expression::Select {
-            condition,
-            when_true: nonzero,
-            when_false: zero,
+        definition: ValueDefinition::Expression(Expression::Ternary {
+            operator: Ternary::Select,
+            first: nonzero,
+            second: zero,
+            third: condition,
         }),
     });
     graph.blocks[header.0].exit = Exit::If {

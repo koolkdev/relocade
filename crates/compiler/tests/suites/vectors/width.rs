@@ -225,9 +225,11 @@ fn vector_signatures_admit_native_literals_at_their_logical_width() {
 }
 
 #[test]
-#[should_panic(expected = "vector lane is in range")]
-fn narrow_vector_lanes_cannot_access_the_upper_carrier() {
-    Val::<V64>::from(0_u64).extract_lane::<I64>(1);
+fn narrow_vector_lane_indices_wrap_at_the_logical_width() {
+    let bits = 0x123456789abcdef0_u64;
+    assert!(Val::<V64>::from(bits)
+        .extract_lane::<I64>(1)
+        .same_expression(&Val::<I64>::from(bits)));
 }
 
 #[test]

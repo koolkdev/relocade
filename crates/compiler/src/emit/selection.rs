@@ -4,7 +4,7 @@
 //! may depend on a result being unused or only observed as zero/nonzero.
 //! Selection leaves the graph's value definitions intact.
 use super::wasm_type;
-use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
+use crate::expression::{BinaryOp as Binary, TernaryOp as Ternary, UnaryOp as Unary};
 use crate::{
     body::{BlockItem, Exit, FunctionGraph, OperationKind, ValueDefinition},
     integer::BinaryOp,
@@ -81,8 +81,11 @@ impl Selection {
             }
             for item in &block.items {
                 if let BlockItem::Evaluate(value) = *item {
-                    if let ValueDefinition::Expression(Expression::Select { condition, .. }) =
-                        graph.values[value].definition
+                    if let ValueDefinition::Expression(Expression::Ternary {
+                        operator: Ternary::Select,
+                        third: condition,
+                        ..
+                    }) = graph.values[value].definition
                     {
                         this.truth(graph, condition, false);
                     }

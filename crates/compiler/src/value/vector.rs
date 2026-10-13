@@ -1,11 +1,14 @@
 //! Integer lane operations preserve their logical widths independently.
 
+use crate::expression::ShuffleMask;
 use crate::expression::{BinaryOp as Binary, ShiftOp as Shift, UnaryOp as Unary};
+use crate::integer::ShiftOp;
 use crate::{
     expression::LaneBinaryOp, AtLeast, BitwiseType, IntType, Type, Val, I16, I32, I64, I8, V128,
     V64,
 };
-use crate::{expression::ShuffleMask, integer::ShiftOp};
+
+mod layout;
 
 mod width;
 
@@ -181,32 +184,6 @@ impl<V: VectorType> Val<V> {
                 lane + 16 - width
             }
         });
-        self.binary(Binary::Shuffle(ShuffleMask::new(indices)), right)
-    }
-
-    /// Extracts a lane, numbered from the least significant bits.
-    /// Panics if `lane` is outside the vector at the requested width.
-    pub fn extract_lane<T: VectorLane>(&self, lane: u8) -> Val<T> {
-        assert!(
-            lane < V::TYPE.bits() / T::TYPE.bits(),
-            "vector lane is in range"
-        );
-        self.unary(Unary::ExtractLane { lane })
-    }
-
-    /// Replaces one lane and preserves all other bits.
-    /// Panics if `lane` is outside the vector at the supplied value's width.
-    pub fn replace_lane<T: VectorLane>(&self, lane: u8, value: impl Into<Val<T>>) -> Self {
-        assert!(
-            lane < V::TYPE.bits() / T::TYPE.bits(),
-            "vector lane is in range"
-        );
-        self.binary(
-            Binary::ReplaceLane {
-                lane_type: T::TYPE,
-                lane,
-            },
-            value,
-        )
+        self.binary(Binary::ShuffleImmediate(ShuffleMask::new(indices)), right)
     }
 }
