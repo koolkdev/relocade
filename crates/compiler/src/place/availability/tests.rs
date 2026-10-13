@@ -99,6 +99,63 @@ fn rebinding_inputs_preserves_the_recipe_for_a_later_unchanged_placement() {
 }
 
 #[test]
+fn fresh_executions_keep_the_lowered_recipes_result_bounds() {
+    use crate::{integer::BitCountOp, Type};
+    for remap_input in [false, true] {
+        let mut graph = FunctionGraph::new();
+        let input = graph.values.push_with_bounds(
+            Value {
+                ty: Type::I8,
+                definition: ValueDefinition::Parameter {
+                    block: graph.entry,
+                    component: 0,
+                },
+            },
+            BitBounds {
+                unsigned: 8,
+                signed: 9,
+            },
+        );
+        let count = crate::expression::build(
+            &mut graph.values,
+            Type::I8,
+            Expression::Unary {
+                operator: Unary::BitCount {
+                    operator: BitCountOp::LeadingZeros,
+                    input_type: Type::I8,
+                },
+                input,
+            },
+            0,
+        );
+        let lowered = crate::expression::lower(&mut graph.values, count);
+        let adjustment = graph.values.representation(lowered);
+        let mut available = Availability::default();
+        let parent = available.checkpoint();
+        available.evaluate(&mut graph, BlockId(0), adjustment);
+        available.restore(parent);
+        if remap_input {
+            let count = *graph
+                .values
+                .expression(adjustment)
+                .unwrap()
+                .expression
+                .inputs()
+                .next()
+                .unwrap();
+            let replacement = graph.values.push(graph.values[count]);
+            available.bind(count, replacement);
+        }
+        let sibling = graph.block(0, &[]);
+        available.evaluate(&mut graph, sibling, adjustment);
+        let placed = available.get(adjustment).unwrap();
+        assert_ne!(placed, adjustment);
+        assert_eq!(graph.values.bounds[placed].unsigned, 4);
+        assert_eq!(graph.values.bounds[placed].signed, 5);
+    }
+}
+
+#[test]
 fn logical_input_widths_survive_same_carrier_aliases() {
     use crate::{integer::BitCountOp, Type};
     fn check(

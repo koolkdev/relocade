@@ -1,3 +1,5 @@
+mod lowering;
+
 use super::*;
 use crate::bitwise::BitwiseOp;
 use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
@@ -125,6 +127,16 @@ fn refolding_finishes_reduction_of_a_new_recipe_before_returning() {
     // knowledge absorb the combined mask and return x's entire carrier.
     assert_eq!(reducer.reduce(&mut graph.values, root), input);
     assert_eq!(reducer.reduce(&mut graph.values, root), input);
+    // Both the original and the intermediate fold name the finished carrier.
+    assert!(reducer.recipes(input).any(|recipe| recipe == root));
+    assert!(reducer.recipes(input).any(|recipe| matches!(
+        graph.values[recipe].definition,
+        ValueDefinition::Expression(Expression::Binary {
+            operator: Binary::Bitwise(BitwiseOp::And),
+            left,
+            right,
+        }) if left == input && graph.values[right].scalar_literal() == Some(0x00ff00ff)
+    )));
 }
 
 #[test]
@@ -145,6 +157,49 @@ fn semantic_equivalences_belong_to_their_fixed_context() {
     assert_eq!(parent.reduce(&mut graph.values, choice), choice);
     assert_eq!(yes.reduce(&mut graph.values, choice), seven);
     assert_eq!(no.reduce(&mut graph.values, choice), eleven);
+}
+
+#[test]
+fn refolding_changed_operands_preserves_wide_result_components() {
+    use crate::Type;
+
+    let mut graph = conditional_value();
+    let input = graph.values.push(Value {
+        ty: Type::I64,
+        definition: ValueDefinition::Parameter {
+            block: graph.entry,
+            component: 1,
+        },
+    });
+    let zero = graph.values.literal(Type::I64, 0);
+    let choice = graph.values.intern(Value {
+        ty: Type::I64,
+        definition: ValueDefinition::Expression(Expression::Select {
+            condition: 0,
+            when_true: input,
+            when_false: zero,
+        }),
+    });
+    let product = graph.values.intern(Value {
+        ty: Type::I64,
+        definition: ValueDefinition::Expression(Expression::MultiplyWide {
+            signed: false,
+            left: choice,
+            right: input,
+        }),
+    });
+    let high = graph.values.expression_result(product, 1);
+    let mut reducer = branch(&Reducer::default(), &graph.values, 0, true);
+    let high = reducer.reduce(&mut graph.values, high);
+    let low = reducer.reduce(&mut graph.values, product);
+    let high = graph.values.expression(high).unwrap();
+    let low = graph.values.expression(low).unwrap();
+    assert_eq!((low.component, high.component), (0, 1));
+    assert_eq!(low.producer, high.producer);
+    assert!(matches!(
+        high.expression,
+        Expression::MultiplyWide { left, right, .. } if left == input && right == input
+    ));
 }
 
 #[test]

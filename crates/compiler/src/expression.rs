@@ -6,8 +6,12 @@ pub(crate) use operators::{BinaryOp, CompareOp, LaneBinaryOp, ShiftOp, UnaryOp};
 mod evaluate;
 pub(super) use evaluate::TypedLiteral;
 mod fold;
+mod lower;
 mod shuffle;
-pub(crate) use fold::{build, normalize, refold};
+#[cfg(test)]
+pub(crate) use fold::refold;
+pub(crate) use fold::{build, fold_carrier, normalize};
+pub(crate) use lower::lower;
 pub(super) use shuffle::ShuffleMask;
 
 #[cfg(test)]

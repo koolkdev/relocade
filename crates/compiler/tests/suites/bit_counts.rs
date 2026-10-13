@@ -1,5 +1,7 @@
 #[path = "bit_counts/logical.rs"]
 mod logical;
+#[path = "bit_counts/lowering.rs"]
+mod lowering;
 #[path = "bit_counts/placement.rs"]
 mod placement;
 
