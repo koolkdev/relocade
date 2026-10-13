@@ -2,6 +2,8 @@
 
 #[path = "mmx/arithmetic.rs"]
 mod arithmetic;
+#[path = "mmx/average.rs"]
+mod average;
 #[path = "mmx/chains.rs"]
 mod chains;
 #[path = "mmx/comparisons.rs"]

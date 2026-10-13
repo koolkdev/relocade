@@ -88,6 +88,15 @@ impl<V: VectorType> Val<V> {
         self.binary_lanes::<T>(LaneBinaryOp::Sub, right.into())
     }
 
+    /// Averages unsigned I8 or I16 lanes, rounding each half-integer upward.
+    /// The intermediate sum does not wrap at the lane width.
+    pub fn unsigned_rounded_average_lanes<T: VectorLane>(&self, right: impl Into<Self>) -> Self
+    where
+        I16: AtLeast<T>,
+    {
+        self.binary_lanes::<T>(LaneBinaryOp::AverageUnsigned, right.into())
+    }
+
     /// Multiplies corresponding I16, I32 or I64 lanes, wrapping at the lane width.
     pub fn mul_lanes<T: VectorLane + AtLeast<I16>>(&self, right: impl Into<Self>) -> Self {
         self.binary_lanes::<T>(LaneBinaryOp::Mul, right.into())

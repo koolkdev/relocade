@@ -6,6 +6,7 @@ use crate::memory::TransferType;
 use crate::register::RegisterCode;
 use wasm86_compiler::{MemoryInt, I16, I64, V64};
 
+mod average;
 mod binary;
 mod minmax;
 mod multiply;
@@ -18,6 +19,7 @@ mod words;
 
 pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
     binary::forms()
+        .chain(average::forms())
         .chain(minmax::forms())
         .chain(multiply::forms())
         .chain(shifts::forms())

@@ -2,6 +2,8 @@
 
 #[path = "packed/arithmetic.rs"]
 mod arithmetic;
+#[path = "packed/average.rs"]
+mod average;
 #[path = "packed/comparisons.rs"]
 mod comparisons;
 #[path = "packed/minmax.rs"]
