@@ -130,3 +130,6 @@ mod execution_sizes;
 
 #[path = "suites/sse.rs"]
 mod sse;
+
+#[path = "suites/memory_control.rs"]
+mod memory_control;
