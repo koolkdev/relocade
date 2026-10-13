@@ -81,6 +81,21 @@ impl Writer<'_> {
                 floating::UnaryOp::Abs => Instruction::F64Abs,
                 floating::UnaryOp::Neg => Instruction::F64Neg,
             },
+            Unary::FloatConvert(operator) => match (operator, input_type.carrier()) {
+                (floating::ConvertOp::PromoteBinary32, Type::I32) => {
+                    self.emit(Instruction::F32ReinterpretI32);
+                    Instruction::F64PromoteF32
+                }
+                (floating::ConvertOp::FromSignedInteger, Type::I32) => Instruction::F64ConvertI32S,
+                (floating::ConvertOp::FromSignedInteger, Type::I64) => Instruction::F64ConvertI64S,
+                (floating::ConvertOp::FromUnsignedInteger, Type::I32) => {
+                    Instruction::F64ConvertI32U
+                }
+                (floating::ConvertOp::FromUnsignedInteger, Type::I64) => {
+                    Instruction::F64ConvertI64U
+                }
+                _ => unreachable!("float conversions consume integer carriers"),
+            },
             Unary::BitCount {
                 operator,
                 input_type,

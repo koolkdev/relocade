@@ -170,6 +170,9 @@ fn unary(operator: Unary, input: TypedLiteral, result: Type) -> Option<Literal> 
         }
         Unary::ExtractLane { lane } => (u128::from(input.value) >> (lane * result.bits())) as u64,
         Unary::Float(operator) => floating::unary(operator, input.value.scalar(input.ty)?),
+        Unary::FloatConvert(operator) => {
+            floating::convert(operator, input.ty, input.value.scalar(input.ty)?)?
+        }
         Unary::BitCount {
             operator,
             input_type,

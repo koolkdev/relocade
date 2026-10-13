@@ -1,5 +1,7 @@
 //! Strict binary64 semantics and exact encoding transport use the ordinary compiler API.
 
+#[path = "floating/conversions.rs"]
+mod conversions;
 #[path = "floating/flow.rs"]
 mod flow;
 #[path = "floating/validation.rs"]
