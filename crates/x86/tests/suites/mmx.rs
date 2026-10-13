@@ -20,6 +20,8 @@ mod packing;
 mod saturation;
 #[path = "mmx/shifts.rs"]
 mod shifts;
+#[path = "mmx/shuffle.rs"]
+mod shuffle;
 #[path = "mmx/state.rs"]
 mod state;
 #[path = "mmx/unpack.rs"]

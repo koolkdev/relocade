@@ -233,7 +233,8 @@ fn narrow_vector_lane_indices_wrap_at_the_logical_width() {
 }
 
 #[test]
-#[should_panic(expected = "shuffle byte is in range")]
-fn narrow_vector_shuffles_cannot_access_the_upper_carrier() {
-    Val::<V64>::from(0_u64).shuffle_bytes(0_u64, [16; 8]);
+fn narrow_vector_shuffles_zero_out_of_range_indices() {
+    assert!(Val::<V64>::from(u64::MAX)
+        .shuffle_bytes(u64::MAX, [16; 8])
+        .same_expression(&Val::<V64>::from(0_u64)));
 }

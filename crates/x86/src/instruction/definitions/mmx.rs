@@ -10,6 +10,7 @@ mod binary;
 mod multiply;
 mod pack;
 mod shifts;
+mod shuffle;
 mod transfers;
 mod unpack;
 mod words;
@@ -18,6 +19,7 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
     binary::forms()
         .chain(multiply::forms())
         .chain(shifts::forms())
+        .chain(shuffle::forms())
         .chain(pack::forms())
         .chain(transfers::forms())
         .chain(unpack::forms())

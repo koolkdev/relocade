@@ -120,6 +120,22 @@ fn ternary(
             let mask = u128::from(third.value);
             Literal::from((u128::from(first.value) & mask) | (u128::from(second.value) & !mask))
         }
+        Ternary::Shuffle { input_type } => {
+            let left = u128::from(first.value).to_le_bytes();
+            let right = u128::from(second.value).to_le_bytes();
+            let width = input_type.bits() / 8;
+            let indices = u128::from(third.value).to_le_bytes();
+            let bytes = indices.map(|index| {
+                if index < width {
+                    left[usize::from(index)]
+                } else if index < width * 2 {
+                    right[usize::from(index - width)]
+                } else {
+                    0
+                }
+            });
+            Literal::from(u128::from_le_bytes(bytes))
+        }
     };
     Some(bits.normalize(result))
 }

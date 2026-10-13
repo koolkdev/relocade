@@ -1,7 +1,9 @@
 //! Integer lane operations preserve their logical widths independently.
 
 use crate::expression::ShuffleMask;
-use crate::expression::{BinaryOp as Binary, ShiftOp as Shift, UnaryOp as Unary};
+use crate::expression::{
+    BinaryOp as Binary, ShiftOp as Shift, TernaryOp as Ternary, UnaryOp as Unary,
+};
 use crate::integer::ShiftOp;
 use crate::{
     expression::LaneBinaryOp, AtLeast, BitwiseType, IntType, Type, Val, I16, I32, I64, I8, V128,
@@ -15,7 +17,7 @@ mod width;
 /// A raw vector with a fixed logical byte width, independent of its Wasm carrier.
 pub trait VectorType: BitwiseType {
     /// A byte array matching the logical vector width, including shuffle indices.
-    type Bytes: AsRef<[u8]> + AsMut<[u8]> + Default;
+    type Bytes: AsRef<[u8]> + AsMut<[u8]> + Default + Into<Val<Self>>;
 }
 
 impl VectorType for V64 {
@@ -168,22 +170,14 @@ impl<V: VectorType> Val<V> {
 
     /// Selects each output byte from the concatenated input vectors.
     /// Indices 0..N address this vector and N..2*N address `right`, low byte first,
-    /// where N is 8 for V64 and 16 for V128. Panics for indices outside that range.
-    pub fn shuffle_bytes(&self, right: impl Into<Self>, lanes: V::Bytes) -> Self {
-        let width = V::TYPE.bits() / 8;
-        let lanes = lanes.as_ref();
-        let indices = std::array::from_fn(|byte| {
-            if byte >= usize::from(width) {
-                return 0;
-            }
-            let lane = lanes[byte];
-            assert!(lane < width * 2, "shuffle byte is in range");
-            if lane < width {
-                lane
-            } else {
-                lane + 16 - width
-            }
-        });
-        self.binary(Binary::ShuffleImmediate(ShuffleMask::new(indices)), right)
+    /// where N is 8 for V64 and 16 for V128. Larger indices produce zero.
+    pub fn shuffle_bytes(&self, right: impl Into<Self>, indices: impl Into<Self>) -> Self {
+        self.clone().ternary(
+            Ternary::Shuffle {
+                input_type: V::TYPE,
+            },
+            right,
+            indices,
+        )
     }
 }

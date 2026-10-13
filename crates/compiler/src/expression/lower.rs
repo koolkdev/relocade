@@ -1,11 +1,13 @@
 //! Expand compound operations into ordinary, carrier-preserving expressions.
-use super::{BinaryOp as Binary, UnaryOp as Unary};
+use super::{BinaryOp as Binary, TernaryOp as Ternary, UnaryOp as Unary};
 use crate::{
     bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
     integer::{BinaryOp, BitCountOp},
     Expression, Type,
 };
+
+mod vector;
 
 pub(crate) fn lower(values: &mut ValueTable, id: usize) -> usize {
     use BitCountOp::{LeadingZeros, TrailingZeros};
@@ -27,31 +29,12 @@ pub(crate) fn lower(values: &mut ValueTable, id: usize) -> usize {
             operator: Binary::Swizzle {
                 input_type: Type::V64,
             },
-            left,
-            right,
-        } => {
-            let mask = values.literal(Type::V128, u128::from(u64::MAX));
-            let left = fold(
-                values,
-                Type::V128,
-                Expression::Binary {
-                    operator: Binary::Bitwise(BitwiseOp::And),
-                    left,
-                    right: mask,
-                },
-            );
-            return fold(
-                values,
-                value.ty,
-                Expression::Binary {
-                    operator: Binary::Swizzle {
-                        input_type: Type::V128,
-                    },
-                    left,
-                    right,
-                },
-            );
+            ..
         }
+        | Expression::Ternary {
+            operator: Ternary::Shuffle { .. },
+            ..
+        } => return vector::lower(values, value.ty, expression),
         _ => return id,
     };
     // Construction already normalized the input. The sentinel and padding

@@ -14,6 +14,8 @@ mod moves;
 mod mxcsr;
 #[path = "sse/packed.rs"]
 mod packed;
+#[path = "sse/shuffle.rs"]
+mod shuffle;
 #[path = "sse/words.rs"]
 mod words;
 
