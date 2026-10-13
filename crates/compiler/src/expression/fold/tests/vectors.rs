@@ -253,3 +253,74 @@ fn incompatible_bitwise_views_do_not_materialize_integer_literals() {
         }
     }
 }
+
+#[test]
+fn shuffle_identity_observes_logical_bytes_only_during_construction() {
+    use crate::expression::{ShuffleMask, TernaryOp};
+    let mut values = ValueTable::default();
+    let input = values.push(Value {
+        ty: Type::V64,
+        definition: ValueDefinition::Parameter {
+            block: BlockId(0),
+            component: 0,
+        },
+    });
+    let indices: [u8; 16] = std::array::from_fn(|byte| if byte < 8 { byte as u8 } else { 0 });
+    let selectors = values.literal(Type::V64, u128::from_le_bytes(indices));
+    let logical = Expression::Ternary {
+        operator: TernaryOp::Shuffle {
+            input_type: Type::V64,
+        },
+        first: input,
+        second: input,
+        third: selectors,
+    };
+    assert_eq!(build(&mut values, Type::V64, logical, 0), input);
+    let carrier = Expression::Binary {
+        operator: Binary::ShuffleImmediate(ShuffleMask::new(indices)),
+        left: input,
+        right: input,
+    };
+    assert_ne!(refold(&mut values, Type::V64, carrier), input);
+}
+
+#[test]
+fn refolded_extraction_normalizes_to_the_lane_opcode_not_the_replacement_type() {
+    let mut values = ValueTable::default();
+    let vector = values.push(Value {
+        ty: Type::V128,
+        definition: ValueDefinition::Parameter {
+            block: BlockId(0),
+            component: 0,
+        },
+    });
+    let scalar = values.push(Value {
+        ty: Type::I32,
+        definition: ValueDefinition::Parameter {
+            block: BlockId(0),
+            component: 1,
+        },
+    });
+    let replaced = refold(
+        &mut values,
+        Type::V128,
+        Expression::Binary {
+            operator: Binary::ReplaceLane {
+                lane_type: Type::I8,
+                lane: 7,
+            },
+            left: vector,
+            right: scalar,
+        },
+    );
+    let extracted = refold(
+        &mut values,
+        Type::I8,
+        Expression::Unary {
+            operator: Unary::ExtractLane { lane: 7 },
+            input: replaced,
+        },
+    );
+    assert_eq!(values.bounds[extracted].unsigned, 8);
+    assert_ne!(values.representation(extracted), scalar);
+}

@@ -2,6 +2,8 @@
 
 #[path = "vectors/floating.rs"]
 mod floating;
+#[path = "vectors/folding.rs"]
+mod folding;
 #[path = "vectors/lanes.rs"]
 mod indexed_lanes;
 #[path = "vectors/layout.rs"]
