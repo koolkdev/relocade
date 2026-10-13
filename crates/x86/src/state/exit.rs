@@ -13,12 +13,15 @@ const INVALID_OPCODE: u64 = 128 << 48;
 const FLOATING_POINT: u64 = 256 << 48;
 const SIMD_FLOATING_POINT: u64 = 512 << 48;
 
-/// A direct guest exit from a generated execution entry.
+/// A direct exit from a generated execution entry.
 ///
 /// Generated entries can also return values supplied by `dispatch` or `interpret`.
 /// Distinguish host-defined callback results from execution exits before decoding.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionExit {
+    /// The work budget is exhausted; published state can resume in another slice.
+    /// This is a scheduling boundary, not an architectural exception.
+    BudgetExhausted,
     Exception(Exception),
     /// An encoding or execution path outside the implemented instruction subset.
     UnsupportedInstruction {
@@ -37,6 +40,9 @@ impl ExecutionExit {
         let payload = ((bits >> 32) & 0xffff) as u32;
         let address = bits as u32;
         let exception = match tag {
+            crate::SLICE_EXHAUSTED if payload == 0 && address == 0 => {
+                return Some(Self::BudgetExhausted);
+            }
             DIVIDE_ERROR if payload == 0 && address == 0 => Exception::DivideError,
             BOUND_RANGE_EXCEEDED if payload == 0 && address == 0 => Exception::BoundRangeExceeded,
             INVALID_OPCODE if payload == 0 && address == 0 => Exception::InvalidOpcode,

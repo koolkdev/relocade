@@ -142,6 +142,10 @@ fn host_exit_words_in_v8() {
 
 #[test]
 fn decode_documented_guest_exit_words() {
+    assert_eq!(
+        ExecutionExit::from_bits(0x0400_0000_0000_0000),
+        Some(ExecutionExit::BudgetExhausted),
+    );
     for (bits, exception) in [
         (0x0001_0000_0000_0000, Exception::DivideError),
         (0x0040_0000_0000_0000, Exception::BoundRangeExceeded),
@@ -196,6 +200,8 @@ fn host_values_and_reserved_exit_fields_are_not_guest_exits() {
         0x0100_0000_0000_0001,
         0x0200_0000_0000_0001,
         0x0200_0001_0000_0000,
+        0x0400_0000_0000_0001,
+        0x0400_0001_0000_0000,
         0x0002_0000_0000_0001,
         0x0010_0000_0000_0001,
         0x0020_0000_0000_0001,

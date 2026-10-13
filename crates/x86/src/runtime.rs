@@ -1,5 +1,6 @@
 //! Host execution imports and their adapters to architectural values.
 
+mod budget;
 mod ports;
 
 use wasm86_compiler::{
@@ -14,6 +15,7 @@ use crate::{
 
 #[derive(Clone, Copy)]
 pub(crate) struct Runtime {
+    budget: Option<budget::Budget>,
     dispatch: Func,
     interpret: Func,
     resolve_segment: Func,
@@ -22,7 +24,7 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
-    pub(crate) fn declare(program: &mut Program) -> Self {
+    pub(crate) fn declare(program: &mut Program, execution_budget: bool) -> Self {
         let dispatch = program.import_function(FunctionImport {
             module: "wasm86".into(),
             name: "dispatch".into(),
@@ -63,12 +65,47 @@ impl Runtime {
             },
         });
         Self {
+            budget: execution_budget.then(|| budget::Budget::declare(program)),
             ports: ports::Ports::declare(program),
             dispatch,
             interpret,
             resolve_segment,
             query_segment_descriptor,
         }
+    }
+
+    pub(crate) fn check_budget(
+        self,
+        body: &mut BlockBuilder<'_>,
+        exhausted: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
+    ) -> Result<(), BuildError> {
+        if let Some(budget) = self.budget {
+            let remaining = budget.remaining(body)?;
+            body.if_(remaining.eq(0), exhausted)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn is_budgeted(self) -> bool {
+        self.budget.is_some()
+    }
+
+    pub(crate) fn remaining_work(
+        self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<Option<Val<I32>>, BuildError> {
+        self.budget.map(|budget| budget.remaining(body)).transpose()
+    }
+
+    pub(crate) fn publish_work(
+        self,
+        body: &mut BlockBuilder<'_>,
+        remaining: Option<&Val<I32>>,
+    ) -> Result<(), BuildError> {
+        if let (Some(budget), Some(remaining)) = (self.budget, remaining) {
+            budget.publish(body, remaining)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn dispatch(self, body: BlockBuilder<'_>, eip: &Val<I32>) -> Result<(), BuildError> {

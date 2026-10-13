@@ -4,7 +4,7 @@ use super::*;
 use crate::support::{
     blocks::BlockModules,
     machine::expected,
-    step::{Event, MmioUpdate, TestModule},
+    step::{DeviceUpdate, Event, TestModule},
 };
 use wasm86_x86::{ExecutionProfile, Segments};
 
@@ -28,9 +28,9 @@ fn mmio(engine: Engine, frontend: Frontend) {
             input.mmio_pages = vec![(4, 0x8000)];
             input.observe_mmio = true;
             if remap {
-                input.mmio_updates = vec![MmioUpdate {
+                input.mmio_updates = vec![DeviceUpdate {
                     map: vec![(4 * 8, vec![1, 0, 0, 0, 0, 0x90, 0, 0])],
-                    ..MmioUpdate::default()
+                    ..DeviceUpdate::default()
                 }];
             }
             let cpu = retired(image.cpu, code.len(), bytes);

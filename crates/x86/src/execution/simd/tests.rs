@@ -10,7 +10,7 @@ use wasm86_compiler::{Program, Signature, Type};
 fn exception_module(specialize: bool) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let runtime = Runtime::declare(&mut program);
+    let runtime = Runtime::declare(&mut program, false);
     let function = program
         .function(
             Signature {

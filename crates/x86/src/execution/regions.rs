@@ -17,7 +17,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         self.body.if_(condition, |body| {
             let mut arm = nested(body);
             arm.eip = transfer(&mut arm)?;
-            arm.completed += 1;
+            arm.retire()?;
             let runtime = arm.runtime;
             arm.complete(|body, eip| runtime.dispatch(body, eip))
         })
@@ -40,6 +40,9 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         let runtime = self.runtime;
         let eip = self.eip.clone();
         let completed = self.completed;
+        let work = self.work.clone();
+        let resume_instruction = self.resume_instruction;
+        let repetition_accounts_work = self.repetition_accounts_work;
         move |body| ExecutionBuilder {
             body,
             state: state.clone(),
@@ -52,6 +55,9 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             runtime,
             eip: eip.clone(),
             completed,
+            work: work.clone(),
+            resume_instruction,
+            repetition_accounts_work,
             // A child can contain partial effects of the current instruction,
             // so it cannot restart that instruction from its entry state.
             can_specialize: false,

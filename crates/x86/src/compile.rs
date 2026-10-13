@@ -24,6 +24,7 @@ use crate::{CpuState, ExecutionProfile};
 pub struct Compiler {
     profile: ExecutionProfile,
     observed_cpu: Option<CpuState>,
+    execution_budget: bool,
 }
 
 impl Compiler {
@@ -32,7 +33,18 @@ impl Compiler {
         Self {
             profile: profile.into(),
             observed_cpu: None,
+            execution_budget: false,
         }
+    }
+
+    /// Enables resumable execution through the `wasm86.executionBudget` memory.
+    /// One unit permits an ordinary instruction or one REP element; a zero-count
+    /// REP costs one unit. Exhaustion publishes state and returns
+    /// [`crate::SLICE_EXHAUSTED`]. All entries sharing a CPU must use this policy
+    /// to provide a bounded slice. See the [slice contract](crate#execution-slices).
+    pub fn with_execution_budget(mut self) -> Self {
+        self.execution_budget = true;
+        self
     }
 
     /// Copies a CPU snapshot for guarded specialization of snapshot blocks.
