@@ -5,7 +5,7 @@ use wasm86_compiler::{Val, F64, I1, I16, I32, I64};
 use super::{
     operand::{AddendSigns, BinaryOperands, Operand},
     result::RoundedValue,
-    value::{Classification, Precision53},
+    value::{KnownClass, Precision53},
     ArithmeticCandidate, BinaryOperation, ExtendedValue,
 };
 
@@ -186,7 +186,7 @@ impl NativeResult {
                     significand,
                     sign.or(zero.select(0, biased_exponent).truncate::<I16>()),
                 ))
-                .assume_class(Classification::zero().select(&zero, &Classification::normal())),
+                .assume_class(KnownClass::zero().select(&zero, &KnownClass::normal())),
                 inexact: nonzero.and(inexact),
                 incremented: nonzero.and(incremented),
             },

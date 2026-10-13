@@ -42,8 +42,8 @@ impl Precision53 {
         }
     }
 
-    pub(super) fn bits(&self) -> ExtendedBits {
-        self.bits.clone()
+    pub(super) fn bits(&self) -> &ExtendedBits {
+        &self.bits
     }
 
     pub(in crate::x87) fn significand(&self) -> &Val<F64> {

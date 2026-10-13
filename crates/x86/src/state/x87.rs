@@ -216,9 +216,13 @@ impl X87Access<'_, '_> {
         enabled: &Val<I1>,
     ) -> Result<(), BuildError> {
         let target = self.slot(7)?;
-        self.state
-            .registers
-            .write(self.body, &target, value, value.tag(), enabled)?;
+        self.state.registers.write(
+            self.body,
+            &target,
+            value,
+            value.classification().tag(),
+            enabled,
+        )?;
         self.state.registers.advance(self.body, -1, enabled)
     }
 
@@ -229,9 +233,13 @@ impl X87Access<'_, '_> {
         enabled: &Val<I1>,
     ) -> Result<(), BuildError> {
         let slot = self.slot(index)?;
-        self.state
-            .registers
-            .write(self.body, &slot, value, value.tag(), enabled)
+        self.state.registers.write(
+            self.body,
+            &slot,
+            value,
+            value.classification().tag(),
+            enabled,
+        )
     }
 
     /// A disabled pop must leave a pending exception, as for `push`.

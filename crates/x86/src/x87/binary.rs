@@ -1,10 +1,12 @@
 //! Exact binary32/64 expansion and directly rounded narrowing of extended values.
 
+mod classification;
 mod operand;
 
+pub(in crate::x87) use classification::BinaryClassification;
 pub(crate) use operand::BinaryOperand;
 
-use wasm86_compiler::{Val, I1, I16, I32, I64};
+use wasm86_compiler::{Val, I16, I32, I64};
 
 use super::{
     rounding::{RoundingInput, RoundingMode},
@@ -52,25 +54,6 @@ impl BinaryFormat {
         self.sign_bit() | self.infinity() | self.quiet_bit()
     }
 
-    fn denormal(self, bits: &Val<I64>) -> Val<I1> {
-        let magnitude = bits.and(self.sign_bit() - 1);
-        magnitude
-            .ne(0_u64)
-            .and(magnitude.unsigned().lt(1_u64 << self.fraction_bits()))
-    }
-
-    pub(super) fn tag(self, bits: &Val<I64>) -> Val<I16> {
-        let magnitude = bits.and(self.sign_bit() - 1);
-        // Narrow subnormals expand to normal extended values.
-        magnitude.eq(0_u64).select(
-            1_u32,
-            magnitude
-                .unsigned()
-                .ge(self.infinity())
-                .select(2_u32, 0_u32),
-        )
-    }
-
     pub(crate) fn bytes(self) -> u32 {
         match self {
             Self::Binary32 => 4,
@@ -93,7 +76,7 @@ impl BinaryFormat {
             .shl(15);
         let zero_exponent = exponent.eq(0_u64);
         let special = exponent.eq(exponent_mask);
-        let denormal = self.denormal(bits);
+        let denormal = self.classification(bits).denormal();
         let fraction = fraction.shl(63 - fraction_bits);
 
         // Narrow subnormals are normal extended values. This exact expansion
@@ -125,15 +108,16 @@ impl BinaryFormat {
                 invalid: false.into(),
                 overflow: false.into(),
                 // Exact subnormals still raise underflow when UM is clear.
-                tiny: self.denormal(bits),
+                tiny: self.classification(bits).denormal(),
                 inexact: false.into(),
                 incremented: false.into(),
             };
         }
-        let unsupported = value.unsupported();
-        let special = value.special_exponent();
-        let nan = value.nan();
-        let signaling_nan = value.signaling_nan();
+        let class = value.classification();
+        let unsupported = class.unsupported();
+        let special = class.special_exponent();
+        let nan = class.nan();
+        let signaling_nan = class.signaling_nan();
         let value = value.bits();
         let fraction_bits = self.fraction_bits();
         let precision = fraction_bits + 1;

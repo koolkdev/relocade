@@ -2,7 +2,7 @@
 
 use wasm86_compiler::{BlockBuilder, BuildError, Results, Val, I1, I16, I64};
 
-use super::{value::Classification, ExtendedBits, ExtendedValue};
+use super::{value::KnownClass, ExtendedBits, ExtendedValue};
 
 /// An extended result and the rounding evidence needed for #P and C1.
 #[derive(Clone)]
@@ -55,7 +55,7 @@ impl BinaryArithmetic {
             valid: self.operands_valid.and(valid),
             rounded: RoundedValue::from_components(
                 components,
-                Classification::normal().select(&self.round_magnitude, &Classification::zero()),
+                KnownClass::normal().select(&self.round_magnitude, &KnownClass::zero()),
             ),
         })
     }
@@ -76,7 +76,7 @@ impl RoundedValue {
                 significand: 0_u64.into(),
                 sign_exponent: negative.select(0x8000_u32, 0_u32),
             })
-            .assume_class(Classification::zero()),
+            .assume_class(KnownClass::zero()),
             inexact: false.into(),
             incremented: false.into(),
         }
@@ -106,7 +106,7 @@ impl RoundedValue {
     /// The caller must establish the class wherever these joined bits are used.
     pub(super) fn from_components(
         components: <RoundedShape as Results>::Values,
-        class: Classification,
+        class: KnownClass,
     ) -> Self {
         let (significand, sign_exponent, inexact, incremented) = components;
         Self {
