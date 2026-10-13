@@ -4,6 +4,8 @@
 mod flags;
 #[path = "floating/masks.rs"]
 mod masks;
+#[path = "floating/minmax.rs"]
+mod minmax;
 
 use super::*;
 
@@ -19,6 +21,15 @@ const QNAN: [u64; 2] = [0x7fc0_0123, 0x7ff8_0000_0000_0123];
 const SNAN: [u64; 2] = [0x7f80_0456, 0x7ff0_0000_0000_0456];
 const DENORMAL: [u64; 2] = [1, 1];
 const NEG_DENORMAL: [u64; 2] = [0x8000_0001, 0x8000_0000_0000_0001];
+
+fn prefix(wide: bool, packed: bool) -> &'static [u8] {
+    match (wide, packed) {
+        (false, false) => &[0xf3],
+        (true, false) => &[0xf2],
+        (false, true) => &[],
+        (true, true) => &[0x66],
+    }
+}
 
 fn lane(vector: &mut [u8; 16], wide: bool, index: usize, bits: u64) {
     let width = if wide { 8 } else { 4 };

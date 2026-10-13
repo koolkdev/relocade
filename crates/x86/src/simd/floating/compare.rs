@@ -18,8 +18,9 @@ impl FloatLane for I64 {
 }
 
 pub(crate) struct FloatOperands<T: FloatLane> {
-    left: Val<T>,
-    right: Val<T>,
+    /// DAZ-normalized encodings retained for exact result selection.
+    pub(crate) left: Val<T>,
+    pub(crate) right: Val<T>,
     unordered: Val<I1>,
     signaling_nan: Val<I1>,
     denormal: Val<I1>,
@@ -28,6 +29,7 @@ pub(crate) struct FloatOperands<T: FloatLane> {
 pub(crate) struct FloatComparison {
     pub(crate) less: Val<I1>,
     pub(crate) equal: Val<I1>,
+    pub(crate) greater: Val<I1>,
     pub(crate) unordered: Val<I1>,
     pub(crate) exceptions: SimdExceptions,
 }
@@ -65,6 +67,7 @@ where
         FloatComparison {
             less: left.lt(&right),
             equal: left.eq(&right),
+            greater: left.gt(&right),
             unordered: self.unordered.clone(),
             exceptions: SimdExceptions {
                 invalid: self.signaling_nan.or(signal_quiet_nan.and(&self.unordered)),

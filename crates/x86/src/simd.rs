@@ -1,4 +1,4 @@
-//! Pure x86 SIMD value operations shared by MMX and SSE.
+//! Pure x86 SIMD value operations for MMX and SSE.
 //! Operand access and architectural state effects belong to instruction execution.
 
 mod floating;
