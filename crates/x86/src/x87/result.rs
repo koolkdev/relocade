@@ -62,6 +62,14 @@ impl BinaryArithmetic {
 }
 
 impl RoundedValue {
+    pub(super) fn exact(value: ExtendedValue) -> Self {
+        Self {
+            value,
+            inexact: false.into(),
+            incremented: false.into(),
+        }
+    }
+
     fn or_indefinite(&self, condition: &Val<I1>) -> Self {
         Self {
             value: self.value.or_indefinite(condition),
@@ -134,7 +142,7 @@ pub(crate) struct ArithmeticResult {
     /// A precision-rounded candidate independent of the final masked/adjusted
     /// responses. The calculation owns operand admission; this range test alone
     /// does not exclude operand exceptions.
-    pub(super) in_range: ArithmeticCandidate,
+    pub(crate) in_range: ArithmeticCandidate,
     pub(crate) invalid: Val<I1>,
     pub(crate) denormal: Val<I1>,
     pub(crate) zero_divide: Val<I1>,
@@ -145,8 +153,8 @@ pub(crate) struct ArithmeticResult {
 }
 
 impl ArithmeticResult {
-    /// Replaces the final response with invalid-operation indefinite. State
-    /// uses this for stack faults before recording any numerical exceptions;
+    /// Replaces the final response with invalid-operation indefinite. Definitions
+    /// use this for stack faults before recording any numerical exceptions;
     /// the independent rounding candidate is no longer consumed at that point.
     pub(crate) fn or_indefinite(mut self, condition: &Val<I1>) -> Self {
         self.masked = self.masked.or_indefinite(condition);
