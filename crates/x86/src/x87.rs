@@ -5,6 +5,7 @@ mod binary;
 mod compare;
 mod constant;
 mod divide;
+mod extract;
 mod integer;
 mod integral;
 mod multiply;

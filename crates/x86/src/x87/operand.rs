@@ -43,6 +43,14 @@ impl Operand {
         self.normal_or_zero.clone()
     }
 
+    /// Preserves the source NaN's sign and payload while setting its quiet bit.
+    pub(super) fn quiet_nan(&self) -> ExtendedValue {
+        ExtendedValue::from_bits(ExtendedBits {
+            significand: self.bits.significand.or(1_u64 << 62),
+            sign_exponent: self.bits.sign_exponent.clone(),
+        })
+    }
+
     /// Unary operations quiet their original NaN and let invalid operands
     /// suppress lower-priority denormal evidence.
     pub(super) fn finish(
@@ -52,13 +60,7 @@ impl Operand {
     ) -> ArithmeticResult {
         let indefinite = self.unsupported.or(invalid_operation);
         let invalid = indefinite.or(&self.signaling_nan);
-        let special = RoundedValue::exact(
-            ExtendedValue::from_bits(ExtendedBits {
-                significand: self.bits.significand.or(1_u64 << 62),
-                sign_exponent: self.bits.sign_exponent.clone(),
-            })
-            .or_indefinite(&indefinite),
-        );
+        let special = RoundedValue::exact(self.quiet_nan().or_indefinite(&indefinite));
         result.replace_when(&self.nan.or(&indefinite), &special);
         result.denormal = invalid.or(&self.nan).eq(false).and(&self.denormal);
         result.invalid = invalid;

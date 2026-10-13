@@ -229,6 +229,12 @@ impl ExtendedValue {
         self
     }
 
+    /// The caller must establish a normal finite class, for example with an
+    /// instruction guard. The exact representation remains unchanged.
+    pub(crate) fn assume_normal(self) -> Self {
+        self.assume_class(KnownClass::normal())
+    }
+
     pub(crate) fn classification(&self) -> Classification<'_> {
         if let Some(class) = &self.class {
             return Classification::known(class);
