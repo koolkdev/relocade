@@ -20,6 +20,8 @@ mod comparisons;
 mod infer;
 mod merge;
 mod range;
+mod selects;
+mod shifts;
 use comparisons::Comparisons;
 use range::Range;
 
@@ -137,6 +139,14 @@ impl ScalarFacts {
         }
         // Construction already folded path-independent constants.
         if self.known.is_empty() && self.ranges.is_empty() && self.comparisons.is_empty() {
+            return None;
+        }
+        self.inferred_constant(table, id)
+    }
+
+    /// Structural inference also applies without path assumptions during case proofs.
+    fn inferred_constant(&self, table: &ValueTable, id: usize) -> Option<u64> {
+        if !table[id].ty.is_scalar() {
             return None;
         }
         let bits = self.bits(table, id);

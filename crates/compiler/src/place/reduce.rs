@@ -109,7 +109,14 @@ impl Reducer {
                         crate::expression::refold(values, rewritten)
                     };
                     if result == id {
-                        self.record(id, id);
+                        // Prove only a stable recipe. Alias/Visit below handles
+                        // new or already memoized results without repeating proofs.
+                        let result = self
+                            .facts
+                            .constant_across_selects(values, id)
+                            .map(|bits| values.carrier_literal(crate::Type::I1, bits))
+                            .unwrap_or(id);
+                        self.record(id, result);
                     } else {
                         // Folding may introduce another recipe. Reduce it in
                         // this context before publishing a stable normal form.

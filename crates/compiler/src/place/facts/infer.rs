@@ -1,7 +1,9 @@
 //! Derive facts through expressions without changing the current path.
 
 use super::{Bits, Range, ScalarFacts};
-use crate::expression::{BinaryOp as Binary, CompareOp as Compare, UnaryOp as Unary};
+use crate::expression::{
+    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, UnaryOp as Unary,
+};
 use crate::{
     bitwise::BitwiseOp,
     body::ValueTable,
@@ -155,6 +157,16 @@ impl ScalarFacts {
                         }
                     }
                 }
+                Expression::Shift {
+                    operator: Shift::Scalar(operator),
+                    value: input,
+                    count,
+                } => cache[&input].shifted(table, input, operator, cache[&count]),
+                Expression::Select {
+                    when_true,
+                    when_false,
+                    ..
+                } => cache[&when_true].common(cache[&when_false]),
                 _ => Bits::default(),
             };
             let comparison = match expression {

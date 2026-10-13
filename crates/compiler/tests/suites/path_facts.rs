@@ -20,6 +20,8 @@ mod materialization;
 mod ranges;
 #[path = "path_facts/representations.rs"]
 mod representations;
+#[path = "path_facts/selects.rs"]
+mod selects;
 #[path = "path_facts/sharing.rs"]
 mod sharing;
 #[path = "path_facts/snapshots.rs"]
