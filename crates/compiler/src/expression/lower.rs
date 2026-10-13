@@ -11,16 +11,48 @@ pub(crate) fn lower(values: &mut ValueTable, id: usize) -> usize {
     use BitCountOp::{LeadingZeros, TrailingZeros};
 
     let value = values[id];
-    let ValueDefinition::Expression(Expression::Unary {
-        operator:
-            Unary::BitCount {
-                operator: operator @ (LeadingZeros | TrailingZeros),
-                input_type: input_type @ (Type::I1 | Type::I8 | Type::I16),
-            },
-        input,
-    }) = value.definition
-    else {
+    let ValueDefinition::Expression(expression) = value.definition else {
         return id;
+    };
+    let (operator, input_type, input) = match expression {
+        Expression::Unary {
+            operator:
+                Unary::BitCount {
+                    operator: operator @ (LeadingZeros | TrailingZeros),
+                    input_type: input_type @ (Type::I1 | Type::I8 | Type::I16),
+                },
+            input,
+        } => (operator, input_type, input),
+        Expression::Binary {
+            operator: Binary::Swizzle {
+                input_type: Type::V64,
+            },
+            left,
+            right,
+        } => {
+            let mask = values.literal(Type::V128, u128::from(u64::MAX));
+            let left = fold(
+                values,
+                Type::V128,
+                Expression::Binary {
+                    operator: Binary::Bitwise(BitwiseOp::And),
+                    left,
+                    right: mask,
+                },
+            );
+            return fold(
+                values,
+                value.ty,
+                Expression::Binary {
+                    operator: Binary::Swizzle {
+                        input_type: Type::V128,
+                    },
+                    left,
+                    right,
+                },
+            );
+        }
+        _ => return id,
     };
     // Construction already normalized the input. The sentinel and padding
     // belong to its i32 carrier, not to the narrower logical input type.

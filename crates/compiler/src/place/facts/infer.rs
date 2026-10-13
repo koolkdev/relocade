@@ -2,7 +2,8 @@
 
 use super::{Bits, Range, ScalarFacts};
 use crate::expression::{
-    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, UnaryOp as Unary,
+    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, TernaryOp as Ternary,
+    UnaryOp as Unary,
 };
 use crate::{
     bitwise::BitwiseOp,
@@ -69,10 +70,11 @@ impl ScalarFacts {
             }
             // Resolve the selector first so known paths do not walk discarded
             // state histories merely to rediscover the chosen value.
-            if let Expression::Select {
-                condition,
-                when_true,
-                when_false,
+            if let Expression::Ternary {
+                operator: Ternary::Select,
+                first: when_true,
+                second: when_false,
+                third: condition,
             } = expression
             {
                 let Some(condition_bits) = cache.get(&condition) else {
@@ -162,9 +164,10 @@ impl ScalarFacts {
                     value: input,
                     count,
                 } => cache[&input].shifted(table, input, operator, cache[&count]),
-                Expression::Select {
-                    when_true,
-                    when_false,
+                Expression::Ternary {
+                    operator: Ternary::Select | Ternary::Bitselect,
+                    first: when_true,
+                    second: when_false,
                     ..
                 } => cache[&when_true].common(cache[&when_false]),
                 _ => Bits::default(),

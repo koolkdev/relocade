@@ -4,6 +4,7 @@ use super::{
     unbound::{Operand as UnboundOperand, UnboundExpression},
     Val,
 };
+use crate::expression::TernaryOp as Ternary;
 use crate::{expression::TypedLiteral, results, Expression, Results, Type, ValueType, I1};
 
 pub(super) struct Operand {
@@ -135,12 +136,6 @@ impl Val<I1> {
         when_true: impl Into<Val<T>>,
         when_false: impl Into<Val<T>>,
     ) -> Val<T> {
-        let when_true: Val<T> = when_true.into();
-        let when_false: Val<T> = when_false.into();
-        Val::expression(Expression::Select {
-            condition: self.into(),
-            when_true: when_true.into(),
-            when_false: when_false.into(),
-        })
+        when_true.into().ternary(Ternary::Select, when_false, self)
     }
 }

@@ -14,6 +14,8 @@ mod moves;
 mod mxcsr;
 #[path = "sse/packed.rs"]
 mod packed;
+#[path = "sse/words.rs"]
+mod words;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},

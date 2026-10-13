@@ -11,7 +11,7 @@ enum Half {
 }
 
 impl Half {
-    fn lane(self) -> u8 {
+    fn lane(self) -> u32 {
         match self {
             Self::Low => 0,
             Self::High => 1,

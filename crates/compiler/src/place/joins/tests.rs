@@ -1,5 +1,5 @@
 use super::*;
-use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
+use crate::expression::{BinaryOp as Binary, TernaryOp as Ternary, UnaryOp as Unary};
 use crate::integer::BinaryOp;
 
 mod parameters;
@@ -243,10 +243,11 @@ fn incoming_aliases_keep_their_predecessor_scope() {
     let choice = expression(
         &mut graph,
         Type::I32,
-        Expression::Select {
-            condition: 0,
-            when_true: 1,
-            when_false: number,
+        Expression::Ternary {
+            operator: Ternary::Select,
+            first: 1,
+            second: number,
+            third: 0,
         },
     );
     let alias = expression(

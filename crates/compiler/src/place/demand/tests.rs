@@ -1,5 +1,5 @@
 use super::*;
-use crate::expression::BinaryOp as Binary;
+use crate::expression::{BinaryOp as Binary, TernaryOp as Ternary};
 use crate::{integer::BinaryOp, memory::MemoryAccess, Mem, Type};
 
 fn schedules(
@@ -162,10 +162,11 @@ fn surviving_select_users_keep_their_input_demand() {
     let zero = branches.graph.values.literal(Type::I32, 0);
     let choice = branches.graph.values.push(Value {
         ty: Type::I32,
-        definition: ValueDefinition::Expression(Expression::Select {
-            condition: 2,
-            when_true: branches.product,
-            when_false: zero,
+        definition: ValueDefinition::Expression(Expression::Ternary {
+            operator: Ternary::Select,
+            first: branches.product,
+            second: zero,
+            third: 2,
         }),
     });
     branches.graph.blocks[branches.taken.0].exit = Exit::Return(vec![branches.product, zero]);
@@ -395,10 +396,11 @@ fn an_optional_recipe_does_not_require_its_discarded_inputs() {
     });
     let choice = branches.graph.values.intern(Value {
         ty: Type::I32,
-        definition: ValueDefinition::Expression(Expression::Select {
-            condition: 0,
-            when_true: residual,
-            when_false: branches.product,
+        definition: ValueDefinition::Expression(Expression::Ternary {
+            operator: crate::expression::TernaryOp::Select,
+            first: residual,
+            second: branches.product,
+            third: 0,
         }),
     });
     branches.graph.blocks[branches.taken.0].exit = Exit::Return(vec![residual]);

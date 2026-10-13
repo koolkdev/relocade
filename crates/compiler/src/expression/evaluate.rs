@@ -1,7 +1,8 @@
 //! Literal evaluation preserves raw vector bits and scalar carrier rules.
 use super::Expression;
 use crate::expression::{
-    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, UnaryOp as Unary,
+    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, TernaryOp as Ternary,
+    UnaryOp as Unary,
 };
 
 mod vector;
@@ -72,18 +73,12 @@ impl Expression<TypedLiteral> {
                 };
                 Some(result.normalize(bits).into())
             }
-            Self::Select {
-                condition,
-                when_true,
-                when_false,
-            } => Some(
-                if condition.value.scalar(condition.ty)? != 0 {
-                    when_true.value
-                } else {
-                    when_false.value
-                }
-                .normalize(result),
-            ),
+            Self::Ternary {
+                operator,
+                first,
+                second,
+                third,
+            } => ternary(operator, first, second, third, result),
             Self::MultiplyWide {
                 signed,
                 left,
@@ -106,8 +101,38 @@ impl Expression<TypedLiteral> {
     }
 }
 
+fn ternary(
+    operator: Ternary,
+    first: TypedLiteral,
+    second: TypedLiteral,
+    third: TypedLiteral,
+    result: Type,
+) -> Option<Literal> {
+    let bits = match operator {
+        Ternary::Select => {
+            if third.value.scalar(third.ty)? != 0 {
+                first.value
+            } else {
+                second.value
+            }
+        }
+        Ternary::Bitselect => {
+            let mask = u128::from(third.value);
+            Literal::from((u128::from(first.value) & mask) | (u128::from(second.value) & !mask))
+        }
+    };
+    Some(bits.normalize(result))
+}
+
 fn unary(operator: Unary, input: TypedLiteral, result: Type) -> Option<Literal> {
     let bits = match operator {
+        Unary::Splat { lane_type } => {
+            let lane = u128::from(lane_type.normalize(input.value.scalar(input.ty)?));
+            let bits = (0..128)
+                .step_by(usize::from(lane_type.bits()))
+                .fold(0, |bits, offset| bits | (lane << offset));
+            return Some(Literal::from(bits).normalize(result));
+        }
         Unary::Reinterpret if !result.is_scalar() => {
             let low = u128::from(input.value.scalar(input.ty)?);
             return Some(Literal::from(low | (low << 64)).normalize(result));
@@ -148,6 +173,17 @@ fn binary(
     result: Type,
 ) -> Option<Literal> {
     let bits = match operator {
+        Binary::Swizzle { input_type } => {
+            let bytes = u128::from(left.value).to_le_bytes();
+            let indices = u128::from(right.value).to_le_bytes();
+            let bytes = &bytes[..usize::from(input_type.bits() / 8)];
+            return Some(
+                Literal::from(u128::from_le_bytes(
+                    indices.map(|i| bytes.get(usize::from(i)).copied().unwrap_or(0)),
+                ))
+                .normalize(result),
+            );
+        }
         Binary::Bitwise(operator) => {
             return Some(operator.apply(left.value, right.value).normalize(result))
         }
@@ -179,7 +215,7 @@ fn binary(
                 .normalize(result),
             )
         }
-        Binary::Shuffle(lanes) => {
+        Binary::ShuffleImmediate(lanes) => {
             return Some(
                 Literal::from(vector::shuffle(
                     left.value.into(),

@@ -1,5 +1,6 @@
 use crate::expression::{
-    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, UnaryOp as Unary,
+    BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, TernaryOp as Ternary,
+    UnaryOp as Unary,
 };
 mod argument;
 mod construction;
@@ -140,6 +141,20 @@ impl<T: ValueType> Val<T> {
             operator,
             left: self.into(),
             right: other.into(),
+        })
+    }
+
+    fn ternary<U: ValueType>(
+        self,
+        operator: Ternary,
+        second: impl Into<Self>,
+        third: impl Into<Val<U>>,
+    ) -> Self {
+        Self::expression(Expression::Ternary {
+            operator,
+            first: self.into(),
+            second: second.into().into(),
+            third: third.into().into(),
         })
     }
 

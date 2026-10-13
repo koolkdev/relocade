@@ -24,6 +24,8 @@ mod shifts;
 mod state;
 #[path = "mmx/unpack.rs"]
 mod unpack;
+#[path = "mmx/words.rs"]
+mod words;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},

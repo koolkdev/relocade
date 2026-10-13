@@ -2,7 +2,10 @@
 use super::{vector, Writer};
 use crate::{
     bitwise::BitwiseOp,
-    expression::{BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, UnaryOp as Unary},
+    expression::{
+        BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, TernaryOp as Ternary,
+        UnaryOp as Unary,
+    },
     floating,
     integer::{low_mask, BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
     Type,
@@ -14,6 +17,7 @@ impl Writer<'_> {
         let wide = ty == Type::I64;
         let instruction = match operator {
             Unary::Bitmask { lane_type } => vector::bitmask(lane_type),
+            Unary::Splat { lane_type } => vector::splat(lane_type),
             Unary::ExtractLane { lane } => vector::extract(ty, lane),
             Unary::Reinterpret => match (input_type.carrier(), ty.carrier()) {
                 (Type::I64, Type::F64) => Instruction::F64ReinterpretI64,
@@ -97,7 +101,11 @@ pub(super) fn binary(operator: Binary, input_type: Type) -> Instruction<'static>
     match operator {
         Binary::Compare(operator) => compare(operator, input_type),
         Binary::Bitwise(operator) => bitwise(operator, input_type),
-        Binary::Shuffle(lanes) => Instruction::I8x16Shuffle(lanes.indices()),
+        Binary::Swizzle {
+            input_type: Type::V128,
+        } => Instruction::I8x16Swizzle,
+        Binary::Swizzle { .. } => unreachable!("logical swizzles lower before placement"),
+        Binary::ShuffleImmediate(lanes) => Instruction::I8x16Shuffle(lanes.indices()),
         Binary::ReplaceLane { lane_type, lane } => vector::replace(lane_type, lane),
         Binary::Integer(operator) => match (operator, input_type == Type::I64) {
             (BinaryOp::Add, false) => Instruction::I32Add,
@@ -129,6 +137,13 @@ pub(super) fn binary(operator: Binary, input_type: Type) -> Instruction<'static>
             signed,
             result_lane,
         } => vector::narrow(signed, result_lane),
+    }
+}
+
+pub(super) fn ternary(operator: Ternary) -> Instruction<'static> {
+    match operator {
+        Ternary::Select => Instruction::Select,
+        Ternary::Bitselect => Instruction::V128Bitselect,
     }
 }
 

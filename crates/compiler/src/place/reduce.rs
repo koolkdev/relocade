@@ -56,10 +56,11 @@ impl Reducer {
                         self.pending.push(Work::Visit(input));
                     } else if let Some(result) = values.expression(id) {
                         let expression = result.expression;
-                        if let Expression::Select {
-                            condition,
-                            when_true,
-                            when_false,
+                        if let Expression::Ternary {
+                            operator: crate::expression::TernaryOp::Select,
+                            first: when_true,
+                            second: when_false,
+                            third: condition,
                         } = expression
                         {
                             self.pending

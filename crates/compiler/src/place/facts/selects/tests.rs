@@ -56,19 +56,21 @@ fn correlated(table: &mut ValueTable, first: usize, second: usize, input: usize)
     let a = expression(
         table,
         Type::I64,
-        Expression::Select {
-            condition: first,
-            when_true: zero,
-            when_false: set,
+        Expression::Ternary {
+            operator: Ternary::Select,
+            first: zero,
+            second: set,
+            third: first,
         },
     );
     let b = expression(
         table,
         Type::I64,
-        Expression::Select {
-            condition: second,
-            when_true: zero,
-            when_false: input,
+        Expression::Ternary {
+            operator: Ternary::Select,
+            first: zero,
+            second: input,
+            third: second,
         },
     );
     let top_bit = expression(
@@ -218,10 +220,11 @@ fn unknown_selects_keep_only_bits_shared_by_both_alternatives() {
     let choice = expression(
         &mut table,
         Type::I64,
-        Expression::Select {
-            condition,
-            when_true: a,
-            when_false: b,
+        Expression::Ternary {
+            operator: Ternary::Select,
+            first: a,
+            second: b,
+            third: condition,
         },
     );
     let facts = ScalarFacts::default();
@@ -239,10 +242,11 @@ fn equal_logical_select_bits_do_not_make_the_carrier_constant() {
     let choice = expression(
         &mut table,
         Type::I8,
-        Expression::Select {
-            condition,
-            when_true: a,
-            when_false: b,
+        Expression::Ternary {
+            operator: Ternary::Select,
+            first: a,
+            second: b,
+            third: condition,
         },
     );
     let carrier = expression(
@@ -273,19 +277,21 @@ fn select_proofs_use_ranges_without_leaking_case_assumptions() {
     let a = expression(
         &mut table,
         Type::I1,
-        Expression::Select {
-            condition,
-            when_true: is_twenty,
-            when_false: one,
+        Expression::Ternary {
+            operator: Ternary::Select,
+            first: is_twenty,
+            second: one,
+            third: condition,
         },
     );
     let b = expression(
         &mut table,
         Type::I1,
-        Expression::Select {
-            condition,
-            when_true: one,
-            when_false: at_least_twenty_one,
+        Expression::Ternary {
+            operator: Ternary::Select,
+            first: one,
+            second: at_least_twenty_one,
+            third: condition,
         },
     );
     let both = expression(

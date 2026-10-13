@@ -33,10 +33,11 @@ fn conditional_value() -> FunctionGraph {
     let when_false = graph.values.literal(crate::Type::I32, 11);
     let choice = graph.values.intern(Value {
         ty: crate::Type::I32,
-        definition: ValueDefinition::Expression(Expression::Select {
-            condition,
-            when_true,
-            when_false,
+        definition: ValueDefinition::Expression(Expression::Ternary {
+            operator: crate::expression::TernaryOp::Select,
+            first: when_true,
+            second: when_false,
+            third: condition,
         }),
     });
     graph.blocks[0].exit = Exit::Return(vec![choice]);
@@ -94,10 +95,11 @@ fn refolding_finishes_reduction_of_a_new_recipe_before_returning() {
     let high = masked(0xff0000);
     let choice = graph.values.intern(Value {
         ty: Type::I32,
-        definition: ValueDefinition::Expression(Expression::Select {
-            condition,
-            when_true: low,
-            when_false: input,
+        definition: ValueDefinition::Expression(Expression::Ternary {
+            operator: crate::expression::TernaryOp::Select,
+            first: low,
+            second: input,
+            third: condition,
         }),
     });
     let root = graph.values.intern(Value {
@@ -174,10 +176,11 @@ fn refolding_changed_operands_preserves_wide_result_components() {
     let zero = graph.values.literal(Type::I64, 0);
     let choice = graph.values.intern(Value {
         ty: Type::I64,
-        definition: ValueDefinition::Expression(Expression::Select {
-            condition: 0,
-            when_true: input,
-            when_false: zero,
+        definition: ValueDefinition::Expression(Expression::Ternary {
+            operator: crate::expression::TernaryOp::Select,
+            first: input,
+            second: zero,
+            third: 0,
         }),
     });
     let product = graph.values.intern(Value {
@@ -210,10 +213,11 @@ fn equal_logical_choices_keep_distinct_physical_carriers() {
     let when_false = graph.values.carrier_literal(crate::Type::I8, 0x200);
     let choice = graph.values.intern(Value {
         ty: crate::Type::I8,
-        definition: ValueDefinition::Expression(Expression::Select {
-            condition,
-            when_true,
-            when_false,
+        definition: ValueDefinition::Expression(Expression::Ternary {
+            operator: crate::expression::TernaryOp::Select,
+            first: when_true,
+            second: when_false,
+            third: condition,
         }),
     });
     let carrier = graph.values.intern(Value {
@@ -341,10 +345,11 @@ fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
     });
     let choice = graph.values.intern(Value {
         ty: Type::I32,
-        definition: ValueDefinition::Expression(Expression::Select {
-            condition: bit,
-            when_true: inputs[1],
-            when_false: inputs[2],
+        definition: ValueDefinition::Expression(Expression::Ternary {
+            operator: crate::expression::TernaryOp::Select,
+            first: inputs[1],
+            second: inputs[2],
+            third: bit,
         }),
     });
     let update = graph.values.intern(Value {

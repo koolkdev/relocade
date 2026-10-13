@@ -1,5 +1,5 @@
 use super::Expression;
-use crate::expression::BinaryOp as Binary;
+use crate::expression::{BinaryOp as Binary, TernaryOp as Ternary, UnaryOp as Unary};
 
 #[test]
 #[cfg(target_pointer_width = "64")]
@@ -47,10 +47,11 @@ fn packed_operation_identity_includes_its_lane_width_without_view_nodes() {
 
 #[test]
 fn select_inputs_and_mapping_follow_wasm_stack_order() {
-    let expression = Expression::Select {
-        condition: String::from("condition"),
-        when_true: String::from("true"),
-        when_false: String::from("false"),
+    let expression = Expression::Ternary {
+        operator: Ternary::Select,
+        first: String::from("true"),
+        second: String::from("false"),
+        third: String::from("condition"),
     };
     let forward: Vec<_> = expression.inputs().map(String::as_str).collect();
     let backward: Vec<_> = expression.inputs().rev().map(String::as_str).collect();
@@ -65,20 +66,22 @@ fn select_inputs_and_mapping_follow_wasm_stack_order() {
     assert_eq!(visited, ["true", "false", "condition"]);
     assert!(matches!(
         borrowed,
-        Expression::Select {
-            condition: "condition",
-            when_true: "true",
-            when_false: "false",
+        Expression::Ternary {
+            operator: Ternary::Select,
+            first: "true",
+            second: "false",
+            third: "condition",
         }
     ));
 }
 
 #[test]
 fn input_mapping_stops_at_the_first_error() {
-    let expression = Expression::Select {
-        condition: 3,
-        when_true: 1,
-        when_false: 2,
+    let expression = Expression::Ternary {
+        operator: Ternary::Select,
+        first: 1,
+        second: 2,
+        third: 3,
     };
     let mut visited = Vec::new();
     let result = expression.try_map(|&input| {
@@ -123,6 +126,38 @@ fn refolding_lane_replacement_discards_narrow_carrier_bits() {
         let folded = super::refold(&mut values, expression);
         let ValueDefinition::Literal(bits) = values[folded].definition else {
             panic!("literal lane replacement folds");
+        };
+        assert_eq!(u128::from(bits), expected);
+    }
+}
+
+#[test]
+fn refolding_splat_discards_narrow_carrier_bits() {
+    use crate::{
+        body::{Value, ValueDefinition, ValueTable},
+        Type,
+    };
+
+    for (ty, carrier, expected) in [
+        (
+            Type::I8,
+            0x104_u64,
+            0x04040404_04040404_04040404_04040404_u128,
+        ),
+        (Type::I16, 0x10004, 0x00040004_00040004_00040004_00040004),
+    ] {
+        let mut values = ValueTable::default();
+        let input = values.carrier_literal(ty, carrier);
+        let expression = values.intern(Value {
+            ty: Type::V128,
+            definition: ValueDefinition::Expression(Expression::Unary {
+                operator: Unary::Splat { lane_type: ty },
+                input,
+            }),
+        });
+        let folded = super::refold(&mut values, expression);
+        let ValueDefinition::Literal(bits) = values[folded].definition else {
+            panic!("literal splat folds");
         };
         assert_eq!(u128::from(bits), expected);
     }
