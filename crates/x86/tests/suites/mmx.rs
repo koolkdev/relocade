@@ -10,6 +10,8 @@ mod comparisons;
 mod faults;
 #[path = "mmx/logical.rs"]
 mod logical;
+#[path = "mmx/masks.rs"]
+mod masks;
 #[path = "mmx/multiply.rs"]
 mod multiply;
 #[path = "mmx/packing.rs"]

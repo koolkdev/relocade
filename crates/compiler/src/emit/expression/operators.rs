@@ -13,6 +13,7 @@ impl Writer<'_> {
     pub(super) fn unary(&mut self, operator: Unary, input_type: Type, ty: Type) {
         let wide = ty == Type::I64;
         let instruction = match operator {
+            Unary::Bitmask { lane_type } => vector::bitmask(lane_type),
             Unary::ExtractLane { lane } => vector::extract(ty, lane),
             Unary::Reinterpret => match (input_type.carrier(), ty.carrier()) {
                 (Type::I64, Type::F64) => Instruction::F64ReinterpretI64,

@@ -6,6 +6,8 @@ mod half_moves;
 mod integer_moves;
 #[path = "sse/logical.rs"]
 mod logical;
+#[path = "sse/masks.rs"]
+mod masks;
 #[path = "sse/moves.rs"]
 mod moves;
 #[path = "sse/mxcsr.rs"]

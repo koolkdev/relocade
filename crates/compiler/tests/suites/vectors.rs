@@ -1,5 +1,7 @@
 //! Vector encodings follow the same value, effect and control-flow contracts as scalars.
 
+#[path = "vectors/masks.rs"]
+mod masks;
 #[path = "vectors/packed.rs"]
 mod packed;
 #[path = "vectors/shifts.rs"]

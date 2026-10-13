@@ -114,6 +114,13 @@ fn unary(operator: Unary, input: TypedLiteral, result: Type) -> Option<Literal> 
         }
         Unary::Reinterpret if !input.ty.is_scalar() => u128::from(input.value) as u64,
         Unary::Convert if !input.ty.is_scalar() => return Some(input.value.normalize(result)),
+        Unary::Bitmask { lane_type } => {
+            let bits = u128::from(input.value);
+            let mask = (0..128 / lane_type.bits()).fold(0_u32, |mask, lane| {
+                mask | ((((bits >> ((lane + 1) * lane_type.bits() - 1)) & 1) as u32) << lane)
+            });
+            u64::from(mask)
+        }
         Unary::ExtractLane { lane } => (u128::from(input.value) >> (lane * result.bits())) as u64,
         Unary::Float(operator) => floating::unary(operator, input.value.scalar(input.ty)?),
         Unary::BitCount {

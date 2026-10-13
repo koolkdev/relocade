@@ -18,6 +18,9 @@ pub(crate) enum UnaryOp {
     ExtractLane {
         lane: u8,
     },
+    Bitmask {
+        lane_type: Type,
+    },
     Reinterpret,
     SignExtend {
         input_type: Type,

@@ -3,6 +3,16 @@
 use crate::{expression::LaneBinaryOp, integer::ShiftOp, Type};
 use wasm_encoder::Instruction;
 
+pub(super) fn bitmask(lane_type: Type) -> Instruction<'static> {
+    match lane_type {
+        Type::I8 => Instruction::I8x16Bitmask,
+        Type::I16 => Instruction::I16x8Bitmask,
+        Type::I32 => Instruction::I32x4Bitmask,
+        Type::I64 => Instruction::I64x2Bitmask,
+        _ => unreachable!("integer lanes have 8, 16, 32 or 64 bits"),
+    }
+}
+
 pub(super) fn binary(operator: LaneBinaryOp, lane_type: Type) -> Instruction<'static> {
     match (operator, lane_type) {
         (LaneBinaryOp::Add, Type::I8) => Instruction::I8x16Add,
