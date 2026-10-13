@@ -6,7 +6,8 @@ use super::ExecutionBuilder;
 use crate::register::RegisterCode;
 
 impl ExecutionBuilder<'_, '_> {
-    /// The body must finish its guest fault checks before any architectural writes.
+    /// The body checks guest faults before writing its destination; exception
+    /// status may be published before a fault. MMX environment changes follow success.
     pub(crate) fn execute_mmx(
         &mut self,
         body: impl FnOnce(&mut Self) -> Result<(), BuildError>,

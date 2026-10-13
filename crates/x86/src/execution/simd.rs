@@ -10,7 +10,7 @@ impl ExecutionBuilder<'_, '_> {
     }
 
     /// Publish sticky status before an unmasked fault. Call before writing the
-    /// instruction's XMM or EFLAGS destination, after any operand-access checks.
+    /// instruction's destination, after any operand-access checks.
     pub(crate) fn record_simd_exceptions(
         &mut self,
         exceptions: &SimdExceptions,

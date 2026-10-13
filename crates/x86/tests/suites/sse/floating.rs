@@ -10,6 +10,8 @@ mod jit;
 mod masks;
 #[path = "floating/minmax.rs"]
 mod minmax;
+#[path = "floating/mmx.rs"]
+mod mmx;
 #[path = "floating/packed_integer.rs"]
 mod packed_integer;
 #[path = "floating/scalar_integer.rs"]
