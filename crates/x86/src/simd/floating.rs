@@ -6,6 +6,7 @@ mod integer;
 mod operand;
 pub(crate) use compare::FloatOperands;
 pub(crate) use exceptions::SimdExceptions;
+pub(crate) use integer::integer_to_float;
 pub(crate) use operand::{FloatLane, FloatOperand};
 
 use wasm86_compiler::{AtLeast, Val, ValueType, VectorLane, I1, I64, V128};

@@ -2,6 +2,8 @@
 
 #[path = "floating/flags.rs"]
 mod flags;
+#[path = "floating/from_integer.rs"]
+mod from_integer;
 #[path = "floating/jit.rs"]
 mod jit;
 #[path = "floating/masks.rs"]
