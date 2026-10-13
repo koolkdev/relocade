@@ -299,7 +299,10 @@ selector and provide its descriptor.
 
 The implemented controls are FNINIT, FNCLEX, FLDCW, FNSTCW, FNSTSW (memory and AX)
 and standalone FWAIT. Stack operations include FLD ST(i), FST/FSTP ST(i), FXCH,
-FFREE, FINCSTP and FDECSTP. Memory data transfers support FLD m32/m64/m80,
+FFREE, FINCSTP and FDECSTP. FCHS and FABS change only the sign of a nonempty
+ST(0), preserving its exact encoding, including NaN payloads. Empty operands
+use the ordinary masked or unmasked stack-underflow response. Memory data
+transfers support FLD m32/m64/m80,
 FILD m16/m32/m64 integers, FIST m16/m32, FISTP m16/m32/m64, FST m32/m64 and
 FSTP m32/m64/m80. Register arithmetic supports FADD/FADDP, FSUB/FSUBP,
 FSUBR/FSUBRP, FMUL/FMULP, FDIV/FDIVP and FDIVR/FDIVRP. FADD, FSUB, FSUBR, FMUL,

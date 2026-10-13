@@ -2,7 +2,7 @@
 
 use wasm86_compiler::{Val, F64, I1, I16};
 
-use super::ExtendedBits;
+use super::{ExtendedBits, SignOperation};
 
 /// The positive significand is in [1, 2), or +0. The architectural sign and
 /// exponent are separate, including for special encodings such as indefinite.
@@ -48,6 +48,16 @@ impl Precision53 {
 
     pub(in crate::x87) fn significand(&self) -> &Val<F64> {
         &self.significand
+    }
+
+    pub(super) fn change_sign(&self, operation: SignOperation) -> Self {
+        Self {
+            significand: self.significand.clone(),
+            bits: ExtendedBits {
+                significand: self.bits.significand.clone(),
+                sign_exponent: operation.apply(&self.bits.sign_exponent, 0x8000),
+            },
+        }
     }
 
     pub(super) fn or_indefinite(&self, invalid: &Val<I1>) -> Self {
