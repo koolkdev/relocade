@@ -133,17 +133,19 @@ fn boolean_constraints_survive_a_join_without_importing_sibling_facts() {
     assert_eq!(yes.constant(&table, b), Some(0));
     assert_eq!(no.constant(&table, b), None);
     assert_eq!(parent.constant(&table, b), None);
-    let joined = ScalarFacts::join(&table, &[], &[(&yes, &[]), (&no, &[])]);
-    assert_eq!(joined.constant(&table, a), None);
-    assert_eq!(joined.constant(&table, b), None);
-    let later = joined.with_assumptions(
-        &table,
-        [Assumption::Truth {
-            condition: a,
-            truth: true,
-        }],
-    );
-    assert_eq!(later.constant(&table, b), Some(0));
+    for (first, second) in [(&yes, &no), (&no, &yes)] {
+        let joined = ScalarFacts::join(&table, &[], &[(first, &[]), (second, &[])]);
+        assert_eq!(joined.constant(&table, a), None);
+        assert_eq!(joined.constant(&table, b), None);
+        let later = joined.with_assumptions(
+            &table,
+            [Assumption::Truth {
+                condition: a,
+                truth: true,
+            }],
+        );
+        assert_eq!(later.constant(&table, b), Some(0));
+    }
 }
 
 fn boolean(table: &mut ValueTable, operator: BitwiseOp, left: usize, right: usize) -> usize {
@@ -227,9 +229,9 @@ fn inner_bits_reactivate_constraints_without_a_new_operand_fact() {
 }
 
 #[test]
-fn newly_deduced_operands_propagate_through_other_constraints() {
+fn newly_deduced_operands_propagate_through_all_retained_constraints() {
     let mut table = ValueTable::default();
-    let inputs: Vec<_> = (0..12)
+    let inputs: Vec<_> = (0..=MAX_CONSTRAINTS)
         .map(|component| {
             table.push(Value {
                 ty: Type::I1,
@@ -255,17 +257,20 @@ fn newly_deduced_operands_propagate_through_other_constraints() {
         .with_assumptions(
             &table,
             [Assumption::Truth {
-                condition: inputs[11],
+                condition: inputs[MAX_CONSTRAINTS],
                 truth: true,
             }],
         );
     for (index, input) in inputs.into_iter().enumerate() {
-        assert_eq!(facts.constant(&table, input), Some((index % 2) as u64));
+        assert_eq!(
+            facts.constant(&table, input),
+            Some(u64::from((MAX_CONSTRAINTS - index).is_multiple_of(2)))
+        );
     }
 }
 
 #[test]
-fn unrelated_changes_do_not_schedule_constraint_propagation() {
+fn indexed_constraints_ignore_unrelated_changes() {
     let mut table = parameters();
     let zero = table.literal(Type::I32, 0);
     let one = table.literal(Type::I32, 1);
@@ -279,6 +284,8 @@ fn unrelated_changes_do_not_schedule_constraint_propagation() {
             truth: true,
         }],
     );
+    facts.constraints.index(&table);
+    facts.propagate_constraints(&table);
     assert_ne!(facts.constraints.active, 0);
     assert_eq!(facts.constraints.pending, 0);
     facts.assume_bits(1, u32::MAX as u64, 42);
@@ -405,20 +412,8 @@ fn comparison_notifications_include_operands_created_after_a_literal() {
 #[test]
 fn dependency_budget_exhaustion_leaves_the_operand_unknown() {
     let mut table = parameters();
+    let a = deep_nonzero(&mut table, 0);
     let zero = table.literal(Type::I32, 0);
-    let one = table.literal(Type::I32, 1);
-    let mut input = 0;
-    for _ in 0..MAX_DEPENDENCIES {
-        input = table.intern(Value {
-            ty: Type::I32,
-            definition: ValueDefinition::Expression(Expression::Binary {
-                operator: BinaryOp::Integer(crate::integer::BinaryOp::Add),
-                left: input,
-                right: one,
-            }),
-        });
-    }
-    let a = compare(&mut table, CompareOp::Ne, input, zero);
     let b = compare(&mut table, CompareOp::Ne, 1, zero);
     let root = boolean(&mut table, BitwiseOp::Xor, a, b);
     let facts = ScalarFacts::default().with_assumptions(
@@ -439,7 +434,7 @@ fn dependency_budget_exhaustion_leaves_the_operand_unknown() {
 }
 
 #[test]
-fn sibling_constraints_extend_their_indexes_independently() {
+fn sibling_constraints_are_indexed_independently() {
     let mut table = ValueTable::default();
     let [a, b, c, d] = [0, 1, 2, 3].map(|component| {
         table.push(Value {
@@ -491,4 +486,128 @@ fn sibling_constraints_extend_their_indexes_independently() {
     assert_eq!(second.constant(&table, c), None);
     assert_eq!(second.constant(&table, d), Some(1));
     assert_eq!(parent.constant(&table, b), None);
+}
+
+#[test]
+fn discarded_candidates_leave_capacity_for_a_full_constraint_chain() {
+    let mut table = parameters();
+    let premise = deep_nonzero(&mut table, 0);
+    let inputs: Vec<_> = (0..MAX_CANDIDATES + MAX_CONSTRAINTS + 1)
+        .map(|component| {
+            table.push(Value {
+                ty: Type::I1,
+                definition: ValueDefinition::Parameter {
+                    block: crate::body::BlockId(0),
+                    component: component + 2,
+                },
+            })
+        })
+        .collect();
+    let mut observations: Vec<_> = inputs[..MAX_CANDIDATES]
+        .iter()
+        .map(|&input| Assumption::Truth {
+            condition: boolean(&mut table, BitwiseOp::Xor, premise, input),
+            truth: true,
+        })
+        .collect();
+    let chain = &inputs[MAX_CANDIDATES..];
+    observations.extend(chain.windows(2).map(|pair| Assumption::Truth {
+        condition: boolean(&mut table, BitwiseOp::Xor, pair[0], pair[1]),
+        truth: true,
+    }));
+    observations.push(Assumption::Truth {
+        condition: chain[MAX_CONSTRAINTS],
+        truth: true,
+    });
+    observations.push(Assumption::Truth {
+        condition: premise,
+        truth: true,
+    });
+    let facts = ScalarFacts::default().with_assumptions(&table, observations);
+    for &input in &inputs[..MAX_CANDIDATES] {
+        assert_eq!(facts.constant(&table, input), None);
+    }
+    for (index, &input) in chain.iter().enumerate() {
+        assert_eq!(
+            facts.constant(&table, input),
+            Some(u64::from((MAX_CONSTRAINTS - index).is_multiple_of(2))),
+        );
+    }
+}
+
+#[test]
+fn deferred_checks_preserve_parent_work_and_skip_unchanged_facts() {
+    let mut table = parameters();
+    let zero = table.literal(Type::I32, 0);
+    let a = compare(&mut table, CompareOp::Ne, 0, zero);
+    let b = compare(&mut table, CompareOp::Ne, 1, zero);
+    let root = boolean(&mut table, BitwiseOp::Xor, a, b);
+    let mut parent = ScalarFacts::default().with_assumptions(
+        &table,
+        [Assumption::Truth {
+            condition: root,
+            truth: true,
+        }],
+    );
+    assert!(!parent.constraints.indexed());
+    parent.assume_bits(0, u32::MAX as u64, 1);
+    let child = parent.clone().with_assumptions(&table, []);
+    assert_eq!(child.constant(&table, b), Some(0));
+    assert!(child.constraints.indexed());
+    assert!(!parent.constraints.indexed());
+    parent.propagate_constraints(&table);
+    assert_eq!(parent.constant(&table, b), Some(0));
+    assert_eq!(parent.constraints.pending, 0);
+    parent.assume_bits(0, u32::MAX as u64, 1);
+    assert_eq!(parent.constraints.pending, 0);
+}
+
+fn deep_nonzero(table: &mut ValueTable, mut input: usize) -> usize {
+    let zero = table.literal(Type::I32, 0);
+    let one = table.literal(Type::I32, 1);
+    for _ in 0..MAX_DEPENDENCIES {
+        input = table.intern(Value {
+            ty: Type::I32,
+            definition: ValueDefinition::Expression(Expression::Binary {
+                operator: BinaryOp::Integer(crate::integer::BinaryOp::Add),
+                left: input,
+                right: one,
+            }),
+        });
+    }
+    compare(table, CompareOp::Ne, input, zero)
+}
+
+#[test]
+fn indexing_requeues_a_useful_candidate_after_an_earlier_candidate_is_discarded() {
+    let mut table = parameters();
+    let deep = deep_nonzero(&mut table, 0);
+    let [unrelated, left, right] = [2, 3, 4].map(|component| {
+        table.push(Value {
+            ty: Type::I1,
+            definition: ValueDefinition::Parameter {
+                block: crate::body::BlockId(0),
+                component,
+            },
+        })
+    });
+    let rejected = boolean(&mut table, BitwiseOp::Xor, deep, unrelated);
+    let useful = boolean(&mut table, BitwiseOp::Xor, left, right);
+    let facts = ScalarFacts::default()
+        .with_assumptions(
+            &table,
+            [rejected, useful].map(|condition| Assumption::Truth {
+                condition,
+                truth: true,
+            }),
+        )
+        .with_assumptions(
+            &table,
+            [Assumption::Truth {
+                condition: left,
+                truth: true,
+            }],
+        );
+    assert_eq!(facts.constant(&table, right), Some(0));
+    assert_eq!(facts.constant(&table, unrelated), None);
 }

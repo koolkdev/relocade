@@ -43,7 +43,7 @@ impl ScalarFacts {
             }
             let bits = previous.union(bits);
             self.record(id, bits);
-            self.constraints.track(table, id, bits);
+            self.track_constraint(table, id, bits);
             let ValueDefinition::Expression(expression) = value.definition else {
                 continue;
             };

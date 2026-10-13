@@ -117,7 +117,7 @@ impl ScalarFacts {
             mask,
             value: value & mask,
         };
-        if !previous.conflicts(bits) {
+        if !previous.conflicts(bits) && bits.mask & !previous.mask != 0 {
             self.record(id, previous.union(bits));
         }
     }
