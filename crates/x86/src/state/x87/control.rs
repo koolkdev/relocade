@@ -8,7 +8,7 @@ use crate::{
     x87::RoundingMode,
 };
 
-use super::X87Specialization;
+use super::{X87Access, X87Specialization};
 
 /// Maskable exceptions share bit positions in the architectural control and
 /// status words. Stack fault is a status condition, not a seventh exception mask.
@@ -45,7 +45,7 @@ impl Exception {
 }
 
 #[derive(Clone)]
-pub(crate) struct Control {
+pub(super) struct Control {
     fields: StateFields,
 }
 
@@ -56,7 +56,7 @@ impl Control {
         }
     }
 
-    pub(crate) fn rounding(
+    pub(super) fn rounding(
         &mut self,
         body: &mut BlockBuilder<'_>,
     ) -> Result<RoundingMode, BuildError> {
@@ -66,7 +66,7 @@ impl Control {
         ))
     }
 
-    pub(crate) fn precision(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I8>, BuildError> {
+    pub(super) fn precision(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I8>, BuildError> {
         self.fields
             .read(body, cpu_location!(x87.control.precision_control))
     }
@@ -91,7 +91,7 @@ impl Control {
         })
     }
 
-    pub(crate) fn unmasked(
+    pub(super) fn unmasked(
         &mut self,
         body: &mut BlockBuilder<'_>,
         exception: Exception,
@@ -159,5 +159,22 @@ impl Control {
 
     pub(super) fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.fields.publish(body)
+    }
+}
+
+impl X87Access<'_, '_> {
+    pub(crate) fn rounding(&mut self) -> Result<RoundingMode, BuildError> {
+        self.state.control.rounding(self.body)
+    }
+
+    pub(crate) fn precision(&mut self) -> Result<Val<I8>, BuildError> {
+        self.state.control.precision(self.body)
+    }
+
+    pub(crate) fn exception_unmasked(
+        &mut self,
+        exception: Exception,
+    ) -> Result<Val<I1>, BuildError> {
+        self.state.control.unmasked(self.body, exception)
     }
 }

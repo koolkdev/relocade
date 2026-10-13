@@ -1,4 +1,4 @@
-//! Numerical results carry values and exception evidence to the x87 state owner.
+//! Numerical results carry values and exception evidence to instruction handlers.
 
 use wasm86_compiler::{BlockBuilder, BuildError, Results, Val, I1, I16, I64};
 

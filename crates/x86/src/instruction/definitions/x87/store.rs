@@ -5,7 +5,7 @@ use crate::{
     address::MemoryAddress,
     instruction::X87StackIndex,
     memory::Intent,
-    state::x87::X87Specialization,
+    state::x87::{ConditionCode, Exception, X87Specialization},
     x87::{BinaryFormat, ConversionResult, ExtendedValue, RoundingMode},
 };
 use wasm86_compiler::{MemoryInt, I64};
@@ -98,10 +98,34 @@ where
     let operand = execution.memory_operand(address, T::BYTES, Intent::Write, &[])?;
     execution.specialize(|jit| jit.specialize_x87(X87Specialization::Rounding))?;
     execution.record_x87_memory(&operand)?;
-    let store = execution.x87().resolve_store(pop, convert)?;
+    let mut x87 = execution.x87();
+    let source = x87.read_stack(0)?;
+    let rounding = x87.rounding()?;
+    let result = convert(&source.value.or_indefinite(&source.empty), &rounding);
+    let invalid = source.empty.or(result.invalid);
+    let unmasked_invalid = x87.record_exception(Exception::Invalid, &invalid)?;
+    x87.record_stack_fault(&source.empty)?;
+    let unmasked_overflow = x87.record_exception(Exception::Overflow, &result.overflow)?;
+    let unmasked_underflow = x87.exception_unmasked(Exception::Underflow)?;
+    let underflow = result.tiny.and(unmasked_underflow.or(&result.inexact));
+    let unmasked_underflow = x87.record_exception(Exception::Underflow, &underflow)?;
+    let suppressed = unmasked_invalid
+        .or(unmasked_overflow)
+        .or(unmasked_underflow);
+    let enabled = suppressed.eq(false);
+    // Unmasked range exceptions suppress new PE and clear C1 for memory
+    // destinations. Existing sticky exception flags remain untouched.
+    let precision = enabled.and(result.inexact);
+    let unmasked_precision = x87.record_exception(Exception::Precision, &precision)?;
+    x87.set_condition_code(ConditionCode::C1, enabled.and(result.incremented))?;
+    x87.record_pending_exception(suppressed.or(unmasked_precision))?;
+    if pop {
+        x87.pop(&enabled)?;
+    }
+
     execution.if_value::<()>(
-        &store.enabled,
-        |arm| operand.write(arm, 0, store.bits.truncate::<T>()),
+        &enabled,
+        |arm| operand.write(arm, 0, result.bits.truncate::<T>()),
         |_| Ok(()),
     )
 }
@@ -114,7 +138,10 @@ fn store_extended(
     let operand = execution.memory_operand(address, 10, Intent::Write, &[])?;
     let source = execution.x87().read_stack(0)?;
     execution.record_x87_memory(&operand)?;
-    let enabled = execution.x87().stack_fault(&source.empty, false.into())?;
+    let enabled = execution.x87().stack_underflow(&source.empty)?;
+    execution
+        .x87()
+        .set_condition_code(ConditionCode::C1, false)?;
     let value = source.value.or_indefinite(&source.empty).bits();
     execution.if_value::<()>(
         &enabled,
@@ -135,7 +162,10 @@ fn store_register(
     execution.check_x87_exception()?;
     execution.record_x87_instruction()?;
     let source = execution.x87().read_stack(0)?;
-    let enabled = execution.x87().stack_fault(&source.empty, false.into())?;
+    let enabled = execution.x87().stack_underflow(&source.empty)?;
+    execution
+        .x87()
+        .set_condition_code(ConditionCode::C1, false)?;
     execution.x87().write_stack(
         destination.offset(),
         &source.value.or_indefinite(&source.empty),

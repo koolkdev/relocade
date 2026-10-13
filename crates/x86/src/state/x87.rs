@@ -4,9 +4,8 @@ mod control;
 mod mmx;
 mod registers;
 mod status;
-mod transfer;
 
-pub(crate) use transfer::LoadSource;
+pub(crate) use status::ConditionCode;
 
 use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 
@@ -26,8 +25,8 @@ pub(crate) enum X87Specialization {
 #[derive(Clone)]
 pub(crate) struct X87State {
     metadata: StateFields,
-    pub(crate) control: control::Control,
-    pub(crate) status: status::Status,
+    control: control::Control,
+    status: status::Status,
     registers: registers::Registers,
 }
 
@@ -184,25 +183,43 @@ impl X87Access<'_, '_> {
         })
     }
 
-    /// Records a stack fault and returns whether its data and stack effects commit.
-    /// An unmasked fault becomes pending; its producer still retires normally.
-    pub(crate) fn stack_fault(
-        &mut self,
-        fault: &Val<I1>,
-        overflow: Val<I1>,
-    ) -> Result<Val<I1>, BuildError> {
-        let unmasked = self.state.status.record_exception(
-            self.body,
-            Exception::Invalid,
-            fault,
-            &mut self.state.control,
-        )?;
-        self.state.status.record_stack_fault(self.body, fault)?;
-        self.state
-            .status
-            .record_pending_exception(self.body, unmasked.clone())?;
-        self.state.status.set_c1(self.body, overflow)?;
+    /// Records underflow and returns whether data and stack effects are enabled.
+    /// C1 policy is chosen by the instruction independently of these effects.
+    pub(crate) fn stack_underflow(&mut self, fault: &Val<I1>) -> Result<Val<I1>, BuildError> {
+        let unmasked = self.record_exception(Exception::Invalid, fault)?;
+        self.record_stack_fault(fault)?;
+        self.record_pending_exception(unmasked.clone())?;
         Ok(unmasked.eq(false))
+    }
+
+    fn push_tag(&mut self) -> Result<Val<I16>, BuildError> {
+        let target = self.slot(7)?;
+        self.state.registers.tag(self.body, &target)
+    }
+
+    pub(crate) fn push_available(&mut self) -> Result<Val<I1>, BuildError> {
+        Ok(self.push_tag()?.eq(3))
+    }
+
+    /// Whether the push destination is occupied; source underflow can still
+    /// take priority over an overflow response.
+    pub(crate) fn push_full(&mut self) -> Result<Val<I1>, BuildError> {
+        Ok(self.push_tag()?.ne(3))
+    }
+
+    /// Writes the entry ST(7) slot, then advances TOP when enabled.
+    /// A disabled push must leave a pending exception: register tracking assumes
+    /// the advance succeeded until the next x87 exception check.
+    pub(crate) fn push(
+        &mut self,
+        value: &ExtendedValue,
+        enabled: &Val<I1>,
+    ) -> Result<(), BuildError> {
+        let target = self.slot(7)?;
+        self.state
+            .registers
+            .write(self.body, &target, value, value.tag(), enabled)?;
+        self.state.registers.advance(self.body, -1, enabled)
     }
 
     pub(crate) fn write_stack(
@@ -217,6 +234,7 @@ impl X87Access<'_, '_> {
             .write(self.body, &slot, value, value.tag(), enabled)
     }
 
+    /// A disabled pop must leave a pending exception, as for `push`.
     pub(crate) fn pop(&mut self, enabled: &Val<I1>) -> Result<(), BuildError> {
         let slot = self.slot(0)?;
         self.state
@@ -235,8 +253,7 @@ impl X87Access<'_, '_> {
     pub(crate) fn rotate(&mut self, increment: bool) -> Result<(), BuildError> {
         self.state
             .registers
-            .advance(self.body, if increment { 1 } else { -1 }, true)?;
-        self.state.status.set_c1(self.body, false)
+            .advance(self.body, if increment { 1 } else { -1 }, true)
     }
 
     pub(crate) fn record_instruction(

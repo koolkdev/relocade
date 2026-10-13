@@ -1,7 +1,7 @@
 //! Stack operations address ST(i) relative to TOP on entry.
 
 use super::*;
-use crate::instruction::X87StackIndex;
+use crate::{instruction::X87StackIndex, state::x87::ConditionCode};
 
 instruction_families! {
     FXCH {
@@ -32,7 +32,10 @@ fn exchange_register(
     let top = execution.x87().read_stack(0)?;
     let other = execution.x87().read_stack(&index)?;
     let fault = top.empty.or(&other.empty);
-    let enabled = execution.x87().stack_fault(&fault, false.into())?;
+    let enabled = execution.x87().stack_underflow(&fault)?;
+    execution
+        .x87()
+        .set_condition_code(ConditionCode::C1, false)?;
     // Each empty source is replaced before exchanging; the live source survives.
     execution
         .x87()
@@ -57,5 +60,7 @@ fn rotate_stack(
 ) -> Result<(), BuildError> {
     execution.check_x87_exception()?;
     execution.record_x87_instruction()?;
-    execution.x87().rotate(increment)
+    let mut x87 = execution.x87();
+    x87.rotate(increment)?;
+    x87.set_condition_code(ConditionCode::C1, false)
 }
