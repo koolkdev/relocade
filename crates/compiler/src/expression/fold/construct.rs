@@ -66,6 +66,10 @@ impl Folder<'_> {
                 Binary::Integer(operator) => self.binary(operator, left, right),
                 Binary::Bitwise(operator) => self.bitwise(operator, left, right),
                 Binary::Compare(Compare::Integer(operator)) => self.compare(operator, left, right),
+                Binary::Vector {
+                    operator,
+                    lane_type,
+                } => self.vector(ty, operator, lane_type, left, right),
                 _ => self.fold(ty, expression),
             },
             Expression::Shift {

@@ -1,6 +1,62 @@
 use super::*;
 
 #[test]
+fn packed_identities_preserve_the_complete_carrier_during_refolding() {
+    use crate::expression::LaneBinaryOp;
+    for ty in [Type::V64, Type::V128] {
+        let mut values = ValueTable::default();
+        let input = values.push(Value {
+            ty,
+            definition: ValueDefinition::Parameter {
+                block: BlockId(0),
+                component: 0,
+            },
+        });
+        let zero = values.literal(ty, 0);
+        let upper = values.carrier_literal(ty, 1_u128 << 100);
+        let packed = |operator, right| Expression::Binary {
+            operator: Binary::Vector {
+                operator,
+                lane_type: Type::I16,
+            },
+            left: input,
+            right,
+        };
+        for op in [
+            LaneBinaryOp::Add,
+            LaneBinaryOp::AddSatSigned,
+            LaneBinaryOp::SubSatUnsigned,
+        ] {
+            assert_eq!(refold(&mut values, ty, packed(op, zero)), input);
+            assert_ne!(refold(&mut values, ty, packed(op, upper)), input);
+        }
+        for op in [
+            LaneBinaryOp::Sub,
+            LaneBinaryOp::SubSatSigned,
+            LaneBinaryOp::GtSigned,
+        ] {
+            assert_eq!(refold(&mut values, ty, packed(op, input)), zero);
+        }
+        let equal = refold(&mut values, ty, packed(LaneBinaryOp::Eq, input));
+        let ValueDefinition::Literal(bits) = values[equal].definition else {
+            panic!("equality folds")
+        };
+        assert_eq!(u128::from(bits), u128::MAX);
+
+        let low_ones = values.carrier_literal(ty, 0x0001_0001_0001_0001_u64);
+        assert_ne!(
+            refold(&mut values, ty, packed(LaneBinaryOp::Mul, low_ones)),
+            input
+        );
+        let all_ones = values.carrier_literal(ty, 0x0001_0001_0001_0001_0001_0001_0001_0001_u128);
+        assert_eq!(
+            refold(&mut values, ty, packed(LaneBinaryOp::Mul, all_ones)),
+            input
+        );
+    }
+}
+
+#[test]
 fn vector_roundtrips_distinguish_logical_construction_from_carrier_refolding() {
     let mut values = ValueTable::default();
     let input = values.push(Value {
