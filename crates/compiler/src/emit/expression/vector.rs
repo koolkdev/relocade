@@ -63,6 +63,8 @@ pub(super) fn binary(operator: LaneBinaryOp, lane_type: Type) -> Instruction<'st
         (LaneBinaryOp::MaxUnsigned, Type::I8) => Instruction::I8x16MaxU,
         (LaneBinaryOp::MaxUnsigned, Type::I16) => Instruction::I16x8MaxU,
         (LaneBinaryOp::MaxUnsigned, Type::I32) => Instruction::I32x4MaxU,
+        (LaneBinaryOp::AverageUnsigned, Type::I8) => Instruction::I8x16AvgrU,
+        (LaneBinaryOp::AverageUnsigned, Type::I16) => Instruction::I16x8AvgrU,
         (LaneBinaryOp::Eq, Type::I8) => Instruction::I8x16Eq,
         (LaneBinaryOp::Eq, Type::I16) => Instruction::I16x8Eq,
         (LaneBinaryOp::Eq, Type::I32) => Instruction::I32x4Eq,

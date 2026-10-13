@@ -103,6 +103,7 @@ pub(crate) enum LaneBinaryOp {
     MinUnsigned,
     MaxSigned,
     MaxUnsigned,
+    AverageUnsigned,
     AddSatSigned,
     AddSatUnsigned,
     SubSatSigned,

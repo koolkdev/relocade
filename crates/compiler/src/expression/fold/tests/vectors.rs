@@ -42,6 +42,7 @@ fn packed_identities_preserve_the_complete_carrier_during_refolding() {
             LaneBinaryOp::MinUnsigned,
             LaneBinaryOp::MaxSigned,
             LaneBinaryOp::MaxUnsigned,
+            LaneBinaryOp::AverageUnsigned,
         ] {
             assert_eq!(refold(&mut values, ty, packed(op, input)), input);
         }

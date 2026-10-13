@@ -1,5 +1,7 @@
 //! Packed integer operations agree for constants and runtime inputs.
 
+#[path = "packed/average.rs"]
+mod average;
 #[path = "packed/comparisons.rs"]
 mod comparisons;
 #[path = "packed/identities.rs"]
