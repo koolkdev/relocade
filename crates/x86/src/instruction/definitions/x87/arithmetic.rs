@@ -3,9 +3,10 @@
 use super::*;
 use crate::{
     address::MemoryAddress,
-    execution::X87Operand,
+    execution::{X87Operand, X87Operands},
     instruction::X87StackIndex,
-    x87::{BinaryFormat, BinaryOperation},
+    state::x87::{ConditionCode, Exception, X87Specialization},
+    x87::{ArithmeticResult, BinaryFormat, BinaryOperation},
 };
 
 instruction_families! {
@@ -147,7 +148,13 @@ fn binary_register(
         Destination::Top => (0.into(), other.offset()),
         Destination::Other => (other.offset(), 0.into()),
     };
-    execution.arithmetic_x87(destination, X87Operand::Register(source), operation, pop)
+    arithmetic(
+        execution,
+        destination,
+        X87Operand::Register(source),
+        operation,
+        pop,
+    )
 }
 
 fn binary_memory(
@@ -156,10 +163,92 @@ fn binary_memory(
     operation: BinaryOperation,
     format: BinaryFormat,
 ) -> Result<(), BuildError> {
-    execution.arithmetic_x87(
+    arithmetic(
+        execution,
         0.into(),
         X87Operand::BinaryMemory { address, format },
         operation,
         false,
     )
+}
+
+fn arithmetic(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: Val<I32>,
+    source: X87Operand,
+    operation: BinaryOperation,
+    pop: bool,
+) -> Result<(), BuildError> {
+    execution.check_x87_exception()?;
+    let X87Operands {
+        values: operands,
+        mut stack_fault,
+        memory,
+    } = execution.read_x87_operands(destination.clone(), source)?;
+    let precision = execution.x87().precision()?;
+    let rounding = execution.x87().rounding()?;
+    let specialized = execution.specialize(|execution| {
+        execution.specialize_x87(X87Specialization::Arithmetic)?;
+        execution.specialize_on(
+            stack_fault
+                .eq(false)
+                .and(operands.precision_only(operation)),
+        )?;
+        stack_fault = false.into();
+        // The preceding control guard validates these observed fields.
+        let nearest_53 = execution.observed_cpu().is_some_and(|observed| {
+            let control = &observed.x87.control;
+            control.precision_control & 3 == 2 && control.rounding_control & 3 == 0
+        });
+        let candidate = execution.calculate(|body| {
+            operands.rounding_candidate(body, operation, precision.clone(), &rounding, nearest_53)
+        })?;
+        execution.specialize_on(candidate.valid)?;
+        Ok(ArithmeticResult::from_rounding(candidate.rounded))
+    })?;
+    let result = match specialized {
+        Some(result) => result,
+        None => execution.calculate(|body| {
+            Ok(operands
+                .calculate(body, operation, precision, &rounding)?
+                .result)
+        })?,
+    };
+    execution.record_x87_operand(memory.as_ref())?;
+
+    let mut x87 = execution.x87();
+    // Stack faults override all numerical responses, including #D from a
+    // narrow source that expanded to a normal binary80 value.
+    let result = result.or_indefinite(&stack_fault);
+    let unmasked_invalid = x87.record_exception(Exception::Invalid, &result.invalid)?;
+    let unmasked_zero_divide = x87.record_exception(Exception::ZeroDivide, &result.zero_divide)?;
+    let unmasked_denormal = x87.record_exception(Exception::Denormal, &result.denormal)?;
+    x87.record_stack_fault(&stack_fault)?;
+    let suppressed = unmasked_invalid
+        .or(unmasked_zero_divide)
+        .or(unmasked_denormal);
+    let enabled = suppressed.eq(false);
+    let overflow = enabled.and(&result.overflow);
+    let unmasked_overflow = x87.record_exception(Exception::Overflow, &overflow)?;
+    let tiny = enabled.and(&result.tiny);
+    let underflow_unmasked = x87.exception_unmasked(Exception::Underflow)?;
+    let rounded = result.resolve_range(&unmasked_overflow.or(tiny.and(&underflow_unmasked)));
+    let underflow = tiny.and(underflow_unmasked.or(&rounded.inexact));
+    let unmasked_underflow = x87.record_exception(Exception::Underflow, &underflow)?;
+    let precision = enabled.and(rounded.inexact);
+    let unmasked_precision = x87.record_exception(Exception::Precision, &precision)?;
+    x87.set_condition_code(ConditionCode::C1, enabled.and(rounded.incremented))?;
+    x87.record_pending_exception(
+        suppressed
+            .or(unmasked_overflow)
+            .or(unmasked_underflow)
+            .or(unmasked_precision),
+    )?;
+    // Unlike memory stores, unmasked range and precision exceptions write
+    // register results, including the pop and any adjusted exponent.
+    x87.write_stack(destination, &rounded.value, &enabled)?;
+    if pop {
+        x87.pop(&enabled)?;
+    }
+    Ok(())
 }

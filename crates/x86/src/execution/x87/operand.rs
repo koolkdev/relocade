@@ -21,15 +21,15 @@ pub(crate) enum X87Operand {
     },
 }
 
-pub(super) struct X87Operands<'memory> {
-    pub(super) values: BinaryOperands,
-    pub(super) stack_fault: Val<I1>,
-    pub(super) memory: Option<MemoryOperand<'memory>>,
+pub(crate) struct X87Operands<'memory> {
+    pub(crate) values: BinaryOperands,
+    pub(crate) stack_fault: Val<I1>,
+    pub(crate) memory: Option<MemoryOperand<'memory>>,
 }
 
 impl<'memory> ExecutionBuilder<'_, 'memory> {
     /// The complete operation checks pending exceptions before resolving a source.
-    pub(super) fn read_x87_operands(
+    pub(crate) fn read_x87_operands(
         &mut self,
         destination: Val<I32>,
         operand: X87Operand,

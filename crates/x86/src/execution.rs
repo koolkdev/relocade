@@ -16,7 +16,7 @@ pub(crate) use control::CodeTarget;
 pub(crate) use memory::OperandSpan;
 pub(crate) use operands::WriteTarget;
 pub(crate) use strings::{ResolvedStrings, StringOperand};
-pub(crate) use x87::X87Operand;
+pub(crate) use x87::{X87Operand, X87Operands};
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
 
@@ -104,15 +104,29 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     /// Builds JIT guards, then refines local candidates for their continuation.
     /// Runtime decoding and nested regions skip the callback and retain the
     /// ordinary semantics. Keep current-instruction effects after this scope.
-    pub(crate) fn specialize(
+    pub(crate) fn specialize<T>(
         &mut self,
-        build: impl FnOnce(&mut Self) -> Result<(), BuildError>,
-    ) -> Result<(), BuildError> {
+        build: impl FnOnce(&mut Self) -> Result<T, BuildError>,
+    ) -> Result<Option<T>, BuildError> {
         if self.can_specialize {
-            build(self)
+            build(self).map(Some)
         } else {
-            Ok(())
+            Ok(None)
         }
+    }
+
+    /// Builds a numerical calculation in the current compiler body. The callback
+    /// must not author architectural effects or instruction exits.
+    pub(crate) fn calculate<T>(
+        &mut self,
+        build: impl FnOnce(&mut BlockBuilder<'body>) -> Result<T, BuildError>,
+    ) -> Result<T, BuildError> {
+        build(&mut self.body)
+    }
+
+    /// Snapshot observations are hints until the caller guards the relevant fields.
+    pub(crate) fn observed_cpu(&self) -> Option<&CpuState> {
+        self.observed_cpu
     }
 
     /// Requires an assumption on a specializing path, before instruction effects.

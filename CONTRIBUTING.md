@@ -130,6 +130,15 @@ for accesses such as string destinations. The returned typed location supports
 `offset_memory` for a wrapping byte displacement, as used by XLAT's unsigned AL
 index, before its ordinary checked `read` or `write`.
 
+For x87 instructions, keep the complete operation in the family handler: checked
+operand reads, specialization guards, numerical calculation, exception priority,
+condition-code writes and suppressed data or stack effects. Execution supplies
+checked access, restart handling and the current compiler body; pure numerical
+helpers live in [x87](crates/x86/src/x87). `execution.x87()` exposes architectural
+state operations while keeping register tracking, status backing and publication
+inside state. For example, `set_condition_code(ConditionCode::C1, false)` always
+writes C1; recording a stack underflow does not choose the instruction's C1 policy.
+
 ## Writing tests
 
 An `InstructionCase` states encoding bytes, initial state and expected changes.

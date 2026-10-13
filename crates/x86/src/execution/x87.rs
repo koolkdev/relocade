@@ -1,9 +1,8 @@
-//! Complete x87 operations keep capture, admission and effects in execution order.
+//! x87 execution access owns restart checks, observation guards and instruction metadata.
 
-mod arithmetic;
 mod operand;
 
-pub(crate) use operand::X87Operand;
+pub(crate) use operand::{X87Operand, X87Operands};
 
 use wasm86_compiler::BuildError;
 
@@ -15,7 +14,10 @@ use crate::{
 use super::{memory::MemoryOperand, ExecutionBuilder};
 
 impl<'body> ExecutionBuilder<'body, '_> {
-    fn record_x87_operand(&mut self, memory: Option<&MemoryOperand<'_>>) -> Result<(), BuildError> {
+    pub(crate) fn record_x87_operand(
+        &mut self,
+        memory: Option<&MemoryOperand<'_>>,
+    ) -> Result<(), BuildError> {
         match memory {
             Some(operand) => self.record_x87_memory(operand),
             None => self.record_x87_instruction(),

@@ -7,7 +7,30 @@ use crate::{
     state::access::cpu_location,
 };
 
-use super::control::{Control, Exception};
+use super::{
+    control::{Control, Exception},
+    X87Access,
+};
+
+/// Architectural condition codes, independent of their byte-backed storage.
+#[derive(Clone, Copy)]
+pub(crate) enum ConditionCode {
+    C0,
+    C1,
+    C2,
+    C3,
+}
+
+impl ConditionCode {
+    fn location(self) -> Location<I8> {
+        match self {
+            Self::C0 => cpu_location!(x87.status.c0),
+            Self::C1 => cpu_location!(x87.status.c1),
+            Self::C2 => cpu_location!(x87.status.c2),
+            Self::C3 => cpu_location!(x87.status.c3),
+        }
+    }
+}
 
 impl Exception {
     fn status_location(self) -> Location<I8> {
@@ -23,7 +46,7 @@ impl Exception {
 }
 
 #[derive(Clone)]
-pub(crate) struct Status {
+pub(super) struct Status {
     fields: StateFields,
 }
 
@@ -48,10 +71,10 @@ impl Status {
         for (location, shift) in [
             (cpu_location!(x87.status.stack_fault), 6),
             (cpu_location!(x87.status.error_summary), 7),
-            (cpu_location!(x87.status.c0), 8),
-            (cpu_location!(x87.status.c1), 9),
-            (cpu_location!(x87.status.c2), 10),
-            (cpu_location!(x87.status.c3), 14),
+            (ConditionCode::C0.location(), 8),
+            (ConditionCode::C1.location(), 9),
+            (ConditionCode::C2.location(), 10),
+            (ConditionCode::C3.location(), 14),
             (cpu_location!(x87.status.busy), 15),
         ] {
             let bit = self.flag(body, location)?;
@@ -60,14 +83,15 @@ impl Status {
         body.value(word)
     }
 
-    pub(crate) fn set_c1(
+    pub(super) fn set_condition_code(
         &mut self,
         body: &mut BlockBuilder<'_>,
+        code: ConditionCode,
         value: impl Into<Val<I1>>,
     ) -> Result<(), BuildError> {
         self.fields.define(
             body,
-            cpu_location!(x87.status.c1),
+            code.location(),
             value.into().unsigned().extend::<I8>(),
         )
     }
@@ -105,7 +129,7 @@ impl Status {
 
     /// Records this occurrence and returns whether it is unmasked. Existing
     /// sticky flags do not create a new pending exception here.
-    pub(crate) fn record_exception(
+    pub(super) fn record_exception(
         &mut self,
         body: &mut BlockBuilder<'_>,
         exception: Exception,
@@ -117,7 +141,7 @@ impl Status {
         body.value(raised.and(unmasked))
     }
 
-    pub(crate) fn record_stack_fault(
+    pub(super) fn record_stack_fault(
         &mut self,
         body: &mut BlockBuilder<'_>,
         raised: &Val<I1>,
@@ -126,7 +150,7 @@ impl Status {
     }
 
     /// Sets ES and B for a newly unmasked exception; delivery remains deferred.
-    pub(crate) fn record_pending_exception(
+    pub(super) fn record_pending_exception(
         &mut self,
         body: &mut BlockBuilder<'_>,
         unmasked: Val<I1>,
@@ -198,5 +222,37 @@ impl Status {
 
     pub(super) fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.fields.publish(body)
+    }
+}
+
+impl X87Access<'_, '_> {
+    /// Replaces this condition code with a logical value, stored as zero or one.
+    pub(crate) fn set_condition_code(
+        &mut self,
+        code: ConditionCode,
+        value: impl Into<Val<I1>>,
+    ) -> Result<(), BuildError> {
+        self.state.status.set_condition_code(self.body, code, value)
+    }
+
+    /// Records a new occurrence and returns whether that occurrence is unmasked.
+    pub(crate) fn record_exception(
+        &mut self,
+        exception: Exception,
+        raised: &Val<I1>,
+    ) -> Result<Val<I1>, BuildError> {
+        self.state
+            .status
+            .record_exception(self.body, exception, raised, &mut self.state.control)
+    }
+
+    pub(crate) fn record_stack_fault(&mut self, raised: &Val<I1>) -> Result<(), BuildError> {
+        self.state.status.record_stack_fault(self.body, raised)
+    }
+
+    pub(crate) fn record_pending_exception(&mut self, unmasked: Val<I1>) -> Result<(), BuildError> {
+        self.state
+            .status
+            .record_pending_exception(self.body, unmasked)
     }
 }
