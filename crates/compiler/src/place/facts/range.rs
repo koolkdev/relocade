@@ -62,7 +62,11 @@ impl ScalarFacts {
         )
     }
 
-    fn restrict_range(&mut self, id: usize, range: Range) {
+    fn restrict_range(&mut self, table: &ValueTable, id: usize, range: Range) {
+        // Literals are immutable; recording a range cannot refine their value.
+        if table[id].scalar_literal().is_some() {
+            return;
+        }
         if range.minimum > range.maximum {
             return;
         }
@@ -74,7 +78,7 @@ impl ScalarFacts {
             return;
         };
         if self.ranges.insert(id, range) != Some(range) {
-            self.invalidate_from(id);
+            self.changed(id);
         }
     }
 
@@ -82,6 +86,7 @@ impl ScalarFacts {
         // Ordered comparisons with zero canonicalize to a zero test.
         if let Some(range) = self.range(table, input, self.bits(table, input)) {
             self.restrict_range(
+                table,
                 input,
                 Range {
                     minimum: 1,
@@ -111,6 +116,7 @@ impl ScalarFacts {
         if truth != (operator == CompareOp::LtUnsigned) {
             // The negated strict comparison includes equality.
             self.restrict_range(
+                table,
                 left,
                 Range {
                     minimum: b.minimum,
@@ -118,6 +124,7 @@ impl ScalarFacts {
                 },
             );
             self.restrict_range(
+                table,
                 right,
                 Range {
                     minimum: 0,
@@ -128,6 +135,7 @@ impl ScalarFacts {
         }
         if let Some(maximum) = b.maximum.checked_sub(1) {
             self.restrict_range(
+                table,
                 left,
                 Range {
                     minimum: 0,
@@ -137,6 +145,7 @@ impl ScalarFacts {
         }
         if let Some(minimum) = a.minimum.checked_add(1) {
             self.restrict_range(
+                table,
                 right,
                 Range {
                     minimum,
