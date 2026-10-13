@@ -39,6 +39,7 @@ impl ScalarFacts {
                     .map(|&(facts, arguments)| (facts, arguments[component])),
             );
         }
+        joined.propagate_constraints(table);
         joined
     }
 
@@ -81,6 +82,7 @@ impl ScalarFacts {
             true
         });
         self.comparisons.retain_common(&other.comparisons);
+        self.constraints.retain_known(&self.known);
         // Earlier inferences may depend on knowledge just discarded.
         self.computed.get_mut().clear();
     }

@@ -43,6 +43,7 @@ impl ScalarFacts {
             }
             let bits = previous.union(bits);
             self.record(id, bits);
+            self.constraints.track(table, id, bits);
             let ValueDefinition::Expression(expression) = value.definition else {
                 continue;
             };
@@ -88,7 +89,7 @@ impl ScalarFacts {
                             self.comparisons
                                 .assume(table, operator, left, right, bits.value != 0)
                         {
-                            self.invalidate_from(first);
+                            self.changed(first);
                         }
                         self.assume_comparison(table, operator, left, right, bits.value != 0);
                         if matches!(operator, CompareOp::Eq | CompareOp::Ne)
