@@ -20,6 +20,8 @@ mod ports;
 mod segments;
 #[path = "real_mode/string_io.rs"]
 mod string_io;
+#[path = "real_mode/x87_restart.rs"]
+mod x87_restart;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},

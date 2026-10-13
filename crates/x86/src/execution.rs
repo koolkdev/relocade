@@ -96,14 +96,17 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             .x87_opcode
             .take()
             .map(|opcode| opcode.bits());
+        let can_specialize = self.can_specialize;
         self.eip = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
+        self.can_specialize = can_specialize;
         self.completed += 1;
         Ok(())
     }
 
     /// Builds JIT guards, then refines local candidates for their continuation.
-    /// Runtime decoding and nested regions skip the callback and retain the
-    /// ordinary semantics. Keep current-instruction effects after this scope.
+    /// Runtime decoding, nested regions and paths that have read a real-mode
+    /// memory operand skip the callback and retain the ordinary semantics.
+    /// Keep current-instruction effects after this scope.
     pub(crate) fn specialize<T>(
         &mut self,
         build: impl FnOnce(&mut Self) -> Result<T, BuildError>,

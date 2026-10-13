@@ -9,6 +9,7 @@ use crate::{
     alu::OperandUpdate,
     memory::{Access, Intent, Memory},
     segment::SegmentSelection,
+    ExecutionProfile,
 };
 
 /// A complete operand width and any architectural alignment requirement.
@@ -61,6 +62,11 @@ impl MemoryOperand<'_> {
         execution: &mut ExecutionBuilder<'_, '_>,
         offset: u32,
     ) -> Result<Val<T>, BuildError> {
+        if matches!(execution.profile(), ExecutionProfile::Real16) {
+            // This read may invoke MMIO. Restarting the instruction afterwards
+            // would read the device twice, possibly obtaining a different value.
+            execution.can_specialize = false;
+        }
         self.memory
             .read::<T>(&mut execution.body, &self.access, offset)
     }
