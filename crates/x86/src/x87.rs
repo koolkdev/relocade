@@ -11,6 +11,8 @@ mod integral;
 mod multiply;
 mod native;
 mod operand;
+mod quotient;
+mod remainder;
 mod result;
 mod rounding;
 mod scale;

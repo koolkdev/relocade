@@ -1,13 +1,12 @@
 //! Division shares normalization, rounding and architectural exception responses.
 
-mod quotient;
-
 use wasm86_compiler::{Val, I32, I8};
 
 use crate::floating::RoundingMode;
 
 use super::{
     operand::BinaryOperands,
+    quotient,
     result::{BinaryArithmetic, RoundedValue},
     rounding::FiniteMagnitude,
     BinaryOperation,

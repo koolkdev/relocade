@@ -316,7 +316,17 @@ memory sources, FCOMPP, FUCOM/FUCOMP/FUCOMPP and FTST. FIADD, FIMUL, FISUB,
 FISUBR, FIDIV and FIDIVR accept signed m16/m32 integers. Integer sources expand
 exactly before arithmetic; PC and RC apply to the result. These forms retain
 TOP and use the same result, exception and native PC53 paths as real arithmetic.
-Other arithmetic families remain unsupported.
+FRNDINT, FSCALE, FXTRACT and FSQRT are also supported.
+FPREM replaces ST(0) with the exact remainder of division by ST(1), truncating
+the quotient toward zero independently of PC and RC. A complete reduction clears
+C2 and places quotient-magnitude bits Q2/Q1/Q0 in C0/C3/C1. Exponent gaps of 64
+or more use a 32-bit partial reduction and set C2; repeat the instruction until C2
+clears. Partial reductions preserve the otherwise undefined quotient condition
+codes. Neither ST(1) nor TOP changes. Exact tiny remainders raise underflow only
+when unmasked, writing the exponent-adjusted result without a precision exception.
+The JIT retains normal/zero inputs with a normal divisor and an in-range result;
+other cases restart in the interpreter before the instruction has effects.
+The remaining transcendental arithmetic families are unsupported.
 FXAM reports ST(0)'s numerical class in C0/C2/C3 and its sign in C1. Empty
 entries report the empty class and retain their payload's sign; examination
 never raises a numerical exception or stack fault, including for signaling

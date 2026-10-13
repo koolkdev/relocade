@@ -8,6 +8,7 @@ mod examine;
 mod extract;
 mod integral;
 mod load;
+mod remainder;
 mod result;
 mod scale;
 mod sign;
@@ -28,6 +29,7 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
         .chain(integral::forms())
         .chain(stack::forms())
         .chain(load::forms())
+        .chain(remainder::forms())
         .chain(scale::forms())
         .chain(sign::forms())
         .chain(store::forms())
