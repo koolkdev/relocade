@@ -70,6 +70,35 @@ impl Val<F64> {
         self.unary(Unary::Float(UnaryOp::Neg))
     }
 
+    /// Rounds toward positive infinity, preserving signed zero. NaNs follow
+    /// scalar WebAssembly arithmetic semantics, including quieting signaling NaNs.
+    pub fn ceil(&self) -> Self {
+        self.unary(Unary::Float(UnaryOp::Ceil))
+    }
+
+    /// Rounds toward negative infinity with the same NaN behavior as [`Self::ceil`].
+    pub fn floor(&self) -> Self {
+        self.unary(Unary::Float(UnaryOp::Floor))
+    }
+
+    /// Rounds toward zero, preserving its sign, with the NaN behavior of [`Self::ceil`].
+    pub fn trunc(&self) -> Self {
+        self.unary(Unary::Float(UnaryOp::Trunc))
+    }
+
+    /// Rounds to the nearest integer, ties to even, preserving signed zero.
+    /// NaNs follow the same arithmetic semantics as [`Self::ceil`].
+    pub fn nearest(&self) -> Self {
+        self.unary(Unary::Float(UnaryOp::Nearest))
+    }
+
+    /// Computes a binary64 square root, rounding to nearest, ties to even.
+    /// Signed zeros are preserved; negative nonzero operands produce an
+    /// arithmetic NaN as specified by scalar WebAssembly.
+    pub fn sqrt(&self) -> Self {
+        self.unary(Unary::Float(UnaryOp::Sqrt))
+    }
+
     /// Numeric equality: signed zeros compare equal, and NaNs never compare equal.
     pub fn eq(&self, other: impl Into<Self>) -> Val<I1> {
         self.binary(Binary::Compare(Compare::Float(CompareOp::Eq)), other)

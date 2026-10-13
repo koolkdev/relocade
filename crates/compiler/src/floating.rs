@@ -12,6 +12,11 @@ pub(super) enum BinaryOp {
 pub(super) enum UnaryOp {
     Abs,
     Neg,
+    Ceil,
+    Floor,
+    Trunc,
+    Nearest,
+    Sqrt,
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -56,12 +61,20 @@ pub(super) fn binary(operator: BinaryOp, left: u64, right: u64) -> Option<u64> {
     (!result.is_nan()).then(|| result.to_bits())
 }
 
-pub(super) fn unary(operator: UnaryOp, bits: u64) -> u64 {
-    // Unlike arithmetic, these operations preserve every NaN payload bit.
-    match operator {
-        UnaryOp::Abs => bits & !(1 << 63),
-        UnaryOp::Neg => bits ^ (1 << 63),
-    }
+pub(super) fn unary(operator: UnaryOp, bits: u64) -> Option<u64> {
+    let value = f64::from_bits(bits);
+    let result = match operator {
+        // Sign operations preserve every NaN payload bit.
+        UnaryOp::Abs => return Some(bits & !(1 << 63)),
+        UnaryOp::Neg => return Some(bits ^ (1 << 63)),
+        UnaryOp::Ceil => value.ceil(),
+        UnaryOp::Floor => value.floor(),
+        UnaryOp::Trunc => value.trunc(),
+        UnaryOp::Nearest => value.round_ties_even(),
+        UnaryOp::Sqrt => value.sqrt(),
+    };
+    // Rounding and square root use the destination engine's arithmetic NaN.
+    (!result.is_nan()).then(|| result.to_bits())
 }
 
 pub(super) fn compare(operator: CompareOp, left: u64, right: u64) -> bool {
