@@ -106,6 +106,60 @@ fn literal_identity_keeps_encodings_and_arithmetic_nan_choice_stays_in_wasm() {
 }
 
 #[test]
+fn rounding_and_square_root_lower_directly_and_defer_arithmetic_nans() {
+    let module = Fixture::new().function(&[Type::F64], &[Type::F64; 5], |body| {
+        let value = body.parameter::<F64>(0)?;
+        body.return_([
+            value.ceil(),
+            value.floor(),
+            value.trunc(),
+            value.nearest(),
+            value.sqrt(),
+        ])
+    });
+    let ops = operators(&module);
+    for predicate in [
+        (|op: &Operator<'_>| matches!(op, Operator::F64Ceil)) as fn(&Operator<'_>) -> bool,
+        |op| matches!(op, Operator::F64Floor),
+        |op| matches!(op, Operator::F64Trunc),
+        |op| matches!(op, Operator::F64Nearest),
+        |op| matches!(op, Operator::F64Sqrt),
+    ] {
+        assert_eq!(ops.iter().filter(|op| predicate(op)).count(), 1);
+    }
+    for value in [
+        Val::<F64>::from(2.5).nearest(),
+        Val::<F64>::from(4.0).sqrt(),
+    ] {
+        let constant = Fixture::new().expression(&[], |_| value);
+        assert!(
+            matches!(operators(&constant).as_slice(), [Operator::F64Const { value }, Operator::Return, Operator::End] if value.bits() == 2.0_f64.to_bits())
+        );
+    }
+    let nan = Val::<F64>::from_bits(INFINITY | 1);
+    let special = Fixture::new().function(&[], &[Type::F64; 6], |body| {
+        body.return_([
+            nan.ceil(),
+            nan.floor(),
+            nan.trunc(),
+            nan.nearest(),
+            nan.sqrt(),
+            Val::<F64>::from(-1.0).sqrt(),
+        ])
+    });
+    assert_eq!(
+        operators(&special)
+            .iter()
+            .filter(|op| matches!(op, Operator::F64Sqrt))
+            .count(),
+        2
+    );
+    assert!(operators(&special)
+        .iter()
+        .any(|op| matches!(op, Operator::F64Nearest)));
+}
+
+#[test]
 fn numeric_conversions_emit_native_operations_and_fold_exact_constants() {
     let promotion = Fixture::new().expression(&[Type::I32], |body| {
         Val::<F64>::from_binary32_bits(body.parameter::<I32>(0).unwrap())

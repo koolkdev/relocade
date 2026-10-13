@@ -80,6 +80,11 @@ impl Writer<'_> {
             Unary::Float(operator) => match operator {
                 floating::UnaryOp::Abs => Instruction::F64Abs,
                 floating::UnaryOp::Neg => Instruction::F64Neg,
+                floating::UnaryOp::Ceil => Instruction::F64Ceil,
+                floating::UnaryOp::Floor => Instruction::F64Floor,
+                floating::UnaryOp::Trunc => Instruction::F64Trunc,
+                floating::UnaryOp::Nearest => Instruction::F64Nearest,
+                floating::UnaryOp::Sqrt => Instruction::F64Sqrt,
             },
             Unary::FloatConvert(operator) => match (operator, input_type.carrier()) {
                 (floating::ConvertOp::PromoteBinary32, Type::I32) => {

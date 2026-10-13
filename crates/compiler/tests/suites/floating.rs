@@ -4,6 +4,8 @@
 mod conversions;
 #[path = "floating/flow.rs"]
 mod flow;
+#[path = "floating/rounding.rs"]
+mod rounding;
 #[path = "floating/validation.rs"]
 mod validation;
 
