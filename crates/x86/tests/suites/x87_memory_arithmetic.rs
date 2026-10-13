@@ -1,9 +1,11 @@
-//! Real memory arithmetic preserves source precision and exception provenance.
+//! Memory arithmetic preserves source precision and exception provenance.
 
 #[path = "x87_memory_arithmetic/boundaries.rs"]
 mod boundaries;
 #[path = "x87_memory_arithmetic/division.rs"]
 mod division;
+#[path = "x87_memory_arithmetic/integer.rs"]
+mod integer;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
@@ -19,6 +21,8 @@ const LEADING: u64 = 1 << 63;
 enum Source {
     Single(u32),
     Double(u64),
+    Integer16(i16),
+    Integer32(i32),
 }
 
 impl Source {
@@ -26,6 +30,8 @@ impl Source {
         match self {
             Self::Single(_) => 0xd8,
             Self::Double(_) => 0xdc,
+            Self::Integer16(_) => 0xde,
+            Self::Integer32(_) => 0xda,
         }
     }
 
@@ -33,6 +39,8 @@ impl Source {
         match self {
             Self::Single(bits) => bits.to_le_bytes().to_vec(),
             Self::Double(bits) => bits.to_le_bytes().to_vec(),
+            Self::Integer16(value) => value.to_le_bytes().to_vec(),
+            Self::Integer32(value) => value.to_le_bytes().to_vec(),
         }
     }
 

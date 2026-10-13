@@ -308,8 +308,11 @@ FSTP m32/m64/m80. Register arithmetic supports FADD/FADDP, FSUB/FSUBP,
 FSUBR/FSUBRP, FMUL/FMULP, FDIV/FDIVP and FDIVR/FDIVRP. FADD, FSUB, FSUBR, FMUL,
 FDIV and FDIVR also accept binary32/64 memory sources. There is no FIST m64 or
 FST m80 encoding. Comparisons support FCOM/FCOMP with register or binary32/64
-memory sources, FCOMPP, FUCOM/FUCOMP/FUCOMPP and FTST. Integer memory arithmetic
-and other arithmetic families remain unsupported.
+memory sources, FCOMPP, FUCOM/FUCOMP/FUCOMPP and FTST. FIADD, FIMUL, FISUB,
+FISUBR, FIDIV and FIDIVR accept signed m16/m32 integers. Integer sources expand
+exactly before arithmetic; PC and RC apply to the result. These forms retain
+TOP and use the same result, exception and native PC53 paths as real arithmetic.
+Other arithmetic families remain unsupported.
 Execution assumes an enabled FPU with native exception reporting, corresponding
 to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
 modeled by this user-mode environment.
