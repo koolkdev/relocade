@@ -5,9 +5,10 @@ use crate::{
     address::MemoryAddress,
     execution::{X87MemoryFormat, X87Operand, X87Operands},
     flags::{Flag, FlagChange},
+    floating::BinaryFormat,
     instruction::X87StackIndex,
     state::x87::{ConditionCode, Exception},
-    x87::{BinaryFormat, ComparisonKind, ExtendedValue},
+    x87::{ComparisonKind, ExtendedValue},
 };
 
 instruction_families! {

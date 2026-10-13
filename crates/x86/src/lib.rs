@@ -30,6 +30,7 @@ mod decode;
 mod exception;
 mod execution;
 mod flags;
+mod floating;
 mod instruction;
 mod memory;
 mod profile;

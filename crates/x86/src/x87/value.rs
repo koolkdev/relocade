@@ -8,7 +8,7 @@ mod tests;
 
 use wasm86_compiler::{IntType, Val, F64, I1, I16, I32, I64};
 
-use super::BinaryFormat;
+use crate::floating::BinaryFormat;
 pub(crate) use classification::Classification;
 pub(super) use classification::KnownClass;
 pub(super) use precision53::Precision53;

@@ -13,7 +13,7 @@ mod result;
 mod rounding;
 mod value;
 
-pub(crate) use binary::{BinaryFormat, BinaryOperand};
+pub(crate) use binary::BinaryOperand;
 pub(crate) use compare::ComparisonKind;
 pub(crate) use constant::Constant;
 pub(crate) use operand::BinaryOperands;
