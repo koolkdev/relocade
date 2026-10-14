@@ -1,4 +1,4 @@
-//! x87 environment controls and a waiting no-op.
+//! x87 environment and coprocessor controls.
 //! Control words have fixed widths, independent of operand-size prefixes.
 
 use super::*;
@@ -7,6 +7,18 @@ instruction_families! {
     FNOP {
         execute: no_operation;
         forms { 0xD9 @ 0xD0 => no_operands(); }
+    }
+    FNENI {
+        execute: legacy_control;
+        forms { 0xDB @ 0xE0 => no_operands(); }
+    }
+    FNDISI {
+        execute: legacy_control;
+        forms { 0xDB @ 0xE1 => no_operands(); }
+    }
+    FSETPM {
+        execute: legacy_control;
+        forms { 0xDB @ 0xE4 => no_operands(); }
     }
     FNINIT {
         execute: initialize;
@@ -40,6 +52,12 @@ instruction_families! {
 fn no_operation(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
     execution.check_x87_exception()?;
     execution.record_x87_instruction()
+}
+
+// P4 ignores these legacy controls without checking pending exceptions or
+// updating x87 instruction metadata.
+fn legacy_control(_execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
+    Ok(())
 }
 
 fn check_pending_exception(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
