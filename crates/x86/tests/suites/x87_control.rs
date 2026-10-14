@@ -1,5 +1,7 @@
 //! x87 environment controls, deferred exception delivery and memory commitment.
 
+#[path = "x87_control/legacy.rs"]
+mod legacy;
 #[path = "x87_control/nop.rs"]
 mod nop;
 #[path = "x87_control/words.rs"]
@@ -465,6 +467,7 @@ fn rejected_forms(engine: Engine) {
         &[0xdf, 0xe1][..],
         &[0xdb, 0x23][..], // The FNINIT byte does not select a memory operand.
         &[0xf0, 0xdb, 0xe3][..],
+        &[0xf0, 0xdb, 0xe0][..], // Obsolete controls do not accept LOCK either.
         &[0xf0, 0xd9, 0x3d][..],
     ] {
         let origin = 0x2000 - code.len() as u32;

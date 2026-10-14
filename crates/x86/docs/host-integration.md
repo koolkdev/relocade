@@ -298,7 +298,11 @@ selector and provide its descriptor.
 ## x87 environment and stack
 
 The implemented controls are FNINIT, FNCLEX, FLDCW, FNSTCW, FNSTSW (memory and AX),
-FNOP and standalone FWAIT. Stack operations include FLD ST(i), FST/FSTP ST(i), FXCH,
+FNOP and standalone FWAIT. The obsolete encodings DB E0 (FNENI), DB E1 (FNDISI)
+and DB E4 (FSETPM) are integer no-ops on the P4 target: they preserve all x87
+state and do not wait for pending exceptions. The FENI/FDISI assembler spellings
+may include a separate 9B WAIT, which still checks pending exceptions.
+Stack operations include FLD ST(i), FST/FSTP ST(i), FXCH,
 FFREE, FINCSTP and FDECSTP. FCHS and FABS change only the sign of a nonempty
 ST(0), preserving its exact encoding, including NaN payloads. Empty operands
 use the ordinary masked or unmasked stack-underflow response. Memory data
