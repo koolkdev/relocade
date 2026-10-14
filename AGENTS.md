@@ -115,11 +115,14 @@ This is a public repository. Commit messages use `component: title`.
   representative integration cases; multiply dimensions only for an interaction
   they can expose. Before removing repeated cases, verify the owning suite covers
   their contract. A new family does not require a standard set of test files.
-- Use the ordinary Wasmtime suite for broad correctness coverage. Use V8/TurboFan
-  for performance measurements and focused correctness checks of changed generated
-  code before timing. Prefer focused block tests while iterating on an instruction.
-  Full V8 runs are also appropriate for routine broad verification; choose coverage
-  to match the change and measured test cost.
+- Run focused local Wasmtime tests for changed behavior, along with formatting and
+  relevant static checks. Use focused V8/TurboFan correctness checks for changed
+  generated code before performance measurements.
+- Leave full workspace and full V8 test suites to CI by default. Once focused local
+  checks and review pass, commit, push and open or update the PR without waiting
+  for full local suites or CI to finish. Report pending CI explicitly. Run broader
+  local suites only to investigate a concrete concern or failure, to cover a gap
+  in CI, or when the user requests them.
 - Compare Wasm bytes first; do not benchmark identical output. Measure changed
   output with meaningful workloads and matching execution boundaries, and report
   uncertainty honestly.
@@ -136,16 +139,17 @@ This is a public repository. Commit messages use `component: title`.
   accesses in correctness coverage rather than instruction performance workloads.
 - Byte preservation is evidence, not a reason to retain a poor abstraction or duplicate
   a mechanism. Review design changes together with their generated-code consequences.
-- Complete implementation, comments, tests and relevant validation for the current
-  part before presenting it. Get an independent review for substantive changes and
-  inspect the exact staged diff, including every file proposed for the commit.
+- Complete implementation, comments, tests and focused local validation for the
+  current part before presenting it. Get an independent review for substantive
+  changes and inspect the exact staged diff, including every file proposed for
+  the commit.
 - Report decisions, verification and material limitations, including module-boundary
   decisions for substantially expanded files.
 - Every completed change report includes a concise walkthrough of added or reshaped
   types, schemas and consumer APIs, with representative code excerpts and the reasons
   for their design. Distinguish new interfaces from existing ones reused by the change.
   If these did not change, say so.
-- Within the agreed task scope, complete review and validation, then commit, push
-  and open or update pull requests.
+- Within the agreed task scope, complete review and focused local validation,
+  then commit, push and open or update pull requests.
 - Resolve routine implementation choices while completing the current part; do not
   leave it half-finished merely to request those choices.
