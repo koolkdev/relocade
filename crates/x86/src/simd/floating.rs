@@ -4,12 +4,14 @@ mod compare;
 mod exceptions;
 mod integer;
 mod operand;
+mod rounding;
 mod width;
 pub(crate) use compare::FloatOperands;
 pub(crate) use exceptions::SimdExceptions;
 pub(crate) use integer::integer_to_float;
-pub(crate) use operand::{FloatLane, FloatOperand};
+pub(crate) use operand::FloatOperand;
 
+use crate::floating::BinaryEncoding;
 use wasm86_compiler::{AtLeast, Val, ValueType, VectorLane, I1, I64, V128};
 
 pub(crate) struct FloatResult<T: ValueType> {
@@ -47,7 +49,7 @@ pub(crate) enum FloatShape {
 impl FloatShape {
     /// Scalar operations retain upper lanes. Packed operations collect conditions
     /// from every lane, even when one of them will cause an unmasked exception.
-    pub(crate) fn apply<T: FloatLane>(
+    pub(crate) fn apply<T: BinaryEncoding>(
         self,
         left: Val<V128>,
         right: Val<V128>,

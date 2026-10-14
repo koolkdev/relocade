@@ -1,9 +1,10 @@
 //! IEEE ordering and operand exceptions, independent of the destination or MXCSR masks.
 
-use super::{FloatLane, FloatOperand, SimdExceptions};
+use super::{FloatOperand, SimdExceptions};
+use crate::floating::BinaryEncoding;
 use wasm86_compiler::{AtLeast, Val, I1, I64};
 
-pub(crate) struct FloatOperands<T: FloatLane> {
+pub(crate) struct FloatOperands<T: BinaryEncoding> {
     /// DAZ-normalized encodings retained for exact result selection.
     pub(crate) left: Val<T>,
     pub(crate) right: Val<T>,
@@ -20,7 +21,7 @@ pub(crate) struct FloatComparison {
     pub(crate) exceptions: SimdExceptions,
 }
 
-impl<T: FloatLane> FloatOperands<T>
+impl<T: BinaryEncoding> FloatOperands<T>
 where
     I64: AtLeast<T>,
 {

@@ -6,9 +6,7 @@
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64};
 
-use crate::floating::RoundingInput;
-
-use super::rounding::FiniteMagnitude;
+use crate::floating::{FiniteMagnitude, RoundingInput};
 
 pub(super) type DoubleShape = (F64, F64);
 

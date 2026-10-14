@@ -2,12 +2,9 @@
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64};
 
-use crate::floating::{RoundingInput, RoundingMode};
+use crate::floating::{FiniteMagnitude, RoundingInput, RoundingMode};
 
-use super::{
-    quotient, result::RoundedValue, rounding::FiniteMagnitude, value::KnownClass, ArithmeticResult,
-    BinaryOperands,
-};
+use super::{quotient, result::RoundedValue, value::KnownClass, ArithmeticResult, BinaryOperands};
 
 pub(crate) struct Remainder {
     pub(crate) arithmetic: ArithmeticResult,

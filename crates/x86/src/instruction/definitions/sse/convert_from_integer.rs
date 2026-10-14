@@ -2,9 +2,9 @@
 
 use super::*;
 use crate::{
-    floating::BinaryFormat,
+    floating::{BinaryEncoding, BinaryFormat},
     instruction::XmmType,
-    simd::{integer_to_float, FloatLane, FloatResult},
+    simd::{integer_to_float, FloatResult},
 };
 use wasm86_compiler::{AtLeast, I64};
 
@@ -40,7 +40,7 @@ fn scalar(
     }
 }
 
-fn write_scalar<T: FloatLane + XmmType>(
+fn write_scalar<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: Val<I32>,
@@ -54,7 +54,7 @@ where
     T::write_register(execution, destination, result.value)
 }
 
-fn packed<T: FloatLane>(
+fn packed<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,

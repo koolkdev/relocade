@@ -1,7 +1,8 @@
 //! Legacy floating-point minima and maxima select the source on ties or NaNs.
 
 use super::{floating::binary as float_binary, *};
-use crate::simd::{FloatLane, FloatOperands, FloatResult, FloatShape};
+use crate::floating::BinaryEncoding;
+use crate::simd::{FloatOperands, FloatResult, FloatShape};
 use wasm86_compiler::{AtLeast, I64};
 
 instruction_families! {
@@ -44,7 +45,7 @@ enum MinMax {
     Max,
 }
 
-fn min_max<T: FloatLane>(operands: FloatOperands<T>, operation: MinMax) -> FloatResult<T>
+fn min_max<T: BinaryEncoding>(operands: FloatOperands<T>, operation: MinMax) -> FloatResult<T>
 where
     I64: AtLeast<T>,
 {

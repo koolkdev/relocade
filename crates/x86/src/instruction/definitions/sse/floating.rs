@@ -2,9 +2,9 @@
 
 use super::*;
 use crate::{
-    floating::RoundingMode,
+    floating::{BinaryEncoding, RoundingMode},
     instruction::XmmType,
-    simd::{FloatLane, FloatOperands, FloatResult, FloatShape},
+    simd::{FloatOperands, FloatResult, FloatShape},
     state::Mxcsr,
 };
 use wasm86_compiler::{AtLeast, I64};
@@ -24,7 +24,7 @@ impl IntegerRounding {
     }
 }
 
-pub(super) fn binary<T: FloatLane + XmmType>(
+pub(super) fn binary<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,

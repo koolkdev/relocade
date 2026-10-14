@@ -1,7 +1,8 @@
 //! Packed floating sources produce signed dwords and clear unused result lanes.
 
 use super::{floating::IntegerRounding, *};
-use crate::simd::{FloatLane, FloatOperand, FloatResult};
+use crate::floating::BinaryEncoding;
+use crate::simd::{FloatOperand, FloatResult};
 use wasm86_compiler::{AtLeast, I64};
 
 instruction_families! {
@@ -23,7 +24,7 @@ instruction_families! {
     }
 }
 
-fn convert<T: FloatLane>(
+fn convert<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,
