@@ -26,8 +26,27 @@ fn assert_reciprocal(source: u32, result: u32) {
     }
 }
 
-fn accuracy(engine: Engine, frontend: Frontend) {
-    let code = encoding(&[], 0x53, 0xc1);
+fn assert_reciprocal_square_root(source: u32, result: u32) {
+    if source >> 31 != 0 {
+        assert_eq!(
+            result, 0xffc0_0000,
+            "negative normal input yields indefinite"
+        );
+        return;
+    }
+    let x = f64::from(f32::from_bits(source));
+    let y = f64::from(f32::from_bits(result));
+    assert!(y.is_finite() && y >= f64::from(f32::MIN_POSITIVE));
+    // Squaring the relative-error interval avoids using sqrt or reciprocal
+    // in the oracle. All positive normal inputs have normal finite estimates.
+    assert!(
+        ((1.0 - ERROR).powi(2)..=(1.0 + ERROR).powi(2)).contains(&(x * y * y)),
+        "{source:08x} -> {result:08x}"
+    );
+}
+
+fn accuracy(engine: Engine, frontend: Frontend, opcode: u8, check: fn(u32, u32)) {
+    let code = encoding(&[], opcode, 0xc1);
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     let module = match frontend {
         Frontend::Block => &block,
@@ -63,32 +82,65 @@ fn accuracy(engine: Engine, frontend: Frontend) {
                     .try_into()
                     .unwrap(),
             );
-            assert_reciprocal(source, result);
+            check(source, result);
             lane(&mut cpu.simd.xmm[0], false, index, u64::from(result));
         }
         assert_eq!(actual, expected(&image, &[dispatch(cpu)]));
     }
 }
 
-fn special(engine: Engine, frontend: Frontend) {
-    let cases = [
-        (0_u32, 0x7f80_0000_u32),
-        (0x8000_0000, 0xff80_0000),
-        (1, 0x7f80_0000),
-        (0x8000_0001, 0xff80_0000),
-        (0x007f_ffff, 0x7f80_0000),
-        (0x807f_ffff, 0xff80_0000),
-        (0x7f80_0000, 0),
-        (0xff80_0000, 0x8000_0000),
-        (0x7fc0_0123, 0x7fc0_0123),
-        (0xffc0_0123, 0xffc0_0123),
-        (0x7f80_0456, 0x7fc0_0456),
-        (0xff80_0456, 0xffc0_0456),
-        (0x7f7f_ffff, 0),
-        (0xff7f_ffff, 0x8000_0000),
-    ];
+fn reciprocal_special(engine: Engine, frontend: Frontend) {
+    special(
+        engine,
+        frontend,
+        0x53,
+        &[
+            (0_u32, 0x7f80_0000_u32),
+            (0x8000_0000, 0xff80_0000),
+            (1, 0x7f80_0000),
+            (0x8000_0001, 0xff80_0000),
+            (0x007f_ffff, 0x7f80_0000),
+            (0x807f_ffff, 0xff80_0000),
+            (0x7f80_0000, 0),
+            (0xff80_0000, 0x8000_0000),
+            (0x7fc0_0123, 0x7fc0_0123),
+            (0xffc0_0123, 0xffc0_0123),
+            (0x7f80_0456, 0x7fc0_0456),
+            (0xff80_0456, 0xffc0_0456),
+            (0x7f7f_ffff, 0),
+            (0xff7f_ffff, 0x8000_0000),
+        ],
+    );
+}
+
+fn reciprocal_square_root_special(engine: Engine, frontend: Frontend) {
+    special(
+        engine,
+        frontend,
+        0x52,
+        &[
+            (0, 0x7f80_0000),
+            (0x8000_0000, 0xff80_0000),
+            (1, 0x7f80_0000),
+            (0x8000_0001, 0xff80_0000),
+            (0x007f_ffff, 0x7f80_0000),
+            (0x807f_ffff, 0xff80_0000),
+            (0x7f80_0000, 0),
+            (0xff80_0000, 0xffc0_0000),
+            (0x8080_0000, 0xffc0_0000),
+            (0xbf80_0000, 0xffc0_0000),
+            (0xff7f_ffff, 0xffc0_0000),
+            (0x7fc0_0123, 0x7fc0_0123),
+            (0xffc0_0123, 0xffc0_0123),
+            (0x7f80_0456, 0x7fc0_0456),
+            (0xff80_0456, 0xffc0_0456),
+        ],
+    );
+}
+
+fn special(engine: Engine, frontend: Frontend, opcode: u8, cases: &[(u32, u32)]) {
     for packed in [false, true] {
-        let code = encoding(prefix(false, packed), 0x53, 0xc1);
+        let code = encoding(prefix(false, packed), opcode, 0xc1);
         let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
         let module = match frontend {
             Frontend::Block => &block,
@@ -119,7 +171,7 @@ fn special(engine: Engine, frontend: Frontend) {
         }
     }
     // Source/destination aliasing still preserves the unused scalar lanes.
-    let code = encoding(&[0xf3], 0x53, 0xc0);
+    let code = encoding(&[0xf3], opcode, 0xc0);
     let mut image = floating_image(&code, 0);
     lane(&mut image.cpu.simd.xmm[0], false, 0, 0);
     let mut cpu = retire(image.cpu, code.len());
@@ -135,10 +187,10 @@ fn special(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn memory(engine: Engine, frontend: Frontend) {
+fn memory(engine: Engine, frontend: Frontend, opcode: u8) {
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
     for packed in [false, true] {
-        let code = encoding(prefix(false, packed), 0x53, 0x00);
+        let code = encoding(prefix(false, packed), opcode, 0x00);
         let width = if packed { 16 } else { 4 };
         let mut image = floating_image(&code, 0);
         image.cpu.registers.eax = 0x5000 - width;
@@ -175,6 +227,23 @@ fn memory(engine: Engine, frontend: Frontend) {
     }
 }
 
-test_frontends!(sse_reciprocal_accuracy, accuracy);
-test_frontends!(sse_reciprocal_special_and_controls, special);
-test_frontends!(sse_reciprocal_memory, memory);
+test_frontends!(@tests sse_reciprocal_accuracy, |engine, frontend| accuracy(
+    engine,
+    frontend,
+    0x53,
+    assert_reciprocal
+));
+test_frontends!(sse_reciprocal_special_and_controls, reciprocal_special);
+test_frontends!(@tests sse_reciprocal_memory, |engine, frontend| memory(
+    engine, frontend, 0x53
+));
+test_frontends!(@tests sse_reciprocal_square_root_accuracy, |engine, frontend| {
+    accuracy(engine, frontend, 0x52, assert_reciprocal_square_root)
+});
+test_frontends!(
+    sse_reciprocal_square_root_special_and_controls,
+    reciprocal_square_root_special
+);
+test_frontends!(@tests sse_reciprocal_square_root_memory,
+    |engine, frontend| memory(engine, frontend, 0x52)
+);
