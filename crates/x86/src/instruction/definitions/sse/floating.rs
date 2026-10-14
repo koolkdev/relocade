@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{
-    floating::{BinaryEncoding, RoundingMode},
+    floating::{BinaryEncoding, BinaryFormat, RoundingMode},
     instruction::XmmType,
     simd::{
         ArithmeticOperands, FloatArithmetic, FloatOperand, FloatOperands, FloatResult, FloatShape,
@@ -26,6 +26,18 @@ impl IntegerRounding {
     }
 }
 
+pub(super) fn rounding_for_integer_source(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    format: BinaryFormat,
+) -> Result<RoundingMode, BuildError> {
+    // Every signed dword is exactly representable in binary64, so that path
+    // has no MXCSR dependency. Only binary32 conversion needs observed controls.
+    Ok(match format {
+        BinaryFormat::Binary32 => execution.simd_controls()?.rounding(),
+        BinaryFormat::Binary64 => RoundingMode::new(0.into()),
+    })
+}
+
 pub(super) fn binary<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
@@ -36,19 +48,14 @@ pub(super) fn binary<T: BinaryEncoding + XmmType>(
 where
     I64: AtLeast<T>,
 {
-    calculate_lanes::<T>(
-        execution,
-        destination,
-        source,
-        shape,
-        |_, left, right, controls| {
-            Ok(operation(FloatOperands::new(
-                left,
-                right,
-                controls.denormals_are_zero(),
-            )))
-        },
-    )
+    let controls = execution.simd_controls()?;
+    calculate_lanes::<T>(execution, destination, source, shape, |_, left, right| {
+        Ok(operation(FloatOperands::new(
+            left,
+            right,
+            controls.denormals_are_zero(),
+        )))
+    })
 }
 
 /// Numerical arithmetic can build exact alignment and refinement branches. All
@@ -63,14 +70,15 @@ pub(super) fn arithmetic<T: BinaryEncoding + XmmType>(
 where
     I64: AtLeast<T>,
 {
+    let controls = execution.simd_controls()?;
     calculate_lanes::<T>(
         execution,
         destination,
         source,
         shape,
-        |body, left, right, controls| {
+        |body, left, right| {
             ArithmeticOperands::new(left, right, controls.denormals_are_zero())
-                .calculate(body, operation, controls)
+                .calculate(body, operation, &controls)
         },
     )
 }
@@ -84,15 +92,10 @@ pub(super) fn square_root<T: BinaryEncoding + XmmType>(
 where
     I64: AtLeast<T>,
 {
-    calculate_lanes::<T>(
-        execution,
-        destination,
-        source,
-        shape,
-        |body, _, right, controls| {
-            FloatOperand::new(right, controls.denormals_are_zero()).square_root(body, controls)
-        },
-    )
+    let controls = execution.simd_controls()?;
+    calculate_lanes::<T>(execution, destination, source, shape, |body, _, right| {
+        FloatOperand::new(right, controls.denormals_are_zero()).square_root(body, &controls)
+    })
 }
 
 /// Approximate single-precision operations have fixed denormal and rounding
@@ -104,7 +107,7 @@ pub(super) fn approximate(
     shape: FloatShape,
     operation: impl Fn(Val<I32>) -> Val<I32>,
 ) -> Result<(), BuildError> {
-    calculate_lanes::<I32>(execution, destination, source, shape, |_, _, right, _| {
+    calculate_lanes::<I32>(execution, destination, source, shape, |_, _, right| {
         Ok(FloatResult {
             value: operation(right),
             exceptions: Default::default(),
@@ -121,7 +124,6 @@ fn calculate_lanes<T: BinaryEncoding + XmmType>(
         &mut BlockBuilder<'_>,
         Val<T>,
         Val<T>,
-        &Mxcsr,
     ) -> Result<FloatResult<T>, BuildError>,
 ) -> Result<(), BuildError>
 where
@@ -134,7 +136,6 @@ where
         FloatShape::Packed => source.read::<V128>(execution, VectorAlignment::Aligned)?,
     };
     let left = execution.read_xmm(destination.clone())?;
-    let controls = execution.read_mxcsr()?;
     let count = match shape {
         FloatShape::Scalar => 1,
         FloatShape::Packed => 16 / T::FORMAT.bytes(),
@@ -145,7 +146,6 @@ where
                 body,
                 left.extract_lane::<T>(lane),
                 right.extract_lane::<T>(lane),
-                &controls,
             )
         })
     })?;

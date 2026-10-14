@@ -29,6 +29,7 @@ fn widen(
     source: XmmLocation,
     shape: FloatShape,
 ) -> Result<(), BuildError> {
+    let controls = execution.simd_controls()?;
     let (source, initial, count) = match shape {
         FloatShape::Scalar => (
             Val::<V128>::splat(source.read::<I32>(execution, VectorAlignment::Unaligned)?),
@@ -41,7 +42,6 @@ fn widen(
             2,
         ),
     };
-    let controls = execution.read_mxcsr()?;
     let result = FloatResult::from_lanes(initial, count, |lane| {
         FloatOperand::new(
             source.extract_lane::<I32>(lane),
@@ -59,6 +59,7 @@ fn narrow(
     source: XmmLocation,
     shape: FloatShape,
 ) -> Result<(), BuildError> {
+    let controls = execution.simd_controls()?;
     let (source, initial, count) = match shape {
         FloatShape::Scalar => (
             Val::<V128>::splat(source.read::<I64>(execution, VectorAlignment::Unaligned)?),
@@ -71,7 +72,6 @@ fn narrow(
             2,
         ),
     };
-    let controls = execution.read_mxcsr()?;
     let result = FloatResult::from_lanes(initial, count, |lane| {
         FloatOperand::new(
             source.extract_lane::<I64>(lane),

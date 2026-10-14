@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{
-    floating::{BinaryEncoding, BinaryFormat},
+    floating::{BinaryEncoding, BinaryFormat, RoundingMode},
     instruction::XmmType,
     simd::{integer_to_float, FloatResult},
 };
@@ -33,10 +33,11 @@ fn scalar(
     source: Input<I32>,
     format: BinaryFormat,
 ) -> Result<(), BuildError> {
+    let rounding = floating::rounding_for_integer_source(execution, format)?;
     let source = source.read(execution)?;
     match format {
-        BinaryFormat::Binary32 => write_scalar::<I32>(execution, destination, source),
-        BinaryFormat::Binary64 => write_scalar::<I64>(execution, destination, source),
+        BinaryFormat::Binary32 => write_scalar::<I32>(execution, destination, source, &rounding),
+        BinaryFormat::Binary64 => write_scalar::<I64>(execution, destination, source, &rounding),
     }
 }
 
@@ -44,12 +45,12 @@ fn write_scalar<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: Val<I32>,
+    rounding: &RoundingMode,
 ) -> Result<(), BuildError>
 where
     I64: AtLeast<T>,
 {
-    let controls = execution.read_mxcsr()?;
-    let result = integer_to_float::<T>(source, &controls.rounding());
+    let result = integer_to_float::<T>(source, rounding);
     execution.record_simd_exceptions(&result.exceptions)?;
     T::write_register(execution, destination, result.value)
 }
@@ -62,14 +63,13 @@ fn packed<T: BinaryEncoding>(
 where
     I64: AtLeast<T>,
 {
+    let rounding = floating::rounding_for_integer_source(execution, T::FORMAT)?;
     let source = match T::FORMAT {
         BinaryFormat::Binary32 => source.read::<V128>(execution, VectorAlignment::Aligned)?,
         BinaryFormat::Binary64 => {
             Val::<V128>::splat(source.read::<I64>(execution, VectorAlignment::Unaligned)?)
         }
     };
-    let controls = execution.read_mxcsr()?;
-    let rounding = controls.rounding();
     let result = FloatResult::from_lanes(0_u128.into(), 16 / T::FORMAT.bytes(), |lane| {
         integer_to_float::<T>(source.extract_lane::<I32>(lane), &rounding)
     });

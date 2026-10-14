@@ -15,6 +15,13 @@ impl Mxcsr {
         self.0.and(StoredSimd::MXCSR_MASK)
     }
 
+    /// Status flags change as instructions execute; only control settings are
+    /// part of the numerical mode observed by a specializing compiler.
+    pub(crate) fn matches_controls(&self, observed: u32) -> Val<I1> {
+        const CONTROLS: u32 = 0xffc0;
+        self.0.and(CONTROLS).eq(observed & CONTROLS)
+    }
+
     pub(crate) fn denormals_are_zero(&self) -> Val<I1> {
         self.0.and(1 << 6).ne(0)
     }

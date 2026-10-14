@@ -47,14 +47,14 @@ where
     let uses_mmx =
         T::FORMAT == BinaryFormat::Binary32 || matches!(&source, MmxLocation::Register(_));
     let convert = |execution: &mut ExecutionBuilder<'_, '_>| {
+        let rounding = floating::rounding_for_integer_source(execution, T::FORMAT)?;
         let source = Val::<V128>::splat(source.read::<I64>(execution)?);
-        let controls = execution.read_mxcsr()?;
         let initial = match T::FORMAT {
             BinaryFormat::Binary32 => execution.read_xmm(destination.clone())?,
             BinaryFormat::Binary64 => 0_u128.into(),
         };
         let result = FloatResult::from_lanes(initial, 2, |lane| {
-            integer_to_float::<T>(source.extract_lane::<I32>(lane), &controls.rounding())
+            integer_to_float::<T>(source.extract_lane::<I32>(lane), &rounding)
         });
         execution.record_simd_exceptions(&result.exceptions)?;
         execution.write_xmm(destination, result.value)
@@ -76,14 +76,14 @@ where
     I64: AtLeast<T>,
 {
     execution.execute_mmx(|execution| {
+        let controls = execution.simd_controls()?;
+        let rounding = rounding.mode(&controls);
         let source = match T::FORMAT {
             BinaryFormat::Binary32 => {
                 Val::<V128>::splat(source.read::<I64>(execution, VectorAlignment::Unaligned)?)
             }
             BinaryFormat::Binary64 => source.read::<V128>(execution, VectorAlignment::Aligned)?,
         };
-        let controls = execution.read_mxcsr()?;
-        let rounding = rounding.mode(&controls);
         let result = FloatResult::from_lanes(0_u128.into(), 2, |lane| {
             FloatOperand::new(
                 source.extract_lane::<T>(lane),

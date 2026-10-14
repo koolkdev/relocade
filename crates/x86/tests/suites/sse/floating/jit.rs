@@ -1,5 +1,8 @@
 //! Common inputs stay compiled; exceptional operands restart before publication.
 
+#[path = "jit/controls.rs"]
+mod controls;
+
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::{compile_block_from_bytes, Compiler, ExecutionProfile, SegmentProfile, Segments};
