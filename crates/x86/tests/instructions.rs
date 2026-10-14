@@ -130,6 +130,8 @@ mod x87_integer_store;
 mod x87_integral;
 #[path = "suites/x87_load.rs"]
 mod x87_load;
+#[path = "suites/x87_logarithm.rs"]
+mod x87_logarithm;
 #[path = "suites/x87_memory_arithmetic.rs"]
 mod x87_memory_arithmetic;
 #[path = "suites/x87_multiply.rs"]

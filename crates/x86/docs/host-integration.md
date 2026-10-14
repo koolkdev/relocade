@@ -336,6 +336,16 @@ operands and tiny results restart in the interpreter before current effects.
 Outside the specified finite input domain, retaining the source is local policy,
 except that negative infinity returns -1 without an exception. This infinity
 response matches observed native behavior where Intel leaves the result undefined.
+FYL2X computes ST(1) * log2(ST(0)), retaining extra significand precision through
+the multiplication before rounding under RC and popping the stack. PC is ignored.
+The normal finite calculation reports precision for mathematically nonzero results.
+C1 comes from final rounding, without reproducing processor-specific approximation
+biases. Zero, infinity and NaN responses follow the architectural operand table.
+FYL2XP1 similarly computes ST(1) * log2(1+ST(0)) and pops. It factors out the
+increment so tiny values survive even when 1+x would round to one. Its specified
+input domain is symmetric: |x| <= 1-sqrt(2)/2. Outside that finite domain,
+retaining ST(1) and completing the pop is local policy; NaNs and unsupported
+encodings still use their ordinary operand responses.
 The remaining transcendental arithmetic families are unsupported.
 FXAM reports ST(0)'s numerical class in C0/C2/C3 and its sign in C1. Empty
 entries report the empty class and retain their payload's sign; examination

@@ -103,12 +103,11 @@ impl DoubleDouble {
         Self::sum(product, residual)
     }
 
-    pub(super) fn divide_f64(&self, divisor: impl Into<Val<F64>>) -> Self {
-        let divisor = divisor.into();
-        let estimate = self.high.div(&divisor);
-        let product = Self::from_f64(estimate.clone()).mul(&Self::from_f64(divisor.clone()));
+    pub(super) fn divide(&self, divisor: &Self) -> Self {
+        let estimate = self.high.div(&divisor.high);
+        let product = Self::from_f64(estimate.clone()).mul(divisor);
         let residual = self.sub(&product);
-        Self::sum(estimate, residual.high.add(residual.low).div(divisor))
+        Self::sum(estimate, residual.high.add(residual.low).div(&divisor.high))
     }
 
     /// Exact scaling within the binary64 normal range used by these kernels.
