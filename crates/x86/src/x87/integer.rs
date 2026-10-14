@@ -1,4 +1,4 @@
-//! Exact integer expansion and rounded signed-integer narrowing.
+//! Exact integer expansion and bounded rounding for integer and decimal stores.
 
 use crate::floating::{RoundingInput, RoundingMode};
 use wasm86_compiler::{AtLeast, MemoryInt, Val, I1, I16, I32, I64};
@@ -34,12 +34,30 @@ impl ExtendedValue {
         &self,
         rounding: &RoundingMode,
     ) -> ConversionResult {
+        let negative = self.bits().negative();
+        let sign_bit = 1_u64 << (T::BYTES * 8 - 1);
+        let limit = negative.select(sign_bit, sign_bit - 1);
+        let result = self.to_integer_magnitude(rounding, &limit);
+        let invalid = result.invalid.clone();
+        result.map_bits(|magnitude| {
+            let integer = negative.select(Val::<I64>::from(0_u64).sub(&magnitude), magnitude);
+            invalid.select(sign_bit, integer)
+        })
+    }
+
+    /// Checks the rounded unsigned magnitude against the destination's limit.
+    /// The destination encoder supplies its own sign and masked-invalid value.
+    pub(super) fn to_integer_magnitude(
+        &self,
+        rounding: &RoundingMode,
+        limit: &Val<I64>,
+    ) -> ConversionResult {
         let value = self.bits();
         let exponent = value.exponent_field();
         let negative = value.negative();
         let unsupported = self.classification().unsupported();
         // E=0 uses the same exponent as E=1, including pseudo-denormals.
-        // No signed destination can contain a magnitude of 2^64 or more.
+        // Integer and packed-decimal destinations cannot contain 2^64 or more.
         let exponent = exponent.eq(0).select(1_u32, exponent);
         let too_large = exponent.unsigned().ge(16383 + 64);
         let distance = too_large.select(0_u32, Val::<I32>::from(16383 + 63).sub(exponent));
@@ -47,20 +65,13 @@ impl ExtendedValue {
             RoundingInput::exact(value.significand).shift_right(distance),
             &negative,
         );
-        let sign_bit = 1_u64 << (T::BYTES * 8 - 1);
-        let limit = negative.select(sign_bit, sign_bit - 1);
-        // Test the rounded magnitude before applying the sign. The negative
-        // limit has one extra value, and a rounded result can cross either limit.
+        // Range is checked after rounding: a fractional input can cross the limit.
         let invalid = unsupported
             .or(too_large)
             .or(limit.unsigned().lt(&rounded.integer));
-        let integer = negative.select(
-            Val::<I64>::from(0_u64).sub(&rounded.integer),
-            rounded.integer,
-        );
         let valid = invalid.eq(false);
         ConversionResult {
-            bits: invalid.select(sign_bit, integer),
+            bits: rounded.integer,
             invalid,
             overflow: false.into(),
             tiny: false.into(),
