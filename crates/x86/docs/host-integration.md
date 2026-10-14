@@ -333,7 +333,9 @@ denormal inputs and masked or unmasked underflow and precision exceptions.
 The numerical kernel uses two binary64 components with a separate extended
 exponent. Normal inputs with an in-range result stay compiled; exceptional
 operands and tiny results restart in the interpreter before current effects.
-Outside the specified finite input domain, retaining the source is local policy.
+Outside the specified finite input domain, retaining the source is local policy,
+except that negative infinity returns -1 without an exception. This infinity
+response matches observed native behavior where Intel leaves the result undefined.
 The remaining transcendental arithmetic families are unsupported.
 FXAM reports ST(0)'s numerical class in C0/C2/C3 and its sign in C1. Empty
 entries report the empty class and retain their payload's sign; examination

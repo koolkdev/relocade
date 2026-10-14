@@ -60,6 +60,34 @@ fn values(engine: Engine, frontend: Frontend) {
     }
 }
 
+fn infinities(engine: Engine, frontend: Frontend) {
+    let code = [0xd9, 0xf0, 0x9b];
+    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    for (input, output) in [
+        ((LEAD, 0xffff), (LEAD, 0xbfff)),
+        ((LEAD, 0x7fff), (LEAD, 0x7fff)),
+    ] {
+        for rc in 0..4 {
+            let mut image = stack_image(&code, 3, 0xffff);
+            set_control(&mut image.cpu.x87.control, 0x0340 | rc << 10);
+            image.cpu.x87.status.precision = 0;
+            write_value(&mut image.cpu, 3, input);
+            let mut result = complete_x87(image.cpu, 2, 0x01f0);
+            result.x87.status.c1 = 0;
+            write_value(&mut result, 3, output);
+            let mut waited = result;
+            waited.eip += 1;
+            waited.instruction_count += 1;
+            checks.check(
+                &format!("infinity={input:x?} RC={rc} has no unmasked exception"),
+                &code,
+                &image,
+                &[dispatch(result), dispatch(waited)],
+            );
+        }
+    }
+}
+
 fn exceptions(engine: Engine, frontend: Frontend) {
     let code = [0xd9, 0xf0, 0x9b];
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
@@ -145,6 +173,8 @@ fn specialization(engine: Engine) {
         Some((42, 0x3fff)),
         Some((LEAD, 1)),
         Some((LEAD, 0x4000)),
+        Some((LEAD, 0xffff)),
+        Some((LEAD, 0x7fff)),
     ] {
         let mut image = stack_image(&CODE, 2, 0xffff);
         if let Some(input) = input {
@@ -231,4 +261,5 @@ fn v8_jit_specialization() {
 }
 
 test_frontends!(rounding_and_extended_range, values);
+test_frontends!(infinite_inputs, infinities);
 test_frontends!(exception_priority, exceptions);

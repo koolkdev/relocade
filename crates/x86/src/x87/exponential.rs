@@ -51,15 +51,20 @@ impl Operand {
             .magnitude(exponent, self.bits.negative(), true.into())
             .round(3.into(), rounding);
 
+        // Match native -infinity -> -1 within the unspecified input domain.
+        let negative_infinity = domain
+            .eq(false)
+            .and(&self.infinity)
+            .and(self.bits.negative());
         let mut exact = RoundedValue::exact(ExtendedValue::from_bits(ExtendedBits {
             significand: endpoint.select(1_u64 << 63, &self.bits.significand),
             sign_exponent: endpoint.select(
                 self.bits.negative().select(0xbffe_u32, 0x3fff_u32),
-                &self.bits.sign_exponent,
+                negative_infinity.select(0xbfff_u32, &self.bits.sign_exponent),
             ),
         }));
         exact.inexact = endpoint.clone();
-        // Outside the specified finite domain, retain the source as local policy.
+        // Other out-of-domain inputs retain their source as local policy.
         // NaNs and unsupported encodings still use the ordinary operand response.
         let exact_case = self.zero.or(&endpoint).or(domain.eq(false));
         result.replace_when(&exact_case, &exact);
