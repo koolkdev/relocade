@@ -105,6 +105,11 @@ impl FiniteMagnitude {
     /// The source classifier admits finite values for range checks. Other
     /// encodings produce no overflow/tiny evidence; their magnitude candidate
     /// and discarded-bit evidence must still be replaced by the caller.
+    /// Zero must use an exponent at or below the destination's minimum normal
+    /// exponent. Encoded zeros satisfy this when converted to the same or a
+    /// narrower format. Arithmetic callers replace exact-zero responses,
+    /// including their range/rounding evidence; those unused candidates may
+    /// have any exponent.
     pub(crate) fn round_binary<T: BinaryEncoding>(
         &self,
         rounding: &RoundingMode,
@@ -119,7 +124,11 @@ impl FiniteMagnitude {
         let shift = 64 - precision;
         let minimum = 1 - format.bias() as i32;
         let unbounded = rounding.round(self.significand.shift_right(shift), &self.negative);
-        let carry = unbounded.integer.eq(1_u64 << precision);
+        // Only an increment of an all-ones retained significand carries into
+        // the exponent. Range evidence does not need the rounded integer.
+        let carry = unbounded
+            .incremented
+            .and(self.significand.integer.unsigned().ge(u64::MAX << shift));
         let exponent = self.exponent.add(carry.unsigned().extend::<I32>());
         let nonzero = self
             .significand
@@ -127,9 +136,8 @@ impl FiniteMagnitude {
             .ne(0_u64)
             .or(&self.significand.guard)
             .or(&self.significand.sticky);
-        let finite_nonzero = finite.and(&nonzero);
-        let overflow = finite_nonzero.and(exponent.signed().ge(format.bias() as i32 + 1));
-        let tiny = finite_nonzero.and(exponent.signed().lt(minimum));
+        let overflow = finite.and(exponent.signed().ge(format.bias() as i32 + 1));
+        let tiny = finite.and(nonzero).and(exponent.signed().lt(minimum));
         let below_normal = self.exponent.signed().lt(minimum);
         let distance = below_normal.select(
             Val::<I32>::from(minimum + shift as i32).sub(&self.exponent),
@@ -145,7 +153,7 @@ impl FiniteMagnitude {
             .shl(fraction_bits)
             .add(bounded.integer.truncate::<T>());
         BinaryRounded {
-            magnitude: nonzero.select(finite_bits, 0),
+            magnitude: finite_bits,
             overflow,
             tiny,
             bounded_inexact: bounded.inexact,
