@@ -2,6 +2,8 @@
 
 #[path = "x87_integer_store/effects.rs"]
 mod effects;
+#[path = "x87_integer_store/truncation.rs"]
+mod truncation;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
@@ -52,6 +54,27 @@ const FORMS: [Form; 5] = [
     Form {
         opcode: 0xdf,
         modrm: 0x3d,
+        bytes: 8,
+        pop: true,
+    },
+];
+
+const TRUNCATING_FORMS: [Form; 3] = [
+    Form {
+        opcode: 0xdf,
+        modrm: 0x0d,
+        bytes: 2,
+        pop: true,
+    },
+    Form {
+        opcode: 0xdb,
+        modrm: 0x0d,
+        bytes: 4,
+        pop: true,
+    },
+    Form {
+        opcode: 0xdd,
+        modrm: 0x0d,
         bytes: 8,
         pop: true,
     },
@@ -168,7 +191,7 @@ fn check_store(checks: &mut ImageSequences, form: Form, case: Case) {
 
 fn exact_forms(engine: Engine, frontend: Frontend) {
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
-    for form in FORMS {
+    for form in FORMS.into_iter().chain(TRUNCATING_FORMS) {
         for (source, output) in [
             ((0, 0), 0),
             ((0, 0x8000), 0),

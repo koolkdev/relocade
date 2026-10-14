@@ -303,7 +303,7 @@ FFREE, FINCSTP and FDECSTP. FCHS and FABS change only the sign of a nonempty
 ST(0), preserving its exact encoding, including NaN payloads. Empty operands
 use the ordinary masked or unmasked stack-underflow response. Memory data
 transfers support FLD m32/m64/m80,
-FILD m16/m32/m64 integers, FIST m16/m32, FISTP m16/m32/m64, FST m32/m64 and
+FILD m16/m32/m64 integers, FIST m16/m32, FISTP/FISTTP m16/m32/m64, FST m32/m64 and
 FSTP m32/m64/m80. FLD1, FLDZ, FLDPI, FLDL2T, FLDL2E, FLDLG2 and FLDLN2 push
 the x87 constants. They obey RC at extended precision independently of PC,
 without raising precision exceptions or setting C1 for rounding. A full stack
@@ -466,6 +466,12 @@ complete the store and FISTP pop even when precision is unmasked. FIST preserves
 the full source value. Operand size is fixed by the opcode. See Intel's
 [FIST/FISTP entry, Volume 2A](https://cdrdv2-public.intel.com/812383/253666-sdm-vol-2a.pdf)
 and [Volume 1, section 8.5.6](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366521.pdf).
+
+FISTTP m16/m32/m64 uses truncation toward zero independently of RC and PC,
+clears C1, and pops after a completed store. It shares integer conversion bounds,
+invalid and precision responses, and checked-memory ordering with FISTP. The JIT
+neither reads nor guards RC for this instruction. FISTTP is the SSE3 form available
+on Prescott-generation Pentium 4 processors.
 
 FST/FSTP m32/m64 round the current extended value directly to the destination
 under RC, independently of PC. Signed zeros and infinities retain their signs;
