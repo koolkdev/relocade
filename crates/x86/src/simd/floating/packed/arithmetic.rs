@@ -5,12 +5,6 @@ use crate::simd::FloatArithmetic;
 
 mod precision;
 
-/// The result has only precision effects after every lane's domain is admitted.
-pub(crate) struct PackedFloatCandidate {
-    pub(crate) valid: Val<I1>,
-    pub(crate) result: FloatResult<V128>,
-}
-
 impl PackedFloatOperand {
     pub(crate) fn arithmetic_nearest(
         &self,

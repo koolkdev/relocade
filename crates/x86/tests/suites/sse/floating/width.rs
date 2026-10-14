@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[path = "width/packed.rs"]
+mod packed;
+
 struct ScalarCase {
     source: u64,
     result: u64,
@@ -160,81 +163,6 @@ fn range_and_special(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn packed(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
-    for (narrow, sources, results, controls, raised) in [
-        (
-            false,
-            [0x3f80_0000, 0xbf80_0000],
-            [0x3ff0_0000_0000_0000, 0xbff0_0000_0000_0000],
-            0x1f80,
-            0,
-        ),
-        (
-            true,
-            [0x3ff0_0000_0000_0000, 0xbff0_0000_0000_0000],
-            [0x3f80_0000, 0xbf80_0000],
-            0x1f80,
-            0,
-        ),
-        (
-            true,
-            [0x7ff0_0000_0000_0001, 0x47f0_0000_0000_0000],
-            [0, 0],
-            0x1f00,
-            1,
-        ),
-        (true, [1, 0x47f0_0000_0000_0000], [0, 0], 0x1e80, 2),
-        (
-            true,
-            [0x36a0_0000_0000_0000, 0x3ff0_0000_1000_0000],
-            [0, 0],
-            0x1780,
-            48,
-        ),
-        (
-            true,
-            [0x47f0_0000_0000_0000, 0x3ff0_0000_1000_0000],
-            [0, 0],
-            0x1b80,
-            40,
-        ),
-    ] {
-        let code = encoding(prefix(narrow, true), 0x5a, 0xc0);
-        let mut image = floating_image(&code, controls);
-        for (index, bits) in sources.into_iter().enumerate() {
-            lane(&mut image.cpu.simd.xmm[0], narrow, index, bits);
-        }
-        let fault = raised & !(controls >> 7) != 0;
-        let mut cpu = if fault {
-            image.cpu
-        } else {
-            retire(image.cpu, code.len())
-        };
-        cpu.simd.mxcsr |= raised;
-        if !fault {
-            cpu.simd.xmm[0] = [0; 16];
-            for (index, bits) in results.into_iter().enumerate() {
-                lane(&mut cpu.simd.xmm[0], !narrow, index, bits);
-            }
-        }
-        checks.check(
-            "packed widths collect all lane conditions before publication",
-            &code,
-            &image,
-            &[Step {
-                cpu,
-                ram: &[],
-                exit: if fault {
-                    Exit::SimdFloatingPoint
-                } else {
-                    Exit::Dispatch(cpu.eip)
-                },
-            }],
-        );
-    }
-}
-
 fn memory(engine: Engine, frontend: Frontend) {
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
     for narrow in [false, true] {
@@ -291,5 +219,4 @@ fn memory(engine: Engine, frontend: Frontend) {
 test_frontends!(sse_float_widen, widen);
 test_frontends!(sse_float_narrow_rounding, rounding);
 test_frontends!(sse_float_narrow_range, range_and_special);
-test_frontends!(sse_float_width_packed, packed);
 test_frontends!(sse_float_width_memory, memory);

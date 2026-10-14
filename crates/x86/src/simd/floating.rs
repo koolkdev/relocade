@@ -14,7 +14,9 @@ pub(crate) use compare::{FloatMinMax, FloatOperands};
 pub(crate) use exceptions::SimdExceptions;
 pub(crate) use integer::integer_to_float;
 pub(crate) use operand::FloatOperand;
-pub(crate) use packed::{packed_integer_to_float, PackedFloatOperand};
+pub(crate) use packed::{
+    narrow_packed_float, packed_integer_to_float, widen_packed_float, PackedFloatOperand,
+};
 
 use wasm86_compiler::{Val, ValueType, VectorLane, V128};
 

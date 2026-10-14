@@ -1,84 +1,107 @@
 //! Scalar width conversions preserve upper bits; packed conversions replace XMM.
 
 use super::*;
-use crate::simd::{FloatOperand, FloatResult};
+use crate::{
+    instruction::XmmType,
+    simd::{narrow_packed_float, widen_packed_float, FloatOperand, FloatResult},
+};
 use wasm86_compiler::I64;
 
 instruction_families! {
     CVTSS2SD {
-        execute: widen(FloatShape::Scalar);
+        execute: widen_scalar;
         forms { PF3 0x0f 0x5a => dword(xmm, xmm_rm); }
     }
     CVTSD2SS {
-        execute: narrow(FloatShape::Scalar);
+        execute: narrow_scalar;
         forms { PF2 0x0f 0x5a => qword(xmm, xmm_rm); }
     }
     CVTPS2PD {
-        execute: widen(FloatShape::Packed);
+        execute: widen_packed;
         forms { NP 0x0f 0x5a => dword(xmm, xmm_rm); }
     }
     CVTPD2PS {
-        execute: narrow(FloatShape::Packed);
+        execute: narrow_packed;
         forms { P66 0x0f 0x5a => qword(xmm, xmm_rm); }
     }
 }
 
-fn widen(
+fn widen_scalar(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,
-    shape: FloatShape,
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
-    let (source, initial, count) = match shape {
-        FloatShape::Scalar => (
-            Val::<V128>::splat(source.read::<I32>(execution, VectorAlignment::Unaligned)?),
-            execution.read_xmm(destination.clone())?,
-            1,
-        ),
-        FloatShape::Packed => (
-            Val::<V128>::splat(source.read::<I64>(execution, VectorAlignment::Unaligned)?),
-            0_u128.into(),
-            2,
-        ),
+    let source = source.read::<I32>(execution, VectorAlignment::Unaligned)?;
+    let result = FloatOperand::new(source, controls.denormals_are_zero()).widen();
+    execution.record_simd_exceptions(&result.exceptions)?;
+    I64::write_register(execution, destination, result.value)
+}
+
+fn narrow_scalar(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+) -> Result<(), BuildError> {
+    let controls = execution.simd_controls()?;
+    let source = source.read::<I64>(execution, VectorAlignment::Unaligned)?;
+    let result = FloatOperand::new(source, controls.denormals_are_zero()).narrow(&controls);
+    execution.record_simd_exceptions(&result.exceptions)?;
+    I32::write_register(execution, destination, result.value)
+}
+
+fn widen_packed(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+) -> Result<(), BuildError> {
+    let controls = execution.simd_controls()?;
+    let source = Val::<V128>::splat(source.read::<I64>(execution, VectorAlignment::Unaligned)?);
+    let specialized = execution.specialize(|execution| {
+        let candidate = widen_packed_float(source.clone(), controls.denormals_are_zero());
+        execution.specialize_on(candidate.valid)?;
+        Ok(candidate.result)
+    })?;
+    let result = match specialized {
+        Some(result) => result,
+        None => FloatResult::from_lanes(0_u128.into(), 2, |lane| {
+            FloatOperand::new(
+                source.extract_lane::<I32>(lane),
+                controls.denormals_are_zero(),
+            )
+            .widen()
+        }),
     };
-    let result = FloatResult::from_lanes(initial, count, |lane| {
-        FloatOperand::new(
-            source.extract_lane::<I32>(lane),
-            controls.denormals_are_zero(),
-        )
-        .widen()
-    });
     execution.record_simd_exceptions(&result.exceptions)?;
     execution.write_xmm(destination, result.value)
 }
 
-fn narrow(
+fn narrow_packed(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,
-    shape: FloatShape,
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
-    let (source, initial, count) = match shape {
-        FloatShape::Scalar => (
-            Val::<V128>::splat(source.read::<I64>(execution, VectorAlignment::Unaligned)?),
-            execution.read_xmm(destination.clone())?,
-            1,
-        ),
-        FloatShape::Packed => (
-            source.read::<V128>(execution, VectorAlignment::Aligned)?,
-            0_u128.into(),
-            2,
-        ),
-    };
-    let result = FloatResult::from_lanes(initial, count, |lane| {
-        FloatOperand::new(
-            source.extract_lane::<I64>(lane),
+    let source = source.read::<V128>(execution, VectorAlignment::Aligned)?;
+    let specialized = execution.specialize(|execution| {
+        let candidate = narrow_packed_float(
+            source.clone(),
             controls.denormals_are_zero(),
-        )
-        .narrow(&controls)
-    });
+            &controls.rounding(),
+        );
+        execution.specialize_on(candidate.valid)?;
+        Ok(candidate.result)
+    })?;
+    let result = match specialized {
+        Some(result) => result,
+        None => FloatResult::from_lanes(0_u128.into(), 2, |lane| {
+            FloatOperand::new(
+                source.extract_lane::<I64>(lane),
+                controls.denormals_are_zero(),
+            )
+            .narrow(&controls)
+        }),
+    };
     execution.record_simd_exceptions(&result.exceptions)?;
     execution.write_xmm(destination, result.value)
 }
