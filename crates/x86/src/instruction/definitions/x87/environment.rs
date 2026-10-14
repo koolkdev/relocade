@@ -97,11 +97,12 @@ where
 {
     let operand = execution.memory_operand(address, kind.bytes::<T>(), Intent::Write, &[])?;
     let mode = mode(execution);
-    let words = execution.x87().environment::<T>(mode)?;
+    // Capture stack values first so saved-tag classification reuses their reads.
     let registers = match kind {
         ImageKind::Environment => None,
         ImageKind::FullState => Some(execution.x87().stack_bits()?),
     };
+    let words = execution.x87().environment::<T>(mode)?;
     for (index, word) in words.iter().enumerate() {
         operand.write(execution, index as u32 * T::BYTES, word)?;
     }
