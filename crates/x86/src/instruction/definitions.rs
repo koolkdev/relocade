@@ -13,6 +13,7 @@ mod extensions;
 mod far_control;
 mod flag_control;
 mod flag_transfer;
+mod fxstate;
 mod interrupts;
 mod memory_control;
 mod mmx;
@@ -62,6 +63,7 @@ pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form
         .chain(far_control::forms())
         .chain(interrupts::forms())
         .chain(memory_control::forms())
+        .chain(fxstate::forms())
         .chain(x87::forms())
         .chain(mmx::forms())
         .chain(sse::forms())

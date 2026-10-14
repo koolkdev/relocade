@@ -4,6 +4,15 @@ use super::*;
 use crate::x87::ExtendedBits;
 
 impl Registers {
+    pub(in crate::state::x87) fn tag_word(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<Val<I16>, BuildError> {
+        self.bank
+            .get_or_insert_with(|| Bank::new(self.memory, 0.into()))
+            .tag_word(body)
+    }
+
     pub(in crate::state::x87) fn saved_tag_word(
         &mut self,
         body: &mut BlockBuilder<'_>,

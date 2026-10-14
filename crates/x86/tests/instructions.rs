@@ -46,6 +46,8 @@ mod extending_moves;
 mod flag_control;
 #[path = "suites/flag_transfer.rs"]
 mod flag_transfer;
+#[path = "suites/fxstate.rs"]
+mod fxstate;
 #[path = "suites/instruction_prefixes.rs"]
 mod instruction_prefixes;
 #[path = "suites/interpreter_handoff.rs"]

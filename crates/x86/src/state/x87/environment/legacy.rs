@@ -2,22 +2,7 @@
 
 use wasm86_compiler::{AtLeast, MemoryInt, Val, I16, I32};
 
-use super::EnvironmentMode;
-
-pub(super) struct Pointer {
-    pub(super) offset: Val<I32>,
-    pub(super) selector: Val<I16>,
-}
-
-pub(super) struct Environment {
-    pub(super) control: Val<I16>,
-    pub(super) status: Val<I16>,
-    pub(super) tags: Val<I16>,
-    /// The protected 14-byte image has no opcode field.
-    pub(super) opcode: Option<Val<I16>>,
-    pub(super) instruction: Pointer,
-    pub(super) data: Pointer,
-}
+use super::{Environment, EnvironmentMode, Pointer};
 
 struct PointerWords {
     low: Val<I32>,
