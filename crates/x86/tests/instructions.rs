@@ -118,6 +118,8 @@ mod x87_divide;
 mod x87_environment;
 #[path = "suites/x87_examine.rs"]
 mod x87_examine;
+#[path = "suites/x87_exponential.rs"]
+mod x87_exponential;
 #[path = "suites/x87_extract.rs"]
 mod x87_extract;
 #[path = "suites/x87_integer_load.rs"]

@@ -6,6 +6,7 @@ mod binary;
 mod compare;
 mod constant;
 mod divide;
+mod exponential;
 mod extract;
 mod integer;
 mod integral;
@@ -18,6 +19,7 @@ mod result;
 mod rounding;
 mod scale;
 mod sqrt;
+mod transcendental;
 mod value;
 
 pub(crate) use bcd::PackedBcd;
