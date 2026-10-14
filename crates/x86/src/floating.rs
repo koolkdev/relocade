@@ -1,4 +1,4 @@
-//! IEEE binary32/64 encoding helpers shared by x87 and SIMD.
+//! Binary floating-point encoding and exact arithmetic shared by x87 and SIMD.
 
 mod add;
 mod classification;
@@ -7,6 +7,7 @@ mod finite;
 mod multiply;
 pub(crate) mod quotient;
 mod rounding;
+mod sqrt;
 
 pub(crate) use classification::BinaryClassification;
 pub(crate) use finite::{FiniteInput, FiniteMagnitude, MagnitudeShape};

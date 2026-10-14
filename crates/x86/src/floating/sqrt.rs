@@ -1,6 +1,9 @@
 //! A native estimate followed by exact correction supplies all 64 root bits.
 
-use crate::floating::RoundingInput;
+use super::{FiniteInput, FiniteMagnitude, RoundingInput};
+
+#[cfg(test)]
+mod tests;
 use wasm86_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64};
 
 fn at_least(
@@ -17,7 +20,7 @@ fn at_least(
 
 /// The normalized input has its leading bit at 63. The radicand is
 /// S * 2^(63+odd); its root is a normalized 64-bit significand.
-pub(super) fn calculate(
+fn calculate(
     body: &mut BlockBuilder<'_>,
     significand: &Val<I64>,
     odd: &Val<I1>,
@@ -112,4 +115,19 @@ pub(super) fn calculate(
         sticky: remainder_high.or(remainder_low).ne(0_u64),
         integer,
     })
+}
+
+impl FiniteInput {
+    /// Supplies a positive root candidate for normalized, nonzero input.
+    /// The architectural caller replaces zero and invalid-operand responses.
+    pub(crate) fn square_root(
+        &self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<FiniteMagnitude, BuildError> {
+        Ok(FiniteMagnitude {
+            significand: calculate(body, &self.significand, &self.exponent.and(1).ne(0))?,
+            exponent: self.exponent.signed().shr(1),
+            negative: false.into(),
+        })
+    }
 }

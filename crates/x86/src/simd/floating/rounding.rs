@@ -53,3 +53,17 @@ impl FiniteMagnitude {
         }
     }
 }
+
+impl<T: BinaryEncoding> FloatResult<T>
+where
+    I64: AtLeast<T>,
+{
+    /// A special response replaces the numerical result and its range/precision
+    /// evidence. Operand exception conditions are supplied by the caller.
+    pub(super) fn replace_exact(&mut self, condition: &Val<I1>, bits: Val<I64>) {
+        self.value = condition.select(bits.truncate::<T>(), &self.value);
+        self.exceptions.overflow = condition.eq(false).and(&self.exceptions.overflow);
+        self.exceptions.underflow = condition.eq(false).and(&self.exceptions.underflow);
+        self.exceptions.precision = condition.eq(false).and(&self.exceptions.precision);
+    }
+}

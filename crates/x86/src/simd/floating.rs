@@ -6,6 +6,7 @@ mod exceptions;
 mod integer;
 mod operand;
 mod rounding;
+mod sqrt;
 mod width;
 pub(crate) use arithmetic::{ArithmeticOperands, FloatArithmetic};
 pub(crate) use compare::FloatOperands;
