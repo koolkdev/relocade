@@ -11,6 +11,7 @@ use wasm86_compiler::{AtLeast, BlockBuilder, BuildError, Val, I1, I64};
 pub(crate) enum FloatArithmetic {
     Add,
     Subtract,
+    Multiply,
 }
 
 pub(crate) struct ArithmeticOperands<T: BinaryEncoding> {
@@ -44,27 +45,44 @@ where
         right_input.negative = right_input
             .negative
             .xor(matches!(operation, FloatArithmetic::Subtract));
-        let opposite = left_input.negative.xor(&right_input.negative);
-        let infinity_negative = left
-            .infinity()
-            .select(&left_input.negative, &right_input.negative);
-        let magnitude = left_input.add(body, &right_input, &controls.rounding())?;
+        let magnitude = match operation {
+            FloatArithmetic::Add | FloatArithmetic::Subtract => {
+                left_input.add(body, &right_input, &controls.rounding())?
+            }
+            FloatArithmetic::Multiply => left_input.multiply(&right_input),
+        };
         let mut result =
             magnitude.round_simd_magnitude::<T>(controls, &left.finite().and(right.finite()));
         let sign = magnitude
             .negative
             .select::<I64>(T::FORMAT.sign_bit(), 0_u64);
         result.value = result.value.or(sign.truncate::<T>());
-        Self::replace_exact(&mut result, &magnitude.significand.integer.eq(0_u64), sign);
         let infinity = left.infinity().or(right.infinity());
-        Self::replace_exact(
-            &mut result,
-            &infinity,
-            infinity_negative
-                .select(T::FORMAT.sign_bit(), 0_u64)
-                .or(T::FORMAT.infinity()),
-        );
-        let invalid_operation = left.infinity().and(right.infinity()).and(opposite);
+        let invalid_operation = match operation {
+            FloatArithmetic::Add | FloatArithmetic::Subtract => {
+                Self::replace_exact(&mut result, &magnitude.significand.integer.eq(0_u64), sign);
+                let opposite = left_input.negative.xor(&right_input.negative);
+                let negative = left
+                    .infinity()
+                    .select(&left_input.negative, &right_input.negative);
+                Self::replace_exact(
+                    &mut result,
+                    &infinity,
+                    negative
+                        .select(T::FORMAT.sign_bit(), 0_u64)
+                        .or(T::FORMAT.infinity()),
+                );
+                left.infinity().and(right.infinity()).and(opposite)
+            }
+            FloatArithmetic::Multiply => {
+                let negative = left_input.negative.xor(&right_input.negative);
+                let zero = left.zero().or(right.zero());
+                let sign = negative.select(T::FORMAT.sign_bit(), 0_u64);
+                Self::replace_exact(&mut result, &zero, sign.clone());
+                Self::replace_exact(&mut result, &infinity, sign.or(T::FORMAT.infinity()));
+                infinity.and(zero)
+            }
+        };
         Ok(self.finish(result, &left, &right, invalid_operation))
     }
 

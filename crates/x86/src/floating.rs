@@ -3,6 +3,7 @@
 mod add;
 mod classification;
 mod finite;
+mod multiply;
 mod rounding;
 
 pub(crate) use classification::BinaryClassification;
