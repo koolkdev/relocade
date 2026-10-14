@@ -142,6 +142,12 @@ fn ternary(
 
 fn unary(operator: Unary, input: TypedLiteral, result: Type) -> Option<Literal> {
     let bits = match operator {
+        Unary::FloatVector { operator, format } => {
+            return Some(floating::vector::unary(format, operator, input.value.into())?.into());
+        }
+        Unary::FloatVectorConvert(operator) => {
+            return Some(floating::vector::convert(operator, input.value.into())?.into());
+        }
         Unary::PairwiseAddUnsigned { lane_type } => {
             return Some(
                 Literal::from(vector::pairwise_add_unsigned(lane_type, input.value.into()))
@@ -169,7 +175,11 @@ fn unary(operator: Unary, input: TypedLiteral, result: Type) -> Option<Literal> 
             u64::from(mask)
         }
         Unary::ExtractLane { lane } => (u128::from(input.value) >> (lane * result.bits())) as u64,
-        Unary::Float(operator) => floating::unary(operator, input.value.scalar(input.ty)?)?,
+        Unary::Float(operator) => floating::unary(
+            floating::Format::Binary64,
+            operator,
+            input.value.scalar(input.ty)?,
+        )?,
         Unary::FloatConvert(operator) => {
             floating::convert(operator, input.ty, input.value.scalar(input.ty)?)?
         }
@@ -198,6 +208,18 @@ fn binary(
     result: Type,
 ) -> Option<Literal> {
     let bits = match operator {
+        Binary::FloatVector { operator, format } => {
+            return Some(
+                floating::vector::binary(format, operator, left.value.into(), right.value.into())?
+                    .into(),
+            );
+        }
+        Binary::FloatVectorCompare { operator, format } => {
+            return Some(
+                floating::vector::compare(format, operator, left.value.into(), right.value.into())
+                    .into(),
+            );
+        }
         Binary::Swizzle { input_type } => {
             let bytes = u128::from(left.value).to_le_bytes();
             let indices = u128::from(right.value).to_le_bytes();
@@ -267,6 +289,7 @@ fn binary(
             right.value.scalar(right.ty)?,
         )?,
         Binary::Float(operator) => floating::binary(
+            floating::Format::Binary64,
             operator,
             left.value.scalar(left.ty)?,
             right.value.scalar(right.ty)?,
@@ -278,6 +301,7 @@ fn binary(
             right.value.scalar(right.ty)?,
         )),
         Binary::Compare(Compare::Float(operator)) => u64::from(floating::compare(
+            floating::Format::Binary64,
             operator,
             left.value.scalar(left.ty)?,
             right.value.scalar(right.ty)?,

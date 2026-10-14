@@ -10,8 +10,10 @@ use crate::{
     V64,
 };
 
+mod floating;
 mod layout;
 mod multiply;
+pub use floating::{F32x4, F64x2};
 
 mod width;
 
