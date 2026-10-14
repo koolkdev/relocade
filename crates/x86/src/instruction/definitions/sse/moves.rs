@@ -169,7 +169,12 @@ fn store_non_temporal(
 ) -> Result<(), BuildError> {
     let value = execution.read_xmm(source)?;
     execution
-        .memory_operand(destination, OperandSpan::aligned(16), Intent::Write, &[])?
+        .memory_operand(
+            destination,
+            OperandSpan::aligned(16, 16),
+            Intent::Write,
+            &[],
+        )?
         .write(execution, 0, value)
 }
 

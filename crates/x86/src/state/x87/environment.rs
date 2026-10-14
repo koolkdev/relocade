@@ -1,13 +1,29 @@
 //! Architectural environment images, distinct from the host snapshot layout.
 
-use wasm86_compiler::{AtLeast, BuildError, MemoryInt, Val, I32};
+use wasm86_compiler::{AtLeast, BuildError, MemoryInt, Val, I16, I32};
 
-mod image;
+mod fx;
+mod legacy;
 
 use super::X87Access;
 use crate::state::access::cpu_location;
 use crate::x87::ExtendedBits;
-use image::{Environment, Pointer};
+use crate::SegmentDefaultSize;
+
+struct Pointer {
+    offset: Val<I32>,
+    selector: Val<I16>,
+}
+
+struct Environment {
+    control: Val<I16>,
+    status: Val<I16>,
+    tags: Val<I16>,
+    /// The protected 14-byte image has no opcode field.
+    opcode: Option<Val<I16>>,
+    instruction: Pointer,
+    data: Pointer,
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum EnvironmentMode {
@@ -25,10 +41,24 @@ impl X87Access<'_, '_> {
     where
         I32: AtLeast<T>,
     {
-        let environment = Environment {
+        let tags = self.state.registers.saved_tag_word(self.body)?;
+        Ok(self.capture_environment(tags)?.encode(mode))
+    }
+
+    /// FXSAVE retains only occupancy, so its tags need no payload classification.
+    pub(crate) fn fx_environment(
+        &mut self,
+        pointer_size: SegmentDefaultSize,
+    ) -> Result<[Val<I32>; 6], BuildError> {
+        let tags = self.state.registers.tag_word(self.body)?;
+        Ok(self.capture_environment(tags)?.encode_fx(pointer_size))
+    }
+
+    fn capture_environment(&mut self, tags: Val<I16>) -> Result<Environment, BuildError> {
+        Ok(Environment {
             control: self.control_word()?,
             status: self.status_word()?,
-            tags: self.state.registers.saved_tag_word(self.body)?,
+            tags,
             opcode: Some(
                 self.state
                     .metadata
@@ -54,8 +84,7 @@ impl X87Access<'_, '_> {
                     .metadata
                     .read(self.body, cpu_location!(x87.data_selector))?,
             },
-        };
-        Ok(environment.encode(mode))
+        })
     }
 
     /// Restores an environment and, when present, its eight logical stack values.

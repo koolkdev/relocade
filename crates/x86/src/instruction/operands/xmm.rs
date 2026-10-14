@@ -17,7 +17,7 @@ impl VectorAlignment {
     fn span(self, bytes: u32) -> OperandSpan {
         match self {
             Self::Unaligned => bytes.into(),
-            Self::Aligned => OperandSpan::aligned(bytes),
+            Self::Aligned => OperandSpan::aligned(bytes, bytes),
         }
     }
 }

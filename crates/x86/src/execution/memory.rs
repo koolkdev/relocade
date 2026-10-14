@@ -19,12 +19,9 @@ pub(crate) struct OperandSpan {
 }
 
 impl OperandSpan {
-    pub(crate) fn aligned(bytes: u32) -> Self {
-        assert!(bytes.is_power_of_two());
-        Self {
-            bytes,
-            alignment: bytes,
-        }
+    pub(crate) fn aligned(bytes: u32, alignment: u32) -> Self {
+        assert!(alignment.is_power_of_two());
+        Self { bytes, alignment }
     }
 }
 

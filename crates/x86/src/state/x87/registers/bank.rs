@@ -114,6 +114,11 @@ impl Bank {
         Ok(())
     }
 
+    pub(super) fn tag_word(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I16>, BuildError> {
+        self.read_tag_word(body)?;
+        body.value(self.packed_tags().unwrap().0)
+    }
+
     /// Legacy saves classify occupied payloads, including registers written by
     /// MMX, while preserving the live tags and any unresolved write guards.
     pub(super) fn saved_tag_word(
