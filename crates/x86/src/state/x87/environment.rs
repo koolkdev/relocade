@@ -6,6 +6,7 @@ mod image;
 
 use super::X87Access;
 use crate::state::access::cpu_location;
+use crate::x87::ExtendedBits;
 use image::{Environment, Pointer};
 
 #[derive(Clone, Copy)]
@@ -57,10 +58,13 @@ impl X87Access<'_, '_> {
         Ok(environment.encode(mode))
     }
 
-    pub(crate) fn load_environment<T: MemoryInt>(
+    /// Restores an environment and, when present, its eight logical stack values.
+    /// Tags retain emptiness from the image and classify occupied payloads.
+    pub(crate) fn restore<T: MemoryInt>(
         &mut self,
         mode: EnvironmentMode,
         words: &[Val<T>; 7],
+        registers: Option<&[ExtendedBits; 8]>,
     ) -> Result<(), BuildError>
     where
         I32: AtLeast<T>,
@@ -72,7 +76,7 @@ impl X87Access<'_, '_> {
         self.state
             .status
             .load_word(self.body, &environment.status)?;
-        self.state.registers.load_environment(
+        self.state.registers.restore(
             self.body,
             environment
                 .status
@@ -82,6 +86,7 @@ impl X87Access<'_, '_> {
                 .unsigned()
                 .extend::<I32>(),
             &environment.tags,
+            registers,
         )?;
         if let Some(opcode) = environment.opcode {
             self.state
@@ -111,6 +116,10 @@ impl X87Access<'_, '_> {
         self.state
             .status
             .update_pending_exception(self.body, &mut self.state.control)
+    }
+
+    pub(crate) fn stack_bits(&mut self) -> Result<[ExtendedBits; 8], BuildError> {
+        self.state.registers.stack_bits(self.body)
     }
 
     pub(crate) fn mask_exceptions(&mut self) -> Result<(), BuildError> {
