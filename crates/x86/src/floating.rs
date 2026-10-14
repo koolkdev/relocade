@@ -2,8 +2,10 @@
 
 mod add;
 mod classification;
+mod divide;
 mod finite;
 mod multiply;
+pub(crate) mod quotient;
 mod rounding;
 
 pub(crate) use classification::BinaryClassification;

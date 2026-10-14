@@ -98,7 +98,7 @@ fn native_prefix(
 /// Divides `numerator << shift` for normalized numerator and denominator, where
 /// 0 <= shift <= 63. The quotient and remainder are exact. A known 53-bit denominator uses
 /// the same corrected native estimate as ordinary division.
-pub(super) fn integer_division(
+pub(crate) fn integer_division(
     body: &mut BlockBuilder<'_>,
     numerator: &Val<I64>,
     denominator: Val<I64>,
@@ -158,9 +158,9 @@ struct Divisor {
     low: Val<I64>,
 }
 
-pub(super) struct IntegerDivision {
-    pub(super) quotient: Val<I64>,
-    pub(super) remainder: Val<I64>,
+pub(crate) struct IntegerDivision {
+    pub(crate) quotient: Val<I64>,
+    pub(crate) remainder: Val<I64>,
 }
 
 impl Divisor {

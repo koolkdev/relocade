@@ -1,11 +1,10 @@
 //! Quadrants and exponent differences stay exact before a bounded atan kernel.
 
-use wasm86_compiler::{BlockBuilder, BuildError, I32};
+use wasm86_compiler::{BlockBuilder, BuildError};
 
-use crate::floating::{FiniteMagnitude, MagnitudeShape, RoundingMode};
+use crate::floating::{FiniteInput, FiniteMagnitude, MagnitudeShape, RoundingMode};
 
 use super::{
-    quotient,
     result::RoundedValue,
     transcendental::{odd_power_series, DoubleDouble},
     ArithmeticResult, BinaryOperands,
@@ -38,12 +37,19 @@ impl BinaryOperands {
                 // DD preserves. Keep its exact remainder before subtracting the
                 // much smaller atan tail; at this gap that tail cannot cross a
                 // nonzero remainder boundary of two 64-bit significands.
-                let quotient = quotient::calculate(&numerator, denominator.clone(), false);
-                let ratio = FiniteMagnitude {
-                    significand: quotient.significand,
-                    exponent: gap.sub(quotient.below_one.unsigned().extend::<I32>()),
+                let ratio = FiniteInput {
+                    significand: numerator.clone(),
+                    exponent: gap.clone(),
                     negative: y.bits.negative(),
                 }
+                .divide(
+                    &FiniteInput {
+                        significand: denominator.clone(),
+                        exponent: 0.into(),
+                        negative: false.into(),
+                    },
+                    false,
+                )
                 .with_negative_tail(&true.into());
                 let offset = swap.or(x.bits.negative());
                 let axis =
