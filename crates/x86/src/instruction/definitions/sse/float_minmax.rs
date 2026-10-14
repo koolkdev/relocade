@@ -1,63 +1,69 @@
 //! Legacy floating-point minima and maxima select the source on ties or NaNs.
 
-use super::{floating::binary as float_binary, *};
-use crate::floating::BinaryEncoding;
-use crate::simd::{FloatOperands, FloatResult};
+use super::*;
+use crate::simd::FloatMinMax;
+use crate::{floating::BinaryEncoding, instruction::XmmType};
 use wasm86_compiler::{AtLeast, I64};
 
 instruction_families! {
     MINSS {
-        execute: float_binary::<_>(FloatShape::Scalar, |operands| min_max(operands, MinMax::Min));
+        execute: scalar::<_>(FloatMinMax::Min);
         forms { PF3 0x0f 0x5d => dword(xmm, xmm_rm); }
     }
     MINSD {
-        execute: float_binary::<_>(FloatShape::Scalar, |operands| min_max(operands, MinMax::Min));
+        execute: scalar::<_>(FloatMinMax::Min);
         forms { PF2 0x0f 0x5d => qword(xmm, xmm_rm); }
     }
     MINPS {
-        execute: float_binary::<_>(FloatShape::Packed, |operands| min_max(operands, MinMax::Min));
+        execute: packed::<_>(FloatMinMax::Min);
         forms { NP 0x0f 0x5d => dword(xmm, xmm_rm); }
     }
     MINPD {
-        execute: float_binary::<_>(FloatShape::Packed, |operands| min_max(operands, MinMax::Min));
+        execute: packed::<_>(FloatMinMax::Min);
         forms { P66 0x0f 0x5d => qword(xmm, xmm_rm); }
     }
     MAXSS {
-        execute: float_binary::<_>(FloatShape::Scalar, |operands| min_max(operands, MinMax::Max));
+        execute: scalar::<_>(FloatMinMax::Max);
         forms { PF3 0x0f 0x5f => dword(xmm, xmm_rm); }
     }
     MAXSD {
-        execute: float_binary::<_>(FloatShape::Scalar, |operands| min_max(operands, MinMax::Max));
+        execute: scalar::<_>(FloatMinMax::Max);
         forms { PF2 0x0f 0x5f => qword(xmm, xmm_rm); }
     }
     MAXPS {
-        execute: float_binary::<_>(FloatShape::Packed, |operands| min_max(operands, MinMax::Max));
+        execute: packed::<_>(FloatMinMax::Max);
         forms { NP 0x0f 0x5f => dword(xmm, xmm_rm); }
     }
     MAXPD {
-        execute: float_binary::<_>(FloatShape::Packed, |operands| min_max(operands, MinMax::Max));
+        execute: packed::<_>(FloatMinMax::Max);
         forms { P66 0x0f 0x5f => qword(xmm, xmm_rm); }
     }
 }
 
-enum MinMax {
-    Min,
-    Max,
-}
-
-fn min_max<T: BinaryEncoding>(operands: FloatOperands<T>, operation: MinMax) -> FloatResult<T>
+fn scalar<T: BinaryEncoding + XmmType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+    operation: FloatMinMax,
+) -> Result<(), BuildError>
 where
     I64: AtLeast<T>,
 {
-    let comparison = operands.compare(true.into());
-    let take_left = match operation {
-        MinMax::Min => comparison.less,
-        MinMax::Max => comparison.greater,
-    };
-    FloatResult {
-        // Ties (including opposite zero signs) and NaNs select the source.
-        // A selected SNaN retains its signaling bit and payload.
-        value: take_left.select(operands.left, operands.right),
-        exceptions: comparison.exceptions,
-    }
+    floating::scalar_binary::<T>(execution, destination, source, |operands| {
+        operands.min_max(operation)
+    })
+}
+
+fn packed<T: BinaryEncoding + XmmType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+    operation: FloatMinMax,
+) -> Result<(), BuildError>
+where
+    I64: AtLeast<T>,
+{
+    floating::packed_binary::<T>(execution, destination, source, |left, right| {
+        left.min_max(&right, operation)
+    })
 }

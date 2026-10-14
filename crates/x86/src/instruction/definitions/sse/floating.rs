@@ -81,26 +81,6 @@ pub(super) fn packed_binary<T: BinaryEncoding + XmmType>(
     )
 }
 
-pub(super) fn binary<T: BinaryEncoding + XmmType>(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
-    source: XmmLocation,
-    shape: FloatShape,
-    operation: impl Fn(FloatOperands<T>) -> FloatResult<T>,
-) -> Result<(), BuildError>
-where
-    I64: AtLeast<T>,
-{
-    let controls = execution.simd_controls()?;
-    calculate_lanes::<T>(execution, destination, source, shape, |_, left, right| {
-        Ok(operation(FloatOperands::new(
-            left,
-            right,
-            controls.denormals_are_zero(),
-        )))
-    })
-}
-
 /// Scalar forms use the general calculation and preserve inactive destination lanes.
 pub(super) fn scalar_arithmetic<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,

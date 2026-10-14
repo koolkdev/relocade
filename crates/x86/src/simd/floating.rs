@@ -10,7 +10,7 @@ mod rounding;
 mod sqrt;
 mod width;
 pub(crate) use arithmetic::{ArithmeticOperands, FloatArithmetic};
-pub(crate) use compare::FloatOperands;
+pub(crate) use compare::{FloatMinMax, FloatOperands};
 pub(crate) use exceptions::SimdExceptions;
 pub(crate) use integer::integer_to_float;
 pub(crate) use operand::FloatOperand;

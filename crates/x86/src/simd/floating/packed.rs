@@ -1,11 +1,12 @@
 //! Packed IEEE encodings retain lane masks for DAZ and exception aggregation.
 
 mod arithmetic;
+mod compare;
 mod integer;
 
 use super::{FloatResult, SimdExceptions};
 use crate::floating::{BinaryFormat, RoundingMode};
-use wasm86_compiler::{Val, I1, I32, I64, I8, V128};
+use wasm86_compiler::{Val, I1, I32, I64, V128};
 
 pub(crate) use integer::packed_integer_to_float;
 
@@ -73,47 +74,5 @@ impl PackedFloatOperand {
                 .eq_lanes::<I64>(0_u128),
         };
         self.nan().and(quiet_clear)
-    }
-
-    /// Negated legacy predicates include unordered pairs. Exception masks are
-    /// reduced only after NaN precedence has been applied separately per lane.
-    pub(crate) fn compare_mask(&self, right: &Self, predicate: Val<I8>) -> FloatResult<V128> {
-        let kind = predicate.and(3);
-        let unordered = self.nan().or(right.nan());
-        let (equal, less, less_equal) = match self.format {
-            BinaryFormat::Binary32 => (
-                self.bits.f32x4().eq(&right.bits),
-                self.bits.f32x4().lt(&right.bits),
-                self.bits.f32x4().le(&right.bits),
-            ),
-            BinaryFormat::Binary64 => (
-                self.bits.f64x2().eq(&right.bits),
-                self.bits.f64x2().lt(&right.bits),
-                self.bits.f64x2().le(&right.bits),
-            ),
-        };
-        let matches = kind.eq(0).select(
-            equal,
-            kind.eq(1)
-                .select(less, kind.eq(2).select(less_equal, &unordered)),
-        );
-        let signaling = self.signaling_nan().or(right.signaling_nan());
-        let invalid = kind.eq(1).or(kind.eq(2)).select(&unordered, signaling);
-        FloatResult {
-            value: predicate
-                .and(4)
-                .ne(0)
-                .select(matches.xor(u128::MAX), matches),
-            exceptions: SimdExceptions {
-                invalid: invalid.bitmask::<I32>().ne(0),
-                denormal: self
-                    .denormal
-                    .or(&right.denormal)
-                    .and(unordered.xor(u128::MAX))
-                    .bitmask::<I32>()
-                    .ne(0),
-                ..SimdExceptions::default()
-            },
-        }
     }
 }
