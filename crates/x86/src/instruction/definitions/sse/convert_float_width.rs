@@ -1,7 +1,7 @@
 //! Scalar width conversions preserve upper bits; packed conversions replace XMM.
 
 use super::*;
-use crate::simd::{FloatOperand, FloatResult, FloatShape};
+use crate::simd::{FloatOperand, FloatResult};
 use wasm86_compiler::I64;
 
 instruction_families! {

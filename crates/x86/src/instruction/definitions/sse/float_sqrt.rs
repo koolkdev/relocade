@@ -1,7 +1,6 @@
 //! SSE square root reads one source and preserves unused scalar destination lanes.
 
 use super::{floating::square_root, *};
-use crate::simd::FloatShape;
 
 instruction_families! {
     SQRTSS {

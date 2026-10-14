@@ -2,7 +2,7 @@
 
 use super::{floating::IntegerRounding, *};
 use crate::floating::BinaryEncoding;
-use crate::simd::{FloatOperand, FloatResult};
+use crate::simd::PackedFloatOperand;
 use wasm86_compiler::{AtLeast, I64};
 
 instruction_families! {
@@ -36,13 +36,8 @@ where
     let controls = execution.simd_controls()?;
     let rounding = rounding.mode(&controls);
     let source = source.read::<V128>(execution, VectorAlignment::Aligned)?;
-    let result = FloatResult::from_lanes(0_u128.into(), 16 / T::FORMAT.bytes(), |lane| {
-        FloatOperand::new(
-            source.extract_lane::<T>(lane),
-            controls.denormals_are_zero(),
-        )
-        .to_integer(&rounding)
-    });
+    let result = PackedFloatOperand::new(T::FORMAT, source, controls.denormals_are_zero())
+        .to_integer(&rounding);
     execution.record_simd_exceptions(&result.exceptions)?;
     execution.write_xmm(destination, result.value)
 }

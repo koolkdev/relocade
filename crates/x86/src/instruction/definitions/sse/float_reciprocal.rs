@@ -1,7 +1,7 @@
 //! Reciprocal estimates use fixed rounding and preserve source NaN payloads.
 
 use super::{floating::approximate, *};
-use crate::simd::{FloatOperand, FloatShape};
+use crate::simd::FloatOperand;
 use wasm86_compiler::F64;
 
 instruction_families! {

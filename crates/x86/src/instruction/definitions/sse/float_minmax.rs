@@ -2,7 +2,7 @@
 
 use super::{floating::binary as float_binary, *};
 use crate::floating::BinaryEncoding;
-use crate::simd::{FloatOperands, FloatResult, FloatShape};
+use crate::simd::{FloatOperands, FloatResult};
 use wasm86_compiler::{AtLeast, I64};
 
 instruction_families! {

@@ -5,7 +5,8 @@ use crate::{
     floating::{BinaryEncoding, BinaryFormat, RoundingMode},
     instruction::XmmType,
     simd::{
-        ArithmeticOperands, FloatArithmetic, FloatOperand, FloatOperands, FloatResult, FloatShape,
+        ArithmeticOperands, FloatArithmetic, FloatOperand, FloatOperands, FloatResult,
+        PackedFloatOperand,
     },
     state::Mxcsr,
 };
@@ -36,6 +37,48 @@ pub(super) fn rounding_for_integer_source(
         BinaryFormat::Binary32 => execution.simd_controls()?.rounding(),
         BinaryFormat::Binary64 => RoundingMode::new(0.into()),
     })
+}
+
+pub(super) fn scalar_binary<T: BinaryEncoding + XmmType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+    operation: impl FnOnce(FloatOperands<T>) -> FloatResult<T>,
+) -> Result<(), BuildError>
+where
+    I64: AtLeast<T>,
+{
+    let controls = execution.simd_controls()?;
+    let right = source.read::<T>(execution, VectorAlignment::Unaligned)?;
+    let left = T::read_register(execution, destination.clone())?;
+    let result = operation(FloatOperands::new(
+        left,
+        right,
+        controls.denormals_are_zero(),
+    ));
+    execution.record_simd_exceptions(&result.exceptions)?;
+    T::write_register(execution, destination, result.value)
+}
+
+pub(super) fn packed_binary<T: BinaryEncoding + XmmType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+    operation: impl FnOnce(PackedFloatOperand, PackedFloatOperand) -> FloatResult<V128>,
+) -> Result<(), BuildError> {
+    let controls = execution.simd_controls()?;
+    calculate_vectors::<T>(
+        execution,
+        destination,
+        source,
+        FloatShape::Packed,
+        |_, left, right| {
+            Ok(operation(
+                PackedFloatOperand::new(T::FORMAT, left, controls.denormals_are_zero()),
+                PackedFloatOperand::new(T::FORMAT, right, controls.denormals_are_zero()),
+            ))
+        },
+    )
 }
 
 pub(super) fn binary<T: BinaryEncoding + XmmType>(
@@ -129,6 +172,39 @@ fn calculate_lanes<T: BinaryEncoding + XmmType>(
 where
     I64: AtLeast<T>,
 {
+    let count = match shape {
+        FloatShape::Scalar => 1,
+        FloatShape::Packed => 16 / T::FORMAT.bytes(),
+    };
+    calculate_vectors::<T>(
+        execution,
+        destination,
+        source,
+        shape,
+        |body, left, right| {
+            FloatResult::try_from_lanes(left.clone(), count, |lane| {
+                calculate(
+                    body,
+                    left.extract_lane::<T>(lane),
+                    right.extract_lane::<T>(lane),
+                )
+            })
+        },
+    )
+}
+
+/// Operand access and publication are shared by whole-vector and per-lane calculations.
+pub(super) fn calculate_vectors<T: BinaryEncoding + XmmType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+    shape: FloatShape,
+    calculate: impl FnOnce(
+        &mut BlockBuilder<'_>,
+        Val<V128>,
+        Val<V128>,
+    ) -> Result<FloatResult<V128>, BuildError>,
+) -> Result<(), BuildError> {
     let right = match shape {
         FloatShape::Scalar => {
             Val::<V128>::splat(source.read::<T>(execution, VectorAlignment::Unaligned)?)
@@ -136,19 +212,13 @@ where
         FloatShape::Packed => source.read::<V128>(execution, VectorAlignment::Aligned)?,
     };
     let left = execution.read_xmm(destination.clone())?;
-    let count = match shape {
-        FloatShape::Scalar => 1,
-        FloatShape::Packed => 16 / T::FORMAT.bytes(),
-    };
-    let result = FloatResult::try_from_lanes(left.clone(), count, |lane| {
-        execution.calculate(|body| {
-            calculate(
-                body,
-                left.extract_lane::<T>(lane),
-                right.extract_lane::<T>(lane),
-            )
-        })
-    })?;
+    let result = execution.calculate(|body| calculate(body, left, right))?;
     execution.record_simd_exceptions(&result.exceptions)?;
     execution.write_xmm(destination, result.value)
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum FloatShape {
+    Scalar,
+    Packed,
 }

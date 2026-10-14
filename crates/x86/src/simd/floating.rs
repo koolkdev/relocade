@@ -5,6 +5,7 @@ mod compare;
 mod exceptions;
 mod integer;
 mod operand;
+mod packed;
 mod rounding;
 mod sqrt;
 mod width;
@@ -13,6 +14,7 @@ pub(crate) use compare::FloatOperands;
 pub(crate) use exceptions::SimdExceptions;
 pub(crate) use integer::integer_to_float;
 pub(crate) use operand::FloatOperand;
+pub(crate) use packed::{packed_integer_to_float, PackedFloatOperand};
 
 use wasm86_compiler::{Val, ValueType, VectorLane, V128};
 
@@ -52,10 +54,4 @@ impl FloatResult<V128> {
         }
         Ok(result)
     }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum FloatShape {
-    Scalar,
-    Packed,
 }

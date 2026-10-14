@@ -1,7 +1,7 @@
 //! SSE addition and subtraction use MXCSR and preserve unused scalar lanes.
 
 use super::{floating::arithmetic, *};
-use crate::simd::{FloatArithmetic, FloatShape};
+use crate::simd::FloatArithmetic;
 
 instruction_families! {
     ADDSS {

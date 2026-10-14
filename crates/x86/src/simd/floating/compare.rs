@@ -1,8 +1,8 @@
 //! IEEE ordering and operand exceptions, independent of the destination or MXCSR masks.
 
-use super::{FloatOperand, SimdExceptions};
+use super::{FloatOperand, FloatResult, SimdExceptions};
 use crate::floating::BinaryEncoding;
-use wasm86_compiler::{AtLeast, Val, I1, I64};
+use wasm86_compiler::{AtLeast, Val, I1, I64, I8};
 
 pub(crate) struct FloatOperands<T: BinaryEncoding> {
     /// DAZ-normalized encodings retained for exact result selection.
@@ -54,6 +54,23 @@ where
                 denormal: self.denormal.clone(),
                 ..SimdExceptions::default()
             },
+        }
+    }
+
+    /// Legacy mask predicates select ordered comparisons or their unordered complements.
+    pub(crate) fn compare_mask(&self, predicate: Val<I8>) -> FloatResult<T> {
+        // Predicates 4..7 negate 0..3; LT/LE and their negations signal on QNaN.
+        let kind = predicate.and(3);
+        let comparison = self.compare(kind.eq(1).or(kind.eq(2)));
+        let matches = kind
+            .eq(0)
+            .and(&comparison.equal)
+            .or(kind.eq(1).and(&comparison.less))
+            .or(kind.eq(2).and(comparison.less.or(&comparison.equal)))
+            .or(kind.eq(3).and(comparison.unordered));
+        FloatResult {
+            value: matches.xor(predicate.and(4).ne(0)).select(-1, 0),
+            exceptions: comparison.exceptions,
         }
     }
 }

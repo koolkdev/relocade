@@ -1,7 +1,7 @@
 //! SSE floating multiplication rounds the exact product to the destination format.
 
 use super::{floating::arithmetic, *};
-use crate::simd::{FloatArithmetic, FloatShape};
+use crate::simd::FloatArithmetic;
 
 instruction_families! {
     MULSS {

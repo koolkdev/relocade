@@ -1,7 +1,7 @@
 //! SSE floating division uses exact quotient evidence and MXCSR zero-divide reporting.
 
 use super::{floating::arithmetic, *};
-use crate::simd::{FloatArithmetic, FloatShape};
+use crate::simd::FloatArithmetic;
 
 instruction_families! {
     DIVSS {
