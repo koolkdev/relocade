@@ -100,6 +100,8 @@ mod unary_operations;
 mod undefined_instructions;
 #[path = "suites/x87_add.rs"]
 mod x87_add;
+#[path = "suites/x87_bcd.rs"]
+mod x87_bcd;
 #[path = "suites/x87_compare.rs"]
 mod x87_compare;
 #[path = "suites/x87_compare_flags.rs"]

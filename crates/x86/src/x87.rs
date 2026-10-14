@@ -1,6 +1,7 @@
 //! Numerical x87 operations produce values and evidence, without state effects.
 
 mod add;
+mod bcd;
 mod binary;
 mod compare;
 mod constant;
@@ -19,6 +20,7 @@ mod scale;
 mod sqrt;
 mod value;
 
+pub(crate) use bcd::PackedBcd;
 pub(crate) use binary::BinaryOperand;
 pub(crate) use compare::ComparisonKind;
 pub(crate) use constant::Constant;
