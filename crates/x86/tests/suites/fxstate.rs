@@ -1,5 +1,7 @@
 //! FXSR images combine physical tag bits, logical x87 payloads and literal SIMD state.
 
+#[path = "fxstate/mmx_xmm.rs"]
+mod mmx_xmm;
 #[path = "fxstate/restore.rs"]
 mod restore;
 #[path = "fxstate/save.rs"]
