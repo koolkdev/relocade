@@ -1,5 +1,6 @@
 //! Packed IEEE encodings retain lane masks for DAZ and exception aggregation.
 
+mod arithmetic;
 mod integer;
 
 use super::{FloatResult, SimdExceptions};

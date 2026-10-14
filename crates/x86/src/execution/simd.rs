@@ -22,6 +22,24 @@ impl ExecutionBuilder<'_, '_> {
         Ok(controls)
     }
 
+    /// Native SIMD arithmetic needs nearest rounding. Keep an observed directed
+    /// mode compiled through the general calculation; generic blocks admit the
+    /// usual nearest mode and restart if the live setting differs.
+    pub(crate) fn specialize_simd_nearest(&mut self, controls: &Mxcsr) -> Result<bool, BuildError> {
+        Ok(self
+            .specialize(|jit| {
+                if jit
+                    .observed_cpu
+                    .is_some_and(|cpu| cpu.simd.mxcsr & 0x6000 != 0)
+                {
+                    return Ok(false);
+                }
+                jit.specialize_on(controls.bits().and(0x6000).eq(0))?;
+                Ok(true)
+            })?
+            .unwrap_or(false))
+    }
+
     /// Publish sticky status before an unmasked fault. Call before writing the
     /// instruction's destination, after any operand-access checks.
     pub(crate) fn record_simd_exceptions(

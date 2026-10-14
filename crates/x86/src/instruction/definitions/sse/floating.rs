@@ -101,13 +101,11 @@ where
     })
 }
 
-/// Numerical arithmetic can build exact alignment and refinement branches. All
-/// lanes are evaluated before status or the destination is published.
-pub(super) fn arithmetic<T: BinaryEncoding + XmmType>(
+/// Scalar forms use the general calculation and preserve inactive destination lanes.
+pub(super) fn scalar_arithmetic<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,
-    shape: FloatShape,
     operation: FloatArithmetic,
 ) -> Result<(), BuildError>
 where
@@ -118,7 +116,7 @@ where
         execution,
         destination,
         source,
-        shape,
+        FloatShape::Scalar,
         |body, left, right| {
             ArithmeticOperands::new(left, right, controls.denormals_are_zero())
                 .calculate(body, operation, &controls)
@@ -126,19 +124,99 @@ where
     )
 }
 
-pub(super) fn square_root<T: BinaryEncoding + XmmType>(
+/// Packed forms admit native nearest arithmetic and evaluate every fallback lane
+/// before status or the destination is published.
+pub(super) fn packed_arithmetic<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,
-    shape: FloatShape,
+    operation: FloatArithmetic,
 ) -> Result<(), BuildError>
 where
     I64: AtLeast<T>,
 {
     let controls = execution.simd_controls()?;
-    calculate_lanes::<T>(execution, destination, source, shape, |body, _, right| {
-        FloatOperand::new(right, controls.denormals_are_zero()).square_root(body, &controls)
-    })
+    if execution.specialize_simd_nearest(&controls)? {
+        return calculate_vectors::<T>(
+            execution,
+            destination,
+            source,
+            FloatShape::Packed,
+            |execution, left, right| {
+                let left = PackedFloatOperand::new(T::FORMAT, left, controls.denormals_are_zero());
+                let right =
+                    PackedFloatOperand::new(T::FORMAT, right, controls.denormals_are_zero());
+                let candidate = left.arithmetic_nearest(&right, operation);
+                execution.specialize_on(candidate.valid)?;
+                Ok(candidate.result)
+            },
+        );
+    }
+    calculate_lanes::<T>(
+        execution,
+        destination,
+        source,
+        FloatShape::Packed,
+        |body, left, right| {
+            ArithmeticOperands::new(left, right, controls.denormals_are_zero())
+                .calculate(body, operation, &controls)
+        },
+    )
+}
+
+pub(super) fn scalar_square_root<T: BinaryEncoding + XmmType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+) -> Result<(), BuildError>
+where
+    I64: AtLeast<T>,
+{
+    let controls = execution.simd_controls()?;
+    calculate_lanes::<T>(
+        execution,
+        destination,
+        source,
+        FloatShape::Scalar,
+        |body, _, right| {
+            FloatOperand::new(right, controls.denormals_are_zero()).square_root(body, &controls)
+        },
+    )
+}
+
+pub(super) fn packed_square_root<T: BinaryEncoding + XmmType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+) -> Result<(), BuildError>
+where
+    I64: AtLeast<T>,
+{
+    let controls = execution.simd_controls()?;
+    if execution.specialize_simd_nearest(&controls)? {
+        return calculate_vectors::<T>(
+            execution,
+            destination,
+            source,
+            FloatShape::Packed,
+            |execution, _, right| {
+                let candidate =
+                    PackedFloatOperand::new(T::FORMAT, right, controls.denormals_are_zero())
+                        .square_root_nearest();
+                execution.specialize_on(candidate.valid)?;
+                Ok(candidate.result)
+            },
+        );
+    }
+    calculate_lanes::<T>(
+        execution,
+        destination,
+        source,
+        FloatShape::Packed,
+        |body, _, right| {
+            FloatOperand::new(right, controls.denormals_are_zero()).square_root(body, &controls)
+        },
+    )
 }
 
 /// Approximate single-precision operations have fixed denormal and rounding
@@ -181,13 +259,15 @@ where
         destination,
         source,
         shape,
-        |body, left, right| {
+        |execution, left, right| {
             FloatResult::try_from_lanes(left.clone(), count, |lane| {
-                calculate(
-                    body,
-                    left.extract_lane::<T>(lane),
-                    right.extract_lane::<T>(lane),
-                )
+                execution.calculate(|body| {
+                    calculate(
+                        body,
+                        left.extract_lane::<T>(lane),
+                        right.extract_lane::<T>(lane),
+                    )
+                })
             })
         },
     )
@@ -200,7 +280,7 @@ pub(super) fn calculate_vectors<T: BinaryEncoding + XmmType>(
     source: XmmLocation,
     shape: FloatShape,
     calculate: impl FnOnce(
-        &mut BlockBuilder<'_>,
+        &mut ExecutionBuilder<'_, '_>,
         Val<V128>,
         Val<V128>,
     ) -> Result<FloatResult<V128>, BuildError>,
@@ -212,7 +292,7 @@ pub(super) fn calculate_vectors<T: BinaryEncoding + XmmType>(
         FloatShape::Packed => source.read::<V128>(execution, VectorAlignment::Aligned)?,
     };
     let left = execution.read_xmm(destination.clone())?;
-    let result = execution.calculate(|body| calculate(body, left, right))?;
+    let result = calculate(execution, left, right)?;
     execution.record_simd_exceptions(&result.exceptions)?;
     execution.write_xmm(destination, result.value)
 }
