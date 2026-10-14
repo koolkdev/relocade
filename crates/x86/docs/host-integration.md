@@ -17,22 +17,17 @@ for `compile_block`, `compile_interpreter` and `compile_interpreter_step`.
 returns the resulting `ExecutionTarget { profile, cpu_model }`. Free compilation
 functions use the default model without CPU observations.
 
-The default model enables every capability with implemented instructions, including
-partial groups. For example,
-`CpuModel::default().with_feature(CpuFeature::Cmov, false)?` disables integer and
+Every `CpuFeature` is implemented and enabled by default. For example,
+`CpuModel::default().with_feature(CpuFeature::Cmov, false)` disables integer and
 x87 conditional moves and the x87 comparisons that set EFLAGS. Known encodings
 requiring a disabled capability raise #UD after complete instruction fetch and
 before operand access, without retiring. They terminate snapshot compilation before
 the next instruction. The choice is fixed when Wasm is generated, so execution
 needs no dynamic feature test.
 
-`CpuFeature::is_implemented()` reports whether a group has usable instructions;
-`CpuFeature::is_complete()` reports whether its advertised instruction set is
-complete. `CpuModel::supports(feature)` reports whether the model enables that
-group's implemented instructions. `with_feature` returns
-`UnsupportedCpuFeature { feature }` only when enabling a group with no implementation.
-Disabling an unavailable group leaves the model unchanged. CPUID advertises only
-complete, enabled groups whose instruction requirements are satisfied.
+`CpuModel::supports(feature)` reports whether the model enables that capability.
+`with_feature` returns the updated model directly. CPUID reports the same enabled
+capabilities.
 Execution-mode and control-register assumptions remain separate from capability
 selection. The model is host configuration, not mutable `CpuState`; keep it fixed
 for a guest.
@@ -116,30 +111,22 @@ compiling another block. No CPU state is replaced with the observed snapshot.
 
 ## Processor capabilities
 
-The `CpuFeature` catalog covers CPUID-enumerated 32-bit application instruction
-capabilities through Pentium 4 Prescott. It excludes platform facilities such as
-paging, APIC and thermal controls, 64-bit-only capabilities and later instruction
-extensions. A catalog entry names an architectural capability; it does not promise
-that the implementation is complete.
+`CpuFeature` contains the implemented CPUID-enumerated instruction capabilities
+of the Pentium 4 target. Each is enabled by default and can be disabled independently.
 
-| `CpuFeature` | Instruction capability | CPUID leaf 1 bit | Build coverage |
-| --- | --- | --- | --- |
-| `Fpu` | x87 floating point | EDX 0 | Complete |
-| `Tsc` | RDTSC | EDX 4 | Complete |
-| `Cx8` | CMPXCHG8B | EDX 8 | Complete |
-| `Sep` | SYSENTER/SYSEXIT | EDX 11 | Unavailable |
-| `Cmov` | CMOVcc; FCMOV/FCOMI when FPU is also advertised | EDX 15 | Complete |
-| `Clflush` | CLFLUSH | EDX 19 | Complete |
-| `Mmx` | MMX and EMMS | EDX 23 | Complete |
-| `Fxsr` | FXSAVE/FXRSTOR | EDX 24 | Complete |
-| `Sse` | SSE, including its MMX additions | EDX 25 | Complete |
-| `Sse2` | SSE2 | EDX 26 | Complete |
-| `Sse3` | SSE3, including FISTTP | ECX 0 | Partial: FISTTP |
-| `Monitor` | MONITOR/MWAIT | ECX 3 | Unavailable |
+| `CpuFeature` | Instruction capability | CPUID leaf 1 bit |
+| --- | --- | --- |
+| `Fpu` | x87 floating point | EDX 0 |
+| `Tsc` | RDTSC | EDX 4 |
+| `Cx8` | CMPXCHG8B | EDX 8 |
+| `Cmov` | CMOVcc; FCMOV/FCOMI when FPU is also advertised | EDX 15 |
+| `Clflush` | CLFLUSH | EDX 19 |
+| `Mmx` | MMX and EMMS | EDX 23 |
+| `Fxsr` | FXSAVE/FXRSTOR | EDX 24 |
+| `Sse` | SSE, including its MMX additions | EDX 25 |
+| `Sse2` | SSE2 | EDX 26 |
 
-Both complete and partial groups are enabled by default. FISTTP requires FPU and
-SSE3; it remains usable while the SSE3 CPUID bit stays clear. The remaining SSE3
-instructions, SYSENTER/SYSEXIT and MONITOR/MWAIT are not implemented.
+SSE3, SYSENTER/SYSEXIT and MONITOR/MWAIT are not implemented or selectable.
 
 Capabilities select instruction extensions independently and do not emulate older
 processor generations. They preserve the stored x87, MMX and XMM state. MMX-register
@@ -150,23 +137,18 @@ CLFLUSH has its own feature. FXSAVE/FXRSTOR require FXSR and still transfer the 
 retained x87/XMM/MXCSR state when other groups are disabled. FCMOV and FCOMI require
 both FPU and CMOV; disabling CMOV preserves the base x87 instruction set.
 
-XMM is the SIMD register bank, not a separate feature. SSE3 and MONITOR/MWAIT
-are separate capabilities even though they arrived together. The catalog follows
-Intel's [P4-era CPUID feature definitions](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf#page=213).
-MONITOR/MWAIT's conditional user-mode availability is described in
-[Volume 3A, section 7.11.3](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366821.pdf#page=318).
+XMM is the SIMD register bank, not a separate feature. The capability definitions
+follow Intel's [P4-era CPUID reference](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf#page=213).
 
 ## Processor identification
 
 CPUID is generated from the compiler's selected `CpuModel` and needs no host
 callback. Leaf 0 reports maximum basic leaf 1 and the vendor string `Relocade CPU`.
 Leaf 1 reports virtual family 6, model 0, stepping 1 (EAX=`0x00000601`) and the
-complete, enabled capabilities listed above. The default EDX is `0x07888111` and
-ECX is zero. Disabling a complete capability clears its bit and rejects its
-instructions through the shared admission mechanism. Partial SSE3 stays clear even
-when enabled. If SSE3 becomes complete, its FISTTP requirement also makes its
-advertisement depend on FPU being enabled. Unsupported platform facilities and
-post-P4 extensions such as POPCNT remain clear.
+enabled capabilities listed above. The default EDX is `0x07888111` and ECX is zero.
+Disabling a capability clears its bit and rejects its instructions through the
+shared admission mechanism. Unimplemented extensions and platform facilities
+remain clear.
 
 With CLFLUSH enabled, EBX bits 15:8 report a 64-byte virtual flush line in eight-byte
 units (EBX=`0x00000800`). Disabling CLFLUSH clears both this field and EDX bit 19.
@@ -440,7 +422,7 @@ FFREE, FINCSTP and FDECSTP. FCHS and FABS change only the sign of a nonempty
 ST(0), preserving its exact encoding, including NaN payloads. Empty operands
 use the ordinary masked or unmasked stack-underflow response. Memory data
 transfers support FLD m32/m64/m80,
-FILD m16/m32/m64 integers, FIST m16/m32, FISTP/FISTTP m16/m32/m64, FST m32/m64 and
+FILD m16/m32/m64 integers, FIST m16/m32, FISTP m16/m32/m64, FST m32/m64 and
 FSTP m32/m64/m80. FLD1, FLDZ, FLDPI, FLDL2T, FLDL2E, FLDLG2 and FLDLN2 push
 the x87 constants. They obey RC at extended precision independently of PC,
 without raising precision exceptions or setting C1 for rounding. A full stack
@@ -603,12 +585,6 @@ complete the store and FISTP pop even when precision is unmasked. FIST preserves
 the full source value. Operand size is fixed by the opcode. See Intel's
 [FIST/FISTP entry, Volume 2A](https://cdrdv2-public.intel.com/812383/253666-sdm-vol-2a.pdf)
 and [Volume 1, section 8.5.6](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366521.pdf).
-
-FISTTP m16/m32/m64 uses truncation toward zero independently of RC and PC,
-clears C1, and pops after a completed store. It shares integer conversion bounds,
-invalid and precision responses, and checked-memory ordering with FISTP. The JIT
-neither reads nor guards RC for this instruction. FISTTP is the SSE3 form available
-on Prescott-generation Pentium 4 processors.
 
 FST/FSTP m32/m64 round the current extended value directly to the destination
 under RC, independently of PC. Signed zeros and infinities retain their signs;

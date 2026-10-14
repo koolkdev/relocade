@@ -32,7 +32,7 @@ fn disabled_forms(engine: Engine, frontend: Frontend) {
                 &[&[0x0f, 0x31][..], &[0x66, 0x0f, 0x31]][..],
             ),
         ] {
-            let model = CpuModel::default().with_feature(feature, false).unwrap();
+            let model = CpuModel::default().with_feature(feature, false);
             let target = Compiler::new(profile).with_cpu_model(model).target();
             for &instruction in forms {
                 // The incomplete successor must not enter the snapshot boundary.
@@ -60,11 +60,8 @@ fn disabled_forms(engine: Engine, frontend: Frontend) {
 test_frontends!(disabled_forms_preserve_state, disabled_forms);
 
 fn restricted_compiler() -> Compiler {
-    Compiler::new(SegmentProfile::Flat32).with_cpu_model(
-        CpuModel::default()
-            .with_feature(CpuFeature::Cmov, false)
-            .unwrap(),
-    )
+    Compiler::new(SegmentProfile::Flat32)
+        .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
 }
 
 fn prior_work(engine: Engine) {
@@ -164,7 +161,6 @@ fn disabled_forms_remain_decodable_and_unrelated_forms_keep_their_code() {
         (&[Fpu], &[0xdb, 0xe3]),                // FNINIT
         (&[Fpu, Cmov], &[0xda, 0xc1]),          // FCMOVB
         (&[Fpu, Cmov], &[0xdb, 0xf1]),          // FCOMI
-        (&[Fpu, Sse3], &[0xdb, 0x08]),          // FISTTP
         (&[Mmx], &[0x0f, 0x6f, 0xc1]),          // MOVQ mm0, mm1
         (&[Mmx], &[0x0f, 0x77]),                // EMMS
         (&[Fxsr], &[0x0f, 0xae, 0x00]),         // FXSAVE
@@ -192,9 +188,9 @@ fn disabled_forms_remain_decodable_and_unrelated_forms_keep_their_code() {
                 .bytes
         })
         .collect();
-    for disabled in [Cx8, Cmov, Tsc, Fpu, Mmx, Fxsr, Sse, Sse2, Sse3, Clflush] {
+    for disabled in [Cx8, Cmov, Tsc, Fpu, Mmx, Fxsr, Sse, Sse2, Clflush] {
         let compiler = Compiler::new(SegmentProfile::Flat32)
-            .with_cpu_model(CpuModel::default().with_feature(disabled, false).unwrap());
+            .with_cpu_model(CpuModel::default().with_feature(disabled, false));
         for ((requirements, code), bytes) in forms.iter().zip(&ordinary) {
             let configured = compiler.compile_block(0x1000, code, 1).unwrap();
             assert_eq!(

@@ -1,4 +1,4 @@
-//! Extension admission precedes memory, floating-point faults and register effects.
+//! Extension availability and admission precede operand effects.
 
 use super::*;
 
@@ -12,7 +12,6 @@ fn disabled_extensions(engine: Engine, frontend: Frontend) {
                 &[0x9b],           // FWAIT
                 &[0xda, 0xc1],     // FCMOVB
                 &[0xdb, 0xf1],     // FCOMI
-                &[0xdb, 0x08],     // FISTTP
             ][..],
         ),
         (
@@ -64,18 +63,10 @@ fn disabled_extensions(engine: Engine, frontend: Frontend) {
                 &[0x0f, 0xae, 0xf0], // LFENCE, MFENCE
             ][..],
         ),
-        (
-            CpuFeature::Sse3,
-            &[
-                &[0xdf, 0x08][..],
-                &[0xdb, 0x08],
-                &[0xdd, 0x08], // FISTTP widths
-            ][..],
-        ),
         (CpuFeature::Clflush, &[&[0x0f, 0xae, 0x38][..]][..]),
     ] {
         let target = Compiler::new(SegmentProfile::Flat32)
-            .with_cpu_model(CpuModel::default().with_feature(feature, false).unwrap())
+            .with_cpu_model(CpuModel::default().with_feature(feature, false))
             .target();
         for &instruction in forms {
             let code = [instruction, &[0x0f]].concat();
@@ -97,3 +88,38 @@ fn disabled_extensions(engine: Engine, frontend: Frontend) {
     }
 }
 test_frontends!(disabled_extensions_preserve_all_state, disabled_extensions);
+
+fn unsupported_sse3_stores(engine: Engine) {
+    for opcode in [0xdf, 0xdb, 0xdd] {
+        // FISTTP m16/m32/m64 is outside the supported instruction set.
+        let code = [opcode, 0x08];
+        assert_eq!(
+            Compiler::new(SegmentProfile::Flat32)
+                .compile_block(0x1000, &code, 1)
+                .err(),
+            Some(BlockError::UnsupportedInstruction {
+                address: 0x1000,
+                opcode,
+            }),
+        );
+        let mut image = Image::new(&code);
+        image.cpu.x87.status.error_summary = 1;
+        image.check_unchanged_exit(
+            engine,
+            TestModule::interpreter(),
+            "SSE3 stores are unsupported before destination access or x87 effects",
+            Exit::Other(0x0008_0000_0000_1000 | (u64::from(opcode) << 32)),
+        );
+    }
+}
+
+#[test]
+fn sse3_integer_stores_are_unsupported() {
+    unsupported_sse3_stores(Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_sse3_integer_stores_are_unsupported() {
+    unsupported_sse3_stores(Engine::V8);
+}

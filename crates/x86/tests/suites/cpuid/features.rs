@@ -49,11 +49,9 @@ fn configured_features(engine: Engine, frontend: Frontend) {
             &[0x0f, 0xae, 0x38][..],
             [0x601, 0, 0, 0x0780_8111],
         ),
-        // FISTTP is enabled by default, but partial SSE3 is never advertised.
-        (CpuFeature::Sse3, &[0xdb, 0x08][..], FEATURES),
     ] {
         let target = Compiler::new(SegmentProfile::Flat32)
-            .with_cpu_model(CpuModel::default().with_feature(feature, false).unwrap())
+            .with_cpu_model(CpuModel::default().with_feature(feature, false))
             .target();
         for (leaf, values) in [(0, VENDOR), (1, features), (u32::MAX, features)] {
             let mut image = Image::new(&[0x0f, 0xa2]);
@@ -100,10 +98,9 @@ fn configured_features(engine: Engine, frontend: Frontend) {
         CpuFeature::Fxsr,
         CpuFeature::Sse,
         CpuFeature::Sse2,
-        CpuFeature::Sse3,
         CpuFeature::Clflush,
     ] {
-        model = model.with_feature(feature, false).unwrap();
+        model = model.with_feature(feature, false);
     }
     let compiler = Compiler::new(SegmentProfile::Flat32).with_cpu_model(model);
     let mut image = Image::new(&[0x0f, 0xa2]);

@@ -9,10 +9,9 @@
 //! [`Compiler`] configures both frontends with one [`ExecutionTarget`], combining
 //! an execution profile and a [`CpuModel`].
 //!
-//! The supported subset covers 16/32-bit protected-mode and ordinary real-mode
-//! integer execution, selected x87 operations, MMX transfers, logical and packed
-//! add/subtract and comparison operations, EMMS, and SSE/SSE2 moves, bitwise
-//! logical operations and MXCSR access.
+//! The instruction set covers 16/32-bit protected-mode and ordinary real-mode
+//! integer execution, x87 floating point, MMX, SSE and SSE2. [`CpuFeature`] lists
+//! the configurable capabilities, all enabled by default.
 //! Privilege transitions and external interrupt delivery are outside the current scope.
 //!
 //! [`CpuState`] exchanges backing state with the host. [`ExecutionProfile`] describes
@@ -66,7 +65,7 @@ pub use compile::{
 };
 pub use exception::{Exception, ExceptionVector};
 pub use memory::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
-pub use processor::{CpuFeature, CpuModel, UnsupportedCpuFeature};
+pub use processor::{CpuFeature, CpuModel};
 pub use profile::{ExecutionProfile, ExecutionTarget};
 pub use register::Gpr32;
 pub use segment::{
