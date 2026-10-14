@@ -59,6 +59,18 @@ fn rounding(engine: Engine, frontend: Frontend) {
             raised: 32,
         }
         .check(&mut checks, 0x58);
+        // Exact cancellation is neither tiny nor inexact, even at the largest
+        // exponent and with underflow unmasked or flush-to-zero enabled.
+        for controls in [controls & !0x800, controls | 0x8000] {
+            Case {
+                left: MAX_FINITE,
+                right: MAX_FINITE,
+                result: if rc == 1 { NEG_ZERO } else { ZERO },
+                controls,
+                raised: 0,
+            }
+            .check(&mut checks, 0x5c);
+        }
     }
 }
 

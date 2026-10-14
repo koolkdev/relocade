@@ -6,6 +6,7 @@ use wasm86_compiler::{BlockBuilder, BuildError, Results, Val, I1, I32, I64};
 const LEADING: u64 = 1 << 63;
 
 impl FiniteInput {
+    /// Exact zero preserves its rounding-dependent sign; its exponent is unspecified.
     pub(crate) fn add(
         &self,
         body: &mut BlockBuilder<'_>,

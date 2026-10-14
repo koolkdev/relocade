@@ -51,10 +51,11 @@ where
         let magnitude = left_input.add(body, &right_input, &controls.rounding())?;
         let mut result =
             magnitude.round_simd_magnitude::<T>(controls, &left.finite().and(right.finite()));
-        result.value = result.value.or(magnitude
+        let sign = magnitude
             .negative
-            .select::<I64>(T::FORMAT.sign_bit(), 0_u64)
-            .truncate::<T>());
+            .select::<I64>(T::FORMAT.sign_bit(), 0_u64);
+        result.value = result.value.or(sign.truncate::<T>());
+        Self::replace_exact(&mut result, &magnitude.significand.integer.eq(0_u64), sign);
         let infinity = left.infinity().or(right.infinity());
         Self::replace_exact(
             &mut result,
