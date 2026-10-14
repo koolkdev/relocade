@@ -1,7 +1,7 @@
 //! Trigonometric reduction, final rounding, range flags, and precise restarts.
 
 #[path = "x87_trigonometric/values.rs"]
-mod values;
+pub(super) mod values;
 
 use crate::support::{
     encoding::check_length,
@@ -13,24 +13,6 @@ use crate::support::{
 use wasm86_x86::{Compiler, CpuState, SegmentProfile};
 
 const LEAD: u64 = 1 << 63;
-
-impl values::Bounds {
-    fn rounded(&self, rc: u16, flip_sign: bool) -> ((u64, u16), bool) {
-        let negative = (self.lower.1 & 0x8000 != 0) ^ flip_sign;
-        let increment = self.lower != self.upper
-            && match rc {
-                0 => self.nearest_up,
-                1 => negative,
-                2 => !negative,
-                _ => false,
-            };
-        let output = if increment { self.upper } else { self.lower };
-        (
-            (output.0, output.1 ^ if flip_sign { 0x8000 } else { 0 }),
-            increment,
-        )
-    }
-}
 
 #[test]
 fn encoding() {

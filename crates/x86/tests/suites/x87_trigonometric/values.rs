@@ -1,17 +1,17 @@
 //! 500-bit reference values after exact reduction by pi66 = 0x3243f6a8885a308d3 * 2^-64.
 //! Tiny angles use analytic bounds to retain their otherwise unrepresentable tails.
 
-pub(super) struct Bounds {
-    pub(super) lower: (u64, u16),
-    pub(super) upper: (u64, u16),
-    pub(super) nearest_up: bool,
+pub(crate) struct Bounds {
+    pub(crate) lower: (u64, u16),
+    pub(crate) upper: (u64, u16),
+    pub(crate) nearest_up: bool,
 }
-pub(super) struct Reference {
-    pub(super) input: (u64, u16),
-    pub(super) sine: Bounds,
-    pub(super) cosine: Bounds,
+pub(crate) struct Reference {
+    pub(crate) input: (u64, u16),
+    pub(crate) sine: Bounds,
+    pub(crate) cosine: Bounds,
 }
-pub(super) const VALUES: &[Reference] = &[
+pub(crate) const VALUES: &[Reference] = &[
     Reference {
         input: (0x0000000000000000, 0x0000),
         sine: Bounds {
@@ -429,3 +429,21 @@ pub(super) const VALUES: &[Reference] = &[
         },
     },
 ];
+
+impl Bounds {
+    pub(crate) fn rounded(&self, rc: u16, flip_sign: bool) -> ((u64, u16), bool) {
+        let negative = (self.lower.1 & 0x8000 != 0) ^ flip_sign;
+        let increment = self.lower != self.upper
+            && match rc {
+                0 => self.nearest_up,
+                1 => negative,
+                2 => !negative,
+                _ => false,
+            };
+        let output = if increment { self.upper } else { self.lower };
+        (
+            (output.0, output.1 ^ if flip_sign { 0x8000 } else { 0 }),
+            increment,
+        )
+    }
+}

@@ -41,9 +41,9 @@ fn logarithm_product(
         Ok(())
     })?;
     execution.record_x87_instruction()?;
-    result::write_arithmetic_result(
+    result::write_results(
         execution,
-        result,
+        [result],
         &stack_fault,
         result::Destination::Register {
             index: 1.into(),

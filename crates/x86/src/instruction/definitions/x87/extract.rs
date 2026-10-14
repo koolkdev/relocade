@@ -1,10 +1,7 @@
 //! FXTRACT replaces ST(0) with the exponent and pushes the significand.
 
 use super::*;
-use crate::{
-    state::x87::{ConditionCode, Exception, StackValue},
-    x87::Operand,
-};
+use crate::x87::Operand;
 
 instruction_families! {
     FXTRACT {
@@ -27,24 +24,14 @@ fn extract(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
     }
     let result = execution.calculate(|body| Operand::new(&value).extract(body))?;
     execution.record_x87_instruction()?;
-    let mut x87 = execution.x87();
-    let invalid = fault.or(result.invalid);
-    let zero_divide = fault.eq(false).and(result.zero_divide);
-    let denormal = fault.eq(false).and(result.denormal);
-    let unmasked_invalid = x87.record_exception(Exception::Invalid, &invalid)?;
-    let unmasked_zero_divide = x87.record_exception(Exception::ZeroDivide, &zero_divide)?;
-    let unmasked_denormal = x87.record_exception(Exception::Denormal, &denormal)?;
-    x87.record_stack_fault(&fault)?;
-    x87.set_condition_code(ConditionCode::C1, overflow)?;
-    let suppressed = unmasked_invalid
-        .or(unmasked_zero_divide)
-        .or(unmasked_denormal);
-    x87.record_pending_exception(suppressed.clone())?;
-    let enabled = suppressed.eq(false);
-    let exponent = result.exponent.or_indefinite(&fault);
-    let significand = result.significand.or_indefinite(&fault);
-    // Both destination slots use the entry TOP. The push advances it only
-    // after the original top has received its exponent response.
-    x87.write_stack(0, &StackValue::from_value(exponent), &enabled)?;
-    x87.push(&significand, &enabled)
+    result::write_results(
+        execution,
+        [result.exponent, result.significand],
+        &fault,
+        result::Destination::PushPair {
+            when: true.into(),
+            overflow,
+            rounding: result::PairRounding::Original,
+        },
+    )
 }

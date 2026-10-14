@@ -356,7 +356,13 @@ approximation, then evaluate a shared bounded series and round under RC at full
 extended precision. Large finite operands remain unchanged with C2 set; in-range
 execution clears C2. C1 is cleared for out-of-range inputs, where it is undefined.
 Infinity is invalid. Tiny sine results retain the extended underflow response.
-FSINCOS and FPTAN remain unsupported.
+FSINCOS performs the same reduction once, leaves sine in the original slot and
+pushes cosine. Each component rounds independently; the cosine rounding increment
+sets C1. Unmasked operand exceptions suppress both writes and the push, while unmasked
+range or precision exceptions publish both results before deferred delivery.
+Out-of-range execution preserves both payloads, their tags and TOP. FXTRACT uses
+the same shared two-result publication and stack-fault response.
+FPTAN remains unsupported.
 FXAM reports ST(0)'s numerical class in C0/C2/C3 and its sign in C1. Empty
 entries report the empty class and retain their payload's sign; examination
 never raises a numerical exception or stack fault, including for signaling

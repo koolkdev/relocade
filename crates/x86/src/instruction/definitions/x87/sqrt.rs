@@ -41,9 +41,9 @@ fn square_root(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildErro
         None => execution.calculate(|body| operand.square_root(body, precision, &rounding))?,
     };
     execution.record_x87_instruction()?;
-    result::write_arithmetic_result(
+    result::write_results(
         execution,
-        result,
+        [result],
         &empty,
         result::Destination::Register {
             index: 0.into(),
