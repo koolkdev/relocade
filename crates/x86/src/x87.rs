@@ -1,6 +1,7 @@
 //! Numerical x87 operations produce values and evidence, without state effects.
 
 mod add;
+mod arctangent;
 mod bcd;
 mod binary;
 mod compare;

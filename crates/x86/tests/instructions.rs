@@ -100,6 +100,8 @@ mod unary_operations;
 mod undefined_instructions;
 #[path = "suites/x87_add.rs"]
 mod x87_add;
+#[path = "suites/x87_arctangent.rs"]
+mod x87_arctangent;
 #[path = "suites/x87_bcd.rs"]
 mod x87_bcd;
 #[path = "suites/x87_compare.rs"]

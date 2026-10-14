@@ -1,12 +1,12 @@
 //! Logarithms keep cancellation and extended exponents inside their numerical owner.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
 use crate::floating::RoundingMode;
 
 use super::{
     result::RoundedValue,
-    transcendental::{DoubleDouble, DoubleShape},
+    transcendental::{odd_power_series, DoubleDouble, DoubleShape},
     ArithmeticResult, BinaryOperands, ExtendedValue, Operand,
 };
 
@@ -209,23 +209,5 @@ fn atanh_ratio(
     body: &mut BlockBuilder<'_>,
     argument: &DoubleDouble,
 ) -> Result<DoubleDouble, BuildError> {
-    let square = argument.mul(argument);
-    let parts = body.loop_::<(I32, F64, F64, F64, F64), DoubleShape>(
-        (3, 1.0, 0.0, 1.0, 0.0),
-        |mut iteration, labels, (index, term_high, term_low, sum_high, sum_low)| {
-            iteration.if_(index.eq(65), |done| {
-                done.branch(&labels.exit, (&sum_high, &sum_low))
-            })?;
-            let term = DoubleDouble::from_parts((term_high, term_low)).mul(&square);
-            let sum = DoubleDouble::from_parts((sum_high, sum_low))
-                .add(&term.divide(&DoubleDouble::from_f64(index.unsigned().to_f64())));
-            let (term_high, term_low) = term.parts();
-            let (sum_high, sum_low) = sum.parts();
-            iteration.branch(
-                &labels.again,
-                (index.add(2), term_high, term_low, sum_high, sum_low),
-            )
-        },
-    )?;
-    Ok(DoubleDouble::from_parts(parts))
+    odd_power_series(body, &argument.mul(argument), 32)
 }
