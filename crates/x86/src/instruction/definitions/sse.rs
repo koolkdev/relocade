@@ -11,6 +11,7 @@ mod convert_scalar_integer;
 mod float_add;
 mod float_compare;
 mod float_minmax;
+mod float_multiply;
 mod floating;
 mod half_moves;
 mod logical;
@@ -45,6 +46,7 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
         .chain(float_add::forms())
         .chain(float_compare::forms())
         .chain(float_minmax::forms())
+        .chain(float_multiply::forms())
         .chain(moves::forms())
         .chain(average::forms())
         .chain(minmax::forms())

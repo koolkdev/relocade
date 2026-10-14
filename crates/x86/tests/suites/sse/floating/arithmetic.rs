@@ -6,6 +6,8 @@ use super::*;
 mod add;
 #[path = "arithmetic/jit.rs"]
 mod jit;
+#[path = "arithmetic/multiply.rs"]
+mod multiply;
 
 const MIN_NORMAL: [u64; 2] = [0x0080_0000, 0x0010_0000_0000_0000];
 const MAX_FINITE: [u64; 2] = [0x7f7f_ffff, 0x7fef_ffff_ffff_ffff];
