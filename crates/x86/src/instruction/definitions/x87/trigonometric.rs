@@ -11,6 +11,7 @@ use wasm86_compiler::I1;
 enum Operation {
     Single(TrigonometricFunction),
     SineCosine,
+    Tangent,
 }
 
 instruction_families! {
@@ -21,6 +22,10 @@ instruction_families! {
     FCOS {
         execute: trigonometric(Operation::Single(TrigonometricFunction::Cosine));
         forms { 0xD9 @ 0xFF => no_operands(); }
+    }
+    FPTAN {
+        execute: trigonometric(Operation::Tangent);
+        forms { 0xD9 @ 0xF2 => no_operands(); }
     }
     FSINCOS {
         execute: trigonometric(Operation::SineCosine);
@@ -37,7 +42,7 @@ fn trigonometric(
     let empty = top.is_empty();
     let full = match operation {
         Operation::Single(_) => false.into(),
-        Operation::SineCosine => execution.x87().push_full()?,
+        Operation::SineCosine | Operation::Tangent => execution.x87().push_full()?,
     };
     let mut fault = empty.or(&full);
     let mut overflow = empty.eq(false).and(full);
@@ -70,12 +75,13 @@ fn trigonometric(
                 },
             )
         }
-        Operation::SineCosine => {
-            let results = execution.calculate(|body| {
-                Ok([
+        Operation::SineCosine | Operation::Tangent => {
+            let results = execution.calculate(|body| match operation {
+                Operation::Tangent => argument.tangent(body, &rounding),
+                _ => Ok([
                     argument.evaluate(body, TrigonometricFunction::Sine, &rounding)?,
                     argument.evaluate(body, TrigonometricFunction::Cosine, &rounding)?,
-                ])
+                ]),
             })?;
             write_trigonometric_results(
                 execution,
@@ -85,7 +91,10 @@ fn trigonometric(
                 result::Destination::PushPair {
                     when,
                     overflow,
-                    rounding: result::PairRounding::Pushed,
+                    rounding: match operation {
+                        Operation::Tangent => result::PairRounding::Original,
+                        _ => result::PairRounding::Pushed,
+                    },
                 },
             )
         }

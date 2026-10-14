@@ -362,7 +362,11 @@ sets C1. Unmasked operand exceptions suppress both writes and the push, while un
 range or precision exceptions publish both results before deferred delivery.
 Out-of-range execution preserves both payloads, their tags and TOP. FXTRACT uses
 the same shared two-result publication and stack-fault response.
-FPTAN remains unsupported.
+FPTAN leaves tangent in the original slot and pushes one for ordinary operands.
+It divides unrounded sine/cosine components, retaining exact reciprocal evidence
+near a pole and the positive tangent tail for tiny operands. Its C1 comes from
+tangent rounding. NaNs or masked invalid operands produce exceptional values in
+both slots. Range exits and exception publication share the FSINCOS behavior.
 FXAM reports ST(0)'s numerical class in C0/C2/C3 and its sign in C1. Empty
 entries report the empty class and retain their payload's sign; examination
 never raises a numerical exception or stack fault, including for signaling

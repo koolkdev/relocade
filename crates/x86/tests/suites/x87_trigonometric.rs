@@ -1,5 +1,7 @@
 //! Trigonometric reduction, final rounding, range flags, and precise restarts.
 
+#[path = "x87_trigonometric/pairs.rs"]
+mod pairs;
 #[path = "x87_trigonometric/values.rs"]
 pub(super) mod values;
 
