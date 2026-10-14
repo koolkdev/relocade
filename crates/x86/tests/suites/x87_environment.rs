@@ -89,21 +89,21 @@ fn save_formats(engine: Engine, frontend: Frontend) {
     // Literal fields from Intel Vol. 1 Figures 8-9 through 8-12. The pointers
     // exercise both selector addition and the split real-address high bits.
     let words = [
-        [0x0b5f, 0xeba1, 0x3f95, 0x5678, 0x1357, 0xcdef, 0x2468],
+        [0x0b5f, 0xeba1, 0x3f00, 0x5678, 0x1357, 0xcdef, 0x2468],
         [
             0xffff_0b5f,
             0xffff_eba1,
-            0xffff_3f95,
+            0xffff_3f00,
             0x1234_5678,
             0x0654_1357,
             0x89ab_cdef,
             0xffff_2468,
         ],
-        [0x0b5f, 0xeba1, 0x3f95, 0x8be8, 0x5654, 0x146f, 0xe000],
+        [0x0b5f, 0xeba1, 0x3f00, 0x8be8, 0x5654, 0x146f, 0xe000],
         [
             0xffff_0b5f,
             0xffff_eba1,
-            0xffff_3f95,
+            0xffff_3f00,
             0xffff_8be8,
             0x0123_5654,
             0xffff_146f,

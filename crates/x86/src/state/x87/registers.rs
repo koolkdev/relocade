@@ -54,10 +54,13 @@ impl Registers {
         body.value(top.and(7).unsigned().extend::<I32>())
     }
 
-    pub(super) fn tag_word(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I16>, BuildError> {
+    pub(super) fn saved_tag_word(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<Val<I16>, BuildError> {
         self.bank
             .get_or_insert_with(|| Bank::new(self.memory, 0.into()))
-            .tag_word(body)
+            .saved_tag_word(body)
     }
 
     /// Restoring TOP changes logical positions, not physical payloads. Only empty

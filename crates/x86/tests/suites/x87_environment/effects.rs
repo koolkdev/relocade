@@ -137,6 +137,62 @@ fn suppressed_pop_then_save(engine: Engine, frontend: Frontend) {
     );
 }
 
+fn saved_mmx_tags(engine: Engine, frontend: Frontend) {
+    let save = PROTECTED32.instruction(false, 0x4000);
+    let save_empty = PROTECTED32.instruction(false, 0x4020);
+    let code = [
+        &[0x0f, 0xef, 0xc0][..], // PXOR mm0, mm0
+        &save,
+        &[0x0f, 0x77], // EMMS
+        &save_empty,
+    ]
+    .concat();
+    let mut image = PROTECTED32.image(&code);
+    image.cpu.x87.status = status(0x1800);
+    let mut mmx = retire(image.cpu, 3);
+    mmx.x87.status.top = 0;
+    mmx.x87.tag_word = 0;
+    write_register_bits(&mut mmx, 0, (0, 0xffff));
+    let saved = retire(mmx, save.len());
+    // All live tags are valid after MMX, but saved R0 is special because its
+    // exponent is all ones. R1..R7 still contain the fixture's normal values.
+    let words = [
+        0xffff_037f,
+        0xffff_0000,
+        0xffff_0002,
+        0x1234_5678,
+        0x0654_0017,
+        0x89ab_cdef,
+        0xffff_0027,
+    ];
+    let bytes = PROTECTED32.bytes(words);
+    let mut emptied = retire(saved, 2);
+    emptied.x87.tag_word = 0xffff;
+    let saved_empty = retire(emptied, save_empty.len());
+    let mut empty_words = words;
+    empty_words[2] = 0xffff_ffff;
+    let empty_bytes = PROTECTED32.bytes(empty_words);
+    ImageSequences::new(engine, frontend, PROTECTED32.profile()).check(
+        "FNSTENV classifies saved MMX tags without changing live tags or repopulating empty slots",
+        &code,
+        &image,
+        &[
+            dispatch(mmx),
+            Step {
+                cpu: saved,
+                ram: &[(0x8000, &bytes)],
+                exit: Exit::Dispatch(saved.eip),
+            },
+            dispatch(emptied),
+            Step {
+                cpu: saved_empty,
+                ram: &[(0x8020, &empty_bytes)],
+                exit: Exit::Dispatch(saved_empty.eip),
+            },
+        ],
+    );
+}
+
 fn loaded_top(engine: Engine, frontend: Frontend) {
     let load = PROTECTED32.instruction(true, 0x4000);
     let code = [&[0xd9, 0xe8][..], &load, &[0xd9, 0xc0]].concat();
@@ -230,5 +286,6 @@ fn memory_faults(engine: Engine, frontend: Frontend) {
 test_frontends!(loaded_exception_delivery, exception_delivery);
 test_frontends!(masked_suppressed_stack, suppressed_push_then_save);
 test_frontends!(masked_suppressed_pop, suppressed_pop_then_save);
+test_frontends!(saved_mmx_tag_classification, saved_mmx_tags);
 test_frontends!(restored_top, loaded_top);
 test_frontends!(environment_faults, memory_faults);
