@@ -88,10 +88,7 @@ impl Bank {
         if let Some(tag) = &self.registers[relative].tag {
             return tag.current.read(body);
         }
-        if self.tag_word.is_none() {
-            let word = body.load(self.memory, offset_of!(CpuState, x87.tag_word) as u32)?;
-            self.tag_word = Some(TrackedValue::new(body, word)?);
-        }
+        self.read_tag_word(body)?;
         let initial = self
             .tag_word
             .as_ref()
@@ -107,6 +104,19 @@ impl Bank {
             latest_write: None,
         });
         Ok(value)
+    }
+
+    fn read_tag_word(&mut self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
+        if self.tag_word.is_none() {
+            let word = body.load(self.memory, offset_of!(CpuState, x87.tag_word) as u32)?;
+            self.tag_word = Some(TrackedValue::new(body, word)?);
+        }
+        Ok(())
+    }
+
+    pub(super) fn tag_word(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I16>, BuildError> {
+        self.read_tag_word(body)?;
+        body.value(self.packed_tags().unwrap().0)
     }
 
     pub(super) fn set_tag(
@@ -160,9 +170,14 @@ impl Bank {
                 payload.publish(body)?;
             }
         }
-        let Some(word) = &self.tag_word else {
-            return Ok(());
-        };
+        if let Some((tags, true)) = self.packed_tags() {
+            body.store(self.memory, offset_of!(CpuState, x87.tag_word) as u32, tags)?;
+        }
+        Ok(())
+    }
+
+    fn packed_tags(&self) -> Option<(Val<I16>, bool)> {
+        let word = self.tag_word.as_ref()?;
         let mut tags = word.value().clone();
         let mut changed = word.dirty_value().is_some();
         for (relative, register) in self.registers.iter().enumerate() {
@@ -178,9 +193,6 @@ impl Bank {
                     .or(tag.shl(shift));
             }
         }
-        if changed {
-            body.store(self.memory, offset_of!(CpuState, x87.tag_word) as u32, tags)?;
-        }
-        Ok(())
+        Some((tags, changed))
     }
 }

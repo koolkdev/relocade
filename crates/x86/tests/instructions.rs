@@ -110,6 +110,8 @@ mod x87_constants;
 mod x87_control;
 #[path = "suites/x87_divide.rs"]
 mod x87_divide;
+#[path = "suites/x87_environment.rs"]
+mod x87_environment;
 #[path = "suites/x87_examine.rs"]
 mod x87_examine;
 #[path = "suites/x87_extract.rs"]

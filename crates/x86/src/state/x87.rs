@@ -1,10 +1,12 @@
 //! x87 state owns stack positions, status updates and publication at guest exits.
 
 mod control;
+mod environment;
 mod mmx;
 mod registers;
 mod status;
 
+pub(crate) use environment::EnvironmentMode;
 pub(crate) use status::ConditionCode;
 
 use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
