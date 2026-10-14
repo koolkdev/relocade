@@ -231,15 +231,36 @@ impl X87Access<'_, '_> {
         value: &ExtendedValue,
         enabled: &Val<I1>,
     ) -> Result<(), BuildError> {
+        self.push_when(value, &true.into(), enabled)
+    }
+
+    /// A conditional push may leave TOP unchanged without a pending exception.
+    /// Publish that choice before reusing relative stack slots; a later exception
+    /// check may discard suppression guards but cannot assume this push happened.
+    pub(crate) fn push_when(
+        &mut self,
+        value: &ExtendedValue,
+        condition: &Val<I1>,
+        enabled: &Val<I1>,
+    ) -> Result<(), BuildError> {
+        let constant = self.body.constant_bits(condition)?;
+        if constant == Some(0) {
+            return Ok(());
+        }
+        let enabled = condition.and(enabled);
         let target = self.slot(7)?;
         self.state.registers.write(
             self.body,
             &target,
             value,
             value.classification().tag(),
-            enabled,
+            &enabled,
         )?;
-        self.state.registers.advance(self.body, -1, enabled)
+        self.state.registers.advance(self.body, -1, &enabled)?;
+        if constant != Some(1) {
+            self.state.registers.rebase(self.body)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn write_stack(

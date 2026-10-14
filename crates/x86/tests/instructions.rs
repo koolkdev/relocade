@@ -124,6 +124,8 @@ mod x87_examine;
 mod x87_exponential;
 #[path = "suites/x87_extract.rs"]
 mod x87_extract;
+#[path = "suites/x87_fsincos.rs"]
+mod x87_fsincos;
 #[path = "suites/x87_integer_load.rs"]
 mod x87_integer_load;
 #[path = "suites/x87_integer_store.rs"]
