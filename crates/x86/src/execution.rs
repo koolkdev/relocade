@@ -115,6 +115,27 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         }
     }
 
+    /// Excludes these conditions from compiled execution and clears their local
+    /// evidence only after the guard succeeds. Other execution paths retain it.
+    pub(crate) fn specialize_without<const N: usize>(
+        &mut self,
+        conditions: [&mut Val<I1>; N],
+    ) -> Result<(), BuildError> {
+        self.specialize(|jit| {
+            let excluded = conditions
+                .iter()
+                .fold(Val::<I1>::from(false), |excluded, condition| {
+                    excluded.or(&**condition)
+                });
+            jit.specialize_on(excluded.eq(false))?;
+            for condition in conditions {
+                *condition = false.into();
+            }
+            Ok(())
+        })?;
+        Ok(())
+    }
+
     /// Builds a numerical calculation in the current compiler body. The callback
     /// must not author architectural effects or instruction exits.
     pub(crate) fn calculate<T>(
@@ -122,11 +143,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         build: impl FnOnce(&mut BlockBuilder<'body>) -> Result<T, BuildError>,
     ) -> Result<T, BuildError> {
         build(&mut self.body)
-    }
-
-    /// Snapshot observations are hints until the caller guards the relevant fields.
-    pub(crate) fn observed_cpu(&self) -> Option<&CpuState> {
-        self.observed_cpu
     }
 
     /// Requires an assumption on a specializing path, before instruction effects.

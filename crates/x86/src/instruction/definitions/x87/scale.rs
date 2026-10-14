@@ -1,7 +1,7 @@
 //! FSCALE multiplies ST(0) by 2^trunc(ST(1)), retaining both stack positions.
 
 use super::*;
-use crate::x87::{ArithmeticResult, BinaryOperands};
+use crate::x87::BinaryOperands;
 
 instruction_families! {
     FSCALE {
@@ -19,11 +19,9 @@ fn scale(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
     let rounding = execution.x87().rounding()?;
     let specialized = execution.specialize(|execution| {
         // An in-range scale is exact and independent of both PC and RC.
-        execution.specialize_on(empty.eq(false).and(operands.normal_or_zero()))?;
-        empty = false.into();
+        execution.specialize_x87_operands(&mut empty, operands.normal_or_zero())?;
         let candidate = operands.scale(&rounding).in_range;
-        execution.specialize_on(candidate.valid)?;
-        Ok(ArithmeticResult::from_rounding(candidate.rounded))
+        execution.admit_x87_candidate(candidate)
     })?;
     let result = match specialized {
         Some(result) => result,

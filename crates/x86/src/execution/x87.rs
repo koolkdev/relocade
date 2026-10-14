@@ -1,15 +1,13 @@
 //! x87 execution access owns restart checks, observation guards and instruction metadata.
 
 mod operand;
+mod specialization;
 
 pub(crate) use operand::{X87MemoryFormat, X87Operand, X87Operands};
 
 use wasm86_compiler::BuildError;
 
-use crate::{
-    state::{x87::X87Specialization, X87Access},
-    Segment,
-};
+use crate::{state::X87Access, Segment};
 
 use super::{memory::MemoryOperand, ExecutionBuilder};
 
@@ -22,22 +20,6 @@ impl<'body> ExecutionBuilder<'body, '_> {
             Some(operand) => self.record_x87_memory(operand),
             None => self.record_x87_instruction(),
         }
-    }
-
-    /// Checks observed state on a specializing path, before instruction effects.
-    /// The state owner supplies current SSA values; ordinary compiler facts
-    /// remove repeated guards and specialize every use of those values.
-    pub(crate) fn specialize_x87(
-        &mut self,
-        specialization: X87Specialization,
-    ) -> Result<(), BuildError> {
-        if let Some(observed) = self.observed_cpu {
-            let condition = self
-                .x87()
-                .specialization_condition(&observed.x87, specialization)?;
-            self.specialize_on(condition)?;
-        }
-        Ok(())
     }
 
     pub(crate) fn x87(&mut self) -> X87Access<'_, 'body> {
