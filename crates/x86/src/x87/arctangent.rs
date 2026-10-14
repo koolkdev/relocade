@@ -1,13 +1,13 @@
 //! Quadrants and exponent differences stay exact before a bounded atan kernel.
 
-use wasm86_compiler::{BlockBuilder, BuildError, I1, I32, I64};
+use wasm86_compiler::{BlockBuilder, BuildError, I32};
 
-use crate::floating::{RoundingInput, RoundingMode};
+use crate::floating::RoundingMode;
 
 use super::{
     quotient,
     result::RoundedValue,
-    rounding::FiniteMagnitude,
+    rounding::{FiniteMagnitude, MagnitudeShape},
     transcendental::{odd_power_series, DoubleDouble},
     ArithmeticResult, BinaryOperands,
 };
@@ -32,7 +32,7 @@ impl BinaryOperands {
         let gap = swap.select(x_exponent.sub(&y_exponent), y_exponent.sub(&x_exponent));
         let pi = DoubleDouble::pi();
         let half_pi = pi.scale(&(-1).into());
-        let (integer, guard, sticky, exponent) = body.if_value::<(I64, I1, I1, I32)>(
+        let magnitude = body.if_value::<MagnitudeShape>(
             gap.signed().lt(-120),
             |body| {
                 // A rational quotient can lie closer to a rounding boundary than
@@ -56,6 +56,7 @@ impl BinaryOperands {
                     offset.select(axis.significand.guard, ratio.significand.guard),
                     offset.select(axis.significand.sticky, ratio.significand.sticky),
                     offset.select(axis.exponent, ratio.exponent),
+                    y.bits.negative(),
                 ))
             },
             |mut body| {
@@ -65,24 +66,10 @@ impl BinaryOperands {
                 let angle = half_pi.sub(&angle).select(&swap, &angle);
                 let angle = pi.sub(&angle).select(&x.bits.negative(), &angle);
                 let magnitude = angle.magnitude(0.into(), y.bits.negative(), true.into());
-                body.yield_((
-                    magnitude.significand.integer,
-                    magnitude.significand.guard,
-                    magnitude.significand.sticky,
-                    magnitude.exponent,
-                ))
+                body.yield_(magnitude.components())
             },
         )?;
-        let mut result = FiniteMagnitude {
-            significand: RoundingInput {
-                integer,
-                guard,
-                sticky,
-            },
-            exponent,
-            negative: y.bits.negative(),
-        }
-        .round(3.into(), rounding);
+        let mut result = FiniteMagnitude::from_components(magnitude).round(3.into(), rounding);
         for rounded in [
             &mut result.in_range.rounded,
             &mut result.masked,

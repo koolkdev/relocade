@@ -5,18 +5,46 @@ use wasm86_compiler::{BuildError, Val, I1, I32};
 use crate::{
     execution::ExecutionBuilder,
     state::x87::{ConditionCode, Exception, StackValue},
-    x87::ArithmeticResult,
+    state::X87Access,
+    x87::{ArithmeticResult, ExtendedValue},
 };
+
+pub(super) enum Destination {
+    Register { index: Val<I32>, pop: bool },
+    Conditional { index: Val<I32>, when: Val<I1> },
+}
+
+impl Destination {
+    fn write(
+        self,
+        x87: &mut X87Access<'_, '_>,
+        value: ExtendedValue,
+        enabled: &Val<I1>,
+    ) -> Result<(), BuildError> {
+        let value = StackValue::from_value(value);
+        match self {
+            Self::Register { index, pop } => {
+                x87.write_stack(index, &value, enabled)?;
+                if pop {
+                    x87.pop(enabled)?;
+                }
+                Ok(())
+            }
+            Self::Conditional { index, when } => {
+                x87.write_stack_when(index, &value, &when, enabled)
+            }
+        }
+    }
+}
 
 /// Applies the register arithmetic response, including C1 and an optional pop.
 /// Unmasked operand exceptions suppress effects; range and precision exceptions
 /// still write their register result and defer delivery to the next x87 check.
 pub(super) fn write_arithmetic_result(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: Val<I32>,
     result: ArithmeticResult,
     stack_fault: &Val<I1>,
-    pop: bool,
+    destination: Destination,
 ) -> Result<(), BuildError> {
     let mut x87 = execution.x87();
     // Stack faults override all numerical responses, including #D from a
@@ -48,13 +76,5 @@ pub(super) fn write_arithmetic_result(
     )?;
     // Unlike memory stores, unmasked range and precision exceptions write
     // register results, including the pop and any adjusted exponent.
-    x87.write_stack(
-        destination,
-        &StackValue::from_value(rounded.value),
-        &enabled,
-    )?;
-    if pop {
-        x87.pop(&enabled)?;
-    }
-    Ok(())
+    destination.write(&mut x87, rounded.value, &enabled)
 }

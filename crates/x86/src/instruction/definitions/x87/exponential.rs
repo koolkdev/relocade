@@ -27,5 +27,13 @@ fn exponential_minus_one(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(),
         Ok(())
     })?;
     execution.record_x87_instruction()?;
-    result::write_arithmetic_result(execution, 0.into(), result, &empty, false)
+    result::write_arithmetic_result(
+        execution,
+        result,
+        &empty,
+        result::Destination::Register {
+            index: 0.into(),
+            pop: false,
+        },
+    )
 }

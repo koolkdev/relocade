@@ -1,6 +1,6 @@
 //! Rounds normalized magnitudes to x87 precision and extended exponent range.
 
-use wasm86_compiler::{Val, I1, I16, I32, I64, I8};
+use wasm86_compiler::{Results, Val, I1, I16, I32, I64, I8};
 
 use super::{
     result::{ArithmeticCandidate, ArithmeticResult, RoundedValue},
@@ -17,7 +17,33 @@ pub(super) struct FiniteMagnitude {
     pub(super) negative: Val<I1>,
 }
 
+pub(super) type MagnitudeShape = (I64, I1, I1, I32, I1);
+
 impl FiniteMagnitude {
+    pub(super) fn components(&self) -> <MagnitudeShape as Results>::Values {
+        (
+            self.significand.integer.clone(),
+            self.significand.guard.clone(),
+            self.significand.sticky.clone(),
+            self.exponent.clone(),
+            self.negative.clone(),
+        )
+    }
+
+    pub(super) fn from_components(
+        (integer, guard, sticky, exponent, negative): <MagnitudeShape as Results>::Values,
+    ) -> Self {
+        Self {
+            significand: RoundingInput {
+                integer,
+                guard,
+                sticky,
+            },
+            exponent,
+            negative,
+        }
+    }
+
     /// Records a negative tail too small to cross a nonzero remainder boundary.
     /// The supplied rounding evidence must describe the value before that tail exactly.
     /// At an integer or half-integer boundary it changes the rounding evidence;

@@ -29,5 +29,13 @@ fn arctangent(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError
         Ok(())
     })?;
     execution.record_x87_instruction()?;
-    result::write_arithmetic_result(execution, 1.into(), result, &stack_fault, true)
+    result::write_arithmetic_result(
+        execution,
+        result,
+        &stack_fault,
+        result::Destination::Register {
+            index: 1.into(),
+            pop: true,
+        },
+    )
 }

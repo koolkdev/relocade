@@ -260,5 +260,13 @@ fn arithmetic(
     };
     execution.record_x87_operand(memory.as_ref())?;
 
-    result::write_arithmetic_result(execution, destination, result, &stack_fault, pop)
+    result::write_arithmetic_result(
+        execution,
+        result,
+        &stack_fault,
+        result::Destination::Register {
+            index: destination,
+            pop,
+        },
+    )
 }

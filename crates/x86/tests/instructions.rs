@@ -152,6 +152,8 @@ mod x87_sqrt;
 mod x87_stack;
 #[path = "suites/x87_store.rs"]
 mod x87_store;
+#[path = "suites/x87_trigonometric.rs"]
+mod x87_trigonometric;
 
 #[path = "suites/execution_sizes.rs"]
 mod execution_sizes;

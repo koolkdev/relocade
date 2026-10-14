@@ -351,7 +351,12 @@ infinity combinations, then replaces ST(1) and pops. Separate operand exponents
 preserve tiny ratios; an omitted negative atan tail still influences directed
 rounding. Its 0/0 and infinity/infinity cases are defined angles, not division
 exceptions. PC is ignored and RC controls the final extended-precision result.
-The remaining transcendental arithmetic families are unsupported.
+FSIN and FCOS reduce finite inputs with |x| < 2^63 using the P4's 66-bit pi
+approximation, then evaluate a shared bounded series and round under RC at full
+extended precision. Large finite operands remain unchanged with C2 set; in-range
+execution clears C2. C1 is cleared for out-of-range inputs, where it is undefined.
+Infinity is invalid. Tiny sine results retain the extended underflow response.
+FSINCOS and FPTAN remain unsupported.
 FXAM reports ST(0)'s numerical class in C0/C2/C3 and its sign in C1. Empty
 entries report the empty class and retain their payload's sign; examination
 never raises a numerical exception or stack fault, including for signaling

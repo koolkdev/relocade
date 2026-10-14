@@ -254,6 +254,30 @@ impl X87Access<'_, '_> {
             .write(self.body, &slot, &value.value, value.tag.clone(), enabled)
     }
 
+    /// An ordinary condition remains part of the value and tag after later
+    /// exception checks discard the separate exception-suppression guard.
+    pub(crate) fn write_stack_when(
+        &mut self,
+        index: impl Into<Val<I32>>,
+        value: &StackValue,
+        condition: &Val<I1>,
+        enabled: &Val<I1>,
+    ) -> Result<(), BuildError> {
+        let index = index.into();
+        match self.body.constant_bits(condition)? {
+            Some(0) => Ok(()),
+            Some(1) => self.write_stack(index, value, enabled),
+            _ => {
+                let previous = self.read_stack(index.clone())?;
+                let value = StackValue {
+                    value: value.value.select(condition, &previous.value),
+                    tag: condition.select(&value.tag, previous.tag),
+                };
+                self.write_stack(index, &value, enabled)
+            }
+        }
+    }
+
     /// A disabled pop must leave a pending exception, as for `push`.
     pub(crate) fn pop(&mut self, enabled: &Val<I1>) -> Result<(), BuildError> {
         self.pop_n(1, enabled)
