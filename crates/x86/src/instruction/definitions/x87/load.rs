@@ -7,7 +7,7 @@ use crate::{
     instruction::X87StackIndex,
     memory::Intent,
     state::x87::{ConditionCode, Exception, StackValue},
-    x87::{BinaryOperand, Constant, ExtendedBits, ExtendedValue},
+    x87::{BinaryOperand, Constant, ExtendedBits, ExtendedValue, PackedBcd},
 };
 use wasm86_compiler::{MemoryInt, I64};
 
@@ -59,6 +59,10 @@ instruction_families! {
             0xDB / 0 => dword(mem);
             0xDF / 5 => qword(mem);
         }
+    }
+    FBLD {
+        execute: load_bcd;
+        forms { 0xDF / 4 => operands(mem); }
     }
     FLD_REGISTER {
         execute: load_register;
@@ -134,6 +138,24 @@ where
     let value = ExtendedValue::from_signed_integer(&integer);
     execution.record_x87_memory(&operand)?;
     push(execution, LoadSource::Value(value))
+}
+
+fn load_bcd(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    address: MemoryAddress<Val<I32>>,
+) -> Result<(), BuildError> {
+    execution.check_x87_exception()?;
+    let operand = execution.memory_operand(address, 10, Intent::Read, &[])?;
+    let bcd = PackedBcd {
+        low: operand.read::<I64>(execution, 0)?,
+        high: operand.read::<I16>(execution, 8)?,
+    };
+    execution.specialize(|jit| {
+        let available = jit.x87().push_available()?;
+        jit.specialize_on(available)
+    })?;
+    execution.record_x87_memory(&operand)?;
+    push(execution, LoadSource::Value(bcd.decode()))
 }
 
 fn load_register(

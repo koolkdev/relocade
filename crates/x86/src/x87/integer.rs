@@ -1,7 +1,7 @@
 //! Exact integer expansion and rounded signed-integer narrowing.
 
 use crate::floating::{RoundingInput, RoundingMode};
-use wasm86_compiler::{AtLeast, MemoryInt, Val, I16, I32, I64};
+use wasm86_compiler::{AtLeast, MemoryInt, Val, I1, I16, I32, I64};
 
 use super::{
     value::{KnownClass, Precision53},
@@ -22,17 +22,7 @@ impl ExtendedValue {
         let negative = integer.signed().lt(0_u64);
         // Wrapping negation preserves the unsigned magnitude of i64::MIN.
         let magnitude = negative.select(Val::<I64>::from(0_u64).sub(&integer), &integer);
-        let shift = magnitude.clz().truncate::<I32>();
-        let exponent = magnitude
-            .eq(0_u64)
-            .select(0_u32, Val::<I32>::from(16383 + 63).sub(&shift));
-        let bits = ExtendedBits {
-            significand: magnitude.shl(shift),
-            sign_exponent: negative
-                .select(0x8000_u32, 0_u32)
-                .or(exponent)
-                .truncate::<I16>(),
-        };
+        let bits = ExtendedBits::from_integer_magnitude(&magnitude, &negative);
         let value = match native {
             Some(native) => Self::from_precision53(Precision53::from_binary64(&bits, native)),
             None => Self::from_bits(bits),
@@ -76,6 +66,23 @@ impl ExtendedValue {
             tiny: false.into(),
             inexact: valid.and(rounded.inexact),
             incremented: valid.and(rounded.incremented),
+        }
+    }
+}
+
+impl ExtendedBits {
+    /// Exact integer expansion keeps a separate sign so decimal −0 survives.
+    pub(super) fn from_integer_magnitude(magnitude: &Val<I64>, negative: &Val<I1>) -> Self {
+        let shift = magnitude.clz().truncate::<I32>();
+        let exponent = magnitude
+            .eq(0_u64)
+            .select(0_u32, Val::<I32>::from(16383 + 63).sub(&shift));
+        Self {
+            significand: magnitude.shl(shift),
+            sign_exponent: negative
+                .select(0x8000_u32, 0_u32)
+                .or(exponent)
+                .truncate::<I16>(),
         }
     }
 }
