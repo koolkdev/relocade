@@ -13,6 +13,7 @@ mod float_compare;
 mod float_divide;
 mod float_minmax;
 mod float_multiply;
+mod float_reciprocal;
 mod float_sqrt;
 mod floating;
 mod half_moves;
@@ -50,6 +51,7 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
         .chain(float_divide::forms())
         .chain(float_minmax::forms())
         .chain(float_multiply::forms())
+        .chain(float_reciprocal::forms())
         .chain(float_sqrt::forms())
         .chain(moves::forms())
         .chain(average::forms())

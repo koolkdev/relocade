@@ -22,6 +22,13 @@ impl Val<F64> {
             .unary(Unary::FloatConvert(ConvertOp::PromoteBinary32))
     }
 
+    /// Rounds to a binary32 encoding, using nearest, ties-to-even and gradual
+    /// underflow. NaNs follow WebAssembly demotion semantics; retain the source
+    /// encoding when a consumer needs a particular NaN sign or payload.
+    pub fn to_binary32_bits(&self) -> Val<I32> {
+        self.unary(Unary::FloatConvert(ConvertOp::DemoteBinary32))
+    }
+
     /// Interprets an IEEE binary64 encoding without rounding or quieting NaNs.
     pub fn from_bits(bits: impl Into<Val<I64>>) -> Self {
         bits.into().unary(Unary::Reinterpret)
