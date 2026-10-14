@@ -98,7 +98,23 @@ impl X87Access<'_, '_> {
     where
         I32: AtLeast<T>,
     {
-        let environment = Environment::decode(words, mode);
+        self.restore_environment(Environment::decode(words, mode), registers)
+    }
+
+    pub(crate) fn restore_fx(
+        &mut self,
+        pointer_size: SegmentDefaultSize,
+        words: &[Val<I32>; 6],
+        registers: &[ExtendedBits; 8],
+    ) -> Result<(), BuildError> {
+        self.restore_environment(Environment::decode_fx(words, pointer_size), Some(registers))
+    }
+
+    fn restore_environment(
+        &mut self,
+        environment: Environment,
+        registers: Option<&[ExtendedBits; 8]>,
+    ) -> Result<(), BuildError> {
         self.state
             .control
             .load_word(self.body, environment.control)?;

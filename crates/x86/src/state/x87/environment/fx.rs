@@ -1,8 +1,8 @@
 //! The FXSR header keeps segment:offset pointers and one occupancy bit per register.
 
-use wasm86_compiler::{Val, I32};
+use wasm86_compiler::{Val, I16, I32};
 
-use super::Environment;
+use super::{Environment, Pointer};
 use crate::SegmentDefaultSize;
 
 fn offset_mask(size: SegmentDefaultSize) -> u32 {
@@ -13,6 +13,30 @@ fn offset_mask(size: SegmentDefaultSize) -> u32 {
 }
 
 impl Environment {
+    pub(super) fn decode_fx(words: &[Val<I32>; 6], pointer_size: SegmentDefaultSize) -> Self {
+        let [control_status, tags_opcode, instruction_offset, instruction_selector, data_offset, data_selector] =
+            words;
+        let mut tags = Val::<I16>::from(0);
+        for index in 0..8 {
+            let empty = tags_opcode.and(1 << index).eq(0);
+            tags = tags.or(empty.select::<I16>(3, 0).shl(index * 2));
+        }
+        Self {
+            control: control_status.truncate::<I16>(),
+            status: control_status.unsigned().shr(16).truncate::<I16>(),
+            tags,
+            opcode: Some(tags_opcode.unsigned().shr(16).and(0x7ff).truncate::<I16>()),
+            instruction: Pointer {
+                offset: instruction_offset.and(offset_mask(pointer_size)),
+                selector: instruction_selector.truncate::<I16>(),
+            },
+            data: Pointer {
+                offset: data_offset.and(offset_mask(pointer_size)),
+                selector: data_selector.truncate::<I16>(),
+            },
+        }
+    }
+
     pub(super) fn encode_fx(&self, pointer_size: SegmentDefaultSize) -> [Val<I32>; 6] {
         let mut occupied = Val::<I32>::from(0);
         for index in 0..8 {
