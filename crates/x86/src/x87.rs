@@ -22,6 +22,7 @@ mod rounding;
 mod scale;
 mod sqrt;
 mod transcendental;
+mod trigonometric;
 mod value;
 
 pub(crate) use bcd::PackedBcd;
@@ -33,6 +34,7 @@ pub(crate) use operand::{BinaryOperands, Operand};
 pub(crate) use remainder::QuotientRounding;
 use result::BinaryArithmetic;
 pub(crate) use result::{ArithmeticCandidate, ArithmeticResult, ConversionResult};
+pub(crate) use trigonometric::{TrigonometricArgument, TrigonometricFunction};
 pub(crate) use value::{ExtendedBits, ExtendedValue, SignOperation};
 
 #[derive(Clone, Copy)]

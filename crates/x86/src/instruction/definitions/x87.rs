@@ -19,6 +19,7 @@ mod sign;
 mod sqrt;
 mod stack;
 mod store;
+mod trigonometric;
 
 use super::*;
 
@@ -41,4 +42,5 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
         .chain(scale::forms())
         .chain(sign::forms())
         .chain(store::forms())
+        .chain(trigonometric::forms())
 }
