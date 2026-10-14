@@ -68,7 +68,15 @@ impl Status {
             let bit = self.exception_raised(body, exception)?;
             word = word.or(bit.unsigned().extend::<I16>().shl(exception as u32));
         }
-        for (location, shift) in [
+        for (location, shift) in Self::flag_fields() {
+            let bit = self.flag(body, location)?;
+            word = word.or(bit.unsigned().extend::<I16>().shl(shift));
+        }
+        body.value(word)
+    }
+
+    fn flag_fields() -> [(Location<I8>, u32); 7] {
+        [
             (cpu_location!(x87.status.stack_fault), 6),
             (cpu_location!(x87.status.error_summary), 7),
             (ConditionCode::C0.location(), 8),
@@ -76,11 +84,34 @@ impl Status {
             (ConditionCode::C2.location(), 10),
             (ConditionCode::C3.location(), 14),
             (cpu_location!(x87.status.busy), 15),
-        ] {
-            let bit = self.flag(body, location)?;
-            word = word.or(bit.unsigned().extend::<I16>().shl(shift));
+        ]
+    }
+
+    /// TOP belongs to the register bank; ES and B are recomputed from the loaded
+    /// exception flags and masks after the whole environment has been installed.
+    pub(super) fn load_word(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        word: &Val<I16>,
+    ) -> Result<(), BuildError> {
+        for exception in Exception::ALL {
+            self.fields.define(
+                body,
+                exception.status_location(),
+                word.unsigned()
+                    .shr(exception as u32)
+                    .and(1)
+                    .truncate::<I8>(),
+            )?;
         }
-        body.value(word)
+        for (location, shift) in Self::flag_fields() {
+            self.fields.define(
+                body,
+                location,
+                word.unsigned().shr(shift).and(1).truncate::<I8>(),
+            )?;
+        }
+        Ok(())
     }
 
     pub(super) fn set_condition_code(

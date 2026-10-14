@@ -100,6 +100,16 @@ impl Control {
         Ok(mask.truncate::<I1>().eq(false))
     }
 
+    pub(super) fn mask_exceptions(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<(), BuildError> {
+        for exception in Exception::ALL {
+            self.fields.define(body, exception.mask_location(), 1)?;
+        }
+        Ok(())
+    }
+
     /// Packing preserves reserved bits for readback without letting unused
     /// bits in any backing field affect another architectural control field.
     pub(super) fn word(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I16>, BuildError> {

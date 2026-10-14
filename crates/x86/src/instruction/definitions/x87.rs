@@ -4,6 +4,7 @@ mod arithmetic;
 mod compare;
 mod conditional_move;
 mod control;
+mod environment;
 mod examine;
 mod extract;
 mod integral;
@@ -20,6 +21,7 @@ use super::*;
 
 pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
     control::forms()
+        .chain(environment::forms())
         .chain(arithmetic::forms())
         .chain(compare::forms())
         .chain(conditional_move::forms())

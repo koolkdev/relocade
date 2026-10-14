@@ -54,6 +54,41 @@ impl Registers {
         body.value(top.and(7).unsigned().extend::<I32>())
     }
 
+    pub(super) fn saved_tag_word(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<Val<I16>, BuildError> {
+        self.bank
+            .get_or_insert_with(|| Bank::new(self.memory, 0.into()))
+            .saved_tag_word(body)
+    }
+
+    /// Restoring TOP changes logical positions, not physical payloads. Only empty
+    /// tags survive a load verbatim; every occupied register classifies its value.
+    pub(super) fn load_environment(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        top: Val<I32>,
+        tags: &Val<I16>,
+    ) -> Result<(), BuildError> {
+        self.top.define(
+            body,
+            cpu_location!(x87.status.top),
+            top.and(7).truncate::<I8>(),
+        )?;
+        if let Some(bank) = &mut self.bank {
+            bank.stack_top = None;
+        }
+        for index in 0..8 {
+            let slot = self.physical(body, RegisterCode::from_code(index))?;
+            let value = self.read(body, &slot)?;
+            let empty = tags.unsigned().shr(u32::from(index) * 2).and(3).eq(3);
+            let tag = empty.select(3, value.classification().tag());
+            self.set_tag(body, &slot, tag, &true.into())?;
+        }
+        Ok(())
+    }
+
     pub(super) fn slot(
         &mut self,
         body: &mut BlockBuilder<'_>,
