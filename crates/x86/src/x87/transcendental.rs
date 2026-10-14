@@ -4,7 +4,7 @@
 //! arithmetic retains the addition/product residuals; the guest exponent stays
 //! separate so the binary64 exponent range does not limit binary80 operands.
 
-use wasm86_compiler::{Val, F64, I1, I32, I64};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64};
 
 use crate::floating::RoundingInput;
 
@@ -38,6 +38,13 @@ impl DoubleDouble {
         Self {
             high: f64::from_bits(0x3fe6_2e42_fefa_39ef).into(),
             low: f64::from_bits(0x3c7a_bc9e_3b39_803f).into(),
+        }
+    }
+
+    pub(super) fn pi() -> Self {
+        Self {
+            high: f64::from_bits(0x4009_21fb_5444_2d18).into(),
+            low: f64::from_bits(0x3ca1_a626_3314_5c07).into(),
         }
     }
 
@@ -172,4 +179,32 @@ impl DoubleDouble {
             negative,
         }
     }
+}
+
+/// Sum 1 + q/3 + q²/5 + ... with a fixed, caller-bounded term count.
+/// Positive q serves atanh; negative q serves atan. Consumers bound both
+/// truncation and arithmetic error for their argument interval.
+pub(super) fn odd_power_series(
+    body: &mut BlockBuilder<'_>,
+    square: &DoubleDouble,
+    terms: u32,
+) -> Result<DoubleDouble, BuildError> {
+    let parts = body.loop_::<(I32, F64, F64, F64, F64), DoubleShape>(
+        (3, 1.0, 0.0, 1.0, 0.0),
+        |mut iteration, labels, (index, term_high, term_low, sum_high, sum_low)| {
+            iteration.if_(index.eq(2 * terms + 1), |done| {
+                done.branch(&labels.exit, (&sum_high, &sum_low))
+            })?;
+            let term = DoubleDouble::from_parts((term_high, term_low)).mul(square);
+            let sum = DoubleDouble::from_parts((sum_high, sum_low))
+                .add(&term.divide(&DoubleDouble::from_f64(index.unsigned().to_f64())));
+            let (term_high, term_low) = term.parts();
+            let (sum_high, sum_low) = sum.parts();
+            iteration.branch(
+                &labels.again,
+                (index.add(2), term_high, term_low, sum_high, sum_low),
+            )
+        },
+    )?;
+    Ok(DoubleDouble::from_parts(parts))
 }

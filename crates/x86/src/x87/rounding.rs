@@ -18,6 +18,27 @@ pub(super) struct FiniteMagnitude {
 }
 
 impl FiniteMagnitude {
+    /// Records a negative tail too small to cross a nonzero remainder boundary.
+    /// The supplied rounding evidence must describe the value before that tail exactly.
+    /// At an integer or half-integer boundary it changes the rounding evidence;
+    /// at other fractions it only records inexactness. A borrow can cross a binade.
+    pub(super) fn with_negative_tail(mut self, tail: &Val<I1>) -> Self {
+        let boundary = tail.and(self.significand.sticky.eq(false));
+        let borrow = boundary.and(self.significand.guard.eq(false));
+        let lower_binade = borrow.and(self.significand.integer.eq(1_u64 << 63));
+        self.significand.integer = lower_binade.select(
+            u64::MAX,
+            self.significand
+                .integer
+                .sub(borrow.unsigned().extend::<I64>()),
+        );
+        self.significand.guard =
+            boundary.select(self.significand.guard.eq(false), &self.significand.guard);
+        self.significand.sticky = tail.or(&self.significand.sticky);
+        self.exponent = self.exponent.sub(lower_binade.unsigned().extend::<I32>());
+        self
+    }
+
     pub(super) fn round(&self, precision: Val<I8>, rounding: &RoundingMode) -> ArithmeticResult {
         const LEADING: u64 = 1 << 63;
         let precision = precision.and(3);

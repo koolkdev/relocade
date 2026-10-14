@@ -346,6 +346,11 @@ increment so tiny values survive even when 1+x would round to one. Its specified
 input domain is symmetric: |x| <= 1-sqrt(2)/2. Outside that finite domain,
 retaining ST(1) and completing the pop is local policy; NaNs and unsupported
 encodings still use their ordinary operand responses.
+FPATAN computes atan2(ST(1), ST(0)) with all four quadrants, signed-zero and
+infinity combinations, then replaces ST(1) and pops. Separate operand exponents
+preserve tiny ratios; an omitted negative atan tail still influences directed
+rounding. Its 0/0 and infinity/infinity cases are defined angles, not division
+exceptions. PC is ignored and RC controls the final extended-precision result.
 The remaining transcendental arithmetic families are unsupported.
 FXAM reports ST(0)'s numerical class in C0/C2/C3 and its sign in C1. Empty
 entries report the empty class and retain their payload's sign; examination
