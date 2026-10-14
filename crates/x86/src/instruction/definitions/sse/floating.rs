@@ -95,6 +95,23 @@ where
     )
 }
 
+/// Approximate single-precision operations have fixed denormal and rounding
+/// behavior and never raise SIMD floating-point exceptions.
+pub(super) fn approximate(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+    shape: FloatShape,
+    operation: impl Fn(Val<I32>) -> Val<I32>,
+) -> Result<(), BuildError> {
+    calculate_lanes::<I32>(execution, destination, source, shape, |_, _, right, _| {
+        Ok(FloatResult {
+            value: operation(right),
+            exceptions: Default::default(),
+        })
+    })
+}
+
 fn calculate_lanes<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,

@@ -16,6 +16,8 @@ mod minmax;
 mod mmx;
 #[path = "floating/packed_integer.rs"]
 mod packed_integer;
+#[path = "floating/reciprocal.rs"]
+mod reciprocal;
 #[path = "floating/scalar_integer.rs"]
 mod scalar_integer;
 #[path = "floating/width.rs"]

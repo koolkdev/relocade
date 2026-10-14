@@ -91,6 +91,10 @@ impl Writer<'_> {
                     self.emit(Instruction::F32ReinterpretI32);
                     Instruction::F64PromoteF32
                 }
+                (floating::ConvertOp::DemoteBinary32, Type::F64) => {
+                    self.emit(Instruction::F32DemoteF64);
+                    Instruction::I32ReinterpretF32
+                }
                 (floating::ConvertOp::FromSignedInteger, Type::I32) => Instruction::F64ConvertI32S,
                 (floating::ConvertOp::FromSignedInteger, Type::I64) => Instruction::F64ConvertI64S,
                 (floating::ConvertOp::FromUnsignedInteger, Type::I32) => {

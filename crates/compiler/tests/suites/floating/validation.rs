@@ -161,6 +161,34 @@ fn rounding_and_square_root_lower_directly_and_defer_arithmetic_nans() {
 
 #[test]
 fn numeric_conversions_emit_native_operations_and_fold_exact_constants() {
+    let demotion = Fixture::new().expression(&[Type::F64], |body| {
+        body.parameter::<F64>(0).unwrap().to_binary32_bits()
+    });
+    assert!(matches!(
+        operators(&demotion).as_slice(),
+        [
+            Operator::LocalGet { local_index: 0 },
+            Operator::F32DemoteF64,
+            Operator::I32ReinterpretF32,
+            Operator::Return,
+            Operator::End
+        ]
+    ));
+    let constant = Fixture::new().expression(&[], |_| Val::<F64>::from(1.0).to_binary32_bits());
+    assert!(matches!(
+        operators(&constant).as_slice(),
+        [
+            Operator::I32Const { value: 0x3f80_0000 },
+            Operator::Return,
+            Operator::End
+        ]
+    ));
+    let nan = Fixture::new().expression(&[], |_| {
+        Val::<F64>::from_bits(0x7ff0_0000_0000_0001_u64).to_binary32_bits()
+    });
+    assert!(operators(&nan)
+        .iter()
+        .any(|op| matches!(op, Operator::F32DemoteF64)));
     let promotion = Fixture::new().expression(&[Type::I32], |body| {
         Val::<F64>::from_binary32_bits(body.parameter::<I32>(0).unwrap())
     });

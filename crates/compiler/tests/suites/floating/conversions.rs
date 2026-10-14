@@ -32,6 +32,45 @@ fn promotion(v8: bool) {
     }
 }
 
+fn demotion(v8: bool) {
+    let observed = |value: Val<F64>| {
+        let bits = value.to_binary32_bits();
+        bits.and(0x7fff_ffff)
+            .unsigned()
+            .ge(0x7f80_0001)
+            .select(bits.and(0x7fc0_0000), bits)
+    };
+    let runtime = Fixture::new().expression(&[Type::I64], |body| {
+        observed(Val::<F64>::from_bits(body.parameter::<I64>(0).unwrap()))
+    });
+    // Literal encodings cover ties with even/odd retained bits, gradual
+    // underflow, signed zero and rounding across the normal/overflow boundaries.
+    for (source, expected) in [
+        (0_u64, 0_u32),
+        (SIGN, 0x8000_0000),
+        (0x3ff0_0000_1000_0000, 0x3f80_0000),
+        (0x3ff0_0000_1000_0001, 0x3f80_0001),
+        (0x3ff0_0000_3000_0000, 0x3f80_0002),
+        (0x3690_0000_0000_0000, 0),
+        (0x3690_0000_0000_0001, 1),
+        (0xb690_0000_0000_0000, 0x8000_0000),
+        (0x36a0_0000_0000_0000, 1),
+        (0x380f_ffff_dfff_ffff, 0x007f_ffff),
+        (0x380f_ffff_e000_0000, 0x0080_0000),
+        (0x47ef_ffff_e000_0000, 0x7f7f_ffff),
+        (0x47ef_ffff_f000_0000, 0x7f80_0000),
+        (INFINITY, 0x7f80_0000),
+        (SIGN | INFINITY, 0xff80_0000),
+        (0x7ff8_1234_5678_9abc, 0x7fc0_0000),
+        (0xfff0_0000_0000_0001, 0x7fc0_0000),
+    ] {
+        let expected = [Value::I32(expected as i32)];
+        check(&runtime, &[Value::I64(source as i64)], &expected, v8);
+        let constant = Fixture::new().expression(&[], |_| observed(Val::<F64>::from_bits(source)));
+        check(&constant, &[], &expected, v8);
+    }
+}
+
 fn narrow_integers(v8: bool) {
     let build = |input: Val<I32>| {
         let bit = input.truncate::<I1>().add(1);
@@ -228,6 +267,11 @@ fn binary32_promotion_preserves_values_and_defers_nan_payloads() {
 }
 
 #[test]
+fn binary32_demotion_rounds_ties_and_preserves_gradual_underflow() {
+    demotion(false);
+}
+
+#[test]
 fn integer_conversions_observe_logical_width_and_nearest_even_rounding() {
     narrow_integers(false);
     wide_integers(false);
@@ -237,6 +281,7 @@ fn integer_conversions_observe_logical_width_and_nearest_even_rounding() {
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn v8_numeric_conversions() {
     promotion(true);
+    demotion(true);
     narrow_integers(true);
     wide_integers(true);
     saturating_integers(true);
