@@ -146,6 +146,46 @@ fn saved_suppressed_push(engine: Engine, frontend: Frontend) {
     );
 }
 
+fn saved_mmx_tags(engine: Engine, frontend: Frontend) {
+    let format = Format {
+        real: false,
+        wide: true,
+    };
+    let save = instruction(format, false, 0x4000);
+    let code = [&[0x0f, 0xef, 0xc0][..], &save].concat(); // PXOR mm0, mm0; FNSAVE
+    let mut image = format.image(&code);
+    image.cpu.x87.status = status(0x1800);
+    let mut mmx = retire(image.cpu, 3);
+    mmx.x87.status.top = 0;
+    mmx.x87.tag_word = 0;
+    write_register_bits(&mut mmx, 0, (0, 0xffff));
+    let mut bytes = format.bytes([
+        0xffff_037f,
+        0xffff_0000,
+        0xffff_0002, // MMX leaves live tags valid; the saved R0 is special.
+        0x1234_5678,
+        0x0654_0017,
+        0x89ab_cdef,
+        0xffff_0027,
+    ]);
+    bytes.extend(payloads(&mmx, [0, 1, 2, 3, 4, 5, 6, 7]));
+    let mut saved = retire(mmx, save.len());
+    initialize(&mut saved);
+    ImageSequences::new(engine, frontend, format.profile()).check(
+        "FNSAVE classifies MMX payloads in the saved image before initializing the FPU",
+        &code,
+        &image,
+        &[
+            dispatch(mmx),
+            Step {
+                cpu: saved,
+                ram: &[(0x8000, &bytes)],
+                exit: Exit::Dispatch(saved.eip),
+            },
+        ],
+    );
+}
+
 fn restore_then_pop(engine: Engine, frontend: Frontend) {
     let format = Format {
         real: false,
@@ -271,6 +311,7 @@ fn access_boundaries(engine: Engine, frontend: Frontend) {
 test_frontends!(state_save_formats, save_formats);
 test_frontends!(state_restore_formats, restore_formats);
 test_frontends!(state_save_suppressed_push, saved_suppressed_push);
+test_frontends!(state_save_mmx_tag_classification, saved_mmx_tags);
 test_frontends!(state_restore_then_pop, restore_then_pop);
 test_frontends!(state_access_boundaries, access_boundaries);
 
