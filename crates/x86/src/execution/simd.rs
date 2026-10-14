@@ -16,11 +16,12 @@ impl ExecutionBuilder<'_, '_> {
         exceptions: &SimdExceptions,
     ) -> Result<(), BuildError> {
         // Operand and range exceptions are uncommon. Precision loss is common
-        // for conversions, so keep its sticky status and fault response compiled.
+        // in numerical operations, so keep its status and fault response compiled.
         let mut exceptions = exceptions.clone();
         self.specialize_without([
             &mut exceptions.invalid,
             &mut exceptions.denormal,
+            &mut exceptions.zero_divide,
             &mut exceptions.overflow,
             &mut exceptions.underflow,
         ])?;

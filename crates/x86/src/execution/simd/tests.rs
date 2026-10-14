@@ -22,6 +22,7 @@ fn exception_module(specialize: bool) -> CompiledModule {
                 let exceptions = SimdExceptions {
                     invalid: raised.and(1).ne(0),
                     denormal: raised.and(2).ne(0),
+                    zero_divide: raised.and(4).ne(0),
                     overflow: raised.and(8).ne(0),
                     underflow: raised.and(16).ne(0),
                     precision: raised.and(32).ne(0),
@@ -61,6 +62,11 @@ fn exceptions(engine: Engine, specialize: bool) {
         (0x1f80, 1, 0x1f81, false),
         (0x1f80, 2, 0x1f82, false),
         (0x1f80, 3, 0x1f83, false),
+        (0x1f80, 4, 0x1f84, false),
+        (0x1d80, 4, 0x1d84, true),
+        (0x1d80, 0x3c, 0x1d84, true), // Pre-computation zero divide suppresses result flags.
+        (0x1d80, 7, 0x1d87, true),    // All pre-computation lane conditions are collected.
+        (0x1f80, 0x24, 0x1fa4, false),
         (0x1f00, 1, 0x1f01, true),
         (0x1e80, 2, 0x1e82, true),
         (0x1f00, 3, 0x1f03, true),
@@ -80,7 +86,7 @@ fn exceptions(engine: Engine, specialize: bool) {
     ] {
         // Operand and range conditions use interpreter restart in specialized
         // blocks. Exact and inexact results must complete in the compiled path.
-        if specialize && raised & 0x1b != 0 {
+        if specialize && raised & 0x1f != 0 {
             continue;
         }
         let mut initial = CpuState {

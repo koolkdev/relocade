@@ -4,6 +4,8 @@ use super::*;
 
 #[path = "arithmetic/add.rs"]
 mod add;
+#[path = "arithmetic/divide.rs"]
+mod divide;
 #[path = "arithmetic/jit.rs"]
 mod jit;
 #[path = "arithmetic/multiply.rs"]

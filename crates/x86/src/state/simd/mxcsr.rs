@@ -41,7 +41,8 @@ impl Mxcsr {
         let operand_flags = exceptions
             .invalid
             .select(1_u32, 0)
-            .or(exceptions.denormal.select(2_u32, 0));
+            .or(exceptions.denormal.select(2_u32, 0))
+            .or(exceptions.zero_divide.select(4_u32, 0));
         let result_flags = exceptions
             .overflow
             .select(8_u32, 0)

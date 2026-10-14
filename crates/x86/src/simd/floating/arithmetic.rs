@@ -12,6 +12,7 @@ pub(crate) enum FloatArithmetic {
     Add,
     Subtract,
     Multiply,
+    Divide,
 }
 
 pub(crate) struct ArithmeticOperands<T: BinaryEncoding> {
@@ -50,6 +51,7 @@ where
                 left_input.add(body, &right_input, &controls.rounding())?
             }
             FloatArithmetic::Multiply => left_input.multiply(&right_input),
+            FloatArithmetic::Divide => left_input.divide(&right_input, true),
         };
         let mut result =
             magnitude.round_simd_magnitude::<T>(controls, &left.finite().and(right.finite()));
@@ -81,6 +83,23 @@ where
                 Self::replace_exact(&mut result, &zero, sign.clone());
                 Self::replace_exact(&mut result, &infinity, sign.or(T::FORMAT.infinity()));
                 infinity.and(zero)
+            }
+            FloatArithmetic::Divide => {
+                let sign = left_input
+                    .negative
+                    .xor(&right_input.negative)
+                    .select(T::FORMAT.sign_bit(), 0_u64);
+                Self::replace_exact(&mut result, &left.zero().or(right.infinity()), sign.clone());
+                Self::replace_exact(
+                    &mut result,
+                    &left.infinity().or(right.zero()),
+                    sign.or(T::FORMAT.infinity()),
+                );
+                result.exceptions.zero_divide =
+                    right.zero().and(left.zero().or(left.infinity()).eq(false));
+                left.zero()
+                    .and(right.zero())
+                    .or(left.infinity().and(right.infinity()))
             }
         };
         Ok(self.finish(result, &left, &right, invalid_operation))
@@ -118,8 +137,13 @@ where
             nan.select(nan_bits, T::FORMAT.indefinite_bits()),
         );
         result.exceptions.invalid = invalid.clone();
+        result.exceptions.zero_divide = invalid
+            .or(&nan)
+            .eq(false)
+            .and(&result.exceptions.zero_divide);
         result.exceptions.denormal = invalid
             .or(nan)
+            .or(&result.exceptions.zero_divide)
             .eq(false)
             .and(self.left.denormal.or(&self.right.denormal));
         result

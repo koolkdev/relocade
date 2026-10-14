@@ -1,11 +1,11 @@
 //! Tangent divides unrounded components and keeps exact evidence near a pole.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I32};
+use wasm86_compiler::{BlockBuilder, BuildError};
 
-use crate::floating::{FiniteMagnitude, MagnitudeShape, RoundingInput, RoundingMode};
+use crate::floating::{FiniteInput, FiniteMagnitude, MagnitudeShape, RoundingInput, RoundingMode};
 
 use super::super::{
-    quotient, result::RoundedValue, transcendental::DoubleDouble, ArithmeticResult, ExtendedBits,
+    result::RoundedValue, transcendental::DoubleDouble, ArithmeticResult, ExtendedBits,
     ExtendedValue,
 };
 use super::{series, TrigonometricArgument};
@@ -41,18 +41,19 @@ impl TrigonometricArgument<'_> {
                         // nonzero distance to an integer/half boundary exceeds
                         // 2^-18 ulp; 1/r-cot(r) is less than 2^64*r²/2 < 2^-33
                         // ulp. The negative tail cannot cross such a boundary.
-                        let quotient = quotient::calculate(
-                            &(1_u64 << 63).into(),
-                            reduced.significand.integer.clone(),
-                            true,
-                        );
-                        let magnitude = FiniteMagnitude {
-                            significand: quotient.significand,
-                            exponent: Val::<I32>::from(0)
-                                .sub(&reduced.exponent)
-                                .sub(quotient.below_one.unsigned().extend::<I32>()),
+                        let magnitude = FiniteInput {
+                            significand: (1_u64 << 63).into(),
+                            exponent: 0.into(),
                             negative: negative.clone(),
                         }
+                        .divide(
+                            &FiniteInput {
+                                significand: reduced.significand.integer.clone(),
+                                exponent: reduced.exponent.clone(),
+                                negative: false.into(),
+                            },
+                            true,
+                        )
                         .with_negative_tail(&true.into());
                         body.yield_(magnitude.components())
                     },

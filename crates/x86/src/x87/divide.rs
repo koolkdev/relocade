@@ -1,12 +1,11 @@
 //! Division shares normalization, rounding and architectural exception responses.
 
-use wasm86_compiler::{Val, I32, I8};
+use wasm86_compiler::{Val, I8};
 
-use crate::floating::{FiniteMagnitude, RoundingMode};
+use crate::floating::{FiniteInput, RoundingMode};
 
 use super::{
     operand::BinaryOperands,
-    quotient,
     result::{BinaryArithmetic, RoundedValue},
     BinaryOperation,
 };
@@ -26,18 +25,19 @@ pub(super) fn divide(
     let zero = RoundedValue::zero(negative.clone());
     let (numerator, numerator_exponent) = dividend.normalized();
     let (denominator, denominator_exponent) = divisor.normalized();
-    let quotient = quotient::calculate(
-        &numerator,
-        denominator,
+    let magnitude = FiniteInput {
+        significand: numerator,
+        exponent: numerator_exponent,
+        negative: dividend.bits.negative(),
+    }
+    .divide(
+        &FiniteInput {
+            significand: denominator,
+            exponent: denominator_exponent,
+            negative: divisor.bits.negative(),
+        },
         divisor.precision53_significand.is_some(),
     );
-    let magnitude = FiniteMagnitude {
-        significand: quotient.significand,
-        exponent: numerator_exponent
-            .sub(denominator_exponent)
-            .sub(quotient.below_one.unsigned().extend::<I32>()),
-        negative: negative.clone(),
-    };
     let mut result = magnitude.round(precision, rounding);
     result.replace_when(&dividend.zero.or(&divisor.infinity), &zero);
     result.replace_when(
