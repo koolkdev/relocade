@@ -57,11 +57,7 @@ fn move_register(
     let value = source.value.select(&condition, &previous.value);
     let tag = condition.select(source.value.classification().tag(), &previous.tag);
     let mut stack_fault = previous.is_empty().or(source.is_empty());
-    execution.specialize(|execution| {
-        execution.specialize_on(stack_fault.eq(false))?;
-        stack_fault = false.into();
-        Ok(())
-    })?;
+    execution.specialize_without([&mut stack_fault])?;
     execution.record_x87_instruction()?;
 
     let mut x87 = execution.x87();

@@ -19,6 +19,7 @@ pub(super) type RoundedShape = (I64, I16, I1, I1);
 
 /// The rounded bits are usable when `valid` is true. Operand exceptions remain
 /// the operation's responsibility; a range candidate alone does not exclude them.
+#[derive(Clone)]
 pub(crate) struct ArithmeticCandidate {
     pub(crate) valid: Val<I1>,
     pub(crate) rounded: RoundedValue,

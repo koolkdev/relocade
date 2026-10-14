@@ -75,10 +75,7 @@ fn load_constant(
     constant: Constant,
 ) -> Result<(), BuildError> {
     execution.check_x87_exception()?;
-    execution.specialize(|jit| {
-        let available = jit.x87().push_available()?;
-        jit.specialize_on(available)
-    })?;
+    execution.specialize_x87_push(true)?;
     let rounding = execution.x87().rounding()?;
     let value = constant.value(&rounding);
     execution.record_x87_instruction()?;
@@ -93,16 +90,12 @@ fn load_binary(
     execution.check_x87_exception()?;
     let operand = execution.memory_operand(address, format.bytes(), Intent::Read, &[])?;
     let source = operand.read_x87_binary(execution, format)?;
-    execution.specialize(|jit| {
-        let available = jit.x87().push_available()?;
-        jit.specialize_on(
-            source
-                .signaling_nan
-                .eq(false)
-                .and(source.denormal.eq(false))
-                .and(available),
-        )
-    })?;
+    execution.specialize_x87_push(
+        source
+            .signaling_nan
+            .eq(false)
+            .and(source.denormal.eq(false)),
+    )?;
     execution.record_x87_memory(&operand)?;
     push(execution, LoadSource::Binary(source))
 }
@@ -131,10 +124,7 @@ where
     execution.check_x87_exception()?;
     let operand = execution.memory_operand(address, T::BYTES, Intent::Read, &[])?;
     let integer = operand.read::<T>(execution, 0)?;
-    execution.specialize(|jit| {
-        let available = jit.x87().push_available()?;
-        jit.specialize_on(available)
-    })?;
+    execution.specialize_x87_push(true)?;
     let value = ExtendedValue::from_signed_integer(&integer);
     execution.record_x87_memory(&operand)?;
     push(execution, LoadSource::Value(value))
@@ -150,10 +140,7 @@ fn load_bcd(
         low: operand.read::<I64>(execution, 0)?,
         high: operand.read::<I16>(execution, 8)?,
     };
-    execution.specialize(|jit| {
-        let available = jit.x87().push_available()?;
-        jit.specialize_on(available)
-    })?;
+    execution.specialize_x87_push(true)?;
     execution.record_x87_memory(&operand)?;
     push(execution, LoadSource::Value(bcd.decode()))
 }

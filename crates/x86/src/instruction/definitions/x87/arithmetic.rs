@@ -7,7 +7,7 @@ use crate::{
     floating::BinaryFormat,
     instruction::X87StackIndex,
     state::x87::X87Specialization,
-    x87::{ArithmeticResult, BinaryOperation},
+    x87::BinaryOperation,
 };
 
 instruction_families! {
@@ -237,23 +237,18 @@ fn arithmetic(
     let precision = execution.x87().precision()?;
     let rounding = execution.x87().rounding()?;
     let specialized = execution.specialize(|execution| {
-        execution.specialize_x87(X87Specialization::Arithmetic)?;
-        execution.specialize_on(
-            stack_fault
-                .eq(false)
-                .and(operands.precision_only(operation)),
-        )?;
-        stack_fault = false.into();
-        // The preceding control guard validates these observed fields.
-        let nearest_53 = execution.observed_cpu().is_some_and(|observed| {
-            let control = &observed.x87.control;
-            control.precision_control & 3 == 2 && control.rounding_control & 3 == 0
-        });
+        let controls = execution.specialize_x87(X87Specialization::Arithmetic)?;
+        execution.specialize_x87_operands(&mut stack_fault, operands.precision_only(operation))?;
         let candidate = execution.calculate(|body| {
-            operands.rounding_candidate(body, operation, precision.clone(), &rounding, nearest_53)
+            operands.rounding_candidate(
+                body,
+                operation,
+                precision.clone(),
+                &rounding,
+                controls.nearest_53(),
+            )
         })?;
-        execution.specialize_on(candidate.valid)?;
-        Ok(ArithmeticResult::from_rounding(candidate.rounded))
+        execution.admit_x87_candidate(candidate)
     })?;
     let result = match specialized {
         Some(result) => result,

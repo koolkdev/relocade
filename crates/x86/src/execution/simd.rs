@@ -17,26 +17,13 @@ impl ExecutionBuilder<'_, '_> {
     ) -> Result<(), BuildError> {
         // Operand and range exceptions are uncommon. Precision loss is common
         // for conversions, so keep its sticky status and fault response compiled.
-        let exceptions = if self
-            .specialize(|execution| {
-                execution.specialize_on(
-                    exceptions
-                        .invalid
-                        .or(&exceptions.denormal)
-                        .or(&exceptions.overflow)
-                        .or(&exceptions.underflow)
-                        .eq(false),
-                )
-            })?
-            .is_some()
-        {
-            SimdExceptions {
-                precision: exceptions.precision.clone(),
-                ..SimdExceptions::default()
-            }
-        } else {
-            exceptions.clone()
-        };
+        let mut exceptions = exceptions.clone();
+        self.specialize_without([
+            &mut exceptions.invalid,
+            &mut exceptions.denormal,
+            &mut exceptions.overflow,
+            &mut exceptions.underflow,
+        ])?;
         let unmasked = self
             .state
             .record_simd_exceptions(&mut self.body, &exceptions)?;

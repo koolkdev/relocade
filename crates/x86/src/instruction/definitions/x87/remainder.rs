@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     state::x87::{ConditionCode, Exception, StackValue},
-    x87::{ArithmeticResult, BinaryOperands, QuotientRounding},
+    x87::{BinaryOperands, QuotientRounding},
 };
 
 instruction_families! {
@@ -26,21 +26,16 @@ fn remainder(
     let right = execution.x87().read_stack(1)?;
     let mut empty = left.is_empty().or(right.is_empty());
     let operands = BinaryOperands::new(&left.value, &right.value);
-    execution.specialize(|execution| {
-        execution.specialize_on(
-            empty
-                .eq(false)
-                .and(operands.normal_or_zero())
-                .and(right.value.classification().zero().eq(false)),
-        )?;
-        empty = false.into();
-        Ok(())
-    })?;
+    execution.specialize_x87_operands(
+        &mut empty,
+        operands
+            .normal_or_zero()
+            .and(right.value.classification().zero().eq(false)),
+    )?;
     let mut remainder = execution.calculate(|body| operands.remainder(body, rounding))?;
     execution.specialize(|execution| {
-        execution.specialize_on(remainder.arithmetic.in_range.valid.clone())?;
         remainder.arithmetic =
-            ArithmeticResult::from_rounding(remainder.arithmetic.in_range.rounded.clone());
+            execution.admit_x87_candidate(remainder.arithmetic.in_range.clone())?;
         Ok(())
     })?;
     execution.record_x87_instruction()?;

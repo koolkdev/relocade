@@ -21,22 +21,18 @@ fn square_root(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildErro
     let precision = execution.x87().precision()?;
     let rounding = execution.x87().rounding()?;
     let specialized = execution.specialize(|execution| {
-        execution.specialize_x87(X87Specialization::Arithmetic)?;
-        execution.specialize_on(
-            empty.eq(false).and(operand.normal_or_zero()).and(
+        let controls = execution.specialize_x87(X87Specialization::Arithmetic)?;
+        execution.specialize_x87_operands(
+            &mut empty,
+            operand.normal_or_zero().and(
                 top.value
                     .negative()
                     .eq(false)
                     .or(top.value.classification().zero()),
             ),
         )?;
-        empty = false.into();
-        let nearest_53 = execution.observed_cpu().is_some_and(|observed| {
-            observed.x87.control.precision_control & 3 == 2
-                && observed.x87.control.rounding_control & 3 == 0
-        });
         let rounded = execution.calculate(|body| {
-            operand.square_root_candidate(body, precision.clone(), &rounding, nearest_53)
+            operand.square_root_candidate(body, precision.clone(), &rounding, controls.nearest_53())
         })?;
         Ok(ArithmeticResult::from_rounding(rounded))
     })?;
