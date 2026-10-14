@@ -4,10 +4,10 @@ use super::*;
 use crate::{
     floating::{BinaryEncoding, RoundingMode},
     instruction::XmmType,
-    simd::{FloatOperands, FloatResult, FloatShape},
+    simd::{ArithmeticOperands, FloatArithmetic, FloatOperands, FloatResult, FloatShape},
     state::Mxcsr,
 };
-use wasm86_compiler::{AtLeast, I64};
+use wasm86_compiler::{AtLeast, BlockBuilder, I64};
 
 #[derive(Clone, Copy)]
 pub(super) enum IntegerRounding {
@@ -34,6 +34,60 @@ pub(super) fn binary<T: BinaryEncoding + XmmType>(
 where
     I64: AtLeast<T>,
 {
+    calculate_lanes::<T>(
+        execution,
+        destination,
+        source,
+        shape,
+        |_, left, right, controls| {
+            Ok(operation(FloatOperands::new(
+                left,
+                right,
+                controls.denormals_are_zero(),
+            )))
+        },
+    )
+}
+
+/// Numerical arithmetic can build exact alignment and refinement branches. All
+/// lanes are evaluated before status or the destination is published.
+pub(super) fn arithmetic<T: BinaryEncoding + XmmType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+    shape: FloatShape,
+    operation: FloatArithmetic,
+) -> Result<(), BuildError>
+where
+    I64: AtLeast<T>,
+{
+    calculate_lanes::<T>(
+        execution,
+        destination,
+        source,
+        shape,
+        |body, left, right, controls| {
+            ArithmeticOperands::new(left, right, controls.denormals_are_zero())
+                .calculate(body, operation, controls)
+        },
+    )
+}
+
+fn calculate_lanes<T: BinaryEncoding + XmmType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+    shape: FloatShape,
+    mut calculate: impl FnMut(
+        &mut BlockBuilder<'_>,
+        Val<T>,
+        Val<T>,
+        &Mxcsr,
+    ) -> Result<FloatResult<T>, BuildError>,
+) -> Result<(), BuildError>
+where
+    I64: AtLeast<T>,
+{
     let right = match shape {
         FloatShape::Scalar => {
             Val::<V128>::splat(source.read::<T>(execution, VectorAlignment::Unaligned)?)
@@ -42,7 +96,20 @@ where
     };
     let left = execution.read_xmm(destination.clone())?;
     let controls = execution.read_mxcsr()?;
-    let result = shape.apply(left, right, controls.denormals_are_zero(), operation);
+    let count = match shape {
+        FloatShape::Scalar => 1,
+        FloatShape::Packed => 16 / T::FORMAT.bytes(),
+    };
+    let result = FloatResult::try_from_lanes(left.clone(), count, |lane| {
+        execution.calculate(|body| {
+            calculate(
+                body,
+                left.extract_lane::<T>(lane),
+                right.extract_lane::<T>(lane),
+                &controls,
+            )
+        })
+    })?;
     execution.record_simd_exceptions(&result.exceptions)?;
     execution.write_xmm(destination, result.value)
 }

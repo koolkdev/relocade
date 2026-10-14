@@ -1,11 +1,12 @@
 //! IEEE binary32/64 encoding helpers shared by x87 and SIMD.
 
+mod add;
 mod classification;
 mod finite;
 mod rounding;
 
 pub(crate) use classification::BinaryClassification;
-pub(crate) use finite::{FiniteMagnitude, MagnitudeShape};
+pub(crate) use finite::{FiniteInput, FiniteMagnitude, MagnitudeShape};
 pub(crate) use rounding::{RoundingInput, RoundingMode};
 use wasm86_compiler::{Val, VectorLane, F64, I32, I64};
 

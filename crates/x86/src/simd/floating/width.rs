@@ -32,7 +32,8 @@ impl FloatOperand<I64> {
         let class = self.classification();
         let finite = BinaryFormat::Binary64.exponent_field(bits).ne(0x7ff);
         let mut result = BinaryFormat::Binary64
-            .finite_magnitude(bits)
+            .finite_input(bits)
+            .magnitude()
             .round_simd_magnitude::<I32>(controls, &finite);
         let nan = bits
             .unsigned()

@@ -1,5 +1,7 @@
 //! Floating-point fixtures retain opaque upper lanes and unrelated machine state.
 
+#[path = "floating/arithmetic.rs"]
+mod arithmetic;
 #[path = "floating/flags.rs"]
 mod flags;
 #[path = "floating/from_integer.rs"]

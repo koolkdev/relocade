@@ -8,6 +8,7 @@ mod convert_from_integer;
 mod convert_mmx;
 mod convert_packed_integer;
 mod convert_scalar_integer;
+mod float_add;
 mod float_compare;
 mod float_minmax;
 mod floating;
@@ -41,6 +42,7 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
         .chain(convert_mmx::forms())
         .chain(convert_packed_integer::forms())
         .chain(convert_scalar_integer::forms())
+        .chain(float_add::forms())
         .chain(float_compare::forms())
         .chain(float_minmax::forms())
         .chain(moves::forms())
