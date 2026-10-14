@@ -1,6 +1,7 @@
-//! Sine and cosine share exact quadrant reduction and one bounded series.
+//! Trigonometric functions share exact quadrant reduction and bounded series.
 
 mod reduction;
+mod tangent;
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64};
 
@@ -148,7 +149,6 @@ impl<'a> TrigonometricArgument<'a> {
                 body.yield_(magnitude)
             },
         )?;
-        let mut result = FiniteMagnitude::from_components(magnitude).round(3.into(), rounding);
         let at_zero = if cosine {
             RoundedValue::exact(ExtendedValue::from_bits(ExtendedBits {
                 significand: (1_u64 << 63).into(),
@@ -157,6 +157,20 @@ impl<'a> TrigonometricArgument<'a> {
         } else {
             RoundedValue::zero(self.operand.bits.negative())
         };
+        Ok(self.finish(
+            FiniteMagnitude::from_components(magnitude),
+            rounding,
+            at_zero,
+        ))
+    }
+
+    fn finish(
+        &self,
+        magnitude: FiniteMagnitude,
+        rounding: &RoundingMode,
+        at_zero: RoundedValue,
+    ) -> ArithmeticResult {
+        let mut result = magnitude.round(3.into(), rounding);
         let outside = self.operand.trigonometric_out_of_range();
         let unchanged = RoundedValue::exact(ExtendedValue::from_bits(self.operand.bits.clone()));
         let exact = unchanged.select(&outside, &at_zero);
@@ -164,7 +178,7 @@ impl<'a> TrigonometricArgument<'a> {
         result.replace_when(&exact_case, &exact);
         result.in_range.rounded = exact.select(&exact_case, &result.in_range.rounded);
         result.in_range.valid = exact_case.or(result.in_range.valid);
-        Ok(self.operand.finish(result, self.operand.infinity.clone()))
+        self.operand.finish(result, self.operand.infinity.clone())
     }
 }
 
