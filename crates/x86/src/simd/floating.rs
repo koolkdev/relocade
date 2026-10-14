@@ -4,6 +4,7 @@ mod compare;
 mod exceptions;
 mod integer;
 mod operand;
+mod rounding;
 mod width;
 pub(crate) use compare::FloatOperands;
 pub(crate) use exceptions::SimdExceptions;

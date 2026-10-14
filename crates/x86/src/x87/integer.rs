@@ -1,6 +1,6 @@
 //! Exact integer expansion and bounded rounding for integer and decimal stores.
 
-use crate::floating::{RoundingInput, RoundingMode};
+use crate::floating::{FiniteMagnitude, RoundingInput, RoundingMode};
 use wasm86_compiler::{AtLeast, MemoryInt, Val, I1, I16, I32, I64};
 
 use super::{
@@ -59,19 +59,16 @@ impl ExtendedValue {
         // E=0 uses the same exponent as E=1, including pseudo-denormals.
         // Integer and packed-decimal destinations cannot contain 2^64 or more.
         let exponent = exponent.eq(0).select(1_u32, exponent);
-        let too_large = exponent.unsigned().ge(16383 + 64);
-        let distance = too_large.select(0_u32, Val::<I32>::from(16383 + 63).sub(exponent));
-        let rounded = rounding.round(
-            RoundingInput::exact(value.significand).shift_right(distance),
-            &negative,
-        );
-        // Range is checked after rounding: a fractional input can cross the limit.
-        let invalid = unsupported
-            .or(too_large)
-            .or(limit.unsigned().lt(&rounded.integer));
+        let rounded = FiniteMagnitude {
+            significand: RoundingInput::exact(value.significand),
+            exponent: exponent.sub(16383),
+            negative,
+        }
+        .round_integer(rounding, limit);
+        let invalid = unsupported.or(rounded.invalid);
         let valid = invalid.eq(false);
         ConversionResult {
-            bits: rounded.integer,
+            bits: rounded.value,
             invalid,
             overflow: false.into(),
             tiny: false.into(),

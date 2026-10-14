@@ -1,70 +1,15 @@
 //! Rounds normalized magnitudes to x87 precision and extended exponent range.
 
-use wasm86_compiler::{Results, Val, I1, I16, I32, I64, I8};
+use wasm86_compiler::{Val, I16, I32, I64, I8};
 
 use super::{
     result::{ArithmeticCandidate, ArithmeticResult, RoundedValue},
     ExtendedBits, ExtendedValue,
 };
 
-use crate::floating::{RoundingInput, RoundingMode};
-
-/// The leading significand bit is bit 63. Its fractional evidence and signed,
-/// unbiased exponent still describe the unrounded result.
-pub(super) struct FiniteMagnitude {
-    pub(super) significand: RoundingInput,
-    pub(super) exponent: Val<I32>,
-    pub(super) negative: Val<I1>,
-}
-
-pub(super) type MagnitudeShape = (I64, I1, I1, I32, I1);
+use crate::floating::{FiniteMagnitude, RoundingMode};
 
 impl FiniteMagnitude {
-    pub(super) fn components(&self) -> <MagnitudeShape as Results>::Values {
-        (
-            self.significand.integer.clone(),
-            self.significand.guard.clone(),
-            self.significand.sticky.clone(),
-            self.exponent.clone(),
-            self.negative.clone(),
-        )
-    }
-
-    pub(super) fn from_components(
-        (integer, guard, sticky, exponent, negative): <MagnitudeShape as Results>::Values,
-    ) -> Self {
-        Self {
-            significand: RoundingInput {
-                integer,
-                guard,
-                sticky,
-            },
-            exponent,
-            negative,
-        }
-    }
-
-    /// Records a negative tail too small to cross a nonzero remainder boundary.
-    /// The supplied rounding evidence must describe the value before that tail exactly.
-    /// At an integer or half-integer boundary it changes the rounding evidence;
-    /// at other fractions it only records inexactness. A borrow can cross a binade.
-    pub(super) fn with_negative_tail(mut self, tail: &Val<I1>) -> Self {
-        let boundary = tail.and(self.significand.sticky.eq(false));
-        let borrow = boundary.and(self.significand.guard.eq(false));
-        let lower_binade = borrow.and(self.significand.integer.eq(1_u64 << 63));
-        self.significand.integer = lower_binade.select(
-            u64::MAX,
-            self.significand
-                .integer
-                .sub(borrow.unsigned().extend::<I64>()),
-        );
-        self.significand.guard =
-            boundary.select(self.significand.guard.eq(false), &self.significand.guard);
-        self.significand.sticky = tail.or(&self.significand.sticky);
-        self.exponent = self.exponent.sub(lower_binade.unsigned().extend::<I32>());
-        self
-    }
-
     pub(super) fn round(&self, precision: Val<I8>, rounding: &RoundingMode) -> ArithmeticResult {
         const LEADING: u64 = 1 << 63;
         let precision = precision.and(3);

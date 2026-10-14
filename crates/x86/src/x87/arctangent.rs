@@ -2,12 +2,11 @@
 
 use wasm86_compiler::{BlockBuilder, BuildError, I32};
 
-use crate::floating::RoundingMode;
+use crate::floating::{FiniteMagnitude, MagnitudeShape, RoundingMode};
 
 use super::{
     quotient,
     result::RoundedValue,
-    rounding::{FiniteMagnitude, MagnitudeShape},
     transcendental::{odd_power_series, DoubleDouble},
     ArithmeticResult, BinaryOperands,
 };

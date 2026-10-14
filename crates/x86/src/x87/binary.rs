@@ -6,7 +6,7 @@ pub(crate) use operand::BinaryOperand;
 
 use wasm86_compiler::{Val, I16, I32, I64};
 
-use crate::floating::{BinaryFormat, RoundingInput, RoundingMode};
+use crate::floating::{BinaryFormat, FiniteMagnitude, RoundingInput, RoundingMode};
 
 use super::{
     value::{Classification, KnownClass},
@@ -81,50 +81,23 @@ impl BinaryFormat {
         let signaling_nan = class.signaling_nan();
         let value = value.bits();
         let fraction_bits = self.fraction_bits();
-        let precision = fraction_bits + 1;
-        let shift = 64 - precision;
+        let shift = 63 - fraction_bits;
         let infinity = self.infinity();
         let quiet_bit = self.quiet_bit();
         let sign_bit = self.sign_bit();
-
         let significand = &value.significand;
         let exponent = value.exponent_field();
         let negative = value.negative();
         let sign = negative.select(sign_bit, 0_u64);
         let finite = unsupported.or(&special).eq(false);
-
-        // E=0 encodings use the same exponent as E=1, including pseudo-denormals.
-        // Every nonzero extended subnormal is far below either narrow format.
-        let exponent = exponent.eq(0).select(1_u32, exponent);
-        let minimum_exponent = 16384 - self.bias();
-        let input = RoundingInput::exact(significand.clone());
-        let precision_rounded = rounding.round(input.shift_right(shift), &negative);
-        let carry = precision_rounded.integer.eq(1_u64 << precision);
-        let rounded_exponent = exponent.add(carry.unsigned().extend::<I32>());
-        // Intel tests tininess after precision rounding with an unbounded
-        // exponent. A masked store can round to minimum normal and still be tiny.
-        let tiny = finite
-            .and(significand.ne(0_u64))
-            .and(rounded_exponent.unsigned().lt(minimum_exponent));
-        let overflow = finite.and(rounded_exponent.unsigned().ge(16384 + self.bias()));
-
-        // The subnormal grid is rounded from the original bits, never from the
-        // precision-rounded candidate used to detect range exceptions.
-        let below_normal = exponent.unsigned().lt(minimum_exponent);
-        let distance = below_normal.select(
-            Val::<I32>::from(minimum_exponent + shift).sub(&exponent),
-            shift,
-        );
-        let stored = rounding.round(input.shift_right(distance), &negative);
-        // Adding the retained leading bit also propagates a rounding carry.
-        let exponent_field = below_normal.select(0_u32, exponent.sub(minimum_exponent));
-        let finite_bits = exponent_field
-            .unsigned()
-            .extend::<I64>()
-            .shl(fraction_bits)
-            .add(&stored.integer);
-        let to_infinity = rounding.overflow_to_infinity(&negative);
-        let finite_bits = overflow.select(to_infinity.select(infinity, infinity - 1), finite_bits);
+        // E=0, including pseudo-denormals, uses the E=1 exponent. Extended
+        // subnormals are far below the binary32/64 destination range.
+        let rounded = FiniteMagnitude {
+            significand: RoundingInput::exact(significand.clone()),
+            exponent: exponent.eq(0).select(1_u32, exponent).sub(16383),
+            negative,
+        }
+        .round_binary(self, rounding, &finite);
         let nan_bits = significand
             .unsigned()
             .shr(shift)
@@ -133,15 +106,15 @@ impl BinaryFormat {
         let special_bits = nan.select(nan_bits, 0_u64).or(infinity);
         let bits = unsupported.select(
             sign_bit | infinity | quiet_bit,
-            sign.or(special.select(special_bits, finite_bits)),
+            special.select(sign.or(special_bits), &rounded.bits),
         );
         ConversionResult {
             bits,
             invalid: unsupported.or(signaling_nan),
-            overflow: overflow.clone(),
-            tiny,
-            inexact: finite.and(overflow.or(&stored.inexact)),
-            incremented: finite.and(overflow.select(to_infinity, stored.incremented)),
+            overflow: rounded.overflow,
+            tiny: rounded.tiny,
+            inexact: finite.and(rounded.inexact),
+            incremented: finite.and(rounded.incremented),
         }
     }
 

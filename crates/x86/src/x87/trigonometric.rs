@@ -5,11 +5,10 @@ mod tangent;
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64};
 
-use crate::floating::{RoundingInput, RoundingMode};
+use crate::floating::{FiniteMagnitude, MagnitudeShape, RoundingInput, RoundingMode};
 
 use super::{
     result::RoundedValue,
-    rounding::{FiniteMagnitude, MagnitudeShape},
     transcendental::{DoubleDouble, DoubleShape},
     ArithmeticResult, ExtendedBits, ExtendedValue, Operand,
 };

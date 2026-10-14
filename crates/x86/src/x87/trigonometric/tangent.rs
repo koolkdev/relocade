@@ -2,14 +2,11 @@
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I32};
 
-use crate::floating::{RoundingInput, RoundingMode};
+use crate::floating::{FiniteMagnitude, MagnitudeShape, RoundingInput, RoundingMode};
 
 use super::super::{
-    quotient,
-    result::RoundedValue,
-    rounding::{FiniteMagnitude, MagnitudeShape},
-    transcendental::DoubleDouble,
-    ArithmeticResult, ExtendedBits, ExtendedValue,
+    quotient, result::RoundedValue, transcendental::DoubleDouble, ArithmeticResult, ExtendedBits,
+    ExtendedValue,
 };
 use super::{series, TrigonometricArgument};
 
