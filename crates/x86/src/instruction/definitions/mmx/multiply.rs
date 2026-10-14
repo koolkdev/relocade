@@ -5,22 +5,27 @@ use super::*;
 instruction_families! {
     PMULLW {
         execute: binary::<_>(|left, right| left.mul_lanes::<I16>(right));
+        requires: [Mmx];
         forms { NP 0x0f 0xd5 => qword(mm, mm_rm); }
     }
     PMULHW {
         execute: binary::<_>(|left, right| high_products(left, right, true));
+        requires: [Mmx];
         forms { NP 0x0f 0xe5 => qword(mm, mm_rm); }
     }
     PMULHUW {
         execute: binary::<_>(|left, right| high_products(left, right, false));
+        requires: [Sse];
         forms { NP 0x0f 0xe4 => qword(mm, mm_rm); }
     }
     PMULUDQ {
         execute: binary::<_>(unsigned_dword_products);
+        requires: [Sse2];
         forms { NP 0x0f 0xf4 => qword(mm, mm_rm); }
     }
     PMADDWD {
         execute: binary::<_>(|left, right| left.signed_dot_i16_pairs(right));
+        requires: [Mmx];
         forms { NP 0x0f 0xf5 => qword(mm, mm_rm); }
     }
 }

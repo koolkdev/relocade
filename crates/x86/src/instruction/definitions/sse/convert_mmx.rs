@@ -11,26 +11,32 @@ use wasm86_compiler::{AtLeast, I64};
 instruction_families! {
     CVTPI2PS {
         execute: from_integer::<_>;
+        requires: [Sse];
         forms { NP 0x0f 0x2a => dword(xmm, mm_rm); }
     }
     CVTPI2PD {
         execute: from_integer::<_>;
+        requires: [Sse2];
         forms { P66 0x0f 0x2a => qword(xmm, mm_rm); }
     }
     CVTPS2PI {
         execute: to_integer::<_>(IntegerRounding::Mxcsr);
+        requires: [Sse];
         forms { NP 0x0f 0x2d => dword(mm, xmm_rm); }
     }
     CVTPD2PI {
         execute: to_integer::<_>(IntegerRounding::Mxcsr);
+        requires: [Sse2];
         forms { P66 0x0f 0x2d => qword(mm, xmm_rm); }
     }
     CVTTPS2PI {
         execute: to_integer::<_>(IntegerRounding::Truncate);
+        requires: [Sse];
         forms { NP 0x0f 0x2c => dword(mm, xmm_rm); }
     }
     CVTTPD2PI {
         execute: to_integer::<_>(IntegerRounding::Truncate);
+        requires: [Sse2];
         forms { P66 0x0f 0x2c => qword(mm, xmm_rm); }
     }
 }

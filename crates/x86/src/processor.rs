@@ -7,13 +7,13 @@ pub use feature::CpuFeature;
 
 /// Immutable capability choices for one virtual processor.
 ///
-/// The default enables all complete optional capabilities. Disabling one changes
-/// CPUID reporting and instruction availability in blocks and interpreters.
-/// Baseline instructions and existing partial x87/MMX/SSE implementations remain
-/// available; feature selection does not emulate an older processor generation.
+/// The default enables every capability with implemented instructions, including
+/// partial groups. Disabling one rejects its instructions in blocks and interpreters.
+/// CPUID advertises only enabled, complete capabilities.
 ///
-/// The capability catalog also names incomplete and unimplemented groups. Enabling
-/// one returns [`UnsupportedCpuFeature`] instead of advertising missing behavior.
+/// Choices are independent instruction extensions, not older processor generations
+/// or register-bank switches. They do not remove stored x87, MMX or XMM state.
+/// Enabling a group with no implementation returns [`UnsupportedCpuFeature`].
 /// Keep this model fixed for a guest and include it in compiled-entry cache keys.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CpuModel {
@@ -31,16 +31,17 @@ impl Default for CpuModel {
 impl CpuModel {
     /// Enable or disable one architectural capability.
     ///
-    /// Returns [`UnsupportedCpuFeature`] when enabling an incomplete or unimplemented
-    /// capability. Disabling an unavailable capability leaves the model unchanged.
+    /// Returns [`UnsupportedCpuFeature`] when the capability has no implemented
+    /// instructions. Partial groups can be enabled without CPUID advertisement.
+    /// Disabling an unavailable capability leaves the model unchanged.
     ///
     /// ```
     /// use wasm86_x86::{CpuFeature, CpuModel, UnsupportedCpuFeature};
     /// let model = CpuModel::default().with_feature(CpuFeature::Cmov, false)?;
     /// assert!(!model.supports(CpuFeature::Cmov));
     /// assert_eq!(
-    ///     model.with_feature(CpuFeature::Sse2, true),
-    ///     Err(UnsupportedCpuFeature { feature: CpuFeature::Sse2 }),
+    ///     model.with_feature(CpuFeature::Sep, true),
+    ///     Err(UnsupportedCpuFeature { feature: CpuFeature::Sep }),
     /// );
     /// # Ok::<(), UnsupportedCpuFeature>(())
     /// ```
@@ -60,13 +61,13 @@ impl CpuModel {
         Ok(self)
     }
 
-    /// Whether this model enables the complete capability.
+    /// Whether this model enables the capability's implemented instructions.
     pub const fn supports(self, feature: CpuFeature) -> bool {
         self.features & feature.mask() != 0
     }
 }
 
-/// A requested CPU capability is not completely implemented by this build.
+/// A requested CPU capability has no implemented instructions in this build.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UnsupportedCpuFeature {
     /// The capability that could not be enabled.
@@ -77,7 +78,7 @@ impl std::fmt::Display for UnsupportedCpuFeature {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "the {:?} CPU capability is not fully implemented",
+            "the {:?} CPU capability has no implemented instructions",
             self.feature
         )
     }

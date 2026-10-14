@@ -6,42 +6,52 @@ use super::*;
 instruction_families! {
     FNOP {
         execute: no_operation;
+        requires: [Fpu];
         forms { 0xD9 @ 0xD0 => no_operands(); }
     }
     FNENI {
         execute: legacy_control;
+        requires: [Fpu];
         forms { 0xDB @ 0xE0 => no_operands(); }
     }
     FNDISI {
         execute: legacy_control;
+        requires: [Fpu];
         forms { 0xDB @ 0xE1 => no_operands(); }
     }
     FSETPM {
         execute: legacy_control;
+        requires: [Fpu];
         forms { 0xDB @ 0xE4 => no_operands(); }
     }
     FNINIT {
         execute: initialize;
+        requires: [Fpu];
         forms { 0xDB @ 0xE3 => no_operands(); }
     }
     FNCLEX {
         execute: clear_exceptions;
+        requires: [Fpu];
         forms { 0xDB @ 0xE2 => no_operands(); }
     }
     FWAIT {
         execute: check_pending_exception;
+        requires: [Fpu];
         forms { 0x9B => no_operands(); }
     }
     FLDCW {
         execute: load_control;
+        requires: [Fpu];
         forms { 0xD9 / 5 => operands(mem16); }
     }
     FNSTCW {
         execute: store_control;
+        requires: [Fpu];
         forms { 0xD9 / 7 => operands(mem16); }
     }
     FNSTSW {
         execute: store_status;
+        requires: [Fpu];
         forms {
             0xDD / 7 => operands(mem16);
             0xDF @ 0xE0 => operands(AX);

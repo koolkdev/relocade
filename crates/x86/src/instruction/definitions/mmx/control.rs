@@ -5,6 +5,7 @@ use super::*;
 instruction_families! {
     EMMS {
         execute: empty;
+        requires: [Mmx];
         forms { NP 0x0f 0x77 => no_operands(); }
     }
 }

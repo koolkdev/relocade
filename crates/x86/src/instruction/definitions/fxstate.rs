@@ -10,10 +10,12 @@ use wasm86_compiler::{I64, V128};
 instruction_families! {
     FXSAVE {
         execute: save;
+        requires: [Fxsr];
         forms { NP 0x0f 0xae / 0 => operands(mem); }
     }
     FXRSTOR {
         execute: restore;
+        requires: [Fxsr];
         forms { NP 0x0f 0xae / 1 => operands(mem); }
     }
 }

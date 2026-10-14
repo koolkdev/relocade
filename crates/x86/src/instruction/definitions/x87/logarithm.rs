@@ -10,10 +10,12 @@ use crate::{
 instruction_families! {
     FYL2X {
         execute: logarithm_product(LogarithmArgument::Value);
+        requires: [Fpu];
         forms { 0xD9 @ 0xF1 => no_operands(); }
     }
     FYL2XP1 {
         execute: logarithm_product(LogarithmArgument::Increment);
+        requires: [Fpu];
         forms { 0xD9 @ 0xF9 => no_operands(); }
     }
 }

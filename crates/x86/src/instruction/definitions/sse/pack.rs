@@ -5,15 +5,18 @@ use super::*;
 instruction_families! {
     PACKSSWB {
         execute: binary(|left, right| left.signed_narrow_lanes::<I8>(right));
+        requires: [Sse2];
         forms { P66 0x0f 0x63 => operands(xmm, xmm_rm); }
     }
     PACKSSDW {
         execute: binary(|left, right| left.signed_narrow_lanes::<I16>(right));
+        requires: [Sse2];
         forms { P66 0x0f 0x6b => operands(xmm, xmm_rm); }
     }
     PACKUSWB {
         // Inputs are signed words even though the saturated output bytes are unsigned.
         execute: binary(|left, right| left.unsigned_narrow_lanes::<I8>(right));
+        requires: [Sse2];
         forms { P66 0x0f 0x67 => operands(xmm, xmm_rm); }
     }
 }

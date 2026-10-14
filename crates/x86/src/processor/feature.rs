@@ -1,11 +1,11 @@
-//! Architectural capability names and the complete subset implemented by this build.
+//! Architectural capability names and this build's instruction coverage.
 
 /// A CPUID-enumerated instruction capability within the 32-bit Pentium 4 target.
 ///
 /// The catalog includes Prescott's SSE3 and MONITOR/MWAIT. Platform facilities,
 /// 64-bit-only capabilities and later instruction extensions are outside its scope.
-/// Naming a capability does not imply a complete implementation; check
-/// [`Self::is_implemented`] before offering it as an enabled model choice.
+/// [`Self::is_implemented`] identifies capabilities with usable instructions;
+/// [`Self::is_complete`] identifies those ready for CPUID advertisement.
 /// Identifiers are independent of their architectural CPUID bit positions.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[non_exhaustive]
@@ -16,7 +16,7 @@ pub enum CpuFeature {
     Cmov,
     /// Timestamp reads: RDTSC. Execution profiles separately govern permission.
     Tsc,
-    /// Complete x87 floating-point instruction support.
+    /// x87 floating-point instructions; FCMOV/FCOMI and FISTTP also need their extensions.
     Fpu,
     /// MMX packed integer instructions and EMMS.
     Mmx,
@@ -36,19 +36,36 @@ pub enum CpuFeature {
     Monitor,
 }
 
-pub(super) const IMPLEMENTED_FEATURES: u16 =
-    CpuFeature::Cx8.mask() | CpuFeature::Cmov.mask() | CpuFeature::Tsc.mask();
+const COMPLETE_FEATURES: u16 = CpuFeature::Cx8.mask()
+    | CpuFeature::Cmov.mask()
+    | CpuFeature::Tsc.mask()
+    | CpuFeature::Fpu.mask()
+    | CpuFeature::Mmx.mask()
+    | CpuFeature::Fxsr.mask()
+    | CpuFeature::Sse.mask()
+    | CpuFeature::Sse2.mask()
+    | CpuFeature::Clflush.mask();
+
+// FISTTP is usable before the remaining SSE3 instructions are implemented.
+pub(super) const IMPLEMENTED_FEATURES: u16 = COMPLETE_FEATURES | CpuFeature::Sse3.mask();
 
 impl CpuFeature {
     pub(super) const fn mask(self) -> u16 {
         1 << self as u8
     }
 
-    /// Whether this build implements the complete capability for advertisement.
+    /// Whether this build implements instructions from the capability.
     ///
-    /// Partial instruction support does not make an entire feature available.
-    /// This is independent of whether a particular [`super::CpuModel`] enables it.
+    /// Partially implemented capabilities can be enabled in a [`super::CpuModel`].
+    /// This does not promise every instruction or CPUID advertisement.
     pub const fn is_implemented(self) -> bool {
         IMPLEMENTED_FEATURES & self.mask() != 0
+    }
+
+    /// Whether this build implements the capability's full advertised behavior.
+    ///
+    /// CPUID reports a complete capability only when the model also enables it.
+    pub const fn is_complete(self) -> bool {
+        COMPLETE_FEATURES & self.mask() != 0
     }
 }

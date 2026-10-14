@@ -7,18 +7,22 @@ use wasm86_compiler::F64;
 instruction_families! {
     RCPSS {
         execute: approximate(FloatShape::Scalar, reciprocal);
+        requires: [Sse];
         forms { PF3 0x0f 0x53 => operands(xmm, xmm_rm); }
     }
     RCPPS {
         execute: approximate(FloatShape::Packed, reciprocal);
+        requires: [Sse];
         forms { NP 0x0f 0x53 => operands(xmm, xmm_rm); }
     }
     RSQRTSS {
         execute: approximate(FloatShape::Scalar, reciprocal_square_root);
+        requires: [Sse];
         forms { PF3 0x0f 0x52 => operands(xmm, xmm_rm); }
     }
     RSQRTPS {
         execute: approximate(FloatShape::Packed, reciprocal_square_root);
+        requires: [Sse];
         forms { NP 0x0f 0x52 => operands(xmm, xmm_rm); }
     }
 }

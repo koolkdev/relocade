@@ -9,10 +9,12 @@ use crate::{
 instruction_families! {
     FCHS {
         execute: change_sign(SignOperation::Negate);
+        requires: [Fpu];
         forms { 0xD9 @ 0xE0 => no_operands(); }
     }
     FABS {
         execute: change_sign(SignOperation::Absolute);
+        requires: [Fpu];
         forms { 0xD9 @ 0xE1 => no_operands(); }
     }
 }

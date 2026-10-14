@@ -6,6 +6,7 @@ use crate::state::x87::ConditionCode;
 instruction_families! {
     FXAM {
         execute: examine;
+        requires: [Fpu];
         forms { 0xD9 @ 0xE5 => no_operands(); }
     }
 }

@@ -6,6 +6,7 @@ use crate::x87::BinaryOperands;
 instruction_families! {
     FSCALE {
         execute: scale();
+        requires: [Fpu];
         forms { 0xD9 @ 0xFD => no_operands(); }
     }
 }

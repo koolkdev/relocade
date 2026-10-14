@@ -12,34 +12,42 @@ use wasm86_compiler::{AtLeast, I64};
 instruction_families! {
     COMISS {
         execute: compare_flags::<_>(true);
+        requires: [Sse];
         forms { NP 0x0f 0x2f => dword(xmm, xmm_rm); }
     }
     UCOMISS {
         execute: compare_flags::<_>(false);
+        requires: [Sse];
         forms { NP 0x0f 0x2e => dword(xmm, xmm_rm); }
     }
     COMISD {
         execute: compare_flags::<_>(true);
+        requires: [Sse2];
         forms { P66 0x0f 0x2f => qword(xmm, xmm_rm); }
     }
     UCOMISD {
         execute: compare_flags::<_>(false);
+        requires: [Sse2];
         forms { P66 0x0f 0x2e => qword(xmm, xmm_rm); }
     }
     CMPSS {
         execute: compare_mask::<_>(FloatShape::Scalar);
+        requires: [Sse];
         forms { PF3 0x0f 0xc2 => dword(xmm, xmm_rm, imm8); }
     }
     CMPSD {
         execute: compare_mask::<_>(FloatShape::Scalar);
+        requires: [Sse2];
         forms { PF2 0x0f 0xc2 => qword(xmm, xmm_rm, imm8); }
     }
     CMPPS {
         execute: compare_mask::<_>(FloatShape::Packed);
+        requires: [Sse];
         forms { NP 0x0f 0xc2 => dword(xmm, xmm_rm, imm8); }
     }
     CMPPD {
         execute: compare_mask::<_>(FloatShape::Packed);
+        requires: [Sse2];
         forms { P66 0x0f 0xc2 => qword(xmm, xmm_rm, imm8); }
     }
 }

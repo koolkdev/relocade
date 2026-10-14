@@ -22,42 +22,52 @@ impl Half {
 instruction_families! {
     MOVLPS_LOAD {
         execute: load_half(Half::Low);
+        requires: [Sse];
         forms { NP 0x0f 0x12 => operands(xmm, mem); }
     }
     MOVLPS_STORE {
         execute: store_half(Half::Low);
+        requires: [Sse];
         forms { NP 0x0f 0x13 => operands(mem, xmm); }
     }
     MOVLPD_LOAD {
         execute: load_half(Half::Low);
+        requires: [Sse2];
         forms { P66 0x0f 0x12 => operands(xmm, mem); }
     }
     MOVLPD_STORE {
         execute: store_half(Half::Low);
+        requires: [Sse2];
         forms { P66 0x0f 0x13 => operands(mem, xmm); }
     }
     MOVHPS_LOAD {
         execute: load_half(Half::High);
+        requires: [Sse];
         forms { NP 0x0f 0x16 => operands(xmm, mem); }
     }
     MOVHPS_STORE {
         execute: store_half(Half::High);
+        requires: [Sse];
         forms { NP 0x0f 0x17 => operands(mem, xmm); }
     }
     MOVHPD_LOAD {
         execute: load_half(Half::High);
+        requires: [Sse2];
         forms { P66 0x0f 0x16 => operands(xmm, mem); }
     }
     MOVHPD_STORE {
         execute: store_half(Half::High);
+        requires: [Sse2];
         forms { P66 0x0f 0x17 => operands(mem, xmm); }
     }
     MOVHLPS {
         execute: move_half(Half::Low, Half::High);
+        requires: [Sse];
         forms { NP 0x0f 0x12 => operands(xmm, register(xmm_rm)); }
     }
     MOVLHPS {
         execute: move_half(Half::High, Half::Low);
+        requires: [Sse];
         forms { NP 0x0f 0x16 => operands(xmm, register(xmm_rm)); }
     }
 }

@@ -9,18 +9,22 @@ use crate::{
 instruction_families! {
     FXCH {
         execute: exchange_register;
+        requires: [Fpu];
         forms { 0xD9 @ 0xC8 + rm => operands(st); }
     }
     FFREE {
         execute: free_register;
+        requires: [Fpu];
         forms { 0xDD @ 0xC0 + rm => operands(st); }
     }
     FINCSTP {
         execute: rotate_stack(true);
+        requires: [Fpu];
         forms { 0xD9 @ 0xF7 => no_operands(); }
     }
     FDECSTP {
         execute: rotate_stack(false);
+        requires: [Fpu];
         forms { 0xD9 @ 0xF6 => no_operands(); }
     }
 }

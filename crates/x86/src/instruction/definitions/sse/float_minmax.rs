@@ -8,34 +8,42 @@ use wasm86_compiler::{AtLeast, I64};
 instruction_families! {
     MINSS {
         execute: float_binary::<_>(FloatShape::Scalar, |operands| min_max(operands, MinMax::Min));
+        requires: [Sse];
         forms { PF3 0x0f 0x5d => dword(xmm, xmm_rm); }
     }
     MINSD {
         execute: float_binary::<_>(FloatShape::Scalar, |operands| min_max(operands, MinMax::Min));
+        requires: [Sse2];
         forms { PF2 0x0f 0x5d => qword(xmm, xmm_rm); }
     }
     MINPS {
         execute: float_binary::<_>(FloatShape::Packed, |operands| min_max(operands, MinMax::Min));
+        requires: [Sse];
         forms { NP 0x0f 0x5d => dword(xmm, xmm_rm); }
     }
     MINPD {
         execute: float_binary::<_>(FloatShape::Packed, |operands| min_max(operands, MinMax::Min));
+        requires: [Sse2];
         forms { P66 0x0f 0x5d => qword(xmm, xmm_rm); }
     }
     MAXSS {
         execute: float_binary::<_>(FloatShape::Scalar, |operands| min_max(operands, MinMax::Max));
+        requires: [Sse];
         forms { PF3 0x0f 0x5f => dword(xmm, xmm_rm); }
     }
     MAXSD {
         execute: float_binary::<_>(FloatShape::Scalar, |operands| min_max(operands, MinMax::Max));
+        requires: [Sse2];
         forms { PF2 0x0f 0x5f => qword(xmm, xmm_rm); }
     }
     MAXPS {
         execute: float_binary::<_>(FloatShape::Packed, |operands| min_max(operands, MinMax::Max));
+        requires: [Sse];
         forms { NP 0x0f 0x5f => dword(xmm, xmm_rm); }
     }
     MAXPD {
         execute: float_binary::<_>(FloatShape::Packed, |operands| min_max(operands, MinMax::Max));
+        requires: [Sse2];
         forms { P66 0x0f 0x5f => qword(xmm, xmm_rm); }
     }
 }

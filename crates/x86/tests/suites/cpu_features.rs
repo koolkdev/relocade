@@ -1,5 +1,8 @@
 //! Selected capabilities affect admission before operand access in both frontends.
 
+#[path = "cpu_features/extensions.rs"]
+mod extensions;
+
 use std::sync::OnceLock;
 
 use crate::support::{
@@ -153,33 +156,51 @@ fn disabled_forms_remain_decodable_and_unrelated_forms_keep_their_code() {
             available: 2
         }),
     ));
+    use CpuFeature::*;
     let forms = [
-        (CpuFeature::Cmov, &[0x0f, 0x44, 0xc3][..]),
-        (CpuFeature::Cx8, &[0x0f, 0xc7, 0x08][..]),
-        (CpuFeature::Tsc, &[0x0f, 0x31][..]),
+        (&[Cmov][..], &[0x0f, 0x44, 0xc3][..]), // CMOVE
+        (&[Cx8], &[0x0f, 0xc7, 0x08]),          // CMPXCHG8B
+        (&[Tsc], &[0x0f, 0x31]),                // RDTSC
+        (&[Fpu], &[0xdb, 0xe3]),                // FNINIT
+        (&[Fpu, Cmov], &[0xda, 0xc1]),          // FCMOVB
+        (&[Fpu, Cmov], &[0xdb, 0xf1]),          // FCOMI
+        (&[Fpu, Sse3], &[0xdb, 0x08]),          // FISTTP
+        (&[Mmx], &[0x0f, 0x6f, 0xc1]),          // MOVQ mm0, mm1
+        (&[Mmx], &[0x0f, 0x77]),                // EMMS
+        (&[Fxsr], &[0x0f, 0xae, 0x00]),         // FXSAVE
+        (&[Fxsr], &[0x0f, 0xae, 0x08]),         // FXRSTOR
+        (&[Sse], &[0x0f, 0x10, 0xc1]),          // MOVUPS
+        (&[Sse], &[0x0f, 0xe0, 0xc1]),          // PAVGB mm0, mm1
+        (&[Sse], &[0x0f, 0x2a, 0xc1]),          // CVTPI2PS
+        (&[Sse], &[0x0f, 0xae, 0xf8]),          // SFENCE
+        (&[Sse2], &[0x66, 0x0f, 0x10, 0xc1]),   // MOVUPD
+        (&[Sse2], &[0x0f, 0xd4, 0xc1]),         // PADDQ mm0, mm1
+        (&[Sse2], &[0xf2, 0x0f, 0xd6, 0xc1]),   // MOVDQ2Q
+        (&[Sse2], &[0x66, 0x0f, 0x2a, 0xc1]),   // CVTPI2PD
+        (&[Sse2], &[0x0f, 0xc3, 0x00]),         // MOVNTI
+        (&[Sse2], &[0x0f, 0xae, 0xe8]),         // LFENCE
+        (&[Clflush], &[0x0f, 0xae, 0x38]),      // CLFLUSH
+        (&[], &[0x89, 0xd8]),                   // MOV
+        (&[], &[0xf3, 0x90]),                   // PAUSE also executes as REP NOP without SSE2.
     ];
-    for (disabled, _) in forms {
+    let ordinary: Vec<_> = forms
+        .iter()
+        .map(|(_, code)| {
+            Compiler::new(SegmentProfile::Flat32)
+                .compile_block(0x1000, code, 1)
+                .unwrap()
+                .bytes
+        })
+        .collect();
+    for disabled in [Cx8, Cmov, Tsc, Fpu, Mmx, Fxsr, Sse, Sse2, Sse3, Clflush] {
         let compiler = Compiler::new(SegmentProfile::Flat32)
             .with_cpu_model(CpuModel::default().with_feature(disabled, false).unwrap());
-        for (required, code) in forms {
-            let ordinary = Compiler::new(SegmentProfile::Flat32)
-                .compile_block(0x1000, code, 1)
-                .unwrap();
+        for ((requirements, code), bytes) in forms.iter().zip(&ordinary) {
             let configured = compiler.compile_block(0x1000, code, 1).unwrap();
-            assert_eq!(ordinary.bytes == configured.bytes, required != disabled);
-        }
-        // Baseline instructions and partial extensions remain available.
-        for code in [
-            &[0x89, 0xd8][..],
-            &[0xdb, 0xe3][..],
-            &[0x0f, 0x10, 0xc1][..],
-        ] {
-            let ordinary = Compiler::new(SegmentProfile::Flat32)
-                .compile_block(0x1000, code, 1)
-                .unwrap();
             assert_eq!(
-                compiler.compile_block(0x1000, code, 1).unwrap().bytes,
-                ordinary.bytes
+                *bytes == configured.bytes,
+                !requirements.contains(&disabled),
+                "disabling {disabled:?}, instruction {code:02x?}"
             );
         }
     }

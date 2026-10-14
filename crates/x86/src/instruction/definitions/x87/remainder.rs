@@ -9,10 +9,12 @@ use crate::{
 instruction_families! {
     FPREM {
         execute: remainder(QuotientRounding::Truncate);
+        requires: [Fpu];
         forms { 0xD9 @ 0xF8 => no_operands(); }
     }
     FPREM1 {
         execute: remainder(QuotientRounding::NearestEven);
+        requires: [Fpu];
         forms { 0xD9 @ 0xF5 => no_operands(); }
     }
 }

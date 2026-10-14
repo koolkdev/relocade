@@ -8,18 +8,22 @@ use wasm86_compiler::{AtLeast, I64};
 instruction_families! {
     CVTPS2DQ {
         execute: convert::<_>(IntegerRounding::Mxcsr);
+        requires: [Sse2];
         forms { P66 0x0f 0x5b => dword(xmm, xmm_rm); }
     }
     CVTPD2DQ {
         execute: convert::<_>(IntegerRounding::Mxcsr);
+        requires: [Sse2];
         forms { PF2 0x0f 0xe6 => qword(xmm, xmm_rm); }
     }
     CVTTPS2DQ {
         execute: convert::<_>(IntegerRounding::Truncate);
+        requires: [Sse2];
         forms { PF3 0x0f 0x5b => dword(xmm, xmm_rm); }
     }
     CVTTPD2DQ {
         execute: convert::<_>(IntegerRounding::Truncate);
+        requires: [Sse2];
         forms { P66 0x0f 0xe6 => qword(xmm, xmm_rm); }
     }
 }

@@ -17,22 +17,25 @@ for `compile_block`, `compile_interpreter` and `compile_interpreter_step`.
 returns the resulting `ExecutionTarget { profile, cpu_model }`. Free compilation
 functions use the default model without CPU observations.
 
-The default model enables the complete optional capabilities CX8, CMOV and TSC.
-For example, `CpuModel::default().with_feature(CpuFeature::Cmov, false)?` disables
-integer conditional moves. Known encodings requiring a disabled capability raise
-#UD after complete instruction fetch and before operand access, without retiring. They terminate
-snapshot compilation before the next instruction. The capability choice is fixed
-when Wasm is generated, so execution needs no dynamic feature test.
+The default model enables every capability with implemented instructions, including
+partial groups. For example,
+`CpuModel::default().with_feature(CpuFeature::Cmov, false)?` disables integer and
+x87 conditional moves and the x87 comparisons that set EFLAGS. Known encodings
+requiring a disabled capability raise #UD after complete instruction fetch and
+before operand access, without retiring. They terminate snapshot compilation before
+the next instruction. The choice is fixed when Wasm is generated, so execution
+needs no dynamic feature test.
 
-Feature choices do not change the baseline or emulate an older CPU generation.
-Existing partial x87, MMX and SSE/SSE2 support remains available without claiming complete
-FPU or SIMD capabilities. `CpuFeature` names these groups, but `with_feature` returns
-`UnsupportedCpuFeature { feature }` if asked to enable an incomplete or unimplemented
-capability. Disabling one leaves the model unchanged. `CpuFeature::is_implemented()`
-reports which groups this build can enable; `CpuModel::supports(feature)` reports
-which complete capabilities a model enables. Execution-mode and control-register
-assumptions remain separate from capability selection. The processor model is host
-configuration, not mutable `CpuState`; keep it fixed for a guest.
+`CpuFeature::is_implemented()` reports whether a group has usable instructions;
+`CpuFeature::is_complete()` reports whether its advertised instruction set is
+complete. `CpuModel::supports(feature)` reports whether the model enables that
+group's implemented instructions. `with_feature` returns
+`UnsupportedCpuFeature { feature }` only when enabling a group with no implementation.
+Disabling an unavailable group leaves the model unchanged. CPUID advertises only
+complete, enabled groups whose instruction requirements are satisfied.
+Execution-mode and control-register assumptions remain separate from capability
+selection. The model is host configuration, not mutable `CpuState`; keep it fixed
+for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
 count, then tail-calls `wasm86.dispatch(next_eip: i32) -> i64`. Its result is returned
@@ -119,20 +122,33 @@ paging, APIC and thermal controls, 64-bit-only capabilities and later instructio
 extensions. A catalog entry names an architectural capability; it does not promise
 that the implementation is complete.
 
-| `CpuFeature` | Instruction capability | CPUID leaf 1 bit | Can enable |
+| `CpuFeature` | Instruction capability | CPUID leaf 1 bit | Build coverage |
 | --- | --- | --- | --- |
-| `Fpu` | x87 floating point | EDX 0 | No |
-| `Tsc` | RDTSC | EDX 4 | Yes |
-| `Cx8` | CMPXCHG8B | EDX 8 | Yes |
-| `Sep` | SYSENTER/SYSEXIT | EDX 11 | No |
-| `Cmov` | CMOVcc; FCMOV/FCOMI when FPU is also advertised | EDX 15 | Yes |
-| `Clflush` | CLFLUSH | EDX 19 | No |
-| `Mmx` | MMX and EMMS | EDX 23 | No |
-| `Fxsr` | FXSAVE/FXRSTOR | EDX 24 | No |
-| `Sse` | SSE, including its MMX additions | EDX 25 | No |
-| `Sse2` | SSE2 | EDX 26 | No |
-| `Sse3` | SSE3, including FISTTP | ECX 0 | No |
-| `Monitor` | MONITOR/MWAIT | ECX 3 | No |
+| `Fpu` | x87 floating point | EDX 0 | Complete |
+| `Tsc` | RDTSC | EDX 4 | Complete |
+| `Cx8` | CMPXCHG8B | EDX 8 | Complete |
+| `Sep` | SYSENTER/SYSEXIT | EDX 11 | Unavailable |
+| `Cmov` | CMOVcc; FCMOV/FCOMI when FPU is also advertised | EDX 15 | Complete |
+| `Clflush` | CLFLUSH | EDX 19 | Complete |
+| `Mmx` | MMX and EMMS | EDX 23 | Complete |
+| `Fxsr` | FXSAVE/FXRSTOR | EDX 24 | Complete |
+| `Sse` | SSE, including its MMX additions | EDX 25 | Complete |
+| `Sse2` | SSE2 | EDX 26 | Complete |
+| `Sse3` | SSE3, including FISTTP | ECX 0 | Partial: FISTTP |
+| `Monitor` | MONITOR/MWAIT | ECX 3 | Unavailable |
+
+Both complete and partial groups are enabled by default. FISTTP requires FPU and
+SSE3; it remains usable while the SSE3 CPUID bit stays clear. The remaining SSE3
+instructions, SYSENTER/SYSEXIT and MONITOR/MWAIT are not implemented.
+
+Capabilities select instruction extensions independently and do not emulate older
+processor generations. They preserve the stored x87, MMX and XMM state. MMX-register
+instructions introduced by SSE or SSE2 require that extension, without requiring
+the original MMX group: for example, PAVGB requires SSE and PADDQ requires SSE2.
+MOVNTI, LFENCE and MFENCE require SSE2; SFENCE and the prefetch hints require SSE.
+CLFLUSH has its own feature. FXSAVE/FXRSTOR require FXSR and still transfer the full
+retained x87/XMM/MXCSR state when other groups are disabled. FCMOV and FCOMI require
+both FPU and CMOV; disabling CMOV preserves the base x87 instruction set.
 
 XMM is the SIMD register bank, not a separate feature. SSE3 and MONITOR/MWAIT
 are separate capabilities even though they arrived together. The catalog follows
@@ -143,20 +159,20 @@ MONITOR/MWAIT's conditional user-mode availability is described in
 ## Processor identification
 
 CPUID is generated from the compiler's selected `CpuModel` and needs no host
-callback. Leaf 0 reports maximum basic leaf 1 and the vendor
-string `Relocade CPU`. Leaf 1 reports virtual family 6, model 0, stepping 1
-(EAX=`0x00000601`), EBX=0, ECX=0, and the selected capabilities: TSC in EDX bit 4,
-CX8 in EDX bit 8 and CMOV in EDX bit 15. Disabling a capability clears its bit and
-rejects its instructions through the shared admission mechanism. Feature reporting
-is independent of real/protected mode and segment assumptions. The
-identity does not claim a physical Intel processor.
+callback. Leaf 0 reports maximum basic leaf 1 and the vendor string `Relocade CPU`.
+Leaf 1 reports virtual family 6, model 0, stepping 1 (EAX=`0x00000601`) and the
+complete, enabled capabilities listed above. The default EDX is `0x07888111` and
+ECX is zero. Disabling a complete capability clears its bit and rejects its
+instructions through the shared admission mechanism. Partial SSE3 stays clear even
+when enabled. If SSE3 becomes complete, its FISTTP requirement also makes its
+advertisement depend on FPU being enabled. Unsupported platform facilities and
+post-P4 extensions such as POPCNT remain clear.
 
-Only complete feature groups are advertised. Partial x87 support does not establish
-the FPU feature; MMX, SSE, SSE2, FXSAVE/FXRSTOR and unsupported platform
-facilities remain clear. Post-P4 extensions such as POPCNT are outside the
-supported instruction subset. Mark a feature implemented only after its advertised
-behavior and feature combinations are supported. In particular,
-advertising both FPU and CMOV would also promise the x87 FCMOV and FCOMI instructions.
+With CLFLUSH enabled, EBX bits 15:8 report a 64-byte virtual flush line in eight-byte
+units (EBX=`0x00000800`). Disabling CLFLUSH clears both this field and EDX bit 19.
+Other EBX fields are zero. The line size defines flush granularity; it does not
+model a physical cache. Feature reporting is independent of real/protected mode
+and segment assumptions. The identity does not claim a physical Intel processor.
 
 The full EAX selects the leaf. Both leaves ignore input ECX. Unsupported basic and
 extended queries return leaf 1, following Intel's highest-basic-leaf rule. There
@@ -936,7 +952,8 @@ guest-fault protocol.
 
 MM0–MM7 alias the significands of physical x87 slots R0–R7, independent of TOP
 and the tag word. There is no separate MMX register array or mode flag in the
-CPU image. The execution profiles assume MMX is enabled (CR0.EM/TS clear).
+CPU image. The execution profiles fix CR0.EM/TS clear; the CPU model separately
+selects the available MMX, SSE and SSE2 instruction extensions.
 
 MOVD and MOVQ transfer raw integer bits. MOVD uses a 32-bit GPR or four memory
 bytes even in 16-bit code; loads into MMX clear the upper 32 bits. MOVQ uses eight
@@ -972,12 +989,11 @@ resuming x87 stack operations after MMX use.
 `CpuState::simd` contains `StoredSimd { mxcsr, reserved, xmm }`. Default state has
 MXCSR `0x1f80` and zero XMM registers. Literal snapshots retain every bit, including
 reserved MXCSR bits and padding; these bytes are not an FXSAVE image. Hosts must
-allocate the new 464-byte CPU image; offsets of existing fields are unchanged.
+allocate the 464-byte CPU image.
 
-The current execution profiles assume SSE/SSE2 and SIMD exception delivery are
-enabled (CR0.EM/TS clear, CR4.OSFXSR and CR4.OSXMMEXCPT set); they do not model
-feature-control registers. These are execution assumptions for the implemented
-subset, not claims of complete SSE/SSE2 support. MOVUPS, MOVUPD,
+The execution profiles fix CR0.EM/TS clear and CR4.OSFXSR/OSXMMEXCPT set, enabling
+SIMD state access and exception delivery. These control-register assumptions are
+independent of the CPU model's instruction admission. MOVUPS, MOVUPD,
 MOVAPS, MOVAPD, MOVDQA, MOVDQU, MOVSS, MOVSD, XORPS and XORPD preserve raw bits
 and leave MXCSR, EFLAGS and x87 state unchanged. MOVUPS/MOVUPD/MOVDQU accept
 unaligned memory. MOVAPS/MOVAPD/MOVDQA and legacy XORPS/XORPD require 16-byte
@@ -1003,9 +1019,8 @@ the supported mask is set, after completing the memory read and before changing
 state. Loading exception flags or unmasking them does not itself raise a SIMD
 floating-point exception. STMXCSR writes supported bits and zeroes reserved bits
 without normalizing the literal CPU snapshot. Both instructions leave XMM, EFLAGS
-and x87 state unchanged. The SIMD exception boundary is available to numerical
-instructions; floating-point arithmetic remains outside the current instruction
-subset.
+and x87 state unchanged. Floating-point arithmetic and conversions use the same
+MXCSR controls and SIMD exception boundary.
 
 COMISS/COMISD and UCOMISS/UCOMISD compare the low binary32/binary64 lane and
 write ZF/PF/CF, clearing OF/SF/AF. COMI raises invalid for any NaN; UCOMI raises

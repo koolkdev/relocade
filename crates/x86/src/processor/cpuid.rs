@@ -17,14 +17,28 @@ impl CpuModel {
     /// Leaves 0 and 1 have no subleaves. Unsupported queries return the highest
     /// basic leaf, including extended queries because there is no extended range.
     pub(crate) fn cpuid(self, leaf: &Val<I32>) -> CpuidValues {
-        let edx = (u32::from(self.supports(CpuFeature::Tsc)) << 4)
-            | (u32::from(self.supports(CpuFeature::Cx8)) << 8)
-            | (u32::from(self.supports(CpuFeature::Cmov)) << 15);
+        let reports =
+            |feature: CpuFeature| u32::from(self.supports(feature) && feature.is_complete());
+        let edx = reports(CpuFeature::Fpu)
+            | (reports(CpuFeature::Tsc) << 4)
+            | (reports(CpuFeature::Cx8) << 8)
+            | (reports(CpuFeature::Sep) << 11)
+            | (reports(CpuFeature::Cmov) << 15)
+            | (reports(CpuFeature::Clflush) << 19)
+            | (reports(CpuFeature::Mmx) << 23)
+            | (reports(CpuFeature::Fxsr) << 24)
+            | (reports(CpuFeature::Sse) << 25)
+            | (reports(CpuFeature::Sse2) << 26);
+        // SSE3 includes FISTTP, which also requires the x87 unit to be enabled.
+        let sse3 = reports(CpuFeature::Sse3) & u32::from(self.supports(CpuFeature::Fpu));
+        let ecx = sse3 | (reports(CpuFeature::Monitor) << 3);
+        // The virtual CLFLUSH line is 64 bytes, encoded in eight-byte units.
+        let ebx = reports(CpuFeature::Clflush) * (8 << 8);
         let vendor = leaf.eq(0);
         CpuidValues {
             eax: vendor.select(1, SIGNATURE),
-            ebx: vendor.select(u32::from_le_bytes(*b"Relo"), 0),
-            ecx: vendor.select(u32::from_le_bytes(*b" CPU"), 0),
+            ebx: vendor.select(u32::from_le_bytes(*b"Relo"), ebx),
+            ecx: vendor.select(u32::from_le_bytes(*b" CPU"), ecx),
             edx: vendor.select(u32::from_le_bytes(*b"cade"), edx),
         }
     }
