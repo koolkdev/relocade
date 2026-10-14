@@ -6,9 +6,9 @@ mod integer;
 mod rounding;
 
 pub(crate) use classification::BinaryClassification;
-pub(crate) use finite::{BinaryRounded, FiniteMagnitude, MagnitudeShape};
+pub(crate) use finite::{FiniteMagnitude, MagnitudeShape};
 pub(crate) use rounding::{RoundingInput, RoundingMode};
-use wasm86_compiler::{Val, F64, I32, I64};
+use wasm86_compiler::{Val, VectorLane, F64, I32, I64};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum BinaryFormat {
@@ -17,6 +17,13 @@ pub(crate) enum BinaryFormat {
 }
 
 impl BinaryFormat {
+    pub(crate) fn exponent_field(self, bits: &Val<I64>) -> Val<I32> {
+        bits.unsigned()
+            .shr(self.fraction_bits())
+            .truncate::<I32>()
+            .and((1_u32 << self.exponent_bits()) - 1)
+    }
+
     /// An exact numerical value for ordering. NaN payloads and signaling state
     /// remain in the original bits; native promotion need not preserve them.
     pub(crate) fn binary64_value(self, bits: &Val<I64>) -> Val<F64> {
@@ -66,4 +73,17 @@ impl BinaryFormat {
             Self::Binary64 => 8,
         }
     }
+}
+
+/// The integer encoding of a binary32 or binary64 value.
+pub(crate) trait BinaryEncoding: VectorLane {
+    const FORMAT: BinaryFormat;
+}
+
+impl BinaryEncoding for I32 {
+    const FORMAT: BinaryFormat = BinaryFormat::Binary32;
+}
+
+impl BinaryEncoding for I64 {
+    const FORMAT: BinaryFormat = BinaryFormat::Binary64;
 }

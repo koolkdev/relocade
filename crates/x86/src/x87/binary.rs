@@ -4,9 +4,9 @@ mod operand;
 
 pub(crate) use operand::BinaryOperand;
 
-use wasm86_compiler::{Val, I16, I32, I64};
+use wasm86_compiler::{AtLeast, Val, I16, I32, I64};
 
-use crate::floating::{BinaryFormat, FiniteMagnitude, RoundingInput, RoundingMode};
+use crate::floating::{BinaryEncoding, BinaryFormat, FiniteMagnitude, RoundingInput, RoundingMode};
 
 use super::{
     value::{Classification, KnownClass},
@@ -74,17 +74,31 @@ impl BinaryFormat {
         if let Some(exact) = value.exact_conversion(self) {
             return exact;
         }
+        match self {
+            Self::Binary32 => Self::encode_rounded::<I32>(value, rounding),
+            Self::Binary64 => Self::encode_rounded::<I64>(value, rounding),
+        }
+    }
+
+    fn encode_rounded<T: BinaryEncoding>(
+        value: &ExtendedValue,
+        rounding: &RoundingMode,
+    ) -> ConversionResult
+    where
+        I64: AtLeast<T>,
+    {
+        let format = T::FORMAT;
         let class = value.classification();
         let unsupported = class.unsupported();
         let special = class.special_exponent();
         let nan = class.nan();
         let signaling_nan = class.signaling_nan();
         let value = value.bits();
-        let fraction_bits = self.fraction_bits();
+        let fraction_bits = format.fraction_bits();
         let shift = 63 - fraction_bits;
-        let infinity = self.infinity();
-        let quiet_bit = self.quiet_bit();
-        let sign_bit = self.sign_bit();
+        let infinity = format.infinity();
+        let quiet_bit = format.quiet_bit();
+        let sign_bit = format.sign_bit();
         let significand = &value.significand;
         let exponent = value.exponent_field();
         let negative = value.negative();
@@ -95,9 +109,14 @@ impl BinaryFormat {
         let rounded = FiniteMagnitude {
             significand: RoundingInput::exact(significand.clone()),
             exponent: exponent.eq(0).select(1_u32, exponent).sub(16383),
-            negative,
+            negative: negative.clone(),
         }
-        .round_binary(self, rounding, &finite);
+        .round_binary::<T>(rounding, &finite);
+        let overflow = rounded.overflow;
+        let magnitude = overflow.select(
+            rounding.overflow_magnitude::<T>(&negative),
+            rounded.magnitude,
+        );
         let nan_bits = significand
             .unsigned()
             .shr(shift)
@@ -106,15 +125,20 @@ impl BinaryFormat {
         let special_bits = nan.select(nan_bits, 0_u64).or(infinity);
         let bits = unsupported.select(
             sign_bit | infinity | quiet_bit,
-            special.select(sign.or(special_bits), &rounded.bits),
+            special
+                .select(special_bits, magnitude.unsigned().extend::<I64>())
+                .or(sign),
         );
         ConversionResult {
             bits,
             invalid: unsupported.or(signaling_nan),
-            overflow: rounded.overflow,
+            overflow: overflow.clone(),
             tiny: rounded.tiny,
-            inexact: finite.and(rounded.inexact),
-            incremented: finite.and(rounded.incremented),
+            inexact: finite.and(overflow.or(rounded.bounded_inexact)),
+            incremented: finite.and(overflow.select(
+                rounding.overflow_to_infinity(&negative),
+                rounded.bounded_incremented,
+            )),
         }
     }
 

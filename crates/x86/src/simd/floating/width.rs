@@ -30,10 +30,10 @@ impl FloatOperand<I64> {
     pub(crate) fn narrow(&self, controls: &Mxcsr) -> FloatResult<I32> {
         let bits = &self.bits;
         let class = self.classification();
-        let finite = class.special_exponent().eq(false);
+        let finite = BinaryFormat::Binary64.exponent_field(bits).ne(0x7ff);
         let mut result = BinaryFormat::Binary64
             .finite_magnitude(bits)
-            .round_simd::<I32>(controls, &finite);
+            .round_simd_magnitude::<I32>(controls, &finite);
         let nan = bits
             .unsigned()
             .shr(29)
@@ -45,10 +45,10 @@ impl FloatOperand<I64> {
             .shr(32)
             .truncate::<I32>()
             .and(0x8000_0000_u32);
-        result.value = class.special_exponent().select(
-            class.nan().select(nan, 0x7f80_0000_u32).or(sign),
-            result.value,
-        );
+        result.value = finite
+            .eq(false)
+            .select(class.nan().select(nan, 0x7f80_0000_u32), result.value)
+            .or(sign);
         result.exceptions.invalid = class.signaling_nan();
         result.exceptions.denormal = self.denormal.clone();
         result

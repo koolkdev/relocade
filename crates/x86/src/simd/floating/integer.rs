@@ -1,10 +1,10 @@
 //! Conversions between signed dwords and floating encodings retain rounding evidence.
 
-use super::{FloatLane, FloatOperand, FloatResult, SimdExceptions};
-use crate::floating::{BinaryFormat, RoundingInput, RoundingMode};
+use super::{FloatOperand, FloatResult, SimdExceptions};
+use crate::floating::{BinaryEncoding, BinaryFormat, RoundingInput, RoundingMode};
 use wasm86_compiler::{AtLeast, Val, I32, I64};
 
-pub(crate) fn integer_to_float<T: FloatLane>(
+pub(crate) fn integer_to_float<T: BinaryEncoding>(
     value: Val<I32>,
     rounding: &RoundingMode,
 ) -> FloatResult<T>
@@ -42,7 +42,7 @@ where
     }
 }
 
-impl<T: FloatLane> FloatOperand<T>
+impl<T: BinaryEncoding> FloatOperand<T>
 where
     I64: AtLeast<T>,
 {
@@ -51,8 +51,8 @@ where
         FloatResult {
             value: rounded.invalid.select(0x8000_0000_u32, rounded.value),
             exceptions: SimdExceptions {
-                invalid: rounded.invalid,
-                precision: rounded.inexact,
+                invalid: rounded.invalid.clone(),
+                precision: rounded.invalid.eq(false).and(rounded.inexact),
                 // Integer conversions honor DAZ but never raise denormal operand.
                 ..SimdExceptions::default()
             },

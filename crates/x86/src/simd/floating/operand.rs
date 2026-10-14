@@ -1,28 +1,15 @@
 //! One SIMD floating operand retains its encoding after DAZ normalization.
 
-use crate::floating::{BinaryClassification, BinaryFormat};
-use wasm86_compiler::{AtLeast, Val, VectorLane, F64, I1, I32, I64};
+use crate::floating::{BinaryClassification, BinaryEncoding};
+use wasm86_compiler::{AtLeast, Val, F64, I1, I64};
 
-/// The integer encoding of one binary32 or binary64 lane.
-pub(crate) trait FloatLane: VectorLane {
-    const FORMAT: BinaryFormat;
-}
-
-impl FloatLane for I32 {
-    const FORMAT: BinaryFormat = BinaryFormat::Binary32;
-}
-
-impl FloatLane for I64 {
-    const FORMAT: BinaryFormat = BinaryFormat::Binary64;
-}
-
-pub(crate) struct FloatOperand<T: FloatLane> {
+pub(crate) struct FloatOperand<T: BinaryEncoding> {
     original_bits: Val<I64>,
     pub(crate) bits: Val<T>,
     pub(super) denormal: Val<I1>,
 }
 
-impl<T: FloatLane> FloatOperand<T>
+impl<T: BinaryEncoding> FloatOperand<T>
 where
     I64: AtLeast<T>,
 {

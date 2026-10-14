@@ -3,8 +3,9 @@
 use super::*;
 use crate::{
     flags::{Flag, FlagChange},
+    floating::BinaryEncoding,
     instruction::XmmType,
-    simd::{FloatLane, FloatOperands, FloatResult, FloatShape},
+    simd::{FloatOperands, FloatResult, FloatShape},
 };
 use wasm86_compiler::{AtLeast, I64};
 
@@ -43,7 +44,7 @@ instruction_families! {
     }
 }
 
-fn compare_mask<T: FloatLane + XmmType>(
+fn compare_mask<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,
@@ -71,7 +72,7 @@ where
     })
 }
 
-fn compare_flags<T: FloatLane + XmmType>(
+fn compare_flags<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,

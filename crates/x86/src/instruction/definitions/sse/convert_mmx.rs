@@ -2,9 +2,9 @@
 
 use super::{floating::IntegerRounding, *};
 use crate::{
-    floating::BinaryFormat,
+    floating::{BinaryEncoding, BinaryFormat},
     instruction::MmxLocation,
-    simd::{integer_to_float, FloatLane, FloatOperand, FloatResult},
+    simd::{integer_to_float, FloatOperand, FloatResult},
 };
 use wasm86_compiler::{AtLeast, I64};
 
@@ -35,7 +35,7 @@ instruction_families! {
     }
 }
 
-fn from_integer<T: FloatLane>(
+fn from_integer<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: MmxLocation,
@@ -66,7 +66,7 @@ where
     }
 }
 
-fn to_integer<T: FloatLane>(
+fn to_integer<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,

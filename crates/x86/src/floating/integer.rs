@@ -4,22 +4,14 @@
 use super::{FiniteMagnitude, RoundingMode};
 use wasm86_compiler::{Val, ValueType, F64, I1, I32, I64};
 
+/// An integer candidate, its range check and unfiltered rounding evidence.
+/// Owners suppress precision and increment flags for invalid source encodings
+/// or destinations after combining their own validity conditions.
 pub(crate) struct IntegerRounded<T: ValueType> {
     pub(crate) value: Val<T>,
     pub(crate) invalid: Val<I1>,
     pub(crate) inexact: Val<I1>,
     pub(crate) incremented: Val<I1>,
-}
-
-impl<T: ValueType> IntegerRounded<T> {
-    fn checked(value: Val<T>, valid: Val<I1>, inexact: Val<I1>, incremented: Val<I1>) -> Self {
-        Self {
-            value,
-            invalid: valid.eq(false),
-            inexact: valid.and(inexact),
-            incremented: valid.and(incremented),
-        }
-    }
 }
 
 impl RoundingMode {
@@ -28,12 +20,12 @@ impl RoundingMode {
     pub(crate) fn signed_dword(&self, value: &Val<F64>) -> IntegerRounded<I32> {
         let rounded = self.integral(value);
         let valid = rounded.ge(-2147483648.0).and(rounded.lt(2147483648.0));
-        IntegerRounded::checked(
-            rounded.trunc_saturating_i32(),
-            valid,
-            value.ne(&rounded),
-            rounded.abs().gt(value.abs()),
-        )
+        IntegerRounded {
+            value: rounded.trunc_saturating_i32(),
+            invalid: valid.eq(false),
+            inexact: value.ne(&rounded),
+            incremented: rounded.abs().gt(value.abs()),
+        }
     }
 }
 
@@ -58,11 +50,15 @@ impl FiniteMagnitude {
             .or(&self.significand.sticky)
             .and(distance.eq(0))
             .and(rounded.integer.unsigned().lt(truncated));
-        let valid = too_large
+        let invalid = too_large
             .or(carry)
-            .or(limit.unsigned().lt(&rounded.integer))
-            .eq(false);
-        IntegerRounded::checked(rounded.integer, valid, rounded.inexact, rounded.incremented)
+            .or(limit.unsigned().lt(&rounded.integer));
+        IntegerRounded {
+            value: rounded.integer,
+            invalid,
+            inexact: rounded.inexact,
+            incremented: rounded.incremented,
+        }
     }
 }
 
@@ -113,8 +109,8 @@ mod tests {
                 vec![step::Event::Return {
                     outcome: step::Outcome::Returned(vec![
                         step::Argument::I32(guard),
-                        step::Argument::I32(0),
-                        step::Argument::I32(0)
+                        step::Argument::I32(guard),
+                        step::Argument::I32(guard)
                     ]),
                     snapshot: step::Snapshot {
                         cpu: vec![],
