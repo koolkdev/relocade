@@ -16,7 +16,7 @@ fn refined_root_and_rounding_evidence_match_integer_square_root() {
             |mut body| {
                 let significand = body.parameter::<I64>(0)?;
                 let odd = body.parameter::<I1>(1)?;
-                let result = significand::calculate(&mut body, &significand, &odd)?;
+                let result = calculate(&mut body, &significand, &odd)?;
                 body.return_((result.integer, result.guard, result.sticky))
             },
         )

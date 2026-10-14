@@ -1,14 +1,10 @@
 //! Square root keeps exact rounding evidence at every x87 precision.
 
 mod native;
-mod significand;
-
-#[cfg(test)]
-mod tests;
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I8};
 
-use crate::floating::{FiniteMagnitude, RoundingMode};
+use crate::floating::{FiniteInput, RoundingMode};
 
 use super::{
     result::{RoundedShape, RoundedValue},
@@ -64,12 +60,12 @@ impl Operand {
             |body| body.yield_(RoundedValue::zero(self.bits.negative()).components()),
             |mut body| {
                 let (significand, exponent) = self.normalized();
-                let root = significand::calculate(&mut body, &significand, &exponent.and(1).ne(0))?;
-                let magnitude = FiniteMagnitude {
-                    significand: root,
-                    exponent: exponent.signed().shr(1),
+                let magnitude = FiniteInput {
+                    significand,
+                    exponent,
                     negative: false.into(),
-                };
+                }
+                .square_root(&mut body)?;
                 body.yield_(
                     magnitude
                         .round(precision.clone(), rounding)

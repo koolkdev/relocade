@@ -4,7 +4,9 @@ use super::*;
 use crate::{
     floating::{BinaryEncoding, RoundingMode},
     instruction::XmmType,
-    simd::{ArithmeticOperands, FloatArithmetic, FloatOperands, FloatResult, FloatShape},
+    simd::{
+        ArithmeticOperands, FloatArithmetic, FloatOperand, FloatOperands, FloatResult, FloatShape,
+    },
     state::Mxcsr,
 };
 use wasm86_compiler::{AtLeast, BlockBuilder, I64};
@@ -69,6 +71,26 @@ where
         |body, left, right, controls| {
             ArithmeticOperands::new(left, right, controls.denormals_are_zero())
                 .calculate(body, operation, controls)
+        },
+    )
+}
+
+pub(super) fn square_root<T: BinaryEncoding + XmmType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+    shape: FloatShape,
+) -> Result<(), BuildError>
+where
+    I64: AtLeast<T>,
+{
+    calculate_lanes::<T>(
+        execution,
+        destination,
+        source,
+        shape,
+        |body, _, right, controls| {
+            FloatOperand::new(right, controls.denormals_are_zero()).square_root(body, controls)
         },
     )
 }

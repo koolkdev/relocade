@@ -10,6 +10,8 @@ mod divide;
 mod jit;
 #[path = "arithmetic/multiply.rs"]
 mod multiply;
+#[path = "arithmetic/sqrt.rs"]
+mod sqrt;
 
 const MIN_NORMAL: [u64; 2] = [0x0080_0000, 0x0010_0000_0000_0000];
 const MAX_FINITE: [u64; 2] = [0x7f7f_ffff, 0x7fef_ffff_ffff_ffff];

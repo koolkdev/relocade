@@ -62,13 +62,12 @@ where
         let infinity = left.infinity().or(right.infinity());
         let invalid_operation = match operation {
             FloatArithmetic::Add | FloatArithmetic::Subtract => {
-                Self::replace_exact(&mut result, &magnitude.significand.integer.eq(0_u64), sign);
+                result.replace_exact(&magnitude.significand.integer.eq(0_u64), sign);
                 let opposite = left_input.negative.xor(&right_input.negative);
                 let negative = left
                     .infinity()
                     .select(&left_input.negative, &right_input.negative);
-                Self::replace_exact(
-                    &mut result,
+                result.replace_exact(
                     &infinity,
                     negative
                         .select(T::FORMAT.sign_bit(), 0_u64)
@@ -80,8 +79,8 @@ where
                 let negative = left_input.negative.xor(&right_input.negative);
                 let zero = left.zero().or(right.zero());
                 let sign = negative.select(T::FORMAT.sign_bit(), 0_u64);
-                Self::replace_exact(&mut result, &zero, sign.clone());
-                Self::replace_exact(&mut result, &infinity, sign.or(T::FORMAT.infinity()));
+                result.replace_exact(&zero, sign.clone());
+                result.replace_exact(&infinity, sign.or(T::FORMAT.infinity()));
                 infinity.and(zero)
             }
             FloatArithmetic::Divide => {
@@ -89,9 +88,8 @@ where
                     .negative
                     .xor(&right_input.negative)
                     .select(T::FORMAT.sign_bit(), 0_u64);
-                Self::replace_exact(&mut result, &left.zero().or(right.infinity()), sign.clone());
-                Self::replace_exact(
-                    &mut result,
+                result.replace_exact(&left.zero().or(right.infinity()), sign.clone());
+                result.replace_exact(
                     &left.infinity().or(right.zero()),
                     sign.or(T::FORMAT.infinity()),
                 );
@@ -103,13 +101,6 @@ where
             }
         };
         Ok(self.finish(result, &left, &right, invalid_operation))
-    }
-
-    fn replace_exact(result: &mut FloatResult<T>, condition: &Val<I1>, bits: Val<I64>) {
-        result.value = condition.select(bits.truncate::<T>(), &result.value);
-        result.exceptions.overflow = condition.eq(false).and(&result.exceptions.overflow);
-        result.exceptions.underflow = condition.eq(false).and(&result.exceptions.underflow);
-        result.exceptions.precision = condition.eq(false).and(&result.exceptions.precision);
     }
 
     fn finish(
@@ -131,8 +122,7 @@ where
             .unsigned()
             .extend::<I64>()
             .or(T::FORMAT.quiet_bit());
-        Self::replace_exact(
-            &mut result,
+        result.replace_exact(
             &nan.or(&invalid_operation),
             nan.select(nan_bits, T::FORMAT.indefinite_bits()),
         );
