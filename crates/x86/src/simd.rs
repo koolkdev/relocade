@@ -8,7 +8,8 @@ mod sum_differences;
 mod unpack;
 
 pub(crate) use floating::{
-    integer_to_float, FloatOperand, FloatOperands, FloatResult, FloatShape, SimdExceptions,
+    integer_to_float, ArithmeticOperands, FloatArithmetic, FloatOperand, FloatOperands,
+    FloatResult, FloatShape, SimdExceptions,
 };
 pub(crate) use shifts::{ByteShiftOp, PackedShiftOp};
 pub(crate) use shuffle::{shuffle_dwords, shuffle_qwords, shuffle_words};

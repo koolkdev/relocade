@@ -76,18 +76,35 @@ pub(crate) struct BinaryRounded<T: BinaryEncoding> {
     pub(crate) unbounded_inexact: Val<I1>,
 }
 
+/// An exact finite input with its leading bit at 63 (or an all-zero significand).
+pub(crate) struct FiniteInput {
+    pub(crate) significand: Val<I64>,
+    pub(crate) exponent: Val<I32>,
+    pub(crate) negative: Val<I1>,
+}
+
+impl FiniteInput {
+    pub(crate) fn magnitude(self) -> FiniteMagnitude {
+        FiniteMagnitude {
+            significand: RoundingInput::exact(self.significand),
+            exponent: self.exponent,
+            negative: self.negative,
+        }
+    }
+}
+
 impl BinaryFormat {
     /// Normalizes a finite encoding without rounding. Special-operand responses
     /// must replace the unused numerical result for infinities and NaNs.
-    pub(crate) fn finite_magnitude(self, bits: &Val<I64>) -> FiniteMagnitude {
+    pub(crate) fn finite_input(self, bits: &Val<I64>) -> FiniteInput {
         let fraction_bits = self.fraction_bits();
         let raw_exponent = self.exponent_field(bits);
         let significand = bits
             .and((1_u64 << fraction_bits) - 1)
             .or(raw_exponent.ne(0).select(1_u64 << fraction_bits, 0_u64));
         let leading = significand.clz().truncate::<I32>();
-        FiniteMagnitude {
-            significand: RoundingInput::exact(significand.shl(&leading)),
+        FiniteInput {
+            significand: significand.shl(&leading),
             exponent: raw_exponent
                 .eq(0)
                 .select(1, &raw_exponent)
