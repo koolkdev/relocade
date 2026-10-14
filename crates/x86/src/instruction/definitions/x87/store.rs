@@ -1,31 +1,33 @@
 //! x87 stores check the destination before conversion or stack effects.
 
+mod format;
+
 use super::*;
 use crate::{
     address::MemoryAddress,
-    floating::{BinaryFormat, RoundingMode},
+    floating::BinaryFormat,
     instruction::X87StackIndex,
     memory::Intent,
     state::x87::{ConditionCode, Exception, StackValue, X87Specialization},
-    x87::{ConversionResult, ExtendedValue},
 };
+use format::{PackedDecimal, SignedInteger, StoreFormat};
 use wasm86_compiler::{MemoryInt, I64};
 
 instruction_families! {
     FST_BINARY32 {
-        execute: store_binary(BinaryFormat::Binary32, false);
+        execute: store(BinaryFormat::Binary32, false);
         forms { 0xD9 / 2 => operands(mem); }
     }
     FSTP_BINARY32 {
-        execute: store_binary(BinaryFormat::Binary32, true);
+        execute: store(BinaryFormat::Binary32, true);
         forms { 0xD9 / 3 => operands(mem); }
     }
     FST_BINARY64 {
-        execute: store_binary(BinaryFormat::Binary64, false);
+        execute: store(BinaryFormat::Binary64, false);
         forms { 0xDD / 2 => operands(mem); }
     }
     FSTP_BINARY64 {
-        execute: store_binary(BinaryFormat::Binary64, true);
+        execute: store(BinaryFormat::Binary64, true);
         forms { 0xDD / 3 => operands(mem); }
     }
     FSTP_EXTENDED {
@@ -47,6 +49,10 @@ instruction_families! {
             0xDF / 7 => qword(mem);
         }
     }
+    FBSTP {
+        execute: store(PackedDecimal, true);
+        forms { 0xDF / 6 => operands(mem); }
+    }
     FST_REGISTER {
         execute: store_register(false);
         forms { 0xDD @ 0xD0 + rm => operands(st); }
@@ -54,19 +60,6 @@ instruction_families! {
     FSTP_REGISTER {
         execute: store_register(true);
         forms { 0xDD @ 0xD8 + rm => operands(st); }
-    }
-}
-
-fn store_binary(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    address: MemoryAddress<Val<I32>>,
-    format: BinaryFormat,
-    pop: bool,
-) -> Result<(), BuildError> {
-    let convert = |value: &ExtendedValue, rounding: &RoundingMode| format.encode(value, rounding);
-    match format {
-        BinaryFormat::Binary32 => store::<I32>(execution, address, pop, convert),
-        BinaryFormat::Binary64 => store::<I64>(execution, address, pop, convert),
     }
 }
 
@@ -78,31 +71,23 @@ fn store_integer<T: MemoryInt + crate::memory::TransferType>(
 where
     I64: AtLeast<T>,
 {
-    store::<T>(
-        execution,
-        address,
-        pop,
-        ExtendedValue::to_signed_integer::<T>,
-    )
+    store(execution, address, SignedInteger::<T>::default(), pop)
 }
 
-fn store<T: MemoryInt + crate::memory::TransferType>(
+fn store<F: StoreFormat>(
     execution: &mut ExecutionBuilder<'_, '_>,
     address: MemoryAddress<Val<I32>>,
+    format: F,
     pop: bool,
-    convert: impl FnOnce(&ExtendedValue, &RoundingMode) -> ConversionResult,
-) -> Result<(), BuildError>
-where
-    I64: AtLeast<T>,
-{
+) -> Result<(), BuildError> {
     execution.check_x87_exception()?;
-    let operand = execution.memory_operand(address, T::BYTES, Intent::Write, &[])?;
+    let operand = execution.memory_operand(address, format.bytes(), Intent::Write, &[])?;
     execution.specialize(|jit| jit.specialize_x87(X87Specialization::Rounding))?;
     execution.record_x87_memory(&operand)?;
     let mut x87 = execution.x87();
     let source = x87.read_stack(0)?;
     let rounding = x87.rounding()?;
-    let result = convert(&source.value.or_indefinite(&source.is_empty()), &rounding);
+    let result = format.convert(&source.value.or_indefinite(&source.is_empty()), &rounding);
     let invalid = source.is_empty().or(result.invalid);
     let unmasked_invalid = x87.record_exception(Exception::Invalid, &invalid)?;
     x87.record_stack_fault(&source.is_empty())?;
@@ -126,7 +111,7 @@ where
 
     execution.if_value::<()>(
         &enabled,
-        |arm| operand.write(arm, 0, result.bits.truncate::<T>()),
+        |arm| format.write(&operand, arm, &result.bits),
         |_| Ok(()),
     )
 }

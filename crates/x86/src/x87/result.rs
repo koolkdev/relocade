@@ -206,12 +206,29 @@ impl ArithmeticResult {
 /// The x87 state applies exception masks to these conditions.
 ///
 /// Invalid conversions do not report inexactness or a rounding increment.
-pub(crate) struct ConversionResult {
-    pub(crate) bits: Val<I64>,
+pub(crate) struct ConversionResult<Bits = Val<I64>> {
+    pub(crate) bits: Bits,
     pub(crate) invalid: Val<I1>,
     pub(crate) overflow: Val<I1>,
     pub(crate) tiny: Val<I1>,
     pub(crate) inexact: Val<I1>,
     /// Rounding increased the magnitude.
     pub(crate) incremented: Val<I1>,
+}
+
+impl<Bits> ConversionResult<Bits> {
+    /// Changes the destination encoding without changing exception evidence.
+    pub(crate) fn map_bits<Encoded>(
+        self,
+        encode: impl FnOnce(Bits) -> Encoded,
+    ) -> ConversionResult<Encoded> {
+        ConversionResult {
+            bits: encode(self.bits),
+            invalid: self.invalid,
+            overflow: self.overflow,
+            tiny: self.tiny,
+            inexact: self.inexact,
+            incremented: self.incremented,
+        }
+    }
 }

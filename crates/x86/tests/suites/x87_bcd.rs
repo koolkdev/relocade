@@ -2,6 +2,8 @@
 
 #[path = "x87_bcd/load.rs"]
 mod load;
+#[path = "x87_bcd/store.rs"]
+mod store;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
