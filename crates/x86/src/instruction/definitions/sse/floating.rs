@@ -81,35 +81,13 @@ pub(super) fn packed_binary<T: BinaryEncoding + XmmType>(
     )
 }
 
-/// Scalar forms use the general calculation and preserve inactive destination lanes.
-pub(super) fn scalar_arithmetic<T: BinaryEncoding + XmmType>(
+/// Numerical arithmetic can build exact alignment and refinement branches. All
+/// lanes are evaluated before status or the destination is published.
+pub(super) fn arithmetic<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,
-    operation: FloatArithmetic,
-) -> Result<(), BuildError>
-where
-    I64: AtLeast<T>,
-{
-    let controls = execution.simd_controls()?;
-    calculate_lanes::<T>(
-        execution,
-        destination,
-        source,
-        FloatShape::Scalar,
-        |body, left, right| {
-            ArithmeticOperands::new(left, right, controls.denormals_are_zero())
-                .calculate(body, operation, &controls)
-        },
-    )
-}
-
-/// Packed forms admit native nearest arithmetic and evaluate every fallback lane
-/// before status or the destination is published.
-pub(super) fn packed_arithmetic<T: BinaryEncoding + XmmType>(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
-    source: XmmLocation,
+    shape: FloatShape,
     operation: FloatArithmetic,
 ) -> Result<(), BuildError>
 where
@@ -121,7 +99,7 @@ where
             execution,
             destination,
             source,
-            FloatShape::Packed,
+            shape,
             |execution, left, right| {
                 let left = PackedFloatOperand::new(T::FORMAT, left, controls.denormals_are_zero());
                 let right =
@@ -136,7 +114,7 @@ where
         execution,
         destination,
         source,
-        FloatShape::Packed,
+        shape,
         |body, left, right| {
             ArithmeticOperands::new(left, right, controls.denormals_are_zero())
                 .calculate(body, operation, &controls)
@@ -144,30 +122,11 @@ where
     )
 }
 
-pub(super) fn scalar_square_root<T: BinaryEncoding + XmmType>(
+pub(super) fn square_root<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,
-) -> Result<(), BuildError>
-where
-    I64: AtLeast<T>,
-{
-    let controls = execution.simd_controls()?;
-    calculate_lanes::<T>(
-        execution,
-        destination,
-        source,
-        FloatShape::Scalar,
-        |body, _, right| {
-            FloatOperand::new(right, controls.denormals_are_zero()).square_root(body, &controls)
-        },
-    )
-}
-
-pub(super) fn packed_square_root<T: BinaryEncoding + XmmType>(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
-    source: XmmLocation,
+    shape: FloatShape,
 ) -> Result<(), BuildError>
 where
     I64: AtLeast<T>,
@@ -178,7 +137,7 @@ where
             execution,
             destination,
             source,
-            FloatShape::Packed,
+            shape,
             |execution, _, right| {
                 let candidate =
                     PackedFloatOperand::new(T::FORMAT, right, controls.denormals_are_zero())
@@ -188,15 +147,9 @@ where
             },
         );
     }
-    calculate_lanes::<T>(
-        execution,
-        destination,
-        source,
-        FloatShape::Packed,
-        |body, _, right| {
-            FloatOperand::new(right, controls.denormals_are_zero()).square_root(body, &controls)
-        },
-    )
+    calculate_lanes::<T>(execution, destination, source, shape, |body, _, right| {
+        FloatOperand::new(right, controls.denormals_are_zero()).square_root(body, &controls)
+    })
 }
 
 fn calculate_lanes<T: BinaryEncoding + XmmType>(

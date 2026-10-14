@@ -10,8 +10,8 @@ mod divide;
 mod jit;
 #[path = "arithmetic/multiply.rs"]
 mod multiply;
-#[path = "arithmetic/packed_native.rs"]
-mod packed_native;
+#[path = "arithmetic/native.rs"]
+mod native;
 #[path = "arithmetic/sqrt.rs"]
 mod sqrt;
 
