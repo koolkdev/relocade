@@ -93,7 +93,7 @@ fn exponential_ratio(
             })?;
             let term = DoubleDouble::from_parts((term_high, term_low))
                 .mul(argument)
-                .divide_f64(index.unsigned().to_f64());
+                .divide(&DoubleDouble::from_f64(index.unsigned().to_f64()));
             let sum = DoubleDouble::from_parts((sum_high, sum_low)).add(&term);
             let (term_high, term_low) = term.parts();
             let (sum_high, sum_low) = sum.parts();
