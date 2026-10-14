@@ -286,6 +286,86 @@ test_frontends!(fxrstor_then_pop, restore_then_pop);
 test_frontends!(fxrstor_invalid_mxcsr, invalid_mxcsr);
 test_frontends!(fxrstor_faults, faults);
 
+fn observed_mxcsr(engine: Engine) {
+    use crate::support::{machine::expected, step::TestModule};
+    use wasm86_x86::Compiler;
+
+    let before = [0xf3, 0x0f, 0x2d, 0xc8]; // CVTSS2SI ECX,XMM0
+    let restore = instruction(FLAT32, true, 0x4010);
+    let after = [0xf3, 0x0f, 0x2d, 0xd0]; // CVTSS2SI EDX,XMM0
+    let code = [before.as_slice(), &restore, &after].concat();
+    let mut image = image(&code, FLAT32);
+    image.cpu.simd.mxcsr = 0x1f80;
+    image.cpu.simd.xmm[0][..4].copy_from_slice(&0x3fa0_0000_u32.to_le_bytes()); // 1.25
+    let compiled = Compiler::new(FLAT32)
+        .specialize_on_cpu(&image.cpu)
+        .compile_block(0x1000, &code, 3)
+        .unwrap();
+    let block = TestModule::new(&compiled);
+    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+    for mxcsr in [0x1f81, 0x5f81] {
+        let mut loaded = retire(retire(image.cpu, before.len()), restore.len());
+        loaded.registers.ecx = 1;
+        set_control(&mut loaded.x87.control, 0x037f);
+        loaded.x87.status = status(0);
+        loaded.x87.tag_word = 0xffff;
+        loaded.x87.opcode = 0x0654;
+        loaded.x87.instruction_offset = 0x1234_5678;
+        loaded.x87.instruction_selector = 0x17;
+        loaded.x87.data_offset = 0x89ab_cdef;
+        loaded.x87.data_selector = 0x27;
+        loaded.simd.mxcsr = mxcsr;
+        // Restored XMM0 carries the same fractional value, but RC now decides
+        // between 1 and 2. The restored old invalid flag must remain sticky.
+        let bytes = saved_bytes(
+            &loaded,
+            [
+                0x037f,
+                0x0654_0000,
+                0x1234_5678,
+                0x17,
+                0x89ab_cdef,
+                0x27,
+                mxcsr,
+                0xffff,
+            ],
+            [0, 1, 2, 3, 4, 5, 6, 7],
+        );
+        image.data(0x8010, &bytes);
+        let mut cpu = retire(loaded, after.len());
+        cpu.registers.edx = if mxcsr == 0x5f81 { 2 } else { 1 };
+        cpu.simd.mxcsr |= 0x20;
+        let direct = if mxcsr == 0x5f81 {
+            Step {
+                cpu: loaded,
+                ram: &[],
+                exit: Exit::Interpret,
+            }
+        } else {
+            dispatch(cpu)
+        };
+        assert_eq!(
+            engine.observe(&block, &image.input(), 1),
+            expected(&image, &[direct])
+        );
+        assert_eq!(
+            engine.observe(&linked, &image.input(), 1),
+            expected(&image, &[dispatch(cpu)])
+        );
+    }
+}
+
+#[test]
+fn fxrstor_replaces_observed_mxcsr_before_following_conversion() {
+    observed_mxcsr(Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_fxrstor_replaces_observed_mxcsr_before_following_conversion() {
+    observed_mxcsr(Engine::V8);
+}
+
 #[test]
 fn fxrstor_requires_memory_and_no_opcode_prefix() {
     use wasm86_x86::{compile_block_from_bytes, BlockError};

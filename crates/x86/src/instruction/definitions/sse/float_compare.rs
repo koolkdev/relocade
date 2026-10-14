@@ -81,9 +81,9 @@ fn compare_flags<T: BinaryEncoding + XmmType>(
 where
     I64: AtLeast<T>,
 {
+    let controls = execution.simd_controls()?;
     let right = source.read::<T>(execution, VectorAlignment::Unaligned)?;
     let left = T::read_register(execution, destination)?;
-    let controls = execution.read_mxcsr()?;
     let result = FloatOperands::new(left, right, controls.denormals_are_zero())
         .compare(signal_quiet_nan.into());
     execution.record_simd_exceptions(&result.exceptions)?;

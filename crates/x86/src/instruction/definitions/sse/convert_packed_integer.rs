@@ -33,9 +33,9 @@ fn convert<T: BinaryEncoding>(
 where
     I64: AtLeast<T>,
 {
-    let source = source.read::<V128>(execution, VectorAlignment::Aligned)?;
-    let controls = execution.read_mxcsr()?;
+    let controls = execution.simd_controls()?;
     let rounding = rounding.mode(&controls);
+    let source = source.read::<V128>(execution, VectorAlignment::Aligned)?;
     let result = FloatResult::from_lanes(0_u128.into(), 16 / T::FORMAT.bytes(), |lane| {
         FloatOperand::new(
             source.extract_lane::<T>(lane),

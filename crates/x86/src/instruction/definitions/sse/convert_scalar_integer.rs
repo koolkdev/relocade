@@ -31,7 +31,7 @@ fn convert(
     format: BinaryFormat,
     rounding: IntegerRounding,
 ) -> Result<(), BuildError> {
-    let controls = execution.read_mxcsr()?;
+    let controls = execution.simd_controls()?;
     let rounding = rounding.mode(&controls);
     let daz = controls.denormals_are_zero();
     let result = match format {

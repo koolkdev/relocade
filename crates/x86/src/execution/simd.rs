@@ -9,6 +9,19 @@ impl ExecutionBuilder<'_, '_> {
         self.state.read_mxcsr(&mut self.body)
     }
 
+    /// Numerical operations can use observed controls only after a restart
+    /// guard establishes them. Architectural state reads remain unguarded.
+    pub(crate) fn simd_controls(&mut self) -> Result<Mxcsr, BuildError> {
+        let controls = self.read_mxcsr()?;
+        self.specialize(|jit| {
+            if let Some(observed) = jit.observed_cpu {
+                jit.specialize_on(controls.matches_controls(observed.simd.mxcsr))?;
+            }
+            Ok(())
+        })?;
+        Ok(controls)
+    }
+
     /// Publish sticky status before an unmasked fault. Call before writing the
     /// instruction's destination, after any operand-access checks.
     pub(crate) fn record_simd_exceptions(
