@@ -2,6 +2,8 @@
 
 #[path = "x87_environment/effects.rs"]
 mod effects;
+#[path = "x87_environment/state.rs"]
+mod state;
 
 use crate::support::{
     encoding::check_length,
