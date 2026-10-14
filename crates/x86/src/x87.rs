@@ -23,6 +23,7 @@ pub(crate) use binary::BinaryOperand;
 pub(crate) use compare::ComparisonKind;
 pub(crate) use constant::Constant;
 pub(crate) use operand::{BinaryOperands, Operand};
+pub(crate) use remainder::QuotientRounding;
 use result::BinaryArithmetic;
 pub(crate) use result::{ArithmeticCandidate, ArithmeticResult, ConversionResult};
 pub(crate) use value::{ExtendedBits, ExtendedValue, SignOperation};
