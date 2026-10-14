@@ -47,12 +47,16 @@ where
     I64: AtLeast<T>,
 {
     pub(crate) fn to_integer(&self, rounding: &RoundingMode) -> FloatResult<I32> {
-        let rounded = rounding.signed_dword(&self.value());
+        let value = self.value();
+        let rounded = rounding.integral(&value);
+        // Ordered comparisons reject NaNs and infinities as well as overflow.
+        // Validity is determined after rounding, including at the negative bound.
+        let valid = rounded.ge(-2147483648.0).and(rounded.lt(2147483648.0));
         FloatResult {
-            value: rounded.invalid.select(0x8000_0000_u32, rounded.value),
+            value: valid.select(rounded.trunc_saturating_i32(), 0x8000_0000_u32),
             exceptions: SimdExceptions {
-                invalid: rounded.invalid.clone(),
-                precision: rounded.invalid.eq(false).and(rounded.inexact),
+                invalid: valid.eq(false),
+                precision: valid.and(value.ne(rounded)),
                 // Integer conversions honor DAZ but never raise denormal operand.
                 ..SimdExceptions::default()
             },
