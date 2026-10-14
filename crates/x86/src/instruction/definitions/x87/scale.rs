@@ -28,5 +28,13 @@ fn scale(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
         None => operands.scale(&rounding),
     };
     execution.record_x87_instruction()?;
-    result::write_arithmetic_result(execution, 0.into(), result, &empty, false)
+    result::write_arithmetic_result(
+        execution,
+        result,
+        &empty,
+        result::Destination::Register {
+            index: 0.into(),
+            pop: false,
+        },
+    )
 }

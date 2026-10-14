@@ -27,10 +27,13 @@ fn trigonometric(
     let operand = Operand::new(&top.value);
     let rounding = execution.x87().rounding()?;
     execution.specialize_x87(X87Specialization::Rounding)?;
-    execution.specialize_x87_operands(
+    let mut outside = operand.trigonometric_out_of_range();
+    if execution.specialize_x87_operands(
         &mut empty,
         operand.normal_or_zero().and(operand.trigonometric_domain()),
-    )?;
+    )? {
+        outside = false.into();
+    }
     let mut result = execution.calculate(|body| {
         TrigonometricArgument::new(body, &operand)?.evaluate(body, function, &rounding)
     })?;
@@ -39,9 +42,16 @@ fn trigonometric(
         Ok(())
     })?;
     execution.record_x87_instruction()?;
-    execution.x87().set_condition_code(
-        ConditionCode::C2,
-        empty.eq(false).and(operand.trigonometric_out_of_range()),
-    )?;
-    result::write_arithmetic_result(execution, 0.into(), result, &empty, false)
+    execution
+        .x87()
+        .set_condition_code(ConditionCode::C2, empty.eq(false).and(&outside))?;
+    result::write_arithmetic_result(
+        execution,
+        result,
+        &empty,
+        result::Destination::Conditional {
+            index: 0.into(),
+            when: outside.eq(false).or(&empty),
+        },
+    )
 }

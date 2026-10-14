@@ -87,17 +87,18 @@ fn raw_values(engine: Engine, frontend: Frontend) {
             );
         }
     }
-    let code = [0xda, 0xc1];
+    let code = [0xda, 0xc1, 0xd9, 0xd0];
     let mut image = initial_image(&code);
     image.cpu.flags.bytes.cf = 0;
     // An untaken move retains an imported tag instead of reclassifying its payload.
     image.cpu.x87.tag_word |= 1 << 14;
     let result = complete_x87(image.cpu, 2, 0x02c1);
+    let followed = complete_x87(result, 2, 0x01d0);
     checks.check(
-        "untaken move preserves the destination tag",
+        "untaken move preserves the destination tag through the next check",
         &code,
         &image,
-        &[dispatch(result)],
+        &[dispatch(result), dispatch(followed)],
     );
 }
 

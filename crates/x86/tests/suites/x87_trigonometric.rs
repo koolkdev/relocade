@@ -166,6 +166,24 @@ fn exceptions(engine: Engine, frontend: Frontend) {
                 &[dispatch(result)],
             );
         }
+        let followed = [0xd9, opcode, 0xd9, 0xd0];
+        let mut image = stack_image(&followed, 3, 0xffff);
+        image.cpu.x87.status.precision = 0;
+        write_value(&mut image.cpu, 3, (LEAD, 0x403e));
+        // A host snapshot may contain a nonempty tag inconsistent with its
+        // payload. The out-of-range path does not assign ST(0), even across FNOP.
+        image.cpu.x87.tag_word |= 2 << 6;
+        let mut result = complete_x87(image.cpu, 2, 0x0100 | u16::from(opcode));
+        result.x87.status.c1 = 0;
+        result.x87.status.c2 = 1;
+        let mut followed_result = complete_x87(result, 2, 0x01d0);
+        followed_result.x87.instruction_offset = 0x1002;
+        checks.check(
+            "out-of-range preserves imported tag through next check",
+            &followed,
+            &image,
+            &[dispatch(result), dispatch(followed_result)],
+        );
         let mut image = stack_image(&code, 0, 0xfffc);
         image.cpu.x87.status.error_summary = 1;
         image.cpu.x87.status.busy = 1;

@@ -54,8 +54,6 @@ fn move_register(
     // tracking when it first sees that index.
     let source = execution.x87().read_stack(source.offset())?;
     let previous = execution.x87().read_stack(0)?;
-    let value = source.value.select(&condition, &previous.value);
-    let tag = condition.select(source.value.classification().tag(), &previous.tag);
     let mut stack_fault = previous.is_empty().or(source.is_empty());
     execution.specialize_without([&mut stack_fault])?;
     execution.record_x87_instruction()?;
@@ -63,9 +61,6 @@ fn move_register(
     let mut x87 = execution.x87();
     let enabled = x87.stack_underflow(&stack_fault)?;
     x87.set_condition_code_when(ConditionCode::C1, false, &stack_fault)?;
-    let value = value.or_indefinite(&stack_fault);
-    let tag = stack_fault.select(2_u32, tag);
-    // The ordinary condition selects a value, not a discardable exception
-    // write guard: a later waiting instruction must retain an untaken move.
-    x87.write_stack(0, &StackValue { value, tag }, &enabled)
+    let value = StackValue::from_value(source.value.or_indefinite(&stack_fault));
+    x87.write_stack_when(0, &value, &condition.or(stack_fault), &enabled)
 }
