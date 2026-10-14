@@ -199,23 +199,6 @@ where
     )
 }
 
-/// Approximate single-precision operations have fixed denormal and rounding
-/// behavior and never raise SIMD floating-point exceptions.
-pub(super) fn approximate(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
-    source: XmmLocation,
-    shape: FloatShape,
-    operation: impl Fn(Val<I32>) -> Val<I32>,
-) -> Result<(), BuildError> {
-    calculate_lanes::<I32>(execution, destination, source, shape, |_, _, right| {
-        Ok(FloatResult {
-            value: operation(right),
-            exceptions: Default::default(),
-        })
-    })
-}
-
 fn calculate_lanes<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
@@ -240,7 +223,7 @@ where
         source,
         shape,
         |execution, left, right| {
-            FloatResult::try_from_lanes(left.clone(), count, |lane| {
+            FloatResult::try_from_lanes(0_u128.into(), count, |lane| {
                 execution.calculate(|body| {
                     calculate(
                         body,
@@ -254,7 +237,9 @@ where
 }
 
 /// Operand access and publication are shared by whole-vector and per-lane calculations.
-pub(super) fn calculate_vectors<T: BinaryEncoding + XmmType>(
+/// Scalar operands are splatted before calculation; only the low result lane is
+/// published. Unused destination bits never participate in numerical operations.
+fn calculate_vectors<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,
@@ -271,10 +256,18 @@ pub(super) fn calculate_vectors<T: BinaryEncoding + XmmType>(
         }
         FloatShape::Packed => source.read::<V128>(execution, VectorAlignment::Aligned)?,
     };
-    let left = execution.read_xmm(destination.clone())?;
+    let original = execution.read_xmm(destination.clone())?;
+    let left = match shape {
+        FloatShape::Scalar => Val::<V128>::splat(original.extract_lane::<T>(0)),
+        FloatShape::Packed => original.clone(),
+    };
     let result = calculate(execution, left, right)?;
     execution.record_simd_exceptions(&result.exceptions)?;
-    execution.write_xmm(destination, result.value)
+    let value = match shape {
+        FloatShape::Scalar => original.replace_lane(0, result.value.extract_lane::<T>(0)),
+        FloatShape::Packed => result.value,
+    };
+    execution.write_xmm(destination, value)
 }
 
 #[derive(Clone, Copy)]

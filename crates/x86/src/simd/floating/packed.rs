@@ -2,6 +2,7 @@
 
 mod arithmetic;
 mod compare;
+mod estimate;
 mod integer;
 mod rounding;
 mod width;
@@ -10,6 +11,7 @@ use super::{FloatResult, SimdExceptions};
 use crate::floating::{BinaryFormat, RoundingMode};
 use wasm86_compiler::{Val, I1, I32, I64, V128};
 
+pub(crate) use estimate::estimate_packed_float;
 pub(crate) use integer::packed_integer_to_float;
 pub(crate) use width::{narrow_packed_float, widen_packed_float};
 

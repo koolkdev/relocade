@@ -2,6 +2,7 @@
 
 mod arithmetic;
 mod compare;
+mod estimate;
 mod exceptions;
 mod integer;
 mod operand;
@@ -11,11 +12,13 @@ mod sqrt;
 mod width;
 pub(crate) use arithmetic::{ArithmeticOperands, FloatArithmetic};
 pub(crate) use compare::{FloatMinMax, FloatOperands};
+pub(crate) use estimate::FloatEstimate;
 pub(crate) use exceptions::SimdExceptions;
 pub(crate) use integer::integer_to_float;
 pub(crate) use operand::FloatOperand;
 pub(crate) use packed::{
-    narrow_packed_float, packed_integer_to_float, widen_packed_float, PackedFloatOperand,
+    estimate_packed_float, narrow_packed_float, packed_integer_to_float, widen_packed_float,
+    PackedFloatOperand,
 };
 
 use wasm86_compiler::{Val, ValueType, VectorLane, V128};
