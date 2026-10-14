@@ -1,14 +1,60 @@
 //! Shift and rotate folding, count conversion and logical-width lowering.
 
 use super::Folder;
-use crate::expression::ShiftOp as Shift;
+use crate::expression::{ShiftOp as Shift, UnaryOp as Unary};
 use crate::{
     bitwise::BitwiseOp,
-    integer::{self, BinaryOp, RotateOp, ShiftOp},
+    body::ValueDefinition,
+    integer::{self, BinaryOp, BitCountOp, RotateOp, ShiftOp},
     Expression, Type,
 };
 
 impl Folder<'_> {
+    /// Moving the highest set bit to the top of its carrier preserves zero.
+    /// Restrict the proof to full-width counts of the same physical input.
+    pub(super) fn normalized_shift_source(&self, input: usize) -> Option<usize> {
+        let ty = self.values[input].ty;
+        if !matches!(ty, Type::I32 | Type::I64) {
+            return None;
+        }
+        let ValueDefinition::Expression(Expression::Shift {
+            operator: Shift::Scalar(ShiftOp::Left),
+            value,
+            mut count,
+        }) = self.values[input].definition
+        else {
+            return None;
+        };
+        if self.values[value].ty != ty {
+            return None;
+        }
+        while let ValueDefinition::Expression(Expression::Unary {
+            operator: Unary::Convert,
+            input: source,
+        }) = self.values[count].definition
+        {
+            if self.values.bounds[source].unsigned > self.values[count].ty.carrier().bits() {
+                return None;
+            }
+            count = source;
+        }
+        match self.values[count].definition {
+            ValueDefinition::Expression(Expression::Unary {
+                operator:
+                    Unary::BitCount {
+                        operator: BitCountOp::LeadingZeros,
+                        input_type,
+                    },
+                input: source,
+            }) if input_type == ty
+                && self.values.representation(source) == self.values.representation(value) =>
+            {
+                Some(value)
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn fold_shift(&self, ty: Type, input: usize, count: usize) -> Option<usize> {
         let zero_count = matches!(self.values[count].scalar_literal(), Some(bits) if integer::shift_count(ty, bits as u32) == 0);
         (zero_count || self.values.bounds[input].unsigned == 0).then_some(input)
