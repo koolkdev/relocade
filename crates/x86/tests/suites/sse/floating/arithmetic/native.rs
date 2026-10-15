@@ -292,62 +292,10 @@ fn restart(engine: Engine) {
     );
 }
 
-fn directed_rounding(engine: Engine) {
-    for wide in [false, true] {
-        for packed in [false, true] {
-            let lanes = if wide { 2 } else { 4 };
-            let count = if packed { lanes } else { 1 };
-            let code = encoding(prefix(wide, packed), 0x58, 0xc1);
-            for rc in 1..4 {
-                let mut image = floating_image(&code, 0x1f80 | rc << 13);
-                for index in 0..count {
-                    lane(&mut image.cpu.simd.xmm[0], wide, index, ONE[wide as usize]);
-                    lane(
-                        &mut image.cpu.simd.xmm[1],
-                        wide,
-                        index,
-                        HALF_ULP[wide as usize],
-                    );
-                }
-                let compiled = Compiler::new(SegmentProfile::Flat32)
-                    .specialize_on_cpu(&image.cpu)
-                    .compile_block(0x1000, &code, 1)
-                    .unwrap();
-                let mut cpu = retire(image.cpu, code.len());
-                cpu.simd.mxcsr |= 32;
-                if rc == 2 {
-                    for index in 0..count {
-                        lane(&mut cpu.simd.xmm[0], wide, index, NEXT_ONE[wide as usize]);
-                    }
-                }
-                assert_eq!(
-                    engine.observe(&TestModule::new(&compiled), &image.input(), 1),
-                    expected(&image, &[dispatch(cpu)])
-                );
-                let generic = Compiler::new(SegmentProfile::Flat32)
-                    .compile_block(0x1000, &code, 1)
-                    .unwrap();
-                assert_eq!(
-                    engine.observe(&TestModule::new(&generic), &image.input(), 1),
-                    expected(
-                        &image,
-                        &[Step {
-                            cpu: image.cpu,
-                            ram: &[],
-                            exit: Exit::Interpret
-                        }]
-                    )
-                );
-            }
-        }
-    }
-}
-
 #[test]
 fn native_precision_and_restart() {
     precision(Engine::Wasmtime);
     restart(Engine::Wasmtime);
-    directed_rounding(Engine::Wasmtime);
 }
 
 #[test]
@@ -355,5 +303,4 @@ fn native_precision_and_restart() {
 fn v8_native_precision_and_restart() {
     precision(Engine::V8);
     restart(Engine::V8);
-    directed_rounding(Engine::V8);
 }

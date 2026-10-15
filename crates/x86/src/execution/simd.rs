@@ -40,24 +40,13 @@ impl ExecutionBuilder<'_, '_> {
         Ok(controls)
     }
 
-    /// Build and admit a native result only where nearest arithmetic applies.
-    /// Observed directed modes retain the general compiled calculation.
+    /// Build and admit a native result using the established rounding mode.
     /// Call `simd_arithmetic_controls` before accessing the operands.
     pub(crate) fn specialize_simd_arithmetic(
         &mut self,
         calculate: impl FnOnce() -> PackedFloatCandidate,
     ) -> Result<Option<FloatResult<V128>>, BuildError> {
-        Ok(self
-            .specialize(|jit| {
-                if jit
-                    .observed_cpu
-                    .is_some_and(|cpu| cpu.simd.mxcsr & 0x6000 != 0)
-                {
-                    return Ok(None);
-                }
-                jit.admit_simd_candidate(calculate()).map(Some)
-            })?
-            .flatten())
+        self.specialize(|jit| jit.admit_simd_candidate(calculate()))
     }
 
     /// Requires a specializing path. Guard the candidate's numerical domain

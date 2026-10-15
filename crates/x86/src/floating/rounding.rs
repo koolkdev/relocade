@@ -63,6 +63,10 @@ impl RoundingMode {
         Self(control.and(3))
     }
 
+    pub(crate) fn is_nearest(&self) -> Val<I1> {
+        self.0.eq(0)
+    }
+
     /// Native integral rounding has the same RC policy and signed-zero rule.
     pub(crate) fn integral(&self, value: &Val<F64>) -> Val<F64> {
         self.select(value.nearest(), value.floor(), value.ceil(), value.trunc())
@@ -76,7 +80,7 @@ impl RoundingMode {
         up: Val<T>,
         zero: Val<T>,
     ) -> Val<T> {
-        self.0.eq(0).select(
+        self.is_nearest().select(
             nearest,
             self.0.eq(1).select(down, self.0.eq(2).select(up, zero)),
         )

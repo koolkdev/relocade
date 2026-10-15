@@ -1,28 +1,32 @@
-//! Native nearest arithmetic with exact precision evidence on the normal domain.
+//! Native arithmetic with exact rounding evidence on the normal domain.
 
 use super::*;
 use crate::simd::FloatArithmetic;
 
-mod precision;
+mod product;
+mod rounding;
+
+use rounding::RoundingError;
 
 impl PackedFloatOperand {
-    pub(crate) fn arithmetic_nearest(
+    pub(crate) fn arithmetic(
         &self,
         right: &Self,
         operation: FloatArithmetic,
+        rounding: &RoundingMode,
     ) -> PackedFloatCandidate {
         let left = &self.bits;
         let right = &right.bits;
         macro_rules! calculate {
-            ($view:ident) => {{
-                let value = match operation {
+            ($view:ident, $lane:ty, $scalar:ty) => {{
+                let nearest = match operation {
                     FloatArithmetic::Add => left.$view().add(right),
                     FloatArithmetic::Subtract => left.$view().sub(right),
                     FloatArithmetic::Multiply => left.$view().mul(right),
                     FloatArithmetic::Divide => left.$view().div(right),
                 };
                 let zero = match operation {
-                    FloatArithmetic::Add | FloatArithmetic::Subtract => value.$view().eq(0_u128),
+                    FloatArithmetic::Add | FloatArithmetic::Subtract => nearest.$view().eq(0_u128),
                     FloatArithmetic::Multiply => {
                         left.$view().eq(0_u128).or(right.$view().eq(0_u128))
                     }
@@ -32,53 +36,45 @@ impl PackedFloatOperand {
                 if matches!(operation, FloatArithmetic::Divide) {
                     valid = valid.and(right.$view().ne(0_u128));
                 }
-                let precision = match operation {
-                    FloatArithmetic::Add | FloatArithmetic::Subtract => {
-                        let addend = if matches!(operation, FloatArithmetic::Subtract) {
-                            right.$view().neg()
-                        } else {
-                            right.clone()
-                        };
-                        let left_larger = left.$view().abs().$view().ge(addend.$view().abs());
-                        let larger = left_larger.select_bits(left, &addend);
-                        let smaller = left_larger.select_bits(addend, left);
-                        // FastTwoSum retains even a subnormal rounding error.
-                        smaller
-                            .$view()
-                            .sub(value.$view().sub(larger))
-                            .$view()
-                            .ne(0_u128)
-                    }
-                    FloatArithmetic::Multiply => self.product_inexact(left, right, &value),
-                    FloatArithmetic::Divide => {
-                        let product = value.$view().mul(right);
-                        product
-                            .$view()
-                            .ne(left)
-                            .or(self.product_inexact(&value, right, &product))
-                    }
-                };
-                self.candidate(value, valid, zero, precision)
+                let mut result = self.arithmetic_error(right, &nearest, operation).round(
+                    self.format,
+                    nearest.clone(),
+                    rounding,
+                );
+                if matches!(operation, FloatArithmetic::Add | FloatArithmetic::Subtract) {
+                    let addend = if matches!(operation, FloatArithmetic::Subtract) {
+                        right.$view().neg()
+                    } else {
+                        right.clone()
+                    };
+                    let sign = Val::<V128>::splat::<$lane>(self.format.sign_bit() as $scalar);
+                    let cancellation =
+                        zero.and(left.xor(addend).and(&sign).eq_lanes::<$lane>(sign.clone()));
+                    // Like-signed zero sums retain their sign. Only cancellation
+                    // changes from nearest's +0 to -0 when rounding down.
+                    result.value = rounding
+                        .cancellation_negative()
+                        .select(cancellation.select_bits(sign, &result.value), &result.value);
+                }
+                self.candidate(nearest, valid, zero, result)
             }};
         }
         match self.format {
-            BinaryFormat::Binary32 => calculate!(f32x4),
-            BinaryFormat::Binary64 => calculate!(f64x2),
+            BinaryFormat::Binary32 => calculate!(f32x4, I32, u32),
+            BinaryFormat::Binary64 => calculate!(f64x2, I64, u64),
         }
     }
 
-    pub(crate) fn square_root_nearest(&self) -> PackedFloatCandidate {
+    pub(crate) fn square_root(&self, rounding: &RoundingMode) -> PackedFloatCandidate {
         let source = &self.bits;
         macro_rules! calculate {
             ($view:ident) => {{
-                let value = source.$view().sqrt();
-                let product = value.$view().mul(&value);
-                let precision = product
-                    .$view()
-                    .ne(source)
-                    .or(self.product_inexact(&value, &value, &product));
+                let nearest = source.$view().sqrt();
+                let result =
+                    self.square_root_error(&nearest)
+                        .round(self.format, nearest.clone(), rounding);
                 let valid = self.normal_or_zero(source).and(source.$view().ge(0_u128));
-                self.candidate(value, valid, source.$view().eq(0_u128), precision)
+                self.candidate(nearest, valid, source.$view().eq(0_u128), result)
             }};
         }
         match self.format {
@@ -110,14 +106,14 @@ impl PackedFloatOperand {
 
     fn candidate(
         &self,
-        value: Val<V128>,
+        nearest: Val<V128>,
         inputs_valid: Val<V128>,
         exact_zero: Val<V128>,
-        precision: Val<V128>,
+        result: FloatResult<V128>,
     ) -> PackedFloatCandidate {
         macro_rules! range {
             ($view:ident, $lane:ty, $scalar:ty) => {{
-                let absolute = value.$view().abs();
+                let absolute = nearest.$view().abs();
                 // Exclude the minimum-normal boundary: a tiny unbounded result
                 // can round up to it. Range-edge behavior stays in the interpreter.
                 absolute
@@ -137,13 +133,7 @@ impl PackedFloatOperand {
         };
         PackedFloatCandidate {
             valid: inputs_valid.and(range).bitmask::<I32>().eq(15),
-            result: FloatResult {
-                value,
-                exceptions: SimdExceptions {
-                    precision: precision.bitmask::<I32>().ne(0),
-                    ..SimdExceptions::default()
-                },
-            },
+            result,
         }
     }
 }

@@ -116,7 +116,7 @@ fn arithmetic_candidate<T: BinaryEncoding>(
 ) -> PackedFloatCandidate {
     let left = PackedFloatOperand::new(T::FORMAT, left, controls.denormals_are_zero());
     let right = PackedFloatOperand::new(T::FORMAT, right, controls.denormals_are_zero());
-    left.arithmetic_nearest(&right, operation)
+    left.arithmetic(&right, operation, &controls.rounding())
 }
 
 fn square_root_candidate<T: BinaryEncoding>(
@@ -124,5 +124,5 @@ fn square_root_candidate<T: BinaryEncoding>(
     source: Val<V128>,
 ) -> PackedFloatCandidate {
     let source = PackedFloatOperand::new(T::FORMAT, source, controls.denormals_are_zero());
-    source.square_root_nearest()
+    source.square_root(&controls.rounding())
 }
