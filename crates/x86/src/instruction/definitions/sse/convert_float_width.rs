@@ -52,10 +52,10 @@ fn narrow_scalar(
             controls.denormals_are_zero(),
             &controls.rounding(),
         );
-        execution.specialize_on(candidate.valid)?;
+        let result = execution.admit_simd_candidate(candidate)?;
         Ok(FloatResult {
-            value: candidate.result.value.extract_lane::<I32>(0),
-            exceptions: candidate.result.exceptions,
+            value: result.value.extract_lane::<I32>(0),
+            exceptions: result.exceptions,
         })
     })?;
     let result = specialized.unwrap_or_else(|| {
@@ -74,8 +74,7 @@ fn widen_packed(
     let source = Val::<V128>::splat(source.read::<I64>(execution, VectorAlignment::Unaligned)?);
     let specialized = execution.specialize(|execution| {
         let candidate = widen_packed_float(source.clone(), controls.denormals_are_zero());
-        execution.specialize_on(candidate.valid)?;
-        Ok(candidate.result)
+        execution.admit_simd_candidate(candidate)
     })?;
     let result = match specialized {
         Some(result) => result,
@@ -104,8 +103,7 @@ fn narrow_packed(
             controls.denormals_are_zero(),
             &controls.rounding(),
         );
-        execution.specialize_on(candidate.valid)?;
-        Ok(candidate.result)
+        execution.admit_simd_candidate(candidate)
     })?;
     let result = match specialized {
         Some(result) => result,

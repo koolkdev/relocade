@@ -1,7 +1,12 @@
 //! Accesses to the SIMD state retained by this execution path.
 
 use super::ExecutionBuilder;
-use crate::{register::RegisterCode, simd::SimdExceptions, state::Mxcsr, Exception, StoredSimd};
+use crate::{
+    register::RegisterCode,
+    simd::{FloatResult, PackedFloatCandidate, SimdExceptions},
+    state::Mxcsr,
+    Exception, StoredSimd,
+};
 use wasm86_compiler::{BuildError, Val, I32, V128};
 
 impl ExecutionBuilder<'_, '_> {
@@ -22,22 +27,47 @@ impl ExecutionBuilder<'_, '_> {
         Ok(controls)
     }
 
-    /// Native SIMD arithmetic needs nearest rounding. Keep an observed directed
-    /// mode compiled through the general calculation; generic blocks admit the
-    /// usual nearest mode and restart if the live setting differs.
-    pub(crate) fn specialize_simd_nearest(&mut self, controls: &Mxcsr) -> Result<bool, BuildError> {
+    /// Establish arithmetic controls before operand access. Generic blocks admit
+    /// nearest rounding; observed blocks already guard their recorded controls.
+    pub(crate) fn simd_arithmetic_controls(&mut self) -> Result<Mxcsr, BuildError> {
+        let controls = self.simd_controls()?;
+        self.specialize(|jit| {
+            if jit.observed_cpu.is_none() {
+                jit.specialize_on(controls.bits().and(0x6000).eq(0))?;
+            }
+            Ok(())
+        })?;
+        Ok(controls)
+    }
+
+    /// Build and admit a native result only where nearest arithmetic applies.
+    /// Observed directed modes retain the general compiled calculation.
+    /// Call `simd_arithmetic_controls` before accessing the operands.
+    pub(crate) fn specialize_simd_arithmetic(
+        &mut self,
+        calculate: impl FnOnce() -> PackedFloatCandidate,
+    ) -> Result<Option<FloatResult<V128>>, BuildError> {
         Ok(self
             .specialize(|jit| {
                 if jit
                     .observed_cpu
                     .is_some_and(|cpu| cpu.simd.mxcsr & 0x6000 != 0)
                 {
-                    return Ok(false);
+                    return Ok(None);
                 }
-                jit.specialize_on(controls.bits().and(0x6000).eq(0))?;
-                Ok(true)
+                jit.admit_simd_candidate(calculate()).map(Some)
             })?
-            .unwrap_or(false))
+            .flatten())
+    }
+
+    /// Requires a specializing path. Guard the candidate's numerical domain
+    /// before publishing its result or precision effects.
+    pub(crate) fn admit_simd_candidate(
+        &mut self,
+        candidate: PackedFloatCandidate,
+    ) -> Result<FloatResult<V128>, BuildError> {
+        self.specialize_on(candidate.valid)?;
+        Ok(candidate.result)
     }
 
     /// Publish sticky status before an unmasked fault. Call before writing the

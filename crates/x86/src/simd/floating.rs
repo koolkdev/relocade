@@ -18,7 +18,7 @@ pub(crate) use integer::integer_to_float;
 pub(crate) use operand::FloatOperand;
 pub(crate) use packed::{
     estimate_packed_float, narrow_packed_float, packed_integer_to_float, widen_packed_float,
-    PackedFloatOperand,
+    PackedFloatCandidate, PackedFloatOperand,
 };
 
 use wasm86_compiler::{Val, ValueType, VectorLane, V128};
