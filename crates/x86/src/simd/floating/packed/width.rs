@@ -1,6 +1,6 @@
 //! Packed width conversions admit native results with exact rounding evidence.
 
-use super::rounding::RoundedBinary32;
+use super::rounding::RoundedFloat;
 use super::*;
 
 pub(crate) fn widen_packed_float(source: Val<V128>, daz: Val<I1>) -> PackedFloatCandidate {
@@ -51,7 +51,8 @@ pub(crate) fn narrow_packed_float(
     };
     PackedFloatCandidate {
         valid: valid.bitmask::<I32>().eq(15),
-        result: RoundedBinary32 {
+        result: RoundedFloat {
+            format: BinaryFormat::Binary32,
             nearest,
             above: low_dwords(restored.f64x2().gt(&source.bits)),
             below: low_dwords(restored.f64x2().lt(&source.bits)),

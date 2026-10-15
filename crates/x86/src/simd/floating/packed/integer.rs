@@ -1,6 +1,6 @@
 //! Native signed conversions retain x86 validity and precision evidence.
 
-use super::rounding::RoundedBinary32;
+use super::rounding::RoundedFloat;
 use super::*;
 
 impl PackedFloatOperand {
@@ -80,7 +80,8 @@ pub(crate) fn packed_integer_to_float(
         .signed_gt_lanes::<I32>(&source)
         .or(source.eq_lanes::<I32>(Val::<V128>::splat::<I32>(i32::MAX)));
     let below = source.signed_gt_lanes::<I32>(&restored);
-    RoundedBinary32 {
+    RoundedFloat {
+        format: BinaryFormat::Binary32,
         nearest,
         above,
         below,
