@@ -28,11 +28,8 @@ impl ScalarFacts {
             }
             // Stored assumptions can decide this request without walking its
             // expression history again after an inference-cache invalidation.
-            if self
-                .known
-                .get(&id)
-                .is_some_and(|known| known.conflicts(bits) || bits.mask & !known.mask == 0)
-            {
+            let known = self.known_bits(table, id);
+            if known.conflicts(bits) || bits.mask & !known.mask == 0 {
                 continue;
             }
             let previous = self.bits(table, id);
@@ -42,7 +39,7 @@ impl ScalarFacts {
                 continue;
             }
             let bits = previous.union(bits);
-            self.record(id, bits);
+            self.record(table, id, bits);
             self.constraints.track(table, id, bits);
             let ValueDefinition::Expression(expression) = value.definition else {
                 continue;

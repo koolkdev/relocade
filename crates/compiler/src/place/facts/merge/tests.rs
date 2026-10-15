@@ -35,12 +35,12 @@ fn compare(table: &mut ValueTable, operator: CompareOp, left: usize, right: usiz
 fn common_bits_discard_disagreements_missing_facts_and_cached_constants() {
     let table = parameters();
     let mut first = ScalarFacts::default();
-    first.assume_bits(0, 0xffff_ffff, 5);
-    first.assume_bits(1, 0xffff_ffff, 9);
+    first.assume_bits(&table, 0, 0xffff_ffff, 5);
+    first.assume_bits(&table, 1, 0xffff_ffff, 9);
     assert_eq!(first.constant(&table, 0), Some(5));
     assert_eq!(first.constant(&table, 1), Some(9));
     let mut second = ScalarFacts::default();
-    second.assume_bits(0, 0xffff_ffff, 7);
+    second.assume_bits(&table, 0, 0xffff_ffff, 7);
     first.retain_common(&second);
     let bits = first.bits(&table, 0);
     assert_eq!((bits.mask, bits.value), (0xffff_fffd, 5));

@@ -1,7 +1,7 @@
 //! Path facts about scalar encodings up to 64 bits, integer ranges and comparisons.
 //! F64 participates through its raw encoding; numeric range rules apply to integers.
-//! Vectors are opaque to this analysis. Queries infer no vector facts, while
-//! expression evaluation still folds complete vector literals.
+//! Vector operations are opaque; overlapping scalar lane observations share
+//! sparse word facts. Expression evaluation folds complete vector literals.
 //! Facts about a truncated value do not erase its other carrier bits.
 
 use crate::expression::BinaryOp as Binary;
@@ -19,12 +19,14 @@ mod assume;
 mod comparisons;
 mod constraints;
 mod infer;
+mod lanes;
 mod merge;
 mod range;
 mod selects;
 mod shifts;
 use comparisons::Comparisons;
 use constraints::Constraints;
+use lanes::{LaneFacts, LaneObservation};
 use range::Range;
 
 #[cfg(test)]
@@ -38,6 +40,14 @@ struct Bits {
 }
 
 impl Bits {
+    fn common(self, other: Self) -> Self {
+        let mask = self.mask & other.mask & !(self.value ^ other.value);
+        Self {
+            mask,
+            value: self.value & mask,
+        }
+    }
+
     fn conflicts(self, other: Self) -> bool {
         (self.value ^ other.value) & self.mask & other.mask != 0
     }
@@ -61,6 +71,7 @@ impl Bits {
 pub(super) struct ScalarFacts {
     // These sparse maps hash compiler-assigned value IDs, never guest values.
     known: FxHashMap<usize, Bits>,
+    lanes: Option<Box<LaneFacts>>,
     ranges: FxHashMap<usize, Range>,
     comparisons: Comparisons,
     constraints: Constraints,
@@ -79,6 +90,7 @@ impl Clone for ScalarFacts {
     fn clone(&self) -> Self {
         Self {
             known: self.known.clone(),
+            lanes: self.lanes.clone(),
             ranges: self.ranges.clone(),
             comparisons: self.comparisons.clone(),
             constraints: self.constraints.clone(),
@@ -97,7 +109,9 @@ impl ScalarFacts {
         for observation in observations {
             match observation {
                 Assumption::Truth { condition, truth } => self.assume(table, condition, truth),
-                Assumption::Bits { value, mask, bits } => self.assume_bits(value, mask, bits),
+                Assumption::Bits { value, mask, bits } => {
+                    self.assume_bits(table, value, mask, bits)
+                }
             }
         }
         self.propagate_constraints(table);
@@ -109,22 +123,34 @@ impl ScalarFacts {
         self.known
             .iter()
             .any(|(&id, &bits)| bits.conflicts(other.bits(table, id)))
+            || self
+                .lanes
+                .as_deref()
+                .is_some_and(|lanes| lanes.conflicts_with(table, other.lanes.as_deref()))
     }
 
-    fn assume_bits(&mut self, id: usize, mask: u64, value: u64) {
-        let previous = self.known.get(&id).copied().unwrap_or_default();
+    fn assume_bits(&mut self, table: &ValueTable, id: usize, mask: u64, value: u64) {
+        let previous = self.known_bits(table, id);
         let bits = Bits {
             mask,
             value: value & mask,
         };
         if !previous.conflicts(bits) && bits.mask & !previous.mask != 0 {
-            self.record(id, previous.union(bits));
+            self.record(table, id, previous.union(bits));
         }
     }
 
-    fn record(&mut self, id: usize, bits: Bits) {
-        self.known.insert(id, bits);
-        self.changed(id);
+    fn record(&mut self, table: &ValueTable, id: usize, bits: Bits) {
+        let source = if let Some(observation) = LaneObservation::of(table, id) {
+            observation.record(self.lanes.get_or_insert_with(Default::default), bits);
+            // Another overlapping extraction may have been created before this
+            // one. Its cached inference depends on the original vector value.
+            observation.word.value
+        } else {
+            self.known.insert(id, bits);
+            id
+        };
+        self.changed(source);
     }
 
     fn changed(&mut self, id: usize) {
@@ -148,7 +174,11 @@ impl ScalarFacts {
             return Some(bits);
         }
         // Construction already folded path-independent constants.
-        if self.known.is_empty() && self.ranges.is_empty() && self.comparisons.is_empty() {
+        if self.known.is_empty()
+            && self.lanes.is_none()
+            && self.ranges.is_empty()
+            && self.comparisons.is_empty()
+        {
             return None;
         }
         self.inferred_constant(table, id)
