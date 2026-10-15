@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     instruction::XmmType,
-    simd::{FloatOperand, FloatResult},
+    simd::{narrow_packed_float, widen_packed_float, FloatOperand, FloatResult},
 };
 use wasm86_compiler::I64;
 
@@ -45,7 +45,22 @@ fn narrow_scalar(
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
     let source = source.read::<I64>(execution, VectorAlignment::Unaligned)?;
-    let result = FloatOperand::new(source, controls.denormals_are_zero()).narrow(&controls);
+    let specialized = execution.specialize(|execution| {
+        // Only the active source participates in admission and precision reporting.
+        let candidate = narrow_packed_float(
+            Val::<V128>::splat(source.clone()),
+            controls.denormals_are_zero(),
+            &controls.rounding(),
+        );
+        execution.specialize_on(candidate.valid)?;
+        Ok(FloatResult {
+            value: candidate.result.value.extract_lane::<I32>(0),
+            exceptions: candidate.result.exceptions,
+        })
+    })?;
+    let result = specialized.unwrap_or_else(|| {
+        FloatOperand::new(source, controls.denormals_are_zero()).narrow(&controls)
+    });
     execution.record_simd_exceptions(&result.exceptions)?;
     I32::write_register(execution, destination, result.value)
 }
@@ -57,13 +72,21 @@ fn widen_packed(
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
     let source = Val::<V128>::splat(source.read::<I64>(execution, VectorAlignment::Unaligned)?);
-    let result = FloatResult::from_lanes(0_u128.into(), 2, |lane| {
-        FloatOperand::new(
-            source.extract_lane::<I32>(lane),
-            controls.denormals_are_zero(),
-        )
-        .widen()
-    });
+    let specialized = execution.specialize(|execution| {
+        let candidate = widen_packed_float(source.clone(), controls.denormals_are_zero());
+        execution.specialize_on(candidate.valid)?;
+        Ok(candidate.result)
+    })?;
+    let result = match specialized {
+        Some(result) => result,
+        None => FloatResult::from_lanes(0_u128.into(), 2, |lane| {
+            FloatOperand::new(
+                source.extract_lane::<I32>(lane),
+                controls.denormals_are_zero(),
+            )
+            .widen()
+        }),
+    };
     execution.record_simd_exceptions(&result.exceptions)?;
     execution.write_xmm(destination, result.value)
 }
@@ -75,13 +98,25 @@ fn narrow_packed(
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
     let source = source.read::<V128>(execution, VectorAlignment::Aligned)?;
-    let result = FloatResult::from_lanes(0_u128.into(), 2, |lane| {
-        FloatOperand::new(
-            source.extract_lane::<I64>(lane),
+    let specialized = execution.specialize(|execution| {
+        let candidate = narrow_packed_float(
+            source.clone(),
             controls.denormals_are_zero(),
-        )
-        .narrow(&controls)
-    });
+            &controls.rounding(),
+        );
+        execution.specialize_on(candidate.valid)?;
+        Ok(candidate.result)
+    })?;
+    let result = match specialized {
+        Some(result) => result,
+        None => FloatResult::from_lanes(0_u128.into(), 2, |lane| {
+            FloatOperand::new(
+                source.extract_lane::<I64>(lane),
+                controls.denormals_are_zero(),
+            )
+            .narrow(&controls)
+        }),
+    };
     execution.record_simd_exceptions(&result.exceptions)?;
     execution.write_xmm(destination, result.value)
 }

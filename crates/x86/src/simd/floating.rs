@@ -16,7 +16,10 @@ pub(crate) use estimate::FloatEstimate;
 pub(crate) use exceptions::SimdExceptions;
 pub(crate) use integer::integer_to_float;
 pub(crate) use operand::FloatOperand;
-pub(crate) use packed::{estimate_packed_float, packed_integer_to_float, PackedFloatOperand};
+pub(crate) use packed::{
+    estimate_packed_float, narrow_packed_float, packed_integer_to_float, widen_packed_float,
+    PackedFloatOperand,
+};
 
 use wasm86_compiler::{Val, ValueType, VectorLane, V128};
 
