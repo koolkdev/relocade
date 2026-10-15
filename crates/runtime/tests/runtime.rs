@@ -1,0 +1,75 @@
+#![cfg(not(target_arch = "wasm32"))]
+
+use wasm86_machine::{CpuContext, Environment, Machine};
+use wasm86_runtime::{Runtime, Session};
+#[cfg(not(target_arch = "wasm32"))]
+use wasm86_runtime_wasmtime::WasmtimeBackend as TestBackend;
+#[cfg(target_arch = "wasm32")]
+use wasm86_runtime_web::WebBackend as TestBackend;
+use wasm86_x86::{PhysicalMapping, PhysicalMemoryMap};
+
+#[path = "runtime/configurations.rs"]
+mod configurations;
+#[path = "runtime/devices.rs"]
+mod devices;
+#[path = "runtime/dispatch.rs"]
+mod dispatch;
+#[path = "runtime/execution.rs"]
+mod execution;
+#[path = "runtime/memory.rs"]
+mod memory;
+#[path = "runtime/observation.rs"]
+mod observation;
+#[path = "runtime/slices.rs"]
+mod slices;
+
+type TestMachine<D = ()> = Session<TestBackend, D>;
+
+async fn runtime() -> Runtime<TestBackend> {
+    use std::cell::RefCell;
+    thread_local! {
+        static RUNTIME: RefCell<Option<Runtime<TestBackend>>> = const { RefCell::new(None) };
+    }
+    RUNTIME.with_borrow_mut(|cache| {
+        cache
+            .get_or_insert_with(|| {
+                #[cfg(not(target_arch = "wasm32"))]
+                let backend = TestBackend::new().unwrap();
+                #[cfg(target_arch = "wasm32")]
+                let backend = TestBackend;
+                Runtime::new(backend)
+            })
+            .clone()
+    })
+}
+
+fn real_machine<E: Environment>(map: PhysicalMemoryMap, environment: E) -> Machine<E> {
+    use wasm86_x86::{Compiler, CpuState, ExecutionProfile, Segments};
+    let context = CpuContext::new(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            segments: Segments::real_mode(),
+            ..CpuState::default()
+        },
+    )
+    .unwrap();
+    Machine::new(context, map, environment).unwrap()
+}
+
+fn ram() -> PhysicalMemoryMap {
+    PhysicalMemoryMap::new([(0..=0x10ffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap()
+}
+
+async fn machine(code: &[u8]) -> TestMachine {
+    let mut machine = runtime()
+        .await
+        .attach(real_machine(ram(), ()))
+        .await
+        .unwrap();
+    machine.write_memory(0x100, code).unwrap();
+    let mut cpu = machine.cpu();
+    cpu.eip = 0x100;
+    cpu.registers.esp = 0xff00;
+    machine.set_cpu(cpu).unwrap();
+    machine
+}
