@@ -45,7 +45,22 @@ fn narrow_scalar(
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
     let source = source.read::<I64>(execution, VectorAlignment::Unaligned)?;
-    let result = FloatOperand::new(source, controls.denormals_are_zero()).narrow(&controls);
+    let specialized = execution.specialize(|execution| {
+        // Only the active source participates in admission and precision reporting.
+        let candidate = narrow_packed_float(
+            Val::<V128>::splat(source.clone()),
+            controls.denormals_are_zero(),
+            &controls.rounding(),
+        );
+        execution.specialize_on(candidate.valid)?;
+        Ok(FloatResult {
+            value: candidate.result.value.extract_lane::<I32>(0),
+            exceptions: candidate.result.exceptions,
+        })
+    })?;
+    let result = specialized.unwrap_or_else(|| {
+        FloatOperand::new(source, controls.denormals_are_zero()).narrow(&controls)
+    });
     execution.record_simd_exceptions(&result.exceptions)?;
     I32::write_register(execution, destination, result.value)
 }

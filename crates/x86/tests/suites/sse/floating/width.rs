@@ -4,6 +4,8 @@ use super::*;
 
 #[path = "width/packed.rs"]
 mod packed;
+#[path = "width/scalar.rs"]
+mod scalar;
 
 struct ScalarCase {
     source: u64,
