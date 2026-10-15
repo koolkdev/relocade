@@ -17,13 +17,14 @@ where
 {
     let controls = execution.simd_arithmetic_controls()?;
     scalar_binary::<T>(execution, destination, source, |execution, left, right| {
-        let specialized = execution.specialize_simd_arithmetic(|| {
-            arithmetic_candidate::<T>(
+        let specialized = execution.specialize(|execution| {
+            let candidate = arithmetic_candidate::<T>(
                 &controls,
                 Val::<V128>::splat(left.clone()),
                 Val::<V128>::splat(right.clone()),
                 operation,
-            )
+            );
+            execution.admit_simd_candidate(candidate)
         })?;
         match specialized {
             Some(result) => Ok(FloatResult {
@@ -49,8 +50,10 @@ where
 {
     let controls = execution.simd_arithmetic_controls()?;
     packed_binary(execution, destination, source, |execution, left, right| {
-        let specialized = execution.specialize_simd_arithmetic(|| {
-            arithmetic_candidate::<T>(&controls, left.clone(), right.clone(), operation)
+        let specialized = execution.specialize(|execution| {
+            let candidate =
+                arithmetic_candidate::<T>(&controls, left.clone(), right.clone(), operation);
+            execution.admit_simd_candidate(candidate)
         })?;
         match specialized {
             Some(result) => Ok(result),
@@ -72,8 +75,10 @@ where
 {
     let controls = execution.simd_arithmetic_controls()?;
     scalar_binary::<T>(execution, destination, source, |execution, _, right| {
-        let specialized = execution.specialize_simd_arithmetic(|| {
-            square_root_candidate::<T>(&controls, Val::<V128>::splat(right.clone()))
+        let specialized = execution.specialize(|execution| {
+            let candidate =
+                square_root_candidate::<T>(&controls, Val::<V128>::splat(right.clone()));
+            execution.admit_simd_candidate(candidate)
         })?;
         match specialized {
             Some(result) => Ok(FloatResult {
@@ -97,8 +102,10 @@ where
 {
     let controls = execution.simd_arithmetic_controls()?;
     packed_binary(execution, destination, source, |execution, left, right| {
-        let specialized = execution
-            .specialize_simd_arithmetic(|| square_root_candidate::<T>(&controls, right.clone()))?;
+        let specialized = execution.specialize(|execution| {
+            let candidate = square_root_candidate::<T>(&controls, right.clone());
+            execution.admit_simd_candidate(candidate)
+        })?;
         match specialized {
             Some(result) => Ok(result),
             None => packed_lanes::<T>(execution, left, right, |body, _, right| {

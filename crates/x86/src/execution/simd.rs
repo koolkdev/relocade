@@ -40,15 +40,6 @@ impl ExecutionBuilder<'_, '_> {
         Ok(controls)
     }
 
-    /// Build and admit a native result using the established rounding mode.
-    /// Call `simd_arithmetic_controls` before accessing the operands.
-    pub(crate) fn specialize_simd_arithmetic(
-        &mut self,
-        calculate: impl FnOnce() -> PackedFloatCandidate,
-    ) -> Result<Option<FloatResult<V128>>, BuildError> {
-        self.specialize(|jit| jit.admit_simd_candidate(calculate()))
-    }
-
     /// Requires a specializing path. Guard the candidate's numerical domain
     /// before publishing its result or precision effects.
     pub(crate) fn admit_simd_candidate(
