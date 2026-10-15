@@ -1,6 +1,6 @@
 //! Rounding preserves discarded-fraction evidence across shifts and formats.
 
-use wasm86_compiler::{Val, F64, I1, I32, I64, I8};
+use wasm86_compiler::{Val, ValueType, F64, I1, I32, I64, I8};
 
 #[cfg(test)]
 mod tests;
@@ -65,12 +65,20 @@ impl RoundingMode {
 
     /// Native integral rounding has the same RC policy and signed-zero rule.
     pub(crate) fn integral(&self, value: &Val<F64>) -> Val<F64> {
+        self.select(value.nearest(), value.floor(), value.ceil(), value.trunc())
+    }
+
+    /// Choose results already rounded in the four architectural directions.
+    pub(crate) fn select<T: ValueType>(
+        &self,
+        nearest: Val<T>,
+        down: Val<T>,
+        up: Val<T>,
+        zero: Val<T>,
+    ) -> Val<T> {
         self.0.eq(0).select(
-            value.nearest(),
-            self.0.eq(1).select(
-                value.floor(),
-                self.0.eq(2).select(value.ceil(), value.trunc()),
-            ),
+            nearest,
+            self.0.eq(1).select(down, self.0.eq(2).select(up, zero)),
         )
     }
 

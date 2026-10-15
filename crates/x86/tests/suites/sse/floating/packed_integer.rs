@@ -149,3 +149,70 @@ fn memory(engine: Engine, frontend: Frontend) {
 test_frontends!(sse_packed_integer_lanes, lanes);
 test_frontends!(sse_packed_integer_exceptions, exceptions);
 test_frontends!(sse_packed_integer_memory, memory);
+
+fn boundaries(engine: Engine, frontend: Frontend) {
+    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    for truncate in [false, true] {
+        let code = conversion_code(true, truncate, 0xc1);
+        for rc in 0..4 {
+            let mut image = floating_image(&code, 0x1f80 | rc << 13);
+            lane(&mut image.cpu.simd.xmm[1], true, 0, 0xc1e0_0000_0010_0000); // -2^31 - 0.5
+            lane(&mut image.cpu.simd.xmm[1], true, 1, 0x41df_ffff_ffe0_0000); // 2^31 - 0.5
+            let mode = if truncate { 3 } else { rc };
+            let mut cpu = retire(image.cpu, code.len());
+            cpu.simd.mxcsr |= if mode == 3 { 32 } else { 33 };
+            cpu.simd.xmm[0] = [0; 16];
+            lane(&mut cpu.simd.xmm[0], false, 0, 0x8000_0000);
+            lane(
+                &mut cpu.simd.xmm[0],
+                false,
+                1,
+                if mode == 1 || mode == 3 {
+                    0x7fff_ffff
+                } else {
+                    0x8000_0000
+                },
+            );
+            checks.check(
+                "packed bounds are checked after rounding, before saturating conversion",
+                &code,
+                &image,
+                &[dispatch(cpu)],
+            );
+        }
+    }
+    for wide in [false, true] {
+        let code = conversion_code(wide, false, 0xc1);
+        for daz in [false, true] {
+            for rc in 0..4 {
+                let mut image = floating_image(&code, 0x1f80 | rc << 13 | u32::from(daz) << 6);
+                image.cpu.simd.xmm[1] = [0; 16];
+                lane(&mut image.cpu.simd.xmm[1], wide, 0, DENORMAL[wide as usize]);
+                lane(
+                    &mut image.cpu.simd.xmm[1],
+                    wide,
+                    1,
+                    NEG_DENORMAL[wide as usize],
+                );
+                let mut cpu = retire(image.cpu, code.len());
+                cpu.simd.mxcsr |= if daz { 0 } else { 32 };
+                cpu.simd.xmm[0] = [0; 16];
+                lane(&mut cpu.simd.xmm[0], false, 0, u64::from(!daz && rc == 2));
+                lane(
+                    &mut cpu.simd.xmm[0],
+                    false,
+                    1,
+                    if !daz && rc == 1 { 0xffff_ffff } else { 0 },
+                );
+                checks.check(
+                    "packed integer conversion normalizes DAZ without denormal status",
+                    &code,
+                    &image,
+                    &[dispatch(cpu)],
+                );
+            }
+        }
+    }
+}
+
+test_frontends!(sse_packed_integer_boundaries, boundaries);
