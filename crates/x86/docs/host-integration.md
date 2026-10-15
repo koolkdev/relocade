@@ -268,7 +268,8 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
 
 Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
-`resolveSegment`, `querySegmentDescriptor` and `queryDescriptorTable`. Real16
+`resolveSegment`, `querySegmentDescriptor`, `queryDescriptorTable` and
+`querySystemSelector`. Real16
 interpreters import `cpuState`, `guest`, `physicalMap`, `dispatch`, the MMIO and port
 callbacks, plus `queryDescriptorTable` for SGDT. They use generated RAM/ROM accesses
 and do not call segment-resolution or segment-descriptor callbacks. The physical
@@ -276,8 +277,9 @@ memory contract below describes routing and callback widths.
 Snapshot modules omit imports they do not use: protected-mode memory instructions
 require guest backing and the page table, protected-mode segment loads require
 `resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. SGDT and
-protected-mode SIDT require `queryDescriptorTable`. Blocks with specialization guards require
-`interpret`. Hosts should use the generated module's import list when instantiating it.
+protected-mode SIDT require `queryDescriptorTable`; SLDT requires `querySystemSelector`.
+Blocks with specialization guards require `interpret`. Hosts should use the generated
+module's import list when instantiating it.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical
@@ -907,13 +909,27 @@ named fields. The callback reads the current host system-register view and must
 not inspect or mutate CPU state, guest memory or page tables, or reenter guest
 execution. The host may update its view between entry invocations.
 
-Both instructions always store six bytes: a little-endian 16-bit limit followed by the base.
-With 16-bit operand size, only base bits 23:0 are stored and the sixth byte is
+Both instructions always store six bytes: a little-endian 16-bit limit followed
+by the base. With 16-bit operand size, only base bits 23:0 are stored and the sixth byte is
 zero; with 32-bit operand size, all base bits are stored. Address size and segment
 overrides affect the destination normally. The entire destination is checked
 before any bytes are written, and flags are unchanged. Both are available in
 real mode and at CPL3 without a CPUID feature bit. Real16 SIDT uses the profile's
 fixed IDTR (base zero, limit 0x3ff) without a host query.
+
+### System-selector stores
+
+SLDT calls `wasm86.querySystemSelector(register: i32)` with `SystemSelector::Ldtr`
+(0). The callback returns the current LDTR selector, zero-extended from 16 bits
+in a Wasm i32 result. It follows the same read-only, non-reentrant host rules as
+`queryDescriptorTable`; it does not resolve or reload a descriptor. The host may
+change its system-register view between entry invocations.
+
+SLDT writes two bytes to memory. Register destinations follow operand size:
+16-bit writes preserve the parent's upper half, and P4 32-bit writes clear it.
+The instruction preserves flags and is available at CPL3 without a CPUID feature
+bit. Real16 raises #UD after complete decoding, before any host query or operand
+access. Destination memory faults preserve CPU state and guest memory.
 
 ## Fault and host exits
 

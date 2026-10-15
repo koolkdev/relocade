@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::{
     changes, Argument, DescriptorTableQuery, Event, Input, MmioUpdate, Observation, Outcome,
-    SegmentQuery, SegmentResolution, Snapshot, TestModule,
+    SegmentQuery, SegmentResolution, Snapshot, SystemSelectorQuery, TestModule,
 };
 
 mod physical;
@@ -18,6 +18,7 @@ struct ExecutionEvents {
     segment_resolutions: std::vec::IntoIter<SegmentResolution>,
     segment_queries: std::vec::IntoIter<SegmentQuery>,
     descriptor_table_queries: std::vec::IntoIter<DescriptorTableQuery>,
+    system_selector_queries: std::vec::IntoIter<SystemSelectorQuery>,
     mmio_updates: std::vec::IntoIter<MmioUpdate>,
     port_reads: std::vec::IntoIter<u32>,
 }
@@ -34,6 +35,7 @@ impl TestModule {
                 segment_resolutions: input.segment_resolutions.clone().into_iter(),
                 segment_queries: input.segment_queries.clone().into_iter(),
                 descriptor_table_queries: input.descriptor_table_queries.clone().into_iter(),
+                system_selector_queries: input.system_selector_queries.clone().into_iter(),
                 mmio_updates: input.mmio_updates.clone().into_iter(),
                 port_reads: input.port_reads.clone().into_iter(),
             },
@@ -237,6 +239,11 @@ impl TestModule {
             store.data().descriptor_table_queries.len(),
             0,
             "unused descriptor-table queries"
+        );
+        assert_eq!(
+            store.data().system_selector_queries.len(),
+            0,
+            "unused system-selector queries"
         );
         assert_eq!(store.data().mmio_updates.len(), 0, "unused MMIO updates");
         assert_eq!(store.data().port_reads.len(), 0, "unused port reads");

@@ -101,6 +101,10 @@ fn interpreter_step_exposes_host_abis() {
                 (vec![ValType::I32], vec![ValType::I32; 5])
             ),
             (
+                "querySystemSelector",
+                (vec![ValType::I32], vec![ValType::I32])
+            ),
+            (
                 "queryDescriptorTable",
                 (vec![ValType::I32], vec![ValType::I32; 2])
             ),

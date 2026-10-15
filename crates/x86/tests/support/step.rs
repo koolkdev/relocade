@@ -16,7 +16,7 @@ mod segments;
 mod system;
 mod wasmtime;
 pub(crate) use segments::{SegmentQuery, SegmentResolution};
-pub(crate) use system::DescriptorTableQuery;
+pub(crate) use system::{DescriptorTableQuery, SystemSelectorQuery};
 
 #[derive(Serialize)]
 pub(crate) struct Input {
@@ -34,6 +34,7 @@ pub(crate) struct Input {
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
     pub(crate) segment_queries: Vec<SegmentQuery>,
     pub(crate) descriptor_table_queries: Vec<DescriptorTableQuery>,
+    pub(crate) system_selector_queries: Vec<SystemSelectorQuery>,
     pub(crate) patches_before_calls: Vec<CallPatches>,
     #[serde(with = "wasm86_test_support::decimal_i64")]
     pub(crate) dispatch_return: i64,
@@ -57,6 +58,7 @@ impl Input {
             segment_resolutions: Vec::new(),
             segment_queries: Vec::new(),
             descriptor_table_queries: Vec::new(),
+            system_selector_queries: Vec::new(),
             patches_before_calls: Vec::new(),
             dispatch_return: i64::MIN,
         }
@@ -115,6 +117,9 @@ pub(crate) enum Event {
     },
     Interpret {
         snapshot: Snapshot,
+    },
+    QuerySystemSelector {
+        register: u32,
     },
     QueryDescriptorTable {
         table: u32,

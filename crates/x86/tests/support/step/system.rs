@@ -1,6 +1,6 @@
 //! Shared host replies for guest-visible system-register queries.
 
-use crate::{DescriptorTable, DescriptorTableRegister};
+use crate::{DescriptorTable, DescriptorTableRegister, SystemSelector};
 use serde::Serialize;
 
 #[derive(Clone, Serialize)]
@@ -16,6 +16,21 @@ impl DescriptorTableQuery {
             table: table as u32,
             base: register.base,
             limit: register.limit,
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub(crate) struct SystemSelectorQuery {
+    pub(crate) register: u32,
+    pub(crate) selector: u16,
+}
+
+impl SystemSelectorQuery {
+    pub(crate) fn new(register: SystemSelector, selector: u16) -> Self {
+        Self {
+            register: register as u32,
+            selector,
         }
     }
 }
