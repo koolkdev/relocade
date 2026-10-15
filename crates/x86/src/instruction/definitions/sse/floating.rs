@@ -79,7 +79,7 @@ pub(super) fn packed_binary(
     execution.write_xmm(destination, result.value)
 }
 
-pub(super) fn packed_lanes<T: BinaryEncoding>(
+fn packed_lanes<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
     left: Val<V128>,
     right: Val<V128>,

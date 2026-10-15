@@ -1,7 +1,7 @@
 //! Legacy floating-point minima and maxima select the source on ties or NaNs.
 
 use super::*;
-use crate::simd::{FloatMinMax, FloatOperands};
+use crate::simd::{FloatMinMax, FloatOperands, PackedFloatOperand};
 use crate::{floating::BinaryEncoding, instruction::XmmType};
 use wasm86_compiler::{AtLeast, I64};
 
@@ -60,14 +60,11 @@ fn packed<T: BinaryEncoding>(
     destination: RegisterCode,
     source: XmmLocation,
     operation: FloatMinMax,
-) -> Result<(), BuildError>
-where
-    I64: AtLeast<T>,
-{
+) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
-    floating::packed_binary(execution, destination, source, |execution, left, right| {
-        floating::packed_lanes::<T>(execution, left, right, |_, left, right| {
-            Ok(FloatOperands::new(left, right, controls.denormals_are_zero()).min_max(operation))
-        })
+    floating::packed_binary(execution, destination, source, |_, left, right| {
+        let left = PackedFloatOperand::new(T::FORMAT, left, controls.denormals_are_zero());
+        let right = PackedFloatOperand::new(T::FORMAT, right, controls.denormals_are_zero());
+        Ok(left.min_max(&right, operation))
     })
 }
