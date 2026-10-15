@@ -12,6 +12,11 @@ The host supplies two distinct, unshared Wasm memories in the `wasm86` module:
 have a minimum size of one 64-KiB Wasm page. The host allocates enough memory for
 all mapped backing. The routing table fits in one Wasm page.
 
+`PhysicalMemoryMap::required_backing_bytes()` gives the minimum backing size for
+all RAM/ROM mappings, including pages currently hidden by A20. Host device adapters
+can use `bus_address()` to apply A20 before a callback; `get()` applies that same
+gate when resolving a mapping.
+
 `PhysicalMemoryMap` contains 272 entries for complete 4-KiB physical pages below
 0x110000. This covers the highest ordinary real-mode address, 0x10ffef, formed by
 `0xffff << 4` plus `0xffff`. The last page includes 16 bytes that canonical

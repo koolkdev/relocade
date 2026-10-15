@@ -20,6 +20,9 @@ that subset. The project is under development; the crates are not published.
 | --- | --- |
 | [wasm86-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
 | [wasm86-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
+| [wasm86-machine](crates/machine/src/lib.rs) | CPU configuration, memory mappings and environment services. |
+| [wasm86-runtime](crates/runtime/src/lib.rs) | Prepared execution modules, callable dispatch and instruction budgets. |
+| [wasm86-runtime-wasmtime](crates/runtime-wasmtime/src/lib.rs) | Native Wasmtime compilation, memories and import bindings. |
 | [wasm86-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime and V8 test support. |
 
 ## Generate a block
@@ -41,6 +44,31 @@ For an executable embedding, follow the
 dispatch and fault exits, segment resolution, and entry validity. Real16 uses
 the [physical-memory contract](crates/x86/docs/physical-memory.md) for host transfers.
 Both contracts are included in the x86 crate's generated API documentation.
+
+## Execute a configured guest
+
+`Machine` pairs a validated `CpuContext` with an address space and an `Environment`.
+Real16 uses physical RAM/ROM/MMIO mappings and A20; protected profiles use
+host-managed 4-KiB linear-to-backing mappings and descriptor callbacks. `Runtime`
+prepares and shares code by the complete execution target, including CPU features.
+`Runtime::attach(machine).await` creates a private `Session` on the chosen backend.
+
+A session can run with an instruction budget or install explicitly compiled
+modules at guest addresses. `Session::run(instruction_budget)` returns an
+`ExecutionExit`; the existing CPU instruction count records retirement. Budgets
+are checked at block boundaries and may be exceeded by a whole block, with no fixed
+overshoot limit. Dispatch calls ordinary Wasm functions and falls back to the
+interpreter for missing entries. Snapshot validity remains the installer's
+responsibility; automatic JIT caching is not implemented.
+A session's target remains fixed. Incompatible guest segment changes return
+`ContextChanged`; automatic mode transitions are not implemented.
+
+The [runtime API](crates/runtime/src/lib.rs) has a complete setup example.
+To run the [native console example](crates/runtime-wasmtime/examples/real16.rs):
+
+```sh
+cargo run -p wasm86-runtime-wasmtime --example real16 --locked
+```
 
 ## Build and test
 
