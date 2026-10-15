@@ -1,9 +1,11 @@
 //! Configuration and construction of snapshot and runtime-decoded execution entries.
 
 mod block;
+mod dispatch;
 mod interpreter;
 
 pub use block::{compile_block_from_bytes, compile_block_from_bytes_with_profile};
+pub use dispatch::EntryTable;
 pub use interpreter::{compile_interpreter, compile_interpreter_step};
 
 use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};

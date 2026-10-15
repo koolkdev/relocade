@@ -27,6 +27,7 @@ pub(super) fn prune(
             | Exit::TailCall {
                 arguments: values, ..
             } => pending.extend(values),
+            Exit::TailCallIndirect { .. } => pending.extend(block.exit.inputs()),
             Exit::If { condition, .. } => pending.push(*condition),
             Exit::Switch { selector, .. } => pending.push(*selector),
             _ => {}

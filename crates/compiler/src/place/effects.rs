@@ -137,6 +137,9 @@ fn summarize(body: &FunctionGraph, summaries: &[Option<Effects>]) -> Option<Effe
             include(&mut reads, operation_reads.as_ref().iter().cloned());
             include(&mut writes, operation_writes.as_ref().iter().cloned());
         }
+        if matches!(block.exit, Exit::TailCallIndirect { .. }) {
+            return Some(Effects::Unknown);
+        }
         if let Exit::TailCall { target, .. } = &block.exit {
             callees.push(*target);
         }

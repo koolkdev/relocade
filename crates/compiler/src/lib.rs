@@ -46,7 +46,7 @@ mod value;
 use std::fmt;
 
 use body::FunctionGraph;
-pub use call::FunctionImport;
+pub use call::{FunctionImport, Table, TableImport};
 pub use control::{Label, LoopLabels};
 use expression::Expression;
 pub use function::BlockBuilder;
@@ -77,6 +77,7 @@ pub struct Func(usize);
 pub enum BuildError {
     UnknownFunction,
     UnknownMemory,
+    UnknownTable,
     ImportedFunction,
     ArgumentCount { expected: usize, actual: usize },
     AlreadyDefined,
@@ -106,6 +107,7 @@ impl fmt::Display for BuildError {
                     "expected {expected} arguments, received {actual}"
                 )
             }
+            Self::UnknownTable => formatter.write_str("unknown function table declaration"),
             Self::UnknownMemory => formatter.write_str("unknown memory declaration"),
             Self::UnknownFunction => formatter.write_str("unknown function declaration"),
             Self::AlreadyDefined => {
@@ -158,6 +160,7 @@ pub struct Program {
     functions: Vec<Declaration>,
     exports: Vec<(String, Func)>,
     memories: Vec<MemoryImport>,
+    tables: Vec<TableImport>,
     features: WasmFeatures,
 }
 

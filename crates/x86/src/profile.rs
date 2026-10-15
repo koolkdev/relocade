@@ -1,6 +1,8 @@
 //! Execution mode and assumptions fixed when an entry is compiled.
 
-use crate::{CpuModel, Segment, SegmentDefaultSize, SegmentProfile, Segments, StoredSegment};
+mod segments;
+
+use crate::{CpuModel, SegmentDefaultSize, SegmentProfile, Segments};
 
 /// The processor model and execution assumptions required by a compiled entry.
 ///
@@ -52,13 +54,7 @@ impl ExecutionProfile {
     /// caches alone do not establish the execution mode; entry and link keys must
     /// retain the profile. Protected profiles ignore irrelevant selector/cache bits.
     pub fn is_compatible_with(self, segments: &Segments) -> bool {
-        match self {
-            Self::Protected(profile) => profile.is_compatible_with(segments),
-            Self::Real16 => Segment::ALL.into_iter().all(|segment| {
-                let cache = segments[segment];
-                cache == StoredSegment::real_mode(segment, cache.selector)
-            }),
-        }
+        self.matches_segments(segments)
     }
 }
 

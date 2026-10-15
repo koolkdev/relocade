@@ -1,7 +1,7 @@
 use crate::{
     body::{Exit, Operation},
     results, Argument, BlockBuilder, BuildError, Declaration, Func, FunctionKind, Program, Results,
-    Signature, Type,
+    Signature, Type, Val, I32,
 };
 
 /// An external function and its logical parameter and return types.
@@ -13,7 +13,33 @@ pub struct FunctionImport {
     pub signature: Signature,
 }
 
+/// A table of functions sharing a logical calling convention.
+/// Use only with the program that declared it.
+#[derive(Clone, Copy, Debug)]
+pub struct Table(pub(super) usize);
+
+/// An imported Wasm function table. The embedding must populate its callable
+/// slots with functions satisfying this logical signature, including narrow types.
+pub struct TableImport {
+    pub module: String,
+    pub name: String,
+    pub minimum: u32,
+    pub maximum: Option<u32>,
+    pub signature: Signature,
+}
+
 impl Program {
+    /// Declares a function table. Unused tables are omitted from the module.
+    /// Panics when the maximum is smaller than the minimum.
+    pub fn import_table(&mut self, import: TableImport) -> Table {
+        assert!(import
+            .maximum
+            .is_none_or(|maximum| maximum >= import.minimum));
+        let table = Table(self.tables.len());
+        self.tables.push(import);
+        table
+    }
+
     /// Declares an imported function. Unused imports are omitted from the module.
     pub fn import_function(&mut self, import: FunctionImport) -> Func {
         let function = Func(self.functions.len());
@@ -65,6 +91,33 @@ impl BlockBuilder<'_> {
         self.terminate(|body| {
             let arguments = body.resolve_call(target, arguments, &body.signature().results)?;
             Ok(Exit::TailCall { target, arguments })
+        })
+    }
+
+    /// Tail-calls a function selected from an imported table. The table's logical
+    /// signature is checked just like a direct call. Stores precede the call;
+    /// an invalid slot or mismatched Wasm signature traps in the destination engine.
+    pub fn tail_call_indirect(
+        self,
+        table: Table,
+        slot: impl Into<Val<I32>>,
+        arguments: &[Argument],
+    ) -> Result<(), BuildError> {
+        self.terminate(|body| {
+            let signature = &body
+                .program
+                .tables
+                .get(table.0)
+                .ok_or(BuildError::UnknownTable)?
+                .signature;
+            let arguments =
+                body.resolve_arguments(signature, arguments, &body.signature().results)?;
+            let slot = body.operand(slot)?;
+            Ok(Exit::TailCallIndirect {
+                table,
+                slot,
+                arguments,
+            })
         })
     }
 
@@ -123,6 +176,15 @@ impl BlockBuilder<'_> {
             .get(target.0)
             .ok_or(BuildError::UnknownFunction)?
             .signature;
+        self.resolve_arguments(signature, arguments, expected)
+    }
+
+    fn resolve_arguments(
+        &self,
+        signature: &Signature,
+        arguments: &[Argument],
+        expected: &[Type],
+    ) -> Result<Vec<usize>, BuildError> {
         if arguments.len() != signature.parameters.len() {
             return Err(BuildError::ArgumentCount {
                 expected: signature.parameters.len(),
@@ -147,6 +209,10 @@ impl BlockBuilder<'_> {
         Ok(values)
     }
 }
+
+#[cfg(test)]
+#[path = "call/tables.rs"]
+mod tables;
 
 #[cfg(test)]
 mod tests {

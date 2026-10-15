@@ -1,6 +1,7 @@
 use super::*;
 use crate::SegmentProfile;
 
+mod dispatch;
 mod slices;
 
 #[test]

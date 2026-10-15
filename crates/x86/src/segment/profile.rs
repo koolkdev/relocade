@@ -1,8 +1,8 @@
 //! Compatibility of loaded segment state with compilation assumptions.
 
-use crate::state::{Segments, StoredSegment};
+use crate::{ExecutionProfile, Segments};
 
-use super::{SegmentDefaultSize, SegmentKind};
+use super::SegmentDefaultSize;
 
 /// Protected-mode segment assumptions fixed when an entry is compiled.
 /// Used by [`crate::ExecutionProfile::Protected`]; 16-bit code defaults do not
@@ -30,33 +30,8 @@ impl SegmentProfile {
     /// Tests the properties assumed by this profile, rather than comparing
     /// selectors or requiring every byte of a segment cache to remain unchanged.
     pub fn is_compatible_with(self, segments: &Segments) -> bool {
-        let cs = &segments.cs;
-        if cs.attributes.default_size() != self.code_default_size() {
-            return false;
-        }
-        match self {
-            Self::Flat32 => {
-                segments.ss.attributes.default_size() == SegmentDefaultSize::Bits32
-                    && flat_range(cs)
-                    && cs.attributes.kind() == Some(SegmentKind::Code { readable: true })
-                    && [&segments.ds, &segments.es, &segments.ss]
-                        .into_iter()
-                        .all(|segment| {
-                            flat_range(segment)
-                                && segment.attributes.kind()
-                                    == Some(SegmentKind::Data {
-                                        writable: true,
-                                        expand_down: false,
-                                    })
-                        })
-            }
-            Self::Segmented32 | Self::Segmented16 => true,
-        }
+        ExecutionProfile::Protected(self).is_compatible_with(segments)
     }
-}
-
-fn flat_range(segment: &StoredSegment) -> bool {
-    segment.base == 0 && segment.limit == u32::MAX
 }
 
 #[cfg(test)]

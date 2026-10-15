@@ -69,11 +69,11 @@ pub enum SegmentKind {
 pub struct SegmentAttributes(u16);
 
 impl SegmentAttributes {
-    const USABLE: u16 = 1;
-    const CODE: u16 = 1 << 1;
-    const READ_WRITE: u16 = 1 << 2;
-    const EXPAND_DOWN: u16 = 1 << 3;
-    const DEFAULT_BIG: u16 = 1 << 4;
+    pub(crate) const USABLE: u16 = 1;
+    pub(crate) const CODE: u16 = 1 << 1;
+    pub(crate) const READ_WRITE: u16 = 1 << 2;
+    pub(crate) const EXPAND_DOWN: u16 = 1 << 3;
+    pub(crate) const DEFAULT_BIG: u16 = 1 << 4;
 
     /// Constructs a usable cache's attributes without performing a segment load.
     pub const fn new(kind: SegmentKind, default_size: SegmentDefaultSize) -> Self {

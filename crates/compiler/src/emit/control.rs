@@ -191,6 +191,22 @@ impl Writer<'_> {
                     self.functions[target.0].expect("a tail-called function is retained"),
                 ));
             }
+            Exit::TailCallIndirect {
+                table,
+                slot,
+                arguments,
+            } => {
+                for &value in arguments {
+                    self.value(value);
+                }
+                self.value(*slot);
+                let (table_index, type_index) =
+                    self.tables[table.0].expect("called table is retained");
+                self.emit(Wasm::ReturnCallIndirect {
+                    type_index,
+                    table_index,
+                });
+            }
             Exit::Trap => self.emit(Wasm::Unreachable),
         }
     }
