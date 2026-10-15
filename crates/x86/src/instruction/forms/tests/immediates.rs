@@ -39,9 +39,7 @@ fn two_immediates_bind_in_encoded_order_with_independent_physical_widths() {
         assert_eq!(decoded.fallthrough_eip, fallthrough);
         assert!(decoded
             .instruction
-            .ends_block(crate::ExecutionProfile::Protected(
-                crate::SegmentProfile::Flat32
-            )));
+            .ends_block(crate::Compiler::new(crate::SegmentProfile::Flat32).target()));
         assert!(!decoded.instruction.uses_memory());
         assert!(matches!(decoded.instruction.call, HandlerCall::Binary {
             left: Operand::Immediate(actual), right: Operand::Immediate(0xf327), ..
@@ -64,6 +62,7 @@ fn immediates_bind_after_location_operands() {
             ];
             let form = Declaration {
                 availability: crate::instruction::Availability::AllModes,
+                features: &[],
                 opcode: Opcode {
                     map: OpcodeMap::Primary,
                     byte: 0x00,
@@ -148,9 +147,7 @@ fn immediate_encoding_keeps_fixed_widths_and_signed_bytes_distinct() {
         assert_eq!(decoded.fallthrough_eip, fallthrough);
         assert!(decoded
             .instruction
-            .ends_block(crate::ExecutionProfile::Protected(
-                crate::SegmentProfile::Flat32
-            )));
+            .ends_block(crate::Compiler::new(crate::SegmentProfile::Flat32).target()));
         assert!(decoded.instruction.uses_memory());
         assert!(matches!(
             decoded.instruction.call,

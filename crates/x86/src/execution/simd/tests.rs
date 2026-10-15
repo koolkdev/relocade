@@ -3,7 +3,7 @@ use crate::{
     runtime::Runtime,
     state::Cpu,
     test_step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule},
-    CompiledModule, CpuState, ExecutionProfile, SegmentDefaultSize, SegmentProfile,
+    CompiledModule, Compiler, CpuState, SegmentDefaultSize, SegmentProfile,
 };
 use wasm86_compiler::{Program, Signature, Type};
 
@@ -33,7 +33,7 @@ fn exception_module(specialize: bool) -> CompiledModule {
                     None,
                     runtime,
                     0x1000,
-                    ExecutionProfile::Protected(SegmentProfile::Flat32),
+                    Compiler::new(SegmentProfile::Flat32).target(),
                 )?;
                 if specialize {
                     execution = execution.with_specialization(None);
@@ -49,7 +49,7 @@ fn exception_module(specialize: bool) -> CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     CompiledModule {
-        execution_profile: None,
+        execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }

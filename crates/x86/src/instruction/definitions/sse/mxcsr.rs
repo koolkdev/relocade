@@ -6,10 +6,12 @@ use crate::{address::MemoryAddress, memory::Intent};
 instruction_families! {
     LDMXCSR {
         execute: load_mxcsr;
+        requires: [Sse];
         forms { NP 0x0f 0xae / 2 => operands(mem); }
     }
     STMXCSR {
         execute: store_mxcsr;
+        requires: [Sse];
         forms { NP 0x0f 0xae / 3 => operands(mem); }
     }
 }

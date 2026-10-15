@@ -6,14 +6,17 @@ use crate::{address::MemoryAddress, memory::Intent, register::Gpr32};
 instruction_families! {
     MOVD_LOAD {
         execute: load_doubleword;
+        requires: [Mmx];
         forms { NP 0x0f 0x6e => dword(mm, rm); }
     }
     MOVD_STORE {
         execute: store_doubleword;
+        requires: [Mmx];
         forms { NP 0x0f 0x7e => dword(rm, mm); }
     }
     MOVQ {
         execute: move_quadword;
+        requires: [Mmx];
         forms {
             NP 0x0f 0x6f => operands(mm, mm_rm);
             NP 0x0f 0x7f => operands(mm_rm, mm);
@@ -21,19 +24,23 @@ instruction_families! {
     }
     MOVQ2DQ {
         execute: move_to_xmm;
+        requires: [Sse2];
         forms { PF3 0x0f 0xd6 => operands(xmm, register(mm_rm)); }
     }
     MOVDQ2Q {
         execute: move_from_xmm;
+        requires: [Sse2];
         forms { PF2 0x0f 0xd6 => operands(mm, register(xmm_rm)); }
     }
     MOVNTQ {
         execute: store_non_temporal;
+        requires: [Sse];
         forms { NP 0x0f 0xe7 => operands(mem, mm); }
     }
     MASKMOVQ {
         execute: store_masked;
         effects: [memory_write];
+        requires: [Sse];
         forms { NP 0x0f 0xf7 => operands(mm, register(mm_rm)); }
     }
 }

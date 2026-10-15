@@ -6,9 +6,9 @@ mod interpreter;
 pub use block::{compile_block_from_bytes, compile_block_from_bytes_with_profile};
 pub use interpreter::{compile_interpreter, compile_interpreter_step};
 
-use crate::{CpuState, ExecutionProfile};
+use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
 
-/// Generates snapshot blocks and interpreter entries under one execution profile.
+/// Generates snapshot blocks and interpreter entries for one execution target.
 /// CPU observations specialize snapshot blocks; interpreters read live state.
 ///
 /// ```
@@ -22,17 +22,42 @@ use crate::{CpuState, ExecutionProfile};
 /// # Ok::<(), wasm86_x86::BlockError>(())
 /// ```
 pub struct Compiler {
-    profile: ExecutionProfile,
+    target: ExecutionTarget,
     observed_cpu: Option<CpuState>,
 }
 
 impl Compiler {
-    /// Selects the segment assumptions for every entry compiled by this owner.
+    /// Selects execution assumptions with the default virtual processor model.
     pub fn new(profile: impl Into<ExecutionProfile>) -> Self {
         Self {
-            profile: profile.into(),
+            target: ExecutionTarget {
+                profile: profile.into(),
+                cpu_model: CpuModel::default(),
+            },
             observed_cpu: None,
         }
+    }
+
+    /// Selects the same processor capabilities for blocks and interpreter entries.
+    ///
+    /// ```
+    /// use wasm86_x86::{Compiler, CpuFeature, CpuModel, SegmentProfile};
+    /// let model = CpuModel::default().with_feature(CpuFeature::Cmov, false);
+    /// let compiler = Compiler::new(SegmentProfile::Flat32).with_cpu_model(model);
+    /// let block = compiler.compile_block(0x1000, &[0x0f, 0x44, 0xc0], 1)?;
+    /// assert_eq!(block.execution_target, Some(compiler.target()));
+    /// // Executing this CMOVE raises #UD without reading its operand.
+    /// # Ok::<(), wasm86_x86::BlockError>(())
+    /// ```
+    #[must_use]
+    pub fn with_cpu_model(mut self, cpu_model: CpuModel) -> Self {
+        self.target.cpu_model = cpu_model;
+        self
+    }
+
+    /// The complete contract shared by every entry compiled by this owner.
+    pub fn target(&self) -> ExecutionTarget {
+        self.target
     }
 
     /// Copies a CPU snapshot for guarded specialization of snapshot blocks.

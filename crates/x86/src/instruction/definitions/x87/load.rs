@@ -14,46 +14,57 @@ use wasm86_compiler::{MemoryInt, I64};
 instruction_families! {
     FLD1 {
         execute: load_constant(Constant::One);
+        requires: [Fpu];
         forms { 0xD9 @ 0xE8 => no_operands(); }
     }
     FLDL2T {
         execute: load_constant(Constant::Log2Ten);
+        requires: [Fpu];
         forms { 0xD9 @ 0xE9 => no_operands(); }
     }
     FLDL2E {
         execute: load_constant(Constant::Log2E);
+        requires: [Fpu];
         forms { 0xD9 @ 0xEA => no_operands(); }
     }
     FLDPI {
         execute: load_constant(Constant::Pi);
+        requires: [Fpu];
         forms { 0xD9 @ 0xEB => no_operands(); }
     }
     FLDLG2 {
         execute: load_constant(Constant::Log10Two);
+        requires: [Fpu];
         forms { 0xD9 @ 0xEC => no_operands(); }
     }
     FLDLN2 {
         execute: load_constant(Constant::LnTwo);
+        requires: [Fpu];
         forms { 0xD9 @ 0xED => no_operands(); }
     }
     FLDZ {
         execute: load_constant(Constant::Zero);
+        requires: [Fpu];
         forms { 0xD9 @ 0xEE => no_operands(); }
     }
     FLD_BINARY32 {
         execute: load_binary(BinaryFormat::Binary32);
+        requires: [Fpu];
         forms { 0xD9 / 0 => operands(mem); }
     }
     FLD_BINARY64 {
         execute: load_binary(BinaryFormat::Binary64);
+        requires: [Fpu];
         forms { 0xDD / 0 => operands(mem); }
     }
     FLD_EXTENDED {
         execute: load_extended;
+        requires: [Fpu];
         forms { 0xDB / 5 => operands(mem); }
     }
     FILD {
         execute: load_integer::<_>;
+        requires: [Fpu];
         forms {
             0xDF / 0 => word(mem);
             0xDB / 0 => dword(mem);
@@ -62,10 +73,12 @@ instruction_families! {
     }
     FBLD {
         execute: load_bcd;
+        requires: [Fpu];
         forms { 0xDF / 4 => operands(mem); }
     }
     FLD_REGISTER {
         execute: load_register;
+        requires: [Fpu];
         forms { 0xD9 @ 0xC0 + rm => operands(st); }
     }
 }

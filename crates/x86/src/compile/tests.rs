@@ -40,7 +40,7 @@ fn interpreter_entries_keep_the_profile_and_ignore_cpu_observations() {
         ),
     ] {
         assert_eq!(configured.entry, name);
-        assert_eq!(configured.execution_profile, Some(profile.into()));
+        assert_eq!(configured.execution_target, Some(compiler.target()));
         assert!(ordinary.bytes == configured.bytes, "{name}");
     }
 }

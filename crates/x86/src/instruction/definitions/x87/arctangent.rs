@@ -9,6 +9,7 @@ use crate::{
 instruction_families! {
     FPATAN {
         execute: arctangent;
+        requires: [Fpu];
         forms { 0xD9 @ 0xF3 => no_operands(); }
     }
 }

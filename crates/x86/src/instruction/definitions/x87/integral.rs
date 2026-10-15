@@ -9,6 +9,7 @@ use crate::{
 instruction_families! {
     FRNDINT {
         execute: round_integral();
+        requires: [Fpu];
         forms { 0xD9 @ 0xFC => no_operands(); }
     }
 }

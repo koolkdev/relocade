@@ -10,14 +10,17 @@ use wasm86_compiler::{MemoryInt, VectorLane};
 instruction_families! {
     PSLLDQ {
         execute: shift_bytes(ByteShiftOp::Left);
+        requires: [Sse2];
         forms { P66 0x0f 0x73 / 7 => operands(register(xmm_rm), imm8); }
     }
     PSRLDQ {
         execute: shift_bytes(ByteShiftOp::Right);
+        requires: [Sse2];
         forms { P66 0x0f 0x73 / 3 => operands(register(xmm_rm), imm8); }
     }
     PSLLW {
         execute: shift::<_>(PackedShiftOp::Left);
+        requires: [Sse2];
         forms {
             P66 0x0f 0xf1 => word(xmm, xmm_rm);
             P66 0x0f 0x71 / 6 => word(register(xmm_rm), imm8);
@@ -25,6 +28,7 @@ instruction_families! {
     }
     PSLLD {
         execute: shift::<_>(PackedShiftOp::Left);
+        requires: [Sse2];
         forms {
             P66 0x0f 0xf2 => dword(xmm, xmm_rm);
             P66 0x0f 0x72 / 6 => dword(register(xmm_rm), imm8);
@@ -32,6 +36,7 @@ instruction_families! {
     }
     PSLLQ {
         execute: shift::<_>(PackedShiftOp::Left);
+        requires: [Sse2];
         forms {
             P66 0x0f 0xf3 => qword(xmm, xmm_rm);
             P66 0x0f 0x73 / 6 => qword(register(xmm_rm), imm8);
@@ -39,6 +44,7 @@ instruction_families! {
     }
     PSRLW {
         execute: shift::<_>(PackedShiftOp::RightLogical);
+        requires: [Sse2];
         forms {
             P66 0x0f 0xd1 => word(xmm, xmm_rm);
             P66 0x0f 0x71 / 2 => word(register(xmm_rm), imm8);
@@ -46,6 +52,7 @@ instruction_families! {
     }
     PSRLD {
         execute: shift::<_>(PackedShiftOp::RightLogical);
+        requires: [Sse2];
         forms {
             P66 0x0f 0xd2 => dword(xmm, xmm_rm);
             P66 0x0f 0x72 / 2 => dword(register(xmm_rm), imm8);
@@ -53,6 +60,7 @@ instruction_families! {
     }
     PSRLQ {
         execute: shift::<_>(PackedShiftOp::RightLogical);
+        requires: [Sse2];
         forms {
             P66 0x0f 0xd3 => qword(xmm, xmm_rm);
             P66 0x0f 0x73 / 2 => qword(register(xmm_rm), imm8);
@@ -60,6 +68,7 @@ instruction_families! {
     }
     PSRAW {
         execute: shift::<_>(PackedShiftOp::RightArithmetic);
+        requires: [Sse2];
         forms {
             P66 0x0f 0xe1 => word(xmm, xmm_rm);
             P66 0x0f 0x71 / 4 => word(register(xmm_rm), imm8);
@@ -67,6 +76,7 @@ instruction_families! {
     }
     PSRAD {
         execute: shift::<_>(PackedShiftOp::RightArithmetic);
+        requires: [Sse2];
         forms {
             P66 0x0f 0xe2 => dword(xmm, xmm_rm);
             P66 0x0f 0x72 / 4 => dword(register(xmm_rm), imm8);

@@ -6,13 +6,14 @@ macro_rules! instruction_families {
         execute: $handler:ident $(::<$size:tt>)? $(($($argument:expr),* $(,)?))?;
         $(effects: [$($effect:ident),* $(,)?];)?
         $(availability: $availability:ident;)?
+        $(requires: [$($feature:ident),* $(,)?];)?
         forms $rows:tt
     })+) => {
         pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
             use crate::instruction::forms::declarations::*;
             // Runtime decoder tables identify forms across catalog traversals.
             static FAMILIES: &[&[&[Form]]] = &[$(
-                declaration_family!([$handler $(::<$size>)?; $($($argument),*)?] [$($($effect),*)?] [$($availability)?] $rows)
+                declaration_family!([$handler $(::<$size>)?; $($($argument),*)?] [$($($effect),*)?] [$($availability)?] [$($($feature),*)?] $rows)
             ),+];
             FAMILIES.iter().flat_map(|rows| rows.iter().flat_map(|forms| forms.iter()))
         }
@@ -20,7 +21,7 @@ macro_rules! instruction_families {
 }
 
 macro_rules! declaration_family {
-    ($call:tt $effects:tt $availability:tt {
+    ($call:tt $effects:tt $availability:tt $features:tt {
         $($($prefix:ident)? $opcode:literal $($extended:literal)? $(+ $pattern:ident)? $(/ $extension:literal)? $(@ $modrm:literal $(+ $modrm_range:ident)?)? =>
             $width:ident $operands:tt $(| $other_width:ident $other_operands:tt)? $($lockable:ident)?;
         )+
@@ -42,6 +43,7 @@ macro_rules! declaration_family {
                     ),
                     effects: declaration_effects!($effects),
                     availability: declaration_opcode!(@availability $availability),
+                    features: declaration_opcode!(@features $features),
                     lockable: declaration_opcode!(@lockable $($lockable)?),
                 }.form()
             };
@@ -61,6 +63,9 @@ macro_rules! declaration_effects {
 }
 
 macro_rules! declaration_opcode {
+    (@features [$($feature:ident),*]) => {
+        &[$(crate::CpuFeature::$feature),*]
+    };
     (@availability []) => {
         crate::instruction::Availability::AllModes
     };

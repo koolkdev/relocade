@@ -6,6 +6,7 @@ use crate::{state::x87::X87Specialization, x87::Operand};
 instruction_families! {
     F2XM1 {
         execute: exponential_minus_one();
+        requires: [Fpu];
         forms { 0xD9 @ 0xF0 => no_operands(); }
     }
 }

@@ -11,18 +11,22 @@ use wasm86_compiler::{AtLeast, I64};
 instruction_families! {
     CVTSI2SS {
         execute: scalar(BinaryFormat::Binary32);
+        requires: [Sse];
         forms { PF3 0x0f 0x2a => dword(xmm, rm); }
     }
     CVTSI2SD {
         execute: scalar(BinaryFormat::Binary64);
+        requires: [Sse2];
         forms { PF2 0x0f 0x2a => dword(xmm, rm); }
     }
     CVTDQ2PS {
         execute: packed::<_>;
+        requires: [Sse2];
         forms { NP 0x0f 0x5b => dword(xmm, xmm_rm); }
     }
     CVTDQ2PD {
         execute: packed::<_>;
+        requires: [Sse2];
         forms { PF3 0x0f 0xe6 => qword(xmm, xmm_rm); }
     }
 }

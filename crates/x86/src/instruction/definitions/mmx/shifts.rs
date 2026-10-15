@@ -8,6 +8,7 @@ use wasm86_compiler::{MemoryInt, VectorLane};
 instruction_families! {
     PSLLW {
         execute: shift::<_>(PackedShiftOp::Left);
+        requires: [Mmx];
         forms {
             NP 0x0f 0xf1 => word(mm, mm_rm);
             NP 0x0f 0x71 / 6 => word(register(mm_rm), imm8);
@@ -15,6 +16,7 @@ instruction_families! {
     }
     PSLLD {
         execute: shift::<_>(PackedShiftOp::Left);
+        requires: [Mmx];
         forms {
             NP 0x0f 0xf2 => dword(mm, mm_rm);
             NP 0x0f 0x72 / 6 => dword(register(mm_rm), imm8);
@@ -22,6 +24,7 @@ instruction_families! {
     }
     PSLLQ {
         execute: shift::<_>(PackedShiftOp::Left);
+        requires: [Mmx];
         forms {
             NP 0x0f 0xf3 => qword(mm, mm_rm);
             NP 0x0f 0x73 / 6 => qword(register(mm_rm), imm8);
@@ -29,6 +32,7 @@ instruction_families! {
     }
     PSRLW {
         execute: shift::<_>(PackedShiftOp::RightLogical);
+        requires: [Mmx];
         forms {
             NP 0x0f 0xd1 => word(mm, mm_rm);
             NP 0x0f 0x71 / 2 => word(register(mm_rm), imm8);
@@ -36,6 +40,7 @@ instruction_families! {
     }
     PSRLD {
         execute: shift::<_>(PackedShiftOp::RightLogical);
+        requires: [Mmx];
         forms {
             NP 0x0f 0xd2 => dword(mm, mm_rm);
             NP 0x0f 0x72 / 2 => dword(register(mm_rm), imm8);
@@ -43,6 +48,7 @@ instruction_families! {
     }
     PSRLQ {
         execute: shift::<_>(PackedShiftOp::RightLogical);
+        requires: [Mmx];
         forms {
             NP 0x0f 0xd3 => qword(mm, mm_rm);
             NP 0x0f 0x73 / 2 => qword(register(mm_rm), imm8);
@@ -50,6 +56,7 @@ instruction_families! {
     }
     PSRAW {
         execute: shift::<_>(PackedShiftOp::RightArithmetic);
+        requires: [Mmx];
         forms {
             NP 0x0f 0xe1 => word(mm, mm_rm);
             NP 0x0f 0x71 / 4 => word(register(mm_rm), imm8);
@@ -57,6 +64,7 @@ instruction_families! {
     }
     PSRAD {
         execute: shift::<_>(PackedShiftOp::RightArithmetic);
+        requires: [Mmx];
         forms {
             NP 0x0f 0xe2 => dword(mm, mm_rm);
             NP 0x0f 0x72 / 4 => dword(register(mm_rm), imm8);

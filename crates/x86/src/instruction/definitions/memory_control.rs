@@ -6,34 +6,42 @@ use crate::address::{EffectiveAddress, MemoryAddress};
 instruction_families! {
     LFENCE {
         execute: fence;
+        requires: [Sse2];
         forms { NP 0x0f 0xae @ 0xe8 + rm => no_operands(); }
     }
     MFENCE {
         execute: fence;
+        requires: [Sse2];
         forms { NP 0x0f 0xae @ 0xf0 + rm => no_operands(); }
     }
     SFENCE {
         execute: fence;
+        requires: [Sse];
         forms { NP 0x0f 0xae @ 0xf8 + rm => no_operands(); }
     }
     PREFETCHNTA {
         execute: prefetch;
+        requires: [Sse];
         forms { 0x0f 0x18 / 0 => operands(address); }
     }
     PREFETCHT0 {
         execute: prefetch;
+        requires: [Sse];
         forms { 0x0f 0x18 / 1 => operands(address); }
     }
     PREFETCHT1 {
         execute: prefetch;
+        requires: [Sse];
         forms { 0x0f 0x18 / 2 => operands(address); }
     }
     PREFETCHT2 {
         execute: prefetch;
+        requires: [Sse];
         forms { 0x0f 0x18 / 3 => operands(address); }
     }
     CLFLUSH {
         execute: flush;
+        requires: [Clflush];
         forms { NP 0x0f 0xae / 7 => operands(mem); }
     }
 }

@@ -13,14 +13,17 @@ use wasm86_compiler::{VectorLane, I64, V128};
 instruction_families! {
     MOVD_TO_XMM {
         execute: move_dword_to_xmm;
+        requires: [Sse2];
         forms { P66 0x0f 0x6e => dword(xmm, rm); }
     }
     MOVD_FROM_XMM {
         execute: move_dword_from_xmm;
+        requires: [Sse2];
         forms { P66 0x0f 0x7e => dword(rm, xmm); }
     }
     MOVQ {
         execute: move_quadword;
+        requires: [Sse2];
         forms {
             PF3 0x0f 0x7e => operands(xmm, xmm_rm);
             P66 0x0f 0xd6 => operands(xmm_rm, xmm);
@@ -28,6 +31,7 @@ instruction_families! {
     }
     MOVUPS {
         execute: move_vector(VectorAlignment::Unaligned);
+        requires: [Sse];
         forms {
             NP 0x0f 0x10 => operands(xmm, xmm_rm);
             NP 0x0f 0x11 => operands(xmm_rm, xmm);
@@ -35,6 +39,7 @@ instruction_families! {
     }
     MOVUPD {
         execute: move_vector(VectorAlignment::Unaligned);
+        requires: [Sse2];
         forms {
             P66 0x0f 0x10 => operands(xmm, xmm_rm);
             P66 0x0f 0x11 => operands(xmm_rm, xmm);
@@ -42,6 +47,7 @@ instruction_families! {
     }
     MOVDQU {
         execute: move_vector(VectorAlignment::Unaligned);
+        requires: [Sse2];
         forms {
             PF3 0x0f 0x6f => operands(xmm, xmm_rm);
             PF3 0x0f 0x7f => operands(xmm_rm, xmm);
@@ -49,6 +55,7 @@ instruction_families! {
     }
     MOVAPS {
         execute: move_vector(VectorAlignment::Aligned);
+        requires: [Sse];
         forms {
             NP 0x0f 0x28 => operands(xmm, xmm_rm);
             NP 0x0f 0x29 => operands(xmm_rm, xmm);
@@ -56,6 +63,7 @@ instruction_families! {
     }
     MOVAPD {
         execute: move_vector(VectorAlignment::Aligned);
+        requires: [Sse2];
         forms {
             P66 0x0f 0x28 => operands(xmm, xmm_rm);
             P66 0x0f 0x29 => operands(xmm_rm, xmm);
@@ -63,6 +71,7 @@ instruction_families! {
     }
     MOVDQA {
         execute: move_vector(VectorAlignment::Aligned);
+        requires: [Sse2];
         forms {
             P66 0x0f 0x6f => operands(xmm, xmm_rm);
             P66 0x0f 0x7f => operands(xmm_rm, xmm);
@@ -70,6 +79,7 @@ instruction_families! {
     }
     MOVSS {
         execute: move_scalar::<_>;
+        requires: [Sse];
         forms {
             PF3 0x0f 0x10 => dword(xmm, xmm_rm);
             PF3 0x0f 0x11 => dword(xmm_rm, xmm);
@@ -77,6 +87,7 @@ instruction_families! {
     }
     MOVSD {
         execute: move_scalar::<_>;
+        requires: [Sse2];
         forms {
             PF2 0x0f 0x10 => qword(xmm, xmm_rm);
             PF2 0x0f 0x11 => qword(xmm_rm, xmm);
@@ -84,19 +95,23 @@ instruction_families! {
     }
     MOVNTPS {
         execute: store_non_temporal;
+        requires: [Sse];
         forms { NP 0x0f 0x2b => operands(mem, xmm); }
     }
     MOVNTPD {
         execute: store_non_temporal;
+        requires: [Sse2];
         forms { P66 0x0f 0x2b => operands(mem, xmm); }
     }
     MOVNTDQ {
         execute: store_non_temporal;
+        requires: [Sse2];
         forms { P66 0x0f 0xe7 => operands(mem, xmm); }
     }
     MASKMOVDQU {
         execute: store_masked;
         effects: [memory_write];
+        requires: [Sse2];
         forms { P66 0x0f 0xf7 => operands(xmm, register(xmm_rm)); }
     }
 }

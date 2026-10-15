@@ -9,6 +9,7 @@ use crate::{
 instruction_families! {
     FSQRT {
         execute: square_root();
+        requires: [Fpu];
         forms { 0xD9 @ 0xFA => no_operands(); }
     }
 }

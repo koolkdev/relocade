@@ -25,7 +25,7 @@ fn refined_root_and_rounding_evidence_match_integer_square_root() {
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "sqrt".into(),
-        execution_profile: None,
+        execution_target: None,
     });
     let mut values = vec![
         1 << 63,

@@ -12,6 +12,7 @@ fn declaration_form(operands: &[OperandSpec], modrm: Option<ModRmSelector>) -> F
     };
     Declaration {
         availability: crate::instruction::Availability::AllModes,
+        features: &[],
         opcode: Opcode {
             map: OpcodeMap::Primary,
             byte: 0x00,

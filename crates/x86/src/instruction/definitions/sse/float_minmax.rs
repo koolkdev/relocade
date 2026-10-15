@@ -8,34 +8,42 @@ use wasm86_compiler::{AtLeast, I64};
 instruction_families! {
     MINSS {
         execute: scalar::<_>(FloatMinMax::Min);
+        requires: [Sse];
         forms { PF3 0x0f 0x5d => dword(xmm, xmm_rm); }
     }
     MINSD {
         execute: scalar::<_>(FloatMinMax::Min);
+        requires: [Sse2];
         forms { PF2 0x0f 0x5d => qword(xmm, xmm_rm); }
     }
     MINPS {
         execute: packed::<_>(FloatMinMax::Min);
+        requires: [Sse];
         forms { NP 0x0f 0x5d => dword(xmm, xmm_rm); }
     }
     MINPD {
         execute: packed::<_>(FloatMinMax::Min);
+        requires: [Sse2];
         forms { P66 0x0f 0x5d => qword(xmm, xmm_rm); }
     }
     MAXSS {
         execute: scalar::<_>(FloatMinMax::Max);
+        requires: [Sse];
         forms { PF3 0x0f 0x5f => dword(xmm, xmm_rm); }
     }
     MAXSD {
         execute: scalar::<_>(FloatMinMax::Max);
+        requires: [Sse2];
         forms { PF2 0x0f 0x5f => qword(xmm, xmm_rm); }
     }
     MAXPS {
         execute: packed::<_>(FloatMinMax::Max);
+        requires: [Sse];
         forms { NP 0x0f 0x5f => dword(xmm, xmm_rm); }
     }
     MAXPD {
         execute: packed::<_>(FloatMinMax::Max);
+        requires: [Sse2];
         forms { P66 0x0f 0x5f => qword(xmm, xmm_rm); }
     }
 }

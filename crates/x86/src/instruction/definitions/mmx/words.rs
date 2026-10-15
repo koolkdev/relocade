@@ -5,10 +5,12 @@ use super::*;
 instruction_families! {
     PINSRW {
         execute: insert;
+        requires: [Sse];
         forms { NP 0x0f 0xc4 => operands(mm, rm16, imm8); }
     }
     PEXTRW {
         execute: extract;
+        requires: [Sse];
         forms { NP 0x0f 0xc5 => dword(modrm_reg, register(mm_rm), imm8); }
     }
 }

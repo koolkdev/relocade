@@ -4,6 +4,7 @@ mod handlers;
 mod lower;
 mod operands;
 mod prefixes;
+mod requirements;
 
 pub(crate) use definitions::opcode_forms;
 pub(crate) use forms::*;
@@ -15,11 +16,12 @@ pub(crate) use operands::{
     XmmLocation, XmmType,
 };
 pub(crate) use prefixes::{Group1Prefix, Prefix, PrefixState, SegmentOverride};
+use requirements::{Availability, Requirements};
 
 use crate::address::{AddressSize, EffectiveAddress, MemoryAddress};
 use crate::flags::Condition;
 use crate::register::RegisterOperand;
-use crate::{ExecutionProfile, Segment};
+use crate::{ExecutionTarget, Segment};
 use wasm86_compiler::{Val, I16, I32};
 
 pub(super) const MAX_INSTRUCTION_BYTES: u32 = 15;
@@ -65,7 +67,7 @@ pub(super) struct Instruction<V> {
     condition: Option<Condition>,
     implicit_memory: bool,
     ends_block: bool,
-    availability: Availability,
+    requirements: Requirements,
     pub(super) address_size: AddressSize,
     pub(super) segment_override: SegmentOverride,
     pub(super) locked: bool,
@@ -95,8 +97,8 @@ impl<V: Into<Val<I32>>> X87Opcode<V> {
 }
 
 impl<V> Instruction<V> {
-    pub(super) fn ends_block(&self, profile: ExecutionProfile) -> bool {
-        self.ends_block || self.availability.fault(profile).is_some()
+    pub(super) fn ends_block(&self, target: ExecutionTarget) -> bool {
+        self.ends_block || self.requirements.fault(target).is_some()
     }
 
     pub(super) fn uses_memory(&self) -> bool {

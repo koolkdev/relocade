@@ -6,6 +6,7 @@ use crate::x87::Operand;
 instruction_families! {
     FXTRACT {
         execute: extract();
+        requires: [Fpu];
         forms { 0xD9 @ 0xF4 => no_operands(); }
     }
 }

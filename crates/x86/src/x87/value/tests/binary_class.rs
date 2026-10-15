@@ -83,7 +83,7 @@ fn native_classes_control_expansion_and_exact_store_range() {
             let module = step::TestModule::new(&CompiledModule {
                 bytes,
                 entry: "views".into(),
-                execution_profile: None,
+                execution_target: None,
             });
             for (left, left_sig, left_exp) in [
                 (0_u64, 0_u64, 0_u16),
