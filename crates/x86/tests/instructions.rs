@@ -98,6 +98,8 @@ mod stack_flags;
 mod stack_operations;
 #[path = "suites/strings.rs"]
 mod strings;
+#[path = "suites/system_queries.rs"]
+mod system_queries;
 #[path = "suites/table_lookups.rs"]
 mod table_lookups;
 #[path = "suites/unary_operations.rs"]

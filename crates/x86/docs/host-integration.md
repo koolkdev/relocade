@@ -501,8 +501,8 @@ entries report the empty class and retain their payload's sign; examination
 never raises a numerical exception or stack fault, including for signaling
 NaNs and unsupported encodings. Register contents, tags and TOP are unchanged.
 Execution assumes an enabled FPU with native exception reporting, corresponding
-to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
-modeled by this user-mode environment.
+to CR0.EM=0, CR0.TS=0 and CR0.NE=1. Mutable CR0 and device-not-available
+exceptions are not modeled by this user-mode environment.
 
 FWAIT and FLDCW observe `status.error_summary`, the architectural ES bit. A pending
 exception returns #MF at that waiting instruction's EIP without retirement.
@@ -859,6 +859,19 @@ mutate CPU state, guest RAM or page tables, or reenter guest execution. It does 
 load a segment or fault for a rejected selector. Table edits affect the next query
 while loaded caches remain unchanged. Guest operand reads can still fault before
 the callback runs.
+
+## Machine status
+
+SMSW stores CR0's low word. The profiles fix MP, ET and NE to one, and EM and TS
+to zero; PE is one in protected mode and zero in `Real16`. Reserved low-word bits
+are zero, so SMSW reports 0x0033 or 0x0032 respectively. These are execution-mode
+assumptions, independent of the CPU model's enabled instruction capabilities.
+CR0 is not mutable guest backing state.
+
+A memory destination always receives two bytes. A 16-bit register destination
+preserves its parent's upper half; a 32-bit destination receives the word with
+zeroes in its upper half, which P4 leaves architecturally undefined. Flags are
+unchanged. SMSW is available at CPL3 and in real mode without a CPUID feature bit.
 
 ## Host system-register view
 
