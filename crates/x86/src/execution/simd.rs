@@ -9,13 +9,13 @@ impl ExecutionBuilder<'_, '_> {
         self.state.read_mxcsr(&mut self.body)
     }
 
-    /// Numerical operations can use observed controls only after a restart
-    /// guard establishes them. Architectural state reads remain unguarded.
+    /// Guard observed numerical settings and any usable sticky precision fact
+    /// before operand reads. Architectural state reads remain unguarded.
     pub(crate) fn simd_controls(&mut self) -> Result<Mxcsr, BuildError> {
         let controls = self.read_mxcsr()?;
         self.specialize(|jit| {
             if let Some(observed) = jit.observed_cpu {
-                jit.specialize_on(controls.matches_controls(observed.simd.mxcsr))?;
+                jit.specialize_on(controls.specialization_condition(observed.simd.mxcsr))?;
             }
             Ok(())
         })?;

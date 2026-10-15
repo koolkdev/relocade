@@ -15,11 +15,17 @@ impl Mxcsr {
         self.0.and(StoredSimd::MXCSR_MASK)
     }
 
-    /// Status flags change as instructions execute; only control settings are
-    /// part of the numerical mode observed by a specializing compiler.
-    pub(crate) fn matches_controls(&self, observed: u32) -> Val<I1> {
+    /// Controls determine the numerical mode. An already-set masked precision
+    /// flag also makes subsequent precision reports unobservable, allowing the
+    /// compiler to discard their exactness calculations. Other status stays live.
+    pub(crate) fn specialization_condition(&self, observed: u32) -> Val<I1> {
         const CONTROLS: u32 = 0xffc0;
-        self.0.and(CONTROLS).eq(observed & CONTROLS)
+        const PRECISION: u32 = 1 << 5;
+        const PRECISION_MASK: u32 = 1 << 12;
+        let masked_precision =
+            observed & (PRECISION | PRECISION_MASK) == PRECISION | PRECISION_MASK;
+        let mask = CONTROLS | if masked_precision { PRECISION } else { 0 };
+        self.0.and(mask).eq(observed & mask)
     }
 
     pub(crate) fn denormals_are_zero(&self) -> Val<I1> {
