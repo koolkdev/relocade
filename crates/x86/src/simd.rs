@@ -10,7 +10,8 @@ mod unpack;
 pub(crate) use floating::{
     estimate_packed_float, integer_to_float, narrow_packed_float, packed_integer_to_float,
     widen_packed_float, ArithmeticOperands, FloatArithmetic, FloatEstimate, FloatMinMax,
-    FloatOperand, FloatOperands, FloatResult, PackedFloatOperand, SimdExceptions,
+    FloatOperand, FloatOperands, FloatResult, PackedFloatCandidate, PackedFloatOperand,
+    SimdExceptions,
 };
 pub(crate) use shifts::{ByteShiftOp, PackedShiftOp};
 pub(crate) use shuffle::{shuffle_dwords, shuffle_qwords, shuffle_words};

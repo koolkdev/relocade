@@ -214,15 +214,12 @@ fn flush_to_zero(engine: Engine) {
         let mut cpu = retire(image.cpu, code.len());
         lane(&mut cpu.simd.xmm[0], false, 0, result);
         cpu.simd.mxcsr |= flags;
-        let direct = if flags == 0 {
-            dispatch(cpu)
-        } else {
-            // The existing underflow restart still owns the exceptional case.
-            Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::Interpret,
-            }
+        // Tiny results restart even when exact; the general calculation applies
+        // FTZ and distinguishes an exact subnormal from an underflow exception.
+        let direct = Step {
+            cpu: image.cpu,
+            ram: &[],
+            exit: Exit::Interpret,
         };
         assert_eq!(
             engine.observe(&compiled, &image.input(), 1),
