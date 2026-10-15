@@ -1,7 +1,10 @@
 //! Reciprocal estimates use fixed rounding and preserve source NaN payloads.
 
 use super::*;
-use crate::{instruction::XmmType, simd::FloatEstimate};
+use crate::{
+    instruction::XmmType,
+    simd::{estimate_packed_float, FloatEstimate},
+};
 
 instruction_families! {
     RCPSS {
@@ -39,11 +42,5 @@ fn packed(
     operation: FloatEstimate,
 ) -> Result<(), BuildError> {
     let source = source.read::<V128>(execution, VectorAlignment::Aligned)?;
-    let value = (0..4).fold(source.clone(), |result, lane| {
-        result.replace_lane(
-            lane,
-            operation.calculate_scalar(source.extract_lane::<I32>(lane)),
-        )
-    });
-    execution.write_xmm(destination, value)
+    execution.write_xmm(destination, estimate_packed_float(source, operation))
 }

@@ -46,46 +46,55 @@ fn assert_reciprocal_square_root(source: u32, result: u32) {
 }
 
 fn accuracy(engine: Engine, frontend: Frontend, opcode: u8, check: fn(u32, u32)) {
-    let code = encoding(&[], opcode, 0xc1);
-    let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
-    let module = match frontend {
-        Frontend::Block => &block,
-        Frontend::Interpreter => TestModule::interpreter(),
-    };
-    let mut sources = Vec::new();
-    for exponent in 1..255 {
-        for fraction in [0, 1, 0x400000, 0x7fffff] {
-            for sign in [0, 0x8000_0000] {
-                sources.push(sign | exponent << 23 | fraction);
+    for packed in [false, true] {
+        let code = encoding(prefix(false, packed), opcode, 0xc1);
+        let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
+        let module = match frontend {
+            Frontend::Block => &block,
+            Frontend::Interpreter => TestModule::interpreter(),
+        };
+        let mut sources = Vec::new();
+        for exponent in 1..255 {
+            if !packed && ![1, 2, 63, 126, 127, 128, 191, 253, 254].contains(&exponent) {
+                continue;
+            }
+            for fraction in [0, 1, 0x400000, 0x7fffff] {
+                for sign in [0, 0x8000_0000] {
+                    sources.push(sign | exponent << 23 | fraction);
+                }
             }
         }
-    }
-    for values in sources.chunks_exact(4) {
-        let mut image = floating_image(&code, 0x3f); // Unmasked exceptions and existing sticky flags.
-        for (index, &bits) in values.iter().enumerate() {
-            lane(&mut image.cpu.simd.xmm[1], false, index, u64::from(bits));
+        for values in sources.chunks_exact(if packed { 4 } else { 1 }) {
+            // Unmasked exceptions and existing sticky flags.
+            let mut image = floating_image(&code, 0x3f);
+            // Unused scalar lanes neither participate nor lose their raw encodings.
+            lane(&mut image.cpu.simd.xmm[0], false, 1, SNAN[0]);
+            lane(&mut image.cpu.simd.xmm[1], false, 1, SNAN[0]);
+            for (index, &bits) in values.iter().enumerate() {
+                lane(&mut image.cpu.simd.xmm[1], false, index, u64::from(bits));
+            }
+            let actual = engine.observe(module, &image.input(), 1);
+            let snapshot = actual
+                .events
+                .iter()
+                .find_map(|event| match event {
+                    Event::Dispatch { snapshot, .. } => Some(snapshot),
+                    _ => None,
+                })
+                .expect("reciprocal stays compiled and dispatches without a numerical fault");
+            let result_cpu = CpuState::from_bytes(snapshot.cpu.as_slice().try_into().unwrap());
+            let mut cpu = retire(image.cpu, code.len());
+            for (index, &source) in values.iter().enumerate() {
+                let result = u32::from_le_bytes(
+                    result_cpu.simd.xmm[0][index * 4..index * 4 + 4]
+                        .try_into()
+                        .unwrap(),
+                );
+                check(source, result);
+                lane(&mut cpu.simd.xmm[0], false, index, u64::from(result));
+            }
+            assert_eq!(actual, expected(&image, &[dispatch(cpu)]));
         }
-        let actual = engine.observe(module, &image.input(), 1);
-        let snapshot = actual
-            .events
-            .iter()
-            .find_map(|event| match event {
-                Event::Dispatch { snapshot, .. } => Some(snapshot),
-                _ => None,
-            })
-            .expect("reciprocal stays compiled and dispatches without a numerical fault");
-        let result_cpu = CpuState::from_bytes(snapshot.cpu.as_slice().try_into().unwrap());
-        let mut cpu = retire(image.cpu, code.len());
-        for (index, &source) in values.iter().enumerate() {
-            let result = u32::from_le_bytes(
-                result_cpu.simd.xmm[0][index * 4..index * 4 + 4]
-                    .try_into()
-                    .unwrap(),
-            );
-            check(source, result);
-            lane(&mut cpu.simd.xmm[0], false, index, u64::from(result));
-        }
-        assert_eq!(actual, expected(&image, &[dispatch(cpu)]));
     }
 }
 
