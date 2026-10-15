@@ -2,10 +2,26 @@
 
 #[path = "jit/controls.rs"]
 mod controls;
+#[path = "jit/precision.rs"]
+mod precision;
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::{compile_block_from_bytes, Compiler, ExecutionProfile, SegmentProfile, Segments};
+
+fn observed_block(
+    code: &[u8],
+    count: u32,
+    profile: ExecutionProfile,
+    observed: &CpuState,
+) -> TestModule {
+    TestModule::new(
+        &Compiler::new(profile)
+            .specialize_on_cpu(observed)
+            .compile_block(0x1000, code, count)
+            .unwrap(),
+    )
+}
 
 fn common_inputs(engine: Engine) {
     let code = [0x0f, 0x2e, 0xc1]; // UCOMISS XMM0,XMM1
