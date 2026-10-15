@@ -255,6 +255,14 @@ current index in CPU backing, and EIP at the string instruction. Successful REP
 retires once and dispatches after its final element. There is no device batching
 or asynchronous interrupt polling within the repetition.
 
+REP memory strings can reuse a complete direct-range proof. In Real16, each
+operand must fit within one physical page, with readable RAM/ROM sources and
+writable RAM destinations. Eligible MOVS/STOS use the shared bulk operations;
+overlapping MOVS retains element ordering. An unavailable proof restarts the
+snapshot instruction in the interpreter before effects, where checked accesses
+preserve page crossings, segment wrapping and live MMIO routing. Port strings
+keep live lookups across callbacks. This optimization adds no scheduling boundary.
+
 ## Imported memories
 
 All imports belong to the `wasm86` module. Memories are distinct, unshared Wasm
