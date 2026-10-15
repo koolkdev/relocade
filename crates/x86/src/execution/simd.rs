@@ -22,6 +22,18 @@ impl ExecutionBuilder<'_, '_> {
         Ok(controls)
     }
 
+    /// Precision-producing operations can discard repeated exactness work when
+    /// masked PE is already set. Call after simd_controls and before operand reads.
+    pub(crate) fn specialize_simd_precision(&mut self, controls: &Mxcsr) -> Result<(), BuildError> {
+        self.specialize(|jit| {
+            if let Some(observed) = jit.observed_cpu {
+                jit.specialize_on(controls.preserves_masked_precision(observed.simd.mxcsr))?;
+            }
+            Ok(())
+        })?;
+        Ok(())
+    }
+
     /// Publish sticky status before an unmasked fault. Call before writing the
     /// instruction's destination, after any operand-access checks.
     pub(crate) fn record_simd_exceptions(

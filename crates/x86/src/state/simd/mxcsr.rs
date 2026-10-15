@@ -22,6 +22,20 @@ impl Mxcsr {
         self.0.and(CONTROLS).eq(observed & CONTROLS)
     }
 
+    /// An observed masked PE is reusable while it stays set and masked.
+    /// Otherwise precision reports remain observable and need no extra guard.
+    pub(crate) fn preserves_masked_precision(&self, observed: u32) -> Val<I1> {
+        const PRECISION: u32 = 1 << 5;
+        const PRECISION_MASK: u32 = 1 << 12;
+        if observed & (PRECISION | PRECISION_MASK) == PRECISION | PRECISION_MASK {
+            self.0
+                .and(PRECISION | PRECISION_MASK)
+                .eq(PRECISION | PRECISION_MASK)
+        } else {
+            true.into()
+        }
+    }
+
     pub(crate) fn denormals_are_zero(&self) -> Val<I1> {
         self.0.and(1 << 6).ne(0)
     }
