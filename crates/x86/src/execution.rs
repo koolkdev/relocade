@@ -46,13 +46,14 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     runtime: Runtime,
     eip: Val<I32>,
     completed: u32,
+    work: Option<Val<I64>>,
     can_specialize: bool,
     observed_cpu: Option<&'module CpuState>,
 }
 
 impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     pub(super) fn new(
-        body: BlockBuilder<'body>,
+        mut body: BlockBuilder<'body>,
         cpu: &'module Cpu,
         memory: Option<&'module Memory>,
         runtime: Runtime,
@@ -60,6 +61,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         target: ExecutionTarget,
     ) -> Result<Self, BuildError> {
         let eip = body.value(start)?;
+        let work = runtime.remaining_work(&mut body)?;
         Ok(Self {
             body,
             state: State::new(cpu),
@@ -73,6 +75,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             runtime,
             eip,
             completed: 0,
+            work,
             can_specialize: false,
             observed_cpu: None,
         })
@@ -161,6 +164,10 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             "this path does not permit specialization"
         );
         self.body.if_(condition.into().eq(false), |mut body| {
+            self.runtime.publish_work(
+                &mut body,
+                remaining_work(self.work.as_ref(), self.completed).as_ref(),
+            )?;
             self.state.publish(&mut body, &self.eip, self.completed)?;
             self.runtime.interpret(body)
         })
@@ -233,7 +240,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         condition: impl Into<Val<I1>>,
         exception: Exception<Val<I32>>,
     ) -> Result<(), BuildError> {
-        self.body.if_(condition, |fault_body| {
+        self.body.if_(condition, |mut fault_body| {
+            self.runtime.publish_work(
+                &mut fault_body,
+                remaining_work(self.work.as_ref(), self.completed).as_ref(),
+            )?;
             self.state
                 .fault(fault_body, &self.eip, self.completed, exception)
         })
@@ -253,6 +264,10 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         opcode: impl Into<Val<I8>>,
     ) -> Result<(), BuildError> {
         self.body.if_(condition, |mut body| {
+            self.runtime.publish_work(
+                &mut body,
+                remaining_work(self.work.as_ref(), self.completed).as_ref(),
+            )?;
             self.state.publish(&mut body, &self.eip, self.completed)?;
             exit::unsupported(body, &self.eip, opcode)
         })
@@ -289,7 +304,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             offset,
             bytes,
             intent,
-            |fault_body, exception| {
+            |mut fault_body, exception| {
+                self.runtime.publish_work(
+                    &mut fault_body,
+                    remaining_work(self.work.as_ref(), self.completed).as_ref(),
+                )?;
                 self.state
                     .fault(fault_body, &self.eip, self.completed, exception)
             },
@@ -310,7 +329,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
                 linear,
                 bytes,
                 intent,
-                |fault_body, exception| {
+                |mut fault_body, exception| {
+                    self.runtime.publish_work(
+                        &mut fault_body,
+                        remaining_work(self.work.as_ref(), self.completed).as_ref(),
+                    )?;
                     self.state
                         .fault(fault_body, &self.eip, self.completed, exception)
                 },
@@ -322,8 +345,15 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         mut self,
         continue_execution: impl FnOnce(BlockBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
+        let remaining = remaining_work(self.work.as_ref(), self.completed);
+        self.runtime
+            .publish_work(&mut self.body, remaining.as_ref())?;
         self.state
             .publish(&mut self.body, &self.eip, self.completed)?;
         continue_execution(self.body, &self.eip)
     }
+}
+
+fn remaining_work(work: Option<&Val<I64>>, completed: u32) -> Option<Val<I64>> {
+    work.map(|work| work.sub(u64::from(completed)))
 }

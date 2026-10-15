@@ -36,6 +36,7 @@ fn common_flag_reads_use_low_bits_without_changing_the_record() {
         .unwrap();
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
+        execution_budget: false,
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
@@ -99,6 +100,7 @@ fn common_writes_accept_constants_and_computed_bits_and_replace_cached_reads() {
         .unwrap();
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
+        execution_budget: false,
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
@@ -172,6 +174,7 @@ fn direction_changes_and_status_queries_retain_a_local_subtraction_recipe() {
         .unwrap();
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
+        execution_budget: false,
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),

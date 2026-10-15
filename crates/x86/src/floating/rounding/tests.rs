@@ -28,6 +28,7 @@ fn integer_rounding_preserves_evidence_across_word_boundaries() {
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "round".into(),
+        execution_budget: false,
         execution_target: None,
     });
     for value in [0, 1, 3, (1 << 63) - 1, 1 << 63, (1 << 63) + 1, u64::MAX] {

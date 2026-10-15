@@ -41,6 +41,7 @@ fn loaded_binary64_comparison(engine: step::Engine) {
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "classify".into(),
+        execution_budget: false,
         execution_target: None,
     });
     // Loaded subnormals are normal extended values; loaded SNaNs are quiet.
@@ -126,6 +127,7 @@ fn promoted_comparison(engine: step::Engine) {
         let module = step::TestModule::new(&CompiledModule {
             bytes: program.compile().unwrap(),
             entry: "compare".into(),
+            execution_budget: false,
             execution_target: None,
         });
         // LT/EQ/UN/IE/DE: loading quiets SNaN and normalizes narrow denormals;

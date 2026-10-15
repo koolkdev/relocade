@@ -48,11 +48,59 @@ instruction faults or is unsupported. Each instruction fetches live guest bytes
 and starts with fresh prefix state. REP completes its repetition; port strings
 dispatch and other strings continue to the next instruction in both frontends.
 
-Interpreter `step` executes one instruction before dispatch, including all elements
-of a supported REP instruction. Neither interpreter entry has an execution budget.
-Straight-line `run` execution, REP work and chains of host dispatches have no fixed
-bound. The snapshot compiler's instruction limit bounds compilation only; it is
-not an interpreter limit or a host responsiveness guarantee.
+By default, interpreter `step` executes one instruction before dispatch, including
+all elements of a supported REP instruction. Neither interpreter entry has an
+execution budget unless enabled as described below. Straight-line `run` execution,
+REP work and chains of host dispatches otherwise have no fixed bound. The snapshot
+compiler's instruction limit bounds compilation only; it is not an interpreter
+limit or a host responsiveness guarantee.
+
+## Execution slices
+
+`Compiler::new(profile).with_execution_budget()` enables cooperative scheduling
+for snapshot and interpreter entries. They import `wasm86.executionBudget`, an
+unshared memory of at least one Wasm page. Its first eight bytes contain a
+little-endian signed i64 remaining-work balance. The host initializes it from a
+u32 allowance before a slice; all entries and handoffs share that memory. The
+host must not replenish it from dispatch or device callbacks.
+
+`CompiledModule::execution_budget` records this scheduling policy independently
+of the architectural `execution_target`. Cache/link compatibility must include
+both values; `Compiler::has_execution_budget()` exposes the policy before
+compilation. A budgeted block must use budgeted dispatch, linked blocks and
+interpreter fallback. Target compatibility alone does not establish scheduling
+compatibility.
+
+One work unit represents one completed instruction, including a REP with any
+element count. **The allowance is a scheduling target, not an exact stopping
+point.** A compiled block runs until its exit, aggregating completed instruction
+work on that path. A nonpositive balance stops the next execution entry before
+fetching or executing an instruction. The host computes actual work as its initial
+allowance minus the final signed balance, including any overshoot. Keep this
+calculation wide enough for values greater than u32::MAX.
+
+Budgeted snapshot blocks contain at most `MAX_EXECUTION_CHUNK` (256) instructions.
+A slice can therefore overshoot its requested allowance by at most 255 completed
+instructions. The interpreter may yield more frequently; callers must not depend
+on the two frontends stopping at identical intermediate states. Zero work yields
+without fetching. Exhaustion returns `SLICE_EXHAUSTED` (tag 1024, zero
+payload/address). An ordinary block exit can dispatch with a nonpositive balance;
+the next budgeted entry yields. Future direct links or traces must preserve these
+scheduling boundaries.
+
+REP completes before yielding. There is no suspension or element accounting inside
+an instruction. A long REP or a synchronous device callback can delay a slice's
+return, so the allowance does not bound transferred bytes or elapsed time.
+
+Faults still publish the faulting EIP and precise completed effects. A faulted REP
+retains its successful memory/register prefix and remaining count without retiring
+or consuming an instruction unit. Earlier completed instructions remain charged.
+The existing LODS and comparison fault semantics are unchanged.
+
+Remaining work stays local during execution and is published alongside CPU state
+at exits. There are no per-instruction budget checks inside ordinary compiled
+blocks and no exact retirement-limit mode. CPU image layout and default unbudgeted
+compilation are unchanged.
 
 ## Interpreter handoff
 
@@ -252,8 +300,8 @@ is resolved at each actual transfer, including after a port callback.
 
 A fault leaves the completed elements in memory/devices, the remaining count and
 current index in CPU backing, and EIP at the string instruction. Successful REP
-retires once and dispatches after its final element. There is no device batching
-or asynchronous interrupt polling within the repetition.
+retires once and dispatches after its final element. There is no device batching.
+A REP port instruction completes its repetition before a scheduling yield.
 
 ## Imported memories
 
@@ -266,6 +314,7 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | `guest` | 1 | Guest backing bytes for the selected memory model. |
 | `machine` | 64 | Protected-mode linear-to-backing page table at byte zero. |
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
+| `executionBudget` | 1 | Optional signed remaining-work balance at byte zero. |
 
 Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
 `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
@@ -277,6 +326,7 @@ require guest backing and the page table, protected-mode segment loads require
 `resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks
 with specialization guards require `interpret`. Hosts should use the generated
 module's import list when instantiating it.
+Budgeted entries additionally share `executionBudget` as described above.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical
@@ -888,7 +938,7 @@ tag, 16-bit payload and 32-bit address. These tags are independent of architectu
 exception vector numbers:
 
 Hosts can decode these words with `ExecutionExit::from_bits`, which returns an
-`Exception` or an unsupported-instruction diagnostic. Unknown tags and nonzero
+`Exception`, an unsupported-instruction diagnostic, or `BudgetExhausted`. Unknown tags and nonzero
 reserved fields return `None`. Host-defined values returned by `dispatch` or
 `interpret` must be distinguished before decoding; either callback may return
 any i64. Track callback results or use a distinct result convention. If a callback
@@ -907,6 +957,7 @@ that callback's contract. A matching exit word alone does not establish its sour
 | Invalid opcode | 128 | Zero | Zero |
 | Floating-point error | 256 | Zero | Zero |
 | SIMD floating-point exception | 512 | Zero | Zero |
+| Slice exhausted | 1024 | Zero | Zero |
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the

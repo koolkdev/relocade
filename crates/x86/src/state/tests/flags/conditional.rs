@@ -72,6 +72,7 @@ fn conditional_publication(local_base: bool) -> CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     CompiledModule {
+        execution_budget: false,
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
@@ -157,6 +158,7 @@ fn preserving_or_consuming_carry_uses_the_selected_conditional_source() {
             .unwrap();
         program.export("run", function).unwrap();
         let module = TestModule::new(&CompiledModule {
+            execution_budget: false,
             execution_target: None,
             bytes: program.compile().unwrap(),
             entry: "run".into(),
@@ -224,6 +226,7 @@ fn constant_predicates_omit_false_updates_and_discard_history_on_true() {
             .unwrap();
         program.export("run", function).unwrap();
         let compiled = CompiledModule {
+            execution_budget: false,
             execution_target: None,
             bytes: program.compile().unwrap(),
             entry: "run".into(),

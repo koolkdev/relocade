@@ -38,6 +38,7 @@ impl TestModule {
         let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
         let guest = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
         let machine = Memory::new(&mut store, MemoryType::new(64, None)).unwrap();
+        let budget = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
         cpu.write(&mut store, 0, &input.cpu).unwrap();
         for (memory, patches) in [(guest, &input.guest), (machine, &input.machine)] {
             for (offset, bytes) in patches {
@@ -58,7 +59,12 @@ impl TestModule {
         let machine_before = observes_machine.then(|| Arc::<[u8]>::from(machine.data(&store)));
         let mut linker = Linker::new(engine);
         ports::register(&mut linker);
-        for (name, memory) in [("cpuState", cpu), ("guest", guest), ("machine", machine)] {
+        for (name, memory) in [
+            ("cpuState", cpu),
+            ("guest", guest),
+            ("machine", machine),
+            ("executionBudget", budget),
+        ] {
             linker.define(&store, "wasm86", name, memory).unwrap();
         }
         let cpu_len = input.cpu.len();
@@ -189,6 +195,11 @@ impl TestModule {
             .collect::<Vec<_>>();
         let mut results = vec![::wasmtime::Val::I32(0); entry.ty(&store).results().len()];
         for call in 0..invocations {
+            if let Some(units) = input.budgets.get(call) {
+                budget
+                    .write(&mut store, 0, &i64::from(*units).to_le_bytes())
+                    .unwrap();
+            }
             if let Some(patches) = input.patches_before_calls.get(call) {
                 for (memory, edits) in [
                     (cpu, &patches.cpu),
@@ -218,6 +229,10 @@ impl TestModule {
                 .data_mut()
                 .events
                 .push(Event::Return { outcome, snapshot });
+            if input.observe_budget {
+                let remaining = i64::from_le_bytes(budget.data(&store)[..8].try_into().unwrap());
+                store.data_mut().events.push(Event::Budget { remaining });
+            }
         }
         assert_eq!(
             store.data().segment_resolutions.len(),

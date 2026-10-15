@@ -106,6 +106,7 @@ fn widths(engine: Engine, mmio: bool) {
             let module = TestModule::new(&CompiledModule {
                 bytes: transfers().to_vec(),
                 entry: format!("{}{bits}", if write { "write" } else { "read" }),
+                execution_budget: false,
                 execution_target: None,
             });
             let mut input = input();
@@ -239,6 +240,7 @@ fn updates(engine: Engine) {
         let module = TestModule::new(&CompiledModule {
             bytes: program.compile().unwrap(),
             entry: "update".into(),
+            execution_budget: false,
             execution_target: None,
         });
         let mut input = input();

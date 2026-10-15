@@ -33,6 +33,7 @@ fn write_then_read() -> TestModule {
         .unwrap();
     program.export("write_then_read", function).unwrap();
     TestModule::new(&crate::CompiledModule {
+        execution_budget: false,
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "write_then_read".into(),
@@ -141,6 +142,7 @@ fn same_address_updates(engine: Engine) {
             .unwrap();
         program.export("update", function).unwrap();
         let module = TestModule::new(&crate::CompiledModule {
+            execution_budget: false,
             execution_target: None,
             bytes: program.compile().unwrap(),
             entry: "update".into(),
@@ -231,6 +233,7 @@ fn page_changes_and_reentry(engine: Engine) {
         .unwrap();
     program.export("sum", function).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
+        execution_budget: false,
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "sum".into(),

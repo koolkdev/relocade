@@ -41,6 +41,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         let runtime = self.runtime;
         let eip = self.eip.clone();
         let completed = self.completed;
+        let work = self.work.clone();
         move |body| ExecutionBuilder {
             body,
             state: state.clone(),
@@ -54,6 +55,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             runtime,
             eip: eip.clone(),
             completed,
+            work: work.clone(),
             // A child can contain partial effects of the current instruction,
             // so it cannot restart that instruction from its entry state.
             can_specialize: false,

@@ -32,6 +32,8 @@ pub(crate) struct Input {
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
     pub(crate) segment_queries: Vec<SegmentQuery>,
     pub(crate) patches_before_calls: Vec<CallPatches>,
+    pub(crate) budgets: Vec<u32>,
+    pub(crate) observe_budget: bool,
     #[serde(with = "wasm86_test_support::decimal_i64")]
     pub(crate) dispatch_return: i64,
 }
@@ -54,6 +56,8 @@ impl Input {
             segment_resolutions: Vec::new(),
             segment_queries: Vec::new(),
             patches_before_calls: Vec::new(),
+            budgets: Vec::new(),
+            observe_budget: false,
             dispatch_return: i64::MIN,
         }
     }
@@ -92,6 +96,9 @@ pub(crate) struct Snapshot {
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Event {
+    Budget {
+        remaining: i64,
+    },
     PortRead {
         port: u32,
         bytes: u32,
@@ -161,6 +168,7 @@ pub(crate) struct TestModule {
     module: Module,
     pub(crate) entry: String,
     target: Option<ExecutionTarget>,
+    execution_budget: bool,
     interpreter: Option<&'static TestModule>,
 }
 
@@ -170,6 +178,7 @@ impl TestModule {
             module: Module::new(&module.bytes),
             entry: module.entry.clone(),
             target: module.execution_target,
+            execution_budget: module.execution_budget,
             interpreter: None,
         }
     }
@@ -208,6 +217,7 @@ impl TestModule {
     /// Link the interpreter directly; unlinked fixtures stop at the handoff callback.
     pub(crate) fn with_interpreter(mut self, interpreter: &'static Self) -> Self {
         assert_eq!(self.target, interpreter.target);
+        assert_eq!(self.execution_budget, interpreter.execution_budget);
         self.interpreter = Some(interpreter);
         self
     }

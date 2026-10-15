@@ -30,6 +30,7 @@ pub(crate) fn compile_flag_observer() -> Result<CompiledModule, BuildError> {
     )?;
     program.export("observe_flags", observer)?;
     Ok(CompiledModule {
+        execution_budget: false,
         execution_target: None,
         bytes: program.compile()?,
         entry: "observe_flags".into(),

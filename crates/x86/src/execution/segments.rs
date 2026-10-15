@@ -68,7 +68,13 @@ impl ExecutionBuilder<'_, '_> {
                 &mut self.body,
                 segment,
                 selector,
-                |body, exception| self.state.fault(body, &self.eip, self.completed, exception),
+                |mut body, exception| {
+                    self.runtime.publish_work(
+                        &mut body,
+                        super::remaining_work(self.work.as_ref(), self.completed).as_ref(),
+                    )?;
+                    self.state.fault(body, &self.eip, self.completed, exception)
+                },
             )?,
         };
         Ok(ResolvedSegment { segment, values })

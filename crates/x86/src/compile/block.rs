@@ -77,7 +77,9 @@ pub fn compile_block_from_bytes_with_profile(
 impl Compiler {
     /// Compiles a snapshot through the boundary described by
     /// [`compile_block_from_bytes`], with this compiler's execution target and
-    /// observations. Fetch admission follows [`compile_block_from_bytes_with_profile`].
+    /// observations. With cooperative scheduling enabled, the compilation limit is
+    /// also capped at [`crate::MAX_EXECUTION_CHUNK`]. Fetch admission follows
+    /// [`compile_block_from_bytes_with_profile`].
     pub fn compile_block(
         &self,
         start_eip: u32,
@@ -92,7 +94,12 @@ impl Compiler {
         let mut decoded_instructions = Vec::new();
         let mut remaining_bytes = bytes;
         let mut next_eip = start_eip;
-        for _ in 0..instruction_limit {
+        let limit = if self.execution_budget {
+            instruction_limit.min(crate::MAX_EXECUTION_CHUNK)
+        } else {
+            instruction_limit
+        };
+        for _ in 0..limit {
             let (decoded_instruction, rest) =
                 decode::snapshot(remaining_bytes, next_eip, profile.code_default_size())?;
             next_eip = decoded_instruction.fallthrough_eip;
@@ -111,13 +118,14 @@ impl Compiler {
             .any(|decoded_instruction| decoded_instruction.instruction.uses_memory())
             .then(|| Memory::declare(&mut program, profile))
             .transpose()?;
-        let runtime = Runtime::declare(&mut program);
+        let runtime = Runtime::declare(&mut program, self.execution_budget);
         let function = program.function(
             Signature {
                 parameters: vec![],
                 results: vec![Type::I64],
             },
-            |body| {
+            |mut body| {
+                runtime.check_entry_budget(&mut body)?;
                 let mut execution = ExecutionBuilder::new(
                     body,
                     &cpu,
@@ -138,6 +146,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry,
+            execution_budget: self.execution_budget,
             execution_target: Some(self.target),
         })
     }

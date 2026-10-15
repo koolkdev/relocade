@@ -59,6 +59,15 @@ mod instruction_tests;
 
 use std::fmt;
 
+/// A budgeted entry yielded with its resumable CPU state published.
+/// This host exit is distinct from guest faults and dispatch return values.
+pub const SLICE_EXHAUSTED: u64 = 1024 << 48;
+
+/// Maximum instructions in a budgeted snapshot block. Cooperative slices may
+/// exceed their requested allowance by at most this value minus one instructions.
+/// A REP instruction completes before yielding, regardless of its element count.
+pub const MAX_EXECUTION_CHUNK: u32 = 256;
+
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, compile_interpreter,
     compile_interpreter_step, Compiler,
@@ -90,6 +99,10 @@ pub struct CompiledModule {
     /// Snapshot instruction-fetch validity is separate. Modules that do not
     /// execute x86 instructions have no execution target.
     pub execution_target: Option<ExecutionTarget>,
+    /// Whether every execution entry participates in cooperative scheduling.
+    /// Cache and link compatibility must include this policy alongside the target;
+    /// a budgeted entry must never hand off to an unbudgeted interpreter or block.
+    pub execution_budget: bool,
 }
 
 /// A failure to construct a block, not an exception raised by guest execution.

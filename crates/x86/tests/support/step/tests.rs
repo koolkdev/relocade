@@ -26,6 +26,7 @@ fn check_transient_machine_write(engine: Engine) {
         .unwrap();
     program.export("toggle", toggle).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
+        execution_budget: false,
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "toggle".into(),
@@ -61,6 +62,7 @@ fn check_host_memory_edits(engine: Engine) {
         .unwrap();
     program.export("entry", entry).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
+        execution_budget: false,
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "entry".into(),

@@ -21,10 +21,12 @@ use super::Compiler;
 /// The host must establish profile compatibility before entry, as described by
 /// the [host integration contract](crate#host-integration).
 ///
-/// This entry has no execution budget. Straight-line execution continues until
+/// The default entry has no execution budget. Straight-line execution continues until
 /// a block-ending instruction or guest exit. REP completes its repetition; port
 /// strings dispatch and other strings continue. A fault retains completed elements.
 /// The snapshot compiler's instruction limit does not bound interpreter execution.
+/// Use [`Compiler::with_execution_budget`] to yield between instructions. A single
+/// REP still completes before yielding and can delay the return to the host.
 ///
 /// ```
 /// use wasm86_x86::{compile_interpreter, SegmentProfile};
@@ -43,7 +45,9 @@ pub fn compile_interpreter(
 /// Success publishes state, retires the instruction and tail-calls host dispatch.
 /// Guest faults and unsupported forms return directly without retiring it.
 /// REP executes all elements before dispatch and retains completed elements on a fault.
-/// This entry has no execution budget.
+/// The default entry has no execution budget; [`Compiler::with_execution_budget`]
+/// checks the allowance before entry and charges one unit for a completed
+/// instruction, including REP. It does not suspend an instruction midway.
 ///
 /// The host must establish profile compatibility before entry. The interpreter
 /// checks instruction fetches at runtime; it does not require a validated snapshot.
@@ -95,7 +99,7 @@ impl Compiler {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let memory = Memory::declare(&mut program, profile)?;
-        let runtime = Runtime::declare(&mut program);
+        let runtime = Runtime::declare(&mut program, self.execution_budget);
         let signature = Signature {
             parameters: vec![],
             results: vec![Type::I64],
@@ -121,13 +125,18 @@ impl Compiler {
                 )?;
                 execution.execute(decoded)?;
                 execution.complete(|body, eip| match continuation {
-                    Some(continuation) => continuation.resume(body),
+                    Some(continuation) => {
+                        let mut body = body;
+                        runtime.check_entry_budget(&mut body)?;
+                        continuation.resume(body)
+                    }
                     None => runtime.dispatch(body, eip),
                 })
             },
         )?;
 
         program.define(entry_function, |mut body| {
+            runtime.check_entry_budget(&mut body)?;
             let start = cpu.read_eip(&mut body)?;
             let direct = decoder.direct_window(&mut body, &start)?;
             body.if_(&direct.unavailable, |arm| arm.tail_call(exact, &[]))?;
@@ -143,6 +152,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry: entry.name().into(),
+            execution_budget: self.execution_budget,
             execution_target: Some(self.target),
         })
     }

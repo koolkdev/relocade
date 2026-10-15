@@ -7,6 +7,7 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   const cpuState = new WebAssembly.Memory({ initial: 1 });
   const guest = new WebAssembly.Memory({ initial: 1 });
   const machine = new WebAssembly.Memory({ initial: 64 });
+  const executionBudget = new WebAssembly.Memory({ initial: 1 });
   new Uint8Array(cpuState.buffer).set(input.cpu);
   for (const [memory, patches] of [[guest, input.guest], [machine, input.machine]]) {
     for (const [offset, bytes] of patches) new Uint8Array(memory.buffer).set(bytes, offset);
@@ -41,7 +42,7 @@ export default function execute([module, interpreter], { entry, interpreter_entr
     ? physicalMemory(guest, input, events) : null;
   const imports = {
     wasm86: {
-      cpuState, guest, machine,
+      cpuState, guest, machine, executionBudget,
       ...physical?.imports,
       readPort: (port, bytes) => {
         if (portReads >= input.port_reads.length) throw new Error('unexpected port read');
@@ -84,6 +85,9 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   const instance = new WebAssembly.Instance(module, imports);
   const args = input.arguments.map(decode);
   for (let call = 0; call < invocations; call++) {
+    if (input.budgets[call] !== undefined) {
+      new DataView(executionBudget.buffer).setBigInt64(0, BigInt(input.budgets[call]), true);
+    }
     const patches = input.patches_before_calls[call];
     if (patches) {
       for (const [memory, edits] of [[cpuState, patches.cpu], [guest, patches.guest], [machine, patches.machine]]) {
@@ -101,6 +105,7 @@ export default function execute([module, interpreter], { entry, interpreter_entr
       outcome = { kind: 'trap' };
     }
     events.push({ kind: 'return', outcome, snapshot: snapshot() });
+    if (input.observe_budget) events.push({kind: 'budget', remaining: Number(new DataView(executionBudget.buffer).getBigInt64(0, true))});
   }
   if (resolutions !== input.segment_resolutions.length) throw new Error('unused segment resolutions');
   if (segmentQueries !== input.segment_queries.length) {

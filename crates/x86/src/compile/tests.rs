@@ -1,6 +1,8 @@
 use super::*;
 use crate::SegmentProfile;
 
+mod slices;
+
 #[test]
 fn snapshot_helpers_use_unobserved_configuration() {
     for profile in [
@@ -41,6 +43,7 @@ fn interpreter_entries_keep_the_profile_and_ignore_cpu_observations() {
     ] {
         assert_eq!(configured.entry, name);
         assert_eq!(configured.execution_target, Some(compiler.target()));
+        assert!(!configured.execution_budget);
         assert!(ordinary.bytes == configured.bytes, "{name}");
     }
 }
@@ -70,4 +73,17 @@ fn mxcsr_independent_instructions_do_not_guard_observations() {
             .unwrap();
         assert!(generic.bytes == specialized.bytes, "{code:02x?}");
     }
+}
+
+#[test]
+fn module_scheduling_policy_is_explicit() {
+    let plain = Compiler::new(SegmentProfile::Flat32);
+    let cooperative = Compiler::new(SegmentProfile::Flat32).with_execution_budget();
+    assert!(!plain.has_execution_budget());
+    assert!(cooperative.has_execution_budget());
+    let plain = plain.compile_block(0x1000, &[0x90], 1).unwrap();
+    let cooperative = cooperative.compile_block(0x1000, &[0x90], 1).unwrap();
+    assert_eq!(plain.execution_target, cooperative.execution_target);
+    assert!(!plain.execution_budget);
+    assert!(cooperative.execution_budget);
 }

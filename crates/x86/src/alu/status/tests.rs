@@ -47,6 +47,7 @@ fn auxiliary_carry<T: MemoryInt>() -> CompiledModule {
         .unwrap();
     program.export("logic", logic).unwrap();
     CompiledModule {
+        execution_budget: false,
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "add".into(),

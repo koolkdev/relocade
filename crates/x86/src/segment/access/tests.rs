@@ -49,6 +49,7 @@ fn translation(
     CompiledModule {
         bytes,
         entry: "translate".into(),
+        execution_budget: false,
         execution_target: Some(crate::Compiler::new(profile).target()),
     }
 }

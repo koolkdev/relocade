@@ -24,6 +24,7 @@ use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
 pub struct Compiler {
     target: ExecutionTarget,
     observed_cpu: Option<CpuState>,
+    execution_budget: bool,
 }
 
 impl Compiler {
@@ -35,6 +36,7 @@ impl Compiler {
                 cpu_model: CpuModel::default(),
             },
             observed_cpu: None,
+            execution_budget: false,
         }
     }
 
@@ -55,9 +57,26 @@ impl Compiler {
         self
     }
 
-    /// The complete contract shared by every entry compiled by this owner.
+    /// Processor capabilities and execution assumptions shared by these entries.
+    /// Cache/link keys must also include [`Self::has_execution_budget`].
     pub fn target(&self) -> ExecutionTarget {
         self.target
+    }
+
+    /// Scheduling policy required by every entry compiled by this owner.
+    pub fn has_execution_budget(&self) -> bool {
+        self.execution_budget
+    }
+
+    /// Enables cooperative scheduling through `wasm86.executionBudget`.
+    /// Completed instructions are charged together at block exits; a whole REP
+    /// costs one unit. Slices can overshoot by at most
+    /// [`crate::MAX_EXECUTION_CHUNK`] minus one work units. All entries sharing
+    /// a CPU must use this policy for the slice contract to hold.
+    /// See the [slice contract](crate#execution-slices).
+    pub fn with_execution_budget(mut self) -> Self {
+        self.execution_budget = true;
+        self
     }
 
     /// Copies a CPU snapshot for guarded specialization of snapshot blocks.

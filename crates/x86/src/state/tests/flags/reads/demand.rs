@@ -26,6 +26,7 @@ fn stored_reader<const N: usize>(flags: [Flag; N]) -> CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     CompiledModule {
+        execution_budget: false,
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),

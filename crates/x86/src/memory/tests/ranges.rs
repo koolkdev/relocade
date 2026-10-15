@@ -34,6 +34,7 @@ fn checked_range(intent: Intent, constant_bytes: Option<u32>) -> TestModule {
         .unwrap();
     program.export("checked", function).unwrap();
     TestModule::new(&crate::CompiledModule {
+        execution_budget: false,
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "checked".into(),

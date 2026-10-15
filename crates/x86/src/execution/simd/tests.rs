@@ -10,7 +10,7 @@ use wasm86_compiler::{Program, Signature, Type};
 fn exception_module(specialize: bool) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let runtime = Runtime::declare(&mut program);
+    let runtime = Runtime::declare(&mut program, false);
     let function = program
         .function(
             Signature {
@@ -49,6 +49,7 @@ fn exception_module(specialize: bool) -> CompiledModule {
         .unwrap();
     program.export("run", function).unwrap();
     CompiledModule {
+        execution_budget: false,
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
