@@ -24,6 +24,7 @@ that subset. The project is under development; the crates are not published.
 | [wasm86-runtime](crates/runtime/src/lib.rs) | Prepared execution modules, callable dispatch and cooperative slices. |
 | [wasm86-runtime-wasmtime](crates/runtime-wasmtime/src/lib.rs) | Native Wasmtime compilation, memories and import bindings. |
 | [wasm86-runtime-web](crates/runtime-web/src/lib.rs) | Browser WebAssembly compilation, memories and import bindings. |
+| [wasm86-dos](crates/dos/src/lib.rs) | Minimal COM process loading and DOS console, vector and termination services. |
 | [wasm86-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime and V8 test support. |
 
 ## Generate a block
@@ -85,6 +86,33 @@ memory access; `HostAction::Yield` returns control without replaying the callbac
 on resume. Real-mode INT still builds its frame and follows the live IVT, so guest
 handlers can replace vectors and chain to the same service addresses. Protected
 near returns use the same mechanism for host-implemented functions.
+
+## Run a DOS COM program
+
+`wasm86-dos` creates a single real-mode process with a PSP, command tail, empty
+environment and 64-KiB allocation. Its INT 20h/21h vectors point to compiled host
+functions. Guest handlers can replace these vectors and chain to the DOS services.
+The same loaded machine works with either runtime backend:
+
+```rust,ignore
+let machine = wasm86_dos::load_com(&image, b" /Q")?;
+let mut session = runtime.attach(machine).await?;
+let outcome = session.run_slice(10_000)?;
+let output = session.with_environment_mut(|dos| dos.take_output());
+let stop = session.with_environment(|dos| dos.stop());
+```
+
+Run additional cooperative slices while the process is active. A DOS stop accompanies
+a host yield; inspect the reason and stop executing that process. Output is raw
+bytes for the embedding to present. The [DOS API](crates/dos/src/lib.rs) lists the
+supported services and diagnostics. This environment has no files, MZ loader,
+allocation services, BIOS/devices or DOS extenders.
+
+The [native example](crates/dos/examples/hello.rs) runs a complete console program:
+
+```sh
+cargo run -p wasm86-dos --example hello --locked
+```
 
 ## Build and test
 

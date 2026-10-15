@@ -81,14 +81,18 @@ jobs:
       - name: Install wasm-bindgen test runner
         run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
 
-      - name: Run runtime tests in Chrome
+      - name: Run runtime and DOS tests in Chrome
         env:
           CHROMEDRIVER: ${{ steps.chrome.outputs.chromedriver-path }}
           WASM_BINDGEN_USE_BROWSER: "1"
-        run: cargo test -p wasm86-runtime --test runtime --target wasm32-unknown-unknown --locked
+        run: |
+          cargo test -p wasm86-runtime --test runtime --target wasm32-unknown-unknown --locked
+          cargo test -p wasm86-dos --test com --target wasm32-unknown-unknown --locked
 
-      - name: Run runtime tests in a dedicated worker
+      - name: Run runtime and DOS tests in a dedicated worker
         env:
           CHROMEDRIVER: ${{ steps.chrome.outputs.chromedriver-path }}
           WASM_BINDGEN_USE_DEDICATED_WORKER: "1"
-        run: cargo test -p wasm86-runtime --test runtime --target wasm32-unknown-unknown --locked
+        run: |
+          cargo test -p wasm86-runtime --test runtime --target wasm32-unknown-unknown --locked
+          cargo test -p wasm86-dos --test com --target wasm32-unknown-unknown --locked
