@@ -2,6 +2,7 @@
 use super::Writer;
 use crate::{Expression, Type};
 
+mod float_vector;
 mod operators;
 mod vector;
 mod wide;

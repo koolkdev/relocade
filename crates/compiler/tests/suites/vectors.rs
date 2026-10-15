@@ -1,5 +1,7 @@
 //! Vector encodings follow the same value, effect and control-flow contracts as scalars.
 
+#[path = "vectors/floating.rs"]
+mod floating;
 #[path = "vectors/lanes.rs"]
 mod indexed_lanes;
 #[path = "vectors/layout.rs"]

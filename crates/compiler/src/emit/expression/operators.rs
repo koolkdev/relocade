@@ -1,5 +1,5 @@
 //! Wasm lowering for opcodes, preserving logical input and result widths.
-use super::{vector, Writer};
+use super::{float_vector, vector, Writer};
 use crate::{
     bitwise::BitwiseOp,
     expression::{
@@ -16,6 +16,8 @@ impl Writer<'_> {
     pub(super) fn unary(&mut self, operator: Unary, input_type: Type, ty: Type) {
         let wide = ty == Type::I64;
         let instruction = match operator {
+            Unary::FloatVector { operator, format } => float_vector::unary(format, operator),
+            Unary::FloatVectorConvert(operator) => float_vector::convert(operator),
             Unary::Bitmask { lane_type } => vector::bitmask(lane_type),
             Unary::Splat { lane_type } => vector::splat(lane_type),
             Unary::PairwiseAddUnsigned { lane_type } => vector::pairwise_add_unsigned(lane_type),
@@ -127,6 +129,8 @@ impl Writer<'_> {
 
 pub(super) fn binary(operator: Binary, input_type: Type) -> Instruction<'static> {
     match operator {
+        Binary::FloatVector { operator, format } => float_vector::binary(format, operator),
+        Binary::FloatVectorCompare { operator, format } => float_vector::compare(format, operator),
         Binary::Compare(operator) => compare(operator, input_type),
         Binary::Bitwise(operator) => bitwise(operator, input_type),
         Binary::Swizzle {

@@ -12,6 +12,11 @@ use crate::{bitwise::BitwiseOp, floating, integer, Type};
 pub(crate) enum UnaryOp {
     Float(floating::UnaryOp),
     FloatConvert(floating::ConvertOp),
+    FloatVector {
+        operator: floating::UnaryOp,
+        format: floating::Format,
+    },
+    FloatVectorConvert(floating::VectorConvertOp),
     BitCount {
         operator: integer::BitCountOp,
         input_type: Type,
@@ -55,6 +60,14 @@ pub(crate) enum BinaryOp {
     },
     Integer(integer::BinaryOp),
     Float(floating::BinaryOp),
+    FloatVector {
+        operator: floating::BinaryOp,
+        format: floating::Format,
+    },
+    FloatVectorCompare {
+        operator: floating::CompareOp,
+        format: floating::Format,
+    },
     Vector {
         operator: LaneBinaryOp,
         // Input lane width; widening multiplication and dot products double it.

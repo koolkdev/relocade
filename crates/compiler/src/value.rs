@@ -10,7 +10,7 @@ mod unbound;
 mod vector;
 
 pub use argument::Argument;
-pub use vector::{SaturatingLane, VectorLane, VectorType};
+pub use vector::{F32x4, F64x2, SaturatingLane, VectorLane, VectorType};
 
 use std::marker::PhantomData;
 
