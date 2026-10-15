@@ -74,10 +74,10 @@ impl Folder<'_> {
         }
         let input = match expression {
             Expression::Unary { operator, input } => match operator {
-                Unary::ExtractLane { lane } => self.fold_extract_lane(ty, lane, input),
                 Unary::ZeroTest { nonzero } => self.fold_zero_test(input, nonzero),
                 Unary::LowBits { bits } => Some(self.fold_low_bits(ty, input, bits)),
                 Unary::SignExtend { input_type } => self.fold_sign_extend(ty, input_type, input),
+                Unary::ExtractLane { lane } => self.fold_extract_lane(ty, lane, input),
                 Unary::Convert if self.values[input].ty == ty => Some(input),
                 Unary::Convert => match self.values[input].definition {
                     ValueDefinition::Expression(Expression::Unary {
@@ -111,6 +111,10 @@ impl Folder<'_> {
                     operator,
                     lane_type,
                 } => self.fold_vector(ty, operator, lane_type, left, right),
+                Binary::ReplaceLane { lane_type, lane } => {
+                    self.fold_replace_lane(ty, lane_type, lane, left, right)
+                }
+                Binary::ShuffleImmediate(mask) => self.fold_shuffle(ty, mask, left, right),
                 _ => None,
             },
             Expression::Shift {

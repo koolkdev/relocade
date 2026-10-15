@@ -100,9 +100,28 @@ impl Folder<'_> {
                 third: condition,
             } => self.select(condition, when_true, when_false),
             Expression::Ternary {
-                operator: Ternary::Bitselect | Ternary::Shuffle { .. },
+                operator: Ternary::Bitselect,
                 ..
             } => self.fold(ty, expression),
+            Expression::Ternary {
+                operator: Ternary::Shuffle { input_type },
+                first: left,
+                second: right,
+                third: indices,
+            } => {
+                if let Some(indices) = self.vector_literal(indices) {
+                    let indices = indices.to_le_bytes();
+                    if let Some(input) = self.shuffle_identity(
+                        &indices[..usize::from(ty.bits() / 8)],
+                        input_type.bits() / 8,
+                        left,
+                        right,
+                    ) {
+                        return self.convert(input, ty);
+                    }
+                }
+                self.fold(ty, expression)
+            }
             Expression::MultiplyWide { .. } => self.fold_result(ty, expression, component),
         }
     }
