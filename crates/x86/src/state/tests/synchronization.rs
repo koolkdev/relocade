@@ -102,8 +102,7 @@ fn register_synchronization_in_wasmtime() {
             edi: 0x8888_8888,
         },
         eip: 0x1000,
-        instruction_count: 0xffff_ffff,
-        reserved_tail: [0; 4],
+        instruction_count: u64::MAX,
         ..CpuState::filled(0xa5)
     };
     let module = TestModule::new(&synchronized_registers(IndexSource::Parameter));
@@ -199,7 +198,7 @@ fn byte_register_synchronization_in_wasmtime() {
             edi: 0x8888_8888,
         },
         eip: 0x1000,
-        instruction_count: 0xffff_ffff,
+        instruction_count: u64::MAX,
         ..CpuState::filled(0xa5)
     };
     let module = TestModule::new(&synchronized_byte_registers());
@@ -303,7 +302,7 @@ fn word_register_synchronization_in_wasmtime() {
             edi: 0x8888_8888,
         },
         eip: 0x1000,
-        instruction_count: 0xffff_ffff,
+        instruction_count: u64::MAX,
         ..CpuState::filled(0xa5)
     };
     let module = TestModule::new(&synchronized_word_registers());

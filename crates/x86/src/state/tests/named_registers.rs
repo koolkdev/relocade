@@ -19,7 +19,7 @@ fn initial_cpu() -> CpuState {
             edi: 0xffff_ffff,
         },
         eip: 0x1000,
-        instruction_count: 0xffff_fffe,
+        instruction_count: u64::MAX - 1,
         ..CpuState::filled(0xa5)
     };
     cpu.flags.status_source.kind = 9;

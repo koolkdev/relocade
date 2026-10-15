@@ -7,7 +7,7 @@ pub(super) fn initial_cpu() -> CpuState {
     cpu.flags.status_source.left = 7;
     cpu.flags.status_source.right = 8;
     cpu.eip = 0x1000;
-    cpu.instruction_count = u32::MAX;
+    cpu.instruction_count = u64::MAX;
     cpu
 }
 

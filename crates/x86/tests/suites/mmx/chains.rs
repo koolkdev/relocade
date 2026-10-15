@@ -2,7 +2,7 @@
 
 use super::*;
 use wasm86_x86::compile_block_from_bytes;
-use wasmparser::{Operator, Parser, Payload};
+use wasmparser::{Operator, Parser, Payload, TypeRef};
 
 const MIXED: [u8; 12] = [
     0x0f, 0x74, 0xc1, // PCMPEQB mm0,mm1
@@ -102,6 +102,17 @@ fn packed_add_chains_use_vector_memory_without_scalar_conversions() {
     let code = [0x0f, 0xfd, 0xc1].repeat(8);
     let inputs = 2;
     let module = compile_block_from_bytes(0x1000, &code, (code.len() / 3) as u32).unwrap();
+    let cpu_memory = Parser::new(0)
+        .parse_all(&module.bytes)
+        .filter_map(|payload| match payload.unwrap() {
+            Payload::ImportSection(imports) => Some(imports),
+            _ => None,
+        })
+        .flatten()
+        .map(Result::unwrap)
+        .filter(|import| matches!(import.ty, TypeRef::Memory(_)))
+        .position(|import| import.module == "wasm86" && import.name == "cpuState")
+        .unwrap() as u32;
     let ops = operators(&module.bytes);
     assert_eq!(
         ops.iter()
@@ -115,13 +126,15 @@ fn packed_add_chains_use_vector_memory_without_scalar_conversions() {
             .count(),
         1
     );
-    assert!(!ops.iter().any(|op| matches!(
-        op,
-        Operator::I64Load { .. }
-            | Operator::I64Store { .. }
-            | Operator::I64x2Splat
-            | Operator::I64x2ExtractLane { .. }
-    )));
+    // Retirement accounting is independent of the MMX register transfers.
+    assert!(!ops.iter().any(|op| match op {
+        Operator::I64Load { memarg } | Operator::I64Store { memarg } => {
+            memarg.memory != cpu_memory
+                || memarg.offset != std::mem::offset_of!(CpuState, instruction_count) as u64
+        }
+        Operator::I64x2Splat | Operator::I64x2ExtractLane { .. } => true,
+        _ => false,
+    }));
 }
 
 #[test]

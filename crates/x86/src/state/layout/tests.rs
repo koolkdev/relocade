@@ -46,11 +46,10 @@ fn cpu_layout_matches_the_external_byte_contract() {
             offset_of!(CpuState, eip),
             offset_of!(CpuState, reserved),
             offset_of!(CpuState, instruction_count),
-            offset_of!(CpuState, reserved_tail),
         ],
         [
             0, 1, 4, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 28, 32, 36, 40, 44,
-            48, 52, 56, 60, 136, 144, 148
+            48, 52, 56, 60, 136, 144
         ],
     );
 }
@@ -104,8 +103,7 @@ fn decoding_preserves_little_endian_values_and_every_reserved_byte() {
         cpu.reserved,
         std::array::from_fn(|index| (136 + index) as u8)
     );
-    assert_eq!(cpu.instruction_count, 0x9392_9190);
-    assert_eq!(cpu.reserved_tail, [148, 149, 150, 151]);
+    assert_eq!(cpu.instruction_count, 0x9796_9594_9392_9190);
     assert_eq!(cpu.flags.bytes.reserved, [25, 26, 27]);
     assert_eq!(cpu.to_bytes(), bytes);
 }
@@ -129,7 +127,7 @@ fn encoding_changes_only_the_named_fields_including_noncanonical_flags() {
     expected[24] = 0xff;
     expected[40..44].copy_from_slice(&[0x78, 0x56, 0x34, 0x92]);
     expected[60..64].copy_from_slice(&[2, 0x10, 0, 0]);
-    expected[144..148].fill(0);
+    expected[144..152].fill(0);
     assert_eq!(cpu.to_bytes(), expected);
     assert_eq!(CpuState::from_bytes(expected), cpu);
     assert_eq!(CpuState::filled(0).to_bytes(), [0; CpuState::BYTE_LEN]);

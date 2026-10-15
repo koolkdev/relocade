@@ -19,7 +19,7 @@ pub(crate) use simd::Mxcsr;
 pub(crate) use x87::X87Access;
 
 use access::{cpu_load, cpu_store, register_location};
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I64, I8};
 
 use crate::{
     exception::Exception,
@@ -145,6 +145,16 @@ impl<'cpu> State<'cpu> {
         self.flags.condition(body, self.cpu, condition)
     }
 
+    /// Includes completed instructions whose retirement has not yet been published.
+    pub(crate) fn instruction_count(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        completed: u32,
+    ) -> Result<Val<I64>, BuildError> {
+        let count = cpu_load!(body, self.cpu.memory(), instruction_count)?;
+        Ok(count.add(u64::from(completed)))
+    }
+
     /// Publishes current definitions and terminates at the supplied faulting EIP.
     /// Callers define only effects that are permitted to survive this fault.
     pub(super) fn fault(
@@ -175,13 +185,8 @@ impl<'cpu> State<'cpu> {
         self.registers.publish(body)?;
         cpu_store!(body, self.cpu.memory(), eip, next_eip)?;
         if completed != 0 {
-            let count = cpu_load!(body, self.cpu.memory(), instruction_count)?;
-            cpu_store!(
-                body,
-                self.cpu.memory(),
-                instruction_count,
-                count.add(completed)
-            )?;
+            let count = self.instruction_count(body, completed)?;
+            cpu_store!(body, self.cpu.memory(), instruction_count, count)?;
         }
         Ok(())
     }

@@ -315,7 +315,7 @@ fn prior_work(engine: Engine, frontend: Frontend) {
             retired(&image, 4)
         };
         cpu.registers.eax = moved.registers.eax;
-        cpu.instruction_count = moved.instruction_count.wrapping_add(u32::from(!fault));
+        cpu.instruction_count = moved.instruction_count.wrapping_add(u64::from(!fault));
         let frame = [4, 0x10, 0, 0, 0xd7, 0x5f];
         let ram = if overflow && !fault {
             &[(0x8000, frame.as_slice())][..]

@@ -7,42 +7,47 @@ fn configured_features(engine: Engine, frontend: Frontend) {
         (
             CpuFeature::Cx8,
             &[0x0f, 0xc7, 0x08][..],
-            [0x601, 0x800, 0, 0x0788_8001],
+            [0x601, 0x800, 0, 0x0788_8011],
         ),
         (
             CpuFeature::Cmov,
             &[0x0f, 0x44, 0xc3][..],
-            [0x601, 0x800, 0, 0x0788_0101],
+            [0x601, 0x800, 0, 0x0788_0111],
+        ),
+        (
+            CpuFeature::Tsc,
+            &[0x0f, 0x31][..],
+            [0x601, 0x800, 0, 0x0788_8101],
         ),
         (
             CpuFeature::Fpu,
             &[0xdb, 0xe3][..],
-            [0x601, 0x800, 0, 0x0788_8100],
+            [0x601, 0x800, 0, 0x0788_8110],
         ),
         (
             CpuFeature::Mmx,
             &[0x0f, 0x77][..],
-            [0x601, 0x800, 0, 0x0708_8101],
+            [0x601, 0x800, 0, 0x0708_8111],
         ),
         (
             CpuFeature::Fxsr,
             &[0x0f, 0xae, 0x00][..],
-            [0x601, 0x800, 0, 0x0688_8101],
+            [0x601, 0x800, 0, 0x0688_8111],
         ),
         (
             CpuFeature::Sse,
             &[0x0f, 0x10, 0xc1][..],
-            [0x601, 0x800, 0, 0x0588_8101],
+            [0x601, 0x800, 0, 0x0588_8111],
         ),
         (
             CpuFeature::Sse2,
             &[0x66, 0x0f, 0x10, 0xc1][..],
-            [0x601, 0x800, 0, 0x0388_8101],
+            [0x601, 0x800, 0, 0x0388_8111],
         ),
         (
             CpuFeature::Clflush,
             &[0x0f, 0xae, 0x38][..],
-            [0x601, 0, 0, 0x0780_8101],
+            [0x601, 0, 0, 0x0780_8111],
         ),
     ] {
         let target = Compiler::new(SegmentProfile::Flat32)
@@ -87,6 +92,7 @@ fn configured_features(engine: Engine, frontend: Frontend) {
     for feature in [
         CpuFeature::Cx8,
         CpuFeature::Cmov,
+        CpuFeature::Tsc,
         CpuFeature::Fpu,
         CpuFeature::Mmx,
         CpuFeature::Fxsr,
