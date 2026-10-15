@@ -10,6 +10,7 @@ mod segments;
 mod simd;
 mod stack;
 mod strings;
+mod system;
 mod x87;
 
 pub(crate) use control::CodeTarget;

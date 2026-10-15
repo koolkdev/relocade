@@ -4,18 +4,20 @@ use ::wasmtime::{Caller, Linker, Memory, MemoryType, Store, Trap};
 use std::sync::Arc;
 
 use super::{
-    changes, Argument, Event, Input, MmioUpdate, Observation, Outcome, SegmentQuery,
-    SegmentResolution, Snapshot, TestModule,
+    changes, Argument, DescriptorTableQuery, Event, Input, MmioUpdate, Observation, Outcome,
+    SegmentQuery, SegmentResolution, Snapshot, TestModule,
 };
 
 mod physical;
 mod ports;
+mod system;
 
 struct ExecutionEvents {
     events: Vec<Event>,
     machine_unchanged: bool,
     segment_resolutions: std::vec::IntoIter<SegmentResolution>,
     segment_queries: std::vec::IntoIter<SegmentQuery>,
+    descriptor_table_queries: std::vec::IntoIter<DescriptorTableQuery>,
     mmio_updates: std::vec::IntoIter<MmioUpdate>,
     port_reads: std::vec::IntoIter<u32>,
 }
@@ -31,6 +33,7 @@ impl TestModule {
                 machine_unchanged: true,
                 segment_resolutions: input.segment_resolutions.clone().into_iter(),
                 segment_queries: input.segment_queries.clone().into_iter(),
+                descriptor_table_queries: input.descriptor_table_queries.clone().into_iter(),
                 mmio_updates: input.mmio_updates.clone().into_iter(),
                 port_reads: input.port_reads.clone().into_iter(),
             },
@@ -58,6 +61,7 @@ impl TestModule {
         let machine_before = observes_machine.then(|| Arc::<[u8]>::from(machine.data(&store)));
         let mut linker = Linker::new(engine);
         ports::register(&mut linker);
+        system::register(&mut linker);
         for (name, memory) in [("cpuState", cpu), ("guest", guest), ("machine", machine)] {
             linker.define(&store, "wasm86", name, memory).unwrap();
         }
@@ -228,6 +232,11 @@ impl TestModule {
             store.data().segment_queries.len(),
             0,
             "unused segment queries"
+        );
+        assert_eq!(
+            store.data().descriptor_table_queries.len(),
+            0,
+            "unused descriptor-table queries"
         );
         assert_eq!(store.data().mmio_updates.len(), 0, "unused MMIO updates");
         assert_eq!(store.data().port_reads.len(), 0, "unused port reads");

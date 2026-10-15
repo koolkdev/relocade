@@ -100,6 +100,10 @@ fn interpreter_step_exposes_host_abis() {
                 "querySegmentDescriptor",
                 (vec![ValType::I32], vec![ValType::I32; 5])
             ),
+            (
+                "queryDescriptorTable",
+                (vec![ValType::I32], vec![ValType::I32; 2])
+            ),
         ]
     );
     let entry = exported.unwrap() as usize - imports.len();

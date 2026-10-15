@@ -13,8 +13,10 @@ use wasm86_test_support::Module;
 pub(crate) use wasm86_test_support::{Outcome, Value as Argument};
 
 mod segments;
+mod system;
 mod wasmtime;
 pub(crate) use segments::{SegmentQuery, SegmentResolution};
+pub(crate) use system::DescriptorTableQuery;
 
 #[derive(Serialize)]
 pub(crate) struct Input {
@@ -31,6 +33,7 @@ pub(crate) struct Input {
     pub(crate) observe_guest: bool,
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
     pub(crate) segment_queries: Vec<SegmentQuery>,
+    pub(crate) descriptor_table_queries: Vec<DescriptorTableQuery>,
     pub(crate) patches_before_calls: Vec<CallPatches>,
     #[serde(with = "wasm86_test_support::decimal_i64")]
     pub(crate) dispatch_return: i64,
@@ -53,6 +56,7 @@ impl Input {
             observe_guest: false,
             segment_resolutions: Vec::new(),
             segment_queries: Vec::new(),
+            descriptor_table_queries: Vec::new(),
             patches_before_calls: Vec::new(),
             dispatch_return: i64::MIN,
         }
@@ -111,6 +115,9 @@ pub(crate) enum Event {
     },
     Interpret {
         snapshot: Snapshot,
+    },
+    QueryDescriptorTable {
+        table: u32,
     },
     QuerySegmentDescriptor {
         selector: i32,
