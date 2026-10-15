@@ -100,15 +100,15 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
                 let mut operators = body.get_operators_reader().unwrap();
                 while !operators.eof() {
                     match operators.read().unwrap() {
-                        Operator::I32Load { memarg } => {
+                        Operator::I32Load { memarg } | Operator::I64Load { memarg } => {
                             assert_eq!(memarg.memory, 0);
                             loads.push(memarg.offset);
                         }
-                        Operator::I32Store { memarg } => {
+                        Operator::I32Store { memarg } | Operator::I64Store { memarg } => {
                             assert_eq!(memarg.memory, 0);
                             stores.push(memarg.offset);
                         }
-                        Operator::I32Add => additions += 1,
+                        Operator::I64Add => additions += 1,
                         Operator::ReturnCall { function_index } => tails.push(function_index),
                         Operator::Call { .. } | Operator::Return => {
                             panic!("dispatch must be a tail call")
@@ -140,7 +140,7 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
     assert_eq!(tails, [0]);
 }
 
-fn abi_state(count: u32) -> CpuState {
+fn abi_state(count: u64) -> CpuState {
     let mut cpu = CpuState::filled(0xa5);
     cpu.segments = wasm86_x86::Segments::flat32();
     cpu.registers = Registers {
@@ -155,7 +155,6 @@ fn abi_state(count: u32) -> CpuState {
     };
     cpu.eip = 0xdead_beef;
     cpu.instruction_count = count;
-    cpu.reserved_tail = 0x1234_5678_u32.to_le_bytes();
     cpu
 }
 
@@ -207,7 +206,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             IMMEDIATE,
             1,
             0x1000,
-            u32::MAX,
+            u64::MAX,
             0x1234_5678,
             0x8888_8888,
             0x1005,
@@ -219,7 +218,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             TWO,
             2,
             0x1000,
-            u32::MAX,
+            u64::MAX,
             0x1234_5678,
             0xffff_ffff,
             0x100a,
@@ -231,7 +230,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             OVERWRITE,
             2,
             0x1000,
-            u32::MAX,
+            u64::MAX,
             0xffff_ffff,
             0x8888_8888,
             0x100a,
@@ -243,7 +242,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             REVERSE,
             2,
             0x1000,
-            u32::MAX,
+            u64::MAX,
             0x1234_5678,
             0xffff_ffff,
             0x100a,
@@ -255,7 +254,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             FIRST_WRITE_ORDER,
             3,
             0x1000,
-            u32::MAX,
+            u64::MAX,
             0x2222_2222,
             0x3333_3333,
             0x100f,
@@ -267,7 +266,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             TWO,
             1,
             0x1000,
-            u32::MAX,
+            u64::MAX,
             0x1234_5678,
             0x8888_8888,
             0x1005,
@@ -279,7 +278,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             IMMEDIATE,
             1,
             0xffff_fffd,
-            u32::MAX,
+            u64::MAX,
             0x1234_5678,
             0x8888_8888,
             2,
@@ -291,7 +290,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             IMMEDIATE,
             1,
             0x7fff_fffd,
-            u32::MAX,
+            u64::MAX,
             0x1234_5678,
             0x8888_8888,
             0x8000_0002,
@@ -354,8 +353,12 @@ fn register_copies_forward_values_and_omit_redundant_backing_accesses() {
             if let Payload::CodeSectionEntry(body) = payload.unwrap() {
                 for operation in body.get_operators_reader().unwrap() {
                     match operation.unwrap() {
-                        Operator::I32Load { memarg } => loads.push(memarg.offset),
-                        Operator::I32Store { memarg } => stores.push(memarg.offset),
+                        Operator::I32Load { memarg } | Operator::I64Load { memarg } => {
+                            loads.push(memarg.offset)
+                        }
+                        Operator::I32Store { memarg } | Operator::I64Store { memarg } => {
+                            stores.push(memarg.offset)
+                        }
                         _ => {}
                     }
                 }

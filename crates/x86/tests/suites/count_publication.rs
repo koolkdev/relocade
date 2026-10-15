@@ -52,12 +52,12 @@ fn only_exits_with_progress_read_and_write_instruction_count() {
             Payload::CodeSectionEntry(body) if Some(function_index) == entry => {
                 for operation in body.get_operators_reader().unwrap() {
                     match operation.unwrap() {
-                        Operator::I32Load { memarg }
+                        Operator::I64Load { memarg }
                             if Some(memarg.memory) == cpu_memory && memarg.offset == 144 =>
                         {
                             loads += 1;
                         }
-                        Operator::I32Store { memarg }
+                        Operator::I64Store { memarg }
                             if Some(memarg.memory) == cpu_memory && memarg.offset == 144 =>
                         {
                             stores += 1;
@@ -107,7 +107,7 @@ fn completed_instruction_counts() -> Vec<SequenceCase> {
         ),
     ];
     let mut cases = Vec::new();
-    for count in [37, 0xffff_fffe] {
+    for count in [37, u32::MAX as u64 - 1, u64::MAX - 1] {
         for readable in 0..=3 {
             let mut case = SequenceCase::preserving_flags(format!(
                 "initial count {count}, readable pages {readable}"
@@ -148,7 +148,7 @@ fn instruction_counts_reread_host_changes_between_invocations() {
     expected_cpu.registers.ecx = 9;
     expected_cpu.eip = 0x100a;
     let mut before_second = expected_cpu;
-    before_second.instruction_count = 0xffff_fffe;
+    before_second.instruction_count = u64::MAX - 1;
     let mut before_third = expected_cpu;
     before_third.instruction_count = 7;
     let input = Input {
@@ -160,7 +160,7 @@ fn instruction_counts_reread_host_changes_between_invocations() {
         ..Input::new(&initial.to_bytes())
     };
     let mut events = Vec::new();
-    for count in [39_u32, 0, 9] {
+    for count in [39_u64, 0, 9] {
         expected_cpu.instruction_count = count;
         let snapshot = Snapshot {
             cpu: expected_cpu.to_bytes().to_vec(),

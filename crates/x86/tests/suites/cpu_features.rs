@@ -27,6 +27,10 @@ fn disabled_forms(engine: Engine, frontend: Frontend) {
                 CpuFeature::Cx8,
                 &[&[0x0f, 0xc7, 0x08][..], &[0xf0, 0x0f, 0xc7, 0x08]][..],
             ),
+            (
+                CpuFeature::Tsc,
+                &[&[0x0f, 0x31][..], &[0x66, 0x0f, 0x31]][..],
+            ),
         ] {
             let model = CpuModel::default().with_feature(feature, false);
             let target = Compiler::new(profile).with_cpu_model(model).target();
@@ -153,6 +157,7 @@ fn disabled_forms_remain_decodable_and_unrelated_forms_keep_their_code() {
     let forms = [
         (&[Cmov][..], &[0x0f, 0x44, 0xc3][..]), // CMOVE
         (&[Cx8], &[0x0f, 0xc7, 0x08]),          // CMPXCHG8B
+        (&[Tsc], &[0x0f, 0x31]),                // RDTSC
         (&[Fpu], &[0xdb, 0xe3]),                // FNINIT
         (&[Fpu, Cmov], &[0xda, 0xc1]),          // FCMOVB
         (&[Fpu, Cmov], &[0xdb, 0xf1]),          // FCOMI
@@ -183,7 +188,7 @@ fn disabled_forms_remain_decodable_and_unrelated_forms_keep_their_code() {
                 .bytes
         })
         .collect();
-    for disabled in [Cx8, Cmov, Fpu, Mmx, Fxsr, Sse, Sse2, Clflush] {
+    for disabled in [Cx8, Cmov, Tsc, Fpu, Mmx, Fxsr, Sse, Sse2, Clflush] {
         let compiler = Compiler::new(SegmentProfile::Flat32)
             .with_cpu_model(CpuModel::default().with_feature(disabled, false));
         for ((requirements, code), bytes) in forms.iter().zip(&ordinary) {

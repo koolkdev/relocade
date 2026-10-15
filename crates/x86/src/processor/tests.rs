@@ -6,6 +6,7 @@ fn capabilities_are_enabled_by_default_and_can_be_toggled() {
     for feature in [
         CpuFeature::Cx8,
         CpuFeature::Cmov,
+        CpuFeature::Tsc,
         CpuFeature::Fpu,
         CpuFeature::Mmx,
         CpuFeature::Fxsr,

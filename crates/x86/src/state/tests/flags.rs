@@ -422,7 +422,7 @@ fn flag_publication_preserves_register_snapshots_in_wasmtime() {
     initial.registers.eax = 7;
     initial.registers.ecx = 9;
     initial.eip = 0x1000;
-    initial.instruction_count = 0xffff_ffff;
+    initial.instruction_count = u64::MAX;
     for index in [0, 1] {
         for stop in [0, 1] {
             let mut expected = initial;

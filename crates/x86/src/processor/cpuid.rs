@@ -19,6 +19,7 @@ impl CpuModel {
     pub(crate) fn cpuid(self, leaf: &Val<I32>) -> CpuidValues {
         let reports = |feature: CpuFeature| u32::from(self.supports(feature));
         let edx = reports(CpuFeature::Fpu)
+            | (reports(CpuFeature::Tsc) << 4)
             | (reports(CpuFeature::Cx8) << 8)
             | (reports(CpuFeature::Cmov) << 15)
             | (reports(CpuFeature::Clflush) << 19)

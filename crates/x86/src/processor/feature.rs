@@ -10,6 +10,8 @@ pub enum CpuFeature {
     Cx8,
     /// Conditional moves: CMOVcc, plus FCMOV and FCOMI when FPU is enabled.
     Cmov,
+    /// Timestamp reads: RDTSC. Execution profiles separately govern permission.
+    Tsc,
     /// x87 floating-point instructions; FCMOV/FCOMI also require CMOV.
     Fpu,
     /// MMX packed integer instructions and EMMS.
@@ -26,6 +28,7 @@ pub enum CpuFeature {
 
 pub(super) const ALL_FEATURES: u16 = CpuFeature::Cx8.mask()
     | CpuFeature::Cmov.mask()
+    | CpuFeature::Tsc.mask()
     | CpuFeature::Fpu.mask()
     | CpuFeature::Mmx.mask()
     | CpuFeature::Fxsr.mask()

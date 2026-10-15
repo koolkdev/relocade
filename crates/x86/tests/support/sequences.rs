@@ -61,7 +61,7 @@ impl SequenceCase {
         self.initial.eip = origin;
         self
     }
-    pub(crate) fn instruction_count(mut self, count: u32) -> Self {
+    pub(crate) fn instruction_count(mut self, count: u64) -> Self {
         self.initial.instruction_count = count;
         self
     }
