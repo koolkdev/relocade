@@ -6,6 +6,7 @@ mod estimate;
 mod exceptions;
 mod integer;
 mod operand;
+mod packed;
 mod rounding;
 mod sqrt;
 mod width;
@@ -15,6 +16,7 @@ pub(crate) use estimate::FloatEstimate;
 pub(crate) use exceptions::SimdExceptions;
 pub(crate) use integer::integer_to_float;
 pub(crate) use operand::FloatOperand;
+pub(crate) use packed::PackedFloatOperand;
 
 use wasm86_compiler::{Val, ValueType, VectorLane, V128};
 

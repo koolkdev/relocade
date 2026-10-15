@@ -201,7 +201,81 @@ fn memory(engine: Engine, frontend: Frontend) {
     }
 }
 
+fn packed_denormals(engine: Engine, frontend: Frontend) {
+    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    for wide in [false, true] {
+        for maximum in [false, true] {
+            let code = encoding(prefix(wide, true), if maximum { 0x5f } else { 0x5d }, 0xc1);
+            for independent_denormal in [false, true] {
+                for controls in [0x1f80, 0x1f00, 0x1e80, 0x1fc0, 0x9f80] {
+                    let daz = controls & 0x40 != 0;
+                    let mut image = floating_image(&code, controls);
+                    let mut result = [0; 16];
+                    let count = if wide { 2 } else { 4 };
+                    for index in 0..count {
+                        lane(&mut image.cpu.simd.xmm[0], wide, index, ONE[wide as usize]);
+                        lane(&mut image.cpu.simd.xmm[1], wide, index, ONE[wide as usize]);
+                        lane(&mut result, wide, index, ONE[wide as usize]);
+                    }
+                    lane(&mut image.cpu.simd.xmm[0], wide, 0, QNAN[wide as usize]);
+                    lane(
+                        &mut image.cpu.simd.xmm[1],
+                        wide,
+                        0,
+                        NEG_DENORMAL[wide as usize],
+                    );
+                    lane(
+                        &mut result,
+                        wide,
+                        0,
+                        if daz { NEG_ZERO } else { NEG_DENORMAL }[wide as usize],
+                    );
+                    if independent_denormal {
+                        lane(
+                            &mut image.cpu.simd.xmm[0],
+                            wide,
+                            count - 1,
+                            DENORMAL[wide as usize],
+                        );
+                        if !maximum {
+                            lane(&mut result, wide, count - 1, if daz { 0 } else { 1 });
+                        }
+                    }
+                    // NaN suppresses DE only in its own lane. A separate lane
+                    // still raises DE, even with FTZ or an unmasked invalid fault.
+                    let raised = 1 | if independent_denormal && !daz { 2 } else { 0 };
+                    let fault = raised & !(controls >> 7) != 0;
+                    let mut cpu = if fault {
+                        image.cpu
+                    } else {
+                        retire(image.cpu, code.len())
+                    };
+                    cpu.simd.mxcsr |= raised;
+                    if !fault {
+                        cpu.simd.xmm[0] = result;
+                    }
+                    checks.check(
+                        "packed MIN/MAX applies NaN precedence before collecting lane exceptions",
+                        &code,
+                        &image,
+                        &[Step {
+                            cpu,
+                            ram: &[],
+                            exit: if fault {
+                                Exit::SimdFloatingPoint
+                            } else {
+                                Exit::Dispatch(cpu.eip)
+                            },
+                        }],
+                    );
+                }
+            }
+        }
+    }
+}
+
 test_frontends!(sse_float_minmax_selection, selection);
 test_frontends!(sse_float_minmax_denormals, denormals);
 test_frontends!(sse_float_minmax_nan_denormal, nan_denormal);
 test_frontends!(sse_float_minmax_memory, memory);
+test_frontends!(sse_float_minmax_packed_denormals, packed_denormals);

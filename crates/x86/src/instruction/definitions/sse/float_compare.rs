@@ -5,7 +5,7 @@ use crate::{
     flags::{Flag, FlagChange},
     floating::BinaryEncoding,
     instruction::XmmType,
-    simd::FloatOperands,
+    simd::{FloatOperands, PackedFloatOperand},
 };
 use wasm86_compiler::{AtLeast, I64};
 
@@ -68,19 +68,13 @@ fn compare_packed_mask<T: BinaryEncoding>(
     destination: RegisterCode,
     source: XmmLocation,
     predicate: Input<I8>,
-) -> Result<(), BuildError>
-where
-    I64: AtLeast<T>,
-{
+) -> Result<(), BuildError> {
     let predicate = predicate.read(execution)?;
     let controls = execution.simd_controls()?;
-    floating::packed_binary(execution, destination, source, |execution, left, right| {
-        floating::packed_lanes::<T>(execution, left, right, |_, left, right| {
-            Ok(
-                FloatOperands::new(left, right, controls.denormals_are_zero())
-                    .compare_mask(predicate.clone()),
-            )
-        })
+    floating::packed_binary(execution, destination, source, |_, left, right| {
+        let left = PackedFloatOperand::new(T::FORMAT, left, controls.denormals_are_zero());
+        let right = PackedFloatOperand::new(T::FORMAT, right, controls.denormals_are_zero());
+        Ok(left.compare_mask(&right, predicate))
     })
 }
 

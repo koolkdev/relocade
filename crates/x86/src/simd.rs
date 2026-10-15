@@ -9,7 +9,7 @@ mod unpack;
 
 pub(crate) use floating::{
     integer_to_float, ArithmeticOperands, FloatArithmetic, FloatEstimate, FloatMinMax,
-    FloatOperand, FloatOperands, FloatResult, SimdExceptions,
+    FloatOperand, FloatOperands, FloatResult, PackedFloatOperand, SimdExceptions,
 };
 pub(crate) use shifts::{ByteShiftOp, PackedShiftOp};
 pub(crate) use shuffle::{shuffle_dwords, shuffle_qwords, shuffle_words};
