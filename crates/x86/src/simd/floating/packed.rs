@@ -1,6 +1,8 @@
 //! Packed IEEE encodings retain lane masks for DAZ and exception aggregation.
 
 mod compare;
+mod estimate;
+pub(crate) use estimate::estimate_packed_float;
 
 use super::{FloatResult, SimdExceptions};
 use crate::floating::BinaryFormat;
