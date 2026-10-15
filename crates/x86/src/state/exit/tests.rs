@@ -1,4 +1,4 @@
-use super::{exception, unsupported};
+use super::{exception, unsupported, ExecutionExit};
 use crate::exception::Exception;
 use crate::test_step::{
     Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule,
@@ -138,4 +138,69 @@ fn host_exit_words_in_wasmtime() {
 #[ignore = "requires Node.js; run the explicit V8 lane"]
 fn host_exit_words_in_v8() {
     check_host_exit_words(Engine::V8);
+}
+
+#[test]
+fn decode_documented_guest_exit_words() {
+    for (bits, exception) in [
+        (0x0001_0000_0000_0000, Exception::DivideError),
+        (0x0040_0000_0000_0000, Exception::BoundRangeExceeded),
+        (0x0080_0000_0000_0000, Exception::InvalidOpcode),
+        (0x0100_0000_0000_0000, Exception::FloatingPoint),
+        (0x0200_0000_0000_0000, Exception::SimdFloatingPoint),
+        (
+            0x0002_abcd_0000_0000,
+            Exception::GeneralProtection { error_code: 0xabcd },
+        ),
+        (
+            0x0010_0000_0000_0000,
+            Exception::StackFault { error_code: 0 },
+        ),
+        (
+            0x0020_fffc_0000_0000,
+            Exception::SegmentNotPresent { error_code: 0xfffc },
+        ),
+        (
+            0x0004_0013_ffff_ffff,
+            Exception::PageFault {
+                linear_address: u32::MAX,
+                error_code: 0x13,
+            },
+        ),
+    ] {
+        assert_eq!(
+            ExecutionExit::from_bits(bits),
+            Some(ExecutionExit::Exception(exception))
+        );
+    }
+    assert_eq!(
+        ExecutionExit::from_bits(0x0008_00f3_89ab_cdef),
+        Some(ExecutionExit::UnsupportedInstruction {
+            eip: 0x89ab_cdef,
+            opcode: 0xf3
+        }),
+    );
+}
+
+#[test]
+fn host_values_and_reserved_exit_fields_are_not_guest_exits() {
+    for bits in [
+        0,
+        1,
+        u64::MAX,
+        0x8000_0000_0000_0000,
+        0x0003_0000_0000_0000,
+        0x0001_0001_0000_0000,
+        0x0040_0000_0000_0001,
+        0x0080_0001_0000_0000,
+        0x0100_0000_0000_0001,
+        0x0200_0000_0000_0001,
+        0x0200_0001_0000_0000,
+        0x0002_0000_0000_0001,
+        0x0010_0000_0000_0001,
+        0x0020_0000_0000_0001,
+        0x0008_0100_0000_0000,
+    ] {
+        assert_eq!(ExecutionExit::from_bits(bits), None, "{bits:#018x}");
+    }
 }

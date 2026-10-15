@@ -887,6 +887,14 @@ The u64 return format is `(tag << 48) | (payload << 32) | address`, with a 16-bi
 tag, 16-bit payload and 32-bit address. These tags are independent of architectural
 exception vector numbers:
 
+Hosts can decode these words with `ExecutionExit::from_bits`, which returns an
+`Exception` or an unsupported-instruction diagnostic. Unknown tags and nonzero
+reserved fields return `None`. Host-defined values returned by `dispatch` or
+`interpret` must be distinguished before decoding; either callback may return
+any i64. Track callback results or use a distinct result convention. If a callback
+continues guest execution, classify the resulting execution outcome according to
+that callback's contract. A matching exit word alone does not establish its source.
+
 | Exit | Tag | Payload | Address |
 | --- | ---: | --- | --- |
 | Divide error | 1 | Zero | Zero |
