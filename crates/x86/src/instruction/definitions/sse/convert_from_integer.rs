@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     floating::{BinaryEncoding, BinaryFormat, RoundingMode},
     instruction::XmmType,
-    simd::{integer_to_float, FloatResult},
+    simd::{integer_to_float, packed_integer_to_float},
 };
 use wasm86_compiler::{AtLeast, I64};
 
@@ -59,10 +59,7 @@ fn packed<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,
-) -> Result<(), BuildError>
-where
-    I64: AtLeast<T>,
-{
+) -> Result<(), BuildError> {
     let rounding = floating::rounding_for_integer_source(execution, T::FORMAT)?;
     let source = match T::FORMAT {
         BinaryFormat::Binary32 => source.read::<V128>(execution, VectorAlignment::Aligned)?,
@@ -70,9 +67,7 @@ where
             Val::<V128>::splat(source.read::<I64>(execution, VectorAlignment::Unaligned)?)
         }
     };
-    let result = FloatResult::from_lanes(0_u128.into(), 16 / T::FORMAT.bytes(), |lane| {
-        integer_to_float::<T>(source.extract_lane::<I32>(lane), &rounding)
-    });
+    let result = packed_integer_to_float(T::FORMAT, source, &rounding);
     execution.record_simd_exceptions(&result.exceptions)?;
     execution.write_xmm(destination, result.value)
 }

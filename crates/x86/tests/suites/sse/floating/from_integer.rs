@@ -203,6 +203,76 @@ fn memory(engine: Engine, frontend: Frontend) {
     }
 }
 
+fn packed_precision(engine: Engine, frontend: Frontend) {
+    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let code = conversion_code(false, true, 0xc1);
+    for (source, encodings, inexact) in [
+        (
+            i32::MAX,
+            [0x4f00_0000, 0x4eff_ffff, 0x4f00_0000, 0x4eff_ffff],
+            true,
+        ),
+        (i32::MIN, [0xcf00_0000; 4], false),
+        (
+            16777217,
+            [0x4b80_0000, 0x4b80_0000, 0x4b80_0001, 0x4b80_0000],
+            true,
+        ),
+        (
+            16777219,
+            [0x4b80_0002, 0x4b80_0001, 0x4b80_0002, 0x4b80_0001],
+            true,
+        ),
+        (
+            -16777217,
+            [0xcb80_0000, 0xcb80_0001, 0xcb80_0000, 0xcb80_0000],
+            true,
+        ),
+        (
+            -16777219,
+            [0xcb80_0002, 0xcb80_0002, 0xcb80_0001, 0xcb80_0001],
+            true,
+        ),
+        (0, [0; 4], false),
+    ] {
+        for (rc, bits) in encodings.into_iter().enumerate() {
+            for masked in [false, true] {
+                let mut image =
+                    floating_image(&code, 0x0f80 | (rc as u32) << 13 | u32::from(masked) << 12);
+                image.cpu.simd.xmm[1] = [0; 16];
+                lane(&mut image.cpu.simd.xmm[1], false, 3, source as u32 as u64);
+                let fault = inexact && !masked;
+                let mut cpu = if fault {
+                    image.cpu
+                } else {
+                    retire(image.cpu, code.len())
+                };
+                cpu.simd.mxcsr |= if inexact { 32 } else { 0 };
+                if !fault {
+                    cpu.simd.xmm[0] = [0; 16];
+                    lane(&mut cpu.simd.xmm[0], false, 3, bits);
+                }
+                checks.check(
+                    "packed precision includes saturation-edge and signed rounding cases",
+                    &code,
+                    &image,
+                    &[Step {
+                        cpu,
+                        ram: &[],
+                        exit: if fault {
+                            Exit::SimdFloatingPoint
+                        } else {
+                            Exit::Dispatch(cpu.eip)
+                        },
+                    }],
+                );
+            }
+        }
+    }
+}
+
+test_frontends!(sse_packed_from_integer_precision, packed_precision);
+
 test_frontends!(sse_float_from_integer_scalar, scalar);
 test_frontends!(sse_float_from_integer_packed, packed);
 test_frontends!(sse_float_from_integer_memory, memory);

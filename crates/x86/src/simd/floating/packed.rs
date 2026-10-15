@@ -2,11 +2,15 @@
 
 mod compare;
 mod estimate;
-pub(crate) use estimate::estimate_packed_float;
+mod integer;
+mod rounding;
 
 use super::{FloatResult, SimdExceptions};
-use crate::floating::BinaryFormat;
+use crate::floating::{BinaryFormat, RoundingMode};
 use wasm86_compiler::{Val, I1, I32, I64, V128};
+
+pub(crate) use estimate::estimate_packed_float;
+pub(crate) use integer::packed_integer_to_float;
 
 pub(crate) struct PackedFloatOperand {
     format: BinaryFormat,
