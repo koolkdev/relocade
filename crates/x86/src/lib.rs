@@ -41,6 +41,7 @@ mod segment;
 mod simd;
 mod ssa;
 mod state;
+mod system;
 mod x87;
 
 #[cfg(test)]
@@ -77,6 +78,7 @@ pub use state::{
     CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredSimd,
     StoredStatusSource, StoredX87, StoredX87Control, StoredX87Register, StoredX87Status,
 };
+pub use system::{DescriptorTable, DescriptorTableRegister, SystemSelector};
 
 /// A WebAssembly module and the exported function that enters it.
 pub struct CompiledModule {
