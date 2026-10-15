@@ -34,6 +34,7 @@ where
     I64: AtLeast<T>,
 {
     let controls = execution.simd_controls()?;
+    execution.specialize_simd_precision(&controls)?;
     let rounding = rounding.mode(&controls);
     let source = source.read::<V128>(execution, VectorAlignment::Aligned)?;
     let result = FloatResult::from_lanes(0_u128.into(), 16 / T::FORMAT.bytes(), |lane| {

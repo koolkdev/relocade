@@ -77,6 +77,7 @@ where
 {
     execution.execute_mmx(|execution| {
         let controls = execution.simd_controls()?;
+        execution.specialize_simd_precision(&controls)?;
         let rounding = rounding.mode(&controls);
         let source = match T::FORMAT {
             BinaryFormat::Binary32 => {

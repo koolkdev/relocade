@@ -32,6 +32,7 @@ fn convert(
     rounding: IntegerRounding,
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
+    execution.specialize_simd_precision(&controls)?;
     let rounding = rounding.mode(&controls);
     let daz = controls.denormals_are_zero();
     let result = match format {

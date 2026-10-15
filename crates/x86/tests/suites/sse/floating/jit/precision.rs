@@ -103,6 +103,91 @@ fn loaded_precision(engine: Engine) {
     }
 }
 
+fn precision_free_instructions(engine: Engine) {
+    let compare = [0x0f, 0x2f, 0xc1]; // COMISS XMM0,XMM1
+    let instructions: &[&[u8]] = &[
+        &[0x0f, 0x2e, 0xc1],          // UCOMISS XMM0,XMM1
+        &[0x0f, 0xc2, 0xd1, 0],       // CMPPS XMM2,XMM1,EQ
+        &[0xf3, 0x0f, 0xc2, 0xf9, 0], // CMPSS XMM7,XMM1,EQ
+        &[0x0f, 0x5d, 0xd9],          // MINPS XMM3,XMM1
+        &[0xf3, 0x0f, 0x5f, 0xe1],    // MAXSS XMM4,XMM1
+        &[0x0f, 0x5a, 0xe9],          // CVTPS2PD XMM5,XMM1
+        &[0xf3, 0x0f, 0x5a, 0xf1],    // CVTSS2SD XMM6,XMM1
+        &[0xf3, 0x0f, 0xe6, 0xc1],    // CVTDQ2PD XMM0,XMM1: exact signed-dword conversion
+    ];
+    for load in [false, true] {
+        let mut code = compare.to_vec();
+        if load {
+            code.extend([0x0f, 0xae, 0x10]); // LDMXCSR [EAX]
+        }
+        code.extend(instructions.concat());
+        let count = 1 + instructions.len() as u32 + u32::from(load);
+        let mut image = floating_image(&code, 0x1fa0);
+        image.cpu.registers.eax = 0x4000;
+        image.map(4, 0x8000, false);
+        image.data(0x8000, &0x1f85_u32.to_le_bytes());
+        for (register, vector) in image.cpu.simd.xmm.iter_mut().enumerate() {
+            for index in 0..4 {
+                lane(
+                    vector,
+                    false,
+                    index,
+                    if register == 1 { TWO[0] } else { ONE[0] },
+                );
+            }
+        }
+        let compiled = observed_block(&code, count, SegmentProfile::Flat32.into(), &image.cpu);
+        if !load {
+            image.cpu.simd.mxcsr = 0x1f85;
+        }
+        let mut cpu = image.cpu;
+        cpu.eip += code.len() as u32;
+        cpu.instruction_count = cpu.instruction_count.wrapping_add(count);
+        cpu.simd.mxcsr = 0x1f85;
+        comparison_flags(&mut cpu, 1);
+        for index in 0..2 {
+            // The source contains signed integers 0x40000000, exactly 2^30.
+            lane(&mut cpu.simd.xmm[0], true, index, 0x41d0_0000_0000_0000);
+        }
+        cpu.simd.xmm[2] = [0; 16];
+        lane(&mut cpu.simd.xmm[7], false, 0, 0);
+        lane(&mut cpu.simd.xmm[4], false, 0, TWO[0]);
+        for index in 0..2 {
+            lane(&mut cpu.simd.xmm[5], true, index, TWO[1]);
+        }
+        lane(&mut cpu.simd.xmm[6], true, 0, TWO[1]);
+        assert_eq!(
+            engine.observe(&compiled, &image.input(), 1),
+            expected(&image, &[dispatch(cpu)]),
+            "precision-free operations stay compiled after clearing PE; LDMXCSR={load}"
+        );
+    }
+}
+
+fn precision_producing_instructions(engine: Engine) {
+    for (name, code) in [
+        ("ADDPS", &[0x0f, 0x58, 0xc1][..]),
+        ("SQRTSS", &[0xf3, 0x0f, 0x51, 0xc1][..]),
+        ("SQRTPS", &[0x0f, 0x51, 0xc1][..]),
+        ("CVTTSS2SI", &[0xf3, 0x0f, 0x2c, 0xc1][..]),
+        ("CVTPS2DQ", &[0x66, 0x0f, 0x5b, 0xc1][..]),
+        ("CVTSD2SS", &[0xf2, 0x0f, 0x5a, 0xc1][..]),
+        ("CVTPD2PS", &[0x66, 0x0f, 0x5a, 0xc1][..]),
+        ("CVTSI2SS", &[0xf3, 0x0f, 0x2a, 0xc1][..]),
+        ("CVTDQ2PS", &[0x0f, 0x5b, 0xc1][..]),
+        ("CVTPI2PS", &[0x0f, 0x2a, 0xc1][..]),
+        ("CVTTPS2PI", &[0x0f, 0x2c, 0xc1][..]),
+    ] {
+        let mut image = floating_image(code, 0x1fa0);
+        image.cpu.simd.xmm.fill([0; 16]);
+        image.cpu.registers.ecx = 0;
+        image.cpu.x87.status = crate::support::x87::status(0);
+        let compiled = observed_block(code, 1, SegmentProfile::Flat32.into(), &image.cpu);
+        image.cpu.simd.mxcsr = 0x1f80;
+        image.check_unchanged_exit(engine, &compiled, name, Exit::Interpret);
+    }
+}
+
 fn cleared_precision_before_mmio(engine: Engine) {
     use crate::support::step::Event;
 
@@ -144,9 +229,21 @@ fn cleared_precision_before_mmio(engine: Engine) {
 }
 
 #[test]
+fn cleared_precision_keeps_precision_free_instructions_compiled() {
+    precision_free_instructions(Engine::Wasmtime);
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_cleared_precision_keeps_precision_free_instructions_compiled() {
+    precision_free_instructions(Engine::V8);
+}
+
+#[test]
 fn observed_mxcsr_precision_specialization() {
     sticky_precision(Engine::Wasmtime);
     loaded_precision(Engine::Wasmtime);
+    precision_producing_instructions(Engine::Wasmtime);
     cleared_precision_before_mmio(Engine::Wasmtime);
 }
 
@@ -155,5 +252,6 @@ fn observed_mxcsr_precision_specialization() {
 fn v8_observed_mxcsr_precision_specialization() {
     sticky_precision(Engine::V8);
     loaded_precision(Engine::V8);
+    precision_producing_instructions(Engine::V8);
     cleared_precision_before_mmio(Engine::V8);
 }

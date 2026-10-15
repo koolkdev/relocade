@@ -60,6 +60,7 @@ fn narrow(
     shape: FloatShape,
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
+    execution.specialize_simd_precision(&controls)?;
     let (source, initial, count) = match shape {
         FloatShape::Scalar => (
             Val::<V128>::splat(source.read::<I64>(execution, VectorAlignment::Unaligned)?),

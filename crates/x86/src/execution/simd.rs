@@ -9,17 +9,29 @@ impl ExecutionBuilder<'_, '_> {
         self.state.read_mxcsr(&mut self.body)
     }
 
-    /// Guard observed numerical settings and any usable sticky precision fact
-    /// before operand reads. Architectural state reads remain unguarded.
+    /// Numerical operations can use observed controls only after a restart
+    /// guard establishes them. Architectural state reads remain unguarded.
     pub(crate) fn simd_controls(&mut self) -> Result<Mxcsr, BuildError> {
         let controls = self.read_mxcsr()?;
         self.specialize(|jit| {
             if let Some(observed) = jit.observed_cpu {
-                jit.specialize_on(controls.specialization_condition(observed.simd.mxcsr))?;
+                jit.specialize_on(controls.matches_controls(observed.simd.mxcsr))?;
             }
             Ok(())
         })?;
         Ok(controls)
+    }
+
+    /// Precision-producing operations can discard repeated exactness work when
+    /// masked PE is already set. Call after simd_controls and before operand reads.
+    pub(crate) fn specialize_simd_precision(&mut self, controls: &Mxcsr) -> Result<(), BuildError> {
+        self.specialize(|jit| {
+            if let Some(observed) = jit.observed_cpu {
+                jit.specialize_on(controls.preserves_masked_precision(observed.simd.mxcsr))?;
+            }
+            Ok(())
+        })?;
+        Ok(())
     }
 
     /// Publish sticky status before an unmasked fault. Call before writing the
