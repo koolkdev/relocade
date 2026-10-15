@@ -8,6 +8,10 @@ instruction_families! {
         execute: store_descriptor_table::<_>(DescriptorTable::Global);
         forms { 0x0F 0x01 /0 => word_or_dword(mem); }
     }
+    SIDT {
+        execute: store_descriptor_table::<_>(DescriptorTable::Interrupt);
+        forms { 0x0F 0x01 /1 => word_or_dword(mem); }
+    }
     SMSW {
         execute: store_machine_status;
         forms { 0x0F 0x01 /4 => word_or_dword(rm); }

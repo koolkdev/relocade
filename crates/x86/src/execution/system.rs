@@ -1,7 +1,10 @@
 //! System-register queries and their complete guest-memory stores.
 
 use super::ExecutionBuilder;
-use crate::{address::MemoryAddress, memory::Intent, register::RegisterType, DescriptorTable};
+use crate::{
+    address::MemoryAddress, memory::Intent, register::RegisterType, DescriptorTable,
+    DescriptorTableRegister, ExecutionProfile,
+};
 use wasm86_compiler::{BuildError, Val, I16, I32};
 
 impl ExecutionBuilder<'_, '_> {
@@ -11,7 +14,14 @@ impl ExecutionBuilder<'_, '_> {
         table: DescriptorTable,
     ) -> Result<(), BuildError> {
         let operand = self.memory_operand(destination, 6, Intent::Write, &[])?;
-        let register = self.runtime.query_descriptor_table(&mut self.body, table)?;
+        let register = match (self.profile(), table) {
+            (ExecutionProfile::Real16, DescriptorTable::Interrupt) => DescriptorTableRegister {
+                // Real16 interrupt delivery uses the conventional 256-vector IVT.
+                base: 0.into(),
+                limit: 0x3ff.into(),
+            },
+            _ => self.runtime.query_descriptor_table(&mut self.body, table)?,
+        };
         let base = if T::BYTES == 2 {
             // P4's 16-bit form stores a 24-bit base and clears the sixth byte.
             register.base.and(0x00ff_ffff)

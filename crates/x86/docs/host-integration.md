@@ -269,15 +269,15 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 
 Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
 `resolveSegment`, `querySegmentDescriptor` and `queryDescriptorTable`. Real16
-interpreters import `cpuState`, `guest`, `physicalMap`, `dispatch`, the MMIO callbacks and the port
+interpreters import `cpuState`, `guest`, `physicalMap`, `dispatch`, the MMIO and port
 callbacks, plus `queryDescriptorTable` for SGDT. They use generated RAM/ROM accesses
 and do not call segment-resolution or segment-descriptor callbacks. The physical
 memory contract below describes routing and callback widths.
 Snapshot modules omit imports they do not use: protected-mode memory instructions
 require guest backing and the page table, protected-mode segment loads require
-`resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. SGDT requires
-`queryDescriptorTable`. Blocks with specialization guards require `interpret`. Hosts should use the generated
-module's import list when instantiating it.
+`resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. SGDT and
+protected-mode SIDT require `queryDescriptorTable`. Blocks with specialization guards require
+`interpret`. Hosts should use the generated module's import list when instantiating it.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical
@@ -899,19 +899,21 @@ IDTR requires a corresponding extension of interrupt delivery.
 
 ### Descriptor-table register stores
 
-SGDT calls `wasm86.queryDescriptorTable(table: i32)` with `DescriptorTable::Global`
-(0). The callback returns two Wasm i32 results `(base, limit)`; the limit must be
+SGDT and protected-mode SIDT call `wasm86.queryDescriptorTable(table: i32)` with
+`DescriptorTable::Global` (0) or `DescriptorTable::Interrupt` (1), respectively.
+The callback returns two Wasm i32 results `(base, limit)`; the limit must be
 zero-extended from 16 bits. These correspond to `DescriptorTableRegister`'s
 named fields. The callback reads the current host system-register view and must
 not inspect or mutate CPU state, guest memory or page tables, or reenter guest
 execution. The host may update its view between entry invocations.
 
-SGDT always stores six bytes: a little-endian 16-bit limit followed by the base.
+Both instructions always store six bytes: a little-endian 16-bit limit followed by the base.
 With 16-bit operand size, only base bits 23:0 are stored and the sixth byte is
 zero; with 32-bit operand size, all base bits are stored. Address size and segment
 overrides affect the destination normally. The entire destination is checked
-before any bytes are written, and flags are unchanged. SGDT is available in
-real mode and at CPL3 without a CPUID feature bit.
+before any bytes are written, and flags are unchanged. Both are available in
+real mode and at CPL3 without a CPUID feature bit. Real16 SIDT uses the profile's
+fixed IDTR (base zero, limit 0x3ff) without a host query.
 
 ## Fault and host exits
 

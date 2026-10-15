@@ -2,6 +2,8 @@
 
 #[path = "system_queries/sgdt.rs"]
 mod sgdt;
+#[path = "system_queries/sidt.rs"]
+mod sidt;
 #[path = "system_queries/smsw.rs"]
 mod smsw;
 
