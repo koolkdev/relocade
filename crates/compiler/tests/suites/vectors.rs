@@ -1,5 +1,7 @@
 //! Vector encodings follow the same value, effect and control-flow contracts as scalars.
 
+#[path = "vectors/demand.rs"]
+mod demand;
 #[path = "vectors/floating.rs"]
 mod floating;
 #[path = "vectors/folding.rs"]

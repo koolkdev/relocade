@@ -1,7 +1,7 @@
 //! Choose Wasm instruction forms using placed uses and effect boundaries.
 //!
 //! Value normalization and folding live in expression::fold. These replacements
-//! may depend on a result being unused or only observed as zero/nonzero.
+//! depend on placed consumers and which result bits they observe.
 //! Selection leaves the graph's value definitions intact.
 use super::wasm_type;
 use crate::expression::{BinaryOp as Binary, TernaryOp as Ternary, UnaryOp as Unary};
@@ -12,6 +12,7 @@ use crate::{
 };
 use rustc_hash::FxHashMap;
 
+mod lanes;
 mod memory;
 
 pub(super) struct Selection {
@@ -48,23 +49,27 @@ impl Selection {
                 this.uses[input] += 1;
             }
         }
+        let mut has_lane_observations = false;
         for &value in &order {
-            if let ValueDefinition::Expression(Expression::Unary {
-                operator: Unary::Convert,
-                input,
-            }) = graph.values[value].definition
+            if let ValueDefinition::Expression(Expression::Unary { operator, input }) =
+                graph.values[value].definition
             {
-                if wasm_type(graph.values[value].ty) == wasm_type(graph.values[input].ty) {
-                    this.aliases[value] = Some(input);
-                    this.skipped[value] = true;
+                match operator {
+                    Unary::Convert
+                        if wasm_type(graph.values[value].ty)
+                            == wasm_type(graph.values[input].ty) =>
+                    {
+                        this.bypass_expression(graph, value, input);
+                    }
+                    Unary::ExtractLane { .. } => {
+                        has_lane_observations |=
+                            graph.values[value].ty.bits() < graph.values[input].ty.bits();
+                    }
+                    _ => {}
                 }
             }
         }
-        for &value in order.iter().rev() {
-            if let Some(input) = this.aliases[value] {
-                this.uses[input] += this.uses[value].saturating_sub(1);
-            }
-        }
+        let lanes_changed = has_lane_observations && this.discard_unobserved_lanes(graph, &order);
         for (index, block) in graph.blocks.iter().enumerate() {
             if !reachable[index] {
                 continue;
@@ -89,6 +94,9 @@ impl Selection {
             }
         }
         for &value in order.iter().rev() {
+            if lanes_changed && this.retire_unused(graph, value) {
+                continue;
+            }
             let ValueDefinition::Expression(Expression::Unary { operator, input }) =
                 graph.values[value].definition
             else {
@@ -207,6 +215,45 @@ impl Selection {
             value = alias;
         }
         value
+    }
+    /// Redirect one consumer, retaining a producer needed by other consumers.
+    fn replace_input(&mut self, graph: &FunctionGraph, old: usize, input: usize) {
+        let old = self.resolve(old);
+        let input = self.resolve(input);
+        self.uses[input] += 1;
+        self.uses[old] -= 1;
+        self.retire_unused(graph, old);
+    }
+    /// Bypass a single-result expression for all of its placed consumers.
+    /// The caller proves the replacement preserves what those consumers observe.
+    fn bypass_expression(&mut self, graph: &FunctionGraph, value: usize, input: usize) {
+        debug_assert_eq!(graph.values.expression_results(value).len(), 1);
+        let input = self.resolve(input);
+        self.uses[input] += std::mem::take(&mut self.uses[value]);
+        let retired = self.retire_unused(graph, value);
+        debug_assert!(retired);
+        self.aliases[value] = Some(input);
+    }
+    fn retire_unused(&mut self, graph: &FunctionGraph, value: usize) -> bool {
+        if self.skipped[value] {
+            return false;
+        }
+        let ValueDefinition::Expression(expression) = graph.values[value].definition else {
+            return false;
+        };
+        if graph
+            .values
+            .expression_results(value)
+            .any(|result| self.uses[result] != 0)
+        {
+            return false;
+        }
+        self.skipped[value] = true;
+        for &input in expression.inputs() {
+            let input = self.resolve(input);
+            self.uses[input] -= 1;
+        }
+        true
     }
     pub(super) fn condition(
         &self,

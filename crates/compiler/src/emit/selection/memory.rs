@@ -63,12 +63,12 @@ impl Selection {
         let Some(mut store) = self.store_conversion(graph, value, access.bytes) else {
             return;
         };
-        self.replace_store_input(value, store.value);
+        self.replace_input(graph, value, store.value);
         while matches!(store.form, StoreForm::Plain) {
             let Some(next) = self.store_conversion(graph, store.value, access.bytes) else {
                 break;
             };
-            self.replace_store_input(store.value, next.value);
+            self.replace_input(graph, store.value, next.value);
             store = next;
         }
         self.memory.insert(effect, MemorySelection::Store(store));
@@ -122,15 +122,6 @@ impl Selection {
             value: self.resolve(input),
             form,
         })
-    }
-
-    fn replace_store_input(&mut self, old: usize, input: usize) {
-        self.uses[old] -= 1;
-        self.uses[input] += 1;
-        if self.uses[old] == 0 {
-            self.skipped[old] = true;
-            self.uses[input] -= 1;
-        }
     }
 
     pub(super) fn cover_load(&mut self, graph: &FunctionGraph, result: usize) {
