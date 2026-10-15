@@ -5,7 +5,7 @@ use crate::{
     flags::{Flag, FlagChange},
     floating::BinaryEncoding,
     instruction::XmmType,
-    simd::{FloatOperands, FloatResult, FloatShape},
+    simd::FloatOperands,
 };
 use wasm86_compiler::{AtLeast, I64};
 
@@ -27,48 +27,60 @@ instruction_families! {
         forms { P66 0x0f 0x2e => qword(xmm, xmm_rm); }
     }
     CMPSS {
-        execute: compare_mask::<_>(FloatShape::Scalar);
+        execute: compare_scalar_mask::<_>;
         forms { PF3 0x0f 0xc2 => dword(xmm, xmm_rm, imm8); }
     }
     CMPSD {
-        execute: compare_mask::<_>(FloatShape::Scalar);
+        execute: compare_scalar_mask::<_>;
         forms { PF2 0x0f 0xc2 => qword(xmm, xmm_rm, imm8); }
     }
     CMPPS {
-        execute: compare_mask::<_>(FloatShape::Packed);
+        execute: compare_packed_mask::<_>;
         forms { NP 0x0f 0xc2 => dword(xmm, xmm_rm, imm8); }
     }
     CMPPD {
-        execute: compare_mask::<_>(FloatShape::Packed);
+        execute: compare_packed_mask::<_>;
         forms { P66 0x0f 0xc2 => qword(xmm, xmm_rm, imm8); }
     }
 }
 
-fn compare_mask<T: BinaryEncoding + XmmType>(
+fn compare_scalar_mask<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: RegisterCode,
     source: XmmLocation,
     predicate: Input<I8>,
-    shape: FloatShape,
 ) -> Result<(), BuildError>
 where
     I64: AtLeast<T>,
 {
     let predicate = predicate.read(execution)?;
-    floating::binary::<T>(execution, destination, source, shape, |operands| {
-        // Predicates 4..7 negate 0..3; LT/LE and their negations signal on QNaN.
-        let kind = predicate.and(3);
-        let comparison = operands.compare(kind.eq(1).or(kind.eq(2)));
-        let matches = kind
-            .eq(0)
-            .and(&comparison.equal)
-            .or(kind.eq(1).and(&comparison.less))
-            .or(kind.eq(2).and(comparison.less.or(&comparison.equal)))
-            .or(kind.eq(3).and(comparison.unordered));
-        FloatResult {
-            value: matches.xor(predicate.and(4).ne(0)).select(-1, 0),
-            exceptions: comparison.exceptions,
-        }
+    let controls = execution.simd_controls()?;
+    floating::scalar_binary::<T>(execution, destination, source, |_, left, right| {
+        Ok(
+            FloatOperands::new(left, right, controls.denormals_are_zero())
+                .compare_mask(predicate.clone()),
+        )
+    })
+}
+
+fn compare_packed_mask<T: BinaryEncoding>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: RegisterCode,
+    source: XmmLocation,
+    predicate: Input<I8>,
+) -> Result<(), BuildError>
+where
+    I64: AtLeast<T>,
+{
+    let predicate = predicate.read(execution)?;
+    let controls = execution.simd_controls()?;
+    floating::packed_binary(execution, destination, source, |execution, left, right| {
+        floating::packed_lanes::<T>(execution, left, right, |_, left, right| {
+            Ok(
+                FloatOperands::new(left, right, controls.denormals_are_zero())
+                    .compare_mask(predicate.clone()),
+            )
+        })
     })
 }
 

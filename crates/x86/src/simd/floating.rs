@@ -2,6 +2,7 @@
 
 mod arithmetic;
 mod compare;
+mod estimate;
 mod exceptions;
 mod integer;
 mod operand;
@@ -9,7 +10,8 @@ mod rounding;
 mod sqrt;
 mod width;
 pub(crate) use arithmetic::{ArithmeticOperands, FloatArithmetic};
-pub(crate) use compare::FloatOperands;
+pub(crate) use compare::{FloatMinMax, FloatOperands};
+pub(crate) use estimate::FloatEstimate;
 pub(crate) use exceptions::SimdExceptions;
 pub(crate) use integer::integer_to_float;
 pub(crate) use operand::FloatOperand;
@@ -52,10 +54,4 @@ impl FloatResult<V128> {
         }
         Ok(result)
     }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum FloatShape {
-    Scalar,
-    Packed,
 }
