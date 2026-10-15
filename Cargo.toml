@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/compiler", "crates/x86", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/test-support"]
-default-members = ["crates/compiler", "crates/x86", "crates/machine", "crates/runtime", "crates/runtime-wasmtime"]
+members = ["crates/compiler", "crates/x86", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/runtime-web", "crates/test-support"]
+default-members = ["crates/compiler", "crates/x86", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/runtime-web"]
 
 [workspace.package]
 version = "0.0.0"
@@ -16,6 +16,10 @@ wasm86-test-support = { path = "crates/test-support" }
 wasm-encoder = { version = "=0.254.0", default-features = false }
 wasmtime = { version = "=30.0.2", default-features = false, features = ["cranelift", "runtime", "std", "threads"] }
 
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "=0.4.79"
+wasm-bindgen-test = "=0.3.79"
+js-sys = { version = "=0.3.106", default-features = false, features = ["std"] }
 pollster = { version = "=1.0.1", features = ["macro"] }
 
 # Tests construct and compile Wasm at runtime. Keep assertions and debug info,

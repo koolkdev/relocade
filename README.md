@@ -23,6 +23,7 @@ that subset. The project is under development; the crates are not published.
 | [wasm86-machine](crates/machine/src/lib.rs) | CPU configuration, memory mappings and environment services. |
 | [wasm86-runtime](crates/runtime/src/lib.rs) | Prepared execution modules, callable dispatch and instruction budgets. |
 | [wasm86-runtime-wasmtime](crates/runtime-wasmtime/src/lib.rs) | Native Wasmtime compilation, memories and import bindings. |
+| [wasm86-runtime-web](crates/runtime-web/src/lib.rs) | Browser WebAssembly compilation, memories and import bindings. |
 | [wasm86-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime and V8 test support. |
 
 ## Generate a block
@@ -69,6 +70,13 @@ To run the [native console example](crates/runtime-wasmtime/examples/real16.rs):
 ```sh
 cargo run -p wasm86-runtime-wasmtime --example real16 --locked
 ```
+
+For a browser or dedicated worker, use `Runtime::new(WebBackend)` from
+`wasm86-runtime-web` with the same `Machine` configuration. Compile the embedding
+for `wasm32-unknown-unknown` with wasm-bindgen. Preparation awaits browser promises;
+execution and environment callbacks are synchronous. Yield to the event loop
+between runs. JSPI and nested guest callbacks are not required by this
+execution contract. The web dependency graph contains no Wasmtime.
 
 ## Build and test
 
