@@ -13,3 +13,7 @@ wasm86-compiler = { path = "../compiler" }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 wasm86-runtime-wasmtime = { path = "../runtime-wasmtime" }
 pollster.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm86-runtime-web = { path = "../runtime-web" }
+wasm-bindgen-test.workspace = true

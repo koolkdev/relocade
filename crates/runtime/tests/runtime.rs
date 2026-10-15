@@ -1,5 +1,3 @@
-#![cfg(not(target_arch = "wasm32"))]
-
 use wasm86_machine::{CpuContext, Environment, Machine};
 use wasm86_runtime::{Runtime, Session};
 #[cfg(not(target_arch = "wasm32"))]
