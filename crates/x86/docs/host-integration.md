@@ -103,7 +103,7 @@ as the corresponding imports of execution modules. `dispatch` follows the next
 execution address through the table; `interpret` directly enters the fallback
 when a snapshot abandons a specialization. These transfers stay inside Wasm.
 The embedding enters through `enter() -> i64`, which returns a guest exit, a scheduling exit, or the observation
-handoff described below. For observation, write nonzero at offset 0 of
+handoff described below. For observation, write nonzero at `EntryTable::OBSERVE_OFFSET` (24) of
 `executionEntries`; the next outgoing dispatch returns zero with state published.
 Zero is a runtime handoff result, not an architectural exit.
 
@@ -123,12 +123,44 @@ links. Use the step interpreter when every interpreted instruction boundary must
 this table; these transfers remain inside Wasm.
 
 Initialize `executionEntries` to zero, then copy `EntryTable::to_bytes()` at
-`EntryTable::DATA_OFFSET` (8), growing memory first. The serialized data is a
+`EntryTable::DATA_OFFSET` (32), growing memory first. The serialized data is a
 u32 mask followed by eight-byte address/slot rows, with zero slots marking empty
 rows. The table uses open addressing and is at most half full. Replace mappings
 only outside execution. The function table must already contain every published
 slot. Installed code and imports remain alive until the machine is dropped; removing
 an address does not reclaim code.
+
+## Compiled host functions
+
+`Compiler::compile_host_functions` emits complete callable functions for a supplied
+list of `HostFunction` definitions. Install its exports consecutively at the supplied
+first table slot and publish its `CallableEntry` address bindings. Every entry uses
+the same `() -> i64` ABI as ordinary compiled code. Each service directly calls a
+fixed `host.entry_N() -> i32` import; dispatch has no entry-kind branch or host-ID
+lookup. Addresses are logical CS.base + EIP before paging/A20, scoped to the active
+execution target and address space. No guest stub bytes are required.
+
+The host import sees published CPU state and may update it and guest memory. It
+returns zero to continue or one to yield (`ExecutionExit::HostYield`, tag 1025,
+zero payload, service address in the low word). Other results violate the import
+contract. Preserve the instruction counter and the active execution profile's
+segment assumptions when replacing state. Callbacks are synchronous and must not
+reenter the same session.
+
+`HostReturn` lowers IRET, RET, or RETF through ordinary instruction semantics,
+including stack cleanup, permissions and faults. A callback does not retire an
+instruction; its lowered return retires one and checks the instruction budget.
+A single saved continuation in `executionEntries` allows an explicit yield or
+return fault to resume the return without replaying the callback. Redirecting
+CS:EIP or changing retirement abandons that continuation; explicit restart also
+abandons it. Nested guest callbacks are not supported.
+
+The dispatch prefix stores the resume slot at byte 0, EIP at 4, CS base at 8,
+CS selector at 12 and the 64-bit retirement counter at 16. The observation flag
+is at byte 24; serialized address-table data starts at byte 32. Replacing address
+rows preserves this prefix. Clearing bytes before the observation flag explicitly
+restarts a visit. A suspended function remains callable after its address binding
+is replaced or removed; the embedding must retain its function and host imports.
 
 ## Interpreter handoff
 
@@ -342,7 +374,7 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | `guest` | 1 | Guest backing bytes for the selected memory model. |
 | `machine` | 64 | Protected-mode linear-to-backing page table at byte zero. |
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
-| `executionEntries` | 1 | Observation policy and execution-address table. |
+| `executionEntries` | 1 | Callable continuation, observation policy and address table. |
 
 Protected-mode interpreters import `executionContext`, `guest`, `machine`, `dispatch`,
 `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
@@ -969,7 +1001,7 @@ tag, 16-bit payload and 32-bit address. These tags are independent of architectu
 exception vector numbers:
 
 Hosts can decode these words with `ExecutionExit::from_bits`, which returns an
-`Exception`, an unsupported-instruction diagnostic, or `BudgetExhausted`. It also
+`Exception`, an unsupported-instruction diagnostic, `BudgetExhausted`, or `HostYield`. It also
 recognizes `0x0403_0000_0000_0000` as `ContextChanged`; the dispatcher does not emit
 this reserved outcome. Unknown tags and nonzero reserved fields return `None`.
 Host-defined values returned by `dispatch` or
@@ -990,6 +1022,7 @@ that callback's contract. A matching exit word alone does not establish its sour
 | Invalid opcode | 128 | Zero | Zero |
 | Floating-point error | 256 | Zero | Zero |
 | SIMD floating-point exception | 512 | Zero | Zero |
+| Host yield | 1025 | Zero | Service address |
 | Context changed (reserved) | 1027 | Zero | Zero |
 | Instruction budget exhausted | 32768 | Zero | Zero |
 

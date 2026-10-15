@@ -2,7 +2,7 @@ use crate::{memory, PreparedModule};
 use std::mem::offset_of;
 use wasm86_machine::Environment;
 use wasm86_runtime::{
-    backend::{EntryRequest, GuestMemory, Imports, Instance},
+    backend::{EntryRequest, GuestMemory, HostCallback, Imports, Instance},
     Error, Result,
 };
 use wasm86_x86::{CpuState, EntryTable, ExecutionContext};
@@ -30,8 +30,9 @@ impl<D: Environment + 'static> Instance<D> for WasmtimeInstance<D> {
         module: &PreparedModule,
         first_slot: u32,
         exports: &[String],
+        callbacks: Vec<HostCallback<D>>,
     ) -> Result<()> {
-        self.install(module, first_slot, exports)
+        self.install(module, first_slot, exports, callbacks)
     }
 
     fn enter(&mut self, request: EntryRequest) -> Result<u64> {
@@ -67,6 +68,9 @@ impl<D: Environment + 'static> Instance<D> for WasmtimeInstance<D> {
             .write(&mut self.store, EntryTable::DATA_OFFSET as usize, &bytes)
             .expect("entry backing was grown before publication");
         Ok(())
+    }
+    fn restart_entry(&mut self) {
+        self.entries.data_mut(&mut self.store)[..EntryTable::OBSERVE_OFFSET as usize].fill(0);
     }
     fn cpu(&self) -> CpuState {
         let offset = offset_of!(ExecutionContext, cpu);

@@ -1,11 +1,14 @@
 use crate::{
-    imports::BoundImports, js_error, memory, memory::MemoryAccess, set_property, PreparedModule,
+    imports::{BoundImports, HostImports},
+    js_error, memory,
+    memory::MemoryAccess,
+    set_property, PreparedModule,
 };
 use js_sys::{Function, Object, Reflect, WebAssembly};
 use std::{cell::RefCell, mem::offset_of, rc::Rc};
 use wasm86_machine::Environment;
 use wasm86_runtime::{
-    backend::{EntryRequest, GuestMemory, Imports, Instance},
+    backend::{EntryRequest, GuestMemory, HostCallback, Imports, Instance},
     Result,
 };
 use wasm86_x86::{CpuState, EntryTable, ExecutionContext};
@@ -20,6 +23,7 @@ pub struct WebInstance<D> {
     memory: MemoryAccess,
     entry: Function,
     imports: BoundImports,
+    host_imports: Vec<HostImports>,
     functions: WebAssembly::Table,
 }
 
@@ -62,6 +66,7 @@ impl<D: Environment + 'static> WebInstance<D> {
             memory,
             entry,
             imports,
+            host_imports: Vec::new(),
             functions,
         })
     }
@@ -75,8 +80,18 @@ impl<D: Environment + 'static> Instance<D> for WebInstance<D> {
         module: &PreparedModule,
         first_slot: u32,
         exports: &[String],
+        callbacks: Vec<HostCallback<D>>,
     ) -> Result<()> {
-        let instance = instantiate(module, &self.imports.object).await?;
+        let imports = HostImports::new(
+            &self.imports.object,
+            &self.state,
+            &self.context,
+            &self.memory,
+            callbacks,
+        );
+        let instance = instantiate(module, &imports.object).await?;
+        // Once functions enter the table, every referenced closure must stay alive.
+        self.host_imports.push(imports);
         let required = first_slot + exports.len() as u32;
         let current = self.functions.length();
         if required > current {
@@ -125,6 +140,9 @@ impl<D: Environment + 'static> Instance<D> for WebInstance<D> {
         Ok(())
     }
 
+    fn restart_entry(&mut self) {
+        memory::write(&self.entries, 0, &[0; EntryTable::OBSERVE_OFFSET as usize]);
+    }
     fn cpu(&self) -> CpuState {
         let mut bytes = [0; CpuState::BYTE_LEN];
         memory::read(

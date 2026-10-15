@@ -234,3 +234,60 @@ async fn rejected_descriptor_load_preserves_the_destination_segment() {
     assert_eq!(session.cpu().segments.ds, ds);
     assert_eq!(session.cpu().eip, 0x1004);
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+async fn configured_host_functions_use_the_target_and_return_through_a_32_bit_stack() {
+    use wasm86_machine::{HostAction, HostReturn};
+    #[derive(Default)]
+    struct Calls(u32);
+    impl Environment for Calls {}
+    let target = Compiler::new(SegmentProfile::Flat32)
+        .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
+        .target();
+    // PUSH 11112222h; CALL 2000h; UD2. The service address has no guest mapping.
+    let mut machine = flat_machine_for(
+        &[
+            0x68, 0x22, 0x22, 0x11, 0x11, 0xe8, 0xf6, 0x0f, 0, 0, 0x0f, 0x0b,
+        ],
+        Calls::default(),
+        target,
+    );
+    let mut cpu = machine.context().cpu();
+    cpu.registers.esp = 0x80002000;
+    cpu.instruction_count = 100;
+    machine.set_cpu(cpu).unwrap();
+    machine
+        .host_functions_mut()
+        .insert(0x2000, HostReturn::Near { pop_bytes: 4 }, |host| {
+            let before = host.cpu();
+            assert_eq!(before.instruction_count, 102);
+            let mut frame = [0; 8];
+            host.read_memory(before.registers.esp, &mut frame).unwrap();
+            assert_eq!(frame, [0x0a, 0x10, 0, 0, 0x22, 0x22, 0x11, 0x11]);
+            let mut invalid = before;
+            invalid.segments.ds.base = 1;
+            assert!(host.set_cpu(invalid).is_err());
+            assert_eq!(host.cpu(), before);
+            let mut result = before;
+            result.registers.eax = 42;
+            result.instruction_count = 0; // callback edits cannot manufacture retirement
+            host.set_cpu(result).unwrap();
+            host.with_environment(|calls| calls.0 += 1);
+            HostAction::Continue
+        });
+    let mut session = runtime().await.attach(machine).await.unwrap();
+    let outcome = session.run(20).unwrap();
+    assert_eq!(outcome, ExecutionExit::Exception(Exception::InvalidOpcode));
+    let cpu = session.cpu();
+    assert_eq!(
+        (
+            cpu.registers.eax,
+            cpu.registers.esp,
+            cpu.eip,
+            cpu.instruction_count
+        ),
+        (42, 0x80002000, 0x100a, 103)
+    );
+    assert_eq!(session.with_environment(|calls| calls.0), 1);
+}

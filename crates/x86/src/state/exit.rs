@@ -14,8 +14,9 @@ const FLOATING_POINT: u64 = 256 << 48;
 const SIMD_FLOATING_POINT: u64 = 512 << 48;
 const BUDGET_EXHAUSTED: u64 = 1 << 63;
 const CONTEXT_CHANGED: u64 = 1027 << 48;
+const HOST_YIELD: u64 = 1025 << 48;
 
-/// A direct guest exit from a generated execution entry.
+/// An exit from a generated execution entry.
 ///
 /// Generated entries can also return values supplied by `dispatch` or `interpret`.
 /// Distinguish host-defined callback results from execution exits before decoding.
@@ -25,6 +26,11 @@ pub enum ExecutionExit {
     BudgetExhausted,
     /// Execution must resume under a compatible context before another entry.
     ContextChanged,
+    /// A completed host call yielded. The next entry resumes its return without
+    /// repeating host effects unless execution was explicitly restarted.
+    HostYield {
+        address: u32,
+    },
     Exception(Exception),
     /// An encoding or execution path outside the implemented instruction subset.
     UnsupportedInstruction {
@@ -47,6 +53,7 @@ impl ExecutionExit {
                 return Some(Self::BudgetExhausted);
             }
             CONTEXT_CHANGED if payload == 0 && address == 0 => return Some(Self::ContextChanged),
+            HOST_YIELD if payload == 0 => return Some(Self::HostYield { address }),
             DIVIDE_ERROR if payload == 0 && address == 0 => Exception::DivideError,
             BOUND_RANGE_EXCEEDED if payload == 0 && address == 0 => Exception::BoundRangeExceeded,
             INVALID_OPCODE if payload == 0 && address == 0 => Exception::InvalidOpcode,
@@ -80,6 +87,11 @@ impl ExecutionExit {
 /// CPU state must already describe the completed block.
 pub(crate) fn budget_exhausted(body: BlockBuilder<'_>) -> Result<(), BuildError> {
     body.return_(BUDGET_EXHAUSTED)
+}
+
+/// The callable continuation must be retained before yielding to the host.
+pub(crate) fn host_yield(body: BlockBuilder<'_>, address: u32) -> Result<(), BuildError> {
+    body.return_(HOST_YIELD | u64::from(address))
 }
 
 /// Delivers an exception through the host ABI. CPU state must already describe

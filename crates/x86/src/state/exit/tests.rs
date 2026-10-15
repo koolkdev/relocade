@@ -1,4 +1,4 @@
-use super::{budget_exhausted, exception, unsupported, ExecutionExit};
+use super::{budget_exhausted, exception, host_yield, unsupported, ExecutionExit};
 use crate::exception::Exception;
 use crate::test_step::{
     Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule,
@@ -20,6 +20,8 @@ fn exit_module() -> Vec<u8> {
         "simd_floating_point",
         "unsupported",
         "budget_exhausted",
+        "host_yield_zero",
+        "host_yield_max",
     ] {
         let function = program
             .function(
@@ -46,6 +48,8 @@ fn exit_module() -> Vec<u8> {
                             error_code: detail,
                         },
                         "budget_exhausted" => return budget_exhausted(body),
+                        "host_yield_zero" => return host_yield(body, 0),
+                        "host_yield_max" => return host_yield(body, u32::MAX),
                         "unsupported" => {
                             return unsupported(body, &address, detail.truncate::<I8>())
                         }
@@ -104,6 +108,8 @@ fn check_host_exit_words(engine: Engine) {
         ),
         ("unsupported", 0xf3, 0x89ab_cdef, 0x0008_00f3_89ab_cdef),
         ("budget_exhausted", 0xffff, u32::MAX, i64::MIN),
+        ("host_yield_zero", 0xffff, u32::MAX, 0x0401_0000_0000_0000),
+        ("host_yield_max", 0xffff, 0, 0x0401_0000_ffff_ffff),
     ] {
         let module = TestModule::new(&CompiledModule {
             execution_target: None,
@@ -145,6 +151,11 @@ fn host_exit_words_in_v8() {
 
 #[test]
 fn decode_documented_guest_exit_words() {
+    assert_eq!(
+        ExecutionExit::from_bits(0x0401_0000_ffff_ffff),
+        Some(ExecutionExit::HostYield { address: u32::MAX })
+    );
+    assert_eq!(ExecutionExit::from_bits(0x0401_0001_0000_0000), None);
     assert_eq!(
         ExecutionExit::from_bits(0x0403_0000_0000_0000),
         Some(ExecutionExit::ContextChanged)

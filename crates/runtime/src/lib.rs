@@ -29,6 +29,7 @@
 
 pub mod backend;
 mod error;
+mod host;
 mod module;
 mod run;
 mod session;

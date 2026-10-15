@@ -1,5 +1,6 @@
 //! Address resolution shared by every kind of callable execution entry.
 
+mod continuation;
 mod table;
 pub use table::EntryTable;
 
@@ -69,6 +70,7 @@ impl Compiler {
                 results: vec![Type::I64],
             },
             |mut body| {
+                dispatch.resume(&mut body, &cpu)?;
                 let mut segments = SegmentState::new(&cpu, self.target.profile);
                 let eip = cpu.read_eip(&mut body)?;
                 let check =

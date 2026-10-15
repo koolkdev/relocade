@@ -9,6 +9,7 @@ impl<B: Backend, D: Environment + 'static> Session<B, D> {
     /// Runs until the instruction budget is consumed at a block boundary or an
     /// execution exit occurs. Whole blocks may exceed the budget; there is no
     /// fixed overshoot or elapsed-time guarantee. A zero budget does not enter Wasm.
+    /// Host callbacks do not retire instructions; their lowered returns do.
     /// The absolute target saturates at `u64::MAX`; counter wrap is not supported.
     pub fn run(&mut self, instruction_budget: u32) -> Result<ExecutionExit> {
         if instruction_budget == 0 {

@@ -61,7 +61,8 @@ use std::fmt;
 
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, compile_interpreter,
-    compile_interpreter_step, Compiler, EntryTable,
+    compile_interpreter_step, CallableEntry, CompiledHostFunctions, Compiler, EntryTable,
+    HostFunction, HostReturn,
 };
 pub use exception::{Exception, ExceptionVector};
 pub use memory::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
