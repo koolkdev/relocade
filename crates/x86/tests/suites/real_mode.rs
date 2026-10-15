@@ -20,6 +20,8 @@ mod ports;
 mod segments;
 #[path = "real_mode/string_io.rs"]
 mod string_io;
+#[path = "real_mode/strings.rs"]
+mod strings;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},

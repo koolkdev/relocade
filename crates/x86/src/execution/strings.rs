@@ -22,6 +22,7 @@ pub(crate) struct StringOperand {
     segment: SegmentSelection,
     intent: Intent,
     relative: Option<RelativeRange>,
+    live_routing: bool,
 }
 
 /// String operands whose direct backing may be used when the range is available.
@@ -43,7 +44,14 @@ impl StringOperand {
             segment,
             intent,
             relative: None,
+            live_routing: false,
         }
+    }
+
+    /// Device callbacks can remap this operand between transfers.
+    pub(crate) fn with_live_routing(mut self) -> Self {
+        self.live_routing = true;
+        self
     }
 
     pub(crate) fn read<T: RegisterType>(
@@ -114,13 +122,14 @@ impl ExecutionBuilder<'_, '_> {
     /// Non-faulting preflight. Zero count skips all operand checks. Oversized or
     /// wrapping offset spans, denied permissions and scattered backing need the
     /// checked interpreter loop to determine actual progress and fault priority.
-    /// Memory models with live mappings keep per-element resolution in both frontends.
+    /// Physical ranges require direct RAM/ROM within one page per operand.
+    /// Port strings retain live routing because their callbacks can invalidate proofs.
     pub(crate) fn resolve_strings<T: RegisterType, const N: usize>(
         &mut self,
         operands: &[StringOperand; N],
         count: &Val<I32>,
     ) -> Result<Option<ResolvedStrings<N>>, BuildError> {
-        if !self.memory.as_ref().unwrap().memory().has_stable_mappings() {
+        if operands.iter().any(|operand| operand.live_routing) {
             return Ok(None);
         }
         let bytes = count.mul(T::BYTES);
@@ -166,7 +175,7 @@ impl ExecutionBuilder<'_, '_> {
                                 segment.denied.unwrap_or(false.into()),
                                 |denied| denied.yield_((false, 0)),
                                 |mut paging| {
-                                    let access = memory.resolve_access(
+                                    let access = memory.check_direct_access(
                                         &mut paging,
                                         &segment.linear,
                                         &bytes,
