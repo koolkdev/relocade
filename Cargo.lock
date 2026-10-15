@@ -1007,6 +1007,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm86-dos"
+version = "0.0.0"
+dependencies = [
+ "pollster",
+ "wasm-bindgen-test",
+ "wasm86-machine",
+ "wasm86-runtime",
+ "wasm86-runtime-wasmtime",
+ "wasm86-runtime-web",
+ "wasm86-x86",
+]
+
+[[package]]
 name = "wasm86-machine"
 version = "0.0.0"
 dependencies = [
