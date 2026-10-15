@@ -4,7 +4,7 @@ use crate::{
     backend::{Backend, Instance},
     Error, Result, Session,
 };
-use wasm86_machine::Environment;
+use wasm86_machine::{Environment, HostCallback};
 use wasm86_x86::CompiledModule;
 
 /// Generated code plus the exports made reachable at guest execution addresses.
@@ -14,10 +14,11 @@ use wasm86_x86::CompiledModule;
 /// so cooperative work allowances also apply inside installed code. Registered
 /// addresses must be block boundaries; blocks must not cross another entry.
 /// Installing code does not start a JIT or track mutable code bytes.
-pub struct ExecutableModule {
+pub struct ExecutableModule<D = ()> {
     pub(crate) code: CompiledModule,
     pub(crate) exports: Vec<String>,
     bindings: Vec<EntryBinding>,
+    pub(crate) callbacks: Vec<HostCallback<D>>,
 }
 
 struct EntryBinding {
@@ -25,12 +26,13 @@ struct EntryBinding {
     export: u32,
 }
 
-impl ExecutableModule {
+impl<D> ExecutableModule<D> {
     pub fn new(code: CompiledModule) -> Self {
         Self {
             code,
             exports: Vec::new(),
             bindings: Vec::new(),
+            callbacks: Vec::new(),
         }
     }
 
@@ -60,14 +62,14 @@ impl<B: Backend, D: Environment + 'static> Session<B, D> {
     /// Compiles with this machine's originating backend and installs callable
     /// exports against its existing memories. Address bindings become visible
     /// together after instantiation. Replacing an address affects future visits.
-    pub async fn install_module(&mut self, module: ExecutableModule) -> Result<()> {
+    pub async fn install_module(&mut self, module: ExecutableModule<D>) -> Result<()> {
         if module.code.execution_target != Some(self.target) || !module.code.execution_budget {
             return Err(Error::IncompatibleModule);
         }
         let compiled = self.runtime.code.backend.compile(&module.code).await?;
         let first_slot = self.next_slot;
         self.instance
-            .install_module(&compiled, first_slot, &module.exports)
+            .install_module(&compiled, first_slot, &module.exports, module.callbacks)
             .await?;
         self.next_slot = first_slot
             .checked_add(module.exports.len() as u32)

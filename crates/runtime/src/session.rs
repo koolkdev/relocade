@@ -36,13 +36,18 @@ impl<B: Backend, D: Environment + 'static> Session<B, D> {
         instance.set_cpu(&context.cpu());
         let entries = EntryTable::default();
         instance.set_entries(&entries)?;
-        Ok(Self {
+        let mut session = Self {
             instance,
             runtime: runtime.clone(),
             entries,
             next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
             target,
-        })
+        };
+        let functions = session
+            .instance
+            .with_memory(|imports, _| imports.take_host_functions());
+        session.install_host_functions(functions).await?;
+        Ok(session)
     }
 
     pub fn execution_target(&self) -> ExecutionTarget {
@@ -59,6 +64,13 @@ impl<B: Backend, D: Environment + 'static> Session<B, D> {
         CpuContext::new(self.target, cpu)?;
         self.instance.set_cpu(&cpu);
         Ok(())
+    }
+
+    /// Abandons a suspended callable. The next entry treats CS:EIP as a fresh visit,
+    /// even at the same address. Ordinary fault repair or completion of a yielded
+    /// service should retain the continuation instead. Partial effects are not undone.
+    pub fn restart_entry(&mut self) {
+        self.instance.restart_entry();
     }
 
     /// Removes an address mapping. Later visits use the interpreter fallback.

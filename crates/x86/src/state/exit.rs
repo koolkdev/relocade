@@ -24,6 +24,11 @@ pub enum ExecutionExit {
     BudgetExhausted,
     /// Execution must resume under a compatible context before another entry.
     ContextChanged,
+    /// A completed host call yielded. The next entry resumes its return without
+    /// repeating host effects unless execution was explicitly restarted.
+    HostYield {
+        address: u32,
+    },
     Exception(Exception),
     /// An encoding or execution path outside the implemented instruction subset.
     UnsupportedInstruction {
@@ -48,6 +53,7 @@ impl ExecutionExit {
             crate::CONTEXT_CHANGED if payload == 0 && address == 0 => {
                 return Some(Self::ContextChanged)
             }
+            crate::HOST_YIELD if payload == 0 => return Some(Self::HostYield { address }),
             DIVIDE_ERROR if payload == 0 && address == 0 => Exception::DivideError,
             BOUND_RANGE_EXCEEDED if payload == 0 && address == 0 => Exception::BoundRangeExceeded,
             INVALID_OPCODE if payload == 0 && address == 0 => Exception::InvalidOpcode,

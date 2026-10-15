@@ -68,12 +68,17 @@ pub const SLICE_EXHAUSTED: u64 = 1024 << 48;
 /// A REP instruction completes before yielding, regardless of its element count.
 pub const MAX_EXECUTION_CHUNK: u32 = 256;
 
+/// A completed host function requested a yield. The low 32 bits contain its
+/// service address; its callable continuation is retained.
+pub const HOST_YIELD: u64 = 1025 << 48;
+
 /// Published segment caches no longer satisfy this dispatcher’s execution profile.
 pub const CONTEXT_CHANGED: u64 = 1027 << 48;
 
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, compile_interpreter,
-    compile_interpreter_step, Compiler, EntryTable,
+    compile_interpreter_step, CallableEntry, CompiledHostFunctions, Compiler, EntryTable,
+    HostFunction, HostReturn,
 };
 pub use exception::{Exception, ExceptionVector};
 pub use memory::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};

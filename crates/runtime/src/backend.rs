@@ -10,7 +10,7 @@ use std::future::Future;
 use wasm86_machine::Environment;
 use wasm86_x86::{CompiledModule, CpuState, EntryTable};
 
-pub use wasm86_machine::{GuestMemory, Imports};
+pub use wasm86_machine::{GuestMemory, HostCallback, Imports};
 
 /// Compiles and instantiates generated Wasm modules on one host engine.
 pub trait Backend {
@@ -74,13 +74,15 @@ pub trait Instance<D: Environment> {
     type Module;
 
     /// Instantiates another module against this machine's existing memories and
-    /// function table. Install exports consecutively from first_slot before
-    /// publishing address mappings.
+    /// function table. Bind fixed callbacks as host.entry_0, host.entry_1, etc.
+    /// Install exports consecutively from first_slot before publishing mappings.
+    /// Retain callbacks while any installed function can reach them.
     fn install_module(
         &mut self,
         module: &Self::Module,
         first_slot: u32,
         exports: &[String],
+        callbacks: Vec<HostCallback<D>>,
     ) -> impl Future<Output = Result<()>>;
 
     /// Supplies a work allowance in `executionBudget`, enters the prepared export
@@ -88,8 +90,10 @@ pub trait Instance<D: Environment> {
     /// guest execution can invoke it.
     fn enter(&mut self, request: EntryRequest) -> Result<EntryResult>;
     /// Publishes execution destinations between entries, growing their memory
-    /// first. Preserve the observation prefix when replacing a table.
+    /// first. Preserve the continuation and observation prefix when replacing a table.
     fn set_entries(&mut self, entries: &EntryTable) -> Result<()>;
+    /// Abandons a suspended callable so the next entry starts a fresh address lookup.
+    fn restart_entry(&mut self);
     fn cpu(&self) -> CpuState;
     fn set_cpu(&mut self, cpu: &CpuState);
 

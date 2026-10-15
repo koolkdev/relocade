@@ -76,6 +76,16 @@ execution and environment callbacks are synchronous. Yield to the event loop
 between cooperative slices. JSPI and nested guest callbacks are not required by this
 execution contract. The web dependency graph contains no Wasmtime.
 
+Host services are complete generated functions. Configure them with
+`machine.host_functions_mut().insert(address, HostReturn::Interrupt, callback)`
+before attachment, or install a `HostFunctions` module on an existing session.
+The generated function calls its fixed host import and lowers its return through
+normal x86 semantics. `HostContext` exposes scoped CPU, environment and routed
+memory access; `HostAction::Yield` returns control without replaying the callback
+on resume. Real-mode INT still builds its frame and follows the live IVT, so guest
+handlers can replace vectors and chain to the same service addresses. Protected
+near returns use the same mechanism for host-implemented functions.
+
 ## Build and test
 
 The ordinary tests execute Wasm in Wasmtime and do not require Node.js.

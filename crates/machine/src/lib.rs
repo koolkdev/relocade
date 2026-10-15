@@ -8,11 +8,13 @@
 
 mod context;
 mod environment;
+mod host;
 mod imports;
 mod memory;
 
 pub use context::{ConfigurationError, CpuContext};
 pub use environment::Environment;
+pub use host::{HostAction, HostCallback, HostContext, HostFunctions, HostReturn};
 pub use imports::Imports;
 pub use memory::{GuestMemory, MappingError, MemoryAccess, MemoryError, MemoryMap, PagedMemoryMap};
 use wasm86_x86::CpuState;
@@ -37,8 +39,13 @@ impl<E: Environment> Machine<E> {
         }
         Ok(Self {
             context,
-            imports: Imports::new(map, environment),
+            imports: Imports::new(context.target(), map, environment),
         })
+    }
+
+    /// Functions supplied by this environment, installed when a runtime attaches it.
+    pub fn host_functions_mut(&mut self) -> &mut HostFunctions<E> {
+        &mut self.imports.pending_functions
     }
 
     pub fn context(&self) -> CpuContext {

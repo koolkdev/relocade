@@ -1,5 +1,6 @@
 //! Address resolution shared by every kind of callable execution entry.
 
+mod continuation;
 mod table;
 pub use table::EntryTable;
 
@@ -72,6 +73,7 @@ impl Compiler {
                 body.if_(compatible.eq(false), |changed| {
                     changed.return_(crate::CONTEXT_CHANGED)
                 })?;
+                dispatch.resume(&mut body, &cpu)?;
                 let eip = cpu.read_eip(&mut body)?;
                 let check = SegmentAccess::new(&cpu, self.target.profile).check(
                     &mut body,

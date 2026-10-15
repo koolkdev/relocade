@@ -148,6 +148,11 @@ fn decode_documented_guest_exit_words() {
         Some(ExecutionExit::BudgetExhausted),
     );
     assert_eq!(
+        ExecutionExit::from_bits(0x0401_0000_ffff_ffff),
+        Some(ExecutionExit::HostYield { address: u32::MAX })
+    );
+    assert_eq!(ExecutionExit::from_bits(0x0401_0001_0000_0000), None);
+    assert_eq!(
         ExecutionExit::from_bits(0x0403_0000_0000_0000),
         Some(ExecutionExit::ContextChanged)
     );

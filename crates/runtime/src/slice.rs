@@ -13,7 +13,8 @@ pub enum SliceStop {
     Exited(ExecutionExit),
 }
 
-/// Work consumed and instructions retired before the slice returned.
+/// Work consumed and instructions retired before the slice returned. Host
+/// callbacks consume work without retiring an instruction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SliceOutcome {
     /// Actual work consumed, including any overshoot beyond the allowance.
@@ -25,7 +26,8 @@ pub struct SliceOutcome {
 impl<B: Backend, D: Environment + 'static> Session<B, D> {
     /// Executes through Wasm dispatch until the work allowance is exhausted at a
     /// cooperative boundary. The allowance may be exceeded by at most 255 units.
-    /// Only environment imports cross into the host before an exit or exhaustion.
+    /// Only environment and service imports cross into the host before an exit
+    /// or exhaustion.
     /// Use `run_slice_until` when a host predicate must observe dispatch boundaries.
     pub fn run_slice(&mut self, work_limit: u32) -> Result<SliceOutcome> {
         if work_limit == 0 {
@@ -49,15 +51,19 @@ impl<B: Backend, D: Environment + 'static> Session<B, D> {
     /// including a whole REP, costs one unit.
     /// Execution can overshoot the allowance by at most 255 units. Faults retain
     /// precise state and completed work regardless of scheduling boundaries.
+    /// A host callback consumes one unit without retirement; its lowered return
+    /// consumes another unit and retires one instruction.
     ///
     /// The predicate observes the initial state and published dispatch boundaries.
     /// Compiled blocks need not expose each instruction. A predicate stop takes
     /// precedence over exhausted work; a guest exit returns immediately.
-    /// A zero allowance does not fetch an instruction.
+    /// A zero allowance does not fetch an instruction. A continuing host function
+    /// runs its callback and return without an intermediate predicate call unless
+    /// its work allowance runs out.
     ///
-    /// Host callbacks remain synchronous. The allowance counts instructions, not
-    /// transferred bytes or elapsed time. Browser callers should yield to their
-    /// event loop between slices.
+    /// Host callbacks remain synchronous. Work allowances do not bound transferred
+    /// bytes or elapsed time. Browser callers should yield to their event loop
+    /// between slices.
     pub fn run_slice_until(
         &mut self,
         work_limit: u32,

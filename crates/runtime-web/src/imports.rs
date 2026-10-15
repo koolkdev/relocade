@@ -1,3 +1,6 @@
+mod host;
+pub(crate) use host::HostImports;
+
 use crate::{memory::MemoryAccess, set_property};
 use js_sys::{Array, Object, WebAssembly::Memory};
 use std::{cell::RefCell, rc::Rc};

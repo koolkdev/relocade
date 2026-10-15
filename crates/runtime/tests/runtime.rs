@@ -14,6 +14,8 @@ mod devices;
 mod dispatch;
 #[path = "runtime/execution.rs"]
 mod execution;
+#[path = "runtime/host_functions.rs"]
+mod host_functions;
 #[path = "runtime/memory.rs"]
 mod memory;
 #[path = "runtime/observation.rs"]

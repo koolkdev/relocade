@@ -117,9 +117,34 @@ impl<D: Environment + 'static> WasmtimeInstance<D> {
         module: &PreparedModule,
         first_slot: u32,
         exports: &[String],
+        callbacks: Vec<HostCallback<D>>,
     ) -> Result<()> {
-        let instance = self
-            .linker
+        let mut linker = self.linker.clone();
+        let cpu = self.cpu;
+        let guest = self.guest;
+        let mapping = self.mapping;
+        for (index, callback) in callbacks.into_iter().enumerate() {
+            let binding = self.store.data_mut().bind_host_call(callback);
+            linker
+                .func_wrap(
+                    "host",
+                    &format!("entry_{index}"),
+                    move |mut caller: Caller<'_, Imports<D>>| {
+                        let mut state = CpuState::from_bytes(
+                            cpu.data(&caller)[..CpuState::BYTE_LEN].try_into().unwrap(),
+                        );
+                        let action =
+                            memory::access(&mut caller, guest, mapping, |imports, memory| {
+                                imports.host_call(&mut state, memory, binding)
+                            });
+                        cpu.write(&mut caller, 0, &state.to_bytes())
+                            .expect("CPU backing is valid");
+                        action
+                    },
+                )
+                .map_err(|error| Error::backend("bind module import", error))?;
+        }
+        let instance = linker
             .instantiate(&mut self.store, &module.module)
             .map_err(|error| Error::backend("instantiate callable module", error))?;
         let required = u64::from(first_slot) + exports.len() as u64;
