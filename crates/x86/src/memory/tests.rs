@@ -170,9 +170,21 @@ fn contiguous_accesses_keep_native_loads_and_stores_for_every_storage_width() {
                     Operator::I32Load16U { memarg } if memarg.memory == guest_index => "load16",
                     Operator::I32Load { memarg } if memarg.memory == guest_index => "load32",
                     Operator::I64Load { memarg } if memarg.memory == guest_index => "load64",
-                    Operator::I32Store8 { memarg } if memarg.memory == guest_index => "store8",
-                    Operator::I32Store16 { memarg } if memarg.memory == guest_index => "store16",
-                    Operator::I32Store { memarg } if memarg.memory == guest_index => "store32",
+                    Operator::I32Store8 { memarg } | Operator::I64Store8 { memarg }
+                        if memarg.memory == guest_index =>
+                    {
+                        "store8"
+                    }
+                    Operator::I32Store16 { memarg } | Operator::I64Store16 { memarg }
+                        if memarg.memory == guest_index =>
+                    {
+                        "store16"
+                    }
+                    Operator::I32Store { memarg } | Operator::I64Store32 { memarg }
+                        if memarg.memory == guest_index =>
+                    {
+                        "store32"
+                    }
                     Operator::I64Store { memarg } if memarg.memory == guest_index => "store64",
                     _ => continue,
                 };

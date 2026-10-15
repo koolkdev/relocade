@@ -135,7 +135,12 @@ impl Writer<'_> {
                 }
                 Pending::Item(item) => {
                     pending.push(Pending::Finish(item));
-                    pending.extend(self.graph.inputs(item).rev().map(Pending::Value));
+                    pending.extend(
+                        self.selection
+                            .inputs(self.graph, item)
+                            .rev()
+                            .map(Pending::Value),
+                    );
                 }
                 Pending::Finish(item) => self.instruction(item),
             }
@@ -166,21 +171,21 @@ impl Writer<'_> {
                 let effect = &self.graph.effects[id.0];
                 let instruction = match effect.operation.kind() {
                     OperationKind::Load { access } => {
-                        let covered = self.selection.signed_load[id.0];
-                        let result = covered.unwrap_or(effect.results[0]);
+                        let load = self.selection.load(self.graph, id);
                         memory::load(
                             memory::argument(self.memories, access),
                             access.bytes,
-                            self.graph.values[result].ty,
-                            covered.is_some(),
+                            self.graph.values[load.result].ty,
+                            load.form,
                         )
                     }
                     OperationKind::Store { access } => {
-                        let value = effect.operation.inputs().next_back().unwrap();
+                        let store = self.selection.store(self.graph, id);
                         memory::store(
                             memory::argument(self.memories, access),
                             access.bytes,
-                            self.graph.values[value].ty,
+                            self.graph.values[store.value].ty,
+                            store.form,
                         )
                     }
                     OperationKind::MemoryFill { memory } => Wasm::MemoryFill(

@@ -252,7 +252,7 @@ fn signed_extension_keeps_the_word_snapshot_across_a_call_that_writes_its_high_b
             .iter()
             .map(|(name, _)| *name)
             .collect::<Vec<_>>(),
-        ["i32.load16_u", "i64.load16_s"]
+        ["i64.load16_s", "i64.load16_s"]
     );
     let mut instance = module.instantiate();
     assert_eq!(instance.call_values("run", &[]).unwrap(), CALL_RESULT);

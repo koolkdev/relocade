@@ -1,4 +1,4 @@
-//! Packed chains retain scalar publication and precise guest fault boundaries.
+//! Packed chains retain architectural publication and precise guest faults.
 
 use super::*;
 use wasm86_x86::compile_block_from_bytes;
@@ -98,35 +98,30 @@ fn operators(bytes: &[u8]) -> Vec<Operator<'_>> {
 }
 
 #[test]
-fn packed_add_chains_only_convert_at_scalar_boundaries() {
+fn packed_add_chains_use_vector_memory_without_scalar_conversions() {
     let code = [0x0f, 0xfd, 0xc1].repeat(8);
     let inputs = 2;
     let module = compile_block_from_bytes(0x1000, &code, (code.len() / 3) as u32).unwrap();
     let ops = operators(&module.bytes);
     assert_eq!(
         ops.iter()
-            .filter(|op| matches!(op, Operator::I64x2Splat))
+            .filter(|op| matches!(op, Operator::V128Load64Splat { .. }))
             .count(),
         inputs
     );
     assert_eq!(
         ops.iter()
-            .filter(|op| matches!(op, Operator::I64x2ExtractLane { .. }))
+            .filter(|op| matches!(op, Operator::V128Store64Lane { lane: 0, .. }))
             .count(),
         1
     );
-    assert_eq!(
-        ops.iter()
-            .filter(|op| matches!(op, Operator::I64Load { .. }))
-            .count(),
-        inputs
-    );
-    assert_eq!(
-        ops.iter()
-            .filter(|op| matches!(op, Operator::I64Store { .. }))
-            .count(),
-        1
-    );
+    assert!(!ops.iter().any(|op| matches!(
+        op,
+        Operator::I64Load { .. }
+            | Operator::I64Store { .. }
+            | Operator::I64x2Splat
+            | Operator::I64x2ExtractLane { .. }
+    )));
 }
 
 #[test]
@@ -135,13 +130,13 @@ fn mixed_logic_stays_vectorized_while_scalar_backed_logic_stays_scalar() {
     let ops = operators(&module.bytes);
     assert_eq!(
         ops.iter()
-            .filter(|op| matches!(op, Operator::I64x2Splat))
+            .filter(|op| matches!(op, Operator::V128Load64Splat { .. }))
             .count(),
         4
     );
     assert_eq!(
         ops.iter()
-            .filter(|op| matches!(op, Operator::I64x2ExtractLane { .. }))
+            .filter(|op| matches!(op, Operator::V128Store64Lane { lane: 0, .. }))
             .count(),
         1
     );

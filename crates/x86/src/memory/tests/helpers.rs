@@ -72,7 +72,7 @@ impl Module {
                             {
                                 function.byte_reads += 1;
                             }
-                            Operator::I32Store8 { memarg }
+                            Operator::I32Store8 { memarg } | Operator::I64Store8 { memarg }
                                 if Some(memarg.memory) == guest_index =>
                             {
                                 function.byte_writes += 1;
