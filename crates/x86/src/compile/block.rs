@@ -9,9 +9,10 @@ use super::Compiler;
 
 /// Compiles a byte snapshot under [`SegmentProfile::Flat32`].
 ///
-/// Compilation stops at the first branch, segment load, port I/O, unconditional
-/// fault or `instruction_limit`. A conditional branch ends the block on both outcomes;
-/// bytes after the boundary are ignored. The limit must be nonzero. Incomplete,
+/// Compilation stops at the first branch, segment load, port I/O, serializing
+/// instruction, unconditional fault or `instruction_limit`. A conditional branch
+/// ends the block on both outcomes; bytes after the boundary are ignored.
+/// The limit must be nonzero. Incomplete,
 /// unsupported or overlong instructions within that boundary return [`BlockError`].
 ///
 /// The generated `block_<hex start_eip>() -> i64` entry executes the block and

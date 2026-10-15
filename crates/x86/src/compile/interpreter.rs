@@ -12,7 +12,8 @@ use crate::{
 use super::Compiler;
 
 /// Generates `run() -> i64`, which fetches and executes instructions until a
-/// branch, segment load or port I/O completes, then tail-calls host dispatch.
+/// branch, segment load, port I/O or serializing instruction completes, then
+/// tail-calls host dispatch.
 /// Conditional branches dispatch on both outcomes without fetching the successor.
 /// Guest faults and unsupported forms return directly with earlier work published.
 ///

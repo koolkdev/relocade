@@ -28,6 +28,8 @@ mod count_publication;
 mod counted_branches;
 #[path = "suites/cpu_features.rs"]
 mod cpu_features;
+#[path = "suites/cpuid.rs"]
+mod cpuid;
 #[path = "suites/data_moves.rs"]
 mod data_moves;
 #[path = "suites/decimal_adjust.rs"]
