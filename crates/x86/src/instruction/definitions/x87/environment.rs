@@ -13,18 +13,22 @@ use wasm86_compiler::{MemoryInt, I64};
 instruction_families! {
     FLDENV {
         execute: load::<_>(ImageKind::Environment);
+        requires: [Fpu];
         forms { 0xD9 / 4 => word_or_dword(mem); }
     }
     FNSTENV {
         execute: store::<_>(ImageKind::Environment);
+        requires: [Fpu];
         forms { 0xD9 / 6 => word_or_dword(mem); }
     }
     FRSTOR {
         execute: load::<_>(ImageKind::FullState);
+        requires: [Fpu];
         forms { 0xDD / 4 => word_or_dword(mem); }
     }
     FNSAVE {
         execute: store::<_>(ImageKind::FullState);
+        requires: [Fpu];
         forms { 0xDD / 6 => word_or_dword(mem); }
     }
 }

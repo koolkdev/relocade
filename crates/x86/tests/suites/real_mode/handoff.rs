@@ -26,7 +26,7 @@ fn interpreter_imports(engine: Engine) {
     let module = TestModule::new(&wasm86_x86::CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "enter".into(),
-        execution_profile: Some(ExecutionProfile::Real16),
+        execution_target: Some(crate::Compiler::new(ExecutionProfile::Real16).target()),
     })
     .with_interpreter(TestModule::interpreter_with_profile(
         ExecutionProfile::Real16,

@@ -37,7 +37,7 @@ fn module(write: bool) -> TestModule {
     TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "run".into(),
-        execution_profile: None,
+        execution_target: None,
     })
 }
 

@@ -6,14 +6,17 @@ use wasm86_compiler::I64;
 instruction_families! {
     PMOVMSKB {
         execute: mask(|vector| vector.bitmask::<I8>());
+        requires: [Sse2];
         forms { P66 0x0f 0xd7 => dword(modrm_reg, register(xmm_rm)); }
     }
     MOVMSKPS {
         execute: mask(|vector| vector.bitmask::<I32>());
+        requires: [Sse];
         forms { NP 0x0f 0x50 => dword(modrm_reg, register(xmm_rm)); }
     }
     MOVMSKPD {
         execute: mask(|vector| vector.bitmask::<I64>());
+        requires: [Sse2];
         forms { P66 0x0f 0x50 => dword(modrm_reg, register(xmm_rm)); }
     }
 }

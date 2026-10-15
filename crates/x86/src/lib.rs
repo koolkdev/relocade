@@ -6,12 +6,12 @@
 //! through a block boundary, and [`compile_interpreter_step`] generates a
 //! single-instruction entry.
 //! Both frontends share instruction semantics and return a [`CompiledModule`].
-//! [`Compiler`] configures both frontends with one execution profile.
+//! [`Compiler`] configures both frontends with one [`ExecutionTarget`], combining
+//! an execution profile and a [`CpuModel`].
 //!
-//! The supported subset covers 16/32-bit protected-mode and ordinary real-mode
-//! integer execution, selected x87 operations, MMX transfers, logical and packed
-//! add/subtract and comparison operations, EMMS, and SSE/SSE2 moves, bitwise
-//! logical operations and MXCSR access.
+//! The instruction set covers 16/32-bit protected-mode and ordinary real-mode
+//! integer execution, x87 floating point, MMX, SSE and SSE2. [`CpuFeature`] lists
+//! the configurable capabilities, all enabled by default.
 //! Privilege transitions and external interrupt delivery are outside the current scope.
 //!
 //! [`CpuState`] exchanges backing state with the host. [`ExecutionProfile`] describes
@@ -33,6 +33,7 @@ mod flags;
 mod floating;
 mod instruction;
 mod memory;
+mod processor;
 mod profile;
 mod register;
 mod runtime;
@@ -64,7 +65,8 @@ pub use compile::{
 };
 pub use exception::{Exception, ExceptionVector};
 pub use memory::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
-pub use profile::ExecutionProfile;
+pub use processor::{CpuFeature, CpuModel};
+pub use profile::{ExecutionProfile, ExecutionTarget};
 pub use register::Gpr32;
 pub use segment::{
     DescriptorTables, PrivilegeLevel, Segment, SegmentAttributes, SegmentDefaultSize,
@@ -80,12 +82,13 @@ pub use state::{
 pub struct CompiledModule {
     pub bytes: Vec<u8>,
     pub entry: String,
-    /// Required execution assumptions for x86 execution entries. The host must
-    /// establish compatibility before entry and invalidate dependent code and
-    /// links when assumptions break. A terminal segment load may change compatibility
-    /// before publication and dispatch. Snapshot instruction-fetch validity is separate.
-    /// Modules that do not execute x86 instructions have no execution profile.
-    pub execution_profile: Option<ExecutionProfile>,
+    /// Required processor model and execution assumptions for x86 entries.
+    /// The host must establish target compatibility before entry and use matching
+    /// targets for cached blocks, direct links and interpreter fallback. A terminal
+    /// segment load may change compatibility before publication and dispatch.
+    /// Snapshot instruction-fetch validity is separate. Modules that do not
+    /// execute x86 instructions have no execution target.
+    pub execution_target: Option<ExecutionTarget>,
 }
 
 /// A failure to construct a block, not an exception raised by guest execution.

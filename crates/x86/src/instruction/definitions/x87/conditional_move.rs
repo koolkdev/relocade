@@ -9,34 +9,42 @@ use crate::{
 instruction_families! {
     FCMOVB {
         execute: move_register(Condition::B);
+        requires: [Fpu, Cmov];
         forms { 0xDA @ 0xC0 + rm => operands(st); }
     }
     FCMOVE {
         execute: move_register(Condition::E);
+        requires: [Fpu, Cmov];
         forms { 0xDA @ 0xC8 + rm => operands(st); }
     }
     FCMOVBE {
         execute: move_register(Condition::BE);
+        requires: [Fpu, Cmov];
         forms { 0xDA @ 0xD0 + rm => operands(st); }
     }
     FCMOVU {
         execute: move_register(Condition::P);
+        requires: [Fpu, Cmov];
         forms { 0xDA @ 0xD8 + rm => operands(st); }
     }
     FCMOVNB {
         execute: move_register(Condition::AE);
+        requires: [Fpu, Cmov];
         forms { 0xDB @ 0xC0 + rm => operands(st); }
     }
     FCMOVNE {
         execute: move_register(Condition::NE);
+        requires: [Fpu, Cmov];
         forms { 0xDB @ 0xC8 + rm => operands(st); }
     }
     FCMOVNBE {
         execute: move_register(Condition::A);
+        requires: [Fpu, Cmov];
         forms { 0xDB @ 0xD0 + rm => operands(st); }
     }
     FCMOVNU {
         execute: move_register(Condition::NP);
+        requires: [Fpu, Cmov];
         forms { 0xDB @ 0xD8 + rm => operands(st); }
     }
 }

@@ -9,18 +9,22 @@ use crate::{
 instruction_families! {
     RCPSS {
         execute: scalar(FloatEstimate::Reciprocal);
+        requires: [Sse];
         forms { PF3 0x0f 0x53 => operands(xmm, xmm_rm); }
     }
     RCPPS {
         execute: packed(FloatEstimate::Reciprocal);
+        requires: [Sse];
         forms { NP 0x0f 0x53 => operands(xmm, xmm_rm); }
     }
     RSQRTSS {
         execute: scalar(FloatEstimate::ReciprocalSquareRoot);
+        requires: [Sse];
         forms { PF3 0x0f 0x52 => operands(xmm, xmm_rm); }
     }
     RSQRTPS {
         execute: packed(FloatEstimate::ReciprocalSquareRoot);
+        requires: [Sse];
         forms { NP 0x0f 0x52 => operands(xmm, xmm_rm); }
     }
 }

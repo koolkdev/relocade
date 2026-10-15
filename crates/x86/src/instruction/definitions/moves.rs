@@ -31,6 +31,7 @@ instruction_families! {
     }
     MOVNTI {
         execute: store_non_temporal;
+        requires: [Sse2];
         forms { NP 0x0f 0xc3 => dword(mem, modrm_reg); }
     }
     XLAT {

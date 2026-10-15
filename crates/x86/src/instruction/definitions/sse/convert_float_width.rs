@@ -10,18 +10,22 @@ use wasm86_compiler::I64;
 instruction_families! {
     CVTSS2SD {
         execute: widen_scalar;
+        requires: [Sse2];
         forms { PF3 0x0f 0x5a => dword(xmm, xmm_rm); }
     }
     CVTSD2SS {
         execute: narrow_scalar;
+        requires: [Sse2];
         forms { PF2 0x0f 0x5a => qword(xmm, xmm_rm); }
     }
     CVTPS2PD {
         execute: widen_packed;
+        requires: [Sse2];
         forms { NP 0x0f 0x5a => dword(xmm, xmm_rm); }
     }
     CVTPD2PS {
         execute: narrow_packed;
+        requires: [Sse2];
         forms { P66 0x0f 0x5a => qword(xmm, xmm_rm); }
     }
 }

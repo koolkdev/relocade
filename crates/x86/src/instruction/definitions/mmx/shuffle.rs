@@ -6,6 +6,7 @@ use crate::simd::shuffle_words;
 instruction_families! {
     PSHUFW {
         execute: shuffle;
+        requires: [Sse];
         forms { NP 0x0f 0x70 => operands(mm, mm_rm, imm8); }
     }
 }

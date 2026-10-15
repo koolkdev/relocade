@@ -8,12 +8,28 @@ the threads extension's atomic instructions, including on unshared memories.
 ## Entries and dispatch
 
 `CompiledModule` contains the Wasm bytes, exported entry name and required execution
-profile. Snapshot entries are named `block_<hex start_eip>`; interpreter entries
+target. Snapshot entries are named `block_<hex start_eip>`; interpreter entries
 are named `run` or `step`. All have the Wasm signature `() -> i64`.
 
-`Compiler::new(profile)` uses one segment profile for `compile_block`,
-`compile_interpreter` and `compile_interpreter_step`. The free compilation functions
-construct this configuration without CPU observations.
+`Compiler::new(profile)` uses one execution profile and the default `CpuModel`
+for `compile_block`, `compile_interpreter` and `compile_interpreter_step`.
+`with_cpu_model(model)` selects the same capabilities for every entry; `target()`
+returns the resulting `ExecutionTarget { profile, cpu_model }`. Free compilation
+functions use the default model without CPU observations.
+
+Every `CpuFeature` is implemented and enabled by default. For example,
+`CpuModel::default().with_feature(CpuFeature::Cmov, false)` disables integer and
+x87 conditional moves and the x87 comparisons that set EFLAGS. Known encodings
+requiring a disabled capability raise #UD after complete instruction fetch and
+before operand access, without retiring. They terminate snapshot compilation before
+the next instruction. The choice is fixed when Wasm is generated, so execution
+needs no dynamic feature test.
+
+`CpuModel::supports(feature)` reports whether the model enables that capability.
+`with_feature` returns the updated model directly.
+Execution-mode and control-register assumptions remain separate from capability
+selection. The model is host configuration, not mutable `CpuState`; keep it fixed
+for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
 count, then tail-calls `wasm86.dispatch(next_eip: i32) -> i64`. Its result is returned
@@ -53,7 +69,7 @@ An embedding can bind this import directly to an instance's `step` or `run` expo
 `step` resumes normal dispatch after one instruction; `run` continues to its own
 branch, segment-load or port-I/O boundary. Neither is constrained by the
 abandoned snapshot's instruction limit. The host chooses this policy and admits interpreter entries
-against their segment profile. Interpreter execution uses the shared instruction
+against their execution target. Interpreter execution uses the shared instruction
 semantics without speculative guards and does not import `interpret` itself.
 
 ## Observed CPU state
@@ -99,6 +115,36 @@ ordinary interpreter handoff at the consuming instruction. A host can reuse a
 block under another mode; the guard preserves correctness, though frequently
 mismatching modes may warrant compiling another block. No CPU state is replaced
 with the observed snapshot.
+
+## Processor capabilities
+
+`CpuFeature` contains the implemented instruction capabilities
+of the Pentium 4 target. Each is enabled by default and can be disabled independently.
+
+| `CpuFeature` | Instruction capability |
+| --- | --- |
+| `Fpu` | x87 floating point |
+| `Cx8` | CMPXCHG8B |
+| `Cmov` | CMOVcc; FCMOV/FCOMI when FPU is also enabled |
+| `Clflush` | CLFLUSH |
+| `Mmx` | MMX and EMMS |
+| `Fxsr` | FXSAVE/FXRSTOR |
+| `Sse` | SSE, including its MMX additions |
+| `Sse2` | SSE2 |
+
+SSE3, SYSENTER/SYSEXIT and MONITOR/MWAIT are not implemented or selectable.
+
+Capabilities select instruction extensions independently and do not emulate older
+processor generations. They preserve the stored x87, MMX and XMM state. MMX-register
+instructions introduced by SSE or SSE2 require that extension, without requiring
+the original MMX group: for example, PAVGB requires SSE and PADDQ requires SSE2.
+MOVNTI, LFENCE and MFENCE require SSE2; SFENCE and the prefetch hints require SSE.
+CLFLUSH has its own feature. FXSAVE/FXRSTOR require FXSR and still transfer the full
+retained x87/XMM/MXCSR state when other groups are disabled. FCMOV and FCOMI require
+both FPU and CMOV; disabling CMOV preserves the base x87 instruction set.
+
+XMM is the SIMD register bank, not a separate feature. The capability definitions
+follow Intel's [P4-era CPUID reference](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf#page=213).
 
 ## Port I/O
 
@@ -530,8 +576,16 @@ unused bits and ES/B. Changing a field may normalize that field's unused bits.
 
 ## Entry validity
 
-The host must admit each entry against `CompiledModule::execution_profile` before
-executing it, including when following a direct dispatch link.
+The host must admit each entry against `CompiledModule::execution_target` before
+executing it, including when following a direct dispatch link. This replaces the
+former profile-only metadata. `ExecutionTarget::is_compatible_with(active, segments)`
+requires exact target equality and checks the current segment caches. The host
+supplies its actual active target; segment bytes alone cannot establish the mode.
+
+Use the complete target in cache and direct-link keys, and require the same target
+for interpreter fallback. A model with additional enabled capabilities is not an
+interchangeable target: instruction availability is part of the guest contract.
+Changing the target requires rebuilding or selecting matching entries and links.
 
 `ExecutionProfile` selects `Protected(SegmentProfile)` or `Real16` at compilation
 time. `SegmentProfile` supplies protected-mode code defaults and segment assumptions.
@@ -548,8 +602,8 @@ attribute bits and ordinary DS/ES D/B bits do not determine flat compatibility.
 Segmented profiles can admit unusable caches or restrictive limits so execution
 can report their guest faults. All `Protected` entries execute at CPL3, including
 those with 16-bit code defaults. The host selects the execution mode; cache
-compatibility alone cannot distinguish it. Keep the complete profile in entry
-and dispatch-link keys, and invalidate dependencies when it changes.
+compatibility alone cannot distinguish it. The profile is part of the complete
+execution target described above.
 
 Flat entries omit checks and base reads where the segment is known to satisfy the
 profile. Interpreter memory operands with an explicit segment override use checked
@@ -815,7 +869,8 @@ guest-fault protocol.
 
 MM0–MM7 alias the significands of physical x87 slots R0–R7, independent of TOP
 and the tag word. There is no separate MMX register array or mode flag in the
-CPU image. The execution profiles assume MMX is enabled (CR0.EM/TS clear).
+CPU image. The execution profiles fix CR0.EM/TS clear; the CPU model separately
+selects the available MMX, SSE and SSE2 instruction extensions.
 
 MOVD and MOVQ transfer raw integer bits. MOVD uses a 32-bit GPR or four memory
 bytes even in 16-bit code; loads into MMX clear the upper 32 bits. MOVQ uses eight
@@ -851,11 +906,11 @@ resuming x87 stack operations after MMX use.
 `CpuState::simd` contains `StoredSimd { mxcsr, reserved, xmm }`. Default state has
 MXCSR `0x1f80` and zero XMM registers. Literal snapshots retain every bit, including
 reserved MXCSR bits and padding; these bytes are not an FXSAVE image. Hosts must
-allocate the new 464-byte CPU image; offsets of existing fields are unchanged.
+allocate the 464-byte CPU image.
 
-The current execution profiles assume SSE/SSE2 and SIMD exception delivery are
-enabled (CR0.EM/TS clear, CR4.OSFXSR and CR4.OSXMMEXCPT set); they do not model
-feature-control registers. MOVUPS, MOVUPD,
+The execution profiles fix CR0.EM/TS clear and CR4.OSFXSR/OSXMMEXCPT set, enabling
+SIMD state access and exception delivery. These control-register assumptions are
+independent of the CPU model's instruction admission. MOVUPS, MOVUPD,
 MOVAPS, MOVAPD, MOVDQA, MOVDQU, MOVSS, MOVSD, XORPS and XORPD preserve raw bits
 and leave MXCSR, EFLAGS and x87 state unchanged. MOVUPS/MOVUPD/MOVDQU accept
 unaligned memory. MOVAPS/MOVAPD/MOVDQA and legacy XORPS/XORPD require 16-byte
@@ -881,9 +936,8 @@ the supported mask is set, after completing the memory read and before changing
 state. Loading exception flags or unmasking them does not itself raise a SIMD
 floating-point exception. STMXCSR writes supported bits and zeroes reserved bits
 without normalizing the literal CPU snapshot. Both instructions leave XMM, EFLAGS
-and x87 state unchanged. The SIMD exception boundary is available to numerical
-instructions; floating-point arithmetic remains outside the current instruction
-subset.
+and x87 state unchanged. Floating-point arithmetic and conversions use the same
+MXCSR controls and SIMD exception boundary.
 
 COMISS/COMISD and UCOMISS/UCOMISD compare the low binary32/binary64 lane and
 write ZF/PF/CF, clearing OF/SF/AF. COMI raises invalid for any NaN; UCOMI raises

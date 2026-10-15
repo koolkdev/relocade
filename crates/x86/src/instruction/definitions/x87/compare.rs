@@ -14,78 +14,97 @@ use crate::{
 instruction_families! {
     FCOM_REGISTER {
         execute: compare_register(ComparisonKind::Ordered, 0, ComparisonTarget::X87);
+        requires: [Fpu];
         forms { 0xD8 @ 0xD0 + rm => operands(st); }
     }
     FCOMP_REGISTER {
         execute: compare_register(ComparisonKind::Ordered, 1, ComparisonTarget::X87);
+        requires: [Fpu];
         forms { 0xD8 @ 0xD8 + rm => operands(st); }
     }
     FCOMPP {
         execute: compare_register(X87StackIndex::new(1), ComparisonKind::Ordered, 2, ComparisonTarget::X87);
+        requires: [Fpu];
         forms { 0xDE @ 0xD9 => no_operands(); }
     }
     FUCOM {
         execute: compare_register(ComparisonKind::Unordered, 0, ComparisonTarget::X87);
+        requires: [Fpu];
         forms { 0xDD @ 0xE0 + rm => operands(st); }
     }
     FUCOMP {
         execute: compare_register(ComparisonKind::Unordered, 1, ComparisonTarget::X87);
+        requires: [Fpu];
         forms { 0xDD @ 0xE8 + rm => operands(st); }
     }
     FUCOMPP {
         execute: compare_register(X87StackIndex::new(1), ComparisonKind::Unordered, 2, ComparisonTarget::X87);
+        requires: [Fpu];
         forms { 0xDA @ 0xE9 => no_operands(); }
     }
     FCOMI {
         execute: compare_register(ComparisonKind::Ordered, 0, ComparisonTarget::Eflags);
+        requires: [Fpu, Cmov];
         forms { 0xDB @ 0xF0 + rm => operands(st); }
     }
     FCOMIP {
         execute: compare_register(ComparisonKind::Ordered, 1, ComparisonTarget::Eflags);
+        requires: [Fpu, Cmov];
         forms { 0xDF @ 0xF0 + rm => operands(st); }
     }
     FUCOMI {
         execute: compare_register(ComparisonKind::Unordered, 0, ComparisonTarget::Eflags);
+        requires: [Fpu, Cmov];
         forms { 0xDB @ 0xE8 + rm => operands(st); }
     }
     FUCOMIP {
         execute: compare_register(ComparisonKind::Unordered, 1, ComparisonTarget::Eflags);
+        requires: [Fpu, Cmov];
         forms { 0xDF @ 0xE8 + rm => operands(st); }
     }
     FCOM_BINARY32 {
         execute: compare_memory(X87MemoryFormat::Binary(BinaryFormat::Binary32), 0);
+        requires: [Fpu];
         forms { 0xD8 / 2 => operands(mem); }
     }
     FCOM_BINARY64 {
         execute: compare_memory(X87MemoryFormat::Binary(BinaryFormat::Binary64), 0);
+        requires: [Fpu];
         forms { 0xDC / 2 => operands(mem); }
     }
     FCOMP_BINARY32 {
         execute: compare_memory(X87MemoryFormat::Binary(BinaryFormat::Binary32), 1);
+        requires: [Fpu];
         forms { 0xD8 / 3 => operands(mem); }
     }
     FCOMP_BINARY64 {
         execute: compare_memory(X87MemoryFormat::Binary(BinaryFormat::Binary64), 1);
+        requires: [Fpu];
         forms { 0xDC / 3 => operands(mem); }
     }
     FICOM_INTEGER16 {
         execute: compare_memory(X87MemoryFormat::Integer16, 0);
+        requires: [Fpu];
         forms { 0xDE / 2 => operands(mem); }
     }
     FICOM_INTEGER32 {
         execute: compare_memory(X87MemoryFormat::Integer32, 0);
+        requires: [Fpu];
         forms { 0xDA / 2 => operands(mem); }
     }
     FICOMP_INTEGER16 {
         execute: compare_memory(X87MemoryFormat::Integer16, 1);
+        requires: [Fpu];
         forms { 0xDE / 3 => operands(mem); }
     }
     FICOMP_INTEGER32 {
         execute: compare_memory(X87MemoryFormat::Integer32, 1);
+        requires: [Fpu];
         forms { 0xDA / 3 => operands(mem); }
     }
     FTST {
         execute: test_zero;
+        requires: [Fpu];
         forms { 0xD9 @ 0xE4 => no_operands(); }
     }
 }

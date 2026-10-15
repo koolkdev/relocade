@@ -8,18 +8,22 @@ use wasm86_compiler::I64;
 instruction_families! {
     CVTSS2SI {
         execute: convert(BinaryFormat::Binary32, IntegerRounding::Mxcsr);
+        requires: [Sse];
         forms { PF3 0x0f 0x2d => dword(modrm_reg, xmm_rm); }
     }
     CVTSD2SI {
         execute: convert(BinaryFormat::Binary64, IntegerRounding::Mxcsr);
+        requires: [Sse2];
         forms { PF2 0x0f 0x2d => dword(modrm_reg, xmm_rm); }
     }
     CVTTSS2SI {
         execute: convert(BinaryFormat::Binary32, IntegerRounding::Truncate);
+        requires: [Sse];
         forms { PF3 0x0f 0x2c => dword(modrm_reg, xmm_rm); }
     }
     CVTTSD2SI {
         execute: convert(BinaryFormat::Binary64, IntegerRounding::Truncate);
+        requires: [Sse2];
         forms { PF2 0x0f 0x2c => dword(modrm_reg, xmm_rm); }
     }
 }

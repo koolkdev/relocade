@@ -30,6 +30,7 @@ instruction_families! {
     }
     CMPXCHG8B {
         execute: cmpxchg8b;
+        requires: [Cx8];
         forms {
             0x0F 0xC7 /1 => qword(mem) lockable;
         }

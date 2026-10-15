@@ -127,7 +127,7 @@ fn known_classes_survive_selection_and_indefinite_replacement() {
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "classify".into(),
-        execution_profile: None,
+        execution_target: None,
     });
     // Predicate bits: zero, denormal, special exponent, infinity, NaN, SNaN,
     // unsupported. Expectations come directly from these extended encodings.
@@ -432,7 +432,7 @@ fn loaded_binary_classification(engine: step::Engine) {
         let module = step::TestModule::new(&CompiledModule {
             bytes: program.compile().unwrap(),
             entry: "classify".into(),
-            execution_profile: None,
+            execution_target: None,
         });
         // Predicate bits match class_flags, followed by normal and normal-or-zero.
         // Source classification bits: zero, finite, special exponent, infinity, NaN.

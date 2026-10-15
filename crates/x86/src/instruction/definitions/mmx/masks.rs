@@ -5,6 +5,7 @@ use super::*;
 instruction_families! {
     PMOVMSKB {
         execute: byte_mask;
+        requires: [Sse];
         forms { NP 0x0f 0xd7 => dword(modrm_reg, register(mm_rm)); }
     }
 }

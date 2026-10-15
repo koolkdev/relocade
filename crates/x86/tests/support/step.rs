@@ -1,9 +1,13 @@
 #[cfg(test)]
 mod tests;
 
-use std::{path::Path, sync::OnceLock};
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Mutex, OnceLock},
+};
 
-use crate::{ExecutionProfile, SegmentProfile};
+use crate::{Compiler, ExecutionProfile, ExecutionTarget, SegmentProfile};
 use serde::{Deserialize, Serialize};
 use wasm86_test_support::Module;
 pub(crate) use wasm86_test_support::{Outcome, Value as Argument};
@@ -156,7 +160,7 @@ impl Engine {
 pub(crate) struct TestModule {
     module: Module,
     pub(crate) entry: String,
-    profile: Option<ExecutionProfile>,
+    target: Option<ExecutionTarget>,
     interpreter: Option<&'static TestModule>,
 }
 
@@ -165,7 +169,7 @@ impl TestModule {
         Self {
             module: Module::new(&module.bytes),
             entry: module.entry.clone(),
-            profile: module.execution_profile,
+            target: module.execution_target,
             interpreter: None,
         }
     }
@@ -179,23 +183,31 @@ impl TestModule {
     }
 
     pub(crate) fn interpreter_with_profile(profile: impl Into<ExecutionProfile>) -> &'static Self {
-        let profile = profile.into();
-        static FLAT: OnceLock<TestModule> = OnceLock::new();
-        static SEGMENTED: OnceLock<TestModule> = OnceLock::new();
-        static SEGMENTED16: OnceLock<TestModule> = OnceLock::new();
-        static REAL16: OnceLock<TestModule> = OnceLock::new();
-        let module = match profile {
-            ExecutionProfile::Protected(SegmentProfile::Flat32) => &FLAT,
-            ExecutionProfile::Protected(SegmentProfile::Segmented32) => &SEGMENTED,
-            ExecutionProfile::Protected(SegmentProfile::Segmented16) => &SEGMENTED16,
-            ExecutionProfile::Real16 => &REAL16,
-        };
-        module.get_or_init(|| Self::new(&crate::compile_interpreter_step(profile).unwrap()))
+        Self::interpreter_with_target(Compiler::new(profile).target())
+    }
+
+    pub(crate) fn interpreter_with_target(target: ExecutionTarget) -> &'static Self {
+        static MODULES: OnceLock<Mutex<HashMap<ExecutionTarget, &'static OnceLock<TestModule>>>> =
+            OnceLock::new();
+        let cell = *MODULES
+            .get_or_init(Mutex::default)
+            .lock()
+            .unwrap()
+            .entry(target)
+            .or_insert_with(|| Box::leak(Box::new(OnceLock::new())));
+        cell.get_or_init(|| {
+            Self::new(
+                &Compiler::new(target.profile)
+                    .with_cpu_model(target.cpu_model)
+                    .compile_interpreter_step()
+                    .unwrap(),
+            )
+        })
     }
 
     /// Link the interpreter directly; unlinked fixtures stop at the handoff callback.
     pub(crate) fn with_interpreter(mut self, interpreter: &'static Self) -> Self {
-        assert_eq!(self.profile, interpreter.profile);
+        assert_eq!(self.target, interpreter.target);
         self.interpreter = Some(interpreter);
         self
     }
@@ -220,7 +232,7 @@ impl TestModule {
                 interpreter_entry: self
                     .interpreter
                     .map(|interpreter| interpreter.entry.as_str()),
-                profile: self.profile.map(|profile| match profile {
+                profile: self.target.map(|target| match target.profile {
                     ExecutionProfile::Protected(SegmentProfile::Flat32) => "flat32",
                     ExecutionProfile::Protected(SegmentProfile::Segmented32) => "segmented32",
                     ExecutionProfile::Protected(SegmentProfile::Segmented16) => "segmented16",
@@ -233,7 +245,7 @@ impl TestModule {
     }
 
     fn check_profile(&self, bytes: &[u8]) {
-        let Some(profile) = self.profile else {
+        let Some(target) = self.target else {
             return;
         };
         let cpu = crate::CpuState::from_bytes(
@@ -242,8 +254,8 @@ impl TestModule {
                 .expect("the CPU image"),
         );
         assert!(
-            profile.is_compatible_with(&cpu.segments),
-            "{} requires compatible {profile:?} segment state",
+            target.is_compatible_with(target, &cpu.segments),
+            "{} requires compatible {target:?} segment state",
             self.entry
         );
     }

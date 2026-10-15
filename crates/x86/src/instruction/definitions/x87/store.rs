@@ -16,26 +16,32 @@ use wasm86_compiler::{MemoryInt, I64};
 instruction_families! {
     FST_BINARY32 {
         execute: store(BinaryFormat::Binary32, false);
+        requires: [Fpu];
         forms { 0xD9 / 2 => operands(mem); }
     }
     FSTP_BINARY32 {
         execute: store(BinaryFormat::Binary32, true);
+        requires: [Fpu];
         forms { 0xD9 / 3 => operands(mem); }
     }
     FST_BINARY64 {
         execute: store(BinaryFormat::Binary64, false);
+        requires: [Fpu];
         forms { 0xDD / 2 => operands(mem); }
     }
     FSTP_BINARY64 {
         execute: store(BinaryFormat::Binary64, true);
+        requires: [Fpu];
         forms { 0xDD / 3 => operands(mem); }
     }
     FSTP_EXTENDED {
         execute: store_extended;
+        requires: [Fpu];
         forms { 0xDB / 7 => operands(mem); }
     }
     FIST {
         execute: store_integer::<_>(false);
+        requires: [Fpu];
         forms {
             0xDF / 2 => word(mem);
             0xDB / 2 => dword(mem);
@@ -43,6 +49,7 @@ instruction_families! {
     }
     FISTP {
         execute: store_integer::<_>(true);
+        requires: [Fpu];
         forms {
             0xDF / 3 => word(mem);
             0xDB / 3 => dword(mem);
@@ -51,14 +58,17 @@ instruction_families! {
     }
     FBSTP {
         execute: store(PackedDecimal, true);
+        requires: [Fpu];
         forms { 0xDF / 6 => operands(mem); }
     }
     FST_REGISTER {
         execute: store_register(false);
+        requires: [Fpu];
         forms { 0xDD @ 0xD0 + rm => operands(st); }
     }
     FSTP_REGISTER {
         execute: store_register(true);
+        requires: [Fpu];
         forms { 0xDD @ 0xD8 + rm => operands(st); }
     }
 }

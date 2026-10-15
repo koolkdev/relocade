@@ -10,6 +10,7 @@ instruction_families! {
     }
     CMOVcc {
         execute: cmov;
+        requires: [Cmov];
         forms {
             0x0F 0x40 +cc => word_or_dword(modrm_reg, rm);
         }

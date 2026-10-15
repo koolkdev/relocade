@@ -7,7 +7,7 @@ pub(in crate::instruction) use {adapters::*, macros::*};
 
 use super::{
     Availability, Encoding, Form, HandlerBinding, ImmediateWidth, LocationBinding, ModRmSelector,
-    OpcodeMap, OperandBinding, OperandEncoding, PrefixRule, RegisterClass,
+    OpcodeMap, OperandBinding, OperandEncoding, PrefixRule, RegisterClass, Requirements,
 };
 use crate::flags::Condition;
 use crate::instruction::handlers::{Handler, HandlerCall, SizedHandlers};
@@ -85,6 +85,7 @@ pub(in crate::instruction) struct Declaration<'a> {
     pub(in crate::instruction) handlers: SizedHandlers<Handler>,
     pub(in crate::instruction) effects: &'a [Effect],
     pub(in crate::instruction) availability: Availability,
+    pub(in crate::instruction) features: &'static [crate::CpuFeature],
     pub(in crate::instruction) lockable: bool,
 }
 
@@ -256,7 +257,10 @@ impl Declaration<'_> {
             condition: None,
             implicit_memory,
             ends_block,
-            availability: self.availability,
+            requirements: Requirements {
+                availability: self.availability,
+                features: self.features,
+            },
         }
     }
 }

@@ -17,18 +17,22 @@ enum Operation {
 instruction_families! {
     FSIN {
         execute: trigonometric(Operation::Single(TrigonometricFunction::Sine));
+        requires: [Fpu];
         forms { 0xD9 @ 0xFE => no_operands(); }
     }
     FCOS {
         execute: trigonometric(Operation::Single(TrigonometricFunction::Cosine));
+        requires: [Fpu];
         forms { 0xD9 @ 0xFF => no_operands(); }
     }
     FPTAN {
         execute: trigonometric(Operation::Tangent);
+        requires: [Fpu];
         forms { 0xD9 @ 0xF2 => no_operands(); }
     }
     FSINCOS {
         execute: trigonometric(Operation::SineCosine);
+        requires: [Fpu];
         forms { 0xD9 @ 0xFB => no_operands(); }
     }
 }
