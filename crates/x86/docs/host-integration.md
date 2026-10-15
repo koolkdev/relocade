@@ -26,7 +26,8 @@ the next instruction. The choice is fixed when Wasm is generated, so execution
 needs no dynamic feature test.
 
 `CpuModel::supports(feature)` reports whether the model enables that capability.
-`with_feature` returns the updated model directly.
+`with_feature` returns the updated model directly. CPUID reports the same enabled
+capabilities.
 Execution-mode and control-register assumptions remain separate from capability
 selection. The model is host configuration, not mutable `CpuState`; keep it fixed
 for a guest.
@@ -38,7 +39,8 @@ use 32-bit wrapping arithmetic. A taken transfer checks its segment target befor
 committing instruction effects; fetching the destination belongs to the next entry.
 
 The host chooses whether dispatch enters more code or returns control. Interpreter
-`run` continues inside Wasm until a branch, segment load or port I/O completes.
+`run` continues inside Wasm until a branch, segment load, port I/O or serializing
+instruction completes.
 It uses the same instruction boundary as snapshot compilation: conditional branches end
 execution on both outcomes. Earlier instructions remain published if a later
 instruction faults or is unsupported. Each instruction fetches live guest bytes
@@ -67,8 +69,8 @@ is neither of those exits.
 
 An embedding can bind this import directly to an instance's `step` or `run` export.
 `step` resumes normal dispatch after one instruction; `run` continues to its own
-branch, segment-load or port-I/O boundary. Neither is constrained by the
-abandoned snapshot's instruction limit. The host chooses this policy and admits interpreter entries
+branch, segment-load, port-I/O or serialization boundary. Neither is constrained
+by the abandoned snapshot's instruction limit. The host chooses this policy and admits interpreter entries
 against their execution target. Interpreter execution uses the shared instruction
 semantics without speculative guards and does not import `interpret` itself.
 
@@ -118,19 +120,19 @@ with the observed snapshot.
 
 ## Processor capabilities
 
-`CpuFeature` contains the implemented instruction capabilities
+`CpuFeature` contains the implemented CPUID-enumerated instruction capabilities
 of the Pentium 4 target. Each is enabled by default and can be disabled independently.
 
-| `CpuFeature` | Instruction capability |
-| --- | --- |
-| `Fpu` | x87 floating point |
-| `Cx8` | CMPXCHG8B |
-| `Cmov` | CMOVcc; FCMOV/FCOMI when FPU is also enabled |
-| `Clflush` | CLFLUSH |
-| `Mmx` | MMX and EMMS |
-| `Fxsr` | FXSAVE/FXRSTOR |
-| `Sse` | SSE, including its MMX additions |
-| `Sse2` | SSE2 |
+| `CpuFeature` | Instruction capability | CPUID leaf 1 bit |
+| --- | --- | --- |
+| `Fpu` | x87 floating point | EDX 0 |
+| `Cx8` | CMPXCHG8B | EDX 8 |
+| `Cmov` | CMOVcc; FCMOV/FCOMI when FPU is also enabled | EDX 15 |
+| `Clflush` | CLFLUSH | EDX 19 |
+| `Mmx` | MMX and EMMS | EDX 23 |
+| `Fxsr` | FXSAVE/FXRSTOR | EDX 24 |
+| `Sse` | SSE, including its MMX additions | EDX 25 |
+| `Sse2` | SSE2 | EDX 26 |
 
 SSE3, SYSENTER/SYSEXIT and MONITOR/MWAIT are not implemented or selectable.
 
@@ -145,6 +147,38 @@ both FPU and CMOV; disabling CMOV preserves the base x87 instruction set.
 
 XMM is the SIMD register bank, not a separate feature. The capability definitions
 follow Intel's [P4-era CPUID reference](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf#page=213).
+
+## Processor identification
+
+CPUID is generated from the compiler's selected `CpuModel` and needs no host
+callback. Leaf 0 reports maximum basic leaf 1 and the vendor string `Relocade CPU`.
+Leaf 1 reports virtual family 6, model 0, stepping 1 (EAX=`0x00000601`) and the
+enabled capabilities listed above. The default EDX is `0x07888101` and ECX is zero.
+Disabling a capability clears its bit and rejects its instructions through the
+shared admission mechanism. Unimplemented extensions and platform facilities
+remain clear.
+
+With CLFLUSH enabled, EBX bits 15:8 report a 64-byte virtual flush line in eight-byte
+units (EBX=`0x00000800`). Disabling CLFLUSH clears both this field and EDX bit 19.
+Other EBX fields are zero. The line size defines flush granularity; it does not
+model a physical cache. Feature reporting is independent of real/protected mode
+and segment assumptions. The identity does not claim a physical Intel processor.
+
+The full EAX selects the leaf. Both leaves ignore input ECX. Unsupported basic and
+extended queries return leaf 1, following Intel's highest-basic-leaf rule. There
+are no cache, topology, frequency or extended leaves. Results replace the full
+EAX, EBX, ECX and EDX in every execution profile; size and segment prefixes do not
+narrow the registers. Other registers and all flags are preserved. Clearing
+EFLAGS.ID does not disable CPUID. LOCK uses the shared unsupported-encoding exit.
+
+CPUID serializes execution: both a snapshot block and an interpreter run complete
+the instruction, publish state and dispatch before fetching its successor. Prior
+guest stores are complete at this boundary. The host must validate the next
+snapshot's code against any preceding code writes, as at every dispatch; CPUID
+does not itself invalidate a host code cache. The single-threaded, unshared-memory
+execution contract does not model a processor's speculative pipeline or cache.
+
+These semantics follow Intel's [Volume 2A, CPUID](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf#page=202).
 
 ## Port I/O
 

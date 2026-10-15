@@ -1,13 +1,14 @@
 //! Capabilities selected for the virtual processor, independent of execution mode.
 
+mod cpuid;
 mod feature;
 
 pub use feature::CpuFeature;
 
 /// Immutable capability choices for one virtual processor.
 ///
-/// The default enables every [`CpuFeature`]. Disabling one rejects its instructions
-/// in blocks and interpreters.
+/// The default enables every [`CpuFeature`]. CPUID reports the enabled capabilities;
+/// disabling one rejects its instructions in blocks and interpreters.
 ///
 /// Choices are independent instruction extensions, not older processor generations
 /// or register-bank switches. They do not remove stored x87, MMX or XMM state.
