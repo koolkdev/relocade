@@ -40,7 +40,10 @@ impl RuntimeCursor<'_> {
             Some(window) if window.covers(self.maximum_offset, 1) => {
                 self.read_window(body, window)?
             }
-            _ => self.fetch.byte(body, &self.next_eip())?,
+            _ => {
+                let next_eip = self.next_eip();
+                self.fetch.byte(body, &next_eip)?
+            }
         };
         self.advance(1);
         Ok(value)
@@ -67,9 +70,8 @@ impl RuntimeCursor<'_> {
                 return Ok(value);
             }
         }
-        let direct = self
-            .fetch
-            .probe_window(body, &self.next_eip(), T::BYTES, None)?;
+        let next_eip = self.next_eip();
+        let direct = self.fetch.probe_window(body, &next_eip, T::BYTES, None)?;
         let needs_byte_reads = if self.maximum_offset + T::BYTES > MAX_INSTRUCTION_BYTES {
             direct.unavailable.or(self
                 .offset

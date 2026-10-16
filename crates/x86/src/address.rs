@@ -70,7 +70,7 @@ impl<V> EffectiveAddress<V> {
                         Some(present) => stack_base.and(present),
                         None => stack_base,
                     };
-                    SegmentSelection::AddressDefault(
+                    SegmentSelection::Indexed(
                         stack_base.select(Segment::Ss as u32, Segment::Ds as u32),
                     )
                 }

@@ -112,6 +112,48 @@ fn defining_the_value_already_in_backing_needs_no_store() {
 }
 
 #[test]
+fn assumed_reads_are_cached_without_becoming_guest_writes() {
+    let emitted = accesses(|body, state| {
+        let known = state
+            .read_assuming(body, Location::<I32>::new(0), |_| 7.into())
+            .unwrap();
+        let masked = state
+            .read_assuming(body, Location::<I32>::new(4), |value| {
+                value.and(!3u32).or(1)
+            })
+            .unwrap();
+        let again = state
+            .read_assuming(body, Location::<I32>::new(4), |_| {
+                panic!("a cached field does not repeat its initial refinement")
+            })
+            .unwrap();
+        assert!(masked.same_expression(&again));
+        state.publish(body).unwrap();
+        known.add(masked).add(again)
+    });
+    assert_eq!(emitted, [Access::Load(4)]);
+}
+
+#[test]
+fn guest_writes_replace_initial_field_assumptions() {
+    let emitted = accesses(|body, state| {
+        let initial = state
+            .read_assuming(body, Location::<I32>::new(0), |_| 7.into())
+            .unwrap();
+        state.define(body, Location::<I32>::new(0), 9).unwrap();
+        let current = state
+            .read_assuming(body, Location::<I32>::new(0), |_| {
+                panic!("initial assumptions must not replace a guest write")
+            })
+            .unwrap();
+        assert_eq!(body.constant_bits(&current).unwrap(), Some(9));
+        state.publish(body).unwrap();
+        initial.add(current)
+    });
+    assert_eq!(emitted, [Access::Store(0, Some(9))]);
+}
+
+#[test]
 fn first_writes_order_publication_independently_of_reads_and_overwrites() {
     let emitted = accesses(|body, state| {
         let old = state.read(body, Location::<I32>::new(8)).unwrap();

@@ -121,7 +121,7 @@ impl DecodeHandlers {
     pub(super) fn define<'memory>(
         &self,
         program: &mut Program,
-        fetch: InstructionFetch<'memory>,
+        fetch: &InstructionFetch<'memory>,
         decode: impl Fn(BlockBuilder<'_>, RuntimeCursor<'memory>, DecodeState) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         enum Entry<'entry> {
@@ -139,6 +139,7 @@ impl DecodeHandlers {
             );
         for (function, entry) in entries {
             program.define(function, |body| {
+                let fetch = fetch.clone();
                 let instruction_eip = body.parameter::<I32>(0)?;
                 let position_parameter = self.point.field_types().len() as u32 + 1;
                 let (cursor, prefixes) = match entry {

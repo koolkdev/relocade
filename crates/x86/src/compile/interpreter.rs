@@ -128,15 +128,17 @@ impl Compiler {
         )?;
 
         program.define(entry_function, |mut body| {
+            let mut fetch = decoder.fetch();
             let start = cpu.read_eip(&mut body)?;
-            let direct = decoder.direct_window(&mut body, &start)?;
+            let direct = fetch.direct_window(&mut body, &start)?;
             body.if_(&direct.unavailable, |arm| arm.tail_call(exact, &[]))?;
-            decoder.decode(body, &start, Some(&direct.physical))
+            decoder.decode(body, fetch, &start, Some(&direct.physical))
         })?;
 
         program.define(exact, |mut body| {
+            let fetch = decoder.fetch();
             let start = cpu.read_eip(&mut body)?;
-            decoder.decode(body, &start, None)
+            decoder.decode(body, fetch, &start, None)
         })?;
 
         program.export(entry.name(), entry_function)?;

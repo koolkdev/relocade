@@ -8,9 +8,8 @@ mod query;
 mod selection;
 mod tables;
 
-use wasm86_compiler::{Val, I16, I32};
+use wasm86_compiler::{Val, I1, I16, I32};
 
-pub(crate) use access::SegmentAccess;
 pub use descriptor::{PrivilegeLevel, SegmentDescriptor, SegmentDescriptorKind};
 pub use limit::SegmentLimit;
 pub use profile::SegmentProfile;
@@ -19,11 +18,23 @@ pub(crate) use selection::SegmentSelection;
 pub use tables::DescriptorTables;
 
 /// Symbolic values of a loaded segment record. The selector does not determine access.
+#[derive(Clone)]
 pub(crate) struct SegmentValues {
     pub(crate) base: Val<I32>,
     pub(crate) limit: Val<I32>,
     pub(crate) selector: Val<I16>,
     pub(crate) attributes: Val<I16>,
+}
+
+impl SegmentValues {
+    pub(crate) fn select(condition: Val<I1>, when_true: Self, when_false: Self) -> Self {
+        Self {
+            base: condition.select(when_true.base, when_false.base),
+            limit: condition.select(when_true.limit, when_false.limit),
+            selector: condition.select(when_true.selector, when_false.selector),
+            attributes: condition.select(when_true.attributes, when_false.attributes),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -65,6 +65,19 @@ fn check_segment_indices(engine: Engine) {
             expect_address(engine, &module, cpu, choice, expected);
         }
     }
+    let constrained = TestModule::new(&translation(
+        SegmentProfile::Flat32.into(),
+        Intent::Read,
+        Some(|choice| {
+            SegmentSelection::Indexed(choice.eq(0).select(
+                Segment::Ss as u32,
+                choice.eq(1).select(Segment::Fs as u32, Segment::Gs as u32),
+            ))
+        }),
+    ));
+    for (choice, expected) in [(0, 0x20), (1, 0x8020), (2, 2 << 48)] {
+        expect_address(engine, &constrained, cpu, choice, expected);
+    }
     let read = TestModule::new(&translation(
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         Intent::Read,
@@ -83,6 +96,8 @@ fn check_segment_indices(engine: Engine) {
     cpu.segments.cs = StoredSegment::flat_code32(0);
     cpu.segments.fs.limit = 0x22;
     expect_address(engine, &read, cpu, 4, 2 << 48);
+    expect_address(engine, &constrained, cpu, 0, 0x20);
+    expect_address(engine, &constrained, cpu, 1, 2 << 48);
 
     let address_default = TestModule::new(&translation(
         ExecutionProfile::Protected(SegmentProfile::Segmented32),

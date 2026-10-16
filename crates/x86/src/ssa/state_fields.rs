@@ -200,12 +200,26 @@ impl StateFields {
         body: &mut BlockBuilder<'_>,
         location: Location<T>,
     ) -> Result<Val<T>, BuildError> {
+        self.read_assuming(body, location, |value| value)
+    }
+
+    /// Refines each fresh backing read using properties established by the caller.
+    /// The refined value stays clean: it describes backing state, not a guest write.
+    /// An existing definition takes precedence over these initial assumptions.
+    /// Reads must agree on those properties, including after cache invalidation.
+    pub(crate) fn read_assuming<T: SsaType>(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        location: Location<T>,
+        assume: impl FnOnce(Val<T>) -> Val<T>,
+    ) -> Result<Val<T>, BuildError> {
         let offset = match location.address {
             Address::Fixed(offset) => offset,
             Address::Indexed { span, displacement } => {
                 let displacement = body.value(self.base.add(displacement))?;
                 self.flush(body, span, false)?;
-                return body.load_at::<T>(self.memory, displacement, span.start as u32);
+                let value = body.load_at::<T>(self.memory, displacement, span.start as u32)?;
+                return body.value(assume(value));
             }
         };
         let location = LocationKey {
@@ -223,6 +237,7 @@ impl StateFields {
         self.definitions
             .retain(|entry| !location.span().overlaps(entry.location.span()));
         let value = body.load_at::<T>(self.memory, &self.base, location.offset)?;
+        let value = body.value(assume(value))?;
         self.definitions.push(Definition {
             location,
             value: T::retain(TrackedValue::new(body, &value)?),

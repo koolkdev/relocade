@@ -7,7 +7,6 @@ use crate::{
 fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let access = SegmentAccess::new(&cpu, profile);
     let function = program
         .function(
             Signature {
@@ -15,6 +14,7 @@ fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
                 results: vec![Type::I32, Type::I32],
             },
             |mut body| {
+                let mut access = SegmentState::new(&cpu, profile);
                 let offset = body.parameter::<I32>(0)?;
                 let bytes = body.parameter::<I32>(1)?;
                 let check =

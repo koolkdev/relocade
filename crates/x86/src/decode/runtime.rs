@@ -19,8 +19,7 @@ use super::DecodeState;
 pub(crate) use fetch::InstructionFetch;
 
 use self::{
-    cursor::{RuntimeCursor, DIRECT_FETCH_BYTES},
-    fetch::FetchWindow,
+    cursor::RuntimeCursor,
     handlers::{DecodeHandlers, DecodePoint},
 };
 
@@ -97,7 +96,7 @@ impl<'memory> RuntimeDecoder<'memory> {
             &decoder.primary_modrm_memory_handlers,
             &decoder.extended_modrm_memory_handlers,
         ] {
-            handlers.define(program, fetch, |body, cursor, state| {
+            handlers.define(program, &decoder.fetch, |body, cursor, state| {
                 let form_index = body.parameter::<I32>(1)?;
                 let modrm = body.parameter::<I8>(2)?;
                 InstructionDecoder {
@@ -112,7 +111,7 @@ impl<'memory> RuntimeDecoder<'memory> {
         }
         decoder
             .opcode_handlers
-            .define(program, fetch, |body, cursor, state| {
+            .define(program, &decoder.fetch, |body, cursor, state| {
                 let opcode = body.parameter::<I8>(1)?;
                 if let Some(entry) = loop_entry.filter(|_| cursor.physical_start().is_some()) {
                     decoder.decode_cycle(body, cursor, &opcode, entry, &complete_instruction)
@@ -130,25 +129,20 @@ impl<'memory> RuntimeDecoder<'memory> {
         Ok(decoder)
     }
 
-    pub(crate) fn direct_window(
-        &self,
-        body: &mut BlockBuilder<'_>,
-        instruction_eip: &Val<I32>,
-    ) -> Result<FetchWindow, BuildError> {
-        // Fields beyond this window use checked fetch. Extending the common
-        // proof for longer forms would burden shorter instructions.
-        self.fetch
-            .probe_window(body, instruction_eip, DIRECT_FETCH_BYTES, None)
+    /// Starts a generated function with no cached CS reads.
+    pub(crate) fn fetch(&self) -> InstructionFetch<'memory> {
+        self.fetch.clone()
     }
 
     /// `physical_start` supplies the proven contiguous instruction window.
     pub(crate) fn decode(
         &self,
         mut body: BlockBuilder<'_>,
+        fetch: InstructionFetch<'memory>,
         instruction_eip: &Val<I32>,
         physical_start: Option<&Val<I32>>,
     ) -> Result<(), BuildError> {
-        let mut cursor = RuntimeCursor::new(&body, self.fetch, instruction_eip, physical_start, 0)?;
+        let mut cursor = RuntimeCursor::new(&body, fetch, instruction_eip, physical_start, 0)?;
         let opcode = cursor.byte(&mut body)?;
         self.opcode_handlers.tail_call(
             body,
