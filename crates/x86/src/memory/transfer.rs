@@ -117,14 +117,15 @@ impl VirtualMemory {
     ) -> Result<(), BuildError> {
         let linear = body.parameter::<I32>(0)?;
         let value = T::read_parts(|part, bytes| {
-            let mut value = Val::<I64>::from(0);
-            for offset in 0..bytes {
-                let address = linear.add(part + offset);
-                let entry = self.table.entry(&mut body, &address)?;
-                let byte = self.load::<I8>(&mut body, &physical_address(&entry, &address), 0)?;
-                value = value.or(byte.unsigned().extend::<I64>().shl(offset * 8));
-            }
-            Ok(value)
+            body.loop_::<(I32, I64), I64>((0, 0), |mut byte, labels, (offset, value)| {
+                let address = linear.add(part).add(&offset);
+                let entry = self.table.entry(&mut byte, &address)?;
+                let loaded = self.load::<I8>(&mut byte, &physical_address(&entry, &address), 0)?;
+                let value = value.or(loaded.unsigned().extend::<I64>().shl(offset.shl(3)));
+                let next = offset.add(1);
+                byte.branch_if(next.eq(bytes), &labels.exit, &value)?;
+                byte.branch(&labels.again, (next, value))
+            })
         })?;
         body.return_(value)
     }
@@ -136,17 +137,19 @@ impl VirtualMemory {
         let linear = body.parameter::<I32>(0)?;
         let value = body.parameter::<T>(1)?;
         T::write_parts(&value, |part, bytes, value| {
-            for offset in 0..bytes {
-                let address = linear.add(part + offset);
-                let entry = self.table.entry(&mut body, &address)?;
-                body.store_at::<I8>(
+            body.loop_::<I32, ()>(0, |mut byte, labels, offset| {
+                let address = linear.add(part).add(&offset);
+                let entry = self.table.entry(&mut byte, &address)?;
+                byte.store_at::<I8>(
                     self.guest,
                     physical_address(&entry, &address),
                     0,
-                    value.unsigned().shr(offset * 8).truncate::<I8>(),
+                    value.unsigned().shr(offset.shl(3)).truncate::<I8>(),
                 )?;
-            }
-            Ok(())
+                let next = offset.add(1);
+                byte.branch_if(next.eq(bytes), &labels.exit, ())?;
+                byte.branch(&labels.again, next)
+            })
         })?;
         body.return_(())
     }
