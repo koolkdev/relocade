@@ -2,9 +2,9 @@
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
-use crate::{exception::Exception, memory::Intent, state::Cpu, ExecutionProfile, SegmentProfile};
+use crate::{exception::Exception, memory::Intent, state::SegmentState, ExecutionProfile};
 
-use super::{Segment, SegmentDefaultSize, SegmentSelection, SegmentValues};
+use super::{Segment, SegmentSelection, SegmentValues};
 
 #[cfg(test)]
 mod tests;
@@ -15,45 +15,22 @@ pub(crate) struct SegmentCheck {
     pub(crate) denied: Option<Val<I1>>,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct SegmentAccess<'cpu> {
-    cpu: &'cpu Cpu,
-    profile: ExecutionProfile,
-}
-
-impl<'cpu> SegmentAccess<'cpu> {
-    pub(crate) fn new(cpu: &'cpu Cpu, profile: ExecutionProfile) -> Self {
-        Self { cpu, profile }
-    }
-
-    pub(crate) fn profile(&self) -> ExecutionProfile {
-        self.profile
-    }
-
+impl SegmentState<'_> {
     /// Returns the D/B bit, using the profile when it proves the attribute.
     pub(crate) fn is_segment_big(
-        &self,
+        &mut self,
         body: &mut BlockBuilder<'_>,
         segment: Segment,
     ) -> Result<Val<I1>, BuildError> {
-        match (self.profile, segment) {
-            (ExecutionProfile::Protected(profile), Segment::Cs) => body.value(u32::from(
-                profile.code_default_size() == SegmentDefaultSize::Bits32,
-            )),
-            (ExecutionProfile::Protected(SegmentProfile::Flat32), Segment::Ss) => body.value(1),
-            (ExecutionProfile::Real16, _) => body.value(0),
-            (ExecutionProfile::Protected(_), _) => {
-                Ok(self.cpu.read_segment(body, &segment.into())?.big)
-            }
-        }
+        Ok(self.read(body, &segment.into())?.big)
     }
 
     /// The entry's profile must remain compatible until a terminal segment load.
-    /// Flat address defaults and named data segments need no cache reads or
-    /// segment guards. Explicit runtime overrides use the complete checked path.
+    /// Known flat data segments need no cache reads or segment guards.
+    /// Unknown indices use the complete checked path.
     /// The span must be nonempty.
     pub(crate) fn translate(
-        &self,
+        &mut self,
         body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
         offset: &Val<I32>,
@@ -93,7 +70,7 @@ impl<'cpu> SegmentAccess<'cpu> {
     /// target predicate, without checking its page or using its linear address.
     /// The span must be nonempty.
     pub(crate) fn check(
-        &self,
+        &mut self,
         body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
         offset: &Val<I32>,
@@ -106,43 +83,21 @@ impl<'cpu> SegmentAccess<'cpu> {
             Some(0),
             "a segment span must be nonempty"
         );
-        match (self.profile, segment, intent) {
-            (
-                ExecutionProfile::Protected(SegmentProfile::Flat32),
-                SegmentSelection::Named(Segment::Cs),
-                Intent::Read | Intent::ReadOrExecute | Intent::Fetch,
-            ) => Ok(SegmentCheck {
-                linear: offset.clone(),
-                denied: None,
-            }),
-            (
-                ExecutionProfile::Protected(SegmentProfile::Flat32),
-                SegmentSelection::Named(Segment::Ds | Segment::Es | Segment::Ss)
-                | SegmentSelection::AddressDefault(_),
-                Intent::Read | Intent::ReadOrExecute | Intent::Write,
-            ) => Ok(SegmentCheck {
-                linear: offset.clone(),
-                denied: None,
-            }),
-            _ => {
-                let cache = self.cpu.read_segment(body, segment)?;
-                let denied = match self.profile {
-                    ExecutionProfile::Real16 => {
-                        // Canonical real-mode caches have a 64 KiB limit. Type
-                        // permissions do not apply, including writes through CS.
-                        bytes
-                            .unsigned()
-                            .ge(0x10001u32)
-                            .or(offset.unsigned().ge(Val::<I32>::from(0x10001).sub(&bytes)))
-                    }
-                    ExecutionProfile::Protected(_) => cache.access_denied(offset, &bytes, intent),
-                };
-                Ok(SegmentCheck {
-                    linear: cache.base.add(offset),
-                    denied: Some(denied),
-                })
+        let cache = self.read(body, segment)?;
+        let denied = match self.profile() {
+            ExecutionProfile::Real16 => {
+                // Canonical real-mode limits apply without protected-mode type permissions.
+                bytes
+                    .unsigned()
+                    .ge(0x10001u32)
+                    .or(offset.unsigned().ge(Val::<I32>::from(0x10001).sub(&bytes)))
             }
-        }
+            ExecutionProfile::Protected(_) => cache.access_denied(offset, &bytes, intent),
+        };
+        Ok(SegmentCheck {
+            linear: cache.base.add(offset),
+            denied: (body.constant_bits(&denied)? != Some(0)).then_some(denied),
+        })
     }
 }
 

@@ -23,8 +23,8 @@ impl ResolvedSegment {
     /// completion and dispatch may follow if this breaks the entry's segment assumptions.
     pub(crate) fn commit(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
         execution
-            .state
-            .write_segment(&mut execution.body, &self.segment.into(), &self.values)
+            .segments
+            .write(&mut execution.body, &self.segment.into(), &self.values)
     }
 }
 
@@ -41,8 +41,7 @@ impl ExecutionBuilder<'_, '_> {
         &mut self,
         segment: Segment,
     ) -> Result<Val<I16>, BuildError> {
-        self.state
-            .read_segment_selector(&mut self.body, &segment.into())
+        self.segments.read_selector(&mut self.body, &segment.into())
     }
 
     /// Resolves the selector without installing its cache. Code offsets require

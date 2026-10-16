@@ -212,12 +212,8 @@ impl StateFields {
             offset,
             bytes: T::BYTES,
         };
-        if let Some(entry) = self
-            .definitions
-            .iter()
-            .find(|entry| entry.location == location)
-        {
-            return T::retained(&entry.value).read(body);
+        if let Some(value) = self.retained::<T>(location) {
+            return value.read(body);
         }
         self.flush(body, location.span(), false)?;
         self.definitions
@@ -229,6 +225,62 @@ impl StateFields {
             first_write: None,
         });
         Ok(value)
+    }
+
+    fn retained<T: SsaType>(&self, location: LocationKey) -> Option<&TrackedValue<T>> {
+        self.definitions
+            .iter()
+            .find(|entry| entry.location == location)
+            .map(|entry| T::retained(&entry.value))
+    }
+
+    /// Reuses a value held by every supplied fixed location, without reading
+    /// backing memory. Empty input, missing values, or different values return None.
+    pub(crate) fn common_value<T: SsaType>(
+        &self,
+        locations: impl IntoIterator<Item = Location<T>>,
+    ) -> Option<Val<T>> {
+        let mut values = locations.into_iter().map(|location| {
+            let Address::Fixed(offset) = location.address else {
+                return None;
+            };
+            self.retained::<T>(LocationKey {
+                offset,
+                bytes: T::BYTES,
+            })
+            .map(TrackedValue::value)
+        });
+        let first = values.next()??;
+        values
+            .all(|value| value.is_some_and(|value| first.same_expression(value)))
+            .then(|| first.clone())
+    }
+
+    /// Retains an established value of a fixed backing field without a load or write.
+    /// Callers establish it through their execution configuration or an earlier guard.
+    /// Pending guest writes must be published before replacing overlapping fields.
+    pub(crate) fn assume<T: SsaType>(&mut self, location: Location<T>, value: impl Into<Val<T>>) {
+        let Address::Fixed(offset) = location.address else {
+            panic!("a retained assumption requires a fixed field");
+        };
+        let location = LocationKey {
+            offset,
+            bytes: T::BYTES,
+        };
+        let span = location.span();
+        self.definitions.retain(|entry| {
+            let overlaps = span.overlaps(entry.location.span());
+            assert!(
+                !overlaps || !entry.value.is_dirty(),
+                "cannot discard a pending write"
+            );
+            !overlaps
+        });
+        self.definitions.push(Definition {
+            location,
+            value: T::retain(TrackedValue::clean(value)),
+            first_write: None,
+        });
     }
 
     pub(crate) fn define<T: SsaType>(

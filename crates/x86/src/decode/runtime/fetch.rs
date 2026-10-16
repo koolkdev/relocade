@@ -4,8 +4,8 @@ use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 
 use crate::{
     memory::{Intent, Memory, PageCache},
-    segment::{Segment, SegmentAccess},
-    state::{exit, Cpu},
+    segment::Segment,
+    state::{exit, Cpu, SegmentState},
     ExecutionProfile,
 };
 
@@ -15,11 +15,12 @@ pub(crate) struct FetchWindow {
     pub(crate) physical: Val<I32>,
 }
 
-#[derive(Clone, Copy)]
+/// Lazy fetch state belongs to one generated function and its descendant paths.
+#[derive(Clone)]
 pub(crate) struct InstructionFetch<'module> {
     pub(super) memory: &'module Memory,
     cpu: &'module Cpu,
-    segments: SegmentAccess<'module>,
+    segments: SegmentState<'module>,
 }
 
 impl<'module> InstructionFetch<'module> {
@@ -31,8 +32,16 @@ impl<'module> InstructionFetch<'module> {
         Self {
             memory,
             cpu,
-            segments: SegmentAccess::new(cpu, profile),
+            segments: SegmentState::new(cpu, profile),
         }
+    }
+
+    pub(crate) fn direct_window(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        eip: &Val<I32>,
+    ) -> Result<FetchWindow, BuildError> {
+        self.probe_window(body, eip, super::cursor::DIRECT_FETCH_BYTES, None)
     }
 
     pub(super) fn eip(&self, body: &mut BlockBuilder<'_>) -> Result<Val<I32>, BuildError> {
@@ -41,7 +50,7 @@ impl<'module> InstructionFetch<'module> {
 
     /// An unavailable window is not a fault: a shorter instruction may still fit.
     pub(super) fn probe_window(
-        &self,
+        &mut self,
         body: &mut BlockBuilder<'_>,
         eip: &Val<I32>,
         bytes: u32,
@@ -66,7 +75,7 @@ impl<'module> InstructionFetch<'module> {
 
     /// Exact reads check CS first, then transfer only the required byte.
     pub(super) fn byte(
-        &self,
+        &mut self,
         body: &mut BlockBuilder<'_>,
         eip: &Val<I32>,
     ) -> Result<Val<I8>, BuildError> {

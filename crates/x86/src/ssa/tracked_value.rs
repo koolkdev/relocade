@@ -17,10 +17,15 @@ impl<T: ValueType> TrackedValue<T> {
         body: &mut BlockBuilder<'_>,
         value: impl Into<Val<T>>,
     ) -> Result<Self, BuildError> {
-        Ok(Self {
-            value: body.value(value)?,
+        Ok(Self::clean(body.value(value)?))
+    }
+
+    /// Retains a known backing value. Its scope is checked when it is read.
+    pub(super) fn clean(value: impl Into<Val<T>>) -> Self {
+        Self {
+            value: value.into(),
             dirty: false,
-        })
+        }
     }
 
     /// Introduces a value that its owner has not yet published.

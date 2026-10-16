@@ -713,8 +713,10 @@ compatibility alone cannot distinguish it. The profile is part of the complete
 execution target described above.
 
 Flat entries omit checks and base reads where the segment is known to satisfy the
-profile. Interpreter memory operands with an explicit segment override use checked
-translation; size and REP prefixes alone preserve the default-segment shortcut.
+profile. Segment fields are loaded lazily; known profile values start as constants.
+Address construction retains possible segments alongside the index. An indexed
+read reuses a retained field only when every possible segment has the same known
+value; otherwise it reads the selected backing field.
 The selected profile must remain valid until a terminal segment load commits its
 cache. Only state publication and dispatch follow that commit; the next entry
 must be admitted against the new state.
