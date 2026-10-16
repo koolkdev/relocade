@@ -79,10 +79,14 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     }
 
     /// Allows a compiled block to abandon speculation at an instruction boundary.
-    pub(super) fn with_specialization(mut self, observed_cpu: Option<&'module CpuState>) -> Self {
+    pub(super) fn with_specialization(
+        mut self,
+        observed_cpu: Option<&'module CpuState>,
+    ) -> Result<Self, BuildError> {
         self.can_specialize = true;
         self.observed_cpu = observed_cpu;
-        self
+        self.specialize_cs()?;
+        Ok(self)
     }
 
     /// Executes an instruction whose required bytes have passed fetch checks.

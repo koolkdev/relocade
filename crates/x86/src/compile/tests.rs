@@ -1,4 +1,5 @@
 mod budget;
+mod segments;
 
 use super::*;
 use crate::SegmentProfile;

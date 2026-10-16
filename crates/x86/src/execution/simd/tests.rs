@@ -36,7 +36,7 @@ fn exception_module(specialize: bool) -> CompiledModule {
                     Compiler::new(SegmentProfile::Flat32).target(),
                 )?;
                 if specialize {
-                    execution = execution.with_specialization(None);
+                    execution = execution.with_specialization(None)?;
                 }
                 let (nop, _) =
                     crate::decode::snapshot(&[0x90], 0x1000, SegmentDefaultSize::Bits32).unwrap();

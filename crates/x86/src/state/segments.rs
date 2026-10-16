@@ -2,7 +2,7 @@
 
 use std::mem::size_of;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I16};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16};
 
 use crate::{
     segment::{Segment, SegmentSelection, SegmentValues},
@@ -115,6 +115,92 @@ impl<'cpu> SegmentState<'cpu> {
             expand_down: field!(expand_down).ne(0),
             big: field!(big).ne(0),
         })
+    }
+
+    /// Compares the backing fields before replacing them with observed values.
+    pub(crate) fn cs_matches(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        cache: &StoredSegment,
+    ) -> Result<Val<I1>, BuildError> {
+        Ok(self
+            .fields
+            .read(body, segment_location!(Segment::Cs, base))?
+            .eq(cache.base)
+            .and(
+                self.fields
+                    .read(body, segment_location!(Segment::Cs, limit))?
+                    .eq(cache.limit),
+            )
+            .and(
+                self.fields
+                    .read(body, segment_location!(Segment::Cs, selector))?
+                    .eq(u32::from(cache.selector)),
+            )
+            .and(
+                self.fields
+                    .read(body, segment_location!(Segment::Cs, usable))?
+                    .eq(u32::from(cache.usable)),
+            )
+            .and(
+                self.fields
+                    .read(body, segment_location!(Segment::Cs, readable))?
+                    .eq(u32::from(cache.readable)),
+            )
+            .and(
+                self.fields
+                    .read(body, segment_location!(Segment::Cs, writable))?
+                    .eq(u32::from(cache.writable)),
+            )
+            .and(
+                self.fields
+                    .read(body, segment_location!(Segment::Cs, executable))?
+                    .eq(u32::from(cache.executable)),
+            )
+            .and(
+                self.fields
+                    .read(body, segment_location!(Segment::Cs, expand_down))?
+                    .eq(u32::from(cache.expand_down)),
+            )
+            .and(
+                self.fields
+                    .read(body, segment_location!(Segment::Cs, big))?
+                    .eq(u32::from(cache.big)),
+            ))
+    }
+
+    /// Retains CS values after the block-entry specialization guard succeeds.
+    pub(crate) fn assume_cs(&mut self, cache: &StoredSegment) {
+        self.fields
+            .assume(segment_location!(Segment::Cs, base), cache.base);
+        self.fields
+            .assume(segment_location!(Segment::Cs, limit), cache.limit);
+        self.fields.assume(
+            segment_location!(Segment::Cs, selector),
+            u32::from(cache.selector),
+        );
+        self.fields.assume(
+            segment_location!(Segment::Cs, usable),
+            u32::from(cache.usable),
+        );
+        self.fields.assume(
+            segment_location!(Segment::Cs, readable),
+            u32::from(cache.readable),
+        );
+        self.fields.assume(
+            segment_location!(Segment::Cs, writable),
+            u32::from(cache.writable),
+        );
+        self.fields.assume(
+            segment_location!(Segment::Cs, executable),
+            u32::from(cache.executable),
+        );
+        self.fields.assume(
+            segment_location!(Segment::Cs, expand_down),
+            u32::from(cache.expand_down),
+        );
+        self.fields
+            .assume(segment_location!(Segment::Cs, big), u32::from(cache.big));
     }
 
     /// The visible selector remains readable when the loaded cache is unusable.

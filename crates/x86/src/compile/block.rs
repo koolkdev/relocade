@@ -126,7 +126,7 @@ impl Compiler {
                     start_eip,
                     self.target,
                 )?
-                .with_specialization(self.observed_cpu.as_ref());
+                .with_specialization(self.observed_cpu.as_ref())?;
                 for decoded_instruction in decoded_instructions {
                     execution.execute(decoded_instruction)?;
                 }

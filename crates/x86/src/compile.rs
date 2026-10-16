@@ -61,7 +61,9 @@ impl Compiler {
     }
 
     /// Copies a CPU snapshot for guarded specialization of snapshot blocks.
-    /// Instruction semantics choose which observations to use and check current
+    /// Non-flat blocks guard observed CS at entry and retain its fields until the
+    /// block ends. Flat32 uses its profile guarantees without a CS guard.
+    /// Instruction semantics choose other observations and check current
     /// values before effects; a mismatch enters the interpreter. Repeated checks
     /// of unchanged values fold away. Interpreter entries do not use observations.
     /// See the [observed-state contract](crate#observed-cpu-state) for consumers.

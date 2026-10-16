@@ -44,6 +44,25 @@ impl ExecutionBuilder<'_, '_> {
         self.segments.read_selector(&mut self.body, &segment.into())
     }
 
+    /// Snapshot blocks may retain observed CS fields for their whole lifetime.
+    /// CS-changing instructions end the block; other segment caches stay dynamic.
+    pub(super) fn specialize_cs(&mut self) -> Result<(), BuildError> {
+        self.specialize(|jit| {
+            if jit.profile() == ExecutionProfile::Protected(crate::SegmentProfile::Flat32) {
+                return Ok(());
+            }
+            let Some(observed) = jit.observed_cpu else {
+                return Ok(());
+            };
+            let cache = observed.segments.cs;
+            let matches = jit.segments.cs_matches(&mut jit.body, &cache)?;
+            jit.specialize_on(matches)?;
+            jit.segments.assume_cs(&cache);
+            Ok(())
+        })?;
+        Ok(())
+    }
+
     /// Resolves the selector without installing its cache. Code offsets require
     /// a separate limit check before committing the resolved CS.
     pub(crate) fn resolve_segment(
