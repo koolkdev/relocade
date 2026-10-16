@@ -36,6 +36,7 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   let resolutions = 0;
   let portReads = 0;
   let segmentQueries = 0;
+  let descriptorTableQueries = 0;
   const physical = [module, interpreter].filter(Boolean)
     .some(module => WebAssembly.Module.imports(module).some(resource => resource.module === 'wasm86' && resource.name === 'physicalMap'))
     ? physicalMemory(guest, input, events) : null;
@@ -50,6 +51,12 @@ export default function execute([module, interpreter], { entry, interpreter_entr
       },
       writePort: (port, bytes, value) => {
         events.push({kind: 'port_write', port, bytes, value: value >>> 0});
+      },
+      queryDescriptorTable: table => {
+        const reply = input.descriptor_table_queries[descriptorTableQueries++];
+        if (!reply || reply.table !== table) throw new Error(`unexpected descriptor-table query ${table}`);
+        events.push({ kind: 'query_descriptor_table', table });
+        return [reply.base, reply.limit];
       },
       querySegmentDescriptor: selector => {
         const reply = input.segment_queries[segmentQueries++];
@@ -105,6 +112,9 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   if (resolutions !== input.segment_resolutions.length) throw new Error('unused segment resolutions');
   if (segmentQueries !== input.segment_queries.length) {
     throw new Error('unused segment queries');
+  }
+  if (descriptorTableQueries !== input.descriptor_table_queries.length) {
+    throw new Error('unused descriptor-table queries');
   }
   if (portReads !== input.port_reads.length) throw new Error('unused port reads');
   if (physical) physical.checkComplete();
