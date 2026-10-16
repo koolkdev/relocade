@@ -13,11 +13,7 @@ where
     let stride = element_stride::<T>(execution)?;
     repetition.execute::<T, 1>(
         execution,
-        [StringOperand::new(
-            Gpr32::Edi,
-            Segment::Es.into(),
-            Intent::Write,
-        )],
+        [StringOperand::new(Gpr32::Edi, Segment::Es.into(), Intent::Write).with_live_routing()],
         |execution, operands| {
             operands[0].write_from(execution, |execution| execution.read_port::<T>(&port))?;
             advance_indices(execution, &[Gpr32::Edi], &stride)
@@ -37,11 +33,10 @@ where
     let stride = element_stride::<T>(execution)?;
     repetition.execute::<T, 1>(
         execution,
-        [StringOperand::new(
-            Gpr32::Esi,
-            execution.data_segment(),
-            Intent::Read,
-        )],
+        [
+            StringOperand::new(Gpr32::Esi, execution.data_segment(), Intent::Read)
+                .with_live_routing(),
+        ],
         |execution, operands| {
             let value = operands[0].read::<T>(execution)?;
             execution.write_port(&port, &value)?;

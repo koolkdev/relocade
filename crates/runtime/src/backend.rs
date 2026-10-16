@@ -87,7 +87,7 @@ pub trait Instance<D: Environment> {
 
     /// Supplies a work allowance in `executionBudget`, enters the prepared export
     /// and reads published progress. Do not borrow import state across entry:
-    /// guest execution can invoke it.
+    /// guest execution can invoke it. A dispatch can represent partial REP work.
     fn enter(&mut self, request: EntryRequest) -> Result<EntryResult>;
     /// Publishes execution destinations between entries, growing their memory
     /// first. Preserve the continuation and observation prefix when replacing a table.

@@ -1,7 +1,7 @@
 //! A callback in the first vector half can change routing of the second half.
 
 use super::*;
-use crate::test_step::MmioUpdate;
+use crate::test_step::DeviceUpdate;
 use wasm86_compiler::{Val, V128};
 
 fn module(write: bool) -> TestModule {
@@ -55,9 +55,9 @@ fn rerouting(engine: Engine) {
             input.guest[0].1.fill(0xee);
             input.guest[1].1.fill(0xee);
         }
-        input.mmio_updates = vec![MmioUpdate {
+        input.mmio_updates = vec![DeviceUpdate {
             map: vec![(2 * 8, vec![1, 0, 0, 0, 0, 0x70, 0, 0])],
-            ..MmioUpdate::default()
+            ..DeviceUpdate::default()
         }];
         let observed = engine.observe(&module(write), &input, 1);
         assert_eq!(observed.events.len(), 2);

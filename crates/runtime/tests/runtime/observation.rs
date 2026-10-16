@@ -119,7 +119,7 @@ async fn rep_is_one_completed_instruction() {
     assert_eq!(
         machine.run_slice_until(1, |_| false).unwrap(),
         SliceOutcome {
-            work: 1,
+            work: 3,
             completed: 1,
             stop: SliceStop::WorkLimit
         }
@@ -144,7 +144,7 @@ async fn a_partial_rep_fault_is_not_counted_and_can_resume_after_repair() {
     assert_eq!(
         machine.run_slice_until(10, |_| false).unwrap(),
         SliceOutcome {
-            work: 0,
+            work: 1,
             completed: 0,
             stop: SliceStop::Exited(ExecutionExit::Exception(Exception::GeneralProtection {
                 error_code: 0

@@ -36,10 +36,19 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   const events = [];
   let resolutions = 0;
   let portReads = 0;
+  let portUpdates = 0;
   let segmentQueries = 0;
   const physical = [module, interpreter].filter(Boolean)
     .some(module => WebAssembly.Module.imports(module).some(resource => resource.module === 'wasm86' && resource.name === 'physicalMap'))
     ? physicalMemory(guest, input, events) : null;
+  const updatePort = () => {
+    const update = input.port_updates[portUpdates];
+    if (update) {
+      portUpdates++;
+      if (!physical) throw new Error('port update needs physical memory');
+      physical.patch(update);
+    }
+  };
   const imports = {
     wasm86: {
       cpuState, guest, machine, executionBudget,
@@ -47,10 +56,12 @@ export default function execute([module, interpreter], { entry, interpreter_entr
       readPort: (port, bytes) => {
         if (portReads >= input.port_reads.length) throw new Error('unexpected port read');
         events.push({kind: 'port_read', port, bytes});
+        updatePort();
         return input.port_reads[portReads++];
       },
       writePort: (port, bytes, value) => {
         events.push({kind: 'port_write', port, bytes, value: value >>> 0});
+        updatePort();
       },
       querySegmentDescriptor: selector => {
         const reply = input.segment_queries[segmentQueries++];
@@ -112,6 +123,7 @@ export default function execute([module, interpreter], { entry, interpreter_entr
     throw new Error('unused segment queries');
   }
   if (portReads !== input.port_reads.length) throw new Error('unused port reads');
+  if (portUpdates !== input.port_updates.length) throw new Error('unused port updates');
   if (physical) physical.checkComplete();
   else if (input.mmio_updates.length !== 0) throw new Error('unused MMIO updates');
   return {

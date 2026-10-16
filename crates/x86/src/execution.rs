@@ -18,7 +18,7 @@ pub(crate) use operands::WriteTarget;
 pub(crate) use strings::{ResolvedStrings, StringOperand};
 pub(crate) use x87::{X87MemoryFormat, X87Operand, X87Operands};
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I64, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Func, Val, I1, I16, I32, I64, I8};
 
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
@@ -47,6 +47,9 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     eip: Val<I32>,
     completed: u32,
     work: Option<Val<I64>>,
+    ordinary_work: u32,
+    resume_instruction: Option<Func>,
+    repetition_accounts_work: bool,
     can_specialize: bool,
     observed_cpu: Option<&'module CpuState>,
 }
@@ -76,6 +79,9 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             eip,
             completed: 0,
             work,
+            ordinary_work: 0,
+            resume_instruction: None,
+            repetition_accounts_work: false,
             can_specialize: false,
             observed_cpu: None,
         })
@@ -88,12 +94,18 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self
     }
 
+    pub(super) fn with_instruction_resume(mut self, entry: Func) -> Self {
+        self.resume_instruction = Some(entry);
+        self
+    }
+
     /// Executes an instruction whose required bytes have passed fetch checks.
     pub(super) fn execute<V: Into<Val<I32>>, P: Into<Val<I32>>>(
         &mut self,
         mut decoded: DecodedInstruction<V, P>,
     ) -> Result<(), BuildError> {
         self.eip = self.body.value(decoded.eip)?;
+        self.repetition_accounts_work = false;
         let fallthrough_eip = self.body.value(decoded.fallthrough_eip)?;
         self.address_size = decoded.instruction.address_size;
         self.segment_override = decoded.instruction.segment_override.clone();
@@ -104,8 +116,75 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             .take()
             .map(|opcode| opcode.bits());
         self.eip = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
+        self.retire()?;
+        if self.repetition_accounts_work {
+            self.check_budget()?;
+        }
+        Ok(())
+    }
+
+    /// Scheduling boundaries may overshoot; fault boundaries remain precise.
+    fn check_budget(&mut self) -> Result<(), BuildError> {
+        if let Some(work) = remaining_work(self.work.as_ref(), self.ordinary_work) {
+            self.body.if_(work.signed().lt(1), |mut body| {
+                self.runtime.publish_work(&mut body, Some(&work))?;
+                self.state.publish(&mut body, &self.eip, self.completed)?;
+                body.return_(crate::SLICE_EXHAUSTED)
+            })?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn consume_work(&mut self, units: impl Into<Val<I32>>) -> Result<(), BuildError> {
+        if let Some(work) = remaining_work(self.work.as_ref(), self.ordinary_work) {
+            let units: Val<I32> = units.into();
+            self.work = Some(
+                self.body
+                    .value(work.sub(units.unsigned().extend::<I64>()))?,
+            );
+            self.ordinary_work = 0;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn is_budgeted(&self) -> bool {
+        self.work.is_some()
+    }
+
+    fn retire(&mut self) -> Result<(), BuildError> {
+        if !self.repetition_accounts_work {
+            self.ordinary_work += 1;
+        }
         self.completed += 1;
         Ok(())
+    }
+
+    pub(crate) fn begin_repetition(&mut self, count: &Val<I32>) -> Result<(), BuildError> {
+        self.check_budget()?;
+        self.repetition_accounts_work = true;
+        self.consume_work(count.eq(0).unsigned().extend::<I32>())?;
+        Ok(())
+    }
+
+    /// REP can leave a completed chunk at its current instruction boundary.
+    /// Runtime decoding resumes internally; a snapshot abandons its suffix.
+    pub(crate) fn repeat_again_if(&mut self, pending: Val<I1>) -> Result<(), BuildError> {
+        self.body.if_(pending, |mut body| {
+            self.runtime.publish_work(
+                &mut body,
+                remaining_work(self.work.as_ref(), self.ordinary_work).as_ref(),
+            )?;
+            self.state.publish(&mut body, &self.eip, self.completed)?;
+            if let Some(work) = remaining_work(self.work.as_ref(), self.ordinary_work) {
+                body.if_(work.signed().lt(1), |body| {
+                    body.return_(crate::SLICE_EXHAUSTED)
+                })?;
+            }
+            match self.resume_instruction {
+                Some(entry) => body.tail_call(entry, &[]),
+                None => self.runtime.dispatch(body, &self.eip),
+            }
+        })
     }
 
     /// Builds JIT guards, then refines local candidates for their continuation.
@@ -166,7 +245,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.body.if_(condition.into().eq(false), |mut body| {
             self.runtime.publish_work(
                 &mut body,
-                remaining_work(self.work.as_ref(), self.completed).as_ref(),
+                remaining_work(self.work.as_ref(), self.ordinary_work).as_ref(),
             )?;
             self.state.publish(&mut body, &self.eip, self.completed)?;
             self.runtime.interpret(body)
@@ -243,7 +322,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.body.if_(condition, |mut fault_body| {
             self.runtime.publish_work(
                 &mut fault_body,
-                remaining_work(self.work.as_ref(), self.completed).as_ref(),
+                remaining_work(self.work.as_ref(), self.ordinary_work).as_ref(),
             )?;
             self.state
                 .fault(fault_body, &self.eip, self.completed, exception)
@@ -266,7 +345,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.body.if_(condition, |mut body| {
             self.runtime.publish_work(
                 &mut body,
-                remaining_work(self.work.as_ref(), self.completed).as_ref(),
+                remaining_work(self.work.as_ref(), self.ordinary_work).as_ref(),
             )?;
             self.state.publish(&mut body, &self.eip, self.completed)?;
             exit::unsupported(body, &self.eip, opcode)
@@ -307,7 +386,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             |mut fault_body, exception| {
                 self.runtime.publish_work(
                     &mut fault_body,
-                    remaining_work(self.work.as_ref(), self.completed).as_ref(),
+                    remaining_work(self.work.as_ref(), self.ordinary_work).as_ref(),
                 )?;
                 self.state
                     .fault(fault_body, &self.eip, self.completed, exception)
@@ -332,7 +411,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
                 |mut fault_body, exception| {
                     self.runtime.publish_work(
                         &mut fault_body,
-                        remaining_work(self.work.as_ref(), self.completed).as_ref(),
+                        remaining_work(self.work.as_ref(), self.ordinary_work).as_ref(),
                     )?;
                     self.state
                         .fault(fault_body, &self.eip, self.completed, exception)
@@ -345,7 +424,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         mut self,
         continue_execution: impl FnOnce(BlockBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
-        let remaining = remaining_work(self.work.as_ref(), self.completed);
+        let remaining = remaining_work(self.work.as_ref(), self.ordinary_work);
         self.runtime
             .publish_work(&mut self.body, remaining.as_ref())?;
         self.state
@@ -354,6 +433,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     }
 }
 
-fn remaining_work(work: Option<&Val<I64>>, completed: u32) -> Option<Val<I64>> {
-    work.map(|work| work.sub(u64::from(completed)))
+fn remaining_work(work: Option<&Val<I64>>, ordinary_work: u32) -> Option<Val<I64>> {
+    work.map(|work| work.sub(u64::from(ordinary_work)))
 }

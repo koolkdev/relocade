@@ -63,9 +63,9 @@ use std::fmt;
 /// This host exit is distinct from guest faults and dispatch return values.
 pub const SLICE_EXHAUSTED: u64 = 1024 << 48;
 
-/// Maximum instructions in a budgeted snapshot block. Cooperative slices may
-/// exceed their requested allowance by at most this value minus one instructions.
-/// A REP instruction completes before yielding, regardless of its element count.
+/// Maximum ordinary instructions in a budgeted snapshot block and maximum
+/// elements in a REP chunk. Cooperative slices may exceed their requested work
+/// by at most this value minus one before reaching a scheduling boundary.
 pub const MAX_EXECUTION_CHUNK: u32 = 256;
 
 /// A completed host function requested a yield. The low 32 bits contain its

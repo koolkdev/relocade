@@ -24,9 +24,10 @@ pub(crate) struct Input {
     pub(crate) physical_pages: Vec<(u32, u32, bool)>,
     pub(crate) a20_enabled: bool,
     pub(crate) mmio_pages: Vec<(u32, u32)>,
-    pub(crate) mmio_updates: Vec<MmioUpdate>,
+    pub(crate) mmio_updates: Vec<DeviceUpdate>,
     pub(crate) observe_mmio: bool,
     pub(crate) port_reads: Vec<u32>,
+    pub(crate) port_updates: Vec<DeviceUpdate>,
     pub(crate) arguments: Vec<Argument>,
     pub(crate) observe_guest: bool,
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
@@ -51,6 +52,7 @@ impl Input {
             mmio_updates: Vec::new(),
             observe_mmio: false,
             port_reads: Vec::new(),
+            port_updates: Vec::new(),
             arguments: Vec::new(),
             observe_guest: false,
             segment_resolutions: Vec::new(),
@@ -63,9 +65,9 @@ impl Input {
     }
 }
 
-/// Device changes applied after the corresponding MMIO transfer completes.
+/// Backing and routing changes applied after the corresponding device callback.
 #[derive(Clone, Default, Serialize)]
-pub(crate) struct MmioUpdate {
+pub(crate) struct DeviceUpdate {
     pub(crate) guest: Vec<(u32, Vec<u8>)>,
     pub(crate) map: Vec<(u32, Vec<u8>)>,
 }
