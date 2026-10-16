@@ -9,6 +9,11 @@ instruction_families! {
         availability: ProtectedOnly;
         forms { 0x0F 0x00 /0 => word_or_dword(rm); }
     }
+    STR {
+        execute: store_system_selector(SystemSelector::Tr);
+        availability: ProtectedOnly;
+        forms { 0x0F 0x00 /1 => word_or_dword(rm); }
+    }
     SGDT {
         execute: store_descriptor_table::<_>(DescriptorTable::Global);
         forms { 0x0F 0x01 /0 => word_or_dword(mem); }

@@ -8,6 +8,8 @@ mod sidt;
 mod sldt;
 #[path = "system_queries/smsw.rs"]
 mod smsw;
+#[path = "system_queries/str.rs"]
+mod str;
 
 use crate::support::{
     blocks::BlockModules,
