@@ -87,6 +87,10 @@ impl Runtime {
         Ok(())
     }
 
+    pub(crate) fn is_budgeted(self) -> bool {
+        self.budget.is_some()
+    }
+
     /// Reject an exhausted entry before instruction fetch or execution.
     pub(crate) fn check_entry_budget(self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.check_budget(body, |stopped| stopped.return_(crate::SLICE_EXHAUSTED))

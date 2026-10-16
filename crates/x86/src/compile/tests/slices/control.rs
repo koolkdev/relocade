@@ -5,7 +5,7 @@ fn check_shared_budget(engine: Engine) {
     let mut cpu = initial();
     cpu.registers.ecx = 3;
     cpu.registers.esi = 0x2000;
-    let mut input = input(&code, cpu, &[2]);
+    let mut input = input(&code, cpu, &[4]);
     input.guest.push((0x2000, vec![7, 8, 9]));
     input.observe_budget = true;
     let observed = engine.observe(step(), &input, 3);
@@ -133,7 +133,7 @@ fn check_budget_handoff(engine: Engine) {
     let state = result[0].1;
     assert_eq!(
         (state.eip, state.instruction_count, state.registers.eax),
-        (0x1003, 2, 1)
+        (0x1001, 1, 1)
     );
     assert_eq!(
         (
@@ -141,7 +141,7 @@ fn check_budget_handoff(engine: Engine) {
             state.registers.esi,
             state.registers.edi
         ),
-        (0, 0x3006, 0x4008)
+        (1, 0x3002, 0x4004)
     );
 }
 

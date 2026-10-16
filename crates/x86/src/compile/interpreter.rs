@@ -25,8 +25,7 @@ use super::Compiler;
 /// a block-ending instruction or guest exit. REP completes its repetition; port
 /// strings dispatch and other strings continue. A fault retains completed elements.
 /// The snapshot compiler's instruction limit does not bound interpreter execution.
-/// Use [`Compiler::with_execution_budget`] to yield between instructions. A single
-/// REP still completes before yielding and can delay the return to the host.
+/// Use [`Compiler::with_execution_budget`] for bounded, resumable execution.
 ///
 /// ```
 /// use wasm86_x86::{compile_interpreter, SegmentProfile};
@@ -46,8 +45,8 @@ pub fn compile_interpreter(
 /// Guest faults and unsupported forms return directly without retiring it.
 /// REP executes all elements before dispatch and retains completed elements on a fault.
 /// The default entry has no execution budget; [`Compiler::with_execution_budget`]
-/// checks the allowance before entry and charges one unit for a completed
-/// instruction, including REP. It does not suspend an instruction midway.
+/// enables REP chunks, including one checked element when a range proof fails.
+/// An unfinished chunk dispatches at the same EIP without retiring REP.
 ///
 /// The host must establish profile compatibility before entry. The interpreter
 /// checks instruction fetches at runtime; it does not require a validated snapshot.
@@ -123,6 +122,9 @@ impl Compiler {
                     &decoded.eip,
                     self.target,
                 )?;
+                if matches!(entry, InterpreterEntry::Run) {
+                    execution = execution.with_instruction_resume(entry_function);
+                }
                 execution.execute(decoded)?;
                 execution.complete(|body, eip| match continuation {
                     Some(continuation) => {

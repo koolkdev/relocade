@@ -21,6 +21,18 @@ fn interpreter() -> &'static TestModule {
     })
 }
 
+fn real_interpreter() -> &'static TestModule {
+    static MODULE: OnceLock<TestModule> = OnceLock::new();
+    MODULE.get_or_init(|| {
+        TestModule::new(
+            &Compiler::new(crate::ExecutionProfile::Real16)
+                .with_execution_budget()
+                .compile_interpreter()
+                .unwrap(),
+        )
+    })
+}
+
 fn step() -> &'static TestModule {
     static MODULE: OnceLock<TestModule> = OnceLock::new();
     MODULE.get_or_init(|| {
@@ -98,4 +110,6 @@ fn initial() -> CpuState {
 }
 
 mod control;
+mod physical;
+mod ports;
 mod repetition;

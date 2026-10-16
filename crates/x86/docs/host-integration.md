@@ -71,35 +71,47 @@ compilation. A budgeted block must use budgeted dispatch, linked blocks and
 interpreter fallback. Target compatibility alone does not establish scheduling
 compatibility.
 
-One work unit represents one completed instruction, including a REP with any
-element count. **The allowance is a scheduling target, not an exact stopping
-point.** A compiled block runs until its exit, aggregating completed instruction
-work on that path. A nonpositive balance stops the next execution entry before
-fetching or executing an instruction. The host computes actual work as its initial
-allowance minus the final signed balance, including any overshoot. Keep this
-calculation wide enough for values greater than u32::MAX.
+One work unit represents an ordinary completed instruction or one completed REP
+element. A zero-count REP costs one unit. **The allowance is a scheduling target,
+not an exact stopping point.** A compiled block runs until its exit or a REP
+boundary, aggregating ordinary instruction work on that path. A nonpositive
+balance stops the next execution entry before fetching or executing an instruction.
+The host computes actual work as its initial allowance minus the final signed
+balance, including any overshoot. Keep this calculation wide enough for values
+greater than u32::MAX.
 
-Budgeted snapshot blocks contain at most `MAX_EXECUTION_CHUNK` (256) instructions.
-A slice can therefore overshoot its requested allowance by at most 255 completed
-instructions. The interpreter may yield more frequently; callers must not depend
-on the two frontends stopping at identical intermediate states. Zero work yields
-without fetching. Exhaustion returns `SLICE_EXHAUSTED` (tag 1024, zero
-payload/address). An ordinary block exit can dispatch with a nonpositive balance;
-the next budgeted entry yields. Future direct links or traces must preserve these
-scheduling boundaries.
+Budgeted snapshot blocks contain at most `MAX_EXECUTION_CHUNK` (256) instructions;
+REP chunks contain at most that many elements, further limited by distance to
+operand page boundaries. Range proofs check the complete span, including any
+straddling element. REP checks its balance before starting and after a chunk.
+Therefore a slice can overshoot its requested work by at most 255 units. The
+interpreter may yield more frequently; callers must not depend on the two
+frontends stopping at identical intermediate states. Zero work yields without
+fetching. Exhaustion returns `SLICE_EXHAUSTED` (tag 1024, zero payload/address).
+An ordinary block exit can dispatch with a nonpositive balance; the next budgeted
+entry yields. This bounds guest work, not elapsed time or synchronous callback
+latency. Future direct links or traces must preserve these scheduling boundaries.
 
-REP completes before yielding. There is no suspension or element accounting inside
-an instruction. A long REP or a synchronous device callback can delay a slice's
-return, so the allowance does not bound transferred bytes or elapsed time.
+Scheduling imprecision does not relax architectural precision. Faults publish the
+faulting EIP and completed effects. A partial REP keeps EIP at its first prefix,
+retains completed elements and the remaining count, and does not retire. Reenter
+an interpreter or valid snapshot at that EIP with a fresh allowance. LODS retains
+its last accumulator; CMPS/SCAS keep their original entry flags until successful
+completion, including across slices, preserving the existing REP fault semantics.
+Conditional termination or count exhaustion completes the instruction normally.
+Hosts must not modify instruction inputs during an internal REP suspension unless
+intentionally changing guest execution.
 
-Faults still publish the faulting EIP and precise completed effects. A faulted REP
-retains its successful memory/register prefix and remaining count without retiring
-or consuming an instruction unit. Earlier completed instructions remain charged.
-The existing LODS and comparison fault semantics are unchanged.
+Chunk range proofs retain shared bulk copy/fill and relative element loops. A
+failed JIT proof enters the interpreter before effects; a failed interpreter
+proof executes one checked element. An unfinished chunk publishes progress and
+resumes at REP. Interpreter `run` resumes internally; `step` and snapshot entries
+dispatch at that EIP. Device callbacks retain live memory routing.
 
 Remaining work stays local during execution and is published alongside CPU state
 at exits. There are no per-instruction budget checks inside ordinary compiled
-blocks and no exact retirement-limit mode. CPU image layout and default unbudgeted
+blocks and no exact retirement-limit mode. The CPU's instruction counter remains
+accurate and independent of scheduling. CPU image layout and default unbudgeted
 compilation are unchanged.
 
 ## Callable dispatch
@@ -374,7 +386,8 @@ is resolved at each actual transfer, including after a port callback.
 A fault leaves the completed elements in memory/devices, the remaining count and
 current index in CPU backing, and EIP at the string instruction. Successful REP
 retires once and dispatches after its final element. There is no device batching.
-A REP port instruction completes its repetition before a scheduling yield.
+With execution budgets enabled, REP may suspend at the chunk boundaries described
+above.
 
 ## Imported memories
 

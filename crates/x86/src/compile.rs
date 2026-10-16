@@ -73,8 +73,8 @@ impl Compiler {
     }
 
     /// Enables cooperative scheduling through `wasm86.executionBudget`.
-    /// Completed instructions are charged together at block exits; a whole REP
-    /// costs one unit. Slices can overshoot by at most
+    /// Ordinary instructions are charged together at block exits; REP uses
+    /// bounded chunks. Slices can overshoot by at most
     /// [`crate::MAX_EXECUTION_CHUNK`] minus one work units. All entries sharing
     /// a CPU must use this policy for the slice contract to hold.
     /// See the [slice contract](crate#execution-slices).

@@ -4,7 +4,7 @@ use ::wasmtime::{Caller, Linker, Memory, MemoryType, Store, Trap};
 use std::sync::Arc;
 
 use super::{
-    changes, Argument, Event, Input, MmioUpdate, Observation, Outcome, SegmentQuery,
+    changes, Argument, DeviceUpdate, Event, Input, Observation, Outcome, SegmentQuery,
     SegmentResolution, Snapshot, TestModule,
 };
 
@@ -16,8 +16,9 @@ struct ExecutionEvents {
     machine_unchanged: bool,
     segment_resolutions: std::vec::IntoIter<SegmentResolution>,
     segment_queries: std::vec::IntoIter<SegmentQuery>,
-    mmio_updates: std::vec::IntoIter<MmioUpdate>,
+    mmio_updates: std::vec::IntoIter<DeviceUpdate>,
     port_reads: std::vec::IntoIter<u32>,
+    port_updates: std::vec::IntoIter<DeviceUpdate>,
 }
 
 impl TestModule {
@@ -33,6 +34,7 @@ impl TestModule {
                 segment_queries: input.segment_queries.clone().into_iter(),
                 mmio_updates: input.mmio_updates.clone().into_iter(),
                 port_reads: input.port_reads.clone().into_iter(),
+                port_updates: input.port_updates.clone().into_iter(),
             },
         );
         let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
@@ -58,7 +60,6 @@ impl TestModule {
                 .any(|patches| !patches.machine.is_empty());
         let machine_before = observes_machine.then(|| Arc::<[u8]>::from(machine.data(&store)));
         let mut linker = Linker::new(engine);
-        ports::register(&mut linker);
         for (name, memory) in [
             ("cpuState", cpu),
             ("guest", guest),
@@ -137,7 +138,7 @@ impl TestModule {
                 },
             )
             .unwrap();
-        if std::iter::once(module)
+        let physical = if std::iter::once(module)
             .chain(
                 self.interpreter
                     .map(|interpreter| interpreter.module.wasmtime()),
@@ -146,10 +147,12 @@ impl TestModule {
                 module
                     .imports()
                     .any(|import| import.module() == "wasm86" && import.name() == "physicalMap")
-            })
-        {
-            physical::register(&mut linker, &mut store, guest, input);
-        }
+            }) {
+            Some(physical::register(&mut linker, &mut store, guest, input))
+        } else {
+            None
+        };
+        ports::register(&mut linker, guest, physical);
         if let Some(interpreter) = self.interpreter {
             let instance = linker
                 .instantiate(&mut store, interpreter.module.wasmtime())
@@ -246,6 +249,7 @@ impl TestModule {
         );
         assert_eq!(store.data().mmio_updates.len(), 0, "unused MMIO updates");
         assert_eq!(store.data().port_reads.len(), 0, "unused port reads");
+        assert_eq!(store.data().port_updates.len(), 0, "unused port updates");
         let guest_unchanged = &*guest_before == guest.data(&store);
         let machine_unchanged = store.data().machine_unchanged;
         Observation {
