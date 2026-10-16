@@ -145,6 +145,12 @@ fn host_exit_words_in_v8() {
 
 #[test]
 fn decode_documented_guest_exit_words() {
+    assert_eq!(
+        ExecutionExit::from_bits(0x0403_0000_0000_0000),
+        Some(ExecutionExit::ContextChanged)
+    );
+    assert_eq!(ExecutionExit::from_bits(0x0403_0001_0000_0000), None);
+    assert_eq!(ExecutionExit::from_bits(0x0403_0000_0000_0001), None);
     for (bits, exception) in [
         (0x0001_0000_0000_0000, Exception::DivideError),
         (0x0040_0000_0000_0000, Exception::BoundRangeExceeded),

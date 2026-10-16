@@ -89,6 +89,47 @@ the target; interpreter straight-line execution and REP work have no fixed bound
 The snapshot compiler's instruction limit bounds compilation only. There is no
 fixed overshoot or elapsed-time guarantee.
 
+## Callable dispatch
+
+`Compiler::compile_dispatcher()` generates a module that resolves execution
+addresses to ordinary `() -> i64` functions in the imported
+`wasm86.executionFunctions` table. Slot 0 holds its `enter` export, slot 1 holds a
+compatible interpreter, and subsequent slots hold installed module exports.
+All functions share CPU, guest and mapping memories. The dispatcher has
+no target-kind tag or host-service import.
+
+Bind the module's `dispatch(eip: i32) -> i64` and `interpret() -> i64` exports
+as the corresponding imports of execution modules. `dispatch` follows the next
+execution address through the table; `interpret` directly enters the fallback
+when a snapshot abandons a specialization. These transfers stay inside Wasm.
+The embedding enters through `enter() -> i64`, which returns a guest exit, a scheduling exit, or the observation
+handoff described below. For observation, write nonzero at offset 0 of
+`executionEntries`; the next outgoing dispatch returns zero with state published.
+Zero is a runtime handoff result, not an architectural exit.
+
+The embedding scopes lookup to one guest address space and execution target
+(profile and CPU model).
+Keys are CS.base + EIP before paging, A20 or backing translation. The embedding
+must keep the execution profile valid while calling these entries. Dispatch
+checks the CS fetch span before lookup; profile admission and changes belong to
+the embedding. A miss or denied fetch tail-calls the
+interpreter. The CPU model and actual execution mode remain embedding
+configuration, not inferred from caches. Registering
+an export does not establish its snapshot validity: the embedding must uphold
+its original EIP, segment, byte and mapping assumptions. Every registered entry
+must be an execution boundary; larger blocks must not run across another entry.
+Registration changes therefore require updating any affected compiled blocks or
+links. Use the step interpreter when every interpreted instruction boundary must consult
+this table; these transfers remain inside Wasm.
+
+Initialize `executionEntries` to zero, then copy `EntryTable::to_bytes()` at
+`EntryTable::DATA_OFFSET` (8), growing memory first. The serialized data is a
+u32 mask followed by eight-byte address/slot rows, with zero slots marking empty
+rows. The table uses open addressing and is at most half full. Replace mappings
+only outside execution. The function table must already contain every published
+slot. Installed code and imports remain alive until the machine is dropped; removing
+an address does not reclaim code.
+
 ## Interpreter handoff
 
 A snapshot block can guard an optimization assumption. If that guard fails, it
@@ -301,6 +342,7 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | `guest` | 1 | Guest backing bytes for the selected memory model. |
 | `machine` | 64 | Protected-mode linear-to-backing page table at byte zero. |
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
+| `executionEntries` | 1 | Observation policy and execution-address table. |
 
 Protected-mode interpreters import `executionContext`, `guest`, `machine`, `dispatch`,
 `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
@@ -312,6 +354,8 @@ require guest backing and the page table, protected-mode segment loads require
 `resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks
 with specialization guards require `interpret`. Hosts should use the generated
 module's import list when instantiating it.
+Callable dispatch imports `executionEntries` and the `executionFunctions`
+function table. The interpreter itself requires neither import.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical
@@ -925,8 +969,10 @@ tag, 16-bit payload and 32-bit address. These tags are independent of architectu
 exception vector numbers:
 
 Hosts can decode these words with `ExecutionExit::from_bits`, which returns an
-`Exception`, an unsupported-instruction diagnostic, or `BudgetExhausted`. Unknown
-tags and nonzero reserved fields return `None`. Host-defined values returned by `dispatch` or
+`Exception`, an unsupported-instruction diagnostic, or `BudgetExhausted`. It also
+recognizes `0x0403_0000_0000_0000` as `ContextChanged`; the dispatcher does not emit
+this reserved outcome. Unknown tags and nonzero reserved fields return `None`.
+Host-defined values returned by `dispatch` or
 `interpret` must be distinguished before decoding; either callback may return
 any i64. Track callback results or use a distinct result convention. If a callback
 continues guest execution, classify the resulting execution outcome according to
@@ -944,6 +990,7 @@ that callback's contract. A matching exit word alone does not establish its sour
 | Invalid opcode | 128 | Zero | Zero |
 | Floating-point error | 256 | Zero | Zero |
 | SIMD floating-point exception | 512 | Zero | Zero |
+| Context changed (reserved) | 1027 | Zero | Zero |
 | Instruction budget exhausted | 32768 | Zero | Zero |
 
 Floating-point error reports #MF (architectural vector 16). Its return value

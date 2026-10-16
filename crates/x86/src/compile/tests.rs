@@ -3,6 +3,8 @@ mod budget;
 use super::*;
 use crate::SegmentProfile;
 
+mod dispatch;
+
 #[test]
 fn snapshot_helpers_use_unobserved_configuration() {
     for profile in [

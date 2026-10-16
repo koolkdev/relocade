@@ -13,6 +13,7 @@ const INVALID_OPCODE: u64 = 128 << 48;
 const FLOATING_POINT: u64 = 256 << 48;
 const SIMD_FLOATING_POINT: u64 = 512 << 48;
 const BUDGET_EXHAUSTED: u64 = 1 << 63;
+const CONTEXT_CHANGED: u64 = 1027 << 48;
 
 /// A direct guest exit from a generated execution entry.
 ///
@@ -22,6 +23,8 @@ const BUDGET_EXHAUSTED: u64 = 1 << 63;
 pub enum ExecutionExit {
     /// The instruction budget was consumed at a completed block boundary.
     BudgetExhausted,
+    /// Execution must resume under a compatible context before another entry.
+    ContextChanged,
     Exception(Exception),
     /// An encoding or execution path outside the implemented instruction subset.
     UnsupportedInstruction {
@@ -43,6 +46,7 @@ impl ExecutionExit {
             BUDGET_EXHAUSTED if payload == 0 && address == 0 => {
                 return Some(Self::BudgetExhausted);
             }
+            CONTEXT_CHANGED if payload == 0 && address == 0 => return Some(Self::ContextChanged),
             DIVIDE_ERROR if payload == 0 && address == 0 => Exception::DivideError,
             BOUND_RANGE_EXCEEDED if payload == 0 && address == 0 => Exception::BoundRangeExceeded,
             INVALID_OPCODE if payload == 0 && address == 0 => Exception::InvalidOpcode,
