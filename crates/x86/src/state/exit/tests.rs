@@ -1,4 +1,4 @@
-use super::{exception, unsupported, ExecutionExit};
+use super::{budget_exhausted, exception, unsupported, ExecutionExit};
 use crate::exception::Exception;
 use crate::test_step::{
     Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule,
@@ -19,6 +19,7 @@ fn exit_module() -> Vec<u8> {
         "floating_point",
         "simd_floating_point",
         "unsupported",
+        "budget_exhausted",
     ] {
         let function = program
             .function(
@@ -44,6 +45,7 @@ fn exit_module() -> Vec<u8> {
                             linear_address: address,
                             error_code: detail,
                         },
+                        "budget_exhausted" => return budget_exhausted(body),
                         "unsupported" => {
                             return unsupported(body, &address, detail.truncate::<I8>())
                         }
@@ -101,6 +103,7 @@ fn check_host_exit_words(engine: Engine) {
             0x0200_0000_0000_0000,
         ),
         ("unsupported", 0xf3, 0x89ab_cdef, 0x0008_00f3_89ab_cdef),
+        ("budget_exhausted", 0xffff, u32::MAX, i64::MIN),
     ] {
         let module = TestModule::new(&CompiledModule {
             execution_target: None,
@@ -188,7 +191,7 @@ fn host_values_and_reserved_exit_fields_are_not_guest_exits() {
         0,
         1,
         u64::MAX,
-        0x8000_0000_0000_0000,
+        0x4000_0000_0000_0000,
         0x0003_0000_0000_0000,
         0x0001_0001_0000_0000,
         0x0040_0000_0000_0001,
@@ -203,4 +206,14 @@ fn host_values_and_reserved_exit_fields_are_not_guest_exits() {
     ] {
         assert_eq!(ExecutionExit::from_bits(bits), None, "{bits:#018x}");
     }
+}
+
+#[test]
+fn instruction_budget_exit_has_no_payload() {
+    assert_eq!(
+        ExecutionExit::from_bits(0x8000_0000_0000_0000),
+        Some(ExecutionExit::BudgetExhausted)
+    );
+    assert_eq!(ExecutionExit::from_bits(0x8000_0000_0000_0001), None);
+    assert_eq!(ExecutionExit::from_bits(0x8000_0001_0000_0000), None);
 }

@@ -10,12 +10,12 @@ use crate::{
     ssa::{Location, SsaType},
 };
 
-use super::{CpuState, Registers};
+use super::{CpuState, ExecutionContext, Registers};
 
 /// Registers occupy consecutive dwords in encoding order. Indexed byte codes can
 /// reach only the first four parents; named views select their parent directly.
 pub(in crate::state) fn register_location<T: RegisterType>(register: Register<T>) -> Location<T> {
-    let base = offset_of!(CpuState, registers) as u32;
+    let base = offset_of!(ExecutionContext, cpu.registers) as u32;
     let stride = (size_of::<Registers>() / Gpr32::ALL.len()) as u32;
     match register.selection {
         RegisterSelection::Named { parent, byte } => {
@@ -90,7 +90,7 @@ where
 macro_rules! cpu_location {
     ($($field:ident).+ $(,)?) => {
         $crate::state::access::location(
-            ::std::mem::offset_of!($crate::state::CpuState, $($field).+) as u32,
+            ::std::mem::offset_of!($crate::state::ExecutionContext, cpu.$($field).+) as u32,
             |state: &$crate::state::CpuState| &state.$($field).+,
         )
     };
@@ -105,7 +105,7 @@ macro_rules! cpu_load {
             $body,
             $memory,
             $displacement,
-            ::std::mem::offset_of!($crate::state::CpuState, $($field).+) as u32,
+            ::std::mem::offset_of!($crate::state::ExecutionContext, cpu.$($field).+) as u32,
             |state: &$crate::state::CpuState| &state.$($field).+,
         )
     };
@@ -120,7 +120,7 @@ macro_rules! cpu_store {
             $body,
             $memory,
             $displacement,
-            ::std::mem::offset_of!($crate::state::CpuState, $($field).+) as u32,
+            ::std::mem::offset_of!($crate::state::ExecutionContext, cpu.$($field).+) as u32,
             |state: &$crate::state::CpuState| &state.$($field).+,
             $value,
         )

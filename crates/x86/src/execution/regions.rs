@@ -18,8 +18,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             let mut arm = nested(body);
             arm.eip = transfer(&mut arm)?;
             arm.completed += 1;
-            let runtime = arm.runtime;
-            arm.complete(|body, eip| runtime.dispatch(body, eip))
+            arm.dispatch()
         })
     }
 

@@ -6,7 +6,7 @@ use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 use super::payload::Payload;
 use crate::{
     ssa::TrackedValue,
-    state::{CpuState, StoredX87Register},
+    state::{ExecutionContext, StoredX87Register},
     x87::ExtendedValue,
 };
 
@@ -108,7 +108,10 @@ impl Bank {
 
     fn read_tag_word(&mut self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         if self.tag_word.is_none() {
-            let word = body.load(self.memory, offset_of!(CpuState, x87.tag_word) as u32)?;
+            let word = body.load(
+                self.memory,
+                offset_of!(ExecutionContext, cpu.x87.tag_word) as u32,
+            )?;
             self.tag_word = Some(TrackedValue::new(body, word)?);
         }
         Ok(())
@@ -187,7 +190,11 @@ impl Bank {
             }
         }
         if let Some((tags, true)) = self.packed_tags() {
-            body.store(self.memory, offset_of!(CpuState, x87.tag_word) as u32, tags)?;
+            body.store(
+                self.memory,
+                offset_of!(ExecutionContext, cpu.x87.tag_word) as u32,
+                tags,
+            )?;
         }
         Ok(())
     }

@@ -84,7 +84,7 @@ fn snapshot_lea_imports_no_guest_data_or_page_table_memory() {
                 }
             }
         }
-        assert_eq!(memories, [("wasm86", "cpuState")]);
+        assert_eq!(memories, [("wasm86", "executionContext")]);
     }
 }
 

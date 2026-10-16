@@ -44,7 +44,7 @@ fn check_call_return_linkage(engine: Engine) {
         let mut image = Image::empty();
         image.cpu.eip = origin;
         image.cpu.registers.esp = 0x9004;
-        image.cpu.instruction_count = u64::MAX - 1;
+        image.cpu.instruction_count = u64::MAX;
         image.map(origin >> 12, 0x3000, false);
         image.data(0x3000, call);
         if origin == 0x1000 {
@@ -59,7 +59,7 @@ fn check_call_return_linkage(engine: Engine) {
         let mut cpu = image.cpu;
         cpu.eip = 0x1010;
         cpu.registers.esp = stack;
-        cpu.instruction_count = u64::MAX;
+        cpu.instruction_count = 0;
         let first = Step {
             cpu,
             ram: &pushed,
@@ -67,7 +67,7 @@ fn check_call_return_linkage(engine: Engine) {
         };
         cpu.eip = return_address;
         cpu.registers.esp = 0x9004;
-        cpu.instruction_count = 0;
+        cpu.instruction_count = 1;
         let last = Step {
             cpu,
             ram: &[],

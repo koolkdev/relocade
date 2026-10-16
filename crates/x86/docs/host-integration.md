@@ -33,8 +33,8 @@ selection. The model is host configuration, not mutable `CpuState`; keep it fixe
 for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
-count, then tail-calls `wasm86.dispatch(next_eip: i32) -> i64`. Its result is returned
-unchanged. EIP and dispatch arguments are offsets relative to CS. EIP wraps at
+count, checks its instruction target, then tail-calls
+`wasm86.dispatch(next_eip: i32) -> i64`. Its result is returned unchanged. EIP and dispatch arguments are offsets relative to CS. EIP wraps at
 32 bits, and the instruction count wraps at 64 bits. A taken transfer checks its
 segment target before committing instruction effects; fetching the destination
 belongs to the next entry.
@@ -48,11 +48,46 @@ instruction faults or is unsupported. Each instruction fetches live guest bytes
 and starts with fresh prefix state. REP completes its repetition; port strings
 dispatch and other strings continue to the next instruction in both frontends.
 
-Interpreter `step` executes one instruction before dispatch, including all elements
-of a supported REP instruction. Neither interpreter entry has an execution budget.
-Straight-line `run` execution, REP work and chains of host dispatches have no fixed
-bound. The snapshot compiler's instruction limit bounds compilation only; it is
-not an interpreter limit or a host responsiveness guarantee.
+Interpreter `step` executes one instruction before its budget check and dispatch,
+including all elements of a supported REP instruction.
+
+## Instruction budgets
+
+All execution entries share the declared `ExecutionContext` layout in
+`wasm86.executionContext`:
+
+```rust
+# use wasm86_x86::CpuState;
+#[repr(C)]
+pub struct ExecutionContext {
+    pub cpu: CpuState,
+    pub instruction_target: u64,
+}
+```
+
+Initialize backing with `ExecutionContext::default().to_bytes()`. Fields are
+little endian, with offsets derived from this layout using `offset_of!`.
+CPU snapshot reads and writes cover only the `cpu` member. The host sets
+`instruction_target` between entries; generated code never writes it.
+Its default, `u64::MAX`, is practically unbounded.
+
+For a finite budget, add the requested number of instructions to
+`instruction_count`, saturating at `u64::MAX`. Handle a zero budget before entering
+Wasm. Keep the target fixed during execution. Checks compare the count and target
+as unsigned values and assume the instruction counter does not wrap.
+
+A successful block checks the target using the count it just published. Reaching
+or exceeding it returns an encoded `ExecutionExit::BudgetExhausted` before
+dispatch or fetching the successor.
+Interpreter `run` checks only after a block-ending instruction, on either outcome
+of a conditional branch. Ordinary instruction retirement, decoder restarts and
+optimization handoffs do not introduce budget checkpoints. Faults and unsupported
+instructions retain their own exit reasons and precise retirement counts.
+
+This is an instruction allowance, not an exact stopping point. A block can exceed
+the target; interpreter straight-line execution and REP work have no fixed bound.
+The snapshot compiler's instruction limit bounds compilation only. There is no
+fixed overshoot or elapsed-time guarantee.
 
 ## Interpreter handoff
 
@@ -262,14 +297,14 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 
 | Import | Minimum pages | Contents |
 | --- | ---: | --- |
-| `cpuState` | 1 | CPU backing image at byte zero. |
+| `executionContext` | 1 | `ExecutionContext` backing, containing CPU state and execution controls. |
 | `guest` | 1 | Guest backing bytes for the selected memory model. |
 | `machine` | 64 | Protected-mode linear-to-backing page table at byte zero. |
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
 
-Protected-mode interpreters import `cpuState`, `guest`, `machine`, `dispatch`,
+Protected-mode interpreters import `executionContext`, `guest`, `machine`, `dispatch`,
 `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
-`cpuState`, `guest`, `physicalMap`, `dispatch`, the MMIO callbacks and the port
+`executionContext`, `guest`, `physicalMap`, `dispatch`, the MMIO callbacks and the port
 callbacks. They use generated RAM/ROM accesses and do not call descriptor callbacks. The physical
 memory contract below describes routing and callback widths.
 Snapshot modules omit imports they do not use: protected-mode memory instructions
@@ -333,7 +368,9 @@ guest backing has no separate cache or buffered writes to flush.
 
 ## CPU backing image
 
-Use `CpuState::to_bytes` and `CpuState::from_bytes` to exchange state with CPU memory.
+Use `CpuState::to_bytes` and `CpuState::from_bytes` to exchange the `cpu` member
+of `ExecutionContext`. Copy exactly `CpuState::BYTE_LEN` bytes at
+`offset_of!(ExecutionContext, cpu)`, preserving the surrounding execution controls.
 Conversion is explicitly little endian and preserves reserved bytes, inactive flag
 payloads, raw segment attributes, x87 and XMM encodings. The image is
 `CpuState::BYTE_LEN` (464) bytes:
@@ -408,7 +445,7 @@ use wasm86_x86::CpuState;
 let mut cpu = CpuState::default();
 cpu.registers.eax = 42;
 cpu.eip = 0x1000;
-let image = cpu.to_bytes(); // Copy to byte zero of the imported CPU memory.
+let image = cpu.to_bytes(); // Copy to the execution context's `cpu` member.
 assert_eq!(CpuState::from_bytes(image), cpu);
 ```
 
@@ -888,8 +925,8 @@ tag, 16-bit payload and 32-bit address. These tags are independent of architectu
 exception vector numbers:
 
 Hosts can decode these words with `ExecutionExit::from_bits`, which returns an
-`Exception` or an unsupported-instruction diagnostic. Unknown tags and nonzero
-reserved fields return `None`. Host-defined values returned by `dispatch` or
+`Exception`, an unsupported-instruction diagnostic, or `BudgetExhausted`. Unknown
+tags and nonzero reserved fields return `None`. Host-defined values returned by `dispatch` or
 `interpret` must be distinguished before decoding; either callback may return
 any i64. Track callback results or use a distinct result convention. If a callback
 continues guest execution, classify the resulting execution outcome according to
@@ -907,6 +944,7 @@ that callback's contract. A matching exit word alone does not establish its sour
 | Invalid opcode | 128 | Zero | Zero |
 | Floating-point error | 256 | Zero | Zero |
 | SIMD floating-point exception | 512 | Zero | Zero |
+| Instruction budget exhausted | 32768 | Zero | Zero |
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the
@@ -982,8 +1020,8 @@ resuming x87 stack operations after MMX use.
 
 `CpuState::simd` contains `StoredSimd { mxcsr, reserved, xmm }`. Default state has
 MXCSR `0x1f80` and zero XMM registers. Literal snapshots retain every bit, including
-reserved MXCSR bits and padding; these bytes are not an FXSAVE image. Hosts must
-allocate the 464-byte CPU image.
+reserved MXCSR bits and padding; these bytes are not an FXSAVE image. These
+fields belong to the CPU snapshot within `ExecutionContext`.
 
 The execution profiles fix CR0.EM/TS clear and CR4.OSFXSR/OSXMMEXCPT set, enabling
 SIMD state access and exception delivery. These control-register assumptions are
