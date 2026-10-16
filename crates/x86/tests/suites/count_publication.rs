@@ -34,7 +34,7 @@ fn only_exits_with_progress_read_and_write_instruction_count() {
                         function_index += 1;
                     }
                     if matches!(import.ty, TypeRef::Memory(_)) {
-                        if import.module == "wasm86" && import.name == "cpuState" {
+                        if import.module == "wasm86" && import.name == "executionContext" {
                             cpu_memory = Some(memory_index);
                         }
                         memory_index += 1;
@@ -76,9 +76,10 @@ fn only_exits_with_progress_read_and_write_instruction_count() {
             _ => {}
         }
     }
-    // The first read's fault has no progress to publish. Two later faults and
-    // the successful exit each publish their own completed instruction count.
-    assert_eq!(exits, [(0, 0), (1, 1), (1, 1), (1, 1)]);
+    // The first read's fault has no progress to publish. Two later faults each
+    // publish their completed count. Success publishes once before the budget
+    // return and dispatch paths split, so the tail call adds no counter traffic.
+    assert_eq!(exits, [(0, 0), (1, 1), (1, 1), (1, 1), (0, 0)]);
     assert_eq!((loads, stores), (0, 0));
 }
 
@@ -107,7 +108,7 @@ fn completed_instruction_counts() -> Vec<SequenceCase> {
         ),
     ];
     let mut cases = Vec::new();
-    for count in [37, u32::MAX as u64 - 1, u64::MAX - 1] {
+    for count in [37, u32::MAX as u64 - 1, u64::MAX] {
         for readable in 0..=3 {
             let mut case = SequenceCase::preserving_flags(format!(
                 "initial count {count}, readable pages {readable}"

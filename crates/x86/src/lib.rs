@@ -74,8 +74,8 @@ pub use segment::{
     SegmentProfile,
 };
 pub use state::{
-    CpuState, ExecutionExit, FlagBytes, Registers, Segments, StoredFlags, StoredSegment,
-    StoredSimd, StoredStatusSource, StoredX87, StoredX87Control, StoredX87Register,
+    CpuState, ExecutionContext, ExecutionExit, FlagBytes, Registers, Segments, StoredFlags,
+    StoredSegment, StoredSimd, StoredStatusSource, StoredX87, StoredX87Control, StoredX87Register,
     StoredX87Status,
 };
 

@@ -317,13 +317,33 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             )
     }
 
-    /// Publishes completed work before the frontend dispatches or continues decoding.
+    /// Ends a block, checks its instruction target and dispatches its successor.
+    pub(super) fn dispatch(self) -> Result<(), BuildError> {
+        let runtime = self.runtime;
+        self.finish(true, |body, eip| runtime.dispatch(body, eip))
+    }
+
+    /// Publishes an instruction and continues decoding within the current block.
     pub(super) fn complete(
-        mut self,
+        self,
         continue_execution: impl FnOnce(BlockBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
-        self.state
-            .publish(&mut self.body, &self.eip, self.completed)?;
+        self.finish(false, continue_execution)
+    }
+
+    fn finish(
+        mut self,
+        check_budget: bool,
+        continue_execution: impl FnOnce(BlockBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
+    ) -> Result<(), BuildError> {
+        let count = self
+            .state
+            .publish(&mut self.body, &self.eip, self.completed)?
+            .expect("successful completion retires an instruction");
+        if check_budget {
+            self.state
+                .check_instruction_budget(&mut self.body, &count)?;
+        }
         continue_execution(self.body, &self.eip)
     }
 }

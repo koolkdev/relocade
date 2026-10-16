@@ -12,6 +12,7 @@ const BOUND_RANGE_EXCEEDED: u64 = 64 << 48;
 const INVALID_OPCODE: u64 = 128 << 48;
 const FLOATING_POINT: u64 = 256 << 48;
 const SIMD_FLOATING_POINT: u64 = 512 << 48;
+const BUDGET_EXHAUSTED: u64 = 1 << 63;
 
 /// A direct guest exit from a generated execution entry.
 ///
@@ -19,6 +20,8 @@ const SIMD_FLOATING_POINT: u64 = 512 << 48;
 /// Distinguish host-defined callback results from execution exits before decoding.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionExit {
+    /// The instruction budget was consumed at a completed block boundary.
+    BudgetExhausted,
     Exception(Exception),
     /// An encoding or execution path outside the implemented instruction subset.
     UnsupportedInstruction {
@@ -37,6 +40,9 @@ impl ExecutionExit {
         let payload = ((bits >> 32) & 0xffff) as u32;
         let address = bits as u32;
         let exception = match tag {
+            BUDGET_EXHAUSTED if payload == 0 && address == 0 => {
+                return Some(Self::BudgetExhausted);
+            }
             DIVIDE_ERROR if payload == 0 && address == 0 => Exception::DivideError,
             BOUND_RANGE_EXCEEDED if payload == 0 && address == 0 => Exception::BoundRangeExceeded,
             INVALID_OPCODE if payload == 0 && address == 0 => Exception::InvalidOpcode,
@@ -65,6 +71,11 @@ impl ExecutionExit {
         };
         Some(Self::Exception(exception))
     }
+}
+
+/// CPU state must already describe the completed block.
+pub(crate) fn budget_exhausted(body: BlockBuilder<'_>) -> Result<(), BuildError> {
+    body.return_(BUDGET_EXHAUSTED)
 }
 
 /// Delivers an exception through the host ABI. CPU state must already describe

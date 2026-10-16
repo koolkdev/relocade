@@ -3,13 +3,13 @@
 mod mxcsr;
 pub(crate) use mxcsr::Mxcsr;
 
-use super::{access::cpu_location, CpuState, State, StoredSimd};
+use super::{access::cpu_location, ExecutionContext, State, StoredSimd};
 use crate::{register::RegisterCode, simd::SimdExceptions, ssa::Location};
 use std::mem::offset_of;
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, V128};
 
 fn xmm_location(register: RegisterCode) -> Location<V128> {
-    let base = offset_of!(CpuState, simd.xmm) as u32;
+    let base = offset_of!(ExecutionContext, cpu.simd.xmm) as u32;
     match register {
         RegisterCode::Known(code) => Location::new(base + u32::from(code & 7) * 16),
         RegisterCode::Indexed(code) => Location::indexed(base, 128, code.and(7).shl(4)),

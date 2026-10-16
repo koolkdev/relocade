@@ -1,4 +1,4 @@
-//! CPU backing and the generated readers owned by that backing.
+//! CPU view of the shared execution context and its generated readers.
 
 mod flags;
 mod segments;
@@ -22,7 +22,7 @@ impl Cpu {
         Self {
             memory: program.import_memory(MemoryImport {
                 module: "wasm86".into(),
-                name: "cpuState".into(),
+                name: "executionContext".into(),
                 minimum: 1,
                 maximum: None,
                 shared: false,

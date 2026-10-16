@@ -130,7 +130,7 @@ impl Compiler {
                 for decoded_instruction in decoded_instructions {
                     execution.execute(decoded_instruction)?;
                 }
-                execution.complete(|body, eip| runtime.dispatch(body, eip))
+                execution.dispatch()
             },
         )?;
         let entry = format!("block_{start_eip:x}");

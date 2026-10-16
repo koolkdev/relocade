@@ -219,6 +219,7 @@ impl TestModule {
             interpreter_entry: Option<&'a str>,
             profile: Option<&'static str>,
             invocations: usize,
+            instruction_target_offset: u32,
             input: &'a Input,
         }
         let modules = std::iter::once(&self.module)
@@ -239,6 +240,10 @@ impl TestModule {
                     ExecutionProfile::Real16 => "real16",
                 }),
                 invocations,
+                instruction_target_offset: std::mem::offset_of!(
+                    crate::ExecutionContext,
+                    instruction_target
+                ) as u32,
                 input,
             },
         )

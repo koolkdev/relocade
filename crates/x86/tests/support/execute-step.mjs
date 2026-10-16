@@ -1,13 +1,14 @@
 import physicalMemory from './physical-memory.mjs';
 
-export default function execute([module, interpreter], { entry, interpreter_entry, profile, invocations, input }) {
+export default function execute([module, interpreter], { entry, interpreter_entry, profile, invocations, instruction_target_offset, input }) {
   const decode = ({ type, value }) => type === 'i64' ? BigInt(value) : value;
   const encode = value => typeof value === 'bigint'
     ? { type: 'i64', value: value.toString() } : { type: 'i32', value };
-  const cpuState = new WebAssembly.Memory({ initial: 1 });
+  const executionContext = new WebAssembly.Memory({ initial: 1 });
   const guest = new WebAssembly.Memory({ initial: 1 });
   const machine = new WebAssembly.Memory({ initial: 64 });
-  new Uint8Array(cpuState.buffer).set(input.cpu);
+  new Uint8Array(executionContext.buffer).set(input.cpu);
+  new DataView(executionContext.buffer).setBigUint64(instruction_target_offset, 0xffffffffffffffffn, true);
   for (const [memory, patches] of [[guest, input.guest], [machine, input.machine]]) {
     for (const [offset, bytes] of patches) new Uint8Array(memory.buffer).set(bytes, offset);
   }
@@ -28,7 +29,7 @@ export default function execute([module, interpreter], { entry, interpreter_entr
       }
     }
     return {
-      cpu: Array.from(new Uint8Array(cpuState.buffer, 0, input.cpu.length)),
+      cpu: Array.from(new Uint8Array(executionContext.buffer, 0, input.cpu.length)),
       guest: input.observe_guest ? changes : null,
     };
   };
@@ -41,7 +42,7 @@ export default function execute([module, interpreter], { entry, interpreter_entr
     ? physicalMemory(guest, input, events) : null;
   const imports = {
     wasm86: {
-      cpuState, guest, machine,
+      executionContext, guest, machine,
       ...physical?.imports,
       readPort: (port, bytes) => {
         if (portReads >= input.port_reads.length) throw new Error('unexpected port read');
@@ -86,7 +87,7 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   for (let call = 0; call < invocations; call++) {
     const patches = input.patches_before_calls[call];
     if (patches) {
-      for (const [memory, edits] of [[cpuState, patches.cpu], [guest, patches.guest], [machine, patches.machine]]) {
+      for (const [memory, edits] of [[executionContext, patches.cpu], [guest, patches.guest], [machine, patches.machine]]) {
         for (const [offset, bytes] of edits) new Uint8Array(memory.buffer).set(bytes, offset);
       }
     }
@@ -118,7 +119,7 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   // Check the actual loaded caches after preceding calls and explicit host patches.
   function checkProfile() {
     if (profile === null) return;
-    const cpu = new DataView(cpuState.buffer);
+    const cpu = new DataView(executionContext.buffer);
     const attributes = segment => cpu.getUint16(64 + segment * 12 + 10, true);
     const flat = (segment, kind) => {
       const offset = 64 + segment * 12;

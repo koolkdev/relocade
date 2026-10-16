@@ -72,6 +72,7 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
     let mut stores = Vec::new();
     let mut additions = 0;
     let mut tails = Vec::new();
+    let mut budget_returns = 0;
     for payload in Parser::new(0).parse_all(&block.bytes) {
         match payload.unwrap() {
             Payload::TypeSection(section) => {
@@ -110,9 +111,8 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
                         }
                         Operator::I64Add => additions += 1,
                         Operator::ReturnCall { function_index } => tails.push(function_index),
-                        Operator::Call { .. } | Operator::Return => {
-                            panic!("dispatch must be a tail call")
-                        }
+                        Operator::Return => budget_returns += 1,
+                        Operator::Call { .. } => panic!("dispatch must be a tail call"),
                         _ => {}
                     }
                 }
@@ -130,14 +130,16 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
     assert_eq!(functions, [0]);
     assert_eq!(exports, [("block_1000".to_owned(), ExternalKind::Func, 1)]);
     assert_eq!(imports.len(), 2);
-    assert!(imports.iter().any(|(name, ty)| name == "cpuState" && matches!(ty, TypeRef::Memory(memory) if memory.initial == 1 && !memory.memory64 && !memory.shared)));
+    assert!(imports.iter().any(|(name, ty)| name == "executionContext" && matches!(ty, TypeRef::Memory(memory) if memory.initial == 1 && !memory.memory64 && !memory.shared)));
     assert!(imports
         .iter()
         .any(|(name, ty)| name == "dispatch" && matches!(ty, TypeRef::Func(1))));
-    assert_eq!(loads, [144]);
+    // The target uses a constant address and a zero memory-instruction offset.
+    assert_eq!(loads, [144, 0]);
     assert_eq!(stores, [56, 28, 60, 144]);
     assert_eq!(additions, 1);
     assert_eq!(tails, [0]);
+    assert_eq!(budget_returns, 1);
 }
 
 fn abi_state(count: u64) -> CpuState {
@@ -366,18 +368,19 @@ fn register_copies_forward_values_and_omit_redundant_backing_accesses() {
         }
         (loads, stores)
     }
-    // Both destinations copy the same initial EAX value.
+    // Both destinations copy the same initial EAX value. The final load uses
+    // the constant target address with a zero memory-instruction offset.
     assert_eq!(
         accesses(&[0x89, 0xc1, 0x8b, 0xd0], 2),
-        (vec![28, 144], vec![32, 36, 60, 144])
+        (vec![28, 144, 0], vec![32, 36, 60, 144])
     );
     assert_eq!(
         accesses(&[0xb8, 42, 0, 0, 0, 0x89, 0xc1, 0x8b, 0xd1, 0x89, 0xd3], 4),
-        (vec![144], vec![28, 32, 36, 40, 60, 144])
+        (vec![144, 0], vec![28, 32, 36, 40, 60, 144])
     );
     // EAX<-EAX and ECX<-ECX retire without changing any register.
     assert_eq!(
         accesses(&[0x89, 0xc0, 0x8b, 0xc9], 2),
-        (vec![144], vec![60, 144])
+        (vec![144, 0], vec![60, 144])
     );
 }

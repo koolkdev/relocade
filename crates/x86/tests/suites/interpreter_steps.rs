@@ -80,7 +80,7 @@ fn interpreter_step_exposes_host_abis() {
     assert_eq!(
         memories,
         [
-            ("cpuState".into(), 1),
+            ("executionContext".into(), 1),
             ("guest".into(), 1),
             ("machine".into(), 64)
         ]

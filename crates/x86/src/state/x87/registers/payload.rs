@@ -5,7 +5,7 @@ use std::mem::offset_of;
 use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I64};
 
 use crate::{
-    state::{CpuState, StoredX87Register},
+    state::{ExecutionContext, StoredX87Register},
     x87::{ExtendedBits, ExtendedValue},
 };
 
@@ -122,7 +122,7 @@ fn load(
     memory: Mem,
     address: &Val<I32>,
 ) -> Result<ExtendedValue, BuildError> {
-    let base = offset_of!(CpuState, x87.registers) as u32;
+    let base = offset_of!(ExecutionContext, cpu.x87.registers) as u32;
     Ok(ExtendedValue::from_bits(ExtendedBits {
         significand: body.load_at::<I64>(
             memory,
@@ -143,7 +143,7 @@ fn store(
     address: &Val<I32>,
     value: &ExtendedValue,
 ) -> Result<(), BuildError> {
-    let base = offset_of!(CpuState, x87.registers) as u32;
+    let base = offset_of!(ExecutionContext, cpu.x87.registers) as u32;
     let bits = value.bits();
     body.store_at::<I64>(
         memory,
