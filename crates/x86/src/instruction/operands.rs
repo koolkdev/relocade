@@ -8,7 +8,7 @@ pub(crate) use shift_count::PackedShiftCount;
 pub(crate) use xmm::{VectorAlignment, XmmLocation, XmmType};
 
 use std::marker::PhantomData;
-use wasm86_compiler::{AtLeast, BuildError, Val, I32};
+use wasm86_compiler::{AtLeast, BuildError, Val, I16, I32};
 
 use super::{Location, Operand};
 use crate::{
@@ -112,6 +112,25 @@ impl<T: RegisterType> TypedLocation<T> {
         execution.write::<T>(self.location, value)
     }
 
+    /// Stores a word to memory, or zero-extends it to the register operand width.
+    /// A word register destination still preserves its parent's upper half.
+    pub(crate) fn write_word(
+        self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        value: impl Into<Val<I16>>,
+    ) -> Result<(), BuildError>
+    where
+        I32: AtLeast<T>,
+    {
+        let value = value.into();
+        match self.location {
+            Location::Memory(address) => execution.write::<I16>(Location::Memory(address), value),
+            register => {
+                execution.write::<T>(register, value.unsigned().extend::<I32>().truncate::<T>())
+            }
+        }
+    }
+
     /// Checks a destination with temporary address-register values. Its write
     /// can follow other state updates without reevaluating the destination.
     pub(crate) fn prepare_write<'module>(
@@ -128,10 +147,6 @@ impl<T: RegisterType> TypedLocation<T> {
         update: impl FnOnce(&mut ExecutionBuilder<'body, 'module>, Val<T>) -> Result<Val<T>, BuildError>,
     ) -> Result<(), BuildError> {
         execution.update::<T>(self.location, update)
-    }
-
-    pub(crate) fn into_location(self) -> Location<Val<I32>> {
-        self.location
     }
 }
 

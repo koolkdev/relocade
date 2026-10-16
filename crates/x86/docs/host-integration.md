@@ -860,6 +860,29 @@ load a segment or fault for a rejected selector. Table edits affect the next que
 while loaded caches remain unchanged. Guest operand reads can still fault before
 the callback runs.
 
+## Host system-register view
+
+The embedding environment owns the guest-visible GDTR, IDTR, LDTR and TR view.
+`DescriptorTable` identifies GDTR (`Global = 0`) or IDTR (`Interrupt = 1`), and
+`DescriptorTableRegister` holds a 32-bit linear base and a 16-bit inclusive byte
+limit. `SystemSelector` identifies LDTR (`Ldtr = 0`) or TR (`Tr = 1`); their
+visible selectors are 16-bit values. These registers are separate from loaded
+code/data segment caches and the `CpuState` backing image.
+
+The host must keep this view consistent with `resolveSegment` and
+`querySegmentDescriptor`: the GDTR limit bounds global selector slots, and an
+unusable LDTR exposes no local slots. If local slots are exposed, LDTR must name
+the host's corresponding LDT and its descriptor bounds must agree with those
+slots. TR names the environment's current task segment. `DescriptorTables` is
+only code/data slot storage; it does not enforce these system-register bounds or
+represent LDT/TSS descriptors. Hosts compose these policies in their callbacks.
+
+Reported linear bases do not make the resolver read packed guest descriptors or
+require those addresses to be readable at CPL3. Guest stores cannot update this
+host-owned view. In `Real16`, IDTR is fixed to base zero and limit 0x3ff, matching
+the interrupt-vector table used by INT, INT3 and INTO. A configurable real-mode
+IDTR requires a corresponding extension of interrupt delivery.
+
 ## Fault and host exits
 
 A guest fault returns directly without calling dispatch. Earlier completed
