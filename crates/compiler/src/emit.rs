@@ -27,6 +27,7 @@ pub(super) fn encode(
     parameter_count: u32,
     memories: &[Option<u32>],
     functions: &[Option<u32>],
+    tables: &[Option<(u32, u32)>],
     features: WasmFeatures,
 ) -> Function {
     let reachable = graph.reachable();
@@ -52,6 +53,7 @@ pub(super) fn encode(
         graph: &graph,
         memories,
         functions,
+        tables,
         features,
         selection,
         view,
@@ -78,6 +80,7 @@ struct Writer<'a> {
     graph: &'a FunctionGraph,
     memories: &'a [Option<u32>],
     functions: &'a [Option<u32>],
+    tables: &'a [Option<(u32, u32)>],
     features: WasmFeatures,
     selection: Selection,
     view: view::OperandView,
@@ -92,7 +95,11 @@ impl Writer<'_> {
     fn emit(&mut self, instruction: Wasm<'_>) {
         self.terminal = matches!(
             instruction,
-            Wasm::Return | Wasm::ReturnCall(_) | Wasm::Br(_) | Wasm::Unreachable
+            Wasm::Return
+                | Wasm::ReturnCall(_)
+                | Wasm::ReturnCallIndirect { .. }
+                | Wasm::Br(_)
+                | Wasm::Unreachable
         );
         self.encoder.instruction(instruction);
     }
