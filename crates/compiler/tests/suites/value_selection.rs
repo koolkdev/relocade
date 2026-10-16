@@ -1,5 +1,5 @@
 use crate::fixture::{signature, Fixture};
-use crate::wasm::TestModule;
+use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
 
 use wasm86_compiler::{BlockBuilder, Mem, Type, Val, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
@@ -126,6 +126,49 @@ fn narrow_selection() -> TestModule {
         let value = selected;
         body.return_(value)
     })
+}
+
+fn queried_choices() -> (TestModule, MemoryBytes) {
+    let mut fixture = Fixture::new();
+    let values: Vec<_> = [0_u64, 0, 20, 30, 40]
+        .into_iter()
+        .flat_map(u64::to_le_bytes)
+        .collect();
+    let memory = fixture.memory("values", &values);
+    let module = fixture.function(&[Type::I32, Type::I32], &[Type::I64], |mut body| {
+        let first = body.parameter::<I32>(0)?.truncate::<I1>();
+        let second = body.parameter::<I32>(1)?.truncate::<I1>();
+        let choice = first.select::<I8>(0x102, second.select(3, 4));
+        assert_eq!(body.constant_choices(&choice)?, Some(vec![2, 3, 4]));
+        let value = body.load_at::<I64>(memory, choice.unsigned().extend::<I32>().mul(8), 0)?;
+        body.return_(value)
+    });
+    (module, MemoryBytes::new("values", &values))
+}
+
+#[test]
+fn constant_choices_cover_runtime_results_at_the_logical_width() {
+    let (module, _) = queried_choices();
+    let mut instance = module.instantiate();
+    for (input, expected) in [((0, 0), 40), ((0, 1), 30), ((1, 0), 20), ((2, 3), 30)] {
+        assert_eq!(instance.call::<i64>(input).unwrap(), expected);
+    }
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_constant_choices_cover_runtime_results_at_the_logical_width() {
+    let (module, memory) = queried_choices();
+    for (input, expected) in [((0, 0), 40), ((0, 1), 30), ((1, 0), 20), ((2, 3), 30)] {
+        assert_eq!(
+            module.run_v8(
+                &Input::call("run", &[Value::I32(input.0), Value::I32(input.1)])
+                    .with_memories(std::slice::from_ref(&memory))
+            ),
+            Observation::returned(&[Value::I64(expected)])
+                .with_memories(std::slice::from_ref(&memory))
+        );
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

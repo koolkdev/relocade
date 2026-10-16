@@ -245,6 +245,21 @@ impl BlockBuilder<'_> {
         self.arena.constant_bits(value)
     }
 
+    /// Returns a sorted, deduplicated set covering every possible logical value.
+    /// Recognizes constants, selections of constants, and canonical predicates.
+    /// The set may include unreachable alternatives. Unknown leaves or a traversal
+    /// larger than 32 nodes return `None`; no incomplete set is returned.
+    ///
+    /// This construction-time query emits no code and does not inspect later
+    /// placement facts. Ownership and visibility follow [`Self::value`].
+    pub fn constant_choices<T: IntType>(
+        &self,
+        input: impl Into<Val<T>>,
+    ) -> Result<Option<Vec<u64>>, BuildError> {
+        let input = self.operand(input)?;
+        self.arena.constant_choices(input, T::TYPE)
+    }
+
     /// Returns values from the function, consuming the active builder.
     /// The signature determines literal types; typed values must match it.
     /// Scalars, tuples, arrays and vectors supply ordered results; `()` supplies none.

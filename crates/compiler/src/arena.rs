@@ -45,6 +45,40 @@ impl FunctionArena {
             value.scalar_literal().map(|bits| value.ty.normalize(bits))
         })
     }
+    pub(super) fn constant_choices(
+        &self,
+        input: usize,
+        ty: Type,
+    ) -> Result<Option<Vec<u64>>, BuildError> {
+        self.with_graph(|graph| {
+            let mut pending = vec![input];
+            let mut choices = Vec::new();
+            let mut remaining = 32_usize;
+            while let Some(input) = pending.pop() {
+                remaining = remaining.checked_sub(1)?;
+                let value = graph.values[input];
+                if let Some(bits) = value.scalar_literal() {
+                    choices.push(ty.normalize(bits));
+                } else if graph.values.bounds[input].unsigned <= 1 {
+                    // Selections of zero and one can fold to a canonical predicate.
+                    choices.extend([0, 1]);
+                } else if let ValueDefinition::Expression(Expression::Ternary {
+                    operator: crate::expression::TernaryOp::Select,
+                    first,
+                    second,
+                    ..
+                }) = value.definition
+                {
+                    pending.extend([first, second]);
+                } else {
+                    return None;
+                }
+            }
+            choices.sort_unstable();
+            choices.dedup();
+            Some(choices)
+        })
+    }
     pub(crate) fn resolve_unbound(
         &self,
         expression: &UnboundExpression,

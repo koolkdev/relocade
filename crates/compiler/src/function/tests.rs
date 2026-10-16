@@ -1,4 +1,4 @@
-use crate::{BuildError, MemoryImport, Program, Signature, Type, I1, I16, I32, I64, I8};
+use crate::{BuildError, MemoryImport, Program, Signature, Type, Val, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[test]
@@ -23,12 +23,18 @@ fn constant_queries_report_construction_folds_without_changing_code() {
                         assert_eq!(body.constant_bits(narrow)?, Some(255));
                         assert_eq!(body.constant_bits(input.mul(0).add(17))?, Some(17));
                         assert_eq!(body.constant_bits(&input)?, None);
+                        assert_eq!(
+                            body.constant_choices(input.eq(0).select::<I32>(7, 9))?,
+                            Some(vec![7, 9])
+                        );
+                        assert_eq!(body.constant_choices(&input)?, None);
                         assert_eq!(body.constant_bits(input.add(1))?, None);
                     }
                     body.if_(input.eq(17), |branch| {
                         if query {
                             // The guard becomes a constant fact only during placement.
                             assert_eq!(branch.constant_bits(&input)?, None);
+                            assert_eq!(branch.constant_choices(&input)?, None);
                         }
                         branch.return_(&input)
                     })?;
@@ -44,6 +50,44 @@ fn constant_queries_report_construction_folds_without_changing_code() {
     let with_queries = compile(true);
     Validator::new().validate_all(&with_queries).unwrap();
     assert_eq!(with_queries, without_queries);
+}
+
+#[test]
+fn constant_choices_cover_nested_selections_and_reject_incomplete_sets() {
+    let mut program = Program::new();
+    program
+        .function(
+            Signature {
+                parameters: vec![Type::I32, Type::I32],
+                results: vec![],
+            },
+            |body| {
+                let input = body.parameter::<I32>(0)?;
+                let other = body.parameter::<I32>(1)?;
+                assert_eq!(body.constant_choices::<I8>(0x1ff)?, Some(vec![255]));
+                assert_eq!(body.constant_choices::<I16>(-1)?, Some(vec![65535]));
+                assert_eq!(
+                    body.constant_choices::<I64>(u64::MAX)?,
+                    Some(vec![u64::MAX])
+                );
+                let choice = input.eq(0).select::<I8>(0x102, other.eq(0).select(3, 2));
+                assert_eq!(body.constant_choices(choice)?, Some(vec![2, 3]));
+                assert_eq!(
+                    body.constant_choices(input.eq(0).select::<I32>(1, 0))?,
+                    Some(vec![0, 1])
+                );
+                assert_eq!(body.constant_choices(&input)?, None);
+                assert_eq!(body.constant_choices(input.eq(0).select(7, &input))?, None);
+                assert_eq!(body.constant_choices(input.eq(0).select(&input, 7))?, None);
+                let mut deep = Val::<I32>::from(0);
+                for value in 1..40 {
+                    deep = input.eq(value).select(value, deep);
+                }
+                assert_eq!(body.constant_choices(deep)?, None);
+                body.return_(())
+            },
+        )
+        .unwrap();
 }
 
 #[test]
