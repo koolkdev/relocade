@@ -3,11 +3,18 @@
 use super::ExecutionBuilder;
 use crate::{
     address::MemoryAddress, memory::Intent, register::RegisterType, DescriptorTable,
-    DescriptorTableRegister, ExecutionProfile,
+    DescriptorTableRegister, ExecutionProfile, SystemSelector,
 };
 use wasm86_compiler::{BuildError, Val, I16, I32};
 
 impl ExecutionBuilder<'_, '_> {
+    pub(crate) fn query_system_selector(
+        &mut self,
+        register: SystemSelector,
+    ) -> Result<Val<I16>, BuildError> {
+        self.runtime.query_system_selector(&mut self.body, register)
+    }
+
     pub(crate) fn store_descriptor_table<T: RegisterType>(
         &mut self,
         destination: MemoryAddress<Val<I32>>,

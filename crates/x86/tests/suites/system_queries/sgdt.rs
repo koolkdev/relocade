@@ -50,12 +50,12 @@ fn forms(engine: Engine) {
         image.map(4, 0x8000, true);
         image.data(0x8ff9, &[0xa5; 7]);
         let cpu = completed(&image, code.len());
-        check_table(
+        check_query(
             engine,
             profile,
             code,
             &image,
-            &[query()],
+            Some(Query::DescriptorTable(query())),
             Step {
                 cpu,
                 ram: &[(0x8ffa, &bytes)],
@@ -77,12 +77,12 @@ fn split_store(engine: Engine) {
     image.data(0x8ffb, &[0xa5; 5]);
     image.data(0xa000, &[0xa5; 3]);
     let cpu = completed(&image, code.len());
-    check_table(
+    check_query(
         engine,
         profile,
         &code,
         &image,
-        &[query()],
+        Some(Query::DescriptorTable(query())),
         Step {
             cpu,
             ram: &[(0x8ffc, &[0xef, 0xbe, 0xbe, 0xba]), (0xa000, &[0xfe, 0xca])],
@@ -121,12 +121,12 @@ fn faults(engine: Engine) {
         if next_page_present {
             image.map(5, 0xa000, false);
         }
-        check_table(
+        check_query(
             engine,
             profile,
             &code,
             &image,
-            &[],
+            None,
             Step {
                 cpu: image.cpu,
                 ram: &[],

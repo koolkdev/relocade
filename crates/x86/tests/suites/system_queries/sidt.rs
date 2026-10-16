@@ -16,18 +16,18 @@ fn protected(engine: Engine) {
         image.map(4, 0x8000, true);
         image.data(0x8ff9, &[0xa5; 7]);
         let cpu = completed(&image, code.len());
-        check_table(
+        check_query(
             engine,
             profile,
             code,
             &image,
-            &[DescriptorTableQuery::new(
+            Some(Query::DescriptorTable(DescriptorTableQuery::new(
                 DescriptorTable::Interrupt,
                 DescriptorTableRegister {
                     base: 0xdead_c0de,
                     limit: 0x7ff,
                 },
-            )],
+            ))),
             Step {
                 cpu,
                 ram: &[(0x8ffa, &bytes)],
@@ -52,12 +52,12 @@ fn real(engine: Engine) {
                 (image.cpu, Exit::GeneralProtection { error: 0 })
             };
             let stored = [(0x8ffa, &[0xff, 3, 0, 0, 0, 0][..])];
-            check_table(
+            check_query(
                 engine,
                 profile,
                 code,
                 &image,
-                &[],
+                None,
                 Step {
                     cpu,
                     ram: if offset == 0xfffa { &stored } else { &[] },

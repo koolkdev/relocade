@@ -6,6 +6,24 @@ pub(super) fn register(linker: &mut Linker<ExecutionEvents>) {
     linker
         .func_wrap(
             "wasm86",
+            "querySystemSelector",
+            |mut caller: Caller<'_, ExecutionEvents>, register: i32| {
+                let state = caller.data_mut();
+                let reply = state
+                    .system_selector_queries
+                    .next()
+                    .expect("unexpected system-selector query");
+                assert_eq!(register as u32, reply.register);
+                state.events.push(Event::QuerySystemSelector {
+                    register: register as u32,
+                });
+                i32::from(reply.selector)
+            },
+        )
+        .unwrap();
+    linker
+        .func_wrap(
+            "wasm86",
             "queryDescriptorTable",
             |mut caller: Caller<'_, ExecutionEvents>, table: i32| {
                 let state = caller.data_mut();
