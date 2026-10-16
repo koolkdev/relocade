@@ -94,6 +94,7 @@ impl Program {
                 matches!(declaration.kind, FunctionKind::Defined(None)).then_some(index)
             })
             .collect();
+        let table_count = self.tables.len();
         let memory_count = self.memories.len();
         let export_count = self.exports.len();
         let function = self.declare(signature);
@@ -104,6 +105,7 @@ impl Program {
             }
             self.functions.truncate(function.0);
             self.memories.truncate(memory_count);
+            self.tables.truncate(table_count);
             self.exports.truncate(export_count);
         }
         result

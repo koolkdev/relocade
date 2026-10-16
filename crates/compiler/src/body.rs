@@ -84,6 +84,11 @@ pub(super) enum Exit {
         target: Func,
         arguments: Vec<usize>,
     },
+    TailCallIndirect {
+        table: crate::Table,
+        slot: usize,
+        arguments: Vec<usize>,
+    },
     Trap,
 }
 
@@ -246,6 +251,13 @@ impl Exit {
     pub(super) fn inputs(&self) -> Vec<usize> {
         match self {
             Self::Return(arguments) | Self::TailCall { arguments, .. } => arguments.clone(),
+            Self::TailCallIndirect {
+                slot, arguments, ..
+            } => arguments
+                .iter()
+                .copied()
+                .chain(std::iter::once(*slot))
+                .collect(),
             Self::If { condition, .. } => std::iter::once(*condition)
                 .chain(
                     self.edges()
@@ -299,6 +311,14 @@ impl Exit {
                 for input in arguments {
                     *input = map(*input);
                 }
+            }
+            Self::TailCallIndirect {
+                slot, arguments, ..
+            } => {
+                for input in arguments {
+                    *input = map(*input);
+                }
+                *slot = map(*slot);
             }
             Self::Open | Self::Trap => {}
         }
