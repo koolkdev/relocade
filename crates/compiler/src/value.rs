@@ -14,7 +14,7 @@ pub use vector::{F32x4, F64x2, SaturatingLane, VectorLane, VectorType};
 
 use std::marker::PhantomData;
 
-pub(crate) use source::ValueSource;
+pub(crate) use source::{BoundExpression, ValueSource};
 pub(crate) use unbound::UnboundExpression;
 
 use crate::{

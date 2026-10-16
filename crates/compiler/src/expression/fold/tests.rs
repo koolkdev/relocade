@@ -56,6 +56,73 @@ fn scalar_roundtrips_distinguish_logical_width_from_carrier_truncation() {
 }
 
 #[test]
+fn sparse_masks_preserve_upper_carrier_bits_during_refolding() {
+    for ty in [Type::I1, Type::I8, Type::I16] {
+        let mut values = ValueTable::default();
+        let input = values.push(Value {
+            ty,
+            definition: ValueDefinition::Parameter {
+                block: BlockId(0),
+                component: 0,
+            },
+        });
+        let high_bit = values.carrier_literal(ty, 1_u64 << ty.bits());
+        let one = values.literal(ty, 1);
+        let binary = |operator, left, right| Expression::Binary {
+            operator: Binary::Bitwise(operator),
+            left,
+            right,
+        };
+        let dynamic = refold(&mut values, ty, binary(BitwiseOp::And, input, high_bit));
+        for operator in [BitwiseOp::Or, BitwiseOp::Xor] {
+            let combined = refold(&mut values, ty, binary(operator, dynamic, one));
+            let known = refold(&mut values, ty, binary(BitwiseOp::And, combined, one));
+            assert_constant(&values, known, 1);
+            let high = refold(&mut values, ty, binary(BitwiseOp::And, combined, high_bit));
+            assert_eq!(values[high].scalar_literal(), None);
+        }
+    }
+}
+
+#[test]
+fn masked_selections_preserve_upper_carrier_bits_during_refolding() {
+    for ty in [Type::I1, Type::I8, Type::I16] {
+        let mut values = ValueTable::default();
+        let condition = values.push(Value {
+            ty: Type::I1,
+            definition: ValueDefinition::Parameter {
+                block: BlockId(0),
+                component: 0,
+            },
+        });
+        let high = 1_u64 << ty.bits();
+        let first = values.carrier_literal(ty, high | 1);
+        let second = values.carrier_literal(ty, high);
+        let selection = refold(
+            &mut values,
+            ty,
+            Expression::Ternary {
+                operator: Ternary::Select,
+                first,
+                second,
+                third: condition,
+            },
+        );
+        let mask = values.carrier_literal(ty, high);
+        let result = refold(
+            &mut values,
+            ty,
+            Expression::Binary {
+                operator: Binary::Bitwise(BitwiseOp::And),
+                left: selection,
+                right: mask,
+            },
+        );
+        assert_constant(&values, result, high);
+    }
+}
+
+#[test]
 fn xor_mask_combination_preserves_carrier_bits_during_refolding() {
     for ty in [Type::I1, Type::I8, Type::I16] {
         let mut values = ValueTable::default();
@@ -337,6 +404,49 @@ fn constant_folding_keeps_division_traps_and_narrow_signed_results() {
         },
     );
     assert_constant(&values, result, 128);
+}
+
+#[test]
+fn recovered_choice_conditions_normalize_dirty_carriers() {
+    let mut values = ValueTable::default();
+    let condition = values.push(Value {
+        ty: Type::I1,
+        definition: ValueDefinition::Parameter {
+            block: BlockId(0),
+            component: 0,
+        },
+    });
+    let first = values.carrier_literal(Type::I8, 0x102);
+    let second = values.literal(Type::I8, 3);
+    let choice = refold(
+        &mut values,
+        Type::I8,
+        Expression::Ternary {
+            operator: Ternary::Select,
+            first,
+            second,
+            third: condition,
+        },
+    );
+    for (right, expected_nonzero) in [(first, true), (second, false)] {
+        let result = refold(
+            &mut values,
+            Type::I1,
+            Expression::Binary {
+                operator: Binary::Compare(Compare::Integer(CompareOp::Eq)),
+                left: choice,
+                right,
+            },
+        );
+        assert_eq!(values.bounds[result].unsigned, 1);
+        assert!(matches!(
+            values[result].definition,
+            ValueDefinition::Expression(Expression::Unary {
+                operator: Unary::ZeroTest { nonzero },
+                input,
+            }) if nonzero == expected_nonzero && input == condition
+        ));
+    }
 }
 
 #[test]

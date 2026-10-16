@@ -1,4 +1,4 @@
-use crate::{BuildError, MemoryImport, Program, Signature, Type, I1, I16, I32, I64, I8};
+use crate::{BuildError, MemoryImport, Program, Signature, Type, Val, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[test]
@@ -44,6 +44,82 @@ fn constant_queries_report_construction_folds_without_changing_code() {
     let with_queries = compile(true);
     Validator::new().validate_all(&with_queries).unwrap();
     assert_eq!(with_queries, without_queries);
+}
+
+#[test]
+fn constant_choice_mapping_accepts_logical_constants_and_rejects_unknown_leaves() {
+    let mut program = Program::new();
+    program
+        .function(
+            Signature {
+                parameters: vec![Type::I32],
+                results: vec![],
+            },
+            |mut body| {
+                let input = body.parameter::<I32>(0)?;
+                let map =
+                    |_: &mut crate::BlockBuilder<'_>, value| Ok(Some(Val::<I64>::from(value)));
+                let select = |condition: Val<I1>, first, second| condition.select(first, second);
+                let value = body
+                    .map_constant_choices::<I8, _>(0x1ff, map, select)?
+                    .unwrap();
+                assert_eq!(body.constant_bits(value)?, Some(255));
+                assert!(body.map_constant_choices(&input, map, select)?.is_none());
+                assert!(body
+                    .map_constant_choices(input.eq(0).select(7, &input), map, select)?
+                    .is_none());
+                assert!(body
+                    .map_constant_choices::<I32, Val<I64>>(7, |_, _| Ok(None), select)?
+                    .is_none());
+                let mut deep = Val::<I32>::from(0);
+                for value in 1..40 {
+                    deep = input.eq(value).select(value, deep);
+                }
+                assert!(body.map_constant_choices(deep, map, select)?.is_none());
+                assert_eq!(
+                    body.map_constant_choices::<I32, Val<I64>>(
+                        7,
+                        |_, _| Err(BuildError::OutOfScope),
+                        select,
+                    )
+                    .err(),
+                    Some(BuildError::OutOfScope),
+                );
+                body.return_(())
+            },
+        )
+        .unwrap();
+}
+
+#[test]
+fn constant_choice_mapping_keeps_recovered_conditions_in_the_current_scope() {
+    let mut program = Program::new();
+    program
+        .function(
+            Signature {
+                parameters: vec![Type::I32],
+                results: vec![],
+            },
+            |mut body| {
+                let input = body.parameter::<I32>(0)?;
+                let choice = input.eq(0).select::<I32>(7, 9);
+                let mut escaped = None;
+                body.if_(input.eq(1), |mut arm| {
+                    escaped = arm.map_constant_choices(
+                        &choice,
+                        |_, bits| Ok(Some(Val::<I32>::from(bits as u32))),
+                        |condition, first, second| condition.select(first, second),
+                    )?;
+                    Ok(())
+                })?;
+                assert_eq!(
+                    body.value(escaped.unwrap()).err(),
+                    Some(BuildError::OutOfScope)
+                );
+                body.return_(())
+            },
+        )
+        .unwrap();
 }
 
 #[test]

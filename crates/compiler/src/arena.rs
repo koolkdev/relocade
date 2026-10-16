@@ -45,6 +45,50 @@ impl FunctionArena {
             value.scalar_literal().map(|bits| value.ty.normalize(bits))
         })
     }
+    pub(super) fn map_constant_choices<R>(
+        &self,
+        input: usize,
+        remaining: &mut usize,
+        constant: &mut impl FnMut(u64) -> Result<Option<R>, BuildError>,
+        select: &impl Fn(usize, R, R) -> R,
+    ) -> Result<Option<R>, BuildError> {
+        let Some(next) = remaining.checked_sub(1) else {
+            return Ok(None);
+        };
+        *remaining = next;
+        let value = self.with_graph(|graph| graph.values[input])?;
+        if let Some(bits) = value.scalar_literal() {
+            return constant(value.ty.normalize(bits));
+        }
+        let ValueDefinition::Expression(Expression::Ternary {
+            operator: crate::expression::TernaryOp::Select,
+            first,
+            second,
+            third: condition,
+        }) = value.definition
+        else {
+            return Ok(None);
+        };
+        let Some(first) = self.map_constant_choices(first, remaining, constant, select)? else {
+            return Ok(None);
+        };
+        let Some(second) = self.map_constant_choices(second, remaining, constant, select)? else {
+            return Ok(None);
+        };
+        // Stored select conditions test the whole carrier, even through I1 views.
+        let condition = self.with_open(|values| {
+            crate::expression::fold_carrier(
+                values,
+                Type::I1,
+                Expression::Unary {
+                    operator: crate::expression::UnaryOp::ZeroTest { nonzero: true },
+                    input: condition,
+                },
+                0,
+            )
+        })?;
+        Ok(Some(select(condition, first, second)))
+    }
     pub(crate) fn resolve_unbound(
         &self,
         expression: &UnboundExpression,

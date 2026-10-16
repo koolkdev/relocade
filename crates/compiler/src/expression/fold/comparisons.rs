@@ -69,7 +69,7 @@ impl Folder<'_> {
         let b = self.values[right];
         debug_assert_eq!(a.ty, b.ty);
         if let Some(result) = self.compare_constant_choices(operator, left, right, a.ty) {
-            return self.values.literal(Type::I1, u64::from(result));
+            return result;
         }
         // Equality can use the signed carriers when both already repeat their
         // logical sign. Mixed signed/unsigned representations still need masks.
@@ -115,7 +115,7 @@ impl Folder<'_> {
         if let Some(result) =
             self.compare_constant_choices(operator, a, b, self.values[a].ty.carrier())
         {
-            return Some(self.values.literal(Type::I1, u64::from(result)));
+            return Some(result);
         }
         if a == b {
             return Some(self.values.literal(
@@ -187,12 +187,12 @@ impl Folder<'_> {
     }
 
     fn compare_constant_choices(
-        &self,
+        &mut self,
         operator: CompareOp,
         left: usize,
         right: usize,
         ty: Type,
-    ) -> Option<bool> {
+    ) -> Option<usize> {
         let (input, constant, constant_first) = match (
             self.values[left].scalar_literal(),
             self.values[right].scalar_literal(),
@@ -207,9 +207,32 @@ impl Folder<'_> {
             constant,
             constant_first,
         };
-        // Bound work even when selections share subtrees. Unknown or mixed
-        // alternatives keep the original comparison instead of expanding it.
-        self.compare_choices(input, &comparison, &mut 32)
+        // Bound work even when selections share subtrees. Each arm must have a
+        // uniform result; do not distribute comparisons into runtime branches.
+        let mut remaining = 32;
+        if let ValueDefinition::Expression(Expression::Ternary {
+            operator: Ternary::Select,
+            first,
+            second,
+            third: condition,
+        }) = self.values[input].definition
+        {
+            remaining -= 1;
+            let when_true = self.compare_choices(first, &comparison, &mut remaining)?;
+            let when_false = self.compare_choices(second, &comparison, &mut remaining)?;
+            if when_true != when_false {
+                return Some(self.fold(
+                    Type::I1,
+                    Expression::Unary {
+                        operator: Unary::ZeroTest { nonzero: when_true },
+                        input: condition,
+                    },
+                ));
+            }
+            return Some(self.values.literal(Type::I1, u64::from(when_true)));
+        }
+        let result = self.compare_choices(input, &comparison, &mut remaining)?;
+        Some(self.values.literal(Type::I1, u64::from(result)))
     }
 
     fn compare_choices(

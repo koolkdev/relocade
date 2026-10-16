@@ -1,5 +1,5 @@
 use crate::fixture::{signature, Fixture};
-use crate::wasm::TestModule;
+use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
 
 use wasm86_compiler::{BlockBuilder, Mem, Type, Val, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
@@ -126,6 +126,104 @@ fn narrow_selection() -> TestModule {
         let value = selected;
         body.return_(value)
     })
+}
+
+fn choice_comparisons() -> TestModule {
+    Fixture::new().function(&[Type::I1, Type::I32], &[Type::I1; 4], |body| {
+        let condition = body.parameter::<I1>(0)?;
+        let unknown = body.parameter::<I32>(1)?;
+        let choice = condition.select::<I32>(2, 3);
+        let signed = condition.select::<I8>(0x80, 0);
+        body.return_((
+            choice.eq(2),
+            choice.eq(3),
+            signed.signed().lt(0),
+            condition.select(2, unknown).eq(2),
+        ))
+    })
+}
+
+fn mapped_choices() -> (TestModule, MemoryBytes) {
+    let mut fixture = Fixture::new();
+    let values: Vec<_> = [0_u64, 0, 20, 30, 40]
+        .into_iter()
+        .flat_map(u64::to_le_bytes)
+        .collect();
+    let memory = fixture.memory("values", &values);
+    let module = fixture.function(&[Type::I32, Type::I32], &[Type::I64], |mut body| {
+        let first = body.parameter::<I32>(0)?.truncate::<I1>();
+        let second = body.parameter::<I32>(1)?.truncate::<I1>();
+        let choice = first.select::<I8>(0x102, second.select(3, 4));
+        let mapped = body
+            .map_constant_choices(
+                choice,
+                |body, bits| body.load::<I64>(memory, bits as u32 * 8).map(Some),
+                |condition, first, second| condition.select(first, second),
+            )?
+            .expect("all choices are constants");
+        body.return_(mapped)
+    });
+    (module, MemoryBytes::new("values", &values))
+}
+
+#[test]
+fn mapped_choices_preserve_nested_conditions_and_logical_widths() {
+    let (module, _) = mapped_choices();
+    let mut instance = module.instantiate();
+    for (input, expected) in [((0, 0), 40), ((0, 1), 30), ((1, 0), 20), ((2, 3), 30)] {
+        assert_eq!(instance.call::<i64>(input).unwrap(), expected);
+    }
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_mapped_choices_preserve_nested_conditions_and_logical_widths() {
+    let (module, memory) = mapped_choices();
+    for (input, expected) in [((0, 0), 40), ((0, 1), 30), ((1, 0), 20), ((2, 3), 30)] {
+        assert_eq!(
+            module.run_v8(
+                &Input::call("run", &[Value::I32(input.0), Value::I32(input.1)])
+                    .with_memories(std::slice::from_ref(&memory))
+            ),
+            Observation::returned(&[Value::I64(expected)])
+                .with_memories(std::slice::from_ref(&memory))
+        );
+    }
+}
+
+#[test]
+fn comparisons_recover_selected_conditions_and_keep_unknown_choices_dynamic() {
+    let module = choice_comparisons();
+    let mut instance = module.instantiate();
+    for (input, expected) in [
+        ((0, 3), (0, 1, 0, 0)),
+        ((0, 2), (0, 1, 0, 1)),
+        ((1, 3), (1, 0, 1, 1)),
+    ] {
+        assert_eq!(
+            instance.call::<(i32, i32, i32, i32)>(input).unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires Node.js; run the explicit V8 lane"]
+fn v8_comparisons_recover_selected_conditions() {
+    let module = choice_comparisons();
+    for (input, expected) in [
+        ((0, 3), [0, 1, 0, 0]),
+        ((0, 2), [0, 1, 0, 1]),
+        ((1, 3), [1, 0, 1, 1]),
+    ] {
+        assert_eq!(
+            module.run_v8(&Input::call(
+                "run",
+                &[Value::I32(input.0), Value::I32(input.1)]
+            )),
+            Observation::returned(&expected.map(Value::I32))
+        );
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -24,7 +24,7 @@ pub(crate) struct BoundExpression {
 }
 
 impl BoundExpression {
-    pub(super) fn new(value: usize, required_scope: Option<usize>) -> Self {
+    pub(crate) fn new(value: usize, required_scope: Option<usize>) -> Self {
         Self {
             value,
             // Scope indices come from a Vec, so its largest possible index is
@@ -138,7 +138,7 @@ impl<T: ValueType> Val<T> {
         self.source.map_literal(Into::into)
     }
 
-    pub(super) fn bound(
+    pub(crate) fn bound(
         arena: FunctionArena,
         expression: Result<BoundExpression, BuildError>,
     ) -> Self {

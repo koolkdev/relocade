@@ -59,6 +59,32 @@ fn rejoining_masked_fields_preserves_holes_and_modulo_shift_counts() {
 }
 
 #[test]
+fn masks_observe_shared_and_varying_bits_across_selections() {
+    let module = masked_selection();
+    let mut instance = module.instantiate();
+    for condition in [0, 1] {
+        for input in [0, 0x10, 0x1234_5678, -1] {
+            let varying = if condition == 0 { input & 0x10 } else { 0x10 };
+            assert_eq!(
+                instance
+                    .call::<(i32, i32, i32)>((condition, input))
+                    .unwrap(),
+                (5, input & !31, varying)
+            );
+        }
+    }
+}
+
+fn masked_selection() -> TestModule {
+    Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32; 3], |body| {
+        let condition = body.parameter::<I1>(0)?;
+        let input = body.parameter::<I32>(1)?;
+        let value = condition.select(input.and(!31).or(0x15), input.and(!15).or(5));
+        body.return_((value.and(15), value.and(!31), value.and(0x10)))
+    })
+}
+
+#[test]
 fn different_sources_and_changed_bit_positions_are_not_rejoined() {
     let module = Fixture::new().function(&[Type::I32; 2], &[Type::I32; 3], |body| {
         let a = body.parameter::<I32>(0)?;
@@ -160,7 +186,17 @@ fn specialized_rejoining_masks_dirty_narrow_arithmetic_before_extraction() {
 
 #[test]
 #[ignore = "requires Node.js; run the explicit V8 lane"]
-fn rejoined_fields_execute_in_v8() {
+fn bit_fields_execute_in_v8() {
+    let module = masked_selection();
+    for (condition, input, expected) in [(0, 0, 0), (1, 0, 16), (0, 16, 16), (1, -1, 16)] {
+        assert_eq!(
+            module.run_v8(&Input::call(
+                "run",
+                &[Value::I32(condition), Value::I32(input)]
+            )),
+            Observation::returned(&[Value::I32(5), Value::I32(input & !31), Value::I32(expected)])
+        );
+    }
     let module = rejoined::<I64>(40, 0xff, 0x55);
     assert_eq!(
         module.run_v8(&Input::call("run", &[Value::I64(-1)])),

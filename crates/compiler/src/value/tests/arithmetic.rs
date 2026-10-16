@@ -3,6 +3,92 @@ use crate::{
 };
 
 #[test]
+fn sparse_masks_read_known_bits_without_discarding_dynamic_bits() {
+    fn check<T: IntType>() {
+        let mut program = Program::new();
+        program
+            .function(
+                Signature {
+                    parameters: vec![T::TYPE],
+                    results: vec![T::TYPE],
+                },
+                |body| {
+                    let input = body.parameter::<T>(0)?;
+                    let dynamic = input.and(0xf0);
+                    assert_eq!(body.constant_bits(dynamic.and(8))?, Some(0));
+                    assert!(dynamic.and(0xa0).same_expression(&input.and(0xa0)));
+                    for value in [
+                        dynamic.or(5),
+                        Val::<T>::from(5).or(&dynamic),
+                        dynamic.xor(5),
+                        Val::<T>::from(5).xor(&dynamic),
+                    ] {
+                        for (mask, expected) in [(1, 1), (2, 0), (4, 4), (8, 0), (10, 0)] {
+                            assert_eq!(body.constant_bits(value.and(mask))?, Some(expected));
+                            assert_eq!(
+                                body.constant_bits(Val::<T>::from(mask).and(&value))?,
+                                Some(expected)
+                            );
+                        }
+                        assert_eq!(body.constant_bits(value.and(0x80))?, None);
+                        assert!(value.and(0xf0).same_expression(&dynamic));
+                    }
+                    // Overlapping contributions must still depend on the input.
+                    for value in [input.and(0xf0).or(0x40), input.and(0xf0).xor(0x40)] {
+                        assert_eq!(body.constant_bits(value.and(0x80))?, None);
+                    }
+                    body.return_(dynamic)
+                },
+            )
+            .unwrap();
+        program.compile().unwrap();
+    }
+    check::<I8>();
+    check::<I16>();
+    check::<I32>();
+    check::<I64>();
+}
+
+#[test]
+fn masked_selections_reuse_bits_shared_by_both_arms() {
+    fn check<T: IntType>() {
+        let mut program = Program::new();
+        program
+            .function(
+                Signature {
+                    parameters: vec![Type::I1, T::TYPE, T::TYPE],
+                    results: vec![T::TYPE],
+                },
+                |body| {
+                    let condition = body.parameter::<I1>(0)?;
+                    let input = body.parameter::<T>(1)?;
+                    let other = body.parameter::<T>(2)?;
+                    let value = condition.select(input.and(0xe0).or(0x15), input.and(0xf0).or(5));
+                    for (mask, expected) in [(1, 1), (2, 0), (4, 4), (8, 0), (15, 5)] {
+                        assert_eq!(body.constant_bits(value.and(mask))?, Some(expected));
+                        assert_eq!(
+                            body.constant_bits(Val::<T>::from(mask).and(&value))?,
+                            Some(expected)
+                        );
+                    }
+                    assert!(value.and(0xe0).same_expression(&input.and(0xe0)));
+                    assert_eq!(body.constant_bits(value.and(0x10))?, None);
+                    let different = condition.select(input.and(0xe0), other.and(0xe0));
+                    assert!(!different.and(0x20).same_expression(&input.and(0x20)));
+                    assert!(!different.and(0x20).same_expression(&other.and(0x20)));
+                    body.return_(value)
+                },
+            )
+            .unwrap();
+        program.compile().unwrap();
+    }
+    check::<I8>();
+    check::<I16>();
+    check::<I32>();
+    check::<I64>();
+}
+
+#[test]
 fn bitwise_identities_reuse_existing_values() {
     fn check<T: IntType>() {
         let mut program = Program::new();

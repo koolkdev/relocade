@@ -245,6 +245,35 @@ impl BlockBuilder<'_> {
         self.arena.constant_bits(value)
     }
 
+    /// Maps constants and selections of constants into another value shape.
+    /// Unknown leaves, a rejected constant, or a traversal larger than 32 nodes
+    /// return `None`. Callbacks may construct values and ordinary loads, but must
+    /// not emit observable effects such as calls, stores, or control flow: they
+    /// may run before an unknown leaf is encountered. The selection callback receives
+    /// a canonical Boolean condition. Input ownership and visibility follow [`Self::value`].
+    pub fn map_constant_choices<T: IntType, R>(
+        &mut self,
+        input: impl Into<Val<T>>,
+        mut constant: impl FnMut(&mut Self, u64) -> Result<Option<R>, BuildError>,
+        select: impl Fn(Val<crate::I1>, R, R) -> R,
+    ) -> Result<Option<R>, BuildError> {
+        let input = self.operand(input)?;
+        let arena = self.arena.clone();
+        let scope = self.pending.id;
+        arena.map_constant_choices(
+            input,
+            &mut 32,
+            &mut |bits| constant(self, bits),
+            &|condition, first, second| {
+                let condition = Val::bound(
+                    arena.clone(),
+                    Ok(crate::value::BoundExpression::new(condition, Some(scope))),
+                );
+                select(condition, first, second)
+            },
+        )
+    }
+
     /// Returns values from the function, consuming the active builder.
     /// The signature determines literal types; typed values must match it.
     /// Scalars, tuples, arrays and vectors supply ordered results; `()` supplies none.

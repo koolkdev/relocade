@@ -119,9 +119,19 @@ impl Folder<'_> {
     }
 
     fn and_constant(&mut self, ty: Type, input: usize, mask: u64) -> Option<usize> {
+        if ty.is_integer() {
+            if let Some(folded) = self.fold_disjoint_mask(ty, input, mask) {
+                return Some(folded);
+            }
+        }
         let bits = mask.trailing_ones() as u8;
         if self.values.bounds[input].unsigned <= bits {
             return Some(input);
+        }
+        if ty.is_integer() {
+            if let Some(folded) = self.fold_masked_select(ty, input, mask) {
+                return Some(folded);
+            }
         }
         if mask == integer::low_mask(bits) {
             return Some(self.fold_low_bits(ty, input, bits));

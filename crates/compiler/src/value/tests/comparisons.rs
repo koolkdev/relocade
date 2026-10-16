@@ -66,7 +66,48 @@ fn constant_choice_comparisons_use_the_logical_sign() {
 }
 
 #[test]
-fn mixed_or_unknown_choices_keep_a_runtime_comparison() {
+fn comparisons_of_constant_choices_recover_the_condition_or_its_inverse() {
+    fn check<T: IntType>() {
+        let mut program = Program::new();
+        program
+            .function(
+                Signature {
+                    parameters: vec![Type::I1, Type::I1],
+                    results: vec![Type::I1],
+                },
+                |body| {
+                    let condition = body.parameter::<I1>(0)?;
+                    let other = body.parameter::<I1>(1)?;
+                    let choice = condition.select::<T>(2, 3);
+                    for result in [choice.eq(2), choice.ne(3), Val::<T>::from(2).eq(&choice)] {
+                        assert!(result.same_expression(&condition));
+                    }
+                    for result in [choice.eq(3), choice.ne(2), Val::<T>::from(3).eq(&choice)] {
+                        assert!(result.same_expression(&condition.eq(0)));
+                    }
+                    let high_bit = Val::<T>::literal(1_u64 << (T::TYPE.bits() - 1));
+                    let signed = condition.select(high_bit.clone(), 0);
+                    assert!(signed.signed().lt(0).same_expression(&condition));
+                    assert!(signed
+                        .unsigned()
+                        .lt(high_bit)
+                        .same_expression(&condition.eq(0)));
+                    let nested = condition.select(other.select::<T>(2, 3), other.select::<T>(4, 5));
+                    assert!(nested.unsigned().lt(4).same_expression(&condition));
+                    body.return_(choice.eq(2))
+                },
+            )
+            .unwrap();
+        program.compile().unwrap();
+    }
+    check::<I8>();
+    check::<I16>();
+    check::<I32>();
+    check::<I64>();
+}
+
+#[test]
+fn mixed_or_unknown_choices_keep_results_dynamic() {
     let mut program = Program::new();
     let function = program.declare(Signature {
         parameters: vec![Type::I32, Type::I32],

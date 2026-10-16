@@ -1,10 +1,43 @@
 //! Value selection keeps its condition's truth distinct from its numeric bits.
 
 use super::Folder;
-use crate::expression::{TernaryOp as Ternary, UnaryOp as Unary};
+use crate::expression::{BinaryOp as Binary, TernaryOp as Ternary, UnaryOp as Unary};
+use crate::{bitwise::BitwiseOp, body::ValueDefinition};
 use crate::{Expression, Type};
 
 impl Folder<'_> {
+    /// A selection disappears when both arms agree on every observed bit.
+    pub(super) fn fold_masked_select(
+        &mut self,
+        ty: Type,
+        input: usize,
+        mask: u64,
+    ) -> Option<usize> {
+        let ValueDefinition::Expression(Expression::Ternary {
+            operator: Ternary::Select,
+            first,
+            second,
+            ..
+        }) = self.values[self.values.representation(input)].definition
+        else {
+            return None;
+        };
+        let mask = self.values.carrier_literal(ty, mask);
+        let mut masked = |input| {
+            self.fold(
+                ty,
+                Expression::Binary {
+                    operator: Binary::Bitwise(BitwiseOp::And),
+                    left: input,
+                    right: mask,
+                },
+            )
+        };
+        let first = masked(first);
+        let second = masked(second);
+        (self.values.representation(first) == self.values.representation(second)).then_some(first)
+    }
+
     pub(super) fn select(
         &mut self,
         condition: usize,

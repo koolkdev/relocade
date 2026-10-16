@@ -14,6 +14,48 @@ struct MaskedBits {
 }
 
 impl Folder<'_> {
+    /// Explicit masks can prove a contribution zero even for sparse result masks.
+    pub(super) fn fold_disjoint_mask(
+        &mut self,
+        ty: Type,
+        input: usize,
+        mut mask: u64,
+    ) -> Option<usize> {
+        let masked = self.masked_bits(input);
+        if masked.mask & mask == 0 {
+            return Some(self.values.literal(ty, 0));
+        }
+        let input = if masked.input != self.values.representation(input) {
+            mask &= masked.mask;
+            masked.input
+        } else {
+            let ValueDefinition::Expression(Expression::Binary {
+                operator: Binary::Bitwise(BitwiseOp::Or | BitwiseOp::Xor),
+                left,
+                right,
+            }) = self.values[self.values.representation(input)].definition
+            else {
+                return None;
+            };
+            if self.masked_bits(left).mask & mask == 0 {
+                right
+            } else if self.masked_bits(right).mask & mask == 0 {
+                left
+            } else {
+                return None;
+            }
+        };
+        let mask = self.values.carrier_literal(ty, mask);
+        Some(self.fold(
+            ty,
+            Expression::Binary {
+                operator: Binary::Bitwise(BitwiseOp::And),
+                left: input,
+                right: mask,
+            },
+        ))
+    }
+
     /// Rejoining bits extracted from the same carrier only needs their union
     /// mask. Match explicit masks and restored shifts, never logical type widths.
     pub(super) fn rejoin_bits(&mut self, ty: Type, left: usize, right: usize) -> Option<usize> {
@@ -36,6 +78,9 @@ impl Folder<'_> {
     fn masked_bits(&self, input: usize) -> MaskedBits {
         let input = self.values.representation(input);
         let (input, mask) = match self.values[input].definition {
+            ValueDefinition::Literal(bits) if self.values[input].ty.is_scalar() => {
+                (input, u64::from(bits))
+            }
             ValueDefinition::Expression(Expression::Unary {
                 operator: Unary::LowBits { bits },
                 input,
