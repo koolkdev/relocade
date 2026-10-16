@@ -1,5 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
+use wasm86_x86::StoredSegment;
 
 fn source_spans(engine: Engine) {
     for (word, split) in [
@@ -31,7 +32,7 @@ fn source_spans(engine: Engine) {
             descriptor(0x9000, u32::MAX, SegmentDefaultSize::Bits32),
         );
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0x9000, u32::MAX, 23);
+        cpu.segments.cs = loaded(0x27, 0x9000, u32::MAX, StoredSegment::flat_code32(0));
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
         cpu.instruction_count = 0;
         check_one(
@@ -76,7 +77,7 @@ fn old_address_state(engine: Engine) {
         let mut tables = DescriptorTables::default();
         tables.insert(0x27, descriptor(0x9000, 0xffff, SegmentDefaultSize::Bits32));
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, 23);
+        cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, StoredSegment::flat_code32(0));
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
         check_one(
@@ -116,7 +117,7 @@ fn address_boundaries(engine: Engine) {
             descriptor(0x9000, u32::MAX, SegmentDefaultSize::Bits32),
         );
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0x9000, u32::MAX, 23);
+        cpu.segments.cs = loaded(0x27, 0x9000, u32::MAX, StoredSegment::flat_code32(0));
         cpu.eip = 0x9234_5678;
         cpu.instruction_count = 0;
         check_one(

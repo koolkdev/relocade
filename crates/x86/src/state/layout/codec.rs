@@ -1,7 +1,5 @@
 use std::mem::offset_of;
 
-use crate::segment::SegmentAttributes;
-
 use super::{
     CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredSimd,
     StoredStatusSource, StoredX87,
@@ -61,8 +59,8 @@ impl CpuState {
         }
     }
 
-    /// Writes every stored field, including reserved bytes, raw segment
-    /// attributes, and inactive flag data.
+    /// Writes every stored field, including reserved bytes, segment property
+    /// bytes, and inactive flag data.
     pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
         let mut bytes = [0; Self::BYTE_LEN];
         bytes[offset_of!(CpuState, flags.status_source.kind)] = self.flags.status_source.kind;
@@ -162,10 +160,12 @@ fn read_segment(bytes: &[u8], offset: usize) -> StoredSegment {
         base: read_u32(bytes, offset + offset_of!(StoredSegment, base)),
         limit: read_u32(bytes, offset + offset_of!(StoredSegment, limit)),
         selector: read_u16(bytes, offset + offset_of!(StoredSegment, selector)),
-        attributes: SegmentAttributes::from_bits(read_u16(
-            bytes,
-            offset + offset_of!(StoredSegment, attributes),
-        )),
+        usable: bytes[offset + offset_of!(StoredSegment, usable)],
+        readable: bytes[offset + offset_of!(StoredSegment, readable)],
+        writable: bytes[offset + offset_of!(StoredSegment, writable)],
+        executable: bytes[offset + offset_of!(StoredSegment, executable)],
+        expand_down: bytes[offset + offset_of!(StoredSegment, expand_down)],
+        big: bytes[offset + offset_of!(StoredSegment, big)],
     }
 }
 
@@ -185,11 +185,12 @@ fn write_segment(bytes: &mut [u8], offset: usize, segment: &StoredSegment) {
         offset + offset_of!(StoredSegment, selector),
         &segment.selector.to_le_bytes(),
     );
-    write(
-        bytes,
-        offset + offset_of!(StoredSegment, attributes),
-        &segment.attributes.bits().to_le_bytes(),
-    );
+    bytes[offset + offset_of!(StoredSegment, usable)] = segment.usable;
+    bytes[offset + offset_of!(StoredSegment, readable)] = segment.readable;
+    bytes[offset + offset_of!(StoredSegment, writable)] = segment.writable;
+    bytes[offset + offset_of!(StoredSegment, executable)] = segment.executable;
+    bytes[offset + offset_of!(StoredSegment, expand_down)] = segment.expand_down;
+    bytes[offset + offset_of!(StoredSegment, big)] = segment.big;
 }
 
 pub(super) fn write(bytes: &mut [u8], offset: usize, value: &[u8]) {

@@ -1,5 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
+use wasm86_x86::StoredSegment;
 
 fn widths_and_profiles(engine: Engine) {
     for (profile, code, word) in [
@@ -45,7 +46,15 @@ fn widths_and_profiles(engine: Engine) {
             ),
         );
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0xf327, 0x9000, u32::MAX, if word { 23 } else { 7 });
+        cpu.segments.cs = loaded(
+            0xf327,
+            0x9000,
+            u32::MAX,
+            StoredSegment {
+                big: u8::from(word),
+                ..StoredSegment::flat_code32(0)
+            },
+        );
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
         cpu.instruction_count = 0;
         check_one(
@@ -93,7 +102,10 @@ fn accepted_descriptors(engine: Engine) {
             visible_selector,
             0x9000,
             0x200,
-            if readable { 23 } else { 19 },
+            StoredSegment {
+                readable: u8::from(readable),
+                ..StoredSegment::flat_code32(0)
+            },
         );
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
@@ -144,7 +156,7 @@ fn target_limits(engine: Engine) {
             );
             let mut cpu = image.cpu;
             let exit = if target <= new_limit {
-                cpu.segments.cs = loaded(0x27, 0x9000, new_limit, 23);
+                cpu.segments.cs = loaded(0x27, 0x9000, new_limit, StoredSegment::flat_code32(0));
                 cpu.eip = target;
                 cpu.instruction_count = 0;
                 Exit::Dispatch(target)

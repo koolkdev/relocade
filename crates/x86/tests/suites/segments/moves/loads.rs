@@ -2,6 +2,7 @@ use super::super::selector_cases::loaded;
 use super::*;
 use crate::register::Gpr32;
 use crate::SegmentProfile;
+use wasm86_x86::StoredSegment;
 
 fn register_loads(engine: Engine) {
     for (profile, code, segment, source) in [
@@ -42,7 +43,15 @@ fn register_loads(engine: Engine) {
         let mut tables = DescriptorTables::default();
         tables.insert(0xf327, descriptor(0x8765_0000, SegmentDefaultSize::Bits16));
         let mut cpu = image.cpu;
-        cpu.segments[segment] = loaded(0xf327, 0x8765_0000, 0xffff, 5);
+        cpu.segments[segment] = loaded(
+            0xf327,
+            0x8765_0000,
+            0xffff,
+            StoredSegment {
+                big: 0,
+                ..StoredSegment::flat_data32(0)
+            },
+        );
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
@@ -79,7 +88,15 @@ fn old_memory_cache(engine: Engine) {
         let mut tables = DescriptorTables::default();
         tables.insert(0xf327, descriptor(0x9000, SegmentDefaultSize::Bits16));
         let mut cpu = image.cpu;
-        cpu.segments[segment] = loaded(0xf327, 0x9000, 0xffff, 5);
+        cpu.segments[segment] = loaded(
+            0xf327,
+            0x9000,
+            0xffff,
+            StoredSegment {
+                big: 0,
+                ..StoredSegment::flat_data32(0)
+            },
+        );
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
@@ -135,7 +152,16 @@ fn overridden_source(engine: Engine) {
             },
         );
         let mut cpu = image.cpu;
-        cpu.segments.fs = loaded(0x27, 0x9000, 0xffff, 1);
+        cpu.segments.fs = loaded(
+            0x27,
+            0x9000,
+            0xffff,
+            StoredSegment {
+                big: 0,
+                writable: 0,
+                ..StoredSegment::flat_data32(0)
+            },
+        );
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(

@@ -1,8 +1,8 @@
 use super::data;
 use crate::{
     CpuState, DescriptorTables, Exception::*, ExecutionProfile, PrivilegeLevel::*, Segment,
-    SegmentAttributes, SegmentDefaultSize::*, SegmentDescriptor, SegmentDescriptorKind::*,
-    SegmentProfile, StoredSegment,
+    SegmentDefaultSize::*, SegmentDescriptor, SegmentDescriptorKind::*, SegmentProfile,
+    StoredSegment,
 };
 
 #[test]
@@ -113,7 +113,7 @@ fn stack_loads_require_writable_ring_three_data_and_ring_three_rpl() {
             Err(GeneralProtection { error_code: 0x24 })
         );
     }
-    for (default_size, bits) in [(Bits16, 0x0d), (Bits32, 0x1d)] {
+    for (default_size, big) in [(Bits16, 0), (Bits32, 1)] {
         tables.insert(
             0x27,
             SegmentDescriptor {
@@ -125,13 +125,17 @@ fn stack_loads_require_writable_ring_three_data_and_ring_three_rpl() {
                 ..data()
             },
         );
+        let cache = tables.resolve_user_segment(Segment::Ss, 0x27).unwrap();
         assert_eq!(
-            tables
-                .resolve_user_segment(Segment::Ss, 0x27)
-                .unwrap()
-                .attributes
-                .bits(),
-            bits
+            (
+                cache.usable,
+                cache.readable,
+                cache.writable,
+                cache.executable,
+                cache.expand_down,
+                cache.big
+            ),
+            (1, 1, 1, 0, 1, big)
         );
     }
 }
@@ -160,7 +164,9 @@ fn direct_code_resolution_uses_call_jump_rules_and_normalizes_cs_rpl() {
                         base: 0x1234_5000,
                         limit: 0xffff,
                         selector: 0x23,
-                        attributes: SegmentAttributes::from_bits(3),
+                        readable: 0,
+                        big: 0,
+                        ..StoredSegment::flat_code32(0)
                     };
                     assert_eq!(result, Ok(expected));
                     let mut cpu = CpuState::default();

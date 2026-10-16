@@ -12,7 +12,7 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
     step::{Engine, TestModule},
 };
-use wasm86_x86::{Gpr32::*, Segment, SegmentAttributes, StoredSegment};
+use wasm86_x86::{Gpr32::*, Segment, StoredSegment};
 
 // Intel SDM Volume 2, NOP: recommended alignment encodings of three to nine bytes.
 const ALIGNMENT_NOPS: &[&[u8]] = &[
@@ -64,7 +64,7 @@ fn complete_forms() -> Vec<Case> {
                 .segment(
                     Segment::Cs,
                     StoredSegment {
-                        attributes: SegmentAttributes::from_bits(0x07),
+                        big: 0,
                         ..StoredSegment::flat_code32(0x1b)
                     },
                 ),
@@ -81,7 +81,7 @@ fn ignored_segments() -> Vec<Case> {
             &[0x0f, 0x1f, 0x03][..],
             Segment::Ds,
             StoredSegment {
-                attributes: SegmentAttributes::from_bits(0),
+                usable: 0,
                 ..StoredSegment::flat_data32(0)
             },
         ),
@@ -99,7 +99,7 @@ fn ignored_segments() -> Vec<Case> {
             &[0x64, 0x0f, 0x1f, 0x03],
             Segment::Fs,
             StoredSegment {
-                attributes: SegmentAttributes::from_bits(0),
+                usable: 0,
                 ..StoredSegment::flat_data32(0)
             },
         ),
@@ -132,7 +132,7 @@ fn pause_forms() -> Vec<Case> {
             .segment(
                 Segment::Cs,
                 StoredSegment {
-                    attributes: SegmentAttributes::from_bits(0x07),
+                    big: 0,
                     ..StoredSegment::flat_code32(0x1b)
                 },
             ),

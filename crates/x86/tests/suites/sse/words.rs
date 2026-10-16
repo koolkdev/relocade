@@ -58,7 +58,6 @@ test_frontends!(sse_word_registers, registers);
 test_frontends!(sse_word_memory, memory);
 
 fn segmented(engine: Engine, frontend: Frontend) {
-    use wasm86_x86::{SegmentAttributes, SegmentDefaultSize, SegmentKind};
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented16);
     for mmx in [false, true] {
         let mut code = if mmx { vec![] } else { vec![0x66] };
@@ -73,10 +72,7 @@ fn segmented(engine: Engine, frontend: Frontend) {
         } else {
             image(&code)
         };
-        image.cpu.segments.cs.attributes = SegmentAttributes::new(
-            SegmentKind::Code { readable: true },
-            SegmentDefaultSize::Bits16,
-        );
+        image.cpu.segments.cs.big = 0;
         image.cpu.registers.eax = u32::MAX;
         image.cpu.simd.xmm[7] = [0x80; 16];
         image.cpu.x87.registers[7].significand = 0x8080000000000000;

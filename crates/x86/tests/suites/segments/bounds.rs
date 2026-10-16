@@ -5,7 +5,7 @@ use crate::support::cases::{
 };
 use wasm86_x86::{
     Gpr32::{Eax, Ebx},
-    Segment, SegmentAttributes, StoredSegment,
+    Segment, StoredSegment,
 };
 
 fn finite_spans() -> Vec<Case> {
@@ -16,7 +16,7 @@ fn finite_spans() -> Vec<Case> {
     .segment(
         Segment::Fs,
         StoredSegment {
-            attributes: SegmentAttributes::from_bits(0x05),
+            big: 0,
             ..data(0x8000, 0x1ffff)
         },
     )
@@ -77,26 +77,27 @@ fn finite_spans() -> Vec<Case> {
 fn expand_down() -> Vec<Case> {
     let mut cases = Vec::new();
     // D/B controls the upper offset bound, independent of the address size.
-    for (bits, limit, offset, allowed) in [
-        (0x0d, 0xff, 0xff, false),
-        (0x0d, 0xff, 0x100, true),
-        (0x0d, 0xff, 0xfffe, true),
-        (0x0d, 0xff, 0xffff, false),
-        (0x0d, 0xff, 0x1_0000, false),
-        (0x0d, 0xffff, 0xffff, false),
-        (0x1d, 0xff, 0x1_0000, true),
-        (0x1d, 0xff, 0xffff_fffe, true),
-        (0x1d, 0xff, 0xffff_ffff, false),
-        (0x1d, u32::MAX, 0, false),
+    for (big, limit, offset, allowed) in [
+        (false, 0xff, 0xff, false),
+        (false, 0xff, 0x100, true),
+        (false, 0xff, 0xfffe, true),
+        (false, 0xff, 0xffff, false),
+        (false, 0xff, 0x1_0000, false),
+        (false, 0xffff, 0xffff, false),
+        (true, 0xff, 0x1_0000, true),
+        (true, 0xff, 0xffff_fffe, true),
+        (true, 0xff, 0xffff_ffff, false),
+        (true, u32::MAX, 0, false),
     ] {
         let case = Case::preserving_flags(
-            format!("expand-down {bits:02x}, limit {limit:08x}, offset {offset:08x}"),
+            format!("expand-down big={big}, limit {limit:08x}, offset {offset:08x}"),
             &[0x64, 0x66, 0x8b, 0x03],
         )
         .segment(
             Segment::Fs,
             StoredSegment {
-                attributes: SegmentAttributes::from_bits(bits),
+                expand_down: 1,
+                big: u8::from(big),
                 ..data(0, limit)
             },
         )

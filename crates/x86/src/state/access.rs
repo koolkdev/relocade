@@ -6,7 +6,6 @@ use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Val, I16, I32, I
 
 use crate::{
     register::{Gpr32, Register, RegisterSelection, RegisterType},
-    segment::SegmentAttributes,
     ssa::{Location, SsaType},
 };
 
@@ -49,10 +48,6 @@ impl CpuField for u64 {
 }
 
 impl CpuField for u16 {
-    type Int = I16;
-}
-
-impl CpuField for SegmentAttributes {
     type Int = I16;
 }
 

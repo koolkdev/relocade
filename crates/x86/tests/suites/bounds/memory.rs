@@ -1,6 +1,8 @@
 //! BOUND reads and compares the lower field before accessing the upper field.
+
 use super::{absolute_code, code16, pair, segment};
 use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly};
+use wasm86_x86::StoredSegment;
 use wasm86_x86::{Gpr32::*, Segment};
 
 fn ordered_accesses() -> Vec<Case> {
@@ -70,7 +72,7 @@ fn address_dependencies() -> Vec<Case> {
             .initial_register(Ebx, 0x4000).memory(0x4000, &pair(false, 0x3fff, 0x4000), ReadOnly),
         Case::preserving_flags("the segment override applies to both bounds", &[0x64, 0x62, 0x03])
             .initial_registers(&[(Eax, 7), (Ebx, 0x4000)])
-            .segment(Segment::Fs, segment(0x20000, 0x4007, 0x01))
+            .segment(Segment::Fs, segment(0x20000, 0x4007, StoredSegment { big: 0, writable: 0, ..StoredSegment::flat_data32(0) }))
             .memory(0x24000, &pair(false, -5, 7), ReadOnly),
         Case::preserving_flags("CS16 combines address32 and operand32 overrides", &[0x67, 0x66, 0x62, 0x03])
             .segmented_only().segment(Segment::Cs, code16())
@@ -95,7 +97,10 @@ fn segment_ordering() -> Vec<Case> {
             )
             .segmented_only()
             .initial_registers(&[(Eax, index as u32), (Ebx, 0x4000)])
-            .segment(register, segment(0x20000, limit, 0x15))
+            .segment(
+                register,
+                segment(0x20000, limit, StoredSegment::flat_data32(0)),
+            )
         };
         let fault = |case: Case| {
             if register == Segment::Ss {
@@ -122,7 +127,18 @@ fn segment_ordering() -> Vec<Case> {
         )
         .segmented_only()
         .initial_registers(&[(Eax, 7), (Ebx, 0xfffc)])
-        .segment(Segment::Ds, segment(0, 0x3fff, 0x0d))
+        .segment(
+            Segment::Ds,
+            segment(
+                0,
+                0x3fff,
+                StoredSegment {
+                    expand_down: 1,
+                    big: 0,
+                    ..StoredSegment::flat_data32(0)
+                },
+            ),
+        )
         .memory(0xfffc, &(-5i32).to_le_bytes(), ReadOnly)
         .general_protection(0),
     );
@@ -173,7 +189,17 @@ fn field_wrapping() -> Vec<Case> {
         )
         .segmented_only()
         .initial_registers(&[(Eax, -6i32 as u32), (Ebx, 0xffff)])
-        .segment(Segment::Ds, segment(0, 0xffff, 0x05))
+        .segment(
+            Segment::Ds,
+            segment(
+                0,
+                0xffff,
+                StoredSegment {
+                    big: 0,
+                    ..StoredSegment::flat_data32(0)
+                },
+            ),
+        )
         .general_protection(0),
         Case::preserving_flags(
             "upper dword address wraps at 32 bits",

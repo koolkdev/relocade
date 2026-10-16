@@ -40,7 +40,7 @@ fn selector_widths(engine: Engine) {
             let mut image = Image::new(&code);
             code_defaults(&mut image, profile);
             image.cpu.segments.ss = data(0x4000, 0xffff);
-            image.cpu.segments.ss.attributes = stack_attributes(big);
+            image.cpu.segments.ss.big = u8::from(big);
             image.cpu.segments.fs = StoredSegment::unusable(0xf327);
             image.cpu.segments.gs = StoredSegment::unusable(0xf327);
             if segment == Segment::Ds && push {
@@ -81,7 +81,8 @@ fn selector_widths(engine: Engine) {
                     base: 0x9000,
                     limit: 0xffff,
                     selector: 0xf327,
-                    attributes: SegmentAttributes::from_bits(if big { 5 } else { 0x15 }),
+                    big: u8::from(!big),
+                    ..StoredSegment::flat_data32(0)
                 };
                 check_one(
                     engine,
@@ -141,7 +142,8 @@ fn unread_slot_bytes(engine: Engine) {
                     base: 0x9000,
                     limit: 0xffff,
                     selector: 0xf327,
-                    attributes: SegmentAttributes::from_bits(5),
+                    big: 0,
+                    ..StoredSegment::flat_data32(0)
                 };
                 vec![SegmentResolution::new(&tables, Segment::Ds, 0xf327)]
             };
@@ -193,7 +195,8 @@ fn split_selector(engine: Engine) {
                 base: 0x9000,
                 limit: 0xffff,
                 selector: 0xf327,
-                attributes: SegmentAttributes::from_bits(5),
+                big: 0,
+                ..StoredSegment::flat_data32(0)
             };
             vec![SegmentResolution::new(&tables, Segment::Gs, 0xf327)]
         };

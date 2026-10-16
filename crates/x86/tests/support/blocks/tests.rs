@@ -1,5 +1,5 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use wasm86_x86::{CpuState, ExecutionProfile, SegmentAttributes, SegmentProfile};
+use wasm86_x86::{CpuState, ExecutionProfile, SegmentProfile};
 
 use super::BlockModules;
 
@@ -20,7 +20,7 @@ fn cache_hits_revalidate_cs_even_when_the_profile_stays_compatible() {
             ..valid.segments.cs
         },
         wasm86_x86::StoredSegment {
-            attributes: SegmentAttributes::from_bits(0x10),
+            usable: 0,
             ..valid.segments.cs
         },
     ] {

@@ -2,7 +2,7 @@ use super::*;
 use crate::SegmentProfile;
 use crate::{
     test_step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule},
-    CpuState, SegmentAttributes, SegmentDefaultSize, SegmentKind, StoredSegment,
+    CpuState, StoredSegment,
 };
 
 fn expect_address(
@@ -70,10 +70,8 @@ fn check_segment_indices(engine: Engine) {
         Intent::Read,
         Some(SegmentSelection::Indexed),
     ));
-    cpu.segments.cs.attributes = SegmentAttributes::new(
-        SegmentKind::Code { readable: false },
-        SegmentDefaultSize::Bits32,
-    );
+    cpu.segments.cs.big = 1;
+    cpu.segments.cs.readable = 0;
     let segmented_read = TestModule::new(&translation(
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
         Intent::Read,

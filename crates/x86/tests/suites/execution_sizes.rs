@@ -12,13 +12,13 @@ mod stack;
 mod strings;
 
 use crate::support::cases::InstructionCase as Case;
-use wasm86_x86::{Segment, SegmentAttributes, StoredSegment};
+use wasm86_x86::{Segment, StoredSegment};
 
 fn code16(case: Case) -> Case {
     case.segmented_only().segment(
         Segment::Cs,
         StoredSegment {
-            attributes: SegmentAttributes::from_bits(0x07),
+            big: 0,
             ..StoredSegment::flat_code32(0x1b)
         },
     )
@@ -27,7 +27,7 @@ fn code16(case: Case) -> Case {
 fn stack16(limit: u32) -> StoredSegment {
     StoredSegment {
         limit,
-        attributes: SegmentAttributes::from_bits(0x05),
+        big: 0,
         ..StoredSegment::flat_data32(0x23)
     }
 }

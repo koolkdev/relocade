@@ -2,7 +2,7 @@
 
 use crate::{Exception, StoredSegment};
 
-use super::{Segment, SegmentAttributes, SegmentDefaultSize, SegmentKind, SegmentLimit};
+use super::{Segment, SegmentDefaultSize, SegmentLimit};
 
 /// Architectural privilege levels, ordered from most to least privileged.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -94,17 +94,7 @@ impl SegmentDescriptor {
                 Exception::SegmentNotPresent { error_code }
             });
         }
-        let kind = match self.kind {
-            Data {
-                writable,
-                expand_down,
-            } => SegmentKind::Data {
-                writable,
-                expand_down,
-            },
-            Code { readable, .. } => SegmentKind::Code { readable },
-        };
-        Ok(StoredSegment {
+        let mut cache = StoredSegment {
             base: self.base,
             limit: self.limit.effective(),
             selector: if destination == Segment::Cs {
@@ -112,7 +102,24 @@ impl SegmentDescriptor {
             } else {
                 selector
             },
-            attributes: SegmentAttributes::new(kind, self.default_size),
-        })
+            usable: 1,
+            big: u8::from(self.default_size == SegmentDefaultSize::Bits32),
+            ..StoredSegment::default()
+        };
+        match self.kind {
+            Data {
+                writable,
+                expand_down,
+            } => {
+                cache.readable = 1;
+                cache.writable = u8::from(writable);
+                cache.expand_down = u8::from(expand_down);
+            }
+            Code { readable, .. } => {
+                cache.readable = u8::from(readable);
+                cache.executable = 1;
+            }
+        }
+        Ok(cache)
     }
 }

@@ -15,7 +15,8 @@ fn changed_stack_width(engine: Engine) {
         base: 0x4000,
         limit: 0xffff,
         selector: 0x27,
-        attributes: SegmentAttributes::from_bits(5),
+        big: 0,
+        ..StoredSegment::flat_data32(0)
     };
     cpu.eip = 0x1002;
     cpu.instruction_count = 0;
@@ -152,7 +153,7 @@ fn repeated_reload(engine: Engine) {
             base,
             limit: 0xffff,
             selector: 0x27,
-            attributes: SegmentAttributes::from_bits(0x15),
+            ..StoredSegment::flat_data32(0)
         };
         cpu.eip += 2;
         cpu.instruction_count = cpu.instruction_count.wrapping_add(1);

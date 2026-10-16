@@ -4,7 +4,7 @@ use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
 use crate::{exception::Exception, memory::Intent, state::Cpu, ExecutionProfile, SegmentProfile};
 
-use super::{Segment, SegmentAttributes, SegmentDefaultSize, SegmentSelection, SegmentValues};
+use super::{Segment, SegmentDefaultSize, SegmentSelection, SegmentValues};
 
 #[cfg(test)]
 mod tests;
@@ -42,10 +42,9 @@ impl<'cpu> SegmentAccess<'cpu> {
             )),
             (ExecutionProfile::Protected(SegmentProfile::Flat32), Segment::Ss) => body.value(1),
             (ExecutionProfile::Real16, _) => body.value(0),
-            (ExecutionProfile::Protected(_), _) => Ok(self
-                .cpu
-                .read_segment(body, &segment.into())?
-                .bit(SegmentAttributes::DEFAULT_BIG)),
+            (ExecutionProfile::Protected(_), _) => {
+                Ok(self.cpu.read_segment(body, &segment.into())?.big)
+            }
         }
     }
 
@@ -148,20 +147,12 @@ impl<'cpu> SegmentAccess<'cpu> {
 }
 
 impl SegmentValues {
-    fn bit(&self, mask: u16) -> Val<I1> {
-        self.attributes.and(u32::from(mask)).ne(0)
-    }
-
     fn access_denied(&self, offset: &Val<I32>, bytes: &Val<I32>, intent: Intent) -> Val<I1> {
-        let usable = self.bit(SegmentAttributes::USABLE);
-        let code = self.bit(SegmentAttributes::CODE);
-        let readable_or_writable = self.bit(SegmentAttributes::READ_WRITE);
-        let down = self.bit(SegmentAttributes::EXPAND_DOWN);
         let permitted = match intent {
-            Intent::Read => code.eq(0).or(&readable_or_writable),
-            Intent::ReadOrExecute => true.into(),
-            Intent::Write => code.eq(0).and(&readable_or_writable),
-            Intent::Fetch => code.clone(),
+            Intent::Read => self.readable.clone(),
+            Intent::ReadOrExecute => self.readable.or(&self.executable),
+            Intent::Write => self.writable.clone(),
+            Intent::Fetch => self.executable.clone(),
         };
         let last = offset.add(bytes.sub(1));
         let no_wrap = last.unsigned().ge(offset);
@@ -171,19 +162,16 @@ impl SegmentValues {
             .limit
             .eq(u32::MAX)
             .or(no_wrap.and(self.limit.unsigned().ge(&last)));
-        let upper = self
-            .bit(SegmentAttributes::DEFAULT_BIG)
-            .select(u32::MAX, 0xffffu32);
+        let upper = self.big.select(u32::MAX, 0xffffu32);
         let expand_down = self
             .limit
             .unsigned()
             .lt(offset)
             .and(&no_wrap)
             .and(upper.unsigned().ge(&last));
-        usable
-            .and(code.and(&down).eq(0))
+        self.usable
             .and(permitted)
-            .and(down.select(expand_down, expand_up))
+            .and(self.expand_down.select(expand_down, expand_up))
             .eq(0)
     }
 }

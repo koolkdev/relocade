@@ -372,8 +372,8 @@ Use `CpuState::to_bytes` and `CpuState::from_bytes` to exchange the `cpu` member
 of `ExecutionContext`. Copy exactly `CpuState::BYTE_LEN` bytes at
 `offset_of!(ExecutionContext, cpu)`, preserving the surrounding execution controls.
 Conversion is explicitly little endian and preserves reserved bytes, inactive flag
-payloads, raw segment attributes, x87 and XMM encodings. The image is
-`CpuState::BYTE_LEN` (464) bytes:
+payloads, raw segment fields, x87 and XMM encodings. The image is
+`CpuState::BYTE_LEN` (488) bytes:
 
 | Byte offset | Contents |
 | ---: | --- |
@@ -381,20 +381,20 @@ payloads, raw segment attributes, x87 and XMM encodings. The image is
 | 12 | 16-byte `FlagBytes`: CF, PF, AF, ZF, SF, OF, TF, DF, NT, AC, ID, IF, IOPL, three reserved bytes. |
 | 28 | Eight u32 registers: EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI. |
 | 60 | u32 EIP. |
-| 64 | Six 12-byte segment records: ES, CS, SS, DS, FS, GS. |
-| 136 | Eight reserved bytes. |
-| 144 | u64 completed-instruction count and virtual timestamp counter. |
-| 152 | Twelve-byte `StoredX87Control`: six mask bytes, PC, RC, IC, padding byte, u16 reserved bits. |
-| 164 | u16 full x87 tag word. |
-| 166 | u16 last x87 opcode. |
-| 168 | Two u32 x87 pointer offsets: instruction, data. |
-| 176 | Two u16 x87 pointer selectors: instruction, data. |
-| 180 | Fourteen-byte `StoredX87Status`: IE, DE, ZE, OE, UE, PE, SF, TOP, C0, C1, C2, C3, ES, B. |
-| 194 | Six reserved bytes. |
-| 200 | Eight 16-byte physical x87 register slots, R0 through R7. |
-| 328 | u32 packed MXCSR. |
-| 332 | Four reserved bytes. |
-| 336 | Eight 16-byte XMM slots, XMM0 through XMM7, low byte first. |
+| 64 | Six 16-byte segment records: ES, CS, SS, DS, FS, GS. |
+| 160 | Eight reserved bytes. |
+| 168 | u64 completed-instruction count and virtual timestamp counter. |
+| 176 | Twelve-byte `StoredX87Control`: six mask bytes, PC, RC, IC, padding byte, u16 reserved bits. |
+| 188 | u16 full x87 tag word. |
+| 190 | u16 last x87 opcode. |
+| 192 | Two u32 x87 pointer offsets: instruction, data. |
+| 200 | Two u16 x87 pointer selectors: instruction, data. |
+| 204 | Fourteen-byte `StoredX87Status`: IE, DE, ZE, OE, UE, PE, SF, TOP, C0, C1, C2, C3, ES, B. |
+| 218 | Six reserved bytes. |
+| 224 | Eight 16-byte physical x87 register slots, R0 through R7. |
+| 352 | u32 packed MXCSR. |
+| 356 | Four reserved bytes. |
+| 360 | Eight 16-byte XMM slots, XMM0 through XMM7, low byte first. |
 
 `StoredX87Control` keeps each exception mask in bit 0 of its named byte: invalid,
 denormal, zero divide, overflow, underflow and precision. A set mask suppresses
@@ -418,8 +418,9 @@ register's two-bit tag; marking a register empty does not erase its payload.
 `StoredX87` is a host snapshot layout, not an FSAVE or FXSAVE memory operand.
 
 Each segment record contains a u32 base, u32 inclusive byte limit, u16 visible
-selector and u16 normalized attributes. Attribute bits 0–4 mean usable, code,
-readable-code/writable-data, expand-down and D/B; remaining bits are reserved.
+selector and six bytes: usable, readable, writable, executable, expand-down and
+D/B (`big`). Constructors and resolver callbacks use 0 or 1 for boolean fields;
+snapshot conversion preserves every byte verbatim.
 These are loaded caches, not packed GDT/LDT descriptors.
 
 The flag image is storage, not architectural EFLAGS. Status-source kind zero reads
@@ -703,8 +704,8 @@ time. `SegmentProfile` supplies protected-mode code defaults and segment assumpt
 | `Protected(Segmented16)` | CS.D=0; segment access and SS.B are checked or read at runtime. |
 | `Real16` | Ordinary real mode with canonical caches: selector × 16 bases, FFFF limits, 16-bit CS/SS defaults; the physical map controls A20. |
 
-`ExecutionProfile::is_compatible_with` tests those assumptions. Selectors, reserved
-attribute bits and ordinary DS/ES D/B bits do not determine flat compatibility.
+`ExecutionProfile::is_compatible_with` tests those assumptions. Selectors and ordinary
+DS/ES D/B bits do not determine flat compatibility.
 Segmented profiles can admit unusable caches or restrictive limits so execution
 can report their guest faults. All `Protected` entries execute at CPL3, including
 those with 16-bit code defaults. The host selects the execution mode; cache
@@ -829,9 +830,11 @@ RET's two-slot capacity follows the corrected [Volume 2 RET entry](https://cdrdv
 ## Segment resolver
 
 Protected-mode segment loads call `wasm86.resolveSegment(segment: i32, selector: i32)`, returning
-six Wasm i32 results: `(status, error_code, base, limit, selector, attributes)`.
+eleven Wasm i32 results: `(status, error_code, base, limit, selector, usable,
+readable, writable, executable, expand_down, big)`.
 Segment indices are ES=0, CS=1, SS=2, DS=3, FS=4 and GS=5. Selector inputs and
-selector/attribute outputs use zero-extended 16-bit values.
+selector outputs use zero-extended 16-bit values. The six property results are
+booleans, represented by 0 or 1.
 
 Status zero supplies a complete normalized `StoredSegment`. Failure statuses are
 architectural vectors 11 (#NP), 12 (#SS) or 13 (#GP); only their error code is used.

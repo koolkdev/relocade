@@ -26,7 +26,7 @@ use crate::support::{
     machine::{Exit, Image, Step},
     step::Engine,
 };
-use wasm86_x86::{CpuState, ExecutionProfile, Segment, SegmentAttributes, Segments, StoredSegment};
+use wasm86_x86::{CpuState, ExecutionProfile, Segment, Segments, StoredSegment};
 
 fn image(code: &[u8]) -> Image {
     let mut image = Image::new(code);
@@ -39,7 +39,7 @@ fn cache(segment: Segment, value: u16) -> StoredSegment {
         selector: value,
         base: u32::from(value) * 16,
         limit: 0xffff,
-        attributes: SegmentAttributes::from_bits(if segment == Segment::Cs { 7 } else { 5 }),
+        ..StoredSegment::real_mode(segment, value)
     }
 }
 

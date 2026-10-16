@@ -6,8 +6,8 @@ use crate::support::{
     step::{Engine, Event, SegmentResolution, TestModule},
 };
 use wasm86_x86::{
-    ExecutionProfile, SegmentAttributes, SegmentDefaultSize, SegmentDescriptor,
-    SegmentDescriptorKind, SegmentKind, SegmentLimit, SegmentProfile, StoredSegment,
+    ExecutionProfile, SegmentDefaultSize, SegmentDescriptor, SegmentDescriptorKind, SegmentLimit,
+    SegmentProfile, StoredSegment,
 };
 
 pub(super) fn check_one(
@@ -56,10 +56,7 @@ pub(super) fn descriptor(base: u32, size: SegmentDefaultSize) -> SegmentDescript
 
 pub(super) fn code_defaults(image: &mut Image, profile: ExecutionProfile) {
     if profile == ExecutionProfile::Protected(SegmentProfile::Segmented16) {
-        image.cpu.segments.cs.attributes = SegmentAttributes::new(
-            SegmentKind::Code { readable: true },
-            SegmentDefaultSize::Bits16,
-        );
+        image.cpu.segments.cs.big = 0;
     }
 }
 
@@ -80,12 +77,17 @@ pub(super) fn code_descriptor(
     )
 }
 
-pub(super) fn loaded(selector: u16, base: u32, limit: u32, attributes: u16) -> StoredSegment {
+pub(super) fn loaded(
+    selector: u16,
+    base: u32,
+    limit: u32,
+    properties: StoredSegment,
+) -> StoredSegment {
     StoredSegment {
         base,
         limit,
         selector,
-        attributes: SegmentAttributes::from_bits(attributes),
+        ..properties
     }
 }
 

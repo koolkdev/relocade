@@ -3,7 +3,7 @@ use crate::support::{
     machine::{Exit, Image},
     step::{Engine, TestModule},
 };
-use wasm86_x86::{ExecutionProfile, SegmentAttributes, SegmentProfile};
+use wasm86_x86::{ExecutionProfile, SegmentProfile};
 
 fn fault_order(engine: Engine) {
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
@@ -73,14 +73,15 @@ fn fault_order(engine: Engine) {
         );
     }
     // Even with no code page, invalid CS permissions win at the first byte.
-    for bits in [0x10, 0x15, 0x1b, 0xffff] {
+    for (usable, executable) in [(0, 1), (1, 0)] {
         let mut image = Image::empty();
         image.cpu.segments.cs = code(0x8000, u32::MAX);
-        image.cpu.segments.cs.attributes = SegmentAttributes::from_bits(bits);
+        image.cpu.segments.cs.usable = usable;
+        image.cpu.segments.cs.executable = executable;
         image.check_unchanged_exit(
             engine,
             module,
-            &format!("invalid CS attributes {bits:04x}"),
+            &format!("CS usable={usable}, executable={executable}"),
             Exit::GeneralProtection { error: 0 },
         );
     }

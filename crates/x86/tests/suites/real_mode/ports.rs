@@ -103,7 +103,7 @@ fn boundaries(engine: Engine) {
             let mut image = super::image(code);
             image.cpu.segments = if profile == SegmentProfile::Segmented16 {
                 let mut segments = Segments::flat32();
-                segments.cs.attributes = SegmentAttributes::from_bits(7);
+                segments.cs.big = 0;
                 segments
             } else {
                 Segments::flat32()

@@ -1,7 +1,7 @@
 //! MASKMOV uses DS with overrides, an address-sized index, and no index update.
 
 use super::*;
-use wasm86_x86::{ExecutionProfile, SegmentAttributes, Segments};
+use wasm86_x86::{ExecutionProfile, Segments};
 
 fn addressing(engine: Engine, frontend: Frontend) {
     for profile in [SegmentProfile::Segmented32.into(), ExecutionProfile::Real16] {
@@ -53,7 +53,7 @@ fn addressing(engine: Engine, frontend: Frontend) {
             image.cpu.registers.edi = 0x1_ffff;
             image.cpu.segments.ds.limit = 0xffff;
             image.cpu.segments.ss.limit = 0xffff;
-            image.cpu.segments.ss.attributes = SegmentAttributes::from_bits(5);
+            image.cpu.segments.ss.big = 0;
             checks.check(
                 "full EDI and segment faults apply even to an empty mask",
                 &code,

@@ -10,7 +10,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::{Gpr32::*, Segment, SegmentAttributes, StoredSegment};
+use wasm86_x86::{Gpr32::*, Segment, StoredSegment};
 
 #[rustfmt::skip]
 fn byte_lookups() -> Vec<Case> {
@@ -52,7 +52,7 @@ fn code16_lookups() -> Vec<Case> {
         case.segmented_only().segment(
             Segment::Cs,
             StoredSegment {
-                attributes: SegmentAttributes::from_bits(0x07),
+                big: 0,
                 ..StoredSegment::flat_code32(0x1b)
             },
         )

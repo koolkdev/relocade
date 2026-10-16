@@ -2,7 +2,7 @@
 
 use std::ops::{Index, IndexMut};
 
-use crate::segment::{Segment, SegmentAttributes, SegmentDefaultSize, SegmentKind};
+use crate::segment::Segment;
 
 /// A visible selector and the cached properties used for address translation.
 /// Descriptor-table edits do not modify this record; a later segment load does.
@@ -15,7 +15,15 @@ pub struct StoredSegment {
     /// Inclusive byte limit, after applying descriptor granularity.
     pub limit: u32,
     pub selector: u16,
-    pub attributes: SegmentAttributes,
+    /// Boolean fields are initialized to 0 or 1. Byte snapshots retain them
+    /// verbatim; these are normalized cache properties, not descriptor encodings.
+    pub usable: u8,
+    pub readable: u8,
+    pub writable: u8,
+    pub executable: u8,
+    pub expand_down: u8,
+    /// CS instruction defaults, SS stack width, or the expand-down upper bound.
+    pub big: u8,
 }
 
 impl StoredSegment {
@@ -25,29 +33,19 @@ impl StoredSegment {
         Self {
             base: (selector as u32) << 4,
             limit: 0xffff,
-            selector,
-            attributes: SegmentAttributes::new(
-                match segment {
-                    Segment::Cs => SegmentKind::Code { readable: true },
-                    _ => SegmentKind::Data {
-                        writable: true,
-                        expand_down: false,
-                    },
-                },
-                SegmentDefaultSize::Bits16,
-            ),
+            big: 0,
+            ..match segment {
+                Segment::Cs => Self::flat_code32(selector),
+                _ => Self::flat_data32(selector),
+            }
         }
     }
 
     pub const fn flat_code32(selector: u16) -> Self {
         Self {
-            base: 0,
-            limit: u32::MAX,
-            selector,
-            attributes: SegmentAttributes::new(
-                SegmentKind::Code { readable: true },
-                SegmentDefaultSize::Bits32,
-            ),
+            writable: 0,
+            executable: 1,
+            ..Self::flat_data32(selector)
         }
     }
 
@@ -56,13 +54,12 @@ impl StoredSegment {
             base: 0,
             limit: u32::MAX,
             selector,
-            attributes: SegmentAttributes::new(
-                SegmentKind::Data {
-                    writable: true,
-                    expand_down: false,
-                },
-                SegmentDefaultSize::Bits32,
-            ),
+            usable: 1,
+            readable: 1,
+            writable: 1,
+            executable: 0,
+            expand_down: 0,
+            big: 1,
         }
     }
 
@@ -71,7 +68,12 @@ impl StoredSegment {
             base: 0,
             limit: 0,
             selector,
-            attributes: SegmentAttributes::unusable(),
+            usable: 0,
+            readable: 0,
+            writable: 0,
+            executable: 0,
+            expand_down: 0,
+            big: 0,
         }
     }
 }

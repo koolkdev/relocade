@@ -10,7 +10,7 @@ use crate::support::{
     },
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use crate::{CpuState, Gpr32::*, Segment, SegmentAttributes, StoredFlags, StoredSegment};
+use crate::{CpuState, Gpr32::*, Segment, StoredFlags, StoredSegment};
 
 fn initial_flags(zf: bool) -> Flags<bool> {
     Flags {
@@ -84,7 +84,7 @@ fn fixed_word_forms() -> Vec<Case> {
             case = case.segmented_only().segment(
                 Segment::Cs,
                 StoredSegment {
-                    attributes: SegmentAttributes::from_bits(0x07),
+                    big: 0,
                     ..StoredSegment::flat_code32(0x1b)
                 },
             );

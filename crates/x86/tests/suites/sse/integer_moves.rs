@@ -1,7 +1,7 @@
 //! MOVD and MOVQ transfer raw integer bits and clear unused XMM destination bits.
 
 use super::*;
-use wasm86_x86::{SegmentAttributes, SegmentDefaultSize, SegmentKind};
+use wasm86_x86::SegmentDefaultSize;
 
 fn dword_registers(engine: Engine, frontend: Frontend) {
     for (profile, default_size) in [
@@ -15,8 +15,7 @@ fn dword_registers(engine: Engine, frontend: Frontend) {
             0x66, 0x0f, 0x7e, 0xc8, // eax, xmm1
         ];
         let mut image = image(&code);
-        image.cpu.segments.cs.attributes =
-            SegmentAttributes::new(SegmentKind::Code { readable: true }, default_size);
+        image.cpu.segments.cs.big = u8::from(default_size == SegmentDefaultSize::Bits32);
         image.cpu.registers.ecx = 0x89ab_cdef;
         image.cpu.registers.edi = 0xffff_ffff;
         image.cpu.simd.xmm[1] = RIGHT.to_le_bytes();

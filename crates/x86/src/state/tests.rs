@@ -34,7 +34,7 @@ fn zero_progress_exits_do_not_read_or_write_instruction_count() {
                 assert!(!matches!(
                     operation.unwrap(),
                     Operator::I64Load { memarg } | Operator::I64Store { memarg }
-                        if memarg.offset == 144
+                        if memarg.offset == 168
                 ));
             }
         }
@@ -144,7 +144,7 @@ fn publishing_an_exit_keeps_pending_writes_for_the_continuation() {
             }
         }
     }
-    assert_eq!(exit_stores, [28, 60, 144]);
-    assert_eq!(continuation_stores, [28, 32, 60, 144]);
+    assert_eq!(exit_stores, [28, 60, 168]);
+    assert_eq!(continuation_stores, [28, 32, 60, 168]);
     assert_eq!(eax_values, [(1, 42), (0, 43)]);
 }

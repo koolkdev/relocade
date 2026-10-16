@@ -49,15 +49,15 @@ mod tests {
     #[test]
     fn context_layout_keeps_cpu_snapshot_and_execution_controls_distinct() {
         assert_eq!(offset_of!(ExecutionContext, cpu), 0);
-        assert_eq!(offset_of!(ExecutionContext, instruction_target), 464);
-        assert_eq!(ExecutionContext::BYTE_LEN, 472);
+        assert_eq!(offset_of!(ExecutionContext, instruction_target), 488);
+        assert_eq!(ExecutionContext::BYTE_LEN, 496);
         let context = ExecutionContext {
             cpu: CpuState::filled(0xa5),
             instruction_target: 0x0807_0605_0403_0201,
         };
         let bytes = context.to_bytes();
-        assert_eq!(&bytes[..464], &[0xa5; 464]);
-        assert_eq!(&bytes[464..], &[1, 2, 3, 4, 5, 6, 7, 8]);
-        assert_eq!(&ExecutionContext::default().to_bytes()[464..], &[0xff; 8]);
+        assert_eq!(&bytes[..488], &[0xa5; 488]);
+        assert_eq!(&bytes[488..], &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(&ExecutionContext::default().to_bytes()[488..], &[0xff; 8]);
     }
 }

@@ -11,7 +11,7 @@ use crate::support::{
 };
 use wasm86_x86::{
     Gpr32::{self, *},
-    Segment, SegmentAttributes, StoredSegment,
+    Segment, StoredSegment,
 };
 
 const INPUT: [(Gpr32, u32); 7] = [
@@ -177,7 +177,7 @@ fn fault_progress() -> Vec<Case> {
         let case = Case::preserving_flags(format!("PUSHAD checks each slot before a later SS failure, first present={present}"), &[0x60])
             .segmented_only().initial_registers(&INPUT).initial_register(Esp, 0x9004)
             .segment(Segment::Ss, StoredSegment {
-                attributes: SegmentAttributes::from_bits(0x1d), ..stack_segment(0x20000, 0x8fff, true)
+                expand_down: 1, ..stack_segment(0x20000, 0x8fff, true)
             });
         cases.push(if present {
             case.memory(0x29000, &[0xa5; 4], ReadWrite)

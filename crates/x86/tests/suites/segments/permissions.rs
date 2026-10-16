@@ -2,52 +2,47 @@ use super::data;
 use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadWrite};
 use wasm86_x86::{
     Gpr32::{Eax, Ebp, Ebx},
-    Segment, SegmentAttributes, StoredSegment,
+    Segment, StoredSegment,
 };
 
 fn access_rights() -> Vec<Case> {
     let mut cases = Vec::new();
-    // Literal normalized attributes: usable data (01), writable data (05),
-    // execute-only code (03), readable code (07), and unusable (00).
-    for (attributes, readable, writable) in [
-        (0x01, true, false),
-        (0x05, true, true),
-        (0x03, false, false),
-        (0x07, true, false),
-        (0x00, false, false),
+    for (name, usable, executable, readable, writable) in [
+        ("read-only data", 1, 0, true, false),
+        ("writable data", 1, 0, true, true),
+        ("execute-only code", 1, 1, false, false),
+        ("readable code", 1, 1, true, false),
+        ("unusable", 0, 0, false, false),
     ] {
         let cache = StoredSegment {
-            attributes: SegmentAttributes::from_bits(attributes),
+            usable,
+            executable,
+            readable: u8::from(readable),
+            writable: u8::from(writable),
             ..data(0x8000, 0xff)
         };
-        let read = Case::preserving_flags(
-            format!("FS read rights {attributes:02x}"),
-            &[0x64, 0x8b, 0x03],
-        )
-        .segment(Segment::Fs, cache)
-        .initial_register(Ebx, 0x20)
-        .memory(0x8020, &[0x78, 0x56, 0x34, 0x12], ReadWrite);
+        let read = Case::preserving_flags(format!("FS read rights {name}"), &[0x64, 0x8b, 0x03])
+            .segment(Segment::Fs, cache)
+            .initial_register(Ebx, 0x20)
+            .memory(0x8020, &[0x78, 0x56, 0x34, 0x12], ReadWrite);
         cases.push(if readable {
             read.register(Eax, 0, 0x1234_5678)
         } else {
             read.general_protection(0)
         });
-        let write = Case::preserving_flags(
-            format!("FS write rights {attributes:02x}"),
-            &[0x64, 0x89, 0x03],
-        )
-        .segment(Segment::Fs, cache)
-        .initial_registers(&[(Eax, 0x8765_4321), (Ebx, 0x20)])
-        .memory(0x8020, &[0x78, 0x56, 0x34, 0x12], ReadWrite);
+        let write = Case::preserving_flags(format!("FS write rights {name}"), &[0x64, 0x89, 0x03])
+            .segment(Segment::Fs, cache)
+            .initial_registers(&[(Eax, 0x8765_4321), (Ebx, 0x20)])
+            .memory(0x8020, &[0x78, 0x56, 0x34, 0x12], ReadWrite);
         cases.push(if writable {
             write.expect_memory(0x8020, &[0x21, 0x43, 0x65, 0x87])
         } else {
             write.general_protection(0)
         });
     }
-    for (readable, attributes) in [(true, 0x17), (false, 0x13)] {
+    for readable in [true, false] {
         let cs = StoredSegment {
-            attributes: SegmentAttributes::from_bits(attributes),
+            readable: u8::from(readable),
             ..StoredSegment::flat_code32(0x1b)
         };
         let read = Case::preserving_flags(
@@ -120,7 +115,7 @@ fn fault_selection() -> Vec<Case> {
         .segment(
             Segment::Ss,
             StoredSegment {
-                attributes: SegmentAttributes::from_bits(0x10),
+                big: 1,
                 ..StoredSegment::unusable(0x23)
             },
         )
@@ -134,7 +129,7 @@ fn fault_selection() -> Vec<Case> {
         .segment(
             Segment::Ss,
             StoredSegment {
-                attributes: SegmentAttributes::from_bits(0x10),
+                big: 1,
                 ..StoredSegment::unusable(0x23)
             },
         )
@@ -156,7 +151,7 @@ fn fault_selection() -> Vec<Case> {
             .segment(
                 Segment::Fs,
                 StoredSegment {
-                    attributes: SegmentAttributes::from_bits(0x11),
+                    writable: 0,
                     ..data(0x8000, 0xff)
                 },
             )

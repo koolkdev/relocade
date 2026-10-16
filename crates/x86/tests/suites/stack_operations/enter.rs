@@ -8,7 +8,7 @@ use crate::support::{
     },
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::{Gpr32::*, Segment, SegmentAttributes, StoredSegment};
+use wasm86_x86::{Gpr32::*, Segment, StoredSegment};
 
 #[rustfmt::skip]
 fn widths() -> Vec<Case> {
@@ -156,7 +156,7 @@ fn fault_stages() -> Vec<Case> {
             .memory(0x24000, &[0xa5; 4], ReadWrite).expect_memory(0x24000, &[0, 0x60, 0, 0]).stack_fault(0),
         Case::preserving_flags("ENTER allocation below an expand-down limit faults before paging", &[0xc8, 1, 0x20, 0])
             .segmented_only().segment(Segment::Ss, StoredSegment {
-                attributes: SegmentAttributes::from_bits(0x1d), ..stack_segment(0x20000, 0x7fff, true)
+                expand_down: 1, ..stack_segment(0x20000, 0x7fff, true)
             })
             .initial_registers(&[(Esp, 0x9004), (Ebp, 0x1234_5678)])
             .memory(0x29000, &[0xa5; 4], ReadWrite).expect_memory(0x29000, &[0x78, 0x56, 0x34, 0x12])

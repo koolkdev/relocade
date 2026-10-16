@@ -6,7 +6,7 @@ fn changed_stack_width(engine: Engine) {
         let code = [0x17, 0x51]; // POP SS; PUSH ECX.
         let mut image = Image::new(&code);
         image.cpu.segments.ss = data(0x4000, 0xffff);
-        image.cpu.segments.ss.attributes = stack_attributes(old_big);
+        image.cpu.segments.ss.big = u8::from(old_big);
         image.cpu.registers.esp = if old_big { 0xfffc } else { 0xabcd_fffc };
         image.cpu.registers.ecx = 0x1234_5678;
         image.map(0x13, 0x8000, false);
@@ -40,7 +40,8 @@ fn changed_stack_width(engine: Engine) {
             base,
             limit,
             selector: 0x27,
-            attributes: SegmentAttributes::from_bits(if old_big { 5 } else { 0x15 }),
+            big: u8::from(!old_big),
+            ..StoredSegment::flat_data32(0)
         };
         cpu.eip = 0x1001;
         cpu.instruction_count = 0;
@@ -100,7 +101,8 @@ fn terminal_pops(engine: Engine) {
             base: 0x9000,
             limit: 0xffff,
             selector: 0x27,
-            attributes: SegmentAttributes::from_bits(5),
+            big: 0,
+            ..StoredSegment::flat_data32(0)
         };
         cpu.eip += opcode.len() as u32;
         cpu.instruction_count = 0;

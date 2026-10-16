@@ -21,7 +21,6 @@ use crate::{
 };
 use wasm86_x86::{
     DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
-    StoredSegment,
 };
 
 const FORMS: [(Segment, &[u8]); 5] = [

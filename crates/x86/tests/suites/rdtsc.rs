@@ -8,8 +8,8 @@ use crate::support::{
     step::{CallPatches, Engine, TestModule},
 };
 use wasm86_x86::{
-    compile_block_from_bytes, compile_interpreter, CpuState, ExecutionProfile, SegmentAttributes,
-    SegmentProfile, Segments,
+    compile_block_from_bytes, compile_interpreter, CpuState, ExecutionProfile, SegmentProfile,
+    Segments,
 };
 
 fn timestamp_result(mut cpu: CpuState, eax: u32, edx: u32, bytes: u32) -> CpuState {
@@ -74,7 +74,7 @@ fn transfers(engine: Engine, frontend: Frontend) {
         match profile {
             ExecutionProfile::Real16 => image.cpu.segments = Segments::real_mode(),
             ExecutionProfile::Protected(SegmentProfile::Segmented16) => {
-                image.cpu.segments.cs.attributes = SegmentAttributes::from_bits(7);
+                image.cpu.segments.cs.big = 0;
             }
             _ => {}
         }

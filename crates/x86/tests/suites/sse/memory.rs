@@ -4,12 +4,8 @@ use super::*;
 
 /// `code` must address m128 at [0x4000] with 16-bit addressing.
 pub(super) fn check_m128_span(checks: &mut ImageSequences, code: &[u8]) {
-    use wasm86_x86::{SegmentAttributes, SegmentDefaultSize, SegmentKind};
     let mut image = image(code);
-    image.cpu.segments.cs.attributes = SegmentAttributes::new(
-        SegmentKind::Code { readable: true },
-        SegmentDefaultSize::Bits16,
-    );
+    image.cpu.segments.cs.big = 0;
     image.cpu.segments.ds.limit = 0x4007;
     image.cpu.simd.xmm[6] = [0; 16];
     image.map(4, 0x8000, false);

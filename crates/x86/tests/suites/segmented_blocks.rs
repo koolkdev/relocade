@@ -7,13 +7,13 @@ mod profiles;
 #[path = "segmented_blocks/progress.rs"]
 mod progress;
 
-use wasm86_x86::{SegmentAttributes, SegmentDefaultSize, SegmentKind, StoredSegment};
+use wasm86_x86::{SegmentDefaultSize, StoredSegment};
 
 fn code(base: u32, limit: u32, size: SegmentDefaultSize) -> StoredSegment {
     StoredSegment {
         base,
         limit,
-        attributes: SegmentAttributes::new(SegmentKind::Code { readable: true }, size),
+        big: u8::from(size == SegmentDefaultSize::Bits32),
         ..StoredSegment::flat_code32(0x1b)
     }
 }

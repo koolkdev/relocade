@@ -4,7 +4,7 @@ use crate::support::{
 };
 use wasm86_x86::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockError, ExecutionProfile,
-    SegmentAttributes, SegmentProfile, StoredSegment,
+    SegmentProfile, StoredSegment,
 };
 
 #[test]
@@ -118,7 +118,7 @@ fn runtime_stack_attributes(engine: Engine) {
         image.cpu.registers.esp = 0x1234_8004;
         image.cpu.segments.ss = StoredSegment {
             base: 0x4000,
-            attributes: SegmentAttributes::from_bits(if big { 0x15 } else { 0x05 }),
+            big: u8::from(big),
             ..StoredSegment::flat_data32(0x23)
         };
         image.map(page, 0x8000, true);

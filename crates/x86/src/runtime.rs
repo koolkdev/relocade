@@ -50,7 +50,12 @@ impl Runtime {
                     Type::I32,
                     Type::I32,
                     Type::I16,
-                    Type::I16,
+                    Type::I1,
+                    Type::I1,
+                    Type::I1,
+                    Type::I1,
+                    Type::I1,
+                    Type::I1,
                 ],
             },
         });
@@ -108,11 +113,17 @@ impl Runtime {
         selector: &Val<I16>,
         on_fault: impl Fn(BlockBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
     ) -> Result<SegmentValues, BuildError> {
-        let (status, error_code, base, limit, selector, attributes) =
-            body.call::<(I32, I32, I32, I32, I16, I16)>(
-                self.resolve_segment,
-                &[(segment as u32).into(), selector.into()],
-            )?;
+        let (
+            status,
+            error_code,
+            base,
+            limit,
+            selector,
+            [usable, readable, writable, executable, expand_down, big],
+        ) = body.call::<(I32, I32, I32, I32, I16, [I1; 6])>(
+            self.resolve_segment,
+            &[(segment as u32).into(), selector.into()],
+        )?;
         body.if_(status.ne(0), |mut fault| {
             let vectors = [
                 ExceptionVector::SegmentNotPresent as u32,
@@ -141,7 +152,12 @@ impl Runtime {
             base,
             limit,
             selector,
-            attributes,
+            usable,
+            readable,
+            writable,
+            executable,
+            expand_down,
+            big,
         })
     }
 }

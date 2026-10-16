@@ -1,5 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
+use wasm86_x86::StoredSegment;
 
 fn new_code_defaults(engine: Engine) {
     for next_word in [false, true] {
@@ -32,7 +33,16 @@ fn new_code_defaults(engine: Engine) {
             },
         );
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x1b, 0x9000, 0xffff, if next_word { 3 } else { 19 });
+        cpu.segments.cs = loaded(
+            0x1b,
+            0x9000,
+            0xffff,
+            StoredSegment {
+                big: u8::from(!next_word),
+                readable: 0,
+                ..StoredSegment::flat_code32(0)
+            },
+        );
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
         check_one(
@@ -82,7 +92,7 @@ fn destination_paging(engine: Engine) {
     let mut tables = DescriptorTables::default();
     tables.insert(0x27, descriptor(0x9000, 0xffff, SegmentDefaultSize::Bits32));
     let mut cpu = image.cpu;
-    cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, 23);
+    cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, StoredSegment::flat_code32(0));
     cpu.eip = 0x200;
     cpu.instruction_count = 0;
     check_one(
@@ -146,7 +156,7 @@ fn terminal_jump(engine: Engine) {
             .segment_resolutions
             .push(SegmentResolution::new(&tables, Segment::Cs, 0x27));
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, 23);
+        cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, StoredSegment::flat_code32(0));
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
         let mut wanted = expected(

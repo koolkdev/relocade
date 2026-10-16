@@ -163,14 +163,10 @@ fn memory(engine: Engine, frontend: Frontend) {
 }
 
 fn segmented(engine: Engine, frontend: Frontend) {
-    use wasm86_x86::{SegmentAttributes, SegmentDefaultSize, SegmentKind};
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented16);
     let code = [0x0f, 0x6e, 0x06, 0xfc, 0x4f];
     let mut image = image(&code);
-    image.cpu.segments.cs.attributes = SegmentAttributes::new(
-        SegmentKind::Code { readable: true },
-        SegmentDefaultSize::Bits16,
-    );
+    image.cpu.segments.cs.big = 0;
     image.map(4, 0x8000, false);
     image.data(0x8ffc, &0xdead_beef_u32.to_le_bytes());
     let mut cpu = complete(image.cpu, 5);
