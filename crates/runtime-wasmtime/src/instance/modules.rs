@@ -1,9 +1,7 @@
-//! Module instantiation and shared imports.
+//! Module instantiation, shared imports and callable-table installation.
 
 use super::*;
-use crate::PreparedModule;
-use wasm86_x86::EntryTable;
-use wasmtime::{Caller, Linker, MemoryType, Ref, RefType, Table, TableType};
+use wasmtime::{Caller, MemoryType, Ref, RefType, TableType};
 
 impl<D: Environment + 'static> WasmtimeInstance<D> {
     pub(crate) fn new(
@@ -104,7 +102,44 @@ impl<D: Environment + 'static> WasmtimeInstance<D> {
             context,
             guest,
             mapping,
+            entries,
+            functions,
+            linker,
             entry,
         })
+    }
+}
+
+impl<D: Environment + 'static> WasmtimeInstance<D> {
+    pub(super) fn install(
+        &mut self,
+        module: &PreparedModule,
+        first_slot: u32,
+        exports: &[String],
+    ) -> Result<()> {
+        let instance = self
+            .linker
+            .instantiate(&mut self.store, &module.module)
+            .map_err(|error| Error::backend("instantiate callable module", error))?;
+        let required = u64::from(first_slot) + exports.len() as u64;
+        let current = self.functions.size(&self.store);
+        if required > current {
+            self.functions
+                .grow(&mut self.store, required - current, Ref::Func(None))
+                .map_err(|error| Error::backend("grow execution functions", error))?;
+        }
+        for (index, name) in exports.iter().enumerate() {
+            let function = instance
+                .get_typed_func::<(), i64>(&mut self.store, name)
+                .map_err(|error| Error::backend("read callable export", error))?;
+            self.functions
+                .set(
+                    &mut self.store,
+                    u64::from(first_slot) + index as u64,
+                    Ref::Func(Some(*function.func())),
+                )
+                .map_err(|error| Error::backend("install execution function", error))?;
+        }
+        Ok(())
     }
 }

@@ -8,14 +8,14 @@
 use crate::Result;
 use std::future::Future;
 use wasm86_machine::Environment;
-use wasm86_x86::{CompiledModule, CpuState};
+use wasm86_x86::{CompiledModule, CpuState, EntryTable};
 
 pub use wasm86_machine::{GuestMemory, Imports};
 
 /// Compiles and instantiates generated Wasm modules on one host engine.
 pub trait Backend {
     type Module;
-    type Instance<D: Environment + 'static>: Instance<D>;
+    type Instance<D: Environment + 'static>: Instance<D, Module = Self::Module>;
 
     fn compile(&self, module: &CompiledModule) -> impl Future<Output = Result<Self::Module>>;
 
@@ -35,12 +35,27 @@ pub trait Backend {
     ) -> impl Future<Output = Result<Self::Instance<D>>>;
 }
 
-/// A callable dispatcher, interpreter and their private machine state.
+/// A callable dispatcher, installed modules and their private machine state.
 pub trait Instance<D: Environment> {
+    type Module;
+
+    /// Instantiates another module against this machine's existing memories and
+    /// function table. Install exports consecutively from first_slot before
+    /// publishing address mappings.
+    fn install_module(
+        &mut self,
+        module: &Self::Module,
+        first_slot: u32,
+        exports: &[String],
+    ) -> impl Future<Output = Result<()>>;
+
     /// Publishes the instruction target in execution-context backing and returns
     /// the Wasm exit word. Do not borrow import state across entry: guest execution
     /// can invoke it.
     fn run(&mut self, instruction_target: u64) -> Result<u64>;
+    /// Publishes execution destinations between entries, growing their memory
+    /// first.
+    fn set_entries(&mut self, entries: &EntryTable) -> Result<()>;
     fn cpu(&self) -> CpuState;
     fn set_cpu(&mut self, cpu: &CpuState);
 

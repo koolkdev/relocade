@@ -18,6 +18,9 @@ mod devices;
 #[path = "runtime/memory.rs"]
 mod memory;
 
+#[path = "runtime/dispatch.rs"]
+mod dispatch;
+
 type TestMachine<D = ()> = Session<TestBackend, D>;
 
 async fn runtime() -> Runtime<TestBackend> {

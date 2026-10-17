@@ -1,12 +1,12 @@
-use crate::memory;
+use crate::{memory, PreparedModule};
 use std::mem::offset_of;
 use wasm86_machine::Environment;
 use wasm86_runtime::{
     backend::{GuestMemory, Imports, Instance},
     Error, Result,
 };
-use wasm86_x86::{CpuState, ExecutionContext};
-use wasmtime::{Engine, Memory, Store, TypedFunc};
+use wasm86_x86::{CpuState, EntryTable, ExecutionContext};
+use wasmtime::{Engine, Linker, Memory, Store, Table, TypedFunc};
 
 mod modules;
 
@@ -16,10 +16,24 @@ pub struct WasmtimeInstance<D> {
     context: Memory,
     guest: Memory,
     mapping: Memory,
+    entries: Memory,
+    functions: Table,
+    linker: Linker<Imports<D>>,
     entry: TypedFunc<(), i64>,
 }
 
 impl<D: Environment + 'static> Instance<D> for WasmtimeInstance<D> {
+    type Module = PreparedModule;
+
+    async fn install_module(
+        &mut self,
+        module: &PreparedModule,
+        first_slot: u32,
+        exports: &[String],
+    ) -> Result<()> {
+        self.install(module, first_slot, exports)
+    }
+
     fn run(&mut self, instruction_target: u64) -> Result<u64> {
         self.context
             .write(
@@ -32,6 +46,20 @@ impl<D: Environment + 'static> Instance<D> for WasmtimeInstance<D> {
             .call(&mut self.store, ())
             .map(|word| word as u64)
             .map_err(|error| Error::backend("execute Wasm", error))
+    }
+    fn set_entries(&mut self, entries: &EntryTable) -> Result<()> {
+        let bytes = entries.to_bytes();
+        let pages = (bytes.len() as u64).div_ceil(65536);
+        let current = self.entries.size(&self.store);
+        if pages > current {
+            self.entries
+                .grow(&mut self.store, pages - current)
+                .map_err(|error| Error::backend("grow execution entries", error))?;
+        }
+        self.entries
+            .write(&mut self.store, 0, &bytes)
+            .expect("entry backing was grown before publication");
+        Ok(())
     }
     fn cpu(&self) -> CpuState {
         let offset = offset_of!(ExecutionContext, cpu);

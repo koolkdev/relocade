@@ -3,14 +3,17 @@ use crate::{
     Result, Runtime,
 };
 use wasm86_machine::{ConfigurationError, Environment, Machine, MemoryAccess, MemoryError};
-use wasm86_x86::{CpuState, ExecutionTarget};
+use wasm86_x86::{CpuState, EntryTable, ExecutionTarget};
 
 /// Persistent CPU, address space and environment on one execution backend.
-/// Dispatch and interpretation stay inside Wasm. The target stays fixed for the
-/// session, and its segment assumptions must remain valid throughout execution.
-/// Automatic mode transitions are not provided.
+/// Dispatch tail-calls installed code or the interpreter inside Wasm. The target
+/// stays fixed for the session, and its segment assumptions must remain valid
+/// throughout execution. Automatic mode transitions are not provided.
 pub struct Session<B: Backend, D: Environment + 'static> {
     pub(crate) instance: B::Instance<D>,
+    pub(crate) runtime: Runtime<B>,
+    pub(crate) entries: EntryTable,
+    pub(crate) next_slot: u32,
     pub(crate) target: ExecutionTarget,
 }
 
@@ -28,7 +31,14 @@ impl<B: Backend, D: Environment + 'static> Session<B, D> {
             imports.publish_map(memory);
         });
         instance.set_cpu(&cpu);
-        Ok(Self { instance, target })
+        let entries = EntryTable::default();
+        Ok(Self {
+            instance,
+            runtime: runtime.clone(),
+            entries,
+            next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
+            target,
+        })
     }
 
     /// Runs until the instruction budget is consumed at a block boundary or an

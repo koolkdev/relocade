@@ -1,6 +1,7 @@
 use crate::{js_error, set_property};
-use js_sys::{Object, Reflect, Uint8Array, WebAssembly::Memory};
+use js_sys::{Function, Object, Reflect, Uint8Array, WebAssembly::Memory};
 use wasm86_runtime::{backend::GuestMemory, Result};
+use wasm_bindgen::{JsCast, JsValue};
 
 pub(crate) fn new(initial_pages: u32, maximum_pages: u32) -> Result<Memory> {
     let descriptor = Object::new();
@@ -25,6 +26,21 @@ pub(crate) fn write(memory: &Memory, offset: u32, bytes: &[u8]) {
 pub(crate) struct MemoryAccess {
     pub guest: Memory,
     pub mapping: Memory,
+}
+
+/// Grows a backend-owned memory without retaining a view across detachment.
+pub(crate) fn grow(memory: &Memory, bytes: u64) -> Result<()> {
+    let pages = bytes.div_ceil(65536);
+    let current = byte_len(memory) / 65536;
+    if pages > current {
+        // js-sys's direct binding does not catch allocation failures.
+        let grow: Function = Reflect::get(memory, &"grow".into())
+            .expect("WebAssembly.Memory has grow")
+            .unchecked_into();
+        grow.call1(memory, &JsValue::from_f64((pages - current) as f64))
+            .map_err(|error| js_error("grow Wasm memory", error))?;
+    }
+    Ok(())
 }
 
 fn byte_len(memory: &Memory) -> u64 {
