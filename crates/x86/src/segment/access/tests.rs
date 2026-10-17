@@ -54,7 +54,7 @@ fn translation(
 }
 
 fn default_segment(choice: Val<I32>) -> SegmentSelection {
-    SegmentSelection::select(choice.eq(0), Segment::Ss, Segment::Ds)
+    SegmentSelection::ds_or_ss(choice.eq(0))
 }
 
 fn function_bodies(bytes: &[u8]) -> Vec<&[u8]> {
@@ -81,13 +81,6 @@ fn flat_data_segments_and_address_defaults_generate_only_the_effective_offset() 
             |_| Segment::Ss.into(),
             default_segment,
             |_| SegmentSelection::indexed((Segment::Ds as u32).into()),
-            |choice| {
-                SegmentSelection::select(
-                    choice.eq(0),
-                    Segment::Ss,
-                    SegmentSelection::select(choice.eq(1), Segment::Ds, Segment::Es),
-                )
-            },
         ] {
             let actual = translation(
                 ExecutionProfile::Protected(SegmentProfile::Flat32),

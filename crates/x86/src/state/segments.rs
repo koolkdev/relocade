@@ -120,18 +120,14 @@ impl<'cpu> SegmentReads<'cpu> {
             return Ok(value);
         }
 
-        // A dynamic DS/SS choice can still have a common profile constant.
-        // A missing or differing value requires one load of the selected field.
-        let mut candidates = segment.possible_segments();
-        let first =
-            field(self.cache(candidates.next().expect("nonempty segment selection"))).clone();
-        if let Some(value) = first {
-            if candidates.all(|candidate| {
-                field(self.cache(candidate))
-                    .as_ref()
-                    .is_some_and(|other| value.same_expression(other))
-            }) {
-                return Ok(value);
+        // Address defaults can reuse constants common to DS and SS.
+        if segment.is_ds_or_ss() {
+            let ds = field(self.cache(Segment::Ds)).clone();
+            let ss = field(self.cache(Segment::Ss)).clone();
+            if let (Some(ds), Some(ss)) = (ds, ss) {
+                if ds.same_expression(&ss) {
+                    return Ok(ds);
+                }
             }
         }
         load(body, index)

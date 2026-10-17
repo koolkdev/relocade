@@ -714,10 +714,10 @@ execution target described above.
 
 Segment fields stay fixed until the terminal segment load. Each field is read
 lazily and reused within its compilation path; profile defaults become constants
-when a segment is first requested. Address construction retains possible segments
-alongside the index. A dynamic choice uses a common value only when all candidates
-have it; otherwise it loads the selected backing field. Known permissions and full
-limits skip range-check construction, including ordinary Flat32 accesses.
+when a segment is first requested. Address defaults retain a DS/SS hint so common
+constants can be reused when the base register is decoded at runtime. Other
+dynamic indices load the selected backing field. Known permissions and full limits
+skip range-check construction, including ordinary Flat32 accesses.
 The selected profile must remain valid until a terminal segment load commits its
 cache. Only state publication and dispatch follow that commit; the next entry
 must be admitted against the new state.

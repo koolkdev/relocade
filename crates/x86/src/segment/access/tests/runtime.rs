@@ -65,41 +65,6 @@ fn check_segment_indices(engine: Engine) {
             expect_address(engine, &module, cpu, choice, expected);
         }
     }
-    let code_or_data = TestModule::new(&translation(
-        SegmentProfile::Flat32.into(),
-        Intent::Write,
-        Some(|choice| SegmentSelection::select(choice.eq(0), Segment::Cs, Segment::Ds)),
-    ));
-    // Both permissions are known, but different: keep the selected backing byte.
-    expect_address(engine, &code_or_data, cpu, 0, 2 << 48);
-    expect_address(engine, &code_or_data, cpu, 1, 0x20);
-    let data_or_fs = TestModule::new(&translation(
-        SegmentProfile::Flat32.into(),
-        Intent::Read,
-        Some(|choice| SegmentSelection::select(choice.eq(0), Segment::Ds, Segment::Fs)),
-    ));
-    // A missing candidate must not be replaced by the other segment's known zero.
-    expect_address(engine, &data_or_fs, cpu, 0, 0x20);
-    expect_address(engine, &data_or_fs, cpu, 1, 0x8020);
-    let nested_override = TestModule::new(&translation(
-        SegmentProfile::Flat32.into(),
-        Intent::Read,
-        Some(|choice| {
-            SegmentSelection::select(
-                choice.eq(0),
-                Segment::Ds,
-                SegmentSelection::select(
-                    choice.eq(1),
-                    Segment::Ss,
-                    SegmentSelection::indexed(choice),
-                ),
-            )
-        }),
-    ));
-    // An unknown override keeps all segments possible through nested selections.
-    for (choice, expected) in [(0, 0x20), (1, 0x20), (4, 0x8020), (5, 2 << 48)] {
-        expect_address(engine, &nested_override, cpu, choice, expected);
-    }
     let read = TestModule::new(&translation(
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         Intent::Read,
