@@ -52,7 +52,8 @@ fn flat_machine_for<E: Environment>(environment: E, target: ExecutionTarget) -> 
     Machine::new(target, cpu, 0x10000, map, environment).unwrap()
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn one_runtime_executes_real_and_flat_machines_with_private_backing() {
     let runtime = runtime().await;
     let mut real = runtime
@@ -77,7 +78,8 @@ async fn one_runtime_executes_real_and_flat_machines_with_private_backing() {
     assert_eq!(byte, [0xb8]);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn protected_descriptor_callbacks_load_fs_and_query_access_rights() {
     let mut environment = Descriptors::default();
     environment.tables.insert(0x23, descriptor(0x80001000));
@@ -106,7 +108,8 @@ async fn protected_descriptor_callbacks_load_fs_and_query_access_rights() {
     );
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn paged_permissions_and_top_address_are_preserved_in_both_access_paths() {
     let mut session = runtime().await.attach(flat_machine(())).await.unwrap();
     session
@@ -145,7 +148,8 @@ async fn paged_permissions_and_top_address_are_preserved_in_both_access_paths() 
     assert_eq!(session.cpu().eip, 0x1007);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn prepared_code_preserves_cpu_capabilities() {
     let runtime = runtime().await;
     let code = [0x0f, 0x44, 0xc0, 0xeb, 0]; // CMOVE EAX,EAX; JMP to the next block
@@ -166,7 +170,8 @@ async fn prepared_code_preserves_cpu_capabilities() {
     assert_eq!(disabled.cpu().eip, 0x1000);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn rejected_descriptor_load_preserves_the_destination_segment() {
     // MOV AX,23h; MOV DS,AX with no matching descriptor.
     let mut session = runtime()

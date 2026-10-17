@@ -39,3 +39,56 @@ jobs:
 
       - name: Run V8 tests
         run: cargo test --workspace --locked -- --ignored
+
+  browser-runtime:
+    name: Browser runtime tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+      WASM_BINDGEN_TEST_TIMEOUT: "180"
+      WASM_BINDGEN_TEST_WEBDRIVER_JSON: /tmp/runtime-webdriver.json
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Chrome and its driver
+        id: chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          install-chromedriver: true
+
+      - name: Configure Chrome
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          with open(os.environ["WASM_BINDGEN_TEST_WEBDRIVER_JSON"], "w") as file:
+              json.dump({"goog:chromeOptions": {"binary": os.environ["CHROME_PATH"]}}, file)
+          PY
+
+      - name: Install wasm-bindgen test runner
+        run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+
+      - name: Run runtime tests in Chrome
+        env:
+          CHROMEDRIVER: ${{ steps.chrome.outputs.chromedriver-path }}
+          WASM_BINDGEN_USE_BROWSER: "1"
+        run: cargo test -p wasm86-runtime --test runtime --target wasm32-unknown-unknown --locked
+
+      - name: Run runtime tests in a dedicated worker
+        env:
+          CHROMEDRIVER: ${{ steps.chrome.outputs.chromedriver-path }}
+          WASM_BINDGEN_USE_DEDICATED_WORKER: "1"
+        run: cargo test -p wasm86-runtime --test runtime --target wasm32-unknown-unknown --locked
