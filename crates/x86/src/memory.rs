@@ -3,6 +3,7 @@ mod accesses;
 mod bulk;
 mod masked;
 mod page_table;
+mod paged_map;
 mod physical;
 mod physical_map;
 mod transfer;
@@ -13,6 +14,7 @@ mod virtual_memory;
 pub(crate) use access::Access;
 pub(crate) use accesses::Accesses;
 pub(crate) use page_table::{PageCache, PageCacheInputs};
+pub use paged_map::{PagedMapError, PagedMapping, PagedMemoryMap};
 pub use physical_map::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub(crate) use value::TransferType;
 
