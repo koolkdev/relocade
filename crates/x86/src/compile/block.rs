@@ -17,7 +17,7 @@ use super::Compiler;
 ///
 /// The generated `block_<hex start_eip>() -> i64` entry executes the block and
 /// tail-calls host dispatch on success; guest faults return directly.
-/// A failed specialization guard publishes completed work and tail-calls
+/// A failed guard publishes completed work and tail-calls
 /// `wasm86.interpret` at the current instruction. The interpreter handoff abandons
 /// the captured suffix; its execution boundary belongs to the host's policy.
 /// The host must satisfy the profile and snapshot-validity requirements documented
@@ -47,13 +47,14 @@ pub fn compile_block_from_bytes(
 /// The profile determines instruction defaults; size prefixes independently
 /// select the opposite operand or address width.
 ///
-/// Before each entry, the host must establish profile compatibility and validate
-/// the full fetch spans and bytes of every compiled instruction against CS and
-/// guest memory. Generated blocks do not repeat instruction-fetch checks. Changes
-/// to relevant CS state, code bytes or mappings require revalidation or invalidation
-/// of affected entries and direct links. See the
-/// [host integration contract](crate#entry-validity) for validity throughout
-/// execution and fallback at an invalid fetch.
+/// The block checks its complete compiled fetch span against CS at entry. A failed
+/// check enters the interpreter before executing any instruction, so valid prefixes
+/// and faults retain their architectural order. Profile-proven checks fold away.
+/// The host must establish profile compatibility and ensure the snapshot matches
+/// readable guest memory at the current CS base. Changes to code bytes or mappings
+/// still require revalidation or invalidation of affected entries and direct links.
+/// See the [host integration contract](crate#entry-validity) for validity throughout
+/// execution.
 ///
 /// ```
 /// use wasm86_x86::{compile_block_from_bytes_with_profile, Compiler, SegmentProfile};
@@ -126,7 +127,9 @@ impl Compiler {
                     start_eip,
                     self.target,
                 )?
-                .with_specialization(self.observed_cpu.as_ref());
+                .with_interpreter_fallback()
+                .with_observed_cpu(self.observed_cpu.as_ref());
+                execution.guard_fetch_span(bytes.len() - remaining_bytes.len())?;
                 for decoded_instruction in decoded_instructions {
                     execution.execute(decoded_instruction)?;
                 }

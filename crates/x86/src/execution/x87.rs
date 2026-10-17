@@ -26,7 +26,7 @@ impl<'body> ExecutionBuilder<'body, '_> {
         self.state.x87.access(&mut self.body)
     }
 
-    /// Records an x87 instruction after its memory and specialization guards.
+    /// Records an x87 instruction after its memory checks and fallback guards.
     /// Environment controls leave these fields unchanged, except for FNOP.
     pub(crate) fn record_x87_instruction(&mut self) -> Result<(), BuildError> {
         let selector = self

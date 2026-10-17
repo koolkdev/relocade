@@ -49,7 +49,7 @@ fn narrow_scalar(
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
     let source = source.read::<I64>(execution, VectorAlignment::Unaligned)?;
-    let specialized = execution.specialize(|execution| {
+    let guarded_result = execution.if_can_fallback(|execution| {
         // Only the active source participates in admission and precision reporting.
         let candidate = narrow_packed_float(
             Val::<V128>::splat(source.clone()),
@@ -62,7 +62,7 @@ fn narrow_scalar(
             exceptions: result.exceptions,
         })
     })?;
-    let result = specialized.unwrap_or_else(|| {
+    let result = guarded_result.unwrap_or_else(|| {
         FloatOperand::new(source, controls.denormals_are_zero()).narrow(&controls)
     });
     execution.record_simd_exceptions(&result.exceptions)?;
@@ -76,11 +76,11 @@ fn widen_packed(
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
     let source = Val::<V128>::splat(source.read::<I64>(execution, VectorAlignment::Unaligned)?);
-    let specialized = execution.specialize(|execution| {
+    let guarded_result = execution.if_can_fallback(|execution| {
         let candidate = widen_packed_float(source.clone(), controls.denormals_are_zero());
         execution.admit_simd_candidate(candidate)
     })?;
-    let result = match specialized {
+    let result = match guarded_result {
         Some(result) => result,
         None => FloatResult::from_lanes(0_u128.into(), 2, |lane| {
             FloatOperand::new(
@@ -101,7 +101,7 @@ fn narrow_packed(
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
     let source = source.read::<V128>(execution, VectorAlignment::Aligned)?;
-    let specialized = execution.specialize(|execution| {
+    let guarded_result = execution.if_can_fallback(|execution| {
         let candidate = narrow_packed_float(
             source.clone(),
             controls.denormals_are_zero(),
@@ -109,7 +109,7 @@ fn narrow_packed(
         );
         execution.admit_simd_candidate(candidate)
     })?;
-    let result = match specialized {
+    let result = match guarded_result {
         Some(result) => result,
         None => FloatResult::from_lanes(0_u128.into(), 2, |lane| {
             FloatOperand::new(

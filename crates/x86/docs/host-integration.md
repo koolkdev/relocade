@@ -91,17 +91,18 @@ fixed overshoot or elapsed-time guarantee.
 
 ## Interpreter handoff
 
-A snapshot block can guard an optimization assumption. If that guard fails, it
-publishes all completed instructions, leaves EIP at the current instruction without
-applying its effects or retiring it, and tail-calls `wasm86.interpret() -> i64`.
+A snapshot block can guard execution requirements or optimization assumptions.
+If a guard fails, it publishes all completed instructions, leaves EIP at the current
+instruction without applying its effects or retiring it, and tail-calls
+`wasm86.interpret() -> i64`.
 Its result is returned unchanged. The captured suffix is abandoned; no compiled
 continuation or second copy of its instructions is required.
 
 The host must enter a compatible interpreter sharing the same CPU, guest and
 machine memories. It must attempt the current instruction before ordinary dispatch,
 so it cannot immediately select the same failing JIT entry. Guest faults and
-unsupported instructions retain their usual exits. A failed optimization guard
-is neither of those exits.
+unsupported instructions retain their usual exits. A failed guard is neither of
+those exits.
 
 An embedding can bind this import directly to an instance's `step` or `run` export.
 `step` resumes normal dispatch after one instruction; `run` continues to its own
@@ -722,19 +723,25 @@ The selected profile must remain valid until a terminal segment load commits its
 cache. Only state publication and dispatch follow that commit; the next entry
 must be admitted against the new state.
 
-Snapshot blocks have an additional requirement: every compiled instruction's full
-fetch span must fit executable CS, and its bytes must match readable guest memory
-at CS.base + its EIP, with 32-bit linear wrapping. The byte-only compiler cannot
-establish this, and generated blocks do not repeat instruction-fetch checks.
-Bytes after the compilation boundary are irrelevant. Profile compatibility alone
-does not establish snapshot validity.
+Snapshot blocks check their complete compiled fetch span against current CS at
+entry, before any instruction effects. This includes the last byte of the final
+compiled instruction; bytes after the compilation boundary are irrelevant. A failed
+check tail-calls `wasm86.interpret` at the block's starting EIP without retiring any
+instructions. The interpreter executes any valid prefix and reports the first
+architectural fault, which may precede the invalid CS fetch. Checks proved by the
+profile fold away. This guard needs no observed CPU snapshot and accepts any CS
+permissions and limit that allow the span.
+
+The host must still ensure that snapshot bytes match readable guest memory at
+CS.base + each instruction's EIP, with 32-bit offset and linear wrapping. The guard
+does not check code bytes or mappings, nor establish profile compatibility.
 
 The host must preserve validity during execution and revalidate or invalidate
 affected entries and links when relevant CS state, code bytes or mappings change.
 An instruction changing a relied-upon assumption must end the block. There is no
-code cache or automatic invalidation in these libraries. A checked snapshot
-producer stops before an invalid fetch, executes any valid instruction prefix,
-then handles the fault, for example by entering the interpreter at the failing EIP.
+code cache or automatic invalidation in these libraries. A snapshot producer that
+cannot read a complete instruction can stop at the valid prefix and enter the
+interpreter at the next EIP to handle the fetch precisely.
 
 Protected-mode execution may reuse successful data-access checks while mappings
 remain stable. Each access still checks its segment and transfers current guest

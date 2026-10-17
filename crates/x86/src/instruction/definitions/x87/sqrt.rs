@@ -21,9 +21,9 @@ fn square_root(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildErro
     let operand = Operand::new(&top.value);
     let precision = execution.x87().precision()?;
     let rounding = execution.x87().rounding()?;
-    let specialized = execution.specialize(|execution| {
+    let guarded_result = execution.if_can_fallback(|execution| {
         let controls = execution.specialize_x87(X87Specialization::Arithmetic)?;
-        execution.specialize_x87_operands(
+        execution.guard_x87_operands(
             &mut empty,
             operand.normal_or_zero().and(
                 top.value
@@ -37,7 +37,7 @@ fn square_root(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildErro
         })?;
         Ok(ArithmeticResult::from_rounding(rounded))
     })?;
-    let result = match specialized {
+    let result = match guarded_result {
         Some(result) => result,
         None => execution.calculate(|body| operand.square_root(body, precision, &rounding))?,
     };

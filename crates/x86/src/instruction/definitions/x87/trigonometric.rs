@@ -54,7 +54,7 @@ fn trigonometric(
     let rounding = execution.x87().rounding()?;
     execution.specialize_x87(X87Specialization::Rounding)?;
     let mut outside = operand.trigonometric_out_of_range();
-    if execution.specialize_x87_operands(
+    if execution.guard_x87_operands(
         &mut fault,
         operand.normal_or_zero().and(operand.trigonometric_domain()),
     )? {
@@ -113,7 +113,7 @@ fn write_trigonometric_results<const N: usize>(
     c2: Val<I1>,
     destination: result::Destination,
 ) -> Result<(), BuildError> {
-    execution.specialize(|execution| {
+    execution.if_can_fallback(|execution| {
         for result in &mut results {
             *result = execution.admit_x87_candidate(result.in_range.clone())?;
         }

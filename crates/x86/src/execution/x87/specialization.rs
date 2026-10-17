@@ -29,14 +29,14 @@ impl ExecutionBuilder<'_, '_> {
         specialization: X87Specialization,
     ) -> Result<X87ControlFacts, BuildError> {
         Ok(self
-            .specialize(|jit| {
+            .if_can_fallback(|jit| {
                 let Some(observed) = jit.observed_cpu else {
                     return Ok(X87ControlFacts::default());
                 };
                 let condition = jit
                     .x87()
                     .specialization_condition(&observed.x87, specialization)?;
-                jit.specialize_on(condition)?;
+                jit.guard(condition)?;
                 Ok(X87ControlFacts {
                     nearest_53: matches!(specialization, X87Specialization::Arithmetic)
                         && observed.x87.control.precision_control & 3 == 2
@@ -47,41 +47,41 @@ impl ExecutionBuilder<'_, '_> {
     }
 
     /// Keeps the source policy with the load and owns the shared push-slot check.
-    pub(crate) fn specialize_x87_push(
+    pub(crate) fn guard_x87_push(
         &mut self,
         source_valid: impl Into<Val<I1>>,
     ) -> Result<(), BuildError> {
-        self.specialize(|jit| {
+        self.if_can_fallback(|jit| {
             let available = jit.x87().push_available()?;
-            jit.specialize_on(source_valid.into().and(available))
+            jit.guard(source_valid.into().and(available))
         })?;
         Ok(())
     }
 
     /// Admits the instruction's operand domain and excludes stack faults.
-    /// Only a specializing continuation can discard stack-fault evidence.
-    /// The return value says whether this compilation path was specialized.
-    pub(crate) fn specialize_x87_operands(
+    /// A successful guard lets the continuing path discard stack-fault evidence.
+    /// Returns whether guards were built; paths without fallback retain the evidence.
+    pub(crate) fn guard_x87_operands(
         &mut self,
         stack_fault: &mut Val<I1>,
         operands_valid: impl Into<Val<I1>>,
     ) -> Result<bool, BuildError> {
         Ok(self
-            .specialize(|jit| {
-                jit.specialize_on(stack_fault.eq(false).and(operands_valid))?;
+            .if_can_fallback(|jit| {
+                jit.guard(stack_fault.eq(false).and(operands_valid))?;
                 *stack_fault = false.into();
                 Ok(())
             })?
             .is_some())
     }
 
-    /// Requires an already-specializing path with admitted operands. A candidate
+    /// Requires interpreter fallback and guarded operands. A candidate
     /// proves only its numerical range; after guarding it, only rounding remains.
     pub(crate) fn admit_x87_candidate(
         &mut self,
         candidate: ArithmeticCandidate,
     ) -> Result<ArithmeticResult, BuildError> {
-        self.specialize_on(&candidate.valid)?;
+        self.guard(&candidate.valid)?;
         Ok(ArithmeticResult::from_rounding(candidate.rounded))
     }
 }

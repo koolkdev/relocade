@@ -120,7 +120,7 @@ where
         let initial_indices = read_indices(execution, indices)?;
         let resolved = execution.resolve_strings::<T, N>(&operands, &count)?;
         if let Some(resolved) = &resolved {
-            execution.specialize(|jit| jit.specialize_on(&resolved.available))?;
+            execution.if_can_fallback(|jit| jit.guard(&resolved.available))?;
         }
         Ok(Self {
             count,

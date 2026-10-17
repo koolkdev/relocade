@@ -18,12 +18,12 @@ fn exponential_minus_one(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(),
     let operand = Operand::new(&top.value);
     let rounding = execution.x87().rounding()?;
     execution.specialize_x87(X87Specialization::Rounding)?;
-    execution.specialize_x87_operands(
+    execution.guard_x87_operands(
         &mut empty,
         operand.normal_or_zero().and(operand.exponential_domain()),
     )?;
     let mut result = execution.calculate(|body| operand.exponential_minus_one(body, &rounding))?;
-    execution.specialize(|execution| {
+    execution.if_can_fallback(|execution| {
         result = execution.admit_x87_candidate(result.in_range.clone())?;
         Ok(())
     })?;

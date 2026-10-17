@@ -18,13 +18,13 @@ fn scale(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
     let mut empty = left.is_empty().or(right.is_empty());
     let operands = BinaryOperands::new(&left.value, &right.value);
     let rounding = execution.x87().rounding()?;
-    let specialized = execution.specialize(|execution| {
+    let guarded_result = execution.if_can_fallback(|execution| {
         // An in-range scale is exact and independent of both PC and RC.
-        execution.specialize_x87_operands(&mut empty, operands.normal_or_zero())?;
+        execution.guard_x87_operands(&mut empty, operands.normal_or_zero())?;
         let candidate = operands.scale(&rounding).in_range;
         execution.admit_x87_candidate(candidate)
     })?;
-    let result = match specialized {
+    let result = match guarded_result {
         Some(result) => result,
         None => operands.scale(&rounding),
     };

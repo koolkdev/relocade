@@ -32,13 +32,13 @@ fn logarithm_product(
     } = execution.read_x87_operands(1.into(), X87Operand::Register(0.into()))?;
     let rounding = execution.x87().rounding()?;
     execution.specialize_x87(X87Specialization::Rounding)?;
-    execution.specialize_x87_operands(
+    execution.guard_x87_operands(
         &mut stack_fault,
         operands.logarithm_operands_valid(argument),
     )?;
     let mut result =
         execution.calculate(|body| operands.logarithm_product(body, argument, &rounding))?;
-    execution.specialize(|execution| {
+    execution.if_can_fallback(|execution| {
         result = execution.admit_x87_candidate(result.in_range.clone())?;
         Ok(())
     })?;

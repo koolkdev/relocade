@@ -1,4 +1,4 @@
-//! Control transfers validate their destination before publishing instruction effects.
+//! Code fetch and control transfers check CS before instruction effects.
 
 mod far;
 
@@ -11,6 +11,26 @@ use crate::{exception::Exception, memory::Intent, segment::Segment};
 use super::ExecutionBuilder;
 
 impl ExecutionBuilder<'_, '_> {
+    /// Checks a snapshot block's complete encoding before any guest effects.
+    /// The interpreter handles a denied span to preserve prefix execution and
+    /// fault order, including faults earlier than the first invalid CS offset.
+    pub(crate) fn guard_fetch_span(&mut self, bytes: usize) -> Result<(), BuildError> {
+        let Ok(bytes) = u32::try_from(bytes) else {
+            return self.guard(false);
+        };
+        let check = self.segments.check(
+            &mut self.body,
+            &Segment::Cs.into(),
+            &self.eip,
+            bytes,
+            Intent::Fetch,
+        )?;
+        if let Some(denied) = check.denied {
+            self.guard(denied.eq(false))?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn jump(&mut self, target: Val<I32>) -> Result<Val<I32>, BuildError> {
         self.check_code_target(&target, None)?;
         Ok(target)

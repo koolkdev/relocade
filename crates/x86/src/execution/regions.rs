@@ -55,7 +55,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             completed,
             // A child can contain partial effects of the current instruction,
             // so it cannot restart that instruction from its entry state.
-            can_specialize: false,
+            can_fallback: false,
             observed_cpu: None,
         }
     }

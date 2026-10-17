@@ -28,14 +28,14 @@ fn remainder(
     let right = execution.x87().read_stack(1)?;
     let mut empty = left.is_empty().or(right.is_empty());
     let operands = BinaryOperands::new(&left.value, &right.value);
-    execution.specialize_x87_operands(
+    execution.guard_x87_operands(
         &mut empty,
         operands
             .normal_or_zero()
             .and(right.value.classification().zero().eq(false)),
     )?;
     let mut remainder = execution.calculate(|body| operands.remainder(body, rounding))?;
-    execution.specialize(|execution| {
+    execution.if_can_fallback(|execution| {
         remainder.arithmetic =
             execution.admit_x87_candidate(remainder.arithmetic.in_range.clone())?;
         Ok(())

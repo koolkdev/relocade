@@ -17,7 +17,7 @@ where
 {
     let controls = execution.simd_arithmetic_controls()?;
     scalar_binary::<T>(execution, destination, source, |execution, left, right| {
-        let specialized = execution.specialize(|execution| {
+        let guarded_result = execution.if_can_fallback(|execution| {
             let candidate = arithmetic_candidate::<T>(
                 &controls,
                 Val::<V128>::splat(left.clone()),
@@ -26,7 +26,7 @@ where
             );
             execution.admit_simd_candidate(candidate)
         })?;
-        match specialized {
+        match guarded_result {
             Some(result) => Ok(FloatResult {
                 value: result.value.extract_lane::<T>(0),
                 exceptions: result.exceptions,
@@ -50,12 +50,12 @@ where
 {
     let controls = execution.simd_arithmetic_controls()?;
     packed_binary(execution, destination, source, |execution, left, right| {
-        let specialized = execution.specialize(|execution| {
+        let guarded_result = execution.if_can_fallback(|execution| {
             let candidate =
                 arithmetic_candidate::<T>(&controls, left.clone(), right.clone(), operation);
             execution.admit_simd_candidate(candidate)
         })?;
-        match specialized {
+        match guarded_result {
             Some(result) => Ok(result),
             None => packed_lanes::<T>(execution, left, right, |body, left, right| {
                 ArithmeticOperands::new(left, right, controls.denormals_are_zero())
@@ -75,12 +75,12 @@ where
 {
     let controls = execution.simd_arithmetic_controls()?;
     scalar_binary::<T>(execution, destination, source, |execution, _, right| {
-        let specialized = execution.specialize(|execution| {
+        let guarded_result = execution.if_can_fallback(|execution| {
             let candidate =
                 square_root_candidate::<T>(&controls, Val::<V128>::splat(right.clone()));
             execution.admit_simd_candidate(candidate)
         })?;
-        match specialized {
+        match guarded_result {
             Some(result) => Ok(FloatResult {
                 value: result.value.extract_lane::<T>(0),
                 exceptions: result.exceptions,
@@ -102,11 +102,11 @@ where
 {
     let controls = execution.simd_arithmetic_controls()?;
     packed_binary(execution, destination, source, |execution, left, right| {
-        let specialized = execution.specialize(|execution| {
+        let guarded_result = execution.if_can_fallback(|execution| {
             let candidate = square_root_candidate::<T>(&controls, right.clone());
             execution.admit_simd_candidate(candidate)
         })?;
-        match specialized {
+        match guarded_result {
             Some(result) => Ok(result),
             None => packed_lanes::<T>(execution, left, right, |body, _, right| {
                 FloatOperand::new(right, controls.denormals_are_zero()).square_root(body, &controls)

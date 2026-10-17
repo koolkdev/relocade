@@ -173,7 +173,7 @@ fn compare(
         memory,
     } = execution.read_x87_operands(0.into(), source)?;
     let mut result = values.compare(kind);
-    execution.specialize_without([&mut stack_fault, &mut result.invalid, &mut result.denormal])?;
+    execution.guard_and_clear([&mut stack_fault, &mut result.invalid, &mut result.denormal])?;
     execution.record_x87_operand(memory.as_ref())?;
 
     // Empty stack entries override numerical responses, including a
