@@ -1,5 +1,5 @@
 use super::machine;
-use wasm86_x86::{Exception, ExecutionExit};
+use wasm86_x86::{Exception, ExecutionExit, Segment, StoredSegment};
 
 #[pollster::test]
 async fn persistent_state_and_independent_machines() {
@@ -8,6 +8,9 @@ async fn persistent_state_and_independent_machines() {
     assert_eq!(first.run(1).unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(first.cpu().registers.eax, 0x1235);
     assert_eq!(first.cpu().instruction_count, 4);
+    let mut bytes = [0; 2];
+    first.read_memory(0x200, &mut bytes).unwrap();
+    assert_eq!(bytes, [0x34, 0x12]);
     assert_eq!(second.cpu().registers.eax, 0);
     assert_eq!(second.cpu().instruction_count, 0);
     let before = first.cpu();
@@ -39,6 +42,36 @@ async fn unsupported_instruction_is_distinct_from_an_architectural_exception() {
     );
     assert_eq!(machine.cpu().eip, 0x100);
     assert_eq!(machine.cpu().instruction_count, 0);
+}
+
+#[pollster::test]
+async fn interrupt_handler_returns_through_the_saved_frame() {
+    let mut machine = machine(&[]).await;
+    let mut cpu = machine.cpu();
+    cpu.segments.cs = StoredSegment::real_mode(Segment::Cs, 0x1000);
+    cpu.flags.bytes.if_ = 1;
+    machine.set_cpu(cpu).unwrap();
+    machine.write_memory(0x10100, &[0xcd, 0x21, 0x90]).unwrap();
+    machine.write_memory(0x84, &[0x10, 0, 0x34, 0x12]).unwrap();
+    machine
+        .write_memory(0x12350, &[0xb8, 0xef, 0xbe, 0xcf])
+        .unwrap();
+    assert_eq!(machine.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(machine.cpu().segments.cs.selector, 0x1234);
+    assert_eq!(machine.cpu().eip, 0x10);
+    assert_eq!(machine.cpu().registers.esp, 0xfefa);
+    let mut frame = [0; 6];
+    machine.read_memory(0xfefa, &mut frame).unwrap();
+    assert_eq!(frame, [2, 1, 0, 0x10, 2, 2]);
+    // A host service can return CF through the saved FLAGS without decoding lazy flags.
+    machine.write_memory(0xfefe, &[3, 2]).unwrap();
+    assert_eq!(machine.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    let cpu = machine.cpu();
+    assert_eq!((cpu.segments.cs.selector, cpu.eip), (0x1000, 0x102));
+    assert_eq!(cpu.registers.esp, 0xff00);
+    assert_eq!(cpu.registers.eax, 0xbeef);
+    assert_eq!(cpu.flags.bytes.cf & 1, 1);
+    assert_eq!(cpu.flags.bytes.if_ & 1, 1);
 }
 
 #[pollster::test]
