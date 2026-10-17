@@ -1,73 +1,95 @@
-//! Lazy segment fields initialized by the execution profile.
+//! Reads of segment fields that remain fixed until the entry dispatches.
 
 use std::mem::size_of;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I16};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, ValueType, I1, I16, I32};
 
 use crate::{
-    segment::{Segment, SegmentSelection, SegmentValues},
-    ssa::StateFields,
+    segment::{Segment, SegmentSelection},
     ExecutionProfile, SegmentDefaultSize, SegmentProfile,
 };
 
-use super::{
-    access::{cpu_load, segment_location},
-    Cpu, StoredSegment,
-};
+use super::{access::cpu_load, Cpu, StoredSegment};
 
-/// Retained fields agree with backing memory: segment writes commit immediately
-/// and discard this cache. Cloning forks lazy reads for a descendant path.
+/// Segment loads commit at the end of an entry. Cloning these read caches keeps
+/// child-scoped loads local to their branch; inherited values remain reusable.
 #[derive(Clone)]
-pub(crate) struct SegmentState<'cpu> {
+pub(crate) struct SegmentReads<'cpu> {
     cpu: &'cpu Cpu,
     profile: ExecutionProfile,
-    fields: StateFields,
+    cached: [Option<SegmentReadCache>; 6],
 }
 
-impl<'cpu> SegmentState<'cpu> {
-    /// Known fields are seeded as constants; construction emits no backing reads.
-    pub(crate) fn new(cpu: &'cpu Cpu, profile: ExecutionProfile) -> Self {
-        let mut fields = StateFields::new(cpu.memory());
-        for segment in Segment::ALL {
-            match profile {
-                ExecutionProfile::Real16 => {
-                    fields.assume(segment_location!(segment, limit), 0xffffu32);
-                    fields.assume(segment_location!(segment, big), 0);
-                }
-                ExecutionProfile::Protected(SegmentProfile::Flat32)
-                    if matches!(
-                        segment,
-                        Segment::Cs | Segment::Ds | Segment::Es | Segment::Ss
-                    ) =>
-                {
-                    fields.assume(segment_location!(segment, base), 0);
-                    fields.assume(segment_location!(segment, limit), u32::MAX);
-                }
-                ExecutionProfile::Protected(_) => continue,
+#[derive(Clone, Default)]
+struct SegmentReadCache {
+    base: Option<Val<I32>>,
+    limit: Option<Val<I32>>,
+    selector: Option<Val<I16>>,
+    usable: Option<Val<I1>>,
+    readable: Option<Val<I1>>,
+    writable: Option<Val<I1>>,
+    executable: Option<Val<I1>>,
+    expand_down: Option<Val<I1>>,
+    big: Option<Val<I1>>,
+}
+
+impl SegmentReadCache {
+    fn new(profile: ExecutionProfile, segment: Segment) -> Self {
+        let mut cache = Self::default();
+        match profile {
+            ExecutionProfile::Real16 => {
+                cache.limit = Some(0xffffu32.into());
+                cache.big = Some(false.into());
             }
-            fields.assume(segment_location!(segment, usable), 1);
-            fields.assume(segment_location!(segment, readable), 1);
-            fields.assume(
-                segment_location!(segment, writable),
-                u32::from(segment != Segment::Cs),
-            );
-            fields.assume(
-                segment_location!(segment, executable),
-                u32::from(segment == Segment::Cs),
-            );
-            fields.assume(segment_location!(segment, expand_down), 0);
+            ExecutionProfile::Protected(SegmentProfile::Flat32)
+                if matches!(
+                    segment,
+                    Segment::Cs | Segment::Ds | Segment::Es | Segment::Ss
+                ) =>
+            {
+                cache.base = Some(0.into());
+                cache.limit = Some(u32::MAX.into());
+                cache.usable = Some(true.into());
+                cache.readable = Some(true.into());
+                cache.writable = Some((segment != Segment::Cs).into());
+                cache.executable = Some((segment == Segment::Cs).into());
+                cache.expand_down = Some(false.into());
+                if segment == Segment::Ss {
+                    cache.big = Some(true.into());
+                }
+            }
+            ExecutionProfile::Protected(_) => {}
         }
-        fields.assume(
-            segment_location!(Segment::Cs, big),
-            u32::from(profile.code_default_size() == SegmentDefaultSize::Bits32),
-        );
-        if profile == ExecutionProfile::Protected(SegmentProfile::Flat32) {
-            fields.assume(segment_location!(Segment::Ss, big), 1);
+        if segment == Segment::Cs {
+            cache.big = Some((profile.code_default_size() == SegmentDefaultSize::Bits32).into());
         }
+        cache
+    }
+}
+
+macro_rules! read_field {
+    ($name:ident, $field:ident, $ty:ty $(, $convert:ident($argument:expr))?) => {
+        pub(crate) fn $name(
+            &mut self,
+            body: &mut BlockBuilder<'_>,
+            segment: &SegmentSelection,
+        ) -> Result<Val<$ty>, BuildError> {
+            let memory = self.cpu.memory();
+            self.read_field(body, segment, |cache| &mut cache.$field, |body, index| {
+                let value = cpu_load!(body, memory, segments.es.$field,
+                    at: index.mul(size_of::<StoredSegment>() as u32))?;
+                Ok(value$(.$convert($argument))?)
+            })
+        }
+    };
+}
+
+impl<'cpu> SegmentReads<'cpu> {
+    pub(crate) fn new(cpu: &'cpu Cpu, profile: ExecutionProfile) -> Self {
         Self {
             cpu,
             profile,
-            fields,
+            cached: std::array::from_fn(|_| None),
         }
     }
 
@@ -75,67 +97,53 @@ impl<'cpu> SegmentState<'cpu> {
         self.profile
     }
 
-    pub(crate) fn read(
+    fn cache(&mut self, segment: Segment) -> &mut SegmentReadCache {
+        self.cached[segment as usize]
+            .get_or_insert_with(|| SegmentReadCache::new(self.profile, segment))
+    }
+
+    fn read_field<T: ValueType>(
         &mut self,
         body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
-    ) -> Result<SegmentValues, BuildError> {
+        field: impl Fn(&mut SegmentReadCache) -> &mut Option<Val<T>>,
+        load: impl FnOnce(&mut BlockBuilder<'_>, Val<I32>) -> Result<Val<T>, BuildError>,
+    ) -> Result<Val<T>, BuildError> {
         let index = segment.index();
-        let fixed_index = body.constant_bits(&index)?;
-        let displacement = index.mul(size_of::<StoredSegment>() as u32);
-        macro_rules! field {
-            ($field:ident) => {{
-                match fixed_index {
-                    Some(index) => self.fields.read(body, segment_location!(index, $field))?,
-                    None => {
-                        let common = self.fields.common_value(
-                            segment
-                                .possible_segments()
-                                .map(|segment| segment_location!(segment, $field)),
-                        );
-                        match common {
-                            Some(value) => body.value(value)?,
-                            None => cpu_load!(
-                                body, self.cpu.memory(), segments.es.$field,
-                                at: &displacement
-                            )?,
-                        }
-                    }
-                }
-            }};
+        if let Some(index) = body.constant_bits(&index)? {
+            let field = field(self.cache(Segment::ALL[index as usize]));
+            if let Some(value) = field {
+                return Ok(value.clone());
+            }
+            let value = load(body, (index as u32).into())?;
+            *field = Some(value.clone());
+            return Ok(value);
         }
-        Ok(SegmentValues {
-            base: field!(base),
-            limit: field!(limit),
-            selector: field!(selector),
-            usable: field!(usable).ne(0),
-            readable: field!(readable).ne(0),
-            writable: field!(writable).ne(0),
-            executable: field!(executable).ne(0),
-            expand_down: field!(expand_down).ne(0),
-            big: field!(big).ne(0),
-        })
+
+        // A dynamic DS/SS choice can still have a common profile constant.
+        // A missing or differing value requires one load of the selected field.
+        let mut candidates = segment.possible_segments();
+        let first =
+            field(self.cache(candidates.next().expect("nonempty segment selection"))).clone();
+        if let Some(value) = first {
+            if candidates.all(|candidate| {
+                field(self.cache(candidate))
+                    .as_ref()
+                    .is_some_and(|other| value.same_expression(other))
+            }) {
+                return Ok(value);
+            }
+        }
+        load(body, index)
     }
 
-    /// The visible selector remains readable when the loaded cache is unusable.
-    pub(crate) fn read_selector(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        segment: &SegmentSelection,
-    ) -> Result<Val<I16>, BuildError> {
-        Ok(self.read(body, segment)?.selector)
-    }
-
-    /// Commits a resolved cache after all instruction guards. Only completion
-    /// and dispatch may follow when this breaks the entry's profile assumptions.
-    pub(crate) fn write(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        segment: &SegmentSelection,
-        values: &SegmentValues,
-    ) -> Result<(), BuildError> {
-        self.cpu.write_segment(body, segment, values)?;
-        self.fields = StateFields::new(self.cpu.memory());
-        Ok(())
-    }
+    read_field!(base, base, I32);
+    read_field!(limit, limit, I32);
+    read_field!(read_selector, selector, I16);
+    read_field!(usable, usable, I1, ne(0));
+    read_field!(readable, readable, I1, ne(0));
+    read_field!(writable, writable, I1, ne(0));
+    read_field!(executable, executable, I1, ne(0));
+    read_field!(expand_down, expand_down, I1, ne(0));
+    read_field!(big, big, I1, ne(0));
 }

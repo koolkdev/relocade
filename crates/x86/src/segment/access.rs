@@ -2,9 +2,9 @@
 
 use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
-use crate::{exception::Exception, memory::Intent, state::SegmentState, ExecutionProfile};
+use crate::{exception::Exception, memory::Intent, state::SegmentReads, ExecutionProfile};
 
-use super::{Segment, SegmentSelection, SegmentValues};
+use super::{Segment, SegmentSelection};
 
 #[cfg(test)]
 mod tests;
@@ -15,16 +15,7 @@ pub(crate) struct SegmentCheck {
     pub(crate) denied: Option<Val<I1>>,
 }
 
-impl SegmentState<'_> {
-    /// Returns the D/B bit, using the profile when it proves the attribute.
-    pub(crate) fn is_segment_big(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        segment: Segment,
-    ) -> Result<Val<I1>, BuildError> {
-        Ok(self.read(body, &segment.into())?.big)
-    }
-
+impl SegmentReads<'_> {
     /// The entry's profile must remain compatible until a terminal segment load.
     /// Known flat data segments need no cache reads or segment guards.
     /// Unknown indices use the complete checked path.
@@ -83,7 +74,7 @@ impl SegmentState<'_> {
             Some(0),
             "a segment span must be nonempty"
         );
-        let cache = self.read(body, segment)?;
+        let base = self.base(body, segment)?;
         let denied = match self.profile() {
             ExecutionProfile::Real16 => {
                 // Canonical real-mode limits apply without protected-mode type permissions.
@@ -92,41 +83,58 @@ impl SegmentState<'_> {
                     .ge(0x10001u32)
                     .or(offset.unsigned().ge(Val::<I32>::from(0x10001).sub(&bytes)))
             }
-            ExecutionProfile::Protected(_) => cache.access_denied(offset, &bytes, intent),
+            ExecutionProfile::Protected(_) => {
+                self.access_denied(body, segment, offset, &bytes, intent)?
+            }
         };
         Ok(SegmentCheck {
-            linear: cache.base.add(offset),
+            linear: base.add(offset),
             denied: (body.constant_bits(&denied)? != Some(0)).then_some(denied),
         })
     }
-}
 
-impl SegmentValues {
-    fn access_denied(&self, offset: &Val<I32>, bytes: &Val<I32>, intent: Intent) -> Val<I1> {
+    fn access_denied(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        segment: &SegmentSelection,
+        offset: &Val<I32>,
+        bytes: &Val<I32>,
+        intent: Intent,
+    ) -> Result<Val<I1>, BuildError> {
+        let usable = self.usable(body, segment)?;
         let permitted = match intent {
-            Intent::Read => self.readable.clone(),
-            Intent::ReadOrExecute => self.readable.or(&self.executable),
-            Intent::Write => self.writable.clone(),
-            Intent::Fetch => self.executable.clone(),
+            Intent::Read => self.readable(body, segment)?,
+            Intent::ReadOrExecute => self
+                .readable(body, segment)?
+                .or(self.executable(body, segment)?),
+            Intent::Write => self.writable(body, segment)?,
+            Intent::Fetch => self.executable(body, segment)?,
         };
+        let permitted = usable.and(permitted);
+        let limit = self.limit(body, segment)?;
+        let expand_down = self.expand_down(body, segment)?;
+        // A known full-size expand-up segment has no offset restriction. Avoid
+        // constructing range expressions or reading its unused D/B field.
+        if body.constant_bits(&expand_down)? == Some(0)
+            && body.constant_bits(&limit)? == Some(u64::from(u32::MAX))
+        {
+            return Ok(permitted.eq(false));
+        }
         let last = offset.add(bytes.sub(1));
         let no_wrap = last.unsigned().ge(offset);
         // Full-size expand-up segments permit wrapping offsets in this emulator.
         // Finite limits must cover every byte without offset arithmetic wrapping.
-        let expand_up = self
-            .limit
+        let expand_up = limit
             .eq(u32::MAX)
-            .or(no_wrap.and(self.limit.unsigned().ge(&last)));
-        let upper = self.big.select(u32::MAX, 0xffffu32);
-        let expand_down = self
-            .limit
+            .or(no_wrap.and(limit.unsigned().ge(&last)));
+        let upper = self.big(body, segment)?.select(u32::MAX, 0xffffu32);
+        let down_range = limit
             .unsigned()
             .lt(offset)
             .and(&no_wrap)
             .and(upper.unsigned().ge(&last));
-        self.usable
-            .and(permitted)
-            .and(self.expand_down.select(expand_down, expand_up))
-            .eq(0)
+        Ok(permitted
+            .and(expand_down.select(down_range, expand_up))
+            .eq(0))
     }
 }

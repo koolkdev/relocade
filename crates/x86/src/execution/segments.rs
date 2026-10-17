@@ -20,11 +20,11 @@ impl ResolvedSegment {
     }
 
     /// Installs the selector and cache after all instruction guards. Only
-    /// completion and dispatch may follow if this breaks the entry's segment assumptions.
+    /// completion and dispatch may follow.
     pub(crate) fn commit(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
         execution
-            .segments
-            .write(&mut execution.body, &self.segment.into(), &self.values)
+            .state
+            .write_segment(&mut execution.body, &self.segment.into(), &self.values)
     }
 }
 

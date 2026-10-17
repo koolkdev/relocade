@@ -19,7 +19,7 @@ pub use layout::{
 };
 #[cfg(test)]
 pub(crate) use observation::compile_flag_observer;
-pub(crate) use segments::SegmentState;
+pub(crate) use segments::SegmentReads;
 pub(crate) use simd::Mxcsr;
 pub(crate) use x87::X87Access;
 
@@ -30,6 +30,7 @@ use crate::{
     exception::Exception,
     flags::{Condition, Flag, FlagChange},
     register::{Register, RegisterType},
+    segment::{SegmentSelection, SegmentValues},
     ssa::StateFields,
 };
 
@@ -51,6 +52,17 @@ impl<'cpu> State<'cpu> {
             flags: flags::FlagState::new(cpu.memory()),
             x87: x87::X87State::new(cpu.memory()),
         }
+    }
+
+    /// Installs a segment after all instruction checks. Only publication and
+    /// dispatch may follow; segment reads belong to the entry's old state.
+    pub(crate) fn write_segment(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        segment: &SegmentSelection,
+        values: &SegmentValues,
+    ) -> Result<(), BuildError> {
+        self.cpu.write_segment(body, segment, values)
     }
 
     pub(super) fn read_register<T: RegisterType>(

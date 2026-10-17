@@ -5,7 +5,7 @@ use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 use crate::{
     memory::{Intent, Memory, PageCache},
     segment::Segment,
-    state::{exit, Cpu, SegmentState},
+    state::{exit, Cpu, SegmentReads},
     ExecutionProfile,
 };
 
@@ -20,7 +20,7 @@ pub(crate) struct FetchWindow {
 pub(crate) struct InstructionFetch<'module> {
     pub(super) memory: &'module Memory,
     cpu: &'module Cpu,
-    segments: SegmentState<'module>,
+    segments: SegmentReads<'module>,
 }
 
 impl<'module> InstructionFetch<'module> {
@@ -32,7 +32,7 @@ impl<'module> InstructionFetch<'module> {
         Self {
             memory,
             cpu,
-            segments: SegmentState::new(cpu, profile),
+            segments: SegmentReads::new(cpu, profile),
         }
     }
 

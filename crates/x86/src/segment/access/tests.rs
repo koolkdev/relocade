@@ -1,4 +1,4 @@
-use crate::state::SegmentState;
+use crate::state::SegmentReads;
 use crate::{
     memory::Intent,
     segment::{Segment, SegmentSelection},
@@ -25,7 +25,7 @@ fn translation(
                 results: vec![Type::I64],
             },
             |mut body| {
-                let mut access = SegmentState::new(&cpu, profile);
+                let mut access = SegmentReads::new(&cpu, profile);
                 let choice = body.parameter::<I32>(0)?;
                 let offset = body.parameter::<I32>(1)?;
                 let linear = match selection {
@@ -150,22 +150,21 @@ fn unknown_indices_generate_only_the_raw_cache_reads() {
                     ],
                 },
                 |mut body| {
-                    let mut access = SegmentState::new(&cpu, SegmentProfile::Flat32.into());
+                    let mut access = SegmentReads::new(&cpu, SegmentProfile::Flat32.into());
                     let index = SegmentSelection::indexed(body.parameter::<I32>(0)?);
-                    let cache = access.read(&mut body, &index)?;
-                    body.return_((
-                        cache.base,
-                        cache.limit,
-                        cache.selector,
-                        [
-                            cache.usable,
-                            cache.readable,
-                            cache.writable,
-                            cache.executable,
-                            cache.expand_down,
-                            cache.big,
-                        ],
-                    ))
+
+                    let base = access.base(&mut body, &index)?;
+                    let limit = access.limit(&mut body, &index)?;
+                    let selector = access.read_selector(&mut body, &index)?;
+                    let attributes = [
+                        access.usable(&mut body, &index)?,
+                        access.readable(&mut body, &index)?,
+                        access.writable(&mut body, &index)?,
+                        access.executable(&mut body, &index)?,
+                        access.expand_down(&mut body, &index)?,
+                        access.big(&mut body, &index)?,
+                    ];
+                    body.return_((base, limit, selector, attributes))
                 },
             )
             .unwrap();
@@ -204,15 +203,15 @@ fn nested_reads_reuse_previously_loaded_segment_fields() {
                 results: vec![Type::I32, Type::I32],
             },
             |mut body| {
-                let mut access = SegmentState::new(&cpu, ExecutionProfile::Real16);
-                let first = access.read(&mut body, &Segment::Ds.into())?.base;
+                let mut access = SegmentReads::new(&cpu, ExecutionProfile::Real16);
+                let first = access.base(&mut body, &Segment::Ds.into())?;
                 let condition = body.parameter::<I32>(0)?.eq(0);
                 body.if_(condition, |mut arm| {
                     let mut nested = access.clone();
-                    let second = nested.read(&mut arm, &Segment::Ds.into())?.base;
+                    let second = nested.base(&mut arm, &Segment::Ds.into())?;
                     arm.return_((&first, second.add(1)))
                 })?;
-                let second = access.read(&mut body, &Segment::Ds.into())?.base;
+                let second = access.base(&mut body, &Segment::Ds.into())?;
                 body.return_((first, second.add(2)))
             },
         )

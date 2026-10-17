@@ -91,16 +91,6 @@ macro_rules! cpu_location {
     };
 }
 
-macro_rules! segment_location {
-    ($segment:expr, $field:ident) => {
-        $crate::state::access::location(
-            ::std::mem::offset_of!($crate::state::ExecutionContext, cpu.segments.es.$field) as u32
-                + $segment as u32 * ::std::mem::size_of::<$crate::state::StoredSegment>() as u32,
-            |state: &$crate::state::CpuState| &state.segments.es.$field,
-        )
-    };
-}
-
 macro_rules! cpu_load {
     ($body:expr, $memory:expr, $($field:ident).+ $(,)?) => {
         $crate::state::access::cpu_load!($body, $memory, $($field).+, at: 0u32)
@@ -132,4 +122,4 @@ macro_rules! cpu_store {
     };
 }
 
-pub(in crate::state) use {cpu_load, cpu_location, cpu_store, segment_location};
+pub(in crate::state) use {cpu_load, cpu_location, cpu_store};
