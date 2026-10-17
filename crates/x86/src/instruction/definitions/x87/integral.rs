@@ -21,9 +21,9 @@ fn round_integral(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildE
     let operand = Operand::new(&top.value);
     let rounding = execution.x87().rounding()?;
     execution.specialize_x87(X87Specialization::Rounding)?;
-    let specialized = execution.specialize_x87_operands(&mut empty, operand.normal_or_zero())?;
+    let operands_guarded = execution.guard_x87_operands(&mut empty, operand.normal_or_zero())?;
     let result = operand.round_integral(&rounding);
-    let result = if specialized {
+    let result = if operands_guarded {
         // Integral rounding cannot overflow or underflow. Operand admission
         // therefore proves that only the candidate's precision response remains.
         ArithmeticResult::from_rounding(result.in_range.rounded)

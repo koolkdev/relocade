@@ -18,7 +18,7 @@ impl ExecutionBuilder<'_, '_> {
     /// guard establishes them. Architectural state reads remain unguarded.
     pub(crate) fn simd_controls(&mut self) -> Result<Mxcsr, BuildError> {
         let controls = self.read_mxcsr()?;
-        self.specialize(|jit| {
+        self.if_can_fallback(|jit| {
             if let Some(observed) = jit.observed_cpu {
                 jit.guard(controls.matches_controls(observed.simd.mxcsr))?;
             }
@@ -31,7 +31,7 @@ impl ExecutionBuilder<'_, '_> {
     /// nearest rounding; observed blocks already guard their recorded controls.
     pub(crate) fn simd_arithmetic_controls(&mut self) -> Result<Mxcsr, BuildError> {
         let controls = self.simd_controls()?;
-        self.specialize(|jit| {
+        self.if_can_fallback(|jit| {
             if jit.observed_cpu.is_none() {
                 jit.guard(controls.bits().and(0x6000).eq(0))?;
             }
@@ -40,7 +40,7 @@ impl ExecutionBuilder<'_, '_> {
         Ok(controls)
     }
 
-    /// Requires a specializing path. Guard the candidate's numerical domain
+    /// Requires interpreter fallback. Guard the candidate's numerical domain
     /// before publishing its result or precision effects.
     pub(crate) fn admit_simd_candidate(
         &mut self,
@@ -59,7 +59,7 @@ impl ExecutionBuilder<'_, '_> {
         // Operand and range exceptions are uncommon. Precision loss is common
         // in numerical operations, so keep its status and fault response compiled.
         let mut exceptions = exceptions.clone();
-        self.specialize_without([
+        self.guard_and_clear([
             &mut exceptions.invalid,
             &mut exceptions.denormal,
             &mut exceptions.zero_divide,

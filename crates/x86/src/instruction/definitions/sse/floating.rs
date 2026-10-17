@@ -42,7 +42,7 @@ pub(super) fn rounding_for_integer_source(
     })
 }
 
-/// Callers establish numerical controls and specialization before operand access.
+/// Callers establish numerical controls and their guards before operand access.
 /// Scalar calculations see only the active lane and preserve the other XMM bits.
 pub(super) fn scalar_binary<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,

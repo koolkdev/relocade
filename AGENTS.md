@@ -56,8 +56,8 @@ This is a public repository. Commit messages use `component: title`.
   Justify rarity from expected or measured workloads, measure the speed or code-size
   benefit, and test precise restart and interpreter correctness for excluded cases.
 - Use `guard` when a failed condition should restart the current instruction
-  in the interpreter. Build JIT-only guards and refinements through `specialize`,
-  or within an execution owner that already gates specialization. Guard before
+  in the interpreter. Build paths requiring fallback through `if_can_fallback`,
+  or within an execution owner that already requires that capability. Guard before
   current-instruction effects and apply refinements only on the continuing path.
   Use runtime branching when both outcomes belong in the JIT, such as choosing
   between fast and general calculations for common inputs. If compile-time facts

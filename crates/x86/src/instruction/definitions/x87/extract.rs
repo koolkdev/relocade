@@ -19,7 +19,7 @@ fn extract(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
     let full = execution.x87().push_full()?;
     let mut fault = empty.or(&full);
     let mut overflow = empty.eq(false).and(full);
-    if execution.specialize_x87_operands(&mut fault, value.classification().normal())? {
+    if execution.guard_x87_operands(&mut fault, value.classification().normal())? {
         value = value.assume_normal();
         overflow = false.into();
     }

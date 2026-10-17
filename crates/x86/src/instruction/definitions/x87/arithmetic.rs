@@ -278,9 +278,9 @@ fn arithmetic(
     } = execution.read_x87_operands(destination.clone(), source)?;
     let precision = execution.x87().precision()?;
     let rounding = execution.x87().rounding()?;
-    let specialized = execution.specialize(|execution| {
+    let guarded_result = execution.if_can_fallback(|execution| {
         let controls = execution.specialize_x87(X87Specialization::Arithmetic)?;
-        execution.specialize_x87_operands(&mut stack_fault, operands.precision_only(operation))?;
+        execution.guard_x87_operands(&mut stack_fault, operands.precision_only(operation))?;
         let candidate = execution.calculate(|body| {
             operands.rounding_candidate(
                 body,
@@ -292,7 +292,7 @@ fn arithmetic(
         })?;
         execution.admit_x87_candidate(candidate)
     })?;
-    let result = match specialized {
+    let result = match guarded_result {
         Some(result) => result,
         None => execution.calculate(|body| {
             Ok(operands

@@ -63,7 +63,7 @@ fn move_register(
     let source = execution.x87().read_stack(source.offset())?;
     let previous = execution.x87().read_stack(0)?;
     let mut stack_fault = previous.is_empty().or(source.is_empty());
-    execution.specialize_without([&mut stack_fault])?;
+    execution.guard_and_clear([&mut stack_fault])?;
     execution.record_x87_instruction()?;
 
     let mut x87 = execution.x87();

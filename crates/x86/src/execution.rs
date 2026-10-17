@@ -46,7 +46,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     runtime: Runtime,
     eip: Val<I32>,
     completed: u32,
-    can_specialize: bool,
+    can_fallback: bool,
     observed_cpu: Option<&'module CpuState>,
 }
 
@@ -73,14 +73,19 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             runtime,
             eip,
             completed: 0,
-            can_specialize: false,
+            can_fallback: false,
             observed_cpu: None,
         })
     }
 
-    /// Enables guarded optimizations and interpreter handoff for a compiled block.
-    pub(super) fn with_specialization(mut self, observed_cpu: Option<&'module CpuState>) -> Self {
-        self.can_specialize = true;
+    /// Allows guards to restart the current instruction in the interpreter.
+    pub(super) fn with_interpreter_fallback(mut self) -> Self {
+        self.can_fallback = true;
+        self
+    }
+
+    /// Supplies optional observed values for guarded specialization.
+    pub(super) fn with_observed_cpu(mut self, observed_cpu: Option<&'module CpuState>) -> Self {
         self.observed_cpu = observed_cpu;
         self
     }
@@ -105,27 +110,27 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         Ok(())
     }
 
-    /// Builds JIT guards, then refines local candidates for their continuation.
-    /// Runtime decoding and nested regions skip the callback and retain the
-    /// ordinary semantics. Keep current-instruction effects after this scope.
-    pub(crate) fn specialize<T>(
+    /// Builds a path that requires interpreter fallback, only where it is allowed.
+    /// Runtime decoding and nested regions skip the callback. This is a choice
+    /// during code generation; guards must still precede current-instruction effects.
+    pub(crate) fn if_can_fallback<T>(
         &mut self,
         build: impl FnOnce(&mut Self) -> Result<T, BuildError>,
     ) -> Result<Option<T>, BuildError> {
-        if self.can_specialize {
+        if self.can_fallback {
             build(self).map(Some)
         } else {
             Ok(None)
         }
     }
 
-    /// Excludes these conditions from compiled execution and clears their local
-    /// evidence only after the guard succeeds. Other execution paths retain it.
-    pub(crate) fn specialize_without<const N: usize>(
+    /// When fallback is enabled, guards that these conditions are false and
+    /// replaces them with false on the continuing path. Other paths retain them.
+    pub(crate) fn guard_and_clear<const N: usize>(
         &mut self,
         conditions: [&mut Val<I1>; N],
     ) -> Result<(), BuildError> {
-        self.specialize(|jit| {
+        self.if_can_fallback(|jit| {
             let excluded = conditions
                 .iter()
                 .fold(Val::<I1>::from(false), |excluded, condition| {
@@ -154,7 +159,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     /// Specialization may use the proven condition to refine subsequent values.
     pub(crate) fn guard(&mut self, condition: impl Into<Val<I1>>) -> Result<(), BuildError> {
         assert!(
-            self.can_specialize,
+            self.can_fallback,
             "this path does not permit interpreter handoff"
         );
         self.body.if_(condition.into().eq(false), |mut body| {

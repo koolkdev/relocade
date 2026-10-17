@@ -127,7 +127,8 @@ impl Compiler {
                     start_eip,
                     self.target,
                 )?
-                .with_specialization(self.observed_cpu.as_ref());
+                .with_interpreter_fallback()
+                .with_observed_cpu(self.observed_cpu.as_ref());
                 execution.guard_fetch_span(bytes.len() - remaining_bytes.len())?;
                 for decoded_instruction in decoded_instructions {
                     execution.execute(decoded_instruction)?;
