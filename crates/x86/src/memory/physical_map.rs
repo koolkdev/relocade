@@ -79,6 +79,21 @@ impl PhysicalMemoryMap {
     pub const A20_MASK_OFFSET: usize = Self::PAGE_COUNT * 8;
     pub const BYTE_LEN: usize = Self::A20_MASK_OFFSET + 4;
 
+    /// Minimum backing length, including RAM/ROM currently hidden by A20.
+    pub fn required_backing_bytes(&self) -> u64 {
+        self.pages
+            .iter()
+            .filter_map(|page| page.backing_offset())
+            .map(|offset| u64::from(offset) + u64::from(Self::PAGE_BYTES))
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Applies A20 before physical routing or an MMIO callback.
+    pub fn bus_address(&self, address: u32) -> u32 {
+        address & self.address_mask()
+    }
+
     /// Constructs a table from inclusive physical ranges. Empty input leaves all
     /// pages unmapped; later regions replace earlier overlapping regions.
     /// A20 starts disabled for DOS-compatible address wrapping.
@@ -143,7 +158,7 @@ impl PhysicalMemoryMap {
         if address >= Self::PAGE_COUNT as u32 * Self::PAGE_BYTES {
             return PhysicalMapping::Unmapped;
         }
-        let address = address & self.address_mask();
+        let address = self.bus_address(address);
         self.pages
             .get((address >> PAGE_SHIFT) as usize)
             .copied()
@@ -159,7 +174,7 @@ impl PhysicalMemoryMap {
     /// This format uses explicit fields, independent of Rust's enum layout.
     pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
         let mut bytes = [0; Self::BYTE_LEN];
-        for (entry, page) in bytes.chunks_exact_mut(8).zip(&self.pages) {
+        for (entry, page) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(&self.pages) {
             let (kind, backing): (u32, u32) = match *page {
                 PhysicalMapping::Unmapped => (UNMAPPED, 0),
                 PhysicalMapping::Ram { backing_offset } => (RAM, backing_offset),
