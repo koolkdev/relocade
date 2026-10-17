@@ -53,3 +53,57 @@ pub trait Instance<D: Environment> {
         access: impl FnOnce(&mut Imports<D>, &mut dyn GuestMemory) -> R,
     ) -> R;
 }
+
+/// Encodes the existing x86 descriptor import ABI for engine adapters.
+#[allow(clippy::type_complexity)]
+pub fn resolve_segment<E: Environment>(
+    imports: &mut Imports<E>,
+    segment: u32,
+    selector: u32,
+) -> (u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) {
+    use wasm86_x86::{Exception, Segment};
+    match imports
+        .environment_mut()
+        .resolve_segment(Segment::ALL[segment as usize], selector as u16)
+    {
+        Ok(cache) => (
+            0,
+            0,
+            cache.base,
+            cache.limit,
+            u32::from(cache.selector),
+            u32::from(cache.usable),
+            u32::from(cache.readable),
+            u32::from(cache.writable),
+            u32::from(cache.executable),
+            u32::from(cache.expand_down),
+            u32::from(cache.big),
+        ),
+        Err(exception) => {
+            let (vector, code) = match exception {
+                Exception::GeneralProtection { error_code } => (13, error_code),
+                Exception::StackFault { error_code } => (12, error_code),
+                Exception::SegmentNotPresent { error_code } => (11, error_code),
+                _ => panic!("segment resolution must return a segment fault"),
+            };
+            (vector, code, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        }
+    }
+}
+
+/// Encodes a descriptor query using the same order on native and web engines.
+pub fn query_segment_descriptor<E: Environment>(
+    imports: &mut Imports<E>,
+    selector: u32,
+) -> (u32, u32, u32, u32, u32) {
+    let info = imports
+        .environment_mut()
+        .query_segment_descriptor(selector as u16);
+    (
+        u32::from(info.visible),
+        u32::from(info.readable),
+        u32::from(info.writable),
+        info.access_rights,
+        info.limit,
+    )
+}
