@@ -1,8 +1,9 @@
-#![cfg(not(target_arch = "wasm32"))]
-
 use wasm86_machine::{Environment, Machine};
 use wasm86_runtime::{Runtime, Session};
+#[cfg(not(target_arch = "wasm32"))]
 use wasm86_runtime_wasmtime::WasmtimeBackend as TestBackend;
+#[cfg(target_arch = "wasm32")]
+use wasm86_runtime_web::WebBackend as TestBackend;
 use wasm86_x86::{PhysicalMapping, PhysicalMemoryMap};
 
 #[path = "runtime/budget.rs"]
@@ -27,7 +28,10 @@ async fn runtime() -> Runtime<TestBackend> {
     RUNTIME.with_borrow_mut(|cache| {
         cache
             .get_or_insert_with(|| {
+                #[cfg(not(target_arch = "wasm32"))]
                 let backend = TestBackend::new().unwrap();
+                #[cfg(target_arch = "wasm32")]
+                let backend = TestBackend;
                 Runtime::new(backend)
             })
             .clone()

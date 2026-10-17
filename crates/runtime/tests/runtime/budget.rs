@@ -1,7 +1,8 @@
 use super::machine;
 use wasm86_x86::ExecutionExit;
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn instruction_budget_saturates_at_the_counter_limit() {
     let mut machine = machine(&[0x40, 0xeb, 0xfd]).await;
     let mut cpu = machine.cpu();
@@ -12,7 +13,8 @@ async fn instruction_budget_saturates_at_the_counter_limit() {
     assert_eq!((machine.cpu().registers.eax, machine.cpu().eip), (2, 0x100));
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn run_resumes_at_completed_block_boundaries() {
     let mut machine = machine(&[0x40, 0x43, 0xeb, 0xfc]).await;
     for iteration in 1..=3 {
@@ -27,7 +29,8 @@ async fn run_resumes_at_completed_block_boundaries() {
     }
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn zero_budget_does_not_enter_guest_code() {
     let mut machine = machine(&[0x0f, 0x0b]).await;
     let before = machine.cpu();
