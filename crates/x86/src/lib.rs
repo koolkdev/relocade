@@ -64,7 +64,7 @@ pub use compile::{
     compile_interpreter_step, Compiler, EntryTable,
 };
 pub use exception::{Exception, ExceptionVector};
-pub use memory::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
+pub use memory::{page_table, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub use processor::{CpuFeature, CpuModel};
 pub use profile::{ExecutionProfile, ExecutionTarget};
 pub use register::Gpr32;

@@ -5,7 +5,7 @@
 mod tests;
 
 use std::{collections::BTreeMap, fmt};
-use wasm86_x86::CpuState;
+use wasm86_x86::{page_table, CpuState};
 
 pub(crate) use super::machine::Exit;
 
@@ -69,8 +69,8 @@ impl Machine {
                 "a guest page fits the 32-bit address space"
             );
             assert!(
-                mapping.frame & 3 == 0 && mapping.frame <= 0xf000,
-                "a present mapping needs valid physical backing and clear permission bits"
+                mapping.frame & (page_table::PAGE_BYTES - 1) == 0 && mapping.frame <= 0xf000,
+                "a present mapping needs valid page-aligned physical backing"
             );
             assert!(
                 pages
