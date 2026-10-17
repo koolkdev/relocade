@@ -162,8 +162,8 @@ pub(crate) fn expected(image: &Image, steps: &[Step<'_>]) -> Observation {
                 Outcome::Returned(vec![Argument::I64(i64::MIN)])
             }
             Exit::Dispatch(eip) => {
+                assert_eq!(step.cpu.eip, eip);
                 events.push(Event::Dispatch {
-                    eip: eip as i32,
                     snapshot: snapshot.clone(),
                 });
                 Outcome::Returned(vec![Argument::I64(i64::MIN)])

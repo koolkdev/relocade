@@ -120,7 +120,6 @@ pub(crate) enum Event {
         selector: i32,
     },
     Dispatch {
-        eip: i32,
         snapshot: Snapshot,
     },
     Return {

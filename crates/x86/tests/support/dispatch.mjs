@@ -15,7 +15,7 @@ export default function execute([dispatcher, ...targets], [names, cases]) {
     if (pages > current) executionEntries.grow(pages - current);
     new Uint8Array(executionContext.buffer).set(test.cpu);
     new Uint8Array(executionEntries.buffer).set(test.entries);
-    const word = instance.exports[test.export](...(test.export === 'dispatch' ? [test.eip] : []));
+    const word = instance.exports[test.export]();
     return { word: BigInt.asUintN(64, word).toString(), cpu: [...new Uint8Array(executionContext.buffer, 0, test.cpu.length)] };
   });
 }

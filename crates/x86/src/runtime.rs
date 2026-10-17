@@ -27,7 +27,7 @@ impl Runtime {
             module: "wasm86".into(),
             name: "dispatch".into(),
             signature: Signature {
-                parameters: vec![Type::I32],
+                parameters: vec![],
                 results: vec![Type::I64],
             },
         });
@@ -76,8 +76,8 @@ impl Runtime {
         }
     }
 
-    pub(crate) fn dispatch(self, body: BlockBuilder<'_>, eip: &Val<I32>) -> Result<(), BuildError> {
-        body.tail_call(self.dispatch, &[eip.into()])
+    pub(crate) fn dispatch(self, body: BlockBuilder<'_>) -> Result<(), BuildError> {
+        body.tail_call(self.dispatch, &[])
     }
 
     /// Enters ordinary execution at the already-published instruction boundary.

@@ -9,7 +9,8 @@ the threads extension's atomic instructions, including on unshared memories.
 
 `CompiledModule` contains the Wasm bytes, exported entry name and required execution
 target. Snapshot entries are named `block_<hex start_eip>`; interpreter entries
-are named `run` or `step`. All have the Wasm signature `() -> i64`.
+are named `run` or `step`; the callable dispatcher exports `dispatch`. All have
+the Wasm signature `() -> i64`.
 
 `Compiler::new(profile)` uses one execution profile and the default `CpuModel`
 for `compile_block`, `compile_interpreter` and `compile_interpreter_step`.
@@ -34,8 +35,9 @@ for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
 count, checks its instruction target, then tail-calls
-`wasm86.dispatch(next_eip: i32) -> i64`. Its result is returned unchanged. EIP and dispatch arguments are offsets relative to CS. EIP wraps at
-32 bits, and the instruction count wraps at 64 bits. A taken transfer checks its
+`wasm86.dispatch() -> i64`. Dispatch reads the published EIP from CPU state,
+and its result is returned unchanged. EIP is an offset relative to CS and wraps
+at 32 bits; the instruction count wraps at 64 bits. A taken transfer checks its
 segment target before committing instruction effects; fetching the destination
 belongs to the next entry.
 
@@ -97,12 +99,12 @@ is reserved, slot 1 holds a compatible interpreter, and subsequent slots hold in
 module exports. All functions share CPU, guest and mapping memories. The dispatcher has
 no target-kind tag or host-service import.
 
-Bind the module's `dispatch(eip: i32) -> i64` and `interpret() -> i64` exports as the
-corresponding imports of execution modules. `dispatch` uses its EIP argument, which must
-match the published CPU state; `interpret` directly enters the fallback when a snapshot
-fails an entry guard or optimization assumption. These transfers stay inside Wasm. The
-embedding starts execution through `enter() -> i64`, which reads the current CPU EIP and
-enters dispatch. Callee results pass through unchanged.
+Bind the module's `dispatch() -> i64` and `interpret() -> i64` exports as the
+corresponding imports of execution modules. Both use the published CPU state.
+The host starts or resumes execution by calling `dispatch`; generated entries
+tail-call the same function after publishing their successor EIP. `interpret`
+directly enters the fallback when a snapshot fails an entry guard or optimization
+assumption. These transfers stay inside Wasm, and callee results pass through unchanged.
 
 The embedding scopes lookup to one guest address space and execution target (profile and
 CPU model). Keys are CS.base + EIP, wrapping to 32 bits, before paging, A20 or backing

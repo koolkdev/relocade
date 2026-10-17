@@ -8,7 +8,9 @@ use crate::support::{
     step::{Argument, Engine, Event, Outcome, TestModule},
     x87::stack_image,
 };
-use wasm86_x86::{compile_block_from_bytes, compile_block_from_bytes_with_profile, SegmentProfile};
+use wasm86_x86::{
+    compile_block_from_bytes, compile_block_from_bytes_with_profile, CpuState, SegmentProfile,
+};
 
 fn guard_admission(engine: Engine) {
     // Literal encodings cover normal, signed zeros, infinity, quiet/signaling
@@ -71,9 +73,10 @@ fn guard_admission(engine: Engine) {
                 // values must reach dispatch through the compiled path.
                 assert!(
                     matches!(actual.events.as_slice(), [
-                    Event::Dispatch { eip: 0x1006, .. },
+                    Event::Dispatch { snapshot },
                     Event::Return { outcome: Outcome::Returned(values), .. },
-                ] if values == &[Argument::I64(i64::MIN)]),
+                ] if values == &[Argument::I64(i64::MIN)]
+                    && CpuState::from_bytes(snapshot.cpu.as_slice().try_into().unwrap()).eip == 0x1006),
                     "{opcode:02x} {bits:016x}"
                 );
                 assert!(actual.guest_unchanged && actual.machine_unchanged);

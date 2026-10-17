@@ -154,7 +154,6 @@ fn check_entry_contexts(engine: Engine) {
         Observation {
             events: vec![
                 Event::Dispatch {
-                    eip: 0x1001,
                     snapshot: snapshot.clone()
                 },
                 Event::Return {

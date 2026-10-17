@@ -240,10 +240,11 @@ impl Machine {
                 continue;
             }
             let Event::Return { outcome, snapshot } = event else {
-                let Event::Dispatch { eip, snapshot } = event else {
+                let Event::Dispatch { snapshot } = event else {
                     unreachable!()
                 };
-                dispatches.push((*eip as u32, state(snapshot)));
+                let dispatched = state(snapshot);
+                dispatches.push((dispatched.cpu.eip, dispatched));
                 continue;
             };
             let exit = match outcome {

@@ -14,7 +14,6 @@ struct Invocation {
     cpu: Vec<u8>,
     entries: Vec<u8>,
     export: &'static str,
-    eip: u32,
 }
 
 #[derive(Deserialize)]
@@ -48,13 +47,12 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<u64>) {
             cpu: cpu.to_bytes().to_vec(),
             entries: table.to_bytes(),
             export,
-            eip: cpu.eip,
         });
         expected.push(result);
     };
-    push(cpu, &table, "enter", 11);
+    push(cpu, &table, "dispatch", 11);
     table.insert(base, 2);
-    push(cpu, &table, "enter", 22);
+    push(cpu, &table, "dispatch", 22);
     table.insert(base, 3);
     push(cpu, &table, "dispatch", 33);
     if matches!(
@@ -63,25 +61,25 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<u64>) {
     ) {
         let mut changed = cpu;
         changed.segments.ds.base = 0x4000;
-        push(changed, &table, "enter", 33);
+        push(changed, &table, "dispatch", 33);
         // Entry requirements belong to the callee, not address lookup.
         changed = cpu;
         changed.eip = 1;
         changed.segments.cs.limit = 0;
         changed.segments.cs.usable = 0;
         table.insert(base.wrapping_add(1), 3);
-        push(changed, &table, "enter", 33);
+        push(changed, &table, "dispatch", 33);
     }
     if profile == SegmentProfile::Flat32.into() {
         let mut changed = cpu;
         changed.segments.ds.big = 0;
         changed.segments.ds.selector = 0x23;
         changed.segments.fs = crate::StoredSegment::unusable(0);
-        push(changed, &table, "enter", 33);
+        push(changed, &table, "dispatch", 33);
     }
     push(cpu, &table, "interpret", 11);
     table.remove(base);
-    push(cpu, &table, "enter", 11);
+    push(cpu, &table, "dispatch", 11);
     // Dense aliases exercise collisions and grow the metadata beyond one Wasm page.
     for offset in 0..8192 {
         table.insert(base.wrapping_add(offset), 2 + offset % 2);
@@ -102,7 +100,7 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<u64>) {
     if profile != ExecutionProfile::Real16 {
         cpu.eip = u32::MAX;
         table.insert(base.wrapping_add(cpu.eip), 3);
-        push(cpu, &table, "enter", 33);
+        push(cpu, &table, "dispatch", 33);
     }
     (cases, expected)
 }
@@ -118,8 +116,8 @@ fn constant(result: u64) -> (Module, String) {
             |body| body.return_(result),
         )
         .unwrap();
-    program.export("enter", function).unwrap();
-    (Module::new(&program.compile().unwrap()), "enter".into())
+    program.export("dispatch", function).unwrap();
+    (Module::new(&program.compile().unwrap()), "dispatch".into())
 }
 
 fn wasmtime(
@@ -169,19 +167,11 @@ fn wasmtime(
             }
             cpu.write(&mut store, 0, &case.cpu).unwrap();
             entries.write(&mut store, 0, &case.entries).unwrap();
-            let word = if case.export == "dispatch" {
-                instance
-                    .get_typed_func::<i32, i64>(&mut store, "dispatch")
-                    .unwrap()
-                    .call(&mut store, case.eip as i32)
-                    .unwrap() as u64
-            } else {
-                instance
-                    .get_typed_func::<(), i64>(&mut store, case.export)
-                    .unwrap()
-                    .call(&mut store, ())
-                    .unwrap() as u64
-            };
+            let word = instance
+                .get_typed_func::<(), i64>(&mut store, case.export)
+                .unwrap()
+                .call(&mut store, ())
+                .unwrap() as u64;
             Output {
                 word: word.to_string(),
                 cpu: cpu.data(&store)[..case.cpu.len()].to_vec(),
@@ -253,16 +243,14 @@ fn check_block_chain(engine: Engine) {
     let mut cases = vec![Invocation {
         cpu: context.to_bytes().to_vec(),
         entries: table.to_bytes(),
-        export: "enter",
-        eip: 0x1000,
+        export: "dispatch",
     }];
     // The same first block reaches fallback when its successor has no mapping.
     table.remove(0x2000);
     cases.push(Invocation {
         cpu: context.to_bytes().to_vec(),
         entries: table.to_bytes(),
-        export: "enter",
-        eip: 0x1000,
+        export: "dispatch",
     });
     let outputs = execute(engine, &dispatcher, &targets, &cases);
     for (output, (word, count, eax, ebx)) in outputs.iter().zip([(1 << 63, 6, 2, 1), (11, 2, 1, 0)])

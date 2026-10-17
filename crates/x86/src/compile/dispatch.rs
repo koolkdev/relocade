@@ -65,28 +65,17 @@ impl Compiler {
         let dispatch = Dispatch::declare(&mut program);
         let transfer = program.function(
             Signature {
-                parameters: vec![Type::I32],
+                parameters: vec![],
                 results: vec![Type::I64],
             },
             |mut body| {
-                let eip = body.parameter::<I32>(0)?;
+                let eip = cpu.read_eip(&mut body)?;
                 let mut segments = SegmentReads::new(&cpu, self.target.profile);
                 let base = segments.base(&mut body, &Segment::Cs.into())?;
                 dispatch.lookup(body, &base.add(eip))
             },
         )?;
         program.export("dispatch", transfer)?;
-        let enter = program.function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I64],
-            },
-            |mut body| {
-                let eip = cpu.read_eip(&mut body)?;
-                body.tail_call(transfer, &[eip.into()])
-            },
-        )?;
-        program.export("enter", enter)?;
         let interpret = program.function(
             Signature {
                 parameters: vec![],
@@ -97,7 +86,7 @@ impl Compiler {
         program.export("interpret", interpret)?;
         Ok(CompiledModule {
             bytes: program.compile()?,
-            entry: "enter".into(),
+            entry: "dispatch".into(),
             execution_target: Some(self.target),
         })
     }

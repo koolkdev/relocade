@@ -322,7 +322,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     /// Ends a block, checks its instruction target and dispatches its successor.
     pub(super) fn dispatch(self) -> Result<(), BuildError> {
         let runtime = self.runtime;
-        self.finish(true, |body, eip| runtime.dispatch(body, eip))
+        self.finish(true, |body, _| runtime.dispatch(body))
     }
 
     /// Publishes an instruction and continues decoding within the current block.

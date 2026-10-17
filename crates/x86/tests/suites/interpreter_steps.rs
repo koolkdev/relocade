@@ -91,7 +91,7 @@ fn interpreter_step_exposes_host_abis() {
             .map(|(name, signature)| (name.as_str(), types[*signature as usize].clone()))
             .collect::<Vec<_>>(),
         [
-            ("dispatch", (vec![ValType::I32], vec![ValType::I64])),
+            ("dispatch", (vec![], vec![ValType::I64])),
             (
                 "resolveSegment",
                 (vec![ValType::I32; 2], vec![ValType::I32; 11])
