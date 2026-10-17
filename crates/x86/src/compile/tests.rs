@@ -1,4 +1,5 @@
 mod budget;
+mod dispatch;
 mod fetch;
 
 use super::*;
