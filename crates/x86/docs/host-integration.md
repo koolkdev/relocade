@@ -360,6 +360,10 @@ frame address in `guest`; other bits are ignored. Reads and instruction fetches
 require presence. Every present frame must have valid physical backing. Violating
 that invariant is a host error, not a guest page fault.
 
+Use [`page_table::entry_offset`] and [`page_table::encode_entry`] to prepare
+individual entry writes. Writing [`page_table::UNMAPPED_ENTRY`] removes a mapping.
+The host owns the table storage and applies updates between guest execution calls.
+
 Segment translation precedes this protected-mode backing-map lookup.
 Linear addresses wrap at 32 bits, and a span
 crossing linear zero uses the mappings on both sides. All pages of a data store

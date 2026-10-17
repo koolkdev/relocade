@@ -1,4 +1,4 @@
-use wasm86_x86::{CpuState, Exception, ExecutionExit, Registers, Segments};
+use wasm86_x86::{page_table, CpuState, Exception, ExecutionExit, Registers, Segments};
 
 use super::step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule};
 
@@ -40,8 +40,9 @@ impl Image {
         }
     }
     pub(crate) fn map(&mut self, page: u32, frame: u32, writable: bool) {
-        let entry = frame | 1 | if writable { 2 } else { 0 };
-        self.machine.push((page * 4, entry.to_le_bytes().to_vec()));
+        let offset = page_table::entry_offset(page * page_table::PAGE_BYTES);
+        let entry = page_table::encode_entry(frame, writable).expect("page-aligned backing");
+        self.machine.push((offset, entry.to_vec()));
         self.physical_pages.push((page, frame, writable));
     }
     pub(crate) fn data(&mut self, offset: u32, bytes: &[u8]) {

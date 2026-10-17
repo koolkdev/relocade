@@ -2,7 +2,7 @@ mod access;
 mod accesses;
 mod bulk;
 mod masked;
-mod page_table;
+pub mod page_table;
 mod physical;
 mod physical_map;
 mod transfer;
