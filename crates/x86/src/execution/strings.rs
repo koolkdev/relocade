@@ -152,10 +152,11 @@ impl ExecutionBuilder<'_, '_> {
                 let result = nonempty.if_value::<(I1, [I32; N])>(
                     eligible,
                     |mut checks| {
+                        let mut segments = self.segments.clone();
                         let mut available: Val<I1> = true.into();
                         let mut physical = Vec::with_capacity(N);
                         for (operand, start) in operands.iter().zip(&starts) {
-                            let segment = self.segments.check(
+                            let segment = segments.check(
                                 &mut checks,
                                 &operand.segment,
                                 start,

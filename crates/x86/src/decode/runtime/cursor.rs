@@ -6,7 +6,7 @@ use crate::instruction::{
     DecodedFields, FieldWidth, ImmediateWidth, ResolvedForm, MAX_INSTRUCTION_BYTES,
 };
 
-use super::InstructionFetch;
+use super::fetch::InstructionFetch;
 
 // One primary opcode and the widest scalar field fit this shared fetch window.
 // Longer forms retain the same proof and check fields beyond its extent.
@@ -18,7 +18,7 @@ pub(super) const DIRECT_FETCH_BYTES: u32 = 1 + FieldWidth::Dword.bytes();
 /// wrapping instruction address space.
 #[derive(Clone)]
 pub(super) struct RuntimeCursor<'memory> {
-    fetch: InstructionFetch<'memory>,
+    pub(super) fetch: InstructionFetch<'memory>,
     instruction_eip: Val<I32>,
     offset: Val<I32>,
     maximum_offset: u32,

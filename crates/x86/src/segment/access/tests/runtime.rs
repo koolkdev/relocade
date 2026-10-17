@@ -45,7 +45,7 @@ fn check_segment_indices(engine: Engine) {
         let module = TestModule::new(&translation(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             intent,
-            Some(SegmentSelection::Indexed),
+            Some(SegmentSelection::indexed),
         ));
         for (choice, expected) in [
             (0, 0x20),
@@ -68,14 +68,14 @@ fn check_segment_indices(engine: Engine) {
     let read = TestModule::new(&translation(
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         Intent::Read,
-        Some(SegmentSelection::Indexed),
+        Some(SegmentSelection::indexed),
     ));
     cpu.segments.cs.big = 1;
     cpu.segments.cs.readable = 0;
     let segmented_read = TestModule::new(&translation(
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
         Intent::Read,
-        Some(SegmentSelection::Indexed),
+        Some(SegmentSelection::indexed),
     ));
     expect_address(engine, &segmented_read, cpu, 1, 2 << 48);
     cpu.segments.cs = StoredSegment::flat_code32(0);

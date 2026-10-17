@@ -20,7 +20,7 @@ impl ResolvedSegment {
     }
 
     /// Installs the selector and cache after all instruction guards. Only
-    /// completion and dispatch may follow if this breaks the entry's segment assumptions.
+    /// completion and dispatch may follow.
     pub(crate) fn commit(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
         execution
             .state
@@ -41,8 +41,7 @@ impl ExecutionBuilder<'_, '_> {
         &mut self,
         segment: Segment,
     ) -> Result<Val<I16>, BuildError> {
-        self.state
-            .read_segment_selector(&mut self.body, &segment.into())
+        self.segments.read_selector(&mut self.body, &segment.into())
     }
 
     /// Resolves the selector without installing its cache. Code offsets require

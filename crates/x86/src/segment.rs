@@ -10,7 +10,6 @@ mod tables;
 
 use wasm86_compiler::{Val, I1, I16, I32};
 
-pub(crate) use access::SegmentAccess;
 pub use descriptor::{PrivilegeLevel, SegmentDescriptor, SegmentDescriptorKind};
 pub use limit::SegmentLimit;
 pub use profile::SegmentProfile;

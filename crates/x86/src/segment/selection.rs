@@ -1,32 +1,43 @@
 //! References to loaded segment registers, independent of their backing offsets.
 
-use wasm86_compiler::{Val, I32};
+use wasm86_compiler::{Val, I1, I32};
 
 use super::Segment;
 
-/// A named segment, the architectural address default, or an explicit runtime
-/// override. Keeping the address default distinct lets flat entries omit its
-/// DS/SS choice while segmented entries resolve the actual segment.
+/// A segment index with a hint for the address decoder's DS/SS default.
 #[derive(Clone)]
-pub(crate) enum SegmentSelection {
-    Named(Segment),
-    /// Address construction supplies the index of DS or SS.
-    AddressDefault(Val<I32>),
-    /// An internal segment index in encoding order, from zero through five.
-    Indexed(Val<I32>),
+pub(crate) struct SegmentSelection {
+    index: Val<I32>,
+    ds_or_ss: bool,
 }
 
 impl SegmentSelection {
-    pub(crate) fn index(&self) -> Val<I32> {
-        match self {
-            Self::Named(segment) => (*segment as u32).into(),
-            Self::AddressDefault(index) | Self::Indexed(index) => index.clone(),
+    /// An internal segment index in encoding order, from zero through five.
+    pub(crate) fn indexed(index: Val<I32>) -> Self {
+        Self {
+            index,
+            ds_or_ss: false,
         }
+    }
+
+    pub(crate) fn ds_or_ss(stack_base: Val<I1>) -> Self {
+        Self {
+            index: stack_base.select(Segment::Ss as u32, Segment::Ds as u32),
+            ds_or_ss: true,
+        }
+    }
+
+    pub(crate) fn index(&self) -> Val<I32> {
+        self.index.clone()
+    }
+
+    pub(crate) fn is_ds_or_ss(&self) -> bool {
+        self.ds_or_ss
     }
 }
 
 impl From<Segment> for SegmentSelection {
     fn from(segment: Segment) -> Self {
-        Self::Named(segment)
+        Self::indexed((segment as u32).into())
     }
 }

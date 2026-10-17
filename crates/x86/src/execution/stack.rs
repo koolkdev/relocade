@@ -183,7 +183,7 @@ impl ExecutionBuilder<'_, '_> {
         let esp = self.state.read_register(&mut self.body, Gpr32::Esp)?;
         let mask = self
             .segments
-            .is_segment_big(&mut self.body, Segment::Ss)?
+            .big(&mut self.body, &Segment::Ss.into())?
             .select(u32::MAX, 0xffffu32);
         Ok(StackPointer { esp, mask })
     }

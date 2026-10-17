@@ -26,7 +26,7 @@ impl SegmentOverride {
         match self {
             Self::None => default.clone(),
             Self::Fixed(segment) => (*segment).into(),
-            Self::Runtime(value) => SegmentSelection::Indexed(value.clone()),
+            Self::Runtime(value) => SegmentSelection::indexed(value.clone()),
         }
     }
 }

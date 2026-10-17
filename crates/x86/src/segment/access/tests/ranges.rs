@@ -7,7 +7,7 @@ use crate::{
 fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let access = SegmentAccess::new(&cpu, profile);
+    let mut access = SegmentReads::new(&cpu, profile);
     let function = program
         .function(
             Signature {

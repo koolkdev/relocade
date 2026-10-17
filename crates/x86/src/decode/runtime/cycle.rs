@@ -25,6 +25,7 @@ impl RuntimeDecoder<'_> {
             Option<&DecodeContinuation>,
         ) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
+        let fetch = cursor.fetch.clone();
         let initial = (
             cursor.instruction_eip(),
             opcode,
@@ -34,9 +35,11 @@ impl RuntimeDecoder<'_> {
         body.loop_::<(I32, I8, I32, PageCacheInputs), ()>(
             initial,
             |mut iteration, labels, (start, opcode, physical, cache)| {
+                let mut fetch = fetch.clone();
                 let mut cache = PageCache::from_inputs(cache);
                 iteration.block::<()>(|body, next| {
-                    let cursor = RuntimeCursor::new(&body, self.fetch, &start, Some(&physical), 1)?;
+                    let cursor =
+                        RuntimeCursor::new(&body, fetch.clone(), &start, Some(&physical), 1)?;
                     let continuation = DecodeContinuation::Cycle(next);
                     InstructionDecoder {
                         decoder: self,
@@ -49,8 +52,8 @@ impl RuntimeDecoder<'_> {
                 })?;
                 // Each completed instruction publishes before this shared fetch.
                 // A helper transfer leaves the activation and discards its cache.
-                let start = self.fetch.eip(&mut iteration)?;
-                let direct = self.fetch.probe_window(
+                let start = fetch.eip(&mut iteration)?;
+                let direct = fetch.probe_window(
                     &mut iteration,
                     &start,
                     DIRECT_FETCH_BYTES,
@@ -59,8 +62,13 @@ impl RuntimeDecoder<'_> {
                 iteration.if_(&direct.unavailable, |fallback| {
                     fallback.tail_call(entry, &[])
                 })?;
-                let mut cursor =
-                    RuntimeCursor::new(&iteration, self.fetch, &start, Some(&direct.physical), 0)?;
+                let mut cursor = RuntimeCursor::new(
+                    &iteration,
+                    fetch.clone(),
+                    &start,
+                    Some(&direct.physical),
+                    0,
+                )?;
                 let opcode = cursor.byte(&mut iteration)?;
                 iteration.branch(
                     &labels.again,
@@ -104,7 +112,7 @@ where
         let decode_memory = |body: BlockBuilder<'_>, map| {
             let cursor = RuntimeCursor::new(
                 &body,
-                self.decoder.fetch,
+                cursor.fetch.clone(),
                 cursor.instruction_eip(),
                 cursor.physical_start(),
                 super::handlers::DecodePoint::MemoryOperand(map).consumed(),

@@ -24,8 +24,8 @@ use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
 use crate::memory::{Access, Accesses, Intent, Memory};
 use crate::runtime::Runtime;
-use crate::segment::{SegmentAccess, SegmentSelection};
-use crate::state::{exit, Cpu, State};
+use crate::segment::SegmentSelection;
+use crate::state::{exit, Cpu, SegmentReads, State};
 use crate::{
     address::AddressSize, exception::Exception, CpuState, ExecutionProfile, ExecutionTarget,
 };
@@ -37,7 +37,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     body: BlockBuilder<'body>,
     state: State<'module>,
     memory: Option<Accesses<'module>>,
-    segments: SegmentAccess<'module>,
+    segments: SegmentReads<'module>,
     target: ExecutionTarget,
     segment_override: SegmentOverride,
     address_size: AddressSize,
@@ -64,7 +64,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             body,
             state: State::new(cpu),
             memory: memory.map(Memory::accesses),
-            segments: SegmentAccess::new(cpu, target.profile),
+            segments: SegmentReads::new(cpu, target.profile),
             target,
             segment_override: SegmentOverride::None,
             address_size: AddressSize::Bits32,

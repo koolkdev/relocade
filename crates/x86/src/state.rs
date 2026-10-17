@@ -6,6 +6,7 @@ mod flags;
 mod layout;
 #[cfg(test)]
 mod observation;
+mod segments;
 mod simd;
 pub(crate) mod x87;
 
@@ -18,11 +19,12 @@ pub use layout::{
 };
 #[cfg(test)]
 pub(crate) use observation::compile_flag_observer;
+pub(crate) use segments::SegmentReads;
 pub(crate) use simd::Mxcsr;
 pub(crate) use x87::X87Access;
 
 use access::{cpu_load, cpu_store, register_location};
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I64, I8};
+use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64, I8};
 
 use crate::{
     exception::Exception,
@@ -52,17 +54,8 @@ impl<'cpu> State<'cpu> {
         }
     }
 
-    /// Reads the visible selector even when its loaded cache is unusable.
-    pub(crate) fn read_segment_selector(
-        &self,
-        body: &mut BlockBuilder<'_>,
-        segment: &SegmentSelection,
-    ) -> Result<Val<I16>, BuildError> {
-        Ok(self.cpu.read_segment(body, segment)?.selector)
-    }
-
-    /// Commits a resolved cache after all instruction guards. Only completion
-    /// and dispatch may follow when this breaks the entry's segment assumptions.
+    /// Installs a segment after all instruction checks. Only publication and
+    /// dispatch may follow; segment reads belong to the entry's old state.
     pub(crate) fn write_segment(
         &self,
         body: &mut BlockBuilder<'_>,
