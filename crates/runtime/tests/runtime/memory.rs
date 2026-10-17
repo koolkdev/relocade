@@ -5,7 +5,8 @@ use wasm86_x86::{
     PhysicalMemoryMap,
 };
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn host_transfers_follow_aliases_rom_holes_and_a20() {
     let map = PhysicalMemoryMap::new([
         (
@@ -51,7 +52,8 @@ async fn host_transfers_follow_aliases_rom_holes_and_a20() {
     }
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn attachment_uses_memory_size_independently_of_initial_mappings() {
     let map = PhysicalMemoryMap::new([
         (0..=0xfff, Ram { backing_offset: 0 }),
@@ -81,7 +83,8 @@ async fn attachment_uses_memory_size_independently_of_initial_mappings() {
     assert_eq!(byte, [0x42]);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn invalid_host_transfers_and_device_maps_have_no_partial_effects() {
     let map = PhysicalMemoryMap::new([(0x10f000..=0x10ffff, Ram { backing_offset: 0 })]).unwrap();
     let mut machine = runtime()
@@ -111,7 +114,8 @@ async fn invalid_host_transfers_and_device_maps_have_no_partial_effects() {
     assert_eq!(bytes[0], 0x42);
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn backing_transfers_validate_the_entire_range() {
     let map = PhysicalMemoryMap::new([(0..=0xfff, Ram { backing_offset: 0 })]).unwrap();
     let mut machine = runtime()
@@ -137,7 +141,8 @@ async fn backing_transfers_validate_the_entire_range() {
     });
 }
 
-#[pollster::test]
+#[cfg_attr(not(target_arch = "wasm32"), pollster::test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 async fn an_error_return_does_not_discard_an_earlier_mapping_change() {
     let mut machine = super::machine(&[0xa0, 0x10, 0, 0xeb, 0]).await;
     let mut cpu = machine.cpu();
