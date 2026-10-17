@@ -94,7 +94,7 @@ fn interpreter_step_exposes_host_abis() {
             ("dispatch", (vec![ValType::I32], vec![ValType::I64])),
             (
                 "resolveSegment",
-                (vec![ValType::I32; 2], vec![ValType::I32; 6])
+                (vec![ValType::I32; 2], vec![ValType::I32; 11])
             ),
             (
                 "querySegmentDescriptor",

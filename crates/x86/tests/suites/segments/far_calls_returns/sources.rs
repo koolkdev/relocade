@@ -1,5 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
+use wasm86_x86::StoredSegment;
 
 fn aliased_sources(engine: Engine) {
     for word in [false, true] {
@@ -24,7 +25,7 @@ fn aliased_sources(engine: Engine) {
                 &pointer(word, 0x200, 0x27),
             );
             let mut cpu = image.cpu;
-            cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, 23);
+            cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
             cpu.eip = 0x200;
             cpu.registers.esp = 0x9000;
             cpu.instruction_count = 0;
@@ -118,10 +119,10 @@ fn overrides_on_return(engine: Engine) {
     // An unusable FS and address override do not redirect implicit stack accesses.
     let code = [0x64, 0x67, 0xcb];
     let mut image = image_with_stack(&code, 0x9000);
-    image.cpu.segments.fs = loaded(0, 0x8000, 0, 0);
+    image.cpu.segments.fs = loaded(0, 0x8000, 0, StoredSegment::unusable(0));
     image.data(0x8000, &pointer(false, 0x200, 0x27));
     let mut cpu = image.cpu;
-    cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, 23);
+    cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
     cpu.eip = 0x200;
     cpu.registers.esp = 0x9008;
     cpu.instruction_count = 0;

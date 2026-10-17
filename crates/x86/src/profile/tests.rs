@@ -1,4 +1,4 @@
-use crate::{ExecutionProfile, Segment, SegmentAttributes, Segments, StoredSegment};
+use crate::{ExecutionProfile, Segment, Segments, StoredSegment};
 
 #[test]
 fn entry_compatibility_requires_the_complete_target_and_current_segment_assumptions() {
@@ -28,10 +28,9 @@ fn real_mode_requires_canonical_caches_but_accepts_every_segment_value() {
             let cache = StoredSegment::real_mode(segment, selector);
             assert_eq!(cache.base, u32::from(selector) * 16);
             assert_eq!(cache.limit, 65535);
-            assert_eq!(
-                cache.attributes.bits(),
-                if segment == Segment::Cs { 7 } else { 5 }
-            );
+            assert_eq!(cache.big, 0);
+            assert_eq!(cache.executable, u8::from(segment == Segment::Cs));
+            assert_eq!(cache.writable, u8::from(segment != Segment::Cs));
             segments[segment] = cache;
             assert!(ExecutionProfile::Real16.is_compatible_with(&segments));
             for bad in [
@@ -43,10 +42,7 @@ fn real_mode_requires_canonical_caches_but_accepts_every_segment_value() {
                     limit: u32::MAX,
                     ..cache
                 },
-                StoredSegment {
-                    attributes: SegmentAttributes::from_bits(cache.attributes.bits() | 16),
-                    ..cache
-                },
+                StoredSegment { big: 1, ..cache },
                 StoredSegment::unusable(selector),
             ] {
                 segments[segment] = bad;

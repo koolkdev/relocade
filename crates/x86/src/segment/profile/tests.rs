@@ -1,4 +1,4 @@
-use crate::{CpuState, Segment, SegmentAttributes, SegmentProfile, Segments, StoredSegment};
+use crate::{CpuState, Segment, SegmentProfile, Segments, StoredSegment};
 
 fn compatible(segments: &Segments) -> bool {
     SegmentProfile::Flat32.is_compatible_with(segments)
@@ -30,7 +30,7 @@ fn unusable_caches_break_the_profile_even_with_nonzero_selectors() {
     for segment in [Segment::Cs, Segment::Ds, Segment::Es, Segment::Ss] {
         let mut segments = Segments::flat32();
         segments[segment].selector = 0x23;
-        segments[segment].attributes = SegmentAttributes::unusable();
+        segments[segment].usable = 0;
         assert!(!compatible(&segments), "{segment:?}");
     }
 }
@@ -40,13 +40,12 @@ fn code_defaults_and_stack_width_are_separate_requirements() {
     for segment in [Segment::Cs, Segment::Ss] {
         let mut segments = Segments::flat32();
         // Preserve the loaded type and access while clearing only D/B.
-        segments[segment].attributes =
-            SegmentAttributes::from_bits(if segment == Segment::Cs { 0x07 } else { 0x05 });
+        segments[segment].big = 0;
         assert!(!compatible(&segments), "{segment:?}");
     }
     let mut segments = Segments::flat32();
-    segments.ds.attributes = SegmentAttributes::from_bits(0x05);
-    segments.es.attributes = SegmentAttributes::from_bits(0x05);
+    segments.ds.big = 0;
+    segments.es.big = 0;
     assert!(
         compatible(&segments),
         "ordinary data D/B does not constrain this profile"
@@ -56,12 +55,18 @@ fn code_defaults_and_stack_width_are_separate_requirements() {
 #[test]
 fn code_permissions_are_runtime_checks_in_the_segmented_profile() {
     let mut segments = Segments::flat32();
-    segments.cs.attributes = SegmentAttributes::from_bits(0x13);
+    segments.cs.readable = 0;
     assert!(!compatible(&segments));
     assert!(SegmentProfile::Segmented32.is_compatible_with(&segments));
-    for bits in [0x15, 0x1b, 0xffff] {
-        segments.cs.attributes = SegmentAttributes::from_bits(bits);
-        assert!(!compatible(&segments), "CS attributes {bits:04x}");
+    for cache in [
+        StoredSegment::flat_data32(0),
+        StoredSegment {
+            big: 1,
+            ..StoredSegment::unusable(0)
+        },
+    ] {
+        segments.cs = cache;
+        assert!(!compatible(&segments));
         assert!(SegmentProfile::Segmented32.is_compatible_with(&segments));
     }
 }
@@ -69,24 +74,27 @@ fn code_permissions_are_runtime_checks_in_the_segmented_profile() {
 #[test]
 fn assumed_data_segments_require_writable_expand_up_data() {
     for segment in [Segment::Ds, Segment::Es, Segment::Ss] {
-        for bits in [0x11, 0x19, 0x1d, 0x13, 0x17] {
+        for change in [
+            (|cache: &mut StoredSegment| cache.writable = 0) as fn(&mut StoredSegment),
+            |cache| cache.expand_down = 1,
+            |cache| cache.executable = 1,
+            |cache| cache.readable = 0,
+        ] {
             let mut segments = Segments::flat32();
-            segments[segment].attributes = SegmentAttributes::from_bits(bits);
-            assert!(!compatible(&segments), "{segment:?} attributes {bits:04x}");
+            change(&mut segments[segment]);
+            assert!(!compatible(&segments), "{segment:?}");
         }
     }
 }
 
 #[test]
-fn selectors_and_reserved_attribute_bits_do_not_change_assumptions() {
+fn selectors_do_not_change_assumptions() {
     let mut segments = Segments::flat32();
     for (segment, selector) in Segment::ALL
         .into_iter()
         .zip([0x23, 0x1b, 0x33, 0x43, 0x53, 0x63])
     {
         segments[segment].selector = selector;
-        segments[segment].attributes =
-            SegmentAttributes::from_bits(segments[segment].attributes.bits() | 0xffe0);
     }
     assert!(compatible(&segments));
 }
@@ -104,37 +112,35 @@ fn fs_and_gs_changes_do_not_break_the_flat_profile() {
 }
 
 #[test]
-fn runtime_checks_allow_nonflat_or_unusable_caches_with_supported_defaults() {
-    for segment in Segment::ALL {
-        for attributes in [0x10, 0x11, 0x13, 0x17, 0x1d] {
+fn segmented_profiles_assume_only_their_code_default_size() {
+    for (profile, code_big) in [
+        (SegmentProfile::Segmented16, 0),
+        (SegmentProfile::Segmented32, 1),
+    ] {
+        for segment in Segment::ALL {
             let mut segments = Segments::flat32();
             segments[segment] = StoredSegment {
                 base: 0x8123_4000,
                 limit: 0x4321,
                 selector: 0x23,
-                attributes: SegmentAttributes::from_bits(attributes),
+                ..StoredSegment::default()
             };
-            assert!(
-                SegmentProfile::Segmented32.is_compatible_with(&segments),
-                "{segment:?}, {attributes:02x}"
-            );
+            segments.cs.big = code_big;
+            assert!(profile.is_compatible_with(&segments));
+            segments.cs.big = 1 - code_big;
+            assert!(!profile.is_compatible_with(&segments));
         }
     }
 }
 
 #[test]
-fn segmented_profiles_assume_only_their_code_default_size() {
-    for (profile, code_bits) in [
-        (SegmentProfile::Segmented16, 0x07),
-        (SegmentProfile::Segmented32, 0x17),
-    ] {
-        for stack_bits in [0, 0x05, 0x15, 0xffff] {
-            let mut segments = Segments::flat32();
-            segments.cs.attributes = SegmentAttributes::from_bits(code_bits);
-            segments.ss.attributes = SegmentAttributes::from_bits(stack_bits);
-            assert!(profile.is_compatible_with(&segments));
-            segments.cs.attributes = SegmentAttributes::from_bits(code_bits ^ 0x10);
-            assert!(!profile.is_compatible_with(&segments));
-        }
+fn profile_constants_require_canonical_boolean_bytes() {
+    for segment in [Segment::Cs, Segment::Ds, Segment::Es, Segment::Ss] {
+        let mut segments = Segments::flat32();
+        segments[segment].usable = 2;
+        assert!(!compatible(&segments));
     }
+    let mut segments = Segments::flat32();
+    segments.cs.big = 2;
+    assert!(!SegmentProfile::Segmented32.is_compatible_with(&segments));
 }

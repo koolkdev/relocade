@@ -24,7 +24,7 @@ use crate::support::{
 };
 use wasm86_x86::{
     DescriptorTables, ExecutionProfile, PrivilegeLevel, Segment, SegmentDefaultSize,
-    SegmentDescriptor, SegmentDescriptorKind, StoredSegment,
+    SegmentDescriptor, SegmentDescriptorKind,
 };
 
 fn immediate(word: bool, offset: u32, selector: u16) -> Vec<u8> {

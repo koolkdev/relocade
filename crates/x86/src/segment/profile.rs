@@ -2,7 +2,7 @@
 
 use crate::state::{Segments, StoredSegment};
 
-use super::{SegmentDefaultSize, SegmentKind};
+use super::SegmentDefaultSize;
 
 /// Protected-mode segment assumptions fixed when an entry is compiled.
 /// Used by [`crate::ExecutionProfile::Protected`]; 16-bit code defaults do not
@@ -31,23 +31,27 @@ impl SegmentProfile {
     /// selectors or requiring every byte of a segment cache to remain unchanged.
     pub fn is_compatible_with(self, segments: &Segments) -> bool {
         let cs = &segments.cs;
-        if cs.attributes.default_size() != self.code_default_size() {
+        if cs.big != u8::from(self.code_default_size() == SegmentDefaultSize::Bits32) {
             return false;
         }
         match self {
             Self::Flat32 => {
-                segments.ss.attributes.default_size() == SegmentDefaultSize::Bits32
+                segments.ss.big == 1
                     && flat_range(cs)
-                    && cs.attributes.kind() == Some(SegmentKind::Code { readable: true })
+                    && cs.usable == 1
+                    && cs.readable == 1
+                    && cs.writable == 0
+                    && cs.executable == 1
+                    && cs.expand_down == 0
                     && [&segments.ds, &segments.es, &segments.ss]
                         .into_iter()
                         .all(|segment| {
                             flat_range(segment)
-                                && segment.attributes.kind()
-                                    == Some(SegmentKind::Data {
-                                        writable: true,
-                                        expand_down: false,
-                                    })
+                                && segment.usable == 1
+                                && segment.readable == 1
+                                && segment.writable == 1
+                                && segment.executable == 0
+                                && segment.expand_down == 0
                         })
             }
             Self::Segmented32 | Self::Segmented16 => true,

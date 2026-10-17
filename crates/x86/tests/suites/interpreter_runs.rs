@@ -7,10 +7,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{Engine, Event, SegmentResolution, TestModule},
 };
-use wasm86_x86::{
-    compile_interpreter, ExecutionProfile, Segment, SegmentAttributes, SegmentDefaultSize,
-    SegmentKind, SegmentProfile, StoredSegment,
-};
+use wasm86_x86::{compile_interpreter, ExecutionProfile, Segment, SegmentProfile, StoredSegment};
 
 fn check(engine: Engine, module: &TestModule, name: &str, image: &Image, step: Step<'_>) {
     assert_eq!(
@@ -219,7 +216,12 @@ fn terminal_segment_load(engine: Engine, module: &TestModule) {
             ds.base,
             ds.limit,
             u32::from(ds.selector),
-            u32::from(ds.attributes.bits()),
+            u32::from(ds.usable),
+            u32::from(ds.readable),
+            u32::from(ds.writable),
+            u32::from(ds.executable),
+            u32::from(ds.expand_down),
+            u32::from(ds.big),
         ],
     });
     let mut cpu = image.cpu;
@@ -256,10 +258,7 @@ fn segmented_execution(engine: Engine) {
     let mut image = Image::new(&[
         0x66, 0xb8, 0x78, 0x56, 0x34, 0x12, 0xb8, 0xcd, 0xab, 0x67, 0x8b, 0x03, 0x8b, 0x07, 0xeb, 0,
     ]);
-    image.cpu.segments.cs.attributes = SegmentAttributes::new(
-        SegmentKind::Code { readable: true },
-        SegmentDefaultSize::Bits16,
-    );
+    image.cpu.segments.cs.big = 0;
     image.cpu.registers.ebx = 0x18000;
     image.map(0x18, 0x5000, false);
     image.map(8, 0x6000, false);

@@ -11,8 +11,8 @@ use crate::support::{
     step::{Engine, TestModule},
 };
 use wasm86_x86::{
-    compile_block_from_bytes, compile_interpreter, CpuState, ExecutionProfile, SegmentAttributes,
-    SegmentProfile, Segments,
+    compile_block_from_bytes, compile_interpreter, CpuState, ExecutionProfile, SegmentProfile,
+    Segments,
 };
 
 const VENDOR: [u32; 4] = [1, 0x6f6c_6552, 0x5550_4320, 0x6564_6163];
@@ -47,7 +47,7 @@ fn forms(engine: Engine, frontend: Frontend) {
             match profile {
                 ExecutionProfile::Real16 => image.cpu.segments = Segments::real_mode(),
                 ExecutionProfile::Protected(SegmentProfile::Segmented16) => {
-                    image.cpu.segments.cs.attributes = SegmentAttributes::from_bits(7);
+                    image.cpu.segments.cs.big = 0;
                 }
                 _ => {}
             }

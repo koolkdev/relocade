@@ -362,7 +362,7 @@ fn protected_modes(engine: Engine, frontend: Frontend) {
         ] {
             let mut image = Image::new(code);
             if profile == SegmentProfile::Segmented16 {
-                image.cpu.segments.cs.attributes = SegmentAttributes::from_bits(7);
+                image.cpu.segments.cs.big = 0;
             }
             cases.check(
                 "protected interrupt delivery exits unsupported before any effects",

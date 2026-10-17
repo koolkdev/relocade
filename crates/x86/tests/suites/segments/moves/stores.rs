@@ -1,6 +1,6 @@
 use super::super::data;
 use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadWrite};
-use crate::{Gpr32::*, Segment, SegmentAttributes, StoredSegment};
+use crate::{Gpr32::*, Segment, StoredSegment};
 
 fn stores() -> Vec<Case> {
     let mut cases = Vec::new();
@@ -37,7 +37,7 @@ fn stores() -> Vec<Case> {
             case = case.segmented_only().segment(
                 Segment::Cs,
                 StoredSegment {
-                    attributes: SegmentAttributes::from_bits(0x07),
+                    big: 0,
                     ..StoredSegment::flat_code32(0x1b)
                 },
             );
@@ -75,7 +75,7 @@ fn stores() -> Vec<Case> {
         .segment(
             Segment::Cs,
             StoredSegment {
-                attributes: SegmentAttributes::from_bits(0x07),
+                big: 0,
                 ..StoredSegment::flat_code32(0x1b)
             },
         )

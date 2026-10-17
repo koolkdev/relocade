@@ -4,7 +4,7 @@
 mod tests;
 
 use std::collections::HashMap;
-use wasm86_x86::{Compiler, CpuState, ExecutionProfile, ExecutionTarget, SegmentKind};
+use wasm86_x86::{Compiler, CpuState, ExecutionProfile, ExecutionTarget};
 use wasmparser::Validator;
 
 use super::step::TestModule;
@@ -65,10 +65,7 @@ impl BlockKey {
     fn validate_fetches(&self, cpu: &CpuState) {
         assert!(self.target.is_compatible_with(self.target, &cpu.segments));
         let cs = cpu.segments.cs;
-        assert!(matches!(
-            cs.attributes.kind(),
-            Some(SegmentKind::Code { .. })
-        ));
+        assert!(cs.usable != 0 && cs.executable != 0);
         let mut eip = self.start;
         let mut remaining = self.bytes.as_slice();
         for _ in 0..self.limit {

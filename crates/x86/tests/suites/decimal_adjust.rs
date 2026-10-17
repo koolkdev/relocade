@@ -13,7 +13,7 @@ use crate::support::{
 };
 use wasm86_x86::{
     Gpr32::{Eax, Ebx},
-    Segment, SegmentAttributes, StoredSegment,
+    Segment, StoredSegment,
 };
 
 fn flag(value: bool) -> FlagExpectation {
@@ -197,7 +197,7 @@ fn fixed_operands_and_undefined_flags() -> Vec<Case> {
                 case = case.segmented_only().segment(
                     Segment::Cs,
                     StoredSegment {
-                        attributes: SegmentAttributes::from_bits(0x07),
+                        big: 0,
                         ..StoredSegment::flat_code32(0x1b)
                     },
                 );

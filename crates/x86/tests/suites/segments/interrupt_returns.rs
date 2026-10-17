@@ -1,5 +1,7 @@
 //! Protected interrupt returns commit a complete frame or retain the restart state.
 
+use wasm86_x86::StoredSegment;
+
 #[path = "interrupt_returns/faults.rs"]
 mod faults;
 #[path = "interrupt_returns/progress.rs"]
@@ -97,7 +99,15 @@ fn widths(engine: Engine) {
     ] {
         let mut image = image(code, profile);
         image.cpu.registers.esp = 0xabcd_9000;
-        image.cpu.segments.ss = loaded(0x23, 0, u32::MAX, if stack_big { 21 } else { 5 });
+        image.cpu.segments.ss = loaded(
+            0x23,
+            0,
+            u32::MAX,
+            StoredSegment {
+                big: u8::from(stack_big),
+                ..StoredSegment::flat_data32(0)
+            },
+        );
         image.cpu.segments.fs = crate::StoredSegment::unusable(0);
         image.map(if stack_big { 0xabcd9 } else { 9 }, 0x8000, false);
         image.data(0x8000, &frame(word, 0x9234_5678, 0x27, 0));
@@ -115,7 +125,15 @@ fn widths(engine: Engine) {
             ),
         );
         let mut cpu = cleared_flags(image.cpu, word);
-        cpu.segments.cs = loaded(0x27, 0xc000, u32::MAX, if word { 23 } else { 7 });
+        cpu.segments.cs = loaded(
+            0x27,
+            0xc000,
+            u32::MAX,
+            StoredSegment {
+                big: u8::from(word),
+                ..StoredSegment::flat_code32(0)
+            },
+        );
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
         cpu.registers.esp = if word { 0xabcd_9006 } else { 0xabcd_900c };
         cpu.instruction_count = 0;
@@ -171,7 +189,7 @@ fn flag_images(engine: Engine) {
         }
         cpu.eip = 0x200;
         cpu.registers.esp = if word { 0x9006 } else { 0x900c };
-        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, 23);
+        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
         cpu.instruction_count = 0;
         check_one(
             engine,
@@ -204,7 +222,15 @@ fn frame_boundaries(engine: Engine) {
         let code = if word { vec![0x66, 0xcf] } else { vec![0xcf] };
         let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
         let mut image = image(&code, profile);
-        image.cpu.segments.ss = loaded(0x23, 0, limit, if stack_big { 21 } else { 5 });
+        image.cpu.segments.ss = loaded(
+            0x23,
+            0,
+            limit,
+            StoredSegment {
+                big: u8::from(stack_big),
+                ..StoredSegment::flat_data32(0)
+            },
+        );
         image.cpu.registers.esp = if stack_big {
             start
         } else {
@@ -224,7 +250,7 @@ fn frame_boundaries(engine: Engine) {
             cpu = cleared_flags(cpu, word);
             cpu.eip = 0x200;
             cpu.registers.esp = next_esp;
-            cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, 23);
+            cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
             cpu.instruction_count = 0;
             resolutions.push(SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27));
             Exit::Dispatch(cpu.eip)

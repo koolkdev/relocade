@@ -1,5 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
+use wasm86_x86::StoredSegment;
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 #[test]
@@ -22,7 +23,7 @@ fn complete_fields(engine: Engine) {
         let mut tables = DescriptorTables::default();
         tables.insert(0x27, descriptor(0x9000, 0xffff, SegmentDefaultSize::Bits32));
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, 23);
+        cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, StoredSegment::flat_code32(0));
         cpu.eip = 0x5678;
         cpu.instruction_count = 0;
         check_one(
@@ -113,7 +114,7 @@ fn length_boundary(engine: Engine) {
                 let mut tables = DescriptorTables::default();
                 tables.insert(0x27, descriptor(0x9000, 0xffff, SegmentDefaultSize::Bits32));
                 let mut cpu = image.cpu;
-                cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, 23);
+                cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, StoredSegment::flat_code32(0));
                 cpu.eip = 0x5678;
                 cpu.instruction_count = 0;
                 check_one(

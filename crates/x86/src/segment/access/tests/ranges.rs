@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     test_step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule},
-    CpuState, SegmentAttributes, SegmentDefaultSize, SegmentKind, StoredSegment,
+    CpuState, SegmentDefaultSize, StoredSegment,
 };
 
 fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
@@ -83,13 +83,8 @@ fn dynamic_spans(engine: Engine) {
         cpu.segments.fs = StoredSegment {
             base: 0x8000,
             limit,
-            attributes: SegmentAttributes::new(
-                SegmentKind::Data {
-                    writable: true,
-                    expand_down: down,
-                },
-                size,
-            ),
+            expand_down: u8::from(down),
+            big: u8::from(size == Bits32),
             ..StoredSegment::flat_data32(0x53)
         };
         let cpu = cpu.to_bytes().to_vec();

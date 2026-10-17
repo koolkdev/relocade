@@ -10,7 +10,7 @@ use crate::support::{
 use wasm86_x86::{
     CpuState,
     Gpr32::{Eax, Ebx, Ecx, Edi, Esi, Esp},
-    Segment, SegmentAttributes,
+    Segment,
     SegmentDefaultSize::{Bits16, Bits32},
     StoredSegment,
 };
@@ -117,7 +117,8 @@ fn stack_wrap() -> Vec<Case> {
                 StoredSegment {
                     base: 0x8000,
                     limit: 0x7fff,
-                    attributes: SegmentAttributes::from_bits(0x0d),
+                    expand_down: 1,
+                    big: 0,
                     ..StoredSegment::flat_data32(0x23)
                 },
             )

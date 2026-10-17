@@ -7,7 +7,7 @@ use crate::support::{
 use wasm86_x86::{
     compile_block_from_bytes, BlockError,
     Gpr32::{Eax, Ebx},
-    Segment, SegmentAttributes, StoredSegment,
+    Segment, StoredSegment,
 };
 
 fn prefix_transport() -> Vec<Case> {
@@ -61,7 +61,7 @@ test_cases!(
             .segment(
                 Segment::Cs,
                 StoredSegment {
-                    attributes: SegmentAttributes::from_bits(0x13),
+                    readable: 0,
                     ..StoredSegment::flat_code32(0x1b)
                 },
             )

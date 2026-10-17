@@ -4,7 +4,7 @@ use super::*;
 use crate::support::{
     blocks::BlockModules, encoding::check_length, machine::expected, step::TestModule,
 };
-use wasm86_x86::{SegmentAttributes, SegmentDefaultSize, SegmentKind};
+use wasm86_x86::StoredSegment;
 
 fn retired(mut cpu: wasm86_x86::CpuState, length: usize) -> wasm86_x86::CpuState {
     cpu.eip += length as u32;
@@ -18,7 +18,7 @@ fn prefetch(engine: Engine, frontend: Frontend) {
         let code = [0x64, 0x66, 0x0f, 0x18, hint << 3];
         let mut image = Image::new(&code);
         image.cpu.registers.eax = u32::MAX;
-        image.cpu.segments.fs.attributes = SegmentAttributes::from_bits(0);
+        image.cpu.segments.fs.usable = 0;
         image.cpu.segments.fs.limit = 0;
         let cpu = retired(image.cpu, code.len());
         checks.check(
@@ -97,39 +97,36 @@ fn flush(engine: Engine, frontend: Frontend) {
 
 fn segment_permissions(engine: Engine, frontend: Frontend) {
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented32);
-    for (attributes, limit, allowed) in [
+    for (cache, limit, allowed) in [
         (
-            SegmentAttributes::new(
-                SegmentKind::Code { readable: false },
-                SegmentDefaultSize::Bits32,
-            ),
+            StoredSegment {
+                readable: 0,
+                ..StoredSegment::flat_code32(0)
+            },
             0xfff,
             true,
         ),
         (
-            SegmentAttributes::new(
-                SegmentKind::Data {
-                    writable: false,
-                    expand_down: false,
-                },
-                SegmentDefaultSize::Bits32,
-            ),
+            StoredSegment {
+                writable: 0,
+                ..StoredSegment::flat_data32(0)
+            },
             0xfff,
             true,
         ),
-        (SegmentAttributes::from_bits(0), 0xfff, false),
+        (StoredSegment::unusable(0), 0xfff, false),
         (
-            SegmentAttributes::new(
-                SegmentKind::Code { readable: false },
-                SegmentDefaultSize::Bits32,
-            ),
+            StoredSegment {
+                readable: 0,
+                ..StoredSegment::flat_code32(0)
+            },
             0xffe,
             false,
         ),
     ] {
         let code = [0x64, 0x0f, 0xae, 0x38];
         let mut image = Image::new(&code);
-        image.cpu.segments.fs.attributes = attributes;
+        image.cpu.segments.fs = cache;
         image.cpu.segments.fs.limit = limit;
         image.cpu.segments.fs.base = 0x4000;
         image.cpu.registers.eax = 0xfff;

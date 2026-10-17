@@ -120,24 +120,27 @@ export default function execute([module, interpreter], { entry, interpreter_entr
   function checkProfile() {
     if (profile === null) return;
     const cpu = new DataView(executionContext.buffer);
-    const attributes = segment => cpu.getUint16(64 + segment * 12 + 10, true);
-    const flat = (segment, kind) => {
-      const offset = 64 + segment * 12;
+    const property = (segment, field) => cpu.getUint8(64 + segment * 16 + field);
+    const ordinaryPermissions = segment => {
+      const code = segment === 1;
+      return property(segment, 10) === 1 && property(segment, 11) === 1
+        && property(segment, 12) === Number(!code)
+        && property(segment, 13) === Number(code) && property(segment, 14) === 0;
+    };
+    const flat = segment => {
+      const offset = 64 + segment * 16;
       return cpu.getUint32(offset, true) === 0
-        && cpu.getUint32(offset + 4, true) === 0xffffffff
-        && (attributes(segment) & 15) === kind;
+        && cpu.getUint32(offset + 4, true) === 0xffffffff && ordinaryPermissions(segment);
     };
-    const codeBig = (attributes(1) & 16) !== 0;
     const real = segment => {
-      const offset = 64 + segment * 12;
+      const offset = 64 + segment * 16;
       return cpu.getUint32(offset, true) === cpu.getUint16(offset + 8, true) * 16
-        && cpu.getUint32(offset + 4, true) === 0xffff
-        && attributes(segment) === (segment === 1 ? 7 : 5);
+        && cpu.getUint32(offset + 4, true) === 0xffff && ordinaryPermissions(segment)
+        && property(segment, 15) === 0;
     };
-    const compatible = codeBig === !['segmented16', 'real16'].includes(profile)
+    const compatible = property(1, 15) === Number(!['segmented16', 'real16'].includes(profile))
       && (profile !== 'real16' || [0, 1, 2, 3, 4, 5].every(real))
-      && (profile !== 'flat32' || (flat(1, 7) && [0, 2, 3].every(s => flat(s, 5))
-        && (attributes(2) & 16) !== 0));
+      && (profile !== 'flat32' || ([0, 1, 2, 3].every(flat) && property(2, 15) === 1));
     if (!compatible) throw new Error(`${entry} requires compatible ${profile} segment state`);
   }
 }

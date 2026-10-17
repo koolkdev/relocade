@@ -188,16 +188,12 @@ test_frontends!(sse_memory_transfers, transfers);
 test_frontends!(sse_precise_faults, faults);
 
 fn segmented_defaults(engine: Engine, frontend: Frontend) {
-    use wasm86_x86::{SegmentAttributes, SegmentDefaultSize, SegmentKind};
     let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented16);
     for prefix in [&[][..], &[0x66][..]] {
         let code = encoding(prefix, 0x10, 0x06); // xmm0, [disp16]
         let code = [code, vec![0x00, 0x40]].concat();
         let mut image = image(&code);
-        image.cpu.segments.cs.attributes = SegmentAttributes::new(
-            SegmentKind::Code { readable: true },
-            SegmentDefaultSize::Bits16,
-        );
+        image.cpu.segments.cs.big = 0;
         image.map(4, 0x8000, false);
         image.data(0x8000, &RIGHT.to_le_bytes());
         let mut cpu = retire(image.cpu, code.len());
@@ -212,10 +208,7 @@ fn segmented_defaults(engine: Engine, frontend: Frontend) {
     // Linear alignment includes the segment base, not only the effective offset.
     let code = [0x0f, 0x57, 0x06, 0x00, 0x40];
     let mut image = image(&code);
-    image.cpu.segments.cs.attributes = SegmentAttributes::new(
-        SegmentKind::Code { readable: true },
-        SegmentDefaultSize::Bits16,
-    );
+    image.cpu.segments.cs.big = 0;
     image.cpu.segments.ds.base = 1;
     checks.check(
         "XOR checks linear alignment",

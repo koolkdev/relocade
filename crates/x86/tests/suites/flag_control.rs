@@ -121,7 +121,7 @@ fn interrupt_controls_fault(
         execution::ImageSequences,
         machine::{Exit, Image, Step},
     };
-    use wasm86_x86::{SegmentAttributes, SegmentProfile};
+    use wasm86_x86::SegmentProfile;
 
     for profile in [
         SegmentProfile::Flat32,
@@ -135,7 +135,7 @@ fn interrupt_controls_fault(
                 let mut image = Image::new(&code);
                 image.cpu.flags = CpuState::filled(fill).flags;
                 if profile == SegmentProfile::Segmented16 {
-                    image.cpu.segments.cs.attributes = SegmentAttributes::from_bits(7);
+                    image.cpu.segments.cs.big = 0;
                 }
                 cases.check(
                     "CLI/STI fault at CPL3/IOPL0 regardless of stored IF/IOPL bytes",

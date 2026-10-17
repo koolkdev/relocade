@@ -1,5 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
+use wasm86_x86::StoredSegment;
 
 fn earlier_progress(engine: Engine) {
     for nested_task in [false, true] {
@@ -74,7 +75,15 @@ fn dispatch_and_fetch(engine: Engine) {
         .push(SegmentResolution::new(&tables, Segment::Cs, 0x27));
     let mut cpu = cleared_flags(image.cpu, false);
     cpu.flags.bytes.nt = 1;
-    cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, 7);
+    cpu.segments.cs = loaded(
+        0x27,
+        0xc000,
+        0xffff,
+        StoredSegment {
+            big: 0,
+            ..StoredSegment::flat_code32(0)
+        },
+    );
     cpu.eip = 0x200;
     cpu.registers.esp = 0x900c;
     cpu.instruction_count = 0;

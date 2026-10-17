@@ -8,7 +8,7 @@ use crate::Gpr32;
 
 #[test]
 fn cpu_layout_matches_the_external_byte_contract() {
-    assert_eq!(CpuState::BYTE_LEN, 464);
+    assert_eq!(CpuState::BYTE_LEN, 488);
     assert_eq!(size_of::<StoredFlags>(), 28);
     assert_eq!(size_of::<StoredStatusSource>(), 12);
     assert_eq!(size_of::<FlagBytes>(), 16);
@@ -49,7 +49,7 @@ fn cpu_layout_matches_the_external_byte_contract() {
         ],
         [
             0, 1, 4, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 28, 32, 36, 40, 44,
-            48, 52, 56, 60, 136, 144
+            48, 52, 56, 60, 160, 168
         ],
     );
 }
@@ -101,9 +101,9 @@ fn decoding_preserves_little_endian_values_and_every_reserved_byte() {
     assert_eq!(cpu.eip, 0x3f3e_3d3c);
     assert_eq!(
         cpu.reserved,
-        std::array::from_fn(|index| (136 + index) as u8)
+        std::array::from_fn(|index| (160 + index) as u8)
     );
-    assert_eq!(cpu.instruction_count, 0x9796_9594_9392_9190);
+    assert_eq!(cpu.instruction_count, 0xafae_adac_abaa_a9a8);
     assert_eq!(cpu.flags.bytes.reserved, [25, 26, 27]);
     assert_eq!(cpu.to_bytes(), bytes);
 }
@@ -127,7 +127,7 @@ fn encoding_changes_only_the_named_fields_including_noncanonical_flags() {
     expected[24] = 0xff;
     expected[40..44].copy_from_slice(&[0x78, 0x56, 0x34, 0x92]);
     expected[60..64].copy_from_slice(&[2, 0x10, 0, 0]);
-    expected[144..152].fill(0);
+    expected[168..176].fill(0);
     assert_eq!(cpu.to_bytes(), expected);
     assert_eq!(CpuState::from_bytes(expected), cpu);
     assert_eq!(CpuState::filled(0).to_bytes(), [0; CpuState::BYTE_LEN]);
@@ -172,9 +172,9 @@ fn encoded_register_indices_address_the_named_registers() {
 
 #[test]
 fn simd_layout_defaults_and_literal_encodings() {
-    assert_eq!(offset_of!(CpuState, simd.mxcsr), 328);
-    assert_eq!(offset_of!(CpuState, simd.reserved), 332);
-    assert_eq!(offset_of!(CpuState, simd.xmm), 336);
+    assert_eq!(offset_of!(CpuState, simd.mxcsr), 352);
+    assert_eq!(offset_of!(CpuState, simd.reserved), 356);
+    assert_eq!(offset_of!(CpuState, simd.xmm), 360);
     assert_eq!(size_of::<super::StoredSimd>(), 136);
     assert_eq!(CpuState::default().simd.mxcsr, 0x1f80);
     assert_eq!(CpuState::default().simd.xmm, [[0; 16]; 8]);
@@ -182,8 +182,8 @@ fn simd_layout_defaults_and_literal_encodings() {
     cpu.simd.mxcsr = 0xfedc_ba98;
     cpu.simd.xmm[7] = 0x01234567_89abcdef_fedcba98_76543210_u128.to_le_bytes();
     let bytes = cpu.to_bytes();
-    assert_eq!(&bytes[328..332], &[0x98, 0xba, 0xdc, 0xfe]);
-    assert_eq!(&bytes[332..448], &[0xa5; 116]);
-    assert_eq!(&bytes[448..464], &cpu.simd.xmm[7]);
+    assert_eq!(&bytes[352..356], &[0x98, 0xba, 0xdc, 0xfe]);
+    assert_eq!(&bytes[356..472], &[0xa5; 116]);
+    assert_eq!(&bytes[472..488], &cpu.simd.xmm[7]);
     assert_eq!(CpuState::from_bytes(bytes), cpu);
 }

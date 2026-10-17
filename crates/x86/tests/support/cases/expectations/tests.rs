@@ -229,7 +229,7 @@ fn direct_expectations_allow_only_authored_flag_bytes_to_change() {
 
 #[test]
 fn current_instruction_expectations_preserve_every_segment_cache_byte() {
-    for offset in 64..136 {
+    for offset in 64..160 {
         let mut fixture = Fixture::new();
         fixture.check();
         let mut bytes = fixture.actual.cpu.to_bytes();

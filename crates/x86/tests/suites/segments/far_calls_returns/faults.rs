@@ -1,5 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
+use wasm86_x86::StoredSegment;
 
 fn call_fault_order(engine: Engine) {
     for (present, stack_limit, target_limit, exit) in [
@@ -246,8 +247,15 @@ fn return_selectors(engine: Engine) {
             let mut cpu = image.cpu;
             if let Exit::Dispatch(target) = exit {
                 cpu.eip = target;
-                cpu.segments.cs =
-                    loaded(selector, 0xc000, 0x200, if selector == 7 { 19 } else { 23 });
+                cpu.segments.cs = loaded(
+                    selector,
+                    0xc000,
+                    0x200,
+                    StoredSegment {
+                        readable: u8::from(selector != 7),
+                        ..StoredSegment::flat_code32(0)
+                    },
+                );
                 cpu.registers.esp = if word { 0x19003 } else { 0x19007 };
                 cpu.instruction_count = 0;
             }

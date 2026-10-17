@@ -13,8 +13,7 @@ use crate::support::{
     step::{Engine, TestModule},
 };
 use wasm86_x86::{
-    compile_block_from_bytes, ExecutionProfile, Gpr32::*, Segment, SegmentAttributes,
-    SegmentProfile, StoredSegment,
+    compile_block_from_bytes, ExecutionProfile, Gpr32::*, Segment, SegmentProfile, StoredSegment,
 };
 
 fn faulting_forms() -> Vec<Case> {
@@ -42,7 +41,7 @@ fn faulting_forms() -> Vec<Case> {
         .segment(
             Segment::Cs,
             StoredSegment {
-                attributes: SegmentAttributes::from_bits(0x07),
+                big: 0,
                 ..StoredSegment::flat_code32(0x1b)
             },
         )

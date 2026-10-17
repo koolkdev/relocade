@@ -1,5 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
+use wasm86_x86::StoredSegment;
 
 fn round_trip(engine: Engine) {
     for word in [false, true] {
@@ -12,7 +13,15 @@ fn round_trip(engine: Engine) {
         table.insert(0x27, descriptor(0xc000, 0xffff, SegmentDefaultSize::Bits16));
         table.insert(0x1b, descriptor(0, u32::MAX, SegmentDefaultSize::Bits32));
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, 7);
+        cpu.segments.cs = loaded(
+            0x27,
+            0xc000,
+            0xffff,
+            StoredSegment {
+                big: 0,
+                ..StoredSegment::flat_code32(0)
+            },
+        );
         cpu.eip = 0x200;
         cpu.registers.esp = if word { 0x9004 } else { 0x9000 };
         cpu.instruction_count = 0;
@@ -32,7 +41,7 @@ fn round_trip(engine: Engine) {
         );
         image.cpu = cpu;
         image.data(saved_address, &saved);
-        cpu.segments.cs = loaded(0x1b, 0, u32::MAX, 23);
+        cpu.segments.cs = loaded(0x1b, 0, u32::MAX, StoredSegment::flat_code32(0));
         cpu.eip = 0x1000 + call.len() as u32;
         cpu.registers.esp = 0x9008;
         cpu.instruction_count = 1;
@@ -100,7 +109,7 @@ fn saved_fallthrough(engine: Engine) {
         image.data(0x3ffc, &code[..4]);
         image.data(0x5000, &code[4..]);
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, 23);
+        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
         cpu.eip = 0x200;
         cpu.registers.esp = if word { 0x9004 } else { 0x9000 };
         cpu.instruction_count = 0;
@@ -145,7 +154,7 @@ fn dispatch_boundary(engine: Engine) {
             .segment_resolutions
             .push(SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27));
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, 23);
+        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
         cpu.eip = 0x200;
         cpu.registers.esp = if returning { 0x9008 } else { 0x9000 };
         cpu.instruction_count = 0;

@@ -20,6 +20,6 @@ use crate::support::{
     step::{Engine, Event, SegmentResolution, TestModule},
 };
 use wasm86_x86::{
-    DescriptorTables, ExecutionProfile, Segment, SegmentAttributes, SegmentDefaultSize,
-    SegmentDescriptor, SegmentDescriptorKind, StoredSegment,
+    DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
+    SegmentDescriptorKind, StoredSegment,
 };

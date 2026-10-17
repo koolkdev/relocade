@@ -1,6 +1,7 @@
 use super::*;
 use crate::support::encoding::check_length;
 use crate::SegmentProfile;
+use wasm86_x86::StoredSegment;
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
 fn encodings() -> Vec<Vec<u8>> {
@@ -81,7 +82,7 @@ fn complete_fields(engine: Engine) {
         }
         image.data(0x8000, &pointer(word, 0x200, 0x27));
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, 23);
+        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
         cpu.eip = 0x200;
         cpu.registers.esp = match (returning, word) {
             (true, true) => 0xa238,
@@ -142,7 +143,7 @@ fn length_and_register_modes(engine: Engine) {
                 );
             } else {
                 let mut cpu = image.cpu;
-                cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, 23);
+                cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
                 cpu.eip = 0x200;
                 cpu.registers.esp = if returning { 0x9008 } else { 0x9000 };
                 cpu.instruction_count = 0;

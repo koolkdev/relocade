@@ -69,9 +69,8 @@ pub use processor::{CpuFeature, CpuModel};
 pub use profile::{ExecutionProfile, ExecutionTarget};
 pub use register::Gpr32;
 pub use segment::{
-    DescriptorTables, PrivilegeLevel, Segment, SegmentAttributes, SegmentDefaultSize,
-    SegmentDescriptor, SegmentDescriptorInfo, SegmentDescriptorKind, SegmentKind, SegmentLimit,
-    SegmentProfile,
+    DescriptorTables, PrivilegeLevel, Segment, SegmentDefaultSize, SegmentDescriptor,
+    SegmentDescriptorInfo, SegmentDescriptorKind, SegmentLimit, SegmentProfile,
 };
 pub use state::{
     CpuState, ExecutionContext, ExecutionExit, FlagBytes, Registers, Segments, StoredFlags,

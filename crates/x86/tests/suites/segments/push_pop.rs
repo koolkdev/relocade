@@ -17,8 +17,8 @@ use crate::support::{
     step::{Engine, Event, SegmentResolution, TestModule},
 };
 use wasm86_x86::{
-    DescriptorTables, ExecutionProfile, Segment, SegmentAttributes, SegmentDefaultSize,
-    SegmentDescriptor, SegmentKind, StoredSegment,
+    DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
+    StoredSegment,
 };
 
 // Literal encoding order supplies an independent oracle for fixed segment operands.
@@ -37,17 +37,3 @@ const POP: [(Segment, &[u8]); 5] = [
     (Segment::Fs, &[0x0f, 0xa1]),
     (Segment::Gs, &[0x0f, 0xa9]),
 ];
-
-fn stack_attributes(big: bool) -> SegmentAttributes {
-    SegmentAttributes::new(
-        SegmentKind::Data {
-            writable: true,
-            expand_down: false,
-        },
-        if big {
-            SegmentDefaultSize::Bits32
-        } else {
-            SegmentDefaultSize::Bits16
-        },
-    )
-}

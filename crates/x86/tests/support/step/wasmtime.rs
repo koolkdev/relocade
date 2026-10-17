@@ -115,9 +115,9 @@ impl TestModule {
                     state
                         .events
                         .push(Event::ResolveSegment { segment, selector });
-                    let [status, error, base, limit, selector, attributes] =
+                    let [status, error, base, limit, selector, usable, readable, writable, executable, expand_down, big] =
                         reply.values.map(|value| value as i32);
-                    (status, error, base, limit, selector, attributes)
+                    (status, error, base, limit, selector, usable, readable, writable, executable, expand_down, big)
                 },
             )
             .unwrap();

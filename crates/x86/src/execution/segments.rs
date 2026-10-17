@@ -61,7 +61,12 @@ impl ExecutionBuilder<'_, '_> {
                     base: selector.unsigned().extend::<I32>().shl(4),
                     limit: cache.limit.into(),
                     selector: selector.clone(),
-                    attributes: u32::from(cache.attributes.bits()).into(),
+                    usable: (cache.usable != 0).into(),
+                    readable: (cache.readable != 0).into(),
+                    writable: (cache.writable != 0).into(),
+                    executable: (cache.executable != 0).into(),
+                    expand_down: (cache.expand_down != 0).into(),
+                    big: (cache.big != 0).into(),
                 }
             }
             ExecutionProfile::Protected(_) => self.runtime.resolve_segment(

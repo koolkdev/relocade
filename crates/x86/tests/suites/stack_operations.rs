@@ -10,9 +10,7 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
     step::{Engine, TestModule},
 };
-use wasm86_x86::{
-    compile_block_from_bytes, BlockError, Gpr32::*, SegmentAttributes, StoredSegment,
-};
+use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::*, StoredSegment};
 
 #[path = "stack_operations/enter.rs"]
 mod enter;
@@ -26,13 +24,14 @@ fn stack_segment(base: u32, limit: u32, big: bool) -> StoredSegment {
         base,
         limit,
         selector: 0x23,
-        attributes: SegmentAttributes::from_bits(if big { 0x15 } else { 0x05 }),
+        big: u8::from(big),
+        ..StoredSegment::flat_data32(0)
     }
 }
 
 fn code16() -> StoredSegment {
     StoredSegment {
-        attributes: SegmentAttributes::from_bits(0x07),
+        big: 0,
         ..StoredSegment::flat_code32(0x1b)
     }
 }

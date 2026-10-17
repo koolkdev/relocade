@@ -3,7 +3,7 @@ mod permissions;
 mod query;
 
 use crate::{
-    DescriptorTables, Exception, Segment, SegmentAttributes, SegmentDefaultSize, SegmentDescriptor,
+    DescriptorTables, Exception, Segment, SegmentDefaultSize, SegmentDescriptor,
     SegmentDescriptorKind, SegmentLimit, StoredSegment,
 };
 
@@ -74,7 +74,7 @@ fn only_global_slot_zero_is_a_null_selector() {
                 base: 0x1234_5000,
                 limit: 0xffff,
                 selector,
-                attributes: SegmentAttributes::from_bits(0x15),
+                ..StoredSegment::flat_data32(0)
             }),
         );
     }
@@ -89,7 +89,7 @@ fn descriptor_replacement_and_removal_leave_loaded_copies_intact() {
         base: 0x1234_5000,
         limit: 0xffff,
         selector: 0x27,
-        attributes: SegmentAttributes::from_bits(0x15),
+        ..StoredSegment::flat_data32(0)
     };
     tables.insert(
         0x24,

@@ -70,7 +70,7 @@ fn unchanged_modes_add_one_guard_to_an_arithmetic_sequence() {
                         .unwrap();
                     // One mode guard, one operand guard, and one result guard per operation.
                     assert_eq!(interpreter_calls(&module), count + 2);
-                    for offset in [158, 159] {
+                    for offset in [182, 183] {
                         assert_eq!(operators(&module).filter(|op| matches!(op, Operator::I32Load8U { memarg } if memarg.offset == offset)).count(), 1);
                     }
                 }
@@ -96,7 +96,7 @@ fn known_controls_need_no_mode_guard() {
             .count()
     );
     assert!(!operators(&observed).any(
-        |op| matches!(op, Operator::I32Load8U { memarg } if matches!(memarg.offset, 158 | 159))
+        |op| matches!(op, Operator::I32Load8U { memarg } if matches!(memarg.offset, 182 | 183))
     ));
 }
 
@@ -128,12 +128,12 @@ fn masked_set_precision_reuses_its_guard_and_original_byte() {
             // per instruction. Unchanged controls and status are read once.
             assert_eq!(interpreter_calls(&module), count + 2);
             let ops: Vec<_> = operators(&module).collect();
-            for offset in [157, 158, 159, 185] {
+            for offset in [181, 182, 183, 209] {
                 assert_eq!(ops.iter().filter(|op| matches!(op, Operator::I32Load8U { memarg } if memarg.offset == offset)).count(), 1);
             }
             let pe_load = ops
                 .iter()
-                .position(|op| matches!(op, Operator::I32Load8U { memarg } if memarg.offset == 185))
+                .position(|op| matches!(op, Operator::I32Load8U { memarg } if memarg.offset == 209))
                 .unwrap();
             let Operator::LocalSet { local_index: pe } = ops[pe_load + 1] else {
                 panic!("the observed PE byte remains available through the block");
@@ -141,7 +141,7 @@ fn masked_set_precision_reuses_its_guard_and_original_byte() {
             // Every publication reuses the observed byte, including its unused
             // bits. The sequence must not accumulate PE OR calculations.
             for (index, op) in ops.iter().enumerate() {
-                if matches!(op, Operator::I32Store8 { memarg } if memarg.offset == 185) {
+                if matches!(op, Operator::I32Store8 { memarg } if memarg.offset == 209) {
                     assert!(
                         matches!(ops[index - 1], Operator::LocalGet { local_index } if local_index == pe)
                     );

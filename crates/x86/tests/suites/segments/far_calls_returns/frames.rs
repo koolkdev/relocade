@@ -1,5 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
+use wasm86_x86::StoredSegment;
 
 fn call_widths(engine: Engine) {
     // Each immediate/indirect form covers the four operand-width/SS.B combinations.
@@ -64,7 +65,15 @@ fn call_widths(engine: Engine) {
         } else {
             0x10000
         };
-        image.cpu.segments.ss = loaded(0x23, base, u32::MAX, if stack_big { 21 } else { 5 });
+        image.cpu.segments.ss = loaded(
+            0x23,
+            base,
+            u32::MAX,
+            StoredSegment {
+                big: u8::from(stack_big),
+                ..StoredSegment::flat_data32(0)
+            },
+        );
         image.map(
             if stack_big { 0x12349 } else { 9 } + (base >> 12),
             0x8000,
@@ -87,7 +96,15 @@ fn call_widths(engine: Engine) {
             ),
         );
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0xc000, u32::MAX, if word { 23 } else { 7 });
+        cpu.segments.cs = loaded(
+            0x27,
+            0xc000,
+            u32::MAX,
+            StoredSegment {
+                big: u8::from(word),
+                ..StoredSegment::flat_code32(0)
+            },
+        );
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
         cpu.registers.esp = if word { 0x1234_9004 } else { 0x1234_9000 };
         cpu.instruction_count = 0;
@@ -145,12 +162,20 @@ fn return_widths(engine: Engine) {
             image.cpu.segments.cs.selector = 0x1b;
             code_defaults(&mut image, profile);
             image.cpu.registers.esp = 0x1234_9000;
-            image.cpu.segments.ss = loaded(0x23, 0, u32::MAX, if stack_big { 21 } else { 5 });
+            image.cpu.segments.ss = loaded(
+                0x23,
+                0,
+                u32::MAX,
+                StoredSegment {
+                    big: u8::from(stack_big),
+                    ..StoredSegment::flat_data32(0)
+                },
+            );
             image.map(if stack_big { 0x12349 } else { 9 }, 0x8000, false);
             image.data(0x8000, &[0xa5; 8]);
             image.data(0x8000, &pointer(word, 0x9234_5678, 0x27));
             let mut cpu = image.cpu;
-            cpu.segments.cs = loaded(0x27, 0xc000, u32::MAX, 23);
+            cpu.segments.cs = loaded(0x27, 0xc000, u32::MAX, StoredSegment::flat_code32(0));
             cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
             cpu.registers.esp = match (word, cleanup, stack_big) {
                 (true, None, _) => 0x1234_9004,
@@ -201,7 +226,15 @@ fn frame_boundaries(engine: Engine) {
             };
             let mut image = Image::new(&code);
             image.cpu.segments.cs.selector = 0x1b;
-            image.cpu.segments.ss = loaded(0x23, 0, limit, if stack_big { 21 } else { 5 });
+            image.cpu.segments.ss = loaded(
+                0x23,
+                0,
+                limit,
+                StoredSegment {
+                    big: u8::from(stack_big),
+                    ..StoredSegment::flat_data32(0)
+                },
+            );
             let initial_sp = if returning {
                 start
             } else {
@@ -235,7 +268,7 @@ fn frame_boundaries(engine: Engine) {
             let mut ram: Vec<(u32, &[u8])> = vec![];
             let saved = pointer(false, 0x1007, 0x1b);
             let exit = if accepted {
-                cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, 23);
+                cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
                 cpu.eip = 0x200;
                 cpu.instruction_count = 0;
                 cpu.registers.esp = if returning {

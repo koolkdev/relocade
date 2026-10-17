@@ -2,7 +2,7 @@ use super::{code, data};
 use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly};
 use wasm86_x86::{
     Gpr32::{Eax, Ebp, Ebx},
-    Segment, SegmentAttributes,
+    Segment,
 };
 
 fn translated_fields() -> Vec<Case> {
@@ -55,7 +55,7 @@ fn translated_fields() -> Vec<Case> {
     );
     for readable in [false, true] {
         let mut cs = code(0x8000, 0x1002);
-        cs.attributes = SegmentAttributes::from_bits(if readable { 0x17 } else { 0x13 });
+        cs.readable = u8::from(readable);
         let case = Case::preserving_flags(
             format!("CS override reads through the code base, readable {readable}"),
             &[0x2e, 0x8b, 0x03],
@@ -112,7 +112,7 @@ fn code_limits() -> Vec<Case> {
         cases.push(fits);
     }
     let mut cs = code(0x8000, 0x1000);
-    cs.attributes = SegmentAttributes::from_bits(0x13);
+    cs.readable = 0;
     cases.push(
         Case::preserving_flags("execute-only nonflat CS permits its final byte", &[0x90])
             .segmented_only()

@@ -53,12 +53,12 @@ fn only_exits_with_progress_read_and_write_instruction_count() {
                 for operation in body.get_operators_reader().unwrap() {
                     match operation.unwrap() {
                         Operator::I64Load { memarg }
-                            if Some(memarg.memory) == cpu_memory && memarg.offset == 144 =>
+                            if Some(memarg.memory) == cpu_memory && memarg.offset == 168 =>
                         {
                             loads += 1;
                         }
                         Operator::I64Store { memarg }
-                            if Some(memarg.memory) == cpu_memory && memarg.offset == 144 =>
+                            if Some(memarg.memory) == cpu_memory && memarg.offset == 168 =>
                         {
                             stores += 1;
                         }

@@ -1,5 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
+use wasm86_x86::StoredSegment;
 
 fn stack_faults(engine: Engine) {
     for word in [false, true] {
@@ -164,8 +165,15 @@ fn selector_faults(engine: Engine) {
             if let Exit::Dispatch(eip) = exit {
                 cpu = cleared_flags(cpu, word);
                 cpu.eip = eip;
-                cpu.segments.cs =
-                    loaded(selector, 0xc000, 0x200, if selector == 7 { 19 } else { 23 });
+                cpu.segments.cs = loaded(
+                    selector,
+                    0xc000,
+                    0x200,
+                    StoredSegment {
+                        readable: u8::from(selector != 7),
+                        ..StoredSegment::flat_code32(0)
+                    },
+                );
                 cpu.registers.esp = if word { 0x9006 } else { 0x900c };
                 cpu.instruction_count = 0;
             }

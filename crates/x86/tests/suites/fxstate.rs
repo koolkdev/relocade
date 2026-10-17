@@ -15,10 +15,7 @@ use crate::support::{
     step::Engine,
     x87::{complete_x87, dispatch, real80, set_control, stack_image, status, write_register_bits},
 };
-use wasm86_x86::{
-    CpuState, ExecutionProfile, SegmentAttributes, SegmentDefaultSize, SegmentKind, SegmentProfile,
-    Segments,
-};
+use wasm86_x86::{CpuState, ExecutionProfile, SegmentProfile, Segments};
 
 const FLAT32: ExecutionProfile = ExecutionProfile::Protected(SegmentProfile::Flat32);
 const PROFILES: [ExecutionProfile; 3] = [
@@ -52,10 +49,7 @@ fn image(code: &[u8], profile: ExecutionProfile) -> Image {
     match profile {
         ExecutionProfile::Real16 => image.cpu.segments = Segments::real_mode(),
         ExecutionProfile::Protected(SegmentProfile::Segmented16) => {
-            image.cpu.segments.cs.attributes = SegmentAttributes::new(
-                SegmentKind::Code { readable: true },
-                SegmentDefaultSize::Bits16,
-            );
+            image.cpu.segments.cs.big = 0;
         }
         _ => {}
     }

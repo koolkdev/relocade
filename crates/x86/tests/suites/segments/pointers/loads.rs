@@ -1,5 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
+use wasm86_x86::StoredSegment;
 
 fn registers_and_widths(engine: Engine) {
     for (segment, opcode) in FORMS {
@@ -41,7 +42,15 @@ fn registers_and_widths(engine: Engine) {
             );
             let mut cpu = image.cpu;
             cpu.registers[destination] = if word { 0x8888_5678 } else { 0x9234_5678 };
-            cpu.segments[segment] = loaded(0xf327, 0x9000, 0x10, 5);
+            cpu.segments[segment] = loaded(
+                0xf327,
+                0x9000,
+                0x10,
+                StoredSegment {
+                    big: 0,
+                    ..StoredSegment::flat_data32(0)
+                },
+            );
             cpu.eip += code.len() as u32;
             cpu.instruction_count = 0;
             check_one(
@@ -97,7 +106,15 @@ fn source_spans(engine: Engine) {
         tables.insert(0xf327, descriptor(0x9000, SegmentDefaultSize::Bits16));
         let mut cpu = image.cpu;
         cpu.registers.eax = if word { 0x1111_5678 } else { 0x9234_5678 };
-        cpu.segments.fs = loaded(0xf327, 0x9000, 0xffff, 5);
+        cpu.segments.fs = loaded(
+            0xf327,
+            0x9000,
+            0xffff,
+            StoredSegment {
+                big: 0,
+                ..StoredSegment::flat_data32(0)
+            },
+        );
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
@@ -145,7 +162,15 @@ fn old_address_state(engine: Engine) {
         tables.insert(0xf327, descriptor(0x9000, SegmentDefaultSize::Bits16));
         let mut cpu = image.cpu;
         cpu.registers.ebp = 0x9234_5678;
-        cpu.segments[segment] = loaded(0xf327, 0x9000, 0xffff, 5);
+        cpu.segments[segment] = loaded(
+            0xf327,
+            0x9000,
+            0xffff,
+            StoredSegment {
+                big: 0,
+                ..StoredSegment::flat_data32(0)
+            },
+        );
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
@@ -183,7 +208,15 @@ fn address_boundaries(engine: Engine) {
         tables.insert(0xf327, descriptor(0x9000, SegmentDefaultSize::Bits16));
         let mut cpu = image.cpu;
         cpu.registers.eax = 0x9234_5678;
-        cpu.segments.gs = loaded(0xf327, 0x9000, 0xffff, 5);
+        cpu.segments.gs = loaded(
+            0xf327,
+            0x9000,
+            0xffff,
+            StoredSegment {
+                big: 0,
+                ..StoredSegment::flat_data32(0)
+            },
+        );
         cpu.eip += 4;
         cpu.instruction_count = 0;
         check_one(
