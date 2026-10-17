@@ -47,13 +47,14 @@ pub fn compile_block_from_bytes(
 /// The profile determines instruction defaults; size prefixes independently
 /// select the opposite operand or address width.
 ///
-/// Before each entry, the host must establish profile compatibility and validate
-/// the full fetch spans and bytes of every compiled instruction against CS and
-/// guest memory. Generated blocks do not repeat instruction-fetch checks. Changes
-/// to relevant CS state, code bytes or mappings require revalidation or invalidation
-/// of affected entries and direct links. See the
-/// [host integration contract](crate#entry-validity) for validity throughout
-/// execution and fallback at an invalid fetch.
+/// The block checks its complete compiled fetch span against CS at entry. A failed
+/// check enters the interpreter before executing any instruction, so valid prefixes
+/// and faults retain their architectural order. Profile-proven checks fold away.
+/// The host must establish profile compatibility and ensure the snapshot matches
+/// readable guest memory at the current CS base. Changes to code bytes or mappings
+/// still require revalidation or invalidation of affected entries and direct links.
+/// See the [host integration contract](crate#entry-validity) for validity throughout
+/// execution.
 ///
 /// ```
 /// use wasm86_x86::{compile_block_from_bytes_with_profile, Compiler, SegmentProfile};
@@ -127,6 +128,7 @@ impl Compiler {
                     self.target,
                 )?
                 .with_specialization(self.observed_cpu.as_ref());
+                execution.specialize_on_fetch_span(bytes.len() - remaining_bytes.len())?;
                 for decoded_instruction in decoded_instructions {
                     execution.execute(decoded_instruction)?;
                 }

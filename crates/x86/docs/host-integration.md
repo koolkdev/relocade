@@ -722,19 +722,25 @@ The selected profile must remain valid until a terminal segment load commits its
 cache. Only state publication and dispatch follow that commit; the next entry
 must be admitted against the new state.
 
-Snapshot blocks have an additional requirement: every compiled instruction's full
-fetch span must fit executable CS, and its bytes must match readable guest memory
-at CS.base + its EIP, with 32-bit linear wrapping. The byte-only compiler cannot
-establish this, and generated blocks do not repeat instruction-fetch checks.
-Bytes after the compilation boundary are irrelevant. Profile compatibility alone
-does not establish snapshot validity.
+Snapshot blocks check their complete compiled fetch span against current CS at
+entry, before any instruction effects. This includes the last byte of the final
+compiled instruction; bytes after the compilation boundary are irrelevant. A failed
+check tail-calls `wasm86.interpret` at the block's starting EIP without retiring any
+instructions. The interpreter executes any valid prefix and reports the first
+architectural fault, which may precede the invalid CS fetch. Checks proved by the
+profile fold away. This guard needs no observed CPU snapshot and accepts any CS
+permissions and limit that allow the span.
+
+The host must still ensure that snapshot bytes match readable guest memory at
+CS.base + each instruction's EIP, with 32-bit offset and linear wrapping. The guard
+does not check code bytes or mappings, nor establish profile compatibility.
 
 The host must preserve validity during execution and revalidate or invalidate
 affected entries and links when relevant CS state, code bytes or mappings change.
 An instruction changing a relied-upon assumption must end the block. There is no
-code cache or automatic invalidation in these libraries. A checked snapshot
-producer stops before an invalid fetch, executes any valid instruction prefix,
-then handles the fault, for example by entering the interpreter at the failing EIP.
+code cache or automatic invalidation in these libraries. A snapshot producer that
+cannot read a complete instruction can stop at the valid prefix and enter the
+interpreter at the next EIP to handle the fetch precisely.
 
 Protected-mode execution may reuse successful data-access checks while mappings
 remain stable. Each access still checks its segment and transfers current guest
