@@ -1,4 +1,4 @@
-//! Persistent execution sessions and instruction budgets for configured guests.
+//! Execution preparation, callable dispatch, and instruction budgets for configured guests.
 //!
 //! [`wasm86_machine::Machine`] supplies the CPU context, address space and environment.
 //! [`Runtime::attach`] prepares code for its complete execution target and produces
@@ -29,9 +29,11 @@
 
 pub mod backend;
 mod error;
+mod module;
 mod session;
 
 pub use error::{Error, Result};
+pub use module::ExecutableModule;
 pub use session::Session;
 
 use backend::Backend;

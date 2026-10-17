@@ -10,6 +10,7 @@ pub enum Error {
         message: String,
     },
     Configuration(wasm86_machine::ConfigurationError),
+    IncompatibleModule,
     InvalidExit(u64),
 }
 
@@ -28,6 +29,12 @@ impl fmt::Display for Error {
         match self {
             Self::Generate(error) => write!(f, "generate execution module: {error}"),
             Self::Backend { operation, message } => write!(f, "{operation}: {message}"),
+            Self::IncompatibleModule => {
+                write!(
+                    f,
+                    "module execution target is incompatible with the session"
+                )
+            }
             Self::Configuration(error) => error.fmt(f),
             Self::InvalidExit(word) => write!(f, "invalid guest exit word {word:#018x}"),
         }

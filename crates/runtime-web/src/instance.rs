@@ -16,9 +16,11 @@ use wasm_bindgen_futures::JsFuture;
 pub struct WebInstance<D> {
     state: Rc<RefCell<Imports<D>>>,
     context: WebAssembly::Memory,
+    entries: WebAssembly::Memory,
     memory: MemoryAccess,
     entry: Function,
-    _imports: BoundImports,
+    imports: BoundImports,
+    functions: WebAssembly::Table,
 }
 
 impl<D: Environment + 'static> WebInstance<D> {
@@ -55,14 +57,41 @@ impl<D: Environment + 'static> WebInstance<D> {
         Ok(Self {
             state,
             context,
+            entries,
             memory,
             entry,
-            _imports: imports,
+            imports,
+            functions,
         })
     }
 }
 
 impl<D: Environment + 'static> Instance<D> for WebInstance<D> {
+    type Module = PreparedModule;
+
+    async fn install_module(
+        &mut self,
+        module: &PreparedModule,
+        first_slot: u32,
+        exports: &[String],
+    ) -> Result<()> {
+        let instance = instantiate(module, &self.imports.object).await?;
+        let required = first_slot + exports.len() as u32;
+        let current = self.functions.length();
+        if required > current {
+            self.functions
+                .grow(required - current)
+                .map_err(|error| js_error("grow execution functions", error))?;
+        }
+        for (index, name) in exports.iter().enumerate() {
+            let function = export(&instance, name)?;
+            self.functions
+                .set(first_slot + index as u32, &function)
+                .map_err(|error| js_error("install execution function", error))?;
+        }
+        Ok(())
+    }
+
     fn run(&mut self, instruction_target: u64) -> Result<u64> {
         memory::write(
             &self.context,
@@ -78,6 +107,13 @@ impl<D: Environment + 'static> Instance<D> for WebInstance<D> {
         i64::try_from(word)
             .map(|word| word as u64)
             .map_err(|error| js_error("read Wasm exit", error))
+    }
+
+    fn set_entries(&mut self, entries: &EntryTable) -> Result<()> {
+        let bytes = entries.to_bytes();
+        memory::grow(&self.entries, bytes.len() as u64)?;
+        memory::write(&self.entries, 0, &bytes);
+        Ok(())
     }
 
     fn cpu(&self) -> CpuState {
