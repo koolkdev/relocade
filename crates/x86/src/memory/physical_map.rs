@@ -79,6 +79,14 @@ impl PhysicalMemoryMap {
     pub const A20_MASK_OFFSET: usize = Self::PAGE_COUNT * 8;
     pub const BYTE_LEN: usize = Self::A20_MASK_OFFSET + 4;
 
+    /// Checks all RAM/ROM backing, including pages currently hidden by A20.
+    pub fn fits_backing(&self, memory_size: u64) -> bool {
+        self.pages
+            .iter()
+            .filter_map(|page| page.backing_offset())
+            .all(|offset| u64::from(offset) + u64::from(Self::PAGE_BYTES) <= memory_size)
+    }
+
     /// Constructs a table from inclusive physical ranges. Empty input leaves all
     /// pages unmapped; later regions replace earlier overlapping regions.
     /// A20 starts disabled for DOS-compatible address wrapping.
