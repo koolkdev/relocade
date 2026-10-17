@@ -12,6 +12,11 @@ mod configurations;
 #[path = "runtime/execution.rs"]
 mod execution;
 
+#[path = "runtime/devices.rs"]
+mod devices;
+#[path = "runtime/memory.rs"]
+mod memory;
+
 type TestMachine<D = ()> = Session<TestBackend, D>;
 
 async fn runtime() -> Runtime<TestBackend> {
