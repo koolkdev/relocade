@@ -753,6 +753,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm86-machine"
+version = "0.0.0"
+dependencies = [
+ "wasm86-x86",
+]
+
+[[package]]
 name = "wasm86-test-support"
 version = "0.0.0"
 dependencies = [
