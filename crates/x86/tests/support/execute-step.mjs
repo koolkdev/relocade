@@ -68,8 +68,8 @@ export default function execute([module, interpreter], { entry, interpreter_entr
         events.push({ kind: 'resolve_segment', segment, selector });
         return reply.values;
       },
-      dispatch: eip => {
-        events.push({ kind: 'dispatch', eip, snapshot: snapshot() });
+      dispatch: () => {
+        events.push({ kind: 'dispatch', snapshot: snapshot() });
         return BigInt(input.dispatch_return);
       },
       // Unlinked fixtures probe the boundary without executing the instruction.

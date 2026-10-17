@@ -168,7 +168,6 @@ fn instruction_counts_reread_host_changes_between_invocations() {
             guest: None,
         };
         events.push(Event::Dispatch {
-            eip: 4106,
             snapshot: snapshot.clone(),
         });
         events.push(Event::Return {

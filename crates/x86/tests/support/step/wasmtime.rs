@@ -80,7 +80,7 @@ impl TestModule {
             .func_wrap(
                 "wasm86",
                 "dispatch",
-                move |mut caller: Caller<'_, ExecutionEvents>, eip: i32| {
+                move |mut caller: Caller<'_, ExecutionEvents>| {
                     let snapshot = Snapshot {
                         cpu: cpu.data(&caller)[..cpu_len].to_vec(),
                         guest: observe_guest
@@ -90,10 +90,7 @@ impl TestModule {
                         .as_ref()
                         .is_none_or(|before| &**before == machine.data(&caller));
                     caller.data_mut().machine_unchanged &= unchanged;
-                    caller
-                        .data_mut()
-                        .events
-                        .push(Event::Dispatch { eip, snapshot });
+                    caller.data_mut().events.push(Event::Dispatch { snapshot });
                     dispatch_return
                 },
             )

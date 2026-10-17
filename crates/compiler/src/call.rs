@@ -73,7 +73,7 @@ impl BlockBuilder<'_> {
     ///     module: "wasm86".into(),
     ///     name: "dispatch".into(),
     ///     signature: Signature {
-    ///         parameters: vec![Type::I32],
+    ///         parameters: vec![],
     ///         results: vec![Type::I64],
     ///     },
     /// });
@@ -81,7 +81,7 @@ impl BlockBuilder<'_> {
     ///     parameters: vec![],
     ///     results: vec![Type::I64],
     /// }, |body| {
-    ///     body.tail_call(dispatch, &[0x1004.into()])
+    ///     body.tail_call(dispatch, &[])
     /// })?;
     /// program.export("block", block)?;
     /// let bytes = program.compile()?;

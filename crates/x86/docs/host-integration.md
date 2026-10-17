@@ -9,7 +9,8 @@ the threads extension's atomic instructions, including on unshared memories.
 
 `CompiledModule` contains the Wasm bytes, exported entry name and required execution
 target. Snapshot entries are named `block_<hex start_eip>`; interpreter entries
-are named `run` or `step`. All have the Wasm signature `() -> i64`.
+are named `run` or `step`; the callable dispatcher exports `dispatch`. All have
+the Wasm signature `() -> i64`.
 
 `Compiler::new(profile)` uses one execution profile and the default `CpuModel`
 for `compile_block`, `compile_interpreter` and `compile_interpreter_step`.
@@ -34,8 +35,9 @@ for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
 count, checks its instruction target, then tail-calls
-`wasm86.dispatch(next_eip: i32) -> i64`. Its result is returned unchanged. EIP and dispatch arguments are offsets relative to CS. EIP wraps at
-32 bits, and the instruction count wraps at 64 bits. A taken transfer checks its
+`wasm86.dispatch() -> i64`. Dispatch reads the published EIP from CPU state,
+and its result is returned unchanged. EIP is an offset relative to CS and wraps
+at 32 bits; the instruction count wraps at 64 bits. A taken transfer checks its
 segment target before committing instruction effects; fetching the destination
 belongs to the next entry.
 
@@ -88,6 +90,41 @@ This is an instruction allowance, not an exact stopping point. A block can excee
 the target; interpreter straight-line execution and REP work have no fixed bound.
 The snapshot compiler's instruction limit bounds compilation only. There is no
 fixed overshoot or elapsed-time guarantee.
+
+## Callable dispatch
+
+`Compiler::compile_dispatcher()` generates a module that resolves execution addresses to
+ordinary `() -> i64` functions in the imported `wasm86.executionFunctions` table. Slot 0
+is reserved, slot 1 holds a compatible interpreter, and subsequent slots hold installed
+module exports. All functions share CPU, guest and mapping memories. The dispatcher has
+no target-kind tag or host-service import.
+
+Bind the module's `dispatch() -> i64` and `interpret() -> i64` exports as the
+corresponding imports of execution modules. Both use the published CPU state.
+The host starts or resumes execution by calling `dispatch`; generated entries
+tail-call the same function after publishing their successor EIP. `interpret`
+directly enters the fallback when a snapshot fails an entry guard or optimization
+assumption. These transfers stay inside Wasm, and callee results pass through unchanged.
+
+The embedding scopes lookup to one guest address space and execution target (profile and
+CPU model). Keys are CS.base + EIP, wrapping to 32 bits, before paging, A20 or backing
+translation. The embedding must keep the execution profile valid while calling these
+entries. A miss tail-calls the interpreter. Each destination owns its entry checks:
+snapshot blocks guard their compiled CS span, and the interpreter checks instruction
+fetches. Lookup itself does not validate CS permissions or limits. Registering an export
+does not establish its snapshot validity: the embedding must uphold its original EIP,
+profile, code-byte and mapping requirements. Every registered entry must be an execution
+boundary; larger blocks must not run across another entry. Registration changes
+therefore require updating any affected compiled blocks or links. Use the step
+interpreter when every interpreted instruction boundary must consult this table; these
+transfers remain inside Wasm.
+
+Copy `EntryTable::to_bytes()` at offset zero in `executionEntries`, growing memory
+first. The serialized data is a u32 mask followed by eight-byte address/slot rows, with
+zero slots marking empty rows. The table uses open addressing and is at most half full.
+Replace mappings only outside execution. The function table must already contain every
+published slot. Removing an address only changes lookup; the embedding owns
+function-slot and code lifetimes.
 
 ## Interpreter handoff
 
@@ -302,6 +339,7 @@ memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 | `guest` | 1 | Guest backing bytes for the selected memory model. |
 | `machine` | 64 | Protected-mode linear-to-backing page table at byte zero. |
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
+| `executionEntries` | 1 | Execution-address table. |
 
 Protected-mode interpreters import `executionContext`, `guest`, `machine`, `dispatch`,
 `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
@@ -313,6 +351,8 @@ require guest backing and the page table, protected-mode segment loads require
 `resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks
 with specialization guards require `interpret`. Hosts should use the generated
 module's import list when instantiating it.
+Callable dispatch imports `executionEntries` and the `executionFunctions`
+function table. The interpreter itself requires neither import.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical
