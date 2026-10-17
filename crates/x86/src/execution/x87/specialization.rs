@@ -36,7 +36,7 @@ impl ExecutionBuilder<'_, '_> {
                 let condition = jit
                     .x87()
                     .specialization_condition(&observed.x87, specialization)?;
-                jit.specialize_on(condition)?;
+                jit.guard(condition)?;
                 Ok(X87ControlFacts {
                     nearest_53: matches!(specialization, X87Specialization::Arithmetic)
                         && observed.x87.control.precision_control & 3 == 2
@@ -53,7 +53,7 @@ impl ExecutionBuilder<'_, '_> {
     ) -> Result<(), BuildError> {
         self.specialize(|jit| {
             let available = jit.x87().push_available()?;
-            jit.specialize_on(source_valid.into().and(available))
+            jit.guard(source_valid.into().and(available))
         })?;
         Ok(())
     }
@@ -68,7 +68,7 @@ impl ExecutionBuilder<'_, '_> {
     ) -> Result<bool, BuildError> {
         Ok(self
             .specialize(|jit| {
-                jit.specialize_on(stack_fault.eq(false).and(operands_valid))?;
+                jit.guard(stack_fault.eq(false).and(operands_valid))?;
                 *stack_fault = false.into();
                 Ok(())
             })?
@@ -81,7 +81,7 @@ impl ExecutionBuilder<'_, '_> {
         &mut self,
         candidate: ArithmeticCandidate,
     ) -> Result<ArithmeticResult, BuildError> {
-        self.specialize_on(&candidate.valid)?;
+        self.guard(&candidate.valid)?;
         Ok(ArithmeticResult::from_rounding(candidate.rounded))
     }
 }

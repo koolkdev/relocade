@@ -91,17 +91,18 @@ fixed overshoot or elapsed-time guarantee.
 
 ## Interpreter handoff
 
-A snapshot block can guard an optimization assumption. If that guard fails, it
-publishes all completed instructions, leaves EIP at the current instruction without
-applying its effects or retiring it, and tail-calls `wasm86.interpret() -> i64`.
+A snapshot block can guard execution requirements or optimization assumptions.
+If a guard fails, it publishes all completed instructions, leaves EIP at the current
+instruction without applying its effects or retiring it, and tail-calls
+`wasm86.interpret() -> i64`.
 Its result is returned unchanged. The captured suffix is abandoned; no compiled
 continuation or second copy of its instructions is required.
 
 The host must enter a compatible interpreter sharing the same CPU, guest and
 machine memories. It must attempt the current instruction before ordinary dispatch,
 so it cannot immediately select the same failing JIT entry. Guest faults and
-unsupported instructions retain their usual exits. A failed optimization guard
-is neither of those exits.
+unsupported instructions retain their usual exits. A failed guard is neither of
+those exits.
 
 An embedding can bind this import directly to an instance's `step` or `run` export.
 `step` resumes normal dispatch after one instruction; `run` continues to its own

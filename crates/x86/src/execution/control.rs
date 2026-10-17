@@ -14,9 +14,9 @@ impl ExecutionBuilder<'_, '_> {
     /// Checks a snapshot block's complete encoding before any guest effects.
     /// The interpreter handles a denied span to preserve prefix execution and
     /// fault order, including faults earlier than the first invalid CS offset.
-    pub(crate) fn specialize_on_fetch_span(&mut self, bytes: usize) -> Result<(), BuildError> {
+    pub(crate) fn guard_fetch_span(&mut self, bytes: usize) -> Result<(), BuildError> {
         let Ok(bytes) = u32::try_from(bytes) else {
-            return self.specialize_on(false);
+            return self.guard(false);
         };
         let check = self.segments.check(
             &mut self.body,
@@ -26,7 +26,7 @@ impl ExecutionBuilder<'_, '_> {
             Intent::Fetch,
         )?;
         if let Some(denied) = check.denied {
-            self.specialize_on(denied.eq(false))?;
+            self.guard(denied.eq(false))?;
         }
         Ok(())
     }

@@ -78,7 +78,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         })
     }
 
-    /// Allows a compiled block to abandon speculation at an instruction boundary.
+    /// Enables guarded optimizations and interpreter handoff for a compiled block.
     pub(super) fn with_specialization(mut self, observed_cpu: Option<&'module CpuState>) -> Self {
         self.can_specialize = true;
         self.observed_cpu = observed_cpu;
@@ -131,7 +131,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
                 .fold(Val::<I1>::from(false), |excluded, condition| {
                     excluded.or(&**condition)
                 });
-            jit.specialize_on(excluded.eq(false))?;
+            jit.guard(excluded.eq(false))?;
             for condition in conditions {
                 *condition = false.into();
             }
@@ -149,16 +149,13 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         build(&mut self.body)
     }
 
-    /// Requires an assumption on a specializing path, before instruction effects.
-    /// Failure publishes the current restart boundary and enters the interpreter;
-    /// the continuing path can use the assumption for subsequent refinements.
-    pub(crate) fn specialize_on(
-        &mut self,
-        condition: impl Into<Val<I1>>,
-    ) -> Result<(), BuildError> {
+    /// Requires a condition for compiled execution, before instruction effects.
+    /// Failure publishes the current restart boundary and enters the interpreter.
+    /// Specialization may use the proven condition to refine subsequent values.
+    pub(crate) fn guard(&mut self, condition: impl Into<Val<I1>>) -> Result<(), BuildError> {
         assert!(
             self.can_specialize,
-            "this path does not permit specialization"
+            "this path does not permit interpreter handoff"
         );
         self.body.if_(condition.into().eq(false), |mut body| {
             self.state.publish(&mut body, &self.eip, self.completed)?;

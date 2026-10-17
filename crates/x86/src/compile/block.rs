@@ -17,7 +17,7 @@ use super::Compiler;
 ///
 /// The generated `block_<hex start_eip>() -> i64` entry executes the block and
 /// tail-calls host dispatch on success; guest faults return directly.
-/// A failed specialization guard publishes completed work and tail-calls
+/// A failed guard publishes completed work and tail-calls
 /// `wasm86.interpret` at the current instruction. The interpreter handoff abandons
 /// the captured suffix; its execution boundary belongs to the host's policy.
 /// The host must satisfy the profile and snapshot-validity requirements documented
@@ -128,7 +128,7 @@ impl Compiler {
                     self.target,
                 )?
                 .with_specialization(self.observed_cpu.as_ref());
-                execution.specialize_on_fetch_span(bytes.len() - remaining_bytes.len())?;
+                execution.guard_fetch_span(bytes.len() - remaining_bytes.len())?;
                 for decoded_instruction in decoded_instructions {
                     execution.execute(decoded_instruction)?;
                 }

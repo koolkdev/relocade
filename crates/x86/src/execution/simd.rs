@@ -20,7 +20,7 @@ impl ExecutionBuilder<'_, '_> {
         let controls = self.read_mxcsr()?;
         self.specialize(|jit| {
             if let Some(observed) = jit.observed_cpu {
-                jit.specialize_on(controls.matches_controls(observed.simd.mxcsr))?;
+                jit.guard(controls.matches_controls(observed.simd.mxcsr))?;
             }
             Ok(())
         })?;
@@ -33,7 +33,7 @@ impl ExecutionBuilder<'_, '_> {
         let controls = self.simd_controls()?;
         self.specialize(|jit| {
             if jit.observed_cpu.is_none() {
-                jit.specialize_on(controls.bits().and(0x6000).eq(0))?;
+                jit.guard(controls.bits().and(0x6000).eq(0))?;
             }
             Ok(())
         })?;
@@ -46,7 +46,7 @@ impl ExecutionBuilder<'_, '_> {
         &mut self,
         candidate: PackedFloatCandidate,
     ) -> Result<FloatResult<V128>, BuildError> {
-        self.specialize_on(candidate.valid)?;
+        self.guard(candidate.valid)?;
         Ok(candidate.result)
     }
 
