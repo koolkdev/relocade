@@ -1,6 +1,11 @@
 //! Backing records for visible segment selectors and their loaded caches.
 
-use std::ops::{Index, IndexMut};
+use std::{
+    mem::{offset_of, size_of},
+    ops::{Index, IndexMut},
+};
+
+use super::codec::{read_u16, read_u32, write};
 
 use crate::segment::Segment;
 
@@ -27,6 +32,18 @@ pub struct StoredSegment {
 }
 
 impl StoredSegment {
+    pub const BYTE_LEN: usize = size_of::<Self>();
+
+    pub fn from_bytes(bytes: [u8; Self::BYTE_LEN]) -> Self {
+        read_segment(&bytes, 0)
+    }
+
+    pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
+        let mut bytes = [0; Self::BYTE_LEN];
+        write_segment(&mut bytes, 0, self);
+        bytes
+    }
+
     /// Canonical ordinary real-mode cache. Zero is a usable segment value.
     /// This is host initialization, not a protected-to-real mode transition.
     pub const fn real_mode(segment: Segment, selector: u16) -> Self {
@@ -92,6 +109,34 @@ pub struct Segments {
 }
 
 impl Segments {
+    pub const BYTE_LEN: usize = size_of::<Self>();
+
+    pub fn from_bytes(bytes: [u8; Self::BYTE_LEN]) -> Self {
+        Self {
+            es: read_segment(&bytes, offset_of!(Segments, es)),
+            cs: read_segment(&bytes, offset_of!(Segments, cs)),
+            ss: read_segment(&bytes, offset_of!(Segments, ss)),
+            ds: read_segment(&bytes, offset_of!(Segments, ds)),
+            fs: read_segment(&bytes, offset_of!(Segments, fs)),
+            gs: read_segment(&bytes, offset_of!(Segments, gs)),
+        }
+    }
+
+    pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
+        let mut bytes = [0; Self::BYTE_LEN];
+        for (offset, segment) in [
+            (offset_of!(Segments, es), &self.es),
+            (offset_of!(Segments, cs), &self.cs),
+            (offset_of!(Segments, ss), &self.ss),
+            (offset_of!(Segments, ds), &self.ds),
+            (offset_of!(Segments, fs), &self.fs),
+            (offset_of!(Segments, gs), &self.gs),
+        ] {
+            write_segment(&mut bytes, offset, segment);
+        }
+        bytes
+    }
+
     /// Initializes ordinary real-mode caches with zero visible segment values.
     /// The host may replace individual caches with [`StoredSegment::real_mode`].
     pub const fn real_mode() -> Self {
@@ -147,4 +192,42 @@ impl IndexMut<Segment> for Segments {
             Segment::Gs => &mut self.gs,
         }
     }
+}
+
+fn read_segment(bytes: &[u8], offset: usize) -> StoredSegment {
+    StoredSegment {
+        base: read_u32(bytes, offset + offset_of!(StoredSegment, base)),
+        limit: read_u32(bytes, offset + offset_of!(StoredSegment, limit)),
+        selector: read_u16(bytes, offset + offset_of!(StoredSegment, selector)),
+        usable: bytes[offset + offset_of!(StoredSegment, usable)],
+        readable: bytes[offset + offset_of!(StoredSegment, readable)],
+        writable: bytes[offset + offset_of!(StoredSegment, writable)],
+        executable: bytes[offset + offset_of!(StoredSegment, executable)],
+        expand_down: bytes[offset + offset_of!(StoredSegment, expand_down)],
+        big: bytes[offset + offset_of!(StoredSegment, big)],
+    }
+}
+
+fn write_segment(bytes: &mut [u8], offset: usize, segment: &StoredSegment) {
+    write(
+        bytes,
+        offset + offset_of!(StoredSegment, base),
+        &segment.base.to_le_bytes(),
+    );
+    write(
+        bytes,
+        offset + offset_of!(StoredSegment, limit),
+        &segment.limit.to_le_bytes(),
+    );
+    write(
+        bytes,
+        offset + offset_of!(StoredSegment, selector),
+        &segment.selector.to_le_bytes(),
+    );
+    bytes[offset + offset_of!(StoredSegment, usable)] = segment.usable;
+    bytes[offset + offset_of!(StoredSegment, readable)] = segment.readable;
+    bytes[offset + offset_of!(StoredSegment, writable)] = segment.writable;
+    bytes[offset + offset_of!(StoredSegment, executable)] = segment.executable;
+    bytes[offset + offset_of!(StoredSegment, expand_down)] = segment.expand_down;
+    bytes[offset + offset_of!(StoredSegment, big)] = segment.big;
 }

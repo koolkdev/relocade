@@ -1,3 +1,4 @@
+mod flags;
 mod segments;
 mod x87;
 
