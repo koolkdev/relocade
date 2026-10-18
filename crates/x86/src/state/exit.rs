@@ -13,13 +13,17 @@ const INVALID_OPCODE: u64 = 128 << 48;
 const FLOATING_POINT: u64 = 256 << 48;
 const SIMD_FLOATING_POINT: u64 = 512 << 48;
 const BUDGET_EXHAUSTED: u64 = 1 << 63;
+const HOST_RETURN: u64 = 1 << 62;
 
-/// A direct guest exit from a generated execution entry.
+/// A return from a generated execution entry.
 ///
 /// Generated entries can also return values supplied by `dispatch` or `interpret`.
 /// Distinguish host-defined callback results from execution exits before decoding.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionExit {
+    /// A host-call function requested a return to the embedding.
+    /// The embedding owns the reason, such as process termination or a service error.
+    HostReturn,
     /// The instruction budget was consumed at a completed block boundary.
     BudgetExhausted,
     Exception(Exception),
@@ -31,6 +35,42 @@ pub enum ExecutionExit {
 }
 
 impl ExecutionExit {
+    /// Encodes an execution return word. Architectural error codes occupy 16 bits.
+    pub fn to_bits(self) -> u64 {
+        match self {
+            Self::HostReturn => HOST_RETURN,
+            Self::BudgetExhausted => BUDGET_EXHAUSTED,
+            Self::UnsupportedInstruction { eip, opcode } => {
+                UNSUPPORTED_INSTRUCTION | (u64::from(opcode) << 32) | u64::from(eip)
+            }
+            Self::Exception(exception) => {
+                let (tag, error_code, address) = match exception {
+                    Exception::DivideError => (DIVIDE_ERROR, 0, 0),
+                    Exception::BoundRangeExceeded => (BOUND_RANGE_EXCEEDED, 0, 0),
+                    Exception::InvalidOpcode => (INVALID_OPCODE, 0, 0),
+                    Exception::FloatingPoint => (FLOATING_POINT, 0, 0),
+                    Exception::SimdFloatingPoint => (SIMD_FLOATING_POINT, 0, 0),
+                    Exception::GeneralProtection { error_code } => {
+                        (GENERAL_PROTECTION, error_code, 0)
+                    }
+                    Exception::StackFault { error_code } => (STACK_FAULT, error_code, 0),
+                    Exception::SegmentNotPresent { error_code } => {
+                        (SEGMENT_NOT_PRESENT, error_code, 0)
+                    }
+                    Exception::PageFault {
+                        error_code,
+                        linear_address,
+                    } => (PAGE_FAULT, error_code, linear_address),
+                };
+                assert!(
+                    error_code <= u32::from(u16::MAX),
+                    "architectural error code"
+                );
+                tag | (u64::from(error_code) << 32) | u64::from(address)
+            }
+        }
+    }
+
     /// Decodes the documented return word, rejecting unknown tags and nonzero
     /// reserved fields. A host-defined `dispatch` or `interpret` result may also
     /// match a valid exit word. The embedding must distinguish such results;
@@ -40,6 +80,9 @@ impl ExecutionExit {
         let payload = ((bits >> 32) & 0xffff) as u32;
         let address = bits as u32;
         let exception = match tag {
+            HOST_RETURN if payload == 0 && address == 0 => {
+                return Some(Self::HostReturn);
+            }
             BUDGET_EXHAUSTED if payload == 0 && address == 0 => {
                 return Some(Self::BudgetExhausted);
             }

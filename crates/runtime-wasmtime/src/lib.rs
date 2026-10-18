@@ -22,17 +22,18 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use std::ops::{Deref, DerefMut};
-use wasm86_compiler::{abi::Function, Results, ValueType, I64};
+use wasm86_compiler::{abi::Function, I64};
 use wasm86_runtime::{
-    wasm::{
-        HostFunction, HostValue, Import, ImportValue, WasmBackend, WasmCaller, WasmMemoryAccess,
-    },
+    wasm::{Import, ImportValue, WasmBackend, WasmMemoryAccess},
     Error, Result,
 };
 use wasmtime::{
     Config, Engine, Func, Instance, Linker, Memory, MemoryType, Module, Ref, RefType, Store, Table,
-    TableType, TypedFunc, WasmRet, WasmTy,
+    TableType, TypedFunc,
 };
+
+mod host;
+pub use host::Caller;
 
 /// One store for modules and their shared imports. Runtime owns execution policy.
 pub struct WasmtimeBackend<T = ()> {
@@ -188,64 +189,6 @@ impl<T> WasmMemoryAccess for WasmtimeBackend<T> {
     fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
         memory
             .write(&mut self.store, offset as usize, bytes)
-            .expect("in-bounds Wasm memory range");
-    }
-}
-
-macro_rules! host_function {
-    ($($parameter:ident : $argument:ident),*) => {
-        impl<T, R, $($parameter),*> HostFunction<fn($($parameter),*) -> R> for WasmtimeBackend<T>
-        where
-            T: 'static,
-            R: Results + HostValue,
-            R::Carrier: WasmRet,
-            $($parameter: ValueType + HostValue, $parameter::Carrier: WasmTy),*
-        {
-            fn host_function(
-                &mut self,
-                callback: fn(Caller<'_, T>, $($parameter::Carrier),*) -> R::Carrier,
-            ) -> Func {
-                Func::wrap(&mut self.store, move |caller: wasmtime::Caller<'_, T>, $($argument: $parameter::Carrier),*| {
-                    callback(Caller(caller), $($argument),*)
-                })
-            }
-        }
-    };
-}
-
-host_function!();
-host_function!(A: a);
-host_function!(A: a, B: b);
-host_function!(A: a, B: b, C: c);
-host_function!(A: a, B: b, C: c, D: d);
-
-/// A callback's scoped access to the store and its memories.
-pub struct Caller<'a, T>(wasmtime::Caller<'a, T>);
-
-impl<T> WasmCaller for Caller<'_, T> {
-    type State = T;
-
-    fn state(&self) -> &T {
-        self.0.data()
-    }
-
-    fn state_mut(&mut self) -> &mut T {
-        self.0.data_mut()
-    }
-}
-
-impl<T> WasmMemoryAccess for Caller<'_, T> {
-    type Memory = Memory;
-
-    fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
-        memory
-            .read(&self.0, offset as usize, bytes)
-            .expect("in-bounds Wasm memory range");
-    }
-
-    fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
-        memory
-            .write(&mut self.0, offset as usize, bytes)
             .expect("in-bounds Wasm memory range");
     }
 }

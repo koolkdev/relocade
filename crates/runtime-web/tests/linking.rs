@@ -20,44 +20,17 @@ use wasm86_runtime_web::WebBackend as Backend;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-struct HostState<M> {
-    memory: Option<M>,
+struct HostState {
     calls: i32,
 }
 
-fn read_word<C, M>(caller: C, offset: i32, _: i32) -> i64
-where
-    C: WasmCaller<State = HostState<M>, Memory = M>,
-{
-    let mut bytes = [0; 8];
-    caller.read_memory(
-        caller.state().memory.as_ref().unwrap(),
-        offset as u32,
-        &mut bytes,
-    );
-    i64::from_le_bytes(bytes)
-}
-
-fn write_word<C, M>(mut caller: C, offset: i32, _: i32, value: i64)
-where
-    C: WasmCaller<State = HostState<M>, Memory = M>,
-    M: Clone,
-{
-    let memory = caller.state().memory.as_ref().unwrap().clone();
-    caller.write_memory(&memory, offset as u32, &value.to_le_bytes());
-}
-
 async fn check_stateful_callbacks() {
-    let state = HostState {
-        memory: None,
-        calls: 0,
-    };
+    let state = HostState { calls: 0 };
     #[cfg(not(target_arch = "wasm32"))]
     let mut backend = Backend::with_state(state).unwrap();
     #[cfg(target_arch = "wasm32")]
     let mut backend = Backend::with_state(state);
     let memory = backend.create_memory(1, None).unwrap();
-    backend.state_mut().memory = Some(Clone::clone(&memory));
     let table = backend.create_table(1).unwrap();
     let entry = {
         // Snapshot blocks also use names constructed at runtime.
@@ -85,16 +58,25 @@ async fn check_stateful_callbacks() {
         let module = backend.compile(&producer.compile().unwrap()).await.unwrap();
         let imports = [
             backend.bind(MEMORY, &memory),
-            backend.bind_host(CALLS, |caller| caller.state().calls),
-            backend.bind_host(SET_CALLS, |mut caller, value| {
-                caller.state_mut().calls = value
-            }),
-            backend.bind_host(READ, |caller, offset, width| {
-                read_word(caller, offset, width)
-            }),
-            backend.bind_host(WRITE, |caller, offset, width, value| {
-                write_word(caller, offset, width, value)
-            }),
+            backend.bind_host(CALLS, Box::new(|caller| caller.state().calls)),
+            backend.bind_host(
+                SET_CALLS,
+                Box::new(|mut caller, value| caller.state_mut().calls = value),
+            ),
+            backend.bind_host(
+                READ,
+                Box::new(move |caller, offset, _| {
+                    let mut bytes = [0; 8];
+                    caller.read_memory(&memory, offset as u32, &mut bytes);
+                    i64::from_le_bytes(bytes)
+                }),
+            ),
+            backend.bind_host(
+                WRITE,
+                Box::new(move |mut caller, offset, _, value| {
+                    caller.write_memory(&memory, offset as u32, &value.to_le_bytes());
+                }),
+            ),
         ];
         let instance = backend.instantiate(&module, &imports).await.unwrap();
         let advance = backend.function(&instance, advance_export).unwrap();
@@ -126,6 +108,7 @@ async fn check_stateful_callbacks() {
 
     // Functions retain their linked resources after module/instance handles drop.
     // Both signs exceed the exact integer range of JavaScript Number.
+    let mut memory_size = 65536;
     for initial in [0x20_0000_0000_0001_i64, -0x20_0000_0000_0021_i64] {
         backend.state_mut().calls = 0;
         backend.write_memory(&memory, 0, &initial.to_le_bytes());
@@ -135,8 +118,8 @@ async fn check_stateful_callbacks() {
             let mut bytes = [0; 8];
             backend.read_memory(&memory, 0, &mut bytes);
             assert_eq!(i64::from_le_bytes(bytes), initial + increment);
-            #[cfg(target_arch = "wasm32")]
-            memory.grow(1);
+            memory_size += 65536;
+            backend.ensure_memory_size(&memory, memory_size).unwrap();
         }
     }
 }
@@ -180,18 +163,27 @@ async fn check_scalar_callbacks() {
         RUN.export(&mut program, run).unwrap();
         let module = backend.compile(&program.compile().unwrap()).await.unwrap();
         let imports = [
-            backend.bind_host(NARROW, |_, bit, byte, word, signed| {
-                assert_eq!((bit, byte, word, signed), (1, 255, 65535, -1));
-                0xffff
-            }),
-            backend.bind_host(WIDE, |_, value| {
-                assert_eq!(value, -0x20_0000_0000_0001);
-                value - 2
-            }),
-            backend.bind_host(FLOAT, |_, value, word| {
-                assert_eq!(word, 65535);
-                value + 0.5
-            }),
+            backend.bind_host(
+                NARROW,
+                Box::new(|_, bit, byte, word, signed| {
+                    assert_eq!((bit, byte, word, signed), (1, 255, 65535, -1));
+                    0xffff
+                }),
+            ),
+            backend.bind_host(
+                WIDE,
+                Box::new(|_, value| {
+                    assert_eq!(value, -0x20_0000_0000_0001);
+                    value - 2
+                }),
+            ),
+            backend.bind_host(
+                FLOAT,
+                Box::new(|_, value, word| {
+                    assert_eq!(word, 65535);
+                    value + 0.5
+                }),
+            ),
         ];
         let instance = backend.instantiate(&module, &imports).await.unwrap();
         backend.function(&instance, RUN).unwrap()

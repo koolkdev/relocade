@@ -59,9 +59,10 @@ fn modules_share_live_memory_and_functions_after_linking() {
                 backend.bind(SHARED, &memory),
                 backend.bind(FUNCTIONS, &table),
                 backend.bind(NEXT, &advance),
-                backend.bind_host(WIDE, |_, high, low| {
-                    (i64::from(high) << 32) | i64::from(low)
-                }),
+                backend.bind_host(
+                    WIDE,
+                    Box::new(|_, high, low| (i64::from(high) << 32) | i64::from(low)),
+                ),
             ];
             let instance = backend.instantiate(&module, &imports).await.unwrap();
             backend.function(&instance, EXECUTE).unwrap()

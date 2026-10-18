@@ -8,16 +8,12 @@
 //!
 //! ```
 //! use wasm86_machine::MachineConfig;
-//! use wasm86_compiler::{I16, I32, I64};
-//! use wasm86_runtime::{wasm::HostFunction, Runtime};
+//! use wasm86_runtime::{Runtime, RuntimeBackend};
 //!
-//! async fn example<B>(backend: B, config: MachineConfig) -> Result<(), Box<dyn std::error::Error>>
-//! where
-//!     B: HostFunction<fn(I16, I32) -> I32>
-//!         + HostFunction<fn(I16, I32, I32)>
-//!         + HostFunction<fn(I32, I32) -> I64>
-//!         + HostFunction<fn(I32, I32, I64)>,
-//! {
+//! async fn example<B: RuntimeBackend>(
+//!     backend: B,
+//!     config: MachineConfig,
+//! ) -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut runtime = Runtime::new(backend, config).await?;
 //!     runtime.machine().memory().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
 //!     let exit = runtime.run(100)?;
@@ -28,26 +24,33 @@
 //! ```
 #![forbid(unsafe_code)]
 
+mod backend;
 mod callback;
 mod dispatch;
 mod error;
+mod hooks;
 mod storage;
 pub mod wasm;
 
+pub use backend::RuntimeBackend;
 pub use callback::{with_host_call, HostCall};
 pub use dispatch::DispatchEntry;
 use dispatch::DispatchTable;
 pub use error::{Error, Result};
+pub use hooks::Hook;
+use std::{
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 use storage::Storage;
-use wasm::{HostFunction, Import, WasmBackend};
-use wasm86_compiler::{I16, I32, I64};
+use wasm::Import;
 use wasm86_machine::{Machine, MachineConfig};
 use wasm86_x86::{abi, Compiler, EntryTable, ExecutionContext, ExecutionExit};
 
 /// One running guest and its engine resources. CPU and memory access belongs to
 /// the machine; this owner prepares code and controls entry into execution.
-pub struct Runtime<B: WasmBackend> {
-    config: MachineConfig,
+pub struct Runtime<B: RuntimeBackend> {
+    config: Arc<MachineConfig>,
     storage: Storage<B>,
     dispatch: B::Function,
     interpret: B::Function,
@@ -56,17 +59,11 @@ pub struct Runtime<B: WasmBackend> {
     host_imports: Vec<Import<'static, B>>,
 }
 
-impl<B: WasmBackend> Runtime<B> {
+impl<B: RuntimeBackend> Runtime<B> {
     /// Prepares code and allocates zeroed backing with the configured CPU and map.
     /// The runtime retains the backend and its live storage for subsequent calls.
     /// Port and MMIO reads currently return all ones; their writes are ignored.
-    pub async fn new(mut backend: B, config: MachineConfig) -> Result<Self>
-    where
-        B: HostFunction<fn(I16, I32) -> I32>
-            + HostFunction<fn(I16, I32, I32)>
-            + HostFunction<fn(I32, I32) -> I64>
-            + HostFunction<fn(I32, I32, I64)>,
-    {
+    pub async fn new(mut backend: B, config: MachineConfig) -> Result<Self> {
         let target = config.execution_target();
         let compiler = Compiler::new(target.profile).with_cpu_model(target.cpu_model);
         let interpreter = compiler.compile_interpreter()?;
@@ -89,10 +86,10 @@ impl<B: WasmBackend> Runtime<B> {
         backend.write_memory(&mapping, 0, &config.memory_map().to_bytes());
         let dispatch_table = DispatchTable::new(&mut backend)?;
         let host_imports = vec![
-            backend.bind_host(abi::READ_PORT, |_, _, _| -1),
-            backend.bind_host(abi::WRITE_PORT, |_, _, _, _| {}),
-            backend.bind_host(abi::READ_MMIO, |_, _, _| -1),
-            backend.bind_host(abi::WRITE_MMIO, |_, _, _, _| {}),
+            backend.bind_host(abi::READ_PORT, Box::new(|_, _, _| -1)),
+            backend.bind_host(abi::WRITE_PORT, Box::new(|_, _, _, _| {})),
+            backend.bind_host(abi::READ_MMIO, Box::new(|_, _, _| -1)),
+            backend.bind_host(abi::WRITE_MMIO, Box::new(|_, _, _, _| {})),
         ];
         let imports = [
             backend.bind(abi::EXECUTION_CONTEXT, &context),
@@ -105,7 +102,7 @@ impl<B: WasmBackend> Runtime<B> {
         let dispatch = backend.function(&dispatcher_instance, abi::DISPATCH)?;
         let interpret = backend.function(&dispatcher_instance, abi::INTERPRET)?;
         let mut runtime = Self {
-            config,
+            config: Arc::new(config),
             storage: Storage {
                 access: backend,
                 context,
@@ -171,8 +168,17 @@ impl<B: WasmBackend> Runtime<B> {
         Machine::new(&self.config, &mut self.storage)
     }
 
-    /// Runs until the budget is consumed at a block boundary or a guest exit
-    /// occurs. Whole blocks can exceed the budget; straight-line code and REP
+    /// Borrows the environment state between guest calls. Drop the borrow before running.
+    pub fn state(&self) -> impl Deref<Target = B::State> + '_ {
+        self.storage.access.state()
+    }
+
+    pub fn state_mut(&mut self) -> impl DerefMut<Target = B::State> + '_ {
+        self.storage.access.state_mut()
+    }
+
+    /// Runs until the budget is consumed at a block boundary, a guest exit
+    /// occurs, or a host function requests a return. Whole blocks can exceed the budget; straight-line code and REP
     /// have no fixed overshoot or elapsed-time bound. Zero does not enter Wasm.
     /// The absolute target saturates at u64::MAX, which is practically unbounded.
     pub fn run(&mut self, instruction_budget: u64) -> Result<ExecutionExit> {
