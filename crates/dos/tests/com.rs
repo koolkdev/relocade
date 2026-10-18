@@ -1,24 +1,10 @@
-use wasm86_dos::{Dos, DosState, LoadError, ServiceError};
+use wasm86_dos::{LoadError, ServiceError};
 use wasm86_x86::{ExecutionExit, Segment};
 
-#[cfg(not(target_arch = "wasm32"))]
-use wasm86_runtime_wasmtime::WasmtimeBackend as Backend;
-#[cfg(target_arch = "wasm32")]
-use wasm86_runtime_web::WebBackend as Backend;
+mod common;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-fn backend() -> Backend<DosState> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        Backend::with_state(DosState::default()).unwrap()
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        Backend::with_state(DosState::default())
-    }
-}
 
 // The same COM image executes in Wasmtime and Chrome.
 const HELLO: &[u8] = &[
@@ -31,7 +17,7 @@ const HELLO: &[u8] = &[
 ];
 
 async fn check_hello() {
-    let mut dos = Dos::new(backend()).await.unwrap();
+    let mut dos = common::dos().await;
     dos.load_com(HELLO).unwrap();
     {
         let mut machine = dos.runtime().machine();
@@ -74,7 +60,7 @@ async fn check_com_bounds_and_return() {
     let mut image = vec![0x90; 0xfefe];
     image[0] = 0xc3; // RET pops the initial zero word and reaches PSP's INT 20h.
     image[0xfefd] = 0x41;
-    let mut dos = Dos::new(backend()).await.unwrap();
+    let mut dos = common::dos().await;
     dos.load_com(&image).unwrap();
     let mut end = [0; 3];
     dos.runtime()
@@ -105,7 +91,7 @@ async fn check_com_bounds_and_return() {
 }
 
 async fn check_unsupported_service() {
-    let mut dos = Dos::new(backend()).await.unwrap();
+    let mut dos = common::dos().await;
     dos.load_com(&[0xb4, 0x30, 0xcd, 0x21]).unwrap();
     assert_eq!(dos.runtime().run(10).unwrap(), ExecutionExit::HostReturn);
     assert_eq!(
@@ -154,7 +140,7 @@ async fn check_unterminated_string() {
         0xba, 0xff, 0xff, // MOV DX,FFFF
         0xb4, 9, 0xcd, 0x21, // Print DS:DX
     ];
-    let mut dos = Dos::new(backend()).await.unwrap();
+    let mut dos = common::dos().await;
     dos.load_com(&image).unwrap();
     dos.runtime()
         .machine()

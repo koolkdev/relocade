@@ -1,5 +1,11 @@
 use std::fmt;
 
+/// Error numbers returned to the guest in AX with carry set.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DosError {
+    InvalidHandle = 6,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LoadError {
     EmptyImage,

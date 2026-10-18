@@ -1,15 +1,16 @@
-use crate::ServiceError;
+use crate::{console, ServiceError};
 use std::ops::ControlFlow;
 use wasm86_machine::{MachineConfig, Memory};
 use wasm86_runtime::{Hook, HostCall};
 use wasm86_x86::{
-    Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
+    Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
 };
 
 const KERNEL_SEGMENT: u16 = 0xf000;
 const INT20_ENTRY: u16 = 0x100;
 const INT21_ENTRY: u16 = 0x110;
 const WRITE_STRING: u8 = 0x09;
+const WRITE_HANDLE: u8 = 0x40;
 const TERMINATE_PROCESS: u8 = 0x4c;
 
 /// Mutable DOS state owned by the Wasm backend and shared by its service handlers.
@@ -77,28 +78,11 @@ const fn address(offset: u16) -> u32 {
 /// INT 21h selects a DOS service through AH.
 fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     match call.cpu().ah() {
-        WRITE_STRING => write_string(call),
+        WRITE_STRING => console::write_string(call),
+        WRITE_HANDLE => console::write_handle(call),
         TERMINATE_PROCESS => terminate_process(call),
         function => return_to_host(call, Err(ServiceError::UnsupportedFunction(function))),
     }
-}
-
-/// AH=09h: output the '$'-terminated string at DS:DX and return AL='$'.
-fn write_string(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
-    let base = call.cpu().segment(Segment::Ds).base;
-    let start = call.cpu().dx();
-    for index in 0..=u16::MAX {
-        let mut byte = [0];
-        call.memory()
-            .read(base + u32::from(start.wrapping_add(index)), &mut byte)
-            .expect("real-mode byte address");
-        if byte[0] == b'$' {
-            call.cpu().set_al(b'$');
-            return return_from_interrupt(call);
-        }
-        call.state_mut().output.push(byte[0]);
-    }
-    return_to_host(call, Err(ServiceError::UnterminatedString))
 }
 
 /// AH=4Ch: terminate the current process with the exit code in AL.
@@ -112,19 +96,10 @@ fn int20(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     return_to_host(call, Ok(0))
 }
 
-fn return_to_host(
+pub(crate) fn return_to_host(
     call: &mut HostCall<'_, DosState>,
     status: Result<u8, ServiceError>,
 ) -> ControlFlow<()> {
     call.state_mut().exit_status = Some(status);
     ControlFlow::Break(())
-}
-
-fn return_from_interrupt(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
-    // Advance past the hook's NOP byte. The guest IRET restores IP, CS and FLAGS
-    // from the interrupt frame; the host handler does not pop the frame itself.
-    let mut cpu = call.cpu();
-    let iret_ip = (cpu.eip() as u16).wrapping_add(1);
-    cpu.set_eip(u32::from(iret_ip));
-    ControlFlow::Continue(())
 }
