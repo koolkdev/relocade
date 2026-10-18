@@ -17,6 +17,10 @@ impl EntryTable {
     pub const INTERPRETER_SLOT: u32 = 1;
     pub const FIRST_DYNAMIC_SLOT: u32 = 2;
 
+    pub fn get(&self, address: u32) -> Option<u32> {
+        self.0.get(&address).copied()
+    }
+
     /// Publishes a callable slot. Zero is reserved for empty rows.
     pub fn insert(&mut self, address: u32, slot: u32) -> Option<u32> {
         assert_ne!(slot, 0, "slot zero is reserved for empty rows");

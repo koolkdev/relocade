@@ -29,14 +29,17 @@
 #![forbid(unsafe_code)]
 
 mod callback;
+mod dispatch;
 mod error;
 mod storage;
 pub mod wasm;
 
 pub use callback::{with_host_call, HostCall};
+pub use dispatch::DispatchEntry;
+use dispatch::DispatchTable;
 pub use error::{Error, Result};
 use storage::Storage;
-use wasm::{HostFunction, WasmBackend};
+use wasm::{HostFunction, Import, WasmBackend};
 use wasm86_compiler::{I16, I32, I64};
 use wasm86_machine::{Machine, MachineConfig};
 use wasm86_x86::{abi, Compiler, EntryTable, ExecutionContext, ExecutionExit};
@@ -46,7 +49,11 @@ use wasm86_x86::{abi, Compiler, EntryTable, ExecutionContext, ExecutionExit};
 pub struct Runtime<B: WasmBackend> {
     config: MachineConfig,
     storage: Storage<B>,
-    entry: B::Function,
+    dispatch: B::Function,
+    interpret: B::Function,
+    mapping: B::Memory,
+    dispatch_table: DispatchTable<B>,
+    host_imports: Vec<Import<'static, B>>,
 }
 
 impl<B: WasmBackend> Runtime<B> {
@@ -64,7 +71,6 @@ impl<B: WasmBackend> Runtime<B> {
         let compiler = Compiler::new(target.profile).with_cpu_model(target.cpu_model);
         let interpreter = compiler.compile_interpreter()?;
         let dispatcher = compiler.compile_dispatcher()?;
-        let interpreter_module = backend.compile(&interpreter.bytes).await?;
         let dispatcher_module = backend.compile(&dispatcher.bytes).await?;
 
         let context = backend.create_memory(1, Some(1))?;
@@ -81,37 +87,83 @@ impl<B: WasmBackend> Runtime<B> {
         let guest = backend.create_memory(guest_pages, None)?;
         let mapping = backend.create_memory(1, Some(1))?;
         backend.write_memory(&mapping, 0, &config.memory_map().to_bytes());
-        let entries = backend.create_memory(1, None)?;
-        backend.write_memory(&entries, 0, &EntryTable::default().to_bytes());
-        let functions = backend.create_table(abi::EXECUTION_FUNCTIONS.minimum)?;
-        let mut imports = vec![
-            backend.bind(abi::EXECUTION_CONTEXT, &context),
-            backend.bind(abi::GUEST, &guest),
-            backend.bind(abi::PHYSICAL_MAP, &mapping),
-            backend.bind(abi::EXECUTION_ENTRIES, &entries),
-            backend.bind(abi::EXECUTION_FUNCTIONS, &functions),
+        let dispatch_table = DispatchTable::new(&mut backend)?;
+        let host_imports = vec![
             backend.bind_host(abi::READ_PORT, |_, _, _| -1),
             backend.bind_host(abi::WRITE_PORT, |_, _, _, _| {}),
             backend.bind_host(abi::READ_MMIO, |_, _, _| -1),
             backend.bind_host(abi::WRITE_MMIO, |_, _, _, _| {}),
         ];
+        let imports = [
+            backend.bind(abi::EXECUTION_CONTEXT, &context),
+            backend.bind(abi::GUEST, &guest),
+            backend.bind(abi::PHYSICAL_MAP, &mapping),
+            backend.bind(abi::EXECUTION_ENTRIES, &dispatch_table.memory),
+            backend.bind(abi::EXECUTION_FUNCTIONS, &dispatch_table.functions),
+        ];
         let dispatcher_instance = backend.instantiate(&dispatcher_module, &imports).await?;
-        let entry = backend.function(&dispatcher_instance, abi::DISPATCH)?;
+        let dispatch = backend.function(&dispatcher_instance, abi::DISPATCH)?;
         let interpret = backend.function(&dispatcher_instance, abi::INTERPRET)?;
-        imports.push(backend.bind(abi::DISPATCH, &entry));
-        imports.push(backend.bind(abi::INTERPRET, &interpret));
-        let interpreter_instance = backend.instantiate(&interpreter_module, &imports).await?;
-        let function = backend.function(&interpreter_instance, abi::RUN)?;
-        backend.set_table_function(&functions, EntryTable::INTERPRETER_SLOT, &function)?;
-        Ok(Self {
+        let mut runtime = Self {
             config,
             storage: Storage {
                 access: backend,
                 context,
                 guest,
             },
-            entry,
-        })
+            dispatch,
+            interpret,
+            mapping,
+            dispatch_table,
+            host_imports,
+        };
+        let instance = runtime.instantiate(&interpreter.bytes, &[]).await?;
+        let backend = &mut runtime.storage.access;
+        let function = backend.function(&instance, abi::RUN)?;
+        backend.set_table_function(
+            &runtime.dispatch_table.functions,
+            EntryTable::INTERPRETER_SLOT,
+            &function,
+        )?;
+        Ok(runtime)
+    }
+
+    /// Links a module to this runtime and publishes its callable exports.
+    /// Each export has signature `() -> i64` and owns its entry checks, CPU
+    /// publication and continuation. Addresses are linear CS.base + EIP, before
+    /// paging/A20. Installing an existing address replaces its function.
+    ///
+    /// The caller must maintain the module's execution assumptions and invalidate
+    /// or replace captured code when guest bytes or mappings change.
+    pub async fn install_module(
+        &mut self,
+        bytes: &[u8],
+        entries: &[DispatchEntry<'_>],
+    ) -> Result<()> {
+        let instance = self.instantiate(bytes, &[]).await?;
+        self.dispatch_table
+            .install(&mut self.storage.access, &instance, entries)
+    }
+
+    async fn instantiate(
+        &mut self,
+        bytes: &[u8],
+        additional: &[Import<'_, B>],
+    ) -> Result<B::Instance> {
+        let backend = &mut self.storage.access;
+        let module = backend.compile(bytes).await?;
+        let mut imports = vec![
+            backend.bind(abi::EXECUTION_CONTEXT, &self.storage.context),
+            backend.bind(abi::GUEST, &self.storage.guest),
+            backend.bind(abi::PHYSICAL_MAP, &self.mapping),
+            backend.bind(abi::EXECUTION_ENTRIES, &self.dispatch_table.memory),
+            backend.bind(abi::EXECUTION_FUNCTIONS, &self.dispatch_table.functions),
+            backend.bind(abi::DISPATCH, &self.dispatch),
+            backend.bind(abi::INTERPRET, &self.interpret),
+        ];
+        imports.extend(self.host_imports.iter().cloned());
+        imports.extend(additional.iter().cloned());
+        backend.instantiate(&module, &imports).await
     }
 
     /// Borrows the stopped machine. CPU and memory writes take effect immediately.
@@ -133,7 +185,7 @@ impl<B: WasmBackend> Runtime<B> {
             .instruction_count()
             .saturating_add(instruction_budget);
         self.storage.set_instruction_target(target);
-        let word = self.storage.access.call(&self.entry)? as u64;
+        let word = self.storage.access.call(&self.dispatch)? as u64;
         ExecutionExit::from_bits(word).ok_or(Error::InvalidExit(word))
     }
 }

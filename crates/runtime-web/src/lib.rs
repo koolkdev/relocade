@@ -99,6 +99,34 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
         WebAssembly::Table::new(&descriptor).map_err(|error| js_error("create Wasm table", error))
     }
 
+    fn ensure_table_size(&mut self, table: &Self::Table, minimum: u32) -> Result<()> {
+        let current = table.length();
+        if minimum > current {
+            table
+                .grow(minimum - current)
+                .map_err(|error| js_error("grow Wasm table", error))?;
+        }
+        Ok(())
+    }
+
+    fn ensure_memory_size(&mut self, memory: &Self::Memory, byte_len: u64) -> Result<()> {
+        let pages = byte_len.div_ceil(65536);
+        let byte_length = Reflect::get(&memory.buffer(), &"byteLength".into())
+            .map_err(|error| js_error("read Wasm memory size", error))?
+            .as_f64()
+            .expect("ArrayBuffer byteLength is a number") as u64;
+        let current = byte_length / 65536;
+        if pages > current {
+            // js-sys's Memory::grow binding does not catch allocation failures.
+            let grow = Reflect::get(memory, &"grow".into())
+                .map_err(|error| js_error("get Wasm memory grow", error))?
+                .unchecked_into::<JsFunction>();
+            grow.call1(memory, &JsValue::from_f64((pages - current) as f64))
+                .map_err(|error| js_error("grow Wasm memory", error))?;
+        }
+        Ok(())
+    }
+
     async fn instantiate(
         &mut self,
         module: &Self::Module,

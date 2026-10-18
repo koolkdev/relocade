@@ -8,6 +8,20 @@ pub struct Import<'a, B: WasmBackend> {
     value: ImportValue<'a, B>,
 }
 
+impl<B: WasmBackend> Clone for Import<'_, B> {
+    fn clone(&self) -> Self {
+        Self {
+            module: self.module,
+            name: self.name,
+            value: match &self.value {
+                ImportValue::Memory(memory) => ImportValue::Memory(*memory),
+                ImportValue::Table(table) => ImportValue::Table(*table),
+                ImportValue::Function(function) => ImportValue::Function(function.clone()),
+            },
+        }
+    }
+}
+
 impl<B: WasmBackend> Import<'_, B> {
     pub fn module(&self) -> &str {
         self.module
