@@ -80,11 +80,27 @@ impl Files {
 
     pub(crate) fn read(&mut self, handle: u16, buffer: &mut [u8]) -> Result<usize, DosError> {
         let file = self.file_mut(handle)?;
-        let remaining = &file.contents[file.position as usize..];
+        let remaining = file
+            .contents
+            .get(file.position as usize..)
+            .unwrap_or_default();
         let count = buffer.len().min(remaining.len());
         buffer[..count].copy_from_slice(&remaining[..count]);
         file.position += count as u32;
         Ok(count)
+    }
+
+    pub(crate) fn seek(&mut self, handle: u16, origin: u8, offset: u32) -> Result<u32, DosError> {
+        let file = self.file_mut(handle)?;
+        let base = match origin {
+            0 => 0,
+            1 => file.position,
+            2 => file.contents.len() as u32,
+            _ => return Err(DosError::InvalidFunction),
+        };
+        // Absolute offsets use all 32 bits; relative offsets wrap as DOS ADD/ADC does.
+        file.position = base.wrapping_add(offset);
+        Ok(file.position)
     }
 
     pub(crate) fn close(&mut self, handle: u16) -> Result<(), DosError> {

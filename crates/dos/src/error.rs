@@ -3,6 +3,7 @@ use std::fmt;
 /// Error numbers returned to the guest in AX with carry set.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DosError {
+    InvalidFunction,
     FileNotFound,
     PathNotFound,
     TooManyOpenFiles,
@@ -17,6 +18,7 @@ pub(crate) enum DosError {
 impl DosError {
     pub(crate) fn code(self) -> u16 {
         match self {
+            Self::InvalidFunction => 1,
             Self::FileNotFound => 2,
             Self::PathNotFound => 3,
             Self::TooManyOpenFiles => 4,

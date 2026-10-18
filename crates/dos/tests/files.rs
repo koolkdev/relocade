@@ -192,6 +192,72 @@ async fn standard_handles_can_be_closed_reused_and_reset() {
     check_standard_handles().await;
 }
 
+fn seek(dos: &mut Dos<Backend<DosState>>, handle: u16, origin: u8, offset: i32) -> CpuState {
+    service(
+        dos,
+        0x4200 | u16::from(origin),
+        handle,
+        (offset >> 16) as u16,
+        offset as u16,
+    )
+}
+
+fn position(cpu: &CpuState) -> u32 {
+    u32::from(success(cpu)) | ((cpu.registers.edx & 0xffff) << 16)
+}
+
+async fn check_seek() {
+    let mut dos = common::dos().await;
+    let mut contents = vec![0; 0x10008];
+    contents[..4].copy_from_slice(b"head");
+    contents[0x10000..].copy_from_slice(b"taildata");
+    dos.mount_file("RECORDS.BIN", contents).unwrap();
+    dos.load_com(SERVICE_PROGRAM).unwrap();
+    assert_eq!(success(&open(&mut dos, b"RECORDS.BIN", 0)), 5);
+    assert_eq!(success(&open(&mut dos, b"RECORDS.BIN", 0)), 6);
+
+    // Seek-to-end reports the size in DX:AX, including the high word.
+    assert_eq!(position(&seek(&mut dos, 5, 2, 0)), 0x10008);
+    assert_eq!(position(&seek(&mut dos, 5, 0, 0x10000)), 0x10000);
+    assert_eq!(success(&service(&mut dos, 0x3f00, 5, 4, 0x200)), 4);
+    assert_eq!(&buffer(&mut dos)[..4], b"tail");
+    assert_eq!(position(&seek(&mut dos, 5, 1, -2)), 0x10002);
+    assert_eq!(success(&service(&mut dos, 0x3f00, 5, 4, 0x200)), 4);
+    assert_eq!(&buffer(&mut dos)[..4], b"ilda");
+    assert_eq!(position(&seek(&mut dos, 5, 2, -4)), 0x10004);
+    assert_eq!(success(&service(&mut dos, 0x3f00, 5, 8, 0x200)), 4);
+    assert_eq!(&buffer(&mut dos)[..4], b"data");
+    // Another open handle retains its own position.
+    assert_eq!(success(&service(&mut dos, 0x3f00, 6, 4, 0x200)), 4);
+    assert_eq!(&buffer(&mut dos)[..4], b"head");
+
+    assert_eq!(position(&seek(&mut dos, 5, 2, 10)), 0x10012);
+    assert_eq!(success(&service(&mut dos, 0x3f00, 5, 8, 0x200)), 0);
+    assert_eq!(&buffer(&mut dos)[..4], b"head"); // EOF leaves the buffer untouched.
+    assert_eq!(position(&seek(&mut dos, 5, 1, 0)), 0x10012); // Retain position past EOF.
+    error(&seek(&mut dos, 5, 3, 0), 1);
+    assert_eq!(position(&seek(&mut dos, 5, 1, 0)), 0x10012); // Failed seek is unchanged.
+    error(&seek(&mut dos, 20, 0, 0), 6);
+
+    // The cursor uses all 32 bits and wraps at the 4 GiB boundary.
+    assert_eq!(position(&seek(&mut dos, 5, 0, i32::MAX)), 0x7fff_ffff);
+    assert_eq!(position(&seek(&mut dos, 5, 1, 1)), 0x8000_0000);
+    assert_eq!(success(&service(&mut dos, 0x3f00, 5, 1, 0x200)), 0);
+    assert_eq!(position(&seek(&mut dos, 5, 1, i32::MAX)), u32::MAX);
+    assert_eq!(position(&seek(&mut dos, 5, 1, 1)), 0);
+    assert_eq!(position(&seek(&mut dos, 5, 0, -1)), u32::MAX); // Absolute CX:DX is unsigned.
+    assert_eq!(position(&seek(&mut dos, 5, 1, 0)), u32::MAX);
+
+    // Negative displacements wrap to the same cursor value as an absolute seek.
+    assert_eq!(position(&seek(&mut dos, 5, 0, 0)), 0);
+    assert_eq!(position(&seek(&mut dos, 5, 1, -1)), u32::MAX);
+    assert_eq!(success(&service(&mut dos, 0x3f00, 5, 1, 0x200)), 0);
+    assert_eq!(position(&seek(&mut dos, 5, 2, -0x10009)), u32::MAX);
+    assert_eq!(position(&seek(&mut dos, 5, 1, 1)), 0);
+    assert_eq!(success(&service(&mut dos, 0x3f00, 5, 4, 0x200)), 4);
+    assert_eq!(&buffer(&mut dos)[..4], b"head");
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn program_reads_a_mounted_file_and_prints_it() {
@@ -214,4 +280,16 @@ fn file_handles_report_counts_errors_and_reset_between_programs() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn file_handles_report_counts_errors_and_reset_between_programs() {
     check_handles().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn seeking_selects_records_and_reports_file_positions() {
+    pollster::block_on(check_seek());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn seeking_selects_records_and_reports_file_positions() {
+    check_seek().await;
 }

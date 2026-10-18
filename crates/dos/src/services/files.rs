@@ -53,6 +53,23 @@ pub(super) fn write(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     return_result(call, Err(error))
 }
 
+/// AH=42h: seek BX by CX:DX from AL's origin; return DX:AX.
+pub(super) fn seek(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let cpu = call.cpu();
+    let handle = cpu.bx();
+    let origin = cpu.al();
+    let offset = (u32::from(cpu.cx()) << 16) | u32::from(cpu.dx());
+    let result = call
+        .state_mut()
+        .files
+        .seek(handle, origin, offset)
+        .map(|position| {
+            call.cpu().set_ax(position as u16);
+            call.cpu().set_dx((position >> 16) as u16);
+        });
+    return_result(call, result)
+}
+
 fn read_path(call: &mut HostCall<'_, DosState>) -> Result<Vec<u8>, DosError> {
     let cpu = call.cpu();
     let base = cpu.segment(Segment::Ds).base;
