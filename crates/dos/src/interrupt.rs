@@ -9,7 +9,10 @@ pub(crate) fn return_result(
     result: Result<(), DosError>,
 ) -> ControlFlow<()> {
     if let Err(error) = result {
-        call.cpu().set_ax(error as u16);
+        call.cpu().set_ax(error.code());
+        if let DosError::InsufficientMemory { available } = error {
+            call.cpu().set_bx(available);
+        }
     }
     // Real-mode INT pushed FLAGS, CS, IP. Carry must be changed in the saved
     // FLAGS at SS:SP+4; changing live CPU flags would be undone by IRET.

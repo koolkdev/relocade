@@ -1,9 +1,11 @@
 //! A minimal DOS environment for one real-mode COM program.
 //!
-//! Programs start at PSP:0100 with a 64-KiB allocation and an empty command tail.
+//! COM programs start at PSP:0100 with an empty command tail. They receive the
+//! available conventional memory; the image and initial stack use its first 64 KiB.
 //! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. Output is buffered as guest bytes.
+//! AH=48h/49h/4Ah allocate, free and resize conventional-memory blocks.
 //! [`Dos::new`] prepares the DOS environment; [`Dos::load_com`] loads a program
 //! into it. The host chooses the Wasm backend and controls execution through
 //! [`Dos::runtime`]. Create the backend with its `with_state` constructor and
@@ -25,10 +27,11 @@
 #![forbid(unsafe_code)]
 
 mod com;
-mod console;
 mod error;
 mod interrupt;
 mod kernel;
+mod memory;
+mod services;
 
 pub use error::{LoadError, ServiceError};
 pub use kernel::DosState;

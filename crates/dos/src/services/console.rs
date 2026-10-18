@@ -1,7 +1,7 @@
+use super::return_to_host;
 use crate::{
     error::DosError,
     interrupt::{return_from_interrupt, return_result},
-    kernel::return_to_host,
     DosState, ServiceError,
 };
 use std::ops::ControlFlow;
@@ -9,7 +9,7 @@ use wasm86_runtime::HostCall;
 use wasm86_x86::Segment;
 
 /// AH=09h: output the '$'-terminated string at DS:DX and return AL='$'.
-pub(crate) fn write_string(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+pub(super) fn write_string(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     let base = call.cpu().segment(Segment::Ds).base;
     let start = call.cpu().dx();
     for index in 0..=u16::MAX {
@@ -28,7 +28,7 @@ pub(crate) fn write_string(call: &mut HostCall<'_, DosState>) -> ControlFlow<()>
 
 /// AH=40h: write CX bytes from DS:DX to handle BX; return the count in AX.
 /// Handles 1 (stdout) and 2 (stderr) share the buffered console output.
-pub(crate) fn write_handle(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+pub(super) fn write_handle(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     if !matches!(call.cpu().bx(), 1 | 2) {
         return return_result(call, Err(DosError::InvalidHandle));
     }
