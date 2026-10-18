@@ -5,7 +5,7 @@ use super::JoinTarget;
 use crate::{
     arena::FunctionArena,
     body::{BlockId, Edge, Exit, Layout},
-    Arguments, BlockBuilder, BuildError, Results, Val, I1,
+    Arguments, BlockBuilder, BranchCondition, BuildError, Results,
 };
 
 /// A typed block exit, loop header or loop exit, usable within its control block
@@ -115,7 +115,7 @@ impl BlockBuilder<'_> {
     /// All inputs are checked even for a false condition; errors leave the parent usable.
     pub fn branch_if<R: Results>(
         &mut self,
-        condition: impl Into<Val<I1>>,
+        condition: impl Into<BranchCondition>,
         label: &Label<R>,
         arguments: impl Into<Arguments>,
     ) -> Result<(), BuildError> {

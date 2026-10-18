@@ -33,6 +33,7 @@ impl Writer<'_> {
                 }
                 Layout::If {
                     branch,
+                    hint,
                     taken,
                     otherwise,
                     join,
@@ -55,6 +56,7 @@ impl Writer<'_> {
                     if inverted {
                         self.emit(Wasm::I32Eqz);
                     }
+                    self.encoder.branch_hint(*hint);
                     self.emit(Wasm::If(BlockType::Empty));
                     self.labels.push(Some(*join));
                     self.edge(taken_edge, taken.first().map(Layout::entry).or(Some(*join)));

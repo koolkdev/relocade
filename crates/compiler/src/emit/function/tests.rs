@@ -3,6 +3,41 @@ use wasm_encoder::{BlockType, Instruction, ValType};
 use wasmparser::{BinaryReader, FunctionBody, Operator};
 
 #[test]
+fn branch_hint_offsets_include_locals_and_multibyte_local_indices() {
+    let mut code = FunctionEncoder::new(130, vec![ValType::I32]);
+    code.instruction(Instruction::I32Const(1));
+    code.instruction(Instruction::LocalSet(130));
+    code.instruction(Instruction::LocalGet(130));
+    code.branch_hint(Some(crate::BranchHint::Likely));
+    code.instruction(Instruction::If(BlockType::Empty));
+    code.instruction(Instruction::End);
+    code.instruction(Instruction::LocalGet(130));
+    code.branch_hint(Some(crate::BranchHint::Unlikely));
+    code.instruction(Instruction::If(BlockType::Empty));
+    code.instruction(Instruction::End);
+    code.instruction(Instruction::LocalGet(130));
+    code.instruction(Instruction::Drop);
+
+    let encoded = code.finish();
+    let hints: Vec<_> = encoded
+        .branch_hints
+        .iter()
+        .map(|hint| (hint.branch_func_offset, hint.branch_hint_value))
+        .collect();
+    assert_eq!(hints, [(11, 1), (17, 0)]);
+    let bytes = encoded.body.into_raw_body();
+    let body = FunctionBody::new(BinaryReader::new(&bytes, 0));
+    let branches: Vec<_> = body
+        .get_operators_reader()
+        .unwrap()
+        .into_iter_with_offsets()
+        .map(Result::unwrap)
+        .filter_map(|(operator, offset)| matches!(operator, Operator::If { .. }).then_some(offset))
+        .collect();
+    assert_eq!(branches, [11, 17]);
+}
+
+#[test]
 fn deferred_accesses_preserve_order_and_use_indices_after_parameters() {
     let mut code = FunctionEncoder::new(130, vec![ValType::I32, ValType::I64, ValType::I32]);
     let temporary = 2;
@@ -15,7 +50,7 @@ fn deferred_accesses_preserve_order_and_use_indices_after_parameters() {
     // The unused i64 slot has no declaration. The temporary reuses the i32
     // local after its last get, even though that value remains on the stack.
     assert_eq!(
-        code.finish().into_raw_body(),
+        code.finish().body.into_raw_body(),
         [
             0x01, 0x01, 0x7f, // one i32 local
             0x20, 0x81, 0x01, // local.get 129 (parameter)
@@ -72,7 +107,7 @@ fn nested_loop_backedges_keep_live_values_apart_from_body_temporaries() {
     code.local(5, LocalOp::Get);
     code.instruction(Instruction::Return);
 
-    let bytes = code.finish().into_raw_body();
+    let bytes = code.finish().body.into_raw_body();
     let body = FunctionBody::new(BinaryReader::new(&bytes, 0));
     let locals: Vec<_> = body
         .get_locals_reader()

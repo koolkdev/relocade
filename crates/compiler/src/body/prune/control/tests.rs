@@ -52,6 +52,7 @@ fn resolved_conditionals_and_switches_keep_only_the_surviving_layout() {
             };
             Layout::If {
                 branch: graph.entry,
+                hint: None,
                 taken: vec![Layout::Block(arms[0])],
                 otherwise: vec![Layout::Block(arms[1])],
                 join,
@@ -120,6 +121,7 @@ fn scopes_keep_early_branch_labels_and_flatten_a_final_entrance() {
                 body: vec![
                     Layout::If {
                         branch,
+                        hint: None,
                         taken: vec![Layout::Block(taken)],
                         otherwise: vec![Layout::Block(otherwise)],
                         join,

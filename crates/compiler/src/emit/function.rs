@@ -2,6 +2,9 @@
 
 use wasm_encoder::{Encode, Function, Instruction, ValType};
 
+use super::EncodedFunction;
+use crate::BranchHint;
+
 enum LocalOp {
     Get,
     Set,
@@ -27,6 +30,7 @@ pub(super) struct FunctionEncoder {
     slot_types: Vec<ValType>,
     bytes: Vec<u8>,
     events: Vec<LocalEvent>,
+    branch_hints: Vec<(usize, BranchHint)>,
     controls: Vec<ControlFrame>,
     loop_ranges: Vec<(usize, usize)>,
 }
@@ -38,6 +42,7 @@ impl FunctionEncoder {
             slot_types,
             bytes: Vec::new(),
             events: Vec::new(),
+            branch_hints: Vec::new(),
             controls: Vec::new(),
             loop_ranges: Vec::new(),
         }
@@ -95,7 +100,14 @@ impl FunctionEncoder {
         });
     }
 
-    pub(super) fn finish(mut self) -> Function {
+    /// Marks the next branch before deferred local instructions are inserted.
+    pub(super) fn branch_hint(&mut self, hint: Option<BranchHint>) {
+        if let Some(hint) = hint {
+            self.branch_hints.push((self.bytes.len(), hint));
+        }
+    }
+
+    pub(super) fn finish(mut self) -> EncodedFunction {
         debug_assert!(self.controls.is_empty(), "function controls are closed");
         Instruction::End.encode(&mut self.bytes);
         // Wasm local declarations precede instructions. Allocate from the final
@@ -106,8 +118,19 @@ impl FunctionEncoder {
             &self.loop_ranges,
         );
         let mut function = Function::new_with_locals_types(allocated.types);
+        let mut pending_hints = self.branch_hints.into_iter().peekable();
+        let mut branch_hints = Vec::new();
         let mut previous = 0;
         for event in self.events {
+            // Events at the same raw offset precede the branch. Resolve its
+            // position only after every deferred local at that offset is encoded.
+            while let Some(&(offset, hint)) = pending_hints
+                .peek()
+                .filter(|&&(offset, _)| offset < event.offset)
+            {
+                branch_hints.push(encode_hint(function.byte_len() + offset - previous, hint));
+                pending_hints.next();
+            }
             function.raw(self.bytes[previous..event.offset].iter().copied());
             previous = event.offset;
             let local = self
@@ -122,8 +145,21 @@ impl FunctionEncoder {
                 LocalOp::Tee => Instruction::LocalTee(local),
             });
         }
+        for (offset, hint) in pending_hints {
+            branch_hints.push(encode_hint(function.byte_len() + offset - previous, hint));
+        }
         function.raw(self.bytes[previous..].iter().copied());
-        function
+        EncodedFunction {
+            body: function,
+            branch_hints,
+        }
+    }
+}
+
+fn encode_hint(offset: usize, hint: BranchHint) -> wasm_encoder::BranchHint {
+    wasm_encoder::BranchHint {
+        branch_func_offset: u32::try_from(offset).expect("branch offset fits the Wasm index space"),
+        branch_hint_value: u32::from(hint == BranchHint::Likely),
     }
 }
 

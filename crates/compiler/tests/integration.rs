@@ -12,6 +12,8 @@ mod atomics;
 mod bit_counts;
 #[path = "suites/blocks.rs"]
 mod blocks;
+#[path = "suites/branch_hints.rs"]
+mod branch_hints;
 #[path = "suites/branch_placement.rs"]
 mod branch_placement;
 #[path = "suites/computed_memory.rs"]

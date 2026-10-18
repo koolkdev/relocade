@@ -1,6 +1,6 @@
 //! Typed values, effects and explicit control edges owned by one function.
 use crate::literal::Literal;
-use crate::{memory::Mem, Expression, Func, Type};
+use crate::{memory::Mem, BranchHint, Expression, Func, Type};
 
 mod operation;
 mod producer;
@@ -102,6 +102,7 @@ pub(super) enum Layout {
     },
     If {
         branch: BlockId,
+        hint: Option<BranchHint>,
         taken: Vec<Layout>,
         otherwise: Vec<Layout>,
         join: BlockId,
