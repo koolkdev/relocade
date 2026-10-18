@@ -83,7 +83,7 @@ impl Runtime {
             self.resolve_segment,
             &[(segment as u32).into(), selector.into()],
         )?;
-        body.if_(status.ne(0), |mut fault| {
+        body.if_(status.ne(0).unlikely(), |mut fault| {
             let vectors = [
                 ExceptionVector::SegmentNotPresent as u32,
                 ExceptionVector::StackFault as u32,

@@ -127,7 +127,7 @@ impl VirtualMemory {
         let (unavailable, physical, denied) = if constant_bytes == Some(1) && faulting {
             // A byte needs only the first page check.
             let physical = body.if_value::<I32>(
-                &first_denied,
+                first_denied.unlikely(),
                 |fault_body| finish_denial(fault_body, start.clone(), first_entry.truncate::<I1>()),
                 |allowed| allowed.yield_(physical_address(&first_entry, start)),
             )?;
@@ -148,7 +148,7 @@ impl VirtualMemory {
                             ],
                         )?;
                         pages.branch_if(
-                            resolution_word.and(required).ne(required),
+                            resolution_word.and(required).ne(required).unlikely(),
                             &fault,
                             (
                                 resolution_word
@@ -176,10 +176,10 @@ impl VirtualMemory {
                                 true.into()
                             };
                             checks.if_(may_cross, |mut candidate| {
-                                candidate.if_(crosses_page(start, bytes), resolve_pages)
+                                candidate.if_(crosses_page(start, bytes).unlikely(), resolve_pages)
                             })?;
                             checks.branch_if(
-                                &first_denied,
+                                first_denied.unlikely(),
                                 &fault,
                                 (start, first_entry.truncate::<I1>()),
                             )?;

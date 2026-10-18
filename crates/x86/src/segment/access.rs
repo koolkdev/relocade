@@ -31,7 +31,7 @@ impl SegmentReads<'_> {
     ) -> Result<Val<I32>, BuildError> {
         let check = self.check(body, segment, offset, bytes, intent)?;
         if let Some(denied) = check.denied {
-            body.if_(denied, |mut fault| {
+            body.if_(denied.unlikely(), |mut fault| {
                 fault.if_else(
                     segment.index().eq(Segment::Ss as u32),
                     |arm| {

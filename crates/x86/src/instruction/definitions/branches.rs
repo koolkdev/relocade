@@ -93,7 +93,7 @@ where
     match condition {
         Some(condition) => {
             let taken = execution.condition(condition)?;
-            execution.branch(taken, target, fallthrough)
+            execution.branch(taken, target, fallthrough, execution.jcc_hint())
         }
         None => execution.jump(target),
     }
@@ -122,7 +122,7 @@ where
     let displacement = displacement.read(execution)?;
     let count = execution.read_address_register(Gpr32::Ecx)?;
     let target = relative_target::<T>(&fallthrough, displacement);
-    execution.branch(count.eq(0), target, fallthrough)
+    execution.branch(count.eq(0), target, fallthrough, None)
 }
 
 fn loop_relative<T: RegisterType>(
@@ -144,7 +144,7 @@ where
         taken = taken.and(execution.condition(condition)?);
     }
     let target = relative_target::<T>(&fallthrough, displacement);
-    let next_eip = execution.branch(taken, target, fallthrough)?;
+    let next_eip = execution.branch(taken, target, fallthrough, None)?;
     execution.write_address_register(Gpr32::Ecx, count)?;
     Ok(next_eip)
 }

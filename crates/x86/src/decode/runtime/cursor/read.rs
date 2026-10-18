@@ -25,7 +25,7 @@ impl RuntimeCursor<'_> {
     ) -> Result<Val<I8>, BuildError> {
         if self.maximum_offset >= MAX_INSTRUCTION_BYTES {
             body.if_(
-                self.offset.unsigned().ge(MAX_INSTRUCTION_BYTES),
+                self.offset.unsigned().ge(MAX_INSTRUCTION_BYTES).unlikely(),
                 |limit_body| {
                     exit::exception(
                         limit_body,
@@ -81,7 +81,7 @@ impl RuntimeCursor<'_> {
             direct.unavailable
         };
         let value = body.if_value::<T>(
-            needs_byte_reads,
+            needs_byte_reads.unlikely(),
             |mut field_body| {
                 // Retry required bytes in order. An earlier missing page faults
                 // before a later CS or instruction-length violation. EIP may wrap.

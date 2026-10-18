@@ -59,7 +59,7 @@ impl RuntimeDecoder<'_> {
                     DIRECT_FETCH_BYTES,
                     Some(&mut cache),
                 )?;
-                iteration.if_(&direct.unavailable, |fallback| {
+                iteration.if_(direct.unavailable.unlikely(), |fallback| {
                     fallback.tail_call(entry, &[])
                 })?;
                 let mut cursor = RuntimeCursor::new(

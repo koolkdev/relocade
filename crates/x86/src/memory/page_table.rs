@@ -93,7 +93,7 @@ impl PageTable {
         let last_byte_offset = body.parameter::<I32>(1)?;
         let first_entry = body.parameter::<I32>(2)?;
         let required = body.parameter::<I32>(3)?;
-        body.if_(first_entry.and(&required).ne(&required), |arm| {
+        body.if_(first_entry.and(&required).ne(&required).unlikely(), |arm| {
             arm.return_(first_entry.and(FRAME_MASK | PRESENT | WRITABLE))
         })?;
         // Count page boundaries without overflowing start + last_byte_offset.
@@ -116,7 +116,7 @@ impl PageTable {
                 page.branch_if(remaining.eq(0), &labels.exit, &scattered)?;
                 let next_address = address.add(PAGE_BYTES);
                 let entry = self.entry(&mut page, &next_address)?;
-                page.if_(entry.and(&required).ne(&required), |arm| {
+                page.if_(entry.and(&required).ne(&required).unlikely(), |arm| {
                     arm.return_(next_address.or(entry.and(PRESENT)).or(LATER_DENIAL))
                 })?;
                 page.branch(
