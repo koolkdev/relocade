@@ -1,4 +1,4 @@
-use wasm86_compiler::{BuildError, Program, Signature, Type};
+use wasm86_compiler::{abi::Function, BuildError, Program, I64};
 
 use crate::{
     decode::{InstructionFetch, RuntimeDecoder},
@@ -69,10 +69,10 @@ enum InterpreterEntry {
 }
 
 impl InterpreterEntry {
-    fn name(self) -> &'static str {
+    fn symbol(self) -> Function<'static, fn() -> I64> {
         match self {
-            Self::Run => "run",
-            Self::Step => "step",
+            Self::Run => crate::abi::RUN,
+            Self::Step => crate::abi::STEP,
         }
     }
 }
@@ -96,10 +96,7 @@ impl Compiler {
         let cpu = Cpu::declare(&mut program);
         let memory = Memory::declare(&mut program, profile)?;
         let runtime = Runtime::declare(&mut program);
-        let signature = Signature {
-            parameters: vec![],
-            results: vec![Type::I64],
-        };
+        let signature = entry.symbol().signature();
         let entry_function = program.declare(signature.clone());
         let exact = program.declare(signature);
         let fetch = InstructionFetch::new(&cpu, &memory, profile);
@@ -141,10 +138,10 @@ impl Compiler {
             decoder.decode(body, fetch, &start, None)
         })?;
 
-        program.export(entry.name(), entry_function)?;
+        entry.symbol().export(&mut program, entry_function)?;
         Ok(CompiledModule {
             bytes: program.compile()?,
-            entry: entry.name().into(),
+            entry: entry.symbol().name.into(),
             execution_target: Some(self.target),
         })
     }

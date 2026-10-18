@@ -31,7 +31,8 @@ pub struct TableImport {
 impl Program {
     /// Declares a function table. Unused tables are omitted from the module.
     /// Panics when the maximum is smaller than the minimum.
-    pub fn import_table(&mut self, import: TableImport) -> Table {
+    pub fn import_table(&mut self, import: impl Into<TableImport>) -> Table {
+        let import = import.into();
         assert!(import
             .maximum
             .is_none_or(|maximum| maximum >= import.minimum));
@@ -41,7 +42,8 @@ impl Program {
     }
 
     /// Declares an imported function. Unused imports are omitted from the module.
-    pub fn import_function(&mut self, import: FunctionImport) -> Func {
+    pub fn import_function(&mut self, import: impl Into<FunctionImport>) -> Func {
+        let import = import.into();
         let function = Func(self.functions.len());
         self.functions.push(Declaration {
             signature: import.signature,

@@ -1,6 +1,6 @@
 //! Live physical routing metadata. No device access occurs during a lookup.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryImport, Program, Val, I1, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, Program, Val, I1, I32};
 
 use super::super::{
     physical_map::{MMIO, PAGE_MASK, PAGE_SHIFT, RAM, ROM},
@@ -32,13 +32,7 @@ impl Entry {
 impl PhysicalTable {
     pub(super) fn declare(program: &mut Program) -> Self {
         Self {
-            entries: program.import_memory(MemoryImport {
-                module: "wasm86".into(),
-                name: "physicalMap".into(),
-                minimum: 1,
-                maximum: None,
-                shared: false,
-            }),
+            entries: program.import_memory(crate::abi::PHYSICAL_MAP),
         }
     }
 

@@ -7,8 +7,7 @@ mod transfer;
 use std::cell::Cell;
 
 use wasm86_compiler::{
-    BlockBuilder, BuildError, Func, FunctionImport, Mem, MemoryImport, MemoryInt, MemoryType,
-    Program, Signature, Type, Val, I32, I64,
+    BlockBuilder, BuildError, Func, Mem, MemoryInt, MemoryType, Program, Val, I32, I64,
 };
 
 use super::{Access, DirectRange, Intent};
@@ -26,30 +25,10 @@ pub(crate) struct PhysicalMemory {
 
 impl PhysicalMemory {
     pub(super) fn declare(program: &mut Program) -> Self {
-        let backing = program.import_memory(MemoryImport {
-            module: "wasm86".into(),
-            name: "guest".into(),
-            minimum: 1,
-            maximum: None,
-            shared: false,
-        });
+        let backing = program.import_memory(crate::abi::GUEST);
         let table = PhysicalTable::declare(program);
-        let mmio_reader = program.import_function(FunctionImport {
-            module: "wasm86".into(),
-            name: "readMmio".into(),
-            signature: Signature {
-                parameters: vec![Type::I32, Type::I32],
-                results: vec![Type::I64],
-            },
-        });
-        let mmio_writer = program.import_function(FunctionImport {
-            module: "wasm86".into(),
-            name: "writeMmio".into(),
-            signature: Signature {
-                parameters: vec![Type::I32, Type::I32, Type::I64],
-                results: vec![],
-            },
-        });
+        let mmio_reader = program.import_function(crate::abi::READ_MMIO);
+        let mmio_writer = program.import_function(crate::abi::WRITE_MMIO);
         Self {
             backing,
             table,

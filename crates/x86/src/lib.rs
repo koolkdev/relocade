@@ -23,6 +23,7 @@
 #![doc = include_str!("../docs/physical-memory.md")]
 #![forbid(unsafe_code)]
 
+pub mod abi;
 mod address;
 mod alu;
 mod compile;

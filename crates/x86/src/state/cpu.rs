@@ -5,7 +5,7 @@ mod segments;
 
 use std::cell::Cell;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Func, Mem, MemoryImport, Program, Val, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Func, Mem, Program, Val, I32};
 
 use crate::flags::{Condition, StatusFlag};
 
@@ -20,13 +20,7 @@ pub(crate) struct Cpu {
 impl Cpu {
     pub(crate) fn declare(program: &mut Program) -> Self {
         Self {
-            memory: program.import_memory(MemoryImport {
-                module: "wasm86".into(),
-                name: "executionContext".into(),
-                minimum: 1,
-                maximum: None,
-                shared: false,
-            }),
+            memory: program.import_memory(crate::abi::EXECUTION_CONTEXT),
             condition_resolvers: Condition::CANONICAL.map(|_| Cell::new(None)),
             flag_resolvers: std::array::from_fn(|_| Cell::new(None)),
         }

@@ -2,7 +2,7 @@
 
 use std::cell::Cell;
 
-use wasm86_compiler::{BuildError, Func, Mem, MemoryImport, Program, Signature, Type};
+use wasm86_compiler::{BuildError, Func, Mem, Program, Signature, Type};
 
 use super::page_table::PageTable;
 
@@ -18,13 +18,7 @@ pub(crate) struct VirtualMemory {
 
 impl VirtualMemory {
     pub(super) fn declare(program: &mut Program) -> Result<Self, BuildError> {
-        let guest = program.import_memory(MemoryImport {
-            module: "wasm86".into(),
-            name: "guest".into(),
-            minimum: 1,
-            maximum: None,
-            shared: false,
-        });
+        let guest = program.import_memory(crate::abi::GUEST);
         let table = PageTable::declare(program);
         let range_resolver = program.function(
             Signature {
