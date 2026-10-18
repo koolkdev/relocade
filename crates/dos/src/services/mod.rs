@@ -1,6 +1,7 @@
 //! DOS interrupt dispatch and service handlers.
 
 mod console;
+mod files;
 mod memory;
 
 use crate::{DosState, ServiceError};
@@ -8,6 +9,9 @@ use std::ops::ControlFlow;
 use wasm86_runtime::HostCall;
 
 const WRITE_STRING: u8 = 0x09;
+const OPEN_HANDLE: u8 = 0x3d;
+const CLOSE_HANDLE: u8 = 0x3e;
+const READ_HANDLE: u8 = 0x3f;
 const WRITE_HANDLE: u8 = 0x40;
 const ALLOCATE_MEMORY: u8 = 0x48;
 const FREE_MEMORY: u8 = 0x49;
@@ -18,7 +22,10 @@ const TERMINATE_PROCESS: u8 = 0x4c;
 pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     match call.cpu().ah() {
         WRITE_STRING => console::write_string(call),
-        WRITE_HANDLE => console::write_handle(call),
+        OPEN_HANDLE => files::open(call),
+        CLOSE_HANDLE => files::close(call),
+        READ_HANDLE => files::read(call),
+        WRITE_HANDLE => files::write(call),
         ALLOCATE_MEMORY => memory::allocate(call),
         FREE_MEMORY => memory::free(call),
         RESIZE_MEMORY => memory::resize(call),
@@ -45,6 +52,7 @@ fn return_to_host(
     if status.is_ok() {
         // The only process has exited; all of its conventional memory is free.
         crate::memory::reset(&mut call.memory());
+        call.state_mut().files.close_all();
     }
     call.state_mut().exit_status = Some(status);
     ControlFlow::Break(())

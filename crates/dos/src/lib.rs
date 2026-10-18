@@ -7,6 +7,7 @@
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. Output is buffered as guest bytes.
 //! AH=48h/49h/4Ah allocate, free and resize conventional-memory blocks.
+//! [`Dos::mount_file`] supplies read-only files for AH=3Dh/3Eh/3Fh open/close/read.
 //! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
 //! or [`Dos::load_mz`]. The host chooses the Wasm backend and controls execution through
 //! [`Dos::runtime`]. Create the backend with its `with_state` constructor and
@@ -29,6 +30,7 @@
 
 mod com;
 mod error;
+mod files;
 mod interrupt;
 mod kernel;
 mod memory;
@@ -36,7 +38,7 @@ mod mz;
 mod process;
 mod services;
 
-pub use error::{LoadError, ServiceError};
+pub use error::{LoadError, MountError, ServiceError};
 pub use kernel::DosState;
 use wasm86_runtime::{Runtime, RuntimeBackend};
 
@@ -60,7 +62,7 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
     /// Invalid images leave the existing program and its state unchanged.
     pub fn load_com(&mut self, image: &[u8]) -> Result<(), LoadError> {
         com::load(&mut self.runtime.machine(), image)?;
-        *self.runtime.state_mut() = DosState::default();
+        self.runtime.state_mut().reset_process();
         Ok(())
     }
 
@@ -70,8 +72,15 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
     /// Overlay loading is not supported.
     pub fn load_mz(&mut self, image: &[u8]) -> Result<(), LoadError> {
         mz::load(&mut self.runtime.machine(), image)?;
-        *self.runtime.state_mut() = DosState::default();
+        self.runtime.state_mut().reset_process();
         Ok(())
+    }
+
+    /// Mounts read-only bytes at an ASCII path on C:. Paths are case-insensitive;
+    /// relative paths start at the drive root. Files persist across program loads.
+    /// Replacing a mounted path leaves existing open handles on the previous bytes.
+    pub fn mount_file(&mut self, path: &str, contents: Vec<u8>) -> Result<(), MountError> {
+        self.runtime.state_mut().files.mount(path, contents)
     }
 
     pub fn runtime(&mut self) -> &mut Runtime<B> {

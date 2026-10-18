@@ -1,0 +1,72 @@
+use super::console;
+use crate::{error::DosError, files::MAX_PATH_BYTES, interrupt::return_result, DosState};
+use std::ops::ControlFlow;
+use wasm86_runtime::HostCall;
+use wasm86_x86::Segment;
+
+/// AH=3Dh: open the NUL-terminated path at DS:DX using AL's access mode.
+pub(super) fn open(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let mode = call.cpu().al();
+    let result = read_path(call).and_then(|path| call.state_mut().files.open(&path, mode));
+    let result = result.map(|handle| call.cpu().set_ax(handle));
+    return_result(call, result)
+}
+
+/// AH=3Eh: close BX's file handle.
+pub(super) fn close(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let handle = call.cpu().bx();
+    let result = call.state_mut().files.close(handle);
+    return_result(call, result)
+}
+
+/// AH=3Fh: read up to CX bytes from BX into DS:DX; return the count in AX.
+pub(super) fn read(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let cpu = call.cpu();
+    let handle = cpu.bx();
+    let count = usize::from(cpu.cx());
+    let address = cpu.segment(Segment::Ds).base + u32::from(cpu.dx());
+    let mut bytes = vec![0; count];
+    let result = call
+        .state_mut()
+        .files
+        .read(handle, &mut bytes)
+        .map(|count| {
+            call.memory()
+                .write(address, &bytes[..count])
+                .expect("real-mode buffer");
+            call.cpu().set_ax(count as u16);
+        });
+    return_result(call, result)
+}
+
+/// AH=40h: stdout/stderr accept output; mounted files are read-only.
+pub(super) fn write(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let handle = call.cpu().bx();
+    if call.state().files.is_console_output(handle) {
+        return console::write_handle(call);
+    }
+    let error = if call.state().files.is_open(handle) {
+        DosError::AccessDenied
+    } else {
+        DosError::InvalidHandle
+    };
+    return_result(call, Err(error))
+}
+
+fn read_path(call: &mut HostCall<'_, DosState>) -> Result<Vec<u8>, DosError> {
+    let cpu = call.cpu();
+    let base = cpu.segment(Segment::Ds).base;
+    let offset = cpu.dx();
+    let mut path = Vec::new();
+    for index in 0..MAX_PATH_BYTES as u16 {
+        let mut byte = [0];
+        call.memory()
+            .read(base + u32::from(offset.wrapping_add(index)), &mut byte)
+            .expect("real-mode path address");
+        if byte[0] == 0 {
+            return Ok(path);
+        }
+        path.push(byte[0]);
+    }
+    Err(DosError::PathNotFound)
+}
