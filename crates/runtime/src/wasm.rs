@@ -15,7 +15,7 @@ pub use imports::{Import, ImportBinding, ImportValue};
 /// Handles belong to that engine. Transfers require an allocated, in-bounds
 /// range; violating this storage invariant is a programming error.
 pub trait WasmMemoryAccess {
-    type Memory: Clone;
+    type Memory: Clone + 'static;
 
     fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]);
     fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]);
@@ -54,11 +54,11 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     type Caller<'a>: WasmCaller<State = Self::State, Memory = Self::Memory>;
     type Module;
     type Instance;
-    type Table;
+    type Table: 'static;
     /// An exported function with signature `() -> i64`.
     type Function;
     /// An engine function handle, after its binding's signature has been checked.
-    type ImportFunction;
+    type ImportFunction: Clone;
 
     /// Host state is borrowed only between Wasm calls. A browser backend may
     /// return a borrow guard; drop it before calling into Wasm.
@@ -70,8 +70,15 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// Allocates zeroed memory with the supplied page limits.
     fn create_memory(&mut self, minimum: u32, maximum: Option<u32>) -> Result<Self::Memory>;
 
+    /// Grows memory when needed to contain `byte_len` bytes, preserving its contents.
+    fn ensure_memory_size(&mut self, memory: &Self::Memory, byte_len: u64) -> Result<()>;
+
     /// Allocates a function table whose entries initially contain null.
     fn create_table(&mut self, minimum: u32) -> Result<Self::Table>;
+
+    /// Grows the table to at least `minimum` slots, preserving existing functions.
+    /// New slots contain null. A smaller minimum leaves the table unchanged.
+    fn ensure_table_size(&mut self, table: &Self::Table, minimum: u32) -> Result<()>;
 
     /// Binds a memory, table or previously resolved `() -> i64` function.
     fn bind<'a, D: ImportBinding<'a, Self>>(
@@ -144,6 +151,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
         declaration: Function<fn() -> I64>,
     ) -> Result<Self::Function>;
 
+    /// Installs a function in an existing table slot.
     fn set_table_function(
         &mut self,
         table: &Self::Table,

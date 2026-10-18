@@ -96,6 +96,28 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
         .map_err(|error| Error::wasm("create Wasm table", error))
     }
 
+    fn ensure_table_size(&mut self, table: &Table, minimum: u32) -> Result<()> {
+        let minimum = u64::from(minimum);
+        let current = table.size(&self.store);
+        if minimum > current {
+            table
+                .grow(&mut self.store, minimum - current, Ref::Func(None))
+                .map_err(|error| Error::wasm("grow Wasm table", error))?;
+        }
+        Ok(())
+    }
+
+    fn ensure_memory_size(&mut self, memory: &Memory, byte_len: u64) -> Result<()> {
+        let pages = byte_len.div_ceil(65536);
+        let current = memory.size(&self.store);
+        if pages > current {
+            memory
+                .grow(&mut self.store, pages - current)
+                .map_err(|error| Error::wasm("grow Wasm memory", error))?;
+        }
+        Ok(())
+    }
+
     async fn instantiate(
         &mut self,
         module: &Module,
