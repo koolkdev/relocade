@@ -1,7 +1,8 @@
 //! A minimal DOS environment for one real-mode COM program.
 //!
 //! Programs start at PSP:0100 with a 64-KiB allocation and an empty command tail.
-//! INT 21h supports AH=09h byte output and AH=4Ch termination. INT 20h also exits,
+//! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
+//! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. Output is buffered as guest bytes.
 //! [`Dos::new`] prepares the DOS environment; [`Dos::load_com`] loads a program
 //! into it. The host chooses the Wasm backend and controls execution through
@@ -24,7 +25,9 @@
 #![forbid(unsafe_code)]
 
 mod com;
+mod console;
 mod error;
+mod interrupt;
 mod kernel;
 
 pub use error::{LoadError, ServiceError};
@@ -64,7 +67,7 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
         self.runtime.state().exit_status
     }
 
-    /// Drains output without interpreting the program's character encoding.
+    /// Drains combined stdout/stderr bytes without interpreting their encoding.
     pub fn take_output(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.runtime.state_mut().output)
     }
