@@ -13,11 +13,15 @@ enum LocalOp {
 
 mod locals;
 
-struct LocalEvent {
+struct Event {
     // Byte position before deferred local instructions are inserted.
     offset: usize,
-    slot: usize,
-    operation: LocalOp,
+    kind: EventKind,
+}
+
+enum EventKind {
+    Local { slot: usize, operation: LocalOp },
+    BranchHint(BranchHint),
 }
 
 enum ControlFrame {
@@ -29,8 +33,8 @@ pub(super) struct FunctionEncoder {
     parameter_count: u32,
     slot_types: Vec<ValType>,
     bytes: Vec<u8>,
-    events: Vec<LocalEvent>,
-    branch_hints: Vec<(usize, BranchHint)>,
+    events: Vec<Event>,
+    local_access_count: usize,
     controls: Vec<ControlFrame>,
     loop_ranges: Vec<(usize, usize)>,
 }
@@ -42,7 +46,7 @@ impl FunctionEncoder {
             slot_types,
             bytes: Vec::new(),
             events: Vec::new(),
-            branch_hints: Vec::new(),
+            local_access_count: 0,
             controls: Vec::new(),
             loop_ranges: Vec::new(),
         }
@@ -74,7 +78,7 @@ impl FunctionEncoder {
         match &instruction {
             Instruction::Block(_) | Instruction::If(_) => self.controls.push(ControlFrame::Block),
             Instruction::Loop(_) => self.controls.push(ControlFrame::Loop {
-                first_access: self.events.len(),
+                first_access: self.local_access_count,
             }),
             Instruction::End => {
                 if let ControlFrame::Loop { first_access } = self
@@ -82,9 +86,10 @@ impl FunctionEncoder {
                     .pop()
                     .expect("an ending instruction closes an open control")
                 {
-                    // Local lifetimes use access positions, independent of the
-                    // number or byte size of instructions between accesses.
-                    self.loop_ranges.push((first_access, self.events.len()));
+                    // Count only local accesses so hints cannot change lifetimes
+                    // or the allocation of reusable physical locals.
+                    self.loop_ranges
+                        .push((first_access, self.local_access_count));
                 }
             }
             _ => {}
@@ -93,17 +98,20 @@ impl FunctionEncoder {
     }
 
     fn local(&mut self, slot: usize, operation: LocalOp) {
-        self.events.push(LocalEvent {
+        self.local_access_count += 1;
+        self.events.push(Event {
             offset: self.bytes.len(),
-            slot,
-            operation,
+            kind: EventKind::Local { slot, operation },
         });
     }
 
     /// Marks the next branch before deferred local instructions are inserted.
     pub(super) fn branch_hint(&mut self, hint: Option<BranchHint>) {
         if let Some(hint) = hint {
-            self.branch_hints.push((self.bytes.len(), hint));
+            self.events.push(Event {
+                offset: self.bytes.len(),
+                kind: EventKind::BranchHint(hint),
+            });
         }
     }
 
@@ -113,40 +121,37 @@ impl FunctionEncoder {
         // Wasm local declarations precede instructions. Allocate from the final
         // access order, then insert local instructions into the buffered code.
         let allocated = locals::allocate(
-            self.events.iter().map(|event| event.slot),
+            self.events.iter().filter_map(|event| match event.kind {
+                EventKind::Local { slot, .. } => Some(slot),
+                EventKind::BranchHint(_) => None,
+            }),
             &self.slot_types,
             &self.loop_ranges,
         );
         let mut function = Function::new_with_locals_types(allocated.types);
-        let mut pending_hints = self.branch_hints.into_iter().peekable();
         let mut branch_hints = Vec::new();
         let mut previous = 0;
         for event in self.events {
-            // Events at the same raw offset precede the branch. Resolve its
-            // position only after every deferred local at that offset is encoded.
-            while let Some(&(offset, hint)) = pending_hints
-                .peek()
-                .filter(|&&(offset, _)| offset < event.offset)
-            {
-                branch_hints.push(encode_hint(function.byte_len() + offset - previous, hint));
-                pending_hints.next();
-            }
             function.raw(self.bytes[previous..event.offset].iter().copied());
             previous = event.offset;
-            let local = self
-                .parameter_count
-                .checked_add(
-                    allocated.indices[event.slot].expect("an emitted local access has an index"),
-                )
-                .expect("function locals fit the Wasm index space");
-            function.instruction(&match event.operation {
-                LocalOp::Get => Instruction::LocalGet(local),
-                LocalOp::Set => Instruction::LocalSet(local),
-                LocalOp::Tee => Instruction::LocalTee(local),
-            });
-        }
-        for (offset, hint) in pending_hints {
-            branch_hints.push(encode_hint(function.byte_len() + offset - previous, hint));
+            match event.kind {
+                EventKind::Local { slot, operation } => {
+                    let local = self
+                        .parameter_count
+                        .checked_add(
+                            allocated.indices[slot].expect("an emitted local access has an index"),
+                        )
+                        .expect("function locals fit the Wasm index space");
+                    function.instruction(&match operation {
+                        LocalOp::Get => Instruction::LocalGet(local),
+                        LocalOp::Set => Instruction::LocalSet(local),
+                        LocalOp::Tee => Instruction::LocalTee(local),
+                    });
+                }
+                EventKind::BranchHint(hint) => {
+                    branch_hints.push(encode_hint(function.byte_len(), hint));
+                }
+            }
         }
         function.raw(self.bytes[previous..].iter().copied());
         EncodedFunction {
