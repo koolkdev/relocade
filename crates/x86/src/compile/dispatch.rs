@@ -3,10 +3,7 @@
 mod table;
 pub use table::EntryTable;
 
-use wasm86_compiler::{
-    BlockBuilder, BuildError, Mem, MemoryImport, Program, Signature, Table, TableImport, Type, Val,
-    I32,
-};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, Program, Table, Val, I32};
 
 use crate::{
     state::{Cpu, SegmentReads},
@@ -24,23 +21,8 @@ pub(super) struct Dispatch {
 impl Dispatch {
     pub(super) fn declare(program: &mut Program) -> Self {
         Self {
-            memory: program.import_memory(MemoryImport {
-                module: "wasm86".into(),
-                name: "executionEntries".into(),
-                minimum: 1,
-                maximum: None,
-                shared: false,
-            }),
-            functions: program.import_table(TableImport {
-                module: "wasm86".into(),
-                name: "executionFunctions".into(),
-                minimum: 2,
-                maximum: None,
-                signature: Signature {
-                    parameters: vec![],
-                    results: vec![Type::I64],
-                },
-            }),
+            memory: program.import_memory(crate::abi::EXECUTION_ENTRIES),
+            functions: program.import_table(crate::abi::EXECUTION_FUNCTIONS),
         }
     }
 
@@ -63,30 +45,20 @@ impl Compiler {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let dispatch = Dispatch::declare(&mut program);
-        let transfer = program.function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I64],
-            },
-            |mut body| {
-                let eip = cpu.read_eip(&mut body)?;
-                let mut segments = SegmentReads::new(&cpu, self.target.profile);
-                let base = segments.base(&mut body, &Segment::Cs.into())?;
-                dispatch.lookup(body, &base.add(eip))
-            },
-        )?;
-        program.export("dispatch", transfer)?;
-        let interpret = program.function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I64],
-            },
-            |body| dispatch.enter(body, EntryTable::INTERPRETER_SLOT),
-        )?;
-        program.export("interpret", interpret)?;
+        let transfer = program.function(crate::abi::DISPATCH.signature(), |mut body| {
+            let eip = cpu.read_eip(&mut body)?;
+            let mut segments = SegmentReads::new(&cpu, self.target.profile);
+            let base = segments.base(&mut body, &Segment::Cs.into())?;
+            dispatch.lookup(body, &base.add(eip))
+        })?;
+        crate::abi::DISPATCH.export(&mut program, transfer)?;
+        let interpret = program.function(crate::abi::INTERPRET.signature(), |body| {
+            dispatch.enter(body, EntryTable::INTERPRETER_SLOT)
+        })?;
+        crate::abi::INTERPRET.export(&mut program, interpret)?;
         Ok(CompiledModule {
             bytes: program.compile()?,
-            entry: "dispatch".into(),
+            entry: crate::abi::DISPATCH.name.into(),
             execution_target: Some(self.target),
         })
     }

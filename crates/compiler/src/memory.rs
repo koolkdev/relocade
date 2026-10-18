@@ -115,7 +115,8 @@ impl Program {
     /// Declares an imported memory. It is emitted only if a completed body
     /// contains a memory access naming it, including an unused ordinary load.
     /// Panics if the limits are invalid or a shared memory has no maximum.
-    pub fn import_memory(&mut self, import: MemoryImport) -> Mem {
+    pub fn import_memory(&mut self, import: impl Into<MemoryImport>) -> Mem {
+        let import = import.into();
         assert!(
             import.minimum <= 65536,
             "memory minimum exceeds 32-bit limits"

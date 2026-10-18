@@ -25,7 +25,7 @@ mod tests;
 
 pub(crate) use cache::{PageCache, PageCacheInputs};
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryImport, Program, Val, I1, I32};
+use wasm86_compiler::{BlockBuilder, BuildError, Mem, Program, Val, I1, I32};
 
 const PAGE_SHIFT: u32 = 12;
 const ENTRY_SHIFT: u32 = 2;
@@ -70,13 +70,7 @@ pub(super) struct PageTable {
 impl PageTable {
     pub(super) fn declare(program: &mut Program) -> Self {
         Self {
-            entries: program.import_memory(MemoryImport {
-                module: "wasm86".into(),
-                name: "machine".into(),
-                minimum: BYTE_LEN / 65536,
-                maximum: None,
-                shared: false,
-            }),
+            entries: program.import_memory(crate::abi::PAGE_TABLE),
         }
     }
 

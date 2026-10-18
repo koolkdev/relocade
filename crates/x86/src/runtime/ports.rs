@@ -11,22 +11,8 @@ pub(super) struct Ports {
 
 impl Ports {
     pub(super) fn declare(program: &mut Program) -> Self {
-        let read = program.import_function(FunctionImport {
-            module: "wasm86".into(),
-            name: "readPort".into(),
-            signature: Signature {
-                parameters: vec![Type::I16, Type::I32],
-                results: vec![Type::I32],
-            },
-        });
-        let write = program.import_function(FunctionImport {
-            module: "wasm86".into(),
-            name: "writePort".into(),
-            signature: Signature {
-                parameters: vec![Type::I16, Type::I32, Type::I32],
-                results: vec![],
-            },
-        });
+        let read = program.import_function(crate::abi::READ_PORT);
+        let write = program.import_function(crate::abi::WRITE_PORT);
         Self { read, write }
     }
 }

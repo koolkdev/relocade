@@ -2,9 +2,7 @@
 
 mod ports;
 
-use wasm86_compiler::{
-    BlockBuilder, BuildError, Func, FunctionImport, Program, Signature, Type, Val, I1, I16, I32,
-};
+use wasm86_compiler::{BlockBuilder, BuildError, Func, Program, Val, I1, I16, I32};
 
 use crate::{
     exception::{Exception, ExceptionVector},
@@ -23,50 +21,11 @@ pub(crate) struct Runtime {
 
 impl Runtime {
     pub(crate) fn declare(program: &mut Program) -> Self {
-        let dispatch = program.import_function(FunctionImport {
-            module: "wasm86".into(),
-            name: "dispatch".into(),
-            signature: Signature {
-                parameters: vec![],
-                results: vec![Type::I64],
-            },
-        });
-        let interpret = program.import_function(FunctionImport {
-            module: "wasm86".into(),
-            name: "interpret".into(),
-            signature: Signature {
-                parameters: vec![],
-                results: vec![Type::I64],
-            },
-        });
-        let resolve_segment = program.import_function(FunctionImport {
-            module: "wasm86".into(),
-            name: "resolveSegment".into(),
-            signature: Signature {
-                parameters: vec![Type::I32, Type::I16],
-                results: vec![
-                    Type::I32,
-                    Type::I32,
-                    Type::I32,
-                    Type::I32,
-                    Type::I16,
-                    Type::I1,
-                    Type::I1,
-                    Type::I1,
-                    Type::I1,
-                    Type::I1,
-                    Type::I1,
-                ],
-            },
-        });
-        let query_segment_descriptor = program.import_function(FunctionImport {
-            module: "wasm86".into(),
-            name: "querySegmentDescriptor".into(),
-            signature: Signature {
-                parameters: vec![Type::I16],
-                results: vec![Type::I1, Type::I1, Type::I1, Type::I32, Type::I32],
-            },
-        });
+        let dispatch = program.import_function(crate::abi::DISPATCH);
+        let interpret = program.import_function(crate::abi::INTERPRET);
+        let resolve_segment = program.import_function(crate::abi::RESOLVE_SEGMENT);
+        let query_segment_descriptor =
+            program.import_function(crate::abi::QUERY_SEGMENT_DESCRIPTOR);
         Self {
             ports: ports::Ports::declare(program),
             dispatch,

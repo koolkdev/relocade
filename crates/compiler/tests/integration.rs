@@ -3,6 +3,9 @@ mod fixture;
 #[path = "support/wasm.rs"]
 mod wasm;
 
+#[path = "suites/abi.rs"]
+mod abi;
+
 #[path = "suites/atomics.rs"]
 mod atomics;
 #[path = "suites/bit_counts.rs"]

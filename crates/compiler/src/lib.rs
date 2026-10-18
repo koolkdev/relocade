@@ -25,6 +25,7 @@
 //! ```
 #![forbid(unsafe_code)]
 
+pub mod abi;
 mod arena;
 mod bitwise;
 mod body;
