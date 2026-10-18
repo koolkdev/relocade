@@ -1,95 +1,85 @@
-//! Initial machine configuration, independent of the execution backend.
+//! Initial machine configuration and scoped access to live guest state.
 //!
-//! A configuration supplies a real-mode CPU and a fixed physical memory map.
-//! `memory_size` specifies backing bytes independently of mapped guest addresses.
+//! [`MachineConfig`] describes the initial CPU, backing size and fixed physical
+//! map. Execution backends provide storage; [`Machine`] borrows that storage to
+//! expose the current CPU and [`Memory`] with the machine's access policy.
 //!
 //! ```
-//! use wasm86_machine::Machine;
+//! use wasm86_machine::MachineConfig;
 //! use wasm86_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments};
 //!
 //! let target = Compiler::new(ExecutionProfile::Real16).target();
 //! let cpu = CpuState { eip: 0x100, segments: Segments::real_mode(), ..CpuState::default() };
 //! let map = PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])?;
-//! let machine = Machine::new(target, cpu, 2 * 1024 * 1024, map)?;
+//! let config = MachineConfig::new(target, cpu, 2 * 1024 * 1024, map)?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! Live access reads only the requested CPU fields. Use a snapshot explicitly
+//! when saving or inspecting the complete CPU, including floating-point state.
+//!
+//! ```
+//! # use wasm86_machine::Machine;
+//! # fn update(machine: &mut Machine<'_>) -> Result<(), Box<dyn std::error::Error>> {
+//! let ax = machine.cpu().ax();
+//! machine.memory().write(0x200, &ax.to_le_bytes())?;
+//! machine.cpu().set_ax(ax.wrapping_add(1));
+//! let saved = machine.cpu().snapshot();
+//! machine.cpu().restore(&saved)?;
+//! # Ok(())
+//! # }
 //! ```
 #![forbid(unsafe_code)]
 
-use std::fmt;
-use wasm86_x86::{CpuState, ExecutionProfile, ExecutionTarget, PhysicalMemoryMap};
+mod config;
+mod cpu;
+mod memory;
 
-/// Validated initial CPU state, backing capacity and physical mappings.
-pub struct Machine {
-    target: ExecutionTarget,
-    cpu: CpuState,
-    memory_size: u64,
-    map: PhysicalMemoryMap,
+pub use config::{ConfigurationError, MachineConfig};
+pub use cpu::Cpu;
+pub use memory::{Memory, MemoryError};
+use wasm86_x86::ExecutionTarget;
+
+/// Transfers to the CPU and guest memory supplied by the runtime. CPU offsets
+/// are relative to the start of `CpuState` in the execution context.
+/// Writes take effect immediately; implementations must not cache a CPU snapshot.
+/// Backing transfers receive ranges already checked against configured capacity.
+pub trait MachineStorage {
+    fn read_cpu(&self, offset: u32, bytes: &mut [u8]);
+    fn write_cpu(&mut self, offset: u32, bytes: &[u8]);
+    fn read_backing(&self, offset: u32, bytes: &mut [u8]);
+    fn write_backing(&mut self, offset: u32, bytes: &[u8]);
 }
 
-impl Machine {
-    /// Configures a real-mode guest without allocating its backing.
-    /// All RAM/ROM pages must fit `memory_size`, which can be at most 4 GiB.
-    pub fn new(
-        target: ExecutionTarget,
-        cpu: CpuState,
-        memory_size: u64,
-        map: PhysicalMemoryMap,
-    ) -> Result<Self, ConfigurationError> {
-        if target.profile != ExecutionProfile::Real16 {
-            return Err(ConfigurationError::UnsupportedProfile);
-        }
-        if !target.profile.is_compatible_with(&cpu.segments) {
-            return Err(ConfigurationError::IncompatibleCpu);
-        }
-        if memory_size > 1 << 32 {
-            return Err(ConfigurationError::InvalidMemorySize);
-        }
-        if !map.fits_backing(memory_size) {
-            return Err(ConfigurationError::InsufficientMemory);
-        }
-        Ok(Self {
-            target,
-            cpu,
-            memory_size,
-            map,
-        })
+/// Scoped access to the stopped CPU and guest memory. Both views read and write
+/// execution storage directly, including while handling a guest-to-host call.
+pub struct Machine<'a, S: MachineStorage + ?Sized = dyn MachineStorage + 'a> {
+    config: &'a MachineConfig,
+    storage: &'a mut S,
+}
+
+impl<'a, S: MachineStorage + ?Sized> Machine<'a, S> {
+    /// Binds access to initialized storage. The CPU must be compatible with
+    /// `config`'s execution target; the map and backing capacity must also match.
+    pub fn new(config: &'a MachineConfig, storage: &'a mut S) -> Self {
+        Self { config, storage }
     }
 
     pub fn execution_target(&self) -> ExecutionTarget {
-        self.target
+        self.config.execution_target()
     }
 
-    pub fn cpu(&self) -> &CpuState {
-        &self.cpu
+    pub fn cpu(&mut self) -> Cpu<'_, S> {
+        Cpu {
+            config: self.config,
+            storage: self.storage,
+        }
     }
 
-    /// Requested initial backing capacity in bytes.
-    pub fn memory_size(&self) -> u64 {
-        self.memory_size
-    }
-
-    pub fn memory_map(&self) -> &PhysicalMemoryMap {
-        &self.map
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ConfigurationError {
-    UnsupportedProfile,
-    IncompatibleCpu,
-    InvalidMemorySize,
-    InsufficientMemory,
-}
-
-impl fmt::Display for ConfigurationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::UnsupportedProfile => "physical machine configuration requires real mode",
-            Self::IncompatibleCpu => "CPU segment caches do not satisfy the execution target",
-            Self::InvalidMemorySize => "memory_size exceeds the 4-GiB backing address space",
-            Self::InsufficientMemory => "physical mappings exceed memory_size",
-        })
+    pub fn memory(&mut self) -> Memory<'_, S> {
+        Memory {
+            config: self.config,
+            storage: self.storage,
+        }
     }
 }
-
-impl std::error::Error for ConfigurationError {}

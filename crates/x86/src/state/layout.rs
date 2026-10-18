@@ -1,6 +1,7 @@
 //! CPU backing fields shared by generated code and host state snapshots.
 
 mod codec;
+mod flags;
 mod segments;
 mod simd;
 mod x87;

@@ -1,4 +1,4 @@
-use wasm86_machine::{ConfigurationError, Machine};
+use wasm86_machine::{ConfigurationError, MachineConfig};
 use wasm86_x86::{
     Compiler, CpuState, ExecutionProfile, ExecutionTarget, PhysicalMapping, PhysicalMemoryMap,
     SegmentProfile, Segments,
@@ -18,7 +18,7 @@ fn cpu() -> CpuState {
 #[test]
 fn cpu_and_profile_must_match_the_physical_configuration() {
     assert!(matches!(
-        Machine::new(
+        MachineConfig::new(
             target(),
             CpuState::default(),
             0,
@@ -27,7 +27,7 @@ fn cpu_and_profile_must_match_the_physical_configuration() {
         Err(ConfigurationError::IncompatibleCpu)
     ));
     assert!(matches!(
-        Machine::new(
+        MachineConfig::new(
             Compiler::new(SegmentProfile::Flat32).target(),
             CpuState::default(),
             0,
@@ -44,16 +44,16 @@ fn backing_capacity_is_independent_of_mapped_guest_addresses() {
         PhysicalMapping::Rom { backing_offset: 0 },
     )])
     .unwrap();
-    let machine = Machine::new(target(), cpu(), 0x20000, map).unwrap();
-    assert_eq!(machine.memory_size(), 0x20000);
+    let config = MachineConfig::new(target(), cpu(), 0x20000, map).unwrap();
+    assert_eq!(config.memory_size(), 0x20000);
     assert_eq!(
-        machine.memory_map().get(0xfffff),
+        config.memory_map().get(0xfffff),
         PhysicalMapping::Rom {
             backing_offset: 0xffff
         }
     );
-    assert_eq!(machine.execution_target(), target());
-    assert!(target().profile.is_compatible_with(&machine.cpu().segments));
+    assert_eq!(config.execution_target(), target());
+    assert!(target().profile.is_compatible_with(&config.cpu().segments));
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn validation_includes_rom_backing_hidden_by_a20() {
     )])
     .unwrap();
     assert!(matches!(
-        Machine::new(target(), cpu(), 0x2fff, map),
+        MachineConfig::new(target(), cpu(), 0x2fff, map),
         Err(ConfigurationError::InsufficientMemory)
     ));
 }
@@ -82,13 +82,13 @@ fn backing_can_reach_the_end_of_the_32_bit_address_space() {
         )])
         .unwrap()
     };
-    assert!(Machine::new(target(), cpu(), 1 << 32, map()).is_ok());
+    assert!(MachineConfig::new(target(), cpu(), 1 << 32, map()).is_ok());
     assert!(matches!(
-        Machine::new(target(), cpu(), (1 << 32) - 1, map()),
+        MachineConfig::new(target(), cpu(), (1 << 32) - 1, map()),
         Err(ConfigurationError::InsufficientMemory)
     ));
     assert!(matches!(
-        Machine::new(target(), cpu(), (1 << 32) + 1, map()),
+        MachineConfig::new(target(), cpu(), (1 << 32) + 1, map()),
         Err(ConfigurationError::InvalidMemorySize)
     ));
 }
