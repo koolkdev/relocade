@@ -1,13 +1,14 @@
-//! A minimal DOS environment for one real-mode COM program.
+//! A minimal DOS environment for one real-mode COM or MZ program.
 //!
 //! COM programs start at PSP:0100 with an empty command tail. They receive the
 //! available conventional memory; the image and initial stack use its first 64 KiB.
+//! MZ executables use their header's memory request, relocation table and CS:IP/SS:SP.
 //! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. Output is buffered as guest bytes.
 //! AH=48h/49h/4Ah allocate, free and resize conventional-memory blocks.
-//! [`Dos::new`] prepares the DOS environment; [`Dos::load_com`] loads a program
-//! into it. The host chooses the Wasm backend and controls execution through
+//! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
+//! or [`Dos::load_mz`]. The host chooses the Wasm backend and controls execution through
 //! [`Dos::runtime`]. Create the backend with its `with_state` constructor and
 //! [`DosState::default()`].
 //!
@@ -31,6 +32,8 @@ mod error;
 mod interrupt;
 mod kernel;
 mod memory;
+mod mz;
+mod process;
 mod services;
 
 pub use error::{LoadError, ServiceError};
@@ -57,6 +60,16 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
     /// Invalid images leave the existing program and its state unchanged.
     pub fn load_com(&mut self, image: &[u8]) -> Result<(), LoadError> {
         com::load(&mut self.runtime.machine(), image)?;
+        *self.runtime.state_mut() = DosState::default();
+        Ok(())
+    }
+
+    /// Loads a DOS MZ executable, applies relocations and initializes its PSP and CPU.
+    /// Replaces the root process and clears prior output and exit status.
+    /// Invalid images leave the existing program and its state unchanged.
+    /// Overlay loading is not supported.
+    pub fn load_mz(&mut self, image: &[u8]) -> Result<(), LoadError> {
+        mz::load(&mut self.runtime.machine(), image)?;
         *self.runtime.state_mut() = DosState::default();
         Ok(())
     }
