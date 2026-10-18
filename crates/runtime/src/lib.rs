@@ -1,0 +1,137 @@
+//! Execution of one guest, independent of the host Wasm engine.
+//!
+//! [`Runtime::new`] prepares an interpreter and dispatcher and initializes private
+//! backend storage from [`MachineConfig`]. [`Runtime::machine`] lends access to
+//! the stopped CPU and mapped memory, both backed directly by Wasm storage.
+//! CPU edits take effect immediately. Preparation is asynchronous
+//! for native and web engines; guest execution is synchronous.
+//!
+//! ```
+//! use wasm86_machine::MachineConfig;
+//! use wasm86_compiler::{I16, I32, I64};
+//! use wasm86_runtime::{wasm::HostFunction, Runtime};
+//!
+//! async fn example<B>(backend: B, config: MachineConfig) -> Result<(), Box<dyn std::error::Error>>
+//! where
+//!     B: HostFunction<fn(I16, I32) -> I32>
+//!         + HostFunction<fn(I16, I32, I32)>
+//!         + HostFunction<fn(I32, I32) -> I64>
+//!         + HostFunction<fn(I32, I32, I64)>,
+//! {
+//!     let mut runtime = Runtime::new(backend, config).await?;
+//!     runtime.machine().memory().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
+//!     let exit = runtime.run(100)?;
+//!     let ax = runtime.machine().cpu().ax();
+//!     # let _ = (exit, ax);
+//!     Ok(())
+//! }
+//! ```
+#![forbid(unsafe_code)]
+
+mod error;
+mod storage;
+pub mod wasm;
+
+pub use error::{Error, Result};
+use storage::Storage;
+use wasm::{HostFunction, WasmBackend};
+use wasm86_compiler::{I16, I32, I64};
+use wasm86_machine::{Machine, MachineConfig};
+use wasm86_x86::{abi, Compiler, EntryTable, ExecutionContext, ExecutionExit};
+
+/// One running guest and its engine resources. CPU and memory access belongs to
+/// the machine; this owner prepares code and controls entry into execution.
+pub struct Runtime<B: WasmBackend> {
+    config: MachineConfig,
+    storage: Storage<B>,
+    entry: B::Function,
+}
+
+impl<B: WasmBackend> Runtime<B> {
+    /// Prepares code and allocates zeroed backing with the configured CPU and map.
+    /// The runtime retains the backend and its live storage for subsequent calls.
+    /// Port and MMIO reads currently return all ones; their writes are ignored.
+    pub async fn new(mut backend: B, config: MachineConfig) -> Result<Self>
+    where
+        B: HostFunction<fn(I16, I32) -> I32>
+            + HostFunction<fn(I16, I32, I32)>
+            + HostFunction<fn(I32, I32) -> I64>
+            + HostFunction<fn(I32, I32, I64)>,
+    {
+        let target = config.execution_target();
+        let compiler = Compiler::new(target.profile).with_cpu_model(target.cpu_model);
+        let interpreter = compiler.compile_interpreter()?;
+        let dispatcher = compiler.compile_dispatcher()?;
+        let interpreter_module = backend.compile(&interpreter.bytes).await?;
+        let dispatcher_module = backend.compile(&dispatcher.bytes).await?;
+
+        let context = backend.create_memory(1, Some(1))?;
+        backend.write_memory(
+            &context,
+            0,
+            &ExecutionContext {
+                cpu: *config.cpu(),
+                ..ExecutionContext::default()
+            }
+            .to_bytes(),
+        );
+        let guest_pages = config.memory_size().div_ceil(65536).max(1) as u32;
+        let guest = backend.create_memory(guest_pages, None)?;
+        let mapping = backend.create_memory(1, Some(1))?;
+        backend.write_memory(&mapping, 0, &config.memory_map().to_bytes());
+        let entries = backend.create_memory(1, None)?;
+        backend.write_memory(&entries, 0, &EntryTable::default().to_bytes());
+        let functions = backend.create_table(abi::EXECUTION_FUNCTIONS.minimum)?;
+        let mut imports = vec![
+            backend.bind(abi::EXECUTION_CONTEXT, &context),
+            backend.bind(abi::GUEST, &guest),
+            backend.bind(abi::PHYSICAL_MAP, &mapping),
+            backend.bind(abi::EXECUTION_ENTRIES, &entries),
+            backend.bind(abi::EXECUTION_FUNCTIONS, &functions),
+            backend.bind_host(abi::READ_PORT, |_, _, _| -1),
+            backend.bind_host(abi::WRITE_PORT, |_, _, _, _| {}),
+            backend.bind_host(abi::READ_MMIO, |_, _, _| -1),
+            backend.bind_host(abi::WRITE_MMIO, |_, _, _, _| {}),
+        ];
+        let dispatcher_instance = backend.instantiate(&dispatcher_module, &imports).await?;
+        let entry = backend.function(&dispatcher_instance, abi::DISPATCH)?;
+        let interpret = backend.function(&dispatcher_instance, abi::INTERPRET)?;
+        imports.push(backend.bind(abi::DISPATCH, &entry));
+        imports.push(backend.bind(abi::INTERPRET, &interpret));
+        let interpreter_instance = backend.instantiate(&interpreter_module, &imports).await?;
+        let function = backend.function(&interpreter_instance, abi::RUN)?;
+        backend.set_table_function(&functions, EntryTable::INTERPRETER_SLOT, &function)?;
+        Ok(Self {
+            config,
+            storage: Storage {
+                access: backend,
+                context,
+                guest,
+            },
+            entry,
+        })
+    }
+
+    /// Borrows the stopped machine. CPU and memory writes take effect immediately.
+    pub fn machine(&mut self) -> Machine<'_> {
+        Machine::new(&self.config, &mut self.storage)
+    }
+
+    /// Runs until the budget is consumed at a block boundary or a guest exit
+    /// occurs. Whole blocks can exceed the budget; straight-line code and REP
+    /// have no fixed overshoot or elapsed-time bound. Zero does not enter Wasm.
+    /// The absolute target saturates at u64::MAX, which is practically unbounded.
+    pub fn run(&mut self, instruction_budget: u64) -> Result<ExecutionExit> {
+        if instruction_budget == 0 {
+            return Ok(ExecutionExit::BudgetExhausted);
+        }
+        let target = self
+            .machine()
+            .cpu()
+            .instruction_count()
+            .saturating_add(instruction_budget);
+        self.storage.set_instruction_target(target);
+        let word = self.storage.access.call(&self.entry)? as u64;
+        ExecutionExit::from_bits(word).ok_or(Error::InvalidExit(word))
+    }
+}

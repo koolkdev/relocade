@@ -1,0 +1,156 @@
+//! Wasm engine operations used by the runtime. Handles belong to one backend;
+//! modules instantiated there can share imported memories, tables and functions.
+
+use crate::Result;
+use std::future::Future;
+use std::ops::{Deref, DerefMut};
+use wasm86_compiler::{abi::Function, I64};
+
+mod host;
+mod imports;
+pub use host::{HostFunction, HostSignature, HostValue};
+pub use imports::{Import, ImportBinding, ImportValue};
+
+/// Access to linear memory through a Wasm engine or its callback caller.
+/// Handles belong to that engine. Transfers require an allocated, in-bounds
+/// range; violating this storage invariant is a programming error.
+pub trait WasmMemoryAccess {
+    type Memory: Clone;
+
+    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]);
+    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]);
+}
+
+impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
+    type Memory = A::Memory;
+
+    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
+        (**self).read_memory(memory, offset, bytes);
+    }
+
+    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]) {
+        (**self).write_memory(memory, offset, bytes);
+    }
+}
+
+/// Access to host state and live Wasm memory for the duration of a callback.
+/// Guest reentry from callbacks is not supported.
+pub trait WasmCaller: WasmMemoryAccess {
+    type State;
+
+    fn state(&self) -> &Self::State;
+    fn state_mut(&mut self) -> &mut Self::State;
+}
+
+/// One Wasm resource owner. Preparation futures and handles need not be `Send`,
+/// allowing browser engines. Memory is unshared Wasm32 with 64-KiB pages; tables
+/// contain nullable function references. Host callbacks are wrapped by
+/// [`HostFunction`]; the runtime's callable exports use `() -> i64`.
+///
+/// Instances retain their imports. Exported functions and table entries remain
+/// valid after the original module and instance handles are dropped.
+pub trait WasmBackend: WasmMemoryAccess + Sized {
+    type State: 'static;
+    type Caller<'a>: WasmCaller<State = Self::State, Memory = Self::Memory>;
+    type Module;
+    type Instance;
+    type Table;
+    /// An exported function with signature `() -> i64`.
+    type Function;
+    /// An engine function handle, after its binding's signature has been checked.
+    type ImportFunction;
+
+    /// Host state is borrowed only between Wasm calls. A browser backend may
+    /// return a borrow guard; drop it before calling into Wasm.
+    fn state(&self) -> impl Deref<Target = Self::State>;
+    fn state_mut(&mut self) -> impl DerefMut<Target = Self::State>;
+
+    fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
+
+    /// Allocates zeroed memory with the supplied page limits.
+    fn create_memory(&mut self, minimum: u32, maximum: Option<u32>) -> Result<Self::Memory>;
+
+    /// Allocates a function table whose entries initially contain null.
+    fn create_table(&mut self, minimum: u32) -> Result<Self::Table>;
+
+    /// Binds a memory, table or previously resolved `() -> i64` function.
+    fn bind<'a, D: ImportBinding<'a, Self>>(
+        &self,
+        declaration: D,
+        value: D::Value,
+    ) -> Import<'a, Self>
+    where
+        Self: 'a,
+    {
+        declaration.bind(self, value)
+    }
+
+    /// Wraps a callback in the engine and binds it to the shared declaration.
+    /// Callbacks receive a scoped caller followed by the Wasm carrier arguments;
+    /// narrow integers use zero-extended i32, as in the compiler's import ABI.
+    /// Callbacks must also return narrow results zero-extended to their logical width.
+    /// The returned import owns the function handle without borrowing the backend.
+    ///
+    /// ```
+    /// use wasm86_compiler::{abi::Function, I16, I32};
+    /// use wasm86_runtime::wasm::{HostFunction, WasmBackend};
+    /// const READ: Function<fn(I16, I32) -> I32> = Function::new("example", "read");
+    /// fn bind<B: HostFunction<fn(I16, I32) -> I32>>(backend: &mut B) {
+    ///     let _ = backend.bind_host(READ, |_, port, width| port + width);
+    /// }
+    /// ```
+    ///
+    /// A callback with a different return type is rejected by Rust:
+    /// ```compile_fail
+    /// use wasm86_compiler::{abi::Function, I16, I32};
+    /// use wasm86_runtime::wasm::{HostFunction, WasmBackend};
+    /// const READ: Function<fn(I16, I32) -> I32> = Function::new("example", "read");
+    /// fn bind<B: HostFunction<fn(I16, I32) -> I32>>(backend: &mut B) {
+    ///     let _ = backend.bind_host(READ, |_, _, _| 0_i64);
+    /// }
+    /// ```
+    /// Parameter types must match too:
+    /// ```compile_fail
+    /// use wasm86_compiler::{abi::Function, I32, I64};
+    /// use wasm86_runtime::wasm::{HostFunction, WasmBackend};
+    /// const WRITE: Function<fn(I32, I32, I64)> = Function::new("example", "write");
+    /// fn bind<B: HostFunction<fn(I32, I32, I64)>>(backend: &mut B) {
+    ///     let _ = backend.bind_host(WRITE, |_, _, _, value: i32| {});
+    /// }
+    /// ```
+    fn bind_host<'a, S: HostSignature<Self>>(
+        &mut self,
+        declaration: Function<'a, S>,
+        callback: S::Callback,
+    ) -> Import<'a, Self>
+    where
+        Self: HostFunction<S>,
+    {
+        Import::function(declaration, self.host_function(callback))
+    }
+
+    /// Obtains the import handle without discarding the cached callable export.
+    fn import_function(&self, function: &Self::Function) -> Self::ImportFunction;
+
+    fn instantiate(
+        &mut self,
+        module: &Self::Module,
+        imports: &[Import<'_, Self>],
+    ) -> impl Future<Output = Result<Self::Instance>>;
+
+    fn function(
+        &mut self,
+        instance: &Self::Instance,
+        declaration: Function<fn() -> I64>,
+    ) -> Result<Self::Function>;
+
+    fn set_table_function(
+        &mut self,
+        table: &Self::Table,
+        index: u32,
+        function: &Self::Function,
+    ) -> Result<()>;
+
+    /// Calls a previously resolved `() -> i64` export without another lookup.
+    fn call(&mut self, function: &Self::Function) -> Result<i64>;
+}

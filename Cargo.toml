@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/compiler", "crates/x86", "crates/test-support", "crates/machine"]
-default-members = ["crates/compiler", "crates/x86", "crates/machine"]
+members = ["crates/compiler", "crates/x86", "crates/test-support", "crates/machine", "crates/runtime"]
+default-members = ["crates/compiler", "crates/x86", "crates/machine", "crates/runtime"]
 
 [workspace.package]
 version = "0.0.0"
