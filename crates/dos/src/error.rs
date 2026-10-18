@@ -3,7 +3,21 @@ use std::fmt;
 /// Error numbers returned to the guest in AX with carry set.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DosError {
-    InvalidHandle = 6,
+    InvalidHandle,
+    MemoryCorrupted,
+    InsufficientMemory { available: u16 },
+    InvalidMemoryBlock,
+}
+
+impl DosError {
+    pub(crate) fn code(self) -> u16 {
+        match self {
+            Self::InvalidHandle => 6,
+            Self::MemoryCorrupted => 7,
+            Self::InsufficientMemory { .. } => 8,
+            Self::InvalidMemoryBlock => 9,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
