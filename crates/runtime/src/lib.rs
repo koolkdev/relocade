@@ -28,10 +28,12 @@
 //! ```
 #![forbid(unsafe_code)]
 
+mod callback;
 mod error;
 mod storage;
 pub mod wasm;
 
+pub use callback::{with_host_call, HostCall};
 pub use error::{Error, Result};
 use storage::Storage;
 use wasm::{HostFunction, WasmBackend};

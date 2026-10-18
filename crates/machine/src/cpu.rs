@@ -7,8 +7,8 @@ use crate::{ConfigurationError, MachineConfig, MachineStorage};
 /// own bytes; there is no cached snapshot or deferred writeback.
 /// Guest execution must remain stopped for the lifetime of this view.
 pub struct Cpu<'a, S: MachineStorage + ?Sized = dyn MachineStorage + 'a> {
-    pub(crate) config: &'a MachineConfig,
-    pub(crate) storage: &'a mut S,
+    config: &'a MachineConfig,
+    storage: &'a mut S,
 }
 
 macro_rules! register {
@@ -26,7 +26,12 @@ macro_rules! register {
     };
 }
 
-impl<S: MachineStorage + ?Sized> Cpu<'_, S> {
+impl<'a, S: MachineStorage + ?Sized> Cpu<'a, S> {
+    /// Borrows initialized CPU storage compatible with the execution target.
+    pub fn new(config: &'a MachineConfig, storage: &'a mut S) -> Self {
+        Self { config, storage }
+    }
+
     register!(eax, set_eax, u32, eax, 0);
     register!(ecx, set_ecx, u32, ecx, 0);
     register!(edx, set_edx, u32, edx, 0);

@@ -6,11 +6,16 @@ use wasm86_x86::{PhysicalMapping, PhysicalMemoryMap};
 /// RAM/ROM use backing storage. Holes and currently unattached MMIO return FF
 /// bytes; writes to ROM, holes and unattached MMIO are ignored.
 pub struct Memory<'a, S: MachineStorage + ?Sized = dyn MachineStorage + 'a> {
-    pub(crate) config: &'a MachineConfig,
-    pub(crate) storage: &'a mut S,
+    config: &'a MachineConfig,
+    storage: &'a mut S,
 }
 
-impl<S: MachineStorage + ?Sized> Memory<'_, S> {
+impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
+    /// Borrows backing storage matching the configured map and capacity.
+    pub fn new(config: &'a MachineConfig, storage: &'a mut S) -> Self {
+        Self { config, storage }
+    }
+
     /// Reads guest addresses. Addresses outside the fixed map are holes.
     pub fn read(&mut self, mut address: u32, mut bytes: &mut [u8]) -> Result<(), MemoryError> {
         if !range_fits(address, bytes.len(), 1 << 32) {
