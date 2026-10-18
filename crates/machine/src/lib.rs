@@ -52,7 +52,7 @@ pub trait MachineStorage {
 }
 
 /// Scoped access to the stopped CPU and guest memory. Both views read and write
-/// execution storage directly, including while handling a guest-to-host call.
+/// execution storage directly.
 pub struct Machine<'a, S: MachineStorage + ?Sized = dyn MachineStorage + 'a> {
     config: &'a MachineConfig,
     storage: &'a mut S,
@@ -70,16 +70,10 @@ impl<'a, S: MachineStorage + ?Sized> Machine<'a, S> {
     }
 
     pub fn cpu(&mut self) -> Cpu<'_, S> {
-        Cpu {
-            config: self.config,
-            storage: self.storage,
-        }
+        Cpu::new(self.config, self.storage)
     }
 
     pub fn memory(&mut self) -> Memory<'_, S> {
-        Memory {
-            config: self.config,
-            storage: self.storage,
-        }
+        Memory::new(self.config, self.storage)
     }
 }
