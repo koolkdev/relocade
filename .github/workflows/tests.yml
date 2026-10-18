@@ -87,4 +87,4 @@ jobs:
           with open(os.environ["WASM_BINDGEN_TEST_WEBDRIVER_JSON"], "w") as output:
               json.dump({"goog:chromeOptions": {"binary": os.environ["CHROME_BINARY"]}}, output)
           PY
-          cargo test -p wasm86-runtime-web --target wasm32-unknown-unknown --tests --locked
+          cargo test -p wasm86-runtime-web -p wasm86-dos --target wasm32-unknown-unknown --tests --locked
