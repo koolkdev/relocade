@@ -5,8 +5,7 @@ fn checked_range(intent: Intent, constant_bytes: Option<u32>) -> TestModule {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
+    );
     let function = program
         .function(
             Signature {

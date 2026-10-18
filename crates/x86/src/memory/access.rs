@@ -138,8 +138,9 @@ impl VirtualMemory {
             body.block::<(I1, I32, I1)>(|mut access_body, success| {
                 let (address, present) = access_body.block::<(I32, I1)>(|mut checks, fault| {
                     let resolve_pages = |mut pages: BlockBuilder<'_>| {
+                        let range_resolver = self.range_resolver(pages.program())?;
                         let resolution_word = pages.call::<I32>(
-                            self.range_resolver,
+                            range_resolver,
                             &[
                                 start.into(),
                                 bytes.sub(1).into(),

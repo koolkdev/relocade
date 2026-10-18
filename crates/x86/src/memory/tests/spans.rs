@@ -5,8 +5,7 @@ fn field_module() -> TestModule {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
+    );
     let function = program
         .function(
             Signature {
@@ -112,8 +111,7 @@ fn wide_field_modules() -> [TestModule; 2] {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
+    );
     for (name, intent) in [
         ("read_fields", Intent::Read),
         ("write_fields", Intent::Write),

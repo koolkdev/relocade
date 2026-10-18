@@ -9,8 +9,7 @@ fn write_then_read() -> TestModule {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
+    );
     let function = program
         .function(
             Signature {
@@ -107,8 +106,7 @@ fn narrower_updates_keep_their_width_and_require_write_permissions() {
         let memory = Memory::declare(
             &mut program,
             crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-        )
-        .unwrap();
+        );
         let function = program
             .function(
                 Signature {
@@ -201,8 +199,7 @@ fn later_pages_and_new_entries_use_current_mappings() {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
+    );
     let function = program
         .function(
             Signature {

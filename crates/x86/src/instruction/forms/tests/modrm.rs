@@ -116,7 +116,6 @@ fn register_only_forms_admit_both_register_fields_without_overlapping_memory() {
                     crate::decode::snapshot(&code, 0x1000, crate::SegmentDefaultSize::Bits32)
                         .unwrap();
                 assert_eq!(remaining, [0x90]);
-                assert!(!decoded.instruction.uses_memory());
                 assert!(matches!(decoded.instruction.call,
                     HandlerCall::Binary {
                         left: Operand::Location(Location::Xmm(RegisterCode::Known(destination))),
@@ -156,7 +155,6 @@ fn modrm_register_ranges_cover_eight_stack_offsets_without_accepting_memory() {
                 assert_eq!(remaining, [0x62]);
                 assert_eq!(decoded.eip, 0x1000);
                 assert_eq!(decoded.fallthrough_eip, 0x1000 + bytes.len() as u32 - 1);
-                assert!(!decoded.instruction.uses_memory());
                 assert!(matches!(decoded.instruction.call,
                     HandlerCall::Unary { operand: Operand::X87StackIndex(index), .. }
                     if index == u32::from(offset)));
@@ -181,7 +179,6 @@ fn x87_memory_encoding_retains_modrm_before_sib_and_displacement() {
             crate::decode::snapshot(&bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, 0x1009);
-        assert!(decoded.instruction.uses_memory());
         let provenance = decoded.instruction.x87_opcode.unwrap();
         assert_eq!(
             u32::from(provenance.primary & 7) << 8 | provenance.modrm,

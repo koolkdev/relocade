@@ -62,7 +62,7 @@ use std::fmt;
 
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, compile_interpreter,
-    compile_interpreter_step, Compiler, EntryTable,
+    compile_interpreter_step, BlockEntry, BlockSnapshot, CompiledBlocks, Compiler, EntryTable,
 };
 pub use exception::{Exception, ExceptionVector};
 pub use memory::{page_table, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
@@ -95,6 +95,10 @@ pub struct CompiledModule {
 #[derive(Debug, Eq, PartialEq)]
 pub enum BlockError {
     ZeroInstructionLimit,
+    /// Two snapshots would export the same CS-relative entry.
+    DuplicateBlock {
+        address: u32,
+    },
     /// A selected instruction is incomplete. `available` counts the snapshot
     /// bytes remaining from that instruction's start, including any prefixes.
     TruncatedInstruction {
@@ -122,6 +126,9 @@ impl fmt::Display for BlockError {
         match self {
             Self::ZeroInstructionLimit => {
                 formatter.write_str("a block must contain at least one instruction")
+            }
+            Self::DuplicateBlock { address } => {
+                write!(formatter, "duplicate block entry at {address:#x}")
             }
             Self::TruncatedInstruction { address, available } => write!(
                 formatter,

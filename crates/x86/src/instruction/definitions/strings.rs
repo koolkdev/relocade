@@ -20,7 +20,7 @@ use crate::{
 instruction_families! {
     INS {
         execute: input_elements::<_>(Repetition::Once);
-        effects: [memory_write, port_io];
+        effects: [port_io];
         availability: IoPrivileged;
         forms {
             0x6C => byte();
@@ -29,7 +29,7 @@ instruction_families! {
     }
     REP_INS {
         execute: input_elements::<_>(Repetition::Count);
-        effects: [memory_write, port_io];
+        effects: [port_io];
         availability: IoPrivileged;
         forms {
             F3 0x6C => byte();
@@ -38,7 +38,7 @@ instruction_families! {
     }
     OUTS {
         execute: output_elements::<_>(Repetition::Once);
-        effects: [memory_read, port_io];
+        effects: [port_io];
         availability: IoPrivileged;
         forms {
             0x6E => byte();
@@ -47,7 +47,7 @@ instruction_families! {
     }
     REP_OUTS {
         execute: output_elements::<_>(Repetition::Count);
-        effects: [memory_read, port_io];
+        effects: [port_io];
         availability: IoPrivileged;
         forms {
             F3 0x6E => byte();
@@ -57,7 +57,6 @@ instruction_families! {
 
     MOVS {
         execute: move_elements::<_>(Repetition::Once);
-        effects: [memory_read, memory_write];
         forms {
             0xA4 => byte();
             0xA5 => word_or_dword();
@@ -65,7 +64,6 @@ instruction_families! {
     }
     REP_MOVS {
         execute: move_elements::<_>(Repetition::Count);
-        effects: [memory_read, memory_write];
         forms {
             F3 0xA4 => byte();
             F3 0xA5 => word_or_dword();
@@ -73,7 +71,6 @@ instruction_families! {
     }
     CMPS {
         execute: compare_elements::<_>(ComparisonRepetition::Once);
-        effects: [memory_read];
         forms {
             0xA6 => byte();
             0xA7 => word_or_dword();
@@ -81,7 +78,6 @@ instruction_families! {
     }
     REPE_CMPS {
         execute: compare_elements::<_>(ComparisonRepetition::Equal);
-        effects: [memory_read];
         forms {
             F3 0xA6 => byte();
             F3 0xA7 => word_or_dword();
@@ -89,7 +85,6 @@ instruction_families! {
     }
     REPNE_CMPS {
         execute: compare_elements::<_>(ComparisonRepetition::NotEqual);
-        effects: [memory_read];
         forms {
             F2 0xA6 => byte();
             F2 0xA7 => word_or_dword();
@@ -97,7 +92,6 @@ instruction_families! {
     }
     STOS {
         execute: store_elements::<_>(Repetition::Once);
-        effects: [memory_write];
         forms {
             0xAA => byte();
             0xAB => word_or_dword();
@@ -105,7 +99,6 @@ instruction_families! {
     }
     REP_STOS {
         execute: store_elements::<_>(Repetition::Count);
-        effects: [memory_write];
         forms {
             F3 0xAA => byte();
             F3 0xAB => word_or_dword();
@@ -113,7 +106,6 @@ instruction_families! {
     }
     LODS {
         execute: load_elements::<_>(Repetition::Once);
-        effects: [memory_read];
         forms {
             0xAC => byte();
             0xAD => word_or_dword();
@@ -121,7 +113,6 @@ instruction_families! {
     }
     REP_LODS {
         execute: load_elements::<_>(Repetition::Count);
-        effects: [memory_read];
         forms {
             F3 0xAC => byte();
             F3 0xAD => word_or_dword();
@@ -129,7 +120,6 @@ instruction_families! {
     }
     SCAS {
         execute: scan_elements::<_>(ComparisonRepetition::Once);
-        effects: [memory_read];
         forms {
             0xAE => byte();
             0xAF => word_or_dword();
@@ -137,7 +127,6 @@ instruction_families! {
     }
     REPE_SCAS {
         execute: scan_elements::<_>(ComparisonRepetition::Equal);
-        effects: [memory_read];
         forms {
             F3 0xAE => byte();
             F3 0xAF => word_or_dword();
@@ -145,7 +134,6 @@ instruction_families! {
     }
     REPNE_SCAS {
         execute: scan_elements::<_>(ComparisonRepetition::NotEqual);
-        effects: [memory_read];
         forms {
             F2 0xAE => byte();
             F2 0xAF => word_or_dword();
