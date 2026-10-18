@@ -130,10 +130,11 @@ impl Compiler {
                 .with_interpreter_fallback()
                 .with_observed_cpu(self.observed_cpu.as_ref());
                 execution.guard_fetch_span(bytes.len() - remaining_bytes.len())?;
+                let mut successor = None;
                 for decoded_instruction in decoded_instructions {
-                    execution.execute(decoded_instruction)?;
+                    successor = Some(execution.execute(decoded_instruction)?);
                 }
-                execution.dispatch()
+                execution.dispatch(successor.expect("a compiled block contains an instruction"))
             },
         )?;
         let entry = format!("block_{start_eip:x}");

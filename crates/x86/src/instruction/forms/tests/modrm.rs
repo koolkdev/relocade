@@ -5,9 +5,9 @@ use crate::instruction::forms::declarations::{declaration_operands, operand_spec
 
 fn declaration_form(operands: &[OperandSpec], modrm: Option<ModRmSelector>) -> Form {
     let handler = match operands.len() {
-        1 => Handler::Unary(|_, _, _, fallthrough| Ok(fallthrough)),
-        2 => Handler::Binary(|_, _, _, _, fallthrough| Ok(fallthrough)),
-        3 => Handler::Ternary(|_, _, _, _, _, fallthrough| Ok(fallthrough)),
+        1 => Handler::Unary(|_, _, _, fallthrough| Ok(fallthrough.into())),
+        2 => Handler::Binary(|_, _, _, _, fallthrough| Ok(fallthrough.into())),
+        3 => Handler::Ternary(|_, _, _, _, _, fallthrough| Ok(fallthrough.into())),
         _ => panic!("the test declaration has one to three operands"),
     };
     Declaration {

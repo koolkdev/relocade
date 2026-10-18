@@ -116,10 +116,12 @@ impl Compiler {
                     &decoded.eip,
                     self.target,
                 )?;
-                execution.execute(decoded)?;
+                let successor = execution.execute(decoded)?;
                 match continuation {
-                    Some(continuation) => execution.complete(|body, _| continuation.resume(body)),
-                    None => execution.dispatch(),
+                    Some(continuation) => {
+                        execution.complete(successor, |body, _| continuation.resume(body))
+                    }
+                    None => execution.dispatch(successor),
                 }
             },
         )?;

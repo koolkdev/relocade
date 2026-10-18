@@ -4,11 +4,11 @@ mod far;
 
 pub(crate) use far::CodeTarget;
 
-use wasm86_compiler::{BranchCondition, BranchHint, BuildError, Val, I1, I32};
+use wasm86_compiler::{BranchHint, BuildError, Val, I1, I32};
 
 use crate::{exception::Exception, instruction::SegmentOverride, memory::Intent, segment::Segment};
 
-use super::ExecutionBuilder;
+use super::{ExecutionBuilder, Successor};
 
 impl ExecutionBuilder<'_, '_> {
     /// Checks a snapshot block's complete encoding before any guest effects.
@@ -42,16 +42,14 @@ impl ExecutionBuilder<'_, '_> {
         target: Val<I32>,
         fallthrough: Val<I32>,
         hint: Option<BranchHint>,
-    ) -> Result<Val<I32>, BuildError> {
+    ) -> Result<Successor, BuildError> {
         self.check_code_target(&target, Some(&taken))?;
-        match hint {
-            Some(hint) => self.body.if_value::<I32>(
-                BranchCondition::from(taken).with_hint(hint),
-                |arm| arm.yield_(target),
-                |arm| arm.yield_(fallthrough),
-            ),
-            None => Ok(taken.select(target, fallthrough)),
-        }
+        Ok(Successor::Conditional {
+            condition: taken,
+            hint,
+            taken: target,
+            fallthrough,
+        })
     }
 
     /// Pentium 4 Jcc prefixes predict the taken edge. A runtime-carried prefix

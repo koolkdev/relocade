@@ -72,9 +72,9 @@ fn immediates_bind_after_location_operands() {
                 },
                 operands: &operands[..if two { 3 } else { 2 }],
                 handlers: SizedHandlers::fixed(if two {
-                    Handler::Ternary(|_, _, _, _, _, fallthrough| Ok(fallthrough))
+                    Handler::Ternary(|_, _, _, _, _, fallthrough| Ok(fallthrough.into()))
                 } else {
-                    Handler::Binary(|_, _, _, _, fallthrough| Ok(fallthrough))
+                    Handler::Binary(|_, _, _, _, fallthrough| Ok(fallthrough.into()))
                 }),
                 effects: &[],
                 lockable: false,

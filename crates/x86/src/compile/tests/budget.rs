@@ -84,18 +84,23 @@ fn initial(count: u64) -> CpuState {
 }
 
 fn conditional_boundary(engine: Engine, frontend: Frontend) {
-    for taken in [false, true] {
-        for target in [41, 43, 44] {
-            let mut cpu = initial(40);
-            cpu.registers.eax = if taken { u32::MAX - 1 } else { 0 };
-            let (word, after, _) =
-                execute(engine, frontend, &[0x40, 0x40, 0x74, 8], 3, cpu, target);
-            assert_eq!(after.instruction_count, 43);
-            assert_eq!(after.eip, if taken { 0x100c } else { 0x1004 });
-            assert_eq!(
-                ExecutionExit::from_bits(word),
-                (target <= 43).then_some(ExecutionExit::BudgetExhausted)
-            );
+    for (code, taken_eip, fallthrough) in [
+        (&[0x40, 0x40, 0x74, 8][..], 0x100c, 0x1004),
+        (&[0x40, 0x40, 0x2e, 0x74, 8], 0x100d, 0x1005),
+        (&[0x40, 0x40, 0x3e, 0x74, 8], 0x100d, 0x1005),
+    ] {
+        for taken in [false, true] {
+            for target in [41, 43, 44] {
+                let mut cpu = initial(40);
+                cpu.registers.eax = if taken { u32::MAX - 1 } else { 0 };
+                let (word, after, _) = execute(engine, frontend, code, 3, cpu, target);
+                assert_eq!(after.instruction_count, 43);
+                assert_eq!(after.eip, if taken { taken_eip } else { fallthrough });
+                assert_eq!(
+                    ExecutionExit::from_bits(word),
+                    (target <= 43).then_some(ExecutionExit::BudgetExhausted)
+                );
+            }
         }
     }
 }

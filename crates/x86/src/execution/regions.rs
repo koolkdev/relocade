@@ -18,9 +18,9 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         let nested = self.nested_builder();
         self.body.if_(condition, |body| {
             let mut arm = nested(body);
-            arm.eip = transfer(&mut arm)?;
+            let target = transfer(&mut arm)?;
             arm.completed += 1;
-            arm.dispatch()
+            arm.dispatch(target.into())
         })
     }
 

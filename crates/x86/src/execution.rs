@@ -1,5 +1,6 @@
 mod address;
 mod control;
+mod finish;
 mod memory;
 mod mmx;
 mod operands;
@@ -13,6 +14,7 @@ mod strings;
 mod x87;
 
 pub(crate) use control::CodeTarget;
+pub(crate) use finish::Successor;
 pub(crate) use memory::{MemoryOperand, OperandSpan};
 pub(crate) use operands::WriteTarget;
 pub(crate) use strings::{ResolvedStrings, StringOperand};
@@ -91,10 +93,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     }
 
     /// Executes an instruction whose required bytes have passed fetch checks.
+    /// A conditional successor ends the block and keeps both outgoing edges.
     pub(super) fn execute<V: Into<Val<I32>>, P: Into<Val<I32>>>(
         &mut self,
         mut decoded: DecodedInstruction<V, P>,
-    ) -> Result<(), BuildError> {
+    ) -> Result<Successor, BuildError> {
         self.eip = self.body.value(decoded.eip)?;
         let fallthrough_eip = self.body.value(decoded.fallthrough_eip)?;
         self.address_size = decoded.instruction.address_size;
@@ -105,9 +108,12 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             .x87_opcode
             .take()
             .map(|opcode| opcode.bits());
-        self.eip = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
+        let successor = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
+        if let Successor::Unconditional(target) = &successor {
+            self.eip = target.clone();
+        }
         self.completed += 1;
-        Ok(())
+        Ok(successor)
     }
 
     /// Builds a path that requires interpreter fallback, only where it is allowed.
@@ -318,35 +324,5 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
                         .fault(fault_body, &self.eip, self.completed, exception)
                 },
             )
-    }
-
-    /// Ends a block, checks its instruction target and dispatches its successor.
-    pub(super) fn dispatch(self) -> Result<(), BuildError> {
-        let runtime = self.runtime;
-        self.finish(true, |body, _| runtime.dispatch(body))
-    }
-
-    /// Publishes an instruction and continues decoding within the current block.
-    pub(super) fn complete(
-        self,
-        continue_execution: impl FnOnce(BlockBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
-    ) -> Result<(), BuildError> {
-        self.finish(false, continue_execution)
-    }
-
-    fn finish(
-        mut self,
-        check_budget: bool,
-        continue_execution: impl FnOnce(BlockBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
-    ) -> Result<(), BuildError> {
-        let count = self
-            .state
-            .publish(&mut self.body, &self.eip, self.completed)?
-            .expect("successful completion retires an instruction");
-        if check_budget {
-            self.state
-                .check_instruction_budget(&mut self.body, &count)?;
-        }
-        continue_execution(self.body, &self.eip)
     }
 }

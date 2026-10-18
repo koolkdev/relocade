@@ -1,16 +1,16 @@
 use wasm86_compiler::{BuildError, Val, I32};
 
 use super::{handlers::HandlerCall, map_location, map_operand, Instruction};
-use crate::execution::ExecutionBuilder;
+use crate::execution::{ExecutionBuilder, Successor};
 
 pub(crate) fn lower(
     execution: &mut ExecutionBuilder<'_, '_>,
     instruction: Instruction<impl Into<Val<I32>>>,
     fallthrough_eip: Val<I32>,
-) -> Result<Val<I32>, BuildError> {
+) -> Result<Successor, BuildError> {
     if let Some(exception) = instruction.requirements.fault(execution.target()) {
         execution.fault(exception)?;
-        return Ok(fallthrough_eip);
+        return Ok(fallthrough_eip.into());
     }
     match instruction.call {
         HandlerCall::Nullary { handler } => {
