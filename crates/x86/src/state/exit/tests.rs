@@ -175,6 +175,7 @@ fn decode_documented_guest_exit_words() {
             ExecutionExit::from_bits(bits),
             Some(ExecutionExit::Exception(exception))
         );
+        assert_eq!(ExecutionExit::Exception(exception).to_bits(), bits);
     }
     assert_eq!(
         ExecutionExit::from_bits(0x0008_00f3_89ab_cdef),
@@ -191,7 +192,8 @@ fn host_values_and_reserved_exit_fields_are_not_guest_exits() {
         0,
         1,
         u64::MAX,
-        0x4000_0000_0000_0000,
+        0x4000_0000_0000_0001,
+        0x4000_0001_0000_0000,
         0x0003_0000_0000_0000,
         0x0001_0001_0000_0000,
         0x0040_0000_0000_0001,
@@ -216,4 +218,25 @@ fn instruction_budget_exit_has_no_payload() {
     );
     assert_eq!(ExecutionExit::from_bits(0x8000_0000_0000_0001), None);
     assert_eq!(ExecutionExit::from_bits(0x8000_0001_0000_0000), None);
+}
+
+#[test]
+fn host_return_has_no_payload() {
+    assert_eq!(ExecutionExit::HostReturn.to_bits(), 0x4000_0000_0000_0000);
+    assert_eq!(
+        ExecutionExit::from_bits(0x4000_0000_0000_0000),
+        Some(ExecutionExit::HostReturn)
+    );
+    assert_eq!(
+        ExecutionExit::BudgetExhausted.to_bits(),
+        0x8000_0000_0000_0000
+    );
+    assert_eq!(
+        ExecutionExit::UnsupportedInstruction {
+            eip: 0x89ab_cdef,
+            opcode: 0xf3
+        }
+        .to_bits(),
+        0x0008_00f3_89ab_cdef
+    );
 }

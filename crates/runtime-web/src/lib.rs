@@ -9,30 +9,43 @@
 use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
 use std::{
     any::Any,
-    cell::RefCell,
+    cell::{Ref, RefCell, RefMut},
     ops::{Deref, DerefMut},
     rc::Rc,
 };
-use wasm86_compiler::{abi::Function as FunctionDeclaration, Results, ValueType, I64};
+use wasm86_compiler::{abi::Function as FunctionDeclaration, I64};
 use wasm86_runtime::{
-    wasm::{
-        HostFunction, HostValue, Import, ImportValue, WasmBackend, WasmCaller, WasmMemoryAccess,
-    },
+    wasm::{Import, ImportValue, WasmBackend, WasmMemoryAccess},
     Error, Result,
 };
-use wasm_bindgen::{
-    closure::Closure,
-    convert::{FromWasmAbi, ReturnWasmAbi},
-    JsCast, JsValue,
-};
+use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
+
+mod host;
+pub use host::Caller;
 
 /// Modules, callbacks and host state belonging to one guest.
 pub struct WebBackend<T = ()> {
-    state: Rc<RefCell<T>>,
+    store: Rc<RefCell<Store<T>>>,
     // Rust must retain the closures for as long as guest modules can call them.
     callbacks: Vec<Box<dyn Any>>,
 }
+
+struct Store<T> {
+    state: T,
+    memories: Vec<WebAssembly::Memory>,
+}
+
+impl<T> Store<T> {
+    fn memory(&self, memory: &Memory) -> &WebAssembly::Memory {
+        &self.memories[memory.0]
+    }
+}
+
+/// A handle to memory owned by one backend. Copies identify the same JavaScript
+/// resource; access requires the originating backend or its callback caller.
+#[derive(Clone, Copy, Debug)]
+pub struct Memory(usize);
 
 /// A resolved `() -> i64` export, kept distinct from raw host function handles.
 pub struct Function(JsFunction);
@@ -52,7 +65,10 @@ impl Default for WebBackend {
 impl<T: 'static> WebBackend<T> {
     pub fn with_state(state: T) -> Self {
         Self {
-            state: Rc::new(RefCell::new(state)),
+            store: Rc::new(RefCell::new(Store {
+                state,
+                memories: Vec::new(),
+            })),
             callbacks: Vec::new(),
         }
     }
@@ -68,11 +84,11 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
     type ImportFunction = JsFunction;
 
     fn state(&self) -> impl Deref<Target = T> {
-        self.state.borrow()
+        Ref::map(self.store.borrow(), |store| &store.state)
     }
 
     fn state_mut(&mut self) -> impl DerefMut<Target = T> {
-        self.state.borrow_mut()
+        RefMut::map(self.store.borrow_mut(), |store| &mut store.state)
     }
 
     async fn compile(&self, bytes: &[u8]) -> Result<Self::Module> {
@@ -89,7 +105,12 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
         if let Some(maximum) = maximum {
             set(&descriptor, "maximum", &maximum.into())?;
         }
-        WebAssembly::Memory::new(&descriptor).map_err(|error| js_error("create Wasm memory", error))
+        let memory = WebAssembly::Memory::new(&descriptor)
+            .map_err(|error| js_error("create Wasm memory", error))?;
+        let mut store = self.store.borrow_mut();
+        let handle = Memory(store.memories.len());
+        store.memories.push(memory);
+        Ok(handle)
     }
 
     fn create_table(&mut self, minimum: u32) -> Result<Self::Table> {
@@ -110,6 +131,8 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
     }
 
     fn ensure_memory_size(&mut self, memory: &Self::Memory, byte_len: u64) -> Result<()> {
+        let store = self.store.borrow();
+        let memory = store.memory(memory);
         let pages = byte_len.div_ceil(65536);
         let byte_length = Reflect::get(&memory.buffer(), &"byteLength".into())
             .map_err(|error| js_error("read Wasm memory size", error))?
@@ -144,7 +167,7 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
                 namespace.unchecked_into::<Object>()
             };
             let value: JsValue = match import.value() {
-                ImportValue::Memory(memory) => (*memory).clone().into(),
+                ImportValue::Memory(memory) => self.store.borrow().memory(memory).clone().into(),
                 ImportValue::Table(table) => (*table).clone().into(),
                 ImportValue::Function(function) => function.clone().into(),
             };
@@ -192,70 +215,26 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
 }
 
 impl<T> WasmMemoryAccess for WebBackend<T> {
-    type Memory = WebAssembly::Memory;
+    type Memory = Memory;
 
     fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
-        memory_range(memory, offset, bytes.len()).copy_to(bytes);
+        self.store.borrow().read_memory(memory, offset, bytes);
     }
 
     fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]) {
-        memory_range(memory, offset, bytes.len()).copy_from(bytes);
+        self.store.borrow_mut().write_memory(memory, offset, bytes);
     }
 }
 
-macro_rules! host_function {
-    ($($parameter:ident : $argument:ident),*) => {
-        impl<T, R, $($parameter),*> HostFunction<fn($($parameter),*) -> R> for WebBackend<T>
-        where
-            T: 'static,
-            R: Results + HostValue,
-            R::Carrier: ReturnWasmAbi,
-            $($parameter: ValueType + HostValue, $parameter::Carrier: FromWasmAbi),*
-        {
-            fn host_function(
-                &mut self,
-                callback: fn(Caller<'_, T>, $($parameter::Carrier),*) -> R::Carrier,
-            ) -> JsFunction {
-                let state = Rc::clone(&self.state);
-                let closure = Closure::<dyn FnMut($($parameter::Carrier),*) -> R::Carrier>::new(move |$($argument),*| {
-                    callback(Caller(&mut *state.borrow_mut()), $($argument),*)
-                });
-                let function = closure.as_ref().unchecked_ref::<JsFunction>().clone();
-                self.callbacks.push(Box::new(closure));
-                function
-            }
-        }
-    };
-}
+impl<T> WasmMemoryAccess for Store<T> {
+    type Memory = Memory;
 
-host_function!();
-host_function!(A: a);
-host_function!(A: a, B: b);
-host_function!(A: a, B: b, C: c);
-host_function!(A: a, B: b, C: c, D: d);
-
-/// A callback's scoped borrow of host state. Memory stays in the browser engine.
-pub struct Caller<'a, T>(&'a mut T);
-
-impl<T> WasmCaller for Caller<'_, T> {
-    type State = T;
-
-    fn state(&self) -> &T {
-        self.0
+    fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
+        memory_range(self.memory(memory), offset, bytes.len()).copy_to(bytes);
     }
-    fn state_mut(&mut self) -> &mut T {
-        self.0
-    }
-}
 
-impl<T> WasmMemoryAccess for Caller<'_, T> {
-    type Memory = WebAssembly::Memory;
-
-    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
-        memory_range(memory, offset, bytes.len()).copy_to(bytes);
-    }
-    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]) {
-        memory_range(memory, offset, bytes.len()).copy_from(bytes);
+    fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
+        memory_range(self.memory(memory), offset, bytes.len()).copy_from(bytes);
     }
 }
 

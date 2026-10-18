@@ -15,7 +15,9 @@ pub use imports::{Import, ImportBinding, ImportValue};
 /// Handles belong to that engine. Transfers require an allocated, in-bounds
 /// range; violating this storage invariant is a programming error.
 pub trait WasmMemoryAccess {
-    type Memory: Clone + 'static;
+    /// A handle to engine-owned memory that host functions can capture. Access to
+    /// the contents still requires the owning backend or its callback caller.
+    type Memory: Clone + Send + Sync + 'static;
 
     fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]);
     fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]);
@@ -42,9 +44,9 @@ pub trait WasmCaller: WasmMemoryAccess {
     fn state_mut(&mut self) -> &mut Self::State;
 }
 
-/// One Wasm resource owner. Preparation futures and handles need not be `Send`,
-/// allowing browser engines. Memory is unshared Wasm32 with 64-KiB pages; tables
-/// contain nullable function references. Host callbacks are wrapped by
+/// One Wasm resource owner. Preparation futures, environment state and handles
+/// other than memory need not be `Send`. Memory is unshared Wasm32 with
+/// 64-KiB pages; tables contain nullable function references. Host callbacks are wrapped by
 /// [`HostFunction`]; the runtime's callable exports use `() -> i64`.
 ///
 /// Instances retain their imports. Exported functions and table entries remain
@@ -96,14 +98,17 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// Callbacks receive a scoped caller followed by the Wasm carrier arguments;
     /// narrow integers use zero-extended i32, as in the compiler's import ABI.
     /// Callbacks must also return narrow results zero-extended to their logical width.
-    /// The returned import owns the function handle without borrowing the backend.
+    /// Callbacks implement Fn + Send + Sync; mutable or non-Send environment state
+    /// is accessed through the caller. Memory handles can be captured normally.
+    /// The backend retains callbacks while linked modules can call them.
+    /// The import owns its handle without borrowing the backend.
     ///
     /// ```
     /// use wasm86_compiler::{abi::Function, I16, I32};
     /// use wasm86_runtime::wasm::{HostFunction, WasmBackend};
     /// const READ: Function<fn(I16, I32) -> I32> = Function::new("example", "read");
     /// fn bind<B: HostFunction<fn(I16, I32) -> I32>>(backend: &mut B) {
-    ///     let _ = backend.bind_host(READ, |_, port, width| port + width);
+    ///     let _ = backend.bind_host(READ, Box::new(|_, port, width| port + width));
     /// }
     /// ```
     ///
@@ -113,7 +118,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// use wasm86_runtime::wasm::{HostFunction, WasmBackend};
     /// const READ: Function<fn(I16, I32) -> I32> = Function::new("example", "read");
     /// fn bind<B: HostFunction<fn(I16, I32) -> I32>>(backend: &mut B) {
-    ///     let _ = backend.bind_host(READ, |_, _, _| 0_i64);
+    ///     let _ = backend.bind_host(READ, Box::new(|_, _, _| 0_i64));
     /// }
     /// ```
     /// Parameter types must match too:
@@ -122,7 +127,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// use wasm86_runtime::wasm::{HostFunction, WasmBackend};
     /// const WRITE: Function<fn(I32, I32, I64)> = Function::new("example", "write");
     /// fn bind<B: HostFunction<fn(I32, I32, I64)>>(backend: &mut B) {
-    ///     let _ = backend.bind_host(WRITE, |_, _, _, value: i32| {});
+    ///     let _ = backend.bind_host(WRITE, Box::new(|_, _, _, value: i32| {}));
     /// }
     /// ```
     fn bind_host<'a, S: HostSignature<Self>>(

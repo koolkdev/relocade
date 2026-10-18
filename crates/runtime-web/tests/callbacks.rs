@@ -26,15 +26,13 @@ use wasm86_runtime_web::WebBackend as Backend;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-struct HostState<M> {
+struct HostState {
     config: Rc<MachineConfig>,
-    context: Option<M>,
-    guest: Option<M>,
     calls: u32,
 }
 
 // The same handler accesses the calling CPU and guest memory on both backends.
-fn host_handler(call: &mut HostCall<'_>) {
+fn host_handler(call: &mut HostCall<'_, HostState>) {
     let mut bytes = [0; 4];
     call.memory().read(0x1020, &mut bytes).unwrap();
     let result = call.cpu().eax() + u32::from_le_bytes(bytes);
@@ -43,19 +41,7 @@ fn host_handler(call: &mut HostCall<'_>) {
     call.cpu().set_eip(eip + 2);
     call.memory().write(0x1024, &result.to_le_bytes()).unwrap();
     call.memory().write(0x20, &[0xff]).unwrap(); // ROM ignores guest writes.
-}
-
-fn invoke<C, M>(mut caller: C) -> i32
-where
-    C: WasmCaller<State = HostState<M>, Memory = M>,
-    M: Clone,
-{
-    let config = Rc::clone(&caller.state().config);
-    let context = caller.state().context.as_ref().unwrap().clone();
-    let guest = caller.state().guest.as_ref().unwrap().clone();
-    with_host_call(&config, &mut caller, context, guest, host_handler);
-    caller.state_mut().calls += 1;
-    0
+    call.state_mut().calls += 1;
 }
 
 async fn check_callback() {
@@ -87,18 +73,15 @@ async fn check_callback() {
     .unwrap();
     let state = HostState {
         config: Rc::new(config),
-        context: None,
-        guest: None,
         calls: 0,
     };
     #[cfg(not(target_arch = "wasm32"))]
     let mut backend = Backend::with_state(state).unwrap();
     #[cfg(target_arch = "wasm32")]
     let mut backend = Backend::with_state(state);
-    let context = backend.create_memory(1, Some(1)).unwrap();
+    // Creation order differs from module import order: handles belong to the backend.
     let guest = backend.create_memory(1, None).unwrap();
-    backend.state_mut().context = Some(Clone::clone(&context));
-    backend.state_mut().guest = Some(Clone::clone(&guest));
+    let context = backend.create_memory(1, Some(1)).unwrap();
     backend.write_memory(
         &context,
         0,
@@ -142,7 +125,14 @@ async fn check_callback() {
     let imports = [
         backend.bind(CONTEXT, &context),
         backend.bind(GUEST, &guest),
-        backend.bind_host(CALL, |caller| invoke(caller)),
+        backend.bind_host(
+            CALL,
+            Box::new(move |mut caller| {
+                let config = Rc::clone(&caller.state().config);
+                with_host_call(&config, &mut caller, context, guest, host_handler);
+                0
+            }),
+        ),
     ];
     let instance = backend.instantiate(&module, &imports).await.unwrap();
     let function = backend.function(&instance, RUN).unwrap();

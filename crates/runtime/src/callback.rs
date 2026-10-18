@@ -4,14 +4,14 @@ use wasm86_machine::{Cpu, MachineConfig, MachineStorage, Memory};
 #[cfg(test)]
 mod tests;
 
-/// Access to the calling CPU and shared guest memory during a host call.
-/// This view borrows existing storage; CPU and memory edits apply immediately.
-pub struct HostCall<'a> {
+/// Access to the calling CPU, guest memory and environment state during a host call.
+/// This view borrows existing storage; edits apply immediately.
+pub struct HostCall<'a, T = ()> {
     config: &'a MachineConfig,
-    storage: &'a mut dyn MachineStorage,
+    storage: &'a mut dyn HostStorage<T>,
 }
 
-impl HostCall<'_> {
+impl<T> HostCall<'_, T> {
     /// Borrows the CPU that entered this host call.
     pub fn cpu(&mut self) -> Cpu<'_> {
         Cpu::new(self.config, self.storage)
@@ -21,10 +21,35 @@ impl HostCall<'_> {
     pub fn memory(&mut self) -> Memory<'_> {
         Memory::new(self.config, self.storage)
     }
+
+    /// The environment state owned by this backend.
+    pub fn state(&self) -> &T {
+        self.storage.state()
+    }
+
+    pub fn state_mut(&mut self) -> &mut T {
+        self.storage.state_mut()
+    }
 }
 
-/// Lends access to the calling CPU and shared guest memory to a synchronous
-/// host handler, using the same live views as `Runtime::machine`.
+// Erase the backend's caller type while retaining its typed environment state.
+trait HostStorage<T>: MachineStorage {
+    fn state(&self) -> &T;
+    fn state_mut(&mut self) -> &mut T;
+}
+
+impl<C: WasmCaller> HostStorage<C::State> for Storage<&mut C> {
+    fn state(&self) -> &C::State {
+        self.access.state()
+    }
+
+    fn state_mut(&mut self) -> &mut C::State {
+        self.access.state_mut()
+    }
+}
+
+/// Lends the calling CPU, guest memory and caller's environment state to a
+/// synchronous host handler, using the same live views as `Runtime::machine`.
 ///
 /// The binding supplies the calling CPU's execution-context memory, the machine
 /// configuration and guest memory. Memory handles are moved into this call;
@@ -40,7 +65,7 @@ pub fn with_host_call<C: WasmCaller, R>(
     caller: &mut C,
     context: C::Memory,
     guest: C::Memory,
-    handler: impl FnOnce(&mut HostCall<'_>) -> R,
+    handler: impl FnOnce(&mut HostCall<'_, C::State>) -> R,
 ) -> R {
     let mut storage = Storage {
         access: caller,

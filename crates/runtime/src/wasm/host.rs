@@ -37,7 +37,7 @@ macro_rules! signature {
             R: Results + HostValue,
             $($parameter: ValueType + HostValue),*
         {
-            type Callback = fn(Backend::Caller<'_>, $($parameter::Carrier),*) -> R::Carrier;
+            type Callback = Box<dyn Fn(Backend::Caller<'_>, $($parameter::Carrier),*) -> R::Carrier + Send + Sync>;
         }
     };
 }
