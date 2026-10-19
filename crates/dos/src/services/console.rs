@@ -1,10 +1,7 @@
 use super::return_to_host;
-use crate::{
-    interrupt::{return_from_interrupt, return_result},
-    DosState, ServiceError,
-};
+use crate::{interrupt::return_result, DosState, ServiceError};
 use std::ops::ControlFlow;
-use wasm86_runtime::HostCall;
+use wasm86_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
 use wasm86_x86::Segment;
 
 /// AH=09h: output the '$'-terminated string at DS:DX and return AL='$'.

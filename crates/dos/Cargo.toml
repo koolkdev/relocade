@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+wasm86-bios = { path = "../bios" }
 wasm86-vfs = { path = "../vfs" }
 wasm86-x86 = { path = "../x86" }
 wasm86-machine = { path = "../machine" }

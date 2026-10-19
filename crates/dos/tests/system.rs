@@ -9,13 +9,14 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 async fn check_system_services() {
     let mut dos = common::dos().await;
     dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.runtime().machine().cpu().set_eflags(0x0a56); // OF, IF, ZF, AF and PF.
     error(&service(&mut dos, 0x3e00, 0xffff, 0, 0), 6); // Set carry.
     let cpu = service(&mut dos, 0x3000, 0x1234, 0x5678, 0x9abc);
     assert_eq!(cpu.registers.eax as u16, 5);
     assert_eq!(cpu.registers.ebx as u16, 0xff00);
     assert_eq!(cpu.registers.ecx as u16, 0);
     assert_eq!(cpu.registers.edx as u16, 0x9abc);
-    assert_eq!(cpu.flags.eflags() & 1, 1); // Version and vector services preserve flags.
+    assert_eq!(cpu.flags.eflags(), 0x0a57); // Error sets carry; version preserves flags.
     let cpu = service(&mut dos, 0x3001, 0xffff, 0xffff, 0);
     assert_eq!(cpu.registers.eax as u16, 5);
     assert_eq!(cpu.registers.ebx as u16, 0);
@@ -46,6 +47,10 @@ async fn check_system_services() {
     assert_eq!(cpu.registers.ebx as u16, 0x110);
     error(&service(&mut dos, 0x71a0, 0, 0, 0), 0x7100);
     error(&service(&mut dos, 0x714e, 0, 0, 0), 0x7100);
+    // A successful zero-byte stdout write clears only the saved carry flag.
+    let cpu = service(&mut dos, 0x4000, 1, 0, 0);
+    assert_eq!(cpu.registers.eax as u16, 0);
+    assert_eq!(cpu.flags.eflags(), 0x0a56);
     assert_eq!(dos.exit_status(), None); // Unsupported LFN calls return to the guest.
 }
 

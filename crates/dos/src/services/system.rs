@@ -1,8 +1,8 @@
 //! DOS version and interrupt-vector services used during program startup.
 
-use crate::{interrupt::return_from_interrupt, DosState};
+use crate::DosState;
 use std::ops::ControlFlow;
-use wasm86_runtime::HostCall;
+use wasm86_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
 use wasm86_x86::{Segment, StoredSegment};
 
 /// AH=30h: report DOS 5.00, with no serial number or special version flags.

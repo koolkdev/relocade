@@ -5,6 +5,8 @@
 //! MZ executables use their header's memory request, relocation table and CS:IP/SS:SP.
 //! Both formats receive a separate environment block through PSP:002C, containing
 //! the supplied variables and executable path. Its storage comes from conventional RAM.
+//! BIOS INT 1Ah/AH=00h reads the BIOS data area's clock; ticks initially remain zero
+//! until the embedding updates them.
 //! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. Output is buffered as guest bytes.
@@ -68,7 +70,10 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
     pub async fn new(backend: B) -> wasm86_runtime::Result<Self> {
         let mut runtime = Runtime::new(backend, kernel::configuration()).await?;
         kernel::initialize(&mut runtime.machine().memory());
-        runtime.install_hooks(kernel::hooks()).await?;
+        wasm86_bios::initialize(&mut runtime.machine().memory());
+        runtime
+            .install_hooks(kernel::hooks().into_iter().chain(wasm86_bios::hooks()))
+            .await?;
         Ok(Self { runtime })
     }
 
