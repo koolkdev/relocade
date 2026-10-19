@@ -14,6 +14,7 @@
 //! [`Dos::mount_file`] supplies files for AH=3Dh/3Eh/3Fh/40h open/close/read/write.
 //! AH=3Ch creates or truncates files in existing directories.
 //! AH=0Eh/19h select/query C:; AH=3Bh/47h change/query its current directory.
+//! AH=39h/3Ah create directories or remove empty ones, excluding root and current.
 //! Guest relative paths use that directory, which persists across program loads.
 //! AH=1Ah/2Fh select/query the DTA; AH=4Eh/4Fh find matching 8.3 names.
 //! Search dates are initially fixed at 1980-01-01; long-name aliases are not generated.

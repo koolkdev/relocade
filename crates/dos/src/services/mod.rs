@@ -18,6 +18,8 @@ const GET_DRIVE: u8 = 0x19;
 const SET_VECTOR: u8 = 0x25;
 const GET_VERSION: u8 = 0x30;
 const GET_VECTOR: u8 = 0x35;
+const CREATE_DIRECTORY: u8 = 0x39;
+const REMOVE_DIRECTORY: u8 = 0x3a;
 const CHANGE_DIRECTORY: u8 = 0x3b;
 const GET_DIRECTORY: u8 = 0x47;
 const SET_DTA: u8 = 0x1a;
@@ -50,6 +52,8 @@ pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
         SET_VECTOR => system::set_vector(call),
         GET_VERSION => system::version(call),
         GET_VECTOR => system::get_vector(call),
+        CREATE_DIRECTORY => directories::create_directory(call),
+        REMOVE_DIRECTORY => directories::remove_directory(call),
         CHANGE_DIRECTORY => directories::change_directory(call),
         GET_DIRECTORY => directories::get_directory(call),
         SET_DTA => search::set_dta(call),

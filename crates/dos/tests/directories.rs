@@ -112,6 +112,72 @@ async fn check_drive_services() {
     assert_eq!(current_directory(&mut dos, 0), longest.as_bytes());
 }
 
+async fn check_directory_changes() {
+    let mut dos = common::dos().await;
+    dos.mount_file("FILE.DAT", b"keep".to_vec(), FileAccess::ReadWrite)
+        .unwrap();
+    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    error(&path_service(&mut dos, b"MISSING/CHILD", 0x3900, 0), 3);
+    error(&path_service(&mut dos, b"MISSING", 0x4300, 0), 2);
+    success(&path_service(&mut dos, b"save", 0x3900, 0));
+    for (path, code) in [
+        (b"SAVE".as_slice(), 5),
+        (b"C:\\", 5),
+        (b"FILE.DAT", 5),
+        (b"FILE.DAT/CHILD", 3),
+        (b"D:\\SAVE", 3),
+        (b"*", 3),
+    ] {
+        error(&path_service(&mut dos, path, 0x3900, 0), code);
+    }
+    for (path, code) in [
+        (b"C:\\".as_slice(), 5),
+        (b"FILE.DAT", 5),
+        (b"FILE.DAT/CHILD", 3),
+        (b"MISSING", 3),
+        (b"D:\\SAVE", 3),
+        (b"*", 3),
+    ] {
+        error(&path_service(&mut dos, path, 0x3a00, 0), code);
+    }
+    assert_eq!(dos.read_file("FILE.DAT").unwrap(), b"keep");
+
+    success(&path_service(&mut dos, b"C:SAVE", 0x3b00, 0));
+    dos.runtime().machine().cpu().set_eflags(0x0a57);
+    let cpu = path_service(&mut dos, b"SLOT", 0x3900, 0);
+    success(&cpu);
+    assert_eq!(cpu.flags.eflags(), 0x0a56);
+    let cpu = path_service(&mut dos, b"SLOT", 0x4300, 0);
+    success(&cpu);
+    assert_eq!(cpu.registers.ecx as u16, 0x10);
+    let handle = success(&path_service(&mut dos, b"SLOT/GAME.SAV", 0x3c00, 0));
+    success(&service(&mut dos, 0x3e00, handle, 0, 0));
+    error(&path_service(&mut dos, b"SLOT", 0x3a00, 0), 5);
+    assert_eq!(dos.read_file("SAVE/SLOT/GAME.SAV"), Some(vec![]));
+    success(&path_service(&mut dos, b"SLOT/GAME.SAV", 0x4100, 0));
+    success(&path_service(&mut dos, b"SLOT", 0x3a00, 0));
+    error(&path_service(&mut dos, b"SLOT", 0x4300, 0), 2);
+    error(&path_service(&mut dos, b".", 0x3a00, 0), 16);
+    error(&path_service(&mut dos, b"C:\\SAVE", 0x3a00, 0), 16);
+    assert_eq!(current_directory(&mut dos, 0), b"SAVE");
+
+    // Removing and recreating a directory does not retain its old attributes.
+    success(&path_service(&mut dos, b"TEMP", 0x3900, 0));
+    success(&path_service(&mut dos, b"TEMP", 0x4301, 0x02));
+    success(&path_service(&mut dos, b"TEMP", 0x3a00, 0));
+    success(&path_service(&mut dos, b"TEMP", 0x3900, 0));
+    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    assert_eq!(current_directory(&mut dos, 0), b"SAVE");
+    let cpu = path_service(&mut dos, b"TEMP", 0x4300, 0);
+    success(&cpu);
+    assert_eq!(cpu.registers.ecx as u16, 0x10);
+    success(&path_service(&mut dos, b"\\", 0x3b00, 0));
+    error(&path_service(&mut dos, b"SAVE", 0x3a00, 0), 5);
+    success(&path_service(&mut dos, b"SAVE/TEMP", 0x3a00, 0));
+    success(&path_service(&mut dos, b"SAVE", 0x3a00, 0));
+    error(&path_service(&mut dos, b"SAVE", 0x3b00, 0), 3);
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn guest_paths_follow_the_current_directory() {
@@ -134,4 +200,16 @@ fn drive_queries_and_directory_buffer() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn drive_queries_and_directory_buffer() {
     check_drive_services().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn programs_create_and_remove_empty_directories() {
+    pollster::block_on(check_directory_changes());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn programs_create_and_remove_empty_directories() {
+    check_directory_changes().await;
 }
