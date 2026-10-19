@@ -1,0 +1,10 @@
+[package]
+name = "wasm86-bios"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+wasm86-machine = { path = "../machine" }
+wasm86-runtime = { path = "../runtime" }

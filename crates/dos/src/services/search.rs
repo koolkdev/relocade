@@ -1,12 +1,7 @@
 use super::files::read_path;
-use crate::{
-    error::DosError,
-    files::FIND_DATA_BYTES,
-    interrupt::{return_from_interrupt, return_result},
-    DosState,
-};
+use crate::{error::DosError, files::FIND_DATA_BYTES, interrupt::return_result, DosState};
 use std::ops::ControlFlow;
-use wasm86_runtime::HostCall;
+use wasm86_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
 use wasm86_x86::{Segment, StoredSegment};
 
 /// AH=1Ah: select the disk transfer area at DS:DX, preserving flags.

@@ -29,6 +29,7 @@ mod callback;
 mod dispatch;
 mod error;
 mod hooks;
+pub mod real_mode_interrupt;
 mod storage;
 pub mod wasm;
 

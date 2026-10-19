@@ -1,6 +1,6 @@
 use std::{cell::Cell, ops::ControlFlow, rc::Rc};
 use wasm86_machine::MachineConfig;
-use wasm86_runtime::{Hook, Runtime};
+use wasm86_runtime::{real_mode_interrupt, Hook, Runtime};
 use wasm86_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segment, Segments,
@@ -59,8 +59,8 @@ async fn check_interrupt_hooks() {
     runtime
         .machine()
         .memory()
-        .write(0x10020, &[0x90, 0xcf])
-        .unwrap(); // Hook; IRET
+        .write(0x10020, &real_mode_interrupt::HOOK_STUB)
+        .unwrap();
     let increment = 1;
     runtime
         .install_hooks([
@@ -79,10 +79,8 @@ async fn check_interrupt_hooks() {
                 call.memory().read(0xfefa, &mut frame).unwrap();
                 assert_eq!(&frame[..4], &[0x0e, 1, 0, 0]);
                 assert_eq!(u16::from_le_bytes([frame[4], frame[5]]) & 0x201, 0x201);
-                frame[4] &= !1; // Return clear carry through the real interrupt frame.
-                call.memory().write(0xfefa, &frame).unwrap();
-                call.cpu().set_eip(0x21); // Resume at the existing IRET instruction.
-                ControlFlow::Continue(())
+                real_mode_interrupt::set_carry(call, false);
+                real_mode_interrupt::return_from_interrupt(call)
             }),
             Hook::new(0x400, |_| ControlFlow::Break(())),
         ])

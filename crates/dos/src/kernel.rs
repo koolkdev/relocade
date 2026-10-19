@@ -1,6 +1,6 @@
 use crate::{files::Files, memory, process, services, ServiceError};
 use wasm86_machine::{MachineConfig, Memory};
-use wasm86_runtime::Hook;
+use wasm86_runtime::{real_mode_interrupt::HOOK_STUB, Hook};
 use wasm86_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
 };
@@ -67,9 +67,8 @@ pub(crate) fn initialize(memory: &mut Memory<'_>) {
         memory
             .write(vector * 4, &[lo, hi, seg_lo, seg_hi])
             .expect("IVT range");
-        // NOP reserves the hook's entry byte; returning services continue at IRET.
         memory
-            .write_backing(address(offset), &[0x90, 0xcf])
+            .write_backing(address(offset), &HOOK_STUB)
             .expect("DOS kernel ROM range");
     }
 }

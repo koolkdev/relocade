@@ -980,6 +980,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm86-bios"
+version = "0.0.0"
+dependencies = [
+ "wasm86-machine",
+ "wasm86-runtime",
+]
+
+[[package]]
 name = "wasm86-compiler"
 version = "0.0.0"
 dependencies = [
@@ -998,6 +1006,7 @@ version = "0.0.0"
 dependencies = [
  "pollster",
  "wasm-bindgen-test",
+ "wasm86-bios",
  "wasm86-machine",
  "wasm86-runtime",
  "wasm86-runtime-wasmtime",
