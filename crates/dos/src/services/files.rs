@@ -24,6 +24,12 @@ pub(super) fn attributes(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     return_result(call, result)
 }
 
+/// AH=41h: delete the file at DS:DX, subject to DOS attributes and sharing.
+pub(super) fn delete(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let result = read_path(call).and_then(|path| call.state_mut().files.delete(&path));
+    return_result(call, result)
+}
+
 /// AH=3Ch: create or truncate the path at DS:DX with CX's attributes; return AX.
 pub(super) fn create(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     let attributes = call.cpu().cx();

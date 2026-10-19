@@ -145,6 +145,20 @@ impl MemoryFileSystem {
         Ok(self.open(path)?.read_all())
     }
 
+    /// Removes a file's directory entry. Existing handles keep their contents
+    /// and access rights; the file's read-only flag does not prevent unlinking.
+    pub fn remove_file(&mut self, path: &str) -> io::Result<()> {
+        validate_path(path)?;
+        self.require_parents(path)?;
+        match self.entries.get(path) {
+            Some(Node::File(_)) => {}
+            Some(Node::Directory) => return Err(ErrorKind::IsADirectory.into()),
+            None => return Err(ErrorKind::NotFound.into()),
+        }
+        self.entries.remove(path);
+        Ok(())
+    }
+
     /// Supplies host-owned contents as a new file, replacing any file at the path.
     /// Existing handles keep the old file. Its read-only flag does not prevent
     /// replacement; the new file starts writable. Parent directories must exist.

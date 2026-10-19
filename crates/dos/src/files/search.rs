@@ -9,9 +9,14 @@ const SIZE_OFFSET: usize = 26;
 const NAME_OFFSET: usize = 30;
 const SEARCH_MARKER: u8 = 0xd5;
 
+pub(super) struct SearchDirectory {
+    path: String,
+    names: Vec<String>,
+}
+
 // DOS reserves the DTA's first 21 bytes for search continuation. Directory IDs
-// refer to canonical paths retained for this process; the rest lives in the DTA
-// so copying or restoring that buffer preserves an independent search position.
+// refer to stable filename lists retained for this process; the rest lives in
+// the DTA so copying or restoring it preserves an independent search position.
 struct Search {
     directory: u32,
     next_entry: u32,
@@ -39,14 +44,33 @@ impl Files {
             return Err(DosError::PathNotFound);
         }
         let pattern = short_name::pattern(&specification[split..]).ok_or(DosError::NoMoreFiles)?;
+        let names: Vec<_> = self
+            .filesystem
+            .read_dir(&directory)
+            .expect("existing directory")
+            .map(|entry| entry.file_name().to_owned())
+            .collect();
         let directory = match self
             .search_directories
             .iter()
-            .position(|path| *path == directory)
+            .position(|entry| entry.path == directory)
         {
-            Some(index) => index,
+            Some(index) => {
+                // New searches see additions, without shifting slots held by
+                // older DTAs when entries are deleted or recreated.
+                let known = &mut self.search_directories[index].names;
+                for name in names {
+                    if !known.contains(&name) {
+                        known.push(name);
+                    }
+                }
+                index
+            }
             None => {
-                self.search_directories.push(directory);
+                self.search_directories.push(SearchDirectory {
+                    path: directory,
+                    names,
+                });
                 self.search_directories.len() - 1
             }
         };
@@ -86,34 +110,35 @@ impl Files {
         if search.attributes == VOLUME_ATTRIBUTE {
             return Err(DosError::NoMoreFiles); // No volume label is configured.
         }
+        if !self.filesystem.is_dir(&directory.path) {
+            return Err(DosError::NoMoreFiles);
+        }
         let dots = [".", ".."]
             .into_iter()
-            .filter(|_| !directory.is_empty())
-            .map(|name| (name.to_owned(), DIRECTORY_ATTRIBUTE, 0u32));
-        let children = self
-            .filesystem
-            .read_dir(directory)
-            .map_err(|_| DosError::NoMoreFiles)?
-            .map(|entry| {
-                let metadata = entry.metadata();
-                let full_path = if directory.is_empty() {
-                    entry.file_name().to_owned()
-                } else {
-                    format!("{directory}/{}", entry.file_name())
-                };
-                (
-                    entry.file_name().to_owned(),
-                    self.entry_attributes(&full_path, metadata),
-                    metadata.len() as u32,
-                )
-            });
-        for (index, (name, attributes, len)) in dots
-            .chain(children)
+            .filter(|_| !directory.path.is_empty());
+        for (index, name) in dots
+            .chain(directory.names.iter().map(String::as_str))
             .enumerate()
             .skip(search.next_entry as usize)
         {
             let Some(short_name) = short_name::name(name.as_bytes()) else {
                 continue;
+            };
+            let (attributes, len) = if matches!(name, "." | "..") {
+                (DIRECTORY_ATTRIBUTE, 0)
+            } else {
+                let full_path = if directory.path.is_empty() {
+                    name.to_owned()
+                } else {
+                    format!("{}/{name}", directory.path)
+                };
+                let Ok(metadata) = self.filesystem.metadata(&full_path) else {
+                    continue; // A deleted entry keeps its slot, but is not returned.
+                };
+                (
+                    self.entry_attributes(&full_path, &metadata),
+                    metadata.len() as u32,
+                )
             };
             let special = attributes
                 & (HIDDEN_ATTRIBUTE as u8 | SYSTEM_ATTRIBUTE as u8 | DIRECTORY_ATTRIBUTE);
@@ -123,7 +148,7 @@ impl Files {
                 continue;
             }
             search.next_entry = (index + 1) as u32;
-            return Ok(search.result(&name, attributes, len));
+            return Ok(search.result(name, attributes, len));
         }
         Err(DosError::NoMoreFiles)
     }

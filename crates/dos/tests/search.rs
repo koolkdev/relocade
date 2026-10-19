@@ -155,6 +155,57 @@ async fn check_attributes() {
     assert_eq!(names(&mut dos, b"BOTH.DAT", 0), ["BOTH.DAT"]);
 }
 
+async fn check_search_deletion() {
+    let mut dos = common::dos().await;
+    for name in ["DATA/A.DAT", "DATA/B.DAT", "DATA/C.DAT"] {
+        dos.mount_file(name, vec![], FileAccess::ReadWrite).unwrap();
+    }
+    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
+    success(&path_service(&mut dos, b"*.DAT", 0x4e00, 0));
+    let saved = dta(&mut dos, 0x10080);
+    assert_eq!(found_name(&saved), "A.DAT");
+    success(&path_service(&mut dos, b"A.DAT", 0x4100, 0));
+    success(&service(&mut dos, 0x4f00, 0, 0, 0));
+    assert_eq!(found_name(&dta(&mut dos, 0x10080)), "B.DAT");
+
+    // A copied DTA resumes at the same name even after an earlier entry is gone.
+    dos.runtime()
+        .machine()
+        .memory()
+        .write(0x10600, &saved)
+        .unwrap();
+    service(&mut dos, 0x1a00, 0, 0, 0x600);
+    success(&service(&mut dos, 0x4f00, 0, 0, 0));
+    assert_eq!(found_name(&dta(&mut dos, 0x10600)), "B.DAT");
+    success(&path_service(&mut dos, b"B.DAT", 0x4100, 0));
+    success(&service(&mut dos, 0x4f00, 0, 0, 0));
+    assert_eq!(found_name(&dta(&mut dos, 0x10600)), "C.DAT");
+    success(&path_service(&mut dos, b"C.DAT", 0x4100, 0));
+    error(&service(&mut dos, 0x4f00, 0, 0, 0), 18);
+
+    // A new alphabetically earlier name must not move existing search positions.
+    service(&mut dos, 0x1a00, 0, 0, 0x80);
+    for name in [b"0.DAT".as_slice(), b"B.DAT"] {
+        let handle = success(&path_service(&mut dos, name, 0x3c00, 0));
+        success(&service(&mut dos, 0x3e00, handle, 0, 0));
+    }
+    let mut found = names(&mut dos, b"*.DAT", 0);
+    found.sort();
+    assert_eq!(found, ["0.DAT", "B.DAT"]);
+    // Restoring the old search also skips the deleted C entry.
+    dos.runtime()
+        .machine()
+        .memory()
+        .write(0x10080, &saved)
+        .unwrap();
+    success(&service(&mut dos, 0x4f00, 0, 0, 0));
+    assert_eq!(found_name(&dta(&mut dos, 0x10080)), "B.DAT");
+    success(&service(&mut dos, 0x4f00, 0, 0, 0));
+    assert_eq!(found_name(&dta(&mut dos, 0x10080)), "0.DAT");
+    error(&service(&mut dos, 0x4f00, 0, 0, 0), 18);
+}
+
 async fn check_discovery_program() {
     let mut dos = common::dos().await;
     for (name, contents) in [
@@ -235,4 +286,15 @@ fn searches_filter_attributes_and_encode_dos_find_data() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn searches_filter_attributes_and_encode_dos_find_data() {
     check_attributes().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn searches_continue_after_deleting_results_and_restoring_dtas() {
+    pollster::block_on(check_search_deletion());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn searches_continue_after_deleting_results_and_restoring_dtas() {
+    check_search_deletion().await;
 }
