@@ -56,6 +56,7 @@ struct OpenFile {
     deny_read: bool,
     deny_write: bool,
     compatibility: bool,
+    written: bool,
 }
 
 impl Files {
@@ -152,8 +153,8 @@ impl Files {
         };
         // Existing files are truncated only after sharing and capacity checks.
         let handle = self.open_file(file.clone(), 2)?;
-        file.set_len(0)
-            .expect("truncating a writable file does not allocate");
+        self.write(handle, &[])
+            .expect("truncating a new writable handle does not allocate");
         file.set_read_only(attributes & READ_ONLY_ATTRIBUTE != 0);
         self.attributes
             .insert(path, (attributes | ARCHIVE_ATTRIBUTE) as u8);
@@ -169,6 +170,7 @@ impl Files {
             deny_read: matches!(mode & 0x70, 0x10 | 0x30),
             deny_write: matches!(mode & 0x70, 0x10 | 0x20),
             compatibility: mode & 0x70 == 0,
+            written: false,
         };
         let read_only = entry.file.is_read_only();
         if self.handles.iter().flatten().any(|handle| {
@@ -226,6 +228,7 @@ impl Files {
             open.file
                 .set_len(u64::from(open.position))
                 .map_err(|_| DosError::AccessDenied)?;
+            open.written = true;
             return Ok(0);
         }
         // DOS cursors and file sizes remain 32-bit even though VFS offsets are u64.
@@ -238,6 +241,7 @@ impl Files {
             .write_at(bytes, u64::from(open.position))
             .map_err(|_| DosError::AccessDenied)?;
         open.position += count as u32;
+        open.written = true;
         Ok(count)
     }
 
@@ -281,6 +285,30 @@ impl Files {
             .ok_or(DosError::InvalidHandle)?;
         *slot = Some(open);
         Ok(())
+    }
+
+    pub(crate) fn device_information(&self, handle: u16) -> Result<u16, DosError> {
+        const DRIVE_C: u16 = 2;
+        const FILE_NOT_WRITTEN: u16 = 1 << 6;
+        const CHARACTER_DEVICE: u16 = 1 << 7;
+        const INPUT_NOT_EOF: u16 = 1 << 6;
+        const STANDARD_INPUT: u16 = 1;
+        const STANDARD_OUTPUT: u16 = 2;
+        Ok(match self.handle(handle)? {
+            OpenHandle::File(file) => {
+                DRIVE_C
+                    | if file.borrow().written {
+                        0
+                    } else {
+                        FILE_NOT_WRITTEN
+                    }
+            }
+            // Console handles describe CON, regardless of their access direction.
+            OpenHandle::ConsoleInput | OpenHandle::ConsoleOutput => {
+                CHARACTER_DEVICE | INPUT_NOT_EOF | STANDARD_INPUT | STANDARD_OUTPUT
+            }
+            OpenHandle::Auxiliary | OpenHandle::Printer => CHARACTER_DEVICE | INPUT_NOT_EOF,
+        })
     }
 
     pub(crate) fn take_output(&mut self) -> Vec<u8> {

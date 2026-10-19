@@ -22,6 +22,7 @@
 //! AH=42h seeks within those files relative to their start, current position or end.
 //! AH=45h/46h duplicate handles, sharing file positions and allowing redirection.
 //! AH=09h string output follows the current stdout handle, just like AH=40h.
+//! AX=4400h reports file/device information for the object behind a handle.
 //! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
 //! or [`Dos::load_mz`], passing startup inputs in [`LoadOptions`].
 //! The host chooses the Wasm backend and controls execution through

@@ -3,6 +3,7 @@
 mod console;
 mod directories;
 mod files;
+mod ioctl;
 mod memory;
 mod search;
 mod system;
@@ -29,6 +30,7 @@ const CLOSE_HANDLE: u8 = 0x3e;
 const READ_HANDLE: u8 = 0x3f;
 const WRITE_HANDLE: u8 = 0x40;
 const SEEK_HANDLE: u8 = 0x42;
+const IOCTL: u8 = 0x44;
 const DUPLICATE_HANDLE: u8 = 0x45;
 const FORCE_DUPLICATE_HANDLE: u8 = 0x46;
 const ALLOCATE_MEMORY: u8 = 0x48;
@@ -58,6 +60,7 @@ pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
         READ_HANDLE => files::read(call),
         WRITE_HANDLE => files::write(call),
         SEEK_HANDLE => files::seek(call),
+        IOCTL => ioctl::ioctl(call),
         DUPLICATE_HANDLE => files::duplicate(call),
         FORCE_DUPLICATE_HANDLE => files::force_duplicate(call),
         ALLOCATE_MEMORY => memory::allocate(call),
