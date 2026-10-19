@@ -59,6 +59,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             // so it cannot restart that instruction from its entry state.
             can_fallback: false,
             observed_cpu: None,
+            successors: Vec::new(),
         }
     }
 

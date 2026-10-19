@@ -2,6 +2,7 @@ mod blocks;
 mod budget;
 mod dispatch;
 mod fetch;
+mod links;
 
 use super::*;
 use crate::SegmentProfile;

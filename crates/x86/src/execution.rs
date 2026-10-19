@@ -50,6 +50,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     completed: u32,
     can_fallback: bool,
     observed_cpu: Option<&'module CpuState>,
+    successors: Vec<u32>,
 }
 
 impl<'body, 'module> ExecutionBuilder<'body, 'module> {
@@ -78,6 +79,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             completed: 0,
             can_fallback: false,
             observed_cpu: None,
+            successors: Vec::new(),
         })
     }
 
@@ -98,6 +100,8 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         &mut self,
         mut decoded: DecodedInstruction<V, P>,
     ) -> Result<(), BuildError> {
+        self.successors.clear();
+        let requires_dispatch = decoded.instruction.requires_dispatch();
         self.eip = self.body.value(decoded.eip)?;
         let fallthrough_eip = self.body.value(decoded.fallthrough_eip)?;
         self.address_size = decoded.instruction.address_size;
@@ -109,6 +113,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             .take()
             .map(|opcode| opcode.bits());
         self.eip = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
+        if requires_dispatch {
+            self.successors.clear();
+        } else if let Some(eip) = self.body.constant_bits(&self.eip)? {
+            self.successors = vec![eip as u32];
+        }
         self.completed += 1;
         Ok(())
     }

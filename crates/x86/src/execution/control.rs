@@ -4,7 +4,8 @@ mod far;
 
 pub(crate) use far::CodeTarget;
 
-use relocade_compiler::{BuildError, Val, I1, I32};
+use relocade_compiler::{BuildError, Func, Val, I1, I32};
+use std::collections::BTreeMap;
 
 use crate::{exception::Exception, memory::Intent, segment::Segment};
 
@@ -43,7 +44,38 @@ impl ExecutionBuilder<'_, '_> {
         fallthrough: Val<I32>,
     ) -> Result<Val<I32>, BuildError> {
         self.check_code_target(&target, Some(&taken))?;
+        for successor in [&target, &fallthrough] {
+            if let Some(eip) = self.body.constant_bits(successor)? {
+                self.successors.push(eip as u32);
+            }
+        }
         Ok(taken.select(target, fallthrough))
+    }
+
+    /// Uses direct tail calls for known successors in this immutable group.
+    /// Every edge publishes state and checks the budget before entering its target.
+    pub(crate) fn dispatch_linked(self, entries: &BTreeMap<u32, Func>) -> Result<(), BuildError> {
+        let runtime = self.runtime;
+        let mut successors: Vec<_> = self
+            .successors
+            .iter()
+            .copied()
+            .filter(|eip| entries.contains_key(eip))
+            .collect();
+        successors.sort_unstable();
+        successors.dedup();
+        self.finish(true, |mut body, eip| {
+            if let Some(target) = body.constant_bits(eip)? {
+                if successors.contains(&(target as u32)) {
+                    return body.tail_call(entries[&(target as u32)], &[]);
+                }
+            }
+            body.switch(eip, &successors, |arm, target| match target {
+                Some(target) => arm.tail_call(entries[&target], &[]),
+                None => runtime.dispatch(arm),
+            })?;
+            body.trap()
+        })
     }
 
     fn check_code_target(

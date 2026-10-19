@@ -66,6 +66,7 @@ pub(super) struct Instruction<V> {
     call: HandlerCall<Location<V>, Operand<V>>,
     condition: Option<Condition>,
     ends_block: bool,
+    requires_dispatch: bool,
     requirements: Requirements,
     pub(super) address_size: AddressSize,
     pub(super) segment_override: SegmentOverride,
@@ -96,6 +97,11 @@ impl<V: Into<Val<I32>>> X87Opcode<V> {
 }
 
 impl<V> Instruction<V> {
+    /// Context changes and host interactions must return through shared dispatch.
+    pub(super) fn requires_dispatch(&self) -> bool {
+        self.requires_dispatch
+    }
+
     pub(super) fn ends_block(&self) -> bool {
         self.ends_block
     }
