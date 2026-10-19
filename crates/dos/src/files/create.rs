@@ -1,0 +1,98 @@
+//! File creation, including unique temporary names, shares DOS handle policy.
+
+use super::{Files, ARCHIVE_ATTRIBUTE, HIDDEN_ATTRIBUTE, READ_ONLY_ATTRIBUTE, SYSTEM_ATTRIBUTE};
+use crate::{error::DosError, path};
+use std::io::ErrorKind;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum CreateMode {
+    TruncateExisting,
+    FailIfExists,
+}
+
+impl Files {
+    pub(crate) fn create(
+        &mut self,
+        path: &[u8],
+        attributes: u16,
+        mode: CreateMode,
+    ) -> Result<u16, DosError> {
+        // DOS owns hidden/system/archive flags; VFS enforces read-only opens.
+        if attributes
+            & !(READ_ONLY_ATTRIBUTE | HIDDEN_ATTRIBUTE | SYSTEM_ATTRIBUTE | ARCHIVE_ATTRIBUTE)
+            != 0
+        {
+            return Err(DosError::AccessDenied);
+        }
+        let path = path::file_path(path, &self.current_directory).ok_or(DosError::PathNotFound)?;
+        if !self.filesystem.is_dir(path::parent(&path)) {
+            return Err(DosError::PathNotFound);
+        }
+        if mode == CreateMode::FailIfExists
+            && self
+                .filesystem
+                .metadata(&path)
+                .is_ok_and(|entry| entry.is_file())
+        {
+            return Err(DosError::FileExists);
+        }
+        let file = match self.filesystem.open_read_write(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                // Check capacity before publishing a new file. It cannot share
+                // identity with an existing handle, so sharing checks will pass.
+                self.vacant_handle()?;
+                self.filesystem
+                    .create_new(&path)
+                    .map_err(|_| DosError::AccessDenied)?
+            }
+            Err(_) => return Err(DosError::AccessDenied),
+        };
+        // Existing files are truncated only after sharing and capacity checks.
+        let handle = self.open_file(file.clone(), path.clone(), 2)?;
+        self.write(handle, &[])
+            .expect("truncating a new writable handle does not allocate");
+        file.set_read_only(attributes & READ_ONLY_ATTRIBUTE != 0);
+        self.attributes
+            .insert(path, (attributes | ARCHIVE_ATTRIBUTE) as u8);
+        Ok(handle)
+    }
+
+    /// Replaces the supplied directory with the created path only on success.
+    pub(crate) fn create_temporary(
+        &mut self,
+        path: &mut Vec<u8>,
+        attributes: u16,
+    ) -> Result<u16, DosError> {
+        let mut candidate = path.clone();
+        // DOS 5 inserts a missing separator, so an empty path names the root.
+        if !matches!(candidate.last(), Some(b'\\' | b'/')) {
+            candidate.push(b'\\');
+        }
+        let directory =
+            path::resolve(&candidate, &self.current_directory).ok_or(DosError::PathNotFound)?;
+        if !self.filesystem.is_dir(&directory) {
+            return Err(DosError::PathNotFound);
+        }
+        let prefix_len = candidate.len();
+        let first_name = self.next_temporary_name;
+        loop {
+            // Eight hexadecimal digits fit a DOS filename without using the clock.
+            let name = format!("{:08X}", self.next_temporary_name);
+            self.next_temporary_name = self.next_temporary_name.wrapping_add(1);
+            candidate.truncate(prefix_len);
+            candidate.extend_from_slice(name.as_bytes());
+            let canonical = path::file_path(&candidate, &self.current_directory)
+                .ok_or(DosError::PathNotFound)?;
+            // A directory can occupy a generated name too.
+            if self.filesystem.metadata(&canonical).is_err() {
+                let handle = self.create(&candidate, attributes, CreateMode::FailIfExists)?;
+                *path = candidate;
+                return Ok(handle);
+            }
+            if self.next_temporary_name == first_name {
+                return Err(DosError::AccessDenied);
+            }
+        }
+    }
+}

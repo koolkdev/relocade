@@ -10,9 +10,11 @@ use std::{
 };
 
 mod attributes;
+mod create;
 mod directories;
 mod search;
 mod short_name;
+pub(crate) use create::CreateMode;
 use relocade_vfs::{File, MemoryFileSystem, Metadata};
 pub(crate) use search::FIND_DATA_BYTES;
 
@@ -31,17 +33,12 @@ pub enum FileAccess {
     ReadWrite,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub(crate) enum CreateMode {
-    TruncateExisting,
-    FailIfExists,
-}
-
 #[derive(Default)]
 pub(crate) struct Files {
     filesystem: MemoryFileSystem,
     current_directory: String,
     attributes: BTreeMap<String, u8>,
+    next_temporary_name: u32,
     search_directories: Vec<search::SearchDirectory>,
     handles: [Option<OpenHandle>; HANDLE_COUNT],
     output: Vec<u8>,
@@ -169,53 +166,6 @@ impl Files {
             _ => DosError::AccessDenied,
         })?;
         self.open_file(file, path, mode)
-    }
-
-    pub(crate) fn create(
-        &mut self,
-        path: &[u8],
-        attributes: u16,
-        mode: CreateMode,
-    ) -> Result<u16, DosError> {
-        // DOS owns hidden/system/archive flags; VFS enforces read-only opens.
-        if attributes
-            & !(READ_ONLY_ATTRIBUTE | HIDDEN_ATTRIBUTE | SYSTEM_ATTRIBUTE | ARCHIVE_ATTRIBUTE)
-            != 0
-        {
-            return Err(DosError::AccessDenied);
-        }
-        let path = path::file_path(path, &self.current_directory).ok_or(DosError::PathNotFound)?;
-        if !self.filesystem.is_dir(path::parent(&path)) {
-            return Err(DosError::PathNotFound);
-        }
-        if mode == CreateMode::FailIfExists
-            && self
-                .filesystem
-                .metadata(&path)
-                .is_ok_and(|entry| entry.is_file())
-        {
-            return Err(DosError::FileExists);
-        }
-        let file = match self.filesystem.open_read_write(&path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == ErrorKind::NotFound => {
-                // Check capacity before publishing a new file. It cannot share
-                // identity with an existing handle, so sharing checks will pass.
-                self.vacant_handle()?;
-                self.filesystem
-                    .create_new(&path)
-                    .map_err(|_| DosError::AccessDenied)?
-            }
-            Err(_) => return Err(DosError::AccessDenied),
-        };
-        // Existing files are truncated only after sharing and capacity checks.
-        let handle = self.open_file(file.clone(), path.clone(), 2)?;
-        self.write(handle, &[])
-            .expect("truncating a new writable handle does not allocate");
-        file.set_read_only(attributes & READ_ONLY_ATTRIBUTE != 0);
-        self.attributes
-            .insert(path, (attributes | ARCHIVE_ATTRIBUTE) as u8);
-        Ok(handle)
     }
 
     fn open_file(&mut self, file: File, path: String, mode: u8) -> Result<u16, DosError> {

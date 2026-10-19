@@ -51,6 +51,28 @@ pub(super) fn create(call: &mut HostCall<'_, DosState>, mode: CreateMode) -> Con
     return_result(call, result)
 }
 
+/// AH=5Ah: create a temporary file in DS:DX's directory and return its path and AX.
+pub(super) fn create_temporary(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let attributes = call.cpu().cx();
+    let result = read_path(call).and_then(|mut path| {
+        let handle = call
+            .state_mut()
+            .files
+            .create_temporary(&mut path, attributes)?;
+        let cpu = call.cpu();
+        let base = cpu.segment(Segment::Ds).base;
+        let offset = cpu.dx();
+        for (index, byte) in path.into_iter().chain([0]).enumerate() {
+            call.memory()
+                .write(base + u32::from(offset.wrapping_add(index as u16)), &[byte])
+                .expect("real-mode temporary path buffer");
+        }
+        call.cpu().set_ax(handle);
+        Ok(())
+    });
+    return_result(call, result)
+}
+
 /// AH=3Dh: open the NUL-terminated path at DS:DX using AL's access mode.
 pub(super) fn open(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     let mode = call.cpu().al();
