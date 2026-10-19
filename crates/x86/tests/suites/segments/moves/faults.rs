@@ -183,8 +183,8 @@ fn invalid_segment_encodings_are_rejected_before_address_bytes_or_source_access(
             // Memory mode needs an unmapped disp32 after the ModRM byte.
             let code = [opcode, (mode << 6) | (extension << 3) | 5];
             assert!(matches!(
-                wasm86_x86::compile_block_from_bytes(0x1ffe, &code, 1),
-                Err(wasm86_x86::BlockError::UnsupportedInstruction { .. })
+                relocade_x86::compile_block_from_bytes(0x1ffe, &code, 1),
+                Err(relocade_x86::BlockError::UnsupportedInstruction { .. })
             ));
             let mut image = Image::empty();
             image.cpu.eip = 0x1ffe;

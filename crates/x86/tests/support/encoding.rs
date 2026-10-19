@@ -1,6 +1,6 @@
 //! Shared checks for the exact extent of an instruction encoding.
 
-use wasm86_x86::{compile_block_from_bytes, BlockError, CompiledModule};
+use relocade_x86::{compile_block_from_bytes, BlockError, CompiledModule};
 use wasmparser::Validator;
 
 /// Rejects an invalid form before either decoder requests unavailable trailing bytes.

@@ -8,7 +8,7 @@ use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
 };
-use wasm86_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile, Segments};
+use relocade_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile, Segments};
 use wasmparser::{Operator, Parser, Payload, TypeRef};
 
 fn fences(frontend: Frontend) {
@@ -69,7 +69,7 @@ fn explicit_fences_remain_between_memory_effects() {
                     for import in imports {
                         let import = import.unwrap();
                         if matches!(import.ty, TypeRef::Memory(_)) {
-                            if import.module == "wasm86" && import.name == "guest" {
+                            if import.module == "relocade" && import.name == "guest" {
                                 guest = Some(memory_index);
                             }
                             memory_index += 1;

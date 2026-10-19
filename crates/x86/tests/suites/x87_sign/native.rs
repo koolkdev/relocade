@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule, x87::write_register_bits};
-use wasm86_x86::{CompiledModule, Compiler, CpuState};
+use relocade_x86::{CompiledModule, Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
 
 fn compiler() -> Compiler {

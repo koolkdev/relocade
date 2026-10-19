@@ -4,8 +4,8 @@
 #[cfg(test)]
 mod tests;
 
+use relocade_x86::{page_table, CpuState};
 use std::{collections::BTreeMap, fmt};
-use wasm86_x86::{page_table, CpuState};
 
 pub(crate) use super::machine::Exit;
 

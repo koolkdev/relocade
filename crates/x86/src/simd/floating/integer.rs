@@ -2,7 +2,7 @@
 
 use super::{FloatOperand, FloatResult, SimdExceptions};
 use crate::floating::{BinaryEncoding, BinaryFormat, RoundingInput, RoundingMode};
-use wasm86_compiler::{AtLeast, Val, I32, I64};
+use relocade_compiler::{AtLeast, Val, I32, I64};
 
 pub(crate) fn integer_to_float<T: BinaryEncoding>(
     value: Val<I32>,

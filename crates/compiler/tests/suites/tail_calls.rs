@@ -1,7 +1,7 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 
-use wasm86_compiler::{
+use relocade_compiler::{
     BuildError, FunctionImport, Program, Signature, Type, I1, I16, I32, I64, I8,
 };
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Validator};

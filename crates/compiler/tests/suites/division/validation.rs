@@ -1,6 +1,6 @@
 use super::{operators, Kind, KINDS};
 use crate::fixture::{signature, Fixture};
-use wasm86_compiler::{BuildError, Program, Type, Val, I1, I32, I64};
+use relocade_compiler::{BuildError, Program, Type, Val, I1, I32, I64};
 use wasmparser::Operator;
 
 #[test]

@@ -2,9 +2,9 @@
 //! modules instantiated there can share imported memories, tables and functions.
 
 use crate::Result;
+use relocade_compiler::{abi::Function, I64};
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
-use wasm86_compiler::{abi::Function, I64};
 
 mod host;
 mod imports;
@@ -104,8 +104,8 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// The import owns its handle without borrowing the backend.
     ///
     /// ```
-    /// use wasm86_compiler::{abi::Function, I16, I32};
-    /// use wasm86_runtime::wasm::{HostFunction, WasmBackend};
+    /// use relocade_compiler::{abi::Function, I16, I32};
+    /// use relocade_runtime::wasm::{HostFunction, WasmBackend};
     /// const READ: Function<fn(I16, I32) -> I32> = Function::new("example", "read");
     /// fn bind<B: HostFunction<fn(I16, I32) -> I32>>(backend: &mut B) {
     ///     let _ = backend.bind_host(READ, Box::new(|_, port, width| port + width));
@@ -114,8 +114,8 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     ///
     /// A callback with a different return type is rejected by Rust:
     /// ```compile_fail
-    /// use wasm86_compiler::{abi::Function, I16, I32};
-    /// use wasm86_runtime::wasm::{HostFunction, WasmBackend};
+    /// use relocade_compiler::{abi::Function, I16, I32};
+    /// use relocade_runtime::wasm::{HostFunction, WasmBackend};
     /// const READ: Function<fn(I16, I32) -> I32> = Function::new("example", "read");
     /// fn bind<B: HostFunction<fn(I16, I32) -> I32>>(backend: &mut B) {
     ///     let _ = backend.bind_host(READ, Box::new(|_, _, _| 0_i64));
@@ -123,8 +123,8 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// ```
     /// Parameter types must match too:
     /// ```compile_fail
-    /// use wasm86_compiler::{abi::Function, I32, I64};
-    /// use wasm86_runtime::wasm::{HostFunction, WasmBackend};
+    /// use relocade_compiler::{abi::Function, I32, I64};
+    /// use relocade_runtime::wasm::{HostFunction, WasmBackend};
     /// const WRITE: Function<fn(I32, I32, I64)> = Function::new("example", "write");
     /// fn bind<B: HostFunction<fn(I32, I32, I64)>>(backend: &mut B) {
     ///     let _ = backend.bind_host(WRITE, Box::new(|_, _, _, value: i32| {}));

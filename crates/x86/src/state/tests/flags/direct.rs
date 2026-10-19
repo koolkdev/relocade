@@ -6,7 +6,7 @@ use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::FlagBytes;
 use crate::{CompiledModule, CpuState, Gpr32};
-use wasm86_compiler::{Program, Signature, Type, I1, I32, I64, I8};
+use relocade_compiler::{Program, Signature, Type, I1, I32, I64, I8};
 
 fn initial_cpu() -> CpuState {
     let mut cpu = CpuState::from_bytes(std::array::from_fn(|index| index as u8));

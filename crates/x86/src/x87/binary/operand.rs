@@ -1,6 +1,6 @@
 //! Narrow sources retain their original exception evidence until consumption.
 
-use wasm86_compiler::{Val, F64, I1, I64};
+use relocade_compiler::{Val, F64, I1, I64};
 
 use crate::floating::{BinaryClassification, BinaryFormat};
 use crate::x87::{ExtendedBits, ExtendedValue};

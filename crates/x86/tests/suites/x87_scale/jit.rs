@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use wasm86_x86::{Compiler, CpuState};
+use relocade_x86::{Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
 
 fn native_significand() {

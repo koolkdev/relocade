@@ -1,5 +1,5 @@
 use crate::fixture::Fixture;
-use wasm86_compiler::{Type, I1, I16, I32, I64, I8};
+use relocade_compiler::{Type, I1, I16, I32, I64, I8};
 
 #[test]
 fn computed_i32_shift_counts_wrap_at_32_bits() {

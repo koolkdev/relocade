@@ -4,7 +4,7 @@ use std::mem::{offset_of, size_of};
 
 use super::CpuState;
 
-/// Backing layout of `wasm86.executionContext`, shared by generated entries.
+/// Backing layout of `relocade.executionContext`, shared by generated entries.
 /// Field bytes are little endian on every host. CPU snapshots exchange only
 /// `cpu`; host execution controls remain in the enclosing context.
 #[repr(C)]

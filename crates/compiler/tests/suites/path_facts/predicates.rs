@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_compiler::I64;
+use relocade_compiler::I64;
 
 fn excluded_interval() -> TestModule {
     Fixture::new().function(&[Type::I64], &[Type::I64], |mut body| {

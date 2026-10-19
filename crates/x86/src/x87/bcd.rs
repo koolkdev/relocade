@@ -1,7 +1,7 @@
 //! The memory-only decimal format holds eighteen digits and a separate sign.
 
 use crate::floating::RoundingMode;
-use wasm86_compiler::{Val, I1, I16, I32, I64};
+use relocade_compiler::{Val, I1, I16, I32, I64};
 
 use super::{value::KnownClass, ConversionResult, ExtendedBits, ExtendedValue};
 

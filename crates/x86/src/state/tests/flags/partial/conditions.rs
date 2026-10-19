@@ -4,7 +4,7 @@ use crate::flags::{Condition, FlagChange, StatusFlag};
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::CompiledModule;
-use wasm86_compiler::{AtLeast, MemoryInt, Program, Signature, Type, I1, I16, I32, I64, I8};
+use relocade_compiler::{AtLeast, MemoryInt, Program, Signature, Type, I1, I16, I32, I64, I8};
 
 use super::super::fixture::{assert_result, initial_cpu};
 

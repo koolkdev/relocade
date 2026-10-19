@@ -1,6 +1,6 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, MemoryBytes, TestModule, Value};
-use wasm86_compiler::{FunctionImport, MemoryImport, Type, Val, I1, I32};
+use relocade_compiler::{FunctionImport, MemoryImport, Type, Val, I1, I32};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 fn operators(module: &TestModule) -> Vec<Operator<'_>> {
@@ -229,7 +229,7 @@ fn terminating_result(exit: Exit, condition: bool, observe: bool) -> TestModule 
     let state = fixture.memory("state", &[0, 0, 0, 0]);
     let tail = fixture.callback("tail", signature(&[], &[Type::I32]), &[Value::I32(19)]);
     fixture.function(&[], &[Type::I32], |mut body| {
-        let arm = |mut arm: wasm86_compiler::BlockBuilder<'_>, taken: bool| {
+        let arm = |mut arm: relocade_compiler::BlockBuilder<'_>, taken: bool| {
             if !taken {
                 return arm.yield_(23);
             }

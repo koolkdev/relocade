@@ -5,7 +5,7 @@ use crate::support::{
     machine::expected,
     step::{Event, TestModule},
 };
-use wasm86_compiler::{FunctionImport, Program, Signature, Type};
+use relocade_compiler::{FunctionImport, Program, Signature, Type};
 
 #[test]
 fn handoff_registers_the_real_mode_interpreters_memory_imports() {
@@ -16,7 +16,7 @@ fn handoff_registers_the_real_mode_interpreters_memory_imports() {
         results: vec![Type::I64],
     };
     let interpret = program.import_function(FunctionImport {
-        module: "wasm86".into(),
+        module: "relocade".into(),
         name: "interpret".into(),
         signature: signature.clone(),
     });
@@ -24,7 +24,7 @@ fn handoff_registers_the_real_mode_interpreters_memory_imports() {
         .function(signature, |body| body.tail_call(interpret, &[]))
         .unwrap();
     program.export("enter", entry).unwrap();
-    let module = TestModule::new(&wasm86_x86::CompiledModule {
+    let module = TestModule::new(&relocade_x86::CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "enter".into(),
         execution_target: Some(crate::Compiler::new(ExecutionProfile::Real16).target()),

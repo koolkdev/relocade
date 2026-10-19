@@ -45,7 +45,7 @@ mod state;
 mod x87;
 
 #[cfg(test)]
-extern crate self as wasm86_x86;
+extern crate self as relocade_x86;
 
 #[cfg(test)]
 #[path = "../tests/support/mod.rs"]
@@ -115,7 +115,7 @@ pub enum BlockError {
         address: u32,
         opcode: u8,
     },
-    Compiler(wasm86_compiler::BuildError),
+    Compiler(relocade_compiler::BuildError),
 }
 
 impl fmt::Display for BlockError {
@@ -154,8 +154,8 @@ impl std::error::Error for BlockError {
     }
 }
 
-impl From<wasm86_compiler::BuildError> for BlockError {
-    fn from(error: wasm86_compiler::BuildError) -> Self {
+impl From<relocade_compiler::BuildError> for BlockError {
+    fn from(error: relocade_compiler::BuildError) -> Self {
         Self::Compiler(error)
     }
 }

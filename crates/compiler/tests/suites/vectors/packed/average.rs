@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_compiler::AtLeast;
+use relocade_compiler::AtLeast;
 
 fn lanes<T: VectorLane>(left: u128, right: u128, result: u128)
 where

@@ -1,6 +1,6 @@
 //! Exact PC53 inputs use one native root and an exact low-word residual.
 
-use wasm86_compiler::{Val, F64, I16, I64};
+use relocade_compiler::{Val, F64, I16, I64};
 
 use crate::floating::BinaryFormat;
 

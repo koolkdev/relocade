@@ -1,7 +1,7 @@
 //! FSCALE changes the extended exponent at full precision, leaving ST(1) intact.
 
 use crate::floating::{FiniteMagnitude, RoundingInput, RoundingMode};
-use wasm86_compiler::{Val, I16, I32};
+use relocade_compiler::{Val, I16, I32};
 
 use super::{
     result::RoundedValue,

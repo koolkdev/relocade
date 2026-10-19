@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::step::TestModule;
-use wasm86_x86::{compile_block_from_bytes, BlockError};
+use relocade_x86::{compile_block_from_bytes, BlockError};
 
 fn registers(frontend: Frontend) {
     let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);

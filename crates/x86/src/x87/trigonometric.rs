@@ -3,7 +3,7 @@
 mod reduction;
 mod tangent;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64};
 
 use crate::floating::{FiniteMagnitude, MagnitudeShape, RoundingInput, RoundingMode};
 

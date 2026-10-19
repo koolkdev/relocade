@@ -14,14 +14,14 @@ use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
 /// CPU observations specialize snapshot blocks; interpreters read live state.
 ///
 /// ```
-/// use wasm86_x86::{Compiler, SegmentProfile};
+/// use relocade_x86::{Compiler, SegmentProfile};
 /// let compiler = Compiler::new(SegmentProfile::Flat32);
 /// let block = compiler.compile_block(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
 /// let run = compiler.compile_interpreter()?;
 /// let step = compiler.compile_interpreter_step()?;
 /// assert_eq!(run.entry, "run");
 /// assert_eq!(step.entry, "step");
-/// # Ok::<(), wasm86_x86::BlockError>(())
+/// # Ok::<(), relocade_x86::BlockError>(())
 /// ```
 pub struct Compiler {
     target: ExecutionTarget,
@@ -43,13 +43,13 @@ impl Compiler {
     /// Selects the same processor capabilities for blocks and interpreter entries.
     ///
     /// ```
-    /// use wasm86_x86::{Compiler, CpuFeature, CpuModel, SegmentProfile};
+    /// use relocade_x86::{Compiler, CpuFeature, CpuModel, SegmentProfile};
     /// let model = CpuModel::default().with_feature(CpuFeature::Cmov, false);
     /// let compiler = Compiler::new(SegmentProfile::Flat32).with_cpu_model(model);
     /// let block = compiler.compile_block(0x1000, &[0x0f, 0x44, 0xc0], 1)?;
     /// assert_eq!(block.execution_target, Some(compiler.target()));
     /// // Executing this CMOVE raises #UD without reading its operand.
-    /// # Ok::<(), wasm86_x86::BlockError>(())
+    /// # Ok::<(), relocade_x86::BlockError>(())
     /// ```
     #[must_use]
     pub fn with_cpu_model(mut self, cpu_model: CpuModel) -> Self {
@@ -69,11 +69,11 @@ impl Compiler {
     /// See the [observed-state contract](crate#observed-cpu-state) for consumers.
     ///
     /// ```
-    /// use wasm86_x86::{Compiler, CpuState, SegmentProfile};
+    /// use relocade_x86::{Compiler, CpuState, SegmentProfile};
     /// let cpu = CpuState::default();
     /// let compiler = Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&cpu);
     /// let block = compiler.compile_block(0x1000, &[0xd8, 0xc9], 1)?;
-    /// # Ok::<(), wasm86_x86::BlockError>(())
+    /// # Ok::<(), relocade_x86::BlockError>(())
     /// ```
     pub fn specialize_on_cpu(mut self, cpu: &CpuState) -> Self {
         self.observed_cpu = Some(*cpu);

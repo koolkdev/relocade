@@ -19,7 +19,7 @@ use crate::{
         step::{Event, SegmentResolution, TestModule},
     },
 };
-use wasm86_x86::{
+use relocade_x86::{
     DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
 };
 

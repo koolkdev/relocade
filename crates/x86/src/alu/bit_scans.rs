@@ -1,6 +1,6 @@
 //! First or last set-bit positions and their status flags.
 
-use wasm86_compiler::{MemoryInt, Val};
+use relocade_compiler::{MemoryInt, Val};
 
 use super::AluResult;
 use crate::alu::{AnyStatusSource, StatusSource};

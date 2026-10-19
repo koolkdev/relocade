@@ -1,6 +1,6 @@
 //! Reuse across repeated guards preserves skipped paths and iteration inputs.
 use super::*;
-use wasm86_compiler::I64;
+use relocade_compiler::I64;
 
 fn guarded_divisions(independent: bool) -> TestModule {
     Fixture::new().function(

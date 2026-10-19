@@ -1,6 +1,6 @@
 //! Live physical routing metadata. No device access occurs during a lookup.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, Program, Val, I1, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, Program, Val, I1, I32};
 
 use super::super::{
     physical_map::{MMIO, PAGE_MASK, PAGE_SHIFT, RAM, ROM},

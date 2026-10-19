@@ -1,6 +1,6 @@
 //! Native atomic encodings and the ordinary-access boundary.
 
-use wasm86_x86::compile_block_from_bytes;
+use relocade_x86::compile_block_from_bytes;
 use wasmparser::{Parser, Payload};
 
 fn atomic_instructions(code: &[u8]) -> Vec<String> {

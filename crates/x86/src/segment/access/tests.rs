@@ -5,7 +5,7 @@ use crate::{
     state::{exit, Cpu},
     CompiledModule, ExecutionProfile, SegmentProfile,
 };
-use wasm86_compiler::{Program, Signature, Type, Val, I32, I64};
+use relocade_compiler::{Program, Signature, Type, Val, I32, I64};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 mod ranges;

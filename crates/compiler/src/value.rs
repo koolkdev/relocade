@@ -46,7 +46,7 @@ use crate::{
 ///
 /// A boolean input requires I1:
 /// ```compile_fail
-/// use wasm86_compiler::{Val, I8};
+/// use relocade_compiler::{Val, I8};
 /// let value = Val::<I8>::from(false);
 /// ```
 #[derive(Clone)]
@@ -190,14 +190,14 @@ impl<T: IntType> Val<T> {
     ///
     /// Different integer types cannot be mixed, even when both use Wasm i32:
     /// ```compile_fail
-    /// use wasm86_compiler::{Val, I1, I8};
+    /// use relocade_compiler::{Val, I1, I8};
     /// fn add(left: &Val<I1>, right: &Val<I8>) {
     ///     let result = left.add(right);
     /// }
     /// ```
     /// A 64-bit literal requires a 64-bit receiver:
     /// ```compile_fail
-    /// use wasm86_compiler::{Val, I32};
+    /// use relocade_compiler::{Val, I32};
     /// fn add(value: &Val<I32>) {
     ///     let result = value.add(1_u64);
     /// }
@@ -291,7 +291,7 @@ impl<T: IntType> Val<T> {
 
     /// Retains the destination type's low bits. The destination cannot be wider.
     /// ```compile_fail
-    /// use wasm86_compiler::{Val, I8, I32};
+    /// use relocade_compiler::{Val, I8, I32};
     /// fn narrow(value: &Val<I8>) {
     ///     let result = value.truncate::<I32>();
     /// }
@@ -352,7 +352,7 @@ impl<T: IntType> Unsigned<'_, T> {
 
     /// Widens the logical value with zero bits. The destination cannot be narrower.
     /// ```compile_fail
-    /// use wasm86_compiler::{Val, I8, I32};
+    /// use relocade_compiler::{Val, I8, I32};
     /// fn widen(value: &Val<I32>) {
     ///     let result = value.unsigned().extend::<I8>();
     /// }

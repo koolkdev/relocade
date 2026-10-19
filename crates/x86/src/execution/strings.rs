@@ -2,7 +2,7 @@
 
 mod bulk;
 
-use wasm86_compiler::{BuildError, Val, I1, I32};
+use relocade_compiler::{BuildError, Val, I1, I32};
 
 use super::ExecutionBuilder;
 use crate::{
@@ -51,7 +51,7 @@ impl StringOperand {
         execution: &mut ExecutionBuilder<'_, '_>,
     ) -> Result<Val<T>, BuildError>
     where
-        I32: wasm86_compiler::AtLeast<T>,
+        I32: relocade_compiler::AtLeast<T>,
     {
         match &self.relative {
             Some(range) => {
@@ -75,7 +75,7 @@ impl StringOperand {
         value: &Val<T>,
     ) -> Result<(), BuildError>
     where
-        I32: wasm86_compiler::AtLeast<T>,
+        I32: relocade_compiler::AtLeast<T>,
     {
         self.write_from(execution, |_| Ok(value.clone()))
     }
@@ -88,7 +88,7 @@ impl StringOperand {
         read: impl FnOnce(&mut ExecutionBuilder<'_, '_>) -> Result<Val<T>, BuildError>,
     ) -> Result<(), BuildError>
     where
-        I32: wasm86_compiler::AtLeast<T>,
+        I32: relocade_compiler::AtLeast<T>,
     {
         assert!(matches!(self.intent, Intent::Write));
         match &self.relative {

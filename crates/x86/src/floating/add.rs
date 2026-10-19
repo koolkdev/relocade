@@ -1,7 +1,7 @@
 //! Exact alignment and cancellation shared by binary32, binary64 and extended arithmetic.
 
 use super::{FiniteInput, FiniteMagnitude, RoundingInput, RoundingMode};
-use wasm86_compiler::{BlockBuilder, BuildError, Results, Val, I1, I32, I64};
+use relocade_compiler::{BlockBuilder, BuildError, Results, Val, I1, I32, I64};
 
 const LEADING: u64 = 1 << 63;
 

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::alu::{AnyStatusSource, ArithmeticOp, StatusSource};
-use wasm86_compiler::I1;
+use relocade_compiler::I1;
 
 pub(super) enum ComparisonRepetition {
     Once,

@@ -1,5 +1,5 @@
 use crate::{storage::Storage, wasm::WasmCaller};
-use wasm86_machine::{Cpu, MachineConfig, MachineStorage, Memory};
+use relocade_machine::{Cpu, MachineConfig, MachineStorage, Memory};
 
 #[cfg(test)]
 mod tests;

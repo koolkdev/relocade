@@ -9,7 +9,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::Gpr32::{self, *};
+use relocade_x86::Gpr32::{self, *};
 
 #[rustfmt::skip]
 fn byte_cases() -> Vec<Case> {

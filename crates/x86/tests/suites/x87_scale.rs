@@ -9,7 +9,7 @@ use crate::support::{
     machine::Exit,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
-use wasm86_x86::SegmentProfile;
+use relocade_x86::SegmentProfile;
 
 const LEAD: u64 = 1 << 63;
 const CODE: [u8; 2] = [0xd9, 0xfd];

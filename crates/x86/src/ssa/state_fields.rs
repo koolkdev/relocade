@@ -3,7 +3,7 @@
 use super::TrackedValue;
 use std::marker::PhantomData;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryType, Val, I16, I32, I64, I8, V128};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, MemoryType, Val, I16, I32, I64, I8, V128};
 
 #[derive(Clone)]
 pub(crate) struct Location<T: SsaType> {

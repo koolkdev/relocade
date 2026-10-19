@@ -1,4 +1,4 @@
-use wasm86_x86::FlagBytes;
+use relocade_x86::FlagBytes;
 
 use super::machine::Image;
 

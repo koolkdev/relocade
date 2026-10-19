@@ -1,6 +1,6 @@
 //! A segment override can be fixed by snapshot decoding or carried at runtime.
 
-use wasm86_compiler::{Val, I32};
+use relocade_compiler::{Val, I32};
 
 use crate::segment::{Segment, SegmentSelection};
 

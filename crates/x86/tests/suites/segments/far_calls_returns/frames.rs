@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use wasm86_x86::StoredSegment;
+use relocade_x86::StoredSegment;
 
 #[test]
 fn call_forms_keep_operand_width_code_defaults_and_stack_width_independent() {

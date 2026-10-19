@@ -12,7 +12,7 @@ use crate::support::{
     machine::{Exit, Image, Step},
     x87::{complete_x87, dispatch, set_control, stack_image, status, write_register_bits},
 };
-use wasm86_x86::{CpuState, SegmentProfile};
+use relocade_x86::{CpuState, SegmentProfile};
 
 const TOP: u64 = 1 << 63;
 const PE: u16 = 0x20;

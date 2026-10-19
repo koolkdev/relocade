@@ -1,7 +1,9 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 
-use wasm86_compiler::{BuildError, FunctionImport, MemoryImport, Program, Type, I1, I32, I64, I8};
+use relocade_compiler::{
+    BuildError, FunctionImport, MemoryImport, Program, Type, I1, I32, I64, I8,
+};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
 fn dense_values() -> TestModule {

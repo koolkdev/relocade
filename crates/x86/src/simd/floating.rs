@@ -21,7 +21,7 @@ pub(crate) use packed::{
     PackedFloatCandidate, PackedFloatOperand,
 };
 
-use wasm86_compiler::{Val, ValueType, VectorLane, V128};
+use relocade_compiler::{Val, ValueType, VectorLane, V128};
 
 pub(crate) struct FloatResult<T: ValueType> {
     pub(crate) value: Val<T>,

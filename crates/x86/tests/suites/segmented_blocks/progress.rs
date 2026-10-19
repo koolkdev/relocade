@@ -7,7 +7,7 @@ use crate::support::{
     },
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Case},
 };
-use wasm86_x86::{
+use relocade_x86::{
     CpuState,
     Gpr32::{Eax, Ebx, Ecx, Edi, Esi, Esp},
     Segment,

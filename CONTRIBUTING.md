@@ -19,7 +19,7 @@ cargo doc --workspace --no-deps --locked
 While editing an instruction, select its suite and skip the full interpreter:
 
 ```sh
-cargo test -p wasm86-x86 --lib --locked decimal_adjust -- --skip interpreter
+cargo test -p relocade-x86 --lib --locked decimal_adjust -- --skip interpreter
 ```
 
 Case and sequence groups expose separate `block` and `interpreter` tests. The
@@ -55,7 +55,7 @@ rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.129 --locked
 CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
 CHROMEDRIVER=/path/to/chromedriver \
-cargo test -p wasm86-runtime-web --target wasm32-unknown-unknown --tests --locked
+cargo test -p relocade-runtime-web --target wasm32-unknown-unknown --tests --locked
 ```
 
 CI configures Chrome's binary path through `WASM_BINDGEN_TEST_WEBDRIVER_JSON`;
@@ -219,7 +219,7 @@ Give complete parent-register expectations for narrow writes. Unlisted registers
 and guest bytes must remain unchanged. Choose flag expectations deliberately:
 `Preserved` checks the prior logical value, `Undefined` accepts an architectural
 undefined result, and `preserving_flags` checks the whole incoming backing record.
-Use focused tests to protect wasm86's chosen undefined-result policy itself.
+Use focused tests to protect relocade's chosen undefined-result policy itself.
 
 Cases default to EIP `0x1000`, one retired instruction and fallthrough dispatch.
 Specify a different dispatch or fault explicitly. An ordinary instruction fault

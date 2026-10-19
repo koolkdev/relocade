@@ -1,7 +1,7 @@
 //! MASKMOV uses DS with overrides, an address-sized index, and no index update.
 
 use super::*;
-use wasm86_x86::{ExecutionProfile, Segments};
+use relocade_x86::{ExecutionProfile, Segments};
 
 fn addressing(frontend: Frontend) {
     for profile in [SegmentProfile::Segmented32.into(), ExecutionProfile::Real16] {

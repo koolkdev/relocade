@@ -1,7 +1,7 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 
-use wasm86_compiler::{IntType, Type, I1, I32, I64, I8};
+use relocade_compiler::{IntType, Type, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 fn direct_result<T: IntType>() -> TestModule {

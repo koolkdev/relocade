@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use wasm86_x86::{Compiler, ExecutionProfile, Segments};
+use relocade_x86::{Compiler, ExecutionProfile, Segments};
 
 fn lane_effects(frontend: Frontend) {
     let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);

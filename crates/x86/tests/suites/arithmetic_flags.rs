@@ -5,10 +5,10 @@ use crate::support::{
     },
     sequences::{test_sequences, Checkpoint, SequenceCase},
 };
-use wasm86_x86::Gpr32::{Eax, Ebx};
-use wasm86_x86::{FlagBytes, StoredStatusSource};
+use relocade_x86::Gpr32::{Eax, Ebx};
+use relocade_x86::{FlagBytes, StoredStatusSource};
 
-use wasm86_x86::{CpuState, StoredFlags};
+use relocade_x86::{CpuState, StoredFlags};
 
 #[path = "arithmetic_flags/cases.rs"]
 mod cases;

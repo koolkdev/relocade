@@ -5,8 +5,8 @@ pub(crate) use mxcsr::Mxcsr;
 
 use super::{access::cpu_location, ExecutionContext, State, StoredSimd};
 use crate::{register::RegisterCode, simd::SimdExceptions, ssa::Location};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, V128};
 use std::mem::offset_of;
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, V128};
 
 fn xmm_location(register: RegisterCode) -> Location<V128> {
     let base = offset_of!(ExecutionContext, cpu.simd.xmm) as u32;

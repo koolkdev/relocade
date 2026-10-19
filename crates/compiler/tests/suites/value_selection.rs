@@ -1,7 +1,7 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::TestModule;
 
-use wasm86_compiler::{BlockBuilder, Mem, Type, Val, I1, I32, I64, I8};
+use relocade_compiler::{BlockBuilder, Mem, Type, Val, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 fn selected_loads(body: &mut BlockBuilder<'_>, state: Mem) -> Val<I32> {

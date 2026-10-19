@@ -1,5 +1,5 @@
+use relocade_x86::{CpuState, Segment, Segments, StoredFlags, StoredSegment};
 use std::mem::offset_of;
-use wasm86_x86::{CpuState, Segment, Segments, StoredFlags, StoredSegment};
 
 use crate::{ConfigurationError, MachineConfig, MachineStorage};
 

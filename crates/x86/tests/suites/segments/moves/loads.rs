@@ -2,7 +2,7 @@ use super::super::selector_cases::loaded;
 use super::*;
 use crate::register::Gpr32;
 use crate::SegmentProfile;
-use wasm86_x86::StoredSegment;
+use relocade_x86::StoredSegment;
 
 #[test]
 fn segment_load_forms_take_a_low_word_and_commit_each_cache() {

@@ -1,6 +1,6 @@
 //! References to loaded segment registers, independent of their backing offsets.
 
-use wasm86_compiler::{Val, I1, I32};
+use relocade_compiler::{Val, I1, I32};
 
 use super::Segment;
 

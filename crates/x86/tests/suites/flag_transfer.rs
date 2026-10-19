@@ -8,7 +8,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::{
+use relocade_x86::{
     CpuState, FlagBytes,
     Gpr32::{Eax, Ebx, Ecx, Esi},
     StoredFlags, StoredStatusSource,

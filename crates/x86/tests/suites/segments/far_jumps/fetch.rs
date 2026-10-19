@@ -1,7 +1,7 @@
 use super::*;
 use crate::SegmentProfile;
-use wasm86_x86::StoredSegment;
-use wasm86_x86::{compile_block_from_bytes, BlockError};
+use relocade_x86::StoredSegment;
+use relocade_x86::{compile_block_from_bytes, BlockError};
 
 #[test]
 fn immediate_forms_require_complete_offset_and_selector_fields() {

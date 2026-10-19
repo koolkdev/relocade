@@ -7,7 +7,7 @@ use crate::{
     register::{Gpr32, Register, RegisterType},
     segment::{Segment, SegmentSelection},
 };
-use wasm86_compiler::{BuildError, Val, I16, I32};
+use relocade_compiler::{BuildError, Val, I16, I32};
 
 impl ExecutionBuilder<'_, '_> {
     pub(crate) fn address_size(&self) -> AddressSize {

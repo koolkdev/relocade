@@ -6,7 +6,7 @@ use super::page_table::{
 };
 use super::{Intent, PageCache, VirtualMemory};
 use crate::exception::Exception;
-use wasm86_compiler::{BlockBuilder, BuildError, MemoryType, Val, I1, I32};
+use relocade_compiler::{BlockBuilder, BuildError, MemoryType, Val, I1, I32};
 
 pub(super) type FaultHandler<'handler> = dyn for<'body> FnMut(BlockBuilder<'body>, Exception<Val<I32>>) -> Result<(), BuildError>
     + 'handler;

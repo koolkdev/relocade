@@ -7,7 +7,7 @@ use crate::{
     instruction::XmmType,
     simd::{FloatOperands, PackedFloatOperand},
 };
-use wasm86_compiler::{AtLeast, I64};
+use relocade_compiler::{AtLeast, I64};
 
 instruction_families! {
     COMISS {

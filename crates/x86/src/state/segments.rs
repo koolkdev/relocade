@@ -2,7 +2,7 @@
 
 use std::mem::size_of;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, ValueType, I1, I16, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Val, ValueType, I1, I16, I32};
 
 use crate::{
     segment::{Segment, SegmentSelection},

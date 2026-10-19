@@ -6,7 +6,7 @@ mod payload;
 #[cfg(test)]
 mod tests;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I8};
 
 use crate::{
     register::RegisterCode, ssa::StateFields, state::access::cpu_location, x87::ExtendedValue,

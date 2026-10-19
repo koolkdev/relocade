@@ -1,7 +1,7 @@
 //! Batched, read-only observations of logical flags from copied CPU records.
 
+use relocade_x86::CpuState;
 use std::sync::OnceLock;
-use wasm86_x86::CpuState;
 
 use super::{expectations::check_flag_values, ExpectedFlags, FlagExpectation, Flags};
 use crate::support::step::{Argument, CallPatches, Event, Input, Outcome, TestModule};

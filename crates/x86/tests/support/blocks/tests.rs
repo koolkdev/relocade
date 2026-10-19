@@ -1,5 +1,5 @@
+use relocade_x86::{CpuState, ExecutionProfile, SegmentProfile};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use wasm86_x86::{CpuState, ExecutionProfile, SegmentProfile};
 
 use super::BlockModules;
 
@@ -15,11 +15,11 @@ fn cache_hits_revalidate_cs_even_when_the_profile_stays_compatible() {
     blocks.get(&cpu, &[0xb0, 7], 1, profile);
     let valid = cpu;
     for cs in [
-        wasm86_x86::StoredSegment {
+        relocade_x86::StoredSegment {
             limit: 0x1000,
             ..valid.segments.cs
         },
-        wasm86_x86::StoredSegment {
+        relocade_x86::StoredSegment {
             usable: 0,
             ..valid.segments.cs
         },
@@ -75,7 +75,7 @@ fn admission_checks_only_instructions_inside_the_compilation_boundary() {
 #[test]
 fn cached_blocks_keep_their_cpu_model() {
     use crate::support::machine::{expected, Exit, Image, Step};
-    use wasm86_x86::{Compiler, CpuFeature, CpuModel};
+    use relocade_x86::{Compiler, CpuFeature, CpuModel};
 
     let code = [0x0f, 0x44, 0xc3]; // CMOVE EAX, EBX
     let mut image = Image::new(&code);

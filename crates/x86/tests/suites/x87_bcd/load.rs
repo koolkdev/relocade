@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule, x87::INDEFINITE};
-use wasm86_x86::compile_block_from_bytes;
+use relocade_x86::compile_block_from_bytes;
 
 fn instruction(address: u32) -> Vec<u8> {
     [&[0xdf, 0x25][..], &address.to_le_bytes()].concat()

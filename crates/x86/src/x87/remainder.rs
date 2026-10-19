@@ -1,6 +1,6 @@
 //! Partial remainders retain an exact value and the quotient's low bits.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64};
 
 use crate::floating::{quotient, FiniteMagnitude, RoundingInput, RoundingMode};
 

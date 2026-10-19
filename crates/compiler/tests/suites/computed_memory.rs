@@ -1,7 +1,7 @@
 use crate::fixture::Fixture;
 use crate::wasm::TestModule;
 
-use wasm86_compiler::{Type, I32, I64, I8};
+use relocade_compiler::{Type, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
 const WIDE: &[u8] = &[

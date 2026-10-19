@@ -1,8 +1,8 @@
 mod common;
 
 use common::Backend;
-use wasm86_dos::{Dos, DosState};
-use wasm86_x86::{CpuState, ExecutionExit, Segment, StoredSegment};
+use relocade_dos::{Dos, DosState};
+use relocade_x86::{CpuState, ExecutionExit, Segment, StoredSegment};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

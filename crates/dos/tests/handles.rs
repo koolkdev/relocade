@@ -1,7 +1,7 @@
 mod common;
 
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
-use wasm86_dos::FileAccess;
+use relocade_dos::FileAccess;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

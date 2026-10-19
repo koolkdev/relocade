@@ -1,9 +1,9 @@
 #![cfg(target_arch = "wasm32")]
 
-use wasm86_machine::MachineConfig;
-use wasm86_runtime::Runtime;
-use wasm86_runtime_web::WebBackend;
-use wasm86_x86::{
+use relocade_machine::MachineConfig;
+use relocade_runtime::Runtime;
+use relocade_runtime_web::WebBackend;
+use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
 };

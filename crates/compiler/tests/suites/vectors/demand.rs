@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::wasm::Call;
-use wasm86_compiler::{I16, I64, V64};
+use relocade_compiler::{I16, I64, V64};
 use wasmparser::{Operator, Parser, Payload};
 
 fn operations(bytes: &[u8]) -> Vec<Operator<'_>> {

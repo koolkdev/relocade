@@ -1,6 +1,6 @@
 //! Arithmetic register destinations share exception, rounding, and stack effects.
 
-use wasm86_compiler::{BuildError, Val, I1, I32};
+use relocade_compiler::{BuildError, Val, I1, I32};
 
 use crate::{
     execution::ExecutionBuilder,

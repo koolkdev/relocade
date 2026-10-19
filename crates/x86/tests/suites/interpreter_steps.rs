@@ -3,8 +3,8 @@ use crate::support::cases::{
 };
 use crate::support::machine::{check, Exit, Image, Step};
 use crate::support::step;
+use relocade_x86::{compile_block_from_bytes, CpuState, Gpr32};
 use step::TestModule;
-use wasm86_x86::{compile_block_from_bytes, CpuState, Gpr32};
 use wasmparser::{ExternalKind, Parser, Payload, TypeRef, ValType, Validator};
 
 const REGISTERS: [(Gpr32, u32); 8] = [
@@ -20,7 +20,7 @@ const REGISTERS: [(Gpr32, u32); 8] = [
 
 fn state(eip: u32) -> CpuState {
     let mut cpu = CpuState::filled(0xa5);
-    cpu.segments = wasm86_x86::Segments::flat32();
+    cpu.segments = relocade_x86::Segments::flat32();
     for (register, value) in REGISTERS {
         cpu.registers[register] = value;
     }
@@ -50,7 +50,7 @@ fn interpreter_step_exposes_host_abis() {
             Payload::ImportSection(section) => {
                 for import in section {
                     let import = import.unwrap();
-                    assert_eq!(import.module, "wasm86");
+                    assert_eq!(import.module, "relocade");
                     match import.ty {
                         TypeRef::Memory(memory) => {
                             assert!(!memory.memory64 && !memory.shared);

@@ -1,6 +1,6 @@
 use super::{test_frontends, Frontend, ImageSequences};
 use crate::support::machine::{Exit, Image, Step};
-use wasm86_x86::{ExecutionProfile, SegmentProfile};
+use relocade_x86::{ExecutionProfile, SegmentProfile};
 
 fn overlapping_prefix_writes(frontend: Frontend) {
     // MOV dword [4000],44332211; MOV word [4001],6655; NOP.

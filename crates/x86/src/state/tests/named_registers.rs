@@ -2,7 +2,7 @@ use super::super::{Cpu, State};
 use crate::register::{NamedRegister, Register, RegisterCode, RegisterOperand, RegisterType};
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState, Gpr32, Registers};
-use wasm86_compiler::{Program, Signature, Type, I1, I16, I32, I64, I8};
+use relocade_compiler::{Program, Signature, Type, I1, I16, I32, I64, I8};
 
 fn initial_cpu() -> CpuState {
     let mut cpu = CpuState {

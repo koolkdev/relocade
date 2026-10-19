@@ -1,6 +1,6 @@
 //! Atomic effect placement around reads, helper calls and control flow.
 
-use wasm86_compiler::{MemoryImport, Program, Signature, Type, I32};
+use relocade_compiler::{MemoryImport, Program, Signature, Type, I32};
 use wasmparser::{Operator, Parser, Payload};
 
 use crate::fixture::Fixture;

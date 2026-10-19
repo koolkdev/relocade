@@ -1,7 +1,7 @@
 use super::operators;
 use crate::fixture::Fixture;
 use crate::wasm::TestModule;
-use wasm86_compiler::{Type, I1, I32, I64};
+use relocade_compiler::{Type, I1, I32, I64};
 use wasmparser::Operator;
 
 struct Case {

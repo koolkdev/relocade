@@ -8,7 +8,7 @@ use crate::{
     memory::Intent,
     register::{Gpr32, RegisterCode},
 };
-use wasm86_compiler::{VectorLane, I64, V128};
+use relocade_compiler::{VectorLane, I64, V128};
 
 instruction_families! {
     MOVD_TO_XMM {

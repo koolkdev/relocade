@@ -3,7 +3,7 @@
 use super::*;
 use crate::simd::{FloatMinMax, FloatOperands, PackedFloatOperand};
 use crate::{floating::BinaryEncoding, instruction::XmmType};
-use wasm86_compiler::{AtLeast, I64};
+use relocade_compiler::{AtLeast, I64};
 
 instruction_families! {
     MINSS {

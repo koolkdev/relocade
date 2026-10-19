@@ -1,6 +1,6 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, MemoryBytes, Value};
-use wasm86_compiler::{Type, Val, I16, I32, I64, I8};
+use relocade_compiler::{Type, Val, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[path = "integer_ops/addressing.rs"]

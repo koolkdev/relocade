@@ -10,7 +10,9 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use wasm86_x86::{compile_block_from_bytes, CpuState, ExecutionProfile, SegmentProfile, Segments};
+use relocade_x86::{
+    compile_block_from_bytes, CpuState, ExecutionProfile, SegmentProfile, Segments,
+};
 
 const VENDOR: [u32; 4] = [1, 0x6f6c_6552, 0x5550_4320, 0x6564_6163];
 const FEATURES: [u32; 4] = [0x601, 0x800, 0, 0x0788_8111];

@@ -1,6 +1,6 @@
 //! PC53/nearest arithmetic retains native significands and x87's wider exponent range.
 
-use wasm86_compiler::{Val, F64, I1, I16, I32, I64};
+use relocade_compiler::{Val, F64, I1, I16, I32, I64};
 
 use super::{
     operand::{AddendSigns, BinaryOperands, Operand},

@@ -32,7 +32,7 @@ use crate::support::{
     machine::{Exit, Image, Step},
 };
 use memory::check_m128_span;
-use wasm86_x86::{CpuState, SegmentProfile};
+use relocade_x86::{CpuState, SegmentProfile};
 
 const LEFT: u128 = 0x01234567_89abcdef_fedcba98_76543210;
 const RIGHT: u128 = 0xf0f00f0f_55aaaa55_3333cccc_00ffff00;

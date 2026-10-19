@@ -162,7 +162,7 @@ fn shift_faults(frontend: Frontend) {
 #[test]
 fn mmx_immediate_shifts_reject_memory_destinations_before_reading_more_bytes() {
     use crate::support::step::TestModule;
-    use wasm86_x86::{compile_block_from_bytes, BlockError};
+    use relocade_x86::{compile_block_from_bytes, BlockError};
     for code in [[0x0f, 0x71, 0x34], [0x0f, 0x72, 0x24], [0x0f, 0x73, 0x14]] {
         assert_eq!(
             compile_block_from_bytes(0x1ffd, &code, 1).err(),

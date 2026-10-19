@@ -1,6 +1,6 @@
 use super::WasmtimeBackend;
-use wasm86_compiler::{Results, ValueType};
-use wasm86_runtime::wasm::{HostFunction, HostValue, WasmCaller, WasmMemoryAccess};
+use relocade_compiler::{Results, ValueType};
+use relocade_runtime::wasm::{HostFunction, HostValue, WasmCaller, WasmMemoryAccess};
 use wasmtime::{Func, Memory, WasmRet, WasmTy};
 
 macro_rules! host_function {

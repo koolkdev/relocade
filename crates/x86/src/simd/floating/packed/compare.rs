@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::simd::FloatMinMax;
-use wasm86_compiler::I8;
+use relocade_compiler::I8;
 
 impl PackedFloatOperand {
     /// Negated legacy predicates include unordered pairs. Exception masks are

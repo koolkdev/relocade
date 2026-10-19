@@ -2,7 +2,7 @@ use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
 };
-use wasm86_x86::{
+use relocade_x86::{
     DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
     SegmentDescriptorKind, SegmentLimit, SegmentProfile,
 };

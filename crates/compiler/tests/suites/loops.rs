@@ -1,6 +1,6 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::TestModule;
-use wasm86_compiler::{BuildError, Type, I1, I32, I64, I8};
+use relocade_compiler::{BuildError, Type, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 fn swaps() -> TestModule {

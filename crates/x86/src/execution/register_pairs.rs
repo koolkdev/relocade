@@ -1,6 +1,6 @@
 //! Concatenated GPR values retain each register's independent architectural view.
 
-use wasm86_compiler::{BuildError, DoubleWidth, Val};
+use relocade_compiler::{BuildError, DoubleWidth, Val};
 
 use super::ExecutionBuilder;
 use crate::register::{Gpr32, Register, RegisterType};

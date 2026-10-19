@@ -289,7 +289,7 @@ test_frontends!(fxrstor_faults, faults);
 #[test]
 fn fxrstor_replaces_observed_mxcsr_before_following_conversion() {
     use crate::support::{machine::expected, step::TestModule};
-    use wasm86_x86::Compiler;
+    use relocade_x86::Compiler;
 
     let before = [0xf3, 0x0f, 0x2d, 0xc8]; // CVTSS2SI ECX,XMM0
     let restore = instruction(FLAT32, true, 0x4010);
@@ -358,7 +358,7 @@ fn fxrstor_replaces_observed_mxcsr_before_following_conversion() {
 
 #[test]
 fn fxrstor_requires_memory_and_no_opcode_prefix() {
-    use wasm86_x86::{compile_block_from_bytes, BlockError};
+    use relocade_x86::{compile_block_from_bytes, BlockError};
     for code in [
         &[0x0f, 0xae, 0xc8][..],
         &[0x66, 0x0f, 0xae, 0x08],

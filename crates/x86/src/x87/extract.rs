@@ -1,6 +1,6 @@
 //! FXTRACT separates a normalized significand from its unbiased exponent.
 
-use wasm86_compiler::{BlockBuilder, BuildError};
+use relocade_compiler::{BlockBuilder, BuildError};
 
 use crate::floating::BinaryFormat;
 

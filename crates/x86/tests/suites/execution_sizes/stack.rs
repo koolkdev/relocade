@@ -3,7 +3,7 @@ use crate::support::cases::{
     test_cases, InstructionCase as Case,
     Permissions::{ReadOnly, ReadWrite},
 };
-use wasm86_x86::{
+use relocade_x86::{
     Gpr32::{Eax, Esp},
     Segment, StoredSegment,
 };

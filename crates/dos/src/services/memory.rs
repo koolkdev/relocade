@@ -1,7 +1,7 @@
 use crate::{interrupt::return_result, memory, DosState};
+use relocade_runtime::HostCall;
+use relocade_x86::Segment;
 use std::ops::ControlFlow;
-use wasm86_runtime::HostCall;
-use wasm86_x86::Segment;
 
 /// AH=48h: allocate BX paragraphs; return the segment in AX.
 pub(super) fn allocate(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {

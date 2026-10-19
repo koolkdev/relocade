@@ -1,5 +1,5 @@
 [package]
-name = "wasm86-vfs"
+name = "relocade-vfs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

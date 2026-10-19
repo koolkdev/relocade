@@ -1,6 +1,6 @@
 use crate::fixture::Fixture;
 use crate::wasm::TestModule;
-use wasm86_compiler::{IntType, Program, Signature, Type, Val, I1, I16, I32, I64, I8};
+use relocade_compiler::{IntType, Program, Signature, Type, Val, I1, I16, I32, I64, I8};
 
 #[test]
 fn dword_literals_preserve_their_bits() {

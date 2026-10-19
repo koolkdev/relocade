@@ -1,7 +1,7 @@
 //! Full products returned as one scalar of twice the operands' logical width.
 
 use super::*;
-use wasm86_compiler::DoubleWidth;
+use relocade_compiler::DoubleWidth;
 
 fn expected_product(width: u32, left: u64, right: u64, signed: bool) -> Value {
     let modulus = 1_i128 << width;

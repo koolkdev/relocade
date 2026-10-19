@@ -1,7 +1,7 @@
 //! Physical routing and byte-backed MMIO devices for execution tests.
 
+use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 use std::{collections::BTreeMap, sync::Arc};
-use wasm86_x86::{PhysicalMapping, PhysicalMemoryMap};
 use wasmtime::{Caller, Linker, Memory, MemoryType, Store};
 
 use super::{Event, ExecutionEvents, Input};
@@ -35,14 +35,14 @@ pub(super) fn register(
     let table = Memory::new(&mut *store, MemoryType::new(1, None)).unwrap();
     table.write(&mut *store, 0, &image).unwrap();
     linker
-        .define(&*store, "wasm86", "physicalMap", table)
+        .define(&*store, "relocade", "physicalMap", table)
         .unwrap();
     let devices: Arc<BTreeMap<u32, u32>> = Arc::new(input.mmio_pages.iter().copied().collect());
     let observe = input.observe_mmio;
     let read_devices = devices.clone();
     linker
         .func_wrap(
-            "wasm86",
+            "relocade",
             "readMmio",
             move |mut caller: Caller<'_, ExecutionEvents>, address: i32, bytes: i32| {
                 assert!((1..=8).contains(&bytes));
@@ -70,7 +70,7 @@ pub(super) fn register(
         .unwrap();
     linker
         .func_wrap(
-            "wasm86",
+            "relocade",
             "writeMmio",
             move |mut caller: Caller<'_, ExecutionEvents>, address: i32, bytes: i32, value: i64| {
                 assert!((1..=8).contains(&bytes));

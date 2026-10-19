@@ -9,7 +9,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::{Gpr32::*, Segment, StoredSegment};
+use relocade_x86::{Gpr32::*, Segment, StoredSegment};
 
 fn register_forms() -> Vec<Case> {
     [

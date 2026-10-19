@@ -3,7 +3,7 @@ use crate::exception::Exception;
 use crate::flags::Flag;
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState, Gpr32};
-use wasm86_compiler::{Program, Signature, Type, I1, I32};
+use relocade_compiler::{Program, Signature, Type, I1, I32};
 
 fn conditional_fault(completed: u32) -> CompiledModule {
     let mut program = Program::new();

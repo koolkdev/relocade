@@ -6,7 +6,7 @@ use crate::support::{
     machine::{Exit, Step},
     x87::{stack_image, write_register_bits},
 };
-use wasm86_x86::{ExecutionProfile, SegmentProfile, Segments};
+use relocade_x86::{ExecutionProfile, SegmentProfile, Segments};
 
 const BITS: u128 = 0x7f800001_80000000_01234567_89abcdef;
 const FORMS: &[(&[u8], usize, bool)] = &[

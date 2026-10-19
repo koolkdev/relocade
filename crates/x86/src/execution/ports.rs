@@ -1,7 +1,7 @@
 //! Typed port operands use the runtime's synchronous device interface.
 
 use super::*;
-use wasm86_compiler::{AtLeast, MemoryInt};
+use relocade_compiler::{AtLeast, MemoryInt};
 
 impl ExecutionBuilder<'_, '_> {
     pub(crate) fn read_port<T: MemoryInt>(&mut self, port: &Val<I16>) -> Result<Val<T>, BuildError>

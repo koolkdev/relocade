@@ -6,7 +6,7 @@ use crate::support::cases::{
     InstructionCase as Case,
     Permissions::{ReadOnly, ReadWrite},
 };
-use wasm86_x86::Gpr32::*;
+use relocade_x86::Gpr32::*;
 
 fn signed_indexes() -> Vec<Case> {
     let mut cases = Vec::new();

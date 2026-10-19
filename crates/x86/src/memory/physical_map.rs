@@ -56,7 +56,7 @@ impl PhysicalMapping {
 /// device behavior and updates to the installed Wasm table.
 ///
 /// ```
-/// use wasm86_x86::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
+/// use relocade_x86::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 ///
 /// let map = PhysicalMemoryMap::new([
 ///     (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),

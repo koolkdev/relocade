@@ -1,6 +1,6 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, MemoryBytes, TestModule, Value};
-use wasm86_compiler::{Argument, BlockBuilder, BuildError, Func, Type, I32};
+use relocade_compiler::{Argument, BlockBuilder, BuildError, Func, Type, I32};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
 fn finish(body: BlockBuilder<'_>, result: Option<Type>) -> Result<(), BuildError> {

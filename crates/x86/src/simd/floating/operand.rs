@@ -1,7 +1,7 @@
 //! One SIMD floating operand retains its encoding after DAZ normalization.
 
 use crate::floating::{BinaryClassification, BinaryEncoding};
-use wasm86_compiler::{AtLeast, Val, F64, I1, I64};
+use relocade_compiler::{AtLeast, Val, F64, I1, I64};
 
 pub(crate) struct FloatOperand<T: BinaryEncoding> {
     original_bits: Val<I64>,

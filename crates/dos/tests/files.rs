@@ -1,8 +1,8 @@
 mod common;
 
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
-use wasm86_dos::{Dos, DosState, FileAccess, MountError};
-use wasm86_x86::{CpuState, ExecutionExit};
+use relocade_dos::{Dos, DosState, FileAccess, MountError};
+use relocade_x86::{CpuState, ExecutionExit};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

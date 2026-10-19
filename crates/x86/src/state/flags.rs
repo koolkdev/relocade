@@ -4,7 +4,7 @@ mod publication;
 mod queries;
 pub(super) mod record;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Val, I1, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Val, I1, I8};
 
 use crate::{
     alu::{AnyStatusSource, StatusSource},

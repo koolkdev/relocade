@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use wasm86_x86::StoredSegment;
+use relocade_x86::StoredSegment;
 
 #[test]
 fn reloading_cs_changes_the_next_fetch_base_and_decode_defaults() {

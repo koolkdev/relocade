@@ -1,7 +1,7 @@
 //! Effective-address components with deferred register reads. Instruction
 //! semantics can add a displacement before resolving the effective offset.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32};
 
 use crate::{
     register::{Gpr32, Register},

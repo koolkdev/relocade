@@ -4,7 +4,7 @@ use crate::support::{
     machine::expected,
     step::{Event, TestModule},
 };
-use wasm86_x86::FlagBytes;
+use relocade_x86::FlagBytes;
 
 fn restored_flags(cpu: &mut CpuState, bit: u8, word: bool) {
     cpu.flags.status_source.kind = 0;

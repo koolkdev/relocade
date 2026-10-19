@@ -7,7 +7,7 @@ mod conditions;
 #[path = "zero_tests/conversions.rs"]
 mod conversions;
 
-use wasm86_compiler::{BlockBuilder, Signature, Type, Val, I1, I32, I64, I8};
+use relocade_compiler::{BlockBuilder, Signature, Type, Val, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 struct Case {

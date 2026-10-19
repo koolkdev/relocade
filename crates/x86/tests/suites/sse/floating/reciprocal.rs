@@ -5,7 +5,7 @@ use crate::support::{
     machine::expected,
     step::{Event, TestModule},
 };
-use wasm86_x86::compile_block_from_bytes;
+use relocade_x86::compile_block_from_bytes;
 
 const ERROR: f64 = 1.5 / 4096.0;
 

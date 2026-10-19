@@ -5,7 +5,7 @@ use crate::support::{
     step::{Argument, Event, Outcome, TestModule},
     x87::{complete_x87, stack_image, write_register_bits},
 };
-use wasm86_x86::{compile_block_from_bytes, CpuState, SegmentProfile};
+use relocade_x86::{compile_block_from_bytes, CpuState, SegmentProfile};
 
 pub(super) fn interpreter_run() -> &'static TestModule {
     TestModule::interpreter_run_with_profile(SegmentProfile::Flat32)

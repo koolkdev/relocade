@@ -1,6 +1,6 @@
 //! Packed unpacking interleaves equal-width lanes from the two input vectors.
 
-use wasm86_compiler::{Val, VectorType};
+use relocade_compiler::{Val, VectorType};
 
 /// Interleaves lanes starting at `first_byte` in each input.
 /// The output fills the logical width of the input vectors.

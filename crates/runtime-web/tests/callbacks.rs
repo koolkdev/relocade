@@ -1,17 +1,17 @@
-use std::{mem::offset_of, rc::Rc};
-use wasm86_compiler::{
+use relocade_compiler::{
     abi::{Function, Memory},
     Program, I32, I64,
 };
-use wasm86_machine::MachineConfig;
-use wasm86_runtime::{
+use relocade_machine::MachineConfig;
+use relocade_runtime::{
     wasm::{WasmBackend, WasmCaller, WasmMemoryAccess},
     with_host_call, HostCall,
 };
-use wasm86_x86::{
+use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Registers, Segments,
 };
+use std::{mem::offset_of, rc::Rc};
 
 const CONTEXT: Memory = Memory::new("host", "context", 1);
 const GUEST: Memory = Memory::new("host", "guest", 1);
@@ -19,9 +19,9 @@ const CALL: Function<fn() -> I32> = Function::new("host", "call");
 const RUN: Function<fn() -> I64> = Function::new("host", "run");
 
 #[cfg(not(target_arch = "wasm32"))]
-use wasm86_runtime_wasmtime::WasmtimeBackend as Backend;
+use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
 #[cfg(target_arch = "wasm32")]
-use wasm86_runtime_web::WebBackend as Backend;
+use relocade_runtime_web::WebBackend as Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

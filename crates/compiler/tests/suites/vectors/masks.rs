@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_compiler::{VectorLane, I16, I64};
+use relocade_compiler::{VectorLane, I16, I64};
 
 fn masks<T: VectorLane>(input: u128, expected_mask: u32) {
     let mut bytes = vec![0xa5; 24];

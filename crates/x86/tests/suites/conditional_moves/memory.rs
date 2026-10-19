@@ -1,4 +1,4 @@
-use wasm86_x86::Gpr32;
+use relocade_x86::Gpr32;
 
 use super::{INITIAL_FLAGS, PRESERVED_FLAGS};
 use crate::support::{

@@ -2,7 +2,7 @@
 
 mod native;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I8};
 
 use crate::floating::{FiniteInput, RoundingMode};
 

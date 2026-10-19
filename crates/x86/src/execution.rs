@@ -18,7 +18,7 @@ pub(crate) use operands::WriteTarget;
 pub(crate) use strings::{ResolvedStrings, StringOperand};
 pub(crate) use x87::{X87MemoryFormat, X87Operand, X87Operands};
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I64, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I64, I8};
 
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};

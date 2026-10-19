@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use wasm86_x86::StoredSegment;
+use relocade_x86::StoredSegment;
 
 #[test]
 fn an_unsupported_or_faulting_return_publishes_only_earlier_completed_instructions() {

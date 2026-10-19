@@ -3,7 +3,7 @@
 use crate::support::cases::{
     test_cases, InstructionCase as Case, Permissions::ReadWrite, RegisterExpectation::Exact,
 };
-use wasm86_x86::Gpr32;
+use relocade_x86::Gpr32;
 
 struct Address {
     name: &'static str,

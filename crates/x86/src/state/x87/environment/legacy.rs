@@ -1,6 +1,6 @@
 //! Shared fields and pointer encoding for Intel's four legacy environment layouts.
 
-use wasm86_compiler::{AtLeast, MemoryInt, Val, I16, I32};
+use relocade_compiler::{AtLeast, MemoryInt, Val, I16, I32};
 
 use super::{Environment, EnvironmentMode, Pointer};
 

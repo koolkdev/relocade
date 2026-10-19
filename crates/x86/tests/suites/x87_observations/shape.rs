@@ -1,6 +1,6 @@
 //! Observations add guards only to their consumers, once per unchanged value.
 use super::*;
-use wasm86_x86::{compile_block_from_bytes_with_profile, CompiledModule};
+use relocade_x86::{compile_block_from_bytes_with_profile, CompiledModule};
 use wasmparser::{Operator, Parser, Payload, TypeRef};
 
 fn operators(module: &CompiledModule) -> impl Iterator<Item = Operator<'_>> {
@@ -20,7 +20,7 @@ fn interpreter_calls(module: &CompiledModule) -> usize {
             for import in imports {
                 let import = import.unwrap();
                 if matches!(import.ty, TypeRef::Func(_)) {
-                    if import.module == "wasm86" && import.name == "interpret" {
+                    if import.module == "relocade" && import.name == "interpret" {
                         return operators(module).filter(|op| matches!(op, Operator::ReturnCall { function_index } if *function_index == function)).count();
                     }
                     function += 1;

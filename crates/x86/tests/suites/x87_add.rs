@@ -17,7 +17,7 @@ use crate::support::{
         complete_x87, dispatch, stack_image, write_value, INDEFINITE,
     },
 };
-use wasm86_x86::SegmentProfile;
+use relocade_x86::SegmentProfile;
 
 const LEADING: u64 = 1 << 63;
 const PE: u16 = 0x20;

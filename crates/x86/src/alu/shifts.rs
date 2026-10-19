@@ -1,6 +1,6 @@
 //! Scalar shifts compute both the integer result and x86 status flags.
 
-use wasm86_compiler::{AtLeast, MemoryInt, Val, I1, I32};
+use relocade_compiler::{AtLeast, MemoryInt, Val, I1, I32};
 
 use super::{bit, result_flag, AluResult};
 use crate::alu::{AnyStatusSource, StatusSource};

@@ -12,7 +12,7 @@ mod stack;
 mod strings;
 
 use crate::support::cases::InstructionCase as Case;
-use wasm86_x86::{Segment, StoredSegment};
+use relocade_x86::{Segment, StoredSegment};
 
 fn code16(case: Case) -> Case {
     case.segmented_only().segment(

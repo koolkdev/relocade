@@ -1,6 +1,6 @@
 //! MMX is an integer view of the physical x87 slots, independent of TOP.
 
-use wasm86_compiler::{BuildError, Val, I64};
+use relocade_compiler::{BuildError, Val, I64};
 
 use crate::{
     register::RegisterCode,

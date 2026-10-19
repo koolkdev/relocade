@@ -1,6 +1,6 @@
 //! Integral rounding keeps the full extended range and ignores precision control.
 
-use wasm86_compiler::{Val, I16, I32};
+use relocade_compiler::{Val, I16, I32};
 
 use crate::floating::{BinaryFormat, RoundingInput, RoundingMode};
 

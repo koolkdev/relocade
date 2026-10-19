@@ -1,7 +1,7 @@
 //! Packed and unpacked decimal adjustments and immediate-base digit conversions.
 //! Architecturally undefined status flags retain their incoming values.
 
-use wasm86_compiler::{Val, I1, I16, I8};
+use relocade_compiler::{Val, I1, I16, I8};
 
 use super::{result_flag, AluResult, ArithmeticOp};
 use crate::flags::{Flag, FlagChange, StatusFlag};

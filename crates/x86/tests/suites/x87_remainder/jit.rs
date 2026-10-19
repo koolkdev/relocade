@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule, x87::INDEFINITE};
-use wasm86_x86::Compiler;
+use relocade_x86::Compiler;
 use wasmparser::{Operator, Parser, Payload};
 
 fn binary64_bits(value: f64) -> (u64, u16) {

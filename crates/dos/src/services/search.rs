@@ -1,8 +1,8 @@
 use super::files::read_path;
 use crate::{error::DosError, files::FIND_DATA_BYTES, interrupt::return_result, DosState};
+use relocade_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
+use relocade_x86::{Segment, StoredSegment};
 use std::ops::ControlFlow;
-use wasm86_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
-use wasm86_x86::{Segment, StoredSegment};
 
 /// AH=1Ah: select the disk transfer area at DS:DX, preserving flags.
 pub(super) fn set_dta(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {

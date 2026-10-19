@@ -1,7 +1,7 @@
 //! Overlapping lane facts follow ordinary branch, join and snapshot lifetimes.
 
 use super::*;
-use wasm86_compiler::{Val, I16, I64, V128, V64};
+use relocade_compiler::{Val, I16, I64, V128, V64};
 
 fn guards_and_switch() {
     for masked in [false, true] {

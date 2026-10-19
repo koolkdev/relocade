@@ -1,6 +1,6 @@
 //! Architectural environment images, distinct from the host snapshot layout.
 
-use wasm86_compiler::{AtLeast, BuildError, MemoryInt, Val, I16, I32};
+use relocade_compiler::{AtLeast, BuildError, MemoryInt, Val, I16, I32};
 
 mod fx;
 mod legacy;

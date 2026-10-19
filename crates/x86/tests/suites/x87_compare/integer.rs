@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use wasm86_x86::compile_block_from_bytes;
+use relocade_x86::compile_block_from_bytes;
 
 fn instruction(opcode: u8, pop: bool, address: u32) -> Vec<u8> {
     [

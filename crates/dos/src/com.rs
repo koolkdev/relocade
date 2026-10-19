@@ -1,5 +1,5 @@
 use crate::{memory, process, LoadError, LoadOptions};
-use wasm86_machine::Machine;
+use relocade_machine::Machine;
 
 // One segment holds the PSP, COM image and stack.
 const SEGMENT_SIZE: u32 = 64 * 1024;

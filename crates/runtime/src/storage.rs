@@ -1,7 +1,7 @@
 use crate::wasm::WasmMemoryAccess;
+use relocade_machine::MachineStorage;
+use relocade_x86::ExecutionContext;
 use std::mem::offset_of;
-use wasm86_machine::MachineStorage;
-use wasm86_x86::ExecutionContext;
 
 /// Routes CPU and guest transfers through a backend or a borrowed callback caller.
 pub(crate) struct Storage<A: WasmMemoryAccess> {

@@ -1,6 +1,6 @@
 //! Exact reduction against the P4's 66-bit approximation of pi.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64};
 
 use super::super::transcendental::DoubleDouble;
 

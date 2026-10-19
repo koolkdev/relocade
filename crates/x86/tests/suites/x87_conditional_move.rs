@@ -10,7 +10,7 @@ use crate::support::{
         complete_x87, dispatch, register_bits, set_control, stack_image, write_value, INDEFINITE,
     },
 };
-use wasm86_x86::SegmentProfile;
+use relocade_x86::SegmentProfile;
 
 const ONE: (u64, u16) = (1 << 63, 0x3fff);
 const TWO: (u64, u16) = (1 << 63, 0x4000);

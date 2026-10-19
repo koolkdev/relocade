@@ -10,7 +10,7 @@ mod tests;
 
 use super::guest::Mapping;
 use crate::flags::Flag;
-use wasm86_x86::{
+use relocade_x86::{
     CpuState, ExecutionProfile, Gpr32, Segment, SegmentProfile, StoredFlags, StoredSegment,
 };
 

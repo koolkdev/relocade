@@ -45,7 +45,7 @@ impl BlockBuilder<'_> {
     /// depending on child reads, calls or joins keep their child scope.
     ///
     /// ```
-    /// use wasm86_compiler::{Program, Signature, Type, I32, I8};
+    /// use relocade_compiler::{Program, Signature, Type, I32, I8};
     /// let mut program = Program::new();
     /// let function = program.function(Signature {
     ///     parameters: vec![Type::I8], results: vec![Type::I32],
@@ -58,7 +58,7 @@ impl BlockBuilder<'_> {
     /// })?;
     /// program.export("choose", function)?;
     /// let bytes = program.compile()?;
-    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
     pub fn switch_value<R: Results, S: IntType>(
         &mut self,

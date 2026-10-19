@@ -2,7 +2,7 @@
 
 use std::convert::Infallible;
 
-use wasm86_compiler::{MemoryInt, Val, I1, I16, I32, I8};
+use relocade_compiler::{MemoryInt, Val, I1, I16, I32, I8};
 
 use crate::alu::{logic, ArithmeticOp};
 use crate::flags::{Condition, StatusFlag};

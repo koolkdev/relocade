@@ -11,8 +11,8 @@ mod sqrt;
 
 pub(crate) use classification::BinaryClassification;
 pub(crate) use finite::{FiniteInput, FiniteMagnitude, MagnitudeShape};
+use relocade_compiler::{Val, VectorLane, F64, I32, I64};
 pub(crate) use rounding::{RoundingInput, RoundingMode};
-use wasm86_compiler::{Val, VectorLane, F64, I32, I64};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum BinaryFormat {

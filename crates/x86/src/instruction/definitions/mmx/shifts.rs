@@ -3,7 +3,7 @@
 use super::*;
 use crate::instruction::PackedShiftCount;
 use crate::simd::PackedShiftOp;
-use wasm86_compiler::{MemoryInt, VectorLane};
+use relocade_compiler::{MemoryInt, VectorLane};
 
 instruction_families! {
     PSLLW {

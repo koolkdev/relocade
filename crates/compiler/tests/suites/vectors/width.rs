@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_compiler::{I16, I64, V64};
+use relocade_compiler::{I16, I64, V64};
 
 #[test]
 fn logical_vector_width_controls_layout_and_literal_evaluation() {

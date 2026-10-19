@@ -1,6 +1,6 @@
 use super::*;
 use crate::{test_step as step, CompiledModule};
-use wasm86_compiler::{Program, Signature, Type};
+use relocade_compiler::{Program, Signature, Type};
 
 #[test]
 fn integer_rounding_preserves_evidence_across_word_boundaries() {

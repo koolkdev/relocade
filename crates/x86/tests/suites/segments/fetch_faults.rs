@@ -3,7 +3,7 @@ use crate::support::{
     machine::{Exit, Image},
     step::TestModule,
 };
-use wasm86_x86::{ExecutionProfile, SegmentProfile};
+use relocade_x86::{ExecutionProfile, SegmentProfile};
 
 #[test]
 fn required_bytes_preserve_cs_page_and_length_fault_order() {

@@ -1,5 +1,5 @@
 use super::TrackedValue;
-use wasm86_compiler::{Program, Signature, Type, I16, I32};
+use relocade_compiler::{Program, Signature, Type, I16, I32};
 
 #[test]
 fn only_new_expressions_change_the_current_definition() {

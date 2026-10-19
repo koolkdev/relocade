@@ -16,7 +16,7 @@ use crate::{
 /// Completing a block consumes its builder:
 ///
 /// ```compile_fail
-/// use wasm86_compiler::{Program, Signature, Type};
+/// use relocade_compiler::{Program, Signature, Type};
 /// let mut program = Program::new();
 /// program.function(Signature { parameters: vec![], results: vec![Type::I32] }, |body| {
 ///     body.return_(7)?;
@@ -224,7 +224,7 @@ impl BlockBuilder<'_> {
     /// Stores, conditions and returns also accept literals directly.
     ///
     /// ```compile_fail
-    /// use wasm86_compiler::{BlockBuilder, I32};
+    /// use relocade_compiler::{BlockBuilder, I32};
     /// fn retain_wide_literal(body: &BlockBuilder<'_>) {
     ///     let value = body.value::<I32>(1_u64);
     /// }

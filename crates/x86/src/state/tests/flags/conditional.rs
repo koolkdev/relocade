@@ -6,7 +6,7 @@ use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::CompiledModule;
 use crate::FlagBytes;
-use wasm86_compiler::{BuildError, Program, Signature, Type, I1, I16, I32, I64, I8};
+use relocade_compiler::{BuildError, Program, Signature, Type, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 use super::fixture::{assert_result, initial_cpu};

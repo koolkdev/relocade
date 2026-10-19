@@ -7,7 +7,7 @@ use crate::support::{
     machine::{Exit, Image},
     step::TestModule,
 };
-use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32};
+use relocade_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32};
 
 #[test]
 fn prefix_order_preserves_the_next_required_fetch() {

@@ -11,7 +11,7 @@ mod validation;
 
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{TestModule, Value};
-use wasm86_compiler::{Type, Val, F64, I1, I32, I64};
+use relocade_compiler::{Type, Val, F64, I1, I32, I64};
 
 const SIGN: u64 = 1 << 63;
 const INFINITY: u64 = 0x7ff0_0000_0000_0000;

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use wasm86_x86::compile_block_from_bytes;
+use relocade_x86::compile_block_from_bytes;
 
 fn fault_ordering(frontend: Frontend) {
     let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);

@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_compiler::{I16, I64};
+use relocade_compiler::{I16, I64};
 
 #[test]
 fn masked_bit_facts_preserve_the_unobserved_high_bits() {

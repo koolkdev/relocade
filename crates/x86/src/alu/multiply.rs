@@ -1,6 +1,6 @@
 //! Full integer products and signed or unsigned overflow at the operand width.
 
-use wasm86_compiler::{DoubleWidth, Val};
+use relocade_compiler::{DoubleWidth, Val};
 
 use super::AluResult;
 use crate::alu::{AnyStatusSource, StatusSource};

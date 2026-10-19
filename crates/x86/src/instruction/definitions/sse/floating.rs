@@ -13,7 +13,7 @@ use crate::{
     simd::FloatResult,
     state::Mxcsr,
 };
-use wasm86_compiler::BlockBuilder;
+use relocade_compiler::BlockBuilder;
 
 #[derive(Clone, Copy)]
 pub(super) enum IntegerRounding {

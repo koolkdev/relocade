@@ -1,8 +1,8 @@
 use super::files::read_path;
 use crate::{interrupt::return_result, DosState};
+use relocade_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
+use relocade_x86::Segment;
 use std::ops::ControlFlow;
-use wasm86_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
-use wasm86_x86::Segment;
 
 const DRIVE_C: u8 = 2; // AH=0Eh/19h number drives from zero.
 

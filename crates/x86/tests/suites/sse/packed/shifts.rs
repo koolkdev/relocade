@@ -139,7 +139,7 @@ fn count_span(frontend: Frontend) {
 #[test]
 fn sse_immediate_shifts_reject_memory_destinations_before_reading_more_bytes() {
     use crate::support::step::TestModule;
-    use wasm86_x86::{compile_block_from_bytes, BlockError};
+    use relocade_x86::{compile_block_from_bytes, BlockError};
     for code in [
         [0x66, 0x0f, 0x71, 0x34],
         [0x66, 0x0f, 0x72, 0x24],

@@ -27,7 +27,7 @@ use crate::{
     fixture::{signature, Fixture},
     wasm::{MemoryBytes, TestModule, Value},
 };
-use wasm86_compiler::{Argument, BuildError, Program, Type, Val, F64, I1, I32, I8, V128};
+use relocade_compiler::{Argument, BuildError, Program, Type, Val, F64, I1, I32, I8, V128};
 
 const LEFT: u128 = 0x01234567_89abcdef_fedcba98_76543210;
 const RIGHT: u128 = 0xf0f00f0f_55aaaa55_3333cccc_00ffff00;
@@ -261,7 +261,7 @@ fn vector_literals_require_vector_signatures() {
 
 #[test]
 fn vector_lanes_preserve_other_bits_and_use_low_byte_first_order() {
-    use wasm86_compiler::I64;
+    use relocade_compiler::I64;
     let mut bytes = vec![0xa5; 240];
     bytes[..16].copy_from_slice(&LEFT.to_le_bytes());
     bytes[16..32].copy_from_slice(&RIGHT.to_le_bytes());

@@ -1,7 +1,7 @@
 //! Runtime address fields for 16-bit ModRM and 32-bit ModRM/SIB layouts.
 //! Register values remain part of shared instruction execution.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I32, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I32, I8};
 
 use crate::{
     address::{AddressSize, EffectiveAddress, IndexTerm, RegisterTerm},

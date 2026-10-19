@@ -8,7 +8,7 @@ mod query;
 mod selection;
 mod tables;
 
-use wasm86_compiler::{Val, I1, I16, I32};
+use relocade_compiler::{Val, I1, I16, I32};
 
 pub use descriptor::{PrivilegeLevel, SegmentDescriptor, SegmentDescriptorKind};
 pub use limit::SegmentLimit;

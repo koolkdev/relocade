@@ -1,6 +1,6 @@
 //! Numerical results carry values and exception evidence to instruction handlers.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Results, Val, I1, I16, I64};
+use relocade_compiler::{BlockBuilder, BuildError, Results, Val, I1, I16, I64};
 
 use super::{value::KnownClass, ExtendedBits, ExtendedValue};
 

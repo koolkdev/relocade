@@ -6,7 +6,7 @@ use crate::support::{
     step::TestModule,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
-use wasm86_x86::{Compiler, SegmentProfile};
+use relocade_x86::{Compiler, SegmentProfile};
 use wasmparser::{Operator, Parser, Payload};
 
 // Literal extended encodings for nearest, down, up and truncate. The five

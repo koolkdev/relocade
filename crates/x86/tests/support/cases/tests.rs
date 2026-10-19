@@ -1,4 +1,4 @@
-use wasm86_x86::Gpr32::Ebx;
+use relocade_x86::Gpr32::Ebx;
 
 use super::{test_cases, FlagExpectation::Preserved, Flags, InstructionCase as Case};
 

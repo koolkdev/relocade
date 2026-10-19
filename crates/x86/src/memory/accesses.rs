@@ -1,6 +1,6 @@
 //! Successful access proofs retained along one execution path.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
 use super::page_table::{physical_address, FRAME_MASK, PAGE_BYTES};
 use super::{Access, Intent, Memory};

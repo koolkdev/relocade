@@ -261,9 +261,9 @@ fn modrm_direction_selects_the_handler_destination_and_source() {
         else {
             panic!("register MOV binds two register operands");
         };
-        assert!(matches!(left.view::<wasm86_compiler::I32>().selection,
+        assert!(matches!(left.view::<relocade_compiler::I32>().selection,
             RegisterSelection::Named { parent, byte: 0 } if parent == destination));
-        assert!(matches!(right.view::<wasm86_compiler::I32>().selection,
+        assert!(matches!(right.view::<relocade_compiler::I32>().selection,
             RegisterSelection::Named { parent, byte: 0 } if parent == source));
     }
 }

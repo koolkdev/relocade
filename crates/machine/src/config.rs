@@ -1,5 +1,5 @@
+use relocade_x86::{CpuState, ExecutionProfile, ExecutionTarget, PhysicalMemoryMap};
 use std::fmt;
-use wasm86_x86::{CpuState, ExecutionProfile, ExecutionTarget, PhysicalMemoryMap};
 
 /// Validated initial CPU state, backing capacity and physical mappings.
 pub struct MachineConfig {

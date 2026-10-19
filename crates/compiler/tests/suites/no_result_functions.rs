@@ -6,7 +6,7 @@ mod effects;
 #[path = "no_result_functions/validation.rs"]
 mod validation;
 
-use wasm86_compiler::{Type, I1, I32, I8};
+use relocade_compiler::{Type, I1, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 fn shared_writer() -> TestModule {

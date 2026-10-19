@@ -13,7 +13,7 @@ use crate::{arena::FunctionArena, BuildError, Type, ValueType};
 /// Array bytes use increasing memory order.
 /// Other byte-array widths do not construct vector literals:
 /// ```compile_fail
-/// use wasm86_compiler::Argument;
+/// use relocade_compiler::Argument;
 /// let vector = Argument::from([0_u8; 4]);
 /// ```
 #[derive(Clone)]

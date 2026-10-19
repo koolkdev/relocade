@@ -41,7 +41,7 @@ impl<'program> BlockBuilder<'program> {
     /// matching ordinary memory accesses. Operations accept native literals.
     ///
     /// ```
-    /// use wasm86_compiler::{MemoryImport, Program, Signature, Type, I32};
+    /// use relocade_compiler::{MemoryImport, Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let memory = program.import_memory(MemoryImport {
     ///     module: "host".into(), name: "counter".into(),
@@ -55,7 +55,7 @@ impl<'program> BlockBuilder<'program> {
     /// })?;
     /// program.export("increment", increment)?;
     /// let bytes = program.compile()?;
-    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
     pub fn atomic<T: MemoryInt>(
         &mut self,

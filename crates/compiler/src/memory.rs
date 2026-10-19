@@ -31,7 +31,7 @@ pub struct MemoryImport {
 /// These types also support narrowing to an individual logical bit.
 /// Storing an I1 value in a larger slot is a separate, unsupported operation.
 /// ```compile_fail
-/// use wasm86_compiler::{BlockBuilder, Mem, I1};
+/// use relocade_compiler::{BlockBuilder, Mem, I1};
 /// fn load_bit(body: &mut BlockBuilder<'_>, memory: Mem) {
 ///     let bit = body.load::<I1>(memory, 0);
 /// }
@@ -153,7 +153,7 @@ impl BlockBuilder<'_> {
     /// The snapshot and reordering rules of [`Self::load`] also apply here.
     ///
     /// ```
-    /// use wasm86_compiler::{MemoryImport, Program, Signature, Type, I8, I32};
+    /// use relocade_compiler::{MemoryImport, Program, Signature, Type, I8, I32};
     /// let mut program = Program::new();
     /// let memory = program.import_memory(MemoryImport {
     ///     module: "guest".into(), name: "memory".into(), minimum: 1, maximum: None, shared: false,
@@ -167,7 +167,7 @@ impl BlockBuilder<'_> {
     /// })?;
     /// program.export("next_byte", function)?;
     /// let bytes = program.compile()?;
-    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
     pub fn load_at<T: MemoryType>(
         &mut self,

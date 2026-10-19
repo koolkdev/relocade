@@ -2,7 +2,7 @@
 
 pub(crate) mod arithmetic;
 
-use wasm86_x86::{CpuState, StoredX87Control, StoredX87Status};
+use relocade_x86::{CpuState, StoredX87Control, StoredX87Status};
 
 use super::machine::{Exit, Image, Step};
 

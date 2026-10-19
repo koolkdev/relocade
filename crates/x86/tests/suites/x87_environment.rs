@@ -11,7 +11,7 @@ use crate::support::{
     machine::{Exit, Image, Step},
     x87::{dispatch, set_control, stack_image, status, write_register_bits},
 };
-use wasm86_x86::{CpuState, ExecutionProfile, SegmentProfile, Segments};
+use relocade_x86::{CpuState, ExecutionProfile, SegmentProfile, Segments};
 
 #[derive(Clone, Copy, Debug)]
 struct Format {

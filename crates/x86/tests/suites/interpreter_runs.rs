@@ -7,7 +7,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{Event, SegmentResolution, TestModule},
 };
-use wasm86_x86::{Segment, SegmentProfile, StoredSegment};
+use relocade_x86::{Segment, SegmentProfile, StoredSegment};
 
 fn check(module: &TestModule, name: &str, image: &Image, step: Step<'_>) {
     assert_eq!(

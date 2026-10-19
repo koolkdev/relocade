@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::{CpuState, EntryTable, ExecutionContext, ExecutionProfile, Segment, Segments};
-use wasm86_compiler::{Program, Signature, Type};
-use wasm86_test_support::Module;
+use relocade_compiler::{Program, Signature, Type};
+use relocade_test_support::Module;
 
 struct Invocation {
     cpu: Vec<u8>,
@@ -116,13 +116,13 @@ fn constant(result: u64) -> (Module, String) {
 
 fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocation]) -> Vec<Output> {
     use ::wasmtime::{Linker, Memory, MemoryType, Ref, RefType, Store, Table, TableType};
-    let engine = wasm86_test_support::engine();
+    let engine = relocade_test_support::engine();
     let mut store = Store::new(engine, ());
     let mut linker = Linker::new(engine);
     let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
     let entries = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
     for (name, memory) in [("executionContext", cpu), ("executionEntries", entries)] {
-        linker.define(&store, "wasm86", name, memory).unwrap();
+        linker.define(&store, "relocade", name, memory).unwrap();
     }
     let functions = Table::new(
         &mut store,
@@ -131,14 +131,14 @@ fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocatio
     )
     .unwrap();
     linker
-        .define(&store, "wasm86", "executionFunctions", functions)
+        .define(&store, "relocade", "executionFunctions", functions)
         .unwrap();
     let instance = linker
         .instantiate(&mut store, dispatcher.wasmtime())
         .unwrap();
     for name in ["dispatch", "interpret"] {
         let function = instance.get_func(&mut store, name).unwrap();
-        linker.define(&store, "wasm86", name, function).unwrap();
+        linker.define(&store, "relocade", name, function).unwrap();
     }
     for (index, (module, name)) in targets.iter().enumerate() {
         let target = linker.instantiate(&mut store, module.wasmtime()).unwrap();

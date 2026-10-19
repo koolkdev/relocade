@@ -9,8 +9,8 @@ mod search;
 mod system;
 
 use crate::{DosState, ServiceError};
+use relocade_runtime::HostCall;
 use std::ops::ControlFlow;
-use wasm86_runtime::HostCall;
 
 const WRITE_STRING: u8 = 0x09;
 const SELECT_DRIVE: u8 = 0x0e;

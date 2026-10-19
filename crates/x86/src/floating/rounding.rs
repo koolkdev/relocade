@@ -1,6 +1,6 @@
 //! Rounding preserves discarded-fraction evidence across shifts and formats.
 
-use wasm86_compiler::{Val, ValueType, F64, I1, I32, I64, I8};
+use relocade_compiler::{Val, ValueType, F64, I1, I32, I64, I8};
 
 #[cfg(test)]
 mod tests;

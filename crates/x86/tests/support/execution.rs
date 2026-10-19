@@ -1,6 +1,6 @@
 //! Independently selectable compiled and interpreter frontends.
 
-use wasm86_x86::{CpuState, ExecutionProfile};
+use relocade_x86::{CpuState, ExecutionProfile};
 
 use super::{
     blocks::BlockModules,

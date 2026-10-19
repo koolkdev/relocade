@@ -5,7 +5,7 @@ use crate::{
     x87::ExtendedBits,
     CompiledModule, CpuState,
 };
-use wasm86_compiler::{Program, Signature, Type, I64};
+use relocade_compiler::{Program, Signature, Type, I64};
 use wasmparser::{Operator, Parser, Payload};
 
 fn module(

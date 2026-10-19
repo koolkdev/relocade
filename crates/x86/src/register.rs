@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use wasm86_compiler::{MemoryInt, Val, I1, I16, I32, I8};
+use relocade_compiler::{MemoryInt, Val, I1, I16, I32, I8};
 
 use crate::{memory::TransferType, ssa::SsaType};
 

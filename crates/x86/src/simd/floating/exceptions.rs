@@ -1,6 +1,6 @@
 //! Lane conditions are collected before MXCSR publication and fault delivery.
 
-use wasm86_compiler::{Val, I1};
+use relocade_compiler::{Val, I1};
 
 #[derive(Clone)]
 pub(crate) struct SimdExceptions {

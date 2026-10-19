@@ -7,16 +7,16 @@
 #![cfg(target_arch = "wasm32")]
 
 use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
+use relocade_compiler::{abi::Function as FunctionDeclaration, I64};
+use relocade_runtime::{
+    wasm::{Import, ImportValue, WasmBackend, WasmMemoryAccess},
+    Error, Result,
+};
 use std::{
     any::Any,
     cell::{Ref, RefCell, RefMut},
     ops::{Deref, DerefMut},
     rc::Rc,
-};
-use wasm86_compiler::{abi::Function as FunctionDeclaration, I64};
-use wasm86_runtime::{
-    wasm::{Import, ImportValue, WasmBackend, WasmMemoryAccess},
-    Error, Result,
 };
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;

@@ -1,6 +1,6 @@
 use super::*;
 use crate::flags::Flag;
-use wasm86_compiler::I1;
+use relocade_compiler::I1;
 
 instruction_families! {
     CLC {

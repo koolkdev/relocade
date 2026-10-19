@@ -12,7 +12,7 @@ use super::{
     guest::Mapping,
 };
 use crate::flags::Flag;
-use wasm86_x86::{Gpr32, Segment, StoredFlags, StoredSegment};
+use relocade_x86::{Gpr32, Segment, StoredFlags, StoredSegment};
 
 pub(crate) struct SequenceCase {
     name: String,

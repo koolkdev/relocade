@@ -1,13 +1,13 @@
 //! Host-managed page-table format for protected-mode guest memory.
 //!
-//! The `wasm86.machine` memory holds one four-byte entry per 4-KiB linear page.
+//! The `relocade.machine` memory holds one four-byte entry per 4-KiB linear page.
 //! Each entry contains a backing-page offset and access permissions, in little
 //! endian order. These are the engine's mappings, not guest CR3 structures.
 //! Hosts can write individual entries without rebuilding the table. Apply updates
 //! between guest execution calls; generated code can retain translations during a call.
 //!
 //! ```
-//! use wasm86_x86::page_table;
+//! use relocade_x86::page_table;
 //!
 //! # let mut table = vec![0; page_table::BYTE_LEN as usize];
 //! // Map the page at guest address 00400000h to backing offset 00020000h.
@@ -25,7 +25,7 @@ mod tests;
 
 pub(crate) use cache::{PageCache, PageCacheInputs};
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, Program, Val, I1, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, Program, Val, I1, I32};
 
 const PAGE_SHIFT: u32 = 12;
 const ENTRY_SHIFT: u32 = 2;

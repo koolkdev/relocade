@@ -1,6 +1,6 @@
 //! Transfer decomposition keeps callback carriers separate from guest value width.
 
-use wasm86_compiler::{BuildError, MemoryType, Val, I16, I32, I64, I8, V128};
+use relocade_compiler::{BuildError, MemoryType, Val, I16, I32, I64, I8, V128};
 
 /// Guest values that can be transferred through integer parts of at most eight bytes.
 /// Callbacks receive the relative byte offset and part width, plus the value for

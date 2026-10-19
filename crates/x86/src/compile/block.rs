@@ -1,4 +1,4 @@
-use wasm86_compiler::{Program, Signature, Type};
+use relocade_compiler::{Program, Signature, Type};
 
 use crate::{
     decode, execution::ExecutionBuilder, memory::Memory, runtime::Runtime, state::Cpu, BlockError,
@@ -18,16 +18,16 @@ use super::Compiler;
 /// The generated `block_<hex start_eip>() -> i64` entry executes the block and
 /// tail-calls host dispatch on success; guest faults return directly.
 /// A failed guard publishes completed work and tail-calls
-/// `wasm86.interpret` at the current instruction. The interpreter handoff abandons
+/// `relocade.interpret` at the current instruction. The interpreter handoff abandons
 /// the captured suffix; its execution boundary belongs to the host's policy.
 /// The host must satisfy the profile and snapshot-validity requirements documented
 /// by [`compile_block_from_bytes_with_profile`].
 ///
 /// ```
-/// use wasm86_x86::compile_block_from_bytes;
+/// use relocade_x86::compile_block_from_bytes;
 /// let module = compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
 /// assert_eq!(module.entry, "block_1000");
-/// # Ok::<(), wasm86_x86::BlockError>(())
+/// # Ok::<(), relocade_x86::BlockError>(())
 /// ```
 pub fn compile_block_from_bytes(
     start_eip: u32,
@@ -57,14 +57,14 @@ pub fn compile_block_from_bytes(
 /// execution.
 ///
 /// ```
-/// use wasm86_x86::{compile_block_from_bytes_with_profile, Compiler, SegmentProfile};
+/// use relocade_x86::{compile_block_from_bytes_with_profile, Compiler, SegmentProfile};
 ///
 /// // MOV AX, 0x1234 under 16-bit code defaults.
 /// let block = compile_block_from_bytes_with_profile(
 ///     0x1000, &[0xb8, 0x34, 0x12], 1, SegmentProfile::Segmented16,
 /// )?;
 /// assert_eq!(block.execution_target, Some(Compiler::new(SegmentProfile::Segmented16).target()));
-/// # Ok::<(), wasm86_x86::BlockError>(())
+/// # Ok::<(), relocade_x86::BlockError>(())
 /// ```
 pub fn compile_block_from_bytes_with_profile(
     start_eip: u32,

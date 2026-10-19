@@ -1,15 +1,15 @@
-use std::{cell::Cell, ops::ControlFlow, rc::Rc};
-use wasm86_machine::MachineConfig;
-use wasm86_runtime::{real_mode_interrupt, Hook, Runtime};
-use wasm86_x86::{
+use relocade_machine::MachineConfig;
+use relocade_runtime::{real_mode_interrupt, Hook, Runtime};
+use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segment, Segments,
 };
+use std::{cell::Cell, ops::ControlFlow, rc::Rc};
 
 #[cfg(not(target_arch = "wasm32"))]
-use wasm86_runtime_wasmtime::WasmtimeBackend as Backend;
+use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
 #[cfg(target_arch = "wasm32")]
-use wasm86_runtime_web::WebBackend as Backend;
+use relocade_runtime_web::WebBackend as Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

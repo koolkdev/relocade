@@ -6,7 +6,7 @@ use crate::support::{
     step::TestModule,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
-use wasm86_x86::{Compiler, SegmentProfile};
+use relocade_x86::{Compiler, SegmentProfile};
 const LEAD: u64 = 1 << 63;
 
 fn exceptions_for(frontend: Frontend, opcode: u8) {
@@ -187,7 +187,7 @@ fn specialization_for(opcode: u8) {
     let modules: Vec<_> = [0, 2, 3]
         .into_iter()
         .map(|pc| {
-            let mut cpu = wasm86_x86::CpuState::default();
+            let mut cpu = relocade_x86::CpuState::default();
             cpu.x87.control.precision_control = pc;
             Compiler::new(SegmentProfile::Flat32)
                 .specialize_on_cpu(&cpu)

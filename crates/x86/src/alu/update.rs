@@ -1,6 +1,6 @@
 //! Pure operand modifications shared by register and memory destinations.
 
-use wasm86_compiler::{MemoryInt, Val, I1};
+use relocade_compiler::{MemoryInt, Val, I1};
 
 use super::ArithmeticOp;
 

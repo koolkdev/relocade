@@ -1,8 +1,8 @@
-# wasm86
+# relocade
 
 Rust components for executing x86 code in WebAssembly.
 
-`wasm86-x86` generates snapshot blocks and an interpreter that share instruction
+`relocade-x86` generates snapshot blocks and an interpreter that share instruction
 semantics. Blocks decode supplied bytes at compilation time; the generated
 interpreter decodes guest memory at runtime. The embedding host supplies memory,
 dispatch and segment descriptor resolution.
@@ -18,16 +18,16 @@ that subset. The project is under development; the crates are not published.
 
 | Crate | Responsibility |
 | --- | --- |
-| [wasm86-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
-| [wasm86-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
-| [wasm86-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
+| [relocade-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
+| [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
+| [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
 
 ## Generate a block
 
 ```rust
-use wasm86_x86::compile_block_from_bytes;
+use relocade_x86::compile_block_from_bytes;
 
-fn main() -> Result<(), wasm86_x86::BlockError> {
+fn main() -> Result<(), relocade_x86::BlockError> {
     // MOV EAX, 42 under flat 32-bit assumptions.
     let module = compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
     assert_eq!(module.entry, "block_1000");
@@ -54,8 +54,8 @@ cargo fmt --all -- --check
 cargo doc --workspace --no-deps --locked
 ```
 
-Open `target/doc/wasm86_x86/index.html` or
-`target/doc/wasm86_compiler/index.html` for API contracts and examples.
+Open `target/doc/relocade_x86/index.html` or
+`target/doc/relocade_compiler/index.html` for API contracts and examples.
 [CONTRIBUTING.md](CONTRIBUTING.md) covers adding instructions, writing tests and
 running the browser integration suite. Exact supported encodings live with
 [their instruction definitions](crates/x86/src/instruction/definitions).

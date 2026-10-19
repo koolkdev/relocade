@@ -1,6 +1,6 @@
 use super::{code, data};
 use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly};
-use wasm86_x86::{
+use relocade_x86::{
     Gpr32::{Eax, Ebp, Ebx},
     Segment,
 };

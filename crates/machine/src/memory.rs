@@ -1,6 +1,6 @@
 use crate::{MachineConfig, MachineStorage};
+use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 use std::fmt;
-use wasm86_x86::{PhysicalMapping, PhysicalMemoryMap};
 
 /// Guest physical memory through the configured map, including A20 aliases.
 /// RAM/ROM use backing storage. Holes and currently unattached MMIO return FF

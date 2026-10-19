@@ -1,7 +1,7 @@
 //! Type validation and emitted operations protect the floating-point boundary.
 
 use super::*;
-use wasm86_compiler::{Argument, BuildError, Program};
+use relocade_compiler::{Argument, BuildError, Program};
 use wasmparser::{Operator, Parser, Payload};
 
 fn operators(module: &TestModule) -> Vec<Operator<'_>> {

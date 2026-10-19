@@ -177,7 +177,7 @@ test_frontends!(mmx_suppressed_x87_write, suppressed_write);
 
 #[test]
 fn mmx_read_preserves_native_x87_arithmetic() {
-    use wasm86_x86::Compiler;
+    use relocade_x86::Compiler;
     use wasmparser::{Operator, Parser, Payload};
     let mut observed = CpuState::default();
     set_control(&mut observed.x87.control, 0x027f);

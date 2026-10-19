@@ -1,6 +1,6 @@
 //! Comparisons order exact extended values without precision or rounding control.
 
-use wasm86_compiler::{Val, I1};
+use relocade_compiler::{Val, I1};
 
 use super::BinaryOperands;
 

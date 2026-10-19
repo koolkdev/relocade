@@ -8,7 +8,7 @@ use crate::flags::{Flag, FlagChange};
 use crate::state::{Cpu, State};
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState};
-use wasm86_compiler::{Program, Signature, Type, I1, I8};
+use relocade_compiler::{Program, Signature, Type, I1, I8};
 
 fn assert_reads(module: &TestModule, initial: &CpuState, arguments: &[i32], expected: &[i32]) {
     let input = Input {

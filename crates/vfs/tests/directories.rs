@@ -1,5 +1,5 @@
+use relocade_vfs::MemoryFileSystem;
 use std::io::ErrorKind;
-use wasm86_vfs::MemoryFileSystem;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

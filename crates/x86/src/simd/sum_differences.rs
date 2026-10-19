@@ -1,6 +1,6 @@
 //! Byte differences are accumulated independently in each eight-byte group.
 
-use wasm86_compiler::{Val, VectorType, I16, I64, I8};
+use relocade_compiler::{Val, VectorType, I16, I64, I8};
 
 pub(crate) fn sum_absolute_byte_differences<V: VectorType>(left: Val<V>, right: Val<V>) -> Val<V> {
     let differences = left

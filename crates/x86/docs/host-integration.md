@@ -35,7 +35,7 @@ for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
 count, checks its instruction target, then tail-calls
-`wasm86.dispatch() -> i64`. Dispatch reads the published EIP from CPU state,
+`relocade.dispatch() -> i64`. Dispatch reads the published EIP from CPU state,
 and its result is returned unchanged. EIP is an offset relative to CS and wraps
 at 32 bits; the instruction count wraps at 64 bits. A taken transfer checks its
 segment target before committing instruction effects; fetching the destination
@@ -56,10 +56,10 @@ including all elements of a supported REP instruction.
 ## Instruction budgets
 
 All execution entries share the declared `ExecutionContext` layout in
-`wasm86.executionContext`:
+`relocade.executionContext`:
 
 ```rust
-# use wasm86_x86::CpuState;
+# use relocade_x86::CpuState;
 #[repr(C)]
 pub struct ExecutionContext {
     pub cpu: CpuState,
@@ -94,7 +94,7 @@ fixed overshoot or elapsed-time guarantee.
 ## Callable dispatch
 
 `Compiler::compile_dispatcher()` generates a module that resolves execution addresses to
-ordinary `() -> i64` functions in the imported `wasm86.executionFunctions` table. Slot 0
+ordinary `() -> i64` functions in the imported `relocade.executionFunctions` table. Slot 0
 is reserved, slot 1 holds a compatible interpreter, and subsequent slots hold installed
 module exports. All functions share CPU, guest and mapping memories. The dispatcher has
 no target-kind tag or host-service import.
@@ -131,7 +131,7 @@ function-slot and code lifetimes.
 A snapshot block can guard execution requirements or optimization assumptions.
 If a guard fails, it publishes all completed instructions, leaves EIP at the current
 instruction without applying its effects or retiring it, and tail-calls
-`wasm86.interpret() -> i64`.
+`relocade.interpret() -> i64`.
 Its result is returned unchanged. The captured suffix is abandoned; no compiled
 continuation or second copy of its instructions is required.
 
@@ -291,7 +291,7 @@ The instruction-based progression is this virtual CPU's explicit timing policy.
 
 ## Port I/O
 
-Real16 IN/OUT and INS/OUTS use synchronous `wasm86` imports:
+Real16 IN/OUT and INS/OUTS use synchronous `relocade` imports:
 
 | Import | Wasm signature |
 | --- | --- |
@@ -330,7 +330,7 @@ or asynchronous interrupt polling within the repetition.
 
 ## Imported memories
 
-All imports belong to the `wasm86` module. Memories are distinct, unshared Wasm
+All imports belong to the `relocade` module. Memories are distinct, unshared Wasm
 memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
 
 | Import | Minimum pages | Contents |
@@ -486,7 +486,7 @@ IF and IOPL. TF, IF and AC are stored without enabling debug traps, interrupt
 delivery or alignment checks.
 
 ```rust
-use wasm86_x86::CpuState;
+use relocade_x86::CpuState;
 
 let mut cpu = CpuState::default();
 cpu.registers.eax = 42;
@@ -770,7 +770,7 @@ must be admitted against the new state.
 Snapshot blocks check their complete compiled fetch span against current CS at
 entry, before any instruction effects. This includes the last byte of the final
 compiled instruction; bytes after the compilation boundary are irrelevant. A failed
-check tail-calls `wasm86.interpret` at the block's starting EIP without retiring any
+check tail-calls `relocade.interpret` at the block's starting EIP without retiring any
 instructions. The interpreter executes any valid prefix and reports the first
 architectural fault, which may precede the invalid CS fetch. Checks proved by the
 profile fold away. This guard needs no observed CPU snapshot and accepts any CS
@@ -813,7 +813,7 @@ This configuration is host-selected execution, not a processor reset or an emula
 CR0 transition. The CPU backing layout is unchanged.
 
 ```rust
-use wasm86_x86::{CpuState, ExecutionProfile, Segment, Segments, StoredSegment};
+use relocade_x86::{CpuState, ExecutionProfile, Segment, Segments, StoredSegment};
 
 let mut cpu = CpuState::default();
 cpu.segments = Segments::real_mode();
@@ -883,7 +883,7 @@ RET's two-slot capacity follows the corrected [Volume 2 RET entry](https://cdrdv
 
 ## Segment resolver
 
-Protected-mode segment loads call `wasm86.resolveSegment(segment: i32, selector: i32)`, returning
+Protected-mode segment loads call `relocade.resolveSegment(segment: i32, selector: i32)`, returning
 eleven Wasm i32 results: `(status, error_code, base, limit, selector, usable,
 readable, writable, executable, expand_down, big)`.
 Segment indices are ES=0, CS=1, SS=2, DS=3, FS=4 and GS=5. Selector inputs and
@@ -917,7 +917,7 @@ type's API documentation for load validation and descriptor construction.
 
 ## Descriptor queries
 
-LAR/LSL/VERR/VERW call `wasm86.querySegmentDescriptor(selector: i32)` after reading
+LAR/LSL/VERR/VERW call `relocade.querySegmentDescriptor(selector: i32)` after reading
 their 16-bit selector operand. The input is zero-extended. The callback returns
 five Wasm i32 results in this order: `(visible, readable, writable, accessRights,
 limit)`. The first three results are booleans represented as 0 or 1. The results

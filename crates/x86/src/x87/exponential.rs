@@ -1,6 +1,6 @@
 //! F2XM1 factors out x so tiny operands retain their extended exponent.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, F64, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I32};
 
 use crate::floating::RoundingMode;
 
@@ -11,7 +11,7 @@ use super::{
 };
 
 impl Operand {
-    pub(crate) fn exponential_domain(&self) -> Val<wasm86_compiler::I1> {
+    pub(crate) fn exponential_domain(&self) -> Val<relocade_compiler::I1> {
         let exponent = self.bits.exponent_field();
         exponent.unsigned().lt(16383).or(exponent
             .eq(16383)

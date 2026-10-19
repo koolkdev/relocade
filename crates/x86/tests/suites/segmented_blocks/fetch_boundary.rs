@@ -4,7 +4,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use wasm86_x86::{ExecutionProfile, SegmentDefaultSize, SegmentProfile, StoredSegment};
+use relocade_x86::{ExecutionProfile, SegmentDefaultSize, SegmentProfile, StoredSegment};
 
 #[test]
 fn a_valid_block_prefix_retires_before_interpreter_fetch_faults() {

@@ -1,6 +1,6 @@
 mod read;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
 
 use crate::instruction::{
     DecodedFields, FieldWidth, ImmediateWidth, ResolvedForm, MAX_INSTRUCTION_BYTES,

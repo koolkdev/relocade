@@ -1,6 +1,6 @@
 //! Unary operand results and their complete, partial or absent flag changes.
 
-use wasm86_compiler::{MemoryInt, Val};
+use relocade_compiler::{MemoryInt, Val};
 
 use super::{AluResult, ArithmeticOp};
 use crate::alu::{AnyStatusSource, StatusSource};

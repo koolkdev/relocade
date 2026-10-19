@@ -1,7 +1,7 @@
 //! Read-only logical flag observations for instruction test cases.
 
 use crate::FlagBytes;
-use wasm86_compiler::{BuildError, Program, Signature, Type};
+use relocade_compiler::{BuildError, Program, Signature, Type};
 
 use crate::flags::FlagMask;
 use crate::CompiledModule;

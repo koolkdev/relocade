@@ -2,7 +2,7 @@
 
 use std::cell::Cell;
 
-use wasm86_compiler::{BuildError, Func, Mem, Program, Signature, Type};
+use relocade_compiler::{BuildError, Func, Mem, Program, Signature, Type};
 
 use super::page_table::PageTable;
 

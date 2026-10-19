@@ -1,6 +1,6 @@
 use super::{Flag, FlagChange, FlagMask, FlagValues, StatusFlag};
 use crate::alu::{AnyStatusSource, ArithmeticOp, StatusSource};
-use wasm86_compiler::{Program, Signature, Type, I1, I16, I32};
+use relocade_compiler::{Program, Signature, Type, I1, I16, I32};
 
 #[test]
 fn complete_masks_cover_unique_flags_without_extending_status_sources() {

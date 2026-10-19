@@ -1,7 +1,7 @@
 //! Numeric conversions observe logical integer widths and Wasm NaN semantics.
 
 use super::*;
-use wasm86_compiler::{I16, I8};
+use relocade_compiler::{I16, I8};
 
 #[test]
 fn binary32_promotion_preserves_values_and_defers_nan_payloads() {

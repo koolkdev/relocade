@@ -1,6 +1,6 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{TestModule, Value};
-use wasm86_compiler::{Type, I1, I16, I32, I64, I8};
+use relocade_compiler::{Type, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 fn operators(bytes: &[u8]) -> Vec<Operator<'_>> {

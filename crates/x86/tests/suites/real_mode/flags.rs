@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_x86::FlagBytes;
+use relocade_x86::FlagBytes;
 
 fn push_images(frontend: Frontend) {
     let mut cases = sequences(frontend);

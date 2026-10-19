@@ -1,7 +1,7 @@
 //! Canonicalization applies again when branch facts expose simpler operands.
 
 use super::*;
-use wasm86_compiler::I64;
+use relocade_compiler::I64;
 
 #[test]
 fn operand_replacement_reuses_arithmetic_comparison_and_selection_folds() {

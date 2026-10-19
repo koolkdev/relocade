@@ -1,6 +1,6 @@
 //! Operand reads preserve source exception evidence and checked memory provenance.
 
-use wasm86_compiler::{BuildError, Val, I1, I16, I32, I64};
+use relocade_compiler::{BuildError, Val, I1, I16, I32, I64};
 
 use crate::{
     address::MemoryAddress,

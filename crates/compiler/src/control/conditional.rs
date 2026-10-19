@@ -57,7 +57,7 @@ impl BlockBuilder<'_> {
     /// used on either path.
     ///
     /// ```
-    /// use wasm86_compiler::{Program, Signature, Type, I32};
+    /// use relocade_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let function = program.function(Signature {
     ///     parameters: vec![Type::I32], results: vec![Type::I32],
@@ -68,7 +68,7 @@ impl BlockBuilder<'_> {
     /// })?;
     /// program.export("increment_or_seven", function)?;
     /// let bytes = program.compile()?;
-    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
     pub fn if_(
         &mut self,
@@ -84,7 +84,7 @@ impl BlockBuilder<'_> {
     /// Both closures run during construction, including for constant conditions.
     ///
     /// ```
-    /// use wasm86_compiler::{Program, Signature, Type, I32};
+    /// use relocade_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let function = program.function(Signature {
     ///     parameters: vec![Type::I32], results: vec![Type::I32],
@@ -97,7 +97,7 @@ impl BlockBuilder<'_> {
     ///     body.return_(value.add(1))
     /// })?;
     /// let bytes = program.compile()?;
-    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
     pub fn if_else(
         &mut self,
@@ -125,7 +125,7 @@ impl BlockBuilder<'_> {
     /// child reads, calls or joins remain confined to that child and its descendants.
     ///
     /// ```
-    /// use wasm86_compiler::{Program, Signature, Type, I32};
+    /// use relocade_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let function = program.function(Signature {
     ///     parameters: vec![Type::I32], results: vec![Type::I32],
@@ -139,7 +139,7 @@ impl BlockBuilder<'_> {
     /// })?;
     /// program.export("choose_then_add", function)?;
     /// let bytes = program.compile()?;
-    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
     pub fn if_value<R: Results>(
         &mut self,

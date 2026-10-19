@@ -1,10 +1,10 @@
 //! Wasmtime implementation of the runtime's Wasm engine interface.
 //!
 //! ```
-//! use wasm86_machine::MachineConfig;
-//! use wasm86_runtime::Runtime;
-//! use wasm86_runtime_wasmtime::WasmtimeBackend;
-//! use wasm86_x86::{Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments};
+//! use relocade_machine::MachineConfig;
+//! use relocade_runtime::Runtime;
+//! use relocade_runtime_wasmtime::WasmtimeBackend;
+//! use relocade_x86::{Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let target = Compiler::new(ExecutionProfile::Real16).target();
@@ -21,12 +21,12 @@
 #![forbid(unsafe_code)]
 #![cfg(not(target_arch = "wasm32"))]
 
-use std::ops::{Deref, DerefMut};
-use wasm86_compiler::{abi::Function, I64};
-use wasm86_runtime::{
+use relocade_compiler::{abi::Function, I64};
+use relocade_runtime::{
     wasm::{Import, ImportValue, WasmBackend, WasmMemoryAccess},
     Error, Result,
 };
+use std::ops::{Deref, DerefMut};
 use wasmtime::{
     Config, Engine, Func, Instance, Linker, Memory, MemoryType, Module, Ref, RefType, Store, Table,
     TableType, TypedFunc,

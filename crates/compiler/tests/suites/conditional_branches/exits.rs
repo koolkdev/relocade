@@ -1,7 +1,7 @@
 use super::entry_operators;
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, TestModule, Value};
-use wasm86_compiler::{Type, I1, I32, I8};
+use relocade_compiler::{Type, I1, I32, I8};
 
 fn different_tail_arguments(trap_on_taken: bool) -> TestModule {
     let mut fixture = Fixture::new();

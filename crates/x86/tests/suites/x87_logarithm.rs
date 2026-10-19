@@ -15,7 +15,7 @@ use crate::support::{
         complete_x87, dispatch, stack_image, write_value, INDEFINITE,
     },
 };
-use wasm86_x86::{Compiler, CpuState, SegmentProfile};
+use relocade_x86::{Compiler, CpuState, SegmentProfile};
 
 const CODE: [u8; 2] = [0xd9, 0xf1];
 const LEAD: u64 = 1 << 63;

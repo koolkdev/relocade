@@ -1,6 +1,6 @@
 use super::{inspect, Fixture};
 use crate::wasm::{TestModule, Value};
-use wasm86_compiler::{AtLeast, IntType, Type, Val, I1, I32, I64, I8};
+use relocade_compiler::{AtLeast, IntType, Type, Val, I1, I32, I64, I8};
 
 fn rejoined<T: IntType>(count: u32, low_mask: u64, high_mask: u64) -> TestModule
 where

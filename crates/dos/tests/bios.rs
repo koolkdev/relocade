@@ -1,6 +1,6 @@
 mod common;
 
-use wasm86_x86::ExecutionExit;
+use relocade_x86::ExecutionExit;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

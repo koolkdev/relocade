@@ -4,7 +4,7 @@ use crate::state::Cpu;
 use crate::test_step::{Argument, CallPatches, Event, Input, Outcome, TestModule};
 use crate::FlagBytes;
 use crate::{CompiledModule, CpuState};
-use wasm86_compiler::{Program, Signature, Type, Val, I1, I64};
+use relocade_compiler::{Program, Signature, Type, Val, I1, I64};
 use wasmparser::{Operator, Parser, Payload, ValType, Validator};
 
 fn mask(bits: u8) -> FlagMask {

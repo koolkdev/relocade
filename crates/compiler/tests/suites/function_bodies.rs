@@ -1,4 +1,4 @@
-use wasm86_compiler::{BuildError, Program, Signature, Type, Val, I1, I32, I64, I8};
+use relocade_compiler::{BuildError, Program, Signature, Type, Val, I1, I32, I64, I8};
 
 #[test]
 fn a_function_cannot_fall_through() {

@@ -1,5 +1,5 @@
 use super::{Location, StateFields};
-use wasm86_compiler::{MemoryImport, Program, Signature, Type, I16, I32, I64, I8};
+use relocade_compiler::{MemoryImport, Program, Signature, Type, I16, I32, I64, I8};
 
 #[test]
 fn captured_records_preserve_held_qwords_and_bytes_outside_narrow_writes() {

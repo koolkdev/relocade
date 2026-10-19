@@ -1,5 +1,5 @@
 use super::WasmBackend;
-use wasm86_compiler::{abi, I64};
+use relocade_compiler::{abi, I64};
 
 /// A binding whose name and type come from a shared ABI declaration.
 pub struct Import<'a, B: WasmBackend> {

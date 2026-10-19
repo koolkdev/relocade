@@ -14,7 +14,7 @@ use crate::support::{
     step::TestModule,
     x87::{set_control, status},
 };
-use wasm86_x86::{
+use relocade_x86::{
     compile_block_from_bytes, BlockError, CpuState, ExecutionProfile, SegmentProfile,
     StoredX87Control, StoredX87Status,
 };

@@ -1,9 +1,9 @@
 //! DOS version and interrupt-vector services used during program startup.
 
 use crate::DosState;
+use relocade_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
+use relocade_x86::{Segment, StoredSegment};
 use std::ops::ControlFlow;
-use wasm86_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
-use wasm86_x86::{Segment, StoredSegment};
 
 /// AH=30h: report DOS 5.00, with no serial number or special version flags.
 pub(super) fn version(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {

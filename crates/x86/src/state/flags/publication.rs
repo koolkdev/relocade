@@ -1,6 +1,6 @@
 //! Terminal publication selects one record without writing earlier payloads.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1};
 
 use crate::alu::AnyStatusSource;
 use crate::flags::FlagMask;

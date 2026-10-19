@@ -1,16 +1,16 @@
-use std::mem::offset_of;
-use wasm86_compiler::{Program, I32};
-use wasm86_machine::MachineConfig;
-use wasm86_runtime::{DispatchEntry, Runtime};
-use wasm86_x86::{
+use relocade_compiler::{Program, I32};
+use relocade_machine::MachineConfig;
+use relocade_runtime::{DispatchEntry, Runtime};
+use relocade_x86::{
     abi, Compiler, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segments,
 };
+use std::mem::offset_of;
 
 #[cfg(not(target_arch = "wasm32"))]
-use wasm86_runtime_wasmtime::WasmtimeBackend as Backend;
+use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
 #[cfg(target_arch = "wasm32")]
-use wasm86_runtime_web::WebBackend as Backend;
+use relocade_runtime_web::WebBackend as Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

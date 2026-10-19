@@ -20,7 +20,7 @@ mod saturation;
 mod shuffle;
 
 use super::*;
-use wasm86_compiler::{MemoryType, VectorLane, VectorType, I16, I64, V64};
+use relocade_compiler::{MemoryType, VectorLane, VectorType, I16, I64, V64};
 
 fn arithmetic<T: VectorLane>(left: u128, right: u128, sum: u128, difference: u128) {
     binary_results(left, right, [sum, difference], |left, right| {

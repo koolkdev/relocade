@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use wasm86_x86::StoredSegment;
+use relocade_x86::StoredSegment;
 
 #[test]
 fn both_forms_use_operand_size_for_the_target_and_preserve_all_other_state() {

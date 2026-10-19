@@ -1,11 +1,11 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use wasm86_compiler::{
+use relocade_compiler::{
     abi::{Function, Memory, Table},
     Program, I32, I64,
 };
-use wasm86_runtime::wasm::{WasmBackend, WasmMemoryAccess};
-use wasm86_runtime_wasmtime::WasmtimeBackend;
+use relocade_runtime::wasm::{WasmBackend, WasmMemoryAccess};
+use relocade_runtime_wasmtime::WasmtimeBackend;
 
 const SHARED: Memory = Memory::new("example", "shared", 1);
 const FUNCTIONS: Table<fn() -> I64> = Table::new("example", "functions", 1);

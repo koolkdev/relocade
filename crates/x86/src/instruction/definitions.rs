@@ -37,7 +37,7 @@ use super::{
 };
 use crate::execution::ExecutionBuilder;
 use crate::flags::Condition;
-use wasm86_compiler::{AtLeast, BuildError, Val, I16, I32, I8};
+use relocade_compiler::{AtLeast, BuildError, Val, I16, I32, I8};
 
 pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form> + Clone {
     moves::forms()

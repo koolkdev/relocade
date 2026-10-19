@@ -3,7 +3,7 @@ use crate::support::cases::{
     test_cases, InstructionCase as Case,
     Permissions::{ReadOnly, ReadWrite},
 };
-use wasm86_x86::{
+use relocade_x86::{
     Gpr32::{Eax, Ebx},
     Segment, StoredSegment,
 };
@@ -68,7 +68,7 @@ fn finite_spans() -> Vec<Case> {
             &[0x64, 0x0f, 0xa3, 0x0b],
         )
         .segment(Segment::Fs, data(0x8000, 0x23))
-        .initial_registers(&[(Ebx, 0x20), (wasm86_x86::Gpr32::Ecx, 32)])
+        .initial_registers(&[(Ebx, 0x20), (relocade_x86::Gpr32::Ecx, 32)])
         .general_protection(0),
     );
     cases

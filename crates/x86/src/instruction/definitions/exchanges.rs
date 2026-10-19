@@ -3,7 +3,7 @@ use crate::address::MemoryAddress;
 use crate::alu::{AnyStatusSource, ArithmeticOp, OperandUpdate, StatusSource};
 use crate::flags::{Flag, FlagChange};
 use crate::register::{Gpr32, RegisterType};
-use wasm86_compiler::I64;
+use relocade_compiler::I64;
 
 instruction_families! {
     XCHG {

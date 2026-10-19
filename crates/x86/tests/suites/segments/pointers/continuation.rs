@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use wasm86_x86::StoredSegment;
+use relocade_x86::StoredSegment;
 
 #[test]
 fn lss_commits_the_offset_before_the_next_entry_applies_the_new_stack_rules() {

@@ -6,7 +6,7 @@ mod tests;
 use std::ops::Range;
 
 use crate::flags::Flag;
-use wasm86_x86::Gpr32;
+use relocade_x86::Gpr32;
 
 use super::{
     ExpectedExit, ExpectedFlags, ExpectedState, FlagExpectation, Flags, InstructionCase,

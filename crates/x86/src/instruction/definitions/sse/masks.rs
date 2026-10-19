@@ -1,7 +1,7 @@
 //! Sign masks copy lane sign bits to a zero-extended general-purpose register.
 
 use super::*;
-use wasm86_compiler::I64;
+use relocade_compiler::I64;
 
 instruction_families! {
     PMOVMSKB {

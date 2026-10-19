@@ -1,5 +1,5 @@
 [package]
-name = "wasm86-x86"
+name = "relocade-x86"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,9 +7,9 @@ publish.workspace = true
 autotests = false
 
 [dependencies]
-wasm86-compiler = { path = "../compiler" }
+relocade-compiler = { path = "../compiler" }
 
 [dev-dependencies]
-wasm86-test-support.workspace = true
+relocade-test-support.workspace = true
 wasmparser = { version = "=0.224.1", default-features = false, features = ["simd", "std", "validate"] }
 wasmtime.workspace = true

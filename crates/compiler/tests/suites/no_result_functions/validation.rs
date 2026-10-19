@@ -1,5 +1,5 @@
 use crate::fixture::signature;
-use wasm86_compiler::{BuildError, FunctionImport, Program, Type, I8};
+use relocade_compiler::{BuildError, FunctionImport, Program, Type, I8};
 use wasmparser::{Parser, Payload, Validator};
 
 #[test]

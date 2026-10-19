@@ -9,7 +9,7 @@ use crate::support::{
     machine::{Exit, Step},
     x87::{complete_x87, dispatch, set_control, stack_image, status, write_value, INDEFINITE},
 };
-use wasm86_x86::SegmentProfile;
+use relocade_x86::SegmentProfile;
 
 #[test]
 fn encodings() {

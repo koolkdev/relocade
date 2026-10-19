@@ -2,7 +2,7 @@
 
 use std::mem::offset_of;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I64};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I64};
 
 use crate::{
     state::{ExecutionContext, StoredX87Register},

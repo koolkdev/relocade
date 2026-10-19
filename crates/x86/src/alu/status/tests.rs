@@ -4,7 +4,7 @@ use super::StatusSource;
 use crate::alu::ArithmeticOp;
 use crate::flags::{Condition, StatusFlag};
 use crate::CompiledModule;
-use wasm86_compiler::{MemoryInt, Program, Signature, Type, I16, I32, I8};
+use relocade_compiler::{MemoryInt, Program, Signature, Type, I16, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 fn auxiliary_carry<T: MemoryInt>() -> CompiledModule {

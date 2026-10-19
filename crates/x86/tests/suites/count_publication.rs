@@ -4,8 +4,8 @@ use crate::support::{
     step,
 };
 
+use relocade_x86::{compile_block_from_bytes, CpuState, Gpr32};
 use step::{Argument, CallPatches, Event, Input, Observation, Outcome, Snapshot, TestModule};
-use wasm86_x86::{compile_block_from_bytes, CpuState, Gpr32};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
 // MOV EAX, [2000]; MOV ECX, [4000]; MOV EDX, [6000].
@@ -34,7 +34,7 @@ fn only_exits_with_progress_read_and_write_instruction_count() {
                         function_index += 1;
                     }
                     if matches!(import.ty, TypeRef::Memory(_)) {
-                        if import.module == "wasm86" && import.name == "executionContext" {
+                        if import.module == "relocade" && import.name == "executionContext" {
                             cpu_memory = Some(memory_index);
                         }
                         memory_index += 1;
@@ -141,7 +141,7 @@ fn instruction_counts_reread_host_changes_between_invocations() {
     let module =
         compile_block_from_bytes(0x1000, &[0xb8, 7, 0, 0, 0, 0xb9, 9, 0, 0, 0], 2).unwrap();
     let mut initial = CpuState::filled(0xa5);
-    initial.segments = wasm86_x86::Segments::flat32();
+    initial.segments = relocade_x86::Segments::flat32();
     initial.eip = 0x1000;
     initial.instruction_count = 37;
     let mut expected_cpu = initial;

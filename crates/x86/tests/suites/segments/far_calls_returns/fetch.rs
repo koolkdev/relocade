@@ -1,8 +1,8 @@
 use super::*;
 use crate::support::encoding::check_length;
 use crate::SegmentProfile;
-use wasm86_x86::StoredSegment;
-use wasm86_x86::{compile_block_from_bytes, BlockError};
+use relocade_x86::StoredSegment;
+use relocade_x86::{compile_block_from_bytes, BlockError};
 
 fn encodings() -> Vec<Vec<u8>> {
     vec![

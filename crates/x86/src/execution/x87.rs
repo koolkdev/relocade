@@ -5,7 +5,7 @@ mod specialization;
 
 pub(crate) use operand::{X87MemoryFormat, X87Operand, X87Operands};
 
-use wasm86_compiler::BuildError;
+use relocade_compiler::BuildError;
 
 use crate::{state::X87Access, Segment};
 

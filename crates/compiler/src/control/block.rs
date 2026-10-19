@@ -39,7 +39,7 @@ impl BlockBuilder<'_> {
     /// and keep its parent usable.
     ///
     /// ```
-    /// use wasm86_compiler::{Program, Signature, Type, I1, I32};
+    /// use relocade_compiler::{Program, Signature, Type, I1, I32};
     /// let mut program = Program::new();
     /// let function = program.function(Signature {
     ///     parameters: vec![Type::I1], results: vec![Type::I32],
@@ -53,7 +53,7 @@ impl BlockBuilder<'_> {
     /// })?;
     /// program.export("choose", function)?;
     /// let bytes = program.compile()?;
-    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
     pub fn block<R: Results>(
         &mut self,

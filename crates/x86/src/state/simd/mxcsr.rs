@@ -1,7 +1,7 @@
 //! MXCSR controls and sticky status are distinct from the numerical calculation.
 
 use crate::{floating::RoundingMode, simd::SimdExceptions, StoredSimd};
-use wasm86_compiler::{Val, I1, I32, I8};
+use relocade_compiler::{Val, I1, I32, I8};
 
 pub(crate) struct Mxcsr(Val<I32>);
 

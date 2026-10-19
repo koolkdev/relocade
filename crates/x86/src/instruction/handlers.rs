@@ -3,7 +3,7 @@
 //! Every operand shape receives the bound condition and fallthrough EIP, and returns
 //! the successor EIP. Family declaration adapters complete ordinary bodies with fallthrough.
 
-use wasm86_compiler::{BuildError, Val, I32};
+use relocade_compiler::{BuildError, Val, I32};
 
 use super::{Location, Operand, OperandSize};
 use crate::execution::ExecutionBuilder;

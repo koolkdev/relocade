@@ -12,7 +12,7 @@ use crate::support::{
         INDEFINITE,
     },
 };
-use wasm86_x86::{compile_block_from_bytes, CpuState, SegmentProfile};
+use relocade_x86::{compile_block_from_bytes, CpuState, SegmentProfile};
 
 #[derive(Clone, Copy, Debug)]
 enum Source {

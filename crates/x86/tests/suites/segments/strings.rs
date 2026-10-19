@@ -5,7 +5,7 @@ use crate::support::cases::{
     Flags, InstructionCase as Case,
     Permissions::{ReadOnly, ReadWrite},
 };
-use wasm86_x86::{
+use relocade_x86::{
     CpuState,
     Gpr32::{Eax, Ecx, Edi, Esi},
     Segment, StoredFlags, StoredSegment,

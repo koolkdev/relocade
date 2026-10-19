@@ -2,8 +2,8 @@
 
 use std::cell::RefCell;
 
-use wasm86_compiler::{Program, Signature, Type};
-use wasm86_test_support::{engine, Module};
+use relocade_compiler::{Program, Signature, Type};
+use relocade_test_support::{engine, Module};
 use wasmparser::Validator;
 
 use super::*;

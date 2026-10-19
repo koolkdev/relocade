@@ -6,7 +6,7 @@ use crate::support::{
     guest::{Exit, Machine, Mapping, Permissions::ReadWrite},
     step::{Argument, Event, Input, Outcome, TestModule},
 };
-use wasm86_x86::{compile_block_from_bytes, Gpr32::*};
+use relocade_x86::{compile_block_from_bytes, Gpr32::*};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef};
 
 fn long_reads() -> Vec<Case> {

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{address::MemoryAddress, memory::Intent, register::RegisterCode};
-use wasm86_compiler::I64;
+use relocade_compiler::I64;
 
 #[derive(Clone, Copy)]
 enum Half {

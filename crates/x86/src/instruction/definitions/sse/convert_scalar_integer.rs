@@ -3,7 +3,7 @@
 use super::floating::IntegerRounding;
 use super::*;
 use crate::{floating::BinaryFormat, simd::FloatOperand};
-use wasm86_compiler::I64;
+use relocade_compiler::I64;
 
 instruction_families! {
     CVTSS2SI {

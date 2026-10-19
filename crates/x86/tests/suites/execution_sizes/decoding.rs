@@ -1,6 +1,6 @@
 use super::code16;
 use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly};
-use wasm86_x86::Gpr32::{Eax, Ebx, Esi};
+use relocade_x86::Gpr32::{Eax, Ebx, Esi};
 
 fn defaults_and_prefixes() -> Vec<Case> {
     let mut cases = vec![

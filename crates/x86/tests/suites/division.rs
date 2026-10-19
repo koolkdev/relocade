@@ -1,4 +1,4 @@
-use wasm86_x86::Gpr32::{Eax, Ebx, Ecx, Edx, Esi};
+use relocade_x86::Gpr32::{Eax, Ebx, Ecx, Edx, Esi};
 
 use crate::support::{
     cases::{

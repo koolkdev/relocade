@@ -1,5 +1,5 @@
-use wasm86_dos::{LoadError, ServiceError};
-use wasm86_x86::{ExecutionExit, Segment};
+use relocade_dos::{LoadError, ServiceError};
+use relocade_x86::{ExecutionExit, Segment};
 
 mod common;
 

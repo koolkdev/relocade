@@ -1,4 +1,4 @@
-use wasm86_compiler::{MemoryInt, Val, I1};
+use relocade_compiler::{MemoryInt, Val, I1};
 
 use super::{FlagMask, StatusFlag};
 

@@ -2,7 +2,7 @@ use super::{budget_exhausted, exception, unsupported, ExecutionExit};
 use crate::exception::Exception;
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState};
-use wasm86_compiler::{Program, Signature, Type, I32, I8};
+use relocade_compiler::{Program, Signature, Type, I32, I8};
 
 fn exit_module() -> Vec<u8> {
     let mut program = Program::new();

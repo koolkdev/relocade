@@ -4,9 +4,9 @@ use super::*;
 use crate::support::{
     blocks::BlockModules, encoding::check_length, machine::expected, step::TestModule,
 };
-use wasm86_x86::StoredSegment;
+use relocade_x86::StoredSegment;
 
-fn retired(mut cpu: wasm86_x86::CpuState, length: usize) -> wasm86_x86::CpuState {
+fn retired(mut cpu: relocade_x86::CpuState, length: usize) -> relocade_x86::CpuState {
     cpu.eip += length as u32;
     cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
     cpu

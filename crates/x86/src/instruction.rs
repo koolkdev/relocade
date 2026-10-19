@@ -22,7 +22,7 @@ use crate::address::{AddressSize, EffectiveAddress, MemoryAddress};
 use crate::flags::Condition;
 use crate::register::RegisterOperand;
 use crate::{ExecutionTarget, Segment};
-use wasm86_compiler::{Val, I16, I32};
+use relocade_compiler::{Val, I16, I32};
 
 pub(super) const MAX_INSTRUCTION_BYTES: u32 = 15;
 pub(super) const EXTENDED_OPCODE_ESCAPE: u8 = 0x0f;

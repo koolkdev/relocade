@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_compiler::I64;
+use relocade_compiler::I64;
 
 fn correlated_fields(independent: bool) -> TestModule {
     Fixture::new().function(

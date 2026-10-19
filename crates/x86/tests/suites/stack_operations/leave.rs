@@ -8,7 +8,7 @@ use crate::support::{
     },
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::{Gpr32::*, Segment};
+use relocade_x86::{Gpr32::*, Segment};
 
 #[rustfmt::skip]
 fn widths() -> Vec<Case> {

@@ -1,6 +1,6 @@
 //! Tangent divides unrounded components and keeps exact evidence near a pole.
 
-use wasm86_compiler::{BlockBuilder, BuildError};
+use relocade_compiler::{BlockBuilder, BuildError};
 
 use crate::floating::{FiniteInput, FiniteMagnitude, MagnitudeShape, RoundingInput, RoundingMode};
 

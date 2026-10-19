@@ -4,7 +4,7 @@ mod operand;
 
 pub(crate) use operand::BinaryOperand;
 
-use wasm86_compiler::{AtLeast, Val, I16, I32, I64};
+use relocade_compiler::{AtLeast, Val, I16, I32, I64};
 
 use crate::floating::{BinaryEncoding, BinaryFormat, FiniteMagnitude, RoundingInput, RoundingMode};
 

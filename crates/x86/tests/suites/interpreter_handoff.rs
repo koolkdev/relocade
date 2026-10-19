@@ -8,7 +8,7 @@ use crate::support::{
     step::{Argument, Event, Outcome, TestModule},
     x87::stack_image,
 };
-use wasm86_x86::{
+use relocade_x86::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, CpuState, SegmentProfile,
 };
 
@@ -122,7 +122,7 @@ fn only_guarded_jit_entries_require_the_interpreter_import() {
             .any(|section| match section.unwrap() {
                 wasmparser::Payload::ImportSection(imports) => imports.into_iter().any(|import| {
                     let import = import.unwrap();
-                    import.module == "wasm86" && import.name == "interpret"
+                    import.module == "relocade" && import.name == "interpret"
                 }),
                 _ => false,
             })

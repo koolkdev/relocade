@@ -3,8 +3,8 @@
 #[cfg(test)]
 mod tests;
 
+use relocade_x86::{Compiler, CpuState, ExecutionProfile, ExecutionTarget};
 use std::collections::HashMap;
-use wasm86_x86::{Compiler, CpuState, ExecutionProfile, ExecutionTarget};
 use wasmparser::Validator;
 
 use super::step::TestModule;

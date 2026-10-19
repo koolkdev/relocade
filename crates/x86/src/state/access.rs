@@ -2,7 +2,7 @@
 
 use std::mem::{offset_of, size_of};
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Val, I16, I32, I64, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Val, I16, I32, I64, I8};
 
 use crate::{
     register::{Gpr32, Register, RegisterSelection, RegisterType},

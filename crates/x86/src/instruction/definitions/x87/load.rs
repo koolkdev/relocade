@@ -9,7 +9,7 @@ use crate::{
     state::x87::{ConditionCode, Exception, StackValue},
     x87::{BinaryOperand, Constant, ExtendedBits, ExtendedValue, PackedBcd},
 };
-use wasm86_compiler::{MemoryInt, I64};
+use relocade_compiler::{MemoryInt, I64};
 
 instruction_families! {
     FLD1 {

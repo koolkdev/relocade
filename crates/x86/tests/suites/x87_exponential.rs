@@ -10,7 +10,7 @@ use crate::support::{
     step::TestModule,
     x87::{complete_x87, dispatch, real80, set_control, stack_image, write_value, INDEFINITE},
 };
-use wasm86_x86::{Compiler, CpuState, SegmentProfile};
+use relocade_x86::{Compiler, CpuState, SegmentProfile};
 
 const CODE: [u8; 2] = [0xd9, 0xf0];
 const LEAD: u64 = 1 << 63;

@@ -1,6 +1,6 @@
 //! Rounds normalized magnitudes to x87 precision and extended exponent range.
 
-use wasm86_compiler::{Val, I16, I32, I64, I8};
+use relocade_compiler::{Val, I16, I32, I64, I8};
 
 use super::{
     result::{ArithmeticCandidate, ArithmeticResult, RoundedValue},

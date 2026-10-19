@@ -2,7 +2,7 @@
 
 use super::{Input, MmxLocation, VectorAlignment, XmmLocation};
 use crate::execution::ExecutionBuilder;
-use wasm86_compiler::{BuildError, Val, I64, I8, V128};
+use relocade_compiler::{BuildError, Val, I64, I8, V128};
 
 pub(crate) trait PackedShiftCount {
     fn read_count(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<Val<I64>, BuildError>;

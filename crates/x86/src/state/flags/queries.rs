@@ -1,6 +1,6 @@
 //! Logical flag queries, condition shortcuts and demand-driven status composition.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1};
 
 use crate::flags::{Condition, Flag, FlagChange, FlagMask, StatusFlag};
 use crate::state::Cpu;

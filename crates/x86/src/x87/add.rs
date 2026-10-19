@@ -1,7 +1,7 @@
 //! Exact alignment and cancellation precede the shared precision/range rounding.
 
 use crate::floating::{FiniteInput, RoundingMode};
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I8};
 
 use super::{
     operand::{AddendSigns, BinaryOperands},

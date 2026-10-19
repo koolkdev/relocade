@@ -1,4 +1,4 @@
-use wasm86_x86::{FlagBytes, Segments};
+use relocade_x86::{FlagBytes, Segments};
 
 use super::{InitialFlags, InitialState};
 use crate::support::guest::Machine;

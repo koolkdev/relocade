@@ -4,9 +4,9 @@ use crate::support::cases::{
 use crate::support::machine;
 use crate::support::step;
 use machine::{check, Exit, Image, Step};
+use relocade_x86::StoredStatusSource;
+use relocade_x86::{CpuState, Gpr32, StoredFlags};
 use step::TestModule;
-use wasm86_x86::StoredStatusSource;
-use wasm86_x86::{CpuState, Gpr32, StoredFlags};
 
 fn image(start: u32, code: &[u8]) -> Image {
     let mut image = Image::new(&[]);

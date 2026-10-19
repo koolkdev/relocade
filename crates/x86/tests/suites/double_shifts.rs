@@ -9,7 +9,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::Gpr32::{Eax, Ebx, Ecx, Edx};
+use relocade_x86::Gpr32::{Eax, Ebx, Ecx, Edx};
 
 // AF is the project's zero policy; OF is zero for masked counts above one.
 #[rustfmt::skip]

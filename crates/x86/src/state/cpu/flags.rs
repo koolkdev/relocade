@@ -1,6 +1,6 @@
 //! Stored condition and flag-subset queries over CPU records.
 
-use wasm86_compiler::{
+use relocade_compiler::{
     AtLeast, BlockBuilder, BuildError, Func, MemoryInt, Program, Signature, Type, Val, I1, I16,
     I32, I8,
 };

@@ -1,7 +1,7 @@
 use crate::{files::Files, memory, process, services, ServiceError};
-use wasm86_machine::{MachineConfig, Memory};
-use wasm86_runtime::{real_mode_interrupt::HOOK_STUB, Hook};
-use wasm86_x86::{
+use relocade_machine::{MachineConfig, Memory};
+use relocade_runtime::{real_mode_interrupt::HOOK_STUB, Hook};
+use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
 };
 

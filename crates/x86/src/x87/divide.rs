@@ -1,6 +1,6 @@
 //! Division shares normalization, rounding and architectural exception responses.
 
-use wasm86_compiler::{Val, I8};
+use relocade_compiler::{Val, I8};
 
 use crate::floating::{FiniteInput, RoundingMode};
 

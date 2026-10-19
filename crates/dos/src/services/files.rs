@@ -1,7 +1,7 @@
 use crate::{error::DosError, interrupt::return_result, path::MAX_PATH_BYTES, DosState};
+use relocade_runtime::HostCall;
+use relocade_x86::Segment;
 use std::ops::ControlFlow;
-use wasm86_runtime::HostCall;
-use wasm86_x86::Segment;
 
 /// AH=71h: report that long-filename services are absent so callers can use 8.3.
 pub(super) fn long_filename(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {

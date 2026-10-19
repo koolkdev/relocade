@@ -1,7 +1,7 @@
 //! Operands retain exact values, classification and source exception evidence.
 
 use crate::floating::RoundingMode;
-use wasm86_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64, I8};
 
 use super::{
     result::RoundedValue, value::Precision53, ArithmeticCandidate, ArithmeticResult,

@@ -1,6 +1,6 @@
 //! Instruction reads translate and check CS before accessing the selected memory model.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 
 use crate::{
     memory::{Intent, Memory, PageCache},

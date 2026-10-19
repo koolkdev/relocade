@@ -1,7 +1,7 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 
-use wasm86_compiler::{BuildError, Type, I1, I32, I8};
+use relocade_compiler::{BuildError, Type, I1, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[path = "control_flow/forwarding.rs"]

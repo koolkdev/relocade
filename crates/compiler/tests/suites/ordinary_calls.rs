@@ -1,7 +1,7 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 
-use wasm86_compiler::{BuildError, Program, Type, Val, I1, I32, I64, I8};
+use relocade_compiler::{BuildError, Program, Type, Val, I1, I32, I64, I8};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, Validator};
 
 fn ordered_imports() -> TestModule {

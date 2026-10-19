@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_x86::{Compiler, CpuFeature, CpuModel};
+use relocade_x86::{Compiler, CpuFeature, CpuModel};
 
 fn configured_features(frontend: Frontend) {
     let mut blocks = BlockModules::default();

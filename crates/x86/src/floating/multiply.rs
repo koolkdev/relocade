@@ -1,7 +1,7 @@
 //! Exact 64-bit significand multiplication preserves the discarded product bits.
 
 use super::{FiniteInput, FiniteMagnitude, RoundingInput};
-use wasm86_compiler::I32;
+use relocade_compiler::I32;
 
 impl FiniteInput {
     /// Zero/special operand responses replace the numerical result and its evidence.

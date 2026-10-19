@@ -5,7 +5,7 @@ mod segments;
 
 use std::cell::Cell;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Func, Mem, Program, Val, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Func, Mem, Program, Val, I32};
 
 use crate::flags::{Condition, StatusFlag};
 

@@ -4,7 +4,7 @@ use crate::support::{
     machine::{Exit, Image},
     step::TestModule,
 };
-use wasm86_x86::{compile_block_from_bytes, BlockError};
+use relocade_x86::{compile_block_from_bytes, BlockError};
 
 fn required_extended_fields() {
     for code in [
