@@ -28,7 +28,7 @@ async fn check_hello() {
         assert_eq!(machine.cpu().sp(), 0xfffe);
         let mut psp = [0; 256];
         machine.memory().read(0x10000, &mut psp).unwrap();
-        assert_eq!(&psp[..4], &[0xcd, 0x20, 0, 0xa0]);
+        assert_eq!(&psp[..4], &[0xcd, 0x20, 0xfe, 0x9f]);
         assert_eq!(&psp[0x80..0x82], &[0, 13]);
         let mut word = [1; 2];
         machine.memory().read(0x1fffe, &mut word).unwrap();

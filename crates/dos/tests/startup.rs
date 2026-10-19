@@ -16,35 +16,20 @@ const PRINT_TAIL: &[u8] = &[
     0xb8, 0, 0x4c, 0xcd, 0x21, // Exit 0.
 ];
 
-fn mz_image(code: &[u8]) -> Vec<u8> {
-    let size = 0x20 + code.len();
-    let mut image = vec![0; 0x20];
-    image[..2].copy_from_slice(b"MZ");
-    for (offset, value) in [
-        (0x02, size as u16), // Bytes in the final file page.
-        (0x04, 1),           // One file page.
-        (0x08, 2),           // Two header paragraphs.
-        (0x0a, 0x10),        // Extra paragraphs for the stack.
-        (0x0c, 0x10),
-        (0x10, 0x100), // SP within the load segment; CS, SS and IP are zero.
-    ] {
-        image[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
-    }
-    image.extend_from_slice(code);
-    image
-}
-
 async fn check_command_tails() {
     let mut dos = common::dos().await;
     let maximum = [b'x'; 126];
     for mz in [false, true] {
         let image = if mz {
-            mz_image(PRINT_TAIL)
+            common::mz_image(PRINT_TAIL)
         } else {
             PRINT_TAIL.to_vec()
         };
         for tail in [&b""[..], &b"  \"two words\" \x82"[..], &maximum[..]] {
-            let options = LoadOptions { command_tail: tail };
+            let options = LoadOptions {
+                command_tail: tail,
+                ..Default::default()
+            };
             if mz {
                 dos.load_mz(&image, options).unwrap();
             } else {
@@ -73,6 +58,7 @@ async fn check_command_tails() {
             .unwrap();
         let options = LoadOptions {
             command_tail: &[b'x'; 127],
+            ..Default::default()
         };
         let result = if mz {
             dos.load_mz(&image, options)

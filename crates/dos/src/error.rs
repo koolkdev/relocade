@@ -59,6 +59,8 @@ pub enum LoadError {
     EmptyImage,
     ImageTooLarge,
     CommandTailTooLong,
+    InvalidEnvironment,
+    EnvironmentTooLarge,
     InvalidMzHeader,
     InvalidRelocation,
     InsufficientMemory,
@@ -71,11 +73,15 @@ impl fmt::Display for LoadError {
             Self::EmptyImage => f.write_str("COM image is empty"),
             Self::ImageTooLarge => f.write_str("COM image exceeds 65,278 bytes"),
             Self::CommandTailTooLong => f.write_str("DOS command tail exceeds 126 bytes"),
+            Self::InvalidEnvironment => {
+                f.write_str("expected NUL-free NAME=VALUE entries and executable path")
+            }
+            Self::EnvironmentTooLarge => f.write_str("DOS environment exceeds one 64-KiB segment"),
             Self::InvalidMzHeader => f.write_str("invalid or truncated DOS MZ executable"),
             Self::InvalidRelocation => f.write_str("invalid MZ relocation table or target"),
-            Self::InsufficientMemory => {
-                f.write_str("MZ executable requires more conventional memory than available")
-            }
+            Self::InsufficientMemory => f.write_str(
+                "program and environment require more conventional memory than available",
+            ),
             Self::UnsupportedOverlay => f.write_str("loading MZ overlays is not supported"),
         }
     }

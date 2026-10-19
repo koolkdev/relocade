@@ -57,3 +57,21 @@ pub fn error(cpu: &CpuState, code: u16) {
     assert_eq!(cpu.flags.eflags() & 1, 1);
     assert_eq!(cpu.registers.eax as u16, code);
 }
+
+pub fn mz_image(code: &[u8]) -> Vec<u8> {
+    let size = 0x20 + code.len();
+    let mut image = vec![0; 0x20];
+    image[..2].copy_from_slice(b"MZ");
+    for (offset, value) in [
+        (0x02, size as u16), // Bytes in the final file page.
+        (0x04, 1),           // One file page.
+        (0x08, 2),           // Two header paragraphs.
+        (0x0a, 0x10),        // Extra paragraphs for the stack.
+        (0x0c, 0x10),
+        (0x10, 0x100), // SP within the load segment; CS, SS and IP are zero.
+    ] {
+        image[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+    image.extend_from_slice(code);
+    image
+}

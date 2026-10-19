@@ -43,8 +43,8 @@ async fn check_memory_services() {
     dos.load_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())
         .unwrap(); // INT 21h; JMP $
 
-    // COM initially owns all conventional memory. Keep its first 64 KiB so
-    // the initial stack remains inside the process allocation.
+    // COM and its environment initially own all conventional memory. Keep the
+    // program's first 64 KiB so its initial stack remains inside the allocation.
     let cpu = service(&mut dos, 0x48, 1, 0);
     assert_error(&cpu, 8);
     assert_eq!(cpu.registers.ebx as u16, 0);
@@ -71,18 +71,18 @@ async fn check_memory_services() {
     assert_error(&service(&mut dos, 0x49, 0, 0x2002), 9); // Interior pointer.
     let cpu = service(&mut dos, 0x48, 0xffff, 0);
     assert_error(&cpu, 8);
-    assert_eq!(cpu.registers.ebx as u16, 0x7fbe);
+    assert_eq!(cpu.registers.ebx as u16, 0x7fbc);
 
     // Failed expansion consumes the adjacent free space and reports the maximum.
     let cpu = service(&mut dos, 0x4a, 0xffff, 0x2001);
     assert_error(&cpu, 8);
-    assert_eq!(cpu.registers.ebx as u16, 0x7fff);
+    assert_eq!(cpu.registers.ebx as u16, 0x7ffd);
     dos.runtime()
         .machine()
         .memory()
         .read(0x20000, &mut mcb)
         .unwrap();
-    assert_eq!(mcb, [b'Z', 0, 0x10, 0xff, 0x7f]);
+    assert_eq!(mcb, [b'M', 0, 0x10, 0xfd, 0x7f]);
     assert_success(&service(&mut dos, 0x49, 0, 0x2001));
     assert_error(&service(&mut dos, 0x49, 0, 0x2001), 9);
 
@@ -91,7 +91,7 @@ async fn check_memory_services() {
     assert_success(&cpu);
     assert_eq!(cpu.registers.eax as u16, 0x2001);
     assert_success(&service(&mut dos, 0x49, 0, 0x2001));
-    let cpu = service(&mut dos, 0x48, 0x7fff, 0);
+    let cpu = service(&mut dos, 0x48, 0x7ffd, 0);
     assert_success(&cpu); // Free blocks coalesced, including their header paragraphs.
     assert_eq!(cpu.registers.eax as u16, 0x2001);
 
