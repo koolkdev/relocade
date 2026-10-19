@@ -56,6 +56,7 @@ impl Worker {
                 "--no-liftoff",
                 "--no-wasm-lazy-compilation",
                 "--no-wasm-tier-up",
+                "--experimental-wasm-branch-hinting",
             ])
             .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/v8/worker.mjs"))
             .stdin(Stdio::piped())

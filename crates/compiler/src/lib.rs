@@ -48,7 +48,7 @@ use std::fmt;
 
 use body::FunctionGraph;
 pub use call::{FunctionImport, Table, TableImport};
-pub use control::{Label, LoopLabels};
+pub use control::{BranchCondition, BranchHint, Label, LoopLabels};
 use expression::Expression;
 pub use function::BlockBuilder;
 pub use memory::{AtomicAccess, Mem, MemoryImport, MemoryInt, MemoryType};

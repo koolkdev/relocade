@@ -3,7 +3,7 @@ use super::JoinTarget;
 use crate::{
     body::{BlockId, Edge, Exit, Layout},
     function::PendingBlock,
-    Arguments, BlockBuilder, BuildError, Results, Val, I1,
+    Arguments, BlockBuilder, BranchCondition, BranchHint, BuildError, Results,
 };
 
 impl BlockBuilder<'_> {
@@ -16,7 +16,7 @@ impl BlockBuilder<'_> {
     /// false condition, and errors leave this builder usable.
     pub fn yield_if(
         &mut self,
-        condition: impl Into<Val<I1>>,
+        condition: impl Into<BranchCondition>,
         arguments: impl Into<Arguments>,
     ) -> Result<(), BuildError> {
         let target = self.yield_target()?;
@@ -25,11 +25,12 @@ impl BlockBuilder<'_> {
 
     pub(super) fn conditional_branch(
         &mut self,
-        condition: impl Into<Val<I1>>,
+        condition: impl Into<BranchCondition>,
         target: JoinTarget,
         arguments: impl Into<Arguments>,
     ) -> Result<(), BuildError> {
-        let condition = self.operand(condition)?;
+        let BranchCondition { value, hint } = condition.into();
+        let condition = self.operand(value)?;
         let arguments = self.result_arguments(arguments, &target.types)?;
         let condition = self.arena.normalize(condition)?;
         let taken = self.build_branch(None, |branch| {
@@ -42,7 +43,7 @@ impl BlockBuilder<'_> {
         })?;
         let continuation = self.arena.block(self.pending.id, &[])?;
         let otherwise = self.build_branch(None, |_| Ok(()))?;
-        self.attach_conditional(condition, taken, otherwise, continuation)
+        self.attach_conditional(condition, hint, taken, otherwise, continuation)
     }
 
     /// Builds a branch that executes when the condition is true. A false condition
@@ -72,7 +73,7 @@ impl BlockBuilder<'_> {
     /// ```
     pub fn if_(
         &mut self,
-        condition: impl Into<Val<I1>>,
+        condition: impl Into<BranchCondition>,
         build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         self.if_else(condition, build, |_| Ok(()))
@@ -101,16 +102,17 @@ impl BlockBuilder<'_> {
     /// ```
     pub fn if_else(
         &mut self,
-        condition: impl Into<Val<I1>>,
+        condition: impl Into<BranchCondition>,
         then_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
         else_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
-        let condition = self.operand(condition)?;
+        let BranchCondition { value, hint } = condition.into();
+        let condition = self.operand(value)?;
         let branch = self.build_branch(None, then_build)?;
         let else_branch = self.build_branch(None, else_build)?;
         let condition = self.arena.normalize(condition)?;
         let continuation = self.arena.block(self.pending.id, &[])?;
-        self.attach_conditional(condition, branch, else_branch, continuation)
+        self.attach_conditional(condition, hint, branch, else_branch, continuation)
     }
 
     /// Selects a typed result by executing one of two branches. Nonempty result
@@ -143,23 +145,25 @@ impl BlockBuilder<'_> {
     /// ```
     pub fn if_value<R: Results>(
         &mut self,
-        condition: impl Into<Val<I1>>,
+        condition: impl Into<BranchCondition>,
         then_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
         else_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<R::Values, BuildError> {
-        let condition = self.operand(condition)?;
+        let BranchCondition { value, hint } = condition.into();
+        let condition = self.operand(value)?;
         let target = self.result_target::<R>()?;
         let branch = self.build_branch(Some(&target), then_build)?;
         let else_branch = self.build_branch(Some(&target), else_build)?;
         let condition = self.arena.normalize(condition)?;
         let outputs = self.join_outputs(&target, &[branch.entry, else_branch.entry])?;
         let values = crate::results::bind::<R>(self, &outputs);
-        self.attach_conditional(condition, branch, else_branch, target.target)?;
+        self.attach_conditional(condition, hint, branch, else_branch, target.target)?;
         Ok(values)
     }
     fn attach_conditional(
         &mut self,
         condition: usize,
+        hint: Option<BranchHint>,
         taken: PendingBlock,
         otherwise: PendingBlock,
         join: BlockId,
@@ -182,6 +186,7 @@ impl BlockBuilder<'_> {
         )?;
         self.pending.layout.push(Layout::If {
             branch: self.pending.current,
+            hint,
             taken: taken.layout,
             otherwise: otherwise.layout,
             join,

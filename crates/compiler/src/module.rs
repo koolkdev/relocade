@@ -2,8 +2,8 @@
 use std::collections::HashMap;
 
 use wasm_encoder::{
-    CodeSection, EntityType, ExportKind, ExportSection, FunctionSection, ImportSection, MemoryType,
-    Module, RefType, TableType, TypeSection, ValType,
+    BranchHints, CodeSection, EntityType, ExportKind, ExportSection, FunctionSection,
+    ImportSection, MemoryType, Module, RefType, TableType, TypeSection, ValType,
 };
 
 use crate::{
@@ -210,17 +210,25 @@ pub(super) fn encode(mut program: Program) -> Vec<u8> {
         );
     }
     let mut code = CodeSection::new();
+    let mut branch_hints = BranchHints::new();
     for (id, body) in defined {
         let parameters = u32::try_from(program.functions[id].signature.parameters.len())
             .expect("function parameter count fits the Wasm index space");
-        code.function(&emit::encode(
+        let encoded = emit::encode(
             body,
             parameters,
             &memories,
             &function_indices,
             &tables,
             program.features,
-        ));
+        );
+        if !encoded.branch_hints.is_empty() {
+            branch_hints.function_hints(
+                function_indices[id].expect("an encoded function is retained"),
+                encoded.branch_hints,
+            );
+        }
+        code.function(&encoded.body);
     }
     // Function signatures are interned in deterministic declaration order.
     let mut module = Module::new();
@@ -230,6 +238,9 @@ pub(super) fn encode(mut program: Program) -> Vec<u8> {
     }
     module.section(&functions);
     module.section(&exports);
+    if !branch_hints.is_empty() {
+        module.section(&branch_hints);
+    }
     module.section(&code);
     module.finish()
 }

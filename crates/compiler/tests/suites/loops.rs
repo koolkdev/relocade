@@ -88,7 +88,9 @@ fn entry_reads_used_on_backedges() -> TestModule {
         let called_before = body.call::<I32>(read_only, &[])?;
         let sum =
             body.loop_::<(I32, I32), I32>((&count, 0), |mut iteration, labels, (left, sum)| {
-                iteration.if_(left.eq(0), |done| done.branch(&labels.exit, &sum))?;
+                iteration.if_(left.eq(0).unlikely(), |done| {
+                    done.branch(&labels.exit, &sum)
+                })?;
                 let fresh = iteration.load::<I32>(state, 0)?;
                 let fresh_call_source = iteration.load::<I32>(state, 4)?;
                 let next_sum = sum.add(&before).add(&called_before).add(&fresh);

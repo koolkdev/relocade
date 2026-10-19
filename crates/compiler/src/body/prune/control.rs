@@ -52,6 +52,7 @@ impl<'a> Control<'a> {
                 } => self.scope(&mut result, preheader, body, after),
                 Layout::If {
                     branch,
+                    hint,
                     taken,
                     otherwise,
                     join,
@@ -65,6 +66,7 @@ impl<'a> Control<'a> {
                     }
                     None => result.push(Layout::If {
                         branch,
+                        hint,
                         taken: self.simplify(taken),
                         otherwise: self.simplify(otherwise),
                         join,

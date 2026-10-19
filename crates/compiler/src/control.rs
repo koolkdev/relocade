@@ -5,10 +5,12 @@ use crate::{
     results, Arguments, BlockBuilder, BuildError, Results, Type,
 };
 mod block;
+mod condition;
 mod conditional;
 mod loops;
 mod switch;
 pub use block::Label;
+pub use condition::{BranchCondition, BranchHint};
 pub use loops::LoopLabels;
 
 #[derive(Clone)]

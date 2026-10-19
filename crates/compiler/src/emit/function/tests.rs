@@ -1,6 +1,42 @@
-use super::{FunctionEncoder, LocalOp};
+use super::{EncodedFunction, FunctionEncoder, LocalOp};
+use crate::BranchHint;
 use wasm_encoder::{BlockType, Instruction, ValType};
 use wasmparser::{BinaryReader, FunctionBody, Operator};
+
+#[test]
+fn branch_hint_offsets_include_locals_and_multibyte_local_indices() {
+    let mut code = FunctionEncoder::new(130, vec![ValType::I32]);
+    code.instruction(Instruction::I32Const(1));
+    code.instruction(Instruction::LocalSet(130));
+    code.instruction(Instruction::LocalGet(130));
+    code.branch_hint(Some(crate::BranchHint::Likely));
+    code.instruction(Instruction::If(BlockType::Empty));
+    code.instruction(Instruction::End);
+    code.instruction(Instruction::LocalGet(130));
+    code.branch_hint(Some(crate::BranchHint::Unlikely));
+    code.instruction(Instruction::If(BlockType::Empty));
+    code.instruction(Instruction::End);
+    code.instruction(Instruction::LocalGet(130));
+    code.instruction(Instruction::Drop);
+
+    let encoded = code.finish();
+    let hints: Vec<_> = encoded
+        .branch_hints
+        .iter()
+        .map(|hint| (hint.branch_func_offset, hint.branch_hint_value))
+        .collect();
+    assert_eq!(hints, [(11, 1), (17, 0)]);
+    let bytes = encoded.body.into_raw_body();
+    let body = FunctionBody::new(BinaryReader::new(&bytes, 0));
+    let branches: Vec<_> = body
+        .get_operators_reader()
+        .unwrap()
+        .into_iter_with_offsets()
+        .map(Result::unwrap)
+        .filter_map(|(operator, offset)| matches!(operator, Operator::If { .. }).then_some(offset))
+        .collect();
+    assert_eq!(branches, [11, 17]);
+}
 
 #[test]
 fn deferred_accesses_preserve_order_and_use_indices_after_parameters() {
@@ -15,7 +51,7 @@ fn deferred_accesses_preserve_order_and_use_indices_after_parameters() {
     // The unused i64 slot has no declaration. The temporary reuses the i32
     // local after its last get, even though that value remains on the stack.
     assert_eq!(
-        code.finish().into_raw_body(),
+        code.finish().body.into_raw_body(),
         [
             0x01, 0x01, 0x7f, // one i32 local
             0x20, 0x81, 0x01, // local.get 129 (parameter)
@@ -27,8 +63,7 @@ fn deferred_accesses_preserve_order_and_use_indices_after_parameters() {
     );
 }
 
-#[test]
-fn nested_loop_backedges_keep_live_values_apart_from_body_temporaries() {
+fn nested_loops(hint: Option<BranchHint>) -> EncodedFunction {
     let mut code = FunctionEncoder::new(0, vec![ValType::I32; 6]);
     code.instruction(Instruction::I32Const(10));
     code.local(0, LocalOp::Set);
@@ -42,6 +77,7 @@ fn nested_loop_backedges_keep_live_values_apart_from_body_temporaries() {
     code.local(1, LocalOp::Get);
     code.instruction(Instruction::Drop);
     code.instruction(Instruction::I32Const(1));
+    code.branch_hint(hint);
     code.instruction(Instruction::If(BlockType::Empty));
     code.instruction(Instruction::I32Const(30));
     code.local(2, LocalOp::Set);
@@ -51,6 +87,7 @@ fn nested_loop_backedges_keep_live_values_apart_from_body_temporaries() {
     code.instruction(Instruction::Nop);
     code.instruction(Instruction::End);
     code.instruction(Instruction::I32Const(0));
+    code.branch_hint(hint);
     code.instruction(Instruction::BrIf(0));
     code.instruction(Instruction::End);
     code.instruction(Instruction::End);
@@ -61,6 +98,7 @@ fn nested_loop_backedges_keep_live_values_apart_from_body_temporaries() {
     code.local(3, LocalOp::Get);
     code.instruction(Instruction::Drop);
     code.instruction(Instruction::I32Const(0));
+    code.branch_hint(hint);
     code.instruction(Instruction::BrIf(0));
     code.instruction(Instruction::End);
     code.instruction(Instruction::I32Const(50));
@@ -72,7 +110,15 @@ fn nested_loop_backedges_keep_live_values_apart_from_body_temporaries() {
     code.local(5, LocalOp::Get);
     code.instruction(Instruction::Return);
 
-    let bytes = code.finish().into_raw_body();
+    code.finish()
+}
+
+#[test]
+fn nested_loop_backedges_keep_live_values_apart_from_body_temporaries() {
+    let encoded = nested_loops(Some(BranchHint::Likely));
+    assert_eq!(encoded.branch_hints.len(), 3);
+    let bytes = encoded.body.into_raw_body();
+    assert_eq!(bytes, nested_loops(None).body.into_raw_body());
     let body = FunctionBody::new(BinaryReader::new(&bytes, 0));
     let locals: Vec<_> = body
         .get_locals_reader()
@@ -93,4 +139,21 @@ fn nested_loop_backedges_keep_live_values_apart_from_body_temporaries() {
     // The inner loop needs all three locals. After its exit, the outer-body
     // temporary can reuse local 1. Local 0 becomes reusable after the outer exit.
     assert_eq!(stores, [0, 1, 2, 1, 1, 0]);
+    let branches: Vec<_> = body
+        .get_operators_reader()
+        .unwrap()
+        .into_iter_with_offsets()
+        .map(Result::unwrap)
+        .filter_map(|(operator, offset)| {
+            matches!(operator, Operator::If { .. } | Operator::BrIf { .. }).then_some(offset as u32)
+        })
+        .collect();
+    assert_eq!(
+        encoded
+            .branch_hints
+            .iter()
+            .map(|hint| hint.branch_func_offset)
+            .collect::<Vec<_>>(),
+        branches
+    );
 }

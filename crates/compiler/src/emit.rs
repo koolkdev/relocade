@@ -29,7 +29,7 @@ pub(super) fn encode(
     functions: &[Option<u32>],
     tables: &[Option<(u32, u32)>],
     features: WasmFeatures,
-) -> Function {
+) -> EncodedFunction {
     let reachable = graph.reachable();
     let selection = Selection::new(&graph, &reachable);
     let view = view::OperandView::new(&graph, &selection, &reachable);
@@ -69,6 +69,11 @@ pub(super) fn encode(
         writer.emit(Wasm::Unreachable);
     }
     writer.encoder.finish()
+}
+
+pub(super) struct EncodedFunction {
+    pub(super) body: Function,
+    pub(super) branch_hints: Vec<wasm_encoder::BranchHint>,
 }
 
 enum Pending {
