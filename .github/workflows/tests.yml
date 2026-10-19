@@ -38,6 +38,15 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
+      - name: Cache test asset archives
+        uses: actions/cache@v4
+        with:
+          path: target/test-assets
+          key: test-assets-${{ hashFiles('test-assets.toml') }}
+
+      - name: Prepare test assets
+        run: python3 tools/fetch-test-assets.py
+
       - name: Run workspace tests
         run: cargo test --workspace --locked
 
@@ -75,6 +84,15 @@ jobs:
 
       - name: Install Wasm test runner
         run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+
+      - name: Cache test asset archives
+        uses: actions/cache@v4
+        with:
+          path: target/test-assets
+          key: test-assets-${{ hashFiles('test-assets.toml') }}
+
+      - name: Prepare test assets
+        run: python3 tools/fetch-test-assets.py
 
       - name: Run browser tests
         env:

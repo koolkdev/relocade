@@ -1,1 +1,3 @@
 /target/
+/crates/dos/tests/fixtures/freedos-find/FIND.COM
+/crates/dos/tests/fixtures/freedos-find/SOURCES.ZIP
