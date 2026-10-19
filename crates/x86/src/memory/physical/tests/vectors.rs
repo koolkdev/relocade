@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::test_step::MmioUpdate;
-use wasm86_compiler::{Val, V128};
+use relocade_compiler::{Val, V128};
 
 fn module(write: bool) -> TestModule {
     let mut program = Program::new();

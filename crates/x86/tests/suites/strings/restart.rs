@@ -8,7 +8,7 @@ use crate::support::{
     },
     step::{Argument, Event, Input, Outcome, TestModule},
 };
-use wasm86_x86::compile_block_from_bytes;
+use relocade_x86::compile_block_from_bytes;
 
 fn restart_after_source_page_repair(opcode: u8) {
     let code = [0xf3, opcode];

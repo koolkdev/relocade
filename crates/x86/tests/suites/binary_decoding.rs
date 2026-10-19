@@ -1,6 +1,6 @@
 use crate::support::encoding::check_length;
-use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32::Eax, StoredFlags};
-use wasm86_x86::{FlagBytes, StoredStatusSource};
+use relocade_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32::Eax, StoredFlags};
+use relocade_x86::{FlagBytes, StoredStatusSource};
 use wasmparser::Validator;
 
 use crate::support::cases::{
@@ -16,7 +16,7 @@ use step::TestModule;
 
 #[test]
 fn population_count_has_no_supported_encoding() {
-    use wasm86_x86::{Compiler, ExecutionProfile, SegmentProfile, Segments};
+    use relocade_x86::{Compiler, ExecutionProfile, SegmentProfile, Segments};
 
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
         let compiler = Compiler::new(profile);
@@ -47,7 +47,7 @@ fn population_count_has_no_supported_encoding() {
 
 #[test]
 fn sse3_integer_stores_are_unsupported() {
-    use wasm86_x86::{Compiler, SegmentProfile};
+    use relocade_x86::{Compiler, SegmentProfile};
 
     for opcode in [0xdf, 0xdb, 0xdd] {
         // FISTTP m16/m32/m64 is outside the supported instruction set.

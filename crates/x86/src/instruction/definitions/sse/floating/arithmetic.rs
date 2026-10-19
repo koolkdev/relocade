@@ -4,7 +4,7 @@ use super::*;
 use crate::simd::{
     ArithmeticOperands, FloatArithmetic, FloatOperand, PackedFloatCandidate, PackedFloatOperand,
 };
-use wasm86_compiler::{AtLeast, I64};
+use relocade_compiler::{AtLeast, I64};
 
 pub(in crate::instruction::definitions::sse) fn scalar_arithmetic<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,

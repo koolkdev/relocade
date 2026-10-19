@@ -1,7 +1,7 @@
 //! Checked memory operands support widths independently of register views.
 
 use crate::memory::TransferType;
-use wasm86_compiler::{BuildError, MemoryInt, MemoryType, Val, VectorType, I32};
+use relocade_compiler::{BuildError, MemoryInt, MemoryType, Val, VectorType, I32};
 
 use super::ExecutionBuilder;
 use crate::{

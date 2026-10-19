@@ -1,7 +1,7 @@
 //! Integer loads preserve exact inputs for the first arithmetic operation.
 
 use super::*;
-use wasm86_x86::Compiler;
+use relocade_x86::Compiler;
 use wasmparser::{Operator, Parser, Payload};
 
 #[test]

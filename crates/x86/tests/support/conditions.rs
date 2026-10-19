@@ -52,7 +52,7 @@ impl SequenceCase {
     /// backing. The caller supplies literal results in O, NO, B, AE, ... LE, G order.
     pub(crate) fn conditions(mut self, results: [u8; 16]) -> Self {
         self = self
-            .initial_register(wasm86_x86::Gpr32::Edi, 0x6000)
+            .initial_register(relocade_x86::Gpr32::Edi, 0x6000)
             .map_page(6, 0xa000, ReadWrite)
             .backing(0x9fff, &[0xa5; 18]);
         for (condition, result) in results.into_iter().enumerate() {

@@ -3,7 +3,7 @@ use crate::{
     test_step::{Argument, Event, Input, Outcome, TestModule},
     CompiledModule, ExecutionProfile,
 };
-use wasm86_compiler::{Program, Signature, Type, I16, I32};
+use relocade_compiler::{Program, Signature, Type, I16, I32};
 
 fn transfers(fill: bool) -> TestModule {
     let mut program = Program::new();

@@ -1,6 +1,6 @@
 //! Shared continuation for the ordinary direct opcode path.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Func, Val, I1, I32, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Func, Val, I1, I32, I8};
 
 use crate::{
     instruction::{DecodedInstruction, OpcodeMap, PrefixState},

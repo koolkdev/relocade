@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use wasm86_x86::compile_block_from_bytes;
+use relocade_x86::compile_block_from_bytes;
 
 fn stack_continuation(frontend: Frontend) {
     let code = [0xda, 0xc1, 0xdd, 0xd2]; // FCMOVB ST1; FST ST2

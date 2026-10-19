@@ -4,7 +4,7 @@ use super::{FiniteInput, FiniteMagnitude, RoundingInput};
 
 #[cfg(test)]
 mod tests;
-use wasm86_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64};
+use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64};
 
 fn at_least(
     low: &Val<I64>,

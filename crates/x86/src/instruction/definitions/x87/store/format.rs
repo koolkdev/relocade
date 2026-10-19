@@ -8,7 +8,7 @@ use crate::{
     memory::TransferType,
     x87::{ConversionResult, ExtendedValue, PackedBcd},
 };
-use wasm86_compiler::{AtLeast, BuildError, MemoryInt, Val, I32, I64};
+use relocade_compiler::{AtLeast, BuildError, MemoryInt, Val, I32, I64};
 
 pub(super) trait StoreFormat {
     type Bits;

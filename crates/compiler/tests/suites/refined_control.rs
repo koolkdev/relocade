@@ -2,7 +2,7 @@
 
 use crate::fixture::{signature, Fixture};
 use crate::wasm::TestModule;
-use wasm86_compiler::{FunctionImport, MemoryImport, Type, I1, I32};
+use relocade_compiler::{FunctionImport, MemoryImport, Type, I1, I32};
 use wasmparser::{Operator, Parser, Payload};
 
 #[derive(Clone, Copy)]

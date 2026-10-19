@@ -1,6 +1,6 @@
 //! Host descriptor replies for generated execution tests.
 
-use wasm86_x86::{DescriptorTables, Exception, Segment};
+use relocade_x86::{DescriptorTables, Exception, Segment};
 
 #[derive(Clone)]
 pub(crate) struct SegmentQuery {

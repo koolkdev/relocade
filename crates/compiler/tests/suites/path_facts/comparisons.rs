@@ -1,6 +1,6 @@
 //! Opposite comparisons share facts within the branch that proved them.
 use super::*;
-use wasm86_compiler::I64;
+use relocade_compiler::I64;
 
 #[test]
 fn inequality_guard_eliminates_the_opposite_equality() {

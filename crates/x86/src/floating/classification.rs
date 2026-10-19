@@ -1,6 +1,6 @@
 //! Predicates over binary32/64 encodings.
 
-use wasm86_compiler::{Val, I1, I64};
+use relocade_compiler::{Val, I1, I64};
 
 use super::BinaryFormat;
 

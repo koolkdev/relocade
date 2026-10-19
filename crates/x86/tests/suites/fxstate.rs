@@ -14,7 +14,7 @@ use crate::support::{
     machine::{Exit, Image, Step},
     x87::{complete_x87, dispatch, real80, set_control, stack_image, status, write_register_bits},
 };
-use wasm86_x86::{CpuState, ExecutionProfile, SegmentProfile, Segments};
+use relocade_x86::{CpuState, ExecutionProfile, SegmentProfile, Segments};
 
 const FLAT32: ExecutionProfile = ExecutionProfile::Protected(SegmentProfile::Flat32);
 const PROFILES: [ExecutionProfile; 3] = [

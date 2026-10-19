@@ -1,7 +1,7 @@
 //! Floating lane views preserve strict arithmetic across runtime and literal inputs.
 
 use super::*;
-use wasm86_compiler::I64;
+use relocade_compiler::I64;
 
 #[path = "floating/conversions.rs"]
 mod conversions;

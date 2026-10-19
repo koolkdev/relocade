@@ -2,7 +2,7 @@ use crate::support::{
     machine::{self, Exit, Image, Step},
     step::{Event, Observation, TestModule},
 };
-use wasm86_x86::{compile_block_from_bytes, CpuState};
+use relocade_x86::{compile_block_from_bytes, CpuState};
 
 fn image_after_execution(image: &Image, observation: &Observation) -> Image {
     let Some(Event::Return { snapshot, .. }) = observation.events.last() else {

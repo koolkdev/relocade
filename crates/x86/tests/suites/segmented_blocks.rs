@@ -7,7 +7,7 @@ mod profiles;
 #[path = "segmented_blocks/progress.rs"]
 mod progress;
 
-use wasm86_x86::{SegmentDefaultSize, StoredSegment};
+use relocade_x86::{SegmentDefaultSize, StoredSegment};
 
 fn code(base: u32, limit: u32, size: SegmentDefaultSize) -> StoredSegment {
     StoredSegment {

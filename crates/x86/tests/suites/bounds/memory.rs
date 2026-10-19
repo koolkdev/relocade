@@ -2,8 +2,8 @@
 
 use super::{absolute_code, code16, pair, segment};
 use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly};
-use wasm86_x86::StoredSegment;
-use wasm86_x86::{Gpr32::*, Segment};
+use relocade_x86::StoredSegment;
+use relocade_x86::{Gpr32::*, Segment};
 
 fn ordered_accesses() -> Vec<Case> {
     let mut cases = Vec::new();

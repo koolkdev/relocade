@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{test_step as step, CompiledModule};
-use wasm86_compiler::{Program, Signature, Type, I1, I64};
+use relocade_compiler::{Program, Signature, Type, I1, I64};
 
 #[test]
 fn refined_root_and_rounding_evidence_match_integer_square_root() {

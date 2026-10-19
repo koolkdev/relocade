@@ -1,7 +1,7 @@
 mod captured;
 
 use super::{Location, StateFields};
-use wasm86_compiler::{
+use relocade_compiler::{
     BlockBuilder, MemoryImport, Program, Signature, Type, Val, I16, I32, I64, I8,
 };
 use wasmparser::{Operator, Parser, Payload, Validator};

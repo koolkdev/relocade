@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use wasm86_x86::{CompiledModule, Compiler, CpuState};
+use relocade_x86::{CompiledModule, Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
 
 fn native_shape(compiled: &CompiledModule) {

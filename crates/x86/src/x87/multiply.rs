@@ -1,7 +1,7 @@
 //! Exact significand multiplication and x87 operand-class responses.
 
 use crate::floating::{FiniteInput, RoundingMode};
-use wasm86_compiler::{Val, I8};
+use relocade_compiler::{Val, I8};
 
 use super::{
     operand::BinaryOperands,

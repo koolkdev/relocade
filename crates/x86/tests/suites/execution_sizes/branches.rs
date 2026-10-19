@@ -2,7 +2,7 @@ use super::code16;
 use crate::support::cases::{
     test_cases, FlagExpectation::Preserved, Flags, InstructionCase as Case,
 };
-use wasm86_x86::{Gpr32::Ecx, Segment, StoredSegment};
+use relocade_x86::{Gpr32::Ecx, Segment, StoredSegment};
 
 fn counters() -> Vec<Case> {
     let mut cases = Vec::new();

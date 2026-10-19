@@ -1,6 +1,6 @@
 //! Packed-lane and whole-vector shifts retain their distinct x86 count rules.
 
-use wasm86_compiler::{MemoryInt, Val, VectorLane, VectorType, I32, I64, I8, V128};
+use relocade_compiler::{MemoryInt, Val, VectorLane, VectorType, I32, I64, I8, V128};
 
 #[derive(Clone, Copy)]
 pub(crate) enum PackedShiftOp {

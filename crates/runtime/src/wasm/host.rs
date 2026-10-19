@@ -1,5 +1,5 @@
 use super::WasmBackend;
-use wasm86_compiler::{abi::FunctionSignature, Results, ValueType, F64, I1, I16, I32, I64, I8};
+use relocade_compiler::{abi::FunctionSignature, Results, ValueType, F64, I1, I16, I32, I64, I8};
 
 /// Rust carrier for a logical scalar in a host callback. Narrow integers use
 /// Wasm's i32 carrier, matching the compiler's import ABI. Unit is a void result.

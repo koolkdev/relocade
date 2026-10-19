@@ -5,8 +5,8 @@
 //! expose the current CPU and [`Memory`] with the machine's access policy.
 //!
 //! ```
-//! use wasm86_machine::MachineConfig;
-//! use wasm86_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments};
+//! use relocade_machine::MachineConfig;
+//! use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments};
 //!
 //! let target = Compiler::new(ExecutionProfile::Real16).target();
 //! let cpu = CpuState { eip: 0x100, segments: Segments::real_mode(), ..CpuState::default() };
@@ -19,7 +19,7 @@
 //! when saving or inspecting the complete CPU, including floating-point state.
 //!
 //! ```
-//! # use wasm86_machine::Machine;
+//! # use relocade_machine::Machine;
 //! # fn update(machine: &mut Machine<'_>) -> Result<(), Box<dyn std::error::Error>> {
 //! let ax = machine.cpu().ax();
 //! machine.memory().write(0x200, &ax.to_le_bytes())?;
@@ -38,7 +38,7 @@ mod memory;
 pub use config::{ConfigurationError, MachineConfig};
 pub use cpu::Cpu;
 pub use memory::{Memory, MemoryError};
-use wasm86_x86::ExecutionTarget;
+use relocade_x86::ExecutionTarget;
 
 /// Transfers to the CPU and guest memory supplied by the runtime. CPU offsets
 /// are relative to the start of `CpuState` in the execution context.

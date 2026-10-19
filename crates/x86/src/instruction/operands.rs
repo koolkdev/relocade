@@ -7,8 +7,8 @@ pub(crate) use mmx::MmxLocation;
 pub(crate) use shift_count::PackedShiftCount;
 pub(crate) use xmm::{VectorAlignment, XmmLocation, XmmType};
 
+use relocade_compiler::{AtLeast, BuildError, Val, I32};
 use std::marker::PhantomData;
-use wasm86_compiler::{AtLeast, BuildError, Val, I32};
 
 use super::{Location, Operand};
 use crate::{

@@ -1,5 +1,5 @@
-use wasm86_machine::{ConfigurationError, MachineConfig};
-use wasm86_x86::{
+use relocade_machine::{ConfigurationError, MachineConfig};
+use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, ExecutionTarget, PhysicalMapping, PhysicalMemoryMap,
     SegmentProfile, Segments,
 };

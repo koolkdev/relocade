@@ -9,7 +9,7 @@
 //! Build functions, choose their exports, then compile the module:
 //!
 //! ```
-//! use wasm86_compiler::{Program, Signature, Type, I32};
+//! use relocade_compiler::{Program, Signature, Type, I32};
 //!
 //! let mut program = Program::new();
 //! let increment = program.function(Signature {
@@ -21,7 +21,7 @@
 //! })?;
 //! program.export("increment", increment)?;
 //! let bytes = program.compile()?;
-//! # Ok::<(), wasm86_compiler::BuildError>(())
+//! # Ok::<(), relocade_compiler::BuildError>(())
 //! ```
 #![forbid(unsafe_code)]
 

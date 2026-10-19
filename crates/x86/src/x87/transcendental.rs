@@ -4,7 +4,7 @@
 //! arithmetic retains the addition/product residuals; the guest exponent stays
 //! separate so the binary64 exponent range does not limit binary80 operands.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64};
+use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64};
 
 use crate::floating::{FiniteMagnitude, RoundingInput};
 

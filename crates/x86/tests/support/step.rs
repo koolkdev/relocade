@@ -7,8 +7,8 @@ use std::{
 };
 
 use crate::{Compiler, ExecutionProfile, ExecutionTarget, SegmentProfile};
-use wasm86_test_support::Module;
-pub(crate) use wasm86_test_support::{Outcome, Value as Argument};
+use relocade_test_support::Module;
+pub(crate) use relocade_test_support::{Outcome, Value as Argument};
 
 mod segments;
 mod wasmtime;

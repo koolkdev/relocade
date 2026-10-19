@@ -7,7 +7,7 @@ for an absent physical mapping. The host controls the A20 gate in the routing ma
 
 ## Physical page map
 
-The host supplies two distinct, unshared Wasm memories in the `wasm86` module:
+The host supplies two distinct, unshared Wasm memories in the `relocade` module:
 `guest` for backing bytes and `physicalMap` for routing metadata. Both imports
 have a minimum size of one 64-KiB Wasm page. The host allocates enough memory for
 all mapped backing. The routing table fits in one Wasm page.
@@ -32,7 +32,7 @@ are not represented. Several physical pages may alias the same backing.
 `PhysicalMemoryMap::new(regions)` constructs the table from inclusive ranges:
 
 ```rust
-use wasm86_x86::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
+use relocade_x86::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 
 let map = PhysicalMemoryMap::new([
     (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
@@ -63,7 +63,7 @@ Runtime mapping and gate changes update the installed Wasm table.
 
 ## MMIO callbacks
 
-Both functions belong to the `wasm86` import module:
+Both functions belong to the `relocade` import module:
 
 | Import | Wasm signature |
 | --- | --- |

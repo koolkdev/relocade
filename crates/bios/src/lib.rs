@@ -5,9 +5,9 @@
 //! A machine timer must update these fields for time to advance.
 #![forbid(unsafe_code)]
 
+use relocade_machine::Memory;
+use relocade_runtime::{real_mode_interrupt, Hook, HostCall};
 use std::ops::ControlFlow;
-use wasm86_machine::Memory;
-use wasm86_runtime::{real_mode_interrupt, Hook, HostCall};
 
 const BIOS_SEGMENT: u16 = 0xf000;
 const CLOCK_ENTRY: u16 = 0xff00;

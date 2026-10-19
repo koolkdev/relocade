@@ -5,7 +5,7 @@ mod synchronization;
 
 use super::{Cpu, Register, State};
 use crate::Gpr32;
-use wasm86_compiler::{Program, Signature, Type, I1, I32};
+use relocade_compiler::{Program, Signature, Type, I1, I32};
 use wasmparser::{Operator, Parser, Payload};
 
 #[test]

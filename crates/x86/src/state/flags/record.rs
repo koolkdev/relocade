@@ -1,6 +1,6 @@
 //! Conversion from symbolic flags to stored records at publication.
 
-use wasm86_compiler::{AtLeast, BlockBuilder, BuildError, Mem, MemoryInt, Val, I1, I32, I8};
+use relocade_compiler::{AtLeast, BlockBuilder, BuildError, Mem, MemoryInt, Val, I1, I32, I8};
 
 use crate::alu::{ArithmeticOp, StatusSource};
 use crate::state::access::cpu_store;

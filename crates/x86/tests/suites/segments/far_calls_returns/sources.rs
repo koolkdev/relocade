@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use wasm86_x86::StoredSegment;
+use relocade_x86::StoredSegment;
 
 #[test]
 fn indirect_calls_read_entry_esp_and_source_bytes_before_pushing_through_ss() {

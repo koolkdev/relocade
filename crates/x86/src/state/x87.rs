@@ -9,7 +9,7 @@ mod status;
 pub(crate) use environment::EnvironmentMode;
 pub(crate) use status::ConditionCode;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 
 use crate::{ssa::StateFields, x87::ExtendedValue};
 

@@ -6,8 +6,8 @@
 //! flag with [`set_carry`] before returning.
 
 use crate::HostCall;
+use relocade_x86::Segment;
 use std::ops::ControlFlow;
-use wasm86_x86::Segment;
 
 /// NOP reserves the hook entry; IRET performs the interrupt return in the guest.
 pub const HOOK_STUB: [u8; 2] = [0x90, 0xcf];

@@ -2,7 +2,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use wasm86_x86::{
+use relocade_x86::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockError, ExecutionProfile,
     SegmentProfile, StoredSegment,
 };

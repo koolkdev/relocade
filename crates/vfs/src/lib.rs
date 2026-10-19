@@ -6,7 +6,7 @@
 //! and share contents; guest layers maintain cursors and sharing rules.
 //!
 //! ```
-//! use wasm86_vfs::MemoryFileSystem;
+//! use relocade_vfs::MemoryFileSystem;
 //!
 //! let mut fs = MemoryFileSystem::new();
 //! fs.create_dir_all("DATA")?;

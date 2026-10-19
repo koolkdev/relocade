@@ -1,6 +1,6 @@
 //! Quadrants and exponent differences stay exact before a bounded atan kernel.
 
-use wasm86_compiler::{BlockBuilder, BuildError};
+use relocade_compiler::{BlockBuilder, BuildError};
 
 use crate::floating::{FiniteInput, FiniteMagnitude, MagnitudeShape, RoundingMode};
 

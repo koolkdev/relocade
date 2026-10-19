@@ -1,5 +1,5 @@
 //! Decoder entry signatures and transport of cursor progress and semantic state.
-use wasm86_compiler::{Argument, BlockBuilder, BuildError, Func, Program, Signature, Type, I32};
+use relocade_compiler::{Argument, BlockBuilder, BuildError, Func, Program, Signature, Type, I32};
 
 use crate::{
     decode::DecodeState,

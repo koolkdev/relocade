@@ -113,7 +113,7 @@ pub struct I64;
 /// integers. Their arithmetic uses scalar Wasm rounding and NaN behavior.
 ///
 /// ```
-/// use wasm86_compiler::{Program, Signature, Type, F64};
+/// use relocade_compiler::{Program, Signature, Type, F64};
 /// let mut program = Program::new();
 /// let scale = program.function(Signature {
 ///     parameters: vec![Type::F64], results: vec![Type::F64],
@@ -123,11 +123,11 @@ pub struct I64;
 /// })?;
 /// program.export("scale", scale)?;
 /// let bytes = program.compile()?;
-/// # Ok::<(), wasm86_compiler::BuildError>(())
+/// # Ok::<(), relocade_compiler::BuildError>(())
 /// ```
 /// Integer bit operations require an explicit encoding view:
 /// ```compile_fail
-/// use wasm86_compiler::{Val, F64};
+/// use relocade_compiler::{Val, F64};
 /// let bits = Val::<F64>::from(1.0).and(7);
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -141,7 +141,7 @@ pub struct F64;
 /// requires WebAssembly SIMD and cannot cross a JavaScript call boundary directly.
 ///
 /// ```
-/// use wasm86_compiler::{Val, I16, V64};
+/// use relocade_compiler::{Val, I16, V64};
 /// let words = Val::<V64>::from_bits(0x0001_0002_0003_0004_u64);
 /// let sum = words.add_lanes::<I16>(0x0001_0001_0001_0001_u64);
 /// let encoding = sum.to_bits();
@@ -166,13 +166,13 @@ impl BitwiseType for V64 {}
 /// are in increasing memory-address order, with the low byte first.
 ///
 /// ```
-/// use wasm86_compiler::{Val, V128};
+/// use relocade_compiler::{Val, V128};
 /// let mask = Val::<V128>::from([0xff; 16]);
 /// let bits = mask.xor(0x1234_u128);
 /// ```
 /// Vector values do not acquire scalar integer arithmetic:
 /// ```compile_fail
-/// use wasm86_compiler::{Val, V128};
+/// use relocade_compiler::{Val, V128};
 /// let bits = Val::<V128>::from(0_u128).add(1_u128);
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

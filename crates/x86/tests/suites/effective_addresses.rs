@@ -6,7 +6,7 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
     step::TestModule,
 };
-use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::*};
+use relocade_x86::{compile_block_from_bytes, BlockError, Gpr32::*};
 use wasmparser::{Parser, Payload, TypeRef};
 
 #[rustfmt::skip]
@@ -84,7 +84,7 @@ fn snapshot_lea_imports_no_guest_data_or_page_table_memory() {
                 }
             }
         }
-        assert_eq!(memories, [("wasm86", "executionContext")]);
+        assert_eq!(memories, [("relocade", "executionContext")]);
     }
 }
 

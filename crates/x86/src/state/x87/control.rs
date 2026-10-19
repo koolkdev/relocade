@@ -1,6 +1,6 @@
 //! Control fields remain independent until a guest observes the control word.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I8};
 
 use crate::{
     floating::RoundingMode,

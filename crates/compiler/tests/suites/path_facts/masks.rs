@@ -1,7 +1,7 @@
 //! Explicit masks refold when branch facts expose their operands.
 
 use super::*;
-use wasm86_compiler::{IntType, Val, I16, I64};
+use relocade_compiler::{IntType, Val, I16, I64};
 
 fn check_cancellation<T: IntType>(mask: impl Into<Val<T>>, cases: &[(Value, Value)]) {
     let mask = mask.into();

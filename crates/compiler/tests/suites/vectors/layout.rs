@@ -1,7 +1,7 @@
 //! SIMD primitives agree for computed operands and literal folding.
 
 use super::*;
-use wasm86_compiler::{I16, I64};
+use relocade_compiler::{I16, I64};
 
 #[test]
 fn vector_swizzle_zeroes_every_out_of_range_byte_index() {
@@ -54,7 +54,7 @@ fn vector_swizzle_zeroes_every_out_of_range_byte_index() {
         body.store(
             memory,
             40,
-            Val::<wasm86_compiler::V64>::from(0x8786858483828180_u64).swizzle_bytes(indices),
+            Val::<relocade_compiler::V64>::from(0x8786858483828180_u64).swizzle_bytes(indices),
         )?;
         body.return_(())
     });

@@ -1,7 +1,7 @@
 use super::{input, operators, Kind, KINDS};
 use crate::fixture::Fixture;
 use crate::wasm::{TestModule, Value};
-use wasm86_compiler::{AtLeast, IntType, Type, Val, I1, I16, I32, I64, I8};
+use relocade_compiler::{AtLeast, IntType, Type, Val, I1, I16, I32, I64, I8};
 use wasmparser::Operator;
 
 fn narrow<T: IntType>() -> TestModule

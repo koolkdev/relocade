@@ -7,8 +7,8 @@
 //! for native and web engines; guest execution is synchronous.
 //!
 //! ```
-//! use wasm86_machine::MachineConfig;
-//! use wasm86_runtime::{Runtime, RuntimeBackend};
+//! use relocade_machine::MachineConfig;
+//! use relocade_runtime::{Runtime, RuntimeBackend};
 //!
 //! async fn example<B: RuntimeBackend>(
 //!     backend: B,
@@ -39,14 +39,14 @@ pub use dispatch::DispatchEntry;
 use dispatch::DispatchTable;
 pub use error::{Error, Result};
 pub use hooks::Hook;
+use relocade_machine::{Machine, MachineConfig};
+use relocade_x86::{abi, Compiler, EntryTable, ExecutionContext, ExecutionExit};
 use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
 use storage::Storage;
 use wasm::Import;
-use wasm86_machine::{Machine, MachineConfig};
-use wasm86_x86::{abi, Compiler, EntryTable, ExecutionContext, ExecutionExit};
 
 /// One running guest and its engine resources. CPU and memory access belongs to
 /// the machine; this owner prepares code and controls entry into execution.

@@ -1,8 +1,8 @@
 use super::{Memory, Store, WebBackend};
 use js_sys::Function as JsFunction;
+use relocade_compiler::{Results, ValueType};
+use relocade_runtime::wasm::{HostFunction, HostValue, WasmCaller, WasmMemoryAccess};
 use std::rc::Rc;
-use wasm86_compiler::{Results, ValueType};
-use wasm86_runtime::wasm::{HostFunction, HostValue, WasmCaller, WasmMemoryAccess};
 use wasm_bindgen::{
     closure::Closure,
     convert::{FromWasmAbi, ReturnWasmAbi},

@@ -27,7 +27,7 @@ pub(crate) use status::{AnyStatusSource, StatusSource};
 pub(crate) use unary::UnaryOp;
 pub(crate) use update::OperandUpdate;
 
-use wasm86_compiler::{MemoryInt, Val, I1};
+use relocade_compiler::{MemoryInt, Val, I1};
 
 use crate::flags::{FlagChange, StatusFlag};
 

@@ -334,7 +334,7 @@ fn prior_work(frontend: Frontend) {
 test_frontends!(conditional_transfer_publication, prior_work);
 
 fn protected_modes(frontend: Frontend) {
-    use wasm86_x86::SegmentProfile;
+    use relocade_x86::SegmentProfile;
     for profile in [
         SegmentProfile::Flat32,
         SegmentProfile::Segmented32,
@@ -367,7 +367,7 @@ test_frontends!(protected_delivery_is_unsupported, protected_modes);
 
 #[test]
 fn decoding_requires_the_vector_and_stops_at_the_transfer() {
-    use wasm86_x86::{compile_block_from_bytes_with_profile, BlockError, SegmentProfile};
+    use relocade_x86::{compile_block_from_bytes_with_profile, BlockError, SegmentProfile};
     for profile in [ExecutionProfile::Real16, SegmentProfile::Flat32.into()] {
         assert!(matches!(
             compile_block_from_bytes_with_profile(0x1000, &[0xcd], 1, profile),

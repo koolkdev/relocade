@@ -15,7 +15,7 @@ mod subsets;
 use super::super::{Cpu, Register, State};
 use crate::alu::StatusSource;
 use crate::flags::{Condition, StatusFlag};
-use wasm86_compiler::{BuildError, Program, Signature, Type, I1, I32, I8};
+use relocade_compiler::{BuildError, Program, Signature, Type, I1, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[test]

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use wasm86_x86::{compile_block_from_bytes, Compiler, CpuState};
+use relocade_x86::{compile_block_from_bytes, Compiler, CpuState};
 
 #[test]
 fn admitted_quotients_use_dynamic_and_observed_modes() {

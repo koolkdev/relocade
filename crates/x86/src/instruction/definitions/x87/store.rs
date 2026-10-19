@@ -11,7 +11,7 @@ use crate::{
     state::x87::{ConditionCode, Exception, StackValue, X87Specialization},
 };
 use format::{PackedDecimal, SignedInteger, StoreFormat};
-use wasm86_compiler::{MemoryInt, I64};
+use relocade_compiler::{MemoryInt, I64};
 
 instruction_families! {
     FST_BINARY32 {

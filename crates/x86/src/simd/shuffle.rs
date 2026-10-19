@@ -6,7 +6,7 @@
 //! The compiler folds this calculation for snapshot immediates; runtime decoding
 //! evaluates it with the instruction's control byte.
 
-use wasm86_compiler::{Val, VectorType, I16, I32, I64, I8, V128};
+use relocade_compiler::{Val, VectorType, I16, I32, I64, I8, V128};
 
 /// Selects one qword from each input, ignoring the upper six control bits.
 pub(crate) fn shuffle_qwords(left: Val<V128>, right: Val<V128>, control: Val<I8>) -> Val<V128> {

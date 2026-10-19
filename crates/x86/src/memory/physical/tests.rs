@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use super::PhysicalMemory;
 
-use wasm86_compiler::{MemoryInt, Program, Signature, Type, I16, I32, I64, I8};
+use relocade_compiler::{MemoryInt, Program, Signature, Type, I16, I32, I64, I8};
 mod generated;
 mod routing;
 mod vectors;

@@ -229,7 +229,7 @@ fn repeated_copy_remapping(frontend: Frontend) {
     }];
     let block = matches!(frontend, Frontend::Block).then(|| {
         TestModule::new(
-            &wasm86_x86::compile_block_from_bytes_with_profile(
+            &relocade_x86::compile_block_from_bytes_with_profile(
                 image.cpu.eip,
                 &code,
                 1,

@@ -1,6 +1,6 @@
 use crate::support::step;
+use relocade_x86::{compile_block_from_bytes, BlockError, CompiledModule, CpuState, Registers};
 use step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
-use wasm86_x86::{compile_block_from_bytes, BlockError, CompiledModule, CpuState, Registers};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Validator};
 
 const IMMEDIATE: &[u8] = &[0xb8, 0x78, 0x56, 0x34, 0x12];
@@ -84,7 +84,7 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
             Payload::ImportSection(section) => {
                 for import in section {
                     let import = import.unwrap();
-                    assert_eq!(import.module, "wasm86");
+                    assert_eq!(import.module, "relocade");
                     imports.push((import.name.to_owned(), import.ty));
                 }
             }
@@ -138,7 +138,7 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
 
 fn abi_state(count: u64) -> CpuState {
     let mut cpu = CpuState::filled(0xa5);
-    cpu.segments = wasm86_x86::Segments::flat32();
+    cpu.segments = relocade_x86::Segments::flat32();
     cpu.registers = Registers {
         eax: 0x1111_1111,
         ecx: 0x2222_2222,

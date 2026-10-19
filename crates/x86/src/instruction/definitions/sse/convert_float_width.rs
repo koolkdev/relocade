@@ -5,7 +5,7 @@ use crate::{
     instruction::XmmType,
     simd::{narrow_packed_float, widen_packed_float, FloatOperand, FloatResult},
 };
-use wasm86_compiler::I64;
+use relocade_compiler::I64;
 
 instruction_families! {
     CVTSS2SD {

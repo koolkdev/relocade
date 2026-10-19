@@ -1,4 +1,4 @@
-use wasm86_compiler::{abi::Function, BuildError, Program, I64};
+use relocade_compiler::{abi::Function, BuildError, Program, I64};
 
 use crate::{
     decode::{InstructionFetch, RuntimeDecoder},
@@ -27,10 +27,10 @@ use super::Compiler;
 /// The snapshot compiler's instruction limit does not bound interpreter execution.
 ///
 /// ```
-/// use wasm86_x86::{compile_interpreter, SegmentProfile};
+/// use relocade_x86::{compile_interpreter, SegmentProfile};
 /// let module = compile_interpreter(SegmentProfile::Flat32)?;
 /// assert_eq!(module.entry, "run");
-/// # Ok::<(), wasm86_compiler::BuildError>(())
+/// # Ok::<(), relocade_compiler::BuildError>(())
 /// ```
 pub fn compile_interpreter(
     profile: impl Into<ExecutionProfile>,
@@ -51,10 +51,10 @@ pub fn compile_interpreter(
 /// dispatch, entry validity and fault encoding.
 ///
 /// ```
-/// use wasm86_x86::{compile_interpreter_step, SegmentProfile};
+/// use relocade_x86::{compile_interpreter_step, SegmentProfile};
 /// let module = compile_interpreter_step(SegmentProfile::Flat32)?;
 /// assert_eq!(module.entry, "step");
-/// # Ok::<(), wasm86_compiler::BuildError>(())
+/// # Ok::<(), relocade_compiler::BuildError>(())
 /// ```
 pub fn compile_interpreter_step(
     profile: impl Into<ExecutionProfile>,

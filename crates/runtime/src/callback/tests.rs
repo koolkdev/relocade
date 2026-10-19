@@ -1,10 +1,10 @@
 use super::*;
 use crate::wasm::WasmMemoryAccess;
-use std::cell::Cell;
-use wasm86_machine::ConfigurationError;
-use wasm86_x86::{
+use relocade_machine::ConfigurationError;
+use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMemoryMap, Segment, Segments,
 };
+use std::cell::Cell;
 
 struct Caller {
     context: [u8; ExecutionContext::BYTE_LEN],

@@ -31,11 +31,11 @@
 //!
 //! ```no_run
 //! # async fn example<B>(backend: B) -> Result<(), Box<dyn std::error::Error>>
-//! # where B: wasm86_runtime::RuntimeBackend<State = wasm86_dos::DosState>
+//! # where B: relocade_runtime::RuntimeBackend<State = relocade_dos::DosState>
 //! # {
-//! let mut dos = wasm86_dos::Dos::new(backend).await?;
+//! let mut dos = relocade_dos::Dos::new(backend).await?;
 //! dos.load_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())?;
-//! assert_eq!(dos.runtime().run(u64::MAX)?, wasm86_x86::ExecutionExit::HostReturn);
+//! assert_eq!(dos.runtime().run(u64::MAX)?, relocade_x86::ExecutionExit::HostReturn);
 //! assert_eq!(dos.exit_status(), Some(Ok(7)));
 //! let output: Vec<u8> = dos.take_output();
 //! # let _ = output;
@@ -60,7 +60,7 @@ pub use error::{LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use kernel::DosState;
 pub use load::LoadOptions;
-use wasm86_runtime::{Runtime, RuntimeBackend};
+use relocade_runtime::{Runtime, RuntimeBackend};
 
 /// A DOS environment and its runtime, with space for one loaded program.
 pub struct Dos<B: RuntimeBackend<State = DosState>> {
@@ -70,12 +70,12 @@ pub struct Dos<B: RuntimeBackend<State = DosState>> {
 impl<B: RuntimeBackend<State = DosState>> Dos<B> {
     /// Prepares the memory map, interrupt vectors and DOS service hooks.
     /// Load a program before entering guest execution.
-    pub async fn new(backend: B) -> wasm86_runtime::Result<Self> {
+    pub async fn new(backend: B) -> relocade_runtime::Result<Self> {
         let mut runtime = Runtime::new(backend, kernel::configuration()).await?;
         kernel::initialize(&mut runtime.machine().memory());
-        wasm86_bios::initialize(&mut runtime.machine().memory());
+        relocade_bios::initialize(&mut runtime.machine().memory());
         runtime
-            .install_hooks(kernel::hooks().into_iter().chain(wasm86_bios::hooks()))
+            .install_hooks(kernel::hooks().into_iter().chain(relocade_bios::hooks()))
             .await?;
         Ok(Self { runtime })
     }

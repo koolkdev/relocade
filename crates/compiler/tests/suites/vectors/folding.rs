@@ -1,7 +1,7 @@
 //! Lane routing preserves scalar normalization and every observed vector byte.
 
 use super::*;
-use wasm86_compiler::I16;
+use relocade_compiler::I16;
 
 #[test]
 fn lane_and_shuffle_folding_preserves_routed_bytes_and_narrow_scalars() {

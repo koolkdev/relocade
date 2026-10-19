@@ -1,6 +1,6 @@
 //! Nested execution inherits a restart boundary and returns values or dispatches.
 
-use wasm86_compiler::{Arguments, BlockBuilder, BuildError, Results, Val, I1, I32};
+use relocade_compiler::{Arguments, BlockBuilder, BuildError, Results, Val, I1, I32};
 
 use super::ExecutionBuilder;
 

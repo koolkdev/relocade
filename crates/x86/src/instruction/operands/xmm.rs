@@ -6,7 +6,7 @@ use crate::{
     memory::{Intent, TransferType},
     register::RegisterCode,
 };
-use wasm86_compiler::{BuildError, Val, I32, I64, V128};
+use relocade_compiler::{BuildError, Val, I32, I64, V128};
 
 #[derive(Clone, Copy)]
 pub(crate) enum VectorAlignment {

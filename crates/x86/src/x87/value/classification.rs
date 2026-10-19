@@ -1,6 +1,6 @@
 //! Lazy numerical predicates over exact encodings or an established class.
 
-use wasm86_compiler::{Val, I1, I16, I64, I8};
+use relocade_compiler::{Val, I1, I16, I64, I8};
 
 use super::{BinaryFormat, ExtendedBits};
 

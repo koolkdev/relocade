@@ -2,7 +2,7 @@
 
 use super::{FloatOperand, FloatResult, SimdExceptions};
 use crate::{floating::BinaryFormat, state::Mxcsr};
-use wasm86_compiler::{I32, I64};
+use relocade_compiler::{I32, I64};
 
 impl FloatOperand<I32> {
     pub(crate) fn widen(&self) -> FloatResult<I64> {

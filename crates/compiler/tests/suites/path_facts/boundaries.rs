@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_compiler::I8;
+use relocade_compiler::I8;
 
 #[test]
 fn a_new_load_does_not_inherit_facts_about_an_earlier_snapshot() {

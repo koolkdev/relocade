@@ -5,7 +5,7 @@ use crate::{
     state::x87::{ConditionCode, X87Specialization},
     x87::{ArithmeticResult, Operand, TrigonometricArgument, TrigonometricFunction},
 };
-use wasm86_compiler::I1;
+use relocade_compiler::I1;
 
 #[derive(Clone, Copy)]
 enum Operation {

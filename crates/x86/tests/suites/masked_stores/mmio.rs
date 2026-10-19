@@ -6,7 +6,7 @@ use crate::support::{
     machine::expected,
     step::{Event, MmioUpdate, TestModule},
 };
-use wasm86_x86::{ExecutionProfile, Segments};
+use relocade_x86::{ExecutionProfile, Segments};
 
 fn mmio(frontend: Frontend) {
     let mut blocks = BlockModules::default();

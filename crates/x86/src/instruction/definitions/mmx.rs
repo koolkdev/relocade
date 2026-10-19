@@ -4,7 +4,7 @@ use super::*;
 use crate::instruction::MmxLocation;
 use crate::memory::TransferType;
 use crate::register::RegisterCode;
-use wasm86_compiler::{MemoryInt, I16, I64, V64};
+use relocade_compiler::{MemoryInt, I16, I64, V64};
 
 mod average;
 mod binary;

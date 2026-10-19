@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_compiler::{BuildError, Program, WasmFeatures};
+use relocade_compiler::{BuildError, Program, WasmFeatures};
 
 #[path = "wide/folding.rs"]
 mod folding;

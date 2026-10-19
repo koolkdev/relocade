@@ -1,7 +1,7 @@
 //! Selects instruction forms from prefixes, opcode maps and fixed ModRM bits.
 use std::collections::BTreeMap;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I32, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I32, I8};
 
 use crate::{
     decode::DecodeState,

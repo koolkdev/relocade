@@ -1,7 +1,7 @@
 //! Constant loads round to extended precision without reporting inexact results.
 
 use crate::floating::{RoundingInput, RoundingMode};
-use wasm86_compiler::{Val, I32};
+use relocade_compiler::{Val, I32};
 
 use super::{value::KnownClass, ExtendedBits, ExtendedValue};
 

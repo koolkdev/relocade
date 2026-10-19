@@ -7,7 +7,7 @@ use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     x87::{complete_x87, dispatch, set_control, stack_image, write_value},
 };
-use wasm86_x86::SegmentProfile;
+use relocade_x86::SegmentProfile;
 
 const CODE: [u8; 2] = [0xd9, 0xfb];
 

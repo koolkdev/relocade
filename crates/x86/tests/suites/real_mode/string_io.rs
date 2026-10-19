@@ -271,7 +271,7 @@ test_frontends!(string_port_segments_and_mmio, segments_and_mmio);
 
 fn privilege(frontend: Frontend) {
     let mut blocks = BlockModules::default();
-    let profile = ExecutionProfile::Protected(wasm86_x86::SegmentProfile::Flat32);
+    let profile = ExecutionProfile::Protected(relocade_x86::SegmentProfile::Flat32);
     for opcode in [0x6d, 0x6f] {
         for count in [0, 1] {
             let code = [0xf3, opcode];

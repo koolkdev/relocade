@@ -1,6 +1,6 @@
 //! Live status fields use the same split backing layout as host snapshots.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I8};
 
 use crate::{
     ssa::{Location, StateFields},

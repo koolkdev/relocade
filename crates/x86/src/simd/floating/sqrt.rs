@@ -2,7 +2,7 @@
 
 use super::{FloatOperand, FloatResult};
 use crate::{floating::BinaryEncoding, state::Mxcsr};
-use wasm86_compiler::{AtLeast, BlockBuilder, BuildError, I64};
+use relocade_compiler::{AtLeast, BlockBuilder, BuildError, I64};
 
 impl<T: BinaryEncoding> FloatOperand<T>
 where

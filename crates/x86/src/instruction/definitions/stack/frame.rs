@@ -1,6 +1,6 @@
 //! Frame instructions keep pointer changes prospective until their accesses succeed.
 
-use wasm86_compiler::{AtLeast, BuildError, I16, I32, I8};
+use relocade_compiler::{AtLeast, BuildError, I16, I32, I8};
 
 use crate::{
     execution::ExecutionBuilder,

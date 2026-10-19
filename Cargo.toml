@@ -10,7 +10,7 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
-wasm86-test-support = { path = "crates/test-support" }
+relocade-test-support = { path = "crates/test-support" }
 wasm-encoder = { version = "=0.254.0", default-features = false }
 wasmtime = { version = "=50.0.0-rc.1", default-features = false, features = ["cranelift", "runtime", "std", "threads"] }
 

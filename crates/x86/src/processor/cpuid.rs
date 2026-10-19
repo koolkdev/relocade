@@ -1,7 +1,7 @@
 //! Architectural CPUID leaves derived from the selected virtual processor model.
 
 use super::{CpuFeature, CpuModel};
-use wasm86_compiler::{Val, I32};
+use relocade_compiler::{Val, I32};
 
 pub(crate) struct CpuidValues {
     pub(crate) eax: Val<I32>,

@@ -1,8 +1,8 @@
 //! DOS device-control queries for open handles.
 
 use crate::{error::DosError, interrupt::return_result, DosState};
+use relocade_runtime::HostCall;
 use std::ops::ControlFlow;
-use wasm86_runtime::HostCall;
 
 const GET_DEVICE_INFORMATION: u8 = 0x00;
 

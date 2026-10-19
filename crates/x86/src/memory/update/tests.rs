@@ -2,8 +2,8 @@ use crate::memory::Memory;
 use std::sync::Barrier;
 
 use super::{native_update, Intent, OperandUpdate};
-use wasm86_compiler::{MemoryImport, Program, Signature, Type, I32, I64};
-use wasm86_test_support::{engine, Module, SharedBytes};
+use relocade_compiler::{MemoryImport, Program, Signature, Type, I32, I64};
+use relocade_test_support::{engine, Module, SharedBytes};
 use wasmparser::{Operator, Parser, Payload};
 
 #[test]

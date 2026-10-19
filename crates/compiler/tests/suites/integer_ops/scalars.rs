@@ -1,5 +1,5 @@
 use crate::fixture::Fixture;
-use wasm86_compiler::{AtLeast, IntType, Type, I1, I16, I32, I64, I8};
+use relocade_compiler::{AtLeast, IntType, Type, I1, I16, I32, I64, I8};
 
 #[test]
 fn dword_masks_preserve_the_selected_bits() {

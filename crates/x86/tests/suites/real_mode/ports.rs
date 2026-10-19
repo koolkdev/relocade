@@ -4,7 +4,7 @@ use crate::support::{
     machine::expected,
     step::{Event, TestModule},
 };
-use wasm86_x86::SegmentProfile;
+use relocade_x86::SegmentProfile;
 
 fn scalar(frontend: Frontend) {
     let mut blocks = BlockModules::default();

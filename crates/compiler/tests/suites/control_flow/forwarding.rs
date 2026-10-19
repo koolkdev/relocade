@@ -1,6 +1,6 @@
 //! Result forwarding must preserve the destinations of earlier exits.
 use crate::{fixture::Fixture, wasm::TestModule};
-use wasm86_compiler::{Type, I1, I32, I8};
+use relocade_compiler::{Type, I1, I32, I8};
 
 #[test]
 fn identical_value_arms_still_define_their_join_result() {

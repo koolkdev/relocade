@@ -7,7 +7,7 @@ fn imports(bytes: &[u8]) -> Vec<String> {
         if let Payload::ImportSection(imports) = payload.unwrap() {
             for import in imports {
                 let import = import.unwrap();
-                assert_eq!(import.module, "wasm86");
+                assert_eq!(import.module, "relocade");
                 names.push(import.name.to_string());
             }
         }

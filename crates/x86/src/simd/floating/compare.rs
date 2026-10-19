@@ -2,7 +2,7 @@
 
 use super::{FloatOperand, FloatResult, SimdExceptions};
 use crate::floating::BinaryEncoding;
-use wasm86_compiler::{AtLeast, Val, I1, I64, I8};
+use relocade_compiler::{AtLeast, Val, I1, I64, I8};
 
 #[derive(Clone, Copy)]
 pub(crate) enum FloatMinMax {

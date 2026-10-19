@@ -3,8 +3,8 @@ use wasmtime::{
     WasmResults,
 };
 
-pub use wasm86_test_support::Value;
-use wasm86_test_support::{engine, Module, SharedBytes};
+pub use relocade_test_support::Value;
+use relocade_test_support::{engine, Module, SharedBytes};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemoryBytes {

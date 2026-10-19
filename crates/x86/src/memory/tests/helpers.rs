@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use wasm86_compiler::MemoryType;
+use relocade_compiler::MemoryType;
 use wasmparser::{ExternalKind, FuncType, ValType};
 
 use super::*;
@@ -35,7 +35,7 @@ impl Module {
                     for import in section {
                         let import = import.unwrap();
                         if matches!(import.ty, TypeRef::Memory(_)) {
-                            if import.module == "wasm86" && import.name == "guest" {
+                            if import.module == "relocade" && import.name == "guest" {
                                 guest_index = Some(memories);
                             }
                             memories += 1;

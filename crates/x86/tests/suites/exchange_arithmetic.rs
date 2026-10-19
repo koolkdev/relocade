@@ -9,7 +9,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::Gpr32::{Eax, Ebp, Ebx, Ecx, Edi, Edx, Esi, Esp};
+use relocade_x86::Gpr32::{Eax, Ebp, Ebx, Ecx, Edi, Edx, Esi, Esp};
 
 #[rustfmt::skip]
 fn xadd_boundaries() -> Vec<Case> {

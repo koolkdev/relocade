@@ -1,7 +1,7 @@
 //! Retained values and tags for eight disjoint slots relative to one origin.
 
+use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 use std::mem::{offset_of, size_of};
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 
 use super::payload::Payload;
 use crate::{

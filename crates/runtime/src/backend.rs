@@ -1,5 +1,5 @@
 use crate::wasm::{HostFunction, WasmBackend};
-use wasm86_compiler::{I1, I16, I32, I64};
+use relocade_compiler::{I1, I16, I32, I64};
 
 /// A Wasm backend that supports the runtime's port, MMIO and hook imports.
 ///

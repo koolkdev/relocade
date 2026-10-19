@@ -1,6 +1,6 @@
 //! Bit selection, optional modification and the old bit's carry flag.
 
-use wasm86_compiler::{MemoryInt, Val, I1, I32};
+use relocade_compiler::{MemoryInt, Val, I1, I32};
 
 use super::AluResult;
 use crate::flags::{FlagChange, StatusFlag};

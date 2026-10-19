@@ -1,6 +1,6 @@
 //! One page-table entry retained across a generated loop's iterations.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I32};
 
 use super::{PageTable, PAGE_SHIFT};
 

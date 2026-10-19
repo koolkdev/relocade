@@ -1,7 +1,7 @@
 //! Shared vector shift counts are modulo the logical lane width.
 
 use super::*;
-use wasm86_compiler::{VectorLane, I16, I64};
+use relocade_compiler::{VectorLane, I16, I64};
 
 fn cases<T: VectorLane>(width: u32, one: [u128; 3], last: [u128; 3]) {
     const INPUT: u128 = 0x80017fffffff0001_800000017fffffff;

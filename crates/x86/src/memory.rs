@@ -20,10 +20,10 @@ use crate::{alu::OperandUpdate, ExecutionProfile};
 use access::FaultHandler;
 use page_table::{PRESENT, WRITABLE};
 use physical::PhysicalMemory;
-use virtual_memory::VirtualMemory;
-use wasm86_compiler::{
+use relocade_compiler::{
     BlockBuilder, BuildError, Mem, MemoryInt, MemoryType, Program, Val, I1, I32,
 };
+use virtual_memory::VirtualMemory;
 
 /// Selects the generated memory model once, during module construction.
 pub(crate) enum Memory {

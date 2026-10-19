@@ -1,6 +1,6 @@
 //! Prospective code targets separate CS resolution, offset checks and commitment.
 
-use wasm86_compiler::{AtLeast, BuildError, Val, I16, I32};
+use relocade_compiler::{AtLeast, BuildError, Val, I16, I32};
 
 use crate::{
     exception::Exception,

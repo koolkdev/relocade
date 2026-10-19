@@ -3,7 +3,7 @@
 //! transfers need only a frame lookup for each byte.
 
 use crate::memory::TransferType;
-use wasm86_compiler::{
+use relocade_compiler::{
     BlockBuilder, BuildError, Func, MemoryType, Program, Signature, Type, Val, I32, I64, I8,
 };
 

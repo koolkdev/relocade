@@ -120,7 +120,7 @@ impl Val<I1> {
     /// an explicit type, for example `condition.select::<I32>(7, 9)`.
     ///
     /// ```
-    /// use wasm86_compiler::{Program, Signature, Type, I32};
+    /// use relocade_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let function = program.function(Signature {
     ///     parameters: vec![Type::I32], results: vec![Type::I32],
@@ -129,7 +129,7 @@ impl Val<I1> {
     ///     body.return_(value.eq(0).select(7, value.add(1)))
     /// })?;
     /// let bytes = program.compile()?;
-    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
     pub fn select<T: ValueType>(
         &self,

@@ -5,7 +5,7 @@ use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::CompiledModule;
 use crate::FlagBytes;
-use wasm86_compiler::{Program, Signature, Type, I1, I64, I8};
+use relocade_compiler::{Program, Signature, Type, I1, I64, I8};
 
 #[test]
 fn conditional_direction_writes_preserve_the_original_byte_when_inactive() {

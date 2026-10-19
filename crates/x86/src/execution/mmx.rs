@@ -1,6 +1,6 @@
 //! MMX admission precedes operands; environment effects follow successful execution.
 
-use wasm86_compiler::{BuildError, Val, I64};
+use relocade_compiler::{BuildError, Val, I64};
 
 use super::ExecutionBuilder;
 use crate::register::RegisterCode;

@@ -1,6 +1,6 @@
 //! Protected interrupt returns commit a complete frame or retain the restart state.
 
-use wasm86_x86::StoredSegment;
+use relocade_x86::StoredSegment;
 
 #[path = "interrupt_returns/faults.rs"]
 mod faults;

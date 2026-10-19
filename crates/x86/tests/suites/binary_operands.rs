@@ -1,4 +1,4 @@
-use wasm86_x86::{compile_block_from_bytes, Gpr32::Eax};
+use relocade_x86::{compile_block_from_bytes, Gpr32::Eax};
 
 use crate::support::cases::{
     test_cases,

@@ -25,7 +25,7 @@ use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
 };
-use wasm86_x86::{CpuState, ExecutionProfile, Segment, Segments, StoredSegment};
+use relocade_x86::{CpuState, ExecutionProfile, Segment, Segments, StoredSegment};
 
 fn image(code: &[u8]) -> Image {
     let mut image = Image::new(code);

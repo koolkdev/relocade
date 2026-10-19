@@ -1,7 +1,7 @@
 //! Byte selection reuses checked transfers without touching masked-off bytes.
 
 use super::{Access, Intent, Memory};
-use wasm86_compiler::{BlockBuilder, BuildError, MemoryType, Val, VectorType, I8};
+use relocade_compiler::{BlockBuilder, BuildError, MemoryType, Val, VectorType, I8};
 
 impl Memory {
     pub(crate) fn write_masked<V: VectorType + MemoryType>(

@@ -1,4 +1,4 @@
-use wasm86_compiler::{BuildError, Val, I32};
+use relocade_compiler::{BuildError, Val, I32};
 
 use super::{handlers::HandlerCall, map_location, map_operand, Instruction};
 use crate::execution::ExecutionBuilder;

@@ -1,7 +1,7 @@
 //! Identities fold runtime operands without introducing scalar fact analysis.
 
 use super::*;
-use wasm86_compiler::V64;
+use relocade_compiler::V64;
 
 #[test]
 fn packed_identities_remove_calculations_and_preserve_both_vector_widths() {

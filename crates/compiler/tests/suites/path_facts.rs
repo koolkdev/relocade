@@ -35,7 +35,7 @@ use crate::{
     fixture::Fixture,
     wasm::{TestModule, Value},
 };
-use wasm86_compiler::{Type, I1, I32, I8};
+use relocade_compiler::{Type, I1, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 fn check_result(module: &TestModule, arguments: &[Value], expected: &[Value]) {

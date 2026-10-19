@@ -1,6 +1,6 @@
 //! String repetition owns the countdown and index progress between elements.
 
-use wasm86_compiler::{Arguments, BuildError, Results, Val, I1, I32};
+use relocade_compiler::{Arguments, BuildError, Results, Val, I1, I32};
 
 use crate::{
     execution::{ExecutionBuilder, ResolvedStrings, StringOperand},
@@ -30,7 +30,7 @@ impl Repetition {
         ) -> Result<Val<I1>, BuildError>,
     ) -> Result<(), BuildError>
     where
-        I32: wasm86_compiler::AtLeast<T>,
+        I32: relocade_compiler::AtLeast<T>,
     {
         if matches!(self, Self::Once) {
             return element(execution, &operands);
@@ -83,7 +83,7 @@ pub(super) fn repeat<T: RegisterType, P: Results, const N: usize>(
 ) -> Result<(Val<I32>, P::Values), BuildError>
 where
     P::Values: Clone + Into<Arguments>,
-    I32: wasm86_compiler::AtLeast<T>,
+    I32: relocade_compiler::AtLeast<T>,
 {
     let repeat = Repeat::<P, N>::new::<T>(execution, operands, initial)?;
     repeat.execute(

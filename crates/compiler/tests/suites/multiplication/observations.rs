@@ -1,7 +1,7 @@
 use super::operators;
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, MemoryBytes, TestModule, Value};
-use wasm86_compiler::{AtLeast, IntType, Type, I1, I16, I32, I8};
+use relocade_compiler::{AtLeast, IntType, Type, I1, I16, I32, I8};
 use wasmparser::Operator;
 
 struct NarrowCase {

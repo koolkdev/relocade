@@ -214,7 +214,7 @@ test_frontends!(fxsave_faults, faults);
 
 #[test]
 fn fxsave_requires_memory_and_no_opcode_prefix() {
-    use wasm86_x86::{compile_block_from_bytes, BlockError};
+    use relocade_x86::{compile_block_from_bytes, BlockError};
     for code in [
         &[0x0f, 0xae, 0xc0][..],
         &[0x66, 0x0f, 0xae, 0x00],

@@ -1,6 +1,6 @@
 use crate::{error::DosError, DosState};
+use relocade_runtime::{real_mode_interrupt, HostCall};
 use std::ops::ControlFlow;
-use wasm86_runtime::{real_mode_interrupt, HostCall};
 
 /// Returns a DOS result through the interrupt frame, preserving other flags.
 pub(crate) fn return_result(

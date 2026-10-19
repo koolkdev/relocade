@@ -13,7 +13,7 @@ use crate::support::{
     machine::Exit,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value},
 };
-use wasm86_x86::{CpuState, SegmentProfile};
+use relocade_x86::{CpuState, SegmentProfile};
 
 const LEAD: u64 = 1 << 63;
 

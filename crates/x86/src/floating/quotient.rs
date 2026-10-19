@@ -1,6 +1,6 @@
 //! Normalized quotient algorithms preserve an exact floor and remainder.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64};
+use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64};
 
 use crate::floating::RoundingInput;
 

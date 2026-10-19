@@ -1,11 +1,11 @@
 [package]
-name = "wasm86-runtime"
+name = "relocade-runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-wasm86-machine = { path = "../machine" }
-wasm86-x86 = { path = "../x86" }
-wasm86-compiler = { path = "../compiler" }
+relocade-machine = { path = "../machine" }
+relocade-x86 = { path = "../x86" }
+relocade-compiler = { path = "../compiler" }

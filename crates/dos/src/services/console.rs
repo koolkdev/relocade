@@ -1,8 +1,8 @@
 use super::return_to_host;
 use crate::{DosState, ServiceError};
+use relocade_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
+use relocade_x86::Segment;
 use std::ops::ControlFlow;
-use wasm86_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
-use wasm86_x86::Segment;
 
 /// AH=09h: output the '$'-terminated string at DS:DX and return AL='$'.
 pub(super) fn write_string(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {

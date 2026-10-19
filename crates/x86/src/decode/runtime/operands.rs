@@ -2,7 +2,7 @@
 //! ModRM forms are selected before fetching address bytes. Register operands
 //! continue locally; memory operands join their shared address decoder.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I32, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I32, I8};
 
 use crate::{
     decode::DecodeState,

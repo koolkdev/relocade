@@ -1,4 +1,4 @@
-use wasm86_compiler::{AtLeast, BlockBuilder, BuildError, MemoryInt, Val, I32, I8};
+use relocade_compiler::{AtLeast, BlockBuilder, BuildError, MemoryInt, Val, I32, I8};
 
 use crate::{exception::Exception, instruction::MAX_INSTRUCTION_BYTES, state::exit};
 

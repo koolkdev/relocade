@@ -1,9 +1,9 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use wasm86_machine::{ConfigurationError, MachineConfig, MemoryError};
-use wasm86_runtime::Runtime;
-use wasm86_runtime_wasmtime::WasmtimeBackend;
-use wasm86_x86::{
+use relocade_machine::{ConfigurationError, MachineConfig, MemoryError};
+use relocade_runtime::Runtime;
+use relocade_runtime_wasmtime::WasmtimeBackend;
+use relocade_x86::{
     Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
     PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
 };

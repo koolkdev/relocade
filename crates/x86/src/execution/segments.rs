@@ -1,6 +1,6 @@
 //! Selector resolution and cache commitment are separate execution operations.
 
-use wasm86_compiler::{BuildError, Val, I1, I16, I32};
+use relocade_compiler::{BuildError, Val, I1, I16, I32};
 
 use super::ExecutionBuilder;
 use crate::{

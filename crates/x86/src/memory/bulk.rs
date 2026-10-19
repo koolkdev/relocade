@@ -1,7 +1,7 @@
 //! Bulk transfers require a permission proof for every physically consecutive page.
 
 use super::Memory;
-use wasm86_compiler::{BlockBuilder, BuildError, MemoryInt, Val, I32};
+use relocade_compiler::{BlockBuilder, BuildError, MemoryInt, Val, I32};
 
 #[cfg(test)]
 mod tests;
@@ -28,7 +28,7 @@ impl Memory {
         bytes: &Val<I32>,
     ) -> Result<(), BuildError>
     where
-        I32: wasm86_compiler::AtLeast<T>,
+        I32: relocade_compiler::AtLeast<T>,
     {
         let value32 = value.unsigned().extend::<I32>();
         if T::BYTES == 1 {

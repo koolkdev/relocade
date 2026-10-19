@@ -31,7 +31,7 @@ impl BlockBuilder<'_> {
     /// observe each iteration's state at their authored position.
     ///
     /// ```
-    /// use wasm86_compiler::{Program, Signature, Type, I1, I32, I64};
+    /// use relocade_compiler::{Program, Signature, Type, I1, I32, I64};
     /// let mut program = Program::new();
     /// let function = program.function(Signature {
     ///     parameters: vec![Type::I32], results: vec![Type::I64, Type::I1],
@@ -51,7 +51,7 @@ impl BlockBuilder<'_> {
     /// })?;
     /// program.export("sum", function)?;
     /// let bytes = program.compile()?;
-    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
     pub fn loop_<P: Results, R: Results>(
         &mut self,

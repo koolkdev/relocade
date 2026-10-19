@@ -1,6 +1,6 @@
 //! Operand and through-carry rotations with their carry/overflow changes.
 
-use wasm86_compiler::{AtLeast, MemoryInt, Val, I1, I32, I64};
+use relocade_compiler::{AtLeast, MemoryInt, Val, I1, I32, I64};
 
 use super::{bit, AluResult};
 use crate::flags::{FlagChange, StatusFlag};

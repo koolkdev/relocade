@@ -4,7 +4,7 @@ use crate::support::{
     cases::Permissions::{ReadOnly, ReadWrite},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Case},
 };
-use wasm86_x86::{CpuState, Gpr32::*, Segment, StoredSegment};
+use relocade_x86::{CpuState, Gpr32::*, Segment, StoredSegment};
 
 fn accesses() -> Vec<Case> {
     vec![

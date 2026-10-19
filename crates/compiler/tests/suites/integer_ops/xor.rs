@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::wasm::TestModule;
-use wasm86_compiler::{IntType, I1};
+use relocade_compiler::{IntType, I1};
 
 fn xor_count(module: &TestModule) -> usize {
     Parser::new(0)

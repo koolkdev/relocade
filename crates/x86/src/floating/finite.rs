@@ -1,7 +1,7 @@
 //! Unrounded finite magnitudes and binary32/64 rounding, independent of exception policy.
 
 use super::{BinaryEncoding, BinaryFormat, RoundingInput, RoundingMode};
-use wasm86_compiler::{AtLeast, Results, Val, I1, I32, I64};
+use relocade_compiler::{AtLeast, Results, Val, I1, I32, I64};
 
 /// The leading significand bit is bit 63; zero has no significant bits.
 /// The signed exponent is unbiased, and the fraction has not yet been rounded.

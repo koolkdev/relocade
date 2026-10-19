@@ -13,8 +13,8 @@ use crate::support::{
     },
     sequences::{test_sequences, Checkpoint, SequenceCase},
 };
-use wasm86_x86::Gpr32;
-use wasm86_x86::{compile_block_from_bytes, BlockError};
+use relocade_x86::Gpr32;
+use relocade_x86::{compile_block_from_bytes, BlockError};
 use wasmparser::Validator;
 
 use crate::support::machine;

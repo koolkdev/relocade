@@ -1,8 +1,8 @@
-use wasm86_compiler::{
+use relocade_compiler::{
     abi::{Function, Memory, Table},
     Program, F64, I1, I16, I32, I64, I8,
 };
-use wasm86_runtime::wasm::{WasmBackend, WasmCaller, WasmMemoryAccess};
+use relocade_runtime::wasm::{WasmBackend, WasmCaller, WasmMemoryAccess};
 
 const MEMORY: Memory = Memory::new("example", "memory", 1);
 const FUNCTIONS: Table<fn() -> I64> = Table::new("example", "functions", 1);
@@ -13,9 +13,9 @@ const WRITE: Function<fn(I32, I32, I64)> = Function::new("example", "write");
 const RUN: Function<fn() -> I64> = Function::new("example", "run");
 
 #[cfg(not(target_arch = "wasm32"))]
-use wasm86_runtime_wasmtime::WasmtimeBackend as Backend;
+use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
 #[cfg(target_arch = "wasm32")]
-use wasm86_runtime_web::WebBackend as Backend;
+use relocade_runtime_web::WebBackend as Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

@@ -1,6 +1,6 @@
 //! Logarithms keep cancellation and extended exponents inside their numerical owner.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
 use crate::floating::RoundingMode;
 

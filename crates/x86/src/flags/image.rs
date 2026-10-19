@@ -4,7 +4,7 @@
 //! VM/RF/VIF/VIP are unrepresented and stay clear. Transferring TF, IF, NT, AC or ID does
 //! not enable debug delivery, task switching, alignment checks or interrupts.
 
-use wasm86_compiler::{AtLeast, BuildError, IntType, Type, Val, I1, I32, I8};
+use relocade_compiler::{AtLeast, BuildError, IntType, Type, Val, I1, I32, I8};
 
 use super::{Flag, FlagChange, StatusFlag};
 use crate::{execution::ExecutionBuilder, ExecutionProfile};

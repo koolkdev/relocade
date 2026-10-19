@@ -17,7 +17,7 @@ macro_rules! declaration_handlers {
         SizedHandlers::fixed(declaration_adapter!($effects $pattern $call [I32]; $($operands)*))
     };
     ($effects:tt $pattern:tt $call:tt qword($($operands:tt)*)) => {
-        SizedHandlers::fixed(declaration_adapter!($effects $pattern $call [wasm86_compiler::I64]; $($operands)*))
+        SizedHandlers::fixed(declaration_adapter!($effects $pattern $call [relocade_compiler::I64]; $($operands)*))
     };
     ($effects:tt $pattern:tt $call:tt word_or_dword($($operands:tt)*)) => {
         SizedHandlers {

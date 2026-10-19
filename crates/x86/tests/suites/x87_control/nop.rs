@@ -5,7 +5,7 @@ use crate::support::{
     machine::{Exit, Step},
     x87::{complete_x87, dispatch, set_control, stack_image},
 };
-use wasm86_x86::SegmentProfile;
+use relocade_x86::SegmentProfile;
 
 fn no_operation(frontend: Frontend) {
     let code = [0xd9, 0xd0];

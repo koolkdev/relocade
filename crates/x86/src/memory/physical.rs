@@ -6,7 +6,7 @@ mod transfer;
 
 use std::cell::Cell;
 
-use wasm86_compiler::{
+use relocade_compiler::{
     BlockBuilder, BuildError, Func, Mem, MemoryInt, MemoryType, Program, Val, I32, I64,
 };
 

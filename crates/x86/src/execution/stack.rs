@@ -2,7 +2,7 @@
 
 use std::marker::PhantomData;
 
-use wasm86_compiler::{BuildError, Val, I32};
+use relocade_compiler::{BuildError, Val, I32};
 
 use crate::{
     memory::{Access, Intent, Memory},

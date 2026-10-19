@@ -3,7 +3,7 @@ use super::*;
 pub(super) fn register(linker: &mut Linker<ExecutionEvents>) {
     linker
         .func_wrap(
-            "wasm86",
+            "relocade",
             "readPort",
             |mut caller: Caller<'_, ExecutionEvents>, port: u32, bytes: u32| {
                 let events = caller.data_mut();
@@ -14,7 +14,7 @@ pub(super) fn register(linker: &mut Linker<ExecutionEvents>) {
         .unwrap();
     linker
         .func_wrap(
-            "wasm86",
+            "relocade",
             "writePort",
             |mut caller: Caller<'_, ExecutionEvents>, port: u32, bytes: u32, value: u32| {
                 caller

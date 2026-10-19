@@ -1,9 +1,9 @@
-use std::{cell::RefCell, mem::offset_of, rc::Rc};
-use wasm86_machine::{ConfigurationError, Machine, MachineConfig, MachineStorage, MemoryError};
-use wasm86_x86::{
+use relocade_machine::{ConfigurationError, Machine, MachineConfig, MachineStorage, MemoryError};
+use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segment, Segments, StoredSegment, StoredStatusSource,
 };
+use std::{cell::RefCell, mem::offset_of, rc::Rc};
 
 struct Storage {
     context: Rc<RefCell<[u8; ExecutionContext::BYTE_LEN]>>,

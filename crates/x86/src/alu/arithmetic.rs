@@ -1,6 +1,6 @@
 //! Addition and subtraction results, carry inputs and flag equations.
 
-use wasm86_compiler::{MemoryInt, Val, I1};
+use relocade_compiler::{MemoryInt, Val, I1};
 
 use super::{bit, result_flag, AluResult};
 use crate::alu::{AnyStatusSource, StatusSource};

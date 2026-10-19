@@ -8,7 +8,7 @@ use crate::{
     x87::ExtendedBits,
     ExecutionProfile,
 };
-use wasm86_compiler::{MemoryInt, I64};
+use relocade_compiler::{MemoryInt, I64};
 
 instruction_families! {
     FLDENV {

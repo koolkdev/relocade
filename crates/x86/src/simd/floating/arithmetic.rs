@@ -5,7 +5,7 @@ use crate::{
     floating::{BinaryClassification, BinaryEncoding},
     state::Mxcsr,
 };
-use wasm86_compiler::{AtLeast, BlockBuilder, BuildError, Val, I1, I64};
+use relocade_compiler::{AtLeast, BlockBuilder, BuildError, Val, I1, I64};
 
 #[derive(Clone, Copy)]
 pub(crate) enum FloatArithmetic {

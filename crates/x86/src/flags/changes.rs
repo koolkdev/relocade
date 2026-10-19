@@ -1,6 +1,6 @@
 //! Explicit write sets preserve status recipes and unrelated architectural flags.
 
-use wasm86_compiler::{MemoryInt, Val, I1};
+use relocade_compiler::{MemoryInt, Val, I1};
 
 use super::{Flag, FlagMask};
 use crate::alu::{AnyStatusSource, StatusSource};

@@ -7,7 +7,7 @@ use crate::{
     state::Mxcsr,
     Exception, StoredSimd,
 };
-use wasm86_compiler::{BuildError, Val, I32, V128};
+use relocade_compiler::{BuildError, Val, I32, V128};
 
 impl ExecutionBuilder<'_, '_> {
     pub(crate) fn read_mxcsr(&mut self) -> Result<Mxcsr, BuildError> {

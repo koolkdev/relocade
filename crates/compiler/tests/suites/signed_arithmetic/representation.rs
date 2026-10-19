@@ -1,7 +1,7 @@
 use super::operators;
 use crate::fixture::Fixture;
 use crate::wasm::{TestModule, Value};
-use wasm86_compiler::{Type, I1, I16, I32, I64, I8};
+use relocade_compiler::{Type, I1, I16, I32, I64, I8};
 use wasmparser::Operator;
 use Value::{I32 as V32, I64 as V64};
 

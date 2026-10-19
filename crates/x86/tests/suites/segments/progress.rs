@@ -3,7 +3,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use wasm86_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile};
+use relocade_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile};
 
 #[test]
 fn segment_fault_publishes_prior_arithmetic_store_and_count() {

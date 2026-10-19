@@ -42,7 +42,7 @@ use crate::support::{
     machine::{Exit, Image, Step},
     x87::{dispatch, stack_image, write_register_bits},
 };
-use wasm86_x86::{CpuState, SegmentProfile};
+use relocade_x86::{CpuState, SegmentProfile};
 
 fn image(code: &[u8]) -> Image {
     stack_image(code, 5, 0xffff)

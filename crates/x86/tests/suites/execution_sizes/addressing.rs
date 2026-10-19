@@ -3,7 +3,7 @@ use crate::support::cases::{
     test_cases, InstructionCase as Case,
     Permissions::{ReadOnly, ReadWrite},
 };
-use wasm86_x86::{
+use relocade_x86::{
     Gpr32::{Eax, Ebp, Ebx, Edi, Esi},
     Segment, StoredSegment,
 };
@@ -159,7 +159,7 @@ fn bit_string_offsets() -> Vec<Case> {
         FlagExpectation::{Clear, Preserved, Set, Undefined},
         Flags,
     };
-    use wasm86_x86::Gpr32::Ecx;
+    use relocade_x86::Gpr32::Ecx;
     let flags = |cf| Flags {
         cf,
         zf: Preserved,

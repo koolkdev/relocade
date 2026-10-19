@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
-use wasm86_dos::{Dos, DosState};
+use relocade_dos::{Dos, DosState};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use wasm86_runtime_wasmtime::WasmtimeBackend as Backend;
+pub use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
 #[cfg(target_arch = "wasm32")]
-pub use wasm86_runtime_web::WebBackend as Backend;
+pub use relocade_runtime_web::WebBackend as Backend;
 
 pub async fn dos() -> Dos<Backend<DosState>> {
     #[cfg(not(target_arch = "wasm32"))]
@@ -15,7 +15,7 @@ pub async fn dos() -> Dos<Backend<DosState>> {
     Dos::new(backend).await.unwrap()
 }
 
-use wasm86_x86::{CpuState, ExecutionExit};
+use relocade_x86::{CpuState, ExecutionExit};
 
 // INT 21h followed by JMP $ lets each host assertion inspect the IRET result.
 pub const SERVICE_PROGRAM: &[u8] = &[0xcd, 0x21, 0xeb, 0xfe];

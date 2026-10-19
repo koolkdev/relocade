@@ -5,7 +5,9 @@ mod controls;
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use wasm86_x86::{compile_block_from_bytes, Compiler, ExecutionProfile, SegmentProfile, Segments};
+use relocade_x86::{
+    compile_block_from_bytes, Compiler, ExecutionProfile, SegmentProfile, Segments,
+};
 
 fn common_inputs() {
     let code = [0x0f, 0x2e, 0xc1]; // UCOMISS XMM0,XMM1

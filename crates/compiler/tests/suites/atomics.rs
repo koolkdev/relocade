@@ -5,8 +5,8 @@ mod ordering;
 
 use std::sync::Barrier;
 
-use wasm86_compiler::{MemoryInt, Type, I16, I32, I64, I8};
-use wasm86_test_support::SharedBytes;
+use relocade_compiler::{MemoryInt, Type, I16, I32, I64, I8};
+use relocade_test_support::SharedBytes;
 
 use crate::{
     fixture::Fixture,

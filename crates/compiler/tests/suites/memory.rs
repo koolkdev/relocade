@@ -4,7 +4,7 @@ mod stores;
 use crate::fixture::Fixture;
 use crate::wasm::{MemoryBytes, TestModule, Value};
 
-use wasm86_compiler::{MemoryImport, MemoryInt, Program, Signature, Type, I16, I32, I64, I8};
+use relocade_compiler::{MemoryImport, MemoryInt, Program, Signature, Type, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, TypeRef};
 
 fn snapshot_and_fresh_read() -> TestModule {

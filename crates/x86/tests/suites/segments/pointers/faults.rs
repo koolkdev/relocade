@@ -226,8 +226,8 @@ fn register_sources_are_rejected_by_both_decoders_before_execution() {
         image.map(1, 0x3000, false);
         image.data(0x4000 - code.len() as u32, &code);
         assert!(matches!(
-            wasm86_x86::compile_block_from_bytes(image.cpu.eip, &code, 1),
-            Err(wasm86_x86::BlockError::UnsupportedInstruction { .. })
+            relocade_x86::compile_block_from_bytes(image.cpu.eip, &code, 1),
+            Err(relocade_x86::BlockError::UnsupportedInstruction { .. })
         ));
         image.check_unchanged_exit(
             TestModule::interpreter(),

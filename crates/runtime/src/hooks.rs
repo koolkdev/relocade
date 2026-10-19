@@ -1,6 +1,6 @@
+use relocade_compiler::{abi::Function, Program, I1};
+use relocade_x86::{abi, ExecutionExit};
 use std::{ops::ControlFlow, sync::Arc};
-use wasm86_compiler::{abi::Function, Program, I1};
-use wasm86_x86::{abi, ExecutionExit};
 
 use crate::{with_host_call, DispatchEntry, HostCall, Result, Runtime, RuntimeBackend};
 
@@ -11,7 +11,7 @@ type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> ControlFlow<()> + Send + Sync;
 ///
 /// ```
 /// use std::ops::ControlFlow;
-/// use wasm86_runtime::{Hook, HostCall};
+/// use relocade_runtime::{Hook, HostCall};
 ///
 /// fn terminate(call: &mut HostCall<'_, Option<u8>>) -> ControlFlow<()> {
 ///     let code = call.cpu().al();

@@ -14,7 +14,7 @@ use super::{Segment, SegmentDescriptor, SegmentDescriptorInfo};
 /// APIs. Changing an entry never changes a CPU's already-loaded segment cache.
 ///
 /// ```
-/// use wasm86_x86::{
+/// use relocade_x86::{
 ///     DescriptorTables, Exception, Segment, SegmentDefaultSize, SegmentDescriptor,
 ///     SegmentDescriptorKind, SegmentLimit,
 /// };

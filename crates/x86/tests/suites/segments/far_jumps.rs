@@ -22,7 +22,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{Event, SegmentResolution, TestModule},
 };
-use wasm86_x86::{
+use relocade_x86::{
     DescriptorTables, ExecutionProfile, PrivilegeLevel, Segment, SegmentDefaultSize,
     SegmentDescriptor, SegmentDescriptorKind,
 };

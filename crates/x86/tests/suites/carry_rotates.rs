@@ -9,7 +9,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::Gpr32::{Eax, Ebx, Ecx, Edx};
+use relocade_x86::Gpr32::{Eax, Ebx, Ecx, Edx};
 
 const CARRY_CLEAR: Flags<bool> = Flags {
     cf: false,

@@ -5,7 +5,7 @@ use crate::support::{
     machine::{Exit, Step},
     x87::{complete_x87, dispatch, set_control, stack_image, write_register_bits, write_value},
 };
-use wasm86_x86::{CpuState, SegmentProfile};
+use relocade_x86::{CpuState, SegmentProfile};
 
 fn condition_codes(cpu: &mut CpuState, word: u16) {
     cpu.x87.status.c0 = ((word >> 8) & 1) as u8;

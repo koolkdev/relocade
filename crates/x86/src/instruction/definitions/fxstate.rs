@@ -5,7 +5,7 @@ use crate::{
     address::MemoryAddress, execution::OperandSpan, memory::Intent, register::RegisterCode,
     x87::ExtendedBits, StoredSimd,
 };
-use wasm86_compiler::{I64, V128};
+use relocade_compiler::{I64, V128};
 
 instruction_families! {
     FXSAVE {

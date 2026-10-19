@@ -6,8 +6,8 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint, SequenceCase},
     step::TestModule,
 };
-use wasm86_x86::StoredStatusSource;
-use wasm86_x86::{CpuState, Gpr32, StoredFlags};
+use relocade_x86::StoredStatusSource;
+use relocade_x86::{CpuState, Gpr32, StoredFlags};
 
 #[path = "conditional_moves/memory.rs"]
 mod memory;

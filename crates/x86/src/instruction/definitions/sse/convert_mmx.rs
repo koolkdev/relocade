@@ -6,7 +6,7 @@ use crate::{
     instruction::MmxLocation,
     simd::{integer_to_float, FloatOperand, FloatResult},
 };
-use wasm86_compiler::{AtLeast, I64};
+use relocade_compiler::{AtLeast, I64};
 
 instruction_families! {
     CVTPI2PS {

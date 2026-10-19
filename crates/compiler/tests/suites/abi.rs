@@ -1,4 +1,4 @@
-use wasm86_compiler::{abi::Function, BuildError, Program, Signature, Type, I1, I16, I32, I64};
+use relocade_compiler::{abi::Function, BuildError, Program, Signature, Type, I1, I16, I32, I64};
 
 #[test]
 fn declarations_keep_logical_widths_and_multiple_results() {

@@ -12,7 +12,7 @@ impl Val<V128> {
     /// Operations return raw vector encodings and do not report exception flags.
     ///
     /// ```
-    /// use wasm86_compiler::{Val, V128};
+    /// use relocade_compiler::{Val, V128};
     /// let left = Val::<V128>::from([0_u8; 16]);
     /// let right = Val::<V128>::from([0_u8; 16]);
     /// let sum = left.f32x4().add(&right);

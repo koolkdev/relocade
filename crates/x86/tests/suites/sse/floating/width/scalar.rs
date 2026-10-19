@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use wasm86_x86::{Compiler, ExecutionProfile, Segments};
+use relocade_x86::{Compiler, ExecutionProfile, Segments};
 
 fn check(case: ScalarCase, restart: bool, profile: ExecutionProfile) {
     let code = [0x90, 0xf2, 0x0f, 0x5a, 0xc0]; // NOP; CVTSD2SS XMM0,XMM0

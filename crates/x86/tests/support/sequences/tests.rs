@@ -1,4 +1,4 @@
-use wasm86_x86::Gpr32::{Eax, Ebx, Edx, Esi};
+use relocade_x86::Gpr32::{Eax, Ebx, Edx, Esi};
 
 use super::{test_sequences, Checkpoint, SequenceCase};
 use crate::support::cases::{

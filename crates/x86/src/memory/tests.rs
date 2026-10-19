@@ -1,5 +1,5 @@
 use super::{Intent, Memory};
-use wasm86_compiler::{
+use relocade_compiler::{
     AtLeast, BuildError, MemoryInt, Program, Signature, Type, I16, I32, I64, I8,
 };
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
@@ -141,7 +141,7 @@ fn contiguous_accesses_keep_native_loads_and_stores_for_every_storage_width() {
             for import in imports.clone() {
                 let import = import.unwrap();
                 if matches!(import.ty, TypeRef::Memory(_)) {
-                    if import.module == "wasm86" && import.name == "guest" {
+                    if import.module == "relocade" && import.name == "guest" {
                         guest_index = Some(memories);
                     }
                     memories += 1;

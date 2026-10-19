@@ -1,6 +1,6 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::TestModule;
-use wasm86_compiler::{Type, I32};
+use relocade_compiler::{Type, I32};
 use wasmparser::{Operator, Parser, Payload};
 
 fn transfers() -> TestModule {

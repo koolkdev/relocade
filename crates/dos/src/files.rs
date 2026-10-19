@@ -11,8 +11,8 @@ use std::{
 
 mod search;
 mod short_name;
+use relocade_vfs::{File, MemoryFileSystem};
 pub(crate) use search::FIND_DATA_BYTES;
-use wasm86_vfs::{File, MemoryFileSystem};
 
 // A DOS process starts with 20 handles, including its five standard devices.
 const HANDLE_COUNT: usize = 20;

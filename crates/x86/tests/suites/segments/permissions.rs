@@ -1,6 +1,6 @@
 use super::data;
 use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadWrite};
-use wasm86_x86::{
+use relocade_x86::{
     Gpr32::{Eax, Ebp, Ebx},
     Segment, StoredSegment,
 };
@@ -155,7 +155,7 @@ fn fault_selection() -> Vec<Case> {
                     ..data(0x8000, 0xff)
                 },
             )
-            .initial_registers(&[(Ebx, 0x20), (wasm86_x86::Gpr32::Ecx, 0)])
+            .initial_registers(&[(Ebx, 0x20), (relocade_x86::Gpr32::Ecx, 0)])
             .memory(0x8020, &[0xff; 4], ReadWrite)
             .general_protection(0),
         );

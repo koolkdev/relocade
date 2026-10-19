@@ -8,7 +8,7 @@ use crate::support::{
     },
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::Gpr32::*;
+use relocade_x86::Gpr32::*;
 
 #[rustfmt::skip]
 fn transfers() -> Vec<Case> {

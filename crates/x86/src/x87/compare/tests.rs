@@ -1,7 +1,7 @@
 use super::*;
 use crate::floating::BinaryFormat;
 use crate::{test_step as step, CompiledModule};
-use wasm86_compiler::{Program, Signature, Type, I32, I64};
+use relocade_compiler::{Program, Signature, Type, I32, I64};
 
 #[test]
 fn loaded_binary64_values_compare_without_source_exceptions() {

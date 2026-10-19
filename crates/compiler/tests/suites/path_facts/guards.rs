@@ -1,6 +1,6 @@
 //! Returning guards leave calculations with the paths that use their results.
 use crate::fixture::Fixture;
-use wasm86_compiler::{Type, I1, I32, I8};
+use relocade_compiler::{Type, I1, I32, I8};
 
 #[test]
 fn returning_guards_keep_shared_calculations_with_their_consumers() {
@@ -78,7 +78,9 @@ fn a_nonzero_guard_preserves_quotients_and_remainders_across_returning_paths() {
             let first = body.parameter::<I1>(0)?;
             let divisor = body.parameter::<I32>(1)?;
             let nonzero = if positive_guard {
-                wasm86_compiler::Val::<I32>::from(0).unsigned().lt(&divisor)
+                relocade_compiler::Val::<I32>::from(0)
+                    .unsigned()
+                    .lt(&divisor)
             } else {
                 divisor.ne(0)
             };

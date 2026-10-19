@@ -6,7 +6,7 @@ mod precision53;
 #[cfg(test)]
 mod tests;
 
-use wasm86_compiler::{IntType, Val, F64, I1, I16, I32, I64};
+use relocade_compiler::{IntType, Val, F64, I1, I16, I32, I64};
 
 use crate::floating::BinaryFormat;
 

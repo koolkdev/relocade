@@ -1,8 +1,8 @@
 //! Initialization shared by the COM and MZ loaders.
 
 use crate::{memory, LoadError, LoadOptions};
-use wasm86_machine::{MachineStorage, Memory};
-use wasm86_x86::{CpuState, Segment, Segments, StoredFlags, StoredSegment};
+use relocade_machine::{MachineStorage, Memory};
+use relocade_x86::{CpuState, Segment, Segments, StoredFlags, StoredSegment};
 
 pub(crate) const COMMAND_TAIL_OFFSET: u16 = 0x80;
 pub(crate) const PSP_BYTES: usize = 0x100;

@@ -1,6 +1,6 @@
 //! Naturally aligned native atomics and private-memory unaligned updates.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Val, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, MemoryInt, Val, I32};
 
 use super::{access::Access, Intent, VirtualMemory};
 use crate::alu::OperandUpdate;

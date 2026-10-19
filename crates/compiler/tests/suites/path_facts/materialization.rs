@@ -1,6 +1,6 @@
 //! Guarded calculations retain the identities of their computed inputs.
 use super::*;
-use wasm86_compiler::I16;
+use relocade_compiler::I16;
 
 #[test]
 fn masks_exposed_by_specialization_reuse_the_guarded_value() {

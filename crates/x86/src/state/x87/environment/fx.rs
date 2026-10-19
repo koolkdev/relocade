@@ -1,6 +1,6 @@
 //! The FXSR header keeps segment:offset pointers and one occupancy bit per register.
 
-use wasm86_compiler::{Val, I16, I32};
+use relocade_compiler::{Val, I16, I32};
 
 use super::{Environment, Pointer};
 use crate::SegmentDefaultSize;

@@ -11,7 +11,7 @@ use crate::support::{
         INDEFINITE,
     },
 };
-use wasm86_x86::{CpuState, ExecutionProfile, SegmentProfile};
+use relocade_x86::{CpuState, ExecutionProfile, SegmentProfile};
 
 #[derive(Clone, Copy, Debug)]
 enum Source {

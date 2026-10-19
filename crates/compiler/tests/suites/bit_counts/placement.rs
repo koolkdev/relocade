@@ -1,6 +1,6 @@
 use crate::fixture::Fixture;
 use crate::wasm::TestModule;
-use wasm86_compiler::{Type, Val, I1, I32};
+use relocade_compiler::{Type, Val, I1, I32};
 use wasmparser::{Operator, Parser, Payload};
 
 fn count_snapshot() -> TestModule {

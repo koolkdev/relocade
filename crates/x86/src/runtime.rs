@@ -2,7 +2,7 @@
 
 mod ports;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Func, Program, Val, I1, I16, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Func, Program, Val, I1, I16, I32};
 
 use crate::{
     exception::{Exception, ExceptionVector},

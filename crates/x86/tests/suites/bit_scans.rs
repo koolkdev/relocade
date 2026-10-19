@@ -11,7 +11,7 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
     step::TestModule,
 };
-use wasm86_x86::{
+use relocade_x86::{
     compile_block_from_bytes, BlockError,
     Gpr32::{self, Eax, Ebp, Ebx, Ecx, Edi, Edx},
 };

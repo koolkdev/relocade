@@ -5,7 +5,7 @@ use crate::alu::ArithmeticOp;
 use crate::flags::{Flag, FlagChange};
 use crate::state::{Cpu, State};
 use crate::CompiledModule;
-use wasm86_compiler::{Program, Signature, Type, I1, I8};
+use relocade_compiler::{Program, Signature, Type, I1, I8};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Validator};
 
 fn stored_reader<const N: usize>(flags: [Flag; N]) -> CompiledModule {

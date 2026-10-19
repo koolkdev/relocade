@@ -1,6 +1,6 @@
 //! Operand accesses share address resolution and permission checks.
 
-use wasm86_compiler::{AtLeast, BuildError, Val, I32};
+use relocade_compiler::{AtLeast, BuildError, Val, I32};
 
 use crate::{
     address::{self, RegisterValue},

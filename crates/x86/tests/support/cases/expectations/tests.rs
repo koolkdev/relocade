@@ -1,7 +1,7 @@
 use crate::flags::Flag;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use wasm86_x86::Gpr32::{Eax, Ecx};
+use relocade_x86::Gpr32::{Eax, Ecx};
 
 use super::{check_flags, check_state, validate};
 use crate::support::{
@@ -200,27 +200,27 @@ fn direct_expectations_allow_only_authored_flag_bytes_to_change() {
             .expect_direct_flag(flag, false);
         let mut bytes = fixture.actual.cpu.to_bytes();
         bytes[offset] = 0;
-        fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+        fixture.actual.cpu = relocade_x86::CpuState::from_bytes(bytes);
         fixture.check();
         bytes[offset] = 1;
-        fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+        fixture.actual.cpu = relocade_x86::CpuState::from_bytes(bytes);
         rejects(|| fixture.check(), "control and system flags");
         bytes[offset] = 0;
         for other in (18..25).filter(|other| *other != offset) {
             bytes[other] ^= 0x80;
-            fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+            fixture.actual.cpu = relocade_x86::CpuState::from_bytes(bytes);
             rejects(|| fixture.check(), "control and system flags");
             bytes[other] ^= 0x80;
         }
         for other in [12, 4] {
             bytes[other] ^= 1;
-            fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+            fixture.actual.cpu = relocade_x86::CpuState::from_bytes(bytes);
             rejects(|| fixture.check(), "stored flag record");
             bytes[other] ^= 1;
         }
         for padding in [1, 25, 26, 27] {
             bytes[padding] ^= 1;
-            fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+            fixture.actual.cpu = relocade_x86::CpuState::from_bytes(bytes);
             rejects(|| fixture.check(), "reserved flag bytes");
             bytes[padding] ^= 1;
         }
@@ -234,7 +234,7 @@ fn current_instruction_expectations_preserve_every_segment_cache_byte() {
         fixture.check();
         let mut bytes = fixture.actual.cpu.to_bytes();
         bytes[offset] ^= 1;
-        fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+        fixture.actual.cpu = relocade_x86::CpuState::from_bytes(bytes);
         rejects(|| fixture.check(), "loaded segment registers");
     }
 }
@@ -246,7 +246,7 @@ fn unspecified_direct_flags_must_preserve_their_entire_bytes() {
         fixture.check();
         let mut bytes = fixture.actual.cpu.to_bytes();
         bytes[offset] ^= 0x80;
-        fixture.actual.cpu = wasm86_x86::CpuState::from_bytes(bytes);
+        fixture.actual.cpu = relocade_x86::CpuState::from_bytes(bytes);
         rejects(|| fixture.check(), "control and system flags");
     }
 }

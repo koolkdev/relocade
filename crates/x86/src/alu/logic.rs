@@ -1,6 +1,6 @@
 //! Bitwise operand results and their status-flag rules.
 
-use wasm86_compiler::{MemoryInt, Val, I1};
+use relocade_compiler::{MemoryInt, Val, I1};
 
 use super::{result_flag, AluResult};
 use crate::alu::{AnyStatusSource, StatusSource};

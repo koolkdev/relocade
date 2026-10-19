@@ -8,7 +8,7 @@ use crate::support::{
     },
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::Gpr32::*;
+use relocade_x86::Gpr32::*;
 
 fn long_transfers() -> Vec<Case> {
     let mut cases = Vec::new();
@@ -173,7 +173,7 @@ fn patterned_stos_completes_in_the_jit_with_a_short_final_prefix_copy() {
         guest::{Exit, Machine},
         step::TestModule,
     };
-    use wasm86_x86::compile_block_from_bytes;
+    use relocade_x86::compile_block_from_bytes;
 
     for (code, width, value, pattern) in [
         (
@@ -218,7 +218,7 @@ fn patterned_stos_completes_in_the_jit_with_a_short_final_prefix_copy() {
 
 #[test]
 fn native_transfers_reuse_the_range_checks_and_omit_the_stos_element_loop() {
-    use wasm86_x86::compile_block_from_bytes;
+    use relocade_x86::compile_block_from_bytes;
     use wasmparser::{Operator, Parser, Payload, TypeRef};
 
     for (code, copies, fills, loops, probes) in [

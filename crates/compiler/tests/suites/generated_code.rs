@@ -1,5 +1,5 @@
 use crate::fixture::Fixture;
-use wasm86_compiler::{
+use relocade_compiler::{
     BlockBuilder, IntType, Program, Signature, Type, Val, I1, I16, I32, I64, I8,
 };
 use wasmparser::{Operator, Parser, Payload, ValType};

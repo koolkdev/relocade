@@ -1,7 +1,7 @@
 //! Share surviving scalar work across control-flow exits.
 
 use super::*;
-use wasm86_compiler::{I64, I8};
+use relocade_compiler::{I64, I8};
 
 fn count(module: &TestModule, predicate: impl Fn(&Operator<'_>) -> bool) -> usize {
     Parser::new(0)

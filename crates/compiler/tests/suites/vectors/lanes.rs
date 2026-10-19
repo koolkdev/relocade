@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_compiler::{MemoryType, VectorLane, I16, I64};
+use relocade_compiler::{MemoryType, VectorLane, I16, I64};
 
 fn indexed<T: VectorLane + MemoryType>(width: usize, replacement: u64) {
     let mut bytes = vec![0xa5; 80];

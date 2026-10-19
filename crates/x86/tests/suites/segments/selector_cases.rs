@@ -5,7 +5,7 @@ use crate::support::{
     machine::{expected, Image, Step},
     step::{Event, SegmentResolution, TestModule},
 };
-use wasm86_x86::{
+use relocade_x86::{
     ExecutionProfile, SegmentDefaultSize, SegmentDescriptor, SegmentDescriptorKind, SegmentLimit,
     SegmentProfile, StoredSegment,
 };

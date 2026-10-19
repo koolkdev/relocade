@@ -30,7 +30,7 @@ impl CpuModel {
     /// Enable or disable one architectural capability.
     ///
     /// ```
-    /// use wasm86_x86::{CpuFeature, CpuModel};
+    /// use relocade_x86::{CpuFeature, CpuModel};
     /// let model = CpuModel::default().with_feature(CpuFeature::Cmov, false);
     /// assert!(!model.supports(CpuFeature::Cmov));
     /// ```

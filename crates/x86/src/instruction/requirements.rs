@@ -1,7 +1,7 @@
 //! Admission shared by block boundaries and instruction execution.
 
 use crate::{CpuFeature, Exception, ExecutionProfile, ExecutionTarget};
-use wasm86_compiler::{Val, I32};
+use relocade_compiler::{Val, I32};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum Availability {

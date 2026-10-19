@@ -1,6 +1,6 @@
 use crate::flags::Condition;
 use crate::state::{Cpu, State};
-use wasm86_compiler::{Program, Signature, Type, I32};
+use relocade_compiler::{Program, Signature, Type, I32};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[test]

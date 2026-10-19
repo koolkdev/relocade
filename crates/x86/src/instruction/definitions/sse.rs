@@ -36,7 +36,7 @@ use crate::{
     instruction::{VectorAlignment, XmmLocation},
     register::RegisterCode,
 };
-use wasm86_compiler::V128;
+use relocade_compiler::V128;
 
 pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
     arithmetic::forms()

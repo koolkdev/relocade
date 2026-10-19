@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{test_step as step, CompiledModule};
-use wasm86_compiler::{Program, Signature, Type};
+use relocade_compiler::{Program, Signature, Type};
 
 fn check_scaled_division(narrow: bool) {
     let mut program = Program::new();

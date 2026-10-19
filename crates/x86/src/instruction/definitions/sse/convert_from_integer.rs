@@ -6,7 +6,7 @@ use crate::{
     instruction::XmmType,
     simd::{integer_to_float, packed_integer_to_float},
 };
-use wasm86_compiler::{AtLeast, I64};
+use relocade_compiler::{AtLeast, I64};
 
 instruction_families! {
     CVTSI2SS {

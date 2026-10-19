@@ -1,7 +1,7 @@
 use super::*;
 use crate::x87::ExtendedValue;
 use crate::{test_step as step, CompiledModule};
-use wasm86_compiler::{Program, Signature, Type, I32};
+use relocade_compiler::{Program, Signature, Type, I32};
 use wasmparser::{Operator, Parser, Payload};
 
 fn non_normal_classes(value: &ExtendedValue) -> [Val<I1>; 7] {

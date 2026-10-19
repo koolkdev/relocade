@@ -24,7 +24,7 @@ pub(crate) use simd::Mxcsr;
 pub(crate) use x87::X87Access;
 
 use access::{cpu_load, cpu_store, register_location};
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64, I8};
 
 use crate::{
     exception::Exception,

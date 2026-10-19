@@ -1,21 +1,21 @@
 [package]
-name = "wasm86-dos"
+name = "relocade-dos"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-wasm86-bios = { path = "../bios" }
-wasm86-vfs = { path = "../vfs" }
-wasm86-x86 = { path = "../x86" }
-wasm86-machine = { path = "../machine" }
-wasm86-runtime = { path = "../runtime" }
+relocade-bios = { path = "../bios" }
+relocade-vfs = { path = "../vfs" }
+relocade-x86 = { path = "../x86" }
+relocade-machine = { path = "../machine" }
+relocade-runtime = { path = "../runtime" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-wasm86-runtime-wasmtime = { path = "../runtime-wasmtime" }
+relocade-runtime-wasmtime = { path = "../runtime-wasmtime" }
 pollster = "=1.0.1"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm86-runtime-web = { path = "../runtime-web" }
+relocade-runtime-web = { path = "../runtime-web" }
 wasm-bindgen-test = "=0.3.79"

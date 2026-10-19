@@ -1,7 +1,7 @@
 //! Finite division separates quotient evidence from architectural exceptions.
 
 use super::{quotient, FiniteInput, FiniteMagnitude};
-use wasm86_compiler::I32;
+use relocade_compiler::I32;
 
 impl FiniteInput {
     /// Zero/special operand responses replace the unused numerical result.

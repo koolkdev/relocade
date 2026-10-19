@@ -1,6 +1,6 @@
 //! MMX reads distinguish their physical register view from the memory access width.
 
-use wasm86_compiler::{AtLeast, BuildError, MemoryInt, Val, I32, I64};
+use relocade_compiler::{AtLeast, BuildError, MemoryInt, Val, I32, I64};
 
 use crate::{
     address::MemoryAddress,

@@ -1,7 +1,7 @@
 //! Scalar estimates retain compact binary64 arithmetic and x86 special values.
 
 use super::FloatOperand;
-use wasm86_compiler::{Val, F64, I32};
+use relocade_compiler::{Val, F64, I32};
 
 #[derive(Clone, Copy)]
 pub(crate) enum FloatEstimate {

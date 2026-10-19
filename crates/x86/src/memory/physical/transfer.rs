@@ -1,6 +1,6 @@
 //! One general reader and writer per module handle all non-direct transfers.
 
-use wasm86_compiler::{
+use relocade_compiler::{
     BlockBuilder, BuildError, Func, Program, Signature, Type, Val, I32, I64, I8,
 };
 

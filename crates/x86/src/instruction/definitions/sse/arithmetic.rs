@@ -1,7 +1,7 @@
 //! Packed integer arithmetic wraps independently in all 128 bits.
 
 use super::*;
-use wasm86_compiler::I64;
+use relocade_compiler::I64;
 
 instruction_families! {
     PADDB {

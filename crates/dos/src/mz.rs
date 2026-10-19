@@ -1,8 +1,8 @@
 //! DOS MZ headers, relocation and entry state.
 
 use crate::{memory, process, LoadError, LoadOptions};
-use wasm86_machine::Machine;
-use wasm86_x86::{Segment, StoredSegment};
+use relocade_machine::Machine;
+use relocade_x86::{Segment, StoredSegment};
 
 const HEADER_BYTES: usize = 28;
 const FILE_PAGE_BYTES: usize = 512;

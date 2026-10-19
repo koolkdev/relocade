@@ -1,7 +1,7 @@
 //! Exact integer expansion and bounded rounding for integer and decimal stores.
 
 use crate::floating::{RoundingInput, RoundingMode};
-use wasm86_compiler::{AtLeast, MemoryInt, Val, I1, I16, I32, I64};
+use relocade_compiler::{AtLeast, MemoryInt, Val, I1, I16, I32, I64};
 
 use super::{
     value::{KnownClass, Precision53},

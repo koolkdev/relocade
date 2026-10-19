@@ -5,7 +5,7 @@ use crate::state::access::cpu_load;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::CompiledModule;
-use wasm86_compiler::{BuildError, Program, Signature, Type, I1, I64, I8};
+use relocade_compiler::{BuildError, Program, Signature, Type, I1, I64, I8};
 
 #[test]
 fn rejected_mixed_changes_leave_status_and_direction_history_intact() {

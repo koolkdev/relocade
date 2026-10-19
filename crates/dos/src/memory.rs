@@ -1,7 +1,7 @@
 //! DOS paragraph allocation. The guest MCB chain is the source of truth.
 
 use crate::error::DosError;
-use wasm86_machine::{MachineStorage, Memory};
+use relocade_machine::{MachineStorage, Memory};
 
 pub(crate) const PARAGRAPH_BYTES: u32 = 16;
 // Keep the IVT and DOS workspace below the single root process.

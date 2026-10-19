@@ -9,7 +9,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::{
+use relocade_x86::{
     CpuState,
     Gpr32::{Eax, Ebx, Ecx, Esi},
 };
@@ -118,7 +118,7 @@ fn interrupt_controls_fault(frontend: crate::support::execution::Frontend) {
         execution::ImageSequences,
         machine::{Exit, Image, Step},
     };
-    use wasm86_x86::SegmentProfile;
+    use relocade_x86::SegmentProfile;
 
     for profile in [
         SegmentProfile::Flat32,
@@ -155,7 +155,7 @@ crate::support::execution::test_frontends!(
 
 #[test]
 fn protected_interrupt_controls_stop_before_snapshot_successors() {
-    use wasm86_x86::{compile_block_from_bytes_with_profile, SegmentProfile};
+    use relocade_x86::{compile_block_from_bytes_with_profile, SegmentProfile};
 
     for profile in [
         SegmentProfile::Flat32,

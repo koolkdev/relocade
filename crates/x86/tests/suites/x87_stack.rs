@@ -15,7 +15,7 @@ use crate::support::{
         stack_image as initial_image, status, write_register_bits, INDEFINITE,
     },
 };
-use wasm86_x86::{ExecutionProfile, SegmentProfile, StoredX87Status};
+use relocade_x86::{ExecutionProfile, SegmentProfile, StoredX87Status};
 
 fn register_moves(frontend: Frontend) {
     let mut checks = ImageSequences::new(

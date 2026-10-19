@@ -1,6 +1,6 @@
 //! A binary64 significand retains native SSA values without narrowing x87's exponent.
 
-use wasm86_compiler::{Val, F64, I1, I16};
+use relocade_compiler::{Val, F64, I1, I16};
 
 use super::{ExtendedBits, SignOperation};
 

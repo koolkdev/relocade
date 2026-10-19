@@ -8,7 +8,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use wasm86_x86::{compile_block_from_bytes, Gpr32::*};
+use relocade_x86::{compile_block_from_bytes, Gpr32::*};
 
 #[path = "near_control/linkage.rs"]
 mod linkage;

@@ -47,7 +47,7 @@ mod transfers;
 #[path = "segments/verification.rs"]
 mod verification;
 
-use wasm86_x86::StoredSegment;
+use relocade_x86::StoredSegment;
 
 fn data(base: u32, limit: u32) -> StoredSegment {
     StoredSegment {

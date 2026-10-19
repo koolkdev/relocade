@@ -1,7 +1,7 @@
 //! Synchronous port transfers retain their architectural operand width.
 
 use super::*;
-use wasm86_compiler::{AtLeast, MemoryInt};
+use relocade_compiler::{AtLeast, MemoryInt};
 
 #[derive(Clone, Copy)]
 pub(super) struct Ports {

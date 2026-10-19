@@ -1,7 +1,7 @@
 mod common;
 
 use common::{error, service, SERVICE_PROGRAM};
-use wasm86_x86::{ExecutionExit, Segment, StoredSegment};
+use relocade_x86::{ExecutionExit, Segment, StoredSegment};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

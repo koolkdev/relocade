@@ -31,7 +31,7 @@ fn masks(frontend: Frontend) {
 #[test]
 fn sse_masks_reject_memory_sources() {
     use crate::support::step::TestModule;
-    use wasm86_x86::{compile_block_from_bytes, BlockError};
+    use relocade_x86::{compile_block_from_bytes, BlockError};
     for code in [
         &[0x0f, 0x50, 0x04][..],
         &[0x66, 0x0f, 0x50, 0x04],

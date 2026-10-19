@@ -1,6 +1,6 @@
 use crate::fixture::Fixture;
 use crate::wasm::Value;
-use wasm86_compiler::{AtLeast, IntType, Type, Val, I1, I16, I32, I64, I8};
+use relocade_compiler::{AtLeast, IntType, Type, Val, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 // Input, population count, leading zeros, trailing zeros.

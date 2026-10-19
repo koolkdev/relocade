@@ -3,7 +3,7 @@
 mod table;
 pub use table::EntryTable;
 
-use wasm86_compiler::{BlockBuilder, BuildError, Mem, Program, Table, Val, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, Program, Table, Val, I32};
 
 use crate::{
     state::{Cpu, SegmentReads},
@@ -36,7 +36,7 @@ impl Dispatch {
 }
 
 impl Compiler {
-    /// Compiles uniform address dispatch through `wasm86.executionFunctions`.
+    /// Compiles uniform address dispatch through `relocade.executionFunctions`.
     /// A hit tail-calls its slot; a miss tail-calls slot one. The generated code
     /// has no entry-kind branch, host-call import or instruction decoder.
     /// The embedding maintains the execution profile. Each destination owns its

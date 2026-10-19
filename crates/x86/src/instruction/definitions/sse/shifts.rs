@@ -5,7 +5,7 @@ use crate::{
     instruction::PackedShiftCount,
     simd::{ByteShiftOp, PackedShiftOp},
 };
-use wasm86_compiler::{MemoryInt, VectorLane};
+use relocade_compiler::{MemoryInt, VectorLane};
 
 instruction_families! {
     PSLLDQ {

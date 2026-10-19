@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_compiler::V64;
+use relocade_compiler::V64;
 use wasmparser::{Operator, Parser, Payload};
 
 fn routing(module: &TestModule) -> (usize, usize) {

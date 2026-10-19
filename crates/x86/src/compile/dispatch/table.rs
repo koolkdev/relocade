@@ -1,8 +1,8 @@
 //! Address-table representation and its generated lookup stay together.
 
 use super::Dispatch;
+use relocade_compiler::{BlockBuilder, BuildError, Val, I32};
 use std::collections::BTreeMap;
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I32};
 
 const HASH_MULTIPLIER: u32 = 0x9e37_79b1;
 /// Linear execution addresses mapped to ordinary `() -> i64` function-table slots.
@@ -33,7 +33,7 @@ impl EntryTable {
 
     /// Serializes a mask followed by address/slot rows for open-addressed lookup.
     /// At most half the rows are occupied, including when the table is empty.
-    /// Write the complete result at offset zero in `wasm86.executionEntries`.
+    /// Write the complete result at offset zero in `relocade.executionEntries`.
     pub fn to_bytes(&self) -> Vec<u8> {
         let capacity = (self.0.len() * 2).max(2).next_power_of_two();
         let mask = u32::try_from(capacity - 1).expect("entry table fits Wasm memory");

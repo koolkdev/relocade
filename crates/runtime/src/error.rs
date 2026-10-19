@@ -1,6 +1,6 @@
+use relocade_compiler::BuildError;
+use relocade_machine::ConfigurationError;
 use std::fmt;
-use wasm86_compiler::BuildError;
-use wasm86_machine::ConfigurationError;
 
 /// Host setup/execution errors, separate from architectural guest exits.
 #[derive(Debug)]

@@ -1,9 +1,9 @@
 use super::super::{Cpu, Register, State};
-use wasm86_compiler::{Program, Signature, Type, I1, I16, I32};
+use relocade_compiler::{Program, Signature, Type, I1, I16, I32};
 
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 
-use wasm86_compiler::{I64, I8};
+use relocade_compiler::{I64, I8};
 
 use crate::register::RegisterCode;
 use crate::{CpuState, Gpr32, Registers};

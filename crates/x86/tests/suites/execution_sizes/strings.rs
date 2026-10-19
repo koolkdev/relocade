@@ -3,13 +3,13 @@ use crate::support::cases::{
     test_cases, InstructionCase as Case,
     Permissions::{ReadOnly, ReadWrite},
 };
-use wasm86_x86::{
+use relocade_x86::{
     CpuState,
     Gpr32::{Eax, Ecx, Edi, Esi},
     Segment, StoredSegment,
 };
 
-fn record(backward: bool) -> wasm86_x86::StoredFlags {
+fn record(backward: bool) -> relocade_x86::StoredFlags {
     let mut flags = CpuState::filled(0xa5).flags;
     flags.bytes.df = u8::from(backward);
     flags

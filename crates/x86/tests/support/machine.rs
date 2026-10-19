@@ -1,4 +1,4 @@
-use wasm86_x86::{page_table, CpuState, Exception, ExecutionExit, Registers, Segments};
+use relocade_x86::{page_table, CpuState, Exception, ExecutionExit, Registers, Segments};
 
 use super::step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 

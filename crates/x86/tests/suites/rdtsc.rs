@@ -7,7 +7,9 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{CallPatches, TestModule},
 };
-use wasm86_x86::{compile_block_from_bytes, CpuState, ExecutionProfile, SegmentProfile, Segments};
+use relocade_x86::{
+    compile_block_from_bytes, CpuState, ExecutionProfile, SegmentProfile, Segments,
+};
 
 fn timestamp_result(mut cpu: CpuState, eax: u32, edx: u32, bytes: u32) -> CpuState {
     cpu.registers.eax = eax;

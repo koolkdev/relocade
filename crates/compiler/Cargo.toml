@@ -1,5 +1,5 @@
 [package]
-name = "wasm86-compiler"
+name = "relocade-compiler"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,6 +11,6 @@ rustc-hash = "=2.1.3"
 wasm-encoder.workspace = true
 
 [dev-dependencies]
-wasm86-test-support.workspace = true
+relocade-test-support.workspace = true
 wasmparser = { version = "=0.224.1", default-features = false, features = ["features", "simd", "std", "validate"] }
 wasmtime.workspace = true

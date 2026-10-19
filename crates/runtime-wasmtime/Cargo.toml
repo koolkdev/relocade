@@ -1,18 +1,18 @@
 [package]
-name = "wasm86-runtime-wasmtime"
+name = "relocade-runtime-wasmtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-wasm86-compiler = { path = "../compiler" }
+relocade-compiler = { path = "../compiler" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-wasm86-runtime = { path = "../runtime" }
+relocade-runtime = { path = "../runtime" }
 wasmtime.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pollster = "=1.0.1"
-wasm86-machine = { path = "../machine" }
-wasm86-x86 = { path = "../x86" }
+relocade-machine = { path = "../machine" }
+relocade-x86 = { path = "../x86" }

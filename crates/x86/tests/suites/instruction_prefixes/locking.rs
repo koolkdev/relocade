@@ -13,7 +13,7 @@ use crate::support::{
     machine::{Exit, Image},
     step::TestModule,
 };
-use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::*, Segment, StoredSegment};
+use relocade_x86::{compile_block_from_bytes, BlockError, Gpr32::*, Segment, StoredSegment};
 
 fn memory_updates() -> Vec<Case> {
     let clear = Flags::all(Clear);

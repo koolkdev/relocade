@@ -68,11 +68,11 @@ impl BlockBuilder<'_> {
     /// representations coincide. The target may be imported or defined.
     ///
     /// ```
-    /// use wasm86_compiler::{FunctionImport, Program, Signature, Type};
+    /// use relocade_compiler::{FunctionImport, Program, Signature, Type};
     ///
     /// let mut program = Program::new();
     /// let dispatch = program.import_function(FunctionImport {
-    ///     module: "wasm86".into(),
+    ///     module: "relocade".into(),
     ///     name: "dispatch".into(),
     ///     signature: Signature {
     ///         parameters: vec![],
@@ -87,7 +87,7 @@ impl BlockBuilder<'_> {
     /// })?;
     /// program.export("block", block)?;
     /// let bytes = program.compile()?;
-    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
     pub fn tail_call(self, target: Func, arguments: &[Argument]) -> Result<(), BuildError> {
         self.terminate(|body| {
@@ -138,7 +138,7 @@ impl BlockBuilder<'_> {
     /// Narrow results follow the same zero-extended calling convention as tail calls.
     ///
     /// ```
-    /// use wasm86_compiler::{Program, Signature, Type, I32};
+    /// use relocade_compiler::{Program, Signature, Type, I32};
     /// let mut program = Program::new();
     /// let increment = program.function(Signature {
     ///     parameters: vec![Type::I32], results: vec![Type::I32],
@@ -152,7 +152,7 @@ impl BlockBuilder<'_> {
     /// })?;
     /// program.export("run", function)?;
     /// let bytes = program.compile()?;
-    /// # Ok::<(), wasm86_compiler::BuildError>(())
+    /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
     pub fn call<R: Results>(
         &mut self,

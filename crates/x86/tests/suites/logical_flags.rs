@@ -5,14 +5,14 @@ use crate::support::{
     },
     sequences::{test_sequences, Checkpoint, SequenceCase},
 };
-use wasm86_x86::Gpr32::{Eax, Ebx};
+use relocade_x86::Gpr32::{Eax, Ebx};
 
 use crate::support::{
     arithmetic::image,
     machine::{check, Exit, Step},
     step::TestModule,
 };
-use wasm86_x86::compile_block_from_bytes;
+use relocade_x86::compile_block_from_bytes;
 use wasmparser::Validator;
 
 #[rustfmt::skip]

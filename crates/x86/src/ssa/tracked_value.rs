@@ -1,6 +1,6 @@
 //! One current SSA value and whether it needs publication by its owner.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, ValueType};
+use relocade_compiler::{BlockBuilder, BuildError, Val, ValueType};
 
 /// Tracks a current definition and its dirty state on one straight-line build
 /// path. Cloning forks this bookkeeping; previously read SSA values stay valid.

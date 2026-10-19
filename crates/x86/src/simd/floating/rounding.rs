@@ -5,7 +5,7 @@ use crate::{
     floating::{BinaryEncoding, FiniteMagnitude},
     state::Mxcsr,
 };
-use wasm86_compiler::{AtLeast, Val, I1, I64};
+use relocade_compiler::{AtLeast, Val, I1, I64};
 
 impl FiniteMagnitude {
     /// Apply FTZ and range-exception policy to an unsigned encoding. The SIMD

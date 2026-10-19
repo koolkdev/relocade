@@ -2,7 +2,7 @@
 
 use super::{ExecutionBuilder, StringOperand};
 use crate::{memory::Intent, register::RegisterType};
-use wasm86_compiler::{AtLeast, BuildError, Val, I1, I32};
+use relocade_compiler::{AtLeast, BuildError, Val, I1, I32};
 
 impl ExecutionBuilder<'_, '_> {
     /// Copies complete repeated elements only when memmove and scalar MOVS agree.

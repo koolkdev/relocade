@@ -1,7 +1,7 @@
 //! MOVD and MOVQ transfer raw integer bits and clear unused XMM destination bits.
 
 use super::*;
-use wasm86_x86::SegmentDefaultSize;
+use relocade_x86::SegmentDefaultSize;
 
 fn dword_registers(frontend: Frontend) {
     for (profile, default_size) in [

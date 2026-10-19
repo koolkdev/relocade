@@ -1,6 +1,6 @@
 //! x87 admission keeps restart guards and their continuation facts together.
 
-use wasm86_compiler::{BuildError, Val, I1};
+use relocade_compiler::{BuildError, Val, I1};
 
 use crate::{
     execution::ExecutionBuilder,

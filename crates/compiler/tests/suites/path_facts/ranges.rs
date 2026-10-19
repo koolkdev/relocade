@@ -1,7 +1,7 @@
 //! Unsigned guards constrain later comparisons without narrowing stored values.
 
 use super::*;
-use wasm86_compiler::{Val, I64};
+use relocade_compiler::{Val, I64};
 
 #[path = "ranges/control.rs"]
 mod control;

@@ -1,5 +1,5 @@
 use super::*;
-use wasm86_compiler::{IntType, I64};
+use relocade_compiler::{IntType, I64};
 
 #[test]
 fn known_disjuncts_simplify_a_select_condition() {

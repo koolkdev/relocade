@@ -5,7 +5,7 @@ use crate::{
     test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule},
     CompiledModule, Compiler, CpuState, SegmentDefaultSize, SegmentProfile,
 };
-use wasm86_compiler::{Program, Signature, Type};
+use relocade_compiler::{Program, Signature, Type};
 
 fn exception_module(fallback_enabled: bool) -> CompiledModule {
     let mut program = Program::new();

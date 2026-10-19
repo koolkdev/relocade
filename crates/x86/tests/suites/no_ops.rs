@@ -12,7 +12,7 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
     step::TestModule,
 };
-use wasm86_x86::{Gpr32::*, Segment, StoredSegment};
+use relocade_x86::{Gpr32::*, Segment, StoredSegment};
 
 // Intel SDM Volume 2, NOP: recommended alignment encodings of three to nine bytes.
 const ALIGNMENT_NOPS: &[&[u8]] = &[

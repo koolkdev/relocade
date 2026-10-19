@@ -22,7 +22,7 @@ struct ExecutionEvents {
 
 impl TestModule {
     pub(crate) fn observe(&self, input: &Input, invocations: usize) -> Observation {
-        let engine = wasm86_test_support::engine();
+        let engine = relocade_test_support::engine();
         let module = self.module.wasmtime();
         let mut store = Store::new(
             engine,
@@ -56,7 +56,7 @@ impl TestModule {
         let observes_machine = self.interpreter.is_some()
             || module
                 .imports()
-                .any(|import| import.module() == "wasm86" && import.name() == "machine")
+                .any(|import| import.module() == "relocade" && import.name() == "machine")
             || input
                 .patches_before_calls
                 .iter()
@@ -69,7 +69,7 @@ impl TestModule {
             ("guest", guest),
             ("machine", machine),
         ] {
-            linker.define(&store, "wasm86", name, memory).unwrap();
+            linker.define(&store, "relocade", name, memory).unwrap();
         }
         let cpu_len = input.cpu.len();
         let observe_guest = input.observe_guest;
@@ -78,7 +78,7 @@ impl TestModule {
         let dispatch_machine_before = machine_before.clone();
         linker
             .func_wrap(
-                "wasm86",
+                "relocade",
                 "dispatch",
                 move |mut caller: Caller<'_, ExecutionEvents>| {
                     let snapshot = Snapshot {
@@ -97,7 +97,7 @@ impl TestModule {
             .unwrap();
         linker
             .func_wrap(
-                "wasm86",
+                "relocade",
                 "resolveSegment",
                 |mut caller: Caller<'_, ExecutionEvents>, segment: i32, selector: i32| {
                     let state = caller.data_mut();
@@ -120,7 +120,7 @@ impl TestModule {
             .unwrap();
         linker
             .func_wrap(
-                "wasm86",
+                "relocade",
                 "querySegmentDescriptor",
                 |mut caller: Caller<'_, ExecutionEvents>, selector: i32| {
                     let state = caller.data_mut();
@@ -146,7 +146,7 @@ impl TestModule {
             .any(|module| {
                 module
                     .imports()
-                    .any(|import| import.module() == "wasm86" && import.name() == "physicalMap")
+                    .any(|import| import.module() == "relocade" && import.name() == "physicalMap")
             })
         {
             physical::register(&mut linker, &mut store, guest, input);
@@ -158,14 +158,16 @@ impl TestModule {
             let entry = instance
                 .get_func(&mut store, &interpreter.entry)
                 .expect("the interpreter entry is exported");
-            linker.define(&store, "wasm86", "interpret", entry).unwrap();
+            linker
+                .define(&store, "relocade", "interpret", entry)
+                .unwrap();
         } else {
             // This callback probes the restart boundary without executing it.
             let handoff_guest_before = guest_before.clone();
             let handoff_machine_before = machine_before.clone();
             linker
                 .func_wrap(
-                    "wasm86",
+                    "relocade",
                     "interpret",
                     move |mut caller: Caller<'_, ExecutionEvents>| {
                         let snapshot = Snapshot {

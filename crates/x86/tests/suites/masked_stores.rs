@@ -11,7 +11,7 @@ use crate::support::{
     machine::{Exit, Image, Step},
     x87::{stack_image, write_register_bits},
 };
-use wasm86_x86::{CpuState, SegmentProfile};
+use relocade_x86::{CpuState, SegmentProfile};
 
 const DATA: [u8; 16] = [
     0x10, 0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98, 0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe, 0x0f,

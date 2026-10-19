@@ -1,6 +1,6 @@
 //! Segment permissions and complete offset spans are checked before paging.
 
-use wasm86_compiler::{BlockBuilder, BuildError, Val, I1, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
 use crate::{exception::Exception, memory::Intent, state::SegmentReads, ExecutionProfile};
 

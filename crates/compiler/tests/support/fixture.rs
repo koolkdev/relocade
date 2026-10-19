@@ -1,4 +1,4 @@
-use wasm86_compiler::{
+use relocade_compiler::{
     BlockBuilder, BuildError, Func, FunctionImport, Mem, MemoryImport, Program, Signature, Type,
     Val, ValueType,
 };
