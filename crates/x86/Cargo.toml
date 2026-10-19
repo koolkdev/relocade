@@ -10,6 +10,7 @@ autotests = false
 relocade-compiler = { path = "../compiler" }
 
 [dev-dependencies]
+relocade-interpreter = { path = "../interpreter" }
 relocade-test-support.workspace = true
 wasmparser = { version = "=0.224.1", default-features = false, features = ["simd", "std", "validate"] }
 wasmtime.workspace = true

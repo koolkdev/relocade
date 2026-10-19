@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/compiler", "crates/x86", "crates/test-support", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/runtime-web", "crates/vfs", "crates/bios", "crates/dos"]
+members = ["crates/compiler", "crates/x86", "crates/interpreter", "crates/test-support", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/runtime-web", "crates/vfs", "crates/bios", "crates/dos"]
 default-members = ["crates/compiler", "crates/x86", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/vfs", "crates/bios", "crates/dos"]
 
 [workspace.package]
@@ -21,4 +21,11 @@ opt-level = 1
 
 # Interpreter fixtures spend most of their generation time in compiler passes.
 [profile.test.package.relocade-compiler]
+opt-level = 3
+
+# The interpreter generator runs as a host build dependency, including cross builds.
+[profile.dev.build-override]
+opt-level = 1
+
+[profile.release.build-override]
 opt-level = 3
