@@ -8,6 +8,7 @@ pub(crate) struct Storage<A: WasmMemoryAccess> {
     pub access: A,
     pub context: A::Memory,
     pub guest: A::Memory,
+    pub code: Option<crate::code::CodeCache<A::Memory>>,
 }
 
 impl<A: WasmMemoryAccess> Storage<A> {
@@ -42,6 +43,9 @@ impl<A: WasmMemoryAccess> MachineStorage for Storage<A> {
     }
 
     fn write_backing(&mut self, offset: u32, bytes: &[u8]) {
+        if let Some(code) = &self.code {
+            code.before_write(&mut self.access, offset, bytes.len());
+        }
         self.access.write_memory(&self.guest, offset, bytes);
     }
 }

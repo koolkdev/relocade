@@ -122,6 +122,7 @@ pub fn with_host_call<T, C: WasmContext<State = RuntimeState<T>>, R>(
         access,
         context,
         guest,
+        code: None,
     };
     handler(&mut HostCall::new(config, &mut storage))
 }

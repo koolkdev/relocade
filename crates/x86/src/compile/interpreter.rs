@@ -1,4 +1,4 @@
-use relocade_compiler::{abi::Function, BuildError, Program, I64};
+use relocade_compiler::{abi::Function, BlockBuilder, BuildError, Func, Program, I32, I64};
 
 use crate::{
     decode::{InstructionFetch, RuntimeDecoder},
@@ -9,7 +9,7 @@ use crate::{
     CompiledModule, ExecutionProfile,
 };
 
-use super::Compiler;
+use super::{dispatch::Dispatch, Compiler};
 
 /// Generates a module exporting both `step` and `run`, selecting `run() -> i64`.
 /// This entry fetches and executes instructions until a branch, segment load,
@@ -102,6 +102,10 @@ impl Compiler {
         let cpu = Cpu::declare(&mut program);
         let memory = Memory::declare(&mut program, profile);
         let runtime = Runtime::declare(&mut program);
+        let entries = self
+            .dispatch_boundaries
+            .then(|| InterpreterEntries::new(&mut program, &cpu, profile))
+            .transpose()?;
         let fetch = InstructionFetch::new(&cpu, &memory, profile);
         let decoder = RuntimeDecoder::new(
             &mut program,
@@ -114,7 +118,11 @@ impl Compiler {
                     let count = state.instruction_count(&mut body, 0)?;
                     state.check_instruction_budget(&mut body, &count)?;
                     runtime.dispatch(body)
-                })
+                })?;
+                if let Some(entries) = &entries {
+                    entries.check(body)?;
+                }
+                Ok(())
             },
             |body, decoded, continuation| {
                 let ends_block = decoded.instruction.ends_block();
@@ -143,6 +151,49 @@ impl Compiler {
             bytes: program.compile()?,
             entry: entry.symbol().name.into(),
             execution_target: Some(self.target),
+        })
+    }
+}
+
+/// Checks every completed instruction, including the decoder's direct cycle.
+/// A shared lookup helper keeps the generated opcode handlers small.
+struct InterpreterEntries<'cpu> {
+    cpu: &'cpu Cpu,
+    table: Dispatch,
+    probe: Func,
+}
+
+impl<'cpu> InterpreterEntries<'cpu> {
+    fn new(
+        program: &mut Program,
+        cpu: &'cpu Cpu,
+        profile: ExecutionProfile,
+    ) -> Result<Self, BuildError> {
+        let table = Dispatch::declare(program);
+        let probe = program.function(
+            Function::<fn() -> I32>::new("", "").signature(),
+            |mut body| {
+                let eip = cpu.read_eip(&mut body)?;
+                let mut segments = crate::state::SegmentReads::new(cpu, profile);
+                let base = segments.base(&mut body, &crate::Segment::Cs.into())?;
+                table.lookup_or(
+                    body,
+                    &base.add(eip),
+                    |hit, slot| hit.return_(slot),
+                    |miss| miss.return_(0),
+                )
+            },
+        )?;
+        Ok(Self { cpu, table, probe })
+    }
+
+    fn check(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
+        let slot = body.call::<I32>(self.probe, &[])?;
+        body.if_(slot.ne(0), |mut hit| {
+            let state = crate::state::State::new(self.cpu);
+            let count = state.instruction_count(&mut hit, 0)?;
+            state.check_instruction_budget(&mut hit, &count)?;
+            self.table.enter(hit, slot)
         })
     }
 }

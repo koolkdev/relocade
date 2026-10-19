@@ -29,6 +29,9 @@ use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
 pub struct Compiler {
     target: ExecutionTarget,
     observed_cpu: Option<CpuState>,
+    code_base: Option<u32>,
+    block_boundaries: std::collections::BTreeSet<u32>,
+    dispatch_boundaries: bool,
 }
 
 impl Compiler {
@@ -40,6 +43,9 @@ impl Compiler {
                 cpu_model: CpuModel::default(),
             },
             observed_cpu: None,
+            code_base: None,
+            block_boundaries: Default::default(),
+            dispatch_boundaries: false,
         }
     }
 
@@ -57,6 +63,30 @@ impl Compiler {
     #[must_use]
     pub fn with_cpu_model(mut self, cpu_model: CpuModel) -> Self {
         self.target.cpu_model = cpu_model;
+        self
+    }
+
+    /// Guards external snapshot entries against a particular CS base and EIP.
+    /// Direct links within the module enter after this admission check.
+    #[must_use]
+    pub fn with_code_base(mut self, base: u32) -> Self {
+        self.code_base = Some(base);
+        self
+    }
+
+    /// Stops snapshots before registered CS-relative instruction boundaries.
+    #[must_use]
+    pub fn with_block_boundaries(mut self, boundaries: impl IntoIterator<Item = u32>) -> Self {
+        self.block_boundaries.extend(boundaries);
+        self
+    }
+
+    /// Checks the shared entry table between interpreted instructions. A hit
+    /// ends the current block; a miss continues decoding without checking budget.
+    /// Initial entry bypasses lookup so a failed compiled guard can make progress.
+    #[must_use]
+    pub fn with_dispatch_boundaries(mut self) -> Self {
+        self.dispatch_boundaries = true;
         self
     }
 

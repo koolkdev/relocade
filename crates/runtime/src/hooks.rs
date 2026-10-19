@@ -3,7 +3,7 @@ use relocade_x86::{abi, ExecutionExit};
 use std::{ops::ControlFlow, sync::Arc};
 
 use crate::{
-    with_host_call, DispatchEntry, HostCall, Result, Runtime, RuntimeBackend, RuntimeState,
+    storage::Storage, DispatchEntry, HostCall, Result, Runtime, RuntimeBackend, RuntimeState,
 };
 
 type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + Send + Sync;
@@ -78,16 +78,17 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             let config = Arc::clone(&self.config);
             let context = self.storage.context.clone();
             let guest = self.storage.guest.clone();
+            let code = self.storage.code.clone();
             imports.push(self.storage.access.bind_host(
                 declaration,
                 Box::new(move |mut caller| {
-                    let flow = with_host_call(
-                        &config,
-                        &mut caller,
-                        context.clone(),
-                        guest.clone(),
-                        |call| (hook.handler)(call),
-                    );
+                    let mut storage = Storage {
+                        access: &mut caller,
+                        context: context.clone(),
+                        guest: guest.clone(),
+                        code: code.clone(),
+                    };
+                    let flow = (hook.handler)(&mut HostCall::new(&config, &mut storage));
                     match flow {
                         ControlFlow::Continue(()) => 0,
                         ControlFlow::Break(exit) => exit.to_bits() as i64,
@@ -100,7 +101,6 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             });
         }
         let instance = self.instantiate(&program.compile()?, &imports).await?;
-        self.dispatch_table
-            .install(&mut self.storage.access, &instance, &entries)
+        self.publish_fixed(&instance, &entries)
     }
 }

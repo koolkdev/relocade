@@ -3,6 +3,10 @@
 use crate::{wasm::WasmBackend, Result};
 use relocade_compiler::abi::Function;
 use relocade_x86::{abi, EntryTable};
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, Mutex},
+};
 
 /// An ordinary `() -> i64` export to publish at a guest linear address.
 pub struct DispatchEntry<'a> {
@@ -14,9 +18,40 @@ pub struct DispatchEntry<'a> {
 pub(crate) struct DispatchTable<B: WasmBackend> {
     pub memory: B::Memory,
     pub functions: B::Table,
-    addresses: EntryTable,
-    next_slot: u32,
+    pub entries: Arc<Mutex<Entries>>,
     capacity: u32,
+}
+
+/// Publication and slot allocation share one registry with code invalidation.
+#[derive(Clone)]
+pub(crate) struct Entries {
+    pub addresses: EntryTable,
+    free: BTreeSet<u32>,
+    next: u32,
+}
+
+impl Entries {
+    pub fn remove(&mut self, address: u32) {
+        if let Some(slot) = self.addresses.remove(address) {
+            self.free.insert(slot);
+        }
+    }
+
+    fn slot(&mut self, address: u32) -> u32 {
+        if let Some(slot) = self.addresses.get(address) {
+            return slot;
+        }
+        let slot = self.free.pop_first().unwrap_or_else(|| {
+            let slot = self.next;
+            self.next = self
+                .next
+                .checked_add(1)
+                .expect("Wasm function table capacity");
+            slot
+        });
+        self.addresses.insert(address, slot);
+        slot
+    }
 }
 
 impl<B: WasmBackend> DispatchTable<B> {
@@ -27,8 +62,11 @@ impl<B: WasmBackend> DispatchTable<B> {
         Ok(Self {
             memory,
             functions: backend.create_table(abi::EXECUTION_FUNCTIONS.minimum)?,
-            addresses,
-            next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
+            entries: Arc::new(Mutex::new(Entries {
+                addresses,
+                free: BTreeSet::new(),
+                next: EntryTable::FIRST_DYNAMIC_SLOT,
+            })),
             capacity: abi::EXECUTION_FUNCTIONS.minimum,
         })
     }
@@ -40,25 +78,18 @@ impl<B: WasmBackend> DispatchTable<B> {
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
         // Resolve every export before changing existing callable slots.
-        let mut addresses = self.addresses.clone();
-        let mut next_slot = self.next_slot;
+        let mut registry = self.entries.lock().unwrap();
+        let mut next = registry.clone();
         let mut functions = Vec::with_capacity(entries.len());
         for entry in entries {
             let function = backend.function(instance, Function::new("", entry.export))?;
-            let slot = addresses.get(entry.address).unwrap_or_else(|| {
-                let slot = next_slot;
-                next_slot = next_slot
-                    .checked_add(1)
-                    .expect("Wasm function table capacity");
-                slot
-            });
-            addresses.insert(entry.address, slot);
+            let slot = next.slot(entry.address);
             functions.push((slot, function));
         }
-        let bytes = addresses.to_bytes();
+        let bytes = next.addresses.to_bytes();
         // Reserve both resources before replacing any live function slots.
-        if next_slot > self.capacity {
-            let capacity = next_slot.max(self.capacity.saturating_mul(2));
+        if next.next > self.capacity {
+            let capacity = next.next.max(self.capacity.saturating_mul(2));
             backend.ensure_table_size(&self.functions, capacity)?;
             self.capacity = capacity;
         }
@@ -68,8 +99,7 @@ impl<B: WasmBackend> DispatchTable<B> {
         }
         // All functions exist before their addresses become visible to dispatch.
         backend.write_memory(&self.memory, 0, &bytes);
-        self.addresses = addresses;
-        self.next_slot = next_slot;
+        *registry = next;
         Ok(())
     }
 }

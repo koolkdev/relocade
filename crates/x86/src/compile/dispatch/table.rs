@@ -59,8 +59,23 @@ impl EntryTable {
 impl Dispatch {
     pub(super) fn lookup(
         &self,
+        body: BlockBuilder<'_>,
+        address: &Val<I32>,
+    ) -> Result<(), BuildError> {
+        self.lookup_or(
+            body,
+            address,
+            |hit, slot| self.enter(hit, slot),
+            |miss| self.enter(miss, EntryTable::INTERPRETER_SLOT),
+        )
+    }
+
+    pub(in crate::compile) fn lookup_or(
+        &self,
         mut body: BlockBuilder<'_>,
         address: &Val<I32>,
+        on_hit: impl FnOnce(BlockBuilder<'_>, Val<I32>) -> Result<(), BuildError>,
+        on_miss: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         let mask = body.load_at::<I32>(self.memory, 0, 0)?;
         let product = address.mul(HASH_MULTIPLIER);
@@ -68,11 +83,9 @@ impl Dispatch {
         body.loop_::<I32, ()>(bucket, |mut probe, labels, bucket| {
             let row = bucket.mul(8).add(4);
             let slot = probe.load_at::<I32>(self.memory, &row, 4)?;
-            probe.if_(slot.eq(0), |miss| {
-                self.enter(miss, EntryTable::INTERPRETER_SLOT)
-            })?;
+            probe.if_(slot.eq(0), on_miss)?;
             let candidate = probe.load_at::<I32>(self.memory, &row, 0)?;
-            probe.if_(candidate.eq(address), |hit| self.enter(hit, slot))?;
+            probe.if_(candidate.eq(address), |hit| on_hit(hit, slot))?;
             probe.branch(&labels.again, bucket.add(1).and(&mask))
         })?;
         body.trap()

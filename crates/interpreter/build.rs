@@ -10,10 +10,18 @@ fn main() {
         ("segmented16", SegmentProfile::Segmented16.into()),
         ("real16", ExecutionProfile::Real16),
     ] {
-        let module = Compiler::new(profile)
-            .compile_interpreter()
-            .expect("generate interpreter module");
-        fs::write(out.join(format!("{name}.wasm")), module.bytes)
-            .expect("write interpreter module");
+        for (suffix, compiler) in [
+            ("", Compiler::new(profile)),
+            (
+                "-runtime",
+                Compiler::new(profile).with_dispatch_boundaries(),
+            ),
+        ] {
+            let module = compiler
+                .compile_interpreter()
+                .expect("generate interpreter module");
+            fs::write(out.join(format!("{name}{suffix}.wasm")), module.bytes)
+                .expect("write interpreter module");
+        }
     }
 }
