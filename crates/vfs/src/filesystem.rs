@@ -1,4 +1,4 @@
-use crate::File;
+use crate::{DirEntry, File, Metadata};
 use std::collections::{btree_map::Entry, BTreeMap};
 use std::io::{self, ErrorKind};
 
@@ -10,6 +10,23 @@ pub struct MemoryFileSystem {
 enum Node {
     Directory,
     File(File),
+}
+
+impl Node {
+    fn metadata(&self) -> Metadata {
+        match self {
+            Self::Directory => Metadata {
+                directory: true,
+                len: 0,
+                read_only: false,
+            },
+            Self::File(file) => Metadata {
+                directory: false,
+                len: file.len(),
+                read_only: file.is_read_only(),
+            },
+        }
+    }
 }
 
 impl Default for MemoryFileSystem {
@@ -84,6 +101,43 @@ impl MemoryFileSystem {
 
     pub fn is_dir(&self, path: &str) -> bool {
         matches!(self.entries.get(path), Some(Node::Directory))
+    }
+
+    pub fn metadata(&self, path: &str) -> io::Result<Metadata> {
+        validate_path(path)?;
+        self.require_parents(path)?;
+        self.entries
+            .get(path)
+            .map(Node::metadata)
+            .ok_or_else(|| ErrorKind::NotFound.into())
+    }
+
+    /// Lists immediate children in filename order, without '.' or '..'.
+    /// Each yielded entry owns a snapshot of its name and metadata.
+    pub fn read_dir(&self, path: &str) -> io::Result<impl Iterator<Item = DirEntry> + '_> {
+        if !self.metadata(path)?.is_dir() {
+            return Err(ErrorKind::NotADirectory.into());
+        }
+        let prefix = if path.is_empty() {
+            String::new()
+        } else {
+            format!("{path}/")
+        };
+        let prefix_len = prefix.len();
+        Ok(self
+            .entries
+            .range(prefix.clone()..)
+            .take_while(move |(name, _)| name.starts_with(&prefix))
+            .filter_map(move |(name, node)| {
+                let name = &name[prefix_len..];
+                if name.is_empty() || name.contains('/') {
+                    return None;
+                }
+                Some(DirEntry {
+                    name: name.to_owned(),
+                    metadata: node.metadata(),
+                })
+            }))
     }
 
     /// Reads a file's complete contents.

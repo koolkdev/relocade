@@ -17,12 +17,19 @@
 //! let mut bytes = [0; 5];
 //! file.read_at(&mut bytes, 0)?;
 //! assert_eq!(&bytes, b"saved");
+//!
+//! for entry in fs.read_dir("DATA")? {
+//!     assert_eq!(entry.file_name(), "SAVE.DAT");
+//!     assert_eq!(entry.metadata().len(), 5);
+//! }
 //! # Ok::<(), std::io::Error>(())
 //! ```
 #![forbid(unsafe_code)]
 
 mod file;
 mod filesystem;
+mod metadata;
 
 pub use file::File;
 pub use filesystem::MemoryFileSystem;
+pub use metadata::{DirEntry, Metadata};
