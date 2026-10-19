@@ -4,7 +4,7 @@ use crate::support::{
     machine::expected,
     step::{Event, TestModule},
 };
-use wasm86_x86::{compile_interpreter, SegmentProfile};
+use wasm86_x86::SegmentProfile;
 
 fn scalar(frontend: Frontend) {
     let mut blocks = BlockModules::default();
@@ -64,7 +64,7 @@ test_frontends!(scalar_port_transfers, scalar);
 
 #[test]
 fn port_boundaries() {
-    let run = TestModule::new(&compile_interpreter(ExecutionProfile::Real16).unwrap());
+    let run = TestModule::interpreter_run_with_profile(ExecutionProfile::Real16);
     let code = [0xe4, 0x92, 0xb8, 0, 0];
     let image = image(&code);
     let mut input = image.input();
@@ -88,7 +88,7 @@ fn port_boundaries() {
     );
     let mut blocks = BlockModules::default();
     let block = blocks.get(&image.cpu, &code, 8, ExecutionProfile::Real16);
-    for module in [&run, block] {
+    for module in [run, block] {
         assert_eq!(
             module.observe(&input, 1),
             wanted,

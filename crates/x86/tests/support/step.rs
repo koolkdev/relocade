@@ -138,6 +138,12 @@ pub(crate) struct TestModule {
     interpreter: Option<&'static TestModule>,
 }
 
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+enum InterpreterEntry {
+    Step,
+    Run,
+}
+
 impl TestModule {
     pub(crate) fn new(module: &crate::CompiledModule) -> Self {
         Self {
@@ -161,21 +167,36 @@ impl TestModule {
     }
 
     pub(crate) fn interpreter_with_target(target: ExecutionTarget) -> &'static Self {
-        static MODULES: OnceLock<Mutex<HashMap<ExecutionTarget, &'static OnceLock<TestModule>>>> =
-            OnceLock::new();
+        Self::cached_interpreter(target, InterpreterEntry::Step)
+    }
+
+    pub(crate) fn interpreter_run_with_profile(
+        profile: impl Into<ExecutionProfile>,
+    ) -> &'static Self {
+        Self::interpreter_run_with_target(Compiler::new(profile).target())
+    }
+
+    pub(crate) fn interpreter_run_with_target(target: ExecutionTarget) -> &'static Self {
+        Self::cached_interpreter(target, InterpreterEntry::Run)
+    }
+
+    fn cached_interpreter(target: ExecutionTarget, entry: InterpreterEntry) -> &'static Self {
+        static MODULES: OnceLock<
+            Mutex<HashMap<(ExecutionTarget, InterpreterEntry), &'static OnceLock<TestModule>>>,
+        > = OnceLock::new();
         let cell = *MODULES
             .get_or_init(Mutex::default)
             .lock()
             .unwrap()
-            .entry(target)
+            .entry((target, entry))
             .or_insert_with(|| Box::leak(Box::new(OnceLock::new())));
         cell.get_or_init(|| {
-            Self::new(
-                &Compiler::new(target.profile)
-                    .with_cpu_model(target.cpu_model)
-                    .compile_interpreter_step()
-                    .unwrap(),
-            )
+            let compiler = Compiler::new(target.profile).with_cpu_model(target.cpu_model);
+            let module = match entry {
+                InterpreterEntry::Step => compiler.compile_interpreter_step(),
+                InterpreterEntry::Run => compiler.compile_interpreter(),
+            };
+            Self::new(&module.unwrap())
         })
     }
 

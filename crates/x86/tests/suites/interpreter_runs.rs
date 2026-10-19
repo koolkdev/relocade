@@ -7,7 +7,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{Event, SegmentResolution, TestModule},
 };
-use wasm86_x86::{compile_interpreter, ExecutionProfile, Segment, SegmentProfile, StoredSegment};
+use wasm86_x86::{Segment, SegmentProfile, StoredSegment};
 
 fn check(module: &TestModule, name: &str, image: &Image, step: Step<'_>) {
     assert_eq!(
@@ -245,9 +245,7 @@ fn terminal_segment_load(module: &TestModule) {
 }
 
 fn segmented_execution() {
-    let module = TestModule::new(
-        &compile_interpreter(ExecutionProfile::Protected(SegmentProfile::Segmented16)).unwrap(),
-    );
+    let module = TestModule::interpreter_run_with_profile(SegmentProfile::Segmented16);
     let mut image = Image::new(&[
         0x66, 0xb8, 0x78, 0x56, 0x34, 0x12, 0xb8, 0xcd, 0xab, 0x67, 0x8b, 0x03, 0x8b, 0x07, 0xeb, 0,
     ]);
@@ -262,7 +260,7 @@ fn segmented_execution() {
     cpu.eip = 0x1010;
     cpu.instruction_count = 4;
     check(
-        &module,
+        module,
         "16-bit code restores operand and address defaults between instructions",
         &image,
         Step {
@@ -272,19 +270,17 @@ fn segmented_execution() {
         },
     );
 
-    let module = TestModule::new(
-        &compile_interpreter(ExecutionProfile::Protected(SegmentProfile::Segmented32)).unwrap(),
-    );
+    let module = TestModule::interpreter_run_with_profile(SegmentProfile::Segmented32);
     let mut image = Image::new(&[0xb8, 42, 0, 0, 0, 0x90]);
-    fetch::segmented_code_pages(&module);
-    fetch::segment_end(&module);
+    fetch::segmented_code_pages(module);
+    fetch::segment_end(module);
     image.cpu.segments.cs.limit = 0x1004;
     let mut cpu = image.cpu;
     cpu.registers.eax = 42;
     cpu.eip = 0x1005;
     cpu.instruction_count = 0;
     check(
-        &module,
+        module,
         "the next instruction checks CS after publishing its predecessor",
         &image,
         Step {
@@ -297,12 +293,10 @@ fn segmented_execution() {
 
 #[test]
 fn instructions_continue_to_execution_boundaries() {
-    let module = TestModule::new(
-        &compile_interpreter(ExecutionProfile::Protected(SegmentProfile::Flat32)).unwrap(),
-    );
-    execution_boundaries(&module);
-    fetch::check_fetch(&module);
-    repetition_progress(&module);
-    terminal_segment_load(&module);
+    let module = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    execution_boundaries(module);
+    fetch::check_fetch(module);
+    repetition_progress(module);
+    terminal_segment_load(module);
     segmented_execution();
 }

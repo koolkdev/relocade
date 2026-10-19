@@ -1,17 +1,14 @@
 //! Real Wasm-to-Wasm handoffs use the interpreter's own stopping boundaries.
 
-use std::sync::OnceLock;
-
 use crate::support::{
     machine::{expected, Exit, Step},
     step::{Argument, Event, Outcome, TestModule},
     x87::{complete_x87, stack_image, write_register_bits},
 };
-use wasm86_x86::{compile_block_from_bytes, compile_interpreter, CpuState, SegmentProfile};
+use wasm86_x86::{compile_block_from_bytes, CpuState, SegmentProfile};
 
 pub(super) fn interpreter_run() -> &'static TestModule {
-    static MODULE: OnceLock<TestModule> = OnceLock::new();
-    MODULE.get_or_init(|| TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap()))
+    TestModule::interpreter_run_with_profile(SegmentProfile::Flat32)
 }
 
 fn subnormal_loaded(cpu: CpuState) -> CpuState {

@@ -4,8 +4,6 @@ use crate::support::{
     machine::expected,
     step::{Event, MmioUpdate, TestModule},
 };
-use std::sync::OnceLock;
-use wasm86_x86::compile_interpreter;
 
 fn availability(frontend: Frontend) {
     let mut blocks = BlockModules::default();
@@ -188,8 +186,7 @@ fn a20_fetch(frontend: Frontend) {
 test_frontends!(a20_instruction_fetch, a20_fetch);
 
 fn run_module() -> &'static TestModule {
-    static RUN: OnceLock<TestModule> = OnceLock::new();
-    RUN.get_or_init(|| TestModule::new(&compile_interpreter(ExecutionProfile::Real16).unwrap()))
+    TestModule::interpreter_run_with_profile(ExecutionProfile::Real16)
 }
 
 fn runs() {

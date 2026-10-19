@@ -1,5 +1,3 @@
-use std::sync::OnceLock;
-
 use crate::{
     support::{
         machine::{expected, Exit, Image, Step},
@@ -167,14 +165,7 @@ fn denied_fetch_spans() {
 
 #[test]
 fn fetch_fallback_preserves_execution_and_fault_order() {
-    static INTERPRETER: OnceLock<TestModule> = OnceLock::new();
-    let interpreter = INTERPRETER.get_or_init(|| {
-        TestModule::new(
-            &Compiler::new(SegmentProfile::Segmented32)
-                .compile_interpreter()
-                .unwrap(),
-        )
-    });
+    let interpreter = TestModule::interpreter_run_with_profile(SegmentProfile::Segmented32);
 
     // MOV byte [2000],5A; MOV EAX,12345678. Only the final immediate byte exceeds CS.
     let code = [
