@@ -9,6 +9,7 @@ use std::{
     rc::Rc,
 };
 
+mod attributes;
 mod search;
 mod short_name;
 use relocade_vfs::{File, MemoryFileSystem};
@@ -20,8 +21,9 @@ const READ_ONLY_ATTRIBUTE: u16 = 0x01;
 const HIDDEN_ATTRIBUTE: u16 = 0x02;
 const SYSTEM_ATTRIBUTE: u16 = 0x04;
 const ARCHIVE_ATTRIBUTE: u16 = 0x20;
+const DIRECTORY_ATTRIBUTE: u8 = 0x10;
 
-/// Whether a host-supplied file may be opened for writing.
+/// Initial read-only attribute of a mounted file; DOS AH=43h can change it later.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FileAccess {
     ReadOnly,

@@ -8,6 +8,22 @@ pub(super) fn long_filename(call: &mut HostCall<'_, DosState>) -> ControlFlow<()
     return_result(call, Err(DosError::LongFilenameNotSupported))
 }
 
+/// AH=43h: query (AL=0) or set (AL=1) DS:DX's attributes through CX.
+pub(super) fn attributes(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let operation = call.cpu().al();
+    if operation > 1 {
+        return return_result(call, Err(DosError::InvalidFunction));
+    }
+    let attributes = call.cpu().cx();
+    let result = read_path(call).and_then(|path| match operation {
+        0 => call.state().files.attributes(&path).map(|attributes| {
+            call.cpu().set_cx(attributes);
+        }),
+        _ => call.state_mut().files.set_attributes(&path, attributes),
+    });
+    return_result(call, result)
+}
+
 /// AH=3Ch: create or truncate the path at DS:DX with CX's attributes; return AX.
 pub(super) fn create(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     let attributes = call.cpu().cx();

@@ -30,6 +30,7 @@ const CLOSE_HANDLE: u8 = 0x3e;
 const READ_HANDLE: u8 = 0x3f;
 const WRITE_HANDLE: u8 = 0x40;
 const SEEK_HANDLE: u8 = 0x42;
+const FILE_ATTRIBUTES: u8 = 0x43;
 const IOCTL: u8 = 0x44;
 const DUPLICATE_HANDLE: u8 = 0x45;
 const FORCE_DUPLICATE_HANDLE: u8 = 0x46;
@@ -60,6 +61,7 @@ pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
         READ_HANDLE => files::read(call),
         WRITE_HANDLE => files::write(call),
         SEEK_HANDLE => files::seek(call),
+        FILE_ATTRIBUTES => files::attributes(call),
         IOCTL => ioctl::ioctl(call),
         DUPLICATE_HANDLE => files::duplicate(call),
         FORCE_DUPLICATE_HANDLE => files::force_duplicate(call),

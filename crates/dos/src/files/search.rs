@@ -1,10 +1,7 @@
-use super::{
-    short_name, Files, ARCHIVE_ATTRIBUTE, HIDDEN_ATTRIBUTE, READ_ONLY_ATTRIBUTE, SYSTEM_ATTRIBUTE,
-};
+use super::{short_name, Files, DIRECTORY_ATTRIBUTE, HIDDEN_ATTRIBUTE, SYSTEM_ATTRIBUTE};
 use crate::{error::DosError, path};
 
 pub(crate) const FIND_DATA_BYTES: usize = 43;
-const DIRECTORY_ATTRIBUTE: u8 = 0x10;
 const VOLUME_ATTRIBUTE: u8 = 0x08;
 const ATTRIBUTES_OFFSET: usize = 21;
 const DATE_OFFSET: usize = 24;
@@ -99,24 +96,14 @@ impl Files {
             .map_err(|_| DosError::NoMoreFiles)?
             .map(|entry| {
                 let metadata = entry.metadata();
-                let attributes = if metadata.is_dir() {
-                    DIRECTORY_ATTRIBUTE
+                let full_path = if directory.is_empty() {
+                    entry.file_name().to_owned()
                 } else {
-                    let full_path = if directory.is_empty() {
-                        entry.file_name().to_owned()
-                    } else {
-                        format!("{directory}/{}", entry.file_name())
-                    };
-                    let attributes = self
-                        .attributes
-                        .get(&full_path)
-                        .copied()
-                        .unwrap_or(ARCHIVE_ATTRIBUTE as u8);
-                    (attributes & !(READ_ONLY_ATTRIBUTE as u8)) | u8::from(metadata.is_read_only())
+                    format!("{directory}/{}", entry.file_name())
                 };
                 (
                     entry.file_name().to_owned(),
-                    attributes,
+                    self.entry_attributes(&full_path, metadata),
                     metadata.len() as u32,
                 )
             });
