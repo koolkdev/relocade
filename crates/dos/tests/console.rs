@@ -1,5 +1,6 @@
 mod common;
 
+use common::{path_service, service, success, SERVICE_PROGRAM};
 use wasm86_x86::ExecutionExit;
 
 #[cfg(target_arch = "wasm32")]
@@ -45,6 +46,55 @@ async fn check_handle_output() {
         assert_eq!(dos.take_output(), output);
         assert_eq!(dos.exit_status(), None);
     }
+}
+
+async fn check_redirected_string() {
+    let mut dos = common::dos().await;
+    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    assert_eq!(success(&service(&mut dos, 0x4500, 1, 0, 0)), 5); // Save stdout.
+    assert_eq!(success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0)), 6);
+    success(&service(&mut dos, 0x4600, 6, 1, 0));
+    dos.runtime()
+        .machine()
+        .memory()
+        .write(0x10200, b"out$not output")
+        .unwrap();
+    dos.runtime().machine().cpu().set_eflags(0x0a57);
+    let cpu = service(&mut dos, 0x0900, 0xabcd, 0x1234, 0x200);
+    assert_eq!(cpu.registers.eax as u16, 0x0924); // AL='$'.
+    assert_eq!(cpu.registers.ebx as u16, 0xabcd);
+    assert_eq!(cpu.registers.ecx as u16, 0x1234);
+    assert_eq!(cpu.flags.eflags(), 0x0a57); // String output preserves flags.
+    assert_eq!(dos.read_file("OUT.TXT").unwrap(), b"out");
+    assert!(dos.take_output().is_empty());
+    assert_eq!(success(&service(&mut dos, 0x4201, 6, 0, 0)), 3);
+
+    // An empty string must not become AH=40h's zero-byte truncation operation.
+    success(&service(&mut dos, 0x4200, 6, 0, 0));
+    service(&mut dos, 0x0900, 0, 0, 0x203);
+    assert_eq!(dos.read_file("OUT.TXT").unwrap(), b"out");
+    assert_eq!(success(&service(&mut dos, 0x4201, 6, 0, 0)), 0);
+
+    success(&service(&mut dos, 0x4600, 5, 1, 0)); // Restore console output.
+    success(&service(&mut dos, 0x3e00, 5, 0, 0));
+    service(&mut dos, 0x0900, 0, 0, 0x200);
+    assert_eq!(dos.take_output(), b"out");
+    assert_eq!(dos.read_file("OUT.TXT").unwrap(), b"out");
+    service(&mut dos, 0x0900, 0, 0, 0x200);
+    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    assert!(dos.take_output().is_empty());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn string_output_follows_stdout_redirection() {
+    pollster::block_on(check_redirected_string());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn string_output_follows_stdout_redirection() {
+    check_redirected_string().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]

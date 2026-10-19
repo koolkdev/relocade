@@ -21,6 +21,7 @@
 //! AH=71h reports long-filename services unavailable, allowing 8.3 fallback.
 //! AH=42h seeks within those files relative to their start, current position or end.
 //! AH=45h/46h duplicate handles, sharing file positions and allowing redirection.
+//! AH=09h string output follows the current stdout handle, just like AH=40h.
 //! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
 //! or [`Dos::load_mz`], passing startup inputs in [`LoadOptions`].
 //! The host chooses the Wasm backend and controls execution through
@@ -125,8 +126,8 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
         self.runtime.state().exit_status
     }
 
-    /// Drains combined stdout/stderr bytes without interpreting their encoding.
+    /// Drains bytes sent to console output without interpreting their encoding.
     pub fn take_output(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.runtime.state_mut().output)
+        self.runtime.state_mut().files.take_output()
     }
 }

@@ -1,5 +1,5 @@
 use super::return_to_host;
-use crate::{interrupt::return_result, DosState, ServiceError};
+use crate::{DosState, ServiceError};
 use std::ops::ControlFlow;
 use wasm86_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
 use wasm86_x86::Segment;
@@ -17,14 +17,8 @@ pub(super) fn write_string(call: &mut HostCall<'_, DosState>) -> ControlFlow<()>
             call.cpu().set_al(b'$');
             return return_from_interrupt(call);
         }
-        call.state_mut().output.push(byte[0]);
+        // AH=09h writes through stdout, without returning a write-error status.
+        let _ = call.state_mut().files.write(1, &byte);
     }
     return_to_host(call, Err(ServiceError::UnterminatedString))
-}
-
-/// Writes to a console output handle append to the shared output buffer.
-pub(super) fn write_handle(call: &mut HostCall<'_, DosState>, bytes: &[u8]) -> ControlFlow<()> {
-    call.state_mut().output.extend_from_slice(bytes);
-    call.cpu().set_ax(bytes.len() as u16);
-    return_result(call, Ok(()))
 }

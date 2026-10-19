@@ -1,4 +1,3 @@
-use super::console;
 use crate::{error::DosError, interrupt::return_result, path::MAX_PATH_BYTES, DosState};
 use std::ops::ControlFlow;
 use wasm86_runtime::HostCall;
@@ -82,9 +81,6 @@ pub(super) fn write(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
         call.memory()
             .read(address, &mut bytes)
             .expect("real-mode buffer");
-    }
-    if call.state().files.is_console_output(handle) {
-        return console::write_handle(call, &bytes);
     }
     let result = call
         .state_mut()
