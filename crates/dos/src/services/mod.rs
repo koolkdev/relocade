@@ -13,6 +13,7 @@ const OPEN_HANDLE: u8 = 0x3d;
 const CLOSE_HANDLE: u8 = 0x3e;
 const READ_HANDLE: u8 = 0x3f;
 const WRITE_HANDLE: u8 = 0x40;
+const SEEK_HANDLE: u8 = 0x42;
 const ALLOCATE_MEMORY: u8 = 0x48;
 const FREE_MEMORY: u8 = 0x49;
 const RESIZE_MEMORY: u8 = 0x4a;
@@ -26,6 +27,7 @@ pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
         CLOSE_HANDLE => files::close(call),
         READ_HANDLE => files::read(call),
         WRITE_HANDLE => files::write(call),
+        SEEK_HANDLE => files::seek(call),
         ALLOCATE_MEMORY => memory::allocate(call),
         FREE_MEMORY => memory::free(call),
         RESIZE_MEMORY => memory::resize(call),
