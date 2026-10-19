@@ -33,7 +33,6 @@
 mod com;
 mod error;
 mod files;
-mod filesystem;
 mod interrupt;
 mod kernel;
 mod memory;
@@ -42,7 +41,7 @@ mod process;
 mod services;
 
 pub use error::{LoadError, MountError, ServiceError};
-pub use filesystem::FileAccess;
+pub use files::FileAccess;
 pub use kernel::DosState;
 use wasm86_runtime::{Runtime, RuntimeBackend};
 

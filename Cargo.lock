@@ -1002,6 +1002,7 @@ dependencies = [
  "wasm86-runtime",
  "wasm86-runtime-wasmtime",
  "wasm86-runtime-web",
+ "wasm86-vfs",
  "wasm86-x86",
 ]
 
@@ -1058,6 +1059,13 @@ dependencies = [
  "tempfile",
  "wasm-encoder 0.254.0",
  "wasmtime",
+]
+
+[[package]]
+name = "wasm86-vfs"
+version = "0.0.0"
+dependencies = [
+ "wasm-bindgen-test",
 ]
 
 [[package]]
