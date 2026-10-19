@@ -3,9 +3,6 @@ mod common;
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
 use relocade_dos::FileAccess;
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 async fn check_deletion() {
     let mut dos = common::dos().await;
     dos.mount_file("DATA/FILE.BIN", b"keep".to_vec(), FileAccess::ReadOnly)
@@ -63,14 +60,7 @@ async fn check_deletion() {
     assert_eq!(dos.read_file("DATA/FILE.BIN"), None);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn deletion_checks_attributes_and_open_file_identity_before_removing_a_name() {
     pollster::block_on(check_deletion());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn deletion_checks_attributes_and_open_file_identity_before_removing_a_name() {
-    check_deletion().await;
 }

@@ -3,9 +3,6 @@ mod common;
 use relocade_dos::{LoadError, LoadOptions};
 use relocade_x86::ExecutionExit;
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 async fn check_environments() {
     let mut dos = common::dos().await;
     let options = LoadOptions {
@@ -166,26 +163,12 @@ async fn check_environment_validation() {
     assert_eq!(last, [b'x', 0]);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn com_and_mz_receive_environment_blocks() {
     pollster::block_on(check_environments());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn com_and_mz_receive_environment_blocks() {
-    check_environments().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn invalid_environments_preserve_the_current_program() {
     pollster::block_on(check_environment_validation());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn invalid_environments_preserve_the_current_program() {
-    check_environment_validation().await;
 }

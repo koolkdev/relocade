@@ -806,10 +806,8 @@ dependencies = [
  "relocade-machine",
  "relocade-runtime",
  "relocade-runtime-wasmtime",
- "relocade-runtime-web",
  "relocade-vfs",
  "relocade-x86",
- "wasm-bindgen-test",
 ]
 
 [[package]]
@@ -867,9 +865,6 @@ dependencies = [
 [[package]]
 name = "relocade-vfs"
 version = "0.0.0"
-dependencies = [
- "wasm-bindgen-test",
-]
 
 [[package]]
 name = "relocade-x86"

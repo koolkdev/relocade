@@ -3,9 +3,6 @@ mod common;
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
 use relocade_dos::{Dos, DosState, FileAccess};
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 fn attributes(dos: &mut Dos<Backend<DosState>>, path: &[u8]) -> u16 {
     let cpu = path_service(dos, path, 0x4300, 0xffff);
     success(&cpu);
@@ -193,50 +190,22 @@ async fn check_archive_cleanup_and_replacement() {
     assert_eq!(attributes(&mut dos, b"DATA.BIN"), 0);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn attributes_control_future_opens_and_match_search_results() {
     pollster::block_on(check_file_attributes());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn attributes_control_future_opens_and_match_search_results() {
-    check_file_attributes().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn directory_attributes_preserve_entry_type_and_report_path_errors() {
     pollster::block_on(check_directory_attributes_and_errors());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn directory_attributes_preserve_entry_type_and_report_path_errors() {
-    check_directory_attributes_and_errors().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn archive_is_set_when_written_handles_close() {
     pollster::block_on(check_archive_on_close());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn archive_is_set_when_written_handles_close() {
-    check_archive_on_close().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn archive_updates_follow_handle_replacement_and_process_cleanup() {
     pollster::block_on(check_archive_cleanup_and_replacement());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn archive_updates_follow_handle_replacement_and_process_cleanup() {
-    check_archive_cleanup_and_replacement().await;
 }

@@ -44,9 +44,9 @@ state. To measure cold compilation on Linux, point `XDG_CACHE_HOME` and
 `XDG_CONFIG_HOME` at new empty directories so a local configuration cannot select
 an existing cache.
 
-Browser integration tests exercise the production web backend: live CPU and
-memory access, callbacks, scalar carriers and module linking. They run separately
-from compiler and instruction correctness tests.
+Browser tests exercise the production web runtime: live CPU and memory access,
+callbacks, scalar carriers, module linking and dispatch. DOS and VFS behavior
+tests run natively, alongside compiler and instruction correctness tests.
 
 Install Chrome and a matching ChromeDriver, then run:
 

@@ -4,9 +4,6 @@ use common::Backend;
 use relocade_dos::{Dos, DosState};
 use relocade_x86::{CpuState, ExecutionExit, Segment, StoredSegment};
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 fn service(
     dos: &mut Dos<Backend<DosState>>,
     function: u8,
@@ -111,14 +108,7 @@ async fn check_memory_services() {
     assert_eq!(mcb, [b'Z', 0, 0, 0, 0x90]); // All root-process memory released.
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn dos_allocates_frees_and_resizes_conventional_memory() {
     pollster::block_on(check_memory_services());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn dos_allocates_frees_and_resizes_conventional_memory() {
-    check_memory_services().await;
 }

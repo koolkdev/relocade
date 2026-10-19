@@ -3,9 +3,6 @@ mod common;
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
 use relocade_dos::FileAccess;
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 async fn check_shared_file_handles() {
     let mut dos = common::dos().await;
     dos.mount_file("DATA.BIN", b"abcdef".to_vec(), FileAccess::ReadWrite)
@@ -97,26 +94,12 @@ async fn check_redirection_and_capacity() {
     assert_eq!(success(&service(&mut dos, 0x4500, 1, 0, 0)), 5);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn duplicate_file_handles_share_positions_rights_and_lifetime() {
     pollster::block_on(check_shared_file_handles());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn duplicate_file_handles_share_positions_rights_and_lifetime() {
-    check_shared_file_handles().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn forced_handle_duplication_redirects_output_and_validates_slots() {
     pollster::block_on(check_redirection_and_capacity());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn forced_handle_duplication_redirects_output_and_validates_slots() {
-    check_redirection_and_capacity().await;
 }

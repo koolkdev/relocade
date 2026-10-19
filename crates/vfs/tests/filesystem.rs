@@ -1,11 +1,7 @@
 use relocade_vfs::MemoryFileSystem;
 use std::io::ErrorKind;
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[test]
 fn directories_exist_independently_and_exclude_files() {
     let mut fs = MemoryFileSystem::new();
     assert!(fs.is_dir(""));
@@ -70,8 +66,7 @@ fn directories_exist_independently_and_exclude_files() {
     assert_eq!(fs.read("DATA/SAVE/FILE").unwrap(), b"keep");
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[test]
 fn handles_preserve_identity_and_access_across_changes() {
     let mut fs = MemoryFileSystem::new();
     let writer = fs.create_new("SAVE").unwrap();
@@ -117,8 +112,7 @@ fn handles_preserve_identity_and_access_across_changes() {
     assert_eq!(fs.read("SAVE").unwrap(), b"replacement");
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[test]
 fn removing_a_file_preserves_open_handles_and_allows_reusing_its_name() {
     let mut fs = MemoryFileSystem::new();
     fs.create_dir_all("DATA").unwrap();
@@ -153,8 +147,7 @@ fn removing_a_file_preserves_open_handles_and_allows_reusing_its_name() {
     assert_eq!(fs.read("DATA/FILE").unwrap(), b"new");
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[test]
 fn positioned_io_zero_fills_and_checks_64_bit_ranges() {
     let mut fs = MemoryFileSystem::new();
     let file = fs.create_new("DATA").unwrap();

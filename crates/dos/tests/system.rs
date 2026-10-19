@@ -3,9 +3,6 @@ mod common;
 use common::{error, service, SERVICE_PROGRAM};
 use relocade_x86::{ExecutionExit, Segment, StoredSegment};
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 async fn check_system_services() {
     let mut dos = common::dos().await;
     dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
@@ -79,26 +76,12 @@ async fn check_guest_interrupt_vector() {
     assert_eq!(result, [0x34, 0x12]);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn dos_reports_version_vectors_and_absent_lfn_services() {
     pollster::block_on(check_system_services());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn dos_reports_version_vectors_and_absent_lfn_services() {
-    check_system_services().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn dos_installs_a_guest_interrupt_handler() {
     pollster::block_on(check_guest_interrupt_vector());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn dos_installs_a_guest_interrupt_handler() {
-    check_guest_interrupt_vector().await;
 }

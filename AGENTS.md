@@ -116,8 +116,9 @@ This is a public repository. Commit messages use `component: title`.
   they can expose. Before removing repeated cases, verify the owning suite covers
   their contract. A new family does not require a standard set of test files.
 - Run focused local Wasmtime tests for changed behavior, along with formatting and
-  relevant static checks. Run focused browser integration tests when changing
-  the web runtime, bindings or host interactions.
+  relevant static checks. Run focused browser tests for web runtime changes,
+  including bindings, memory, callbacks and dispatch. Keep DOS and VFS behavior
+  tests native.
 - Leave full workspace test suites to CI by default. Once focused local
   checks and review pass, commit, push and open or update the PR without waiting
   for full local suites or CI to finish. Report pending CI explicitly. Run broader
