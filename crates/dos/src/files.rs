@@ -31,6 +31,12 @@ pub enum FileAccess {
     ReadWrite,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum CreateMode {
+    TruncateExisting,
+    FailIfExists,
+}
+
 #[derive(Default)]
 pub(crate) struct Files {
     filesystem: MemoryFileSystem,
@@ -130,7 +136,12 @@ impl Files {
         self.open_file(file, path, mode)
     }
 
-    pub(crate) fn create(&mut self, path: &[u8], attributes: u16) -> Result<u16, DosError> {
+    pub(crate) fn create(
+        &mut self,
+        path: &[u8],
+        attributes: u16,
+        mode: CreateMode,
+    ) -> Result<u16, DosError> {
         // DOS owns hidden/system/archive flags; VFS enforces read-only opens.
         if attributes
             & !(READ_ONLY_ATTRIBUTE | HIDDEN_ATTRIBUTE | SYSTEM_ATTRIBUTE | ARCHIVE_ATTRIBUTE)
@@ -141,6 +152,14 @@ impl Files {
         let path = path::file_path(path, &self.current_directory).ok_or(DosError::PathNotFound)?;
         if !self.filesystem.is_dir(path::parent(&path)) {
             return Err(DosError::PathNotFound);
+        }
+        if mode == CreateMode::FailIfExists
+            && self
+                .filesystem
+                .metadata(&path)
+                .is_ok_and(|entry| entry.is_file())
+        {
+            return Err(DosError::FileExists);
         }
         let file = match self.filesystem.open_read_write(&path) {
             Ok(file) => file,

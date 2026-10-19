@@ -8,7 +8,7 @@ mod memory;
 mod search;
 mod system;
 
-use crate::{DosState, ServiceError};
+use crate::{files::CreateMode, DosState, ServiceError};
 use relocade_runtime::HostCall;
 use std::ops::ControlFlow;
 
@@ -27,6 +27,7 @@ const GET_DTA: u8 = 0x2f;
 const FIND_FIRST: u8 = 0x4e;
 const FIND_NEXT: u8 = 0x4f;
 const CREATE_HANDLE: u8 = 0x3c;
+const CREATE_NEW_HANDLE: u8 = 0x5b;
 const OPEN_HANDLE: u8 = 0x3d;
 const CLOSE_HANDLE: u8 = 0x3e;
 const READ_HANDLE: u8 = 0x3f;
@@ -60,7 +61,8 @@ pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
         GET_DTA => search::get_dta(call),
         FIND_FIRST => search::find_first(call),
         FIND_NEXT => search::find_next(call),
-        CREATE_HANDLE => files::create(call),
+        CREATE_HANDLE => files::create(call, CreateMode::TruncateExisting),
+        CREATE_NEW_HANDLE => files::create(call, CreateMode::FailIfExists),
         OPEN_HANDLE => files::open(call),
         CLOSE_HANDLE => files::close(call),
         READ_HANDLE => files::read(call),
