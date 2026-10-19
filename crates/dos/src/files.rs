@@ -52,6 +52,7 @@ enum OpenHandle {
 
 struct OpenFile {
     file: File,
+    path: String,
     position: u32,
     readable: bool,
     writable: bool,
@@ -126,7 +127,7 @@ impl Files {
             ErrorKind::NotFound | ErrorKind::NotADirectory => DosError::PathNotFound,
             _ => DosError::AccessDenied,
         })?;
-        self.open_file(file, mode)
+        self.open_file(file, path, mode)
     }
 
     pub(crate) fn create(&mut self, path: &[u8], attributes: u16) -> Result<u16, DosError> {
@@ -154,7 +155,7 @@ impl Files {
             Err(_) => return Err(DosError::AccessDenied),
         };
         // Existing files are truncated only after sharing and capacity checks.
-        let handle = self.open_file(file.clone(), 2)?;
+        let handle = self.open_file(file.clone(), path.clone(), 2)?;
         self.write(handle, &[])
             .expect("truncating a new writable handle does not allocate");
         file.set_read_only(attributes & READ_ONLY_ATTRIBUTE != 0);
@@ -163,9 +164,10 @@ impl Files {
         Ok(handle)
     }
 
-    fn open_file(&mut self, file: File, mode: u8) -> Result<u16, DosError> {
+    fn open_file(&mut self, file: File, path: String, mode: u8) -> Result<u16, DosError> {
         let entry = OpenFile {
             file,
+            path,
             position: 0,
             readable: mode & 3 != 1,
             writable: mode & 3 != 0,
@@ -261,11 +263,30 @@ impl Files {
     }
 
     pub(crate) fn close(&mut self, handle: u16) -> Result<(), DosError> {
-        self.handles
+        let open = self
+            .handles
             .get_mut(usize::from(handle))
             .and_then(Option::take)
-            .map(|_| ())
-            .ok_or(DosError::InvalidHandle)
+            .ok_or(DosError::InvalidHandle)?;
+        self.close_handle(open);
+        Ok(())
+    }
+
+    fn close_handle(&mut self, handle: OpenHandle) {
+        let OpenHandle::File(open) = handle else {
+            return;
+        };
+        // DOS supports duplicate-then-close to flush an open file's metadata.
+        let open = open.borrow();
+        // The host may have replaced this path while the old file was still open.
+        if open.written
+            && self
+                .filesystem
+                .open(&open.path)
+                .is_ok_and(|file| file.same_file(&open.file))
+        {
+            *self.attributes.entry(open.path.clone()).or_default() |= ARCHIVE_ATTRIBUTE as u8;
+        }
     }
 
     pub(crate) fn duplicate(&mut self, source: u16) -> Result<u16, DosError> {
@@ -281,11 +302,16 @@ impl Files {
         destination: u16,
     ) -> Result<(), DosError> {
         let open = self.handle(source)?.clone();
+        if source == destination {
+            return Ok(());
+        }
         let slot = self
             .handles
             .get_mut(usize::from(destination))
             .ok_or(DosError::InvalidHandle)?;
-        *slot = Some(open);
+        if let Some(replaced) = slot.replace(open) {
+            self.close_handle(replaced);
+        }
         Ok(())
     }
 
@@ -334,7 +360,9 @@ impl Files {
     }
 
     pub(crate) fn close_all(&mut self) {
-        self.handles.fill_with(|| None);
+        for handle in std::mem::take(&mut self.handles).into_iter().flatten() {
+            self.close_handle(handle);
+        }
     }
 
     fn handle(&self, handle: u16) -> Result<&OpenHandle, DosError> {
