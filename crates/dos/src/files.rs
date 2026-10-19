@@ -105,15 +105,50 @@ impl Files {
             return Err(DosError::AccessDenied);
         }
         let file = self.filesystem.open(&path).expect("existing file");
-        // DOS sharing keeps an open file's name alive until its last handle closes.
-        if self.handles.iter().flatten().any(|handle| {
-            matches!(handle, OpenHandle::File(open) if open.borrow().file.same_file(&file))
-        }) {
+        if self.is_open(&file) {
             return Err(DosError::AccessDenied);
         }
         self.filesystem.remove_file(&path).expect("existing file");
         self.attributes.remove(&path);
         Ok(())
+    }
+
+    pub(crate) fn rename(&mut self, from: &[u8], to: &[u8]) -> Result<(), DosError> {
+        let from_drive = path::drive(from).ok_or(DosError::PathNotFound)?;
+        let to_drive = path::drive(to).ok_or(DosError::PathNotFound)?;
+        if from_drive != to_drive {
+            return Err(DosError::NotSameDevice);
+        }
+        let from = path::file_path(from, &self.current_directory).ok_or(DosError::PathNotFound)?;
+        let to = path::file_path(to, &self.current_directory).ok_or(DosError::PathNotFound)?;
+        if self.metadata(&from)?.is_dir() {
+            return Err(DosError::AccessDenied);
+        }
+        let file = self.filesystem.open(&from).expect("existing file");
+        if self.is_open(&file) {
+            return Err(DosError::AccessDenied);
+        }
+        if !self.filesystem.is_dir(path::parent(&to)) {
+            return Err(DosError::PathNotFound);
+        }
+        // DOS never replaces an existing destination, including the source itself.
+        if self.filesystem.metadata(&to).is_ok() {
+            return Err(DosError::AccessDenied);
+        }
+        self.filesystem
+            .rename_file(&from, &to)
+            .expect("validated file paths");
+        if let Some(attributes) = self.attributes.remove(&from) {
+            self.attributes.insert(to, attributes);
+        }
+        Ok(())
+    }
+
+    fn is_open(&self, file: &File) -> bool {
+        // DOS sharing keeps an open file's name alive until its last handle closes.
+        self.handles.iter().flatten().any(
+            |handle| matches!(handle, OpenHandle::File(open) if open.borrow().file.same_file(file)),
+        )
     }
 
     pub(crate) fn open(&mut self, path: &[u8], mode: u8) -> Result<u16, DosError> {

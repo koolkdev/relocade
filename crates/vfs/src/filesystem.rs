@@ -174,6 +174,23 @@ impl MemoryFileSystem {
         Ok(())
     }
 
+    /// Moves a file's directory entry, replacing any file at the destination.
+    /// Parent directories must exist. Open handles retain their file's identity
+    /// and access rights; read-only attributes do not prevent renaming.
+    pub fn rename_file(&mut self, from: &str, to: &str) -> io::Result<()> {
+        if self.metadata(from)?.is_dir() {
+            return Err(ErrorKind::IsADirectory.into());
+        }
+        validate_path(to)?;
+        self.require_parents(to)?;
+        if self.is_dir(to) {
+            return Err(ErrorKind::IsADirectory.into());
+        }
+        let file = self.entries.remove(from).expect("existing file");
+        self.entries.insert(to.to_owned(), file);
+        Ok(())
+    }
+
     /// Removes an empty directory. The root directory cannot be removed.
     pub fn remove_dir(&mut self, path: &str) -> io::Result<()> {
         if path.is_empty() {

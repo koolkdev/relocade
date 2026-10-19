@@ -32,6 +32,16 @@ pub(super) fn delete(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     return_result(call, result)
 }
 
+/// AH=56h: rename DS:DX's file to ES:DI's path on the same drive.
+pub(super) fn rename(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let offset = call.cpu().di();
+    let result = read_path(call).and_then(|from| {
+        let to = read_path_at(call, Segment::Es, offset)?;
+        call.state_mut().files.rename(&from, &to)
+    });
+    return_result(call, result)
+}
+
 /// AH=3Ch/5Bh: create DS:DX with CX's attributes using the requested mode; return AX.
 pub(super) fn create(call: &mut HostCall<'_, DosState>, mode: CreateMode) -> ControlFlow<()> {
     let attributes = call.cpu().cx();
@@ -133,9 +143,16 @@ pub(super) fn seek(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
 }
 
 pub(super) fn read_path(call: &mut HostCall<'_, DosState>) -> Result<Vec<u8>, DosError> {
-    let cpu = call.cpu();
-    let base = cpu.segment(Segment::Ds).base;
-    let offset = cpu.dx();
+    let offset = call.cpu().dx();
+    read_path_at(call, Segment::Ds, offset)
+}
+
+fn read_path_at(
+    call: &mut HostCall<'_, DosState>,
+    segment: Segment,
+    offset: u16,
+) -> Result<Vec<u8>, DosError> {
+    let base = call.cpu().segment(segment).base;
     let mut path = Vec::new();
     for index in 0..MAX_PATH_BYTES as u16 {
         let mut byte = [0];
