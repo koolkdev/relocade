@@ -9,6 +9,7 @@ use std::ops::ControlFlow;
 use wasm86_runtime::HostCall;
 
 const WRITE_STRING: u8 = 0x09;
+const CREATE_HANDLE: u8 = 0x3c;
 const OPEN_HANDLE: u8 = 0x3d;
 const CLOSE_HANDLE: u8 = 0x3e;
 const READ_HANDLE: u8 = 0x3f;
@@ -23,6 +24,7 @@ const TERMINATE_PROCESS: u8 = 0x4c;
 pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     match call.cpu().ah() {
         WRITE_STRING => console::write_string(call),
+        CREATE_HANDLE => files::create(call),
         OPEN_HANDLE => files::open(call),
         CLOSE_HANDLE => files::close(call),
         READ_HANDLE => files::read(call),

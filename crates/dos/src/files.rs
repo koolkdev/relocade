@@ -9,6 +9,10 @@ use std::rc::Rc;
 // A DOS process starts with 20 handles, including its five standard devices.
 const HANDLE_COUNT: usize = 20;
 pub(crate) const MAX_PATH_BYTES: usize = 128; // Includes the terminating NUL.
+const READ_ONLY_ATTRIBUTE: u16 = 0x01;
+const HIDDEN_ATTRIBUTE: u16 = 0x02;
+const SYSTEM_ATTRIBUTE: u16 = 0x04;
+const ARCHIVE_ATTRIBUTE: u16 = 0x20;
 
 #[derive(Default)]
 pub(crate) struct Files {
@@ -69,6 +73,45 @@ impl Files {
             return Err(DosError::AccessDenied);
         }
         self.open_file(Rc::clone(file), mode)
+    }
+
+    pub(crate) fn create(&mut self, path: &[u8], attributes: u16) -> Result<u16, DosError> {
+        // Direct file access only enforces read-only; the other file flags are accepted.
+        if attributes
+            & !(READ_ONLY_ATTRIBUTE | HIDDEN_ATTRIBUTE | SYSTEM_ATTRIBUTE | ARCHIVE_ATTRIBUTE)
+            != 0
+        {
+            return Err(DosError::AccessDenied);
+        }
+        let path = normalize_path(path).ok_or(DosError::PathNotFound)?;
+        if !self.filesystem.parent_exists(&path) {
+            return Err(DosError::PathNotFound);
+        }
+        if self.filesystem.is_directory(&path) {
+            return Err(DosError::AccessDenied);
+        }
+        let file =
+            self.filesystem.file(&path).cloned().unwrap_or_else(|| {
+                Rc::new(RefCell::new(File::new(Vec::new(), FileAccess::ReadWrite)))
+            });
+        if file.borrow().access == FileAccess::ReadOnly {
+            return Err(DosError::AccessDenied);
+        }
+        // Check sharing and reserve a handle before changing the file or namespace.
+        let handle = self.open_file(Rc::clone(&file), 2)?;
+        {
+            let mut storage = file.borrow_mut();
+            storage
+                .set_len(0)
+                .expect("shrinking a file does not allocate");
+            storage.access = if attributes & READ_ONLY_ATTRIBUTE != 0 {
+                FileAccess::ReadOnly
+            } else {
+                FileAccess::ReadWrite
+            };
+        }
+        self.filesystem.insert(path, file);
+        Ok(handle)
     }
 
     fn open_file(&mut self, file: Rc<RefCell<File>>, mode: u8) -> Result<u16, DosError> {
@@ -210,6 +253,9 @@ fn normalize_path(path: &[u8]) -> Option<String> {
     } else {
         path
     };
+    if matches!(path.rsplit(['\\', '/']).next()?, "" | "." | "..") {
+        return None;
+    }
     let mut components = Vec::new();
     for component in path.split(['\\', '/']) {
         match component {

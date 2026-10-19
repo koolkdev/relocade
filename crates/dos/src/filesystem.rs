@@ -18,8 +18,11 @@ pub(crate) struct FileSystem {
 
 impl FileSystem {
     pub(crate) fn mount(&mut self, path: String, contents: Vec<u8>, access: FileAccess) {
-        self.files
-            .insert(path, Rc::new(RefCell::new(File { contents, access })));
+        self.insert(path, Rc::new(RefCell::new(File::new(contents, access))));
+    }
+
+    pub(crate) fn insert(&mut self, path: String, file: Rc<RefCell<File>>) {
+        self.files.insert(path, file);
     }
 
     pub(crate) fn file(&self, path: &str) -> Option<&Rc<RefCell<File>>> {
@@ -31,11 +34,12 @@ impl FileSystem {
     }
 
     pub(crate) fn parent_exists(&self, path: &str) -> bool {
-        let Some((parent, _)) = path.rsplit_once('/') else {
-            return true;
-        };
-        let prefix = format!("{parent}/");
-        self.files.keys().any(|name| name.starts_with(&prefix))
+        self.is_directory(path.rsplit_once('/').map_or("", |(parent, _)| parent))
+    }
+
+    pub(crate) fn is_directory(&self, path: &str) -> bool {
+        let prefix = format!("{path}/");
+        path.is_empty() || self.files.keys().any(|name| name.starts_with(&prefix))
     }
 }
 
@@ -51,6 +55,10 @@ pub(crate) enum StorageError {
 }
 
 impl File {
+    pub(crate) fn new(contents: Vec<u8>, access: FileAccess) -> Self {
+        Self { contents, access }
+    }
+
     pub(crate) fn len(&self) -> u32 {
         self.contents.len() as u32
     }

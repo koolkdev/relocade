@@ -65,6 +65,14 @@ fn service(dos: &mut Dos<Backend<DosState>>, ax: u16, bx: u16, cx: u16, dx: u16)
 }
 
 fn open(dos: &mut Dos<Backend<DosState>>, path: &[u8], mode: u8) -> CpuState {
+    path_service(dos, path, 0x3d00 | u16::from(mode), 0)
+}
+
+fn create(dos: &mut Dos<Backend<DosState>>, path: &[u8], attributes: u16) -> CpuState {
+    path_service(dos, path, 0x3c00, attributes)
+}
+
+fn path_service(dos: &mut Dos<Backend<DosState>>, path: &[u8], ax: u16, cx: u16) -> CpuState {
     let mut terminated = path.to_vec();
     terminated.push(0);
     dos.runtime()
@@ -72,7 +80,7 @@ fn open(dos: &mut Dos<Backend<DosState>>, path: &[u8], mode: u8) -> CpuState {
         .memory()
         .write(0x10300, &terminated)
         .unwrap();
-    service(dos, 0x3d00 | u16::from(mode), 0, 0, 0x300)
+    service(dos, ax, 0, cx, 0x300)
 }
 
 fn success(cpu: &CpuState) -> u16 {
@@ -359,6 +367,112 @@ async fn check_seek() {
     assert_eq!(&buffer(&mut dos)[..4], b"head");
 }
 
+async fn check_save_program() {
+    let mut dos = common::dos().await;
+    let mut program = vec![
+        0xb4, 0x3c, // MOV AH,3C: create file
+        0x31, 0xc9, // XOR CX,CX: normal attributes
+        0xba, 0x40, 1, // MOV DX,0140: pathname
+        0xcd, 0x21, // INT 21h
+        0x89, 0xc3, // MOV BX,AX: new handle
+        0xb9, 5, 0, // MOV CX,5: byte count
+        0xba, 0x50, 1, // MOV DX,0150: data
+        0xb4, 0x40, 0xcd, 0x21, // Write file.
+        0xb4, 0x3e, 0xcd, 0x21, // Close file.
+        0xb8, 0, 0x4c, 0xcd, 0x21, // Exit 0.
+    ];
+    program.resize(0x40, 0);
+    program.extend_from_slice(b"SAVE.DAT\0");
+    program.resize(0x50, 0);
+    program.extend_from_slice(b"saved");
+    dos.load_com(&program).unwrap();
+    assert_eq!(dos.runtime().run(100).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(dos.exit_status(), Some(Ok(0)));
+    assert_eq!(dos.read_file(r"C:\save.dat").unwrap(), b"saved");
+}
+
+async fn check_creation() {
+    let mut dos = common::dos().await;
+    dos.mount_file(
+        "DATA/KEEP.BIN",
+        b"old contents".to_vec(),
+        FileAccess::ReadWrite,
+    )
+    .unwrap();
+    dos.mount_file("READONLY.BIN", b"keep".to_vec(), FileAccess::ReadOnly)
+        .unwrap();
+    dos.load_com(SERVICE_PROGRAM).unwrap();
+    error(&create(&mut dos, b"MISSING/NEW.BIN", 0), 3);
+    error(&create(&mut dos, b"DATA", 0), 5); // A directory occupies this name.
+    error(&create(&mut dos, b"INVALID.BIN", 0x10), 5); // Directory attribute.
+    error(&create(&mut dos, b"INVALID.BIN", 0x100), 5); // Unsupported attribute.
+    assert_eq!(dos.read_file("INVALID.BIN"), None);
+    error(&create(&mut dos, b"READONLY.BIN", 0), 5);
+    assert_eq!(dos.read_file("READONLY.BIN").unwrap(), b"keep");
+    for path in [
+        "DATA/KEEP.BIN/",
+        "DATA/KEEP.BIN\\",
+        "DATA/KEEP.BIN/.",
+        "DATA/KEEP.BIN/..",
+    ] {
+        error(&create(&mut dos, path.as_bytes(), 0), 3);
+        assert_eq!(dos.read_file("DATA/KEEP.BIN").unwrap(), b"old contents");
+    }
+
+    assert_eq!(success(&open(&mut dos, b"DATA/KEEP.BIN", 0)), 5);
+    assert_eq!(position(&seek(&mut dos, 5, 0, 2)), 2);
+    assert_eq!(success(&create(&mut dos, b"data\\keep.bin", 0x20)), 6); // Archive attribute.
+    assert_eq!(dos.read_file("DATA/KEEP.BIN").unwrap(), b"");
+    assert_eq!(success(&service(&mut dos, 0x3f00, 5, 1, 0x200)), 0);
+    assert_eq!(position(&seek(&mut dos, 5, 1, 0)), 2); // Old handle sees truncation, keeps cursor.
+    assert_eq!(success(&write(&mut dos, 6, b"fresh")), 5);
+    assert_eq!(position(&seek(&mut dos, 5, 0, 0)), 0);
+    assert_eq!(success(&service(&mut dos, 0x3f00, 5, 5, 0x200)), 5);
+    assert_eq!(&buffer(&mut dos)[..5], b"fresh");
+    success(&service(&mut dos, 0x3e00, 5, 0, 0));
+    success(&service(&mut dos, 0x3e00, 6, 0, 0));
+    assert_eq!(success(&open(&mut dos, b"DATA/KEEP.BIN", 0x12)), 5); // Deny all.
+    error(&create(&mut dos, b"DATA/KEEP.BIN", 0), 5);
+    assert_eq!(dos.read_file("DATA/KEEP.BIN").unwrap(), b"fresh");
+    success(&service(&mut dos, 0x3e00, 5, 0, 0));
+
+    // Hidden and system flags, alone or combined with archive, allow file access.
+    for attributes in [0x02, 0x04, 0x26] {
+        assert_eq!(success(&create(&mut dos, b"FLAGS.BIN", attributes)), 5);
+        assert_eq!(success(&write(&mut dos, 5, b"flags")), 5);
+        success(&service(&mut dos, 0x3e00, 5, 0, 0));
+        assert_eq!(success(&open(&mut dos, b"FLAGS.BIN", 2)), 5);
+        success(&service(&mut dos, 0x3e00, 5, 0, 0));
+    }
+
+    // Read-only may combine with hidden/system; the initial handle remains read/write.
+    assert_eq!(success(&create(&mut dos, b"LOCKED.BIN", 0x07)), 5);
+    assert_eq!(success(&write(&mut dos, 5, b"protected")), 9);
+    assert_eq!(position(&seek(&mut dos, 5, 0, 0)), 0);
+    assert_eq!(success(&service(&mut dos, 0x3f00, 5, 3, 0x200)), 3);
+    assert_eq!(&buffer(&mut dos)[..3], b"pro");
+    success(&service(&mut dos, 0x3e00, 5, 0, 0));
+    error(&open(&mut dos, b"LOCKED.BIN", 2), 5);
+    error(&create(&mut dos, b"LOCKED.BIN", 0), 5);
+    assert_eq!(dos.read_file("LOCKED.BIN").unwrap(), b"protected");
+
+    for handle in 5..20 {
+        assert_eq!(success(&open(&mut dos, b"DATA/KEEP.BIN", 0)), handle);
+    }
+    error(&create(&mut dos, b"DATA/KEEP.BIN", 0), 4);
+    error(&create(&mut dos, b"NEW.BIN", 0), 4);
+    assert_eq!(dos.read_file("DATA/KEEP.BIN").unwrap(), b"fresh");
+    assert_eq!(dos.read_file("NEW.BIN"), None); // Failure does not insert an empty file.
+    success(&service(&mut dos, 0x3e00, 8, 0, 0));
+    assert_eq!(success(&create(&mut dos, b"DATA/KEEP.BIN", 0)), 8);
+    assert_eq!(dos.read_file("DATA/KEEP.BIN").unwrap(), b"");
+
+    dos.load_com(SERVICE_PROGRAM).unwrap();
+    assert_eq!(success(&create(&mut dos, b"DATA/NEW.BIN", 0)), 5);
+    assert_eq!(dos.read_file("DATA/NEW.BIN"), Some(Vec::new()));
+    assert_eq!(dos.read_file("LOCKED.BIN").unwrap(), b"protected");
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn program_reads_a_mounted_file_and_prints_it() {
@@ -405,4 +519,28 @@ fn writable_files_share_contents_and_preserve_access_rules() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn writable_files_share_contents_and_preserve_access_rules() {
     check_writes().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn program_creates_a_save_file_for_the_host() {
+    pollster::block_on(check_save_program());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn program_creates_a_save_file_for_the_host() {
+    check_save_program().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn creation_checks_attributes_sharing_and_handle_capacity_before_truncating() {
+    pollster::block_on(check_creation());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn creation_checks_attributes_sharing_and_handle_capacity_before_truncating() {
+    check_creation().await;
 }
