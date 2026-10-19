@@ -80,12 +80,16 @@ impl InterpreterEntry {
 impl Compiler {
     /// Generates the runtime-decoded block entry described by [`compile_interpreter`]
     /// with this compiler's execution target. CPU observations are not used.
+    /// Feature choices are read from `ExecutionContext::cpu_model`; the host must
+    /// initialize that field to the target's model before entry.
     pub fn compile_interpreter(&self) -> Result<CompiledModule, BuildError> {
         self.compile_runtime(InterpreterEntry::Run)
     }
 
     /// Generates the single-instruction entry described by [`compile_interpreter_step`]
     /// with this compiler's execution target. CPU observations are not used.
+    /// Feature choices are read from `ExecutionContext::cpu_model`; the host must
+    /// initialize that field to the target's model before entry.
     pub fn compile_interpreter_step(&self) -> Result<CompiledModule, BuildError> {
         self.compile_runtime(InterpreterEntry::Step)
     }
@@ -107,7 +111,7 @@ impl Compiler {
             matches!(entry, InterpreterEntry::Run).then_some(entry_function),
             |body, decoded, continuation| {
                 let continuation =
-                    continuation.filter(|_| !decoded.instruction.ends_block(self.target));
+                    continuation.filter(|_| !decoded.instruction.ends_interpreter_block(profile));
                 let mut execution = ExecutionBuilder::new(
                     body,
                     &cpu,
@@ -115,7 +119,8 @@ impl Compiler {
                     runtime,
                     &decoded.eip,
                     self.target,
-                )?;
+                )?
+                .with_runtime_cpu_model()?;
                 execution.execute(decoded)?;
                 match continuation {
                     Some(continuation) => execution.complete(|body, _| continuation.resume(body)),

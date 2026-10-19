@@ -39,12 +39,16 @@ impl WasmMemoryAccess for Caller {
 
 #[test]
 fn callbacks_validate_only_segment_edits() {
+    let model =
+        relocade_x86::CpuModel::default().with_feature(relocade_x86::CpuFeature::Cmov, false);
     let cpu = CpuState {
         segments: Segments::real_mode(),
         ..CpuState::default()
     };
     let config = MachineConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16)
+            .with_cpu_model(model)
+            .target(),
         cpu,
         0,
         PhysicalMemoryMap::new([]).unwrap(),
@@ -54,6 +58,7 @@ fn callbacks_validate_only_segment_edits() {
         context: ExecutionContext {
             cpu,
             instruction_target: 998,
+            cpu_model: model,
         }
         .to_bytes(),
         reads: Cell::new(0),
@@ -80,7 +85,8 @@ fn callbacks_validate_only_segment_edits() {
         caller.context,
         ExecutionContext {
             cpu: expected,
-            instruction_target: 998
+            instruction_target: 998,
+            cpu_model: model
         }
         .to_bytes()
     );

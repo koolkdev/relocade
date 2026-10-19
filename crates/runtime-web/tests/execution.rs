@@ -4,15 +4,17 @@ use relocade_machine::MachineConfig;
 use relocade_runtime::{Runtime, RuntimeState};
 use relocade_runtime_web::WebBackend;
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-    Segments,
+    Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
+    PhysicalMapping, PhysicalMemoryMap, Segments,
 };
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn runtime_executes_with_live_cpu_and_memory() {
-    let target = Compiler::new(ExecutionProfile::Real16).target();
+    let target = Compiler::new(ExecutionProfile::Real16)
+        .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Tsc, false))
+        .target();
     let cpu = CpuState {
         eip: 0x100,
         segments: Segments::real_mode(),
@@ -37,4 +39,20 @@ async fn runtime_executes_with_live_cpu_and_memory() {
     assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.machine().cpu().eax(), 101);
     assert_eq!(runtime.machine().cpu().instruction_count(), 4);
+    // The same backing model controls CPUID and instruction admission.
+    runtime
+        .machine()
+        .memory()
+        .write(0x100, &[0x0f, 0xa2, 0x0f, 0x31])
+        .unwrap();
+    runtime.machine().cpu().set_eip(0x100);
+    runtime.machine().cpu().set_eax(1);
+    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.machine().cpu().edx(), 0x0788_8101);
+    let before = runtime.machine().cpu().snapshot();
+    assert_eq!(
+        runtime.run(1).unwrap(),
+        ExecutionExit::Exception(Exception::InvalidOpcode)
+    );
+    assert_eq!(runtime.machine().cpu().snapshot(), before);
 }

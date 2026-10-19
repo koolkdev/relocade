@@ -3,6 +3,7 @@
 use std::mem::{offset_of, size_of};
 
 use super::CpuState;
+use crate::CpuModel;
 
 /// Backing layout of `relocade.executionContext`, shared by generated entries.
 /// Field bytes are little endian on every host. CPU snapshots exchange only
@@ -15,6 +16,9 @@ pub struct ExecutionContext {
     /// Budget ordering assumes the instruction counter does not wrap.
     /// Set by the host between entries; generated code only reads it.
     pub instruction_target: u64,
+    /// Fixed capabilities for this guest. Interpreters read this model at runtime;
+    /// specialized blocks must have been compiled for the same model.
+    pub cpu_model: CpuModel,
 }
 
 impl ExecutionContext {
@@ -29,6 +33,9 @@ impl ExecutionContext {
         let target = offset_of!(Self, instruction_target);
         bytes[target..target + size_of::<u64>()]
             .copy_from_slice(&self.instruction_target.to_le_bytes());
+        let model = offset_of!(Self, cpu_model);
+        bytes[model..model + size_of::<u32>()]
+            .copy_from_slice(&self.cpu_model.bits().to_le_bytes());
         bytes
     }
 }
@@ -38,6 +45,7 @@ impl Default for ExecutionContext {
         Self {
             cpu: CpuState::default(),
             instruction_target: u64::MAX,
+            cpu_model: CpuModel::default(),
         }
     }
 }
@@ -50,14 +58,20 @@ mod tests {
     fn context_layout_keeps_cpu_snapshot_and_execution_controls_distinct() {
         assert_eq!(offset_of!(ExecutionContext, cpu), 0);
         assert_eq!(offset_of!(ExecutionContext, instruction_target), 488);
-        assert_eq!(ExecutionContext::BYTE_LEN, 496);
+        assert_eq!(offset_of!(ExecutionContext, cpu_model), 496);
+        assert_eq!(ExecutionContext::BYTE_LEN, 504);
         let context = ExecutionContext {
             cpu: CpuState::filled(0xa5),
             instruction_target: 0x0807_0605_0403_0201,
+            cpu_model: CpuModel::default().with_feature(crate::CpuFeature::Cmov, false),
         };
         let bytes = context.to_bytes();
         assert_eq!(&bytes[..488], &[0xa5; 488]);
-        assert_eq!(&bytes[488..], &[1, 2, 3, 4, 5, 6, 7, 8]);
-        assert_eq!(&ExecutionContext::default().to_bytes()[488..], &[0xff; 8]);
+        assert_eq!(&bytes[488..496], &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(&bytes[496..], &[0xfd, 1, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            &ExecutionContext::default().to_bytes()[488..496],
+            &[0xff; 8]
+        );
     }
 }

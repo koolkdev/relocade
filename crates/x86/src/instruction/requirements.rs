@@ -27,7 +27,11 @@ impl Requirements {
         {
             return Some(Exception::InvalidOpcode);
         }
-        match (self.availability, target.profile) {
+        self.mode_fault(target.profile)
+    }
+
+    pub(super) fn mode_fault(self, profile: ExecutionProfile) -> Option<Exception<Val<I32>>> {
+        match (self.availability, profile) {
             (Availability::ProtectedOnly, ExecutionProfile::Real16) => {
                 Some(Exception::InvalidOpcode)
             }

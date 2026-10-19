@@ -26,7 +26,7 @@ pub enum CpuFeature {
     Clflush,
 }
 
-pub(super) const ALL_FEATURES: u16 = CpuFeature::Cx8.mask()
+pub(super) const ALL_FEATURES: u32 = CpuFeature::Cx8.mask()
     | CpuFeature::Cmov.mask()
     | CpuFeature::Tsc.mask()
     | CpuFeature::Fpu.mask()
@@ -37,7 +37,7 @@ pub(super) const ALL_FEATURES: u16 = CpuFeature::Cx8.mask()
     | CpuFeature::Clflush.mask();
 
 impl CpuFeature {
-    pub(super) const fn mask(self) -> u16 {
+    pub(crate) const fn mask(self) -> u32 {
         1 << self as u8
     }
 }

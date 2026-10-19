@@ -33,6 +33,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         let memory = self.memory.clone();
         let segments = self.segments.clone();
         let target = self.target;
+        let runtime_cpu_features = self.runtime_cpu_features.clone();
         let segment_override = self.segment_override.clone();
         let address_size = self.address_size;
         let locked = self.locked;
@@ -46,6 +47,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             memory: memory.clone(),
             segments: segments.clone(),
             target,
+            runtime_cpu_features: runtime_cpu_features.clone(),
             segment_override: segment_override.clone(),
             address_size,
             locked,
