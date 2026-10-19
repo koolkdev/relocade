@@ -20,6 +20,7 @@
 //! AH=30h reports DOS 5.00; AH=25h/35h set/query the real interrupt vector table.
 //! AH=71h reports long-filename services unavailable, allowing 8.3 fallback.
 //! AH=42h seeks within those files relative to their start, current position or end.
+//! AH=45h/46h duplicate handles, sharing file positions and allowing redirection.
 //! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
 //! or [`Dos::load_mz`], passing startup inputs in [`LoadOptions`].
 //! The host chooses the Wasm backend and controls execution through

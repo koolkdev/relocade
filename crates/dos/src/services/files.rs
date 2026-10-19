@@ -32,6 +32,25 @@ pub(super) fn close(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     return_result(call, result)
 }
 
+/// AH=45h: duplicate BX's open handle into the lowest free slot; return AX.
+pub(super) fn duplicate(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let source = call.cpu().bx();
+    let result = call
+        .state_mut()
+        .files
+        .duplicate(source)
+        .map(|handle| call.cpu().set_ax(handle));
+    return_result(call, result)
+}
+
+/// AH=46h: replace CX's handle with a duplicate of BX, sharing its file position.
+pub(super) fn force_duplicate(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let source = call.cpu().bx();
+    let destination = call.cpu().cx();
+    let result = call.state_mut().files.force_duplicate(source, destination);
+    return_result(call, result)
+}
+
 /// AH=3Fh: read up to CX bytes from BX into DS:DX; return the count in AX.
 pub(super) fn read(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     let cpu = call.cpu();
