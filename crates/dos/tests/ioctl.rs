@@ -3,9 +3,6 @@ mod common;
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
 use relocade_dos::{Dos, DosState, FileAccess};
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 fn information(dos: &mut Dos<Backend<DosState>>, handle: u16) -> u16 {
     let cpu = service(dos, 0x4400, handle, 0, 0xffff);
     assert_eq!(success(&cpu), cpu.registers.edx as u16);
@@ -64,14 +61,7 @@ async fn check_device_information() {
     assert_eq!(dos.read_file("DATA.BIN").unwrap(), b"");
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn ioctl_reports_the_object_and_write_state_behind_each_handle() {
     pollster::block_on(check_device_information());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn ioctl_reports_the_object_and_write_state_behind_each_handle() {
-    check_device_information().await;
 }

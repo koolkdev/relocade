@@ -4,9 +4,6 @@ use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
 use relocade_dos::{Dos, DosState, FileAccess, MountError};
 use relocade_x86::{CpuState, ExecutionExit};
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 async fn check_file_program() {
     let mut dos = common::dos().await;
     dos.mount_file(
@@ -157,16 +154,9 @@ async fn check_standard_handles() {
     assert_eq!(dos.take_output(), b"file"); // New program gets fresh standard handles.
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn standard_handles_can_be_closed_reused_and_reset() {
     pollster::block_on(check_standard_handles());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn standard_handles_can_be_closed_reused_and_reset() {
-    check_standard_handles().await;
 }
 
 fn seek(dos: &mut Dos<Backend<DosState>>, handle: u16, origin: u8, offset: i32) -> CpuState {
@@ -433,74 +423,32 @@ async fn check_creation() {
     assert_eq!(dos.read_file("LOCKED.BIN").unwrap(), b"protected");
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn program_reads_a_mounted_file_and_prints_it() {
     pollster::block_on(check_file_program());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn program_reads_a_mounted_file_and_prints_it() {
-    check_file_program().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn file_handles_report_counts_errors_and_reset_between_programs() {
     pollster::block_on(check_handles());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn file_handles_report_counts_errors_and_reset_between_programs() {
-    check_handles().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn seeking_selects_records_and_reports_file_positions() {
     pollster::block_on(check_seek());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn seeking_selects_records_and_reports_file_positions() {
-    check_seek().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn writable_files_share_contents_and_preserve_access_rules() {
     pollster::block_on(check_writes());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn writable_files_share_contents_and_preserve_access_rules() {
-    check_writes().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn program_creates_a_save_file_for_the_host() {
     pollster::block_on(check_save_program());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn program_creates_a_save_file_for_the_host() {
-    check_save_program().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn creation_checks_attributes_sharing_and_handle_capacity_before_truncating() {
     pollster::block_on(check_creation());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn creation_checks_attributes_sharing_and_handle_capacity_before_truncating() {
-    check_creation().await;
 }

@@ -4,9 +4,6 @@ use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
 use relocade_dos::{Dos, DosState, FileAccess};
 use relocade_x86::{ExecutionExit, Segment, StoredSegment};
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 fn dta(dos: &mut Dos<Backend<DosState>>, address: u32) -> [u8; 43] {
     let mut data = [0; 43];
     dos.runtime()
@@ -255,46 +252,22 @@ async fn check_discovery_program() {
     assert_eq!(dos.take_output(), b"first\nsecond\n");
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn guest_discovers_opens_and_reads_matching_files() {
     pollster::block_on(check_discovery_program());
 }
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn guest_discovers_opens_and_reads_matching_files() {
-    check_discovery_program().await;
-}
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn searches_follow_dos_paths_and_continue_from_copied_dtas() {
     pollster::block_on(check_searches());
 }
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn searches_follow_dos_paths_and_continue_from_copied_dtas() {
-    check_searches().await;
-}
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn searches_filter_attributes_and_encode_dos_find_data() {
     pollster::block_on(check_attributes());
 }
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn searches_filter_attributes_and_encode_dos_find_data() {
-    check_attributes().await;
-}
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn searches_continue_after_deleting_results_and_restoring_dtas() {
     pollster::block_on(check_search_deletion());
-}
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn searches_continue_after_deleting_results_and_restoring_dtas() {
-    check_search_deletion().await;
 }

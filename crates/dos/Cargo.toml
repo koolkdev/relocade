@@ -15,7 +15,3 @@ relocade-runtime = { path = "../runtime" }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 relocade-runtime-wasmtime = { path = "../runtime-wasmtime" }
 pollster = "=1.0.1"
-
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-relocade-runtime-web = { path = "../runtime-web" }
-wasm-bindgen-test = "=0.3.79"

@@ -1,11 +1,7 @@
 use relocade_vfs::MemoryFileSystem;
 use std::io::ErrorKind;
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[test]
 fn creating_one_directory_requires_existing_parents_and_a_new_name() {
     let mut fs = MemoryFileSystem::new();
     assert_eq!(
@@ -33,8 +29,7 @@ fn creating_one_directory_requires_existing_parents_and_a_new_name() {
     assert!(fs.is_dir("DATA/SAVE/NESTED"));
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[test]
 fn removing_directories_requires_an_empty_non_root_directory() {
     let mut fs = MemoryFileSystem::new();
     fs.create_dir_all("DATA/SAVE").unwrap();
@@ -63,8 +58,7 @@ fn removing_directories_requires_an_empty_non_root_directory() {
     assert!(fs.read_dir("DATA").unwrap().next().is_none());
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[test]
 fn listings_return_immediate_children_with_metadata() {
     let mut fs = MemoryFileSystem::new();
     fs.create_dir_all("DATA/EMPTY").unwrap();
@@ -108,8 +102,7 @@ fn listings_return_immediate_children_with_metadata() {
     assert!(!fs.metadata("DATA/A.DAT").unwrap().is_read_only());
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[test]
 fn listing_uses_filesystem_path_errors_and_preserves_names() {
     let mut fs = MemoryFileSystem::new();
     assert!(fs.read_dir("").unwrap().next().is_none());

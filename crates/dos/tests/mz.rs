@@ -3,9 +3,6 @@ mod common;
 use relocade_dos::LoadError;
 use relocade_x86::{ExecutionExit, Segment};
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 fn set_word(bytes: &mut [u8], offset: usize, value: u16) {
     bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
 }
@@ -183,26 +180,12 @@ async fn check_invalid_mz() {
     assert_eq!(dos.take_output(), b"X");
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn mz_relocates_allocates_prints_and_exits() {
     pollster::block_on(check_mz_execution());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn mz_relocates_allocates_prints_and_exits() {
-    check_mz_execution().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn invalid_mz_preserves_the_current_program() {
     pollster::block_on(check_invalid_mz());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn invalid_mz_preserves_the_current_program() {
-    check_invalid_mz().await;
 }

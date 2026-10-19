@@ -3,9 +3,6 @@ mod common;
 use common::{path_service, service, success, SERVICE_PROGRAM};
 use relocade_x86::ExecutionExit;
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 async fn check_handle_output() {
     let mut dos = common::dos().await;
     dos.load_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())
@@ -85,26 +82,12 @@ async fn check_redirected_string() {
     assert!(dos.take_output().is_empty());
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn string_output_follows_stdout_redirection() {
     pollster::block_on(check_redirected_string());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn string_output_follows_stdout_redirection() {
-    check_redirected_string().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn handle_output_returns_count_and_errors_through_iret() {
     pollster::block_on(check_handle_output());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn handle_output_returns_count_and_errors_through_iret() {
-    check_handle_output().await;
 }

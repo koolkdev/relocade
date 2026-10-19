@@ -2,9 +2,6 @@ mod common;
 
 use relocade_x86::ExecutionExit;
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 async fn check_bios_clock() {
     let mut dos = common::dos().await;
     // INT 1Ah followed by JMP $ exposes the returned registers to the host.
@@ -69,14 +66,7 @@ async fn check_bios_clock() {
     assert_eq!(dos.exit_status(), None);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn bios_reads_ticks_and_consumes_midnight_rollover() {
     pollster::block_on(check_bios_clock());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn bios_reads_ticks_and_consumes_midnight_rollover() {
-    check_bios_clock().await;
 }

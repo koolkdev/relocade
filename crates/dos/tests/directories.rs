@@ -3,9 +3,6 @@ mod common;
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
 use relocade_dos::{Dos, DosState, FileAccess};
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 fn current_directory(dos: &mut Dos<Backend<DosState>>, drive: u16) -> Vec<u8> {
     dos.runtime().machine().cpu().set_si(0x400);
     dos.runtime()
@@ -178,38 +175,17 @@ async fn check_directory_changes() {
     error(&path_service(&mut dos, b"SAVE", 0x3b00, 0), 3);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn guest_paths_follow_the_current_directory() {
     pollster::block_on(check_directory_paths());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn guest_paths_follow_the_current_directory() {
-    check_directory_paths().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn drive_queries_and_directory_buffer() {
     pollster::block_on(check_drive_services());
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn drive_queries_and_directory_buffer() {
-    check_drive_services().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn programs_create_and_remove_empty_directories() {
     pollster::block_on(check_directory_changes());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn programs_create_and_remove_empty_directories() {
-    check_directory_changes().await;
 }

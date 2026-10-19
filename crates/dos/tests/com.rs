@@ -3,10 +3,7 @@ use relocade_x86::{ExecutionExit, Segment};
 
 mod common;
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-// The same COM image executes in Wasmtime and Chrome.
+// A COM image that prints a message and exits through DOS services.
 const HELLO: &[u8] = &[
     0xba, 0x0c, 1, // MOV DX,010C
     0xb4, 9, // MOV AH,09
@@ -107,37 +104,19 @@ async fn check_unsupported_service() {
     );
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn com_prints_and_exits() {
     pollster::block_on(check_hello());
 }
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn com_prints_and_exits() {
-    check_hello().await;
-}
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn com_reserves_stack_and_returns_through_psp() {
     pollster::block_on(check_com_bounds_and_return());
 }
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn com_reserves_stack_and_returns_through_psp() {
-    check_com_bounds_and_return().await;
-}
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn unsupported_service_returns_to_host() {
     pollster::block_on(check_unsupported_service());
-}
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn unsupported_service_returns_to_host() {
-    check_unsupported_service().await;
 }
 
 async fn check_unterminated_string() {
@@ -173,13 +152,7 @@ async fn check_unterminated_string() {
     assert!(output[2..].iter().all(|byte| *byte == 0));
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn unterminated_string_wraps_offset_and_returns_to_host() {
     pollster::block_on(check_unterminated_string());
-}
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn unterminated_string_wraps_offset_and_returns_to_host() {
-    check_unterminated_string().await;
 }

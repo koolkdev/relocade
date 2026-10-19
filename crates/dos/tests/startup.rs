@@ -3,9 +3,6 @@ mod common;
 use relocade_dos::{LoadError, LoadOptions};
 use relocade_x86::ExecutionExit;
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 // DS points to the PSP at both COM and MZ entry.
 const PRINT_TAIL: &[u8] = &[
     0x31, 0xc9, // XOR CX,CX
@@ -78,14 +75,7 @@ async fn check_command_tails() {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn com_and_mz_receive_command_tails() {
     pollster::block_on(check_command_tails());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn com_and_mz_receive_command_tails() {
-    check_command_tails().await;
 }
