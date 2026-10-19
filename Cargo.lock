@@ -1227,6 +1227,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm86-interpreter-fixtures"
+version = "0.0.0"
+dependencies = [
+ "wasm86-x86",
+]
+
+[[package]]
 name = "wasm86-machine"
 version = "0.0.0"
 dependencies = [
@@ -1290,6 +1297,7 @@ name = "wasm86-x86"
 version = "0.0.0"
 dependencies = [
  "wasm86-compiler",
+ "wasm86-interpreter-fixtures",
  "wasm86-test-support",
  "wasmparser 0.224.1",
  "wasmtime",

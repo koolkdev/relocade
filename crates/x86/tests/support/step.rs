@@ -6,6 +6,11 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
+use crate as x86;
+#[path = "../../test-fixtures/targets.rs"]
+mod fixture_targets;
+use fixture_targets::InterpreterEntry;
+
 use crate::{Compiler, ExecutionProfile, ExecutionTarget, SegmentProfile};
 use wasm86_test_support::Module;
 pub(crate) use wasm86_test_support::{Outcome, Value as Argument};
@@ -138,12 +143,6 @@ pub(crate) struct TestModule {
     interpreter: Option<&'static TestModule>,
 }
 
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-enum InterpreterEntry {
-    Step,
-    Run,
-}
-
 impl TestModule {
     pub(crate) fn new(module: &crate::CompiledModule) -> Self {
         Self {
@@ -191,12 +190,17 @@ impl TestModule {
             .entry((target, entry))
             .or_insert_with(|| Box::leak(Box::new(OnceLock::new())));
         cell.get_or_init(|| {
-            let compiler = Compiler::new(target.profile).with_cpu_model(target.cpu_model);
-            let module = match entry {
-                InterpreterEntry::Step => compiler.compile_interpreter_step(),
-                InterpreterEntry::Run => compiler.compile_interpreter(),
-            };
-            Self::new(&module.unwrap())
+            let index = fixture_targets::targets()
+                .iter()
+                .position(|key| *key == (target, entry))
+                .unwrap_or_else(|| panic!("add interpreter fixture for {target:?}, {entry:?}"));
+            let (bytes, entry) = wasm86_interpreter_fixtures::INTERPRETERS[index];
+            Self {
+                module: Module::new(bytes),
+                entry: entry.into(),
+                target: Some(target),
+                interpreter: None,
+            }
         })
     }
 

@@ -10,6 +10,7 @@ autotests = false
 wasm86-compiler = { path = "../compiler" }
 
 [dev-dependencies]
+wasm86-interpreter-fixtures = { path = "test-fixtures" }
 wasm86-test-support.workspace = true
 wasmparser = { version = "=0.224.1", default-features = false, features = ["simd", "std", "validate"] }
 wasmtime.workspace = true
