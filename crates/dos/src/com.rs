@@ -6,7 +6,7 @@ const SEGMENT_SIZE: u32 = 64 * 1024;
 // Reserve the final word for IP=0: a near RET reaches the PSP's INT 20h.
 const STACK_OFFSET: u16 = (SEGMENT_SIZE - 2) as u16;
 
-pub(crate) fn load(machine: &mut Machine<'_>, image: &[u8]) -> Result<(), LoadError> {
+pub(crate) fn load(machine: &mut Machine<'_>, image: &[u8]) -> Result<u16, LoadError> {
     if image.is_empty() {
         return Err(LoadError::EmptyImage);
     }
@@ -31,5 +31,5 @@ pub(crate) fn load(machine: &mut Machine<'_>, image: &[u8]) -> Result<(), LoadEr
         .cpu()
         .restore(&cpu)
         .expect("real-mode COM entry state");
-    Ok(())
+    Ok(psp_segment)
 }

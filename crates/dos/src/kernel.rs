@@ -1,4 +1,4 @@
-use crate::{files::Files, memory, services, ServiceError};
+use crate::{files::Files, memory, process, services, ServiceError};
 use wasm86_machine::{MachineConfig, Memory};
 use wasm86_runtime::Hook;
 use wasm86_x86::{
@@ -14,13 +14,17 @@ const INT21_ENTRY: u16 = 0x110;
 #[derive(Default)]
 pub struct DosState {
     pub(crate) files: Files,
+    pub(crate) dta_segment: u16,
+    pub(crate) dta_offset: u16,
     pub(crate) output: Vec<u8>,
     pub(crate) exit_status: Option<Result<u8, ServiceError>>,
 }
 
 impl DosState {
-    pub(crate) fn reset_process(&mut self) {
+    pub(crate) fn reset_process(&mut self, psp_segment: u16) {
         self.files.reset_handles();
+        self.dta_segment = psp_segment;
+        self.dta_offset = process::COMMAND_TAIL_OFFSET;
         self.output.clear();
         self.exit_status = None;
     }

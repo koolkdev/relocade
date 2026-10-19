@@ -14,6 +14,7 @@ pub(crate) enum DosError {
     InvalidMemoryBlock,
     InvalidAccess,
     InvalidDrive,
+    NoMoreFiles,
 }
 
 impl DosError {
@@ -30,6 +31,7 @@ impl DosError {
             Self::InvalidMemoryBlock => 9,
             Self::InvalidAccess => 12,
             Self::InvalidDrive => 15,
+            Self::NoMoreFiles => 18,
         }
     }
 }

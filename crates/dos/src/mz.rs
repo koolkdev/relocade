@@ -71,7 +71,7 @@ impl<'a> Image<'a> {
     }
 }
 
-pub(crate) fn load(machine: &mut Machine<'_>, file: &[u8]) -> Result<(), LoadError> {
+pub(crate) fn load(machine: &mut Machine<'_>, file: &[u8]) -> Result<u16, LoadError> {
     let image = Image::parse(file)?;
     let module_paragraphs = image
         .module
@@ -118,7 +118,7 @@ pub(crate) fn load(machine: &mut Machine<'_>, file: &[u8]) -> Result<(), LoadErr
         .cpu()
         .restore(&cpu)
         .expect("real-mode MZ entry state");
-    Ok(())
+    Ok(psp_segment)
 }
 
 fn word(bytes: &[u8], offset: usize) -> u16 {

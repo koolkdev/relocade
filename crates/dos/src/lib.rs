@@ -11,6 +11,8 @@
 //! AH=3Ch creates or truncates files in existing directories.
 //! AH=0Eh/19h select/query C:; AH=3Bh/47h change/query its current directory.
 //! Guest relative paths use that directory, which persists across program loads.
+//! AH=1Ah/2Fh select/query the DTA; AH=4Eh/4Fh find matching 8.3 names.
+//! Search dates are initially fixed at 1980-01-01; long-name aliases are not generated.
 //! AH=42h seeks within those files relative to their start, current position or end.
 //! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
 //! or [`Dos::load_mz`]. The host chooses the Wasm backend and controls execution through
@@ -67,8 +69,8 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
     /// Replaces the process allocation and clears prior output and exit status.
     /// Invalid images leave the existing program and its state unchanged.
     pub fn load_com(&mut self, image: &[u8]) -> Result<(), LoadError> {
-        com::load(&mut self.runtime.machine(), image)?;
-        self.runtime.state_mut().reset_process();
+        let psp_segment = com::load(&mut self.runtime.machine(), image)?;
+        self.runtime.state_mut().reset_process(psp_segment);
         Ok(())
     }
 
@@ -77,8 +79,8 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
     /// Invalid images leave the existing program and its state unchanged.
     /// Overlay loading is not supported.
     pub fn load_mz(&mut self, image: &[u8]) -> Result<(), LoadError> {
-        mz::load(&mut self.runtime.machine(), image)?;
-        self.runtime.state_mut().reset_process();
+        let psp_segment = mz::load(&mut self.runtime.machine(), image)?;
+        self.runtime.state_mut().reset_process(psp_segment);
         Ok(())
     }
 
