@@ -16,7 +16,6 @@ pub struct DosState {
     pub(crate) files: Files,
     pub(crate) dta_segment: u16,
     pub(crate) dta_offset: u16,
-    pub(crate) output: Vec<u8>,
     pub(crate) exit_status: Option<Result<u8, ServiceError>>,
 }
 
@@ -25,7 +24,6 @@ impl DosState {
         self.files.reset_handles();
         self.dta_segment = psp_segment;
         self.dta_offset = process::COMMAND_TAIL_OFFSET;
-        self.output.clear();
         self.exit_status = None;
     }
 }

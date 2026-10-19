@@ -35,6 +35,7 @@ pub(crate) struct Files {
     attributes: BTreeMap<String, u8>,
     search_directories: Vec<String>,
     handles: [Option<OpenHandle>; HANDLE_COUNT],
+    output: Vec<u8>,
 }
 
 #[derive(Clone)]
@@ -212,6 +213,10 @@ impl Files {
     }
 
     pub(crate) fn write(&mut self, handle: u16, bytes: &[u8]) -> Result<usize, DosError> {
+        if matches!(self.handle(handle)?, OpenHandle::ConsoleOutput) {
+            self.output.extend_from_slice(bytes);
+            return Ok(bytes.len());
+        }
         let mut open = self.file_mut(handle)?;
         if !open.writable {
             return Err(DosError::AccessDenied);
@@ -278,15 +283,13 @@ impl Files {
         Ok(())
     }
 
-    pub(crate) fn is_console_output(&self, handle: u16) -> bool {
-        matches!(
-            self.handles.get(usize::from(handle)),
-            Some(Some(OpenHandle::ConsoleOutput))
-        )
+    pub(crate) fn take_output(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.output)
     }
 
     pub(crate) fn reset_handles(&mut self) {
         self.close_all();
+        self.output.clear();
         self.search_directories.clear();
         for (slot, device) in self.handles.iter_mut().zip([
             OpenHandle::ConsoleInput,
